@@ -15,7 +15,7 @@ interface CanAwake
   public function awake(): void;
 
   /**
-   * Shuts down the object.
+   * Destroys the object.
    */
-  public function shutdown(): void;
+  public function destroy(): void;
 }
