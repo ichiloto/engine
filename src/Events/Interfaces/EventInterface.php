@@ -2,8 +2,16 @@
 
 namespace Ichiloto\Engine\Events\Interfaces;
 
+use DateTimeInterface;
 use Ichiloto\Engine\Events\Enumerations\EventType;
 
+/**
+ * EventInterface is the interface implemented by all event classes.
+ *
+ * @since 1.0
+ * @version 1.0
+ * @package Ichiloto\Engine\Events\Interfaces
+ */
 interface EventInterface
 {
   /**
@@ -26,4 +34,11 @@ interface EventInterface
    * @return EventTargetInterface|null The target of the event.
    */
   public function getTarget(): ?EventTargetInterface;
+
+  /**
+   * Gets the timestamp of the event.
+   *
+   * @return DateTimeInterface The timestamp of the event.
+   */
+  public function getTimestamp(): DateTimeInterface;
 }
