@@ -3,15 +3,15 @@
 namespace Ichiloto\Engine\Scenes;
 
 use Assegai\Collections\ItemList;
-use Ichiloto\Engine\Core\Interfaces\CanActivate;
+use Exception;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
-use Ichiloto\Engine\Core\Interfaces\CanResume;
 use Ichiloto\Engine\Core\Interfaces\CanStart;
 use Ichiloto\Engine\Core\Interfaces\CanUpdate;
 use Ichiloto\Engine\Core\Interfaces\SingletonInterface;
+use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 
-class SceneManager implements CanStart, CanActivate, CanResume, CanRender, CanUpdate, SingletonInterface
+class SceneManager implements CanStart, CanRender, CanUpdate, SingletonInterface
 {
   /**
    * The instance of this singleton.
@@ -76,38 +76,50 @@ class SceneManager implements CanStart, CanActivate, CanResume, CanRender, CanUp
     // TODO: Implement stop() method.
   }
 
-  public function activate(): void
-  {
-    // TODO: Implement activate() method.
-  }
-
-  public function deactivate(): void
-  {
-    // TODO: Implement deactivate() method.
-  }
-
+  /**
+   * @inheritDoc
+   */
   public function render(): void
   {
     // TODO: Implement render() method.
   }
 
+  /**
+   * @inheritDoc
+   */
   public function erase(): void
   {
     // TODO: Implement erase() method.
   }
 
-  public function resume(): void
-  {
-    // TODO: Implement resume() method.
-  }
-
-  public function suspend(): void
-  {
-    // TODO: Implement suspend() method.
-  }
-
+  /**
+   * @inheritDoc
+   */
   public function update(): void
   {
     // TODO: Implement update() method.
+  }
+
+  /**
+   * Load a scene.
+   *
+   * @param string|int $index The index of the scene to load.
+   * @throws Exception If the scene is not found.
+   */
+  public function loadScene(string|int $index): void
+  {
+    $sceneToLoad = match(true) {
+      is_int($index) => $this->scenes->toArray()[$index] ?? throw new NotFoundException('Scene not found.'),
+      default => $this->scenes->find(fn(SceneInterface $scene) => $scene::class === $index) ?? throw new NotFoundException('Scene not found.'),
+    };
+  }
+
+  /**
+   * Load the game over scene.
+   */
+  public function loadGameOverScene(): void
+  {
+    // TODO: Implement loadGameOverScene() method.
+    throw new Exception('Method not implemented.');
   }
 }

@@ -1,10 +1,13 @@
 <?php
 
+namespace Ichiloto\Engine\Events;
+
 use Ichiloto\Engine\Core\Interfaces\SingletonInterface;
 use Ichiloto\Engine\Events\Enumerations\EventType;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
 use Ichiloto\Engine\Events\Interfaces\EventListenerInterface;
 use Ichiloto\Engine\Events\Interfaces\EventTargetInterface;
+use RuntimeException;
 
 /**
  * The event manager.
@@ -26,7 +29,7 @@ class EventManager implements SingletonInterface, EventTargetInterface
   /**
    * @inheritDoc
    */
-  public static function getInstance(): SingletonInterface
+  public static function getInstance(): self
   {
     if (self::$instance === null) {
       self::$instance = new EventManager();

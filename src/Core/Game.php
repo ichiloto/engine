@@ -3,11 +3,16 @@
 namespace Ichiloto\Engine\Core;
 
 use Assegai\Collections\ItemList;
-use Assegai\Util\Debug;
 use Assegai\Util\Path;
 use Error;
 use Exception;
 use Ichiloto\Engine\Core\Interfaces\CanRun;
+use Ichiloto\Engine\Events\Enumerations\EventType;
+use Ichiloto\Engine\Events\Enumerations\GameEventType;
+use Ichiloto\Engine\Events\EventManager;
+use Ichiloto\Engine\Events\GameEvent;
+use Ichiloto\Engine\Events\GameplayEvent;
+use Ichiloto\Engine\Events\GameplayEventType;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
 use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
 use Ichiloto\Engine\Events\Interfaces\StaticObserverInterface;
@@ -18,8 +23,10 @@ use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\Scenes\SceneManager;
+use Ichiloto\Engine\Util\Config\AppConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
+use Ichiloto\Engine\Util\Debug;
 use Throwable;
 
 /**
@@ -30,25 +37,24 @@ use Throwable;
 class Game implements CanRun, SubjectInterface
 {
   /**
-   * Whether the game is running.
-   * @var bool
+   * @var bool Whether the game is running.
    */
   protected bool $isRunning = false;
   /**
-   * The scene manager.
-   * @var SceneManager
+   * @var SceneManager The scene manager.
    */
   protected SceneManager $sceneManager;
   /**
-   * The input manager.
-   * @var InputManager
+   * @var EventManager $eventManager The event manager.
    */
-  protected InputManager $inputManager;
+  protected EventManager $eventManager;
   /**
-   * The observers.
-   * @var ItemList<ObserverInterface>
+   * @var ItemList<ObserverInterface> The observers.
    */
   protected ItemList $observers;
+  /**
+   * @var ItemList<StaticObserverInterface> The static observers.
+   */
   protected ItemList $staticObservers;
 
   /**
@@ -140,10 +146,36 @@ class Game implements CanRun, SubjectInterface
 
   /**
    * Start the game.
+   * @throws Exception
    */
   protected function start(): void
   {
-    // TODO: Implement start() method.
+    // Save the terminal settings
+    Console::saveTerminalSettings();
+
+    // Set the terminal name
+    Console::setTerminalName($this->name);
+
+    // Set the terminal size
+    Console::setTerminalSize($this->width, $this->height);
+
+    // Hide the cursor
+    Console::cursor()->hide();
+
+    // Disable echo
+    InputManager::disableEcho();
+
+    // Set non-blocking input mode
+    InputManager::enableNonBlockingMode();
+
+    // Show splash screen
+    $this->showSplashScreens();
+
+    // Handle game events
+    $this->handleGameEvents();
+
+    // Load the first scene
+    $this->sceneManager->loadScene(0);
 
     $this->isRunning = true;
   }
@@ -154,6 +186,22 @@ class Game implements CanRun, SubjectInterface
   protected function stop(): void
   {
     // TODO: Implement stop() method.
+    // Disable non-blocking input mode
+    InputManager::disableNonBlockingMode();
+
+    // Enable echo
+    InputManager::enableEcho();
+
+    // Show the cursor
+    Console::cursor()->show();
+
+    // Restore the terminal settings
+    Console::restoreTerminalSettings();
+
+    $this->notify($this, new GameEvent(GameEventType::STOP));
+
+    // Remove observers
+    $this->removeObservers();
 
     $this->isRunning = false;
   }
@@ -165,7 +213,7 @@ class Game implements CanRun, SubjectInterface
    */
   protected function handleInput(): void
   {
-    $this->inputManager->handleInput();
+    InputManager::handleInput();
   }
 
   /**
@@ -254,6 +302,8 @@ class Game implements CanRun, SubjectInterface
    */
   private function handleError(int $errno, string $errstr, string $errfile, int $errline): never
   {
+    $message = "Error: $errstr in $errfile on line $errline";
+    Debug::error($message);
     $this->stop();
     exit($errno);
   }
@@ -268,7 +318,7 @@ class Game implements CanRun, SubjectInterface
   {
     Debug::error($exception);
     $this->stop();
-    exit($exception->getMessage());
+    exit("$exception\n");
   }
 
   /**
@@ -288,7 +338,11 @@ class Game implements CanRun, SubjectInterface
    */
   public function removeObserver(ObserverInterface|string $observer): void
   {
-    // TODO: Implement removeObserver() method.
+    if ($observer instanceof ObserverInterface) {
+      $this->observers->remove($observer);
+    } else if (is_a($observer, StaticObserverInterface::class, true)) {
+      $this->staticObservers->remove($observer);
+    }
   }
 
   /**
@@ -296,6 +350,149 @@ class Game implements CanRun, SubjectInterface
    */
   public function notify(object $entity, EventInterface $event): void
   {
-    // TODO: Implement notify() method.
+    try {
+      /** @var ObserverInterface $observer */
+      foreach ($this->observers as $observer) {
+        $observer->onNotify($entity, $event);
+      }
+
+      /** @var StaticObserverInterface $observer */
+      foreach ($this->staticObservers as $observer) {
+        $observer::onNotify($entity, $event);
+      }
+    } catch (Error|Exception|Throwable $exception) {
+      $this->handleException($exception);
+    }
+  }
+
+  /**
+   * Show the splash screen.
+   *
+   * @return void
+   */
+  private function showSplashScreens(): void
+  {
+    $this->showCustomSplashScreen();
+    $this->showGameEngineSplashScreen();
+  }
+
+  /**
+   * Handle game events.
+   *
+   * @return void
+   */
+  private function handleGameEvents(): void
+  {
+    // Handle game events
+    $this->eventManager->addEventListener(EventType::GAME, function (GameEvent $event) {
+      switch ($event->getGameEventType())
+      {
+        case GameEventType::QUIT:
+          $this->notify($this, new GameEvent(GameEventType::QUIT));
+          $this->stop();
+          break;
+
+        default:
+          break;
+      }
+    });
+
+    // Handle Game Play events
+    $this->eventManager->addEventListener(EventType::GAME_PLAY, function (GameplayEvent $event) {
+      switch ($event->getGameplayEventType())
+      {
+        case GameplayEventType::GAME_OVER:
+          $this->sceneManager->loadGameOverScene();
+          break;
+
+        default:
+          break;
+      }
+    });
+  }
+
+  /**
+   * Show the custom engine splash screen.
+   *
+   * @return void
+   */
+  private function showCustomSplashScreen(): void
+  {
+  }
+
+  /**
+   * Show the game engine splash screen.
+   *
+   * @return void
+   */
+  private function showGameEngineSplashScreen(): void
+  {
+    $splashScreen = <<<SPLASH_SCREEN
+Powered by
+
+ooooo           oooo         o8o  oooo                .                   
+`888'           `888         `"'  `888              .o8                   
+ 888   .ooooo.   888 .oo.   oooo   888   .ooooo.  .o888oo  .ooooo.        
+ 888  d88' `"Y8  888P"Y88b  `888   888  d88' `88b   888   d88' `88b       
+ 888  888        888   888   888   888  888   888   888   888   888       
+ 888  888   .o8  888   888   888   888  888   888   888 . 888   888       
+o888o `Y8bod8P' o888o o888o o888o o888o `Y8bod8P'   "888" `Y8bod8P'       
+                                                                          
+                                                                          
+                                                                          
+          oooooooooooo                         o8o                        
+          `888'     `8                         `"'                        
+           888         ooo. .oo.    .oooooooo oooo  ooo. .oo.    .ooooo.  
+           888oooo8    `888P"Y88b  888' `88b  `888  `888P"Y88b  d88' `88b 
+           888    "     888   888  888   888   888   888   888  888ooo888 
+           888       o  888   888  `88bod8P'   888   888   888  888    .o 
+          o888ooooood8 o888o o888o `8oooooo.  o888o o888o o888o `Y8bod8P' 
+                                   d"     YD                              
+                                   "Y88888P'
+                                                                   v1.0.0
+SPLASH_SCREEN;
+    $this->renderSplashScreenTexture($splashScreen);
+  }
+
+  /**
+   * Remove observers.
+   *
+   * @return void
+   */
+  private function removeObservers(): void
+  {
+    foreach ($this->observers as $observer) {
+      $this->observers->remove($observer);
+    }
+
+    foreach ($this->staticObservers as $staticObserver) {
+      $this->staticObservers->remove($staticObserver);
+    }
+  }
+
+  /**
+   * Render the splash screen texture.
+   *
+   * @param string $splashScreenTexture The splash screen texture.
+   * @param float $duration The duration to show the splash screen.
+   * @return void
+   */
+  private function renderSplashScreenTexture(string $splashScreenTexture, float $duration = DEFAULT_SPLASH_SCREEN_DURATION): void
+  {
+    if (config(AppConfig::class, 'debug.skip_splash')) {
+      return;
+    }
+
+    $splashScreenRows = explode("\n", $splashScreenTexture);
+
+    $leftMargin = (DEFAULT_SCREEN_WIDTH  / 2) - (75 / 2);
+    $topMargin = (DEFAULT_SCREEN_HEIGHT / 2) - (25 / 2);
+
+    foreach ($splashScreenRows as $rowIndex => $row) {
+      Console::write($row, (int)$leftMargin, (int)($topMargin + $rowIndex));
+    }
+
+    usleep(intval($duration * 1000000));
+    Console::clear();
   }
 }

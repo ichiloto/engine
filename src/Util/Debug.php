@@ -1,14 +1,15 @@
 <?php
 
-namespace Assegai\Util;
+namespace Ichiloto\Engine\Util;
 
+use Assegai\Util\Path;
 use RuntimeException;
 use Stringable;
 
 /**
  * The debug utility.
  *
- * @package Assegai\Util
+ * @package Ichiloto\Engine\Util
  */
 final class Debug
 {

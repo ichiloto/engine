@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Util\Config;
 
 use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
+use InvalidArgumentException;
 
 /**
  * The config store.
