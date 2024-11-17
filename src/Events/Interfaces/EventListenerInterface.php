@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Events\Interfaces;
 
+use Ichiloto\Engine\Core\Interfaces\CanEquate;
+
 /**
  * EventListenerInterface is the interface implemented by all event listener classes.
  *
@@ -9,7 +11,7 @@ namespace Ichiloto\Engine\Events\Interfaces;
  * @version 1.0
  * @package Ichiloto\Engine\Events\Interfaces
  */
-interface EventListenerInterface
+interface EventListenerInterface extends CanEquate
 {
   /**
    * Handles the given event.
