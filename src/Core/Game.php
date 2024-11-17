@@ -4,6 +4,8 @@ namespace Ichiloto\Engine\Core;
 
 use Assegai\Collections\ItemList;
 use Assegai\Util\Debug;
+use Assegai\Util\Path;
+use Error;
 use Exception;
 use Ichiloto\Engine\Core\Interfaces\CanRun;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
@@ -18,6 +20,7 @@ use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
+use Throwable;
 
 /**
  * The game.
@@ -55,6 +58,7 @@ class Game implements CanRun, SubjectInterface
    * @param int $width The width of the game screen.
    * @param int $height The height of the game screen.
    * @param array<string, mixed> $options The options to configure the game with.
+   * @throws Exception
    */
   public function __construct(
     protected string $name,
@@ -63,8 +67,20 @@ class Game implements CanRun, SubjectInterface
     protected array $options = []
   )
   {
-    $this->declareManagers();
-    $this->declareObservers();
+    try {
+      // Register error and exception handlers
+      $this->registerErrorAndExceptionHandlers();
+
+      // Initialize configuration
+
+      $this->initializeDebugger();
+      $this->declareManagers();
+      $this->declareObservers();
+
+      $this->configure([...$this->options, 'name' => $name, 'screen' => ['width' => $width, 'height' => $height]]);
+    } catch (Error|Exception|Throwable $exception) {
+      $this->handleException($exception);
+    }
   }
 
   /**
@@ -73,7 +89,7 @@ class Game implements CanRun, SubjectInterface
   public function __destruct()
   {
     Console::restoreTerminalSettings();
-    Console::reset();
+//    Console::reset();
   }
 
   /**
@@ -198,6 +214,36 @@ class Game implements CanRun, SubjectInterface
   }
 
   /**
+   * @return void
+   */
+  public function registerErrorAndExceptionHandlers(): void
+  {
+    set_error_handler(function ($errno, $errstr, $errfile, $errline) {
+      $this->handleError($errno, $errstr, $errfile, $errline);
+    });
+    set_exception_handler(function (Error|Exception|Throwable $exception) {
+      $this->handleException($exception);
+    });
+  }
+
+  /**
+   * Initialize the debugger.
+   *
+   * @return void
+   * @throws Exception
+   */
+  private function initializeDebugger(): void
+  {
+    $logDirectory = Path::join(Path::getCurrentWorkingDirectory(), 'logs');
+
+    if (!file_exists($logDirectory)) {
+      if (false === mkdir($logDirectory, 0777, true)) {
+        throw new Exception("Could not create log directory: $logDirectory");
+      }
+    }
+  }
+
+  /**
    * Handle an error.
    *
    * @param int $errno The error number.
@@ -215,10 +261,10 @@ class Game implements CanRun, SubjectInterface
   /**
    * Handle an exception.
    *
-   * @param Exception $exception The exception to handle.
+   * @param Exception|Throwable|Error $exception The exception to handle.
    * @return never
    */
-  private function handleException(Exception $exception): never
+  private function handleException(Exception|Throwable|Error $exception): never
   {
     Debug::error($exception);
     $this->stop();

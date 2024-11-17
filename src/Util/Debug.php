@@ -2,10 +2,8 @@
 
 namespace Assegai\Util;
 
-use Assegai\Util\Path;
 use RuntimeException;
 use Stringable;
-use Symfony\Component\Console\Output\OutputInterface;
 
 /**
  * The debug utility.
