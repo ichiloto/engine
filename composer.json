@@ -18,7 +18,11 @@
     "autoload": {
         "psr-4": {
             "Ichiloto\\Engine\\": "src/"
-        }
+        },
+        "files": [
+            "src/Util/Constants.php",
+            "src/Util/Helpers.php"
+        ]
     },
     "authors": [
         {
