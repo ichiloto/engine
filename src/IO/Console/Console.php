@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\IO\Console;
 
+use Exception;
 use Symfony\Component\Console\Output\ConsoleOutput;
 
 class Console
@@ -221,5 +222,34 @@ class Console
   private static function getEmptyBuffer(): array
   {
     return array_fill(0, DEFAULT_SCREEN_HEIGHT, str_repeat(' ', DEFAULT_SCREEN_WIDTH));
+  }
+
+  /**
+   * Shows an alert dialog with the given message and title.
+   *
+   * @param string $message The message to show.
+   * @param string $title The title of the dialog.
+   * @param int $width The width of the dialog.
+   * @return void
+   * @throws Exception
+   */
+  public static function alert(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH): void
+  {
+    throw new Exception('Not implemented');
+  }
+
+  /**
+   * Shows a confirm dialog with the given message and title. Returns true if the user confirmed, false otherwise.
+   *
+   * @param string $message The message to show.
+   * @param string $title The title of the dialog.
+   * @param int $width The width of the dialog.
+   * @return bool Whether the user confirmed or not.
+   * @throws Exception
+   */
+  public static function confirm(string $message, string $title = 'Confirm', int $width = DEFAULT_DIALOG_WIDTH): bool
+  {
+    throw new Exception('Not implemented');
+    return false;
   }
 }

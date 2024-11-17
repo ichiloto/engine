@@ -4,6 +4,8 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
 
 if (! function_exists('clamp') ) {
   /**
@@ -249,13 +251,14 @@ if (! function_exists('config') ) {
   /**
    * Gets the value of the given configuration path.
    *
+   * @param class-string $configClassname The classname of the configuration.
    * @param string $path The path of the configuration.
    * @param mixed $default The default value.
    *
    * @return mixed The value of the configuration.
    */
-  function config(string $path, mixed $default = null): mixed
+  function config(string $configClassname, string $path, mixed $default = null): mixed
   {
-    return Config::get($path, $default);
+    return ConfigStore::get($configClassname)->get($path, $default);
   }
 }
