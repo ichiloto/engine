@@ -1,6 +1,6 @@
 <?php
 
-namespace Ichiloto\Engine\Scenes;
+namespace Ichiloto\Engine\Scenes\Game;
 
 use Ichiloto\Engine\Scenes\AbstractScene;
 

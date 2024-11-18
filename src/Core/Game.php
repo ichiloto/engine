@@ -23,6 +23,7 @@ use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\Scenes\SceneManager;
+use Ichiloto\Engine\Scenes\Title\TitleScene;
 use Ichiloto\Engine\Util\Config\AppConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
@@ -74,16 +75,15 @@ class Game implements CanRun, SubjectInterface
   )
   {
     try {
-      // Register error and exception handlers
       $this->registerErrorAndExceptionHandlers();
-
-      // Initialize configuration
-
+      $this->initializeConfiguration();
       $this->initializeDebugger();
       $this->declareManagers();
       $this->declareObservers();
 
       $this->configure([...$this->options, 'name' => $name, 'screen' => ['width' => $width, 'height' => $height]]);
+
+      $this->sceneManager->addScenes(new TitleScene("Title"));
     } catch (Error|Exception|Throwable $exception) {
       $this->handleException($exception);
     }
@@ -107,7 +107,11 @@ class Game implements CanRun, SubjectInterface
   public function configure(array $options): self
   {
     $this->options = array_merge_recursive($this->options, $options);
-    ConfigStore::put(PlaySettings::class, new PlaySettings($this->options));
+
+    foreach ($this->options as $key => $value) {
+      ConfigStore::get(PlaySettings::class)->set($key, $value);
+    }
+
     return $this;
   }
 
@@ -150,6 +154,8 @@ class Game implements CanRun, SubjectInterface
    */
   protected function start(): void
   {
+    Console::clear();
+
     // Save the terminal settings
     Console::saveTerminalSettings();
 
@@ -248,6 +254,7 @@ class Game implements CanRun, SubjectInterface
   private function declareManagers(): void
   {
     $this->sceneManager = SceneManager::getInstance();
+    $this->eventManager = EventManager::getInstance();
   }
 
   /**
@@ -494,5 +501,16 @@ SPLASH_SCREEN;
 
     usleep(intval($duration * 1000000));
     Console::clear();
+  }
+
+  /**
+   * Initialize the configuration.
+   *
+   * @return void
+   */
+  private function initializeConfiguration(): void
+  {
+    ConfigStore::put(PlaySettings::class, new PlaySettings($this->options));
+    ConfigStore::put(AppConfig::class, new AppConfig());
   }
 }

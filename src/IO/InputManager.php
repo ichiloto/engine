@@ -2,7 +2,8 @@
 
 namespace Ichiloto\Engine\IO;
 
-use EventManager;
+use Ichiloto\Engine\Events\EventManager;
+use Ichiloto\Engine\Events\KeyboardEvent;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use RuntimeException;

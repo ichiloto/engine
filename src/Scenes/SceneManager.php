@@ -109,8 +109,8 @@ class SceneManager implements CanStart, CanRender, CanUpdate, SingletonInterface
   public function loadScene(string|int $index): void
   {
     $sceneToLoad = match(true) {
-      is_int($index) => $this->scenes->toArray()[$index] ?? throw new NotFoundException('Scene not found.'),
-      default => $this->scenes->find(fn(SceneInterface $scene) => $scene::class === $index) ?? throw new NotFoundException('Scene not found.'),
+      is_int($index) => $this->scenes->toArray()[$index] ?? throw new NotFoundException($index),
+      default => $this->scenes->find(fn(SceneInterface $scene) => $scene::class === $index) ?? throw new NotFoundException($index),
     };
   }
 
