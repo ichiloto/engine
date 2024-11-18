@@ -5,6 +5,8 @@ namespace Ichiloto\Engine\UI\Windows\Interfaces;
 
 /**
  * The interface BorderPackInterface.
+ *
+ * @package Ichiloto\Engine\UI\Windows\Interfaces
  */
 interface BorderPackInterface
 {
