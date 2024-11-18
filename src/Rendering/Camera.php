@@ -2,12 +2,14 @@
 
 namespace Ichiloto\Engine\Rendering;
 
+use Ichiloto\Engine\Core\GameObject;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Core\Interfaces\CanResume;
 use Ichiloto\Engine\Core\Interfaces\CanStart;
+use Ichiloto\Engine\Core\Interfaces\CanUpdate;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 
-class Camera implements CanStart, CanResume, CanRender
+class Camera implements CanStart, CanResume, CanRender, CanUpdate
 {
   /**
    * Camera constructor.
@@ -27,7 +29,7 @@ class Camera implements CanStart, CanResume, CanRender
    */
   public function start(): void
   {
-    // TODO: Implement start() method.
+    $this->scene->getUI()->start();
   }
 
   /**
@@ -35,26 +37,70 @@ class Camera implements CanStart, CanResume, CanRender
    */
   public function stop(): void
   {
-    // TODO: Implement stop() method.
+    $this->scene->getUI()->stop();
   }
 
+  /**
+   * @inheritDoc
+   */
   public function render(): void
   {
-    // TODO: Implement render() method.
+    foreach ($this->scene->getRootGameObjects() as $gameObject) {
+      if ($gameObject->isActive() && $this->canSee($gameObject)) {
+        $gameObject->render();
+      }
+    }
+
+    $this->scene->getUI()->render();
   }
 
+  /**
+   * @inheritDoc
+   */
   public function erase(): void
   {
-    // TODO: Implement erase() method.
+    foreach ($this->scene->getRootGameObjects() as $gameObject) {
+      if ($gameObject->isActive() && $this->canSee($gameObject)) {
+        $gameObject->erase();
+      }
+    }
+
+    $this->scene->getUI()->erase();
   }
 
+  /**
+   * @inheritDoc
+   */
   public function resume(): void
   {
-    // TODO: Implement resume() method.
+    $this->scene->getUI()->resume();
   }
 
+  /**
+   * @inheritDoc
+   */
   public function suspend(): void
   {
-    // TODO: Implement suspend() method.
+    $this->scene->getUI()->suspend();
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function update(): void
+  {
+    $this->scene->getUI()->update();
+  }
+
+  /**
+   * Checks if a game object is visible.
+   *
+   * @param GameObject $gameObject The game object to check.
+   * @return bool True if the game object is visible, false otherwise.
+   */
+  public function canSee(GameObject $gameObject): bool
+  {
+    // TODO: Implement isVisible() method.
+    return true;
   }
 }
