@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\IO\Console;
 
 use Exception;
+use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
 use Symfony\Component\Console\Output\ConsoleOutput;
 
 class Console
@@ -266,5 +268,58 @@ class Console
   {
     throw new Exception('Not implemented');
     return false;
+  }
+
+  /**
+   * Shows a prompt dialog with the given message and title. Returns the user's input.
+   *
+   * @param string $message The message to show.
+   * @param string $title The title of the dialog. Defaults to "Prompt".
+   * @param string $default The default value of the input. Defaults to an empty string.
+   * @param int $width The width of the dialog. Defaults to 34.
+   * @return string The user's input.
+   */
+  public static function prompt(
+    string $message,
+    string $title = 'Prompt',
+    string $default = '',
+    int    $width = DEFAULT_DIALOG_WIDTH
+  ): string
+  {
+    throw new Exception('Not implemented');
+    return '';
+  }
+
+  public static function select(
+    string   $message,
+    array    $options,
+    string   $title = '',
+    int      $default = 0,
+    ?Vector2 $position = null,
+    int      $width = DEFAULT_SELECT_DIALOG_WIDTH
+  ): int
+  {
+    throw new Exception('Not implemented');
+    return 0;
+  }
+
+  /**
+   * Shows a text dialog with the given message and title.
+   *
+   * @param string $message The message to show.
+   * @param string $title The title of the dialog. Defaults to "".
+   * @param string $help The help text to show. Defaults to "".
+   * @param WindowPosition $position The position of the dialog. Defaults to BOTTOM (i.e. the bottom of the screen).
+   * @param float $charactersPerSecond The number of characters to display per second.
+   * @return void
+   */
+  public static function showText(
+    string         $message,
+    string         $title = '',
+    string         $help = '',
+    WindowPosition $position = WindowPosition::BOTTOM,
+    float          $charactersPerSecond = 1
+  )
+  {
   }
 }
