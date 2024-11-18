@@ -399,8 +399,7 @@ class Game implements CanRun, SubjectInterface
   {
     // Handle game events
     $this->eventManager->addEventListener(EventType::GAME, function (GameEvent $event) {
-      switch ($event->getGameEventType())
-      {
+      switch ($event->getGameEventType()) {
         case GameEventType::QUIT:
           $this->notify($this, new GameEvent(GameEventType::QUIT));
           $this->stop();
@@ -413,8 +412,7 @@ class Game implements CanRun, SubjectInterface
 
     // Handle Game Play events
     $this->eventManager->addEventListener(EventType::GAME_PLAY, function (GameplayEvent $event) {
-      switch ($event->getGameplayEventType())
-      {
+      switch ($event->getGameplayEventType()) {
         case GameplayEventType::GAME_OVER:
           $this->sceneManager->loadGameOverScene();
           break;
@@ -440,14 +438,14 @@ class Game implements CanRun, SubjectInterface
     $splashScreenTextureFilename = Path::join(Path::getCurrentWorkingDirectory(), $filename);
 
     if (! file_exists($splashScreenTextureFilename) ) {
-      Debug::warn('The custom splash screen texture file does not exist.');
+      Debug::warn("The custom splash screen texture file, $splashScreenTextureFilename, does not exist.");
       return;
     }
 
     $splashScreenTexture = file_get_contents($splashScreenTextureFilename);
 
     if (false === $splashScreenTexture) {
-      Debug::warn('Failed to read the custom splash screen texture file.');
+      Debug::warn("Failed to read the custom splash screen texture file: $splashScreenTextureFilename.");
       return;
     }
 

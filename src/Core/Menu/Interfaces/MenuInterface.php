@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Core\Menu\Interfaces;
 
 use Assegai\Collections\ItemList;
+use Ichiloto\Engine\Core\Interfaces\CanActivate;
 use Ichiloto\Engine\Core\Interfaces\CanRenderAt;
 use Ichiloto\Engine\Core\Interfaces\CanUpdate;
 use Ichiloto\Engine\Events\Interfaces\SubjectInterface;
@@ -13,7 +14,7 @@ use Ichiloto\Engine\UI\Interfaces\SelectableInterface;
  *
  * @package Ichiloto\Engine\Core\Menu\Interfaces
  */
-interface MenuInterface extends CanUpdate, CanRenderAt, SubjectInterface, SelectableInterface
+interface MenuInterface extends CanUpdate, CanRenderAt, CanActivate, SubjectInterface, SelectableInterface
 {
   /**
    * Returns the title of the menu.

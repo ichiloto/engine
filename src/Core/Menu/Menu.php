@@ -1,0 +1,304 @@
+<?php
+
+namespace Ichiloto\Engine\Core\Menu;
+
+use Assegai\Collections\ItemList;
+use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
+use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
+use Ichiloto\Engine\Core\Menu\Interfaces\MenuItemInterface;
+use Ichiloto\Engine\Events\Enumerations\MenuEventType;
+use Ichiloto\Engine\Events\Interfaces\EventInterface;
+use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
+use Ichiloto\Engine\Events\MenuEvent;
+use InvalidArgumentException;
+
+/**
+ * Class Menu. Represents a menu.
+ *
+ * @package Ichiloto\Engine\Core\Menu
+ */
+abstract class Menu implements MenuInterface
+{
+  /**
+   * @var int $activeIndex The index of the active item.
+   */
+  protected int $activeIndex = 0;
+  /**
+   * @var ItemList<ObserverInterface> $observers
+   */
+  protected ItemList $observers;
+  /**
+   * @var int $totalItems The total number of items.
+   */
+  protected int $totalItems = 0;
+
+  /**
+   * Menu constructor.
+   *
+   * @param string $title The title of the menu.
+   * @param string $description The description of the menu.
+   * @param ItemList $items The items of the menu.
+   */
+  public function __construct(
+    protected string $title,
+    protected string $description = '',
+    protected ItemList $items = new ItemList(MenuItemInterface::class),
+    protected string $cursor = '>',
+  )
+  {
+    $this->observers = new ItemList(ObserverInterface::class);
+    $this->totalItems = $this->items->count();
+    $this->cursor = substr($cursor, 0, 1);
+    $this->activate();
+  }
+
+  /**
+   * Menu destructor.
+   */
+  public function __destruct()
+  {
+    $this->deactivate();
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function getTitle(): string
+  {
+    return $this->title;
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function setTitle(string $title): void
+  {
+    $this->title = $title;
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function getDescription(): string
+  {
+    return $this->description;
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function setDescription(string $description): void
+  {
+    $this->description = $description;
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function getItems(): ItemList
+  {
+    return $this->items;
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function setItems(ItemList $items): void
+  {
+    $this->items = $items;
+    $this->totalItems = $this->items->count();
+    $this->notify($this, new MenuEvent(MenuEventType::ITEMS_SET));
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function addItem(MenuItemInterface $item): void
+  {
+    $this->items->add($item);
+    $this->totalItems = $this->items->count();
+    $this->notify($this, new MenuEvent(MenuEventType::ITEM_ADDED));
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function removeItem(MenuItemInterface $item): void
+  {
+    $this->items->remove($item);
+    $this->totalItems = $this->items->count();
+    $this->notify($this, new MenuEvent(MenuEventType::ITEM_REMOVED));
+  }
+
+  /**
+   * Removes an item from the menu by its index.
+   *
+   * @param int $index The index of the item to remove.
+   * @return void
+   */
+  public function removeItemByIndex(int $index): void
+  {
+    $itemsAsArray = $this->items->toArray();
+
+    $item = $itemsAsArray[$index] ?? null;
+
+    if ($item) {
+      $this->removeItem($item);
+    }
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function getItemByIndex(int $index): MenuItemInterface
+  {
+    $itemsAsArray = $this->items->toArray();
+
+    if (!isset($itemsAsArray[$index])) {
+      throw new InvalidArgumentException('Invalid index.');
+    }
+
+    return $itemsAsArray[$index];
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function getItemByLabel(string $label): ?MenuItemInterface
+  {
+    return $this->items->find(fn(MenuItemInterface $item) => $item->getLabel() === $label);
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function getActiveItem(): MenuItemInterface
+  {
+    $activeIndex = $this->activeIndex > -1 ? $this->activeIndex : 0;
+    return $this->getItemByIndex($activeIndex);
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function setActiveItem(MenuItemInterface $item): void
+  {
+    if (!$this->items->contains($item)) {
+      throw new InvalidArgumentException('Item not found in menu.');
+    }
+
+    $this->setActiveItemByIndex($this->items->findIndex(fn(MenuItemInterface $menuItem) => $menuItem === $item));
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function getActiveIndex(): int
+  {
+    return $this->activeIndex;
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function setActiveItemByIndex(int $index): void
+  {
+    if (!isset($this->items->toArray()[$index])) {
+      throw new InvalidArgumentException('Invalid index.');
+    }
+
+    $this->activeIndex = $index;
+    $this->notify($this, new MenuEvent(MenuEventType::ITEM_ACTIVATED));
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function setActiveItemByLabel(string $label): void
+  {
+    $item = $this->getItemByLabel($label);
+
+    if (is_null($item)) {
+      throw new InvalidArgumentException('Item not found in menu.');
+    }
+
+    $this->setActiveItem($item);
+  }
+
+  /**
+   * Returns the menu cursor.
+   *
+   * @return string The menu cursor.
+   */
+  public function getCursor(): string
+  {
+    return $this->cursor;
+  }
+
+  /**
+   * Sets the menu cursor.
+   *
+   * @param string $cursor The menu cursor.
+   * @return void
+   */
+  public function setCursor(string $cursor): void
+  {
+    $this->cursor = substr($cursor, 0, 1);
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function addObserver(ObserverInterface|string $observer): void
+  {
+    $this->observers->add($observer);
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function removeObserver(ObserverInterface|string $observer): void
+  {
+    $this->observers->remove($observer);
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function notify(object $entity, EventInterface $event): void
+  {
+    /**
+     * @var ObserverInterface $observer
+     */
+    foreach ($this->observers as $observer) {
+      $observer->onNotify($entity, $event);
+    }
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function focus(): void
+  {
+    $this->activeIndex = 0;
+    $this->render();
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function execute(ExecutionContextInterface $context = null): int
+  {
+    // Do nothing
+    return self::SUCCESS;
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function blur(): void
+  {
+    $this->activeIndex = -1;
+    $this->render();
+  }
+}
