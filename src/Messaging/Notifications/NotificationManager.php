@@ -9,7 +9,11 @@ use Ichiloto\Engine\Core\Interfaces\CanUpdate;
 use Ichiloto\Engine\Core\Interfaces\SingletonInterface;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Events\Enumerations\EventType;
+use Ichiloto\Engine\Events\Enumerations\MapEventType;
+use Ichiloto\Engine\Events\Enumerations\SceneEventType;
 use Ichiloto\Engine\Events\EventManager;
+use Ichiloto\Engine\Events\MapEvent;
+use Ichiloto\Engine\Events\SceneEvent;
 use Ichiloto\Engine\Messaging\Notifications\Interfaces\NotificationInterface;
 
 /**
