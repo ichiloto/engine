@@ -169,10 +169,25 @@ class Console
    */
   public static function write(iterable|string $message, int $x, int $y): void
   {
+    $textRows = explode("\n", $message);
     $cursor = self::cursor();
-    $output = new ConsoleOutput();
+
+    $output = '';
+    foreach ($textRows as $rowIndex => $text)
+    {
+      $currentBufferRow = $y + $rowIndex;
+
+      if (!isset(self::$buffer[$currentBufferRow]))
+      {
+        self::$buffer[$currentBufferRow] = str_repeat(' ', DEFAULT_SCREEN_WIDTH);
+      }
+
+      self::$buffer[$currentBufferRow] = substr_replace(self::$buffer[$currentBufferRow], $text, $x, strlen($text));
+      $output .= self::$buffer[$currentBufferRow] . "\n";
+    }
+
     $cursor->moveTo(0, $y);
-    $output->write($message);
+    echo $output;
   }
 
   /**
