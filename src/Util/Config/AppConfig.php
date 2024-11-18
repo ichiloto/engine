@@ -2,10 +2,10 @@
 
 namespace Ichiloto\Engine\Util\Config;
 
-use Assegai\Util\Debug;
 use Assegai\Util\Path;
 use Exception;
 use Ichiloto\Engine\Exceptions\NotFoundException;
+use Ichiloto\Engine\Util\Debug;
 
 /**
  * The application configuration class.

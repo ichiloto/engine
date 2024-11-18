@@ -4,6 +4,7 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
 
