@@ -7,6 +7,7 @@ use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Core\Interfaces\CanResume;
 use Ichiloto\Engine\Core\Interfaces\CanStart;
 use Ichiloto\Engine\Core\Interfaces\CanUpdate;
+use Ichiloto\Engine\UI\UIManager;
 
 /**
  * Interface SceneInterface
@@ -16,9 +17,23 @@ use Ichiloto\Engine\Core\Interfaces\CanUpdate;
 interface SceneInterface extends CanStart, CanResume, CanUpdate, CanRender
 {
   /**
+   * Gets the name of the scene.
+   *
+   * @return string The name of the scene.
+   */
+  public function getName(): string;
+
+  /**
    * Gets the root game objects.
    *
    * @return GameObject[] The root game objects.
    */
   public function getRootGameObjects(): array;
+
+  /**
+   * Returns the UI manager.
+   *
+   * @return UIManager The UI manager.
+   */
+  public function getUI(): UIManager;
 }

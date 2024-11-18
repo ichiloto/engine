@@ -76,7 +76,7 @@ class EventManager implements SingletonInterface, EventTargetInterface
         if ($listener instanceof EventListenerInterface) {
           $listener->handle($event);
         } else {
-          if ( is_callable($listener) ) {
+          if (! is_callable($listener) ) {
             throw new RuntimeException('Listener is not callable.');
           }
 

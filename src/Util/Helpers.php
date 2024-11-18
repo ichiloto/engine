@@ -1,9 +1,15 @@
 <?php
 
+use Assegai\Util\Path;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
+use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
+use Ichiloto\Engine\Messaging\Notifications\Notification;
+use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
+use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
 
@@ -231,6 +237,13 @@ if (! function_exists('strip_ansi') ) {
 }
 
 if (! function_exists('bytes_to_human_readable') ) {
+  /**
+   * Converts the given bytes into a human-readable format.
+   *
+   * @param int $bytes The bytes to convert.
+   * @param int $decimals The number of decimals to show. Defaults to 2.
+   * @return string The human-readable bytes.
+   */
   function bytes_to_human_readable(int $bytes, int $decimals = 2): string
   {
     $size = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
@@ -240,6 +253,13 @@ if (! function_exists('bytes_to_human_readable') ) {
 }
 
 if (! function_exists('bytes_format') ) {
+  /**
+   * Formats the given bytes into a human-readable format.
+   *
+   * @param int $bytes The bytes to format.
+   * @param int $decimals The number of decimals to show. Defaults to 2.
+   * @return string The formatted bytes.
+   */
   function bytes_format(int $bytes, int $decimals = 2): string
   {
     return bytes_to_human_readable($bytes, $decimals);
@@ -260,5 +280,44 @@ if (! function_exists('config') ) {
   function config(string $configClassname, string $path, mixed $default = null): mixed
   {
     return ConfigStore::get($configClassname)->get($path, $default);
+  }
+}
+
+/* Resources */
+if (! function_exists('asset') ) {
+  /**
+   * Returns the content of the asset file with the given path.
+   *
+   * @param string $path The path of the asset file.
+   * @return string The content of the asset file.
+   */
+  function asset(string $path): mixed
+  {
+    $filename = Path::join(Path::getCurrentWorkingDirectory(), 'assets', $path);
+
+    if (! file_exists($filename) ) {
+      throw new RuntimeException("Asset file not found: $filename");
+    }
+
+    $content = file_get_contents($filename);
+
+    if (false === $content) {
+      throw new RuntimeException("Failed to read asset file: $filename");
+    }
+
+    return $content;
+  }
+}
+
+if (! function_exists('graphics') ) {
+  /**
+   * Opens a graphics resource file
+   *
+   * @param string $path The path of the graphics resource file.
+   * @return string
+   */
+  function graphics(string $path): string
+  {
+    return asset("Graphics/$path.txt");
   }
 }

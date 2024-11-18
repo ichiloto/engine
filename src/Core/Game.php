@@ -21,6 +21,7 @@ use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Scenes\Title\TitleScene;
@@ -50,6 +51,10 @@ class Game implements CanRun, SubjectInterface
    */
   protected EventManager $eventManager;
   /**
+   * @var NotificationManager $notificationManager The notification manager.
+   */
+  protected NotificationManager $notificationManager;
+  /**
    * @var ItemList<ObserverInterface> The observers.
    */
   protected ItemList $observers;
@@ -75,15 +80,15 @@ class Game implements CanRun, SubjectInterface
   )
   {
     try {
-      $this->registerErrorAndExceptionHandlers();
-      $this->initializeConfiguration();
+      $this->configureErrorAndExceptionHandlers();
+      $this->initializeConfigStore();
       $this->initializeDebugger();
-      $this->declareManagers();
-      $this->declareObservers();
+      $this->initializeManagers();
+      $this->initializeObservers();
 
       $this->configure([...$this->options, 'name' => $name, 'screen' => ['width' => $width, 'height' => $height]]);
 
-      $this->sceneManager->addScenes(new TitleScene("Title"));
+      $this->sceneManager->addScenes(new TitleScene($this->sceneManager, "Title Screen"));
     } catch (Error|Exception|Throwable $exception) {
       $this->handleException($exception);
     }
@@ -95,7 +100,7 @@ class Game implements CanRun, SubjectInterface
   public function __destruct()
   {
     Console::restoreTerminalSettings();
-//    Console::reset();
+    Console::reset();
   }
 
   /**
@@ -191,7 +196,6 @@ class Game implements CanRun, SubjectInterface
    */
   protected function stop(): void
   {
-    // TODO: Implement stop() method.
     // Disable non-blocking input mode
     InputManager::disableNonBlockingMode();
 
@@ -247,31 +251,34 @@ class Game implements CanRun, SubjectInterface
   }
 
   /**
-   * Declare the managers.
+   * Initialize the manager instances.
    *
    * @return void
    */
-  private function declareManagers(): void
+  private function initializeManagers(): void
   {
     $this->sceneManager = SceneManager::getInstance();
     $this->eventManager = EventManager::getInstance();
+    $this->notificationManager = NotificationManager::getInstance();
   }
 
   /**
-   * Declare the observers.
+   * Initialize the list observers.
    *
    * @return void
    */
-  private function declareObservers(): void
+  private function initializeObservers(): void
   {
     $this->observers = new ItemList(ObserverInterface::class);
     $this->staticObservers = new ItemList(StaticObserverInterface::class);
   }
 
   /**
+   * Configure the error and exception handlers.
+   *
    * @return void
    */
-  public function registerErrorAndExceptionHandlers(): void
+  public function configureErrorAndExceptionHandlers(): void
   {
     set_error_handler(function ($errno, $errstr, $errfile, $errline) {
       $this->handleError($errno, $errstr, $errfile, $errline);
@@ -392,8 +399,7 @@ class Game implements CanRun, SubjectInterface
   {
     // Handle game events
     $this->eventManager->addEventListener(EventType::GAME, function (GameEvent $event) {
-      switch ($event->getGameEventType())
-      {
+      switch ($event->getGameEventType()) {
         case GameEventType::QUIT:
           $this->notify($this, new GameEvent(GameEventType::QUIT));
           $this->stop();
@@ -406,8 +412,7 @@ class Game implements CanRun, SubjectInterface
 
     // Handle Game Play events
     $this->eventManager->addEventListener(EventType::GAME_PLAY, function (GameplayEvent $event) {
-      switch ($event->getGameplayEventType())
-      {
+      switch ($event->getGameplayEventType()) {
         case GameplayEventType::GAME_OVER:
           $this->sceneManager->loadGameOverScene();
           break;
@@ -425,12 +430,33 @@ class Game implements CanRun, SubjectInterface
    */
   private function showCustomSplashScreen(): void
   {
+    if (!config(AppConfig::class, 'splash_screen.enabled')) {
+      return;
+    }
+
+    $filename = config(AppConfig::class, 'splash_screen.filename') ?? DEFAULT_ASSETS_SPLASH_TEXTURE;
+    $splashScreenTextureFilename = Path::join(Path::getCurrentWorkingDirectory(), $filename);
+
+    if (! file_exists($splashScreenTextureFilename) ) {
+      Debug::warn("The custom splash screen texture file, $splashScreenTextureFilename, does not exist.");
+      return;
+    }
+
+    $splashScreenTexture = file_get_contents($splashScreenTextureFilename);
+
+    if (false === $splashScreenTexture) {
+      Debug::warn("Failed to read the custom splash screen texture file: $splashScreenTextureFilename.");
+      return;
+    }
+
+    $this->renderSplashScreenTexture($splashScreenTexture, config(AppConfig::class, 'splash_screen.duration'));
   }
 
   /**
    * Show the game engine splash screen.
    *
    * @return void
+   * @noinspection SpellCheckingInspection
    */
   private function showGameEngineSplashScreen(): void
   {
@@ -508,7 +534,7 @@ SPLASH_SCREEN;
    *
    * @return void
    */
-  private function initializeConfiguration(): void
+  private function initializeConfigStore(): void
   {
     ConfigStore::put(PlaySettings::class, new PlaySettings($this->options));
     ConfigStore::put(AppConfig::class, new AppConfig());

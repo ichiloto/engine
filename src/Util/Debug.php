@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Util;
 
 use Assegai\Util\Path;
+use Ichiloto\Engine\Util\Config\AppConfig;
 use RuntimeException;
 use Stringable;
 
@@ -73,6 +74,10 @@ final class Debug
    */
   public static function info(Stringable|string $message): void
   {
+    if (config(AppConfig::class, 'debug.level') < self::INFO) {
+      return;
+    }
+
     if (false === error_log(self::getFormattedMessage($message, 'INFO'), 3, self::getLogFilePath('debug.log'))) {
       throw new RuntimeException("Failed to write to the debug log.");
     }
@@ -86,6 +91,10 @@ final class Debug
    */
   public static function warn(Stringable|string $message): void
   {
+    if (config(AppConfig::class, 'debug.level') < self::WARNING) {
+      return;
+    }
+
     if (false === error_log(self::getFormattedMessage($message, 'WARNING'), 3, self::getLogFilePath('debug.log'))) {
       throw new RuntimeException("Failed to write to the debug log.");
     }
@@ -99,6 +108,10 @@ final class Debug
    */
   public static function error(Stringable|string $message): void
   {
+    if (config(AppConfig::class, 'debug.level') < self::ERROR) {
+      return;
+    }
+
     if (false === error_log(self::getFormattedMessage($message, 'ERROR'), 3, self::getLogFilePath('error.log'))) {
       throw new RuntimeException("Failed to write to the debug log.");
     }
