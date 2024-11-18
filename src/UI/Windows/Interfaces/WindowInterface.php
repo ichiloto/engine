@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\UI\Windows\Interfaces;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Events\Interfaces\SubjectInterface;
 use Ichiloto\Engine\IO\Enumerations\Color;
+use Ichiloto\Engine\UI\Windows\WindowAlignment;
 
 /**
  * Interface WindowInterface. The interface for all windows.
