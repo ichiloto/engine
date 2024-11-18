@@ -1,11 +1,11 @@
 <?php
 
-namespace Ichiloto\Engine\UI\Intefaces;
+namespace Ichiloto\Engine\UI\Interfaces;
 
 /**
  * Interface CanFocus. This interface is for elements that can be focused.
  *
- * @package Ichiloto\Engine\UI\Intefaces
+ * @package Ichiloto\Engine\UI\Interfaces
  */
 interface CanFocus
 {

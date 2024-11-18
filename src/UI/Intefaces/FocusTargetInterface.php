@@ -1,13 +1,13 @@
 <?php
 
-namespace Ichiloto\Engine\UI\Intefaces;
+namespace Ichiloto\Engine\UI\Interfaces;
 
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
 
 /**
  * Interface FocusTargetInterface. Represents an element that can be focused.
  *
- * @package Ichiloto\Engine\UI\Intefaces
+ * @package Ichiloto\Engine\UI\Interfaces
  */
 interface FocusTargetInterface
 {
