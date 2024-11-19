@@ -321,3 +321,53 @@ if (! function_exists('graphics') ) {
     return asset("Graphics/$path.txt");
   }
 }
+
+/* System */
+if (! function_exists('os_program_exists') ) {
+  /**
+   * Checks if the given program exists in the system.
+   *
+   * @param string $programName The name of the program to check.
+   * @return bool Whether the program exists or not.
+   */
+  function os_program_exists(string $programName): bool
+  {
+    $locatorProgram = PHP_OS_FAMILY === 'Windows' ? 'where' : 'which';
+    $output = shell_exec("$locatorProgram $programName");
+    return ! empty($output);
+  }
+}
+
+if (! file_exists('get_local_timezone') ) {
+  /**
+   * Gets the local timezone.
+   *
+   * @return string The local timezone.
+   */
+  function get_local_timezone(): string
+  {
+    $timezoneCommand = 'timedatectl';
+
+    # If timedatectl is not available raise an exception.
+    if (! os_program_exists($timezoneCommand) ) {
+      throw new RuntimeException("The command $timezoneCommand is not available.");
+    }
+
+    # Get output of timedatectl
+    $output = shell_exec($timezoneCommand);
+
+    # Split the output by newline
+    $lines = explode("\n", $output);
+
+    # Loop through the lines and extract the timezone
+    foreach ($lines as $line) {
+      if (str_contains($line, 'Local time')) {
+        // Extract the timezone part
+        preg_match('/Local time: (.*)\s([A-Z]{1,5})$/', $line, $matches);
+        return $matches[2] ?? 'Timezone not found';
+      }
+    }
+
+    return '';
+  }
+}
