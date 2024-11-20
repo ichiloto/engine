@@ -46,6 +46,6 @@ class SceneStateContext implements SceneStateContextInterface
    */
   public function getSceneManager(): SceneManager
   {
-    // TODO: Implement getSceneManager() method.
+    return SceneManager::getInstance($this->scene->getGame());
   }
 }

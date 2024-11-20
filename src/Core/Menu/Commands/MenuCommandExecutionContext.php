@@ -6,6 +6,7 @@ use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
+use Ichiloto\Engine\Scenes\SceneManager;
 use Symfony\Component\Console\Output\OutputInterface;
 
 /**
@@ -74,5 +75,15 @@ class MenuCommandExecutionContext implements ExecutionContextInterface
   public function getGame(): Game
   {
     return $this->getScene()->getGame();
+  }
+
+  /**
+   * Return the scene manager
+   *
+   * @return SceneManager The scene manager.
+   */
+  public function getSceneManager(): SceneManager
+  {
+    return SceneManager::getInstance($this->getGame());
   }
 }

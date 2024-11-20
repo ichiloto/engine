@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Core\Menu;
 
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
+use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuItemInterface;
 
 /**
@@ -20,6 +21,7 @@ abstract class MenuItem implements Interfaces\MenuItemInterface
    * @param string $icon The icon of the menu item.
    */
   public function __construct(
+    protected MenuInterface $menu,
     protected string $label,
     protected string $description,
     protected string $icon = ''

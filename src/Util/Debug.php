@@ -146,6 +146,6 @@ final class Debug
    */
   private static function getFormattedMessage(Stringable|string $message, string $prefix = 'DEBUG'): string
   {
-    return sprintf("[%s] %s - %s", date('Y-m-d H:i:s+Z'), $prefix, $message) . PHP_EOL;
+    return sprintf("[%s] %s - %s", date(DATE_ATOM), $prefix, $message) . PHP_EOL;
   }
 }

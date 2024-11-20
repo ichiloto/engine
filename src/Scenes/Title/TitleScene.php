@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Scenes\Title;
 
 use Ichiloto\Engine\Core\Menu\Commands\LoadSceneCommand;
+use Ichiloto\Engine\Core\Menu\Commands\NewGameCommand;
 use Ichiloto\Engine\Core\Menu\Commands\QuitGameCommand;
 use Ichiloto\Engine\Core\Menu\TitleMenu\TitleMenu;
 use Ichiloto\Engine\Core\Rect;
@@ -67,9 +68,9 @@ class TitleScene extends AbstractScene
     );
     $this
       ->menu
-      ->addItem(new LoadSceneCommand('New Game', 'Start a new game.', '', 'game'))
-      ->addItem(new LoadSceneCommand('Continue', 'Start a new game.', '', 'continue'))
-      ->addItem(new QuitGameCommand());
+      ->addItem(new NewGameCommand($this->menu))
+      ->addItem(new LoadSceneCommand($this->menu, 'Continue', 'Start a new game.', '', 'continue'))
+      ->addItem(new QuitGameCommand($this->menu));
     $this->renderHeader();
     usleep(300);
     $this->menu->render();
