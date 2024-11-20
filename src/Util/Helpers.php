@@ -364,7 +364,7 @@ if (! file_exists('get_local_timezone') ) {
       if (str_contains($line, 'Local time')) {
         // Extract the timezone part
         preg_match('/Local time: (.*)\s([A-Z]{1,5})$/', $line, $matches);
-        return $matches[2] ?? 'Timezone not found';
+        return $matches[2] ?? '';
       }
     }
 

@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\IO;
 
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\KeyboardEvent;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
@@ -23,14 +24,20 @@ class InputManager
    * @var string
    */
   private static string $keyPress = '';
+  /**
+   * @var EventManager|null The event manager.
+   */
+  private static ?EventManager $eventManager = null;
 
   /**
    * Initializes the InputManager.
    *
+   * @param Game $game The instance of the game
    * @return void
    */
-  public static function init(): void
+  public static function init(Game $game): void
   {
+    self::$eventManager = EventManager::getInstance($game);
     self::$previousKeyPress = self::$keyPress = '';
   }
 
@@ -75,7 +82,7 @@ class InputManager
     }
 
     if (self::$keyPress) {
-      EventManager::getInstance()->dispatchEvent(event: new KeyboardEvent(key: self::getKey(keyPress: self::$keyPress)));
+      self::$eventManager?->dispatchEvent(event: new KeyboardEvent(key: self::getKey(keyPress: self::$keyPress)));
     }
   }
 

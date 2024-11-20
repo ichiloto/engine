@@ -7,6 +7,7 @@ use Ichiloto\Engine\Core\Interfaces\CanActivate;
 use Ichiloto\Engine\Core\Interfaces\CanRenderAt;
 use Ichiloto\Engine\Core\Interfaces\CanUpdate;
 use Ichiloto\Engine\Events\Interfaces\SubjectInterface;
+use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\UI\Interfaces\SelectableInterface;
 
 /**
@@ -16,6 +17,12 @@ use Ichiloto\Engine\UI\Interfaces\SelectableInterface;
  */
 interface MenuInterface extends CanUpdate, CanRenderAt, CanActivate, SubjectInterface, SelectableInterface
 {
+  /**
+   * Returns the scene.
+   *
+   * @return SceneInterface The scene.
+   */
+  public function getScene(): SceneInterface;
   /**
    * Returns the title of the menu.
    *
@@ -57,33 +64,33 @@ interface MenuInterface extends CanUpdate, CanRenderAt, CanActivate, SubjectInte
    * Sets the list of items in the menu.
    *
    * @param ItemList $items The list of items in the menu.
-   * @return void
+   * @return self The menu with the items set.
    */
-  public function setItems(ItemList $items): void;
+  public function setItems(ItemList $items): self;
 
   /**
    * Adds an item to the menu.
    *
    * @param MenuItemInterface $item The item to add to the menu.
-   * @return void
+   * @return self The menu with the item added.
    */
-  public function addItem(MenuItemInterface $item): void;
+  public function addItem(MenuItemInterface $item): self;
 
   /**
    * Removes an item from the menu.
    *
    * @param MenuItemInterface $item The item to remove from the menu.
-   * @return void
+   * @return self The menu with the item removed.
    */
-  public function removeItem(MenuItemInterface $item): void;
+  public function removeItem(MenuItemInterface $item): self;
 
   /**
    * Removes an item from the menu by its index.
    *
    * @param int $index The index of the item to remove from the menu.
-   * @return void
+   * @return self The menu with the item removed.
    */
-  public function removeItemByIndex(int $index): void;
+  public function removeItemByIndex(int $index): self;
 
   /**
    * Returns an item from the menu by its index.

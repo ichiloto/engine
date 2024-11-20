@@ -2,7 +2,10 @@
 
 namespace Ichiloto\Engine\Scenes\Title;
 
+use Ichiloto\Engine\Core\Menu\Commands\LoadSceneCommand;
+use Ichiloto\Engine\Core\Menu\Commands\QuitGameCommand;
 use Ichiloto\Engine\Core\Menu\TitleMenu\TitleMenu;
+use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Scenes\AbstractScene;
 use Ichiloto\Engine\Util\Debug;
@@ -26,6 +29,18 @@ class TitleScene extends AbstractScene
    * @var string
    */
   protected string $headerContent = '';
+  /**
+   * The header.
+   *
+   * @var array
+   */
+  protected array $headerLines = [];
+  /**
+   * The header height.
+   *
+   * @var int
+   */
+  protected int $headerHeight = 0;
 
   /**
    * @inheritDoc
@@ -33,11 +48,31 @@ class TitleScene extends AbstractScene
   #[Override]
   public function start(): void
   {
-    $this->menu = new TitleMenu('', '');
+    $menuWidth = 20;
+    $menuHeight = 3;
+
     parent::start();
     $this->headerContent = graphics('System/title');
+    $this->headerLines = explode("\n", $this->headerContent);
+    $this->headerHeight = count($this->headerLines);
 
+    $leftMargin = intval((DEFAULT_SCREEN_WIDTH - $menuWidth) / 2);
+    $topMargin = $this->headerHeight + 2;
+
+    $this->menu = new TitleMenu(
+      $this,
+      '',
+      '',
+      rect: new Rect($leftMargin, $topMargin, $menuWidth, $menuHeight)
+    );
+    $this
+      ->menu
+      ->addItem(new LoadSceneCommand('New Game', 'Start a new game.', '', 'game'))
+      ->addItem(new LoadSceneCommand('Continue', 'Start a new game.', '', 'continue'))
+      ->addItem(new QuitGameCommand());
     $this->renderHeader();
+    usleep(300);
+    $this->menu->render();
   }
 
   /**
@@ -48,17 +83,6 @@ class TitleScene extends AbstractScene
   {
     parent::update();
     $this->menu->update();
-    Debug::log('TitleScene::update()');
-  }
-
-  /**
-   * @inheritDoc
-   */
-  #[Override]
-  public function render(): void
-  {
-    parent::render();
-    $this->menu->render();
   }
 
   /**
@@ -68,20 +92,15 @@ class TitleScene extends AbstractScene
    */
   public function renderHeader(): void
   {
-    Debug::log('TitleScene::renderHeader()');
-    $header = explode("\n", $this->headerContent);
     $headerWidth = 0;
-    $headerHeight = count($header);
 
-    foreach ($header as $line) {
-      $headerWidth = max($headerWidth, strlen($line));
+    foreach ($this->headerLines as $line) {
+      $headerWidth = max($headerWidth, mb_strlen($line));
     }
 
-    $x = ($this->headerContent - $headerWidth) / 2;
-    $y = 0;
+    $x = intval((DEFAULT_SCREEN_WIDTH - $headerWidth) / 2);
+    $y = 2;
 
-    for ($i = 0; $i < $headerHeight; $i++) {
-      Console::write($header[$i], $x, $y + $i);
-    }
+    Console::write($this->headerContent, $x, $y);
   }
 }

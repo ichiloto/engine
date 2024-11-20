@@ -2,10 +2,12 @@
 
 namespace Ichiloto\Engine\Core\Menu\TitleMenu;
 
+use Ichiloto\Engine\Core\Menu\Commands\MenuCommandExecutionContext;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuItemInterface;
 use Ichiloto\Engine\Core\Menu\Menu;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
+use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
@@ -13,6 +15,8 @@ use Ichiloto\Engine\UI\Windows\Enumerations\VerticalAlignment;
 use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\UI\Windows\WindowAlignment;
 use Ichiloto\Engine\UI\Windows\WindowPadding;
+use Ichiloto\Engine\Util\Debug;
+use Symfony\Component\Console\Output\ConsoleOutput;
 
 /**
  * The TitleMenu class. Represents the title menu.
@@ -21,10 +25,6 @@ use Ichiloto\Engine\UI\Windows\WindowPadding;
  */
 class TitleMenu extends Menu
 {
-  /**
-   * @var int $selectedIndex The index of the selected item.
-   */
-  protected int $selectedIndex = 0;
   /**
    * @var Window|null $window The window of the menu.
    */
@@ -37,27 +37,36 @@ class TitleMenu extends Menu
    * @var WindowPadding $padding The padding of the menu.
    */
   protected WindowPadding $padding;
+  /**
+   * @var MenuCommandExecutionContext $executionContext The menu command execution context.
+   */
+  protected MenuCommandExecutionContext $executionContext;
 
   /**
    * @inheritDoc
    */
   public function activate(): void
   {
-
     $this->alignment = new WindowAlignment(HorizontalAlignment::LEFT, VerticalAlignment::MIDDLE);
     $this->padding = new WindowPadding(1, 1, 1, 1);
 
     $this->window = new Window(
       '',
       '',
-      new Vector2(0, 4),
-      30,
-      21,
+      new Vector2($this->rect->getX(), $this->rect->getY()),
+      $this->rect->getWidth(),
+      $this->rect->getHeight(),
       new DefaultBorderPack(),
       $this->alignment,
       $this->padding,
     );
 
+    $this->executionContext = new MenuCommandExecutionContext(
+      [],
+      new ConsoleOutput(),
+      $this,
+      $this->getScene(),
+    );
     $this->updateWindowContent();
   }
 
@@ -93,15 +102,21 @@ class TitleMenu extends Menu
     $v = Input::getAxis(AxisName::VERTICAL);
 
     if (abs($v) > 0) {
-      $this->selectedIndex += $v;
-      $this->selectedIndex = wrap($this->selectedIndex, 0, $this->totalItems - 1);
+      $this->activeIndex += $v;
+      $this->activeIndex = wrap($this->activeIndex, 0, $this->totalItems - 1);
+      $this->updateWindowContent();
+      $this->render();
+    }
+
+    if (Input::isAnyKeyPressed([KeyCode::ENTER])) {
+      $this->items->toArray()[$this->activeIndex]->execute($this->executionContext);
     }
   }
 
   /**
    * Updates the window content.
    */
-  private function updateWindowContent(): void
+  protected function updateWindowContent(): void
   {
     $content = [];
     /**

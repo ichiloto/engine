@@ -2,13 +2,20 @@
 
 namespace Ichiloto\Engine\Scenes;
 
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameObject;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\UI\UIManager;
 
-class AbstractScene implements SceneInterface
+abstract class AbstractScene implements SceneInterface
 {
+  /**
+   * Whether the scene has started.
+   *
+   * @var bool
+   */
+  protected bool $started = false;
   /**
    * The root game objects.
    *
@@ -123,6 +130,8 @@ class AbstractScene implements SceneInterface
         $gameObject->start();
       }
     }
+
+    $this->started = true;
   }
 
   /**
@@ -137,6 +146,8 @@ class AbstractScene implements SceneInterface
         $gameObject->stop();
       }
     }
+
+    $this->started = false;
   }
 
   /**
@@ -151,5 +162,21 @@ class AbstractScene implements SceneInterface
         $gameObject->update();
       }
     }
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function isStarted(): bool
+  {
+    return $this->started;
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function getGame(): Game
+  {
+    return $this->sceneManager->getGame();
   }
 }

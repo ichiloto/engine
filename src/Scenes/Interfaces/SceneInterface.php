@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Scenes\Interfaces;
 
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameObject;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Core\Interfaces\CanResume;
@@ -16,6 +17,13 @@ use Ichiloto\Engine\UI\UIManager;
  */
 interface SceneInterface extends CanStart, CanResume, CanUpdate, CanRender
 {
+  /**
+   * Gets the game.
+   *
+   * @return Game The game.
+   */
+  public function getGame(): Game;
+
   /**
    * Gets the name of the scene.
    *
@@ -36,4 +44,11 @@ interface SceneInterface extends CanStart, CanResume, CanUpdate, CanRender
    * @return UIManager The UI manager.
    */
   public function getUI(): UIManager;
+
+  /**
+   * Returns whether the scene is started.
+   *
+   * @return bool Whether the scene is started.
+   */
+  public function isStarted(): bool;
 }

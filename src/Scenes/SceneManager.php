@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Scenes;
 
 use Assegai\Collections\ItemList;
 use Exception;
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Core\Interfaces\CanStart;
 use Ichiloto\Engine\Core\Interfaces\CanUpdate;
@@ -14,7 +15,12 @@ use Ichiloto\Engine\Events\SceneEvent;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 
-class SceneManager implements CanStart, CanRender, CanUpdate, SingletonInterface
+/**
+ * SceneManager is a class that manages scenes.
+ *
+ * @package Ichiloto\Engine\Scenes
+ */
+class SceneManager implements CanStart, CanRender, CanUpdate
 {
   /**
    * The instance of this singleton.
@@ -39,19 +45,22 @@ class SceneManager implements CanStart, CanRender, CanUpdate, SingletonInterface
   /**
    * SceneManager constructor.
    */
-  private function __construct()
+  private function __construct(protected Game $game)
   {
     $this->scenes = new ItemList(SceneInterface::class);
-    $this->eventManager = EventManager::getInstance();
+    $this->eventManager = EventManager::getInstance($game);
   }
 
   /**
-   * @inheritDoc
+   * Return the instance of the scene manager.
+   *
+   * @param Game $game The game.
+   * @return SceneManager
    */
-  public static function getInstance(): SceneManager
+  public static function getInstance(Game $game): SceneManager
   {
     if (self::$instance === null) {
-      self::$instance = new SceneManager();
+      self::$instance = new SceneManager($game);
     }
 
     return self::$instance;
@@ -67,7 +76,6 @@ class SceneManager implements CanStart, CanRender, CanUpdate, SingletonInterface
   {
     foreach ($scenes as $scene) {
       $this->scenes->add($scene);
-      $scene->start();
     }
 
     return $this;
@@ -133,7 +141,11 @@ class SceneManager implements CanStart, CanRender, CanUpdate, SingletonInterface
 
     $this->currentScene?->suspend();
     $this->currentScene = $sceneToLoad;
-    $this->currentScene?->resume();
+    if ($this->currentScene?->isStarted()) {
+      $this->currentScene?->resume();
+    } else {
+      $this->currentScene?->start();
+    }
 
     $this->eventManager->dispatchEvent(new SceneEvent(SceneEventType::LOAD_END, $this->currentScene));
 
@@ -174,5 +186,13 @@ class SceneManager implements CanStart, CanRender, CanUpdate, SingletonInterface
   public function getCurrentScene(): ?SceneInterface
   {
     return $this->currentScene;
+  }
+
+  /**
+   * @return Game
+   */
+  public function getGame(): Game
+  {
+    return $this->game;
   }
 }

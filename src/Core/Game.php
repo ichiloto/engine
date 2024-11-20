@@ -28,6 +28,7 @@ use Ichiloto\Engine\Scenes\Title\TitleScene;
 use Ichiloto\Engine\Util\Config\AppConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
 use Throwable;
 
@@ -81,10 +82,10 @@ class Game implements CanRun, SubjectInterface
   {
     try {
       $this->configureErrorAndExceptionHandlers();
+      $this->initializeObservers();
       $this->initializeConfigStore();
       $this->initializeDebugger();
       $this->initializeManagers();
-      $this->initializeObservers();
 
       $this->configure([...$this->options, 'name' => $name, 'screen' => ['width' => $width, 'height' => $height]]);
 
@@ -146,8 +147,6 @@ class Game implements CanRun, SubjectInterface
         $this->update();
         $this->render();
       }
-
-      $this->stop();
     } catch (Exception $exception) {
       $this->handleException($exception);
     }
@@ -257,9 +256,10 @@ class Game implements CanRun, SubjectInterface
    */
   private function initializeManagers(): void
   {
-    $this->sceneManager = SceneManager::getInstance();
-    $this->eventManager = EventManager::getInstance();
-    $this->notificationManager = NotificationManager::getInstance();
+    $this->sceneManager = SceneManager::getInstance($this);
+    $this->eventManager = EventManager::getInstance($this);
+    $this->notificationManager = NotificationManager::getInstance($this);
+    InputManager::init($this);
   }
 
   /**
@@ -303,6 +303,11 @@ class Game implements CanRun, SubjectInterface
         throw new Exception("Could not create log directory: $logDirectory");
       }
     }
+
+    Debug::configure([
+      'log_level' => config(AppConfig::class, 'debug.level') ?? 1,
+      'log_directory' => $logDirectory
+    ]);
   }
 
   /**
@@ -375,8 +380,19 @@ class Game implements CanRun, SubjectInterface
         $observer::onNotify($entity, $event);
       }
     } catch (Error|Exception|Throwable $exception) {
-      $this->handleException($exception);
+      exit($exception);
     }
+  }
+
+  /**
+   * Quit the game.
+   *
+   * @return void
+   */
+  public function quit(): void
+  {
+    $this->notify($this, new GameEvent(GameEventType::QUIT));
+    $this->stop();
   }
 
   /**
@@ -401,8 +417,7 @@ class Game implements CanRun, SubjectInterface
     $this->eventManager->addEventListener(EventType::GAME, function (GameEvent $event) {
       switch ($event->getGameEventType()) {
         case GameEventType::QUIT:
-          $this->notify($this, new GameEvent(GameEventType::QUIT));
-          $this->stop();
+          $this->quit();
           break;
 
         default:
@@ -538,5 +553,6 @@ SPLASH_SCREEN;
   {
     ConfigStore::put(PlaySettings::class, new PlaySettings($this->options));
     ConfigStore::put(AppConfig::class, new AppConfig());
+    ConfigStore::put(ProjectConfig::class, new ProjectConfig());
   }
 }
