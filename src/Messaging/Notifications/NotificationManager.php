@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Messaging\Notifications;
 
 use Assegai\Collections\Queue;
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Core\Interfaces\CanResume;
 use Ichiloto\Engine\Core\Interfaces\CanUpdate;
@@ -21,7 +22,7 @@ use Ichiloto\Engine\Messaging\Notifications\Interfaces\NotificationInterface;
  *
  * @package Ichiloto\Engine\Messaging\Notifications
  */
-class NotificationManager implements CanUpdate, CanResume, CanRender, SingletonInterface
+class NotificationManager implements CanUpdate, CanResume, CanRender
 {
   /**
    * @var NotificationManager|null The instance of the notification manager.
@@ -59,11 +60,11 @@ class NotificationManager implements CanUpdate, CanResume, CanRender, SingletonI
   /**
    * NotificationManager constructor.
    */
-  private function __construct()
+  private function __construct(protected Game $game)
   {
     $this->notifications = new Queue(NotificationInterface::class);
 
-    $this->eventManager = EventManager::getInstance();
+    $this->eventManager = EventManager::getInstance($game);
 
     $this->initializeEventHandlers();
     $this->eventManager->addEventListener(EventType::SCENE, $this->sceneEventHandler);
@@ -83,11 +84,10 @@ class NotificationManager implements CanUpdate, CanResume, CanRender, SingletonI
   /**
    * @inheritDoc
    */
-  public static function getInstance(): static
+  public static function getInstance(Game $game): static
   {
-    if (self::$instance === null)
-    {
-      self::$instance = new NotificationManager();
+    if (self::$instance === null) {
+      self::$instance = new NotificationManager($game);
     }
 
     return self::$instance;

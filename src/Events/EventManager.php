@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Events;
 
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Interfaces\SingletonInterface;
 use Ichiloto\Engine\Events\Enumerations\EventType;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
@@ -14,7 +15,7 @@ use RuntimeException;
  *
  * @package Ichiloto\Engine\Events
  */
-class EventManager implements SingletonInterface, EventTargetInterface
+class EventManager implements EventTargetInterface
 {
   /**
    * @var EventManager|null The instance of the event manager.
@@ -27,12 +28,23 @@ class EventManager implements SingletonInterface, EventTargetInterface
   protected array $listeners = [];
 
   /**
-   * @inheritDoc
+   * EventManager constructor.
+   *
+   * @param Game $game The game.
    */
-  public static function getInstance(): self
+  private function __construct(protected Game $game)
+  {
+  }
+
+  /**
+   * Return the instance of the event manager.
+   *
+   * @param Game $game The game.
+   */
+  public static function getInstance(Game $game): self
   {
     if (self::$instance === null) {
-      self::$instance = new EventManager();
+      self::$instance = new EventManager($game);
     }
 
     return self::$instance;

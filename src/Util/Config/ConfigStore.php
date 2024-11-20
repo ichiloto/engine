@@ -27,11 +27,7 @@ final class ConfigStore
    */
   public static function get(string $configClass): ConfigInterface
   {
-    if (self::doesntHave($configClass)) {
-      throw new InvalidArgumentException("Config class not found: $configClass");
-    }
-
-    return self::$store[$configClass];
+    return self::$store[$configClass] ?? throw new InvalidArgumentException("Config class not found: $configClass");
   }
 
   /**

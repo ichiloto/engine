@@ -6,10 +6,13 @@ use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuItemInterface;
+use Ichiloto\Engine\Core\Rect;
+use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Events\Enumerations\MenuEventType;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
 use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
 use Ichiloto\Engine\Events\MenuEvent;
+use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use InvalidArgumentException;
 
 /**
@@ -40,16 +43,19 @@ abstract class Menu implements MenuInterface
    * @param ItemList $items The items of the menu.
    */
   public function __construct(
+    protected SceneInterface $scene,
     protected string $title,
     protected string $description = '',
     protected ItemList $items = new ItemList(MenuItemInterface::class),
     protected string $cursor = '>',
+    protected Rect $rect = new Rect(0, 0, DEFAULT_DIALOG_WIDTH, DEFAULT_DIALOG_HEIGHT)
   )
   {
     $this->observers = new ItemList(ObserverInterface::class);
     $this->totalItems = $this->items->count();
     $this->cursor = substr($cursor, 0, 1);
     $this->activate();
+    $this->updateWindowContent();
   }
 
   /**
@@ -58,6 +64,14 @@ abstract class Menu implements MenuInterface
   public function __destruct()
   {
     $this->deactivate();
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function getScene(): SceneInterface
+  {
+    return $this->scene;
   }
 
   /**
@@ -103,48 +117,52 @@ abstract class Menu implements MenuInterface
   /**
    * @inheritDoc
    */
-  public function setItems(ItemList $items): void
+  public function setItems(ItemList $items): self
   {
     $this->items = $items;
     $this->totalItems = $this->items->count();
+    $this->updateWindowContent();
     $this->notify($this, new MenuEvent(MenuEventType::ITEMS_SET));
+    return $this;
   }
 
   /**
    * @inheritDoc
    */
-  public function addItem(MenuItemInterface $item): void
+  public function addItem(MenuItemInterface $item): self
   {
     $this->items->add($item);
     $this->totalItems = $this->items->count();
+    $this->updateWindowContent();
     $this->notify($this, new MenuEvent(MenuEventType::ITEM_ADDED));
+
+    return $this;
   }
 
   /**
    * @inheritDoc
    */
-  public function removeItem(MenuItemInterface $item): void
+  public function removeItem(MenuItemInterface $item): self
   {
     $this->items->remove($item);
     $this->totalItems = $this->items->count();
+    $this->updateWindowContent();
     $this->notify($this, new MenuEvent(MenuEventType::ITEM_REMOVED));
+    return $this;
   }
 
   /**
-   * Removes an item from the menu by its index.
-   *
-   * @param int $index The index of the item to remove.
-   * @return void
+   * @inheritDoc
    */
-  public function removeItemByIndex(int $index): void
+  public function removeItemByIndex(int $index): self
   {
     $itemsAsArray = $this->items->toArray();
-
     $item = $itemsAsArray[$index] ?? null;
 
     if ($item) {
       $this->removeItem($item);
     }
+    return $this;
   }
 
   /**
@@ -301,4 +319,11 @@ abstract class Menu implements MenuInterface
     $this->activeIndex = -1;
     $this->render();
   }
+
+  /**
+   * Updates the menu window content.
+   *
+   * @return void
+   */
+  protected abstract function updateWindowContent(): void;
 }

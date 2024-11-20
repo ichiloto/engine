@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\IO\Console;
 use Exception;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
+use Ichiloto\Engine\Util\Debug;
 use Symfony\Component\Console\Output\ConsoleOutput;
 
 class Console
@@ -175,16 +176,14 @@ class Console
     $cursor = self::cursor();
 
     $output = '';
-    foreach ($textRows as $rowIndex => $text)
-    {
+    foreach ($textRows as $rowIndex => $text) {
       $currentBufferRow = $y + $rowIndex;
 
-      if (!isset(self::$buffer[$currentBufferRow]))
-      {
+      if (!isset(self::$buffer[$currentBufferRow])) {
         self::$buffer[$currentBufferRow] = str_repeat(' ', DEFAULT_SCREEN_WIDTH);
       }
 
-      self::$buffer[$currentBufferRow] = substr_replace(self::$buffer[$currentBufferRow], $text, $x, strlen($text));
+      self::$buffer[$currentBufferRow] = substr_replace(self::$buffer[$currentBufferRow], $text, $x, mb_strlen($text));
       $output .= self::$buffer[$currentBufferRow] . "\n";
     }
 

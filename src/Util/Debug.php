@@ -19,6 +19,26 @@ final class Debug
   const int INFO = 1;
   const int WARNING = 2;
   const int ERROR = 3;
+  /**
+   * @var int The log level.
+   */
+  protected static int $logLevel = 1;
+  /**
+   * @var string The log directory path.
+   */
+  protected static string $logDirectory = '';
+
+  /**
+   * Configures the debug utility.
+   *
+   * @param array $options The options to use.
+   * @return void
+   */
+  public static function configure(array $options = []): void
+  {
+    self::$logLevel = $options['log_level'] ?? self::INFO;
+    self::$logDirectory = $options['log_directory'] ?? Path::join(Path::getCurrentWorkingDirectory(), 'logs');
+  }
 
   /**
    * Gets the log directory.
@@ -27,7 +47,7 @@ final class Debug
    */
   private static function getLogDirectory(): string
   {
-    return Path::join(Path::getCurrentWorkingDirectory(), 'logs');
+    return self::$logDirectory;
   }
 
   /**
@@ -74,7 +94,7 @@ final class Debug
    */
   public static function info(Stringable|string $message): void
   {
-    if (config(AppConfig::class, 'debug.level') < self::INFO) {
+    if (self::$logLevel < self::INFO) {
       return;
     }
 
@@ -91,7 +111,7 @@ final class Debug
    */
   public static function warn(Stringable|string $message): void
   {
-    if (config(AppConfig::class, 'debug.level') < self::WARNING) {
+    if (self::$logLevel < self::WARNING) {
       return;
     }
 
@@ -108,7 +128,7 @@ final class Debug
    */
   public static function error(Stringable|string $message): void
   {
-    if (config(AppConfig::class, 'debug.level') < self::ERROR) {
+    if (self::$logLevel < self::ERROR) {
       return;
     }
 
@@ -126,6 +146,6 @@ final class Debug
    */
   private static function getFormattedMessage(Stringable|string $message, string $prefix = 'DEBUG'): string
   {
-    return sprintf("[%s] %s - %s", date('Y-m-d H:i:s'), $prefix, $message) . PHP_EOL;
+    return sprintf("[%s] %s - %s", date('Y-m-d H:i:s+Z'), $prefix, $message) . PHP_EOL;
   }
 }
