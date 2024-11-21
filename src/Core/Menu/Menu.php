@@ -305,7 +305,7 @@ abstract class Menu implements MenuInterface
   /**
    * @inheritDoc
    */
-  public function execute(ExecutionContextInterface $context = null): int
+  public function execute(?ExecutionContextInterface $context = null): int
   {
     // Do nothing
     return self::SUCCESS;
