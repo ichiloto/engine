@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core\Menu\Commands;
 
+use Assegai\Util\Path;
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\MenuItem;
@@ -9,16 +10,12 @@ use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Util\Debug;
 
-/**
- * NewGameCommand is a command that starts a new game.
- *
- * @package Ichiloto\Engine\Core\Menu\Commands
- */
-class NewGameCommand extends MenuItem
+class ContinueGameCommand extends MenuItem
 {
   /**
-   * NewGameCommand constructor.
+   * ContinueGameCommand constructor.
    *
    * @param MenuInterface $menu The menu.
    * @param GameLoader $gameLoader The game loader.
@@ -28,8 +25,9 @@ class NewGameCommand extends MenuItem
     protected GameLoader $gameLoader
   )
   {
-    $label = config(ProjectConfig::class, 'vocab.command.new_game') ?? 'New Game';
-    parent::__construct($menu, $label, 'Start a new game.', '');
+    $label = config(ProjectConfig::class, 'vocab.command.continue') ?? 'Continue';
+    parent::__construct($menu, $label, 'Continue the game.', '');
+    $this->disabled = true;
   }
 
   /**
@@ -47,7 +45,14 @@ class NewGameCommand extends MenuItem
     if (! $currentScene instanceof GameScene ) {
       throw new NotFoundException('The current scene is not a game scene.');
     }
-    $currentScene->configure($this->gameLoader->loadNewGame());
+
+    // TODO: Fetch the saved game file path from the game loader.
+    $savedGameFilePath = '';
+    foreach ($saveFiles = $sceneManager->getSaveManager()->getSaveFiles() as $index => $path ) {
+      Debug::log("Path $index: $path");
+    }
+
+    $currentScene->configure($this->gameLoader->loadSavedGame($savedGameFilePath));
 
     return self::SUCCESS;
   }

@@ -108,7 +108,11 @@ class Game implements CanRun, SubjectInterface
   public function __destruct()
   {
     Console::restoreTerminalSettings();
-    Console::reset();
+//    Console::clear();
+
+    if ($lastError = error_get_last()) {
+      $this->handleError($lastError['type'], $lastError['message'], $lastError['file'], $lastError['line']);
+    }
   }
 
   /**

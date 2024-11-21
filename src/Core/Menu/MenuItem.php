@@ -5,13 +5,14 @@ namespace Ichiloto\Engine\Core\Menu;
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuItemInterface;
+use Ichiloto\Engine\Util\Debug;
 
 /**
  * Represents a menu item.
  *
  * @package Ichiloto\Engine\Core\Menu
  */
-abstract class MenuItem implements Interfaces\MenuItemInterface
+abstract class MenuItem implements MenuItemInterface
 {
   /**
    * Creates a new menu item instance.
@@ -24,7 +25,8 @@ abstract class MenuItem implements Interfaces\MenuItemInterface
     protected MenuInterface $menu,
     protected string $label,
     protected string $description,
-    protected string $icon = ''
+    protected string $icon = '',
+    protected bool $disabled = false
   )
   {
   }
@@ -50,6 +52,10 @@ abstract class MenuItem implements Interfaces\MenuItemInterface
     }
 
     $output .= $this->label;
+
+    if ($this->disabled) {
+      $output = "\e[2;37m$output\e[0m";
+    }
 
     return $output;
   }
