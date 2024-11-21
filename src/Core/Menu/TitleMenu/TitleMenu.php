@@ -7,6 +7,7 @@ use Ichiloto\Engine\Core\Menu\Interfaces\MenuItemInterface;
 use Ichiloto\Engine\Core\Menu\Menu;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
+use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
@@ -15,7 +16,6 @@ use Ichiloto\Engine\UI\Windows\Enumerations\VerticalAlignment;
 use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\UI\Windows\WindowAlignment;
 use Ichiloto\Engine\UI\Windows\WindowPadding;
-use Ichiloto\Engine\Util\Debug;
 use Symfony\Component\Console\Output\ConsoleOutput;
 
 /**
@@ -124,10 +124,11 @@ class TitleMenu extends Menu
      * @var MenuItemInterface $item
      */
     foreach ($this->items as $itemIndex => $item) {
-      $output = '  ' . $item->getLabel();
+      $label = $item->getLabel() === Color::BLUE->value . "Continue" . Color::RESET->value ? 'C' : $item->getLabel();
+      $output = '  ' . $label;
 
       if ($itemIndex === $this->activeIndex) {
-        $output = "{$this->cursor} {$item->getLabel()}";
+        $output = "{$this->cursor} {$label}";
       }
       $content[] = $output;
     }

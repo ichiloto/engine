@@ -14,6 +14,8 @@ use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
 use Ichiloto\Engine\UI\Windows\Enumerations\VerticalAlignment;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Interfaces\WindowInterface;
+use Symfony\Component\Console\Output\ConsoleOutput;
+use Symfony\Component\Console\Output\OutputInterface;
 
 /**
  * Class Window. The base class for all windows.
@@ -36,6 +38,10 @@ class Window implements WindowInterface
    * @var Cursor The window's cursor.
    */
   protected Cursor $cursor;
+  /**
+   * @var OutputInterface The window's output.
+   */
+  protected OutputInterface $output;
 
   /**
    * Window constructor.
@@ -65,6 +71,7 @@ class Window implements WindowInterface
     $this->observers = new ItemList(ObserverInterface::class);
     $this->setContent(array_fill(0, $this->height - 2, ' '));
     $this->cursor = Console::cursor();
+    $this->output = new ConsoleOutput();
   }
 
   /**
@@ -79,9 +86,9 @@ class Window implements WindowInterface
     $output = $this->getTopBorder();
     Console::cursor()->moveTo($leftMargin, $topMargin);
     if ($this->foregroundColor) {
-      echo $this->foregroundColor->value . $output . Color::RESET->value;
+      $this->output->write($this->foregroundColor->value . $output . Color::RESET->value);
     } else {
-      echo $output;
+      $this->output->write($output);
     }
 
     // Render the content

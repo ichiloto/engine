@@ -3,7 +3,7 @@
     "description": "A simple game engine for making terminal based JRPGs, lovingly written in PHP.",
     "type": "library",
     "require": {
-        "php": "^8.3",
+        "php": "^8.4",
         "symfony/console": "^7.1",
         "league/climate": "^3.9",
         "assegaiphp/collections": "^0.3.2",

@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Scenes\Interfaces;
 
+use Ichiloto\Engine\Scenes\SceneStateContext;
+
 /**
  * Interface SceneStateInterface
  *
@@ -19,9 +21,10 @@ interface SceneStateInterface
   /**
    * Executes the scene state.
    *
+   * @param SceneStateContext|null $context The context of the scene state.
    * @return void
    */
-  public function execute(): void;
+  public function execute(?SceneStateContext $context = null): void;
 
   /**
    * Exits the scene state.

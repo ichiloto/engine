@@ -13,6 +13,8 @@ use Ichiloto\Engine\Events\Enumerations\SceneEventType;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\SceneEvent;
 use Ichiloto\Engine\Exceptions\NotFoundException;
+use Ichiloto\Engine\IO\SaveManager;
+use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 
 /**
@@ -32,6 +34,10 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    */
   protected EventManager $eventManager;
   /**
+   * @var SaveManager The save manager.
+   */
+  protected SaveManager $saveManager;
+  /**
    * The scenes in the scene manager.
    * @var ItemList<SceneInterface>
    */
@@ -48,7 +54,8 @@ class SceneManager implements CanStart, CanRender, CanUpdate
   private function __construct(protected Game $game)
   {
     $this->scenes = new ItemList(SceneInterface::class);
-    $this->eventManager = EventManager::getInstance($game);
+    $this->eventManager = EventManager::getInstance($this->game);
+    $this->saveManager = SaveManager::getInstance($this->game);
   }
 
   /**
@@ -194,5 +201,15 @@ class SceneManager implements CanStart, CanRender, CanUpdate
   public function getGame(): Game
   {
     return $this->game;
+  }
+
+  /**
+   * Return the save manager
+   *
+   * @return SaveManager The save manager.
+   */
+  public function getSaveManager(): SaveManager
+  {
+    return $this->saveManager;
   }
 }

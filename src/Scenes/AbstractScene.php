@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Scenes;
 
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameObject;
+use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\UI\UIManager;

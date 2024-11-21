@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core\Menu\Commands;
 
+use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\MenuItem;
 
 /**
@@ -20,12 +21,13 @@ class LoadSceneCommand extends MenuItem
    * @param string|int $index The index of the scene to load.
    */
   public function __construct(
+    MenuInterface $menu,
     string $label,
     string $description,
     string $icon = '',
     protected string|int $index = ''
   )
   {
-    parent::__construct($label, $description, $icon);
+    parent::__construct($menu, $label, $description, $icon);
   }
 }
