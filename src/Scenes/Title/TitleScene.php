@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Scenes\Title;
 
+use Ichiloto\Engine\Core\Menu\Commands\ContinueGameCommand;
 use Ichiloto\Engine\Core\Menu\Commands\LoadSceneCommand;
 use Ichiloto\Engine\Core\Menu\Commands\NewGameCommand;
 use Ichiloto\Engine\Core\Menu\Commands\QuitGameCommand;
@@ -9,7 +10,7 @@ use Ichiloto\Engine\Core\Menu\TitleMenu\TitleMenu;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Scenes\AbstractScene;
-use Ichiloto\Engine\Util\Debug;
+use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Override;
 
 /**
@@ -49,7 +50,8 @@ class TitleScene extends AbstractScene
   #[Override]
   public function start(): void
   {
-    $menuWidth = 20;
+    $gameLoader = GameLoader::getInstance($this->getGame());
+    $menuWidth = 16;
     $menuHeight = 3;
 
     parent::start();
@@ -68,8 +70,9 @@ class TitleScene extends AbstractScene
     );
     $this
       ->menu
-      ->addItem(new NewGameCommand($this->menu))
-      ->addItem(new LoadSceneCommand($this->menu, 'Continue', 'Start a new game.', '', 'continue'))
+      ->addItem(new NewGameCommand($this->menu, $gameLoader))
+      ->addItem(new ContinueGameCommand($this->menu, $gameLoader))
+      ->addItem(new LoadSceneCommand($this->menu, 'Options', 'options'))
       ->addItem(new QuitGameCommand($this->menu));
     $this->renderHeader();
     usleep(300);
