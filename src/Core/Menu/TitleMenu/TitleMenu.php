@@ -109,7 +109,8 @@ class TitleMenu extends Menu
     }
 
     if (Input::isAnyKeyPressed([KeyCode::ENTER])) {
-      $this->items->toArray()[$this->activeIndex]->execute($this->executionContext);
+      $selectedCommand = $this->items->toArray()[$this->activeIndex];
+      $selectedCommand->execute($this->executionContext);
     }
   }
 
@@ -124,12 +125,14 @@ class TitleMenu extends Menu
      * @var MenuItemInterface $item
      */
     foreach ($this->items as $itemIndex => $item) {
-      $label = $item->getLabel() === Color::BLUE->value . "Continue" . Color::RESET->value ? 'C' : $item->getLabel();
-      $output = '  ' . $label;
+      $color = $item->isDisabled() ? Color::BLUE->value : '';
+      $prefix = '  ';
 
       if ($itemIndex === $this->activeIndex) {
-        $output = "{$this->cursor} {$label}";
+        $prefix = "$this->cursor ";
       }
+
+      $output = $prefix . $item->getLabel();
       $content[] = $output;
     }
 

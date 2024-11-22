@@ -108,7 +108,7 @@ class Game implements CanRun, SubjectInterface
   public function __destruct()
   {
     Console::restoreTerminalSettings();
-//    Console::clear();
+    Console::clear();
 
     if ($lastError = error_get_last()) {
       $this->handleError($lastError['type'], $lastError['message'], $lastError['file'], $lastError['line']);
@@ -287,6 +287,8 @@ class Game implements CanRun, SubjectInterface
    */
   public function configureErrorAndExceptionHandlers(): void
   {
+    error_reporting(E_ALL);
+
     set_error_handler(function ($errno, $errstr, $errfile, $errline) {
       $this->handleError($errno, $errstr, $errfile, $errline);
     });

@@ -14,6 +14,7 @@ use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
 use Ichiloto\Engine\UI\Windows\Enumerations\VerticalAlignment;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Interfaces\WindowInterface;
+use Ichiloto\Engine\Util\Debug;
 use Symfony\Component\Console\Output\ConsoleOutput;
 use Symfony\Component\Console\Output\OutputInterface;
 
@@ -96,9 +97,9 @@ class Window implements WindowInterface
     foreach ($linesOfContent as $index => $line) {
       $this->cursor->moveTo($leftMargin, $topMargin + $index + 1);
       if ($this->foregroundColor) {
-        echo $this->foregroundColor->value . mb_substr($line, 0, $this->width) . Color::RESET->value;
+        $this->output->write($this->foregroundColor->value . mb_substr($line, 0, $this->width) . Color::RESET->value);
       } else {
-        echo mb_substr($line, 0, $this->width);
+        $this->output->write($line);
       }
     }
 
@@ -107,9 +108,9 @@ class Window implements WindowInterface
     $output = $this->getBottomBorder();
     Console::cursor()->moveTo($leftMargin, $topMargin);
     if ($this->foregroundColor) {
-      echo $this->foregroundColor->value . $output . Color::RESET->value;
+      $this->output->write($this->foregroundColor->value . $output . Color::RESET->value);
     } else {
-      echo $output;
+      $this->output->write($output);
     }
   }
 
@@ -364,9 +365,7 @@ class Window implements WindowInterface
       $rightPaddingLength = $this->width - $contentLength - $this->padding->getRightPadding() - 2;
 
       $output = $this->borderPack->getVerticalBorder();
-      $output .= str_repeat(' ', max($leftPaddingLength, 0));
-      $output .= $content;
-      $output .= str_repeat(' ', max($rightPaddingLength, 0));
+      $output .= $this->padContent($content, $leftPaddingLength, $rightPaddingLength, $this->width - 2);
       $output .= $this->borderPack->getVerticalBorder();
 
       $leftAlignedContent[] = $output;
@@ -466,5 +465,27 @@ class Window implements WindowInterface
   public function getPosition(): Vector2
   {
     return $this->position;
+  }
+
+  /**
+   * @param string $content
+   * @param int $leftPaddingLength
+   * @param int $rightPaddingLength
+   * @param int $maxLength
+   * @return string
+   */
+  private function padContent(string $content, int $leftPaddingLength, int $rightPaddingLength, int $maxLength = -1): string
+  {
+    $ansiRegex = '/\033\[[0-9;]*m/';
+    $strippedString = preg_replace($ansiRegex, '', $content);
+
+    $contentLength = mb_strlen($content) - 3;
+    Debug::log("Max length: $maxLength");
+    Debug::log("Content length: $contentLength");
+
+    $leftPadding = str_repeat(' ', max($leftPaddingLength, 0));
+    $rightPadding = str_repeat(' ', max($rightPaddingLength, 0));
+
+    return mb_substr($leftPadding . $content . $rightPadding, 0, max($contentLength, $maxLength));
   }
 }

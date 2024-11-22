@@ -25,7 +25,11 @@ abstract class Menu implements MenuInterface
   /**
    * @var int $activeIndex The index of the active item.
    */
-  protected int $activeIndex = 0;
+  public protected(set) int $activeIndex = 0 {
+    get {
+      return $this->activeIndex;
+    }
+  }
   /**
    * @var ItemList<ObserverInterface> $observers
    */
@@ -206,14 +210,6 @@ abstract class Menu implements MenuInterface
     }
 
     $this->setActiveItemByIndex($this->items->findIndex(fn(MenuItemInterface $menuItem) => $menuItem === $item));
-  }
-
-  /**
-   * @inheritDoc
-   */
-  public function getActiveIndex(): int
-  {
-    return $this->activeIndex;
   }
 
   /**

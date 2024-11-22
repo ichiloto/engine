@@ -48,11 +48,12 @@ class ContinueGameCommand extends MenuItem
 
     // TODO: Fetch the saved game file path from the game loader.
     $savedGameFilePath = '';
-    foreach ($saveFiles = $sceneManager->getSaveManager()->getSaveFiles() as $index => $path ) {
+    foreach ($saveFiles = $sceneManager->getSaveManager()->getSaveFiles(true) as $index => $path ) {
       Debug::log("Path $index: $path");
     }
 
     $currentScene->configure($this->gameLoader->loadSavedGame($savedGameFilePath));
+    $this->disabled = true;
 
     return self::SUCCESS;
   }
