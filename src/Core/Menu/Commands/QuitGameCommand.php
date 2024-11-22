@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Core\Menu\Commands;
 
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
+use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\MenuItem;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 
@@ -13,9 +14,12 @@ use Ichiloto\Engine\Util\Config\ProjectConfig;
  */
 class QuitGameCommand extends MenuItem
 {
-  public function __construct()
+  /**
+   * @inheritDoc
+   */
+  public function __construct(MenuInterface $menu)
   {
-    parent::__construct(config(ProjectConfig::class, 'vocab.command.game_end') ?? 'Quit', 'Quit the game.', '');
+    parent::__construct($menu, config(ProjectConfig::class, 'vocab.command.game_end') ?? 'Quit', 'Quit the game.', '');
   }
 
   /**

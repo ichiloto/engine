@@ -123,12 +123,9 @@ interface MenuInterface extends CanUpdate, CanRenderAt, CanActivate, SubjectInte
    */
   public function setActiveItem(MenuItemInterface $item): void;
 
-  /**
-   * Returns the index of the active item.
-   *
-   * @return int The index of the active item.
-   */
-  public function getActiveIndex(): int;
+  public int $activeIndex {
+    get;
+  }
 
   /**
    * Sets the active item by its index.

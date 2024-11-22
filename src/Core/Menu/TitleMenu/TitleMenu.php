@@ -7,6 +7,7 @@ use Ichiloto\Engine\Core\Menu\Interfaces\MenuItemInterface;
 use Ichiloto\Engine\Core\Menu\Menu;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
+use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
@@ -15,7 +16,6 @@ use Ichiloto\Engine\UI\Windows\Enumerations\VerticalAlignment;
 use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\UI\Windows\WindowAlignment;
 use Ichiloto\Engine\UI\Windows\WindowPadding;
-use Ichiloto\Engine\Util\Debug;
 use Symfony\Component\Console\Output\ConsoleOutput;
 
 /**
@@ -109,7 +109,8 @@ class TitleMenu extends Menu
     }
 
     if (Input::isAnyKeyPressed([KeyCode::ENTER])) {
-      $this->items->toArray()[$this->activeIndex]->execute($this->executionContext);
+      $selectedCommand = $this->items->toArray()[$this->activeIndex];
+      $selectedCommand->execute($this->executionContext);
     }
   }
 
@@ -124,11 +125,14 @@ class TitleMenu extends Menu
      * @var MenuItemInterface $item
      */
     foreach ($this->items as $itemIndex => $item) {
-      $output = '  ' . $item->getLabel();
+      $color = $item->isDisabled() ? Color::BLUE->value : '';
+      $prefix = '  ';
 
       if ($itemIndex === $this->activeIndex) {
-        $output = "{$this->cursor} {$item->getLabel()}";
+        $prefix = "$this->cursor ";
       }
+
+      $output = $prefix . $item->getLabel();
       $content[] = $output;
     }
 

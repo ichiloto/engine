@@ -3,14 +3,16 @@
 namespace Ichiloto\Engine\Core\Menu;
 
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
+use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuItemInterface;
+use Ichiloto\Engine\Util\Debug;
 
 /**
  * Represents a menu item.
  *
  * @package Ichiloto\Engine\Core\Menu
  */
-abstract class MenuItem implements Interfaces\MenuItemInterface
+abstract class MenuItem implements MenuItemInterface
 {
   /**
    * Creates a new menu item instance.
@@ -20,9 +22,11 @@ abstract class MenuItem implements Interfaces\MenuItemInterface
    * @param string $icon The icon of the menu item.
    */
   public function __construct(
+    protected MenuInterface $menu,
     protected string $label,
     protected string $description,
-    protected string $icon = ''
+    protected string $icon = '',
+    protected bool $disabled = false
   )
   {
   }
@@ -48,6 +52,10 @@ abstract class MenuItem implements Interfaces\MenuItemInterface
     }
 
     $output .= $this->label;
+
+    if ($this->disabled) {
+      $output = "\e[2;37m$output\e[0m";
+    }
 
     return $output;
   }
@@ -98,5 +106,29 @@ abstract class MenuItem implements Interfaces\MenuItemInterface
   public function setDescription(string $description): void
   {
     $this->description = $description;
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function isDisabled(): bool
+  {
+    return $this->disabled;
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function enable(): void
+  {
+    $this->disabled = true;
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function disable(): void
+  {
+    $this->disabled = false;
   }
 }

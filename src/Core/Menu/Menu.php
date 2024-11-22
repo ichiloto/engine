@@ -25,7 +25,11 @@ abstract class Menu implements MenuInterface
   /**
    * @var int $activeIndex The index of the active item.
    */
-  protected int $activeIndex = 0;
+  public protected(set) int $activeIndex = 0 {
+    get {
+      return $this->activeIndex;
+    }
+  }
   /**
    * @var ItemList<ObserverInterface> $observers
    */
@@ -211,14 +215,6 @@ abstract class Menu implements MenuInterface
   /**
    * @inheritDoc
    */
-  public function getActiveIndex(): int
-  {
-    return $this->activeIndex;
-  }
-
-  /**
-   * @inheritDoc
-   */
   public function setActiveItemByIndex(int $index): void
   {
     if (!isset($this->items->toArray()[$index])) {
@@ -305,7 +301,7 @@ abstract class Menu implements MenuInterface
   /**
    * @inheritDoc
    */
-  public function execute(ExecutionContextInterface $context = null): int
+  public function execute(?ExecutionContextInterface $context = null): int
   {
     // Do nothing
     return self::SUCCESS;

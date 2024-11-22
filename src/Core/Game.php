@@ -22,6 +22,8 @@ use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
+use Ichiloto\Engine\Scenes\Battle\BattleScene;
+use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Scenes\Title\TitleScene;
@@ -89,7 +91,12 @@ class Game implements CanRun, SubjectInterface
 
       $this->configure([...$this->options, 'name' => $name, 'screen' => ['width' => $width, 'height' => $height]]);
 
-      $this->sceneManager->addScenes(new TitleScene($this->sceneManager, "Title Screen"));
+      $this->sceneManager
+        ->addScenes(
+          new TitleScene($this->sceneManager, "Title Screen"),
+          new GameScene($this->sceneManager, $this->name),
+          new BattleScene($this->sceneManager, "$this->name - Battle Screen")
+        );
     } catch (Error|Exception|Throwable $exception) {
       $this->handleException($exception);
     }
@@ -101,7 +108,11 @@ class Game implements CanRun, SubjectInterface
   public function __destruct()
   {
     Console::restoreTerminalSettings();
-    Console::reset();
+    Console::clear();
+
+    if ($lastError = error_get_last()) {
+      $this->handleError($lastError['type'], $lastError['message'], $lastError['file'], $lastError['line']);
+    }
   }
 
   /**
@@ -232,10 +243,6 @@ class Game implements CanRun, SubjectInterface
    */
   protected function update(): void
   {
-    if (Input::isAnyKeyPressed([KeyCode::Q, KeyCode::q])) {
-      $this->stop();
-    }
-
     $this->sceneManager->update();
   }
 
@@ -280,6 +287,8 @@ class Game implements CanRun, SubjectInterface
    */
   public function configureErrorAndExceptionHandlers(): void
   {
+    error_reporting(E_ALL);
+
     set_error_handler(function ($errno, $errstr, $errfile, $errline) {
       $this->handleError($errno, $errstr, $errfile, $errline);
     });
