@@ -6,11 +6,22 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneStateContextInterface;
 use Ichiloto\Engine\Scenes\Interfaces\SceneStateInterface;
 use Ichiloto\Engine\Scenes\SceneStateContext;
+use Ichiloto\Engine\Util\Debug;
 
+/**
+ * Class GameSceneState. Represents a state of the game scene.
+ *
+ * @package Ichiloto\Engine\Scenes\Game\States
+ */
 abstract class GameSceneState implements SceneStateInterface
 {
+  /**
+   * GameSceneState constructor.
+   *
+   * @param SceneStateContextInterface $context
+   */
   public function __construct(
-    protected SceneStateContextInterface $context
+    protected(set) SceneStateContextInterface $context
   )
   {
   }
@@ -20,7 +31,8 @@ abstract class GameSceneState implements SceneStateInterface
    */
   public function enter(): void
   {
-    // TODO: Implement enter() method.
+    // Do nothing.
+    Debug::info("Entering " . static::class);
   }
 
   /**
@@ -33,15 +45,8 @@ abstract class GameSceneState implements SceneStateInterface
    */
   public function exit(): void
   {
-    // TODO: Implement exit() method.
-  }
-
-  /**
-   * @inheritDoc
-   */
-  public function getContext(): SceneStateContextInterface
-  {
-    return $this->context;
+    // Do nothing.
+    Debug::info("Exiting " . static::class);
   }
 
   /**
@@ -55,5 +60,13 @@ abstract class GameSceneState implements SceneStateInterface
     assert($scene instanceof GameScene);
 
     $scene->setState($state);
+  }
+
+  /**
+   * Quits the game.
+   */
+  protected function quitGame(): void
+  {
+    $this->context->getScene()->getGame()->quit();
   }
 }

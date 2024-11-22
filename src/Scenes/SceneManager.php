@@ -46,12 +46,20 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    * The current scene.
    * @var SceneInterface|null
    */
-  protected ?SceneInterface $currentScene = null;
+  public ?SceneInterface $currentScene = null {
+    get {
+      return $this->currentScene;
+    }
+  }
 
   /**
    * SceneManager constructor.
    */
-  private function __construct(protected Game $game)
+  private function __construct(public Game $game {
+    get {
+      return $this->game;
+    }
+  })
   {
     $this->scenes = new ItemList(SceneInterface::class);
     $this->eventManager = EventManager::getInstance($this->game);
@@ -183,24 +191,6 @@ class SceneManager implements CanStart, CanRender, CanUpdate
   {
     // TODO: Implement loadGameOverScene() method.
     throw new Exception('Method not implemented.');
-  }
-
-  /**
-   * Return the current scene.
-   *
-   * @return SceneInterface|null The current scene.
-   */
-  public function getCurrentScene(): ?SceneInterface
-  {
-    return $this->currentScene;
-  }
-
-  /**
-   * @return Game
-   */
-  public function getGame(): Game
-  {
-    return $this->game;
   }
 
   /**

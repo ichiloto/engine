@@ -371,3 +371,15 @@ if (! file_exists('get_local_timezone') ) {
     return '';
   }
 }
+
+/* Game */
+if (! function_exists('quit_game') ) {
+  /**
+   * Quits the game.
+   *
+   * @return void
+   */
+  function quit_game(): void
+  {
+  }
+}

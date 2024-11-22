@@ -480,8 +480,6 @@ class Window implements WindowInterface
     $strippedString = preg_replace($ansiRegex, '', $content);
 
     $contentLength = mb_strlen($content) - 3;
-    Debug::log("Max length: $maxLength");
-    Debug::log("Content length: $contentLength");
 
     $leftPadding = str_repeat(' ', max($leftPaddingLength, 0));
     $rightPadding = str_repeat(' ', max($rightPaddingLength, 0));

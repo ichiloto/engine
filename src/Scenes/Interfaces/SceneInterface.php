@@ -8,6 +8,7 @@ use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Core\Interfaces\CanResume;
 use Ichiloto\Engine\Core\Interfaces\CanStart;
 use Ichiloto\Engine\Core\Interfaces\CanUpdate;
+use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\UI\UIManager;
 
 /**
@@ -17,6 +18,11 @@ use Ichiloto\Engine\UI\UIManager;
  */
 interface SceneInterface extends CanStart, CanResume, CanUpdate, CanRender
 {
+  protected(set) Camera $camera {
+    get;
+    set;
+  }
+
   /**
    * Gets the game.
    *
