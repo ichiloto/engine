@@ -15,6 +15,8 @@ use Override;
 
 /**
  * The title scene.
+ *
+ * @package Ichiloto\Engine\Scenes\Title
  */
 class TitleScene extends AbstractScene
 {

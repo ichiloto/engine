@@ -107,4 +107,28 @@ abstract class MenuItem implements MenuItemInterface
   {
     $this->description = $description;
   }
+
+  /**
+   * @inheritDoc
+   */
+  public function isDisabled(): bool
+  {
+    return $this->disabled;
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function enable(): void
+  {
+    $this->disabled = true;
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function disable(): void
+  {
+    $this->disabled = false;
+  }
 }

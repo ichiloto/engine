@@ -18,9 +18,11 @@ interface GroupInterface
   /**
    * Returns the members of the group.
    *
-   * @return ItemList<Character> The members of the group.
+   * @return ItemList The members of the group.
    */
-  public function getMembers(): ItemList;
+  public ItemList $members {
+    get;
+  }
 
   /**
    * Determines if the group is defeated.
