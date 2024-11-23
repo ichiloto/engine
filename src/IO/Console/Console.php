@@ -18,7 +18,18 @@ class Console
    * @var string $previousTerminalSettings The previous terminal settings.
    */
   private static string $previousTerminalSettings = '';
+  /**
+   * @var int $width The width of the console.
+   */
+  private static int $width = DEFAULT_SCREEN_WIDTH;
+  /**
+   * @var int $height The height of the console.
+   */
+  private static int $height = DEFAULT_SCREEN_WIDTH;
 
+  /**
+   * Console constructor.
+   */
   private function __construct()
   {
   }
@@ -26,12 +37,18 @@ class Console
   /**
    * Initializes the console.
    *
+   * @param array{width: int, height: int} $options
    * @return void
    */
-  public static function init(): void
+  public static function init(array $options = [
+    'width' => DEFAULT_SCREEN_WIDTH,
+    'height' => DEFAULT_SCREEN_HEIGHT,
+  ]): void
   {
     self::clear();
     Console::cursor()->disableBlinking();
+    self::$width = $options['width'];
+    self::$height = $options['height'];
   }
 
   /**
@@ -187,7 +204,7 @@ class Console
       $output .= self::$buffer[$currentBufferRow] . "\n";
     }
 
-    $cursor->moveTo(0, $y);
+    $cursor->moveTo(0, $y + 1);
     echo $output;
   }
 
@@ -318,7 +335,28 @@ class Console
     string         $help = '',
     WindowPosition $position = WindowPosition::BOTTOM,
     float          $charactersPerSecond = 1
-  )
+  ): void
   {
+    throw new Exception('Not implemented');
+  }
+
+  /**
+   * Returns the width of the console.
+   *
+   * @return int The width of the console.
+   */
+  public static function getWidth(): int
+  {
+    return self::$width;
+  }
+
+  /**
+   * Returns the height of the console.
+   *
+   * @return int The height of the console.
+   */
+  public static function getHeight(): int
+  {
+    return self::$height;
   }
 }

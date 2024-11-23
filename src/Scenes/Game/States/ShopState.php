@@ -2,7 +2,7 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
-use Ichiloto\Engine\Scenes\Game\States\GameSceneState;
+use Ichiloto\Engine\Scenes\SceneStateContext;
 
 /**
  * ShopState class. This state allows players to interact with in-game shops.
@@ -19,5 +19,11 @@ use Ichiloto\Engine\Scenes\Game\States\GameSceneState;
  */
 class ShopState extends GameSceneState
 {
-
+  /**
+   * @inheritDoc
+   */
+  public function execute(?SceneStateContext $context = null): void
+  {
+    // TODO: Implement execute() method.
+  }
 }

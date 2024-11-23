@@ -28,7 +28,7 @@ abstract class AbstractScene implements SceneInterface
    *
    * @var Camera
    */
-  protected Camera $camera;
+  protected(set) Camera $camera;
   /**
    * The UI manager.
    *
@@ -178,6 +178,6 @@ abstract class AbstractScene implements SceneInterface
    */
   public function getGame(): Game
   {
-    return $this->sceneManager->getGame();
+    return $this->sceneManager->game;
   }
 }

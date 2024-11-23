@@ -33,12 +33,9 @@ interface SceneStateInterface
    */
   public function exit(): void;
 
-  /**
-   * Returns the context of the scene state.
-   *
-   * @return SceneStateContextInterface The context of the scene state.
-   */
-  public function getContext(): SceneStateContextInterface;
+  public \Ichiloto\Engine\Scenes\Interfaces\SceneStateContextInterface $context {
+    get;
+  }
 
   /**
    * Sets the state of the scene.

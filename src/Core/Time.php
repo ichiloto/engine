@@ -175,8 +175,7 @@ class Time implements StaticObserverInterface
     $minutes = floor((int)($time / 60) % 60);
     $seconds = $time % 60;
 
-    if ($chronoUnit === ChronoUnit::MINUTES)
-    {
+    if ($chronoUnit === ChronoUnit::MINUTES) {
       $days = floor($hours / 24);
       return sprintf('%02d:%02d:%02d', $days, $hours, $minutes);
     }

@@ -128,11 +128,15 @@ final class Debug
    */
   public static function error(Stringable|string $message): void
   {
+    if (false === error_log(self::getFormattedMessage($message, 'ERROR'), 3, self::getLogFilePath('error.log'))) {
+      throw new RuntimeException("Failed to write to the debug log.");
+    }
+
     if (self::$logLevel < self::ERROR) {
       return;
     }
 
-    if (false === error_log(self::getFormattedMessage($message, 'ERROR'), 3, self::getLogFilePath('error.log'))) {
+    if (false === error_log(self::getFormattedMessage($message, 'ERROR'), 3, self::getLogFilePath('debug.log'))) {
       throw new RuntimeException("Failed to write to the debug log.");
     }
   }
