@@ -80,8 +80,8 @@ class Window implements WindowInterface
    */
   public function render(?int $x = null, ?int $y = null): void
   {
-    $leftMargin = $this->position->getX() + ($x ?? 0);
-    $topMargin = $this->position->getY() + ($y ?? 0);
+    $leftMargin = $this->position->getX() + ($x ?? 1);
+    $topMargin = $this->position->getY() + ($y ?? 1);
 
     // Render the top border
     $output = $this->getTopBorder();

@@ -6,6 +6,7 @@ use Assegai\Collections\ItemList;
 use Assegai\Util\Path;
 use Error;
 use Exception;
+use Ichiloto\Engine\Core\Enumerations\ChronoUnit;
 use Ichiloto\Engine\Core\Interfaces\CanRun;
 use Ichiloto\Engine\Events\Enumerations\EventType;
 use Ichiloto\Engine\Events\Enumerations\GameEventType;
@@ -27,6 +28,7 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Scenes\Title\TitleScene;
+use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\Util\Config\AppConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
@@ -57,6 +59,18 @@ class Game implements CanRun, SubjectInterface
    * @var NotificationManager $notificationManager The notification manager.
    */
   protected NotificationManager $notificationManager;
+  /**
+   * @var int $frameCount The number of frames that have been rendered.
+   */
+  private int $frameCount = 0;
+  /**
+   * @var int $frameRate The frame rate of the game.
+   */
+  private int $frameRate = 0;
+  /**
+   * @var Window $debugWindow The debug window.
+   */
+  protected Window $debugWindow;
   /**
    * @var ItemList<ObserverInterface> The observers.
    */
@@ -108,7 +122,7 @@ class Game implements CanRun, SubjectInterface
   public function __destruct()
   {
     Console::restoreTerminalSettings();
-    Console::clear();
+    Console::reset();
 
     if ($lastError = error_get_last()) {
       $this->handleError($lastError['type'], $lastError['message'], $lastError['file'], $lastError['line']);
@@ -129,6 +143,10 @@ class Game implements CanRun, SubjectInterface
       ConfigStore::get(PlaySettings::class)->set($key, $value);
     }
 
+    Console::init([
+      'width' => $this->width,
+      'height' => $this->height
+    ]);
     return $this;
   }
 
@@ -151,12 +169,23 @@ class Game implements CanRun, SubjectInterface
   public function run(): void
   {
     try {
+      $sleepTime = (int)(1000000 / ($this->options['fps'] ?? DEFAULT_FPS));
       $this->start();
+      $nextFrameTime = microtime(true) + 1;
+      $lastFrameCountSnapShot = $this->frameCount;
 
       while ($this->isRunning) {
         $this->handleInput();
         $this->update();
         $this->render();
+
+        usleep($sleepTime);
+
+        if (microtime(true) >= $nextFrameTime) {
+          $this->frameRate = $this->frameCount - $lastFrameCountSnapShot;
+          $lastFrameCountSnapShot = $this->frameCount;
+          $nextFrameTime = microtime(true) + 1;
+        }
       }
     } catch (Exception $exception) {
       $this->handleException($exception);
@@ -198,7 +227,11 @@ class Game implements CanRun, SubjectInterface
     // Load the first scene
     $this->sceneManager->loadScene(0);
 
+    $this->addObserver(Time::class);
+
     $this->isRunning = true;
+
+    $this->notify($this, new GameEvent(GameEventType::START));
   }
 
   /**
@@ -254,6 +287,15 @@ class Game implements CanRun, SubjectInterface
   protected function render(): void
   {
     $this->sceneManager->render();
+
+    if (
+      config(AppConfig::class, 'debug.enabled') &&
+      config(AppConfig::class, 'debug.show')
+    ) {
+      $this->renderDebugInfo();
+    }
+
+    $this->notify($this, new GameEvent(GameEventType::RENDER));
   }
 
   /**
@@ -413,6 +455,21 @@ class Game implements CanRun, SubjectInterface
   {
     $this->showCustomSplashScreen();
     $this->showGameEngineSplashScreen();
+  }
+
+  /**
+   * Render debug info.
+   *
+   * @return void
+   */
+  private function renderDebugInfo(): void
+  {
+    $this->debugWindow->setContent([
+      "FPS: {$this->frameRate}",
+      "Delta: " . round(Time::getDeltaTime(), 2),
+      "Time: " . Time::getPrettyTime(ChronoUnit::SECONDS)
+    ]);
+    $this->debugWindow->render();
   }
 
   /**

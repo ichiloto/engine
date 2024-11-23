@@ -2,10 +2,12 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\SceneStateContext;
+use function Termwind\parse;
 
 /**
  * This state serves as the backbone of the game, managing the player's exploration experience.
@@ -25,6 +27,13 @@ use Ichiloto\Engine\Scenes\SceneStateContext;
  */
 class FieldState extends GameSceneState
 {
+  public function enter(): void
+  {
+    parent::enter();
+    Console::clear();
+
+    // Render the field.
+  }
   /**
    * @inheritDoc
    */

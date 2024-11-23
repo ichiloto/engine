@@ -4,6 +4,11 @@ namespace Ichiloto\Engine\Core\Menu\MainMenu;
 
 use Ichiloto\Engine\Core\Menu\Menu;
 
+/**
+ * MainMenu is the main menu of the game.
+ *
+ * @package Ichiloto\Engine\Core\Menu\MainMenu
+ */
 class MainMenu extends Menu
 {
   /**
