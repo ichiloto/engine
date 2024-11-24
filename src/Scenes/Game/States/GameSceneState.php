@@ -32,7 +32,6 @@ abstract class GameSceneState implements SceneStateInterface
   public function enter(): void
   {
     // Do nothing.
-    Debug::info("Entering " . static::class);
   }
 
   /**
@@ -46,7 +45,6 @@ abstract class GameSceneState implements SceneStateInterface
   public function exit(): void
   {
     // Do nothing.
-    Debug::info("Exiting " . static::class);
   }
 
   /**

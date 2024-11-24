@@ -12,7 +12,11 @@ use Ichiloto\Engine\Events\Enumerations\MenuEventType;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
 use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
 use Ichiloto\Engine\Events\MenuEvent;
+use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
+use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
+use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
+use Ichiloto\Engine\UI\Windows\Window;
 use InvalidArgumentException;
 
 /**
@@ -23,13 +27,14 @@ use InvalidArgumentException;
 abstract class Menu implements MenuInterface
 {
   /**
+   * @var Window|null $window The window of the menu.
+   */
+  protected ?Window $window = null;
+  /**
    * @var int $activeIndex The index of the active item.
    */
-  public protected(set) int $activeIndex = 0 {
-    get {
-      return $this->activeIndex;
-    }
-  }
+  protected(set) int $activeIndex = 0;
+
   /**
    * @var ItemList<ObserverInterface> $observers
    */
@@ -52,7 +57,8 @@ abstract class Menu implements MenuInterface
     protected string $description = '',
     protected ItemList $items = new ItemList(MenuItemInterface::class),
     protected string $cursor = '>',
-    protected Rect $rect = new Rect(0, 0, DEFAULT_DIALOG_WIDTH, DEFAULT_DIALOG_HEIGHT)
+    protected Rect $rect = new Rect(0, 0, DEFAULT_DIALOG_WIDTH, DEFAULT_DIALOG_HEIGHT),
+    protected BorderPackInterface $borderPack = new DefaultBorderPack()
   )
   {
     $this->observers = new ItemList(ObserverInterface::class);
@@ -321,5 +327,30 @@ abstract class Menu implements MenuInterface
    *
    * @return void
    */
-  protected abstract function updateWindowContent(): void;
+  public function updateWindowContent(): void
+  {
+    $content = [];
+    /**
+     * @var int $itemIndex
+     * @var MenuItemInterface $item
+     */
+    foreach ($this->items as $itemIndex => $item) {
+      $color = $item->isDisabled() ? Color::BLUE->value : '';
+      $prefix = '  ';
+
+      if ($itemIndex === $this->activeIndex) {
+        $prefix = "$this->cursor ";
+      }
+
+      $output = $prefix . $item->getLabel();
+      $content[] = $output;
+    }
+
+    if ($this->totalItems < $this->rect->getHeight()) {
+      $content = array_pad($content, $this->rect->getHeight() - 2, ''); // -2 for the top and bottom borders
+    }
+
+    $this->window?->setContent($content);
+    $this->render();
+  }
 }
