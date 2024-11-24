@@ -442,6 +442,7 @@ class Game implements CanRun, SubjectInterface
    */
   public function quit(): void
   {
+    Console::reset();
     $this->notify($this, new GameEvent(GameEventType::QUIT));
     $this->stop();
   }

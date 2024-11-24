@@ -3,11 +3,9 @@
 namespace Ichiloto\Engine\Core\Menu\TitleMenu;
 
 use Ichiloto\Engine\Core\Menu\Commands\MenuCommandExecutionContext;
-use Ichiloto\Engine\Core\Menu\Interfaces\MenuItemInterface;
 use Ichiloto\Engine\Core\Menu\Menu;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
-use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
@@ -25,10 +23,6 @@ use Symfony\Component\Console\Output\ConsoleOutput;
  */
 class TitleMenu extends Menu
 {
-  /**
-   * @var Window|null $window The window of the menu.
-   */
-  protected ?Window $window = null;
   /**
    * @var WindowAlignment $alignment The alignment of the menu.
    */
@@ -112,30 +106,5 @@ class TitleMenu extends Menu
       $selectedCommand = $this->items->toArray()[$this->activeIndex];
       $selectedCommand->execute($this->executionContext);
     }
-  }
-
-  /**
-   * Updates the window content.
-   */
-  protected function updateWindowContent(): void
-  {
-    $content = [];
-    /**
-     * @var int $itemIndex
-     * @var MenuItemInterface $item
-     */
-    foreach ($this->items as $itemIndex => $item) {
-      $color = $item->isDisabled() ? Color::BLUE->value : '';
-      $prefix = '  ';
-
-      if ($itemIndex === $this->activeIndex) {
-        $prefix = "$this->cursor ";
-      }
-
-      $output = $prefix . $item->getLabel();
-      $content[] = $output;
-    }
-
-    $this->window->setContent($content);
   }
 }
