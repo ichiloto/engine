@@ -3,7 +3,9 @@
 namespace Ichiloto\Engine\Events\Enumerations;
 
 /**
+ * The CollisionType enumeration represents the type of collision.
  *
+ * @package Ichiloto\Engine\Events\Enumerations
  */
 enum CollisionType: int
 {
@@ -15,5 +17,5 @@ enum CollisionType: int
   case EXIT = 5;
   case SAVE_POINT = 6;
   case ENCOUNTER = 7;
-  const int COLLECTABLE = 8;
+  case COLLECTABLE = 8;
 }
