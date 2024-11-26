@@ -2,73 +2,111 @@
 
 namespace Ichiloto\Engine\UI;
 
+use Assegai\Collections\ItemList;
+use Ichiloto\Engine\Core\Enumerations\MovementHeading;
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Core\Interfaces\CanResume;
 use Ichiloto\Engine\Core\Interfaces\CanStart;
 use Ichiloto\Engine\Core\Interfaces\CanUpdate;
-use Ichiloto\Engine\Core\Interfaces\SingletonInterface;
+use Ichiloto\Engine\Core\Vector2;
 
 /**
  * The UI manager.
  */
-class UIManager implements SingletonInterface, CanRender, CanUpdate, CanResume, CanStart
+class UIManager implements CanRender, CanUpdate, CanResume, CanStart
 {
   /**
    * @var UIManager The instance of the UI manager.
    */
   protected static UIManager $instance;
 
+  public LocationHUDWindow $locationHUDWindow;
+  /**
+   * @var ItemList<CanRender> The UI elements.
+   */
+  protected ItemList $uiElements;
+
   /**
    * UIManager constructor.
    */
-  protected function __construct()
+  protected function __construct(protected(set) Game $game)
   {
+    $this->locationHUDWindow = new LocationHUDWindow(new Vector2(0, 0), MovementHeading::NONE);
+    $this->uiElements = new ItemList(CanRender::class);
   }
 
   /**
-   * @inheritDoc
+   * Returns the instance of the UI manager.
+   *
+   * @param Game $game The game.
    */
-  public static function getInstance(): self
+  public static function getInstance(Game $game): self
   {
     if (!isset(self::$instance)) {
-      self::$instance = new self();
+      self::$instance = new self($game);
     }
 
     return self::$instance;
   }
 
+  /**
+   * @inheritDoc
+   */
   public function render(): void
   {
-    // TODO: Implement render() method.
+    foreach ($this->uiElements as $uiElement) {
+      $uiElement->render();
+    }
   }
 
+  /**
+   * @inheritDoc
+   */
   public function erase(): void
   {
-    // TODO: Implement erase() method.
+    foreach ($this->uiElements as $uiElement) {
+      $uiElement->erase();
+    }
   }
 
+  /**
+   * @inheritDoc
+   */
   public function resume(): void
   {
-    // TODO: Implement resume() method.
+    $this->locationHUDWindow->render();
   }
 
+  /**
+   * @inheritDoc
+   */
   public function suspend(): void
   {
-    // TODO: Implement suspend() method.
+    $this->locationHUDWindow->erase();
   }
 
+  /**
+   * @inheritDoc
+   */
   public function start(): void
   {
-    // TODO: Implement start() method.
+    // Do nothing. The UI manager is always running.
   }
 
+  /**
+   * @inheritDoc
+   */
   public function stop(): void
   {
-    // TODO: Implement stop() method.
+    // Do nothing. The UI manager is always running.
   }
 
+  /**
+   * @inheritDoc
+   */
   public function update(): void
   {
-    // TODO: Implement update() method.
+    // Do nothing. The UI manager is always running.
   }
 }

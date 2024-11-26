@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Scenes\Game;
 
+use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Field\Player;
 use Ichiloto\Engine\Scenes\AbstractScene;
@@ -114,6 +115,7 @@ class GameScene extends AbstractScene
    *
    * @param GameConfig $config The game configuration.
    * @return void
+   * @throws NotFoundException If the map is not found.
    */
   public function configure(GameConfig $config): void
   {
@@ -148,6 +150,13 @@ class GameScene extends AbstractScene
     $this->state->execute($this->sceneStateContext);
   }
 
+  /**
+   * Loads the map.
+   *
+   * @param string $mapFilename The map filename.
+   * @return void
+   * @throws NotFoundException If the map is not found.
+   */
   public function loadMap(string $mapFilename): void
   {
     $this->mapManager->loadMap($mapFilename);

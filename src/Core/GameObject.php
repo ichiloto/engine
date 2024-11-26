@@ -17,7 +17,6 @@ use Ichiloto\Engine\Events\Interfaces\StaticObserverInterface;
 use Ichiloto\Engine\Events\Interfaces\SubjectInterface;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
-use Ichiloto\Engine\Util\Debug;
 
 /**
  * Class GameObject. Represents a game object.
@@ -44,6 +43,7 @@ abstract class GameObject implements CanActivate, SubjectInterface, CanUpdate, C
   protected(set) bool $isActive = false;
   protected(set) EventManager $eventManager;
 
+
   /**
    * GameObject constructor.
    *
@@ -54,11 +54,11 @@ abstract class GameObject implements CanActivate, SubjectInterface, CanUpdate, C
    * @param string[] $sprite The sprite of the object.
    */
   public function __construct(
-    protected SceneInterface $scene,
-    protected string         $name,
-    protected Vector2        $position = new Vector2(),
-    protected Rect           $shape = new Rect(0, 0, 1, 1),
-    protected array          $sprite = ['x']
+    protected SceneInterface  $scene,
+    protected string          $name,
+    protected(set) Vector2    $position = new Vector2(),
+    protected Rect            $shape = new Rect(0, 0, 1, 1),
+    public array              $sprite = ['x']
   )
   {
     $this->hash = uniqid(md5(__CLASS__) . 'Core' . md5($this->name));
@@ -148,26 +148,6 @@ abstract class GameObject implements CanActivate, SubjectInterface, CanUpdate, C
   }
 
   /**
-   * Returns the position of the object.
-   *
-   * @return Vector2 The position of the object.
-   */
-  public function getPosition(): Vector2
-  {
-    return $this->position;
-  }
-
-  /**
-   * Sets the position of the object.
-   *
-   * @param Vector2 $position The position of the object.
-   */
-  public function setPosition(Vector2 $position): void
-  {
-    $this->position = $position;
-  }
-
-  /**
    * Returns the size of the object.
    *
    * @return Rect The size of the object.
@@ -185,27 +165,6 @@ abstract class GameObject implements CanActivate, SubjectInterface, CanUpdate, C
   public function getName(): string
   {
     return $this->name;
-  }
-
-  /**
-   * Returns the sprite of the object.
-   *
-   * @return string[] The sprite of the object.
-   */
-  public function getSprite(): array
-  {
-    return $this->sprite;
-  }
-
-  /**
-   * Sets the sprite of the object.
-   *
-   * @param string[] $sprite The sprite of the object.
-   * @return void
-   */
-  public function setSprite(array $sprite): void
-  {
-    $this->sprite = $sprite;
   }
 
   /**
