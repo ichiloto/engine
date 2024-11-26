@@ -9,6 +9,11 @@ use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\UI\UIManager;
 
+/**
+ * Class AbstractScene. The abstract scene.
+ *
+ * @package Ichiloto\Engine\Scenes
+ */
 abstract class AbstractScene implements SceneInterface
 {
   /**
@@ -34,7 +39,7 @@ abstract class AbstractScene implements SceneInterface
    *
    * @var UIManager
    */
-  protected UIManager $uiManager;
+  protected(set) UIManager $uiManager;
 
   /**
    * AbstractScene constructor.
@@ -43,11 +48,11 @@ abstract class AbstractScene implements SceneInterface
    * @param string $name The name of the scene.
    */
   public function __construct(
-    protected SceneManager $sceneManager,
+    protected(set) SceneManager $sceneManager,
     protected string $name,
   )
   {
-    $this->uiManager = UIManager::getInstance();
+    $this->uiManager = UIManager::getInstance($this->sceneManager->game);
     $this->camera = new Camera($this);
   }
 

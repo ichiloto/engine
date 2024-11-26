@@ -18,6 +18,11 @@ use Ichiloto\Engine\UI\UIManager;
  */
 interface SceneInterface extends CanStart, CanResume, CanUpdate, CanRender
 {
+  /**
+   * The camera of the scene.
+   *
+   * @var Camera
+   */
   protected(set) Camera $camera {
     get;
     set;

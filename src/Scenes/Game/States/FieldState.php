@@ -44,6 +44,7 @@ class FieldState extends GameSceneState
     // Render the field.
     $this->getGameScene()->mapManager->render();
     $this->getGameScene()->player->render();
+    $this->getGameScene()->uiManager->locationHUDWindow->render();
   }
 
   /**

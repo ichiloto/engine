@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Field;
 
+use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\GameObject;
 use Ichiloto\Engine\Core\Interfaces\CanCompare;
 use Ichiloto\Engine\Core\Vector2;
@@ -12,6 +13,8 @@ use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
+use Ichiloto\Engine\UI\LocationHUDWindow;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 use RuntimeException;
 
 /**
@@ -57,6 +60,16 @@ class Player extends GameObject
     $this->erase();
     $this->position->add($direction);
     $this->render();
+    if ( config(ProjectConfig::class, 'ui.hud.location', false) ) {
+      $heading = match (true) {
+        $direction->y < 0 => MovementHeading::NORTH,
+        $direction->y > 0 => MovementHeading::SOUTH,
+        $direction->x < 0 => MovementHeading::WEST,
+        $direction->x > 0 => MovementHeading::EAST,
+        default => MovementHeading::NONE,
+      };
+      $this->getLocationHUDWindow()->updateDetails($this->position, $heading);
+    }
   }
 
   /**
@@ -73,10 +86,21 @@ class Player extends GameObject
     return $this->scene;
   }
 
+  /**
+   * Handles the collision.
+   *
+   * @param CollisionType|null $collisionType The collision type.
+   * @return void
+   */
   protected function handleCollision(?CollisionType $collisionType): void
   {
     if (!$collisionType || $collisionType === CollisionType::NONE) {
       return;
     }
+  }
+
+  protected function getLocationHUDWindow(): LocationHUDWindow
+  {
+    return $this->getGameScene()->uiManager->locationHUDWindow;
   }
 }
