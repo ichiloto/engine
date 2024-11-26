@@ -5,7 +5,6 @@ namespace Ichiloto\Engine\Scenes\Game\States;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
-use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
@@ -13,7 +12,6 @@ use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\SceneStateContext;
-use function Termwind\parse;
 
 /**
  * This state serves as the backbone of the game, managing the player's exploration experience.
@@ -39,12 +37,8 @@ class FieldState extends GameSceneState
   public function enter(): void
   {
     parent::enter();
-    Console::clear();
 
-    // Render the field.
-    $this->getGameScene()->mapManager->render();
-    $this->getGameScene()->player->render();
-    $this->getGameScene()->uiManager->locationHUDWindow->render();
+    $this->renderTheField();
   }
 
   /**
@@ -58,11 +52,11 @@ class FieldState extends GameSceneState
     $scene = $this->context->getScene();
     assert($scene instanceof GameScene);
 
-    if (InputManager::isAnyKeyPressed([KeyCode::Q, KeyCode::q])) {
+    if (Input::isAnyKeyPressed([KeyCode::Q, KeyCode::q])) {
       $scene->getGame()->quit();
     }
 
-    if (InputManager::isAnyKeyPressed([KeyCode::ESCAPE])) {
+    if (Input::isAnyKeyPressed([KeyCode::ESCAPE])) {
       $this->setState($scene->mainMenuState);
     }
 
@@ -72,5 +66,18 @@ class FieldState extends GameSceneState
     if (abs($h) || abs($v)) {
       $scene->player->move(new Vector2(intval($h), intval($v)));
     }
+  }
+
+  /**
+   * Renders the field.
+   *
+   * @return void
+   */
+  public function renderTheField(): void
+  {
+    Console::clear();
+    $this->getGameScene()->mapManager->render();
+    $this->getGameScene()->player->render();
+    $this->getGameScene()->uiManager->locationHUDWindow->render();
   }
 }

@@ -62,4 +62,13 @@ interface SceneInterface extends CanStart, CanResume, CanUpdate, CanRender
    * @return bool Whether the scene is started.
    */
   public function isStarted(): bool;
+
+  /**
+   * Renders the background tile at the given position.
+   *
+   * @param int $x The x position.
+   * @param int $y The y position.
+   * @return void
+   */
+  public function renderBackgroundTile(int $x, int $y): void;
 }

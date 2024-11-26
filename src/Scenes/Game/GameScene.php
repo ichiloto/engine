@@ -2,7 +2,9 @@
 
 namespace Ichiloto\Engine\Scenes\Game;
 
+use Ichiloto\Engine\Exceptions\IchilotoException;
 use Ichiloto\Engine\Exceptions\NotFoundException;
+use Ichiloto\Engine\Field\Location;
 use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Field\Player;
 use Ichiloto\Engine\Scenes\AbstractScene;
@@ -15,6 +17,8 @@ use Ichiloto\Engine\Scenes\Game\States\MapState;
 use Ichiloto\Engine\Scenes\Game\States\OverworldState;
 use Ichiloto\Engine\Scenes\Game\States\ShopState;
 use Ichiloto\Engine\Scenes\SceneStateContext;
+use Ichiloto\Engine\Util\Debug;
+use Override;
 
 /**
  * Class GameScene. Represents the game scene.
@@ -115,11 +119,12 @@ class GameScene extends AbstractScene
    *
    * @param GameConfig $config The game configuration.
    * @return void
+   * @throws IchilotoException
    * @throws NotFoundException If the map is not found.
    */
   public function configure(GameConfig $config): void
   {
-    $this->mapManager = MapManager::getInstance($this->getGame());
+    $this->mapManager = MapManager::getInstance($this->getGame(), $this);
     $this->sceneStateContext = new SceneStateContext($this);
     $this->cutsceneState = new CutsceneState($this->sceneStateContext);
     $this->dialogueState = new DialogueState($this->sceneStateContext);
@@ -130,7 +135,6 @@ class GameScene extends AbstractScene
     $this->shopState = new ShopState($this->sceneStateContext);
 
     $this->config = $config;
-    $this->loadMap("{$this->config->mapId}.php");
     $this->player = new Player(
       $this,
       'Player',
@@ -138,6 +142,7 @@ class GameScene extends AbstractScene
       $this->config->playerShape,
       $this->config->playerSprite
     );
+    $this->loadMap("{$this->config->mapId}.php");
     $this->setState($this->fieldState);
   }
 
@@ -156,9 +161,41 @@ class GameScene extends AbstractScene
    * @param string $mapFilename The map filename.
    * @return void
    * @throws NotFoundException If the map is not found.
+   * @throws IchilotoException If the map cannot be loaded.
    */
   public function loadMap(string $mapFilename): void
   {
     $this->mapManager->loadMap($mapFilename);
+  }
+
+  /**
+   * Transfers the player to the destination map.
+   *
+   * @param Location $location The destination location.
+   * @return void
+   * @throws IchilotoException If the map cannot be loaded.
+   * @throws NotFoundException If the map is not found.
+   */
+  public function transferPlayer(Location $location): void
+  {
+    Debug::info("Transferring player to {$location->mapFilename}...");
+    $this->loadMap($location->mapFilename);
+
+    $this->player->position->x = $location->playerPosition->x;
+    $this->player->position->y = $location->playerPosition->y;
+    if ($location->playerSprite) {
+      $this->player->sprite = $location->playerSprite;
+    }
+    $this->player->render();
+    $this->uiManager->locationHUDWindow->render();
+  }
+
+  /**
+   * @inheritDoc
+   */
+  #[Override]
+  public function renderBackgroundTile(int $x, int $y): void
+  {
+    $this->mapManager->renderBackgroundTile($x, $y);
   }
 }
