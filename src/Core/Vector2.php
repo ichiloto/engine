@@ -9,12 +9,40 @@ use Stringable;
 class Vector2 implements CanCompare, Stringable
 {
   /**
+   * The hash of the vector.
+   *
+   * @var string
+   */
+  public string $hash {
+    get {
+      return uniqid(md5(__CLASS__) . '.' . md5($this->x . '.' . $this->y));
+    }
+  }
+
+  /**
    * Vector2 constructor.
    *
    * @param float $x The x coordinate.
    * @param float $y The y coordinate.
    */
-  public function __construct(protected float $x = 0, protected float $y = 0)
+  public function __construct(
+    public float $x = 0 {
+      get {
+        return $this->x;
+      }
+      set {
+        $this->x = $value;
+      }
+    },
+    public float $y = 0 {
+      get {
+        return $this->y;
+      }
+      set {
+        $this->y = $value;
+      }
+    }
+  )
   {
   }
 
@@ -66,7 +94,7 @@ class Vector2 implements CanCompare, Stringable
    */
   public static function getClone(self $original): self
   {
-    return new self($original->getX(), $original->getY());
+    return new self($original->x, $original->y);
   }
 
   /**
@@ -108,54 +136,14 @@ class Vector2 implements CanCompare, Stringable
   }
 
   /**
-   * Gets the x coordinate.
-   *
-   * @return float The x coordinate.
-   */
-  public function getX(): float
-  {
-    return $this->x;
-  }
-
-  /**
-   * Gets the y coordinate.
-   *
-   * @return float The y coordinate.
-   */
-  public function getY(): float
-  {
-    return $this->y;
-  }
-
-  /**
-   * Sets the x coordinate.
-   *
-   * @param float $x The x coordinate.
-   */
-  public function setX(float $x): void
-  {
-    $this->x = $x;
-  }
-
-  /**
-   * Sets the y coordinate.
-   *
-   * @param float $y The y coordinate.
-   */
-  public function setY(float $y): void
-  {
-    $this->y = $y;
-  }
-
-  /**
    * Adds the specified vector to this vector.
    *
    * @param self $other The vector to add.
    */
   public function add(self $other): void
   {
-    $this->setX($this->getX() + $other->getX());
-    $this->setY($this->getY() + $other->getY());
+    $this->x = $this->x + $other->x;
+    $this->y = $this->y + $other->y;
   }
 
   /**
@@ -165,8 +153,8 @@ class Vector2 implements CanCompare, Stringable
    */
   public function subtract(self $other): void
   {
-    $this->setX($this->getX() - $other->getX());
-    $this->setY($this->getY() - $other->getY());
+    $this->x = $this->x - $other->x;
+    $this->y = $this->y - $other->y;
   }
 
   /**
@@ -176,8 +164,8 @@ class Vector2 implements CanCompare, Stringable
    */
   public function multiply(self $other): void
   {
-    $this->setX($this->getX() * $other->getX());
-    $this->setY($this->getY() * $other->getY());
+    $this->x = $this->x * $other->x;
+    $this->y = $this->y * $other->y;
   }
 
   /**
@@ -187,8 +175,8 @@ class Vector2 implements CanCompare, Stringable
    */
   public function divide(self $other): void
   {
-    $this->setX($this->getX() / $other->getX());
-    $this->setY($this->getY() / $other->getY());
+    $this->x = $this->x / $other->x;
+    $this->y = $this->y / $other->y;
   }
 
   /**
@@ -196,7 +184,7 @@ class Vector2 implements CanCompare, Stringable
    */
   public function compareTo(CanCompare $other): int
   {
-    // TODO: Implement compareTo() method.
+    return $this->hash <=> $other->hash;
   }
 
   /**
@@ -204,7 +192,7 @@ class Vector2 implements CanCompare, Stringable
    */
   public function greaterThan(CanCompare $other): bool
   {
-    // TODO: Implement greaterThan() method.
+    return $this->compareTo($other) > 0;
   }
 
   /**
@@ -212,7 +200,7 @@ class Vector2 implements CanCompare, Stringable
    */
   public function greaterThanOrEqual(CanCompare $other): bool
   {
-    // TODO: Implement greaterThanOrEqual() method.
+    return $this->compareTo($other) >= 0;
   }
 
   /**
@@ -220,7 +208,7 @@ class Vector2 implements CanCompare, Stringable
    */
   public function lessThan(CanCompare $other): bool
   {
-    // TODO: Implement lessThan() method.
+    return $this->compareTo($other) < 0;
   }
 
   /**
@@ -228,7 +216,7 @@ class Vector2 implements CanCompare, Stringable
    */
   public function lessThanOrEqual(CanCompare $other): bool
   {
-    // TODO: Implement lessThanOrEqual() method.
+    return $this->compareTo($other) <= 0;
   }
 
   /**
@@ -236,7 +224,7 @@ class Vector2 implements CanCompare, Stringable
    */
   public function equals(CanEquate $equatable): bool
   {
-    return $this->getHash() === $equatable->getHash();
+    return $this->hash === $equatable->hash;
   }
 
   /**
@@ -245,14 +233,6 @@ class Vector2 implements CanCompare, Stringable
   public function notEquals(CanEquate $equatable): bool
   {
     return !$this->equals($equatable);
-  }
-
-  /**
-   * @inheritDoc
-   */
-  public function getHash(): string
-  {
-    return uniqid(md5(__CLASS__) . '.' . md5($this->x . '.' . $this->y));
   }
 
   /**

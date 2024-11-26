@@ -2,8 +2,14 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Exceptions\NotFoundException;
+use Ichiloto\Engine\Exceptions\OutOfBounds;
+use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
+use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\SceneStateContext;
@@ -27,15 +33,24 @@ use function Termwind\parse;
  */
 class FieldState extends GameSceneState
 {
+  /**
+   * @inheritDoc
+   */
   public function enter(): void
   {
     parent::enter();
     Console::clear();
 
     // Render the field.
+    $this->getGameScene()->mapManager->render();
+    $this->getGameScene()->player->render();
   }
+
   /**
    * @inheritDoc
+   * @param SceneStateContext|null $context
+   * @throws NotFoundException If the scene is not set.
+   * @throws OutOfBounds If the player is out of bounds.
    */
   public function execute(?SceneStateContext $context = null): void
   {
@@ -48,6 +63,13 @@ class FieldState extends GameSceneState
 
     if (InputManager::isAnyKeyPressed([KeyCode::ESCAPE])) {
       $this->setState($scene->mainMenuState);
+    }
+
+    $h = Input::getAxis(AxisName::HORIZONTAL);
+    $v = Input::getAxis(AxisName::VERTICAL);
+
+    if (abs($h) || abs($v)) {
+      $scene->player->move(new Vector2(intval($h), intval($v)));
     }
   }
 }
