@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Scenes\Game;
 
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
+use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
 use Serializable;
 use Stringable;
@@ -14,12 +15,25 @@ use Stringable;
  */
 class GameConfig implements Stringable, Serializable
 {
+  /**
+   * GameConfig constructor.
+   *
+   * @param string $mapId The ID of the map.
+   * @param Vector2 $playerPosition The position of the player.
+   * @param Rect $playerShape The size of the player.
+   * @param MovementHeading $playerHeading The heading of the player.
+   * @param array $playerStats The stats of the player.
+   * @param array $events The events of the game.
+   * @param array $playerSprite The sprite of the player.
+   */
   public function __construct(
-    protected string $mapId,
-    protected Vector2 $playerPosition,
-    protected MovementHeading $playerHeading,
-    protected array $playerStats = [],
-    protected array $events = []
+    protected(set) string $mapId,
+    protected(set) Vector2 $playerPosition,
+    protected(set) Rect $playerShape,
+    protected(set) MovementHeading $playerHeading,
+    protected(set) array $playerStats = [],
+    protected(set) array $events = [],
+    protected(set) array $playerSprite = ['v']
   )
   {
   }
@@ -72,16 +86,18 @@ class GameConfig implements Stringable, Serializable
   /**
    * Returns the data of the game configuration.
    *
-   * @return array{mapId: string, playerPosition: Vector2, playerHeading: MovementHeading, playerStats: array, events: array}
+   * @return array{mapId: string, playerPosition: Vector2, playerPosition: Vector2, playerHeading: MovementHeading, playerStats: array, events: array, playerSprite: array}
    */
   protected function getData(): array
   {
     return [
       'mapId' => $this->mapId,
       'playerPosition' => $this->playerPosition,
+      'playerSize' => $this->playerShape,
       'playerHeading' => $this->playerHeading,
       'playerStats' => $this->playerStats,
       'events' => $this->events,
+      'playerSprite' => $this->playerSprite,
     ];
   }
 

@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use http\Exception\RuntimeException;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneStateContextInterface;
 use Ichiloto\Engine\Scenes\Interfaces\SceneStateInterface;
@@ -58,6 +59,22 @@ abstract class GameSceneState implements SceneStateInterface
     assert($scene instanceof GameScene);
 
     $scene->setState($state);
+  }
+
+  /**
+   * Returns the game scene.
+   *
+   * @return GameScene The game scene.
+   */
+  public function getGameScene(): GameScene
+  {
+    $scene = $this->context->getScene();
+    if (! $scene instanceof GameScene) {
+      Debug::error("The scene {$scene->getName()} is not an instance of GameScene.");
+      throw new RuntimeException('The scene is not an instance of GameScene.');
+    }
+
+    return $scene;
   }
 
   /**

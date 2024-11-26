@@ -99,7 +99,7 @@ abstract class AbstractScene implements SceneInterface
     $this->camera->resume();
 
     foreach ($this->rootGameObjects as $gameObject) {
-      if ($gameObject->isActive()) {
+      if ($gameObject->isActive) {
         $gameObject->resume();
       }
     }
@@ -113,7 +113,7 @@ abstract class AbstractScene implements SceneInterface
     $this->camera->suspend();
 
     foreach ($this->rootGameObjects as $gameObject) {
-      if ($gameObject->isActive()) {
+      if ($gameObject->isActive) {
         $gameObject->suspend();
       }
     }
@@ -127,7 +127,7 @@ abstract class AbstractScene implements SceneInterface
     $this->camera->start();
 
     foreach ($this->rootGameObjects as $gameObject) {
-      if ($gameObject->isActive()) {
+      if ($gameObject->isActive) {
         $gameObject->start();
       }
     }
@@ -143,7 +143,7 @@ abstract class AbstractScene implements SceneInterface
     $this->camera->stop();
 
     foreach ($this->rootGameObjects as $gameObject) {
-      if ($gameObject->isActive()) {
+      if ($gameObject->isActive) {
         $gameObject->stop();
       }
     }
@@ -159,7 +159,7 @@ abstract class AbstractScene implements SceneInterface
     $this->camera->update();
 
     foreach ($this->rootGameObjects as $gameObject) {
-      if ($gameObject->isActive()) {
+      if ($gameObject->isActive) {
         $gameObject->update();
       }
     }

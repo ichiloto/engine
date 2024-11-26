@@ -47,7 +47,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   public function render(): void
   {
     foreach ($this->scene->getRootGameObjects() as $gameObject) {
-      if ($gameObject->isActive() && $this->canSee($gameObject)) {
+      if ($gameObject->isActive && $this->canSee($gameObject)) {
         $gameObject->render();
       }
     }
@@ -61,7 +61,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   public function erase(): void
   {
     foreach ($this->scene->getRootGameObjects() as $gameObject) {
-      if ($gameObject->isActive() && $this->canSee($gameObject)) {
+      if ($gameObject->isActive && $this->canSee($gameObject)) {
         $gameObject->erase();
       }
     }

@@ -80,8 +80,8 @@ class Window implements WindowInterface
    */
   public function render(?int $x = null, ?int $y = null): void
   {
-    $leftMargin = $this->position->getX() + ($x ?? 1);
-    $topMargin = $this->position->getY() + ($y ?? 1);
+    $leftMargin = $this->position->x + ($x ?? 1);
+    $topMargin = $this->position->y + ($y ?? 1);
 
     // Render the top border
     $output = $this->getTopBorder();
@@ -119,8 +119,8 @@ class Window implements WindowInterface
    */
   public function erase(?int $x = null, ?int $y = null): void
   {
-    $leftMargin = $this->position->getX() + $x;
-    $topMargin = $this->position->getY() + $y;
+    $leftMargin = $this->position->x + $x;
+    $topMargin = $this->position->y + $y;
 
     for ($i = 0; $i < $this->height; $i++) {
       Console::cursor()->moveTo($leftMargin, $topMargin + $i);
