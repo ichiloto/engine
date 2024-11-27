@@ -1,6 +1,7 @@
 <?php
 
 use Assegai\Util\Path;
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
@@ -11,7 +12,7 @@ use Ichiloto\Engine\Messaging\Notifications\Notification;
 use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
 use Ichiloto\Engine\Util\Config\ConfigStore;
-use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
+use Ichiloto\Engine\Util\Config\PlaySettings;
 
 if (! function_exists('clamp') ) {
   /**
@@ -101,6 +102,7 @@ if (! function_exists('alert') ){
    * @param string $title The title of the dialog. Defaults to "Alert".
    * @param int $width The width of the dialog. Defaults to 34.
    * @return void
+   * @throws Exception
    */
   function alert(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH): void
   {
@@ -116,6 +118,7 @@ if (! function_exists('confirm') ) {
    * @param string $title The title of the dialog. Defaults to "Confirm".
    * @param int $width The width of the dialog. Defaults to 34.
    * @return bool Whether the user confirmed or not.
+   * @throws Exception
    */
   function confirm(string $message, string $title = 'Confirm', int $width = DEFAULT_DIALOG_WIDTH): bool
   {
@@ -132,6 +135,7 @@ if (! function_exists('prompt') ) {
    * @param string $default The default value of the input. Defaults to an empty string.
    * @param int $width The width of the dialog. Defaults to 34.
    * @return string The user's input.
+   * @throws Exception
    */
   function prompt(
     string $message,
@@ -155,6 +159,7 @@ if (! function_exists('select') ) {
    * @param Vector2|null $position The position of the dialog. Defaults to null.
    * @param int $width The width of the dialog. Defaults to 34.
    * @return int The index of the selected option.
+   * @throws Exception
    */
   function select(
     string   $message,
@@ -179,6 +184,7 @@ if (! function_exists('show_text') ) {
    * @param WindowPosition $position The position of the dialog. Defaults to BOTTOM (i.e. the bottom of the screen).
    * @param float $charactersPerSecond The number of characters to display per second.
    * @return void
+   * @throws Exception
    */
   function show_text(
     string         $message,
@@ -194,6 +200,7 @@ if (! function_exists('show_text') ) {
 
 if (! function_exists('notify') ) {
   function notify(
+    Game                       $game,
     NotificationChannel        $channel,
     string                     $title,
     string                     $text,
@@ -201,7 +208,7 @@ if (! function_exists('notify') ) {
   ): void
   {
     $notification = new Notification($channel, $title, $text, $duration);
-    NotificationManager::getInstance()->notify($notification);
+    NotificationManager::getInstance($game)->notify($notification);
   }
 }
 
@@ -211,12 +218,13 @@ if (! function_exists('broadcast') ) {
   /**
    * Broadcasts the given event.
    *
+   * @param Game $game The game to broadcast the event to.
    * @param EventInterface $event The event to broadcast.
    * @return void
    */
-  function broadcast(EventInterface $event): void
+  function broadcast(Game $game, EventInterface $event): void
   {
-    $eventManager = EventManager::getInstance();
+    $eventManager = EventManager::getInstance($game);
     $eventManager->dispatchEvent($event);
   }
 }
@@ -291,7 +299,7 @@ if (! function_exists('asset') ) {
    * @param string $path The path of the asset file.
    * @return string The content of the asset file.
    */
-  function asset(string $path): mixed
+  function asset(string $path): string
   {
     $filename = Path::join(Path::getCurrentWorkingDirectory(), 'assets', $path);
 
@@ -377,9 +385,38 @@ if (! function_exists('quit_game') ) {
   /**
    * Quits the game.
    *
+   * @param Game $game
    * @return void
+   * @throws Exception Thrown if the user cancels the quit operation.
    */
-  function quit_game(): void
+  function quit_game(Game $game): void
   {
+    if (confirm('Are you sure you want to quit the game?')) {
+      $game->quit();
+    }
+  }
+}
+
+if (! function_exists('get_screen_width') ) {
+  /**
+   * Returns the screen width.
+   *
+   * @return int The screen width.
+   */
+  function get_screen_width(): int
+  {
+    return config(PlaySettings::class, 'width', DEFAULT_SCREEN_WIDTH);
+  }
+}
+
+if (! function_exists('get_screen_height') ) {
+  /**
+   * Returns the screen height.
+   *
+   * @return int The screen height.
+   */
+  function get_screen_height(): int
+  {
+    return config(PlaySettings::class, 'height', DEFAULT_SCREEN_HEIGHT);
   }
 }
