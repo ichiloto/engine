@@ -33,12 +33,15 @@ class MainMenuCommandSelectionMode extends MainMenuMode
         $index = wrap($index - 1, 0, $this->totalItems - 1);
       }
 
-      $this->mainMenuState->mainMenu->setActiveItemByIndex($index);
-      $this->mainMenuState->mainMenu->updateWindowContent();
+      $this->getMainMenu()->setActiveItemByIndex($index);
+      $this->getMainMenu()->updateWindowContent();
+
+      // Update info panel
+      $this->mainMenuState->infoPanel->setText($this->getMainMenu()->getActiveItem()->getDescription());
     }
 
     if (Input::isAnyKeyPressed([KeyCode::ENTER])) {
-      $this->mainMenuState->mainMenu->getActiveItem()->execute();
+      $this->getMainMenu()->getActiveItem()->execute();
     }
   }
 

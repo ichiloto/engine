@@ -65,7 +65,7 @@ class MainMenuState extends GameSceneState
   /**
    * @var InfoPanel|null The info panel.
    */
-  protected ?InfoPanel $infoPanel = null;
+  protected(set) ?InfoPanel $infoPanel = null;
   /**
    * @var MenuInterface|null The menu.
    */
