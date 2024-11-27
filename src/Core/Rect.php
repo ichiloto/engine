@@ -165,6 +165,21 @@ class Rect implements Stringable
   }
 
   /**
+   * Determines whether the rectangle contains the given point.
+   *
+   * @param Vector2 $point The point to check.
+   *
+   * @return bool Returns true if the rectangle contains the given point; otherwise, false.
+   */
+  public function contains(Vector2 $point): bool
+  {
+    return $point->x >= $this->getLeft()
+      && $point->x <= $this->getRight()
+      && $point->y >= $this->getTop()
+      && $point->y <= $this->getBottom();
+  }
+
+  /**
    * @param array{x: int, y: int, width: int, height: int} $data
    * @return Rect
    */

@@ -6,9 +6,11 @@ use Assegai\Util\Path;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Interfaces\CanRenderAt;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
+use Ichiloto\Engine\Exceptions\IchilotoException;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
 
@@ -64,8 +66,11 @@ class MapManager implements CanRenderAt
    * The constructor of the MapManager.
    *
    * @param Game $game The game instance.
+   * @param GameScene $gameScene The game scene.
    */
-  protected function __construct(protected Game $game)
+  protected function __construct(
+    protected Game $game,
+    protected(set) GameScene $gameScene)
   {
   }
 
@@ -75,10 +80,10 @@ class MapManager implements CanRenderAt
    * @param Game $game The game instance.
    * @return MapManager The instance of the MapManager.
    */
-  public static function getInstance(Game $game): self
+  public static function getInstance(Game $game, GameScene $gameScene): self
   {
     if (!self::$instance) {
-      self::$instance = new self($game);
+      self::$instance = new self($game, $gameScene);
     }
 
     return self::$instance;
@@ -89,12 +94,14 @@ class MapManager implements CanRenderAt
    *
    * @param string $filename The filename of the map.
    * @return MapManager The instance of the MapManager.
+   * @throws IchilotoException If the map cannot be loaded.
    * @throws NotFoundException If the file is not found.
    */
   public function loadMap(string $filename): self
   {
     // Load the tile map from the file
     $this->loadTileMap($filename);
+    Console::clear();
     $this->render();
     return $this;
   }
@@ -203,11 +210,15 @@ class MapManager implements CanRenderAt
    * @param string $filename The filename of the tile map.
    * @return void
    * @throws NotFoundException If the file is not found.
+   * @throws IchilotoException If the tile map cannot be loaded.
    */
   private function loadTileMap(string $filename): void
   {
     // Load the tile map from the file
     $assetsDirectory = Path::join(Path::getCurrentWorkingDirectory(), 'assets');
+    if (!str_ends_with($filename, '.php')) {
+      $filename .= '.php';
+    }
     $filename = Path::join($assetsDirectory, 'Maps', $filename);
 
     if (! file_exists($filename) ) {
@@ -228,6 +239,9 @@ class MapManager implements CanRenderAt
 
     // Load the collision map from the tile map
     $this->loadCollisionMap($this->tileMap, $dictionary);
+
+    // Activate triggers
+    $this->activateTriggers($map['triggers'] ?? []);
   }
 
   /**
@@ -298,5 +312,36 @@ class MapManager implements CanRenderAt
       $row = str_repeat(' ', $this->mapWidth);
       Console::write($row, $x, $y + $index);
     }
+  }
+
+  /**
+   * Activates the triggers.
+   *
+   * @param array $triggers
+   * @throws IchilotoException If the trigger cannot be created from the array.
+   */
+  protected function activateTriggers(array $triggers): void
+  {
+    if ($player = $this->gameScene->player) {
+      $player->removeTriggers();
+
+      foreach ($triggers as $data) {
+        $trigger = Trigger::tryFromArray($data);
+        $player->addTrigger($trigger);
+      }
+    }
+  }
+
+  /**
+   * Renders a background tile.
+   *
+   * @param int $x The x-coordinate of the tile.
+   * @param int $y The y-coordinate of the tile.
+   * @return void
+   */
+  public function renderBackgroundTile(int $x, int $y): void
+  {
+    $tile = $this->tileMap[$y][$x];
+    Console::write($tile, $x + 1, $y + 1);
   }
 }

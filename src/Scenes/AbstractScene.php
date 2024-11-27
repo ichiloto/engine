@@ -185,4 +185,12 @@ abstract class AbstractScene implements SceneInterface
   {
     return $this->sceneManager->game;
   }
+
+  /**
+   * @inheritDoc
+   */
+  public function renderBackgroundTile(int $x, int $y): void
+  {
+    // Do nothing. This method is meant to be overridden.
+  }
 }

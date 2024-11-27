@@ -277,7 +277,8 @@ abstract class GameObject implements CanActivate, SubjectInterface, CanUpdate, C
   public function erase(): void
   {
     for($y = $this->shape->getY(); $y < $this->shape->getY() + $this->shape->getHeight(); $y++) {
-      Console::write(' ', $this->position->x + 1, $this->position->y + 1 + $y);
+      $this->scene->renderBackgroundTile($this->position->x, $this->position->y + $y);
+//      Console::write(' ', $this->position->x + 1, $this->position->y + 1 + $y);
     }
   }
 

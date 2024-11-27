@@ -7,14 +7,17 @@ use Ichiloto\Engine\Core\GameObject;
 use Ichiloto\Engine\Core\Interfaces\CanCompare;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
+use Ichiloto\Engine\Events\Enumerations\MovementEventType;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
 use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
+use Ichiloto\Engine\Events\MovementEvent;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\UI\LocationHUDWindow;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Util\Debug;
 use RuntimeException;
 
 /**
@@ -39,23 +42,16 @@ class Player extends GameObject
    */
   public function move(Vector2 $direction): void
   {
-    $newPosition = Vector2::sum($this->position, $direction);
+    $origin = $this->position;
+    $destination = Vector2::sum($origin, $direction);
     $collisionType = null;
+    $this->updatePlayerSprite($direction);
 
-    if (! $this->getGameScene()->mapManager->canMoveTo(intval($newPosition->x), intval($newPosition->y), $collisionType) ) {
+    if (! $this->getGameScene()->mapManager->canMoveTo(intval($destination->x), intval($destination->y), $collisionType) ) {
       return;
     }
 
     $this->handleCollision($collisionType);
-
-    // Update sprite
-    $this->sprite[0] = match (true) {
-      $direction->y < 0 => $this->upSprite,
-      $direction->y > 0 => $this->downSprite,
-      $direction->x < 0 => $this->leftSprite,
-      $direction->x > 0 => $this->rightSprite,
-      default => $this->sprite[0],
-    };
 
     $this->erase();
     $this->position->add($direction);
@@ -70,6 +66,8 @@ class Player extends GameObject
       };
       $this->getLocationHUDWindow()->updateDetails($this->position, $heading);
     }
+
+    $this->notify($this->getGameScene(), new MovementEvent(MovementEventType::PLAYER_MOVE, $origin, $destination));
   }
 
   /**
@@ -80,7 +78,7 @@ class Player extends GameObject
   protected function getGameScene(): GameScene
   {
     if (! $this->scene instanceof GameScene) {
-      throw new RuntimeException("The scene must be an instance of GameScene.");
+      throw new RuntimeException('The scene must be an instance of ' . GameScene::class);
     }
 
     return $this->scene;
@@ -102,5 +100,46 @@ class Player extends GameObject
   protected function getLocationHUDWindow(): LocationHUDWindow
   {
     return $this->getGameScene()->uiManager->locationHUDWindow;
+  }
+
+  /**
+   * Adds a trigger to the observers' collection.
+   *
+   * @param Trigger $trigger The trigger to add.
+   */
+  public function addTrigger(Trigger $trigger): void
+  {
+    $this->addObserver($trigger);
+  }
+
+  /**
+   * Removes all triggers from the observers collection.
+   *
+   * @return void
+   */
+  public function removeTriggers(): void
+  {
+    foreach ($this->observers as $observer) {
+      if ($observer instanceof Trigger) {
+        $this->observers->remove($observer);
+      }
+    }
+  }
+
+  /**
+   * Updates the player sprite based on the direction.
+   *
+   * @param Vector2 $direction The direction.
+   * @return void
+   */
+  public function updatePlayerSprite(Vector2 $direction): void
+  {
+    $this->sprite[0] = match (true) {
+      $direction->y < 0 => $this->upSprite,
+      $direction->y > 0 => $this->downSprite,
+      $direction->x < 0 => $this->leftSprite,
+      $direction->x > 0 => $this->rightSprite,
+      default => $this->sprite[0],
+    };
   }
 }

@@ -28,6 +28,7 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Scenes\Title\TitleScene;
+use Ichiloto\Engine\UI\Windows\DebugWindow;
 use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\Util\Config\AppConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
@@ -68,9 +69,9 @@ class Game implements CanRun, SubjectInterface
    */
   private int $frameRate = 0;
   /**
-   * @var Window $debugWindow The debug window.
+   * @var DebugWindow $debugWindow The debug window.
    */
-  protected Window $debugWindow;
+  protected DebugWindow $debugWindow;
   /**
    * @var ItemList<ObserverInterface> The observers.
    */
@@ -276,7 +277,10 @@ class Game implements CanRun, SubjectInterface
    */
   protected function update(): void
   {
+    $this->frameCount++;
     $this->sceneManager->update();
+
+    $this->notify($this, new GameEvent(GameEventType::UPDATE));
   }
 
   /**
@@ -359,6 +363,8 @@ class Game implements CanRun, SubjectInterface
       'log_level' => config(AppConfig::class, 'debug.level') ?? 1,
       'log_directory' => $logDirectory
     ]);
+
+    $this->debugWindow = new DebugWindow($this);
   }
 
   /**
