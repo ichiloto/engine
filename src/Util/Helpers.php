@@ -420,3 +420,30 @@ if (! function_exists('get_screen_height') ) {
     return config(PlaySettings::class, 'height', DEFAULT_SCREEN_HEIGHT);
   }
 }
+
+/* Misc. */
+if (! function_exists('debug_get_backtrace') ) {
+  function debug_get_backtrace(): string
+  {
+    $backtrace = debug_backtrace();
+    $output = '';
+
+    foreach ($backtrace as $i => $trace) {
+      $output .= "#$i: ";
+
+      if (isset($trace['file'])) {
+        $output .= $trace['file'] . ':' . $trace['line'];
+      }
+
+      if (isset($trace['class'])) {
+        $output .= ' ' . $trace['class'] . $trace['type'] . $trace['function'];
+      } else {
+        $output .= ' ' . $trace['function'];
+      }
+
+      $output .= "\n";
+    }
+
+    return $output;
+  }
+}
