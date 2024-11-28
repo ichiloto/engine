@@ -102,7 +102,7 @@ class TitleMenu extends Menu
       $this->render();
     }
 
-    if (Input::isAnyKeyPressed([KeyCode::ENTER])) {
+    if (Input::isButtonDown("confirm")) {
       $selectedCommand = $this->items->toArray()[$this->activeIndex];
       $selectedCommand->execute($this->executionContext);
     }

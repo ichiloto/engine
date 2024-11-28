@@ -28,10 +28,12 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Scenes\Title\TitleScene;
+use Ichiloto\Engine\UI\Modal\ModalManager;
 use Ichiloto\Engine\UI\Windows\DebugWindow;
 use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\Util\Config\AppConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\InputConfig;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
@@ -51,15 +53,19 @@ class Game implements CanRun, SubjectInterface
   /**
    * @var SceneManager The scene manager.
    */
-  protected SceneManager $sceneManager;
+  protected(set) SceneManager $sceneManager;
   /**
    * @var EventManager $eventManager The event manager.
    */
-  protected EventManager $eventManager;
+  protected(set) EventManager $eventManager;
+  /**
+   * @var ModalManager $modalManager The modal manager.
+   */
+  protected(set) ModalManager $modalManager;
   /**
    * @var NotificationManager $notificationManager The notification manager.
    */
-  protected NotificationManager $notificationManager;
+  protected(set) NotificationManager $notificationManager;
   /**
    * @var int $frameCount The number of frames that have been rendered.
    */
@@ -144,10 +150,7 @@ class Game implements CanRun, SubjectInterface
       ConfigStore::get(PlaySettings::class)->set($key, $value);
     }
 
-    Console::init([
-      'width' => $this->width,
-      'height' => $this->height
-    ]);
+    Console::init($this, ['width' => $this->width, 'height' => $this->height]);
     return $this;
   }
 
@@ -311,6 +314,7 @@ class Game implements CanRun, SubjectInterface
   {
     $this->sceneManager = SceneManager::getInstance($this);
     $this->eventManager = EventManager::getInstance($this);
+    $this->modalManager = ModalManager::getInstance($this);
     $this->notificationManager = NotificationManager::getInstance($this);
     InputManager::init($this);
   }
@@ -445,12 +449,16 @@ class Game implements CanRun, SubjectInterface
    * Quit the game.
    *
    * @return void
+   * @throws Exception
    */
   public function quit(): void
   {
-    Console::reset();
-    $this->notify($this, new GameEvent(GameEventType::QUIT));
-    $this->stop();
+    $quitVerb = config(ProjectConfig::class, 'vocab.verb.quit', 'quit');
+    if (confirm("Are you sure you want to $quitVerb?", '', 40)) {
+      Console::reset();
+      $this->notify($this, new GameEvent(GameEventType::QUIT));
+      $this->stop();
+    }
   }
 
   /**
@@ -627,5 +635,6 @@ SPLASH_SCREEN;
     ConfigStore::put(PlaySettings::class, new PlaySettings($this->options));
     ConfigStore::put(AppConfig::class, new AppConfig());
     ConfigStore::put(ProjectConfig::class, new ProjectConfig());
+    ConfigStore::put(InputConfig::class, new InputConfig());
   }
 }

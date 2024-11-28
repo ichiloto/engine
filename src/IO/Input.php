@@ -88,4 +88,15 @@ class Input
   {
     return InputManager::isKeyUp($keyCode);
   }
+
+  /**
+   * Checks if the given button is down.
+   *
+   * @param string $name The name of the button to check.
+   * @return bool Returns true if the button is down, false otherwise.
+   */
+  public static function isButtonDown(string $name): bool
+  {
+    return InputManager::isButtonDown($name);
+  }
 }

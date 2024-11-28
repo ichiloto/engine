@@ -109,4 +109,16 @@ class TitleScene extends AbstractScene
 
     Console::write($this->headerContent, $x, $y);
   }
+
+  /**
+   * @inheritDoc
+   */
+  public function resume(): void
+  {
+    Console::clear();
+    usleep(300);
+    $this->renderHeader();
+    usleep(300);
+    $this->menu->render();
+  }
 }

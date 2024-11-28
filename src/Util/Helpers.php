@@ -118,7 +118,7 @@ if (! function_exists('confirm') ) {
    * @param string $title The title of the dialog. Defaults to "Confirm".
    * @param int $width The width of the dialog. Defaults to 34.
    * @return bool Whether the user confirmed or not.
-   * @throws Exception
+   * @throws Exception If the game instance is not set.
    */
   function confirm(string $message, string $title = 'Confirm', int $width = DEFAULT_DIALOG_WIDTH): bool
   {

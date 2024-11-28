@@ -3,13 +3,18 @@
 namespace Ichiloto\Engine\IO\Console;
 
 use Exception;
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\UI\Modal\ModalManager;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
-use Ichiloto\Engine\Util\Debug;
-use Symfony\Component\Console\Output\ConsoleOutput;
+use RuntimeException;
 
 class Console
 {
+  /**
+   * @var Game|null $game The game instance.
+   */
+  private static ?Game $game = null;
   /**
    * @var array<string> $buffer The buffer.
    */
@@ -37,14 +42,16 @@ class Console
   /**
    * Initializes the console.
    *
+   * @param Game $game
    * @param array{width: int, height: int} $options
    * @return void
    */
-  public static function init(array $options = [
+  public static function init(Game $game, array $options = [
     'width' => DEFAULT_SCREEN_WIDTH,
     'height' => DEFAULT_SCREEN_HEIGHT,
   ]): void
   {
+    self::$game = $game;
     self::clear();
     Console::cursor()->disableBlinking();
     self::$width = $options['width'];
@@ -209,10 +216,10 @@ class Console
   }
 
   /**
-   * Erases
+   * Erases output at the specified position.
    *
-   * @param int $x
-   * @param int $y
+   * @param int $x The x position.
+   * @param int $y The y position.
    * @return void
    */
   public static function erase(int $x, int $y): void
@@ -278,12 +285,15 @@ class Console
    * @param string $title The title of the dialog.
    * @param int $width The width of the dialog.
    * @return bool Whether the user confirmed or not.
-   * @throws Exception
+   * @throws Exception If the game instance is not set.
    */
   public static function confirm(string $message, string $title = 'Confirm', int $width = DEFAULT_DIALOG_WIDTH): bool
   {
-    throw new Exception('Not implemented');
-    return false;
+    if (!self::$game) {
+      throw new RuntimeException('The game instance is not set.');
+    }
+
+    return ModalManager::getInstance(self::$game)->confirm($message, $title, $width);
   }
 
   /**
@@ -302,10 +312,20 @@ class Console
     int    $width = DEFAULT_DIALOG_WIDTH
   ): string
   {
-    throw new Exception('Not implemented');
-    return '';
+    return ModalManager::getInstance(self::$game)->prompt($message, $title, $default, $width);
   }
 
+  /**
+   * Shows a select dialog with the given message and options. Returns the index of the selected option.
+   *
+   * @param string $message The message to show.
+   * @param array $options The options to show.
+   * @param string $title The title of the dialog. Defaults to "".
+   * @param int $default The default option. Defaults to 0.
+   * @param Vector2|null $position The position of the dialog. Defaults to null.
+   * @param int $width The width of the dialog. Defaults to 34.
+   * @return int The index of the selected option.
+   */
   public static function select(
     string   $message,
     array    $options,
@@ -315,8 +335,7 @@ class Console
     int      $width = DEFAULT_SELECT_DIALOG_WIDTH
   ): int
   {
-    throw new Exception('Not implemented');
-    return 0;
+    return ModalManager::getInstance(self::$game)->select($message, $options, $title, $default, $position, $width);
   }
 
   /**
@@ -337,7 +356,7 @@ class Console
     float          $charactersPerSecond = 1
   ): void
   {
-    throw new Exception('Not implemented');
+    ModalManager::getInstance(self::$game)->showText($message, $title, $help, $position, $charactersPerSecond);
   }
 
   /**

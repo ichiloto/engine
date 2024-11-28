@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Core\Menu\MainMenu\Modes;
 
 use Ichiloto\Engine\Core\Menu\MainMenu\MainMenu;
+use Ichiloto\Engine\Core\Menu\MainMenu\Windows\InfoPanel;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
@@ -14,6 +15,11 @@ use Ichiloto\Engine\IO\Input;
  */
 class MainMenuCommandSelectionMode extends MainMenuMode
 {
+  /**
+   * The total items.
+   *
+   * @var int $totalItems
+   */
   protected int $totalItems = 0;
 
   /**
@@ -33,14 +39,13 @@ class MainMenuCommandSelectionMode extends MainMenuMode
         $index = wrap($index - 1, 0, $this->totalItems - 1);
       }
 
-      $this->getMainMenu()->setActiveItemByIndex($index);
-      $this->getMainMenu()->updateWindowContent();
+      $this->getMainMenu()?->setActiveItemByIndex($index);
+      $this->getMainMenu()?->updateWindowContent();
 
-      // Update info panel
-      $this->mainMenuState->infoPanel->setText($this->getMainMenu()->getActiveItem()->getDescription());
+      $this->getInfoPanel()?->setText($this->getMainMenu()?->getActiveItem()->getDescription());
     }
 
-    if (Input::isAnyKeyPressed([KeyCode::ENTER])) {
+    if (Input::isButtonDown("confirm")) {
       $this->getMainMenu()->getActiveItem()->execute();
     }
   }
@@ -65,15 +70,30 @@ class MainMenuCommandSelectionMode extends MainMenuMode
   /**
    * Returns the main menu.
    *
-   * @return MainMenu The main menu.
+   * @return MainMenu|null The main menu.
    */
-  private function getMainMenu(): MainMenu
+  private function getMainMenu(): ?MainMenu
   {
     return $this->mainMenuState->mainMenu;
   }
 
+  /**
+   * Returns the active index.
+   *
+   * @return int The active index.
+   */
   private function getActiveIndex(): int
   {
     return $this->mainMenuState->mainMenu->activeIndex;
+  }
+
+  /**
+   * Returns the info panel.
+   *
+   * @return InfoPanel|null The info panel.
+   */
+  public function getInfoPanel(): ?InfoPanel
+  {
+    return $this->mainMenuState->infoPanel;
   }
 }

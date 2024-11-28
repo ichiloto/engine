@@ -7,6 +7,9 @@ use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\KeyboardEvent;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\InputConfig;
+use Ichiloto\Engine\Util\Debug;
 use RuntimeException;
 
 class InputManager
@@ -28,6 +31,10 @@ class InputManager
    * @var EventManager|null The event manager.
    */
   private static ?EventManager $eventManager = null;
+  /**
+   * @var array $config The configuration.
+   */
+  protected static array $config = [];
 
   /**
    * Initializes the InputManager.
@@ -39,6 +46,9 @@ class InputManager
   {
     self::$eventManager = EventManager::getInstance($game);
     self::$previousKeyPress = self::$keyPress = '';
+    $inputConfig = ConfigStore::get(InputConfig::class);
+    assert($inputConfig instanceof InputConfig);
+    self::$config = $inputConfig->all();
   }
 
   /**
@@ -146,12 +156,7 @@ class InputManager
    */
   public static function isAnyKeyPressed(array $keyCodes): bool
   {
-    foreach ($keyCodes as $keyCode) {
-      if (self::isKeyDown($keyCode)) {
-        return true;
-      }
-    }
-    return false;
+    return array_any($keyCodes, fn($keyCode) => self::isKeyDown($keyCode));
   }
 
   /**
@@ -196,6 +201,18 @@ class InputManager
     $previousKey = self::getKey(self::$previousKeyPress);
 
     return empty($key) && $previousKey === $keyCode->value;
+  }
+
+  /**
+   * Checks if a button is pressed.
+   *
+   * @param string $name The name of the button to check.
+   * @return bool Returns true if the button is pressed, false otherwise.
+   */
+  public static function isButtonDown(string $name): bool
+  {
+    $button = self::$config[$name] ?? [];
+    return self::isAnyKeyPressed($button['keys'] ?? []);
   }
 
   /**

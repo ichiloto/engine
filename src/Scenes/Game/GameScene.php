@@ -156,6 +156,26 @@ class GameScene extends AbstractScene
   }
 
   /**
+   * @inheritDoc
+   */
+  #[Override]
+  public function resume(): void
+  {
+    parent::resume();
+    $this->state->resume();
+  }
+
+  /**
+   * @inheritDoc
+   */
+  #[Override]
+  public function suspend(): void
+  {
+    parent::suspend();
+    $this->state->suspend();
+  }
+
+  /**
    * Loads the map.
    *
    * @param string $mapFilename The map filename.

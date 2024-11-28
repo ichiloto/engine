@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Scenes\Game\States;
 
 use Assegai\Collections\ItemList;
+use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Core\Menu\Commands\OpenAbilityMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenConfigMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenEquipmentMenuCommand;
@@ -44,7 +45,7 @@ use Ichiloto\Engine\UI\Windows\Window;
  *
  * @package Ichiloto\Engine\Scenes\Game\States
  */
-class MainMenuState extends GameSceneState
+class MainMenuState extends GameSceneState implements CanRender
 {
   /**
    * The width of the main menu.
@@ -225,5 +226,49 @@ class MainMenuState extends GameSceneState
     $this->mode?->exit();
     $this->mode = $mode;
     $this->mode->enter();
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function resume(): void
+  {
+    usleep(300);
+    $this->render();
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function suspend(): void
+  {
+    $this->erase();
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function render(): void
+  {
+    $this->infoPanel->render();
+    $this->playTimePanel->render();
+    $this->accountBalancePanel->render();
+    $this->locationDetailPanel->render();
+    $this->mainMenu->render();
+    $this->characterSelectionMenu->render();
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function erase(): void
+  {
+    Console::clear();
+//    $this->infoPanel->erase();
+//    $this->playTimePanel->erase();
+//    $this->accountBalancePanel->erase();
+//    $this->locationDetailPanel->erase();
+//    $this->mainMenu->erase();
+//    $this->characterSelectionMenu->erase();
   }
 }

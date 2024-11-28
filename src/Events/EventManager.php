@@ -3,7 +3,6 @@
 namespace Ichiloto\Engine\Events;
 
 use Ichiloto\Engine\Core\Game;
-use Ichiloto\Engine\Core\Interfaces\SingletonInterface;
 use Ichiloto\Engine\Events\Enumerations\EventType;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
 use Ichiloto\Engine\Events\Interfaces\EventListenerInterface;

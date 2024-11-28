@@ -12,6 +12,7 @@ use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\SceneStateContext;
+use Ichiloto\Engine\Util\Debug;
 
 /**
  * This state serves as the backbone of the game, managing the player's exploration experience.
@@ -52,11 +53,11 @@ class FieldState extends GameSceneState
     $scene = $this->context->getScene();
     assert($scene instanceof GameScene);
 
-    if (Input::isAnyKeyPressed([KeyCode::Q, KeyCode::q])) {
+    if (Input::isButtonDown("quit")) {
       $scene->getGame()->quit();
     }
 
-    if (Input::isAnyKeyPressed([KeyCode::ESCAPE])) {
+    if (Input::isButtonDown("menu")) {
       $this->setState($scene->mainMenuState);
     }
 
@@ -65,6 +66,12 @@ class FieldState extends GameSceneState
 
     if (abs($h) || abs($v)) {
       $scene->player->move(new Vector2(intval($h), intval($v)));
+    }
+
+    if (Input::isButtonDown("notify")) {
+      if (confirm("Are you sure you want to notify the player?")) {
+        Debug::log("Notify button pressed.");
+      }
     }
   }
 

@@ -7,11 +7,25 @@ use Exception;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Util\Debug;
 
-class ProjectConfig extends AbstractConfig
+/**
+ * Class InputConfig. Represents the input configuration.
+ *
+ * @package Ichiloto\Engine\Util\Config
+ */
+class InputConfig extends AbstractConfig
 {
   /**
+   * Returns the configuration array.
+   *
+   * @return array The configuration array.
+   */
+  public function all(): array
+  {
+    return $this->config;
+  }
+
+  /**
    * @inheritDoc
-   * @throws NotFoundException
    * @throws Exception
    */
   protected function load(): array
@@ -59,14 +73,14 @@ class ProjectConfig extends AbstractConfig
   }
 
   /**
-   * Returns the filename of the configuration file.
+   * Returns the filename of the input configuration file.
    *
-   * @return string The filename of the configuration file.
+   * @return string The filename of the input configuration file.
    * @throws NotFoundException
    */
   protected function getFilename(): string
   {
-    $filename = Path::join(Path::getCurrentWorkingDirectory(), 'config.php');
+    $filename = Path::join(Path::getCurrentWorkingDirectory(), 'input.php');
 
     if (!file_exists($filename)) {
       throw new NotFoundException($filename);
