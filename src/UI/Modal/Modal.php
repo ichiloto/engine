@@ -14,13 +14,13 @@ use Ichiloto\Engine\Events\ModalEvent;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\Color;
-use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\UI\Interfaces\ModalInterface;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
+use Ichiloto\Engine\Util\Debug;
 use Symfony\Component\Console\Output\ConsoleOutput;
 use Symfony\Component\Console\Output\OutputInterface;
 
@@ -203,9 +203,11 @@ abstract class Modal implements ModalInterface
    */
   public function hide(): void
   {
-    $this->erase();
-    $this->isShowing = false;
-    $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::HIDE, false));
+    if ($this->isShowing) {
+      $this->erase();
+      $this->isShowing = false;
+      $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::HIDE, false));
+    }
   }
 
   /**

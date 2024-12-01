@@ -8,13 +8,12 @@ use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Core\Interfaces\CanStart;
 use Ichiloto\Engine\Core\Interfaces\CanUpdate;
-use Ichiloto\Engine\Core\Interfaces\SingletonInterface;
 use Ichiloto\Engine\Events\Enumerations\SceneEventType;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\SceneEvent;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\IO\SaveManager;
-use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Scenes\GameOver\GameOverScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 
 /**
@@ -36,7 +35,7 @@ class SceneManager implements CanStart, CanRender, CanUpdate
   /**
    * @var SaveManager The save manager.
    */
-  protected SaveManager $saveManager;
+  protected(set) SaveManager $saveManager;
   /**
    * The scenes in the scene manager.
    * @var ItemList<SceneInterface>
@@ -92,6 +91,22 @@ class SceneManager implements CanStart, CanRender, CanUpdate
     foreach ($scenes as $scene) {
       $this->scenes->add($scene);
     }
+
+    return $this;
+  }
+
+  /**
+   * Remove scenes from the scene manager.
+   *
+   * @param SceneInterface ...$scenes The scenes to remove.
+   * @return $this The scene manager.
+   */
+  public function removeScenes(SceneInterface ...$scenes): self
+  {
+    foreach ($scenes as $scene) {
+      $this->scenes->remove($scene);
+    }
+
 
     return $this;
   }
@@ -155,6 +170,7 @@ class SceneManager implements CanStart, CanRender, CanUpdate
     };
 
     $this->currentScene?->suspend();
+    $this->unloadScene($this->currentScene);
     $this->currentScene = $sceneToLoad;
     if ($this->currentScene?->isStarted()) {
       $this->currentScene?->resume();
@@ -170,13 +186,16 @@ class SceneManager implements CanStart, CanRender, CanUpdate
   /**
    * Unload a scene.
    *
-   * @param SceneInterface $scene The scene to unload.
+   * @param SceneInterface|null $scene The scene to unload.
    * @return SceneManager The scene manager.
    */
-  public function unloadScene(SceneInterface $scene): self
+  public function unloadScene(?SceneInterface $scene): self
   {
+    if (!$scene) {
+      return $this;
+    }
+
     if ($this->scenes->contains($scene)) {
-      $this->scenes->remove($scene);
       $scene->stop();
       $this->eventManager->dispatchEvent(new SceneEvent(SceneEventType::UNLOAD, $this->currentScene));
     }
@@ -186,20 +205,13 @@ class SceneManager implements CanStart, CanRender, CanUpdate
 
   /**
    * Load the game over scene.
+   *
+   * @return void
+   * @throws NotFoundException If the game over scene is not found.
    */
   public function loadGameOverScene(): void
   {
-    // TODO: Implement loadGameOverScene() method.
-    throw new Exception('Method not implemented.');
+    $this->loadScene(GameOverScene::class);
   }
 
-  /**
-   * Return the save manager
-   *
-   * @return SaveManager The save manager.
-   */
-  public function getSaveManager(): SaveManager
-  {
-    return $this->saveManager;
-  }
 }

@@ -14,6 +14,7 @@ use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\UI\UIManager;
+use Ichiloto\Engine\Util\Debug;
 
 /**
  * Class AbstractScene. The abstract scene.
@@ -112,7 +113,7 @@ abstract class AbstractScene implements SceneInterface
    */
   public function resume(): void
   {
-    $this->camera->resume();
+//    $this->camera->resume();
 
     foreach ($this->rootGameObjects as $gameObject) {
       if ($gameObject->isActive) {
@@ -165,6 +166,8 @@ abstract class AbstractScene implements SceneInterface
         $gameObject->stop();
       }
     }
+
+    $this->deregisterEventHandlers();
 
     $this->started = false;
   }
@@ -258,5 +261,11 @@ abstract class AbstractScene implements SceneInterface
     };
 
     $this->eventManager->addEventListener(EventType::NOTIFICATION, $this->notificationEventHandler);
+  }
+
+  protected function deregisterEventHandlers(): void
+  {
+    $this->eventManager->removeEventListener(EventType::MODAL, $this->modalEventHandler);
+    $this->eventManager->removeEventListener(EventType::NOTIFICATION, $this->notificationEventHandler);
   }
 }

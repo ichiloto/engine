@@ -138,8 +138,10 @@ class ModalManager implements CanUpdate, CanRender
     $modal = new PromptModal($this->game, $message, $title, $default, $width);
     $modal->message = $message;
     $this->modals->push($modal);
+    $result = $this->modals->peek()->open();
+    $this->modals->pop();
 
-    return '';
+    return $result;
   }
 
   /**

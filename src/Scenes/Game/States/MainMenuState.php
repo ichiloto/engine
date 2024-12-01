@@ -33,6 +33,7 @@ use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
+use Ichiloto\Engine\Util\Debug;
 
 /**
  * The MainMenu state allows the player to access the in-game menu for managing inventory, checking the map, viewing stats, and saving the game.
@@ -123,6 +124,7 @@ class MainMenuState extends GameSceneState implements CanRender
   public function enter(): void
   {
     Console::clear();
+    $this->getGameScene()->locationHUDWindow->deactivate();
     $this->calculateMargins();
     $this->initializeMenuUI();
     $this->setMode(new MainMenuCommandSelectionMode($this));
@@ -147,6 +149,17 @@ class MainMenuState extends GameSceneState implements CanRender
   }
 
   /**
+   * @inheritDoc
+   */
+  public function exit(): void
+  {
+    $this->getGameScene()->locationHUDWindow->activate();
+    parent::exit();
+  }
+
+  /**
+   * Initializes the main menu UI.
+   *
    * @return void
    */
   protected function initializeMenuUI(): void
@@ -233,8 +246,10 @@ class MainMenuState extends GameSceneState implements CanRender
    */
   public function resume(): void
   {
-    usleep(300);
-    $this->render();
+    $this->getGameScene()->locationHUDWindow->deactivate();
+    $this->infoPanel->render();
+    $this->mainMenu->render();
+    $this->characterSelectionMenu->render();
   }
 
   /**
@@ -242,7 +257,7 @@ class MainMenuState extends GameSceneState implements CanRender
    */
   public function suspend(): void
   {
-    $this->erase();
+    $this->exit();
   }
 
   /**
@@ -264,11 +279,5 @@ class MainMenuState extends GameSceneState implements CanRender
   public function erase(): void
   {
     Console::clear();
-//    $this->infoPanel->erase();
-//    $this->playTimePanel->erase();
-//    $this->accountBalancePanel->erase();
-//    $this->locationDetailPanel->erase();
-//    $this->mainMenu->erase();
-//    $this->characterSelectionMenu->erase();
   }
 }

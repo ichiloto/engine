@@ -25,7 +25,7 @@ class ContinueGameCommand extends MenuItem
     protected GameLoader $gameLoader
   )
   {
-    $label = config(ProjectConfig::class, 'vocab.command.continue') ?? 'Continue';
+    $label = config(ProjectConfig::class, 'vocab.game.continue') ?? 'Continue';
     parent::__construct($menu, $label, 'Continue the game.', '');
     $this->disabled = true;
   }
@@ -48,7 +48,7 @@ class ContinueGameCommand extends MenuItem
 
     // TODO: Fetch the saved game file path from the game loader.
     $savedGameFilePath = '';
-    foreach ($saveFiles = $sceneManager->getSaveManager()->getSaveFiles(true) as $index => $path ) {
+    foreach ($saveFiles = $sceneManager->saveManager->getSaveFiles(true) as $index => $path ) {
       Debug::log("Path $index: $path");
     }
 

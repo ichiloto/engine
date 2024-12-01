@@ -38,7 +38,6 @@ class FieldState extends GameSceneState
   public function enter(): void
   {
     parent::enter();
-
     $this->renderTheField();
   }
 
@@ -73,6 +72,15 @@ class FieldState extends GameSceneState
         Debug::log("Notify button pressed.");
       }
     }
+
+    if (Input::isAnyKeyPressed([KeyCode::G, KeyCode::g])) {
+      $scene->sceneManager->loadGameOverScene();
+    }
+
+    if (Input::isAnyKeyPressed([KeyCode::P, KeyCode::p])) {
+//      Debug::log();
+      alert("What is your name? ", 'Character');
+    }
   }
 
   /**
@@ -85,6 +93,14 @@ class FieldState extends GameSceneState
     Console::clear();
     $this->getGameScene()->mapManager->render();
     $this->getGameScene()->player->render();
-    $this->getGameScene()->uiManager->locationHUDWindow->render();
+    $this->getGameScene()->locationHUDWindow->render();
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function resume(): void
+  {
+    $this->renderTheField();
   }
 }

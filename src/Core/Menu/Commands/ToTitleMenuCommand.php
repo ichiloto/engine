@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Core\Menu\Commands;
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\MenuItem;
+use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Scenes\Title\TitleScene;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 
@@ -22,12 +23,13 @@ class ToTitleMenuCommand extends MenuItem
    */
   public function __construct(MenuInterface $menu)
   {
-    $label = config(ProjectConfig::class, 'vocab.command.to_title_menu', 'To Title');
+    $label = config(ProjectConfig::class, 'vocab.game.to_title', 'To Title');
     parent::__construct($menu, $label, "Return to the title menu.");
   }
 
   /**
    * @inheritDoc
+   * @throws NotFoundException
    */
   public function execute(?ExecutionContextInterface $context = null): int
   {

@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\UI;
 
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\UI\Interfaces\UIElementInterface;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
@@ -15,7 +16,7 @@ use Override;
  *
  * @package Ichiloto\Engine\UI
  */
-class LocationHUDWindow extends Windows\Window
+class LocationHUDWindow extends Window implements UIElementInterface
 {
   /**
    * The width of the window.
@@ -25,6 +26,11 @@ class LocationHUDWindow extends Windows\Window
    * The height of the window.
    */
   protected const int HEIGHT = 4;
+
+  /**
+   * @inheritDoc
+   */
+  protected(set) bool $isActive = true;
 
   /**
    * LocationHUDWindow constructor.
@@ -69,8 +75,24 @@ class LocationHUDWindow extends Windows\Window
   #[Override]
   public function render(?int $x = null, ?int $y = null): void
   {
-    if (config(ProjectConfig::class, 'ui.hud.location', false)) {
+    if (config(ProjectConfig::class, 'ui.hud.location', false) && $this->isActive) {
       parent::render();
     }
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function activate(): void
+  {
+    $this->isActive = true;
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function deactivate(): void
+  {
+    $this->isActive = false;
   }
 }

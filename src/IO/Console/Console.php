@@ -275,7 +275,7 @@ class Console
    */
   public static function alert(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH): void
   {
-    throw new Exception('Not implemented');
+    ModalManager::getInstance(self::$game)->alert($message, $title, $width);
   }
 
   /**

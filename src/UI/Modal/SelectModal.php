@@ -19,6 +19,8 @@ use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\UI\Interfaces\ModalInterface;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
+use Symfony\Component\Console\Output\ConsoleOutput;
+use Symfony\Component\Console\Output\OutputInterface;
 
 /**
  * The SelectModal class.
@@ -108,6 +110,10 @@ class SelectModal implements ModalInterface
       return $this->activeButton;
     }
   }
+  /**
+   * @var OutputInterface $output The output.
+   */
+  protected OutputInterface $output;
 
   /**
    * Constructs a new instance of SelectModal.
@@ -136,6 +142,7 @@ class SelectModal implements ModalInterface
     $this->setOptions($options);
     $this->title = $title;
     $this->setHelp($help);
+    $this->output = new ConsoleOutput();
   }
 
   /**
@@ -392,7 +399,7 @@ class SelectModal implements ModalInterface
     $output .= $this->borderPack->getTopRightCorner();
 
     Console::cursor()->moveTo($x, $y);
-    echo $output;
+    $this->output->write($output);
   }
 
   /**
@@ -421,7 +428,7 @@ class SelectModal implements ModalInterface
       $output .= $content;
       $output .= $this->borderPack->getVerticalBorder();
       Console::cursor()->moveTo($x, $y + $optionIndex);
-      echo $output;
+      $this->output->write($output);
     }
   }
 
@@ -441,7 +448,7 @@ class SelectModal implements ModalInterface
     $output .= $this->borderPack->getBottomRightCorner();
 
     Console::cursor()->moveTo($x, $y);
-    echo $output;
+    $this->output->write($output);
   }
 
   /**

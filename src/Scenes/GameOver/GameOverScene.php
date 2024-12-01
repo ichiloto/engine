@@ -1,58 +1,44 @@
 <?php
 
-namespace Ichiloto\Engine\Scenes\Title;
+namespace Ichiloto\Engine\Scenes\GameOver;
 
 use Exception;
 use Ichiloto\Engine\Core\Menu\Commands\ContinueGameCommand;
-use Ichiloto\Engine\Core\Menu\Commands\LoadSceneCommand;
-use Ichiloto\Engine\Core\Menu\Commands\NewGameCommand;
 use Ichiloto\Engine\Core\Menu\Commands\QuitGameCommand;
-use Ichiloto\Engine\Core\Menu\TitleMenu\TitleMenu;
+use Ichiloto\Engine\Core\Menu\Commands\ToTitleMenuCommand;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\IO\Console\Console;
-use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Scenes\AbstractScene;
 use Ichiloto\Engine\Scenes\Game\GameLoader;
-use Ichiloto\Engine\Util\Debug;
-use Override;
+use Ichiloto\Engine\Scenes\GameOver\Menus\GameOverMenu;
 
 /**
- * The title scene.
+ * The game over scene.
  *
- * @package Ichiloto\Engine\Scenes\Title
+ * @package Ichiloto\Engine\Scenes\GameOver
  */
-class TitleScene extends AbstractScene
+class GameOverScene extends AbstractScene
 {
   /**
-   * The title menu.
-   *
-   * @var TitleMenu
+   * @var GameOverMenu The game over menu.
    */
-  protected TitleMenu $menu;
-
+  protected GameOverMenu $menu;
   /**
-   * The header content.
-   *
-   * @var string
+   * @var string The header content.
    */
   protected string $headerContent = '';
   /**
-   * The header.
-   *
-   * @var array
+   * @var array The header.
    */
   protected array $headerLines = [];
   /**
-   * The header height.
-   *
-   * @var int
+   * @var int The header height.
    */
   protected int $headerHeight = 0;
 
   /**
    * @inheritDoc
    */
-  #[Override]
   public function start(): void
   {
     $gameLoader = GameLoader::getInstance($this->getGame());
@@ -60,14 +46,14 @@ class TitleScene extends AbstractScene
     $menuHeight = 3;
 
     parent::start();
-    $this->headerContent = graphics('System/title');
+    $this->headerContent = graphics('System/game-over');
     $this->headerLines = explode("\n", $this->headerContent);
     $this->headerHeight = count($this->headerLines);
 
     $leftMargin = intval((get_screen_width() - $menuWidth) / 2);
     $topMargin = $this->headerHeight + 2;
 
-    $this->menu = new TitleMenu(
+    $this->menu = new GameOverMenu(
       $this,
       '',
       '',
@@ -75,10 +61,11 @@ class TitleScene extends AbstractScene
     );
     $this
       ->menu
-      ->addItem(new NewGameCommand($this->menu, $gameLoader))
       ->addItem(new ContinueGameCommand($this->menu, $gameLoader))
-      ->addItem(new LoadSceneCommand($this->menu, 'Options', 'options'))
+      ->addItem(new ToTitleMenuCommand($this->menu))
       ->addItem(new QuitGameCommand($this->menu));
+
+    Console::clear();
     $this->renderHeader();
     usleep(300);
     $this->menu->render();
@@ -86,8 +73,8 @@ class TitleScene extends AbstractScene
 
   /**
    * @inheritDoc
+   * @throws Exception
    */
-  #[Override]
   public function update(): void
   {
     parent::update();
@@ -111,7 +98,6 @@ class TitleScene extends AbstractScene
     $y = 2;
 
     Console::write($this->headerContent, $x, $y);
-//    Debug::log("Render Header called in " . debug_get_backtrace());
   }
 
   /**

@@ -10,6 +10,7 @@ use Ichiloto\Engine\Core\Interfaces\CanResume;
 use Ichiloto\Engine\Core\Interfaces\CanStart;
 use Ichiloto\Engine\Core\Interfaces\CanUpdate;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\UI\Interfaces\UIElementInterface;
 
 /**
  * The UI manager.
@@ -20,20 +21,21 @@ class UIManager implements CanRender, CanUpdate, CanResume, CanStart
    * @var UIManager The instance of the UI manager.
    */
   protected static UIManager $instance;
-
+  /**
+   * @var LocationHUDWindow The location HUD window.
+   */
   public LocationHUDWindow $locationHUDWindow;
   /**
-   * @var ItemList<CanRender> The UI elements.
+   * @var ItemList<UIElementInterface> The UI elements.
    */
-  protected ItemList $uiElements;
+  protected(set) ItemList $uiElements;
 
   /**
    * UIManager constructor.
    */
   protected function __construct(protected(set) Game $game)
   {
-    $this->locationHUDWindow = new LocationHUDWindow(new Vector2(0, 0), MovementHeading::NONE);
-    $this->uiElements = new ItemList(CanRender::class);
+    $this->uiElements = new ItemList(UIElementInterface::class);
   }
 
   /**
@@ -56,7 +58,9 @@ class UIManager implements CanRender, CanUpdate, CanResume, CanStart
   public function render(): void
   {
     foreach ($this->uiElements as $uiElement) {
-      $uiElement->render();
+      if ($uiElement->isActive) {
+        $uiElement->render();
+      }
     }
   }
 
@@ -66,7 +70,9 @@ class UIManager implements CanRender, CanUpdate, CanResume, CanStart
   public function erase(): void
   {
     foreach ($this->uiElements as $uiElement) {
-      $uiElement->erase();
+      if ($uiElement->isActive) {
+        $uiElement->erase();
+      }
     }
   }
 
@@ -75,7 +81,11 @@ class UIManager implements CanRender, CanUpdate, CanResume, CanStart
    */
   public function resume(): void
   {
-    $this->locationHUDWindow->render();
+    foreach ($this->uiElements as $uiElement) {
+      if ($uiElement->isActive && $uiElement instanceof CanResume) {
+        $uiElement->resume();
+      }
+    }
   }
 
   /**
@@ -83,7 +93,11 @@ class UIManager implements CanRender, CanUpdate, CanResume, CanStart
    */
   public function suspend(): void
   {
-    $this->locationHUDWindow->erase();
+    foreach ($this->uiElements as $uiElement) {
+      if ($uiElement->isActive && $uiElement instanceof CanResume) {
+        $uiElement->suspend();
+      }
+    }
   }
 
   /**

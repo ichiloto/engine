@@ -19,18 +19,16 @@ use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
 use Ichiloto\Engine\Events\Interfaces\StaticObserverInterface;
 use Ichiloto\Engine\Events\Interfaces\SubjectInterface;
 use Ichiloto\Engine\IO\Console\Console;
-use Ichiloto\Engine\IO\Enumerations\KeyCode;
-use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Scenes\GameOver\GameOverScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Scenes\Title\TitleScene;
 use Ichiloto\Engine\UI\Modal\ModalManager;
 use Ichiloto\Engine\UI\Windows\DebugWindow;
-use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\Util\Config\AppConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\InputConfig;
@@ -116,7 +114,8 @@ class Game implements CanRun, SubjectInterface
         ->addScenes(
           new TitleScene($this->sceneManager, "Title Screen"),
           new GameScene($this->sceneManager, $this->name),
-          new BattleScene($this->sceneManager, "$this->name - Battle Screen")
+          new BattleScene($this->sceneManager, "$this->name - Battle Screen"),
+          new GameOverScene($this->sceneManager, "$this->name - Game Over Screen")
         );
     } catch (Error|Exception|Throwable $exception) {
       $this->handleException($exception);
@@ -453,12 +452,9 @@ class Game implements CanRun, SubjectInterface
    */
   public function quit(): void
   {
-    $quitVerb = config(ProjectConfig::class, 'vocab.verb.quit', 'quit');
-    if (confirm("Are you sure you want to $quitVerb?", '', 40)) {
-      Console::reset();
-      $this->notify($this, new GameEvent(GameEventType::QUIT));
-      $this->stop();
-    }
+    Console::reset();
+    $this->notify($this, new GameEvent(GameEventType::QUIT));
+    $this->stop();
   }
 
   /**

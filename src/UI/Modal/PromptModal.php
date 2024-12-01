@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\UI\Modal;
 
 use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Core\Rect;
 use Override;
 
 /**
@@ -30,7 +31,7 @@ class PromptModal extends Modal
     int $width = DEFAULT_DIALOG_WIDTH
   )
   {
-    parent::__construct($game, message: $message, title: $title, width: $width);
+    parent::__construct($game, $message, $title, new Rect(0, 0, $width, DEFAULT_DIALOG_HEIGHT));
     $this->value = $default;
   }
 
