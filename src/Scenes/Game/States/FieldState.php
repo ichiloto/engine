@@ -12,6 +12,7 @@ use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\SceneStateContext;
+use Ichiloto\Engine\Util\Debug;
 
 /**
  * This state serves as the backbone of the game, managing the player's exploration experience.
@@ -37,7 +38,6 @@ class FieldState extends GameSceneState
   public function enter(): void
   {
     parent::enter();
-
     $this->renderTheField();
   }
 
@@ -52,11 +52,11 @@ class FieldState extends GameSceneState
     $scene = $this->context->getScene();
     assert($scene instanceof GameScene);
 
-    if (Input::isAnyKeyPressed([KeyCode::Q, KeyCode::q])) {
+    if (Input::isButtonDown("quit")) {
       $scene->getGame()->quit();
     }
 
-    if (Input::isAnyKeyPressed([KeyCode::ESCAPE])) {
+    if (Input::isButtonDown("menu")) {
       $this->setState($scene->mainMenuState);
     }
 
@@ -65,6 +65,21 @@ class FieldState extends GameSceneState
 
     if (abs($h) || abs($v)) {
       $scene->player->move(new Vector2(intval($h), intval($v)));
+    }
+
+    if (Input::isButtonDown("notify")) {
+      if (confirm("Are you sure you want to notify the player?")) {
+        Debug::log("Notify button pressed.");
+      }
+    }
+
+    if (Input::isAnyKeyPressed([KeyCode::G, KeyCode::g])) {
+      $scene->sceneManager->loadGameOverScene();
+    }
+
+    if (Input::isAnyKeyPressed([KeyCode::P, KeyCode::p])) {
+//      Debug::log();
+      alert("What is your name? ", 'Character');
     }
   }
 
@@ -78,6 +93,14 @@ class FieldState extends GameSceneState
     Console::clear();
     $this->getGameScene()->mapManager->render();
     $this->getGameScene()->player->render();
-    $this->getGameScene()->uiManager->locationHUDWindow->render();
+    $this->getGameScene()->locationHUDWindow->render();
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function resume(): void
+  {
+    $this->renderTheField();
   }
 }

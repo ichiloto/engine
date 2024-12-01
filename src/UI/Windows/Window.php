@@ -122,9 +122,9 @@ class Window implements WindowInterface
     $leftMargin = max(0, ($this->position->x + ($x ?? 1)));
     $topMargin = max(0, ($this->position->y + ($y ?? 1)));
 
-    for ($i = 0; $i < $this->height; $i++) {
-      Console::cursor()->moveTo($leftMargin, $topMargin + $i);
-      echo str_repeat(' ', $this->width);
+    for ($row = 0; $row < $this->height; $row++) {
+      Console::cursor()->moveTo($leftMargin, $topMargin + $row);
+      $this->output->write(str_repeat(' ', $this->width));
     }
   }
 

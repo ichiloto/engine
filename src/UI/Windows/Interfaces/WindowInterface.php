@@ -9,6 +9,8 @@ use Ichiloto\Engine\UI\Windows\WindowAlignment;
 
 /**
  * Interface WindowInterface. The interface for all windows.
+ *
+ * @package Ichiloto\Engine\UI\Windows\Interfaces
  */
 interface WindowInterface extends CanRender, SubjectInterface
 {

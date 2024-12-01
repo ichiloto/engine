@@ -41,8 +41,10 @@ abstract class GameObject implements CanActivate, SubjectInterface, CanUpdate, C
    * @var bool $isActive Determines whether the object is active.
    */
   protected(set) bool $isActive = false;
+  /**
+   * @var EventManager $eventManager The event manager.
+   */
   protected(set) EventManager $eventManager;
-
 
   /**
    * GameObject constructor.

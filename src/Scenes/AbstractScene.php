@@ -4,10 +4,17 @@ namespace Ichiloto\Engine\Scenes;
 
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameObject;
+use Ichiloto\Engine\Events\Enumerations\EventType;
+use Ichiloto\Engine\Events\Enumerations\ModalEventType;
+use Ichiloto\Engine\Events\Enumerations\NotificationEventType;
+use Ichiloto\Engine\Events\EventManager;
+use Ichiloto\Engine\Events\ModalEvent;
+use Ichiloto\Engine\Events\NotificationEvent;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\UI\UIManager;
+use Ichiloto\Engine\Util\Debug;
 
 /**
  * Class AbstractScene. The abstract scene.
@@ -17,29 +24,33 @@ use Ichiloto\Engine\UI\UIManager;
 abstract class AbstractScene implements SceneInterface
 {
   /**
-   * Whether the scene has started.
-   *
-   * @var bool
+   * @var bool Whether the scene has started.
    */
   protected bool $started = false;
   /**
-   * The root game objects.
-   *
-   * @var GameObject[]
+   * @var GameObject[] The root game objects.
    */
   protected array $rootGameObjects = [];
   /**
-   * The camera of the scene.
-   *
-   * @var Camera
+   * @var Camera The camera of the scene.
    */
   protected(set) Camera $camera;
   /**
-   * The UI manager.
-   *
-   * @var UIManager
+   * @var UIManager The UI manager.
    */
   protected(set) UIManager $uiManager;
+  /**
+   * @var EventManager The event manager.
+   */
+  protected(set) EventManager $eventManager;
+  /**
+   * @var mixed $modalEventHandler The modal event handler.
+   */
+  protected mixed $modalEventHandler = null;
+  /**
+   * @var mixed $notificationEventHandler The notification event handler.
+   */
+  protected mixed $notificationEventHandler = null;
 
   /**
    * AbstractScene constructor.
@@ -54,6 +65,7 @@ abstract class AbstractScene implements SceneInterface
   {
     $this->uiManager = UIManager::getInstance($this->sceneManager->game);
     $this->camera = new Camera($this);
+    $this->eventManager = EventManager::getInstance($this->sceneManager->game);
   }
 
   /**
@@ -101,7 +113,7 @@ abstract class AbstractScene implements SceneInterface
    */
   public function resume(): void
   {
-    $this->camera->resume();
+//    $this->camera->resume();
 
     foreach ($this->rootGameObjects as $gameObject) {
       if ($gameObject->isActive) {
@@ -137,6 +149,8 @@ abstract class AbstractScene implements SceneInterface
       }
     }
 
+    $this->initializeEventHandlers();
+
     $this->started = true;
   }
 
@@ -152,6 +166,8 @@ abstract class AbstractScene implements SceneInterface
         $gameObject->stop();
       }
     }
+
+    $this->deregisterEventHandlers();
 
     $this->started = false;
   }
@@ -192,5 +208,64 @@ abstract class AbstractScene implements SceneInterface
   public function renderBackgroundTile(int $x, int $y): void
   {
     // Do nothing. This method is meant to be overridden.
+  }
+
+  /**
+   * Initialize event handlers.
+   *
+   * @return void
+   */
+  protected function initializeEventHandlers(): void
+  {
+    $this->modalEventHandler = function (ModalEvent $event) {
+      switch ($event->modalEventType) {
+        case ModalEventType::OPEN:
+          $this->suspend();
+          break;
+
+        case ModalEventType::CLOSE:
+          $this->resume();
+          break;
+
+        case ModalEventType::HIDE:
+        case ModalEventType::UPDATE:
+        case ModalEventType::RENDER:
+        case ModalEventType::ACTION:
+        case ModalEventType::CONFIRM:
+        case ModalEventType::SHOW:
+        case ModalEventType::CANCEL:
+          // Do nothing
+          break;
+      }
+    };
+    $this->eventManager->addEventListener(EventType::MODAL, $this->modalEventHandler);
+
+    $this->notificationEventHandler = function (NotificationEvent $event) {
+      switch ($event->notificationEventType) {
+        case NotificationEventType::OPEN:
+        case NotificationEventType::RESUME:
+          $this->suspend();
+          break;
+
+        case NotificationEventType::DISMISS:
+          $this->resume();
+          break;
+
+        case NotificationEventType::UPDATE:
+        case NotificationEventType::RENDER:
+        case NotificationEventType::SUSPEND:
+        case NotificationEventType::ERASE:
+          // Do nothing
+          break;
+      }
+    };
+
+    $this->eventManager->addEventListener(EventType::NOTIFICATION, $this->notificationEventHandler);
+  }
+
+  protected function deregisterEventHandlers(): void
+  {
+    $this->eventManager->removeEventListener(EventType::MODAL, $this->modalEventHandler);
+    $this->eventManager->removeEventListener(EventType::NOTIFICATION, $this->notificationEventHandler);
   }
 }
