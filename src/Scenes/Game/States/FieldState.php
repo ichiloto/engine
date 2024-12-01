@@ -80,11 +80,6 @@ class FieldState extends GameSceneState
     if (Input::isAnyKeyPressed([KeyCode::G, KeyCode::g])) {
       $scene->sceneManager->loadGameOverScene();
     }
-
-    if (Input::isAnyKeyPressed([KeyCode::P, KeyCode::p])) {
-//      Debug::log();
-      alert("What is your name? ", 'Character');
-    }
   }
 
   /**

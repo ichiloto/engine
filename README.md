@@ -15,7 +15,7 @@ Ichiloto 2D Game Engine aims to provide an accessible platform for developers an
 
 ## Roadmap
 - [x] Core game loop implementation
-- [ ] Notifications and HUD elements
+- [x] Notifications and HUD elements
 - [ ] Map editor and ASCII art design tools
 - [ ] Save/load system
 - [ ] Advanced battle system customization
