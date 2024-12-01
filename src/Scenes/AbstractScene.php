@@ -59,7 +59,7 @@ abstract class AbstractScene implements SceneInterface
    * @param string $name The name of the scene.
    */
   public function __construct(
-    protected     (set) SceneManager $sceneManager,
+    protected(set) SceneManager $sceneManager,
     protected(set) string $name,
   )
   {

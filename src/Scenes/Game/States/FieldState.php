@@ -72,8 +72,7 @@ class FieldState extends GameSceneState
         $this->getGameScene()->getGame(),
         NotificationChannel::ACHIEVEMENT,
         'Achievement unlocked',
-        '100G - New Character Created',
-        NotificationDuration::MEDIUM
+        '100G - New Character Created'
       );
     }
 
