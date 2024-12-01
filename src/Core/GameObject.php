@@ -267,9 +267,9 @@ abstract class GameObject implements CanActivate, SubjectInterface, CanUpdate, C
    */
   public function render(): void
   {
-    for ($y = $this->shape->getY(); $y < $this->shape->getY() + $this->shape->getHeight(); $y++) {
-      $output = substr($this->sprite[$y], $this->shape->getX(), $this->shape->getWidth());
-      Console::write($output, $this->position->x + 1, $this->position->y + 1 + $y);
+    for ($row = $this->shape->getY(); $row < $this->shape->getY() + $this->shape->getHeight(); $row++) {
+      $output = substr($this->sprite[$row], $this->shape->getX(), $this->shape->getWidth());
+      $this->scene->camera->draw($output, $this->position->x, $this->position->y + $row);
     }
   }
 
@@ -280,7 +280,6 @@ abstract class GameObject implements CanActivate, SubjectInterface, CanUpdate, C
   {
     for($y = $this->shape->getY(); $y < $this->shape->getY() + $this->shape->getHeight(); $y++) {
       $this->scene->renderBackgroundTile($this->position->x, $this->position->y + $y);
-//      Console::write(' ', $this->position->x + 1, $this->position->y + 1 + $y);
     }
   }
 

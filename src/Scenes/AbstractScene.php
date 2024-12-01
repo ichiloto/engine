@@ -60,20 +60,12 @@ abstract class AbstractScene implements SceneInterface
    */
   public function __construct(
     protected(set) SceneManager $sceneManager,
-    protected string $name,
+    protected(set) string $name,
   )
   {
     $this->uiManager = UIManager::getInstance($this->sceneManager->game);
-    $this->camera = new Camera($this);
+    $this->camera = new Camera($this, get_screen_width(), get_screen_height());
     $this->eventManager = EventManager::getInstance($this->sceneManager->game);
-  }
-
-  /**
-   * @inheritDoc
-   */
-  public function getName(): string
-  {
-    return $this->name;
   }
 
   /**

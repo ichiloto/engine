@@ -17,6 +17,7 @@ use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\UI\Windows\WindowAlignment;
 use Ichiloto\Engine\UI\Windows\WindowPadding;
+use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Debug;
 
 /**
@@ -91,14 +92,15 @@ class Notification implements NotificationInterface
     protected NotificationChannel $channel,
     protected string $contentTitle = '',
     protected string $contentText = '',
-    protected NotificationDuration|float $duration = NotificationDuration::MEDIUM,
+    protected NotificationDuration|float $duration = NotificationDuration::LONG,
     protected BorderPackInterface $borderPack = new SlimBorderPack(),
   )
   {
     $this->id = uniqid('notification_');
     $this->eventManager = EventManager::getInstance($this->game);
+    Debug::log('Duration set to ' . $this->getDuration());
 
-    $leftMargin = DEFAULT_SCREEN_WIDTH - self::WIDTH - 16;
+    $leftMargin = config(PlaySettings::class, 'width', DEFAULT_SCREEN_WIDTH) - self::WIDTH;
     $topMargin = 0;
 
     $this->position = new Vector2($leftMargin, $topMargin);

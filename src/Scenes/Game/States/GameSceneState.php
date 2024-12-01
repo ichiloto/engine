@@ -87,7 +87,7 @@ abstract class GameSceneState implements SceneStateInterface, CanResume
   {
     $scene = $this->context->getScene();
     if (! $scene instanceof GameScene) {
-      Debug::error("The scene {$scene->getName()} is not an instance of GameScene.");
+      Debug::error("The scene {$scene->name} is not an instance of GameScene.");
       throw new RuntimeException('The scene is not an instance of GameScene.');
     }
 

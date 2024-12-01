@@ -199,12 +199,22 @@ if (! function_exists('show_text') ) {
 }
 
 if (! function_exists('notify') ) {
+  /**
+   * Notifies the user with the given title and text.
+   *
+   * @param Game $game The game to notify.
+   * @param NotificationChannel $channel The notification channel.
+   * @param string $title The notification title.
+   * @param string $text The notification text.
+   * @param NotificationDuration|float $duration The notification duration.
+   * @return void
+   */
   function notify(
     Game                       $game,
     NotificationChannel        $channel,
     string                     $title,
     string                     $text,
-    NotificationDuration|float $duration = NotificationDuration::SHORT
+    NotificationDuration|float $duration = NotificationDuration::LONG
   ): void
   {
     $notification = new Notification($game, $channel, $title, $text, $duration);

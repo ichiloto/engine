@@ -127,7 +127,7 @@ class SelectModal implements ModalInterface
    * @param BorderPackInterface $borderPack The border pack. Defaults to DefaultBorderPack.
    */
   public function __construct(
-    Game                          $game,
+    protected Game                $game,
     public string                 $message,
     array                         $options,
     string                        $title = '',

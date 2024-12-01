@@ -7,8 +7,15 @@ use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Core\Interfaces\CanResume;
 use Ichiloto\Engine\Core\Interfaces\CanStart;
 use Ichiloto\Engine\Core\Interfaces\CanUpdate;
+use Ichiloto\Engine\Core\Rect;
+use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Exceptions\NotImplementedException;
+use Ichiloto\Engine\Field\Player;
+use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
+use Ichiloto\Engine\Util\Debug;
+use Symfony\Component\Console\Output\ConsoleOutput;
+use Symfony\Component\Console\Output\OutputInterface;
 
 /**
  * Class Camera. The camera.
@@ -18,6 +25,48 @@ use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 class Camera implements CanStart, CanResume, CanRender, CanUpdate
 {
   /**
+   * @var Rect The drawable screen area.
+   */
+  protected(set) Rect $screen;
+  /**
+   * @var OutputInterface The output.
+   */
+  protected OutputInterface $output;
+  /**
+   * @var Vector2 The position of the camera.
+   */
+  protected Vector2 $center {
+    get {
+      return new Vector2(
+        $this->center->x - $this->screen->getX() / 2,
+        $this->center->y - $this->screen->getY() / 2
+      );
+    }
+
+    set {
+      $x = ($this->screen->getX() + $this->screen->getWidth() / 2) + $value->x;
+      $y = ($this->screen->getY() + $this->screen->getHeight() / 2) + $value->y;
+      $this->center = new Vector2($x, $y);
+    }
+  }
+  /**
+   * @var Vector2 The position of the camera.
+   */
+  protected Vector2 $position {
+    get {
+      return new Vector2(
+        $this->screen->getX(),
+        $this->screen->getY()
+      );
+    }
+
+    set {
+      $this->screen->setX($value->x);
+      $this->screen->setY($value->y);
+    }
+  }
+
+  /**
    * Camera constructor.
    *
    * @param SceneInterface $scene The scene that this camera is rendering.
@@ -25,9 +74,16 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   public function __construct(
     protected SceneInterface $scene,
     protected int $width = DEFAULT_SCREEN_WIDTH,
-    protected int $height = DEFAULT_SCREEN_HEIGHT
+    protected int $height = DEFAULT_SCREEN_HEIGHT,
+    Vector2 $position = new Vector2(0, 0),
+    protected ?Player $player = null
   )
   {
+    $this->output = new ConsoleOutput();
+    $this->screen = new Rect(0, 0, $width, $height);
+    $this->position = $position;
+
+    Debug::log("Camera created at position {$this->position}. Screen set to {$this->screen}");
   }
 
   /**
@@ -106,8 +162,52 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
    */
   public function canSee(GameObject $gameObject): bool
   {
-    // TODO: Implement isVisible() method.
-    throw new NotImplementedException(__CLASS__ . '::' . __METHOD__);
+    if ($gameObject->position->x < $this->position->x) {
+      return false;
+    }
+
+    if ($gameObject->position->x > $this->position->x + $this->width) {
+      return false;
+    }
+
+    if ($gameObject->position->y < $this->position->y) {
+      return false;
+    }
+
+    if ($gameObject->position->y > $this->position->y + $this->height) {
+      return false;
+    }
+
     return true;
+  }
+
+  /**
+   * Draws content on the screen.
+   *
+   * @param iterable|string $content The content to draw.
+   */
+  public function draw(iterable|string $content, int $x = 0, int $y = 0): void
+  {
+    if (is_string($content)) {
+//      $content = mb_substr($content, 0, $this->screen->getWidth());
+      $content = explode("\n", $content);
+    }
+
+    $buffer = [];
+
+    foreach ($content as $line) {
+      $buffer[] = mb_substr($line, 0, $this->screen->getWidth());
+    }
+
+    $content = $buffer;
+
+
+    if (is_iterable($content)) {
+      foreach ($content as $index => $row) {
+        Console::write($row, $this->screen->getX() + $x, $this->screen->getY() + $y + $index);
+      }
+    } else {
+      Console::write($content, $this->screen->getX() + $x, $this->screen->getY() + $y);
+    }
   }
 }
