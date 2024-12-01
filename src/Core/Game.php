@@ -281,6 +281,7 @@ class Game implements CanRun, SubjectInterface
   {
     $this->frameCount++;
     $this->sceneManager->update();
+    $this->notificationManager->update();
 
     $this->notify($this, new GameEvent(GameEventType::UPDATE));
   }
@@ -293,6 +294,7 @@ class Game implements CanRun, SubjectInterface
   protected function render(): void
   {
     $this->sceneManager->render();
+    $this->notificationManager->render();
 
     if (
       config(AppConfig::class, 'debug.enabled') &&
