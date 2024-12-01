@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Messaging\Notifications;
 
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Events\Enumerations\NotificationEventType;
 use Ichiloto\Engine\Events\EventManager;
@@ -16,6 +17,7 @@ use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\UI\Windows\WindowAlignment;
 use Ichiloto\Engine\UI\Windows\WindowPadding;
+use Ichiloto\Engine\Util\Debug;
 
 /**
  * Class Notification. Represents a notification. Notifications are displayed on the screen for a given duration.
@@ -85,6 +87,7 @@ class Notification implements NotificationInterface
    * @param BorderPackInterface $borderPack The notification border pack.
    */
   public function __construct(
+    protected Game $game,
     protected NotificationChannel $channel,
     protected string $contentTitle = '',
     protected string $contentText = '',
@@ -93,7 +96,7 @@ class Notification implements NotificationInterface
   )
   {
     $this->id = uniqid('notification_');
-    $this->eventManager = EventManager::getInstance();
+    $this->eventManager = EventManager::getInstance($this->game);
 
     $leftMargin = DEFAULT_SCREEN_WIDTH - self::WIDTH - 16;
     $topMargin = 0;
