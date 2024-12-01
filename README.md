@@ -14,10 +14,15 @@
 Ichiloto 2D Game Engine aims to provide an accessible platform for developers and enthusiasts to bring nostalgic, text-based adventures to life while maintaining the depth and charm of traditional JRPG gameplay.
 
 ## Roadmap
-- Core game loop implementation
-- Map editor and ASCII art design tools
-- Save/load system
-- Advanced battle system customization
-- Scripting support for quests and events
+- [x] Core game loop implementation
+- [ ] Notifications and HUD elements
+- [ ] Map editor and ASCII art design tools
+- [ ] Save/load system
+- [ ] Advanced battle system customization
+- [ ] Scripting support for quests and events
+- [ ] Camera and animation support
+- [ ] Sound and music integration
+- [ ] Non-player character (NPC) and dialogue system
+- [ ] Character progression and inventory management
 
 Join us on this journey to redefine retro gaming with the power of ASCII art and PHP!

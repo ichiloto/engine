@@ -7,9 +7,14 @@ use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Core\Interfaces\CanResume;
 use Ichiloto\Engine\Core\Interfaces\CanStart;
 use Ichiloto\Engine\Core\Interfaces\CanUpdate;
-use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\Exceptions\NotImplementedException;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 
+/**
+ * Class Camera. The camera.
+ *
+ * @package Ichiloto\Engine\Rendering
+ */
 class Camera implements CanStart, CanResume, CanRender, CanUpdate
 {
   /**
@@ -75,7 +80,6 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   public function resume(): void
   {
     $this->scene->getUI()->resume();
-    $this->render();
   }
 
   /**
@@ -84,7 +88,6 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   public function suspend(): void
   {
     $this->scene->getUI()->suspend();
-    Console::clear();
   }
 
   /**
@@ -104,6 +107,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   public function canSee(GameObject $gameObject): bool
   {
     // TODO: Implement isVisible() method.
+    throw new NotImplementedException(__CLASS__ . '::' . __METHOD__);
     return true;
   }
 }

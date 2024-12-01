@@ -27,10 +27,26 @@ use RuntimeException;
  */
 class Player extends GameObject
 {
+  /**
+   * @var string $upSprite The sprite of the player when facing up.
+   */
   protected string $upSprite = '^';
+  /**
+   * @var string $downSprite The sprite of the player when facing down.
+   */
   protected string $downSprite = 'v';
+  /**
+   * @var string $rightSprite The sprite of the player when facing right.
+   */
   protected string $rightSprite = '>';
+  /**
+   * @var string $leftSprite The sprite of the player when facing left.
+   */
   protected string $leftSprite = '<';
+  /**
+   * @var MovementHeading $heading The heading of the player.
+   */
+  protected(set) MovementHeading $heading = MovementHeading::NONE;
 
   /**
    * Movement speed of the player.
@@ -57,14 +73,14 @@ class Player extends GameObject
     $this->position->add($direction);
     $this->render();
     if ( config(ProjectConfig::class, 'ui.hud.location', false) ) {
-      $heading = match (true) {
+      $this->heading = match (true) {
         $direction->y < 0 => MovementHeading::NORTH,
         $direction->y > 0 => MovementHeading::SOUTH,
         $direction->x < 0 => MovementHeading::WEST,
         $direction->x > 0 => MovementHeading::EAST,
         default => MovementHeading::NONE,
       };
-      $this->getLocationHUDWindow()->updateDetails($this->position, $heading);
+      $this->getLocationHUDWindow()->updateDetails($this->position, $this->heading);
     }
 
     $this->notify($this->getGameScene(), new MovementEvent(MovementEventType::PLAYER_MOVE, $origin, $destination));
@@ -97,9 +113,14 @@ class Player extends GameObject
     }
   }
 
+  /**
+   * Returns the location HUD window.
+   *
+   * @return LocationHUDWindow The location HUD window.
+   */
   protected function getLocationHUDWindow(): LocationHUDWindow
   {
-    return $this->getGameScene()->uiManager->locationHUDWindow;
+    return $this->getGameScene()->locationHUDWindow;
   }
 
   /**

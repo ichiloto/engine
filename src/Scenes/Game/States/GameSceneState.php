@@ -2,19 +2,20 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
-use http\Exception\RuntimeException;
+use Ichiloto\Engine\Core\Interfaces\CanResume;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneStateContextInterface;
 use Ichiloto\Engine\Scenes\Interfaces\SceneStateInterface;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\Util\Debug;
+use RuntimeException;
 
 /**
  * Class GameSceneState. Represents a state of the game scene.
  *
  * @package Ichiloto\Engine\Scenes\Game\States
  */
-abstract class GameSceneState implements SceneStateInterface
+abstract class GameSceneState implements SceneStateInterface, CanResume
 {
   /**
    * GameSceneState constructor.
@@ -45,7 +46,23 @@ abstract class GameSceneState implements SceneStateInterface
    */
   public function exit(): void
   {
-    // Do nothing.
+    // Do nothing. The default implementation is to do nothing.
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function resume(): void
+  {
+    // Do nothing. The default implementation is to do nothing.
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function suspend(): void
+  {
+    // Do nothing. The default implementation is to do nothing.
   }
 
   /**

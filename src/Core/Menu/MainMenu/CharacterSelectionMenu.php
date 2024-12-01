@@ -60,6 +60,7 @@ class CharacterSelectionMenu extends Menu
     foreach ($this->characterPanels as $characterPanel) {
       $characterPanel->render();
     }
+    $this->helpWindow->render();
   }
 
   /**

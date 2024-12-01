@@ -11,6 +11,12 @@ use Stringable;
  */
 class Rect implements Stringable
 {
+  public Vector2 $position {
+    get {
+      return new Vector2($this->x, $this->y);
+    }
+  }
+
   /**
    * Creates a new rectangle.
    *

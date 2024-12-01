@@ -1,12 +1,11 @@
 <?php
 
-namespace Ichiloto\Engine\Core\Menu\TitleMenu;
+namespace Ichiloto\Engine\Scenes\GameOver\Menus;
 
 use Ichiloto\Engine\Core\Menu\Commands\MenuCommandExecutionContext;
 use Ichiloto\Engine\Core\Menu\Menu;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
-use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
@@ -17,11 +16,11 @@ use Ichiloto\Engine\UI\Windows\WindowPadding;
 use Symfony\Component\Console\Output\ConsoleOutput;
 
 /**
- * The TitleMenu class. Represents the title menu.
+ * The game over menu.
  *
- * @package Ichiloto\Engine\Core\Menu\TitleMenu
+ * @package Ichiloto\Engine\Scenes\GameOver\Menus
  */
-class TitleMenu extends Menu
+class GameOverMenu extends Menu
 {
   /**
    * @var WindowAlignment $alignment The alignment of the menu.

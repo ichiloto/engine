@@ -19,19 +19,19 @@ use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
 use Ichiloto\Engine\Events\Interfaces\StaticObserverInterface;
 use Ichiloto\Engine\Events\Interfaces\SubjectInterface;
 use Ichiloto\Engine\IO\Console\Console;
-use Ichiloto\Engine\IO\Enumerations\KeyCode;
-use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Scenes\GameOver\GameOverScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Scenes\Title\TitleScene;
+use Ichiloto\Engine\UI\Modal\ModalManager;
 use Ichiloto\Engine\UI\Windows\DebugWindow;
-use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\Util\Config\AppConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\InputConfig;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
@@ -51,15 +51,19 @@ class Game implements CanRun, SubjectInterface
   /**
    * @var SceneManager The scene manager.
    */
-  protected SceneManager $sceneManager;
+  protected(set) SceneManager $sceneManager;
   /**
    * @var EventManager $eventManager The event manager.
    */
-  protected EventManager $eventManager;
+  protected(set) EventManager $eventManager;
+  /**
+   * @var ModalManager $modalManager The modal manager.
+   */
+  protected(set) ModalManager $modalManager;
   /**
    * @var NotificationManager $notificationManager The notification manager.
    */
-  protected NotificationManager $notificationManager;
+  protected(set) NotificationManager $notificationManager;
   /**
    * @var int $frameCount The number of frames that have been rendered.
    */
@@ -110,7 +114,8 @@ class Game implements CanRun, SubjectInterface
         ->addScenes(
           new TitleScene($this->sceneManager, "Title Screen"),
           new GameScene($this->sceneManager, $this->name),
-          new BattleScene($this->sceneManager, "$this->name - Battle Screen")
+          new BattleScene($this->sceneManager, "$this->name - Battle Screen"),
+          new GameOverScene($this->sceneManager, "$this->name - Game Over Screen")
         );
     } catch (Error|Exception|Throwable $exception) {
       $this->handleException($exception);
@@ -144,10 +149,7 @@ class Game implements CanRun, SubjectInterface
       ConfigStore::get(PlaySettings::class)->set($key, $value);
     }
 
-    Console::init([
-      'width' => $this->width,
-      'height' => $this->height
-    ]);
+    Console::init($this, ['width' => $this->width, 'height' => $this->height]);
     return $this;
   }
 
@@ -311,6 +313,7 @@ class Game implements CanRun, SubjectInterface
   {
     $this->sceneManager = SceneManager::getInstance($this);
     $this->eventManager = EventManager::getInstance($this);
+    $this->modalManager = ModalManager::getInstance($this);
     $this->notificationManager = NotificationManager::getInstance($this);
     InputManager::init($this);
   }
@@ -445,6 +448,7 @@ class Game implements CanRun, SubjectInterface
    * Quit the game.
    *
    * @return void
+   * @throws Exception
    */
   public function quit(): void
   {
@@ -627,5 +631,6 @@ SPLASH_SCREEN;
     ConfigStore::put(PlaySettings::class, new PlaySettings($this->options));
     ConfigStore::put(AppConfig::class, new AppConfig());
     ConfigStore::put(ProjectConfig::class, new ProjectConfig());
+    ConfigStore::put(InputConfig::class, new InputConfig());
   }
 }

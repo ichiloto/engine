@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Core\Menu\Commands;
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\MenuItem;
+use Ichiloto\Engine\Exceptions\IchilotoException;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Ichiloto\Engine\Scenes\Game\GameScene;
@@ -28,13 +29,14 @@ class NewGameCommand extends MenuItem
     protected GameLoader $gameLoader
   )
   {
-    $label = config(ProjectConfig::class, 'vocab.command.new_game') ?? 'New Game';
+    $label = config(ProjectConfig::class, 'vocab.game.new_game') ?? 'New Game';
     parent::__construct($menu, $label, 'Start a new game.', '');
   }
 
   /**
    * @inheritDoc
-   * @throws NotFoundException
+   * @throws NotFoundException If the context is not a menu command execution context.
+   * @throws IchilotoException
    */
   public function execute(?ExecutionContextInterface $context = null): int
   {

@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Scenes\Game\States;
 
 use Assegai\Collections\ItemList;
+use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Core\Menu\Commands\OpenAbilityMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenConfigMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenEquipmentMenuCommand;
@@ -32,6 +33,7 @@ use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
+use Ichiloto\Engine\Util\Debug;
 
 /**
  * The MainMenu state allows the player to access the in-game menu for managing inventory, checking the map, viewing stats, and saving the game.
@@ -44,7 +46,7 @@ use Ichiloto\Engine\UI\Windows\Window;
  *
  * @package Ichiloto\Engine\Scenes\Game\States
  */
-class MainMenuState extends GameSceneState
+class MainMenuState extends GameSceneState implements CanRender
 {
   /**
    * The width of the main menu.
@@ -122,6 +124,7 @@ class MainMenuState extends GameSceneState
   public function enter(): void
   {
     Console::clear();
+    $this->getGameScene()->locationHUDWindow->deactivate();
     $this->calculateMargins();
     $this->initializeMenuUI();
     $this->setMode(new MainMenuCommandSelectionMode($this));
@@ -146,6 +149,17 @@ class MainMenuState extends GameSceneState
   }
 
   /**
+   * @inheritDoc
+   */
+  public function exit(): void
+  {
+    $this->getGameScene()->locationHUDWindow->activate();
+    parent::exit();
+  }
+
+  /**
+   * Initializes the main menu UI.
+   *
    * @return void
    */
   protected function initializeMenuUI(): void
@@ -225,5 +239,45 @@ class MainMenuState extends GameSceneState
     $this->mode?->exit();
     $this->mode = $mode;
     $this->mode->enter();
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function resume(): void
+  {
+    $this->getGameScene()->locationHUDWindow->deactivate();
+    $this->infoPanel->render();
+    $this->mainMenu->render();
+    $this->characterSelectionMenu->render();
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function suspend(): void
+  {
+    $this->exit();
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function render(): void
+  {
+    $this->infoPanel->render();
+    $this->playTimePanel->render();
+    $this->accountBalancePanel->render();
+    $this->locationDetailPanel->render();
+    $this->mainMenu->render();
+    $this->characterSelectionMenu->render();
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function erase(): void
+  {
+    Console::clear();
   }
 }

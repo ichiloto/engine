@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core\Menu\Commands;
 
+use Exception;
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\MenuItem;
@@ -14,6 +15,8 @@ use Ichiloto\Engine\Util\Config\ProjectConfig;
  */
 class OpenQuitMenuCommand extends MenuItem
 {
+  protected MenuInterface $menu;
+
   public function __construct(MenuInterface $menu)
   {
     $label = config(ProjectConfig::class, 'vocab.command.quit_game', 'Quit');
@@ -22,10 +25,14 @@ class OpenQuitMenuCommand extends MenuItem
 
   /**
    * @inheritDoc
+   * @throws Exception If the 'confirm' modal cannot be displayed or quit command fails.
    */
   public function execute(?ExecutionContextInterface $context = null): int
   {
-    // TODO: Implement execute() method.
+    $quitVerb = config(ProjectConfig::class, 'vocab.verb.quit', 'quit');
+    if (confirm("Are you sure you want to $quitVerb?", '', 40)) {
+      $this->menu->getScene()->getGame()->quit();
+    }
     return self::SUCCESS;
   }
 }
