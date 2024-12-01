@@ -97,7 +97,7 @@ class GameOverScene extends AbstractScene
     $x = intval((DEFAULT_SCREEN_WIDTH - $headerWidth) / 2);
     $y = 2;
 
-    Console::write($this->headerContent, $x, $y);
+    $this->camera->draw($this->headerContent, $x, $y);
   }
 
   /**

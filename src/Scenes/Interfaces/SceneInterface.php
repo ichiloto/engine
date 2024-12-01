@@ -36,11 +36,11 @@ interface SceneInterface extends CanStart, CanResume, CanUpdate, CanRender
   public function getGame(): Game;
 
   /**
-   * Gets the name of the scene.
-   *
-   * @return string The name of the scene.
+   * @var string The name of the game.
    */
-  public function getName(): string;
+  public string $name {
+    get;
+  }
 
   /**
    * Gets the root game objects.

@@ -16,6 +16,7 @@ use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\MapEvent;
 use Ichiloto\Engine\Events\SceneEvent;
 use Ichiloto\Engine\Messaging\Notifications\Interfaces\NotificationInterface;
+use Ichiloto\Engine\Util\Debug;
 
 /**
  * Class NotificationManager. Handles notifications.
@@ -82,7 +83,9 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
   }
 
   /**
-   * @inheritDoc
+   * Returns the instance of the notification manager.
+   *
+   * @param Game $game The game.
    */
   public static function getInstance(Game $game): static
   {
@@ -144,10 +147,8 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
   {
     $notificationsQueueIsNotEmpty = $this->notifications->isNotEmpty();
 
-    if (Time::getTime() >= $this->nextNotificationShowTime)
-    {
-      if ($notificationsQueueIsNotEmpty)
-      {
+    if (Time::getTime() >= $this->nextNotificationShowTime) {
+      if ($notificationsQueueIsNotEmpty) {
         $this->dismissActiveNotification();
         $this->openActiveNotification();
       }
@@ -175,6 +176,9 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
   {
     $this->getActiveNotification()?->open();
     $this->nextNotificationShowTime = Time::getTime() + $this->getActiveNotification()?->getDuration() ?? 0;
+    Debug::log('NotificationManager: Opening active notification.');
+    Debug::log('NotificationManager: Current time: ' . Time::getTime());
+    Debug::log('NotificationManager: Next notification show time: ' . $this->nextNotificationShowTime);
   }
 
   /**

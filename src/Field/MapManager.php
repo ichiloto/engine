@@ -10,6 +10,7 @@ use Ichiloto\Engine\Exceptions\IchilotoException;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
@@ -59,8 +60,22 @@ class MapManager implements CanRenderAt
     '?' => CollisionType::SAVE_POINT,
     'o' => CollisionType::COLLECTABLE,
   ];
+  /**
+   * @var int The width of the map.
+   */
   protected int $mapWidth = 0;
+  /**
+   * @var int The height of the map.
+   */
   protected int $mapHeight = 0;
+  /**
+   * @var Camera The camera.
+   */
+  protected Camera $camera {
+    get {
+      return $this->gameScene->camera;
+    }
+  }
 
   /**
    * The constructor of the MapManager.
@@ -294,9 +309,7 @@ class MapManager implements CanRenderAt
    */
   public function render(?int $x = null, ?int $y = null): void
   {
-    foreach ($this->tileMap as $index => $tileMapRow) {
-      Console::write($tileMapRow, ($x ?? 0) + 1, ($y ?? 0) + 1 + $index);
-    }
+    $this->camera->draw($this->tileMap, ($x ?? 0), ($y ?? 0));
   }
 
   /**
@@ -308,10 +321,7 @@ class MapManager implements CanRenderAt
    */
   public function erase(?int $x = null, ?int $y = null): void
   {
-    foreach ($this->tileMap as $index => $tileMapRow) {
-      $row = str_repeat(' ', $this->mapWidth);
-      Console::write($row, $x, $y + $index);
-    }
+    $this->renderBackgroundTile($x, $y);
   }
 
   /**
@@ -342,6 +352,6 @@ class MapManager implements CanRenderAt
   public function renderBackgroundTile(int $x, int $y): void
   {
     $tile = $this->tileMap[$y][$x];
-    Console::write($tile, $x + 1, $y + 1);
+    $this->camera->draw($tile, $x, $y);
   }
 }
