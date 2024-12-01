@@ -9,10 +9,10 @@ use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
-use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
+use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\SceneStateContext;
-use Ichiloto\Engine\Util\Debug;
 
 /**
  * This state serves as the backbone of the game, managing the player's exploration experience.
@@ -68,9 +68,13 @@ class FieldState extends GameSceneState
     }
 
     if (Input::isButtonDown("notify")) {
-      if (confirm("Are you sure you want to notify the player?")) {
-        Debug::log("Notify button pressed.");
-      }
+      notify(
+        $this->getGameScene()->getGame(),
+        NotificationChannel::ACHIEVEMENT,
+        'Achievement unlocked',
+        '100G - New Character Created',
+        NotificationDuration::MEDIUM
+      );
     }
 
     if (Input::isAnyKeyPressed([KeyCode::G, KeyCode::g])) {

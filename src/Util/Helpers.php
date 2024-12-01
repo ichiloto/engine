@@ -207,7 +207,7 @@ if (! function_exists('notify') ) {
     NotificationDuration|float $duration = NotificationDuration::SHORT
   ): void
   {
-    $notification = new Notification($channel, $title, $text, $duration);
+    $notification = new Notification($game, $channel, $title, $text, $duration);
     NotificationManager::getInstance($game)->notify($notification);
   }
 }
