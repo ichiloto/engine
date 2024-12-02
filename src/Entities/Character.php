@@ -2,15 +2,24 @@
 
 namespace Ichiloto\Engine\Entities;
 
+use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
+use InvalidArgumentException;
+
 /**
  * The Character class.
  *
  * @package Ichiloto\Engine\Entities
  */
-class Character
+class Character implements CharacterInterface
 {
+  /**
+   * The maximum level.
+   */
   const int MAX_LEVEL = 100;
 
+  /**
+   * @var bool Whether the character is knocked out.
+   */
   public bool $isKnockedOut {
     get {
       return $this->stats->currentHp > 0;
@@ -64,7 +73,7 @@ class Character
     protected(set) int $currentExp {
       set {
         if ($value < 0) {
-          throw new \InvalidArgumentException('Experience points cannot be negative.');
+          throw new InvalidArgumentException('Experience points cannot be negative.');
         }
 
         $this->currentExp = $value;

@@ -2,9 +2,11 @@
 
 namespace Ichiloto\Engine\Entities;
 
-use Assegai\Collections\ItemList;
-use Ichiloto\Engine\Entities\Interfaces\GroupInterface;
-
+/**
+ * Class Party. Represents a party of characters in a battle.
+ *
+ * @package Ichiloto\Engine\Entities
+ */
 class Party extends BattleGroup
 {
 }

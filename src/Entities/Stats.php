@@ -29,14 +29,14 @@ class Stats
         $this->currentHp = max(0, min($value, self::MAX_HP));
       }
     },
-    public protected(set) int $currentMp,
-    public protected(set) int $attack,
-    public protected(set) int $defence,
-    public protected(set) int $magicAttack,
-    public protected(set) int $magicDefence,
-    public protected(set) int $speed = 1,
-    public protected(set) int $grace = 1,
-    public protected(set) int $evasion = 0,
+    protected(set) int $currentMp,
+    protected(set) int $attack,
+    protected(set) int $defence,
+    protected(set) int $magicAttack,
+    protected(set) int $magicDefence,
+    protected(set) int $speed = 1,
+    protected(set) int $grace = 1,
+    protected(set) int $evasion = 0,
   )
   {
   }
