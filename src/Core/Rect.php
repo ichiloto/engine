@@ -11,9 +11,25 @@ use Stringable;
  */
 class Rect implements Stringable
 {
+  /**
+   * Gets the position of the rectangle.
+   *
+   * @return Vector2 The position of the rectangle.
+   */
   public Vector2 $position {
     get {
       return new Vector2($this->x, $this->y);
+    }
+  }
+
+  /**
+   * Gets the size of the rectangle.
+   *
+   * @return Area The size of the rectangle.
+   */
+  public Area $size {
+    get {
+      return new Area($this->width, $this->height);
     }
   }
 

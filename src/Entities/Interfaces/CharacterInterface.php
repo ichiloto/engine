@@ -4,6 +4,11 @@ namespace Ichiloto\Engine\Entities\Interfaces;
 
 use Ichiloto\Engine\Entities\Stats;
 
+/**
+ * Represents the character interface.
+ *
+ * @package Ichiloto\Engine\Entities\Interfaces
+ */
 interface CharacterInterface
 {
   /**

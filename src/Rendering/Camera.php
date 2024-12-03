@@ -54,10 +54,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
    */
   protected Vector2 $position {
     get {
-      return new Vector2(
-        $this->screen->getX(),
-        $this->screen->getY()
-      );
+      return $this->screen->position;
     }
 
     set {
@@ -189,7 +186,6 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   public function draw(iterable|string $content, int $x = 0, int $y = 0): void
   {
     if (is_string($content)) {
-//      $content = mb_substr($content, 0, $this->screen->getWidth());
       $content = explode("\n", $content);
     }
 

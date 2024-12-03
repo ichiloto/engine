@@ -9,4 +9,14 @@ namespace Ichiloto\Engine\Entities;
  */
 class Party extends BattleGroup
 {
+  public static function fromArray(array $data): Party
+  {
+    $party = new Party();
+
+    foreach ($data as $datum) {
+      $party->addMember(Character::fromArray($datum));
+    }
+
+    return $party;
+  }
 }

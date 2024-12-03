@@ -96,4 +96,20 @@ class Character implements CharacterInterface
       $this->levelExpThresholds[$level] = $level === 1 ? 0 : pow($level - 1, 2) * 100;
     }
   }
+
+  /**
+   * Creates a character instance from an array.
+   *
+   * @param array $data The character data.
+   * @return Character The character instance.
+   */
+  public static function fromArray(array $data): self
+  {
+    return new Character(
+        $data['name'] ?? throw new InvalidArgumentException('Character name is required.'),
+        $data['currentExp'] ?? throw new InvalidArgumentException('Current experience points are required.'),
+        Stats::fromArray($data['stats'] ?? throw new InvalidArgumentException('Character stats are required.')
+      )
+    );
+  }
 }
