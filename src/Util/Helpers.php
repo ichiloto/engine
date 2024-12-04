@@ -307,14 +307,19 @@ if (! function_exists('asset') ) {
    * Returns the content of the asset file with the given path.
    *
    * @param string $path The path of the asset file.
-   * @return string The content of the asset file.
+   * @param bool $asArray Whether to return the content as an array or not.
+   * @return string|array The content of the asset file.
    */
-  function asset(string $path): string
+  function asset(string $path, bool $asArray = false): string|array
   {
     $filename = Path::join(Path::getCurrentWorkingDirectory(), 'assets', $path);
 
     if (! file_exists($filename) ) {
       throw new RuntimeException("Asset file not found: $filename");
+    }
+
+    if ($asArray) {
+      return require $filename;
     }
 
     $content = file_get_contents($filename);
