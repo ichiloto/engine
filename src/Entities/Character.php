@@ -2,15 +2,24 @@
 
 namespace Ichiloto\Engine\Entities;
 
+use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
+use InvalidArgumentException;
+
 /**
  * The Character class.
  *
  * @package Ichiloto\Engine\Entities
  */
-class Character
+class Character implements CharacterInterface
 {
+  /**
+   * The maximum level.
+   */
   const int MAX_LEVEL = 100;
 
+  /**
+   * @var bool Whether the character is knocked out.
+   */
   public bool $isKnockedOut {
     get {
       return $this->stats->currentHp > 0;
@@ -29,7 +38,7 @@ class Character
     get {
       foreach ($this->levelExpThresholds as $level => $expThreshold) {
         if ($this->currentExp < $expThreshold) {
-          return $level - 1;
+          return clamp($level - 1, 1, self::MAX_LEVEL);
         }
       }
 
@@ -64,7 +73,7 @@ class Character
     protected(set) int $currentExp {
       set {
         if ($value < 0) {
-          throw new \InvalidArgumentException('Experience points cannot be negative.');
+          throw new InvalidArgumentException('Experience points cannot be negative.');
         }
 
         $this->currentExp = $value;
@@ -86,5 +95,21 @@ class Character
     for ($level = 0; $level <= self::MAX_LEVEL; $level++) {
       $this->levelExpThresholds[$level] = $level === 1 ? 0 : pow($level - 1, 2) * 100;
     }
+  }
+
+  /**
+   * Creates a character instance from an array.
+   *
+   * @param array $data The character data.
+   * @return Character The character instance.
+   */
+  public static function fromArray(array $data): self
+  {
+    return new Character(
+        $data['name'] ?? throw new InvalidArgumentException('Character name is required.'),
+        $data['currentExp'] ?? throw new InvalidArgumentException('Current experience points are required.'),
+        Stats::fromArray($data['stats'] ?? throw new InvalidArgumentException('Character stats are required.')
+      )
+    );
   }
 }

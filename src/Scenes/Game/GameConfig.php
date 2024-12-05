@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Scenes\Game;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Entities\Party;
 use Serializable;
 use Stringable;
 
@@ -28,12 +29,13 @@ class GameConfig implements Stringable, Serializable
    */
   public function __construct(
     protected(set) string $mapId,
+    protected(set) Party $party,
     protected(set) Vector2 $playerPosition,
     protected(set) Rect $playerShape,
     protected(set) MovementHeading $playerHeading,
     protected(set) array $playerStats = [],
     protected(set) array $events = [],
-    protected(set) array $playerSprite = ['v']
+    protected(set) array $playerSprite = ['v'],
   )
   {
   }

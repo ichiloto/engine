@@ -6,15 +6,28 @@ use Ichiloto\Engine\Core\Menu\MainMenu\Windows\CharacterPanel;
 use Ichiloto\Engine\Core\Menu\Menu;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\UI\Windows\Window;
 use function Termwind\render;
 
 class CharacterSelectionMenu extends Menu
 {
+  /**
+   * The total number of panels.
+   */
   protected const int TOTAL_PANELS = 4;
+  /**
+   * The height of the panel.
+   */
   protected const int PANEL_HEIGHT = 7;
+  /**
+   * @var CharacterPanel[] The character panels.
+   */
   protected array $characterPanels = [];
-
+  /**
+   * @var Window The help window.
+   */
   protected Window $helpWindow;
 
   /**
@@ -22,13 +35,26 @@ class CharacterSelectionMenu extends Menu
    */
   public function activate(): void
   {
+    $scene = $this->getScene();
+    assert($scene instanceof GameScene);
+
+    $membersArray = $scene->party->members->toArray();
+
     for($index = 0; $index < self::TOTAL_PANELS; $index++) {
       $leftMargin = $this->rect->getX();
       $topMargin = $this->rect->getY() + ($index * self::PANEL_HEIGHT);
       $panel = new CharacterPanel(
         new Rect($leftMargin, $topMargin, $this->rect->getWidth(), self::PANEL_HEIGHT)
       );
-      $panel->setDetails('Squall', 7, '9999 / 9999', '99 / 99');
+
+      if ($member = $membersArray[$index] ?? null) {
+        assert($member instanceof Character);
+        $panel->setDetails(
+          $member->name,
+          $member->level,
+          "{$member->stats->currentHp} / {$member->stats->totalHp}",
+          "{$member->stats->currentMp} / {$member->stats->totalMp}");
+      }
       $this->characterPanels[$index] = $panel;
     }
 

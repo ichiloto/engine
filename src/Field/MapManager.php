@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Field;
 use Assegai\Util\Path;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Interfaces\CanRenderAt;
+use Ichiloto\Engine\Entities\PartyLocation as MapLocation;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Exceptions\IchilotoException;
 use Ichiloto\Engine\Exceptions\NotFoundException;
@@ -74,6 +75,14 @@ class MapManager implements CanRenderAt
   protected Camera $camera {
     get {
       return $this->gameScene->camera;
+    }
+  }
+  /**
+   * @var MapLocation The location of the player.
+   */
+  public MapLocation $location {
+    get {
+      return $this->gameScene->party->location;
     }
   }
 
@@ -247,6 +256,9 @@ class MapManager implements CanRenderAt
     }
 
     $this->tileMap = $map['tile_map'] ?? throw new InvalidArgumentException("tile_map not found in map array of $filename.");
+    $locationName = $map['name'] ?? MapLocation::DEFAULT_LOCATION_NAME;
+    $locationRegion = $map['region'] ?? MapLocation::DEFAULT_LOCATION_REGION;
+    $this->gameScene->party->location = new MapLocation($locationName, $locationRegion);
 
     // Load collision dictionary from file
     $collisionDictionaryFilename = Path::join(Path::getCurrentWorkingDirectory(), 'assets/Maps/collisions.php');
