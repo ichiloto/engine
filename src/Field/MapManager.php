@@ -85,6 +85,30 @@ class MapManager implements CanRenderAt
       return $this->gameScene->party->location;
     }
   }
+  /**
+   * @var bool Whether the player is at a save point.
+   */
+  public bool $isAtSavePoint = false;
+  /**
+   * @var bool Whether the player can save the game.
+   */
+  public bool $canSave {
+    get {
+      $canSave = false;
+
+      // Are we at a save point?
+      if ($this->isAtSavePoint) {
+        $canSave = true;
+      }
+
+      // Are we in the overworld?
+      if ($this->location->name === 'Overworld') {
+        $canSave = true;
+      }
+
+      return $canSave;
+    }
+  }
 
   /**
    * The constructor of the MapManager.

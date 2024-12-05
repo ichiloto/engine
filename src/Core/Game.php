@@ -612,8 +612,8 @@ SPLASH_SCREEN;
 
     $splashScreenRows = explode("\n", $splashScreenTexture);
 
-    $leftMargin = (DEFAULT_SCREEN_WIDTH  / 2) - (75 / 2);
-    $topMargin = (DEFAULT_SCREEN_HEIGHT / 2) - (25 / 2);
+    $leftMargin = (get_screen_width()  / 2) - (75 / 2);
+    $topMargin = (get_screen_height() / 2) - (25 / 2);
 
     foreach ($splashScreenRows as $rowIndex => $row) {
       Console::write($row, (int)$leftMargin, (int)($topMargin + $rowIndex));

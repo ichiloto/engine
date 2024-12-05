@@ -111,6 +111,8 @@ class Player extends GameObject
     if (!$collisionType || $collisionType === CollisionType::NONE) {
       return;
     }
+
+    $this->getGameScene()->mapManager->isAtSavePoint = $collisionType === CollisionType::SAVE_POINT;
   }
 
   /**
