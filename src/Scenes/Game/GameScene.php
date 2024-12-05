@@ -109,6 +109,9 @@ class GameScene extends AbstractScene
    * @var LocationHUDWindow|null
    */
   protected(set) ?LocationHUDWindow $locationHUDWindow;
+  /**
+   * @var Party|null The party.
+   */
   protected(set) ?Party $party = null;
 
   /**
@@ -151,6 +154,7 @@ class GameScene extends AbstractScene
       $this->config->playerShape,
       $this->config->playerSprite
     );
+    $this->party = $this->config->party;
 
     $this->loadMap("{$this->config->mapId}.php");
     $this->setState($this->fieldState);
@@ -232,6 +236,8 @@ class GameScene extends AbstractScene
   }
 
   /**
+   * Initializes the game scene states.
+   *
    * @return void
    */
   public function initializeGameSceneStates(): void

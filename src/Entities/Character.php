@@ -38,7 +38,7 @@ class Character implements CharacterInterface
     get {
       foreach ($this->levelExpThresholds as $level => $expThreshold) {
         if ($this->currentExp < $expThreshold) {
-          return $level - 1;
+          return clamp($level - 1, 1, self::MAX_LEVEL);
         }
       }
 

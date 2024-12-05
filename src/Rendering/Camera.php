@@ -79,8 +79,6 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
     $this->output = new ConsoleOutput();
     $this->screen = new Rect(0, 0, $width, $height);
     $this->position = $position;
-
-    Debug::log("Camera created at position {$this->position}. Screen set to {$this->screen}");
   }
 
   /**

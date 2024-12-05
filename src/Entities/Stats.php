@@ -59,33 +59,33 @@ class Stats
   /**
    * @var int The total hit points.
    */
-  public int $totalHp;
+  public int $totalHp = 0;
   /**
    * @var int The total magic points.
    */
-  public int $totalMp;
+  public int $totalMp = 0;
   /**
    * @var int The total attack points.
    */
-  public int $totalAttack;
+  public int $totalAttack = 0;
   /**
    * @var int The total defence points.
    */
-  public int $totalDefence;
+  public int $totalDefence = 0;
   /**
    * @var int The total magic attack points.
    */
-  public int $totalMagicAttack;
+  public int $totalMagicAttack = 0;
   /**
    * @var int The total magic defence points.
    */
-  public int $totalMagicDefence;
+  public int $totalMagicDefence = 0;
   /**
    * @var int The total speed points.
    */
-  public int $totalSpeed;
-  public int $totalGrace;
-  public int $totalEvasion;
+  public int $totalSpeed = self::DEFAULT_SPEED;
+  public int $totalGrace = self::DEFAULT_GRACE;
+  public int $totalEvasion = self::DEFAULT_EVASION;
 
   public function __construct(
     public int $currentHp {
@@ -135,6 +135,15 @@ class Stats
     },
   )
   {
+    $this->totalHp = $this->currentHp;
+    $this->totalMp = $this->currentMp;
+    $this->totalAttack = $this->attack;
+    $this->totalDefence = $this->defence;
+    $this->totalMagicAttack = $this->magicAttack;
+    $this->totalMagicDefence = $this->magicDefence;
+    $this->totalSpeed = $this->speed;
+    $this->totalGrace = $this->grace;
+    $this->totalEvasion = $this->evasion;
   }
 
   /**

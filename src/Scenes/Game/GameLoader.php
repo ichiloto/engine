@@ -7,6 +7,7 @@ use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Entities\PartyLocation;
 use Ichiloto\Engine\Util\Debug;
 
 /**
@@ -51,12 +52,11 @@ class GameLoader
   public function loadNewGame(): GameConfig
   {
     $systemData = asset('Data/system.php', true) ?? ['startingParty'];
-//    Debug::log(gettype($systemData));
     assert(is_array($systemData));
     $startingParty = [];
 
     foreach ($systemData['startingParty'] as $member) {
-      $characterData = asset('Data/Actors/' . $member, true);
+      $characterData = asset("Data/Actors/$member.php", true);
       assert(is_array($characterData));
       $startingParty[] = $characterData['data'];
     }
@@ -82,15 +82,17 @@ class GameLoader
   public function loadSavedGame(string $saveFilePath): GameConfig
   {
     // Load game data from a saved file
+    $party = new Party();
+    $party->location = new PartyLocation();
     $savedData = [
       'mapId' => 'happyville/home',
-      'party' => new Party(),
+      'party' => $party,
       'playerPosition' => new Vector2(4, 5),
       'playerShape' => new Rect(0, 0, 1, 1),
       'playerHeading' => MovementHeading::NONE,
       'playerStats' => [],
       'events' => [],
-      'playerSprite' => ['v']
+      'playerSprite' => ['v'],
     ];
 
     return new GameConfig(
