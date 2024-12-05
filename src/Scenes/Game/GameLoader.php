@@ -4,9 +4,11 @@ namespace Ichiloto\Engine\Scenes\Game;
 
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Game;
-use Ichiloto\Engine\Core\Interfaces\SingletonInterface;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Entities\PartyLocation;
+use Ichiloto\Engine\Util\Debug;
 
 /**
  * Class GameLoader. Loads a game.
@@ -49,8 +51,19 @@ class GameLoader
    */
   public function loadNewGame(): GameConfig
   {
+    $systemData = asset('Data/system.php', true) ?? ['startingParty'];
+    assert(is_array($systemData));
+    $startingParty = [];
+
+    foreach ($systemData['startingParty'] as $member) {
+      $characterData = asset("Data/Actors/$member.php", true);
+      assert(is_array($characterData));
+      $startingParty[] = $characterData['data'];
+    }
+    $party = Party::fromArray($startingParty);
     return new GameConfig(
       mapId: 'happyville/home',
+      party: $party,
       playerPosition: new Vector2(4, 5),
       playerShape: new Rect(0, 0, 1, 1),
       playerHeading: MovementHeading::NONE,
@@ -69,18 +82,22 @@ class GameLoader
   public function loadSavedGame(string $saveFilePath): GameConfig
   {
     // Load game data from a saved file
+    $party = new Party();
+    $party->location = new PartyLocation();
     $savedData = [
       'mapId' => 'happyville/home',
+      'party' => $party,
       'playerPosition' => new Vector2(4, 5),
       'playerShape' => new Rect(0, 0, 1, 1),
       'playerHeading' => MovementHeading::NONE,
       'playerStats' => [],
       'events' => [],
-      'playerSprite' => ['v']
+      'playerSprite' => ['v'],
     ];
 
     return new GameConfig(
       mapId: $savedData['mapId'],
+      party: $savedData['party'],
       playerPosition: $savedData['playerPosition'],
       playerShape: $savedData['playerShape'],
       playerHeading: $savedData['playerHeading'],

@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Scenes\Game;
 
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Exceptions\IchilotoException;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Field\Location;
@@ -102,7 +103,16 @@ class GameScene extends AbstractScene
    * @var Player|null
    */
   protected(set) ?Player $player = null;
+  /**
+   * The location HUD window.
+   *
+   * @var LocationHUDWindow|null
+   */
   protected(set) ?LocationHUDWindow $locationHUDWindow;
+  /**
+   * @var Party|null The party.
+   */
+  protected(set) ?Party $party = null;
 
   /**
    * Sets the state of the scene.
@@ -144,6 +154,7 @@ class GameScene extends AbstractScene
       $this->config->playerShape,
       $this->config->playerSprite
     );
+    $this->party = $this->config->party;
 
     $this->loadMap("{$this->config->mapId}.php");
     $this->setState($this->fieldState);
@@ -225,6 +236,8 @@ class GameScene extends AbstractScene
   }
 
   /**
+   * Initializes the game scene states.
+   *
    * @return void
    */
   public function initializeGameSceneStates(): void

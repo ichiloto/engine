@@ -41,7 +41,7 @@ class Trigger implements Serializable, ObserverInterface
   /**
    * Converts an array to a trigger.
    *
-   * @param array{destination_map: string, trigger_area: array{x: int, y: int, width: int, height: int}, spawn_point: array{x: int, y: int} $data The data.
+   * @param array{destinationMap: string, trigger_area: array{x: int, y: int, width: int, height: int}, spawn_point: array{x: int, y: int} $data The data.
    * @return Trigger
    * @throws IchilotoException If the trigger cannot be created from the array.
    */
@@ -49,7 +49,7 @@ class Trigger implements Serializable, ObserverInterface
   {
     try {
       return new Trigger(
-        $data['destination_map'],
+        $data['destinationMap'],
         new Rect(
           $data['trigger_area']['x'] ?? 0,
           $data['trigger_area']['y'] ?? 0,
@@ -69,12 +69,12 @@ class Trigger implements Serializable, ObserverInterface
   /**
    * Converts the trigger to an array.
    *
-   * @return array{destination_map: string, trigger_area: array{x: int, y: int, width: int, height: int}, spawn_point: array{x: int, y: int} The array.
+   * @return array{destinationMap: string, trigger_area: array{x: int, y: int, width: int, height: int}, spawn_point: array{x: int, y: int} The array.
    */
   private function toArray(): array
   {
     return [
-      'destination_map' => $this->destinationMap,
+      'destinationMap' => $this->destinationMap,
       'trigger_area' => [
         'x' => $this->area->getX(),
         'y' => $this->area->getY(),
@@ -119,7 +119,7 @@ class Trigger implements Serializable, ObserverInterface
    */
   public function __unserialize(array $data): void
   {
-    $this->destinationMap = $data['destination_map'];
+    $this->destinationMap = $data['destinationMap'];
     $this->area = new Rect($data['x'], $data['y'], $data['width'], $data['height']);
     $this->spawnPoint = new Vector2($data['x'], $data['y']);
   }
