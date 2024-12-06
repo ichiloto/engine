@@ -202,34 +202,18 @@ class Game implements CanRun, SubjectInterface
   protected function start(): void
   {
     Console::clear();
-
-    // Save the terminal settings
     Console::saveTerminalSettings();
-
-    // Set the terminal name
     Console::setTerminalName($this->name);
-
-    // Set the terminal size
     Console::setTerminalSize($this->width, $this->height);
-
-    // Hide the cursor
     Console::cursor()->hide();
-
-    // Disable echo
     InputManager::disableEcho();
-
-    // Set non-blocking input mode
     InputManager::enableNonBlockingMode();
 
-    // Show splash screen
     $this->showSplashScreens();
-
-    // Handle game events
+    $this->buildItemStore();
     $this->handleGameEvents();
 
-    // Load the first scene
     $this->sceneManager->loadScene(0);
-
     $this->addObserver(Time::class);
 
     $this->isRunning = true;
@@ -634,5 +618,15 @@ SPLASH_SCREEN;
     ConfigStore::put(AppConfig::class, new AppConfig());
     ConfigStore::put(ProjectConfig::class, new ProjectConfig());
     ConfigStore::put(InputConfig::class, new InputConfig());
+  }
+
+  /**
+   * Build the item store. This is where all the items in the game are stored.
+   *
+   * @return void
+   */
+  private function buildItemStore(): void
+  {
+    // TODO: Implement buildItemStore() method.
   }
 }
