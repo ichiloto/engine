@@ -128,9 +128,9 @@ class Player extends GameObject
   /**
    * Adds a trigger to the observers' collection.
    *
-   * @param Trigger $trigger The trigger to add.
+   * @param MapTrigger $trigger The trigger to add.
    */
-  public function addTrigger(Trigger $trigger): void
+  public function addTrigger(MapTrigger $trigger): void
   {
     $this->addObserver($trigger);
   }
@@ -143,7 +143,7 @@ class Player extends GameObject
   public function removeTriggers(): void
   {
     foreach ($this->observers as $observer) {
-      if ($observer instanceof Trigger) {
+      if ($observer instanceof MapTrigger) {
         $this->observers->remove($observer);
       }
     }

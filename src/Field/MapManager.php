@@ -372,7 +372,7 @@ class MapManager implements CanRenderAt
       $player->removeTriggers();
 
       foreach ($triggers as $data) {
-        $trigger = Trigger::tryFromArray($data);
+        $trigger = MapTrigger::tryFromArray($data);
         $player->addTrigger($trigger);
       }
     }
