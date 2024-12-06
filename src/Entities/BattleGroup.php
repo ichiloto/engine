@@ -24,9 +24,15 @@ abstract class BattleGroup implements GroupInterface
     }
   }
 
-  public function __construct()
+  /**
+   * Creates a new battle group.
+   *
+   * @param array<string, mixed> $config The configuration options for the battle group.
+   */
+  public function __construct(array $config = [])
   {
     $this->members = new ItemList(Battler::class);
+    $this->configure($config);
   }
 
   /**

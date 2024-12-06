@@ -25,6 +25,11 @@ interface CanEquate
    */
   public function notEquals(CanEquate $equatable): bool;
 
+  /**
+   * Gets the hash code of this value.
+   *
+   * @return string The hash code of this value.
+   */
   public string $hash {
     get;
   }

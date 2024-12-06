@@ -9,7 +9,7 @@ use Ichiloto\Engine\Entities\Interfaces\InventoryTypeInterface;
  *
  * @package Ichiloto\Engine\Entities\Enumerations
  */
-enum InventoryType: string implements InventoryTypeInterface
+enum WeaponType: string implements InventoryTypeInterface
 {
   case DAGGER = 'Dagger';
   case SWORD = 'Sword';

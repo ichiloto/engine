@@ -2,6 +2,9 @@
 
 namespace Ichiloto\Engine\Entities;
 
+use Assegai\Collections\ItemList;
+use Ichiloto\Engine\Entities\Interfaces\InventoryItemInterface;
+
 /**
  * Class Party. Represents a party of characters in a battle.
  *
@@ -34,6 +37,18 @@ class Party extends BattleGroup
    * @var PartyLocation|null The party's location.
    */
   public ?PartyLocation $location = null;
+  /**
+   * @var ItemList|null The party's inventory.
+   */
+  protected(set) ?ItemList $inventory;
+
+  /**
+   * @inheritDoc
+   */
+  public function configure(array $config = []): void
+  {
+    $this->inventory = new ItemList(InventoryItemInterface::class);
+  }
 
   /**
    * Creates a new party from an array.
@@ -57,5 +72,31 @@ class Party extends BattleGroup
     }
 
     return $party;
+  }
+
+  /**
+   * Adds items to the party's inventory.
+   *
+   * @param InventoryItemInterface ...$items The items to add to the party's inventory.
+   * @return void
+   */
+  public function addItems(InventoryItemInterface ...$items): void
+  {
+    foreach ($items as $item) {
+      $this->inventory->add($item);
+    }
+  }
+
+  /**
+   * Removes items from the party's inventory.
+   *
+   * @param InventoryItemInterface ...$items The items to remove from the party's inventory.
+   * @return void
+   */
+  public function removeItems(InventoryItemInterface ...$items): void
+  {
+    foreach ($items as $item) {
+      $this->inventory->remove($item);
+    }
   }
 }
