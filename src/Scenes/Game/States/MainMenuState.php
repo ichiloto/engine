@@ -11,6 +11,7 @@ use Ichiloto\Engine\Core\Menu\Commands\OpenItemsMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenMagicMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenPartyOrderCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenQuitMenuCommand;
+use Ichiloto\Engine\Core\Menu\Commands\OpenSaveMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenStatusMenuCommand;
 use Ichiloto\Engine\Core\Menu\Interfaces\MainMenuModeInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
@@ -117,6 +118,14 @@ class MainMenuState extends GameSceneState implements CanRender
    * @var MainMenuModeInterface|null The mode of the main menu.
    */
   protected ?MainMenuModeInterface $mode = null;
+  /**
+   * @var bool Whether the game can be saved.
+   */
+  protected bool $canSave {
+    get {
+      return $this->getGameScene()->mapManager?->canSave;
+    }
+  }
 
   /**
    * @inheritDoc
@@ -202,6 +211,9 @@ class MainMenuState extends GameSceneState implements CanRender
     $this->mainMenu->getItems()->add(new OpenStatusMenuCommand($this->mainMenu));
     $this->mainMenu->getItems()->add(new OpenPartyOrderCommand($this->mainMenu));
     $this->mainMenu->getItems()->add(new OpenConfigMenuCommand($this->mainMenu));
+    if ($this->canSave) {
+      $this->mainMenu->getItems()->add(new OpenSaveMenuCommand($this->mainMenu));
+    }
     $this->mainMenu->getItems()->add(new OpenQuitMenuCommand($this->mainMenu));
     $this->mainMenu->updateWindowContent();
 

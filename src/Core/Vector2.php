@@ -6,18 +6,17 @@ use Ichiloto\Engine\Core\Interfaces\CanCompare;
 use Ichiloto\Engine\Core\Interfaces\CanEquate;
 use Stringable;
 
+/**
+ * Represents a 2D vector.
+ *
+ * @package Ichiloto\Engine\Core
+ */
 class Vector2 implements CanCompare, Stringable
 {
   /**
-   * The hash of the vector.
-   *
-   * @var string
+   * @var string The hash of the vector.
    */
-  public string $hash {
-    get {
-      return uniqid(md5(__CLASS__) . '.' . md5($this->x . '.' . $this->y));
-    }
-  }
+  protected(set) string $hash = '';
 
   /**
    * Vector2 constructor.
@@ -44,6 +43,7 @@ class Vector2 implements CanCompare, Stringable
     }
   )
   {
+    $this->hash = md5(__CLASS__) . '.' . md5($this->x . '.' . $this->y);
   }
 
   /**

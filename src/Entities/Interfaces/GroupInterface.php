@@ -8,6 +8,14 @@ use Ichiloto\Engine\Entities\Character;
 interface GroupInterface
 {
   /**
+   * Configures the group with the given options.
+   *
+   * @param array<string, mixed> $config The options to configure the group with.
+   * @return void
+   */
+  public function configure(array $config = []): void;
+
+  /**
    * Adds a member to the group.
    *
    * @param Character $character The member to add to the group.
