@@ -7,9 +7,11 @@ use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Interfaces\CanRenderAt;
 use Ichiloto\Engine\Entities\PartyLocation as MapLocation;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
+use Ichiloto\Engine\Events\Triggers\EventTriggerFactory;
 use Ichiloto\Engine\Exceptions\IchilotoException;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
+use Ichiloto\Engine\Exceptions\RequiredFieldException;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Game\GameScene;
@@ -284,15 +286,10 @@ class MapManager implements CanRenderAt
     $locationRegion = $map['region'] ?? MapLocation::DEFAULT_LOCATION_REGION;
     $this->gameScene->party->location = new MapLocation($locationName, $locationRegion);
 
-    // Load collision dictionary from file
-    $collisionDictionaryFilename = Path::join(Path::getCurrentWorkingDirectory(), 'assets/Maps/collisions.php');
-    $dictionary = $this->loadCollisionDictionary($collisionDictionaryFilename);
-
-    // Load the collision map from the tile map
+    $dictionary = $this->getCollisionDictionary();
     $this->loadCollisionMap($this->tileMap, $dictionary);
-
-    // Activate triggers
-    $this->activateTriggers($map['triggers'] ?? []);
+    $this->loadMapTriggers($map['triggers'] ?? []);
+    $this->loadMapEvents($map['events'] ?? []);
   }
 
   /**
@@ -361,19 +358,39 @@ class MapManager implements CanRenderAt
   }
 
   /**
-   * Activates the triggers.
+   * Loads the map triggers.
    *
-   * @param array $triggers
+   * @param array<array<string, mixed>> $triggers The list of triggers.
    * @throws IchilotoException If the trigger cannot be created from the array.
    */
-  protected function activateTriggers(array $triggers): void
+  protected function loadMapTriggers(array $triggers): void
   {
     if ($player = $this->gameScene->player) {
       $player->removeTriggers();
 
       foreach ($triggers as $data) {
-        $trigger = Trigger::tryFromArray($data);
+        $trigger = MapTrigger::tryFromArray($data);
         $player->addTrigger($trigger);
+      }
+    }
+  }
+
+  /**
+   * Loads the map events.
+   *
+   * @param array<array<string, mixed>> $events The list of events.
+   * @return void
+   * @throws NotFoundException If the class does not exist.
+   * @throws RequiredFieldException If a required field is missing.
+   */
+  protected function loadMapEvents(array $events): void
+  {
+    if ($player = $this->gameScene->player) {
+      $player->removeEventTriggers();
+
+      foreach ($events as $eventData) {
+        $eventTrigger = EventTriggerFactory::create($eventData);
+        $player->addTrigger($eventTrigger);
       }
     }
   }
@@ -389,5 +406,17 @@ class MapManager implements CanRenderAt
   {
     $tile = $this->tileMap[$y][$x];
     $this->camera->draw($tile, $x, $y);
+  }
+
+  /**
+   * Gets the collision dictionary from a file.
+   *
+   * @return CollisionType[] The collision dictionary.
+   * @throws NotFoundException If the file is not found.
+   */
+  protected function getCollisionDictionary(): array
+  {
+    $collisionDictionaryFilename = Path::join(Path::getCurrentWorkingDirectory(), 'assets/Maps/collisions.php');
+    return $this->loadCollisionDictionary($collisionDictionaryFilename);
   }
 }

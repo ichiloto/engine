@@ -20,7 +20,7 @@ use Serializable;
  *
  * @package Ichiloto\Engine\Field
  */
-class Trigger implements Serializable, ObserverInterface
+class MapTrigger implements Serializable, ObserverInterface
 {
   /**
    * Trigger constructor.
@@ -42,13 +42,13 @@ class Trigger implements Serializable, ObserverInterface
    * Converts an array to a trigger.
    *
    * @param array{destinationMap: string, trigger_area: array{x: int, y: int, width: int, height: int}, spawn_point: array{x: int, y: int} $data The data.
-   * @return Trigger
+   * @return MapTrigger
    * @throws IchilotoException If the trigger cannot be created from the array.
    */
-  public static function tryFromArray(array $data): Trigger
+  public static function tryFromArray(array $data): MapTrigger
   {
     try {
-      return new Trigger(
+      return new MapTrigger(
         $data['destinationMap'],
         new Rect(
           $data['trigger_area']['x'] ?? 0,
