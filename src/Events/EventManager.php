@@ -2,12 +2,13 @@
 
 namespace Ichiloto\Engine\Events;
 
+use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Events\Enumerations\EventType;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
 use Ichiloto\Engine\Events\Interfaces\EventListenerInterface;
 use Ichiloto\Engine\Events\Interfaces\EventTargetInterface;
-use Ichiloto\Engine\Util\Debug;
+use Ichiloto\Engine\Events\Triggers\EventTrigger;
 use RuntimeException;
 
 /**
@@ -21,11 +22,14 @@ class EventManager implements EventTargetInterface
    * @var EventManager|null The instance of the event manager.
    */
   protected static ?EventManager $instance = null;
-
   /**
    * @var array<string, array<EventListenerInterface|callable>> The listeners.
    */
   protected array $listeners = [];
+  /**
+   * @var ItemList<EventTrigger> $activeEvents The list of active events.
+   */
+  protected(set) ItemList $activeEvents;
 
   /**
    * EventManager constructor.
@@ -34,6 +38,7 @@ class EventManager implements EventTargetInterface
    */
   private function __construct(protected Game $game)
   {
+    $this->activeEvents = new ItemList(EventTrigger::class);
   }
 
   /**
