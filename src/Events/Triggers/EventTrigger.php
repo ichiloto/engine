@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Events\Triggers;
 
+use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Events\Interfaces\EventTriggerContextInterface;
 use Ichiloto\Engine\Events\Interfaces\EventTriggerInterface;
 
@@ -14,7 +15,13 @@ abstract class EventTrigger implements EventTriggerInterface
 {
   protected object $data;
 
-  final public function __construct(array $data = [])
+  /**
+   * EventTrigger constructor.
+   *
+   * @param Rect $area The trigger area. The area on the map where the trigger is activated.
+   * @param array $data The data.
+   */
+  final public function __construct(protected Rect $area, array $data = [])
   {
     $this->data = (object) $data;
     $this->configure();

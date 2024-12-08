@@ -9,6 +9,7 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Events\Enumerations\MovementEventType;
 use Ichiloto\Engine\Events\MovementEvent;
+use Ichiloto\Engine\Events\Triggers\EventTrigger;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\Scenes\Game\GameScene;
@@ -193,5 +194,15 @@ class Player extends GameObject
       };
       $this->getLocationHUDWindow()->updateDetails($this->position, $this->heading);
     }
+  }
+
+  /**
+   * Adds an event trigger to the list of observers.
+   *
+   * @param EventTrigger $event The event trigger.
+   * @return void
+   */
+  public function addEventTrigger(EventTrigger $event): void
+  {
   }
 }
