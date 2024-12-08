@@ -389,8 +389,8 @@ class MapManager implements CanRenderAt
       $player->removeEventTriggers();
 
       foreach ($events as $eventData) {
-        $event = EventTriggerFactory::create($eventData);
-        $player->addEventTrigger($event);
+        $eventTrigger = EventTriggerFactory::create($eventData);
+        $player->addTrigger($eventTrigger);
       }
     }
   }

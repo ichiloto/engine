@@ -2,14 +2,17 @@
 
 namespace Ichiloto\Engine\Field;
 
+use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\GameObject;
 use Ichiloto\Engine\Core\Interfaces\CanCompare;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Events\Enumerations\MovementEventType;
+use Ichiloto\Engine\Events\Interfaces\EventInterface;
 use Ichiloto\Engine\Events\MovementEvent;
 use Ichiloto\Engine\Events\Triggers\EventTrigger;
+use Ichiloto\Engine\Events\Triggers\EventTriggerContext;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\Scenes\Game\GameScene;
@@ -49,6 +52,10 @@ class Player extends GameObject
    * @var bool $canShowLocationHUDWindow Determines whether the location HUD window can be shown.
    */
   protected bool $canShowLocationHUDWindow = false;
+  /**
+   * @var ItemList<EventTrigger> $events The list of events.
+   */
+  protected ItemList $events;
 
   #[Override]
   public function activate(): void
@@ -59,6 +66,8 @@ class Player extends GameObject
     if (!$this->canShowLocationHUDWindow) {
       $this->getLocationHUDWindow()->erase();
     }
+
+    $this->events = new ItemList(EventTrigger::class);
   }
 
   /**
@@ -80,10 +89,11 @@ class Player extends GameObject
       return;
     }
 
-    $this->handleCollision($collisionType);
+    $event = new MovementEvent(MovementEventType::PLAYER_MOVE, $origin, $destination);
+    $this->handleCollision($collisionType, $event);
     $this->updatePlayerPosition($direction);
 
-    $this->notify($this->getGameScene(), new MovementEvent(MovementEventType::PLAYER_MOVE, $origin, $destination));
+    $this->notify($this->getGameScene(), $event);
   }
 
   /**
@@ -106,13 +116,35 @@ class Player extends GameObject
    * @param CollisionType|null $collisionType The collision type.
    * @return void
    */
-  protected function handleCollision(?CollisionType $collisionType): void
+  protected function handleCollision(?CollisionType $collisionType, EventInterface $movementEvent): void
   {
     if (!$collisionType || $collisionType === CollisionType::NONE) {
       return;
     }
 
     $this->getGameScene()->mapManager->isAtSavePoint = $collisionType === CollisionType::SAVE_POINT;
+
+
+    $eventTriggerContext = new EventTriggerContext(
+      $movementEvent,
+      $this->position,
+      $this,
+      $this->getGameScene(),
+      $this->getGameScene()->mapManager
+    );
+    foreach ($this->events as $event) {
+      if ($event->area->contains($this->position)) {
+        if (! $this->eventManager->activeEvents->contains($event)) {
+          $this->eventManager->activeEvents->add($event);
+          $event->enter($eventTriggerContext);
+        } else {
+          $event->stay($eventTriggerContext);
+        }
+      } else {
+        $event->exit($eventTriggerContext);
+        $this->eventManager->activeEvents->remove($event);
+      }
+    }
   }
 
   /**
@@ -128,11 +160,17 @@ class Player extends GameObject
   /**
    * Adds a trigger to the observers' collection.
    *
-   * @param MapTrigger $trigger The trigger to add.
+   * @param MapTrigger|EventTrigger $trigger The trigger to add.
    */
-  public function addTrigger(MapTrigger $trigger): void
+  public function addTrigger(MapTrigger|EventTrigger $trigger): void
   {
-    $this->addObserver($trigger);
+    if ($trigger instanceof MapTrigger) {
+      $this->addObserver($trigger);
+    }
+
+    if ($trigger instanceof EventTrigger) {
+      $this->events->add($trigger);
+    }
   }
 
   /**
@@ -146,6 +184,10 @@ class Player extends GameObject
       if ($observer instanceof MapTrigger) {
         $this->observers->remove($observer);
       }
+    }
+
+    foreach ($this->events as $event) {
+      $this->events->remove($event);
     }
   }
 
@@ -197,12 +239,12 @@ class Player extends GameObject
   }
 
   /**
-   * Adds an event trigger to the list of observers.
+   * Removes all event triggers.
    *
-   * @param EventTrigger $event The event trigger.
    * @return void
    */
-  public function addEventTrigger(EventTrigger $event): void
+  public function removeEventTriggers(): void
   {
+    $this->events->clear();
   }
 }
