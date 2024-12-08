@@ -8,16 +8,13 @@ use Ichiloto\Engine\Core\Interfaces\CanCompare;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Events\Enumerations\MovementEventType;
-use Ichiloto\Engine\Events\Interfaces\EventInterface;
-use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
 use Ichiloto\Engine\Events\MovementEvent;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\Scenes\Game\GameScene;
-use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\UI\LocationHUDWindow;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
-use Ichiloto\Engine\Util\Debug;
+use Override;
 use RuntimeException;
 
 /**
@@ -47,6 +44,21 @@ class Player extends GameObject
    * @var MovementHeading $heading The heading of the player.
    */
   protected(set) MovementHeading $heading = MovementHeading::NONE;
+  /**
+   * @var bool $canShowLocationHUDWindow Determines whether the location HUD window can be shown.
+   */
+  protected bool $canShowLocationHUDWindow = false;
+
+  #[Override]
+  public function activate(): void
+  {
+    parent::activate();
+    $this->canShowLocationHUDWindow = config(ProjectConfig::class, 'ui.hud.location', false);
+
+    if (!$this->canShowLocationHUDWindow) {
+      $this->getLocationHUDWindow()->erase();
+    }
+  }
 
   /**
    * Movement speed of the player.
@@ -68,20 +80,7 @@ class Player extends GameObject
     }
 
     $this->handleCollision($collisionType);
-
-    $this->erase();
-    $this->position->add($direction);
-    $this->render();
-    if ( config(ProjectConfig::class, 'ui.hud.location', false) ) {
-      $this->heading = match (true) {
-        $direction->y < 0 => MovementHeading::NORTH,
-        $direction->y > 0 => MovementHeading::SOUTH,
-        $direction->x < 0 => MovementHeading::WEST,
-        $direction->x > 0 => MovementHeading::EAST,
-        default => MovementHeading::NONE,
-      };
-      $this->getLocationHUDWindow()->updateDetails($this->position, $this->heading);
-    }
+    $this->updatePlayerPosition($direction);
 
     $this->notify($this->getGameScene(), new MovementEvent(MovementEventType::PLAYER_MOVE, $origin, $destination));
   }
@@ -164,5 +163,35 @@ class Player extends GameObject
       $direction->x > 0 => $this->rightSprite,
       default => $this->sprite[0],
     };
+  }
+
+  /**
+   * @param Vector2 $direction
+   * @return void
+   */
+  protected function updatePlayerPosition(Vector2 $direction): void
+  {
+    $this->erase();
+    $this->position->add($direction);
+    $this->render();
+    $this->renderLocationHUDWindow($direction);
+  }
+
+  /**
+   * @param Vector2 $direction
+   * @return void
+   */
+  protected function renderLocationHUDWindow(Vector2 $direction): void
+  {
+    if ($this->canShowLocationHUDWindow) {
+      $this->heading = match (true) {
+        $direction->y < 0 => MovementHeading::NORTH,
+        $direction->y > 0 => MovementHeading::SOUTH,
+        $direction->x < 0 => MovementHeading::WEST,
+        $direction->x > 0 => MovementHeading::EAST,
+        default => MovementHeading::NONE,
+      };
+      $this->getLocationHUDWindow()->updateDetails($this->position, $this->heading);
+    }
   }
 }

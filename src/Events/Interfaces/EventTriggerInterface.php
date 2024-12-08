@@ -10,23 +10,28 @@ namespace Ichiloto\Engine\Events\Interfaces;
 interface EventTriggerInterface
 {
   /**
-   * Enters the event.
-   *
-   * @param EventInterface $event The event.
+   * Configures the event.
    */
-  public function enter(EventInterface $event): void;
+  public function configure(): void;
 
   /**
-   * Handles the event.
+   * Fired when the event is entered.
    *
-   * @param EventInterface $event The event.
+   * @param EventTriggerContextInterface $context The context.
    */
-  public function handle(EventInterface $event): void;
+  public function enter(EventTriggerContextInterface $context): void;
 
   /**
-   * Exits the event.
+   * Fired while the event is active.
    *
-   * @param EventInterface $event The event.
+   * @param EventTriggerContextInterface $context The context.
    */
-  public function exit(EventInterface $event): void;
+  public function stay(EventTriggerContextInterface $context): void;
+
+  /**
+   * Fired when the event is exited.
+   *
+   * @param EventTriggerContextInterface $context The context.
+   */
+  public function exit(EventTriggerContextInterface $context): void;
 }

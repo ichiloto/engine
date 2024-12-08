@@ -154,6 +154,7 @@ class GameScene extends AbstractScene
       $this->config->playerShape,
       $this->config->playerSprite
     );
+    $this->player->activate();
     $this->party = $this->config->party;
 
     $this->loadMap("{$this->config->mapId}.php");
