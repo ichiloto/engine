@@ -24,11 +24,11 @@ class EventTriggerFactory
   public static function create(array $args): EventTrigger
   {
     $class = $args['class'] ?? throw new RequiredFieldException('class');
-    if (!class_exists($class)) {
+    if (! class_exists($class) ) {
       throw new NotFoundException($class);
     }
 
-    if (! $class instanceof EventTrigger) {
+    if (! is_subclass_of($class, EventTrigger::class) ) {
       throw new InvalidArgumentException("The class, $class, must be an instance of " . EventTrigger::class);
     }
 
@@ -43,7 +43,7 @@ class EventTriggerFactory
       $args['area']['height'] ?? throw new RequiredFieldException('area.height')
     );
 
-    $data = $area['data'] ?? throw new RequiredFieldException('data');
+    $data = $args['data'] ?? throw new RequiredFieldException('data');
 
     return new $class($area, $data);
   }

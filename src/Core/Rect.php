@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core;
 
+use Ichiloto\Engine\Util\Debug;
 use Stringable;
 
 /**
@@ -196,9 +197,9 @@ class Rect implements Stringable
   public function contains(Vector2 $point): bool
   {
     return $point->x >= $this->getLeft()
-      && $point->x <= $this->getRight()
+      && $point->x < $this->getRight()
       && $point->y >= $this->getTop()
-      && $point->y <= $this->getBottom();
+      && $point->y < $this->getBottom();
   }
 
   /**
