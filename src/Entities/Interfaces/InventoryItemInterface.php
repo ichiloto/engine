@@ -4,13 +4,14 @@ namespace Ichiloto\Engine\Entities\Interfaces;
 
 use Ichiloto\Engine\Core\Interfaces\CanCompare;
 use Ichiloto\Engine\Entities\Enumerations\ItemUserType;
+use Stringable;
 
 /**
  * Represents an inventory item.
  *
  * @package Ichiloto\Engine\Entities\Interfaces
  */
-interface InventoryItemInterface extends CanCompare
+interface InventoryItemInterface extends CanCompare, Stringable
 {
   /**
    * @var string $name The name of the item.
@@ -51,7 +52,7 @@ interface InventoryItemInterface extends CanCompare
   /**
    * @var ItemUserType $userType The user type of the item.
    */
-  protected(set) ItemUserType $userType {
+  public ItemUserType $userType {
     get;
   }
 }

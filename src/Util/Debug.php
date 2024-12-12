@@ -15,10 +15,10 @@ use Stringable;
 final class Debug
 {
   // Log levels.
-  const int DEBUG = 0;
-  const int INFO = 1;
-  const int WARNING = 2;
-  const int ERROR = 3;
+  const int DEBUG = 1;
+  const int INFO = 2;
+  const int WARNING = 3;
+  const int ERROR = 4;
   /**
    * @var int The log level.
    */
@@ -81,6 +81,10 @@ final class Debug
    */
   public static function log(Stringable|string $message): void
   {
+    if (! self::isEnabled()) {
+      return;
+    }
+
     if (false === error_log(self::getFormattedMessage($message), 3, self::getLogFilePath('debug.log'))) {
       throw new RuntimeException("Failed to write to the debug log.");
     }
@@ -94,6 +98,10 @@ final class Debug
    */
   public static function info(Stringable|string $message): void
   {
+    if (!self::isEnabled()) {
+      return;
+    }
+
     if (self::$logLevel < self::INFO) {
       return;
     }
@@ -111,6 +119,10 @@ final class Debug
    */
   public static function warn(Stringable|string $message): void
   {
+    if (! self::isEnabled()) {
+      return;
+    }
+
     if (self::$logLevel < self::WARNING) {
       return;
     }
@@ -128,6 +140,10 @@ final class Debug
    */
   public static function error(Stringable|string $message): void
   {
+    if (! self::isEnabled()) {
+      return;
+    }
+
     if (false === error_log(self::getFormattedMessage($message, 'ERROR'), 3, self::getLogFilePath('error.log'))) {
       throw new RuntimeException("Failed to write to the debug log.");
     }
@@ -151,5 +167,15 @@ final class Debug
   private static function getFormattedMessage(Stringable|string $message, string $prefix = 'DEBUG'): string
   {
     return sprintf("[%s] [%s] - %s", date(DATE_ATOM), $prefix, $message) . PHP_EOL;
+  }
+
+  /**
+   * Determines whether the debug utility is enabled.
+   *
+   * @return bool Returns true if the debug utility is enabled; otherwise, false.
+   */
+  private static function isEnabled(): bool
+  {
+    return config(AppConfig::class, 'debug.enabled', false);
   }
 }

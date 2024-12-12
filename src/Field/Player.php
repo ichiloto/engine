@@ -3,10 +3,13 @@
 namespace Ichiloto\Engine\Field;
 
 use Assegai\Collections\ItemList;
+use Closure;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\GameObject;
 use Ichiloto\Engine\Core\Interfaces\CanCompare;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Entities\Actions\FieldActionContext;
+use Ichiloto\Engine\Entities\Interfaces\ActionInterface;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Events\Enumerations\MovementEventType;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
@@ -18,6 +21,7 @@ use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\UI\LocationHUDWindow;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Util\Debug;
 use Override;
 use RuntimeException;
 
@@ -45,6 +49,10 @@ class Player extends GameObject
    */
   protected string $leftSprite = '<';
   /**
+   * @var string $actionSprite The sprite of the player when performing an action.
+   */
+  protected string $actionSprite = '!';
+  /**
    * @var MovementHeading $heading The heading of the player.
    */
   protected(set) MovementHeading $heading = MovementHeading::NONE;
@@ -56,6 +64,18 @@ class Player extends GameObject
    * @var ItemList<EventTrigger> $events The list of events.
    */
   protected ItemList $events;
+  /**
+   * @var bool $canAct Determines whether the player can act.
+   */
+  public bool $canAct {
+    get {
+      return $this->availableAction !== null;
+    }
+  }
+  /**
+   * @var ActionInterface|null $availableAction The available action.
+   */
+  public ?ActionInterface $availableAction = null;
 
   #[Override]
   public function activate(): void
@@ -86,12 +106,14 @@ class Player extends GameObject
     $this->updatePlayerSprite($direction);
 
     if (! $this->getGameScene()->mapManager->canMoveTo(intval($destination->x), intval($destination->y), $collisionType) ) {
+      $this->render();
       return;
     }
 
     $event = new MovementEvent(MovementEventType::PLAYER_MOVE, $origin, $destination);
-    $this->handleCollision($collisionType, $event);
+    $this->handleCollision($collisionType);
     $this->updatePlayerPosition($direction);
+    $this->handleTriggers($event);
 
     $this->notify($this->getGameScene(), $event);
   }
@@ -116,15 +138,23 @@ class Player extends GameObject
    * @param CollisionType|null $collisionType The collision type.
    * @return void
    */
-  protected function handleCollision(?CollisionType $collisionType, EventInterface $movementEvent): void
+  protected function handleCollision(?CollisionType $collisionType): void
   {
     if (!$collisionType || $collisionType === CollisionType::NONE) {
       return;
     }
 
     $this->getGameScene()->mapManager->isAtSavePoint = $collisionType === CollisionType::SAVE_POINT;
+  }
 
-
+  /**
+   * Handles the triggers.
+   *
+   * @param MovementEvent $movementEvent The movement event.
+   * @return void
+   */
+  protected function handleTriggers(MovementEvent $movementEvent): void
+  {
     $eventTriggerContext = new EventTriggerContext(
       $movementEvent,
       $this->position,
@@ -132,8 +162,13 @@ class Player extends GameObject
       $this->getGameScene(),
       $this->getGameScene()->mapManager
     );
+    /** @var EventTrigger $event */
     foreach ($this->events as $event) {
-      if ($event->area->contains($this->position)) {
+      if ($event->isComplete) {
+        continue;
+      }
+
+      if ( $event->area->contains($movementEvent->destination) ) {
         if (! $this->eventManager->activeEvents->contains($event)) {
           $this->eventManager->activeEvents->add($event);
           $event->enter($eventTriggerContext);
@@ -141,8 +176,10 @@ class Player extends GameObject
           $event->stay($eventTriggerContext);
         }
       } else {
-        $event->exit($eventTriggerContext);
-        $this->eventManager->activeEvents->remove($event);
+        if ($this->eventManager->activeEvents->contains($event)) {
+          $event->exit($eventTriggerContext);
+          $this->eventManager->activeEvents->remove($event);
+        }
       }
     }
   }
@@ -246,5 +283,43 @@ class Player extends GameObject
   public function removeEventTriggers(): void
   {
     $this->events->clear();
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function render(): void
+  {
+    parent::render();
+
+    if ($this->canAct) {
+      $this->scene->camera->draw($this->actionSprite, $this->position->x, clamp($this->position->y - 1, 1, get_screen_height()));
+    }
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function erase(): void
+  {
+    parent::erase();
+
+    if ($this->canAct) {
+      $this->scene->renderBackgroundTile($this->position->x, clamp($this->position->y - 1, 1, get_screen_height()));
+    }
+  }
+
+  /**
+   * Performs an action.
+   *
+   * @return void
+   */
+  public function interact(): void
+  {
+    $this->availableAction?->execute(new FieldActionContext(
+      $this,
+      $this->getGameScene(),
+      $this->position
+    ));
   }
 }

@@ -36,14 +36,13 @@ class TransferPlayerTrigger extends EventTrigger
    */
   public function configure(): void
   {
-    $this->destinationMap = $this->data['destinationMap'] ?? throw new RequiredFieldException('destinationMap');
+    $this->destinationMap = $this->data->destinationMap ?? throw new RequiredFieldException('destinationMap');
     $this->spawnPoint = new Vector2(
-      $this->data['spawnPoint']['x'] ?? throw new RequiredFieldException('spawnPoint.x'),
-      $this->data['spawnPoint']['y'] ?? throw new RequiredFieldException('spawnPoint.y')
+      $this->data->spawnPoint->x ?? throw new RequiredFieldException('spawnPoint.x'),
+      $this->data->spawnPoint->y ?? throw new RequiredFieldException('spawnPoint.y')
     );
-    $this->spawnSprite = $this->data['spawnSprite'] ?? throw new RequiredFieldException('spawnSprite');
+    $this->spawnSprite = $this->data->spawnSprite ?? throw new RequiredFieldException('spawnSprite');
   }
-
 
   /**
    * @inheritDoc
@@ -53,6 +52,7 @@ class TransferPlayerTrigger extends EventTrigger
   #[Override]
   public function enter(EventTriggerContextInterface $context): void
   {
+    parent::enter($context);
     $destination = new Location($this->destinationMap, $this->spawnPoint, $this->spawnSprite);
     $context->scene->transferPlayer($destination);
   }

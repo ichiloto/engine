@@ -67,6 +67,10 @@ class FieldState extends GameSceneState
       $scene->player->move(new Vector2(intval($h), intval($v)));
     }
 
+    if (Input::isButtonDown("action")) {
+      $scene->player->interact();
+    }
+
     if (Input::isButtonDown("notify")) {
       notify(
         $this->getGameScene()->getGame(),

@@ -34,4 +34,11 @@ interface EventTriggerInterface
    * @param EventTriggerContextInterface $context The context.
    */
   public function exit(EventTriggerContextInterface $context): void;
+
+  /**
+   * Completes the event.
+   *
+   * @return void
+   */
+  public function complete(): void;
 }
