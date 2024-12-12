@@ -105,4 +105,31 @@ abstract class InventoryItem implements InventoryItemInterface
   {
     return ! $this->equals($equatable);
   }
+
+  /**
+   * @inheritDoc
+   */
+  public function __toString(): string
+  {
+    return $this->name;
+  }
+
+  /**
+   * Creates an inventory item from an array.
+   *
+   * @param array<string, mixed> $data The data.
+   * @return static The inventory item.
+   */
+  public static abstract function fromArray(array $data): static;
+
+  /**
+   * Creates an inventory item from an object.
+   *
+   * @param object $data The data.
+   * @return static The inventory item.
+   */
+  public static function fromObject(object $data): static
+  {
+    return static::fromArray((array) $data);
+  }
 }

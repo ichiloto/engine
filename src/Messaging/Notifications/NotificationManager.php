@@ -176,9 +176,6 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
   {
     $this->getActiveNotification()?->open();
     $this->nextNotificationShowTime = Time::getTime() + $this->getActiveNotification()?->getDuration() ?? 0;
-    Debug::log('NotificationManager: Opening active notification.');
-    Debug::log('NotificationManager: Current time: ' . Time::getTime());
-    Debug::log('NotificationManager: Next notification show time: ' . $this->nextNotificationShowTime);
   }
 
   /**

@@ -213,7 +213,7 @@ class GameScene extends AbstractScene
    */
   public function transferPlayer(Location $location): void
   {
-    Debug::info("Transferring player to $location->mapFilename...");
+    Debug::info("Transferring player to $location->mapFilename... at {$location->playerPosition}");
     $this->loadMap($location->mapFilename);
 
     $this->player->position->x = $location->playerPosition->x;
@@ -225,6 +225,7 @@ class GameScene extends AbstractScene
 
     $this->locationHUDWindow->updateDetails($this->player->position, $this->player->heading);
     $this->locationHUDWindow->render();
+    Debug::info("Player transferred to $location->mapFilename... at {$this->player->position}");
   }
 
   /**

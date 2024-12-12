@@ -172,7 +172,7 @@ class MapManager implements CanRenderAt
     }
 
     $collisionType = $this->getCollision($x, $y);
-    return $collisionType !== CollisionType::SOLID;
+    return !in_array($collisionType, [CollisionType::SOLID, CollisionType::NPC]);
   }
 
   /**
