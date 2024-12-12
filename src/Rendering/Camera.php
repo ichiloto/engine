@@ -189,12 +189,14 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
 
     $buffer = [];
 
-    foreach ($content as $line) {
+    foreach ($content as $index => $line) {
+      if ($index > $this->screen->getHeight()) {
+        break;
+      }
       $buffer[] = mb_substr($line, 0, $this->screen->getWidth());
     }
 
     $content = $buffer;
-
 
     if (is_iterable($content)) {
       foreach ($content as $index => $row) {
