@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use Exception;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
@@ -10,7 +11,6 @@ use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
-use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 
@@ -39,6 +39,7 @@ class FieldState extends GameSceneState
   {
     parent::enter();
     $this->renderTheField();
+    $this->getGameScene()->locationHUDWindow->activate();
   }
 
   /**
@@ -46,6 +47,7 @@ class FieldState extends GameSceneState
    * @param SceneStateContext|null $context
    * @throws NotFoundException If the scene is not set.
    * @throws OutOfBounds If the player is out of bounds.
+   * @throws Exception If a failure occurs when trying to quit the game.
    */
   public function execute(?SceneStateContext $context = null): void
   {

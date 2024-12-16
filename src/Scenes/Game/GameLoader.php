@@ -10,7 +10,6 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\PartyLocation;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
-use Ichiloto\Engine\Util\Debug;
 use RuntimeException;
 
 /**
@@ -105,15 +104,19 @@ class GameLoader
 
     $party = new Party();
     $party->location = new PartyLocation();
+    $playerPosition = new Vector2(
+      $systemData->startingPositions->player->spawnPoint->x,
+      $systemData->startingPositions->player->spawnPoint->y
+    );
     $savedData = [
-      'mapId' => 'happyville/home',
+      'mapId' => $systemData->startingPositions->player->destinationMap,
       'party' => $party,
-      'playerPosition' => new Vector2(4, 5),
+      'playerPosition' => $playerPosition,
       'playerShape' => new Rect(0, 0, 1, 1),
-      'playerHeading' => MovementHeading::NONE,
+      'playerHeading' => $systemData->startingPositions->player->heading,
       'playerStats' => [],
       'events' => [],
-      'playerSprite' => ['v'],
+      'playerSprite' => $systemData->startingPositions->player->spawnSprite,
     ];
 
     return new GameConfig(

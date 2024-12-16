@@ -30,7 +30,7 @@ class NewGameCommand extends MenuItem
   )
   {
     $label = config(ProjectConfig::class, 'vocab.game.new_game') ?? 'New Game';
-    parent::__construct($menu, $label, 'Start a new game.', '');
+    parent::__construct($menu, $label, 'Start a new game.');
   }
 
   /**
@@ -41,9 +41,9 @@ class NewGameCommand extends MenuItem
   public function execute(?ExecutionContextInterface $context = null): int
   {
     if (! $context instanceof MenuCommandExecutionContext ) {
-      throw new NotFoundException('The context is not a menu command execution context.');
+      throw new NotFoundException('The context is not an instance of ' . MenuCommandExecutionContext::class . ', found ' . get_class($context) . '.');
     }
-    $sceneManager = $context->getSceneManager();
+    $sceneManager = $context->sceneManager;
     $currentScene = $sceneManager->loadScene(GameScene::class)->currentScene;
 
     if (! $currentScene instanceof GameScene ) {
