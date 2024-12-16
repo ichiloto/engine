@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Entities\Inventory;
 use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Entities\Interfaces\InventoryItemInterface;
 use Ichiloto\Engine\Entities\Inventory\Item\Item;
+use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
 
 /**
@@ -75,7 +76,7 @@ class Inventory
   public function addItems(InventoryItemInterface ...$items): void
   {
     foreach ($items as $item) {
-      if ($this->items->count() >= $this->capacity) {
+      if ($this->inventoryItems->count() >= $this->capacity) {
         return;
       }
 
@@ -101,6 +102,10 @@ class Inventory
   public function removeItems(InventoryItemInterface ...$items): void
   {
     foreach ($items as $item) {
+      if ($this->inventoryItems->isEmpty()) {
+        return;
+      }
+
       if (! $item instanceof InventoryItemInterface) {
         throw new InvalidArgumentException('The item must be an instance of ' . InventoryItemInterface::class);
       }
@@ -139,19 +144,19 @@ class Inventory
     $this->inventoryItems->clear();
 
     if ($items) {
-      $this->inventoryItems->add(...$items);
+      $this->addItems(...$items);
     }
 
     if ($weapons) {
-      $this->inventoryItems->add(...$weapons);
+      $this->addItems(...$weapons);
     }
 
     if ($armor) {
-      $this->inventoryItems->add(...$armor);
+      $this->addItems(...$armor);
     }
 
     if ($accessories) {
-      $this->inventoryItems->add(...$accessories);
+      $this->addItems(...$accessories);
     }
   }
 }

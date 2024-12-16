@@ -181,7 +181,10 @@ class ItemMenuState extends GameSceneState implements CanRender
         }
       })
       ->addItem(new class($this->itemMenu) extends MenuItem {
-        public function __construct(MenuInterface $menu)
+        public function __construct(
+          protected ItemMenuState $state,
+          MenuInterface $menu
+        )
         {
           parent::__construct(
             $menu,
@@ -192,7 +195,6 @@ class ItemMenuState extends GameSceneState implements CanRender
 
         public function execute(?ExecutionContextInterface $context = null): int
         {
-          Debug::log('Sort items');
           return self::SUCCESS;
         }
       })
