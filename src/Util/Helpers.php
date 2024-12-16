@@ -3,6 +3,7 @@
 use Assegai\Util\Path;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
 use Ichiloto\Engine\IO\Console\Console;
@@ -460,5 +461,19 @@ if (! function_exists('debug_get_backtrace') ) {
     }
 
     return $output;
+  }
+}
+
+if (! function_exists('compare_items') ) {
+  /**
+   * Compares two inventory items.
+   *
+   * @param InventoryItem $a The first item.
+   * @param InventoryItem $b The second item.
+   * @return int The comparison result. Returns -1 if $a is less than $b, 0 if they are equal, and 1 if $a is greater than $b.
+   */
+  function compare_items(InventoryItem $a, InventoryItem $b): int
+  {
+    return $a->compareTo($b);
   }
 }
