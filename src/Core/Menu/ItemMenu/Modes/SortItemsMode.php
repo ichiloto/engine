@@ -16,11 +16,12 @@ class SortItemsMode extends ItemMenuMode
    */
   public function update(): void
   {
-    // TODO: Implement update() method.
     if (Input::isButtonDown("back")) {
       $this->state->setMode(new SelectIemMenuCommandMode($this->state));
     }
 
+    $this->state->getGameScene()->party->inventory->sort();
+    $this->state->selectionPanel->updateContent();
   }
 
   /**
@@ -28,7 +29,7 @@ class SortItemsMode extends ItemMenuMode
    */
   public function enter(): void
   {
-    // TODO: Implement enter() method.
+    // Nothing to do here.
   }
 
   /**
@@ -36,6 +37,6 @@ class SortItemsMode extends ItemMenuMode
    */
   public function exit(): void
   {
-    // TODO: Implement exit() method.
+    // Nothing to do here.
   }
 }

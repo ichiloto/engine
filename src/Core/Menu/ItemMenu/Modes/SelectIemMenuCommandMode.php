@@ -44,7 +44,12 @@ class SelectIemMenuCommandMode extends ItemMenuMode
         3 => new ViewKeyItemsMode($this->state),
         default => new UseItemMode($this->state),
       };
-      $this->state->setMode($mode);
+
+      if ($mode instanceof SortItemsMode) {
+        $mode->update();
+      } else {
+        $this->state->setMode($mode);
+      }
     }
   }
 

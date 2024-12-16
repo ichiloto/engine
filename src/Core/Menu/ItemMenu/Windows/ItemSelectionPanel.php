@@ -133,7 +133,7 @@ class ItemSelectionPanel extends Window implements CanFocus
    *
    * @return void
    */
-  protected function updateContent(): void
+  public function updateContent(): void
   {
     $content = array_fill(0, $this->height - 2, '');
 
@@ -149,7 +149,7 @@ class ItemSelectionPanel extends Window implements CanFocus
   /**
    * @return void
    */
-  public function updateInfoPanel(): void
+  protected function updateInfoPanel(): void
   {
     if ($this->activeItem) {
       $this->state->infoPanel->setText($this->activeItem->description);

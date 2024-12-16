@@ -116,4 +116,42 @@ class Inventory
       $this->inventoryItems->remove($item);
     }
   }
+
+  /**
+   * Sorts the inventory.
+   *
+   * @return void
+   */
+  public function sort(): void
+  {
+    $items = $this->items->toArray();
+    usort($items, 'compare_items');
+
+    $weapons = $this->weapons->toArray();
+    usort($weapons, 'compare_items');
+
+    $armor = $this->armor->toArray();
+    usort($armor, 'compare_items');
+
+    $accessories = $this->accessories->toArray();
+    usort($accessories, 'compare_items');
+
+    $this->inventoryItems->clear();
+
+    if ($items) {
+      $this->inventoryItems->add(...$items);
+    }
+
+    if ($weapons) {
+      $this->inventoryItems->add(...$weapons);
+    }
+
+    if ($armor) {
+      $this->inventoryItems->add(...$armor);
+    }
+
+    if ($accessories) {
+      $this->inventoryItems->add(...$accessories);
+    }
+  }
 }
