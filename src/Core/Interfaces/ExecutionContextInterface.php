@@ -16,12 +16,16 @@ interface ExecutionContextInterface
    *
    * @return array<string, mixed> The arguments.
    */
-  public function getArgs(): array;
+  public array $args {
+    get;
+  }
 
   /**
    * Returns the output.
    *
    * @return OutputInterface The output.
    */
-  public function getOutput(): OutputInterface;
+  public OutputInterface $output {
+    get;
+  }
 }

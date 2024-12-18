@@ -15,6 +15,7 @@ use Ichiloto\Engine\Scenes\Game\States\CutsceneState;
 use Ichiloto\Engine\Scenes\Game\States\DialogueState;
 use Ichiloto\Engine\Scenes\Game\States\FieldState;
 use Ichiloto\Engine\Scenes\Game\States\GameSceneState;
+use Ichiloto\Engine\Scenes\Game\States\ItemMenuState;
 use Ichiloto\Engine\Scenes\Game\States\MainMenuState;
 use Ichiloto\Engine\Scenes\Game\States\MapState;
 use Ichiloto\Engine\Scenes\Game\States\OverworldState;
@@ -73,6 +74,12 @@ class GameScene extends AbstractScene
    * @var MainMenuState|null
    */
   protected(set) ?MainMenuState $mainMenuState = null;
+  /**
+   * The item menu state.
+   *
+   * @var ItemMenuState|null
+   */
+  protected(set) ?ItemMenuState $itemMenuState = null;
   /**
    * The map state.
    *
@@ -152,13 +159,17 @@ class GameScene extends AbstractScene
       'Player',
       $this->config->playerPosition,
       $this->config->playerShape,
-      $this->config->playerSprite
+      $this->config->playerSprite,
+      $this->config->playerHeading
     );
     $this->player->activate();
     $this->party = $this->config->party;
 
     $this->loadMap("{$this->config->mapId}.php");
     $this->setState($this->fieldState);
+    usleep(400);
+    $this->locationHUDWindow->updateDetails($this->player->position, $this->player->heading);
+    $this->locationHUDWindow->render();
   }
 
   /**
@@ -249,6 +260,7 @@ class GameScene extends AbstractScene
     $this->dialogueState = new DialogueState($this->sceneStateContext);
     $this->fieldState = new FieldState($this->sceneStateContext);
     $this->mainMenuState = new MainMenuState($this->sceneStateContext);
+    $this->itemMenuState = new ItemMenuState($this->sceneStateContext);
     $this->mapState = new MapState($this->sceneStateContext);
     $this->overworldState = new OverworldState($this->sceneStateContext);
     $this->shopState = new ShopState($this->sceneStateContext);

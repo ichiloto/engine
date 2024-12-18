@@ -39,7 +39,9 @@ abstract class InventoryItem implements InventoryItemInterface
     protected(set) string $icon,
     protected(set) int $price,
     public int $quantity = 1,
-    protected(set) ItemUserType $userType = ItemUserType::ALL
+    protected(set) ItemUserType $userType = ItemUserType::ALL,
+    protected(set) bool $isKeyItem = false,
+    protected(set) bool $consumable = false,
   )
   {
     $this->hash = md5(self::class . $name . $description . $icon . $price);
