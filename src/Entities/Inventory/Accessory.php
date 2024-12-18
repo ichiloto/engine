@@ -27,7 +27,8 @@ class Accessory extends InventoryItem
       $data['icon'] ?? throw new RequiredFieldException('icon'),
       $data['price'] ?? throw new RequiredFieldException('price'),
       $data['quantity'] ?? 1,
-      $userType
+      $userType,
+      $data['isKeyItem'] ?? false,
     );
   }
 }

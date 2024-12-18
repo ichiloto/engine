@@ -19,9 +19,18 @@ use Ichiloto\Engine\Util\Debug;
 class ItemSelectionPanel extends Window implements CanFocus
 {
   /**
+   * The minimum number of pages.
+   */
+  public const int MIN_PAGE_COUNT = 1;
+  /**
+   * The maximum number of pages.
+   */
+  public const int MAX_PAGE_COUNT = 99;
+
+  /**
    * @var int The index of the active item.
    */
-  public int $activeIndex {
+  public int $activeIndex = -1 {
     get {
       return $this->activeIndex;
     }
@@ -49,6 +58,22 @@ class ItemSelectionPanel extends Window implements CanFocus
    * @var int The total number of items.
    */
   protected(set) int $totalItems = 0;
+  /**
+   * @var int The height of the window.
+   */
+  public int $page {
+    get {
+      return clamp(($this->activeIndex / $this->height) + 1, 1, $this->totalPages);
+    }
+  }
+  /**
+   * @var int The total number of pages.
+   */
+  public int $totalPages {
+    get {
+      return clamp(ceil($this->totalItems / $this->height), self::MIN_PAGE_COUNT, self::MAX_PAGE_COUNT);
+    }
+  }
 
   /**
    * ItemMenuCommandsPanel constructor.
@@ -64,13 +89,14 @@ class ItemSelectionPanel extends Window implements CanFocus
   )
   {
     parent::__construct(
-      '',
-      '',
+      "Page 1/1",
+      '<,>: Change page',
       $area->position,
       $area->size->width,
       $area->size->height,
       $borderPack
     );
+
     $this->activeIndex = -1;
     $this->updateContent();
   }
@@ -125,6 +151,7 @@ class ItemSelectionPanel extends Window implements CanFocus
   {
     $this->items = $items;
     $this->totalItems = count($items);
+    $this->title = sprintf("Page %02d/%02d", $this->page, $this->totalPages);
     $this->updateContent();
   }
 

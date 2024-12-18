@@ -30,6 +30,15 @@ class Inventory
   }
 
   /**
+   * @var ItemList<InventoryItem> The key items in the inventory.
+   */
+  public ItemList $keyItems {
+    get {
+      return $this->inventoryItems->filter(fn(InventoryItemInterface $item) => $item->isKeyItem);
+    }
+  }
+
+  /**
    * @var ItemList<Weapon> The weapons in the inventory.
    */
   public ItemList $weapons {
@@ -53,6 +62,15 @@ class Inventory
   public ItemList $accessories {
     get {
       return $this->inventoryItems->filter(fn(InventoryItemInterface $item) => $item instanceof Accessory);
+    }
+  }
+
+  /**
+   * @var ItemList The inventory items.
+   */
+  public ItemList $all {
+    get {
+      return $this->inventoryItems;
     }
   }
 

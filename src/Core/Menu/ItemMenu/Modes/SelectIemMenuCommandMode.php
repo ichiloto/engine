@@ -14,6 +14,23 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
 class SelectIemMenuCommandMode extends ItemMenuMode
 {
   /**
+   * The index of the use items command.
+   */
+  protected const int USE_ITEMS_INDEX = 0;
+  /**
+   * The index of the sort items command.
+   */
+  protected const int SORT_ITEMS_INDEX = 1;
+  /**
+   * The index of the discard item command.
+   */
+  protected const int DISCARD_ITEM_INDEX = 2;
+  /**
+   * The index of the view key items command.
+   */
+  protected const int VIEW_KEY_ITEMS_INDEX = 3;
+
+  /**
    * @inheritDoc
    */
   public function update(): void
@@ -39,9 +56,9 @@ class SelectIemMenuCommandMode extends ItemMenuMode
     if (Input::isButtonDown("confirm")) {
       $this->state->itemMenu->getActiveItem()?->execute($this->state->itemMenuContext);
       $mode = match ($this->state->itemMenu->activeIndex) {
-        1 => new SortItemsMode($this->state),
-        2 => new DiscardItemMode($this->state),
-        3 => new ViewKeyItemsMode($this->state),
+        self::SORT_ITEMS_INDEX => new SortItemsMode($this->state),
+        self::DISCARD_ITEM_INDEX => new DiscardItemMode($this->state),
+        self::VIEW_KEY_ITEMS_INDEX => new ViewKeyItemsMode($this->state),
         default => new UseItemMode($this->state),
       };
 
@@ -60,6 +77,7 @@ class SelectIemMenuCommandMode extends ItemMenuMode
   {
     $this->updateSelectionPanelItems();
     $this->updateInfoPanel();
+    $this->state->selectionPanel->blur();
   }
 
   /**
@@ -104,7 +122,12 @@ class SelectIemMenuCommandMode extends ItemMenuMode
     $scene = $this->state->context->getScene();
 
     if ($scene instanceof GameScene) {
-      $this->state->selectionPanel->setItems($scene->party->inventory->items->toArray());
+      $items = $scene->party->inventory->items->toArray();
+      if ($this->state->itemMenu->activeIndex === self::VIEW_KEY_ITEMS_INDEX) {
+        $items = $scene->party->inventory->keyItems->toArray();
+      }
+
+      $this->state->selectionPanel->setItems($items);
     }
   }
 

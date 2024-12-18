@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Entities\Actions;
 
+use Assegai\Util\Text;
 use Exception;
 use Ichiloto\Engine\Entities\Interfaces\ActionContextInterface;
 use Ichiloto\Engine\Entities\Inventory\Accessory;
@@ -39,10 +40,10 @@ class ChestOpeningAction extends FieldAction
   {
     $message = config(ProjectConfig::class, 'messages.obtained_item');
     $loot = null;
-    $lootName = 'Nothing';
+    $replacement = 'Nothing';
 
     if ($this->trigger->isComplete) {
-      $message = str_replace('%1', $lootName, $message);
+      $message = str_replace('%1', $replacement, $message);
       alert($message);
       return;
     }
@@ -72,8 +73,10 @@ class ChestOpeningAction extends FieldAction
         break;
     }
 
-    $lootName = "{$this->trigger->quantity} {$loot->name}";
-    $message = str_replace('%1', $lootName, $message);
+    $lootNameText = new Text($loot->name);
+    $lootName = ($loot->quantity > 1) ? $lootNameText->getPluralForm() : $lootNameText->getSingularForm();
+    $replacement = "{$loot->quantity} {$lootName}";
+    $message = str_replace('%1', $replacement, $message);
     $context->party->addItems($loot);
     $this->trigger->complete();
     $context->player->availableAction = null;

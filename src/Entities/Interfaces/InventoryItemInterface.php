@@ -55,4 +55,11 @@ interface InventoryItemInterface extends CanCompare, Stringable
   public ItemUserType $userType {
     get;
   }
+
+  /**
+   * @var bool $isKeyItem Whether the item is a key item.
+   */
+  public bool $isKeyItem {
+    get;
+  }
 }

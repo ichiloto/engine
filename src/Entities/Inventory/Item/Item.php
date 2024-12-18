@@ -34,6 +34,7 @@ class Item extends InventoryItem
     int $price,
     int $quantity = 1,
     ItemUserType $userType = ItemUserType::ALL,
+    bool $isKeyItem = false,
     protected(set) bool $consumable = true,
     protected(set) ItemScope $scope = new ItemScope(),
     protected(set) Occasion $occasion = Occasion::ALWAYS,
@@ -45,7 +46,8 @@ class Item extends InventoryItem
       $icon,
       $price,
       $quantity,
-      $userType
+      $userType,
+      $isKeyItem
     );
   }
 
@@ -67,6 +69,7 @@ class Item extends InventoryItem
     if (is_string($userType)) {
       $userType = ItemUserType::tryFrom($userType);
     }
+    $isKeyItem = $data['isKeyItem'] ?? false;
     $scope = ItemScope::fromObject($data['scope'] ?? (object)[]);
 
     return new self(
@@ -76,6 +79,7 @@ class Item extends InventoryItem
       $price,
       $quantity,
       $userType,
+      $isKeyItem,
       true,
       $scope
     );

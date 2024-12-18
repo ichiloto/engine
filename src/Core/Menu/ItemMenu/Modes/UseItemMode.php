@@ -23,6 +23,15 @@ class UseItemMode extends ItemMenuMode
       $this->state->setMode(new SelectIemMenuCommandMode($this->state));
     }
 
+    if (Input::isButtonDown("confirm")) {
+      $this->state->setMode(new SelectItemTargetMode($this->state));
+      if ($mode = $this->state->mode) {
+        if ($mode instanceof SelectItemTargetMode) {
+          $mode->previousMode = $this;
+        }
+      }
+    }
+
     $v = Input::getAxis(AxisName::VERTICAL);
 
     if (abs($v) > 0) {
@@ -47,6 +56,6 @@ class UseItemMode extends ItemMenuMode
    */
   public function exit(): void
   {
-    $this->state->selectionPanel->blur();
+    // Do nothing.
   }
 }

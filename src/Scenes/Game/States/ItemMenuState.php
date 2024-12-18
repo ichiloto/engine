@@ -7,12 +7,16 @@ use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Commands\MenuCommandExecutionContext;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\ItemMenu\ItemMenu;
+use Ichiloto\Engine\Core\Menu\ItemMenu\Modes\DiscardItemMode;
 use Ichiloto\Engine\Core\Menu\ItemMenu\Modes\SelectIemMenuCommandMode;
 use Ichiloto\Engine\Core\Menu\ItemMenu\Modes\ItemMenuMode;
 use Ichiloto\Engine\Core\Menu\ItemMenu\Modes\UseItemMode;
+use Ichiloto\Engine\Core\Menu\ItemMenu\Modes\ViewKeyItemsMode;
 use Ichiloto\Engine\Core\Menu\ItemMenu\Windows\ItemInfoPanel;
 use Ichiloto\Engine\Core\Menu\ItemMenu\Windows\ItemCommandPanel;
 use Ichiloto\Engine\Core\Menu\ItemMenu\Windows\ItemSelectionPanel;
+use Ichiloto\Engine\Core\Menu\ItemMenu\Windows\ItemTargetSelectionPanel;
+use Ichiloto\Engine\Core\Menu\ItemMenu\Windows\ItemTargetStatusPanel;
 use Ichiloto\Engine\Core\Menu\MenuItem;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\IO\Console\Console;
@@ -53,6 +57,26 @@ class ItemMenuState extends GameSceneState implements CanRender
    */
   protected const int SELECTION_PANEL_HEIGHT = 28;
   /**
+   * The width of the secondary window.
+   */
+  protected const int SELECTION_PANEL_WIDTH = 70;
+  /**
+   * The width of the target selection panel.
+   */
+  protected const int TARGET_SELECTION_PANEL_WIDTH = self::ITEM_MENU_WIDTH - self::SELECTION_PANEL_WIDTH;
+  /**
+   * The height of the target status panel.
+   */
+  protected const int TARGET_STATUS_PANEL_HEIGHT = 4;
+  /**
+   * The height of the target selection panel.
+   */
+  protected const int TARGET_SELECTION_PANEL_HEIGHT = self::SELECTION_PANEL_HEIGHT - self::TARGET_STATUS_PANEL_HEIGHT;
+  /**
+   * The width of the target status panel.
+   */
+  protected const int TARGET_STATUS_PANEL_WIDTH = self::TARGET_SELECTION_PANEL_WIDTH;
+  /**
    * The height of the info panel.
    */
   protected const int INFO_PANEL_HEIGHT = 4;
@@ -64,6 +88,14 @@ class ItemMenuState extends GameSceneState implements CanRender
    * @var ItemSelectionPanel|null The secondary window.
    */
   protected(set) ?ItemSelectionPanel $selectionPanel = null;
+  /**
+   * @var ItemTargetSelectionPanel|null The target selection panel.
+   */
+  protected(set) ?ItemTargetSelectionPanel $targetSelectionPanel = null;
+  /**
+   * @var ItemTargetStatusPanel|null The status panel.
+   */
+  protected(set) ?ItemTargetStatusPanel $statusPanel = null;
   /**
    * @var ItemInfoPanel|null The info panel.
    */
@@ -91,7 +123,7 @@ class ItemMenuState extends GameSceneState implements CanRender
   /**
    * @var ItemMenuMode|null The mode.
    */
-  protected ?ItemMenuMode $mode = null;
+  protected(set) ?ItemMenuMode $mode = null;
 
   /**
    * @inheritDoc
@@ -180,7 +212,7 @@ class ItemMenuState extends GameSceneState implements CanRender
           return self::SUCCESS;
         }
       })
-      ->addItem(new class($this->itemMenu) extends MenuItem {
+      ->addItem(new class($this, $this->itemMenu) extends MenuItem {
         public function __construct(
           protected ItemMenuState $state,
           MenuInterface $menu
@@ -198,8 +230,11 @@ class ItemMenuState extends GameSceneState implements CanRender
           return self::SUCCESS;
         }
       })
-      ->addItem(new class($this->itemMenu) extends MenuItem {
-        public function __construct(MenuInterface $menu)
+      ->addItem(new class($this, $this->itemMenu) extends MenuItem {
+        public function __construct(
+          protected ItemMenuState $state,
+          MenuInterface $menu
+        )
         {
           parent::__construct(
             $menu,
@@ -210,19 +245,22 @@ class ItemMenuState extends GameSceneState implements CanRender
 
         public function execute(?ExecutionContextInterface $context = null): int
         {
-          Debug::log('Discard item');
+          $this->state->setMode(new DiscardItemMode($this->state));
           return self::SUCCESS;
         }
       })
-      ->addItem(new class($this->itemMenu) extends MenuItem {
-        public function __construct(MenuInterface $menu)
+      ->addItem(new class($this, $this->itemMenu) extends MenuItem {
+        public function __construct(
+          protected ItemMenuState $state,
+          MenuInterface $menu
+        )
         {
           parent::__construct($menu, 'Key Items', 'View key items.');
         }
 
         public function execute(?ExecutionContextInterface $context = null): int
         {
-          Debug::log('View key items');
+          $this->state->setMode(new ViewKeyItemsMode($this->state));
           return self::SUCCESS;
         }
       });
@@ -240,12 +278,36 @@ class ItemMenuState extends GameSceneState implements CanRender
       new Rect(
         $this->leftMargin,
         $this->topMargin + self::COMMAND_PANEL_HEIGHT,
-        self::ITEM_MENU_WIDTH,
+        self::SELECTION_PANEL_WIDTH,
         self::SELECTION_PANEL_HEIGHT
       ),
       $this->borderPack
     );
     $this->selectionPanel->render();
+
+    $this->targetSelectionPanel = new ItemTargetSelectionPanel(
+      $this,
+      new Rect(
+        $this->leftMargin + self::SELECTION_PANEL_WIDTH,
+        $this->topMargin + self::COMMAND_PANEL_HEIGHT,
+        self::TARGET_SELECTION_PANEL_WIDTH,
+        self::TARGET_SELECTION_PANEL_HEIGHT
+      ),
+      $this->borderPack
+    );
+    $this->targetSelectionPanel->render();
+
+    $this->statusPanel = new ItemTargetStatusPanel(
+      $this,
+      new Rect(
+        $this->leftMargin + self::SELECTION_PANEL_WIDTH,
+        $this->topMargin + self::COMMAND_PANEL_HEIGHT + self::TARGET_SELECTION_PANEL_HEIGHT,
+        self::TARGET_STATUS_PANEL_WIDTH,
+        self::TARGET_STATUS_PANEL_HEIGHT
+      ),
+      $this->borderPack
+    );
+    $this->statusPanel->render();
 
     $infoPanelArea = new Rect(
       $this->leftMargin,
@@ -268,5 +330,26 @@ class ItemMenuState extends GameSceneState implements CanRender
     $this->mode?->exit();
     $this->mode = $mode;
     $this->mode->enter();
+  }
+
+  /**
+   * @inheritdoc
+   */
+  public function resume(): void
+  {
+    $this->getGameScene()->locationHUDWindow->deactivate();
+    $this->itemMenuCommandsPanel->render();
+    $this->selectionPanel->render();
+    $this->targetSelectionPanel->render();
+    $this->statusPanel->render();
+    $this->infoPanel->render();
+  }
+
+  /**
+   * @inheritdoc
+   */
+  public function suspend(): void
+  {
+    $this->exit();
   }
 }
