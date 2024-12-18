@@ -39,7 +39,7 @@ class ContinueGameCommand extends MenuItem
     if (! $context instanceof MenuCommandExecutionContext ) {
       throw new NotFoundException('The context is not a menu command execution context.');
     }
-    $sceneManager = $context->getSceneManager();
+    $sceneManager = $context->sceneManager;
     $currentScene = $sceneManager->loadScene(GameScene::class)->currentScene;
 
     if (! $currentScene instanceof GameScene ) {

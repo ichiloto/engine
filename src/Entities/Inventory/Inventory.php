@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Entities\Inventory;
 use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Entities\Interfaces\InventoryItemInterface;
 use Ichiloto\Engine\Entities\Inventory\Item\Item;
+use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
 
 /**
@@ -15,11 +16,25 @@ use InvalidArgumentException;
 class Inventory
 {
   /**
+   * The default capacity of the inventory.
+   */
+  public const int DEFAULT_CAPACITY = 99;
+
+  /**
    * @var ItemList<Item> The items in the inventory.
    */
   public ItemList $items {
     get {
       return $this->inventoryItems->filter(fn(InventoryItemInterface $item) => $item instanceof Item);
+    }
+  }
+
+  /**
+   * @var ItemList<InventoryItem> The key items in the inventory.
+   */
+  public ItemList $keyItems {
+    get {
+      return $this->inventoryItems->filter(fn(InventoryItemInterface $item) => $item->isKeyItem);
     }
   }
 
@@ -51,12 +66,22 @@ class Inventory
   }
 
   /**
+   * @var ItemList The inventory items.
+   */
+  public ItemList $all {
+    get {
+      return $this->inventoryItems;
+    }
+  }
+
+  /**
    * The Inventory constructor.
    *
    * @param ItemList $inventoryItems The inventory items.
    */
   public function __construct(
-    protected ItemList $inventoryItems = new ItemList(InventoryItemInterface::class)
+    protected ItemList $inventoryItems = new ItemList(InventoryItemInterface::class),
+    protected int $capacity = self::DEFAULT_CAPACITY
   )
   {
   }
@@ -69,13 +94,18 @@ class Inventory
   public function addItems(InventoryItemInterface ...$items): void
   {
     foreach ($items as $item) {
+      if ($this->inventoryItems->count() >= $this->capacity) {
+        return;
+      }
+
       if (! $item instanceof InventoryItemInterface) {
         throw new InvalidArgumentException('The item must be an instance of ' . InventoryItemInterface::class);
       }
 
-      if ($this->inventoryItems->contains($item)) {
-        $foundItem = $this->inventoryItems->find(fn(InventoryItemInterface $entry) => $entry->equals($item));
+      /** @var InventoryItem $foundItem */
+      if ($foundItem = array_find($this->inventoryItems->toArray(), fn(InventoryItem $entry) => $entry->name === $item->name)) {
         $foundItem->quantity += $item->quantity;
+        return;
       }
 
       $this->inventoryItems->add($item);
@@ -90,16 +120,61 @@ class Inventory
   public function removeItems(InventoryItemInterface ...$items): void
   {
     foreach ($items as $item) {
+      if ($this->inventoryItems->isEmpty()) {
+        return;
+      }
+
       if (! $item instanceof InventoryItemInterface) {
         throw new InvalidArgumentException('The item must be an instance of ' . InventoryItemInterface::class);
       }
 
-      if ($this->inventoryItems->contains($item)) {
-        $foundItem = $this->inventoryItems->find(fn(InventoryItemInterface $entry) => $entry->equals($item));
+      /** @var InventoryItem $foundItem */
+      if ($foundItem = array_find($this->inventoryItems->toArray(), fn(InventoryItem $entry) => $entry->name === $item->name)) {
         $foundItem->quantity -= $item->quantity;
+        if ($item->quantity > 0) {
+          return;
+        }
       }
 
       $this->inventoryItems->remove($item);
+    }
+  }
+
+  /**
+   * Sorts the inventory.
+   *
+   * @return void
+   */
+  public function sort(): void
+  {
+    $items = $this->items->toArray();
+    usort($items, 'compare_items');
+
+    $weapons = $this->weapons->toArray();
+    usort($weapons, 'compare_items');
+
+    $armor = $this->armor->toArray();
+    usort($armor, 'compare_items');
+
+    $accessories = $this->accessories->toArray();
+    usort($accessories, 'compare_items');
+
+    $this->inventoryItems->clear();
+
+    if ($items) {
+      $this->addItems(...$items);
+    }
+
+    if ($weapons) {
+      $this->addItems(...$weapons);
+    }
+
+    if ($armor) {
+      $this->addItems(...$armor);
+    }
+
+    if ($accessories) {
+      $this->addItems(...$accessories);
     }
   }
 }

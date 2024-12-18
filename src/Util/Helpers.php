@@ -474,6 +474,6 @@ if (! function_exists('compare_items') ) {
    */
   function compare_items(InventoryItem $a, InventoryItem $b): int
   {
-    return $a->compareTo($b);
+    return $a->name <=> $b->name;
   }
 }

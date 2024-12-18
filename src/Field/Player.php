@@ -7,6 +7,7 @@ use Closure;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\GameObject;
 use Ichiloto\Engine\Core\Interfaces\CanCompare;
+use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Actions\FieldActionContext;
 use Ichiloto\Engine\Entities\Interfaces\ActionInterface;
@@ -19,6 +20,7 @@ use Ichiloto\Engine\Events\Triggers\EventTriggerContext;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\UI\LocationHUDWindow;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
@@ -76,6 +78,25 @@ class Player extends GameObject
    * @var ActionInterface|null $availableAction The available action.
    */
   public ?ActionInterface $availableAction = null;
+
+  public function __construct(
+    SceneInterface $scene,
+    string $name,
+    Vector2 $position,
+    Rect $shape,
+    array $sprite,
+    MovementHeading $heading = MovementHeading::NONE
+  )
+  {
+    parent::__construct(
+      $scene,
+      $name,
+      $position,
+      $shape,
+      $sprite
+    );
+    $this->heading = $heading;
+  }
 
   #[Override]
   public function activate(): void

@@ -17,73 +17,53 @@ use Symfony\Component\Console\Output\OutputInterface;
 class MenuCommandExecutionContext implements ExecutionContextInterface
 {
   /**
+   * @var Game The game.
+   */
+  public Game $game {
+    get {
+      return $this->scene->getGame();
+    }
+  }
+
+  /**
+   * @var SceneManager The scene manager.
+   */
+  public SceneManager $sceneManager {
+    get {
+      return SceneManager::getInstance($this->game);
+    }
+  }
+
+  /**
    * Creates a new menu command execution context instance.
    *
    * @param array<string, mixed> $args The arguments.
    * @param OutputInterface $output The output.
+   * @param MenuInterface $menu The menu.
+   * @param SceneInterface $scene The scene.
    */
   public function __construct(
-    protected array $args,
-    protected OutputInterface $output,
-    protected MenuInterface $menu,
-    protected SceneInterface $scene,
+    public array $args {
+      get {
+        return $this->args;
+      }
+    },
+    public OutputInterface $output {
+      get {
+        return $this->output;
+      }
+    },
+    public MenuInterface $menu {
+      get {
+        return $this->menu;
+      }
+    },
+    public SceneInterface $scene {
+      get {
+        return $this->scene;
+      }
+    },
   )
   {
-  }
-
-  /**
-   * @inheritDoc
-   */
-  public function getArgs(): array
-  {
-    return $this->args;
-  }
-
-  /**
-   * @inheritDoc
-   */
-  public function getOutput(): OutputInterface
-  {
-    return $this->output;
-  }
-
-  /**
-   * Return the menu
-   *
-   * @return MenuInterface The menu.
-   */
-  public function getMenu(): MenuInterface
-  {
-    return $this->menu;
-  }
-
-  /**
-   * Return the scene
-   *
-   * @return SceneInterface The scene.
-   */
-  public function getScene(): SceneInterface
-  {
-    return $this->scene;
-  }
-
-  /**
-   * Return the game
-   *
-   * @return Game The game.
-   */
-  public function getGame(): Game
-  {
-    return $this->getScene()->getGame();
-  }
-
-  /**
-   * Return the scene manager
-   *
-   * @return SceneManager The scene manager.
-   */
-  public function getSceneManager(): SceneManager
-  {
-    return SceneManager::getInstance($this->getGame());
   }
 }
