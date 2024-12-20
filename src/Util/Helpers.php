@@ -14,6 +14,7 @@ use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 
 if (! function_exists('clamp') ) {
   /**
@@ -410,6 +411,20 @@ if (! function_exists('quit_game') ) {
     if (confirm('Are you sure you want to quit the game?')) {
       $game->quit();
     }
+  }
+}
+
+if (! function_exists('get_message') ) {
+  /**
+   * Gets the message with the given path.
+   *
+   * @param string $path The path of the message.
+   * @param string $default The default message.
+   * @return string The message.
+   */
+  function get_message(string $path, string $default): string
+  {
+    return config(ProjectConfig::class, "messages.{$path}", $default);
   }
 }
 
