@@ -148,10 +148,6 @@ class ItemMenuState extends GameSceneState implements CanRender
    */
   public function execute(?SceneStateContext $context = null): void
   {
-    if (Input::isButtonDown("quit")) {
-      $this->quitGame();
-    }
-
     $this->mode->update();
   }
 

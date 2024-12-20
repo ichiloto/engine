@@ -13,6 +13,7 @@ use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\SceneStateContext;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 
 /**
  * This state serves as the backbone of the game, managing the player's exploration experience.
@@ -54,7 +55,11 @@ class FieldState extends GameSceneState
     $scene = $this->context->getScene();
     assert($scene instanceof GameScene);
 
-    if (Input::isButtonDown("quit")) {
+    if (
+      Input::isButtonDown("quit") &&
+      confirm(
+        get_message("confirm.quit", "Are you sure you want to quit?"),
+        config(ProjectConfig::class, 'vocab.game.shutdown', 'Exit Game'))) {
       $scene->getGame()->quit();
     }
 
