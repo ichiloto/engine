@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Entities\Inventory\Item;
 
 use Ichiloto\Engine\Entities\Enumerations\ItemUserType;
 use Ichiloto\Engine\Entities\Enumerations\Occasion;
+use Ichiloto\Engine\Entities\Interfaces\EffectInterface;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
 
@@ -23,9 +24,11 @@ class Item extends InventoryItem
    * @param int $price The price.
    * @param int $quantity The quantity. Default is 1.
    * @param ItemUserType $userType The user type. Default is ItemUserType::ALL.
+   * @param bool $isKeyItem
    * @param bool $consumable Whether the item is consumable.
    * @param ItemScope $scope The scope.
    * @param Occasion $occasion The occasion.
+   * @param EffectInterface[] $effects
    */
   public function __construct(
     string $name,
@@ -38,6 +41,7 @@ class Item extends InventoryItem
     protected(set) bool $consumable = true,
     protected(set) ItemScope $scope = new ItemScope(),
     protected(set) Occasion $occasion = Occasion::ALWAYS,
+    protected(set) array $effects = []
   )
   {
     parent::__construct(
