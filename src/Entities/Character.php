@@ -79,7 +79,8 @@ class Character implements CharacterInterface
         $this->currentExp = $value;
       }
     },
-    protected(set) Stats $stats
+    protected(set) Stats $stats,
+    protected(set) CharacterSpriteArray $images = new CharacterSpriteArray()
   )
   {
     $this->calculateLevelExpThresholds();
@@ -108,8 +109,8 @@ class Character implements CharacterInterface
     return new Character(
         $data['name'] ?? throw new InvalidArgumentException('Character name is required.'),
         $data['currentExp'] ?? throw new InvalidArgumentException('Current experience points are required.'),
-        Stats::fromArray($data['stats'] ?? throw new InvalidArgumentException('Character stats are required.')
-      )
+        Stats::fromArray($data['stats'] ?? throw new InvalidArgumentException('Character stats are required.')),
+        CharacterSpriteArray::fromArray($data['images'] ?? [])
     );
   }
 }
