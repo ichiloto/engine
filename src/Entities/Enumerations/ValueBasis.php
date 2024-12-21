@@ -7,9 +7,9 @@ namespace Ichiloto\Engine\Entities\Enumerations;
  *
  * @package Ichiloto\Engine\Entities\Enumerations
  */
-enum ValueBasis
+enum ValueBasis: string
 {
-  case PERCENTAGE; // The value is a percentage of the base value.
-  case ACTUAL; // The value is an actual value.
-  case OTHER; // The value is another value.
+  case PERCENTAGE = 'PERCENTAGE'; // The value is a percentage of the base value.
+  case ACTUAL = 'ACTUAL'; // The value is an actual value.
+  case OTHER = 'OTHER'; // The value is another value.
 }

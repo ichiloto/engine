@@ -27,6 +27,11 @@ class AlertModal extends Modal
     int $width = DEFAULT_DIALOG_WIDTH,
   )
   {
-    parent::__construct($game, $message, $title, new Rect(0, 0, $width, DEFAULT_DIALOG_HEIGHT));
+    parent::__construct(
+      $game,
+      $message,
+      $title,
+      new Rect(0, 0, $width, DEFAULT_DIALOG_HEIGHT)
+    );
   }
 }

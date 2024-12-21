@@ -3,8 +3,10 @@
 namespace Ichiloto\Engine\Core\Menu\ItemMenu\Modes;
 
 use Exception;
+use Ichiloto\Engine\Entities\Inventory\Item\Item;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
+use Ichiloto\Engine\Util\Debug;
 
 /**
  * Class SelectItemTargetMode. Represents the target selection mode of the item menu.
@@ -20,20 +22,23 @@ class SelectItemTargetMode extends ItemMenuMode
 
   /**
    * @inheritDoc
+   * @throws Exception If an error occurs while alerting the player.
    */
   public function update(): void
   {
     if (Input::isButtonDown("back")) {
-      $previousMode = new SelectIemMenuCommandMode($this->state);
-      if ($this->previousMode) {
-        $previousMode = $this->previousMode;
-      }
-
-      $this->state->setMode($previousMode);
+      $this->goBackToThePreviousMode();
     }
 
     if (Input::isButtonDown("confirm")) {
-      alert(sprintf("Used %s on %s", $this->state->selectionPanel->activeItem?->name, $this->state->targetSelectionPanel->activeCharacter?->name));
+      if (($item = $this->state->selectionPanel->activeItem) && ($target = $this->state->targetSelectionPanel->activeCharacter)) {
+        $target->use($item);
+        if ($item->quantity === 0) {
+          $this->inventory->removeItems($item);
+          $this->state->selectionPanel->setItems($this->inventory->items->toArray());
+        }
+        $this->goBackToThePreviousMode();
+      }
     }
 
     $v = Input::getAxis(AxisName::VERTICAL);
@@ -89,5 +94,20 @@ class SelectItemTargetMode extends ItemMenuMode
     $activeIndex = $this->state->targetSelectionPanel->activeIndex + 1;
     $this->state->targetSelectionPanel->setActiveItemIndex(wrap($activeIndex, 0, $this->state->targetSelectionPanel->totalTargets - 1));
     $this->state->statusPanel->setTarget($this->state->targetSelectionPanel->activeCharacter);
+  }
+
+  /**
+   * Goes back to the previous mode.
+   *
+   * @return void
+   */
+  protected function goBackToThePreviousMode(): void
+  {
+    $previousMode = new SelectIemMenuCommandMode($this->state);
+    if ($this->previousMode) {
+      $previousMode = $this->previousMode;
+    }
+
+    $this->state->setMode($previousMode);
   }
 }

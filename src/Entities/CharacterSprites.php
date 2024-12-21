@@ -3,11 +3,11 @@
 namespace Ichiloto\Engine\Entities;
 
 /**
- * Represents the character sprite array. This is an array of character sprites for different contexts.
+ * Represents the character sprites. This is a collection of character sprites for different contexts.
  *
  * @package Ichiloto\Engine\Entities
  */
-class CharacterSpriteArray
+class CharacterSprites
 {
   /**
    * The constructor.
@@ -25,10 +25,10 @@ class CharacterSpriteArray
   }
 
   /**
-   * Creates a new character sprite array from an array.
+   * Creates a new character sprite list from an array.
    *
    * @param array{dialog: string[]|null, field: string[]|null, battle: string[]|null} $data The data to create the character sprite array from.
-   * @return static The character sprite array.
+   * @return static The character sprites.
    */
   public static function fromArray(array $data): static
   {
