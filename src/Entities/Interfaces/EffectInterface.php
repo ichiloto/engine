@@ -4,13 +4,14 @@ namespace Ichiloto\Engine\Entities\Interfaces;
 
 use Ichiloto\Engine\Entities\Enumerations\ValueBasis;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface as EffectTarget;
+use JsonSerializable;
 
 /**
  * The interface for an entity that can have an effect.
  *
  * @package Ichiloto\Engine\Entities\Interfaces
  */
-interface EffectInterface
+interface EffectInterface extends JsonSerializable
 {
   /**
    * @var string The name of the effect.

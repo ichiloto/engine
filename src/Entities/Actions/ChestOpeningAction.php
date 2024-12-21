@@ -13,6 +13,7 @@ use Ichiloto\Engine\Events\Enumerations\LootType;
 use Ichiloto\Engine\Events\Triggers\ChestEventTrigger;
 use Ichiloto\Engine\Events\Triggers\EventTrigger;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Util\Debug;
 
 /**
  * The ChestOpeningAction class. This class is responsible for opening a chest.

@@ -2,11 +2,13 @@
 
 namespace Ichiloto\Engine\Entities\Inventory\Item;
 
+use Ichiloto\Engine\Entities\Effects\EffectFactory;
 use Ichiloto\Engine\Entities\Enumerations\ItemUserType;
 use Ichiloto\Engine\Entities\Enumerations\Occasion;
 use Ichiloto\Engine\Entities\Interfaces\EffectInterface;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
+use ReflectionException;
 
 /**
  * The Item class.
@@ -61,6 +63,7 @@ class Item extends InventoryItem
    * @param array<string, mixed> $data The data.
    * @return self The new instance.
    * @throws RequiredFieldException If a required field is missing.
+   * @throws ReflectionException If the effect class does not exist.
    */
   public static function fromArray(array $data): static
   {
@@ -75,6 +78,8 @@ class Item extends InventoryItem
     }
     $isKeyItem = $data['isKeyItem'] ?? false;
     $scope = ItemScope::fromObject($data['scope'] ?? (object)[]);
+    $occasion = Occasion::tryFrom($data['occasion'] ?? '') ?? Occasion::ALWAYS;
+    $effects = EffectFactory::createFromObjects($data['effects'] ?? []);
 
     return new self(
       $name,
@@ -85,7 +90,9 @@ class Item extends InventoryItem
       $userType,
       $isKeyItem,
       true,
-      $scope
+      $scope,
+      $occasion,
+      $effects
     );
   }
 
@@ -94,6 +101,7 @@ class Item extends InventoryItem
    *
    * @param object $data The data.
    * @return self The new instance.
+   * @throws ReflectionException If the effect class does not exist.
    * @throws RequiredFieldException If a required field is missing.
    */
   public static function fromObject(object $data): static

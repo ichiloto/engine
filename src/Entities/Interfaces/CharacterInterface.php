@@ -9,7 +9,7 @@ use Ichiloto\Engine\Entities\Stats;
  *
  * @package Ichiloto\Engine\Entities\Interfaces
  */
-interface CharacterInterface
+interface CharacterInterface extends CanEquip, CanUseItem
 {
   /**
    * @var string $name The character's name.

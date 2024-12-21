@@ -6,6 +6,9 @@ use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Events\Interfaces\EventTriggerContextInterface;
 use Ichiloto\Engine\Events\Interfaces\EventTriggerInterface;
 use Ichiloto\Engine\Util\Debug;
+use InvalidArgumentException;
+use JsonException;
+use RuntimeException;
 
 /**
  * The EventTrigger class.
@@ -40,10 +43,12 @@ abstract class EventTrigger implements EventTriggerInterface
    *
    * @param Rect $area The trigger area. The area on the map where the trigger is activated.
    * @param array $data The data.
+   * @throws JsonException If the data cannot be serialized.
    */
   final public function __construct(protected(set) Rect $area, array $data = [])
   {
-    $this->data = json_decode(json_encode($data));
+    $serializedData = json_encode($data, JSON_THROW_ON_ERROR);
+    $this->data = json_decode($serializedData) ?? throw new RuntimeException('Failed to parse trigger data.');
     $this->configure();
   }
 

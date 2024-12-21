@@ -54,18 +54,22 @@ class SelectIemMenuCommandMode extends ItemMenuMode
     }
 
     if (Input::isButtonDown("confirm")) {
-      $this->state->itemMenu->getActiveItem()?->execute($this->state->itemMenuContext);
-      $mode = match ($this->state->itemMenu->activeIndex) {
-        self::SORT_ITEMS_INDEX => new SortItemsMode($this->state),
-        self::DISCARD_ITEM_INDEX => new DiscardItemMode($this->state),
-        self::VIEW_KEY_ITEMS_INDEX => new ViewKeyItemsMode($this->state),
-        default => new UseItemMode($this->state),
-      };
+      if ($this->inventory->isNotEmpty) {
+        $this->state->itemMenu->getActiveItem()?->execute($this->state->itemMenuContext);
+        $mode = match ($this->state->itemMenu->activeIndex) {
+          self::SORT_ITEMS_INDEX => new SortItemsMode($this->state),
+          self::DISCARD_ITEM_INDEX => new DiscardItemMode($this->state),
+          self::VIEW_KEY_ITEMS_INDEX => new ViewKeyItemsMode($this->state),
+          default => new UseItemMode($this->state),
+        };
 
-      if ($mode instanceof SortItemsMode) {
-        $mode->update();
+        if ($mode instanceof SortItemsMode) {
+          $mode->update();
+        } else {
+          $this->state->setMode($mode);
+        }
       } else {
-        $this->state->setMode($mode);
+        alert(get_message("inventory.empty", "Inventory is empty."));
       }
     }
   }
@@ -85,7 +89,7 @@ class SelectIemMenuCommandMode extends ItemMenuMode
    */
   public function exit(): void
   {
-    // TODO: Implement exit() method.
+    // Nothing to do here.
   }
 
   /**

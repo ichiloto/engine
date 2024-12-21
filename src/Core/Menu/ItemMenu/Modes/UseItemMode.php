@@ -49,6 +49,10 @@ class UseItemMode extends ItemMenuMode
   public function enter(): void
   {
     $this->state->selectionPanel->focus();
+
+    if ($this->inventory->isEmpty) {
+      $this->state->setMode(new SelectIemMenuCommandMode($this->state));
+    }
   }
 
   /**
