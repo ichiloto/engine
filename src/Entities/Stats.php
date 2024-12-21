@@ -2,7 +2,6 @@
 
 namespace Ichiloto\Engine\Entities;
 
-use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
 
 /**
