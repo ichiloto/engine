@@ -73,6 +73,30 @@ class Inventory
       return $this->inventoryItems;
     }
   }
+  /**
+   * @var bool Whether the inventory is empty.
+   */
+  public bool $isEmpty {
+    get {
+      return $this->inventoryItems->isEmpty();
+    }
+  }
+  /**
+   * @var bool Whether the inventory is full.
+   */
+  public bool $isFull {
+    get {
+      return $this->inventoryItems->count() >= $this->capacity;
+    }
+  }
+  /**
+   * @var bool Whether the inventory is not empty.
+   */
+  public bool $isNotEmpty {
+    get {
+      return ! $this->isEmpty;
+    }
+  }
 
   /**
    * The Inventory constructor.

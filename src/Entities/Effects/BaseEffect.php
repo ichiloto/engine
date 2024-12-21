@@ -34,4 +34,19 @@ abstract class BaseEffect implements EffectInterface
   )
   {
   }
+
+  /**
+   * @inheritdoc
+   */
+  public function jsonSerialize(): array
+  {
+    return [
+      'type' => static::class,
+      'name' => $this->name,
+      'description' => $this->description,
+      'value' => $this->value,
+      'successRate' => $this->successRate,
+      'valueBasis' => $this->valueBasis,
+    ];
+  }
 }

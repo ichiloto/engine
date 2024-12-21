@@ -27,6 +27,8 @@ class GameLoader
 
   /**
    * GameLoader constructor.
+   *
+   * @param Game $game The game.
    */
   private function __construct(protected Game $game)
   {

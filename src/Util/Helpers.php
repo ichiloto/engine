@@ -15,6 +15,7 @@ use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Util\Debug;
 
 if (! function_exists('clamp') ) {
   /**
@@ -27,6 +28,7 @@ if (! function_exists('clamp') ) {
    */
   function clamp(int|float $value, int|float $min, int|float $max): int|float
   {
+    Debug::log("Clamping $value between $min and $max");
     return max($min, min($max, $value));
   }
 }

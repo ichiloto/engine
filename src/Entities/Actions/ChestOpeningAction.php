@@ -11,7 +11,6 @@ use Ichiloto\Engine\Entities\Inventory\Item\Item;
 use Ichiloto\Engine\Entities\Inventory\Weapon;
 use Ichiloto\Engine\Events\Enumerations\LootType;
 use Ichiloto\Engine\Events\Triggers\ChestEventTrigger;
-use Ichiloto\Engine\Events\Triggers\EventTrigger;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 
 /**
