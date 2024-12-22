@@ -28,7 +28,6 @@ if (! function_exists('clamp') ) {
    */
   function clamp(int|float $value, int|float $min, int|float $max): int|float
   {
-    Debug::log("Clamping $value between $min and $max");
     return max($min, min($max, $value));
   }
 }
