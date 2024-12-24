@@ -8,13 +8,9 @@ use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\EquipmentSlot;
 use Ichiloto\Engine\Entities\Inventory\Equipment;
 use Ichiloto\Engine\Entities\Inventory\Inventory;
-use Ichiloto\Engine\Entities\Inventory\InventoryItem;
-use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
-use Ichiloto\Engine\Entities\ParameterChanges;
 use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
-use Ichiloto\Engine\Util\Debug;
 use RuntimeException;
 
 /**
@@ -59,6 +55,7 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
 
   /**
    * @inheritDoc
+   * @throws Exception If an error occurs while alerting the player.
    */
   public function update(): void
   {
@@ -77,7 +74,9 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
       $this->equipmentSlot->acceptsType ?? throw new RuntimeException('Equipment selection slot cannot be null.')
     );
     $this->updateCharacterDetailPanel();
-    $this->state->equipmentInfoPanel->setText($this->activeEquipment?->description);
+    if ($this->activeEquipment) {
+      $this->state->equipmentInfoPanel->setText($this->activeEquipment->description ?? '');
+    }
     $this->render();
   }
 
@@ -102,11 +101,7 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
    */
   public function getCompatibleEquipment(Inventory $inventory, string $equipmentType): array
   {
-    // TODO: Figure out how to get the compatible equipment.
-    $compatibleEquipment = [
-      new Weapon('Long Sword', 'A long battle sword boasting a sharp cut.', '⚔️', 1000, parameterChanges: new ParameterChanges(attack: 12)),
-      new Weapon('Broad Sword', 'A gigantic battle blade with legendary cleaving properties.', '⚔️', 1700, parameterChanges: new ParameterChanges(attack: 17))
-    ];
+    $compatibleEquipment = array_filter($inventory->equipment->toArray(), fn(Equipment $equipment) => is_a($equipment, $equipmentType));
     $this->totalEquipment = count($compatibleEquipment);
 
     return $compatibleEquipment;
@@ -171,12 +166,18 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
     }
 
     if (Input::isButtonDown("confirm")) {
-      $this->character->equip($this->activeEquipment);
+      if ($this->activeEquipment) {
+        $this->character->equip($this->activeEquipment);
+      } else {
+        $this->character->unequip($this->equipmentSlot);
+      }
       $this->state->setMode($this->previousMode);
     }
   }
 
   /**
+   * Handle navigation.
+   *
    * @return void
    */
   protected function handleNavigation(): void
@@ -190,7 +191,9 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
         $this->selectPrevious();
       }
       $this->updateCharacterDetailPanel();
-      $this->state->equipmentInfoPanel->setText($this->activeEquipment?->description);
+      if ($this->activeEquipment) {
+        $this->state->equipmentInfoPanel->setText($this->activeEquipment->description);
+      }
       $this->render();
     }
   }

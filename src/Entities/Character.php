@@ -157,8 +157,13 @@ class Character implements CharacterInterface
    * @inheritDoc
    * @throws Exception If an error occurs while alerting the user.
    */
-  public function equip(Equipment $equipment): void
+  public function equip(?Equipment $equipment): void
   {
+    if (is_null($equipment)) {
+      alert('No equipment to equip.');
+      return;
+    }
+
     if (! $this->canEquip($equipment) ) {
       alert(sprintf('%s cannot be equipped.', $equipment->name));
       return;
@@ -169,6 +174,20 @@ class Character implements CharacterInterface
         $slot->equipment = $equipment;
         $this->adjustStatTotals($equipment);
         alert(sprintf("Equipped %s on %s", $equipment->name, $this->name));
+        return;
+      }
+    }
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function unequip(EquipmentSlot $slot): void
+  {
+    foreach ($this->equipment as $equipmentSlot) {
+      if ($equipmentSlot->name === $slot->name) {
+        $equipmentSlot->equipment = null;
+        $this->adjustStatTotals(null);
         return;
       }
     }
@@ -299,5 +318,76 @@ class Character implements CharacterInterface
     $this->stats->totalEvasion = max($this->stats->totalEvasion, $this->stats->evasion + ($equipment?->parameterChanges->evasion ?? 0));
     $this->stats->totalGrace = max($this->stats->totalGrace, $this->stats->grace + ($equipment?->parameterChanges->grace ?? 0));
     $this->stats->totalSpeed = max($this->stats->totalSpeed, $this->stats->speed + ($equipment?->parameterChanges->speed ?? 0));
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function serialize(): string
+  {
+    return json_encode($this);
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function unserialize(string $data): void
+  {
+    $this->bindDataToProperties(json_decode($data, true));
+  }
+
+  public function __serialize(): array
+  {
+    return $this->jsonSerialize();
+  }
+
+  public function __unserialize(array $data): void
+  {
+    $this->bindDataToProperties($data);
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function jsonSerialize(): array
+  {
+    return $this->toArray();
+  }
+
+  /**
+   * Bind data to the character's properties.
+   *
+   * @param array $data The data to bind.
+   */
+  protected function bindDataToProperties(array $data): void
+  {
+    foreach ($data as $key => $value) {
+      if (property_exists($this, $key)) {
+        $this->{$key} = match($key) {
+          'images' => is_array($value) ? CharacterSprites::fromArray($value) : $value,
+          'stats' => is_array($value) ? Stats::fromArray($value) : $value,
+          default => $value
+        };
+      }
+    }
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function toArray(): array
+  {
+    return [
+      'name' => $this->name,
+      'currentExp' => $this->currentExp,
+      'stats' => $this->stats,
+      'images' => $this->images,
+      'nickname' => $this->nickname,
+      'job' => $this->job,
+      'maxLevel' => $this->maxLevel,
+      'bio' => $this->bio,
+      'note' => $this->note,
+      'equipment' => $this->equipment,
+    ];
   }
 }

@@ -2,11 +2,9 @@
 
 namespace Ichiloto\Engine\Entities\Interfaces;
 
-use Ichiloto\Engine\Entities\Inventory\Accessory;
-use Ichiloto\Engine\Entities\Inventory\Armor;
+use Ichiloto\Engine\Entities\EquipmentSlot;
 use Ichiloto\Engine\Entities\Inventory\Equipment;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
-use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
 
 /**
  * The interface for an entity that can equip items.
@@ -29,4 +27,11 @@ interface CanEquip
    * @return bool True if the entity can equip the item, false otherwise.
    */
   public function canEquip(InventoryItem $item): bool;
+
+  /**
+   * Unequips the item.
+   *
+   * @param EquipmentSlot $slot The slot to unequip.
+   */
+  public function unequip(EquipmentSlot $slot): void;
 }
