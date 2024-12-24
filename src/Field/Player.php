@@ -162,10 +162,11 @@ class Player extends GameObject
   protected function handleCollision(?CollisionType $collisionType): void
   {
     if (!$collisionType || $collisionType === CollisionType::NONE) {
+      $this->getGameScene()->mapManager->isAtSavePoint = false;
       return;
     }
 
-    $this->getGameScene()->mapManager->isAtSavePoint = $collisionType === CollisionType::SAVE_POINT;
+    $this->getGameScene()->mapManager->isAtSavePoint = ($collisionType === CollisionType::SAVE_POINT);
   }
 
   /**

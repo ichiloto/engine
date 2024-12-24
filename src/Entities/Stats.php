@@ -2,14 +2,16 @@
 
 namespace Ichiloto\Engine\Entities;
 
+use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
+use JsonSerializable;
 
 /**
  * The Stats class.
  *
  * @package Ichiloto\Engine\Entities
  */
-class Stats
+class Stats implements JsonSerializable
 {
   /**
    * The maximum hit points.
@@ -287,5 +289,70 @@ class Stats
       $data['totalGrace'] ?? null,
       $data['totalEvasion'] ?? null
     );
+  }
+
+  /**
+   *
+   * @param Character $character
+   * @return $this
+   */
+  public function getEffectiveStats(Character $character): Stats
+  {
+    $effectiveStats = clone $this;
+//    $effectiveStats = new Stats(
+//      totalHp: $this->totalHp,
+//      totalMp: $this->totalMp,
+//      totalAttack: $this->totalAttack,
+//      totalDefence: $this->totalDefence,
+//      totalMagicAttack: $this->totalMagicAttack,
+//      totalMagicDefence: $this->totalMagicDefence,
+//      totalSpeed: $this->totalSpeed,
+//      totalGrace: $this->totalGrace,
+//      totalEvasion: $this->totalEvasion
+//    );
+
+    foreach ($character->equipment as $equipmentSlot) {
+      if ($equipmentSlot->equipment === null) {
+        continue;
+      }
+
+      $equipment = $equipmentSlot->equipment;
+      $effectiveStats->attack = $this->attack + $equipment->parameterChanges->attack;
+      $effectiveStats->defence = $this->defence + $equipment->parameterChanges->defence;
+      $effectiveStats->magicAttack = $this->magicAttack + $equipment->parameterChanges->magicAttack;
+      $effectiveStats->magicDefence = $this->magicDefence + $equipment->parameterChanges->magicDefence;
+      $effectiveStats->speed = $this->speed + $equipment->parameterChanges->speed;
+      $effectiveStats->grace = $this->grace + $equipment->parameterChanges->grace;
+      $effectiveStats->evasion = $this->evasion + $equipment->parameterChanges->evasion;
+    }
+
+    return $effectiveStats;
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function jsonSerialize(): array
+  {
+    return [
+      'currentHp' => $this->currentHp,
+      'currentMp' => $this->currentMp,
+      'attack' => $this->attack,
+      'defence' => $this->defence,
+      'magicAttack' => $this->magicAttack,
+      'magicDefence' => $this->magicDefence,
+      'speed' => $this->speed,
+      'grace' => $this->grace,
+      'evasion' => $this->evasion,
+      'totalHp' => $this->totalHp,
+      'totalMp' => $this->totalMp,
+      'totalAttack' => $this->totalAttack,
+      'totalDefence' => $this->totalDefence,
+      'totalMagicAttack' => $this->totalMagicAttack,
+      'totalMagicDefence' => $this->totalMagicDefence,
+      'totalSpeed' => $this->totalSpeed,
+      'totalGrace' => $this->totalGrace,
+      'totalEvasion' => $this->totalEvasion,
+    ];
   }
 }

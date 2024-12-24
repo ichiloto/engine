@@ -11,7 +11,7 @@ use Ichiloto\Engine\Exceptions\RequiredFieldException;
  *
  * @package Ichiloto\Engine\Entities\Inventory
  */
-class Accessory extends InventoryItem
+class Accessory extends Equipment
 {
   public static function fromArray(array $data): static
   {
@@ -24,11 +24,13 @@ class Accessory extends InventoryItem
     return new static(
       $data['name'] ?? throw new RequiredFieldException('name'),
       $data['description'] ?? throw new RequiredFieldException('description'),
-      $data['icon'] ?? throw new RequiredFieldException('icon'),
-      $data['price'] ?? throw new RequiredFieldException('price'),
+      $data['icon'] ?? '📿',
+      $data['price'] ?? 0,
       $data['quantity'] ?? 1,
       $userType,
       $data['isKeyItem'] ?? false,
+      false,
+
     );
   }
 }

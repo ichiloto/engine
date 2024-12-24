@@ -4,9 +4,11 @@ namespace Ichiloto\Engine\Core\Menu\MainMenu\Modes;
 
 use Ichiloto\Engine\Core\Menu\MainMenu\MainMenu;
 use Ichiloto\Engine\Core\Menu\MainMenu\Windows\InfoPanel;
+use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
+use Ichiloto\Engine\Util\Debug;
 
 /**
  * The MainMenuCommandSelectionMode class. Represents the main menu command selection mode.
@@ -24,6 +26,7 @@ class MainMenuCommandSelectionMode extends MainMenuMode
 
   /**
    * @inheritDoc
+   * @throws NotFoundException If the field state is not found.
    */
   public function update(): void
   {
@@ -43,6 +46,10 @@ class MainMenuCommandSelectionMode extends MainMenuMode
       $this->getMainMenu()?->updateWindowContent();
 
       $this->getInfoPanel()?->setText($this->getMainMenu()?->getActiveItem()->getDescription());
+    }
+
+    if (Input::isButtonDown("cancel")) {
+      $this->mainMenuState->setState($this->mainMenuState->getGameScene()->fieldState ?? throw new NotFoundException('FieldState'));
     }
 
     if (Input::isButtonDown("confirm")) {

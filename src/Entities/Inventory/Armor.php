@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Entities\Inventory;
 
 use Ichiloto\Engine\Entities\Enumerations\ItemUserType;
+use Ichiloto\Engine\Entities\ParameterChanges;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
 
 /**
@@ -10,7 +11,7 @@ use Ichiloto\Engine\Exceptions\RequiredFieldException;
  *
  * @package Ichiloto\Engine\Entities\Inventory
  */
-class Armor extends InventoryItem
+class Armor extends Equipment
 {
   /**
    * @inheritDoc
@@ -25,11 +26,13 @@ class Armor extends InventoryItem
     return new self(
       $data['name'] ?? throw new RequiredFieldException('name'),
       $data['description'] ?? throw new RequiredFieldException('description'),
-      $data['icon'] ?? throw new RequiredFieldException('icon'),
-      $data['price'] ?? throw new RequiredFieldException('price'),
+      $data['icon'] ?? '🛡️',
+      $data['price'] ?? 0,
       $data['quantity'] ?? 1,
       $userType,
       $data['isKeyItem'] ?? false,
+      false,
+      $data['parameterChanges'] ?? new ParameterChanges()
     );
   }
 

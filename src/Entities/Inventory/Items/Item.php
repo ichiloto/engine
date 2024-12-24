@@ -1,6 +1,6 @@
 <?php
 
-namespace Ichiloto\Engine\Entities\Inventory\Item;
+namespace Ichiloto\Engine\Entities\Inventory\Items;
 
 use Ichiloto\Engine\Entities\Effects\EffectFactory;
 use Ichiloto\Engine\Entities\Enumerations\ItemUserType;

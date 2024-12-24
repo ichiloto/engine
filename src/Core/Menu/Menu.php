@@ -300,7 +300,6 @@ abstract class Menu implements MenuInterface
    */
   public function focus(): void
   {
-    $this->activeIndex = 0;
     $this->render();
   }
 
@@ -318,7 +317,6 @@ abstract class Menu implements MenuInterface
    */
   public function blur(): void
   {
-    $this->activeIndex = -1;
     $this->render();
   }
 
