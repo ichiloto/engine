@@ -4,8 +4,8 @@ namespace Ichiloto\Engine\Entities\Inventory;
 
 use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Entities\Interfaces\InventoryItemInterface;
-use Ichiloto\Engine\Entities\Inventory\Item\Item;
-use Ichiloto\Engine\Util\Debug;
+use Ichiloto\Engine\Entities\Inventory\Items\Item;
+use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
 use InvalidArgumentException;
 
 /**
@@ -26,6 +26,14 @@ class Inventory
   public ItemList $items {
     get {
       return $this->inventoryItems->filter(fn(InventoryItemInterface $item) => $item instanceof Item);
+    }
+  }
+  /**
+   * @var ItemList<Equipment> The equipment in the inventory.
+   */
+  public ItemList $equipment {
+    get {
+      return $this->inventoryItems->filter(fn(InventoryItemInterface $item) => $item instanceof Equipment);
     }
   }
 

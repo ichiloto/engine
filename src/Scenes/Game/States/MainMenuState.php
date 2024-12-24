@@ -30,6 +30,7 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
+use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
@@ -146,7 +147,10 @@ class MainMenuState extends GameSceneState implements CanRender
     $this->calculateMargins();
     $this->initializeMenuUI();
     $this->mainMenuContext = new MenuCommandExecutionContext(
-      [],
+      [
+        'state' => $this,
+        'mode' => $this->mode
+      ],
       new ConsoleOutput(),
       $this->mainMenu,
       $this->getGameScene()
@@ -156,14 +160,10 @@ class MainMenuState extends GameSceneState implements CanRender
 
   /**
    * @inheritDoc
-   * @throws NotFoundException
+   * @param SceneStateContext|null $context
    */
   public function execute(?SceneStateContext $context = null): void
   {
-    if (InputManager::isAnyKeyPressed([KeyCode::ESCAPE])) {
-      $this->setState($this->context->getScene()->fieldState ?? throw new NotFoundException('FieldState'));
-    }
-
     if (Time::getTime() > $this->nextTimeUpdate) {
       $this->playTimePanel->updateTimeDisplay();
       $this->nextTimeUpdate = Time::getTime() + $this->updateInterval;

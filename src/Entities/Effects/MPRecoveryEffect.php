@@ -10,7 +10,7 @@ use Ichiloto\Engine\Entities\Interfaces\CharacterInterface as EffectTarget;
  *
  * @package Ichiloto\Engine\Entities\Effects
  */
-class HPRecoveryEffect extends BaseEffect
+class MPRecoveryEffect extends BaseEffect
 {
   /**
    * @inheritDoc
@@ -19,11 +19,11 @@ class HPRecoveryEffect extends BaseEffect
   {
     if ($this->valueBasis === ValueBasis::PERCENTAGE) {
       $percentage = $this->value / 100;
-      $target->stats->currentHp += $target->stats->totalHp * $percentage;
+      $target->stats->currentMp += $target->stats->totalMp * $percentage;
     }
 
     if ($this->valueBasis === ValueBasis::ACTUAL) {
-      $target->stats->currentHp += $this->value;
+      $target->stats->currentMp += $this->value;
     }
   }
 }

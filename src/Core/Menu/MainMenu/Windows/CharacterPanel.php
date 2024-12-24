@@ -2,18 +2,21 @@
 
 namespace Ichiloto\Engine\Core\Menu\MainMenu\Windows;
 
+use Ichiloto\Engine\Core\Interfaces\CanFocus;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
+use Ichiloto\Engine\Util\Debug;
 
 /**
  * The CharacterPanel class. Represents the character panel.
  *
  * @package Ichiloto\Engine\Core\Menu\MainMenu\Windows
  */
-class CharacterPanel extends Window
+class CharacterPanel extends Window implements CanFocus
 {
   /**
    * CharacterPanel constructor.
@@ -59,5 +62,21 @@ class CharacterPanel extends Window
       ''
     ]);
     $this->render();
+  }
+
+  /**
+   * @inheritdoc
+   */
+  public function focus(): void
+  {
+    $this->setForegroundColor(Color::DARK_GRAY);
+  }
+
+  /**
+   * @inheritdoc
+   */
+  public function blur(): void
+  {
+    $this->setForegroundColor(Color::WHITE);
   }
 }
