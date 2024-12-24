@@ -1,21 +1,28 @@
 <?php
 
-namespace Ichiloto\Engine\Core\Menu\ItemMenu\Windows;
+namespace Ichiloto\Engine\Core\Menu\EquipmentMenu\Windows;
 
-use Ichiloto\Engine\Core\Menu\ItemMenu\ItemMenu;
+use Ichiloto\Engine\Core\Menu\EquipmentMenu\EquipmentMenu;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
 
 /**
- * Represents the item info panel window.
+ * Represents the equipment info panel.
  *
- * @package Ichiloto\Engine\Core\Menu\ItemMenu\Windows
+ * @package Ichiloto\Engine\Core\Menu\EquipmentMenu\Windows
  */
-class ItemInfoPanel extends Window
+class EquipmentInfoPanel extends Window
 {
+  /**
+   * Creates a new instance of the equipment info panel.
+   *
+   * @param EquipmentMenu $equipmentMenu The equipment menu.
+   * @param Rect $area The area of the info panel.
+   * @param BorderPackInterface $borderPack The border pack of the info panel.
+   */
   public function __construct(
-    protected ItemMenu $itemMenu,
+    protected EquipmentMenu $equipmentMenu,
     Rect $area,
     BorderPackInterface $borderPack
   )
@@ -31,10 +38,9 @@ class ItemInfoPanel extends Window
   }
 
   /**
-   * Updates the content of the window.
+   * Sets the text of the info panel.
    *
-   * @param string $text The text content to set.
-   * @return void
+   * @param string $text The text to set.
    */
   public function setText(string $text): void
   {

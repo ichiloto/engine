@@ -3,7 +3,8 @@
 namespace Ichiloto\Engine\Core\Menu\ItemMenu\Modes;
 
 use Exception;
-use Ichiloto\Engine\Entities\Inventory\Item\Item;
+use Ichiloto\Engine\Entities\Inventory\InventoryItem;
+use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Util\Debug;
@@ -32,7 +33,8 @@ class SelectItemTargetMode extends ItemMenuMode
 
     if (Input::isButtonDown("confirm")) {
       if (($item = $this->state->selectionPanel->activeItem) && ($target = $this->state->targetSelectionPanel->activeCharacter)) {
-        $target->use($item);
+        $useQuantity = $this->getNumberOfUses($item);
+        $target->use($item, $useQuantity);
         if ($item->quantity === 0) {
           $this->inventory->removeItems($item);
           $this->state->selectionPanel->setItems($this->inventory->items->toArray());
@@ -109,5 +111,19 @@ class SelectItemTargetMode extends ItemMenuMode
     }
 
     $this->state->setMode($previousMode);
+  }
+
+  /**
+   * Gets the quantity of the item to use.
+   *
+   * @param InventoryItem $item The item to use.
+   * @return int The quantity of the item to use.
+   * @throws Exception If an error occurs while prompting the player.
+   */
+  private function getNumberOfUses(InventoryItem $item): int
+  {
+    // TODO: Implement a way to prompt the player for the number of uses.
+//    return (int)prompt("How many {$item->name} do you want to use?", 1);
+    return 1;
   }
 }

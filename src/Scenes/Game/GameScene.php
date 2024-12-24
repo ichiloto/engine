@@ -13,6 +13,7 @@ use Ichiloto\Engine\Field\Player;
 use Ichiloto\Engine\Scenes\AbstractScene;
 use Ichiloto\Engine\Scenes\Game\States\CutsceneState;
 use Ichiloto\Engine\Scenes\Game\States\DialogueState;
+use Ichiloto\Engine\Scenes\Game\States\EquipmentMenuState;
 use Ichiloto\Engine\Scenes\Game\States\FieldState;
 use Ichiloto\Engine\Scenes\Game\States\GameSceneState;
 use Ichiloto\Engine\Scenes\Game\States\ItemMenuState;
@@ -33,87 +34,63 @@ use Override;
 class GameScene extends AbstractScene
 {
   /**
-   * The state of the scene.
-   *
-   * @var GameSceneState|null
+   * @var GameSceneState|null The state of the scene.
    */
   protected ?GameSceneState $state = null;
   /**
-   * The scene state context.
-   *
-   * @var SceneStateContext|null
+   * @var SceneStateContext|null The scene state context.
    */
   protected ?SceneStateContext $sceneStateContext = null;
   /**
-   * The configuration of the game.
-   *
-   * @var GameConfig|null
+   * @var GameConfig|null The configuration of the game.
    */
   protected ?GameConfig $config = null;
   /**
-   * The cutscene state.
-   *
-   * @var CutsceneState|null
+   * @var CutsceneState|null The cutscene state.
    */
   protected(set) ?CutsceneState $cutsceneState = null;
   /**
-   * The dialogue state.
-   *
-   * @var DialogueState|null
+   * @var DialogueState|null The dialogue state.
    */
   protected(set) ?DialogueState $dialogueState = null;
   /**
-   * The field state.
-   *
-   * @var FieldState|null
+   * @var FieldState|null The field state.
    */
   protected(set) ?FieldState $fieldState = null;
   /**
-   * The main menu state.
-   *
-   * @var MainMenuState|null
+   * @var MainMenuState|null The main menu state.
    */
   protected(set) ?MainMenuState $mainMenuState = null;
   /**
-   * The item menu state.
-   *
-   * @var ItemMenuState|null
+   * @var ItemMenuState|null The item menu state.
    */
   protected(set) ?ItemMenuState $itemMenuState = null;
   /**
-   * The map state.
-   *
-   * @var MapState|null
+   * @var EquipmentMenuState|null The equipment menu state.
+   */
+  protected(set) ?EquipmentMenuState $equipmentMenuState = null;
+  /**
+   * @var MapState|null The map state.
    */
   protected(set) ?MapState $mapState = null;
   /**
-   * The overworld state.
-   *
-   * @var OverworldState|null
+   * @var OverworldState|null The overworld state.
    */
   protected(set) ?OverworldState $overworldState = null;
   /**
-   * The shop state.
-   *
-   * @var ShopState|null
+   * @var ShopState|null The shop state.
    */
   protected(set) ?ShopState $shopState = null;
   /**
-   * The map manager.
-   *
-   * @var MapManager|null
+   * @var MapManager|null The map manager.
    */
   protected(set) ?MapManager $mapManager = null;
   /**
-   * The player.
-   *
-   * @var Player|null
+   * @var Player|null The player.
    */
   protected(set) ?Player $player = null;
   /**
-   * The location HUD window.
-   *
-   * @var LocationHUDWindow|null
+   * @var LocationHUDWindow|null The location HUD window.
    */
   protected(set) ?LocationHUDWindow $locationHUDWindow;
   /**

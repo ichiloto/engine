@@ -154,6 +154,14 @@ class ItemMenuState extends GameSceneState implements CanRender
   /**
    * @inheritDoc
    */
+  public function exit(): void
+  {
+    $this->getGameScene()->mainMenuState->mainMenu->setActiveItemByIndex(0);
+  }
+
+  /**
+   * @inheritDoc
+   */
   public function render(): void
   {
     $this->itemMenu->render();
@@ -172,7 +180,7 @@ class ItemMenuState extends GameSceneState implements CanRender
    *
    * @return void
    */
-  public function calculateMargins(): void
+  protected function calculateMargins(): void
   {
     $this->leftMargin = (get_screen_width() - self::ITEM_MENU_WIDTH) / 2;
     $this->topMargin = 0;

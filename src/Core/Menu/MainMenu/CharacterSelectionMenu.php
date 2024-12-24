@@ -9,8 +9,13 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\UI\Windows\Window;
-use function Termwind\render;
+use Ichiloto\Engine\Util\Debug;
 
+/**
+ * Represents the character selection menu.
+ *
+ * @package Ichiloto\Engine\Core\Menu\MainMenu
+ */
 class CharacterSelectionMenu extends Menu
 {
   /**
@@ -29,6 +34,22 @@ class CharacterSelectionMenu extends Menu
    * @var Window The help window.
    */
   protected Window $helpWindow;
+  /**
+   * @var int The selected panel index.
+   */
+  protected int $activePanelIndex = 0;
+  /**
+   * @var Character|null The active character.
+   */
+  public ?Character $activeCharacter {
+    get {
+      return $this->partyMembers[$this->activePanelIndex] ?? null;
+    }
+  }
+  /**
+   * @var Character[] The party members.
+   */
+  protected array $partyMembers = [];
 
   /**
    * @inheritDoc
@@ -38,7 +59,7 @@ class CharacterSelectionMenu extends Menu
     $scene = $this->getScene();
     assert($scene instanceof GameScene);
 
-    $membersArray = $scene->party->members->toArray();
+    $this->partyMembers = $scene->party->members->toArray();
 
     for($index = 0; $index < self::TOTAL_PANELS; $index++) {
       $leftMargin = $this->rect->getX();
@@ -47,7 +68,7 @@ class CharacterSelectionMenu extends Menu
         new Rect($leftMargin, $topMargin, $this->rect->getWidth(), self::PANEL_HEIGHT)
       );
 
-      if ($member = $membersArray[$index] ?? null) {
+      if ($member = $this->partyMembers[$index] ?? null) {
         assert($member instanceof Character);
         $panel->setDetails(
           $member->name,
@@ -82,7 +103,6 @@ class CharacterSelectionMenu extends Menu
    */
   public function render(?int $x = null, ?int $y = null): void
   {
-    /** @var CharacterPanel $characterPanel */
     foreach ($this->characterPanels as $characterPanel) {
       $characterPanel->render();
     }
@@ -94,7 +114,6 @@ class CharacterSelectionMenu extends Menu
    */
   public function erase(?int $x = null, ?int $y = null): void
   {
-    /** @var CharacterPanel $characterPanel */
     foreach ($this->characterPanels as $characterPanel) {
       $characterPanel->erase();
     }
@@ -106,5 +125,62 @@ class CharacterSelectionMenu extends Menu
   public function update(): void
   {
     // Do nothing
+  }
+
+  /**
+   * Selects the previous character.
+   *
+   * @return void
+   */
+  public function selectPrevious(): void
+  {
+    $this->characterPanels[$this->activePanelIndex]?->blur();
+    $index = wrap($this->activePanelIndex - 1, 0, self::TOTAL_PANELS - 1);
+    $this->selectPanelByIndex($index);
+    $this->characterPanels[$this->activePanelIndex]?->focus();
+  }
+
+  /**
+   * Selects the next character.
+   *
+   * @return void
+   */
+  public function selectNext(): void
+  {
+    $this->characterPanels[$this->activePanelIndex]?->blur();
+    $index = wrap($this->activePanelIndex + 1, 0, self::TOTAL_PANELS - 1);
+    $this->selectPanelByIndex($index);
+    $this->characterPanels[$this->activePanelIndex]?->focus();
+  }
+
+  /**
+   * Selects the character by index.
+   *
+   * @param int $index The index of the character to select.
+   * @return void
+   */
+  public function selectPanelByIndex(int $index): void
+  {
+    $this->activePanelIndex = $index;
+  }
+
+  /**
+   * @inheritdoc
+   */
+  public function focus(): void
+  {
+    $this->selectPanelByIndex(0);
+    $this->characterPanels[$this->activePanelIndex]?->focus();
+    parent::focus();
+  }
+
+  /**
+   * @inheritdoc
+   */
+  public function blur(): void
+  {
+    $this->characterPanels[$this->activePanelIndex]?->blur();
+    $this->selectPanelByIndex(-1);
+    parent::blur();
   }
 }

@@ -23,6 +23,7 @@ enum Color: string
   case YELLOW = "\033[1;33m";
   case LIGHT_GRAY = "\033[0;37m";
   case WHITE = "\033[1;37m";
+  case WHITE_BLINK = "\033[5;37m";
   case RESET = "\033[0m";
 
   /**

@@ -6,9 +6,11 @@ use Exception;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Inventory\Accessory;
 use Ichiloto\Engine\Entities\Inventory\Armor;
+use Ichiloto\Engine\Entities\Inventory\Equipment;
+use Ichiloto\Engine\Entities\Inventory\Inventory;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
-use Ichiloto\Engine\Entities\Inventory\Item\Item;
-use Ichiloto\Engine\Entities\Inventory\Weapon;
+use Ichiloto\Engine\Entities\Inventory\Items\Item;
+use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
 use InvalidArgumentException;
 
 /**
@@ -64,6 +66,15 @@ class Character implements CharacterInterface
 
       $nextLevelExp = $this->levelExpThresholds[$this->level + 1] ?? 0;
       return max(0, $nextLevelExp - $this->currentExp);
+    }
+  }
+
+  /**
+   * @var Stats The character's effective stats.
+   */
+  public Stats $effectiveStats {
+    get {
+      return $this->stats->getEffectiveStats($this);
     }
   }
 
@@ -146,18 +157,18 @@ class Character implements CharacterInterface
    * @inheritDoc
    * @throws Exception If an error occurs while alerting the user.
    */
-  public function equip(Weapon|Accessory|Armor $item): void
+  public function equip(Equipment $equipment): void
   {
-    // TODO: Implement equip() method.
-    if (! $this->canEquip($item) ) {
-      alert(sprintf('%s cannot be equipped.', $item->name));
+    if (! $this->canEquip($equipment) ) {
+      alert(sprintf('%s cannot be equipped.', $equipment->name));
       return;
     }
 
     foreach ($this->equipment as $slot) {
-      if ($slot->acceptsType === $item::class) {
-        $slot->item = $item;
-        alert(sprintf("Equipped %s on %s", $item->name, $this->name));
+      if ($slot->acceptsType === $equipment::class) {
+        $slot->equipment = $equipment;
+        $this->adjustStatTotals($equipment);
+        alert(sprintf("Equipped %s on %s", $equipment->name, $this->name));
         return;
       }
     }
@@ -231,5 +242,62 @@ class Character implements CharacterInterface
     }
 
     return true;
+  }
+
+  /**
+   * @return void
+   * @throws Exception
+   */
+  public function clearEquipment(): void
+  {
+    foreach ($this->equipment as $equipmentSlot) {
+      $equipmentSlot->equipment = null;
+    }
+    $this->adjustStatTotals(null);
+    alert('Equipment cleared!');
+  }
+
+  /**
+   * Optimizes the character's equipment.
+   *
+   * @param Inventory $inventory The character's inventory.
+   * @return void
+   * @throws Exception If an error occurs while alerting the user.
+   */
+  public function optimizeEquipment(Inventory $inventory): void
+  {
+    // Optimization algorithm will be simple for now. We will just equip the best equipment available.
+    foreach ($this->equipment as $equipmentSlot) {
+      $optimalEquipment = null;
+
+      foreach ($inventory->equipment as $index => $equipment) {
+        if ($index === 0) {
+          $optimalEquipment = $equipment;
+          continue;
+        }
+
+        $optimalEquipment = Equipment::getBetterRated($optimalEquipment, $equipment);
+      }
+
+      $equipmentSlot->equipment = $optimalEquipment;
+    }
+    alert('Equipment optimized!');
+  }
+
+  /**
+   * Adjusts the character's stat totals after equipping an item.
+   *
+   * @param Equipment|null $equipment The equipment being equipped.
+   * @return void
+   */
+  protected function adjustStatTotals(?Equipment $equipment): void
+  {
+    $this->stats->totalAttack = max($this->stats->attack, $this->stats->attack + ($equipment?->parameterChanges->attack ?? 0));
+    $this->stats->totalDefence = max($this->stats->defence, $this->stats->defence + ($equipment?->parameterChanges->defence ?? 0));
+    $this->stats->totalMagicAttack = max($this->stats->magicAttack, $this->stats->magicAttack + ($equipment?->parameterChanges->magicAttack ?? 0));
+    $this->stats->totalMagicDefence = max($this->stats->totalMagicDefence, $this->stats->magicDefence + ($equipment?->parameterChanges->magicDefence ?? 0));
+    $this->stats->totalEvasion = max($this->stats->totalEvasion, $this->stats->evasion + ($equipment?->parameterChanges->evasion ?? 0));
+    $this->stats->totalGrace = max($this->stats->totalGrace, $this->stats->grace + ($equipment?->parameterChanges->grace ?? 0));
+    $this->stats->totalSpeed = max($this->stats->totalSpeed, $this->stats->speed + ($equipment?->parameterChanges->speed ?? 0));
   }
 }
