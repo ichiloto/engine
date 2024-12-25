@@ -33,7 +33,7 @@ class EquipmentMenuCommandSelectionMode extends EquipmentMenuMode
   public function update(): void
   {
     if (Input::isButtonDown("back")) {
-      $this->state->setState(new MainMenuState($this->state->context));
+      $this->state->setState($this->state->getGameScene()->mainMenuState);
     }
 
     if (Input::isButtonDown("confirm")) {

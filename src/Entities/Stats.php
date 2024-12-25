@@ -24,6 +24,10 @@ class Stats implements JsonSerializable
   /**
    * The maximum attack points.
    */
+  const int MAX_AP = 999999999999;
+  /**
+   * The maximum attack points.
+   */
   const int MAX_ATK = 99;
   /**
    * The maximum defence points.
@@ -53,6 +57,10 @@ class Stats implements JsonSerializable
    * The default MP.
    */
   const int DEFAULT_CURRENT_MP = 10;
+  /**
+   * The default AP.
+   */
+  const int DEFAULT_CURRENT_AP = 0;
   /**
    * The default attack points.
    */
@@ -101,6 +109,11 @@ class Stats implements JsonSerializable
   public int $currentMp = self::DEFAULT_CURRENT_MP {
     set {
       $this->currentMp = clamp($value, 0, $this->totalMp);
+    }
+  }
+  public int $currentAp = self::DEFAULT_CURRENT_AP {
+    set {
+      $this->currentAp = clamp($value, 0, $this->totalAp);
     }
   }
   /**
@@ -168,6 +181,10 @@ class Stats implements JsonSerializable
    */
   public int $totalMp = 0;
   /**
+   * @var int The total ability points.
+   */
+  public int $totalAp = 0;
+  /**
    * @var int The total attack points.
    */
   public int $totalAttack = 0;
@@ -201,6 +218,7 @@ class Stats implements JsonSerializable
    *
    * @param int $currentHp The current hit points.
    * @param int $currentMp The current magic points.
+   * @param int $currentAp The current ability points.
    * @param int $attack The attack points.
    * @param int $defence The defence points.
    * @param int $magicAttack The magic attack points.
@@ -210,6 +228,7 @@ class Stats implements JsonSerializable
    * @param int $evasion The evasion points.
    * @param int|null $totalHp The total hit points.
    * @param int|null $totalMp The total magic points.
+   * @param int|null $totalAp The total ability points.
    * @param int|null $totalAttack The total attack points.
    * @param int|null $totalDefence The total defence points.
    * @param int|null $totalMagicAttack The total magic attack points.
@@ -221,6 +240,7 @@ class Stats implements JsonSerializable
   public function __construct(
     int $currentHp = self::DEFAULT_CURRENT_HP,
     int $currentMp = self::DEFAULT_CURRENT_MP,
+    int $currentAp = self::DEFAULT_CURRENT_AP,
     int $attack = self::DEFAULT_ATTACK,
     int $defence = self::DEFAULT_DEFENCE,
     int $magicAttack = self::DEFAULT_MAGIC_ATTACK,
@@ -230,17 +250,19 @@ class Stats implements JsonSerializable
     int $evasion = self::DEFAULT_EVASION,
     ?int $totalHp = null,
     ?int $totalMp = null,
+    ?int $totalAp = null,
     ?int $totalAttack = null,
     ?int $totalDefence = null,
     ?int $totalMagicAttack = null,
     ?int $totalMagicDefence = null,
     ?int $totalSpeed = null,
     ?int $totalGrace = null,
-    ?int $totalEvasion = null
+    ?int $totalEvasion = null,
   )
   {
     $this->totalHp = $totalHp ?? $currentHp;
     $this->totalMp = $totalMp ?? $currentMp;
+    $this->totalAp = $totalAp ?? $currentAp;
     $this->totalAttack = $totalAttack ?? $attack;
     $this->totalDefence = $totalDefence ?? $defence;
     $this->totalMagicAttack = $totalMagicAttack ?? $magicAttack;
@@ -252,6 +274,7 @@ class Stats implements JsonSerializable
     // Initialize main stats after total stats have been set to avoid clamping issues.
     $this->currentHp = $currentHp;
     $this->currentMp = $currentMp;
+    $this->currentAp = $currentAp;
     $this->attack = $attack;
     $this->defence = $defence;
     $this->magicAttack = $magicAttack;
@@ -264,7 +287,7 @@ class Stats implements JsonSerializable
   /**
    * Creates a new instance of Stats from an array.
    *
-   * @param array $data The data to create the instance from.
+   * @param array<string, mixed> $data The data to create the instance from.
    * @return self The new instance.
    */
   public static function fromArray(array $data): self
@@ -272,6 +295,7 @@ class Stats implements JsonSerializable
     return new self(
       $data['currentHp'] ?? throw new InvalidArgumentException('Current hit points are required.'),
       $data['currentMp'] ?? throw new InvalidArgumentException('Current magic points are required.'),
+      $data['currentAp'] ?? throw new InvalidArgumentException('Ability points are required.'),
       $data['attack'] ?? throw new InvalidArgumentException('Attack points are required.'),
       $data['defence'] ?? throw new InvalidArgumentException('Defence points are required.'),
       $data['magicAttack'] ?? throw new InvalidArgumentException('Magic attack points are required.'),
@@ -281,6 +305,7 @@ class Stats implements JsonSerializable
       $data['evasion'] ?? self::DEFAULT_EVASION,
       $data['totalHp'] ?? null,
       $data['totalMp'] ?? null,
+      $data['totalAp'] ?? null,
       $data['totalAttack'] ?? null,
       $data['totalDefence'] ?? null,
       $data['totalMagicAttack'] ?? null,
@@ -299,17 +324,6 @@ class Stats implements JsonSerializable
   public function getEffectiveStats(Character $character): Stats
   {
     $effectiveStats = clone $this;
-//    $effectiveStats = new Stats(
-//      totalHp: $this->totalHp,
-//      totalMp: $this->totalMp,
-//      totalAttack: $this->totalAttack,
-//      totalDefence: $this->totalDefence,
-//      totalMagicAttack: $this->totalMagicAttack,
-//      totalMagicDefence: $this->totalMagicDefence,
-//      totalSpeed: $this->totalSpeed,
-//      totalGrace: $this->totalGrace,
-//      totalEvasion: $this->totalEvasion
-//    );
 
     foreach ($character->equipment as $equipmentSlot) {
       if ($equipmentSlot->equipment === null) {
