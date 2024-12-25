@@ -130,10 +130,6 @@ class EquipmentMenuState extends GameSceneState
    */
   public function execute(?SceneStateContext $context = null): void
   {
-    if (Input::isButtonDown("quit")) {
-      $this->quitGame();
-    }
-
     $this->mode->update();
   }
 
@@ -144,7 +140,7 @@ class EquipmentMenuState extends GameSceneState
   {
     Console::clear();
     $this->getGameScene()->locationHUDWindow->deactivate();
-    $this->calculateMargin();
+    $this->calculateMargins();
     $this->initializeMenuUI();
     $this->setMode(new EquipmentMenuCommandSelectionMode($this));
   }
@@ -162,7 +158,7 @@ class EquipmentMenuState extends GameSceneState
    *
    * @return void
    */
-  protected function calculateMargin(): void
+  protected function calculateMargins(): void
   {
     $this->leftMargin = (get_screen_width() - self::EQUIPMENT_MENU_WIDTH) / 2;
     $this->topMargin = 0;

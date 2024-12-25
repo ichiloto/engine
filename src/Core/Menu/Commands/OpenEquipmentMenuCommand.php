@@ -42,7 +42,6 @@ class OpenEquipmentMenuCommand extends MenuItem
       throw new Exception('Invalid state');
     }
 
-    $previousMode =
     $nextMode = new MainMenuCharacterSelectionMode($state);
     $nextMode->nextGameSceneState = new EquipmentMenuState($state->context);
     $state->setMode($nextMode);
