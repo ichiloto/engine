@@ -6,6 +6,7 @@ use Ichiloto\Engine\Core\Menu\MainMenu\CharacterSelectionMenu;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Scenes\Game\States\EquipmentMenuState;
+use Ichiloto\Engine\Scenes\Game\States\StatusViewState;
 use Ichiloto\Engine\Util\Debug;
 use RuntimeException;
 
@@ -48,7 +49,6 @@ class MainMenuCharacterSelectionMode extends MainMenuMode
   public function exit(): void
   {
     $this->characterSelectionMenu->blur();
-    $this->mainMenuState->mainMenu->setActiveItemByIndex(2);
   }
 
   /**
@@ -83,7 +83,7 @@ class MainMenuCharacterSelectionMode extends MainMenuMode
     }
 
     if (Input::isButtonDown("confirm")) {
-      if ($this->nextGameSceneState instanceof EquipmentMenuState) {
+      if (property_exists($this->nextGameSceneState, 'character')) {
         $this->nextGameSceneState->character = $this->characterSelectionMenu->activeCharacter ?? throw new RuntimeException("Character not found.");
       }
       $this->mainMenuState->setState($this->nextGameSceneState);

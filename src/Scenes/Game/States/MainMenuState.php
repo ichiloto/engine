@@ -136,6 +136,10 @@ class MainMenuState extends GameSceneState implements CanRender
    * @var MenuCommandExecutionContext|null The main menu context.
    */
   protected(set) ?MenuCommandExecutionContext $mainMenuContext = null;
+  /**
+   * @var int The starting index.
+   */
+  public int $startingIndex = 0;
 
   /**
    * @inheritDoc

@@ -30,31 +30,8 @@ class MainMenuCommandSelectionMode extends MainMenuMode
    */
   public function update(): void
   {
-    $v = Input::getAxis(AxisName::VERTICAL);
-
-    if (abs($v) > 0) {
-      $index = $this->getActiveIndex();
-      if ($v > 0) {
-        $index = wrap($index + 1, 0, $this->totalItems - 1);
-      }
-
-      if ($v < 0) {
-        $index = wrap($index - 1, 0, $this->totalItems - 1);
-      }
-
-      $this->getMainMenu()?->setActiveItemByIndex($index);
-      $this->getMainMenu()?->updateWindowContent();
-
-      $this->getInfoPanel()?->setText($this->getMainMenu()?->getActiveItem()->getDescription());
-    }
-
-    if (Input::isButtonDown("cancel")) {
-      $this->mainMenuState->setState($this->mainMenuState->getGameScene()->fieldState ?? throw new NotFoundException('FieldState'));
-    }
-
-    if (Input::isButtonDown("confirm")) {
-      $this->getMainMenu()->getActiveItem()->execute($this->mainMenuState->mainMenuContext);
-    }
+    $this->handleNavigation();
+    $this->handleActions();
   }
 
   /**
@@ -63,7 +40,9 @@ class MainMenuCommandSelectionMode extends MainMenuMode
   public function enter(): void
   {
     $this->totalItems = $this->getMainMenu()->getItems()->count();
+    $this->getMainMenu()->setActiveItemByIndex($this->mainMenuState->startingIndex);
     $this->getMainMenu()->focus();
+    $this->getMainMenu()->updateWindowContent();
   }
 
   /**
@@ -102,5 +81,50 @@ class MainMenuCommandSelectionMode extends MainMenuMode
   public function getInfoPanel(): ?InfoPanel
   {
     return $this->mainMenuState->infoPanel;
+  }
+
+  /**
+   * Handles the navigation.
+   *
+   * @return void
+   */
+  protected function handleNavigation(): void
+  {
+    $v = Input::getAxis(AxisName::VERTICAL);
+
+    if (abs($v) > 0) {
+      $index = $this->getActiveIndex();
+      if ($v > 0) {
+        $index = wrap($index + 1, 0, $this->totalItems - 1);
+      }
+
+      if ($v < 0) {
+        $index = wrap($index - 1, 0, $this->totalItems - 1);
+      }
+
+      $this->getMainMenu()?->setActiveItemByIndex($index);
+      $this->getMainMenu()?->updateWindowContent();
+
+      $this->getInfoPanel()?->setText($this->getMainMenu()?->getActiveItem()->getDescription());
+    }
+  }
+
+  /**
+   * Handles the actions.
+   *
+   * @return void
+   * @throws NotFoundException
+   */
+  protected function handleActions(): void
+  {
+    if (Input::isButtonDown("cancel")) {
+      $this->mainMenuState->startingIndex = 0;
+      $this->mainMenuState->setState($this->mainMenuState->getGameScene()->fieldState ?? throw new NotFoundException('FieldState'));
+    }
+
+    if (Input::isButtonDown("confirm")) {
+      $this->mainMenuState->startingIndex = $this->getMainMenu()->activeIndex;
+      $this->getMainMenu()->getActiveItem()->execute($this->mainMenuState->mainMenuContext);
+    }
   }
 }

@@ -156,7 +156,7 @@ class ItemMenuState extends GameSceneState implements CanRender
    */
   public function exit(): void
   {
-    $this->getGameScene()->mainMenuState->mainMenu->setActiveItemByIndex(0);
+    // Do nothing
   }
 
   /**
