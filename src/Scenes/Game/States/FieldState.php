@@ -13,6 +13,7 @@ use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\SceneStateContext;
+use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 
 /**
@@ -55,41 +56,8 @@ class FieldState extends GameSceneState
     $scene = $this->context->getScene();
     assert($scene instanceof GameScene);
 
-    if (
-      Input::isButtonDown("quit") &&
-      confirm(
-        get_message("confirm.quit", "Are you sure you want to quit?"),
-        config(ProjectConfig::class, 'vocab.game.shutdown', 'Exit Game'))) {
-      $scene->getGame()->quit();
-    }
-
-    if (Input::isButtonDown("menu")) {
-      $this->setState($scene->mainMenuState);
-    }
-
-    $h = Input::getAxis(AxisName::HORIZONTAL);
-    $v = Input::getAxis(AxisName::VERTICAL);
-
-    if (abs($h) || abs($v)) {
-      $scene->player->move(new Vector2(intval($h), intval($v)));
-    }
-
-    if (Input::isButtonDown("action")) {
-      $scene->player->interact();
-    }
-
-    if (Input::isButtonDown("notify")) {
-      notify(
-        $this->getGameScene()->getGame(),
-        NotificationChannel::ACHIEVEMENT,
-        'Achievement unlocked',
-        '100G - New Character Created'
-      );
-    }
-
-    if (Input::isAnyKeyPressed([KeyCode::G, KeyCode::g])) {
-      $scene->sceneManager->loadGameOverScene();
-    }
+    $this->handleActions($scene);
+    $this->handleNavigation($scene);
   }
 
   /**
@@ -111,5 +79,73 @@ class FieldState extends GameSceneState
   public function resume(): void
   {
     $this->renderTheField();
+  }
+
+  /**
+   * Handles the player's navigation.
+   *
+   * @param GameScene $scene
+   * @return void
+   * @throws NotFoundException
+   * @throws OutOfBounds
+   */
+  protected function handleNavigation(GameScene $scene): void
+  {
+    $h = Input::getAxis(AxisName::HORIZONTAL);
+    $v = Input::getAxis(AxisName::VERTICAL);
+
+    if (abs($h) || abs($v)) {
+      $scene->player->move(new Vector2(intval($h), intval($v)));
+    }
+  }
+
+  /**
+   * Handles the actions of the player.
+   *
+   * @param GameScene $scene The game scene.
+   * @return void
+   * @throws NotFoundException
+   * @throws Exception
+   */
+  protected function handleActions(GameScene $scene): void
+  {
+    if (
+      Input::isButtonDown("quit") &&
+      confirm(
+        get_message("confirm.quit", "Are you sure you want to quit?"),
+        config(ProjectConfig::class, 'vocab.game.shutdown', 'Exit Game'))) {
+      $scene->getGame()->quit();
+    }
+
+    if (Input::isButtonDown("menu")) {
+      $this->setState($scene->mainMenuState);
+    }
+
+    if (Input::isButtonDown("action")) {
+      $scene->player->interact();
+    }
+
+    if (Input::isButtonDown("notify")) {
+      notify(
+        $this->getGameScene()->getGame(),
+        NotificationChannel::ACHIEVEMENT,
+        'Achievement unlocked',
+        '100G - New Character Created'
+      );
+    }
+
+    if (Input::isAnyKeyPressed([KeyCode::G, KeyCode::g])) {
+      $scene->sceneManager->loadGameOverScene();
+    }
+
+    if (Input::isAnyKeyPressed([KeyCode::M, KeyCode::m])) {
+      show_text(
+        'Hello, player and welcome to the world of Ichiloto!',
+        'Squall',
+        '',
+        WindowPosition::BOTTOM,
+        charactersPerSecond: 20
+      );
+    }
   }
 }

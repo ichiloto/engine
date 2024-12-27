@@ -16,6 +16,10 @@ class MaxMPIncrementEffect extends BaseEffect
    */
   public function apply(EffectTarget $target): void
   {
+    if ($target->isKnockedOut) {
+      return;
+    }
+
     $target->stats->totalMp += $this->value;
   }
 }

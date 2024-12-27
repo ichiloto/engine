@@ -6,7 +6,6 @@ use Ichiloto\Engine\Entities\Actions\ChestOpeningAction;
 use Ichiloto\Engine\Events\Enumerations\ChestType;
 use Ichiloto\Engine\Events\Enumerations\LootType;
 use Ichiloto\Engine\Events\Interfaces\EventTriggerContextInterface;
-use Ichiloto\Engine\Util\Debug;
 
 /**
  * The ChestEventTrigger class.
@@ -60,6 +59,7 @@ class ChestEventTrigger extends EventTrigger
    */
   public function stay(EventTriggerContextInterface $context): void
   {
+    // Do nothing.
   }
 
   /**

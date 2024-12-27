@@ -37,7 +37,7 @@ abstract class InventoryItem implements InventoryItemInterface
     protected(set) string $name,
     protected(set) string $description,
     protected(set) string $icon,
-    protected(set) int $price,
+    public int $price,
     public int $quantity = 1,
     protected(set) ItemUserType $userType = ItemUserType::ALL,
     protected(set) bool $isKeyItem = false,

@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core\Menu\ItemMenu\Windows;
 
+use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\ItemMenu\ItemMenu;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
@@ -12,12 +13,12 @@ use Ichiloto\Engine\UI\Windows\Window;
  *
  * @package Ichiloto\Engine\Core\Menu\ItemMenu\Windows
  */
-class ItemInfoPanel extends Window
+class InfoPanel extends Window
 {
   public function __construct(
-    protected ItemMenu $itemMenu,
-    Rect $area,
-    BorderPackInterface $borderPack
+    protected MenuInterface $menu,
+    Rect                    $area,
+    BorderPackInterface     $borderPack
   )
   {
     parent::__construct(
