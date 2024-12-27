@@ -32,6 +32,7 @@ use Ichiloto\Engine\UI\Windows\DebugWindow;
 use Ichiloto\Engine\Util\Config\AppConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\InputConfig;
+use Ichiloto\Engine\Util\Config\ItemStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
@@ -618,6 +619,7 @@ SPLASH_SCREEN;
     ConfigStore::put(AppConfig::class, new AppConfig());
     ConfigStore::put(ProjectConfig::class, new ProjectConfig());
     ConfigStore::put(InputConfig::class, new InputConfig());
+    ConfigStore::put(ItemStore::class, new ItemStore());
   }
 
   /**

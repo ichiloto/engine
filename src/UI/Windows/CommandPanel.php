@@ -1,21 +1,19 @@
 <?php
 
-namespace Ichiloto\Engine\Core\Menu\ItemMenu\Windows;
+namespace Ichiloto\Engine\UI\Windows;
 
 use Ichiloto\Engine\Core\Interfaces\CanFocus;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\MenuItem;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
-use Ichiloto\Engine\UI\Windows\Window;
-use Ichiloto\Engine\Util\Debug;
 
 /**
  * The window that displays the commands that can be executed on an item.
  *
  * @package Ichiloto\Engine\Core\Menu\ItemMenu\Windows
  */
-class ItemCommandPanel extends Window implements CanFocus
+class CommandPanel extends Window implements CanFocus
 {
   /**
    * ItemMenuCommandsPanel constructor.
@@ -25,14 +23,16 @@ class ItemCommandPanel extends Window implements CanFocus
    * @param BorderPackInterface $borderPack The border pack.
    */
   public function __construct(
+    string $title,
+    string $help,
     protected MenuInterface $menu,
     Rect $area,
     BorderPackInterface $borderPack
   )
   {
     parent::__construct(
-      'Item',
-      '',
+      $title,
+      $help,
       $area->position,
       $area->size->width,
       $area->size->height,
@@ -48,7 +48,7 @@ class ItemCommandPanel extends Window implements CanFocus
    */
   public function focus(): void
   {
-    // Do nothing
+    $this->updateContent();
   }
 
   /**

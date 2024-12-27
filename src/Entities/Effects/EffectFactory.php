@@ -44,7 +44,10 @@ class EffectFactory
     }
 
     return match($type) {
-      HPRecoveryEffect::class => $reflectionClass->newInstanceArgs($args),
+      HPRecoveryEffect::class,
+      MPRecoveryEffect::class,
+      MaxHPIncrementEffect::class,
+      MaxMPIncrementEffect::class => $reflectionClass->newInstanceArgs($args),
       default => throw new InvalidArgumentException("Unknown effect type: $type"),
     };
   }
