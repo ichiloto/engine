@@ -17,6 +17,10 @@ class HPRecoveryEffect extends BaseEffect
    */
   public function apply(EffectTarget $target): void
   {
+    if ( $target->isKnockedOut ) {
+      return;
+    }
+
     if ($this->valueBasis === ValueBasis::PERCENTAGE) {
       $percentage = $this->value / 100;
       $target->stats->currentHp += $target->stats->totalHp * $percentage;

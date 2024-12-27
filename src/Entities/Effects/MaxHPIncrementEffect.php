@@ -16,6 +16,10 @@ class MaxHPIncrementEffect extends BaseEffect
    */
   public function apply(EffectTarget $target): void
   {
+    if ($target->isKnockedOut) {
+      return;
+    }
+
     $target->stats->totalHp += $this->value;
   }
 }

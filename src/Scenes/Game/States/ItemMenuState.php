@@ -8,23 +8,21 @@ use Ichiloto\Engine\Core\Menu\Commands\MenuCommandExecutionContext;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\ItemMenu\ItemMenu;
 use Ichiloto\Engine\Core\Menu\ItemMenu\Modes\DiscardItemMode;
-use Ichiloto\Engine\Core\Menu\ItemMenu\Modes\SelectIemMenuCommandMode;
 use Ichiloto\Engine\Core\Menu\ItemMenu\Modes\ItemMenuMode;
+use Ichiloto\Engine\Core\Menu\ItemMenu\Modes\SelectIemMenuCommandMode;
 use Ichiloto\Engine\Core\Menu\ItemMenu\Modes\UseItemMode;
 use Ichiloto\Engine\Core\Menu\ItemMenu\Modes\ViewKeyItemsMode;
-use Ichiloto\Engine\Core\Menu\ItemMenu\Windows\ItemInfoPanel;
-use Ichiloto\Engine\Core\Menu\ItemMenu\Windows\ItemCommandPanel;
+use Ichiloto\Engine\Core\Menu\ItemMenu\Windows\InfoPanel;
 use Ichiloto\Engine\Core\Menu\ItemMenu\Windows\ItemSelectionPanel;
 use Ichiloto\Engine\Core\Menu\ItemMenu\Windows\ItemTargetSelectionPanel;
 use Ichiloto\Engine\Core\Menu\ItemMenu\Windows\ItemTargetStatusPanel;
 use Ichiloto\Engine\Core\Menu\MenuItem;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\IO\Console\Console;
-use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
+use Ichiloto\Engine\UI\Windows\CommandPanel;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
-use Ichiloto\Engine\Util\Debug;
 use Symfony\Component\Console\Output\ConsoleOutput;
 
 /**
@@ -81,9 +79,9 @@ class ItemMenuState extends GameSceneState implements CanRender
    */
   protected const int INFO_PANEL_HEIGHT = 4;
   /**
-   * @var ItemCommandPanel|null The item menu commands panel.
+   * @var CommandPanel|null The item menu commands panel.
    */
-  protected(set) ?ItemCommandPanel $itemMenuCommandsPanel = null;
+  protected(set) ?CommandPanel $itemMenuCommandsPanel = null;
   /**
    * @var ItemSelectionPanel|null The secondary window.
    */
@@ -97,9 +95,9 @@ class ItemMenuState extends GameSceneState implements CanRender
    */
   protected(set) ?ItemTargetStatusPanel $statusPanel = null;
   /**
-   * @var ItemInfoPanel|null The info panel.
+   * @var InfoPanel|null The info panel.
    */
-  protected(set) ?ItemInfoPanel $infoPanel = null;
+  protected(set) ?InfoPanel $infoPanel = null;
   /**
    * @var int The left margin.
    */
@@ -269,7 +267,9 @@ class ItemMenuState extends GameSceneState implements CanRender
         }
       });
 
-    $this->itemMenuCommandsPanel = new ItemCommandPanel(
+    $this->itemMenuCommandsPanel = new CommandPanel(
+      'Item',
+      '',
       $this->itemMenu,
       new Rect($this->leftMargin, $this->topMargin, self::ITEM_MENU_WIDTH, self::COMMAND_PANEL_HEIGHT),
       $this->borderPack,
@@ -319,7 +319,7 @@ class ItemMenuState extends GameSceneState implements CanRender
       self::ITEM_MENU_WIDTH,
       self::INFO_PANEL_HEIGHT
     );
-    $this->infoPanel = new ItemInfoPanel($this->itemMenu, $infoPanelArea, $this->borderPack);
+    $this->infoPanel = new InfoPanel($this->itemMenu, $infoPanelArea, $this->borderPack);
     $this->infoPanel->setText($this->itemMenu->getActiveItem()->getDescription());
   }
 

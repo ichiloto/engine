@@ -72,10 +72,18 @@ class TextBoxModal extends Modal
     protected float $charactersPerSecond = 60
   )
   {
-    $width = DEFAULT_WINDOW_WIDTH;
+    $width = DEFAULT_DIALOG_WIDTH;
     $height = 5;
     $positionCoordinates = $position->getCoordinates($width, $height);
     $this->messageLength = mb_strlen($message);
+
+    $this->window = new Window(
+      $title,
+      $help,
+      $positionCoordinates,
+      $width,
+      $height
+    );
 
     parent::__construct(
       $game,
@@ -90,14 +98,6 @@ class TextBoxModal extends Modal
       [],
       $help,
       $borderPack
-    );
-
-    $this->window = new Window(
-      $title,
-      $help,
-      $positionCoordinates,
-      $width,
-      $height
     );
   }
 
@@ -132,8 +132,7 @@ class TextBoxModal extends Modal
 
   public function updateContent(): void
   {
-    if ($this->isPrinting)
-    {
+    if ($this->isPrinting) {
       $this->content = $this->convertMessageToLinesOfContent($this->message);
 
       // Calculate the number of lines.
@@ -195,7 +194,7 @@ class TextBoxModal extends Modal
   protected function convertMessageToLinesOfContent(string $message): array
   {
     // Split the message into lines.
-    $contentString = wordwrap($message, $this->rect->getWidth() - 2, "\n", true);
+    $contentString = wordwrap($message, $this->rect->getWidth() - 3, "\n", true);
     return explode("\n", substr($contentString, 0, $this->currentCharacterIndex));
   }
 }
