@@ -25,7 +25,7 @@ class Party extends BattleGroup
   /**
    * @var int The gold the party has.
    */
-  protected(set) int $gold = 0 {
+  public int $gold = 0 {
     get {
       return $this->gold;
     }
@@ -95,5 +95,26 @@ class Party extends BattleGroup
   public function removeItems(InventoryItemInterface ...$items): void
   {
     $this->inventory->removeItems(...$items);
+  }
+
+  /**
+   * Transacts gold with the party.
+   *
+   * @param int $amount The amount of gold to transact.
+   * @return void
+   */
+  public function transact(int $amount): void
+  {
+    $this->gold += $amount;
+  }
+
+  public function debit(int $amount): void
+  {
+    $this->transact(-$amount);
+  }
+
+  public function credit(int $amount): void
+  {
+    $this->transact($amount);
   }
 }

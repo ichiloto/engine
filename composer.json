@@ -11,8 +11,8 @@
         "assegaiphp/util": "^0.4.3"
     },
     "require-dev": {
-        "pestphp/pest": "^3.5",
-        "phpstan/phpstan": "^2.0"
+        "phpstan/phpstan": "^2.0",
+        "pestphp/pest": "^3.7"
     },
     "license": "MIT",
     "autoload": {

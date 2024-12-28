@@ -16,6 +16,11 @@ use InvalidArgumentException;
 abstract class InventoryItem implements InventoryItemInterface
 {
   /**
+   * The maximum quantity of an item.
+   */
+  public const int MAX_QUANTITY = 99;
+
+  /**
    * @var string $hash The hash of the item.
    */
   public string $hash {
@@ -42,6 +47,7 @@ abstract class InventoryItem implements InventoryItemInterface
     protected(set) ItemUserType $userType = ItemUserType::ALL,
     protected(set) bool $isKeyItem = false,
     protected(set) bool $consumable = false,
+    protected(set) int $maxQuantity = self::MAX_QUANTITY,
   )
   {
     $this->hash = md5(self::class . $name . $description . $icon . $price);

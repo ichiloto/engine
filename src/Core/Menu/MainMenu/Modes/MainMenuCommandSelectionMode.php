@@ -94,6 +94,7 @@ class MainMenuCommandSelectionMode extends MainMenuMode
 
     if (abs($v) > 0) {
       $index = $this->getActiveIndex();
+
       if ($v > 0) {
         $index = wrap($index + 1, 0, $this->totalItems - 1);
       }

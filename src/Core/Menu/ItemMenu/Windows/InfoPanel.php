@@ -42,9 +42,7 @@ class InfoPanel extends Window
     $lines = explode("\n", $text);
     $lineCount = count($lines);
 
-    if ($lineCount === 1) {
-      $lines[] = '';
-    }
+    $lines = array_pad($lines, $this->height - 2, '');
 
     if ($lineCount > 2) {
       $lines = array_slice($lines, 0, 2);
