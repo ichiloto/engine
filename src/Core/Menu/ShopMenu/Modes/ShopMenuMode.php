@@ -12,6 +12,11 @@ use Ichiloto\Engine\Scenes\Game\States\ShopState;
  */
 abstract class ShopMenuMode implements MainMenuModeInterface
 {
+  /**
+   * ShopMenuMode constructor.
+   *
+   * @param ShopState $state The shop state.
+   */
   public function __construct(protected ShopState $state)
   {
   }

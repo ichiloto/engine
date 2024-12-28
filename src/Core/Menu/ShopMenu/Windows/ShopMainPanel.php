@@ -7,6 +7,7 @@ use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 
 /**
  * The main panel of the shop menu.
@@ -19,6 +20,32 @@ class ShopMainPanel extends Window
    * @var InventoryItem[] The items to display in the shop menu.
    */
   protected(set) array $items = [];
+  /**
+   * @var int The total number of items in the shop menu.
+   */
+  protected(set) int $totalItems = 0;
+  /**
+   * @var int The index of the active item.
+   */
+  public int $activeItemIndex = 0 {
+    get {
+      return $this->activeItemIndex;
+    }
+
+    set {
+      $this->activeItemIndex = $value;
+      $this->updateContent();
+    }
+  }
+
+  /**
+   * @var InventoryItem|null The active item in the shop menu.
+   */
+  public ?InventoryItem $activeItem {
+    get {
+      return $this->items[$this->activeItemIndex] ?? null;
+    }
+  }
 
   /**
    * Create a new instance of the shop main panel.
@@ -52,6 +79,7 @@ class ShopMainPanel extends Window
   public function setItems(array $items): void
   {
     $this->items = $items;
+    $this->totalItems = count($this->items);
     $this->updateContent();
   }
 
@@ -63,14 +91,37 @@ class ShopMainPanel extends Window
   public function updateContent(): void
   {
     $content = [];
+    $symbol = config(ProjectConfig::class, 'vocab.currency.symbol', 'F');
 
     foreach ($this->items as $index => $item) {
-      $prefix = $index === $this->shopMenu->activeIndex ? '>' : ' ';
-      $content[] = sprintf(" %s %-38s %10s", $prefix, $item->name, ":{$item->price}");
+      $prefix = $index === $this->activeItemIndex ? '>' : ' ';
+      $content[] = sprintf(" %s %-36s %10s", $prefix, $item->name, "{$item->price} {$symbol}");
     }
 
     $content = array_pad($content, $this->height - 2, '');
     $this->setContent($content);
     $this->render();
+  }
+
+  /**
+   * Select the next item in the shop menu.
+   *
+   * @return void
+   */
+  public function selectNext(): void
+  {
+    $index = wrap($this->activeItemIndex + 1, 0, $this->totalItems - 1);
+    $this->activeItemIndex = $index;
+  }
+
+  /**
+   * Select the previous item in the shop menu.
+   *
+   * @return void
+   */
+  public function selectPrevious(): void
+  {
+    $index = wrap($this->activeItemIndex - 1, 0, $this->totalItems - 1);
+    $this->activeItemIndex = $index;
   }
 }

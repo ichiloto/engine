@@ -29,7 +29,7 @@ class ShopAccountBalancePanel extends Window
   )
   {
     parent::__construct(
-      '',
+      config(ProjectConfig::class, 'vocab.currency.name', 'Gold'),
       '',
       $area->position,
       $area->size->width,
@@ -45,7 +45,7 @@ class ShopAccountBalancePanel extends Window
    */
   public function setBalance(int $newBalance): void
   {
-    $span = $this->width - 2;
+    $span = $this->width - 4;
     $symbol = config(ProjectConfig::class, 'vocab.currency.symbol', 'G');
     $content = [
       sprintf("%{$span}s", "{$newBalance} {$symbol}")

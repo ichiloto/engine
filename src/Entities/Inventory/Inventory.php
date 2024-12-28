@@ -6,6 +6,7 @@ use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Entities\Interfaces\InventoryItemInterface;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
+use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
 
 /**
@@ -136,7 +137,7 @@ class Inventory
 
       /** @var InventoryItem $foundItem */
       if ($foundItem = array_find($this->inventoryItems->toArray(), fn(InventoryItem $entry) => $entry->name === $item->name)) {
-        $foundItem->quantity += $item->quantity;
+        $foundItem->quantity += 1;
         return;
       }
 
@@ -162,7 +163,7 @@ class Inventory
 
       /** @var InventoryItem $foundItem */
       if ($foundItem = array_find($this->inventoryItems->toArray(), fn(InventoryItem $entry) => $entry->name === $item->name)) {
-        $foundItem->quantity -= $item->quantity;
+        $foundItem->quantity -= 1;
         if ($item->quantity > 0) {
           return;
         }

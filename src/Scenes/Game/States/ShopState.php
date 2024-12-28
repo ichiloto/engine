@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Scenes\Game\States;
 
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
+use Ichiloto\Engine\Core\Menu\Commands\MenuCommandExecutionContext;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\ItemMenu\Windows\InfoPanel;
 use Ichiloto\Engine\Core\Menu\MenuItem;
@@ -12,18 +13,18 @@ use Ichiloto\Engine\Core\Menu\ShopMenu\Modes\ShopMenuMode;
 use Ichiloto\Engine\Core\Menu\ShopMenu\Modes\ShopMerchandiseSelectionMode;
 use Ichiloto\Engine\Core\Menu\ShopMenu\ShopMenu;
 use Ichiloto\Engine\Core\Menu\ShopMenu\Windows\ShopAccountBalancePanel;
-use Ichiloto\Engine\Core\Menu\ShopMenu\Windows\ShopInfoPanel;
 use Ichiloto\Engine\Core\Menu\ShopMenu\Windows\ShopItemDetailPanel;
 use Ichiloto\Engine\Core\Menu\ShopMenu\Windows\ShopMainPanel;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Entities\Inventory\Inventory;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\IO\Console\Console;
-use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Scenes\SceneStateContext;
+use Ichiloto\Engine\Shop\Shop;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\CommandPanel;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
+use Symfony\Component\Console\Output\ConsoleOutput;
 
 /**
  * ShopState class. This state allows players to interact with in-game shops.
@@ -48,14 +49,41 @@ class ShopState extends GameSceneState
    * The height of the shop menu.
    */
   const int SHOP_MENU_HEIGHT = 35;
+  /**
+   * The height of the info panel.
+   */
   const int INFO_PANEL_HEIGHT = 3;
+  /**
+   * The width of the command panel.
+   */
   const int COMMAND_PANEL_WIDTH = 80;
+  /**
+   * The height of the command panel.
+   */
   const int COMMAND_PANEL_HEIGHT = 3;
+  /**
+   * The width of the account balance panel.
+   */
   const int ACCOUNT_BALANCE_PANEL_WIDTH = 30;
+  /**
+   * The height of the account balance panel.
+   */
   const int ACCOUNT_BALANCE_PANEL_HEIGHT = 3;
+  /**
+   * The width of the main panel.
+   */
   const int MAIN_PANEL_WIDTH = 55;
+  /**
+   * The height of the main panel.
+   */
   const int MAIN_PANEL_HEIGHT = 29;
+  /**
+   * The width of the detail panel.
+   */
   const int DETAIL_PANEL_WIDTH = 55;
+  /**
+   * The height of the detail panel.
+   */
   const int DETAIL_PANEL_HEIGHT = 29;
 
   /**
@@ -125,16 +153,20 @@ class ShopState extends GameSceneState
    * @var ShopMenuMode|null The mode of the shop menu.
    */
   protected(set) ?ShopMenuMode $mode = null;
+  /**
+   * @var Shop|null The shop entity.
+   */
+  protected(set) ?Shop $shop = null;
+  /**
+   * @var MenuCommandExecutionContext|null The context for the shop menu.
+   */
+  protected(set) ?MenuCommandExecutionContext $shopMenuContext = null;
 
   /**
    * @inheritDoc
    */
   public function execute(?SceneStateContext $context = null): void
   {
-    if (Input::isButtonDown("quit")) {
-      $this->quitGame();
-    }
-
     $this->mode->update();
   }
 
@@ -147,7 +179,9 @@ class ShopState extends GameSceneState
     $this->getGameScene()->locationHUDWindow->deactivate();
     $this->calculateMargins();
     $this->initializeUI();
+    $this->shopMenuContext = new MenuCommandExecutionContext([], new ConsoleOutput(), $this->shopMenu, $this->getGameScene());
     $this->setMode(new SelectShopMenuCommandMode($this));
+    $this->shop = new Shop($this->merchandise);
   }
 
   /**
@@ -156,6 +190,22 @@ class ShopState extends GameSceneState
   public function exit(): void
   {
     // Do nothing
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function resume(): void
+  {
+    $this->renderPanels();
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function suspend(): void
+  {
+    $this->exit();
   }
 
   /**
@@ -195,7 +245,14 @@ class ShopState extends GameSceneState
 
         public function execute(?ExecutionContextInterface $context = null): int
         {
-          $this->state->setMode(new ShopMerchandiseSelectionMode($this->state));
+          if ($this->state->shop->inventory->isNotEmpty) {
+            $nextMode = new ShopMerchandiseSelectionMode($this->state);
+            $nextMode->previousMode = $this->state->mode;
+            $this->state->mainPanel->activeItemIndex = 0;
+            $this->state->setMode($nextMode);
+          } else {
+            alert('The shop is out of stock!');
+          }
           return self::SUCCESS;
         }
       })
@@ -214,7 +271,13 @@ class ShopState extends GameSceneState
 
         public function execute(?ExecutionContextInterface $context = null): int
         {
-          $this->state->setMode(new ShopInventorySelectionMode($this->state));
+          if ($this->state->inventory->isNotEmpty) {
+            $nextMode = new ShopInventorySelectionMode($this->state);
+            $nextMode->previousMode = $this->state->mode;
+            $this->state->setMode($nextMode);
+          } else {
+            alert('You have nothing to sell!');
+          }
           return self::SUCCESS;
         }
       })
