@@ -187,7 +187,13 @@ class StatusViewState extends GameSceneState
     ], self::STATS_SUMMARY_PANEL_HEIGHT - 2, ''));
 
     $this->equipmentSummaryPanel->setContent(array_pad(
-      array_map(fn(EquipmentSlot $slot) => sprintf("  %-20s %s", "{$slot->name}:", $slot->equipment?->name ?? ''), $this->character?->equipment ?? []),
+      array_map(function(EquipmentSlot $slot) {
+        $equipmentName = '';
+        if ($slot->equipment) {
+          $equipmentName = "{$slot->equipment->icon} {$slot->equipment->name}";
+        }
+        return sprintf("  %-20s %s", "{$slot->name}:", $equipmentName);
+      }, $this->character?->equipment ?? []),
       self::EQUIPMENT_SUMMARY_PANEL_HEIGHT - 2,
       ''));
 

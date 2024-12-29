@@ -34,7 +34,7 @@ class SelectShopMenuCommandMode extends ShopMenuMode
    */
   public function exit(): void
   {
-    // TODO: Implement exit() method.
+    // Nothing to do here.
   }
 
   /**

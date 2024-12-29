@@ -146,7 +146,7 @@ class ShopState extends GameSceneState
    */
   protected int $balance {
     get {
-      return $this->getGameScene()->party->gold;
+      return $this->getGameScene()->party->accountBalance;
     }
   }
   /**

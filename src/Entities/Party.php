@@ -2,7 +2,6 @@
 
 namespace Ichiloto\Engine\Entities;
 
-use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Entities\Interfaces\InventoryItemInterface;
 use Ichiloto\Engine\Entities\Inventory\Inventory;
 
@@ -23,15 +22,15 @@ class Party extends BattleGroup
   const int MIN_GOLD = 0;
 
   /**
-   * @var int The gold the party has.
+   * @var int The party's account balance.
    */
-  public int $gold = 0 {
+  public int $accountBalance = 0 {
     get {
-      return $this->gold;
+      return $this->accountBalance;
     }
 
     set {
-      $this->gold = clamp($value, self::MIN_GOLD, self::MAX_GOLD);
+      $this->accountBalance = clamp($value, self::MIN_GOLD, self::MAX_GOLD);
     }
   }
   /**
@@ -42,6 +41,14 @@ class Party extends BattleGroup
    * @var Inventory|null The party's inventory.
    */
   protected(set) ?Inventory $inventory;
+  /**
+   * @var Character|null The party's leader.
+   */
+  public ?Character $leader {
+    get {
+      return $this->members[0] ?? null;
+    }
+  }
 
   /**
    * @inheritDoc
@@ -105,7 +112,7 @@ class Party extends BattleGroup
    */
   public function transact(int $amount): void
   {
-    $this->gold += $amount;
+    $this->accountBalance += $amount;
   }
 
   public function debit(int $amount): void

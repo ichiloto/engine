@@ -10,7 +10,7 @@ readonly class SystemData
    * SystemData constructor.
    *
    * @param string $title The title of the game.
-   * @param object{name: string, symbol: string} $currency The currency object.
+   * @param object{name: string, symbol: string, amount: ?int} $currency The currency object.
    * @param string[] $startingParty The starting party.
    * @param array $startingInventory The starting inventory.
    * @param object{player: object{destinationMap: string, spawnPoint: object{x: int, y: int}, spawnSprite: string[]}} $startingPositions The starting positions.

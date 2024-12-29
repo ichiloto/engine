@@ -65,6 +65,7 @@ abstract class EventTrigger implements EventTriggerInterface
    */
   public function enter(EventTriggerContextInterface $context): void
   {
+    // Do nothing. This method should be overridden by the subclass.
     Debug::info("Trigger entered: " . get_class($this) . " at " . $context->coordinates);
   }
 
@@ -74,6 +75,7 @@ abstract class EventTrigger implements EventTriggerInterface
   public function stay(EventTriggerContextInterface $context): void
   {
     // Do nothing. This method should be overridden by the subclass.
+    Debug::info("Trigger stayed: " . get_class($this) . " at " . $context->coordinates);
   }
 
   /**
@@ -81,8 +83,8 @@ abstract class EventTrigger implements EventTriggerInterface
    */
   public function exit(EventTriggerContextInterface $context): void
   {
-    Debug::info("Trigger exited: " . get_class($this) . " at " . $context->coordinates);
     // Do nothing. This method should be overridden by the subclass.
+    Debug::info("Trigger exited: " . get_class($this) . " at " . $context->coordinates);
   }
 
   /**

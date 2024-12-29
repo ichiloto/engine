@@ -30,6 +30,12 @@ class Character implements CharacterInterface
    */
   public bool $isKnockedOut {
     get {
+      return ! $this->isConscious;
+    }
+  }
+
+  public bool $isConscious {
+    get {
       return $this->stats->currentHp > 0;
     }
   }
