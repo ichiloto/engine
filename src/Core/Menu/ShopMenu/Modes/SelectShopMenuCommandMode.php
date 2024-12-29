@@ -26,7 +26,7 @@ class SelectShopMenuCommandMode extends ShopMenuMode
    */
   public function enter(): void
   {
-    // TODO: Implement enter() method.
+    $this->state->mainPanel->setItems([]);
   }
 
   /**
@@ -52,6 +52,7 @@ class SelectShopMenuCommandMode extends ShopMenuMode
       } else {
         $this->state->commandPanel->selectPrevious();
       }
+      $this->state->infoPanel->setText($this->state->shopMenu->getActiveItem()->getDescription());
     }
   }
 
@@ -64,6 +65,11 @@ class SelectShopMenuCommandMode extends ShopMenuMode
   {
     if (Input::isButtonDown("back")) {
       $this->state->setState($this->state->getGameScene()->fieldState);
+    }
+
+    if (Input::isButtonDown("confirm")) {
+      $this->state->commandPanel->startingIndex = $this->state->shopMenu->activeIndex;
+      $this->state->shopMenu->getActiveItem()?->execute($this->state->shopMenuContext);
     }
   }
 }

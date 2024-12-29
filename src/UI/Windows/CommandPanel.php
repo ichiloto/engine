@@ -15,6 +15,8 @@ use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
  */
 class CommandPanel extends Window implements CanFocus
 {
+  public int $startingIndex = 0;
+
   /**
    * ItemMenuCommandsPanel constructor.
    *
@@ -48,6 +50,7 @@ class CommandPanel extends Window implements CanFocus
    */
   public function focus(): void
   {
+    $this->menu->setActiveItemByIndex($this->startingIndex);
     $this->updateContent();
   }
 

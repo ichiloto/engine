@@ -11,6 +11,8 @@ use Ichiloto\Engine\UI\Windows\Window;
 
 class ShopItemDetailPanel extends Window implements ObserverInterface
 {
+  public int $possession = 0;
+
   public function __construct(
     protected ShopMenu $shopMenu,
     Rect $area,
@@ -33,5 +35,25 @@ class ShopItemDetailPanel extends Window implements ObserverInterface
   public function onNotify(object $entity, EventInterface $event): void
   {
     // TODO: Implement onNotify() method.
+  }
+
+  /**
+   * @return void
+   */
+  public function updateContent(): void
+  {
+    $content = [
+      sprintf(" Possession %39d", $this->possession),
+    ];
+
+    $content = array_pad($content, $this->height - 2, '');
+    $this->setContent($content);
+    $this->render();
+  }
+
+  public function clear(): void
+  {
+    $this->setContent(array_fill(0, $this->height - 2, ''));
+    $this->render();
   }
 }

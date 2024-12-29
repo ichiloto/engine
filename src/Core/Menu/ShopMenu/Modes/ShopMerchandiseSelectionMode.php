@@ -2,7 +2,9 @@
 
 namespace Ichiloto\Engine\Core\Menu\ShopMenu\Modes;
 
-use Ichiloto\Engine\Core\Menu\ShopMenu\Modes\ShopMenuMode;
+use Exception;
+use Ichiloto\Engine\Entities\Inventory\InventoryItem;
+use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
 
@@ -14,32 +16,33 @@ use Ichiloto\Engine\IO\Input;
 class ShopMerchandiseSelectionMode extends ShopMenuMode
 {
   /**
-   * The previous mode.
-   *
-   * @var ShopMenuMode|null
+   * @var ShopMenuMode|null The previous mode.
    */
   public ?ShopMenuMode $previousMode = null;
+  /**
+   * @var InventoryItem|null The selected item.
+   */
+  public ?InventoryItem $selectedItem {
+    get {
+      return $this->state->merchandise[$this->state->mainPanel->activeItemIndex] ?? null;
+    }
+  }
 
   /**
-   * @var int The active index.
+   * @var Party The party.
    */
-  public int $totalMerchandise {
+  public Party $party {
     get {
-      return count($this->state->merchandise);
+      return $this->state->getGameScene()->party;
     }
   }
 
   /**
    * @inheritDoc
+   * @throws Exception If the previous mode is not set.
    */
   public function update(): void
   {
-    if (Input::isButtonDown("back")) {
-      if ($this->previousMode) {
-        $this->state->setMode($this->previousMode);
-      }
-    }
-
     $v = Input::getAxis(AxisName::VERTICAL);
 
     if (abs($v) > 0) {
@@ -47,6 +50,24 @@ class ShopMerchandiseSelectionMode extends ShopMenuMode
         $this->selectNextItem();
       } else {
         $this->selectPreviousItem();
+      }
+
+      $this->updateItemsInPossession();
+    }
+
+    if (Input::isButtonDown("back")) {
+      $this->navigateToPreviousMode();
+    }
+
+    if (Input::isButtonDown("confirm")) {
+      if ($this->selectedItem) {
+        $this->state->shop->sell($this->selectedItem, 1, $this->state->getGameScene()->party);
+        $this->state->accountBalancePanel->setBalance($this->party->gold);
+        $this->state->mainPanel->setItems($this->state->merchandise);
+        $this->updateItemsInPossession();
+      } else {
+        alert("No items.");
+        $this->navigateToPreviousMode();
       }
     }
   }
@@ -56,7 +77,8 @@ class ShopMerchandiseSelectionMode extends ShopMenuMode
    */
   public function enter(): void
   {
-    // TODO: Implement enter() method.
+    $this->state->mainPanel->setItems($this->state->merchandise);
+    $this->updateItemsInPossession();
   }
 
   /**
@@ -64,13 +86,57 @@ class ShopMerchandiseSelectionMode extends ShopMenuMode
    */
   public function exit(): void
   {
-    // TODO: Implement exit() method.
+    // Do nothing
   }
 
+  /**
+   * Selects the previous item.
+   *
+   * @return void
+   */
+  private function selectPreviousItem(): void
+  {
+    $this->state->mainPanel->selectPrevious();
+  }
+
+  /**
+   * Selects the next item.
+   *
+   * @return void
+   */
   private function selectNextItem(): void
   {
-    $index = wrap($this->state->shopMenu->activeIndex + 1, 0, $this->totalMerchandise - 1);
-    $this->state->shopMenu->setActiveItemByIndex($index);
-    $this->state->mainPanel->updateContent();
+    $this->state->mainPanel->selectNext();
+  }
+
+  /**
+   * Navigates to the previous mode.
+   *
+   * @return void
+   */
+  protected function navigateToPreviousMode(): void
+  {
+    if ($this->previousMode) {
+      $this->state->detailPanel->clear();
+      $this->state->commandPanel->startingIndex = 0;
+      $this->state->setMode($this->previousMode);
+    }
+  }
+
+  /**
+   * Updates the items in possession.
+   *
+   * @return void
+   */
+  public function updateItemsInPossession(): void
+  {
+    if ($activeItem = $this->state->mainPanel->activeItem) {
+      $this->state->detailPanel->possession = 0;
+
+      if ($inventoryItem = $this->state->inventory->items->find(fn(InventoryItem $item) => $item->name === $activeItem->name) ) {
+        $this->state->detailPanel->possession = $inventoryItem->quantity ?? 0;
+      }
+      $this->state->detailPanel->updateContent();
+    }
   }
 }
