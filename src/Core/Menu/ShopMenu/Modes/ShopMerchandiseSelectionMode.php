@@ -82,6 +82,7 @@ class ShopMerchandiseSelectionMode extends ShopMenuMode
   {
     $this->state->mainPanel->setItems($this->state->merchandise);
     $this->updateItemsInPossession();
+    $this->state->infoPanel->setText($this->selectedItem->description);
   }
 
   /**

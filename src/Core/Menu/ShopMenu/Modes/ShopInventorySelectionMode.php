@@ -28,6 +28,9 @@ class ShopInventorySelectionMode extends ShopMenuMode
       return $this->state->inventory->items->count();
     }
   }
+  /**
+   * @var InventoryItem|null The selected item.
+   */
   public ?InventoryItem $selectedItem {
     get {
       return $this->state->inventory->items->toArray()[$this->state->mainPanel->activeItemIndex] ?? null;
@@ -85,6 +88,7 @@ class ShopInventorySelectionMode extends ShopMenuMode
   {
     $this->state->mainPanel->setItems($this->state->inventory->all->toArray());
     $this->updateItemsInPossession();
+    $this->state->infoPanel->setText($this->selectedItem->description);
   }
 
   /**
