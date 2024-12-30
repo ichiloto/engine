@@ -11,6 +11,11 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\UI\Interfaces\ModalInterface;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
 
+/**
+ * Represents the modal manager.
+ *
+ * @package Ichiloto\Engine\UI\Modal
+ */
 class ModalManager implements CanUpdate, CanRender
 {
   /**
@@ -161,10 +166,11 @@ class ModalManager implements CanUpdate, CanRender
     string $title = '',
     int $default = 0,
     ?Vector2 $position = null,
-    int $width = DEFAULT_SELECT_DIALOG_WIDTH
+    int $width = DEFAULT_SELECT_DIALOG_WIDTH,
+    int $height = DEFAULT_SELECT_DIALOG_HEIGHT
   ): int
   {
-    $position = $position ?? new Vector2(0, 0);
+    $position = $position ?? new Vector2(intval((get_screen_width() - $width) / 2), intval((get_screen_height() - DEFAULT_DIALOG_HEIGHT) / 2));
     $this->modals->push(new SelectModal(
       $this->game,
       $message,
@@ -175,7 +181,7 @@ class ModalManager implements CanUpdate, CanRender
         $position->x,
         $position->y,
         $width,
-        DEFAULT_DIALOG_HEIGHT
+        $height
       )
     ));
     $result = $this->modals->peek()->open();
