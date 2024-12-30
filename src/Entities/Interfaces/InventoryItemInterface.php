@@ -42,14 +42,6 @@ interface InventoryItemInterface extends CanCompare, Stringable
   }
 
   /**
-   * @var int $quantity The quantity of the item.
-   */
-  public int $quantity {
-    get;
-    set;
-  }
-
-  /**
    * @var ItemUserType $userType The user type of the item.
    */
   public ItemUserType $userType {

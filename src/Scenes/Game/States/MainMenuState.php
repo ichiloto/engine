@@ -222,7 +222,7 @@ class MainMenuState extends GameSceneState implements CanRender
 
     $accountBalancePosition = new Vector2($this->leftMargin, $this->topMargin + 28);
     $this->accountBalancePanel = new AccountBalancePanel($accountBalancePosition, $this->borderPack);
-    $this->accountBalancePanel->setAmount($this->getGameScene()->party->gold);
+    $this->accountBalancePanel->setAmount($this->getGameScene()->party->accountBalance);
 
     $partyLocation = $this->getGameScene()->party->location;
     $locationDetailPosition = new Vector2($this->leftMargin, $this->topMargin + 31);

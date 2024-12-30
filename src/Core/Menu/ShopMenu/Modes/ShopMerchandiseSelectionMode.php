@@ -7,6 +7,7 @@ use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
+use Ichiloto\Engine\Util\Debug;
 
 /**
  * Represents the shop item selection mode.
@@ -62,7 +63,7 @@ class ShopMerchandiseSelectionMode extends ShopMenuMode
     if (Input::isButtonDown("confirm")) {
       if ($this->selectedItem) {
         $this->state->shop->sell($this->selectedItem, 1, $this->state->getGameScene()->party);
-        $this->state->accountBalancePanel->setBalance($this->party->gold);
+        $this->state->accountBalancePanel->setBalance($this->party->accountBalance);
         $this->state->mainPanel->setItems($this->state->merchandise);
         $this->updateItemsInPossession();
       } else {
@@ -130,10 +131,13 @@ class ShopMerchandiseSelectionMode extends ShopMenuMode
    */
   public function updateItemsInPossession(): void
   {
+    Debug::log(__METHOD__);
     if ($activeItem = $this->state->mainPanel->activeItem) {
+      Debug::log("Active item: " . $activeItem->name);
       $this->state->detailPanel->possession = 0;
 
-      if ($inventoryItem = $this->state->inventory->items->find(fn(InventoryItem $item) => $item->name === $activeItem->name) ) {
+      if ($inventoryItem = $this->state->inventory->all->find(fn(InventoryItem $item) => $item->name === $activeItem->name) ) {
+        Debug::log("Item found in inventory: " . $inventoryItem->name);
         $this->state->detailPanel->possession = $inventoryItem->quantity ?? 0;
       }
       $this->state->detailPanel->updateContent();

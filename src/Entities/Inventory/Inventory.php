@@ -126,7 +126,7 @@ class Inventory
    */
   public function addItems(InventoryItemInterface ...$items): void
   {
-    foreach ($items as $item) {
+    foreach ($items as $index => $item) {
       if ($this->inventoryItems->count() >= $this->capacity) {
         return;
       }
@@ -138,7 +138,7 @@ class Inventory
       /** @var InventoryItem $foundItem */
       if ($foundItem = array_find($this->inventoryItems->toArray(), fn(InventoryItem $entry) => $entry->name === $item->name)) {
         $foundItem->quantity += 1;
-        return;
+        continue;
       }
 
       $this->inventoryItems->add($item);

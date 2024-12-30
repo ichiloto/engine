@@ -11,7 +11,10 @@ use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
 use Ichiloto\Engine\Events\Enumerations\LootType;
 use Ichiloto\Engine\Events\Triggers\ChestEventTrigger;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\ItemStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use RuntimeException;
 
 /**
  * The ChestOpeningAction class. This class is responsible for opening a chest.
@@ -21,6 +24,11 @@ use Ichiloto\Engine\Util\Config\ProjectConfig;
 class ChestOpeningAction extends FieldAction
 {
   /**
+   * @var ItemStore The item store.
+   */
+  protected ItemStore $itemStore;
+
+  /**
    * ChestOpeningAction constructor.
    *
    * @param ChestEventTrigger $trigger The event trigger.
@@ -29,6 +37,11 @@ class ChestOpeningAction extends FieldAction
     protected ChestEventTrigger $trigger
   )
   {
+    $itemStore = ConfigStore::get(ItemStore::class);
+    if (! $itemStore instanceof ItemStore) {
+      throw new RuntimeException('Item store not found.');
+    }
+    $this->itemStore = $itemStore;
   }
 
   /**
@@ -49,34 +62,27 @@ class ChestOpeningAction extends FieldAction
 
     switch ($this->trigger->lootType) {
       case LootType::GOLD:
-        $message = config(ProjectConfig::class, 'messages.obtained_gold');
-        break;
-
-      case LootType::ITEM:
-        $loot = Item::fromObject($this->trigger->loot);
-        break;
-
-      case LootType::ACCESSORY:
-        $loot = Accessory::fromObject($this->trigger->loot);
-        break;
-
-      case LootType::ARMOR:
-        $loot = Armor::fromObject($this->trigger->loot);
-        break;
-
-      case LootType::WEAPON:
-        $loot = Weapon::fromObject($this->trigger->loot);
+        $amount = $this->trigger->quantity;
+        $symbol = config(ProjectConfig::class, 'vocab.currency.symbol', 'G');
+        $message = config(ProjectConfig::class, 'messages.obtained_gold', '%1%2 found!');
+        $message = str_replace('%1', $amount, $message);
+        $message = str_replace('%2', $symbol, $message);
+        $context->party->transact($amount);
         break;
 
       default:
+        $loot = $this->itemStore->get($this->trigger->loot);
+        $quantity = $this->trigger->quantity;
+        $lootNameText = new Text($loot->name);
+        $lootName = ($quantity > 1) ? $lootNameText->getPluralForm() : $lootNameText->getSingularForm();
+        $replacement = "{$quantity} {$lootName}";
+        $message = str_replace('%1', $replacement, $message);
+        for ($count = 0; $count < $quantity; $count++) {
+          $context->party->addItems($loot);
+        }
         break;
     }
 
-    $lootNameText = new Text($loot->name);
-    $lootName = ($loot->quantity > 1) ? $lootNameText->getPluralForm() : $lootNameText->getSingularForm();
-    $replacement = "{$loot->quantity} {$lootName}";
-    $message = str_replace('%1', $replacement, $message);
-    $context->party->addItems($loot);
     $this->trigger->complete();
     $context->player->availableAction = null;
     alert($message);

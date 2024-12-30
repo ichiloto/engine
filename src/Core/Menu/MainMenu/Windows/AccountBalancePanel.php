@@ -61,7 +61,7 @@ class AccountBalancePanel extends Window
   public function setAmount(int $amount): void
   {
     $symbol = config(ProjectConfig::class, 'vocab.currency.symbol', 'G');
-    $paddedAmount = sprintf("%{$this->contentWidth}s", "$symbol $amount");
+    $paddedAmount = sprintf("%{$this->contentWidth}s", "{$amount} {$symbol}");
     $this->setContent([$paddedAmount]);
     $this->render();
   }

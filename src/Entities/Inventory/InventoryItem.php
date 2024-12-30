@@ -37,13 +37,24 @@ abstract class InventoryItem implements InventoryItemInterface
    * @param string $icon The icon of the item.
    * @param int $price The price of the item.
    * @param int $quantity The quantity of the item.
+   * @param ItemUserType $userType The user type of the item.
+   * @param bool $isKeyItem Whether the item is a key item.
+   * @param bool $consumable Whether the item is consumable.
+   * @param int $maxQuantity The maximum quantity of the item. Defaults to 99.
    */
   public function __construct(
     protected(set) string $name,
     protected(set) string $description,
     protected(set) string $icon,
     public int $price,
-    public int $quantity = 1,
+    public int $quantity = 1 {
+      get {
+        return $this->quantity;
+      }
+      set {
+        $this->quantity = clamp($value, 0, $this->maxQuantity ?? self::MAX_QUANTITY);
+      }
+    },
     protected(set) ItemUserType $userType = ItemUserType::ALL,
     protected(set) bool $isKeyItem = false,
     protected(set) bool $consumable = false,

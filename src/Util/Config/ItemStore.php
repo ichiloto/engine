@@ -3,7 +3,11 @@
 namespace Ichiloto\Engine\Util\Config;
 
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
+use Ichiloto\Engine\Exceptions\RequiredFieldException;
+use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
+use PSpell\Config;
+use RuntimeException;
 
 /**
  * Represents a configuration store for items.
@@ -62,5 +66,39 @@ class ItemStore implements ConfigInterface
   public function persist(): void
   {
     // Do nothing
+  }
+
+  /**
+   * Loads the data.
+   *
+   * @param array<array{item: string, quantity: int}> $data The data to load.
+   * @return InventoryItem[] The items.
+   */
+  public function load(array $data): array
+  {
+    $items = [];
+    $itemStore = ConfigStore::get(ItemStore::class);
+
+    if (! $itemStore instanceof ItemStore) {
+      throw new RuntimeException('Item store not found.');
+    }
+
+    foreach ($data as $datum) {
+      $itemName = $datum['item'] ?? throw new RequiredFieldException('item');
+      $itemPrice = $datum['price'] ?? null;
+      $itemQuantity = $datum['quantity'] ?? 1;
+
+      /** @var InventoryItem $item */
+      if ($item = $itemStore->get($itemName)) {
+        if (! is_null($itemPrice)) {
+          $item->price = $itemPrice;
+        }
+        for ($count = 0; $count < $itemQuantity; $count++) {
+          $items[] = $item;
+        }
+      }
+    }
+
+    return $items;
   }
 }

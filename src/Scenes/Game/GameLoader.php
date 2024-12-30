@@ -10,6 +10,8 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\PartyLocation;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\ItemStore;
 use RuntimeException;
 
 /**
@@ -24,6 +26,10 @@ class GameLoader
    * @var GameLoader|null
    */
   protected static ?GameLoader $instance = null;
+  /**
+   * @var ItemStore The item store.
+   */
+  protected ItemStore $itemStore;
 
   /**
    * GameLoader constructor.
@@ -32,6 +38,12 @@ class GameLoader
    */
   private function __construct(protected Game $game)
   {
+    $itemStore = ConfigStore::get(ItemStore::class);
+
+    if (! $itemStore instanceof ItemStore) {
+      throw new RuntimeException('Item store not found.');
+    }
+    $this->itemStore = $itemStore;
   }
 
   /**
@@ -57,16 +69,24 @@ class GameLoader
   public function loadNewGame(): GameConfig
   {
     $systemData = asset('Data/system.php', true) ?? throw new RuntimeException('System data not found.');
-    assert(is_array($systemData));
+    if (!is_array($systemData)) {
+      throw new RuntimeException('System data is not an array.');
+    }
     $systemData = SystemData::fromArray($systemData);
     $startingParty = [];
 
     foreach ($systemData->startingParty as $member) {
       $characterData = asset("Data/Actors/$member.php", true);
-      assert(is_array($characterData));
+      if (! is_array($characterData) ) {
+        throw new RuntimeException("Character data for $member is not an array.");
+      }
       $startingParty[] = $characterData['data'];
     }
     $party = Party::fromArray($startingParty);
+    if ($systemData->currency->amount) {
+      $party->accountBalance = $systemData->currency->amount;
+    }
+    $party->inventory->addItems(...$this->itemStore->load($systemData->startingInventory));
 
     $playerPosition = new Vector2($systemData->startingPositions->player->spawnPoint->x, $systemData->startingPositions->player->spawnPoint->y);
     return new GameConfig(
@@ -98,13 +118,19 @@ class GameLoader
     // Load game data from a saved file
     $systemData = new SystemData(
       'Last Legend',
-      (object)['name' => 'Gold', 'symbol' => 'G'],
+      (object)['name' => 'Gold', 'symbol' => 'G', 'amount' => 1000],
       ['hero'],
-      [],
+      [
+        ['item' => 'S-Potion', 'quantity' => 5],
+        ['item' => 'M-Potion', 'quantity' => 3],
+      ],
       (object)['player' => (object)['destinationMap' => 'happyville/home', 'spawnPoint' => (object)['x' => 4, 'y' => 5], 'spawnSprite' => ['v']]],
     );
 
     $party = new Party();
+    if ($systemData->currency->amount) {
+      $party->accountBalance = $systemData->currency->amount;
+    }
     $party->location = new PartyLocation();
     $playerPosition = new Vector2(
       $systemData->startingPositions->player->spawnPoint->x,

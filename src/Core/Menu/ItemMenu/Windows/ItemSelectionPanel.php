@@ -166,7 +166,7 @@ class ItemSelectionPanel extends Window implements CanFocus
 
     foreach ($this->items as $index => $item) {
       $prefix = $index === $this->activeIndex ? '>' : ' ';
-      $content[$index] = sprintf(" %s %-32s:%2d", $prefix, $item->name, $item->quantity);
+      $content[$index] = sprintf(" %s %-60s %2d", $prefix, $item->name, $item->quantity);
     }
 
     $this->setContent($content);

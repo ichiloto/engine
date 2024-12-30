@@ -39,7 +39,7 @@ class ChestEventTrigger extends EventTrigger
     $this->isReusable = $this->data->reusable ?? false;
     $this->chestType = ChestType::tryFrom($this->data->chestType ?? '') ?? ChestType::COMMON;
     $this->lootType = LootType::tryFrom($this->data->lootType ?? '') ?? LootType::ITEM;
-    $this->loot = $this->data->loot ?? [];
+    $this->loot = $this->data->loot ?? '';
     $this->quantity = $this->data->quantity ?? 1;
   }
 

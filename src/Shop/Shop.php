@@ -46,7 +46,7 @@ class Shop
   {
     $totalCost = $item->price * $quantity;
 
-    if ($trader->gold < $totalCost) {
+    if ($trader->accountBalance < $totalCost) {
       alert('Not enough ' . config(ProjectConfig::class, 'vocab.currency.name', 'Gold') . '!');
       return;
     }

@@ -39,7 +39,8 @@ class SelectItemTargetMode extends ItemMenuMode
           $this->inventory->removeItems($item);
           $this->state->selectionPanel->setItems($this->inventory->items->toArray());
         }
-        $this->goBackToThePreviousMode();
+        $this->state->statusPanel->updateContent();
+        $this->state->selectionPanel->updateContent();
       }
     }
 

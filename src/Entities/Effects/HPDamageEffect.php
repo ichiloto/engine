@@ -2,16 +2,16 @@
 
 namespace Ichiloto\Engine\Entities\Effects;
 
+use Ichiloto\Engine\Entities\Effects\BaseEffect;
 use Ichiloto\Engine\Entities\Enumerations\ValueBasis;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface as EffectTarget;
-use Ichiloto\Engine\Util\Debug;
 
 /**
- * The HP recovery effect class.
+ * Represents the HP damage effect.
  *
  * @package Ichiloto\Engine\Entities\Effects
  */
-class HPRecoveryEffect extends BaseEffect
+class HPDamageEffect extends BaseEffect
 {
   /**
    * @inheritDoc
@@ -24,11 +24,11 @@ class HPRecoveryEffect extends BaseEffect
 
     if ($this->valueBasis === ValueBasis::PERCENTAGE) {
       $percentage = $this->value / 100;
-      $target->stats->currentHp += $target->stats->totalHp * $percentage;
+      $target->stats->currentHp -= $target->stats->totalHp * $percentage;
     }
 
     if ($this->valueBasis === ValueBasis::ACTUAL) {
-      $target->stats->currentHp += $this->value;
+      $target->stats->currentHp -= $this->value;
     }
   }
 }
