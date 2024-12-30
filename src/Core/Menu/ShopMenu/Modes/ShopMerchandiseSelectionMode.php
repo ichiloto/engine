@@ -1,4 +1,4 @@
-<?php
+<?php /** @noinspection DuplicatedCode */
 
 namespace Ichiloto\Engine\Core\Menu\ShopMenu\Modes;
 
@@ -53,6 +53,7 @@ class ShopMerchandiseSelectionMode extends ShopMenuMode
         $this->selectPreviousItem();
       }
 
+      $this->state->infoPanel->setText($this->selectedItem->description);
       $this->updateItemsInPossession();
     }
 
@@ -62,10 +63,11 @@ class ShopMerchandiseSelectionMode extends ShopMenuMode
 
     if (Input::isButtonDown("confirm")) {
       if ($this->selectedItem) {
-        $this->state->shop->sell($this->selectedItem, 1, $this->state->getGameScene()->party);
-        $this->state->accountBalancePanel->setBalance($this->party->accountBalance);
-        $this->state->mainPanel->setItems($this->state->merchandise);
-        $this->updateItemsInPossession();
+        $purchaseConfirmationMode = new PurchaseConfirmationMode($this->state);
+        $purchaseConfirmationMode->previousMode = $this;
+        $purchaseConfirmationMode->item = $this->selectedItem;
+
+        $this->state->setMode($purchaseConfirmationMode);
       } else {
         alert("No items.");
         $this->navigateToPreviousMode();
