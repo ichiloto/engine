@@ -131,13 +131,10 @@ class ShopMerchandiseSelectionMode extends ShopMenuMode
    */
   public function updateItemsInPossession(): void
   {
-    Debug::log(__METHOD__);
     if ($activeItem = $this->state->mainPanel->activeItem) {
-      Debug::log("Active item: " . $activeItem->name);
       $this->state->detailPanel->possession = 0;
 
       if ($inventoryItem = $this->state->inventory->all->find(fn(InventoryItem $item) => $item->name === $activeItem->name) ) {
-        Debug::log("Item found in inventory: " . $inventoryItem->name);
         $this->state->detailPanel->possession = $inventoryItem->quantity ?? 0;
       }
       $this->state->detailPanel->updateContent();

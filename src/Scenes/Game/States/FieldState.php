@@ -15,6 +15,7 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Util\Debug;
 
 /**
  * This state serves as the backbone of the game, managing the player's exploration experience.
@@ -123,6 +124,10 @@ class FieldState extends GameSceneState
 
     if (Input::isButtonDown("action")) {
       $scene->player->interact();
+    }
+
+    if (Input::isAnyKeyPressed([KeyCode::C, KeyCode::c])) {
+      Debug::log("Selected choice: " . select("Choose an option", ["Option 1", "Option 2", "Option 3"]));
     }
 
     if (Input::isButtonDown("notify")) {

@@ -19,6 +19,7 @@ use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\UI\Interfaces\ModalInterface;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
+use Ichiloto\Engine\Util\Debug;
 use Symfony\Component\Console\Output\ConsoleOutput;
 use Symfony\Component\Console\Output\OutputInterface;
 
@@ -114,6 +115,14 @@ class SelectModal implements ModalInterface
    * @var OutputInterface $output The output.
    */
   protected OutputInterface $output;
+  /**
+   * @var string[] $messageLines The message lines.
+   */
+  protected array $messageLines = [];
+  /**
+   * @var int $messageContentHeight The message content height.
+   */
+  protected int $messageContentHeight = 0;
 
   /**
    * Constructs a new instance of SelectModal.
@@ -143,6 +152,8 @@ class SelectModal implements ModalInterface
     $this->title = $title;
     $this->setHelp($help);
     $this->output = new ConsoleOutput();
+    $this->messageLines = explode("\n", $this->message);
+    $this->messageContentHeight = count($this->messageLines);
   }
 
   /**
@@ -185,6 +196,7 @@ class SelectModal implements ModalInterface
       } else {
         $this->activeOptionIndex = wrap($this->activeOptionIndex - 1, 0, $this->totalOptions - 1);
       }
+      $this->render();
     }
 
     if (Input::isButtonDown("confirm")) {
@@ -202,6 +214,9 @@ class SelectModal implements ModalInterface
    */
   protected function getOptionsHeight(): int
   {
+    if ($this->message) {
+      return $this->messageContentHeight + $this->totalOptions + 1;
+    }
     return $this->totalOptions;
   }
 
@@ -216,7 +231,7 @@ class SelectModal implements ModalInterface
     $this->erase($leftMargin, $topMargin);
     $this->renderTopBorder($leftMargin, $topMargin);
     $this->renderOptions($leftMargin, $topMargin + 1);
-    $this->renderBottomBorder($leftMargin, $topMargin + $this->getModalHeight() - 1);
+    $this->renderBottomBorder($leftMargin, $topMargin + $this->getModalHeight());
   }
 
   /**
@@ -239,6 +254,7 @@ class SelectModal implements ModalInterface
   public function show(): void
   {
     $this->isShowing = true;
+    $this->render();
     $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::SHOW, true));
   }
 
@@ -264,7 +280,6 @@ class SelectModal implements ModalInterface
     while ($this->isShowing) {
       $this->handleInput();
       $this->update();
-      $this->render();
 
       usleep($sleepTime);
     }
@@ -412,24 +427,45 @@ class SelectModal implements ModalInterface
   protected function renderOptions(int $x, int $y): void
   {
     $topMargin = $y;
+    $vSpacingSize = 0;
     $spacing = $this->rect->getWidth() - 5;
+    $lineSize = $this->rect->size->width - 3;
+    $blankLine = sprintf(
+      "%s %-{$lineSize}s%s",
+      $this->borderPack->getVerticalBorder(),
+      '',
+      $this->borderPack->getVerticalBorder()
+    );
 
     if ($this->message) {
-      // TODO: Render the message above the options and separate them with a line.
+      foreach ($this->messageLines as $lineIndex => $line) {
+        $output = $this->borderPack->getVerticalBorder();
+        $output .= sprintf(" %-{$lineSize}s", $line);
+        $output .= $this->borderPack->getVerticalBorder();
+        Console::cursor()->moveTo($x, $y + $lineIndex);
+        $this->output->write($output);
+      }
+      $vSpacingSize = 1;
+      Console::cursor()->moveTo($x, $y + $this->messageContentHeight);
+      $this->output->write($blankLine);
     }
 
     foreach ($this->options as $optionIndex => $option) {
       $output = $this->borderPack->getVerticalBorder();
-      $content = sprintf(" %s %-{$spacing}s", $optionIndex === $this->activeOptionIndex ? '>' : ' ', $option);
+      $prefix = $optionIndex === $this->activeOptionIndex ? '>' : ' ';
+      $content = sprintf(" %s %-{$spacing}s", $prefix, $option);
 
       if ($optionIndex === $this->activeOptionIndex) {
         $content = Color::apply($content, Color::LIGHT_BLUE);
       }
       $output .= $content;
       $output .= $this->borderPack->getVerticalBorder();
-      Console::cursor()->moveTo($x, $y + $optionIndex);
+      Console::cursor()->moveTo($x, $y + $this->messageContentHeight + $vSpacingSize + $optionIndex);
       $this->output->write($output);
     }
+
+    Console::cursor()->moveTo($x, $y + $this->messageContentHeight + $vSpacingSize + $this->totalOptions);
+    $this->output->write($blankLine);
   }
 
   /**
