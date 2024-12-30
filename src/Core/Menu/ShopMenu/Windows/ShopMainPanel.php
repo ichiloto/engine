@@ -47,6 +47,12 @@ class ShopMainPanel extends Window
     }
   }
 
+  public int $contentHeight {
+    get {
+      return $this->height - 2;
+    }
+  }
+
   /**
    * Create a new instance of the shop main panel.
    *
@@ -98,7 +104,7 @@ class ShopMainPanel extends Window
       $content[] = sprintf(" %s %-36s %10s", $prefix, $item->name, "{$item->price} {$symbol}");
     }
 
-    $content = array_pad($content, $this->height - 2, '');
+    $content = array_pad($content, $this->contentHeight, '');
     $this->setContent($content);
     $this->render();
   }

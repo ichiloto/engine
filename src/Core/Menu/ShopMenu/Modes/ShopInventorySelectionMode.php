@@ -1,4 +1,4 @@
-<?php
+<?php /** @noinspection DuplicatedCode */
 
 namespace Ichiloto\Engine\Core\Menu\ShopMenu\Modes;
 
@@ -7,7 +7,6 @@ use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
-use Ichiloto\Engine\Util\Debug;
 
 /**
  * Represents the shop inventory selection mode.
@@ -29,6 +28,9 @@ class ShopInventorySelectionMode extends ShopMenuMode
       return $this->state->inventory->items->count();
     }
   }
+  /**
+   * @var InventoryItem|null The selected item.
+   */
   public ?InventoryItem $selectedItem {
     get {
       return $this->state->inventory->items->toArray()[$this->state->mainPanel->activeItemIndex] ?? null;
@@ -58,6 +60,7 @@ class ShopInventorySelectionMode extends ShopMenuMode
         $this->selectPreviousItem();
       }
 
+      $this->state->infoPanel->setText($this->selectedItem->description);
       $this->updateItemsInPossession();
     }
     if (Input::isButtonDown("back")) {
@@ -66,13 +69,11 @@ class ShopInventorySelectionMode extends ShopMenuMode
 
     if (Input::isButtonDown("confirm")) {
       if ($this->selectedItem) {
-        $this->state->shop->buy($this->selectedItem, 1, $this->party);
-        $this->state->accountBalancePanel->setBalance($this->party->accountBalance);
-        $this->state->mainPanel->setItems($this->state->inventory->all->toArray());
-        while ($this->state->mainPanel->activeItemIndex > $this->totalInventory - 1) {
-          $this->state->mainPanel->selectPrevious();
-        }
-        $this->updateItemsInPossession();
+        $purchaseConfirmationMode = new PurchaseConfirmationMode($this->state);
+        $purchaseConfirmationMode->previousMode = $this;
+        $purchaseConfirmationMode->item = $this->selectedItem;
+
+        $this->state->setMode($purchaseConfirmationMode);
       } else {
         alert("No items.");
         $this->navigateToPreviousMode();
@@ -87,6 +88,7 @@ class ShopInventorySelectionMode extends ShopMenuMode
   {
     $this->state->mainPanel->setItems($this->state->inventory->all->toArray());
     $this->updateItemsInPossession();
+    $this->state->infoPanel->setText($this->selectedItem->description);
   }
 
   /**
