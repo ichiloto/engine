@@ -20,8 +20,13 @@ class SkillInvocation
   public function __construct(
     public string $message = '$1 casts $2!',
     public int $speed = 0,
-    public int $accuracy = 0,
+    public int $accuracy = 0 {
+      set {
+        $this->accuracy = clamp($value, 0, 100);
+      }
+    },
     public int $repeat = 1,
+    public int $apGain = 10,
   )
   {
   }

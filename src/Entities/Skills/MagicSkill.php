@@ -7,7 +7,6 @@ use Ichiloto\Engine\Entities\Skills\Skill;
 
 class MagicSkill extends Skill
 {
-
   /**
    * @inheritDoc
    */

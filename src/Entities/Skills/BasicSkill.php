@@ -12,7 +12,6 @@ use Ichiloto\Engine\Entities\Skills\Skill;
  */
 class BasicSkill extends Skill
 {
-
   /**
    * @inheritDoc
    */
