@@ -92,7 +92,7 @@ class Character implements CharacterInterface
    * @param Stats $stats The character's stats.
    * @param CharacterSprites $images The character's images.
    * @param string $nickname The character's nickname.
-   * @param object $job The character's job.
+   * @param object $vocation The character's job.
    * @param int $maxLevel The character's maximum level.
    * @param string $bio The character's biography.
    * @param string $note The character's note.
@@ -112,7 +112,7 @@ class Character implements CharacterInterface
     protected(set) Stats $stats,
     protected(set) CharacterSprites $images = new CharacterSprites(),
     protected(set) string $nickname = '',
-    public object $job = new \stdClass(),
+    public CharacterVocation $vocation = new CharacterVocation('Warrior'),
     protected(set) int $maxLevel = self::DEFAULT_MAX_LEVEL,
     protected(set) string $bio = '',
     protected(set) string $note = '',
@@ -389,7 +389,7 @@ class Character implements CharacterInterface
       'stats' => $this->stats,
       'images' => $this->images,
       'nickname' => $this->nickname,
-      'job' => $this->job,
+      'vocation' => $this->vocation,
       'maxLevel' => $this->maxLevel,
       'bio' => $this->bio,
       'note' => $this->note,

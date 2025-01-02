@@ -48,7 +48,7 @@ class ShopAccountBalancePanel extends Window
     $span = $this->width - 4;
     $symbol = config(ProjectConfig::class, 'vocab.currency.symbol', 'G');
     $content = [
-      sprintf("%{$span}s", "{$newBalance} {$symbol}")
+      sprintf("%{$span}s", number_format($newBalance) . " {$symbol}")
     ];
     $this->setContent($content);
     $this->render();

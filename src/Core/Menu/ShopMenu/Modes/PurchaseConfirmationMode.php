@@ -30,8 +30,7 @@ class PurchaseConfirmationMode extends ShopMenuMode
     }
 
     set {
-      $max = $this->maxQuantity - $this->state->detailPanel->possession;
-      $this->quantity = clamp($value, 1, $max);
+      $this->quantity = clamp($value, 1, $this->maxQuantity);
     }
   }
   /**
@@ -59,6 +58,27 @@ class PurchaseConfirmationMode extends ShopMenuMode
   protected Party $party {
     get {
       return $this->state->getGameScene()->party;
+    }
+  }
+  protected int $totalItemsUserCanBuy {
+    get {
+      return $this->maxQuantity - $this->state->detailPanel->possession;
+    }
+  }
+  /**
+   * @var bool True if the user is buying an item from the shop; otherwise, false.
+   */
+  protected bool $isUserPurchase {
+    get {
+      return $this->previousMode instanceof ShopMerchandiseSelectionMode;
+    }
+  }
+  /**
+   * @var bool True if the shop is buying an item from the user; otherwise, false.
+   */
+  protected bool $isShopPurchase {
+    get {
+      return $this->previousMode instanceof ShopInventorySelectionMode;
     }
   }
 
@@ -145,13 +165,23 @@ class PurchaseConfirmationMode extends ShopMenuMode
    */
   protected function increaseQuantity(int $amount = 1): void
   {
-    $futureQuantity = $this->quantity + $amount;
+    $newQuantity = $this->quantity + $amount;
+    $newPriceTotal = $newQuantity * $this->item->price;
 
-    if (
-      $this->previousMode instanceof ShopMerchandiseSelectionMode &&
-      $futureQuantity * $this->item->price > $this->party->accountBalance
-    ) {
-      return;
+    if ($this->isUserPurchase) {
+      if ($newPriceTotal > $this->party->accountBalance) {
+        return;
+      }
+
+      if ($newQuantity > $this->totalItemsUserCanBuy) {
+        return;
+      }
+    }
+
+    if ($this->isShopPurchase) {
+      if ($newQuantity > $this->state->detailPanel->possession) {
+        return;
+      }
     }
 
     $this->quantity += $amount;
@@ -195,14 +225,15 @@ class PurchaseConfirmationMode extends ShopMenuMode
    */
   public function completeCheckout(): void
   {
-    if ($this->previousMode instanceof ShopMerchandiseSelectionMode) {
+    if ($this->isUserPurchase) {
       $this->state->shop->sell($this->item, $this->quantity, $this->party);
       $this->state->accountBalancePanel->setBalance($this->party->accountBalance);
       $this->state->mainPanel->setItems($this->state->merchandise);
+      assert($this->previousMode instanceof ShopMerchandiseSelectionMode);
       $this->previousMode->updateItemsInPossession();
     }
 
-    if ($this->previousMode instanceof ShopInventorySelectionMode) {
+    if ($this->isShopPurchase) {
       $this->state->shop->buy($this->item, $this->quantity, $this->party);
       $this->state->accountBalancePanel->setBalance($this->party->accountBalance);
       $this->state->mainPanel->setItems($this->state->inventory->all->toArray());
