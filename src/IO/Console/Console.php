@@ -8,6 +8,7 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\UI\Modal\ModalManager;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
 use RuntimeException;
+use Symfony\Component\Console\Output\ConsoleOutput;
 
 class Console
 {
@@ -31,6 +32,7 @@ class Console
    * @var int $height The height of the console.
    */
   private static int $height = DEFAULT_SCREEN_WIDTH;
+  private static ?ConsoleOutput $output = null;
 
   /**
    * Console constructor.
@@ -56,6 +58,7 @@ class Console
     Console::cursor()->disableBlinking();
     self::$width = $options['width'];
     self::$height = $options['height'];
+    self::$output = new ConsoleOutput();
   }
 
   /**
@@ -212,7 +215,11 @@ class Console
     }
 
     $cursor->moveTo(0, $y + 1);
-    echo $output;
+    if (self::$output) {
+      self::$output->write($output);
+    } else {
+      echo $output;
+    }
   }
 
   /**
