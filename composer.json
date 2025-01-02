@@ -8,7 +8,8 @@
         "league/climate": "^3.9",
         "assegaiphp/collections": "^0.3.2",
         "amasiye/figlet": "^1.2",
-        "assegaiphp/util": "^0.4.3"
+        "assegaiphp/util": "^0.4.3",
+        "voku/portable-ascii": "^2.0"
     },
     "require-dev": {
         "phpstan/phpstan": "^2.0",

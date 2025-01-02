@@ -17,6 +17,7 @@ use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
+use voku\helper\ASCII;
 
 /**
  * The MapManager class is responsible for managing the map.
@@ -326,7 +327,8 @@ class MapManager implements CanRenderAt
       $collisionRow = [];
 
       foreach (mb_str_split($row) as $tile) {
-        $collisionRow[] = $dictionary[$tile]->value ?? CollisionType::SOLID->value;
+        $cleanedTile = ASCII::to_ascii($tile);
+        $collisionRow[] = $dictionary[$cleanedTile]->value ?? CollisionType::SOLID->value;
       }
 
       $collisionMap[] = $collisionRow;
