@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Entities;
 
+use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
 use JsonSerializable;
@@ -318,10 +319,10 @@ class Stats implements JsonSerializable
 
   /**
    *
-   * @param Character $character
+   * @param CharacterInterface $character
    * @return $this
    */
-  public function getEffectiveStats(Character $character): Stats
+  public function getEffectiveStats(CharacterInterface $character): Stats
   {
     $effectiveStats = clone $this;
 
