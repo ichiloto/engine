@@ -25,7 +25,7 @@ class ShopInventorySelectionMode extends ShopMenuMode
    */
   public int $totalInventory {
     get {
-      return $this->state->inventory->items->count();
+      return $this->state->inventory->all->count();
     }
   }
   /**
@@ -33,7 +33,7 @@ class ShopInventorySelectionMode extends ShopMenuMode
    */
   public ?InventoryItem $selectedItem {
     get {
-      return $this->state->inventory->items->toArray()[$this->state->mainPanel->activeItemIndex] ?? null;
+      return $this->state->inventory->all->toArray()[$this->state->mainPanel->activeItemIndex] ?? null;
     }
   }
   /**
@@ -60,7 +60,7 @@ class ShopInventorySelectionMode extends ShopMenuMode
         $this->selectPreviousItem();
       }
 
-      $this->state->infoPanel->setText($this->selectedItem->description);
+      $this->state->infoPanel->setText($this->selectedItem?->description ?? '');
       $this->updateItemsInPossession();
     }
     if (Input::isButtonDown("back")) {
@@ -87,6 +87,7 @@ class ShopInventorySelectionMode extends ShopMenuMode
   public function enter(): void
   {
     $this->state->mainPanel->setItems($this->state->inventory->all->toArray());
+    $this->state->mainPanel->activeItemIndex = 0;
     $this->updateItemsInPossession();
     $this->state->infoPanel->setText($this->selectedItem->description);
   }
