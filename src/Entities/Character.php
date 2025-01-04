@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Entities;
 
 use Exception;
+use Ichiloto\Engine\Entities\Interfaces\CanEquip;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Inventory\Accessory;
 use Ichiloto\Engine\Entities\Inventory\Armor;
@@ -18,7 +19,7 @@ use InvalidArgumentException;
  *
  * @package Ichiloto\Engine\Entities
  */
-class Character implements CharacterInterface
+class Character implements CharacterInterface, CanEquip
 {
   /**
    * The maximum level.
@@ -92,7 +93,7 @@ class Character implements CharacterInterface
    * @param Stats $stats The character's stats.
    * @param CharacterSprites $images The character's images.
    * @param string $nickname The character's nickname.
-   * @param object $vocation The character's job.
+   * @param CharacterVocation $vocation The character's job.
    * @param int $maxLevel The character's maximum level.
    * @param string $bio The character's biography.
    * @param string $note The character's note.
