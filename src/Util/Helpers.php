@@ -340,11 +340,12 @@ if (! function_exists('graphics') ) {
    * Opens a graphics resource file
    *
    * @param string $path The path of the graphics resource file.
-   * @return string
+   * @param bool $asArray Whether to return the content as an array or not.
+   * @return array|string The content of the graphics resource file.
    */
-  function graphics(string $path): string
+  function graphics(string $path, bool $asArray = true): array|string
   {
-    return asset("Graphics/$path.txt");
+    return asset("Graphics/$path.txt", $asArray);
   }
 }
 

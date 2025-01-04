@@ -4,12 +4,14 @@ namespace Ichiloto\Engine\Entities;
 
 use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Entities\Interfaces\GroupInterface;
-use Ichiloto\Engine\Entities\Character as Battler;
+use Ichiloto\Engine\Entities\Interfaces\CharacterInterface as Battler;
 
 /**
  * Class BattleGroup. Represents a group of battlers in a battle.
  *
  * @package Ichiloto\Engine\Entities
+ * @template T
+ * @implements GroupInterface<T>
  */
 abstract class BattleGroup implements GroupInterface
 {

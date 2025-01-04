@@ -5,6 +5,12 @@ namespace Ichiloto\Engine\Entities\Interfaces;
 use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Entities\Character;
 
+/**
+ * Represents a group of characters.
+ *
+ * @package Ichiloto\Engine\Entities\Interfaces
+ * @template T of CharacterInterface
+ */
 interface GroupInterface
 {
   /**
