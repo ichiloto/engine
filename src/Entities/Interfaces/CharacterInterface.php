@@ -11,7 +11,7 @@ use Serializable;
  *
  * @package Ichiloto\Engine\Entities\Interfaces
  */
-interface CharacterInterface extends CanEquip, CanUseItem, JsonSerializable, Serializable
+interface CharacterInterface extends CanUseItem, JsonSerializable, Serializable
 {
   /**
    * @var string $name The character's name.

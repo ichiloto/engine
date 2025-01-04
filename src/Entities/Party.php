@@ -9,6 +9,7 @@ use Ichiloto\Engine\Entities\Inventory\Inventory;
  * Class Party. Represents a party of characters in a battle.
  *
  * @package Ichiloto\Engine\Entities
+ * @extends BattleGroup<Character>
  */
 class Party extends BattleGroup
 {
