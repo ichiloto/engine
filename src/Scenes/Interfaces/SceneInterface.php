@@ -23,9 +23,8 @@ interface SceneInterface extends CanStart, CanResume, CanUpdate, CanRender
    *
    * @var Camera
    */
-  protected(set) Camera $camera {
+  public Camera $camera {
     get;
-    set;
   }
 
   /**

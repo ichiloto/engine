@@ -11,6 +11,7 @@ use Ichiloto\Engine\Field\Location;
 use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Field\Player;
 use Ichiloto\Engine\Scenes\AbstractScene;
+use Ichiloto\Engine\Scenes\Battle\BattleLoader;
 use Ichiloto\Engine\Scenes\Game\States\CutsceneState;
 use Ichiloto\Engine\Scenes\Game\States\DialogueState;
 use Ichiloto\Engine\Scenes\Game\States\EquipmentMenuState;
@@ -21,6 +22,7 @@ use Ichiloto\Engine\Scenes\Game\States\MainMenuState;
 use Ichiloto\Engine\Scenes\Game\States\MapState;
 use Ichiloto\Engine\Scenes\Game\States\OverworldState;
 use Ichiloto\Engine\Scenes\Game\States\ShopState;
+use Ichiloto\Engine\Scenes\Interfaces\SceneConfigurationInterface;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\LocationHUDWindow;
 use Ichiloto\Engine\Util\Debug;
@@ -92,7 +94,11 @@ class GameScene extends AbstractScene
   /**
    * @var LocationHUDWindow|null The location HUD window.
    */
-  protected(set) ?LocationHUDWindow $locationHUDWindow;
+  public ?LocationHUDWindow $locationHUDWindow {
+    get {
+      return $this->uiManager->locationHUDWindow;
+    }
+  }
   /**
    * @var Party|null The party.
    */
@@ -120,13 +126,17 @@ class GameScene extends AbstractScene
    * @throws IchilotoException
    * @throws NotFoundException If the map is not found.
    */
-  public function configure(GameConfig $config): void
+  public function configure(SceneConfigurationInterface $config): void
   {
+    if (! $config instanceof GameConfig) {
+      throw new IchilotoException('Invalid configuration.');
+    }
+
     $this->mapManager = MapManager::getInstance($this->getGame(), $this);
 
     $this->initializeGameSceneStates();
 
-    $this->locationHUDWindow = new LocationHUDWindow(new Vector2(0, 0), MovementHeading::NONE);
+    $this->uiManager->locationHUDWindow = new LocationHUDWindow(new Vector2(0, 0), MovementHeading::NONE);
     $this->uiManager->uiElements->add($this->locationHUDWindow);
 
     $this->config = $config;

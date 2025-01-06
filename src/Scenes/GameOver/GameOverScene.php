@@ -46,7 +46,7 @@ class GameOverScene extends AbstractScene
     $menuHeight = 3;
 
     parent::start();
-    $this->headerContent = graphics('System/game-over');
+    $this->headerContent = graphics('System/game-over', false);
     $this->headerLines = explode("\n", $this->headerContent);
     $this->headerHeight = count($this->headerLines);
 
