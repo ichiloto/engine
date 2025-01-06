@@ -6,15 +6,14 @@ use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Party;
-use Serializable;
-use Stringable;
+use Ichiloto\Engine\Scenes\Interfaces\SceneConfigurationInterface;
 
 /**
  * Class GameConfig. Represents the configuration of a game.
  *
  * @package Ichiloto\Engine\Scenes\Game
  */
-class GameConfig implements Stringable, Serializable
+class GameConfig implements SceneConfigurationInterface
 {
   /**
    * GameConfig constructor.
@@ -112,5 +111,13 @@ class GameConfig implements Stringable, Serializable
     foreach ($data as $key => $value) {
       $this->$key = $value;
     }
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function jsonSerialize(): array
+  {
+    return $this->getData();
   }
 }

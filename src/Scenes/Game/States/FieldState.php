@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Scenes\Game\States;
 
 use Exception;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\IO\Console\Console;
@@ -11,6 +12,7 @@ use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
+use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
@@ -141,6 +143,11 @@ class FieldState extends GameSceneState
 
     if (Input::isAnyKeyPressed([KeyCode::G, KeyCode::g])) {
       $scene->sceneManager->loadGameOverScene();
+    }
+
+    if (Input::isAnyKeyPressed([KeyCode::B, KeyCode::b])) {
+      $battleEvents = [];
+      $this->getGameScene()->sceneManager->loadBattleScene($this->getGameScene()->party, new Troop(), $battleEvents);
     }
 
     if (Input::isAnyKeyPressed([KeyCode::M, KeyCode::m])) {

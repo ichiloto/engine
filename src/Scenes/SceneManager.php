@@ -4,15 +4,23 @@ namespace Ichiloto\Engine\Scenes;
 
 use Assegai\Collections\ItemList;
 use Exception;
+use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\TraditionalTurnBasedBattleEngine;
+use Ichiloto\Engine\Battle\Interfaces\BattleEngineInterface;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Core\Interfaces\CanStart;
 use Ichiloto\Engine\Core\Interfaces\CanUpdate;
+use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\Events\Enumerations\SceneEventType;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\SceneEvent;
+use Ichiloto\Engine\Exceptions\IchilotoException;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\IO\SaveManager;
+use Ichiloto\Engine\Scenes\Battle\BattleConfig;
+use Ichiloto\Engine\Scenes\Battle\BattleLoader;
+use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\Scenes\GameOver\GameOverScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 
@@ -50,6 +58,10 @@ class SceneManager implements CanStart, CanRender, CanUpdate
       return $this->currentScene;
     }
   }
+  /**
+   * @var BattleLoader The battle loader.
+   */
+  protected(set) BattleLoader $battleLoader;
 
   /**
    * SceneManager constructor.
@@ -63,6 +75,7 @@ class SceneManager implements CanStart, CanRender, CanUpdate
     $this->scenes = new ItemList(SceneInterface::class);
     $this->eventManager = EventManager::getInstance($this->game);
     $this->saveManager = SaveManager::getInstance($this->game);
+    $this->battleLoader = BattleLoader::getInstance($this->game);
   }
 
   /**
@@ -214,4 +227,24 @@ class SceneManager implements CanStart, CanRender, CanUpdate
     $this->loadScene(GameOverScene::class);
   }
 
+  /**
+   * Load the battle scene.
+   *
+   * @param Party $party The party.
+   * @param Troop $troop The troop.
+   * @param object[] $events
+   * @return void
+   * @throws IchilotoException If an error occurs while loading the battle scene.
+   * @throws NotFoundException If the battle scene is not found.
+   */
+  public function loadBattleScene(Party $party, Troop $troop, array $events = []): void
+  {
+    $currentScene = $this->loadScene(BattleScene::class)->currentScene;
+
+    if (! $currentScene instanceof BattleScene) {
+      throw new NotFoundException('The current scene is not a battle scene.');
+    }
+
+    $currentScene->configure($this->battleLoader->newConfig($party, $troop, $events));
+  }
 }

@@ -6,6 +6,8 @@ use Assegai\Collections\ItemList;
 use Assegai\Util\Path;
 use Error;
 use Exception;
+use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\TraditionalTurnBasedBattleEngine;
+use Ichiloto\Engine\Battle\Interfaces\BattleEngineInterface;
 use Ichiloto\Engine\Core\Enumerations\ChronoUnit;
 use Ichiloto\Engine\Core\Interfaces\CanRun;
 use Ichiloto\Engine\Events\Enumerations\EventType;
@@ -85,6 +87,7 @@ class Game implements CanRun, SubjectInterface
    * @var ItemList<StaticObserverInterface> The static observers.
    */
   protected ItemList $staticObservers;
+  protected(set) BattleEngineInterface $engine;
 
   /**
    * Game constructor.
@@ -303,6 +306,7 @@ class Game implements CanRun, SubjectInterface
     $this->modalManager = ModalManager::getInstance($this);
     $this->notificationManager = NotificationManager::getInstance($this);
     InputManager::init($this);
+    $this->engine = new TraditionalTurnBasedBattleEngine($this);
   }
 
   /**

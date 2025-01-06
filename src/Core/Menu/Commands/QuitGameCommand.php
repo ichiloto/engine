@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core\Menu\Commands;
 
+use Exception;
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\MenuItem;
@@ -24,11 +25,12 @@ class QuitGameCommand extends MenuItem
 
   /**
    * @inheritDoc
+   * @throws Exception
    */
   public function execute(?ExecutionContextInterface $context = null): int
   {
     assert($context instanceof MenuCommandExecutionContext);
-    $context->getGame()->quit();
+    $context->game->quit();
 
     return self::SUCCESS;
   }
