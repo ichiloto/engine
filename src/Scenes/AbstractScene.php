@@ -12,9 +12,9 @@ use Ichiloto\Engine\Events\ModalEvent;
 use Ichiloto\Engine\Events\NotificationEvent;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Rendering\Camera;
+use Ichiloto\Engine\Scenes\Interfaces\SceneConfigurationInterface;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\UI\UIManager;
-use Ichiloto\Engine\Util\Debug;
 
 /**
  * Class AbstractScene. The abstract scene.
@@ -66,6 +66,17 @@ abstract class AbstractScene implements SceneInterface
     $this->uiManager = UIManager::getInstance($this->sceneManager->game);
     $this->camera = new Camera($this, get_screen_width(), get_screen_height());
     $this->eventManager = EventManager::getInstance($this->sceneManager->game);
+  }
+
+  /**
+   * Configure the scene.
+   *
+   * @param SceneConfigurationInterface $config The game or battle configuration.
+   * @return void
+   */
+  public function configure(SceneConfigurationInterface $config): void
+  {
+    // Do nothing. This method is meant to be overridden.
   }
 
   /**
