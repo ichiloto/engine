@@ -322,7 +322,6 @@ if (! function_exists('asset') ) {
     }
 
     if ($asArray) {
-      exit("$filename\n");
       return require $filename;
     }
 
