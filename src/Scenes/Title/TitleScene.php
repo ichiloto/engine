@@ -2,7 +2,6 @@
 
 namespace Ichiloto\Engine\Scenes\Title;
 
-use Exception;
 use Ichiloto\Engine\Core\Menu\Commands\ContinueGameCommand;
 use Ichiloto\Engine\Core\Menu\Commands\LoadSceneCommand;
 use Ichiloto\Engine\Core\Menu\Commands\NewGameCommand;
@@ -10,10 +9,8 @@ use Ichiloto\Engine\Core\Menu\Commands\QuitGameCommand;
 use Ichiloto\Engine\Core\Menu\TitleMenu\TitleMenu;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\IO\Console\Console;
-use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Scenes\AbstractScene;
 use Ichiloto\Engine\Scenes\Game\GameLoader;
-use Ichiloto\Engine\Util\Debug;
 use Override;
 
 /**
@@ -60,7 +57,7 @@ class TitleScene extends AbstractScene
     $menuHeight = 3;
 
     parent::start();
-    $this->headerContent = graphics('System/title');
+    $this->headerContent = graphics('System/title', false);
     $this->headerLines = explode("\n", $this->headerContent);
     $this->headerHeight = count($this->headerLines);
 
