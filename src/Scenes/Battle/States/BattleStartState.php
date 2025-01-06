@@ -11,14 +11,39 @@ use Override;
 
 class BattleStartState extends BattleSceneState
 {
-  protected bool $playingIntroAnimation = true;
+  protected bool $isPlayingIntroAnimation = true;
   protected float $introAnimationStartTime = 0;
+  /**
+   * @var string[] The frames of the intro animation.
+   */
+  protected array $frames = [];
+  /**
+   * @var int The total number of frames.
+   */
+  protected int $totalFrames = 0;
+  /**
+   * @var int The index of the current frame.
+   */
+  protected int $currentFrameIndex = 0;
+  /**
+   * @var float The duration of the animation.
+   */
+  protected float $animationDuration = 0.2; // seconds
+  /**
+   * @var int The time to sleep between frames.
+   */
+  protected int $sleepTime = 1000000;
+  /**
+   * @var string[] The clean slate to clear the screen.
+   */
+  protected array $cleanSlate = [];
 
   #[Override]
   public function enter(): void
   {
+    $this->scene->ui = new BattleScreen($this->scene);
+    $this->cleanSlate = array_fill(0, $this->scene->ui->screenDimensions->getHeight(), str_repeat(' ', $this->scene->ui->screenDimensions->getWidth()));
     Console::clear();
-
     $this->startTheIntroAnimation();
   }
 
@@ -27,24 +52,17 @@ class BattleStartState extends BattleSceneState
    */
   public function execute(?SceneStateContext $context = null): void
   {
-    // TODO: Implement execute() method.
-    $animationDuration = 3.0;
+    $this->playIntroAnimation();
 
-    // Determine` this based on whether all the intro animations have finished playing.
-    $timeElapsed = Time::getTime() - $this->introAnimationStartTime;
-    if($timeElapsed >= $animationDuration) {
-      $this->playingIntroAnimation = false;
-    }
-
-    if (! $this->playingIntroAnimation) {
+    if (! $this->isPlayingIntroAnimation) {
       $this->setState($this->scene->runState);
     }
   }
 
   public function exit(): void
   {
-    $this->scene->ui = new BattleScreen($this->scene);
     $this->introAnimationStartTime = Time::getTime();
+    Console::clear();
   }
 
   /**
@@ -54,7 +72,58 @@ class BattleStartState extends BattleSceneState
    */
   protected function startTheIntroAnimation(): void
   {
-    $this->playingIntroAnimation = true;
-    Debug::log('Playing intro animation...');
+    Debug::info('Playing intro animation...');
+    $this->isPlayingIntroAnimation = true;
+
+    $this->loadAnimationFrameData();
+    $this->playIntroAnimation();
+  }
+
+  /**
+   * @return void
+   */
+  protected function loadAnimationFrameData(): void
+  {
+    $frameSeparator = "@@---\n";
+    $animationData = graphics('Animations/battle-transition', false);
+    $this->frames = explode($frameSeparator, $animationData);
+    $this->totalFrames = count($this->frames);
+    $this->currentFrameIndex = 0;
+    $this->sleepTime = intval( (1000000 * $this->animationDuration) / $this->totalFrames );
+  }
+
+  protected function renderFrame(string $frame, int $x = 0, int $y = 0): void
+  {
+    $this->scene->camera->draw($frame, $x, $y);
+  }
+
+  protected function clearScreen(int $x = 0, int $y = 0): void
+  {
+    Console::clear();
+  }
+
+  /**
+   * Play the intro animation.
+   *
+   * @return void
+   */
+  protected function playIntroAnimation(): void
+  {
+    $this->clearScreen(
+      $this->scene->ui->screenDimensions->getLeft(),
+      $this->scene->ui->screenDimensions->getTop()
+    );
+    $this->renderFrame(
+      $this->frames[$this->currentFrameIndex],
+      $this->scene->ui->screenDimensions->getLeft(),
+      $this->scene->ui->screenDimensions->getTop()
+    );
+    $this->currentFrameIndex++;
+
+    if ($this->currentFrameIndex >= $this->totalFrames) {
+      $this->isPlayingIntroAnimation = false;
+    }
+
+    usleep($this->sleepTime);
   }
 }
