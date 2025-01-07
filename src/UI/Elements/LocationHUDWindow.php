@@ -1,6 +1,6 @@
 <?php
 
-namespace Ichiloto\Engine\UI;
+namespace Ichiloto\Engine\UI\Elements;
 
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Vector2;
