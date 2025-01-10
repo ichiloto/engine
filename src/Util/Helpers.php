@@ -4,8 +4,10 @@ use Assegai\Util\Path;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
+use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
+use Ichiloto\Engine\Exceptions\RequiredFieldException;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
@@ -461,6 +463,23 @@ if (! function_exists('get_screen_height') ) {
   function get_screen_height(): int
   {
     return config(PlaySettings::class, 'height', DEFAULT_SCREEN_HEIGHT);
+  }
+}
+
+if (! function_exists('get_troop') ) {
+  /**
+   * Returns the troop with the given name.
+   *
+   * @param string $name The name of the troop.
+   * @return Troop|null The troop.
+   * @throws RequiredFieldException
+   */
+  function get_troop(string $name): ?Troop
+  {
+    $troops = asset('Data/troops.php', true);
+    $troopData = array_find($troops, fn(array $troop) => $troop['name'] === $name);
+
+    return Troop::fromArray($troopData);
   }
 }
 
