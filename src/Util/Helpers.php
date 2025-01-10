@@ -309,9 +309,9 @@ if (! function_exists('asset') ) {
    *
    * @param string $path The path of the asset file.
    * @param bool $asArray Whether to return the content as an array or not.
-   * @return string|array The content of the asset file.
+   * @return string|array|object The content of the asset file.
    */
-  function asset(string $path, bool $asArray = false): string|array
+  function asset(string $path, bool $asArray = false): string|array|object
   {
     $filename = Path::join(Path::getCurrentWorkingDirectory(), 'assets', $path);
 
@@ -319,14 +319,24 @@ if (! function_exists('asset') ) {
       throw new RuntimeException("Asset file not found: $filename");
     }
 
-    if ($asArray) {
-      return require $filename;
+    $fileExtension = pathinfo($filename, PATHINFO_EXTENSION);
+
+    if ($fileExtension === 'php') {
+      return require $filename ?: throw new RuntimeException("Failed to read asset file: $filename");
     }
 
     $content = file_get_contents($filename);
 
     if (false === $content) {
       throw new RuntimeException("Failed to read asset file: $filename");
+    }
+
+    if ($fileExtension === 'json') {
+      return json_decode($content, $asArray);
+    }
+
+    if ($asArray) {
+      return file($filename, FILE_IGNORE_NEW_LINES);
     }
 
     return $content;
