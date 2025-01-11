@@ -5,15 +5,11 @@ namespace Ichiloto\Engine\Entities\Actions;
 use Assegai\Util\Text;
 use Exception;
 use Ichiloto\Engine\Entities\Interfaces\ActionContextInterface;
-use Ichiloto\Engine\Entities\Inventory\Accessory;
-use Ichiloto\Engine\Entities\Inventory\Armor;
-use Ichiloto\Engine\Entities\Inventory\Items\Item;
-use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
 use Ichiloto\Engine\Events\Enumerations\LootType;
 use Ichiloto\Engine\Events\Triggers\ChestEventTrigger;
 use Ichiloto\Engine\Util\Config\ConfigStore;
-use Ichiloto\Engine\Util\Config\ItemStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Util\Stores\ItemStore;
 use RuntimeException;
 
 /**

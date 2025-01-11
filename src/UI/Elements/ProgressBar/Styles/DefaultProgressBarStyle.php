@@ -1,6 +1,6 @@
 <?php
 
-namespace Ichiloto\Engine\UI\Elements\Styles;
+namespace Ichiloto\Engine\UI\Elements\ProgressBar\Styles;
 
 use Ichiloto\Engine\UI\Windows\Interfaces\ProgressBarStyleInterface;
 

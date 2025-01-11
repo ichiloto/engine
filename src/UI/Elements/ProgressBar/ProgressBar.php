@@ -1,10 +1,10 @@
 <?php
 
-namespace Ichiloto\Engine\UI\Elements;
+namespace Ichiloto\Engine\UI\Elements\ProgressBar;
 
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Rendering\Camera;
-use Ichiloto\Engine\UI\Elements\Styles\DefaultProgressBarStyle;
+use Ichiloto\Engine\UI\Elements\ProgressBar\Styles\DefaultProgressBarStyle;
 use Ichiloto\Engine\UI\Interfaces\UIElementInterface;
 use Ichiloto\Engine\UI\Windows\Interfaces\ProgressBarStyleInterface;
 
@@ -78,14 +78,33 @@ class ProgressBar implements UIElementInterface
   }
 
   /**
+   * Gets the render of the progress bar.
+   *
+   * @return string The render.
+   */
+  public function getRender(): string
+  {
+    $bar = str_repeat($this->style->fill, $this->filledUnits);
+    $bar .= str_repeat($this->style->empty, $this->emptyUnits);
+    return $this->style->leftCap . $bar . $this->style->rightCap;
+  }
+
+  /**
+   * Gets a blank plate.
+   *
+   * @return string The blank plate.
+   */
+  public function getBlankPlate(): string
+  {
+    return str_repeat(' ', $this->units + 2);
+  }
+
+  /**
    * @inheritDoc
    */
   public function render(): void
   {
-    $bar = str_repeat($this->style->fill, $this->filledUnits);
-    $bar .= str_repeat($this->style->empty, $this->emptyUnits);
-    $content = $this->style->leftCap . $bar . $this->style->rightCap;
-    $this->camera->draw($content, $this->position->x, $this->position->y);
+    $this->camera->draw($this->getRender(), $this->position->x, $this->position->y);
   }
 
   /**
@@ -93,30 +112,56 @@ class ProgressBar implements UIElementInterface
    */
   public function erase(): void
   {
-    $blank = str_repeat(' ', $this->units + 2);
-    $this->camera->draw($blank, $this->position->x, $this->position->y);
+    $this->camera->draw($this->getBlankPlate(), $this->position->x, $this->position->y);
   }
 
-  public function fill(float $percentage): void
+  /**
+   * Fills the progress bar by the given percentage.
+   *
+   * @param float $percentage The percentage to fill by.
+   * @param bool $renderAfterFill Whether to render after filling.
+   */
+  public function fill(float $percentage, bool $renderAfterFill = false): void
   {
     $this->fillPercentage = $percentage;
-    $this->render();
+    if ($renderAfterFill) {
+      $this->render();
+    }
   }
 
-  public function fillByUnits(int $units): void
+  /**
+   * Fills the progress bar by the given number of units.
+   *
+   * @param int $units The number of units to fill by.
+   */
+  public function fillByUnits(int $units, bool $renderAfterFill = false): void
   {
     $percentage = $units / $this->units;
-    $this->fill($percentage);
+    $this->fill($percentage, $renderAfterFill);
   }
 
-  public function progress(float $percentage): void
+  /**
+   * Progresses the progress bar by the given percentage.
+   *
+   * @param float $percentage The percentage to progress by.
+   * @param bool $renderAfterProgress Whether to render after progressing.
+   */
+  public function progress(float $percentage, bool $renderAfterProgress = false): void
   {
     $this->fillPercentage += $percentage;
-    $this->render();
+    if ($renderAfterProgress) {
+      $this->render();
+    }
   }
 
-  public function progressByUnits(int $units = 1): void
+  /**
+   * Progresses the progress bar by the given number of units.
+   *
+   * @param int $units The number of units to progress by.
+   * @param bool $renderAfterProgress Whether to render after progressing.
+   */
+  public function progressByUnits(int $units = 1, bool $renderAfterProgress = false): void
   {
-    $this->progress($units / $this->units);
+    $this->progress($units / $this->units, $renderAfterProgress);
   }
 }

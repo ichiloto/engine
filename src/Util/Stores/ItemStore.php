@@ -1,12 +1,13 @@
 <?php
 
-namespace Ichiloto\Engine\Util\Config;
+namespace Ichiloto\Engine\Util\Stores;
 
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
+use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
-use Ichiloto\Engine\Util\Debug;
+use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
-use PSpell\Config;
+use InvalidArgumentException;
 use RuntimeException;
 
 /**
@@ -41,7 +42,11 @@ class ItemStore implements ConfigInterface
    */
   public function get(string $path, mixed $default = null): ?InventoryItem
   {
-    return $this->items[$path] ?? null;
+    if (! $default instanceof InventoryItem) {
+      $default = null;
+    }
+
+    return $this->items[$path] ?? $default;
   }
 
   /**
@@ -49,6 +54,10 @@ class ItemStore implements ConfigInterface
    */
   public function set(string $path, mixed $value): void
   {
+    if (! $value instanceof InventoryItem) {
+      throw new InvalidArgumentException('The value must be an instance of ' . InventoryItem::class);
+    }
+
     $this->items[$path] = $value;
   }
 
@@ -73,6 +82,8 @@ class ItemStore implements ConfigInterface
    *
    * @param array<array{item: string, quantity: int}> $data The data to load.
    * @return InventoryItem[] The items.
+   * @throws NotFoundException Thrown when the item store is not found.
+   * @throws RequiredFieldException Thrown when a required field is missing.
    */
   public function load(array $data): array
   {
@@ -80,7 +91,7 @@ class ItemStore implements ConfigInterface
     $itemStore = ConfigStore::get(ItemStore::class);
 
     if (! $itemStore instanceof ItemStore) {
-      throw new RuntimeException('Item store not found.');
+      throw new NotFoundException(ItemStore::class);
     }
 
     foreach ($data as $datum) {

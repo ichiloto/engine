@@ -10,6 +10,11 @@ use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
 use RuntimeException;
 use Symfony\Component\Console\Output\ConsoleOutput;
 
+/**
+ * Represents the console.
+ *
+ * @package Ichiloto\Engine\IO\Console
+ */
 class Console
 {
   /**
@@ -31,7 +36,10 @@ class Console
   /**
    * @var int $height The height of the console.
    */
-  private static int $height = DEFAULT_SCREEN_WIDTH;
+  private static int $height = DEFAULT_SCREEN_HEIGHT;
+  /**
+   * @var ConsoleOutput|null $output The console output.
+   */
   private static ?ConsoleOutput $output = null;
 
   /**
@@ -56,8 +64,8 @@ class Console
     self::$game = $game;
     self::clear();
     Console::cursor()->disableBlinking();
-    self::$width = $options['width'];
-    self::$height = $options['height'];
+    self::$width = $options['width'] ?? get_screen_width();
+    self::$height = $options['height'] ?? get_screen_height();
     self::$output = new ConsoleOutput();
   }
 
@@ -114,7 +122,7 @@ class Console
   public static function enableScrolling(?int $start = null, ?int $end = null): void
   {
     echo match(true) {
-      $start !== null && $end !== null => "\033[{$start};{$end}r",
+      $start !== null && $end !== null => "\033[$start;{$end}r",
       $start !== null => "\033[{$start}r",
       $end !== null => "\033[;{$end}r",
       default => "\033[r",
@@ -199,7 +207,7 @@ class Console
    */
   public static function write(iterable|string $message, int $x, int $y): void
   {
-    $textRows = explode("\n", $message);
+    $textRows = is_string($message) ? explode("\n", $message) : $message;
     $cursor = self::cursor();
 
     $output = '';
@@ -207,7 +215,7 @@ class Console
       $currentBufferRow = $y + $rowIndex;
 
       if (!isset(self::$buffer[$currentBufferRow])) {
-        self::$buffer[$currentBufferRow] = str_repeat(' ', DEFAULT_SCREEN_WIDTH);
+        self::$buffer[$currentBufferRow] = str_repeat(' ', get_screen_width());
       }
 
       self::$buffer[$currentBufferRow] = substr_replace(self::$buffer[$currentBufferRow], $text, $x, mb_strlen($text));
@@ -253,7 +261,7 @@ class Console
    */
   public static function charAt(int $x, int $y): string
   {
-    if ($x < 0 || $x > DEFAULT_SCREEN_WIDTH || $y < 1 || $y > DEFAULT_SCREEN_HEIGHT) {
+    if ($x < 0 || $x > get_screen_width() || $y < 1 || $y > get_screen_height()) {
       return '';
     }
 
@@ -268,7 +276,7 @@ class Console
    */
   private static function getEmptyBuffer(): array
   {
-    return array_fill(0, DEFAULT_SCREEN_HEIGHT, str_repeat(' ', DEFAULT_SCREEN_WIDTH));
+    return array_fill(0, get_screen_height(), str_repeat(' ', get_screen_width()));
   }
 
   /**

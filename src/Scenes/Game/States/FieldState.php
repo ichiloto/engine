@@ -3,7 +3,10 @@
 namespace Ichiloto\Engine\Scenes\Game\States;
 
 use Exception;
+use Ichiloto\Engine\Battle\BattleRewards;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Entities\Enemies\Enemy;
+use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
@@ -147,7 +150,13 @@ class FieldState extends GameSceneState
 
     if (Input::isAnyKeyPressed([KeyCode::B, KeyCode::b])) {
       $battleEvents = [];
-      $this->getGameScene()->sceneManager->loadBattleScene($this->getGameScene()->party, new Troop(), $battleEvents);
+      $troopNames = [
+        'Rat + Bat',
+        'Bat x 2'
+      ];
+      $troopNameKey = array_rand($troopNames);
+      $troop = get_troop($troopNames[$troopNameKey]);
+      $this->getGameScene()->sceneManager->loadBattleScene($this->getGameScene()->party, $troop, $battleEvents);
     }
 
     if (Input::isAnyKeyPressed([KeyCode::M, KeyCode::m])) {

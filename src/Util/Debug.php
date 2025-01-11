@@ -24,9 +24,9 @@ final class Debug
    */
   protected static int $logLevel = 1;
   /**
-   * @var string The log directory path.
+   * @var string|null The log directory path.
    */
-  protected static string $logDirectory = '';
+  protected static ?string $logDirectory = null;
 
   /**
    * Configures the debug utility.
@@ -47,6 +47,10 @@ final class Debug
    */
   private static function getLogDirectory(): string
   {
+    if (is_null(self::$logDirectory)) {
+      return getcwd();
+    }
+
     return self::$logDirectory;
   }
 

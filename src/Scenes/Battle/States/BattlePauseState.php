@@ -7,6 +7,11 @@ use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Symfony\Component\Console\Output\ConsoleOutput;
 
+/**
+ * Represents the battle pause state.
+ *
+ * @package Ichiloto\Engine\Scenes\Battle\States
+ */
 class BattlePauseState extends BattleSceneState
 {
   const string PAUSE_TEXT = "PAUSED";

@@ -43,12 +43,6 @@ class OpenItemsMenuCommand extends MenuItem
     }
 
     $scene = $context->scene;
-
-    if (! $scene instanceof GameScene) {
-      Debug::error("The scene is not a game scene: " . __METHOD__);
-      return self::FAILURE;
-    }
-
     $scene->setState($context->scene->itemMenuState);
     $scene->locationHUDWindow->erase();
     return self::SUCCESS;

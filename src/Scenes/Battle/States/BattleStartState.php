@@ -38,6 +38,9 @@ class BattleStartState extends BattleSceneState
    */
   protected array $cleanSlate = [];
 
+  /**
+   * @inheritDoc
+   */
   #[Override]
   public function enter(): void
   {
@@ -80,6 +83,8 @@ class BattleStartState extends BattleSceneState
   }
 
   /**
+   * Load the animation frame data.
+   *
    * @return void
    */
   protected function loadAnimationFrameData(): void
@@ -92,11 +97,26 @@ class BattleStartState extends BattleSceneState
     $this->sleepTime = intval( (1000000 * $this->animationDuration) / $this->totalFrames );
   }
 
+  /**
+   * Render a frame.
+   *
+   * @param string $frame The frame to render.
+   * @param int $x The x-coordinate.
+   * @param int $y The y-coordinate.
+   * @return void
+   */
   protected function renderFrame(string $frame, int $x = 0, int $y = 0): void
   {
     $this->scene->camera->draw($frame, $x, $y);
   }
 
+  /**
+   * Clear the screen.
+   *
+   * @param int $x The x-coordinate.
+   * @param int $y The y-coordinate.
+   * @return void
+   */
   protected function clearScreen(int $x = 0, int $y = 0): void
   {
     Console::clear();

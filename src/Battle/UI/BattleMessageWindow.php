@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Battle\UI;
 
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\UI\Windows\Window;
+use Ichiloto\Engine\UI\Windows\WindowAlignment;
 
 /**
  * Represents the battle prompt.
@@ -29,20 +30,9 @@ class BattleMessageWindow extends Window
       $position,
       $width,
       $height,
-      $this->battleScreen->borderPack
+      $this->battleScreen->borderPack,
+      alignment: WindowAlignment::middleCenter()
     );
-  }
-
-  /**
-   * Shows the window with the given text.
-   *
-   * @param string $text The text to show.
-   */
-  public function show(string $text): void
-  {
-    $lines = explode("\n", $text);
-    $this->setContent($lines);
-    $this->render();
   }
 
   /**
@@ -51,5 +41,17 @@ class BattleMessageWindow extends Window
   public function hide(): void
   {
     $this->erase();
+  }
+
+  /**
+   * Sets the text of the window.
+   *
+   * @param string $text The text to set.
+   */
+  public function setText(string $text): void
+  {
+    $content = explode("\n", $text);
+    $this->setContent($content);
+    $this->render();
   }
 }

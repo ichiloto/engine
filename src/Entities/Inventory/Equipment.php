@@ -43,4 +43,9 @@ abstract class Equipment extends InventoryItem
 
     return null;
   }
+
+  public function __clone(): void
+  {
+    $this->parameterChanges = clone $this->parameterChanges;
+  }
 }

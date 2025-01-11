@@ -11,7 +11,7 @@ use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\PartyLocation;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
 use Ichiloto\Engine\Util\Config\ConfigStore;
-use Ichiloto\Engine\Util\Config\ItemStore;
+use Ichiloto\Engine\Util\Stores\ItemStore;
 use RuntimeException;
 
 /**
