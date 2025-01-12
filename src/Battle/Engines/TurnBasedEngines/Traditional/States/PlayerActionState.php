@@ -3,9 +3,13 @@
 namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States;
 
 use Assegai\Collections\Stack;
+use Ichiloto\Engine\Battle\BattleAction;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\TraditionalTurnBasedBattleEngine;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
+use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
+use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 
 /**
@@ -19,6 +23,11 @@ class PlayerActionState extends TurnState
    * @var int The active character index.
    */
   protected int $activeCharacterIndex = -1;
+  protected ?Character $activeCharacter {
+    get {
+      return $this->engine->battleConfig->party->battlers->toArray()[$this->activeCharacterIndex] ?? null;
+    }
+  }
   /**
    * @var Stack<MenuInterface>|null The menu stack.
    */
@@ -40,10 +49,9 @@ class PlayerActionState extends TurnState
    */
   public function update(TurnStateExecutionContext $context): void
   {
-    $this->menuStack->peek()?->update();
-    $this->selectAction($context);
+    $this->handleNavigation($context);
     $this->selectTarget($context);
-    $this->confirmAction($context);
+    $this->handleActions($context);
   }
 
   /**
@@ -51,15 +59,15 @@ class PlayerActionState extends TurnState
    *
    * @param TurnStateExecutionContext $context The context.
    */
-  protected function selectAction(TurnStateExecutionContext $context): void
+  protected function handleNavigation(TurnStateExecutionContext $context): void
   {
     $v = Input::getAxis(AxisName::VERTICAL);
 
     if (abs($v) > 0) {
       if ($v > 0) {
-        $context->ui->commandWindow->selectNext();
+        $context->ui->state->selectNext();
       } else {
-        $context->ui->commandWindow->selectPrevious();
+        $context->ui->state->selectPrevious();
       }
     }
   }
@@ -78,9 +86,16 @@ class PlayerActionState extends TurnState
    *
    * @param TurnStateExecutionContext $context The context.
    */
-  protected function confirmAction(TurnStateExecutionContext $context): void
+  protected function handleActions(TurnStateExecutionContext $context): void
   {
     if (Input::isButtonDown("action")) {
+      $context->ui->state->confirm();
+      $this->selectNextCharacter($context);
+    }
+
+    if (Input::isAnyKeyPressed([KeyCode::C, KeyCode::c])) {
+      $this->selectNextCharacter($context);
+      $context->ui->state->cancel();
     }
   }
 
@@ -97,7 +112,13 @@ class PlayerActionState extends TurnState
 
     $ui->characterNameWindow->activeIndex = $this->activeCharacterIndex;
 
-    $ui->commandWindow->commands = ['Attack', 'Magic', 'Summon', 'Item'];
+    $ui->commandWindow->commands = array_map(fn(BattleAction $action) => $action->name, $this->activeCharacter->commandAbilities);
     $ui->commandWindow->focus();
+  }
+
+  protected function selectNextCharacter(TurnStateExecutionContext $context): void
+  {
+    $this->activeCharacterIndex = wrap($this->activeCharacterIndex + 1, 0, count($context->party->battlers) - 1);
+    $this->loadCharacterActions();
   }
 }

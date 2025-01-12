@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States;
 
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\TraditionalTurnBasedBattleEngine;
+use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Turn;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Exceptions\NotImplementedException;
 use Ichiloto\Engine\Util\Debug;
@@ -49,7 +50,8 @@ class TurnInitState extends TurnState
     $battlers = [...$context->party->battlers->toArray(), ...$context->troop->members->toArray()];
     usort($battlers, fn(CharacterInterface $a, CharacterInterface $b) => $a->stats->speed <=> $b->stats->speed);
     foreach ($battlers as $battler) {
-      $this->engine->turnQueue->enqueue($battler);
+      $turn = new Turn($battler);
+      $this->engine->turnQueue->enqueue($turn);
     }
   }
 

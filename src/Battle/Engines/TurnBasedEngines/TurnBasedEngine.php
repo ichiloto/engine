@@ -35,7 +35,7 @@ abstract class TurnBasedEngine implements BattleEngineInterface
    */
   protected(set) ?TurnState $state = null;
   /**
-   * @var Queue<CharacterInterface> The turn queue.
+   * @var Queue<Turn> The turn queue.
    */
   protected(set) Queue $turnQueue;
   /**
