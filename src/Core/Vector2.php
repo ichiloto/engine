@@ -242,4 +242,20 @@ class Vector2 implements CanCompare, Stringable
   {
     return "Vector2({$this->x}, {$this->y})";
   }
+
+  /**
+   * Creates a new Vector2 from an array.
+   *
+   * @param int[]|float[]|array{x: int|float, y: int|float} $array
+   * @return self
+   */
+  public static function fromArray(array $array): self
+  {
+    if (array_is_list($array)) {
+      [$x, $y] = $array;
+      return new self($x, $y);
+    }
+
+    return new self($array['x'], $array['y']);
+  }
 }

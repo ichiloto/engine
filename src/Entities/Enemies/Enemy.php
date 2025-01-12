@@ -38,12 +38,13 @@ class Enemy implements CharacterInterface
   /**
    * Enemy constructor.
    *
-   * @param string $name
-   * @param int $level
-   * @param Stats $stats
-   * @param string $imagePath
-   * @param BattleRewards $rewards
-   * @param ActionPattern[] $actionPatters
+   * @param string $name The name of the enemy.
+   * @param int $level The level of the enemy.
+   * @param Stats $stats The stats of the enemy.
+   * @param string $imagePath The path to the image of the enemy.
+   * @param BattleRewards $rewards The rewards for defeating the enemy.
+   * @param ActionPattern[] $actionPatterns The action patterns of the enemy.
+   * @param Vector2 $position The position of the enemy.
    */
   public function __construct(
     protected(set) string $name,
@@ -51,17 +52,17 @@ class Enemy implements CharacterInterface
     protected(set) Stats $stats,
     protected(set) string $imagePath,
     protected(set) BattleRewards $rewards,
-    array $actionPatters,
+    array $actionPatterns,
     protected(set) Vector2 $position = new Vector2()
   )
   {
-    foreach ($actionPatters as $pattern) {
+    foreach ($actionPatterns as $pattern) {
       if ($pattern instanceof ActionPattern) {
         $this->actionPatterns[] = $pattern;
       }
     }
 
-    $this->image = graphics("Enemies/$imagePath.txt");
+    $this->image = graphics("Enemies/$imagePath");
   }
 
   /**
@@ -159,6 +160,7 @@ class Enemy implements CharacterInterface
   {
     return $this->toArray();
   }
+
   /**
    * Bind data to the character's properties.
    *
@@ -174,5 +176,12 @@ class Enemy implements CharacterInterface
         };
       }
     }
+  }
+
+  public function __clone(): void
+  {
+    $this->position = clone $this->position;
+    $this->stats = clone $this->stats;
+    $this->rewards = clone $this->rewards;
   }
 }

@@ -82,10 +82,14 @@ class BattleConfig implements SceneConfigurationInterface
     return $this->getData();
   }
 
+  /**
+   * Gets the data for the battle configuration.
+   *
+   * @return array<string, mixed> The data.
+   */
   protected function getData(): array
   {
     return [
-      'engine' => $this->engine,
       'party' => $this->party,
       'troop' => $this->troop,
       'events' => $this->events,

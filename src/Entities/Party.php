@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Entities;
 
+use Assegai\Collections\ItemList;
+use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Interfaces\InventoryItemInterface;
 use Ichiloto\Engine\Entities\Inventory\Inventory;
 
@@ -48,6 +50,14 @@ class Party extends BattleGroup
   public ?Character $leader {
     get {
       return $this->members[0] ?? null;
+    }
+  }
+  /**
+   * @var ItemList<CharacterInterface> The party's battlers.
+   */
+  public ItemList $battlers {
+    get {
+      return new ItemList(CharacterInterface::class, array_slice($this->members->toArray(), 0, 3));
     }
   }
 

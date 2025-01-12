@@ -26,7 +26,7 @@ interface BattleEngineInterface
   /**
    * Runs the battle engine.
    */
-  public function run(): void;
+  public function run(BattleEngineContextInterface $context): void;
 
   /**
    * Stops the battle engine.

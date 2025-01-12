@@ -9,7 +9,7 @@ use Ichiloto\Engine\Events\Interfaces\EventTriggerContextInterface;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
 use Ichiloto\Engine\Messaging\Dialogue\Dialogue;
 use Ichiloto\Engine\Util\Config\ConfigStore;
-use Ichiloto\Engine\Util\Config\ItemStore;
+use Ichiloto\Engine\Util\Stores\ItemStore;
 
 /**
  * Represents the shop event trigger.

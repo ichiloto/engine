@@ -5,7 +5,7 @@ namespace Ichiloto\Engine\Scenes\Battle\States;
 use Ichiloto\Engine\Scenes\Battle\States\BattleSceneState;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 
-class BattleWinState extends BattleSceneState
+class BattleVictoryState extends BattleSceneState
 {
 
   /**

@@ -11,4 +11,12 @@ class BattleEndState extends BattleSceneState
   {
     // TODO: Implement execute() method.
   }
+
+  /**
+   * @inheritDoc
+   */
+  public function exit(): void
+  {
+    $this->engine->stop();
+  }
 }

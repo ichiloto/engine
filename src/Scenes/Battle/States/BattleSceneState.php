@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Scenes\Battle\States;
 
+use Ichiloto\Engine\Battle\Interfaces\BattleEngineInterface;
+use Ichiloto\Engine\Battle\UI\BattleScreen;
 use Ichiloto\Engine\Core\Interfaces\CanResume;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneStateContextInterface;
@@ -25,6 +27,22 @@ abstract class BattleSceneState implements SceneStateInterface, CanResume
       }
 
       return $scene;
+    }
+  }
+  /**
+   * @var BattleScreen The battle UI.
+   */
+  public BattleScreen $ui {
+    get {
+      return $this->scene->ui;
+    }
+  }
+  /**
+   * @var BattleEngineInterface The battle engine.
+   */
+  public BattleEngineInterface $engine {
+    get {
+      return $this->scene->getGame()->engine;
     }
   }
 
@@ -60,7 +78,6 @@ abstract class BattleSceneState implements SceneStateInterface, CanResume
    */
   public function setState(SceneStateInterface $state): void
   {
-    // TODO: Implement setState() method.
     if (! $state instanceof BattleSceneState) {
       throw new InvalidArgumentException('Invalid state type.');
     }

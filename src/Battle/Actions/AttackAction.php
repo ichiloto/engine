@@ -13,5 +13,8 @@ class AttackAction extends BattleAction
   public function execute(Actor $actor, array $targets): void
   {
     // TODO: Implement execute() method.
+    foreach ($targets as $target) {
+
+    }
   }
 }

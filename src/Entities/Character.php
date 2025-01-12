@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\Entities;
 
 use Exception;
+use Ichiloto\Engine\Battle\Actions\AttackAction;
+use Ichiloto\Engine\Battle\BattleAction;
 use Ichiloto\Engine\Entities\Interfaces\CanEquip;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Inventory\Accessory;
@@ -35,6 +37,9 @@ class Character implements CharacterInterface, CanEquip
     }
   }
 
+  /**
+   * @var bool Whether the character is conscious.
+   */
   public bool $isConscious {
     get {
       return $this->stats->currentHp > 0;
@@ -82,6 +87,20 @@ class Character implements CharacterInterface, CanEquip
   public Stats $effectiveStats {
     get {
       return $this->stats->getEffectiveStats($this);
+    }
+  }
+
+  /**
+   * @var BattleAction[] The character's command abilities.
+   */
+  public array $commandAbilities {
+    get {
+      return [
+        new AttackAction('Attack'),
+        new AttackAction('Magic'),
+        new AttackAction('Summon'),
+        new AttackAction('Item'),
+      ];
     }
   }
 

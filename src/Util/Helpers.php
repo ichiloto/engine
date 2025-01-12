@@ -17,7 +17,6 @@ use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
-use Ichiloto\Engine\Util\Debug;
 
 if (! function_exists('clamp') ) {
   /**
@@ -228,7 +227,6 @@ if (! function_exists('notify') ) {
 }
 
 /* Events */
-
 if (! function_exists('broadcast') ) {
   /**
    * Broadcasts the given event.
@@ -438,7 +436,7 @@ if (! function_exists('get_message') ) {
    */
   function get_message(string $path, string $default): string
   {
-    return config(ProjectConfig::class, "messages.{$path}", $default);
+    return config(ProjectConfig::class, "messages.$path", $default);
   }
 }
 

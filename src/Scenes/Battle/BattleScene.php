@@ -4,14 +4,15 @@ namespace Ichiloto\Engine\Scenes\Battle;
 
 use Ichiloto\Engine\Battle\UI\BattleScreen;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\Scenes\AbstractScene;
 use Ichiloto\Engine\Scenes\Battle\States\BattleEndState;
-use Ichiloto\Engine\Scenes\Battle\States\BattleLoseState;
+use Ichiloto\Engine\Scenes\Battle\States\BattleDefeatState;
 use Ichiloto\Engine\Scenes\Battle\States\BattlePauseState;
 use Ichiloto\Engine\Scenes\Battle\States\BattleRunState;
 use Ichiloto\Engine\Scenes\Battle\States\BattleSceneState;
 use Ichiloto\Engine\Scenes\Battle\States\BattleStartState;
-use Ichiloto\Engine\Scenes\Battle\States\BattleWinState;
+use Ichiloto\Engine\Scenes\Battle\States\BattleVictoryState;
 use Ichiloto\Engine\Scenes\Interfaces\SceneConfigurationInterface;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Override;
@@ -36,6 +37,16 @@ class BattleScene extends AbstractScene
       return $this->config->party ?? null;
     }
   }
+  public ?Troop $troop {
+    get {
+      return $this->config->troop ?? null;
+    }
+  }
+  public array $events {
+    get {
+      return $this->config->events ?? [];
+    }
+  }
   /**
    * @var BattleSceneState|null The state of the scene.
    */
@@ -51,9 +62,9 @@ class BattleScene extends AbstractScene
    */
   protected(set) ?BattleEndState $endState = null;
   /**
-   * @var BattleLoseState|null The lose state of the scene.
+   * @var BattleDefeatState|null The defeat state of the scene.
    */
-  protected(set) ?BattleLoseState $loseState = null;
+  protected(set) ?BattleDefeatState $defeatState = null;
   /**
    * @var BattlePauseState|null The pause state of the scene.
    */
@@ -67,9 +78,9 @@ class BattleScene extends AbstractScene
    */
   protected(set) ?BattleStartState $startState = null;
   /**
-   * @var BattleWinState|null The win state of the scene.
+   * @var BattleVictoryState|null The victory state of the scene.
    */
-  protected(set) ?BattleWinState $winState = null;
+  protected(set) ?BattleVictoryState $victoryState = null;
   /**
    * @var BattleScreen|null The battle screen of the scene.
    */
@@ -123,10 +134,10 @@ class BattleScene extends AbstractScene
   {
     $this->sceneStateContext = new SceneStateContext($this);
     $this->endState = new BattleEndState($this->sceneStateContext);
-    $this->loseState = new BattleLoseState($this->sceneStateContext);
+    $this->defeatState = new BattleDefeatState($this->sceneStateContext);
     $this->pauseState = new BattlePauseState($this->sceneStateContext);
     $this->runState = new BattleRunState($this->sceneStateContext);
     $this->startState = new BattleStartState($this->sceneStateContext);
-    $this->winState = new BattleWinState($this->sceneStateContext);
+    $this->victoryState = new BattleVictoryState($this->sceneStateContext);
   }
 }

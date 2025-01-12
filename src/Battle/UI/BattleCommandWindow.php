@@ -69,7 +69,8 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
    */
   public function focus(): void
   {
-    // TODO: Implement focus() method.
+    $this->activeCommandIndex = 0;
+    $this->updateContent();
   }
 
   /**
@@ -93,7 +94,16 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
    */
   public function updateContent(): void
   {
-    // TODO: Implement updateContent() method.
+    $content = [];
+
+    foreach ($this->commands as $index => $command) {
+      $prefix = $this->activeCommandIndex === $index ? '>' : ' ';
+      $content[] = "$prefix $command";
+    }
+
+    $content = array_pad($content, $this->height - 2, '');
+    $this->setContent($content);
+    $this->render();
   }
 
   /**
