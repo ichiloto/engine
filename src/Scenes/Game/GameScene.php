@@ -11,7 +11,6 @@ use Ichiloto\Engine\Field\Location;
 use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Field\Player;
 use Ichiloto\Engine\Scenes\AbstractScene;
-use Ichiloto\Engine\Scenes\Battle\BattleLoader;
 use Ichiloto\Engine\Scenes\Game\States\CutsceneState;
 use Ichiloto\Engine\Scenes\Game\States\DialogueState;
 use Ichiloto\Engine\Scenes\Game\States\EquipmentMenuState;
@@ -24,7 +23,7 @@ use Ichiloto\Engine\Scenes\Game\States\OverworldState;
 use Ichiloto\Engine\Scenes\Game\States\ShopState;
 use Ichiloto\Engine\Scenes\Interfaces\SceneConfigurationInterface;
 use Ichiloto\Engine\Scenes\SceneStateContext;
-use Ichiloto\Engine\UI\LocationHUDWindow;
+use Ichiloto\Engine\UI\Elements\LocationHUDWindow;
 use Ichiloto\Engine\Util\Debug;
 use Override;
 
@@ -211,7 +210,7 @@ class GameScene extends AbstractScene
    */
   public function transferPlayer(Location $location): void
   {
-    Debug::info("Transferring player to $location->mapFilename... at {$location->playerPosition}");
+    Debug::info("Transferring player to $location->mapFilename... at $location->playerPosition");
     $this->loadMap($location->mapFilename);
 
     $this->player->position->x = $location->playerPosition->x;
@@ -247,6 +246,7 @@ class GameScene extends AbstractScene
     $this->dialogueState = new DialogueState($this->sceneStateContext);
     $this->fieldState = new FieldState($this->sceneStateContext);
     $this->mainMenuState = new MainMenuState($this->sceneStateContext);
+    $this->equipmentMenuState = new EquipmentMenuState($this->sceneStateContext);
     $this->itemMenuState = new ItemMenuState($this->sceneStateContext);
     $this->mapState = new MapState($this->sceneStateContext);
     $this->overworldState = new OverworldState($this->sceneStateContext);

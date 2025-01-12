@@ -5,7 +5,7 @@ namespace Ichiloto\Engine\Battle;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
 use Ichiloto\Engine\Util\Config\ConfigStore;
-use Ichiloto\Engine\Util\Config\ItemStore;
+use Ichiloto\Engine\Util\Stores\ItemStore;
 use RuntimeException;
 
 /**

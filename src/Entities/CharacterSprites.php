@@ -19,7 +19,7 @@ class CharacterSprites
   public function __construct(
     public array $dialog = [],
     public array $field = [],
-    public array $battle = []
+    public array $battle = [],
   )
   {
   }
@@ -35,7 +35,13 @@ class CharacterSprites
     return new static(
       $data['dialog'] ?? [],
       $data['field'] ?? [],
-      $data['battle'] ?? []
+      $data['battle'] ?? [
+        "    O    ",
+        "   /|\   ",
+        "  / | \  ",
+        "   / \   ",
+        "  /   \  ",
+      ]
     );
   }
 }

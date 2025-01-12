@@ -108,4 +108,9 @@ class Item extends InventoryItem
   {
     return self::fromArray((array) $data);
   }
+
+  public function __clone(): void
+  {
+    $this->scope = clone $this->scope;
+  }
 }

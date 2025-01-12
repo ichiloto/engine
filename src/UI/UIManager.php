@@ -3,13 +3,12 @@
 namespace Ichiloto\Engine\UI;
 
 use Assegai\Collections\ItemList;
-use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Core\Interfaces\CanResume;
 use Ichiloto\Engine\Core\Interfaces\CanStart;
 use Ichiloto\Engine\Core\Interfaces\CanUpdate;
-use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\UI\Elements\LocationHUDWindow;
 use Ichiloto\Engine\UI\Interfaces\UIElementInterface;
 
 /**

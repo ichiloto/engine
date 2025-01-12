@@ -42,8 +42,20 @@ class OpenEquipmentMenuCommand extends MenuItem
       throw new Exception('Invalid state');
     }
 
+    if (! $context instanceof MenuCommandExecutionContext) {
+      Debug::error("The context is null: " . __METHOD__);
+      Debug::error(debug_get_backtrace());
+      return self::FAILURE;
+    }
+
+    if (! $context->scene instanceof GameScene) {
+      Debug::error("The scene is not a game scene: " . __METHOD__);
+      Debug::error(debug_get_backtrace());
+      return self::FAILURE;
+    }
+
     $nextMode = new MainMenuCharacterSelectionMode($state);
-    $nextMode->nextGameSceneState = new EquipmentMenuState($state->context);
+    $nextMode->nextGameSceneState = $context->scene->equipmentMenuState;
     $state->setMode($nextMode);
 
     return self::SUCCESS;

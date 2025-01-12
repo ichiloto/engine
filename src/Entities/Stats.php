@@ -3,7 +3,6 @@
 namespace Ichiloto\Engine\Entities;
 
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
-use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
 use JsonSerializable;
 

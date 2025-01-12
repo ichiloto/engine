@@ -20,6 +20,7 @@ use Ichiloto\Engine\Events\Interfaces\EventInterface;
 use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
 use Ichiloto\Engine\Events\Interfaces\StaticObserverInterface;
 use Ichiloto\Engine\Events\Interfaces\SubjectInterface;
+use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
@@ -34,10 +35,11 @@ use Ichiloto\Engine\UI\Windows\DebugWindow;
 use Ichiloto\Engine\Util\Config\AppConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\InputConfig;
-use Ichiloto\Engine\Util\Config\ItemStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
+use Ichiloto\Engine\Util\Stores\EnemyStore;
+use Ichiloto\Engine\Util\Stores\ItemStore;
 use Throwable;
 
 /**
@@ -87,7 +89,14 @@ class Game implements CanRun, SubjectInterface
    * @var ItemList<StaticObserverInterface> The static observers.
    */
   protected ItemList $staticObservers;
+  /**
+   * @var BattleEngineInterface $engine The battle engine.
+   */
   protected(set) BattleEngineInterface $engine;
+  /**
+   * @var ItemStore $itemStore The item store.
+   */
+  protected(set) ItemStore $itemStore;
 
   /**
    * Game constructor.
@@ -354,7 +363,7 @@ class Game implements CanRun, SubjectInterface
     }
 
     Debug::configure([
-      'log_level' => config(AppConfig::class, 'debug.level') ?? 1,
+      'log_level' => config(AppConfig::class, 'debug.level', 1) ?? 1,
       'log_directory' => $logDirectory
     ]);
 
@@ -619,20 +628,28 @@ SPLASH_SCREEN;
    */
   private function initializeConfigStore(): void
   {
-    ConfigStore::put(PlaySettings::class, new PlaySettings($this->options));
-    ConfigStore::put(AppConfig::class, new AppConfig());
-    ConfigStore::put(ProjectConfig::class, new ProjectConfig());
-    ConfigStore::put(InputConfig::class, new InputConfig());
-    ConfigStore::put(ItemStore::class, new ItemStore());
+    ConfigStore::put(PlaySettings::class,   new PlaySettings($this->options));
+    ConfigStore::put(AppConfig::class,      new AppConfig());
+    ConfigStore::put(ProjectConfig::class,  new ProjectConfig());
+    ConfigStore::put(InputConfig::class,    new InputConfig());
+    ConfigStore::put(ItemStore::class,      new ItemStore());
+    ConfigStore::put(EnemyStore::class,     new EnemyStore());
   }
 
   /**
    * Build the item store. This is where all the items in the game are stored.
    *
    * @return void
+   * @throws NotFoundException If the item store is not an instance of ItemStore.
    */
   private function buildItemStore(): void
   {
-    // TODO: Implement buildItemStore() method.
+    if ( $itemStore = ConfigStore::get(ItemStore::class) ) {
+      if (! $itemStore instanceof ItemStore) {
+        throw new NotFoundException(ItemStore::class);
+      }
+
+      $this->itemStore = $itemStore;
+    }
   }
 }
