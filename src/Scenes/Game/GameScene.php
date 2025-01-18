@@ -211,13 +211,13 @@ class GameScene extends AbstractScene
   public function transferPlayer(Location $location): void
   {
     Debug::info("Transferring player to $location->mapFilename... at $location->playerPosition");
-    $this->loadMap($location->mapFilename);
 
     $this->player->position->x = $location->playerPosition->x;
     $this->player->position->y = $location->playerPosition->y;
     if ($location->playerSprite) {
       $this->player->sprite = $location->playerSprite;
     }
+    $this->loadMap($location->mapFilename);
     $this->player->render();
 
     $this->locationHUDWindow->updateDetails($this->player->position, $this->player->heading);
@@ -231,7 +231,7 @@ class GameScene extends AbstractScene
   #[Override]
   public function renderBackgroundTile(int $x, int $y): void
   {
-    $this->mapManager->renderBackgroundTile($x, $y);
+    $this->mapManager->erase($x, $y);
   }
 
   /**

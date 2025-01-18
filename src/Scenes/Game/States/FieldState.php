@@ -101,7 +101,7 @@ class FieldState extends GameSceneState
     $v = Input::getAxis(AxisName::VERTICAL);
 
     if (abs($h) || abs($v)) {
-      $scene->player->move(new Vector2(intval($h), intval($v)));
+      $scene->player->move(new Vector2(intval($h), intval($v)), $this->getGameScene()->camera);
     }
   }
 

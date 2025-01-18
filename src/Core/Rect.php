@@ -21,6 +21,11 @@ class Rect implements Stringable
     get {
       return new Vector2($this->x, $this->y);
     }
+
+    set {
+      $this->x = $value->x;
+      $this->y = $value->y;
+    }
   }
 
   /**
