@@ -140,14 +140,15 @@ class MapManager implements CanRenderAt
    * Loads the map from a file.
    *
    * @param string $filename The filename of the map.
+   * @param Player $player The player.
    * @return MapManager The instance of the MapManager.
    * @throws IchilotoException If the map cannot be loaded.
    * @throws NotFoundException If the file is not found.
    */
-  public function loadMap(string $filename): self
+  public function loadMap(string $filename, Player $player): self
   {
     // Load the tile map from the file
-    $this->loadTileMap($filename);
+    $this->loadTileMap($filename, $player);
     Console::clear();
     $this->render();
     return $this;
@@ -255,11 +256,14 @@ class MapManager implements CanRenderAt
    * Loads the tile map from a file.
    *
    * @param string $filename The filename of the tile map.
+   * @param Player $player The player.
+   *
    * @return void
-   * @throws NotFoundException If the file is not found.
    * @throws IchilotoException If the tile map cannot be loaded.
+   * @throws NotFoundException If the file is not found.
+   * @throws RequiredFieldException
    */
-  private function loadTileMap(string $filename): void
+  private function loadTileMap(string $filename, Player $player): void
   {
     $map = $this->readMapDataFromFile($filename);
     $locationName = $map['name'] ?? MapLocation::DEFAULT_LOCATION_NAME;
@@ -271,7 +275,7 @@ class MapManager implements CanRenderAt
     $this->loadMapTriggers($map['triggers'] ?? []);
     $this->loadMapEvents($map['events'] ?? []);
 
-    $this->camera->resetPosition();
+    $this->camera->resetPosition($player);
   }
 
   /**
@@ -424,21 +428,27 @@ class MapManager implements CanRenderAt
 
     switch ($moveDirection) {
       case Vector2::left():
-//        $playerDistanceFromLeftScreenEdge = $player->position->x - $this->camera->screen->getLeft();
-//        if ($playerDistanceFromLeftScreenEdge < $halfScreenWidth) {
-//          $newX = $this->camera->position->x - 1;
-//          $this->camera->screen->setX(max(0, $newX));
-//          $didScroll = true;
-//        }
+        $playerDistanceFromLeftScreenEdge = $player->position->x - $this->camera->screen->getLeft();
+        if ($playerDistanceFromLeftScreenEdge < $halfScreenWidth) {
+          if (($player->position->x - $halfScreenWidth) > 0) {
+            $newX = max(0, $this->camera->position->x - 1);
+            $newX = clamp($newX, 0, $this->camera->screen->getWidth());
+            $this->camera->screen->setX(max(0, $newX));
+            $didScroll = true;
+          }
+        }
         break;
 
       case Vector2::right():
-//        $playerDistanceFromRightScreenEdge = $this->camera->screen->getRight() - $player->position->x;
-//        if ($playerDistanceFromRightScreenEdge < $halfScreenWidth) {
-//          $newX = $this->camera->position->x + 1;
-//          $this->camera->screen->setX(min($this->mapWidth - $halfScreenWidth, $newX));
-//          $didScroll = true;
-//        }
+        $playerDistanceFromRightScreenEdge = $this->camera->screen->getRight() - $player->position->x;
+        if ($playerDistanceFromRightScreenEdge < $halfScreenWidth) {
+          if (($player->position->x + $halfScreenWidth) < $this->mapWidth) {
+            $newX = min($this->mapWidth - $halfScreenWidth,$this->camera->position->x + 1);
+            $newX = clamp($newX, 0, $this->camera->screen->getWidth());
+            $this->camera->screen->setX(min($this->mapWidth - $halfScreenWidth, $newX));
+            $didScroll = true;
+          }
+        }
         break;
 
       case Vector2::up():
@@ -453,7 +463,6 @@ class MapManager implements CanRenderAt
 
       case Vector2::down():
         $playerDistanceFromBottomScreenEdge = $this->camera->screen->getBottom() - $player->position->y;
-        $realScreenBottom = $this->camera->getWorldSpacePosition(new Vector2(0, $this->camera->screen->getHeight()))->y;
         if ($playerDistanceFromBottomScreenEdge < $halfScreenHeight) {
           if (($player->position->y + $halfScreenHeight) < $this->mapHeight) {
             $newY = min($this->mapHeight - $halfScreenHeight, $this->camera->position->y + 1);

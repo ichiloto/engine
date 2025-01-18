@@ -66,7 +66,27 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   /**
    * @var string[] The world space.
    */
-  public array $worldSpace = [];
+  public array $worldSpace = [] {
+    get {
+      return $this->worldSpace;
+    }
+
+    set {
+      $this->worldSpace = $value;
+      $this->worldSpaceHeight = count($value);
+      $this->worldSpaceWidth = array_reduce($value, function ($carry, $item) {
+        return max($carry, strlen($item));
+      }, 0);
+    }
+  }
+  /**
+   * @var int The width of the world space.
+   */
+  public int $worldSpaceWidth = 0;
+  /**
+   * @var int The height of the world space.
+   */
+  public int $worldSpaceHeight = 0;
 
   /**
    * Camera constructor.
@@ -324,12 +344,25 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   /**
    * Resets the position of the camera.
    *
+   * @param Player $player
    * @return void
    */
-  public function resetPosition(): void
+  public function resetPosition(Player $player): void
   {
     $x = 0;
     $y = 0;
+
+    $playerScreenPosition = $this->getScreenSpacePosition($player->position);
+
+    if ($this->worldSpaceWidth > $this->screen->getWidth()) {
+      $halfWidth = $this->screen->getWidth() / 2;
+      $x = clamp($playerScreenPosition->x - $halfWidth, 0, $this->screen->getWidth() - $halfWidth);
+    }
+
+    if ($this->worldSpaceHeight > $this->screen->getHeight()) {
+      $halfHeight = $this->screen->getHeight() / 2;
+      $y = clamp($playerScreenPosition->y - $halfHeight, 0, $this->screen->getHeight() - $halfHeight);
+    }
 
     $this->screen->setX($x);
     $this->screen->setY($y);
