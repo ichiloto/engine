@@ -72,7 +72,7 @@ abstract class TurnBasedEngine implements BattleEngineInterface
     protected Game $game
   )
   {
-    $this->turnQueue = new Queue(CharacterInterface::class);
+    $this->turnQueue = new Queue(Turn::class);
     $this->initializeTurnStates();
   }
 

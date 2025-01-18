@@ -136,6 +136,23 @@ class Vector2 implements CanCompare, Stringable
   }
 
   /**
+   * Subtracts the specified vectors.
+   *
+   * @param self ...$vectors The vectors to subtract.
+   * @return self Returns the difference of the specified vectors.
+   */
+  public static function difference(self ...$vectors): self
+  {
+    $difference = new self();
+
+    foreach ($vectors as $vector) {
+      $vector->subtract($difference);
+    }
+
+    return $difference;
+  }
+
+  /**
    * Adds the specified vector to this vector.
    *
    * @param self $other The vector to add.

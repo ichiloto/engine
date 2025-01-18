@@ -151,7 +151,7 @@ class GameScene extends AbstractScene
     $this->player->activate();
     $this->party = $this->config->party;
 
-    $this->loadMap("{$this->config->mapId}.php");
+    $this->loadMap("{$this->config->mapId}.php", $this->player);
     $this->setState($this->fieldState);
     usleep(400);
     $this->locationHUDWindow->updateDetails($this->player->position, $this->player->heading);
@@ -191,13 +191,14 @@ class GameScene extends AbstractScene
    * Loads the map.
    *
    * @param string $mapFilename The map filename.
+   * @param Player $player
    * @return void
-   * @throws NotFoundException If the map is not found.
    * @throws IchilotoException If the map cannot be loaded.
+   * @throws NotFoundException If the map is not found.
    */
-  public function loadMap(string $mapFilename): void
+  public function loadMap(string $mapFilename, Player $player): void
   {
-    $this->mapManager->loadMap($mapFilename);
+    $this->mapManager->loadMap($mapFilename, $player);
   }
 
   /**
@@ -211,13 +212,13 @@ class GameScene extends AbstractScene
   public function transferPlayer(Location $location): void
   {
     Debug::info("Transferring player to $location->mapFilename... at $location->playerPosition");
-    $this->loadMap($location->mapFilename);
 
     $this->player->position->x = $location->playerPosition->x;
     $this->player->position->y = $location->playerPosition->y;
     if ($location->playerSprite) {
       $this->player->sprite = $location->playerSprite;
     }
+    $this->loadMap($location->mapFilename, $this->player);
     $this->player->render();
 
     $this->locationHUDWindow->updateDetails($this->player->position, $this->player->heading);
@@ -231,7 +232,7 @@ class GameScene extends AbstractScene
   #[Override]
   public function renderBackgroundTile(int $x, int $y): void
   {
-    $this->mapManager->renderBackgroundTile($x, $y);
+    $this->mapManager->erase($x, $y);
   }
 
   /**

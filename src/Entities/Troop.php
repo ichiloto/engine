@@ -91,7 +91,6 @@ class Troop extends BattleGroup
       $enemyClone->position->x = $enemyPosition->x;
       $enemyClone->position->y = $enemyPosition->y;
 
-      Debug::log('Enemy position: ' . $enemyClone->position);
       $enemies[] = $enemyClone;
     }
 
