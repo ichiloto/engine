@@ -3,22 +3,20 @@
 namespace Ichiloto\Engine\Field;
 
 use Assegai\Collections\ItemList;
-use Closure;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\GameObject;
-use Ichiloto\Engine\Core\Interfaces\CanCompare;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Actions\FieldActionContext;
 use Ichiloto\Engine\Entities\Interfaces\ActionInterface;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Events\Enumerations\MovementEventType;
-use Ichiloto\Engine\Events\Interfaces\EventInterface;
 use Ichiloto\Engine\Events\MovementEvent;
 use Ichiloto\Engine\Events\Triggers\EventTrigger;
 use Ichiloto\Engine\Events\Triggers\EventTriggerContext;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
+use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\UI\Elements\LocationHUDWindow;
@@ -78,7 +76,27 @@ class Player extends GameObject
    * @var ActionInterface|null $availableAction The available action.
    */
   public ?ActionInterface $availableAction = null;
+  /**
+   * @var Vector2 $screenPosition The screen position of the player.
+   */
+  public Vector2 $screenPosition {
+    get {
+      $screenPosition = $this->position;
+      $screenPosition->subtract($this->scene->camera->position);
+      return $screenPosition;
+    }
+  }
 
+  /**
+   * Player constructor.
+   *
+   * @param SceneInterface $scene The scene.
+   * @param string $name The name of the player.
+   * @param Vector2 $position The position of the player.
+   * @param Rect $shape The shape of the player.
+   * @param array $sprite The sprite of the player.
+   * @param MovementHeading $heading The heading of the player.
+   */
   public function __construct(
     SceneInterface $scene,
     string $name,
@@ -98,6 +116,9 @@ class Player extends GameObject
     $this->heading = $heading;
   }
 
+  /**
+   * @inheritDoc
+   */
   #[Override]
   public function activate(): void
   {
@@ -115,11 +136,12 @@ class Player extends GameObject
    * Movement speed of the player.
    *
    * @param Vector2 $direction The direction to move to.
+   * @param Camera $camera The camera.
    * @return void
    * @throws NotFoundException If the scene is not set.
    * @throws OutOfBounds If the player is out of bounds.
    */
-  public function move(Vector2 $direction): void
+  public function move(Vector2 $direction, Camera $camera): void
   {
     $origin = $this->position;
     $destination = Vector2::sum($origin, $direction);
@@ -133,9 +155,13 @@ class Player extends GameObject
 
     $event = new MovementEvent(MovementEventType::PLAYER_MOVE, $origin, $destination);
     $this->handleCollision($collisionType);
-    $this->updatePlayerPosition($direction);
+    $this->updatePlayerPosition($direction, $camera);
     $this->handleTriggers($event);
 
+
+    if ($this->getGameScene()->mapManager->isAtSavePoint) {
+      alert("Access the Menu to save your progress.", 'Save Point');
+    }
     $this->notify($this->getGameScene(), $event);
   }
 
@@ -268,19 +294,28 @@ class Player extends GameObject
   }
 
   /**
-   * @param Vector2 $direction
+   * Updates the player position.
+   *
+   * @param Vector2 $direction The direction.
+   * @param Camera $camera The camera.
    * @return void
    */
-  protected function updatePlayerPosition(Vector2 $direction): void
+  protected function updatePlayerPosition(Vector2 $direction, Camera $camera): void
   {
-    $this->erase();
+    $mapManager = $this->getGameScene()->mapManager;
+    $this->erasePlayer($camera);
     $this->position->add($direction);
+    if ( $mapManager->scrollMap($this, $direction) ) {
+      $mapManager->render();
+    }
     $this->render();
     $this->renderLocationHUDWindow($direction);
   }
 
   /**
-   * @param Vector2 $direction
+   * Renders the location HUD window.
+   *
+   * @param Vector2 $direction The direction.
    * @return void
    */
   protected function renderLocationHUDWindow(Vector2 $direction): void
@@ -315,7 +350,22 @@ class Player extends GameObject
     parent::render();
 
     if ($this->canAct) {
-      $this->scene->camera->draw($this->actionSprite, $this->position->x, clamp($this->position->y - 1, 1, get_screen_height()));
+      $this->scene->camera->draw($this->actionSprite, $this->screenPosition->x, clamp($this->screenPosition->y - 1, 1, get_screen_height()));
+    }
+  }
+
+  public function renderPlayer(?Vector2 $offset = null): void
+  {
+    $x = $this->position->x - ($offset?->x ?? 0);
+    $y = $this->position->y - ($offset?->y ?? 0);
+
+    for ($row = $this->shape->getY(); $row < $this->shape->getY() + $this->shape->getHeight(); $row++) {
+      $output = substr($this->sprite[$row], $this->shape->getX(), $this->shape->getWidth());
+      $this->scene->camera->draw($output, $x, $y + $row);
+    }
+
+    if ($this->canAct) {
+      $this->scene->camera->draw($this->actionSprite, $x, clamp($y - 1, 1, get_screen_height()));
     }
   }
 
@@ -325,6 +375,23 @@ class Player extends GameObject
   public function erase(): void
   {
     parent::erase();
+
+    if ($this->canAct) {
+      $this->scene->renderBackgroundTile($this->position->x, clamp($this->position->y - 1, 1, get_screen_height()));
+    }
+  }
+
+  /**
+   * Erases the player.
+   *
+   * @param Camera $camera
+   * @return void
+   */
+  public function erasePlayer(Camera $camera): void
+  {
+    for($row = $this->shape->getY(); $row < $this->shape->getY() + $this->shape->getHeight(); $row++) {
+      $this->scene->renderBackgroundTile($this->position->x, $this->position->y + $row);
+    }
 
     if ($this->canAct) {
       $this->scene->renderBackgroundTile($this->position->x, clamp($this->position->y - 1, 1, get_screen_height()));

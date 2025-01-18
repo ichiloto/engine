@@ -222,7 +222,9 @@ class Console
       $output .= self::$buffer[$currentBufferRow] . "\n";
     }
 
-    $cursor->moveTo(0, $y + 1);
+    $row = clamp($y + 1, 1, get_screen_height());
+    $column = 0;
+    $cursor->moveTo($column, $row);
     if (self::$output) {
       self::$output->write($output);
     } else {

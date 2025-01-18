@@ -267,10 +267,7 @@ abstract class GameObject implements CanActivate, SubjectInterface, CanUpdate, C
    */
   public function render(): void
   {
-    for ($row = $this->shape->getY(); $row < $this->shape->getY() + $this->shape->getHeight(); $row++) {
-      $output = substr($this->sprite[$row], $this->shape->getX(), $this->shape->getWidth());
-      $this->scene->camera->draw($output, $this->position->x, $this->position->y + $row);
-    }
+    $this->scene->camera->renderOnScreen($this->sprite, $this->position);
   }
 
   /**

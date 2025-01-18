@@ -82,7 +82,6 @@ class BattleCharacterStatusWindow extends Window
 
     $content = array_pad($content, self::HEIGHT - 2, '');
 
-//    Debug::log(var_export($content, true));
     $this->setContent($content);
     $this->render();
   }

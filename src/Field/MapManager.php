@@ -5,6 +5,8 @@ namespace Ichiloto\Engine\Field;
 use Assegai\Util\Path;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Interfaces\CanRenderAt;
+use Ichiloto\Engine\Core\Rect;
+use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\PartyLocation as MapLocation;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Events\Triggers\EventTriggerFactory;
@@ -27,15 +29,11 @@ use voku\helper\ASCII;
 class MapManager implements CanRenderAt
 {
   /**
-   * The instance of the MapManager.
-   *
-   * @var MapManager|null
+   * @var MapManager|null The instance of the MapManager.
    */
   protected static ?self $instance = null;
   /**
-   * The tile map.
-   *
-   * @var string[][]
+   * @var string[] The tile map.
    */
   protected array $tileMap = [];
   /**
@@ -45,9 +43,7 @@ class MapManager implements CanRenderAt
    */
   protected array $collisionMap = [];
   /**
-   * The default collision dictionary.
-   *
-   * @var array<string, CollisionType>
+   * @var array<string, CollisionType> The default collision dictionary.
    */
   protected array $defaultCollisionDictionary = [
     ';' => CollisionType::ENCOUNTER,
@@ -144,14 +140,15 @@ class MapManager implements CanRenderAt
    * Loads the map from a file.
    *
    * @param string $filename The filename of the map.
+   * @param Player $player The player.
    * @return MapManager The instance of the MapManager.
    * @throws IchilotoException If the map cannot be loaded.
    * @throws NotFoundException If the file is not found.
    */
-  public function loadMap(string $filename): self
+  public function loadMap(string $filename, Player $player): self
   {
     // Load the tile map from the file
-    $this->loadTileMap($filename);
+    $this->loadTileMap($filename, $player);
     Console::clear();
     $this->render();
     return $this;
@@ -259,49 +256,38 @@ class MapManager implements CanRenderAt
    * Loads the tile map from a file.
    *
    * @param string $filename The filename of the tile map.
+   * @param Player $player The player.
+   *
    * @return void
-   * @throws NotFoundException If the file is not found.
    * @throws IchilotoException If the tile map cannot be loaded.
+   * @throws NotFoundException If the file is not found.
+   * @throws RequiredFieldException
    */
-  private function loadTileMap(string $filename): void
+  private function loadTileMap(string $filename, Player $player): void
   {
-    // Load the tile map from the file
-    $assetsDirectory = Path::join(Path::getCurrentWorkingDirectory(), 'assets');
-    if (!str_ends_with($filename, '.php')) {
-      $filename .= '.php';
-    }
-    $filename = Path::join($assetsDirectory, 'Maps', $filename);
-
-    if (! file_exists($filename) ) {
-      throw new NotFoundException("File $filename not found.");
-    }
-
-    $map = require $filename;
-
-    if (false === $map) {
-      throw new NotFoundException("File $filename does not return an array.");
-    }
-
-    $this->tileMap = $map['tile_map'] ?? throw new InvalidArgumentException("tile_map not found in map array of $filename.");
+    $map = $this->readMapDataFromFile($filename);
     $locationName = $map['name'] ?? MapLocation::DEFAULT_LOCATION_NAME;
     $locationRegion = $map['region'] ?? MapLocation::DEFAULT_LOCATION_REGION;
     $this->gameScene->party->location = new MapLocation($locationName, $locationRegion);
 
-    $dictionary = $this->getCollisionDictionary();
-    $this->loadCollisionMap($this->tileMap, $dictionary);
+    $this->calculateMapDimensions();
+    $this->loadCollisionMap($this->tileMap);
     $this->loadMapTriggers($map['triggers'] ?? []);
     $this->loadMapEvents($map['events'] ?? []);
+
+    $this->camera->resetPosition($player);
   }
 
   /**
    * Loads the collision map from a tile map.
    *
    * @param string[] $tileMap The tile map.
-   * @param array<string, CollisionType> $dictionary The dictionary that maps tile characters to collision types.
    * @return void
+   * @throws NotFoundException
    */
-  private function loadCollisionMap(array $tileMap, array $dictionary = []): void
+  private function loadCollisionMap(array $tileMap): void
   {
+    $dictionary = $this->getCollisionDictionary();
     $this->collisionMap = $this->generateCollisionMap($tileMap, $dictionary);
   }
 
@@ -344,7 +330,7 @@ class MapManager implements CanRenderAt
    */
   public function render(?int $x = null, ?int $y = null): void
   {
-    $this->camera->draw($this->tileMap, ($x ?? 0), ($y ?? 0));
+    $this->camera->renderMap();
   }
 
   /**
@@ -407,7 +393,8 @@ class MapManager implements CanRenderAt
   public function renderBackgroundTile(int $x, int $y): void
   {
     $tile = $this->tileMap[$y][$x];
-    $this->camera->draw($tile, $x, $y);
+    $screenSpacePosition = $this->camera->getScreenSpacePosition(new Vector2($x, $y));
+    $this->camera->draw($tile, $screenSpacePosition->x, $screenSpacePosition->y);
   }
 
   /**
@@ -420,5 +407,145 @@ class MapManager implements CanRenderAt
   {
     $collisionDictionaryFilename = Path::join(Path::getCurrentWorkingDirectory(), 'assets/Maps/collisions.php');
     return $this->loadCollisionDictionary($collisionDictionaryFilename);
+  }
+
+  /**
+   * Scrolls the map.
+   *
+   * @param Player $player The player.
+   * @param Vector2 $moveDirection The direction to move.
+   * @return bool True if the map was scrolled, false otherwise.
+   */
+  public function scrollMap(Player $player, Vector2 $moveDirection): bool
+  {
+    $didScroll = false;
+    $halfScreenWidth = $this->camera->screen->getWidth() / 2;
+    $halfScreenHeight = $this->camera->screen->getHeight() / 2;
+
+    if ($this->mapIsSmallerThanScreen($this->camera->screen)) {
+      return false;
+    }
+
+    switch ($moveDirection) {
+      case Vector2::left():
+        $playerDistanceFromLeftScreenEdge = $player->position->x - $this->camera->screen->getLeft();
+        if ($playerDistanceFromLeftScreenEdge < $halfScreenWidth) {
+          if (($player->position->x - $halfScreenWidth) > 0) {
+            $newX = max(0, $this->camera->position->x - 1);
+            $newX = clamp($newX, 0, $this->camera->screen->getWidth());
+            $this->camera->screen->setX(max(0, $newX));
+            $didScroll = true;
+          }
+        }
+        break;
+
+      case Vector2::right():
+        $playerDistanceFromRightScreenEdge = $this->camera->screen->getRight() - $player->position->x;
+        if ($playerDistanceFromRightScreenEdge < $halfScreenWidth) {
+          if (($player->position->x + $halfScreenWidth) < $this->mapWidth) {
+            $newX = min($this->mapWidth - $halfScreenWidth,$this->camera->position->x + 1);
+            $newX = clamp($newX, 0, $this->camera->screen->getWidth());
+            $this->camera->screen->setX(min($this->mapWidth - $halfScreenWidth, $newX));
+            $didScroll = true;
+          }
+        }
+        break;
+
+      case Vector2::up():
+        $playerDistanceFromBottomScreenEdge = $player->position->y - $this->camera->screen->getTop();
+        if ($playerDistanceFromBottomScreenEdge < $halfScreenHeight) {
+          $newY = max(0, $this->camera->position->y - 1);
+          $newY = clamp($newY, 0, $this->camera->screen->getHeight());
+          $this->camera->screen->setY($newY);
+          $didScroll = true;
+        }
+        break;
+
+      case Vector2::down():
+        $playerDistanceFromBottomScreenEdge = $this->camera->screen->getBottom() - $player->position->y;
+        if ($playerDistanceFromBottomScreenEdge < $halfScreenHeight) {
+          if (($player->position->y + $halfScreenHeight) < $this->mapHeight) {
+            $newY = min($this->mapHeight - $halfScreenHeight, $this->camera->position->y + 1);
+            $newY = clamp($newY, 0, $this->camera->screen->getHeight());
+            $this->camera->screen->setY($newY);
+            $didScroll = true;
+          }
+        }
+        break;
+    }
+
+    return $didScroll;
+  }
+
+  /**
+   * Calculates the dimensions of the map.
+   *
+   * @return void
+   */
+  protected function calculateMapDimensions(): void
+  {
+    $this->mapHeight = count($this->tileMap);
+    $this->mapWidth = array_reduce($this->tileMap, fn($carry, $row) => max($carry, strlen($row)), 0);
+  }
+
+  /**
+   * Determines if the map is smaller than the screen.
+   *
+   * @param Rect $screen The screen.
+   * @return bool True if the map is smaller than the screen, false otherwise.
+   */
+  protected function mapIsSmallerThanScreen(Rect $screen): bool
+  {
+    return $this->screenIsWiderThanMap($screen) && $this->screenIsTallerThanMap($screen);
+  }
+
+  /**
+   * Determines if the map is thinner than the screen.
+   *
+   * @param Rect $screen The screen.
+   * @return bool
+   */
+  public function screenIsWiderThanMap(Rect $screen): bool
+  {
+    return $this->mapWidth <= $screen->getWidth();
+  }
+
+  /**
+   * Determines if the map is shorter than the screen.
+   *
+   * @param Rect $screen The screen.
+   * @return bool True if the map is shorter than the screen, false otherwise.
+   */
+  protected function screenIsTallerThanMap(Rect $screen): bool
+  {
+    return $this->mapHeight <= $screen->getHeight();
+  }
+
+  /**
+   * @param string $filename
+   * @return mixed
+   * @throws NotFoundException
+   */
+  public function readMapDataFromFile(string $filename): mixed
+  {
+    $assetsDirectory = Path::join(Path::getCurrentWorkingDirectory(), 'assets');
+    if (!str_ends_with($filename, '.php')) {
+      $filename .= '.php';
+    }
+    $filename = Path::join($assetsDirectory, 'Maps', $filename);
+
+    if (!file_exists($filename)) {
+      throw new NotFoundException("File $filename not found.");
+    }
+
+    $map = require $filename;
+
+    if (false === $map) {
+      throw new NotFoundException("File $filename does not return an array.");
+    }
+
+    $this->tileMap = $map['tile_map'] ?? throw new InvalidArgumentException("tile_map not found in map array of $filename.");
+    $this->camera->worldSpace = $this->tileMap;
+    return $map;
   }
 }

@@ -27,7 +27,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   /**
    * @var Rect The drawable screen area.
    */
-  protected(set) Rect $screen;
+  public Rect $screen;
   /**
    * @var OutputInterface The output.
    */
@@ -38,8 +38,8 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   protected Vector2 $center {
     get {
       return new Vector2(
-        $this->center->x - $this->screen->getX() / 2,
-        $this->center->y - $this->screen->getY() / 2
+        $this->screen->getX() / 2,
+        $this->screen->getY() / 2
       );
     }
 
@@ -52,7 +52,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   /**
    * @var Vector2 The position of the camera.
    */
-  protected Vector2 $position {
+  public Vector2 $position {
     get {
       return $this->screen->position;
     }
@@ -64,21 +64,57 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   }
 
   /**
+   * @var string[] The world space.
+   */
+  public array $worldSpace = [] {
+    get {
+      return $this->worldSpace;
+    }
+
+    set {
+      $this->worldSpace = $value;
+      $this->worldSpaceHeight = count($value);
+      $this->worldSpaceWidth = array_reduce($value, function ($carry, $item) {
+        return max($carry, strlen($item));
+      }, 0);
+    }
+  }
+  /**
+   * @var int The width of the world space.
+   */
+  public int $worldSpaceWidth = 0;
+  /**
+   * @var int The height of the world space.
+   */
+  public int $worldSpaceHeight = 0;
+
+  /**
    * Camera constructor.
    *
    * @param SceneInterface $scene The scene that this camera is rendering.
+   * @param int $width The width of the camera.
+   * @param int $height The height of the camera.
+   * @param Vector2 $position The position of the camera.
+   * @param Player|null $player The player.
    */
   public function __construct(
     protected SceneInterface $scene,
     protected int $width = DEFAULT_SCREEN_WIDTH,
     protected int $height = DEFAULT_SCREEN_HEIGHT,
     Vector2 $position = new Vector2(0, 0),
-    protected ?Player $player = null
+    protected ?Player $player = null,
+    array $worldSpace = []
   )
   {
     $this->output = new ConsoleOutput();
     $this->screen = new Rect(0, 0, $width, $height);
     $this->position = $position;
+
+    if ($worldSpace) {
+      $this->worldSpace = $worldSpace;
+    } else {
+      $this->worldSpace = array_fill(0, $this->screen->getHeight(), str_repeat(' ', $this->screen->getWidth()));
+    }
   }
 
   /**
@@ -95,6 +131,22 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   public function stop(): void
   {
     $this->scene->getUI()->stop();
+  }
+
+  /**
+   * Renders the map.
+   *
+   * @return void
+   */
+  public function renderMap(): void
+  {
+    for ($row = 0; $row < $this->screen->getHeight(); $row++) {
+      $worldSpaceY = $this->position->y + $row;
+      $content = substr($this->worldSpace[$worldSpaceY] ?? str_repeat(' ', $this->width), $this->position->x, $this->width);
+
+      $screenSpaceY = $this->getScreenSpacePosition(new Vector2(0, $worldSpaceY))->y;
+      $this->draw($content, $this->position->x, $screenSpaceY);
+    }
   }
 
   /**
@@ -180,6 +232,8 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
    * Draws content on the screen.
    *
    * @param iterable|string $content The content to draw.
+   * @param int $x The x-coordinate.
+   * @param int $y The y-coordinate.
    */
   public function draw(iterable|string $content, int $x = 0, int $y = 0): void
   {
@@ -199,11 +253,118 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
     $content = $buffer;
 
     if (is_iterable($content)) {
-      foreach ($content as $index => $row) {
-        Console::write($row, $this->screen->getX() + $x, $this->screen->getY() + $y + $index);
+      foreach ($content as $index => $line) {
+        $row = $y + $index;
+        $row = clamp($row, 0, $this->screen->getHeight());
+        $column = $this->screen->getX() + $x;
+        $column = clamp($column, 0, $this->screen->getWidth());
+//        Console::cursor()->moveTo($this->screen->getX() + $x, $this->screen->getY() + $y + $row);
+//        $this->output->write($line);
+        Console::write($line, $column, $row);
       }
     } else {
-      Console::write($content, $this->screen->getX() + $x, $this->screen->getY() + $y);
+      $row = clamp($y, 0, $this->screen->getHeight());
+      $column = clamp($x, 0, $this->screen->getWidth());
+      Console::write($content, $column, $row);
     }
+  }
+
+  /**
+   * Moves the camera in a specified direction.
+   *
+   * @param Vector2 $direction The direction to move the camera.
+   */
+  public function move(Vector2 $direction): void
+  {
+    $this->moveBy($direction->x, $direction->y);
+  }
+
+  /**
+   * Moves the camera by a specified amount.
+   *
+   * @param int $x The x-coordinate.
+   * @param int $y The y-coordinate.
+   */
+  public function moveBy(int $x, int $y): void
+  {
+    $x = $this->position->x + $x;
+    $y = $this->position->y + $y;
+
+    $this->moveTo($x, $y);
+  }
+
+  /**
+   * Moves the camera to a new position.
+   *
+   * @param int $x The x-coordinate.
+   * @param int $y The y-coordinate.
+   */
+  public function moveTo(int $x, int $y): void
+  {
+    $this->position = new Vector2($x, $y);
+  }
+
+  /**
+   * Gets the screen space position of a world space position.
+   *
+   * @param Vector2 $worldSpacePosition The world space position.
+   * @return Vector2 The screen space position.
+   */
+  public function getScreenSpacePosition(Vector2 $worldSpacePosition): Vector2
+  {
+    $screenSpaceX = $worldSpacePosition->x - $this->position->x;
+    $screenSpaceY = $worldSpacePosition->y - $this->position->y;
+    return new Vector2($screenSpaceX, $screenSpaceY);
+  }
+
+  /**
+   * Gets the world space position of a screen space position.
+   *
+   * @param Vector2 $screenSpacePosition The screen space position.
+   * @return Vector2 The world space position.
+   */
+  public function getWorldSpacePosition(Vector2 $screenSpacePosition): Vector2
+  {
+    return Vector2::sum($screenSpacePosition, $this->position);
+  }
+
+  /**
+   * Renders content on the screen.
+   *
+   * @param array $output The output to render.
+   * @param Vector2 $worldSpacePosition The world space position.
+   */
+  public function renderOnScreen(array $output, Vector2 $worldSpacePosition): void
+  {
+    $screenSpacePosition = $this->getScreenSpacePosition($worldSpacePosition);
+    Console::cursor()->moveTo($screenSpacePosition->x + 1, $screenSpacePosition->y +1);
+    $this->output->write($output);
+  }
+
+  /**
+   * Resets the position of the camera.
+   *
+   * @param Player $player
+   * @return void
+   */
+  public function resetPosition(Player $player): void
+  {
+    $x = 0;
+    $y = 0;
+
+    $playerScreenPosition = $this->getScreenSpacePosition($player->position);
+
+    if ($this->worldSpaceWidth > $this->screen->getWidth()) {
+      $halfWidth = $this->screen->getWidth() / 2;
+      $x = clamp($playerScreenPosition->x - $halfWidth, 0, $this->screen->getWidth() - $halfWidth);
+    }
+
+    if ($this->worldSpaceHeight > $this->screen->getHeight()) {
+      $halfHeight = $this->screen->getHeight() / 2;
+      $y = clamp($playerScreenPosition->y - $halfHeight, 0, $this->screen->getHeight() - $halfHeight);
+    }
+
+    $this->screen->setX($x);
+    $this->screen->setY($y);
   }
 }
