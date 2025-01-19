@@ -2,8 +2,16 @@
 
 namespace Ichiloto\Engine\Messaging\Dialogue;
 
+/**
+ * Represents a node in a dialogue tree.
+ *
+ * @package Ichiloto\Engine\Messaging\Dialogue
+ */
 class DialogueNode
 {
+  /**
+   * @var int The total number of choices available to the player.
+   */
   protected(set) int $totalChoices = 0;
 
   /**

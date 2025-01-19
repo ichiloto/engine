@@ -135,4 +135,26 @@ class Party extends BattleGroup
   {
     $this->transact($amount);
   }
+
+  /**
+   * Checks if the party can afford a cost.
+   *
+   * @param int $cost The cost to check.
+   * @return bool True if the party can afford the cost, false otherwise.
+   */
+  public function canAfford(int $cost): bool
+  {
+    return $this->accountBalance >= $cost;
+  }
+
+  /**
+   * Checks if the party cannot afford a cost.
+   *
+   * @param int $cost The cost to check.
+   * @return bool True if the party cannot afford the cost, false otherwise.
+   */
+  public function cannotAfford(int $cost): bool
+  {
+    return ! $this->canAfford($cost);
+  }
 }
