@@ -4,8 +4,18 @@ namespace Ichiloto\Engine\Messaging\Dialogue;
 
 use Exception;
 
+/**
+ * Represents a dialogue tree. The dialogue tree is a collection of dialogue nodes that are connected by choices.
+ *
+ * @package Ichiloto\Engine\Messaging\Dialogue
+ */
 class DialogueTree
 {
+  /**
+   * DialogueTree constructor.
+   *
+   * @param DialogueNode $rootNode The root node of the dialogue tree.
+   */
   public function __construct(
     protected(set) DialogueNode $rootNode
   )
