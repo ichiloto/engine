@@ -12,7 +12,7 @@ use Ichiloto\Engine\Util\Config\ProjectConfig;
  *
  * @package Ichiloto\Engine\Messaging\Dialogue
  */
-readonly class Dialogue
+class Dialogue
 {
   /**
    * Creates a new instance of the dialogue.
@@ -22,9 +22,9 @@ readonly class Dialogue
    * @param array $face The face of the dialogue.
    */
   public function __construct(
-    public string $name,
-    public string $text,
-    public array $face = [],
+    public readonly string $name,
+    public readonly string $text,
+    public readonly array $face = [],
   )
   {
   }

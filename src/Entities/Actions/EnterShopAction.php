@@ -3,12 +3,9 @@
 namespace Ichiloto\Engine\Entities\Actions;
 
 use Exception;
-use Ichiloto\Engine\Entities\Actions\FieldAction;
 use Ichiloto\Engine\Entities\Interfaces\ActionContextInterface;
 use Ichiloto\Engine\Events\Triggers\ShopEventTrigger;
-use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Game\States\ShopState;
-use RuntimeException;
 
 /**
  * EnterShopAction class. This class is used to enter a shop.
@@ -17,6 +14,11 @@ use RuntimeException;
  */
 class EnterShopAction extends FieldAction
 {
+  /**
+   * EnterShopAction constructor.
+   *
+   * @param ShopEventTrigger $trigger The shop event trigger.
+   */
   public function __construct(
     protected ShopEventTrigger $trigger
   )
