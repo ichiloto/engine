@@ -521,3 +521,94 @@ if (! function_exists('compare_items') ) {
     return $a->name <=> $b->name;
   }
 }
+
+if (! function_exists('get_parameter_growth') ) {
+  /**
+   * Gets the parameter growth for the given level.
+   *
+   * @param int $level The level.
+   * @param int $baseValue The base value.
+   * @param int $extraGrowth The extra growth.
+   * @param int $flatIncrement The flat increment.
+   * @return int The parameter growth.
+   */
+  function get_parameter_growth(int $level, int $baseValue, int $extraGrowth, int $flatIncrement): int
+  {
+    return intval(round($baseValue + ($extraGrowth * ($level - 1) / 99) + ($flatIncrement * ($level - 1))));
+  }
+}
+
+if (! function_exists('generate_parameter_curve') ) {
+  /**
+   * Generates a parameter curve.
+   *
+   * @param int $baseValue The base value.
+   * @param int $extraGrowth The extra growth.
+   * @param int $flatIncrement The flat increment.
+   * @return array<int, int> The curve values.
+   */
+  function generate_parameter_curve(int $baseValue, int $extraGrowth, int $flatIncrement): array
+  {
+    $curveValues = [];
+
+    for($level = 1; $level <= 100; $level++) {
+      $curveValues[$level] = get_parameter_growth($level, $baseValue, $extraGrowth, $flatIncrement);
+    }
+
+    return $curveValues;
+  }
+}
+
+if (! function_exists('get_experience_growth') ) {
+  /**
+   * Gets the experience growth for the given level.
+   *
+   * @param int $level The level.
+   * @param int $baseValue The base value.
+   * @param int $extraValue The extra value.
+   * @param int $accelerationA The acceleration A.
+   * @param int $accelerationB The acceleration B.
+   * @return int The curve value.
+   */
+  function get_experience_growth(
+    int $level,
+    int $baseValue = 30,
+    int $extraValue = 20,
+    int $accelerationA = 30,
+    int $accelerationB = 30,
+  ): int
+  {
+    return intval(round(
+      ($baseValue * pow($level - 1, 0.9 + $accelerationA / 250) * $level * ($level + 1)) /
+      (6 + pow($level, 2) / 50 / $accelerationB) +
+      ($level - 1) * $extraValue
+    ));
+  }
+}
+
+if (! function_exists('generate_experience_curve') ) {
+  /**
+   * Generates a curve.
+   *
+   * @param int $baseValue The base value.
+   * @param int $extraValue The extra value.
+   * @param int $accelerationA The acceleration A.
+   * @param int $accelerationB The acceleration B.
+   * @return array<int, int> The curve values.
+   */
+  function generate_experience_curve(
+    int $baseValue = 30,
+    int $extraValue = 20,
+    int $accelerationA = 30,
+    int $accelerationB = 30,
+  ): array
+  {
+    $curveValues = [];
+
+    for($level = 1; $level <= 100; $level++) {
+      $curveValues[$level] = get_experience_growth($level, $baseValue, $extraValue, $accelerationA, $accelerationB);
+    }
+
+    return $curveValues;
+  }
+}
