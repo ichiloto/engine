@@ -545,7 +545,7 @@ if (! function_exists('generate_parameter_curve') ) {
    * @param int $baseValue The base value.
    * @param int $extraGrowth The extra growth.
    * @param int $flatIncrement The flat increment.
-   * @return array<int, int> The curve values.
+   * @return int[] The curve values.
    */
   function generate_parameter_curve(int $baseValue, int $extraGrowth, int $flatIncrement): array
   {
@@ -594,7 +594,7 @@ if (! function_exists('generate_experience_curve') ) {
    * @param int $extraValue The extra value.
    * @param int $accelerationA The acceleration A.
    * @param int $accelerationB The acceleration B.
-   * @return array<int, int> The curve values.
+   * @return int[] The curve values.
    */
   function generate_experience_curve(
     int $baseValue = 30,

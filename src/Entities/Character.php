@@ -14,6 +14,8 @@ use Ichiloto\Engine\Entities\Inventory\Inventory;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
+use Ichiloto\Engine\Entities\Roles\Role;
+use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
 
 /**
@@ -28,8 +30,10 @@ class Character implements CharacterInterface, CanEquip
    */
   const int DEFAULT_MAX_LEVEL = 100;
 
-  /**
-   * @var bool Whether the character is knocked out.
+  protected(set) int $maxLevel = self::DEFAULT_MAX_LEVEL;
+
+    /**
+   * @var bool Whether the character is knocked out. This is when the character's HP is 0.
    */
   public bool $isKnockedOut {
     get {
@@ -38,14 +42,29 @@ class Character implements CharacterInterface, CanEquip
   }
 
   /**
-   * @var bool Whether the character is conscious.
+   * @var bool Whether the character is conscious. This is when the character's HP is greater than 0.
    */
   public bool $isConscious {
     get {
       return $this->stats->currentHp > 0;
     }
   }
-
+  /**
+   * @var bool Whether the character is wounded. This is when the character's HP is less than their total HP.
+   */
+  public bool $isWounded {
+    get {
+      return $this->stats->currentHp < $this->stats->totalHp;
+    }
+  }
+  /**
+   * @var bool Whether the character is critical. This is when the character's HP is less than 25% of their total HP.
+   */
+  public bool $isCritical {
+    get {
+      return $this->stats->currentHp < $this->stats->totalHp / 4;
+    }
+  }
   /**
    * @var array The experience point thresholds for each level.
    */
@@ -65,7 +84,18 @@ class Character implements CharacterInterface, CanEquip
       return $this->maxLevel;
     }
   }
+  /**
+   * @var int The character's current experience points.
+   */
+  protected(set) int $currentExp {
+    set {
+      if ($value < 0) {
+        throw new InvalidArgumentException('Experience points cannot be negative.');
+      }
 
+      $this->currentExp = $value;
+    }
+  }
   /**
    * @var int The experience points required to reach the next level.
    */
@@ -103,6 +133,54 @@ class Character implements CharacterInterface, CanEquip
       ];
     }
   }
+  /**
+   * @var array The character's equipment.
+   */
+  protected(set) array $equipment = [];
+    /**
+   * @var Role The character's role.
+   */
+  public Role $role;
+  /**
+   * @var int[] $totalHpCurve
+   */
+  protected(set) array $totalHpCurve = [];
+  /**
+   * @var int[] $totalMpCurve
+   */
+  protected(set) array $totalMpCurve = [];
+  /**
+   * @var int[] $totalApCurve
+   */
+  protected(set) array $totalApCurve = [];
+  /**
+   * @var int[] $attackCurve
+   */
+  protected(set) array $attackCurve = [];
+  /**
+   * @var int[] $defenceCurve
+   */
+  protected(set) array $defenceCurve = [];
+  /**
+   * @var int[] $magicAttackCurve
+   */
+  protected(set) array $magicAttackCurve = [];
+  /**
+   * @var int[] $magicDefenceCurve
+   */
+  protected(set) array $magicDefenceCurve = [];
+  /**
+   * @var int[] $speedCurve
+   */
+  protected(set) array $speedCurve = [];
+  /**
+   * @var int[] $graceCurve
+   */
+  protected(set) array $graceCurve = [];
+  /**
+   * @var int[] $evasionCurve
+   */
+  protected(set) array $evasionCurve = [];
 
   /**
    * Character constructor.
@@ -112,7 +190,6 @@ class Character implements CharacterInterface, CanEquip
    * @param Stats $stats The character's stats.
    * @param CharacterSprites $images The character's images.
    * @param string $nickname The character's nickname.
-   * @param CharacterVocation $vocation The character's job.
    * @param int $maxLevel The character's maximum level.
    * @param string $bio The character's biography.
    * @param string $note The character's note.
@@ -120,25 +197,25 @@ class Character implements CharacterInterface, CanEquip
    */
   public function __construct(
     protected(set) string $name,
-    protected(set) int $currentExp {
-      set {
-        if ($value < 0) {
-          throw new InvalidArgumentException('Experience points cannot be negative.');
-        }
-
-        $this->currentExp = $value;
-      }
-    },
+    int $currentExp,
     protected(set) Stats $stats,
     protected(set) CharacterSprites $images = new CharacterSprites(),
     protected(set) string $nickname = '',
-    public CharacterVocation $vocation = new CharacterVocation('Warrior'),
-    protected(set) int $maxLevel = self::DEFAULT_MAX_LEVEL,
+    int $maxLevel = self::DEFAULT_MAX_LEVEL,
     protected(set) string $bio = '',
     protected(set) string $note = '',
-    protected(set) array $equipment = []
+    array $equipment = [],
+    ?Role $role = null
   )
   {
+    $this->maxLevel = $maxLevel;
+    $this->currentExp = $currentExp;
+    $this->equipment = $equipment;
+    if (!$role) {
+      $role = new Role($this, 'Hero');
+    }
+
+    $this->role = $role;
     $this->calculateLevelExpThresholds();
     if (!$this->equipment) {
       $this->equipment = [
@@ -149,6 +226,8 @@ class Character implements CharacterInterface, CanEquip
         new EquipmentSlot('Accessory', "The actor's special accessory", '📿', Accessory::class),
       ];
     }
+    $this->generateParameterCurves();
+    $this->adjustStatTotals();
   }
 
   /**
@@ -158,9 +237,7 @@ class Character implements CharacterInterface, CanEquip
    */
   protected function calculateLevelExpThresholds(): void
   {
-    for ($level = 0; $level <= $this->maxLevel; $level++) {
-      $this->levelExpThresholds[$level] = $level === 1 ? 0 : pow($level - 1, 2) * 100;
-    }
+    $this->levelExpThresholds = $this->role->experienceCurveGenerator->generateCurve();
   }
 
   /**
@@ -213,7 +290,7 @@ class Character implements CharacterInterface, CanEquip
     foreach ($this->equipment as $equipmentSlot) {
       if ($equipmentSlot->name === $slot->name) {
         $equipmentSlot->equipment = null;
-        $this->adjustStatTotals(null);
+        $this->adjustStatTotals($equipmentSlot->equipment);
         return;
       }
     }
@@ -298,7 +375,7 @@ class Character implements CharacterInterface, CanEquip
     foreach ($this->equipment as $equipmentSlot) {
       $equipmentSlot->equipment = null;
     }
-    $this->adjustStatTotals(null);
+    $this->adjustStatTotals();
     alert('Equipment cleared!');
   }
 
@@ -335,15 +412,29 @@ class Character implements CharacterInterface, CanEquip
    * @param Equipment|null $equipment The equipment being equipped.
    * @return void
    */
-  protected function adjustStatTotals(?Equipment $equipment): void
+  protected function adjustStatTotals(?Equipment $equipment = null): void
   {
-    $this->stats->totalAttack = max($this->stats->attack, $this->stats->attack + ($equipment?->parameterChanges->attack ?? 0));
-    $this->stats->totalDefence = max($this->stats->defence, $this->stats->defence + ($equipment?->parameterChanges->defence ?? 0));
-    $this->stats->totalMagicAttack = max($this->stats->magicAttack, $this->stats->magicAttack + ($equipment?->parameterChanges->magicAttack ?? 0));
-    $this->stats->totalMagicDefence = max($this->stats->totalMagicDefence, $this->stats->magicDefence + ($equipment?->parameterChanges->magicDefence ?? 0));
-    $this->stats->totalEvasion = max($this->stats->totalEvasion, $this->stats->evasion + ($equipment?->parameterChanges->evasion ?? 0));
-    $this->stats->totalGrace = max($this->stats->totalGrace, $this->stats->grace + ($equipment?->parameterChanges->grace ?? 0));
-    $this->stats->totalSpeed = max($this->stats->totalSpeed, $this->stats->speed + ($equipment?->parameterChanges->speed ?? 0));
+    $this->stats->totalHp      = $this->totalHpCurve[$this->level] ?? 0;
+    $this->stats->totalMp      = $this->totalMpCurve[$this->level] ?? 0;
+    $this->stats->attack       = $this->attackCurve[$this->level] ?? 0;
+    $this->stats->defence      = $this->defenceCurve[$this->level] ?? 0;
+    $this->stats->magicAttack  = $this->magicAttackCurve[$this->level] ?? 0;
+    $this->stats->magicDefence = $this->magicDefenceCurve[$this->level] ?? 0;
+    $this->stats->evasion      = $this->evasionCurve[$this->level] ?? 0;
+    $this->stats->grace        = $this->graceCurve[$this->level] ?? 0;
+    $this->stats->speed        = $this->speedCurve[$this->level] ?? 0;
+
+    if ($equipment) {
+      $this->stats->totalHp       += ($equipment->parameterChanges->totalHp ?? 0);
+      $this->stats->totalMp       += ($equipment->parameterChanges->totalMp ?? 0);
+      $this->stats->attack        += ($equipment->parameterChanges->attack ?? 0);
+      $this->stats->defence       += ($equipment->parameterChanges->defence ?? 0);
+      $this->stats->magicAttack   += ($equipment->parameterChanges->magicAttack ?? 0);
+      $this->stats->magicDefence  += ($equipment->parameterChanges->magicDefence ?? 0);
+      $this->stats->evasion       += ($equipment->parameterChanges->evasion ?? 0);
+      $this->stats->grace         += ($equipment->parameterChanges->grace ?? 0);
+      $this->stats->speed         += ($equipment->parameterChanges->speed ?? 0);
+    }
   }
 
   /**
@@ -409,11 +500,42 @@ class Character implements CharacterInterface, CanEquip
       'stats' => $this->stats,
       'images' => $this->images,
       'nickname' => $this->nickname,
-      'vocation' => $this->vocation,
       'maxLevel' => $this->maxLevel,
       'bio' => $this->bio,
       'note' => $this->note,
       'equipment' => $this->equipment,
+      'role' => $this->role
     ];
+  }
+
+  /**
+   * Generates the parameter curves for the character.
+   *
+   * @return void
+   */
+  protected function generateParameterCurves(): void
+  {
+    $this->totalHpCurve = $this->role->totalHpCurveGenerator->generateCurve();
+    $this->totalMpCurve = $this->role->totalMpCurveGenerator->generateCurve();
+    $this->attackCurve = $this->role->totalAttackCurveGenerator->generateCurve();
+    $this->defenceCurve = $this->role->totalDefenceCurveGenerator->generateCurve();
+    $this->magicAttackCurve = $this->role->totalMagicAttackCurveGenerator->generateCurve();
+    $this->magicDefenceCurve = $this->role->totalMagicDefenceCurveGenerator->generateCurve();
+    $this->speedCurve = $this->role->totalSpeedCurveGenerator->generateCurve();
+    $this->graceCurve = $this->role->totalGraceCurveGenerator->generateCurve();
+    $this->evasionCurve = $this->role->totalEvasionCurveGenerator->generateCurve();
+    $this->adjustStatTotals();
+  }
+
+  /**
+   * Adds experience points to the character.
+   *
+   * @param int $exp The experience points to add.
+   * @return void
+   */
+  public function addExperience(int $exp): void
+  {
+    $this->currentExp += $exp;
+    $this->adjustStatTotals();
   }
 }

@@ -3,24 +3,26 @@
 namespace Ichiloto\Engine\Entities;
 
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
+use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
 use JsonSerializable;
+use Stringable;
 
 /**
  * The Stats class.
  *
  * @package Ichiloto\Engine\Entities
  */
-class Stats implements JsonSerializable
+class Stats implements JsonSerializable, Stringable
 {
   /**
    * The maximum hit points.
    */
-  const int MAX_HP = 9999;
+  const int MAX_HP = 99999;
   /**
    * The maximum magic points.
    */
-  const int MAX_MP = 99;
+  const int MAX_MP = 999;
   /**
    * The maximum attack points.
    */
@@ -28,27 +30,31 @@ class Stats implements JsonSerializable
   /**
    * The maximum attack points.
    */
-  const int MAX_ATK = 99;
+  const int MAX_ATTACK = 999;
   /**
    * The maximum defence points.
    */
-  const int MAX_DEF = 99;
+  const int MAX_DEFENCE = 999;
   /**
    * The maximum magic attack points.
    */
-  const int MAX_MATK = 99;
+  const int MAX_MAGIC_ATTACK = 999;
   /**
    * The maximum magic defence points.
    */
-  const int MAX_MDEF = 99;
+  const int MAX_MAGIC_DEFENCE = 999;
   /**
    * The maximum speed points.
    */
-  const int MAX_SPD = 99;
+  const int MAX_SPEED = 999;
   /**
    * The maximum grace points.
    */
-  const int MAX_GRA = 99;
+  const int MAX_GRACE = 999;
+  /**
+   * The maximum evasion points.
+   */
+  const int MAX_EVASION = 999;
   /**
    * The default HP.
    */
@@ -121,7 +127,7 @@ class Stats implements JsonSerializable
    */
   public int $attack = self::DEFAULT_ATTACK {
     set {
-      $this->attack = clamp($value, 0, $this->totalAttack);
+      $this->attack = clamp($value, 0, self::MAX_ATTACK);
     }
   }
   /**
@@ -129,7 +135,7 @@ class Stats implements JsonSerializable
    */
   public int $defence = self::DEFAULT_DEFENCE {
     set {
-      $this->defence = clamp($value, 0, $this->totalDefence);
+      $this->defence = clamp($value, 0, self::MAX_DEFENCE);
     }
   }
   /**
@@ -137,7 +143,7 @@ class Stats implements JsonSerializable
    */
   public int $magicAttack = self::DEFAULT_MAGIC_ATTACK {
     set {
-      $this->magicAttack = clamp($value, 0, $this->totalMagicAttack);
+      $this->magicAttack = clamp($value, 0, self::MAX_MAGIC_ATTACK);
     }
   }
   /**
@@ -145,7 +151,7 @@ class Stats implements JsonSerializable
    */
   public int $magicDefence = self::DEFAULT_MAGIC_DEFENCE {
     set {
-      $this->magicDefence = clamp($value, 0, $this->totalMagicDefence);
+      $this->magicDefence = clamp($value, 0, self::MAX_MAGIC_DEFENCE);
     }
   }
   /**
@@ -153,7 +159,7 @@ class Stats implements JsonSerializable
    */
   public int $speed = self::DEFAULT_SPEED {
     set {
-      $this->speed = clamp($value, 0, $this->totalSpeed);
+      $this->speed = clamp($value, 0, self::MAX_SPEED);
     }
   }
   /**
@@ -161,7 +167,7 @@ class Stats implements JsonSerializable
    */
   public int $grace = self::DEFAULT_GRACE {
     set {
-      $this->grace = clamp($value, 0, $this->totalGrace);
+      $this->grace = clamp($value, 0, self::MAX_GRACE);
     }
   }
   /**
@@ -169,17 +175,25 @@ class Stats implements JsonSerializable
    */
   public int $evasion = self::DEFAULT_EVASION {
     set {
-      $this->evasion = clamp($value, 0, $this->totalEvasion);
+      $this->evasion = clamp($value, 0, self::MAX_EVASION);
     }
   }
   /**
    * @var int The total hit points.
    */
-  public int $totalHp = 0;
+  public int $totalHp = 0 {
+    set {
+      $this->totalHp = clamp($value, 0, self::MAX_HP);
+    }
+  }
   /**
    * @var int The total magic points.
    */
-  public int $totalMp = 0;
+  public int $totalMp = 0 {
+    set {
+      $this->totalMp = clamp($value, 0, self::MAX_MP);
+    }
+  }
   /**
    * @var int The total ability points.
    */
@@ -325,19 +339,24 @@ class Stats implements JsonSerializable
   {
     $effectiveStats = clone $this;
 
-    foreach ($character->equipment as $equipmentSlot) {
-      if ($equipmentSlot->equipment === null) {
-        continue;
-      }
+    if ($character instanceof Character) {
+      foreach ($character->equipment as $index => $equipmentSlot) {
+        if ($equipmentSlot->equipment === null) {
+          continue;
+        }
 
-      $equipment = $equipmentSlot->equipment;
-      $effectiveStats->attack = $this->attack + $equipment->parameterChanges->attack;
-      $effectiveStats->defence = $this->defence + $equipment->parameterChanges->defence;
-      $effectiveStats->magicAttack = $this->magicAttack + $equipment->parameterChanges->magicAttack;
-      $effectiveStats->magicDefence = $this->magicDefence + $equipment->parameterChanges->magicDefence;
-      $effectiveStats->speed = $this->speed + $equipment->parameterChanges->speed;
-      $effectiveStats->grace = $this->grace + $equipment->parameterChanges->grace;
-      $effectiveStats->evasion = $this->evasion + $equipment->parameterChanges->evasion;
+        $equipment = $equipmentSlot->equipment;
+
+        $effectiveStats->totalHp += $equipment->parameterChanges->totalHp;
+        $effectiveStats->totalMp += $equipment->parameterChanges->totalMp;
+        $effectiveStats->attack += $equipment->parameterChanges->attack;
+        $effectiveStats->defence += $equipment->parameterChanges->defence;
+        $effectiveStats->magicAttack += $equipment->parameterChanges->magicAttack;
+        $effectiveStats->magicDefence += $equipment->parameterChanges->magicDefence;
+        $effectiveStats->speed += $equipment->parameterChanges->speed;
+        $effectiveStats->grace += $equipment->parameterChanges->grace;
+        $effectiveStats->evasion += $equipment->parameterChanges->evasion;
+      }
     }
 
     return $effectiveStats;
@@ -368,5 +387,13 @@ class Stats implements JsonSerializable
       'totalGrace' => $this->totalGrace,
       'totalEvasion' => $this->totalEvasion,
     ];
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function __toString(): string
+  {
+    return $this->jsonSerialize();
   }
 }

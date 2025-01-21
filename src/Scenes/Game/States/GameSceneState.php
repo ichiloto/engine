@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Scenes\Game\States;
 
 use Ichiloto\Engine\Core\Interfaces\CanResume;
+use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneStateContextInterface;
 use Ichiloto\Engine\Scenes\Interfaces\SceneStateInterface;
@@ -17,6 +18,15 @@ use RuntimeException;
  */
 abstract class GameSceneState implements SceneStateInterface, CanResume
 {
+  /**
+   * @var Party The party.
+   */
+  public Party $party {
+    get {
+      return $this->getGameScene()->party;
+    }
+  }
+
   /**
    * GameSceneState constructor.
    *
