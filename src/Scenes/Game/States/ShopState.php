@@ -119,6 +119,14 @@ class ShopState extends GameSceneState
       $this->merchandise = $value;
     }
   }
+  /**
+   * @var float The rate at which the trader buys items.
+   */
+  public float $traderBuyRate = 1.0;
+  /**
+   * @var float The rate at which the trader sells items.
+   */
+  public float $traderSellRate = 0.5;
 
   /**
    * @var Inventory The player's inventory.
@@ -181,7 +189,7 @@ class ShopState extends GameSceneState
     $this->initializeUI();
     $this->shopMenuContext = new MenuCommandExecutionContext([], new ConsoleOutput(), $this->shopMenu, $this->getGameScene());
     $this->setMode(new SelectShopMenuCommandMode($this));
-    $this->shop = new Shop($this->merchandise);
+    $this->shop = new Shop($this->merchandise, $this->traderBuyRate, $this->traderSellRate);
   }
 
   /**

@@ -27,7 +27,9 @@ class Shop
    * @param InventoryItem[] $merchandise The merchandise to stock the shop with.
    */
   public function __construct(
-    array $merchandise = []
+    array $merchandise = [],
+    protected(set) float $traderBuyRate = 1.0,
+    protected(set) float $traderSellRate = 0.5
   )
   {
     $this->inventory = new Inventory(new ItemList(InventoryItem::class, $merchandise));
@@ -44,7 +46,7 @@ class Shop
    */
   public function sell(InventoryItem $item, int $quantity, Trader $trader): void
   {
-    $totalCost = $item->price * $quantity;
+    $totalCost = $item->price * $quantity * $this->traderBuyRate;
 
     if ($trader->accountBalance < $totalCost) {
       alert('Not enough ' . config(ProjectConfig::class, 'vocab.currency.name', 'Gold') . '!');
@@ -75,7 +77,7 @@ class Shop
    */
   public function buy(InventoryItem $item, int $quantity, Trader $trader): void
   {
-    $totalPayout = $item->price * $quantity * .5;
+    $totalPayout = $item->price * $quantity * $this->traderSellRate;
 
     for($count = 0; $count < $quantity; $count++) {
       $trader->inventory->removeItems($item);

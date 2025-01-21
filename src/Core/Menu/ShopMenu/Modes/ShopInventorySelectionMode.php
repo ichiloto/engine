@@ -86,7 +86,7 @@ class ShopInventorySelectionMode extends ShopMenuMode
    */
   public function enter(): void
   {
-    $this->state->mainPanel->setItems($this->state->inventory->all->toArray());
+    $this->state->mainPanel->setItems($this->state->inventory->all->toArray(), $this->state->traderSellRate);
     $this->state->mainPanel->activeItemIndex = 0;
     $this->updateItemsInPossession();
     $this->state->infoPanel->setText($this->selectedItem->description);

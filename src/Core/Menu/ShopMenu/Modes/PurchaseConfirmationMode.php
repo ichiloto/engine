@@ -45,10 +45,10 @@ class PurchaseConfirmationMode extends ShopMenuMode
       $total = ($this->item?->price ?? 0) * $this->quantity;
 
       if ($this->previousMode instanceof ShopInventorySelectionMode) {
-        return $total * .5;
+        return $total * $this->state->traderSellRate;
       }
 
-      return $total;
+      return $total * $this->state->traderBuyRate;
     }
   }
   protected string $symbol = 'G';
@@ -228,7 +228,7 @@ class PurchaseConfirmationMode extends ShopMenuMode
     if ($this->isUserPurchase) {
       $this->state->shop->sell($this->item, $this->quantity, $this->party);
       $this->state->accountBalancePanel->setBalance($this->party->accountBalance);
-      $this->state->mainPanel->setItems($this->state->merchandise);
+      $this->state->mainPanel->setItems($this->state->merchandise, $this->state->traderBuyRate);
       assert($this->previousMode instanceof ShopMerchandiseSelectionMode);
       $this->previousMode->updateItemsInPossession();
     }
@@ -236,7 +236,7 @@ class PurchaseConfirmationMode extends ShopMenuMode
     if ($this->isShopPurchase) {
       $this->state->shop->buy($this->item, $this->quantity, $this->party);
       $this->state->accountBalancePanel->setBalance($this->party->accountBalance);
-      $this->state->mainPanel->setItems($this->state->inventory->all->toArray());
+      $this->state->mainPanel->setItems($this->state->inventory->all->toArray(), $this->state->traderSellRate);
       $this->previousMode->updateItemsInPossession();
     }
   }
