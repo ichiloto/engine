@@ -46,12 +46,18 @@ class ShopMainPanel extends Window
       return $this->items[$this->activeItemIndex] ?? null;
     }
   }
-
+  /**
+   * @var int The height of the content area.
+   */
   public int $contentHeight {
     get {
       return $this->height - 2;
     }
   }
+  /**
+   * @var float The price rate.
+   */
+  public float $priceRate = 1.0;
 
   /**
    * Create a new instance of the shop main panel.
@@ -80,12 +86,14 @@ class ShopMainPanel extends Window
    * Set the items to display in the shop menu.
    *
    * @param InventoryItem[] $items The items to display.
+   * @param float $priceRate The price rate.
    * @return void
    */
-  public function setItems(array $items): void
+  public function setItems(array $items, float $priceRate = 1.0): void
   {
     $this->items = $items;
     $this->totalItems = count($this->items);
+    $this->priceRate = $priceRate;
     $this->updateContent();
   }
 
@@ -101,7 +109,8 @@ class ShopMainPanel extends Window
 
     foreach ($this->items as $index => $item) {
       $prefix = $index === $this->activeItemIndex ? '>' : ' ';
-      $content[] = sprintf(" %s %-36s %10s", $prefix, $item->name, "{$item->price} {$symbol}");
+      $price = $item->price * $this->priceRate;
+      $content[] = sprintf(" %s %-36s %10s", $prefix, $item->name, "{$price} {$symbol}");
     }
 
     $content = array_pad($content, $this->contentHeight, '');
