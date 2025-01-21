@@ -14,7 +14,7 @@ use Ichiloto\Engine\Entities\Inventory\Inventory;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
-use Ichiloto\Engine\Entities\Roles\Role;
+use Ichiloto\Engine\Entities\Roles\CharacterRole;
 use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
 
@@ -138,9 +138,9 @@ class Character implements CharacterInterface, CanEquip
    */
   protected(set) array $equipment = [];
     /**
-   * @var Role The character's role.
+   * @var CharacterRole The character's role.
    */
-  public Role $role;
+  public CharacterRole $role;
   /**
    * @var int[] $totalHpCurve
    */
@@ -205,14 +205,14 @@ class Character implements CharacterInterface, CanEquip
     protected(set) string $bio = '',
     protected(set) string $note = '',
     array $equipment = [],
-    ?Role $role = null
+    ?CharacterRole $role = null
   )
   {
     $this->maxLevel = $maxLevel;
     $this->currentExp = $currentExp;
     $this->equipment = $equipment;
     if (!$role) {
-      $role = new Role($this, 'Hero');
+      $role = new CharacterRole($this, 'Hero');
     }
 
     $this->role = $role;

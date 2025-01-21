@@ -9,7 +9,7 @@ use Ichiloto\Engine\Entities\Character;
  *
  * @package Ichiloto\Engine\Entities\Roles
  */
-readonly class Role
+readonly class CharacterRole
 {
   public ParameterCurveGenerator $totalHpCurveGenerator;
   public ParameterCurveGenerator $totalMpCurveGenerator;

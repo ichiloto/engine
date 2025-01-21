@@ -26,6 +26,14 @@ class ShopEventTrigger extends EventTrigger
    * @var Dialogue[] The dialogue of the shop.
    */
   protected(set) array $dialogue = [];
+  /**
+   * @var float The buy rate.
+   */
+  protected(set) float $buyRate = 1.0;
+  /**
+   * @var float The sell rate.
+   */
+  protected(set) float $sellRate = 0.5;
 
   /**
    * @throws RequiredFieldException
@@ -48,6 +56,14 @@ class ShopEventTrigger extends EventTrigger
 
     foreach ($this->data->dialogue ?? [] as $dialogue) {
       $this->dialogue[] = Dialogue::fromObject($dialogue);
+    }
+
+    if (isset($this->data->buyRate)) {
+      $this->buyRate = $this->data->buyRate;
+    }
+
+    if (isset($this->data->sellRate)) {
+      $this->sellRate = $this->data->sellRate;
     }
   }
 

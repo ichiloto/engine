@@ -34,6 +34,8 @@ class EnterShopAction extends FieldAction
     $scene = $context->scene;
     $shopState = new ShopState($scene->fieldState->context);
     $shopState->merchandise = $this->trigger->items;
+    $shopState->traderBuyRate = $this->trigger->buyRate;
+    $shopState->traderSellRate = $this->trigger->sellRate;
 
     foreach ($this->trigger->dialogue ?? [] as $dialogue) {
       $dialogue->show();

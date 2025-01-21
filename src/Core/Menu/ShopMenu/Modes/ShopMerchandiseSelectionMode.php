@@ -7,7 +7,6 @@ use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
-use Ichiloto\Engine\Util\Debug;
 
 /**
  * Represents the shop item selection mode.
@@ -80,7 +79,7 @@ class ShopMerchandiseSelectionMode extends ShopMenuMode
    */
   public function enter(): void
   {
-    $this->state->mainPanel->setItems($this->state->merchandise);
+    $this->state->mainPanel->setItems($this->state->merchandise, $this->state->traderBuyRate);
     $this->updateItemsInPossession();
     $this->state->infoPanel->setText($this->selectedItem->description);
   }
