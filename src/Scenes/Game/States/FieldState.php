@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Scenes\Game\States;
 use Exception;
 use Ichiloto\Engine\Battle\BattleRewards;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
 use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Entities\Troop;
@@ -159,14 +160,26 @@ class FieldState extends GameSceneState
       $this->getGameScene()->sceneManager->loadBattleScene($this->getGameScene()->party, $troop, $battleEvents);
     }
 
-    if (Input::isAnyKeyPressed([KeyCode::M, KeyCode::m])) {
-      show_text(
-        'Hello, player and welcome to the world of Ichiloto!',
-        'Squall',
-        '',
-        WindowPosition::BOTTOM,
-        charactersPerSecond: 20
-      );
+    if (Input::isButtonDown("map")) {
+      $this->showInGameMap();
     }
+
+    if (Input::isAnyKeyPressed([KeyCode::x, KeyCode::X])) {
+      $xp = 3000;
+      /** @var Character $member */
+      foreach ($this->party->members->toArray() as $member) {
+        $member->addExperience(intval(rand($xp * 0.5, $xp * 1.5)));
+      }
+    }
+  }
+
+  /**
+   * Displays the in-game map.
+   *
+   * @return void
+   */
+  public function showInGameMap(): void
+  {
+    // TODO: Implement the in-game map feature.
   }
 }

@@ -73,8 +73,8 @@ class CharacterSelectionMenu extends Menu
         $panel->setDetails(
           $member->name,
           $member->level,
-          "{$member->stats->currentHp} / {$member->stats->totalHp}",
-          "{$member->stats->currentMp} / {$member->stats->totalMp}");
+          "{$member->effectiveStats->currentHp} / {$member->effectiveStats->totalHp}",
+          "{$member->effectiveStats->currentMp} / {$member->effectiveStats->totalMp}");
       }
       $this->characterPanels[$index] = $panel;
     }

@@ -13,7 +13,7 @@ it('can create a character', function () {
 
   expect($character)
     ->toBeInstanceOf(Character::class)
-    ->toHaveProperties(['name', 'currentExp', 'stats', 'images', 'nickname', 'vocation', 'maxLevel', 'bio', 'note', 'equipment'])
+    ->toHaveProperties(['name', 'currentExp', 'stats', 'images', 'nickname', 'maxLevel', 'bio', 'note', 'equipment', 'role'])
     ->and($character->name)
     ->toBe($characterName)
     ->and($character->currentExp)
