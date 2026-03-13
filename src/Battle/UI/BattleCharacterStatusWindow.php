@@ -96,8 +96,10 @@ class BattleCharacterStatusWindow extends Window
   {
     $hpProgressBar = new ProgressBar($this->camera, 10);
     $mpProgressBar = new ProgressBar($this->camera, 5);
-    $hpPercentage = $character->effectiveStats->currentHp / $character->effectiveStats->totalHp;
-    $mpPercentage = $character->effectiveStats->currentMp / $character->effectiveStats->totalMp;
+    $hpTotal = max(1, $character->effectiveStats->totalHp);
+    $mpTotal = max(1, $character->effectiveStats->totalMp);
+    $hpPercentage = $character->effectiveStats->currentHp / $hpTotal;
+    $mpPercentage = $character->effectiveStats->currentMp / $mpTotal;
     $hpProgressBar->fill($hpPercentage);
     $mpProgressBar->fill($mpPercentage);
 

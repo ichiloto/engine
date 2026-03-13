@@ -10,6 +10,7 @@ use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Field\Location;
 use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Field\Player;
+use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Scenes\AbstractScene;
 use Ichiloto\Engine\Scenes\Game\States\CutsceneState;
 use Ichiloto\Engine\Scenes\Game\States\DialogueState;
@@ -148,14 +149,12 @@ class GameScene extends AbstractScene
       $this->config->playerSprite,
       $this->config->playerHeading
     );
-    $this->player->activate();
     $this->party = $this->config->party;
 
     $this->loadMap("{$this->config->mapId}.php", $this->player);
-    $this->setState($this->fieldState);
-    usleep(400);
+    $this->player->activate();
     $this->locationHUDWindow->updateDetails($this->player->position, $this->player->heading);
-    $this->locationHUDWindow->render();
+    $this->setState($this->fieldState);
   }
 
   /**
@@ -252,5 +251,33 @@ class GameScene extends AbstractScene
     $this->mapState = new MapState($this->sceneStateContext);
     $this->overworldState = new OverworldState($this->sceneStateContext);
     $this->shopState = new ShopState($this->sceneStateContext);
+  }
+
+  /**
+   * Updates the active game-scene layout after the terminal size changes.
+   *
+   * @param int $width The new terminal width.
+   * @param int $height The new terminal height.
+   * @return void
+   */
+  #[Override]
+  public function onScreenResize(int $width, int $height): void
+  {
+    parent::onScreenResize($width, $height);
+
+    if ($this->player) {
+      $this->camera->resetPosition($this->player);
+    }
+
+    $this->locationHUDWindow?->refreshLayout();
+
+    Console::clear();
+
+    if ($this->state instanceof FieldState) {
+      $this->state->renderTheField();
+      return;
+    }
+
+    $this->state?->enter();
   }
 }

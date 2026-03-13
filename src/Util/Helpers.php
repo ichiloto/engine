@@ -448,7 +448,11 @@ if (! function_exists('get_screen_width') ) {
    */
   function get_screen_width(): int
   {
-    return config(PlaySettings::class, 'width', DEFAULT_SCREEN_WIDTH);
+    return config(
+      PlaySettings::class,
+      'width',
+      config(PlaySettings::class, 'screen.width', DEFAULT_SCREEN_WIDTH)
+    );
   }
 }
 
@@ -460,7 +464,11 @@ if (! function_exists('get_screen_height') ) {
    */
   function get_screen_height(): int
   {
-    return config(PlaySettings::class, 'height', DEFAULT_SCREEN_HEIGHT);
+    return config(
+      PlaySettings::class,
+      'height',
+      config(PlaySettings::class, 'screen.height', DEFAULT_SCREEN_HEIGHT)
+    );
   }
 }
 

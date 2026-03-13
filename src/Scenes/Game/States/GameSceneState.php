@@ -4,6 +4,8 @@ namespace Ichiloto\Engine\Scenes\Game\States;
 
 use Ichiloto\Engine\Core\Interfaces\CanResume;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\IO\Enumerations\KeyCode;
+use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneStateContextInterface;
 use Ichiloto\Engine\Scenes\Interfaces\SceneStateInterface;
@@ -110,5 +112,25 @@ abstract class GameSceneState implements SceneStateInterface, CanResume
   protected function quitGame(): void
   {
     $this->context->getScene()->getGame()->quit();
+  }
+
+  /**
+   * Determines whether the player requested the next character-focused view.
+   *
+   * @return bool True when the next-character shortcut is pressed.
+   */
+  protected function isNextCharacterRequested(): bool
+  {
+    return Input::isButtonDown('character_next') || Input::isKeyDown(KeyCode::TAB);
+  }
+
+  /**
+   * Determines whether the player requested the previous character-focused view.
+   *
+   * @return bool True when the previous-character shortcut is pressed.
+   */
+  protected function isPreviousCharacterRequested(): bool
+  {
+    return Input::isButtonDown('character_previous') || Input::isKeyDown(KeyCode::SHIFT_TAB);
   }
 }

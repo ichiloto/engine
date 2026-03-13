@@ -7,14 +7,17 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\EquipmentSlot;
 use Ichiloto\Engine\IO\Console\Console;
-use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
-use Ichiloto\Engine\Util\Debug;
 
+/**
+ * Displays one party member's full profile and allows cycling between members.
+ *
+ * @package Ichiloto\Engine\Scenes\Game\States
+ */
 class StatusViewState extends GameSceneState
 {
   protected const int PROFILE_SUMMARY_PANEL_WIDTH = 110;
@@ -74,6 +77,7 @@ class StatusViewState extends GameSceneState
   {
     Console::clear();
     $this->getGameScene()->locationHUDWindow->deactivate();
+    $this->character ??= $this->getGameScene()->party->leader;
     $this->calculateMargins();
     $this->initializeUI();
   }
@@ -99,7 +103,7 @@ class StatusViewState extends GameSceneState
    */
   protected function calculateMargins(): void
   {
-    $this->leftMargin = (get_screen_width() - self::PROFILE_SUMMARY_PANEL_WIDTH) / 2;
+    $this->leftMargin = max(0, intdiv(get_screen_width() - self::PROFILE_SUMMARY_PANEL_WIDTH, 2));
     $this->topMargin = 0;
   }
 
@@ -138,7 +142,7 @@ class StatusViewState extends GameSceneState
     );
     $this->infoPanel = new Window(
       'Info',
-      'esc:Back',
+      'tab:Next s-tab:Prev esc:Back',
       new Vector2($this->leftMargin, $this->topMargin + self::PROFILE_SUMMARY_PANEL_HEIGHT + self::STATS_SUMMARY_PANEL_HEIGHT),
       self::INFO_PANEL_WIDTH,
       self::INFO_PANEL_HEIGHT,
@@ -220,14 +224,13 @@ class StatusViewState extends GameSceneState
    */
   protected function handleNavigation(): void
   {
-    $h = Input::getAxis(AxisName::HORIZONTAL);
+    if ($this->isNextCharacterRequested()) {
+      $this->selectNextCharacter();
+      return;
+    }
 
-    if (abs($h) > 0) {
-      if ($h > 0) {
-        $this->selectNextCharacter();
-      } else {
-        $this->selectPreviousCharacter();
-      }
+    if ($this->isPreviousCharacterRequested()) {
+      $this->selectPreviousCharacter();
     }
   }
 

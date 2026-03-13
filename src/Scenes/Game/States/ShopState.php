@@ -223,7 +223,7 @@ class ShopState extends GameSceneState
    */
   protected function calculateMargins(): void
   {
-    $this->leftMargin = (get_screen_width() - self::SHOP_MENU_WIDTH) / 2;
+    $this->leftMargin = max(0, intdiv(get_screen_width() - self::SHOP_MENU_WIDTH, 2));
     $this->topMargin = 0;
   }
 

@@ -18,16 +18,20 @@ class BattleRewards
   /**
    * @var DropItem[] $items
    */
-  protected(set) array $items;
+  protected(set) array $items = [];
 
   /**
-   * @var InventoryItem $item
+   * @var InventoryItem|null $item
    */
-  public InventoryItem $item {
+  public ?InventoryItem $item {
     get {
+      if (empty($this->items)) {
+        return null;
+      }
+
       foreach ($this->items as $item) {
         if (mt_rand() / mt_getrandmax() <= $item->dropRate) {
-          return $item;
+          return $item->item;
         }
       }
 

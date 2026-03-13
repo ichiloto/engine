@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Core\Menu\ShopMenu\Windows;
 use Ichiloto\Engine\Core\Menu\ShopMenu\ShopMenu;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
@@ -110,7 +111,9 @@ class ShopMainPanel extends Window
     foreach ($this->items as $index => $item) {
       $prefix = $index === $this->activeItemIndex ? '>' : ' ';
       $price = $item->price * $this->priceRate;
-      $content[] = sprintf(" %s %-36s %10s", $prefix, $item->name, "{$price} {$symbol}");
+      $itemName = TerminalText::padRight($item->name, 36);
+      $priceText = TerminalText::padLeft("{$price} {$symbol}", 10);
+      $content[] = " {$prefix} {$itemName} {$priceText}";
     }
 
     $content = array_pad($content, $this->contentHeight, '');

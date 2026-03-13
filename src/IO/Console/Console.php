@@ -9,6 +9,7 @@ use Ichiloto\Engine\UI\Modal\ModalManager;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
 use RuntimeException;
 use Symfony\Component\Console\Output\ConsoleOutput;
+use Symfony\Component\Console\Terminal;
 
 /**
  * Represents the console.
@@ -61,12 +62,28 @@ class Console
     'height' => DEFAULT_SCREEN_HEIGHT,
   ]): void
   {
+    $availableSize = self::getAvailableSize();
+
     self::$game = $game;
-    self::clear();
     Console::cursor()->disableBlinking();
-    self::$width = $options['width'] ?? get_screen_width();
-    self::$height = $options['height'] ?? get_screen_height();
+    self::$width = intval($options['width'] ?? $availableSize['width']);
+    self::$height = intval($options['height'] ?? $availableSize['height']);
     self::$output = new ConsoleOutput();
+    self::clear();
+  }
+
+  /**
+   * Returns the currently available terminal size.
+   *
+   * @return array{width: int, height: int} The terminal width and height.
+   */
+  public static function getAvailableSize(): array
+  {
+    $terminal = new Terminal();
+    $width = max(1, $terminal->getWidth() ?: DEFAULT_SCREEN_WIDTH);
+    $height = max(1, $terminal->getHeight() ?: DEFAULT_SCREEN_HEIGHT);
+
+    return ['width' => $width, 'height' => $height];
   }
 
   /**
@@ -174,7 +191,26 @@ class Console
    */
   public static function setTerminalSize(int $width, int $height): void
   {
+    self::$width = $width;
+    self::$height = $height;
     echo "\033[8;$height;{$width}t";
+  }
+
+  /**
+   * Synchronizes the console's internal dimensions with the terminal.
+   *
+   * This updates the backing buffer without forcing the terminal emulator to
+   * resize, which is useful when the user manually changes the window size.
+   *
+   * @param int $width The current terminal width.
+   * @param int $height The current terminal height.
+   * @return void
+   */
+  public static function syncDimensions(int $width, int $height): void
+  {
+    self::$width = max(1, $width);
+    self::$height = max(1, $height);
+    self::$buffer = self::getEmptyBuffer();
   }
 
   /**
@@ -201,34 +237,37 @@ class Console
    * Writes text to the console at the specified position.
    *
    * @param iterable|string $message The text to write.
-   * @param int $x The x position.
-   * @param int $y The y position.
+   * @param int|float $x The x position.
+   * @param int|float $y The y position.
    * @return void
    */
-  public static function write(iterable|string $message, int $x, int $y): void
+  public static function write(iterable|string $message, int|float $x, int|float $y): void
   {
     $textRows = is_string($message) ? explode("\n", $message) : $message;
-    $cursor = self::cursor();
+    $x = (int)floor($x);
+    $y = (int)floor($y);
+    $x = max(0, min($x, max(0, self::$width - 1)));
 
-    $output = '';
     foreach ($textRows as $rowIndex => $text) {
       $currentBufferRow = $y + $rowIndex;
 
-      if (!isset(self::$buffer[$currentBufferRow])) {
-        self::$buffer[$currentBufferRow] = str_repeat(' ', get_screen_width());
+      if ($currentBufferRow < 0 || $currentBufferRow >= self::$height) {
+        continue;
       }
 
-      self::$buffer[$currentBufferRow] = substr_replace(self::$buffer[$currentBufferRow], $text, $x, mb_strlen($text));
-      $output .= self::$buffer[$currentBufferRow] . "\n";
-    }
+      if (!isset(self::$buffer[$currentBufferRow])) {
+        self::$buffer[$currentBufferRow] = str_repeat(' ', self::$width);
+      }
 
-    $row = clamp($y + 1, 1, get_screen_height());
-    $column = 0;
-    $cursor->moveTo($column, $row);
-    if (self::$output) {
-      self::$output->write($output);
-    } else {
-      echo $output;
+      $bufferSymbols = TerminalText::visibleSymbols(self::$buffer[$currentBufferRow]);
+      $bufferSymbols = array_pad($bufferSymbols, self::$width, ' ');
+      $text = TerminalText::sliceSymbols((string)$text, 0, max(0, self::$width - $x));
+      $textSymbols = TerminalText::visibleSymbols($text);
+
+      array_splice($bufferSymbols, $x, count($textSymbols), $textSymbols);
+      $bufferSymbols = array_pad(array_slice($bufferSymbols, 0, self::$width), self::$width, ' ');
+      self::$buffer[$currentBufferRow] = implode('', $bufferSymbols);
+      self::writeBufferRow($currentBufferRow);
     }
   }
 
@@ -267,8 +306,10 @@ class Console
       return '';
     }
 
-    $char = substr(self::$buffer[$y], $x, 1);
-    return ord($char) === 0 ? ' ' : $char;
+    $symbols = TerminalText::visibleSymbols(self::$buffer[$y] ?? '');
+    $char = TerminalText::stripAnsi($symbols[$x] ?? ' ');
+
+    return $char === '' ? ' ' : $char;
   }
 
   /**
@@ -278,7 +319,32 @@ class Console
    */
   private static function getEmptyBuffer(): array
   {
-    return array_fill(0, get_screen_height(), str_repeat(' ', get_screen_width()));
+    return array_fill(0, self::$height, str_repeat(' ', self::$width));
+  }
+
+  /**
+   * Flushes a single buffered row to the terminal without adding a trailing newline.
+   *
+   * Avoiding a final line-feed prevents full-screen renders from triggering
+   * terminal scrolling when the last visible row is repainted.
+   *
+   * @param int $row The zero-based buffer row to flush.
+   * @return void
+   */
+  private static function writeBufferRow(int $row): void
+  {
+    if (!isset(self::$buffer[$row])) {
+      return;
+    }
+
+    self::cursor()->moveTo(1, $row + 1);
+
+    if (self::$output) {
+      self::$output->write(self::$buffer[$row]);
+      return;
+    }
+
+    echo self::$buffer[$row];
   }
 
   /**

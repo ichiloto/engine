@@ -260,13 +260,8 @@ class Character implements CharacterInterface, CanEquip
    * @inheritDoc
    * @throws Exception If an error occurs while alerting the user.
    */
-  public function equip(?Equipment $equipment): void
+  public function equip(Equipment $equipment): void
   {
-    if (is_null($equipment)) {
-      alert('No equipment to equip.');
-      return;
-    }
-
     if (! $this->canEquip($equipment) ) {
       alert(sprintf('%s cannot be equipped.', $equipment->name));
       return;
@@ -274,11 +269,36 @@ class Character implements CharacterInterface, CanEquip
 
     foreach ($this->equipment as $slot) {
       if ($slot->acceptsType === $equipment::class) {
-        $slot->equipment = $equipment;
-        $this->adjustStatTotals($equipment);
-        alert(sprintf("Equipped %s on %s", $equipment->name, $this->name));
+        $this->equipInSlot($slot, $equipment);
         return;
       }
+    }
+  }
+
+  /**
+   * Equips an item into a specific slot.
+   *
+   * @param EquipmentSlot $slot The slot to equip into.
+   * @param Equipment $equipment The equipment to place in the slot.
+   * @return void
+   * @throws Exception If the equipment cannot be equipped.
+   */
+  public function equipInSlot(EquipmentSlot $slot, Equipment $equipment): void
+  {
+    if (! $this->canEquip($equipment) || $slot->acceptsType !== $equipment::class) {
+      alert(sprintf('%s cannot be equipped.', $equipment->name));
+      return;
+    }
+
+    foreach ($this->equipment as $equipmentSlot) {
+      if ($equipmentSlot->name !== $slot->name) {
+        continue;
+      }
+
+      $equipmentSlot->equipment = $equipment;
+      $this->adjustStatTotals();
+      alert(sprintf("Equipped %s on %s", $equipment->name, $this->name));
+      return;
     }
   }
 
@@ -290,7 +310,7 @@ class Character implements CharacterInterface, CanEquip
     foreach ($this->equipment as $equipmentSlot) {
       if ($equipmentSlot->name === $slot->name) {
         $equipmentSlot->equipment = null;
-        $this->adjustStatTotals($equipmentSlot->equipment);
+        $this->adjustStatTotals();
         return;
       }
     }
@@ -403,16 +423,16 @@ class Character implements CharacterInterface, CanEquip
 
       $equipmentSlot->equipment = $optimalEquipment;
     }
+    $this->adjustStatTotals();
     alert('Equipment optimized!');
   }
 
   /**
    * Adjusts the character's stat totals after equipping an item.
    *
-   * @param Equipment|null $equipment The equipment being equipped.
    * @return void
    */
-  protected function adjustStatTotals(?Equipment $equipment = null): void
+  protected function adjustStatTotals(): void
   {
     $this->stats->totalHp      = $this->totalHpCurve[$this->level] ?? 0;
     $this->stats->totalMp      = $this->totalMpCurve[$this->level] ?? 0;
@@ -424,17 +444,10 @@ class Character implements CharacterInterface, CanEquip
     $this->stats->grace        = $this->graceCurve[$this->level] ?? 0;
     $this->stats->speed        = $this->speedCurve[$this->level] ?? 0;
 
-    if ($equipment) {
-      $this->stats->totalHp       += ($equipment->parameterChanges->totalHp ?? 0);
-      $this->stats->totalMp       += ($equipment->parameterChanges->totalMp ?? 0);
-      $this->stats->attack        += ($equipment->parameterChanges->attack ?? 0);
-      $this->stats->defence       += ($equipment->parameterChanges->defence ?? 0);
-      $this->stats->magicAttack   += ($equipment->parameterChanges->magicAttack ?? 0);
-      $this->stats->magicDefence  += ($equipment->parameterChanges->magicDefence ?? 0);
-      $this->stats->evasion       += ($equipment->parameterChanges->evasion ?? 0);
-      $this->stats->grace         += ($equipment->parameterChanges->grace ?? 0);
-      $this->stats->speed         += ($equipment->parameterChanges->speed ?? 0);
-    }
+    // Re-apply the clamps after a level or equipment refresh.
+    $this->stats->currentHp = $this->stats->currentHp;
+    $this->stats->currentMp = $this->stats->currentMp;
+    $this->stats->currentAp = $this->stats->currentAp;
   }
 
   /**

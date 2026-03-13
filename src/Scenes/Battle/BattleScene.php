@@ -2,7 +2,9 @@
 
 namespace Ichiloto\Engine\Scenes\Battle;
 
+use Ichiloto\Engine\Battle\BattleResult;
 use Ichiloto\Engine\Battle\UI\BattleScreen;
+use Ichiloto\Engine\Battle\UI\BattleResultWindow;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\Scenes\AbstractScene;
@@ -85,6 +87,18 @@ class BattleScene extends AbstractScene
    * @var BattleScreen|null The battle screen of the scene.
    */
   public ?BattleScreen $ui = null;
+  /**
+   * @var BattleResult|null The outcome of the current battle.
+   */
+  public ?BattleResult $result = null;
+  /**
+   * @var BattleResultWindow|null The result window shown at the end of battle.
+   */
+  public ?BattleResultWindow $resultWindow = null;
+  /**
+   * @var bool Whether the battle should transition to the game over scene.
+   */
+  public bool $shouldLoadGameOver = false;
 
   /**
    * Sets the state of the scene.
@@ -112,6 +126,9 @@ class BattleScene extends AbstractScene
 
     $this->uiManager->locationHUDWindow->deactivate();
     $this->config = $config;
+    $this->result = null;
+    $this->resultWindow = null;
+    $this->shouldLoadGameOver = false;
     $this->initializeBattleSceneStates();
     $this->setState($this->startState);
   }

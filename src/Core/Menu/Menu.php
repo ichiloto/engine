@@ -12,7 +12,7 @@ use Ichiloto\Engine\Events\Enumerations\MenuEventType;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
 use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
 use Ichiloto\Engine\Events\MenuEvent;
-use Ichiloto\Engine\IO\Enumerations\Color;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
@@ -64,7 +64,7 @@ abstract class Menu implements MenuInterface
   {
     $this->observers = new ItemList(ObserverInterface::class);
     $this->totalItems = $this->items->count();
-    $this->cursor = substr($cursor, 0, 1);
+    $this->cursor = TerminalText::firstSymbol($cursor) ?: '>';
     $this->activate();
     $this->updateWindowContent();
   }
@@ -264,7 +264,7 @@ abstract class Menu implements MenuInterface
    */
   public function setCursor(string $cursor): void
   {
-    $this->cursor = substr($cursor, 0, 1);
+    $this->cursor = TerminalText::firstSymbol($cursor) ?: '>';
   }
 
   /**
@@ -334,14 +334,13 @@ abstract class Menu implements MenuInterface
      * @var MenuItemInterface $item
      */
     foreach ($this->items as $itemIndex => $item) {
-      $color = $item->isDisabled() ? Color::BLUE->value : '';
       $prefix = '  ';
 
       if ($itemIndex === $this->activeIndex) {
         $prefix = "$this->cursor ";
       }
 
-      $output = $prefix . $item->getLabel();
+      $output = $prefix . $item;
       $content[] = $output;
     }
 

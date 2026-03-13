@@ -6,6 +6,7 @@ use Ichiloto\Engine\Core\Interfaces\CanFocus;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\MenuItem;
 use Ichiloto\Engine\Core\Rect;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 
 /**
@@ -97,7 +98,7 @@ class CommandPanel extends Window implements CanFocus
     /** @var MenuItem $item */
     foreach ($this->menu->getItems() as $index => $item) {
       $prefix = $index === $this->menu->activeIndex ? '>' : ' ';
-      $content .= sprintf(" %s %-12s", $prefix, $item->getLabel());
+      $content .= ' ' . $prefix . ' ' . TerminalText::padRight((string)$item, 12);
     }
 
     if (!is_iterable($content)) {

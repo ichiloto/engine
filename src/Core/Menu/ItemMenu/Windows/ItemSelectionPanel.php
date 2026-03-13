@@ -6,6 +6,7 @@ use Ichiloto\Engine\Core\Interfaces\CanFocus;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Scenes\Game\States\ItemMenuState;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
@@ -166,7 +167,9 @@ class ItemSelectionPanel extends Window implements CanFocus
 
     foreach ($this->items as $index => $item) {
       $prefix = $index === $this->activeIndex ? '>' : ' ';
-      $content[$index] = sprintf(" %s %-60s %2d", $prefix, $item->name, $item->quantity);
+      $itemName = TerminalText::padRight($item->name, 60);
+      $quantity = TerminalText::padLeft((string)$item->quantity, 2);
+      $content[$index] = " {$prefix} {$itemName} {$quantity}";
     }
 
     $this->setContent($content);

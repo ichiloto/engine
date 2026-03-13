@@ -2,6 +2,9 @@
 
 namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States;
 
+use Ichiloto\Engine\Battle\BattleResult;
+use Ichiloto\Engine\Scenes\Battle\BattleScene;
+
 /**
  * Represents the turn resolution state.
  *
@@ -14,15 +17,59 @@ class TurnResolutionState extends TurnState
    */
   public function update(TurnStateExecutionContext $context): void
   {
-    // TODO: Implement execute() method.
-    // Apply persistent effects
+    $scene = $context->game->sceneManager->currentScene;
 
-    // Resolve ongoing effects
+    if (! $scene instanceof BattleScene) {
+      return;
+    }
 
-    // If battle is over
+    if ($context->troop->isDefeated()) {
+      $experience = 0;
+      $gold = 0;
+      $items = [];
 
-    // else
+      foreach ($context->troop->members->toArray() as $enemy) {
+        $experience += $enemy->rewards->experience;
+        $gold += $enemy->rewards->gold;
 
-    // transition to next turn
+        if ($item = $enemy->rewards->item) {
+          $items[] = clone $item;
+        }
+      }
+
+      foreach ($context->party->members->toArray() as $member) {
+        $member->addExperience($experience);
+      }
+
+      $context->party->credit($gold);
+
+      if (! empty($items)) {
+        $context->party->addItems(...$items);
+      }
+
+      $lines = [
+        sprintf('Experience gained: %d', $experience),
+        sprintf('Gold found: %dG', $gold),
+      ];
+
+      if (! empty($items)) {
+        $lines[] = 'Loot: ' . implode(', ', array_map(fn($item) => $item->name, $items));
+      }
+
+      $scene->result = new BattleResult('Victory', $lines, $items);
+      $scene->setState($scene->victoryState);
+      return;
+    }
+
+    if ($context->party->isDefeated()) {
+      $scene->result = new BattleResult('Defeat', [
+        'The party has been wiped out.',
+        'Press enter to continue.',
+      ]);
+      $scene->setState($scene->defeatState);
+      return;
+    }
+
+    $this->setState($this->engine->turnInitState);
   }
 }

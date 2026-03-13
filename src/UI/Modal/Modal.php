@@ -12,6 +12,7 @@ use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
 use Ichiloto\Engine\Events\Interfaces\StaticObserverInterface;
 use Ichiloto\Engine\Events\ModalEvent;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\IO\Input;
@@ -316,7 +317,7 @@ abstract class Modal implements ModalInterface
    */
   protected function renderTopBorder(): void
   {
-    $titleLength = strlen($this->title);
+    $titleLength = TerminalText::displayWidth($this->title);
     $horizontalBorder = str_repeat($this->borderPack->getHorizontalBorder(), $this->rect->getWidth() - $titleLength - 3);
     $output = $this->borderPack->getTopLeftCorner() .
       $this->borderPack->getHorizontalBorder() .
@@ -333,7 +334,7 @@ abstract class Modal implements ModalInterface
    */
   protected function renderBottomBorder(): void
   {
-    $helpLength = strlen($this->help);
+    $helpLength = TerminalText::displayWidth($this->help);
     $horizontalBorder = str_repeat($this->borderPack->getHorizontalBorder(), $this->rect->getWidth() - $helpLength - 3);
     $output = $this->borderPack->getBottomLeftCorner() .
       $this->borderPack->getHorizontalBorder() .
@@ -352,7 +353,7 @@ abstract class Modal implements ModalInterface
   {
     foreach ($this->content as $line) {
       $output = $this->borderPack->getVerticalBorder() .
-        str_pad($line, $this->rect->getWidth() - 2, ' ', STR_PAD_BOTH) .
+        TerminalText::padCenter($line, $this->rect->getWidth() - 2) .
         $this->borderPack->getVerticalBorder();
       $this->output->write($output);
     }
@@ -367,12 +368,7 @@ abstract class Modal implements ModalInterface
   {
     $activeColor = Color::LIGHT_BLUE;
     $buttonOutput = implode(' ', $this->buttons);
-    $buttonOutputLength = strlen($buttonOutput);
-    $padding = (int) (($this->rect->getWidth() - 2 - $buttonOutputLength) / 2);
-    $output = str_repeat(' ', $padding) . $buttonOutput . str_repeat(' ', $padding);
-    if (strlen($output) % 2 !== 0) {
-      $output .= ' ';
-    }
+    $output = TerminalText::padCenter($buttonOutput, $this->rect->getWidth() - 2);
     $output =
       $this->borderPack->getVerticalBorder() .
       str_replace($this->buttons[$this->activeIndex] ?? '', Color::apply($this->buttons[$this->activeIndex] ?? '', $activeColor), $output) .

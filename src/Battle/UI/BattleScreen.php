@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Battle\UI;
 
+use Ichiloto\Engine\Battle\BattlePacing;
 use Ichiloto\Engine\Battle\PartyBattlerPositions;
 use Ichiloto\Engine\Battle\UI\States\BattleScreenState;
 use Ichiloto\Engine\Battle\UI\States\PlayerActionState;
@@ -79,6 +80,14 @@ class BattleScreen implements CanRender, CanUpdate
     }
   }
   /**
+   * @var Troop The troop in the battle scene.
+   */
+  public Troop $troop {
+    get {
+      return $this->battleScene->troop ?? throw new RuntimeException('The troop is not set in the battle scene.');
+    }
+  }
+  /**
    * @var BattleScreenState|null The state of the battle screen.
    */
   protected(set) ?BattleScreenState $state = null;
@@ -96,7 +105,7 @@ class BattleScreen implements CanRender, CanUpdate
       if ($this->isAlerting) {
         $this->alertHideTime = Time::getTime() + $this->alertDuration;
       } else {
-        $this->messageWindow->hide();
+        $this->hideMessage();
       }
     }
   }
@@ -105,9 +114,17 @@ class BattleScreen implements CanRender, CanUpdate
    */
   protected float $alertDuration = 3.0; // seconds
   /**
+   * @var BattlePacing The active pacing profile.
+   */
+  protected BattlePacing $pacing;
+  /**
    * @var float The time to hide the message.
    */
   protected float $alertHideTime = 0;
+  /**
+   * @var bool Whether the info panel is visible.
+   */
+  protected bool $isMessageVisible = false;
   /**
    * @var Camera The camera.
    */
@@ -140,6 +157,8 @@ class BattleScreen implements CanRender, CanUpdate
     }
 
     $this->borderPack = $borderPack;
+    $this->pacing = BattlePacing::fromConfig();
+    $this->alertDuration = $this->pacing->getMessageDurationSeconds();
     $this->initializeWindows();
     $this->initializeScreenStates();
   }
@@ -203,7 +222,7 @@ class BattleScreen implements CanRender, CanUpdate
    */
   public function render(): void
   {
-    $this->fieldWindow->render();
+    $this->renderField();
     $this->showControls();
   }
 
@@ -213,7 +232,7 @@ class BattleScreen implements CanRender, CanUpdate
   public function erase(): void
   {
     $this->fieldWindow->erase();
-    $this->messageWindow->erase();
+    $this->hideMessage();
     $this->hideControls();
   }
 
@@ -222,6 +241,8 @@ class BattleScreen implements CanRender, CanUpdate
    */
   public function update(): void
   {
+    $this->state?->update();
+
     if ($this->isAlerting) {
       if (Time::getTime() >= $this->alertHideTime) {
         $this->isAlerting = false;
@@ -237,8 +258,88 @@ class BattleScreen implements CanRender, CanUpdate
    */
   public function alert(string $text): void
   {
-    $this->messageWindow->setText($text);
+    $this->showMessage($text);
     $this->isAlerting = true;
+  }
+
+  /**
+   * Shows the provided text in the info panel until it is hidden.
+   *
+   * @param string $text The text to display.
+   * @return void
+   */
+  public function showMessage(string $text): void
+  {
+    if ($this->isAlerting) {
+      $this->isAlerting = false;
+    }
+
+    $this->isMessageVisible = true;
+    $this->messageWindow->setText($text);
+  }
+
+  /**
+   * Hides the info panel.
+   *
+   * @return void
+   */
+  public function hideMessage(): void
+  {
+    $this->isMessageVisible = false;
+    $this->messageWindow->hide();
+  }
+
+  /**
+   * Returns the pacing profile for the battle screen.
+   *
+   * @return BattlePacing
+   */
+  public function getPacing(): BattlePacing
+  {
+    return $this->pacing;
+  }
+
+  /**
+   * Renders the battlefield and all active battlers.
+   *
+   * @return void
+   */
+  public function renderField(): void
+  {
+    $this->fieldWindow->render();
+    $this->fieldWindow->renderParty($this->party);
+    $this->fieldWindow->renderTroop($this->troop);
+  }
+
+  /**
+   * Refreshes the battle UI without rebuilding its state.
+   *
+   * @return void
+   */
+  public function refresh(): void
+  {
+    $this->fieldWindow->erase();
+    $this->renderField();
+    $this->showControls();
+
+    if ($this->isMessageVisible) {
+      $this->messageWindow->render();
+    }
+  }
+
+  /**
+   * Refreshes only the battlefield.
+   *
+   * @return void
+   */
+  public function refreshField(): void
+  {
+    $this->fieldWindow->erase();
+    $this->renderField();
+
+    if ($this->isMessageVisible) {
+      $this->messageWindow->render();
+    }
   }
 
   protected function initializeScreenStates(): void

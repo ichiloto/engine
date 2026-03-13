@@ -31,7 +31,7 @@ class LocationHUDWindow extends Window implements UIElementInterface
   /**
    * @inheritDoc
    */
-  protected(set) bool $isActive = true;
+  protected(set) bool $isActive = false;
 
   /**
    * LocationHUDWindow constructor.
@@ -47,7 +47,7 @@ class LocationHUDWindow extends Window implements UIElementInterface
   )
   {
     $leftMargin = 1;
-    $topMargin = DEFAULT_SCREEN_HEIGHT - self::HEIGHT;
+    $topMargin = get_screen_height() - self::HEIGHT;
     parent::__construct('', '', new Vector2($leftMargin, $topMargin), self::WIDTH, self::HEIGHT, $borderPack);
     $this->updateDetails($coordinates, $heading);
   }
@@ -68,6 +68,16 @@ class LocationHUDWindow extends Window implements UIElementInterface
       "Heading: {$this->heading->value}"
     ]);
     $this->render();
+  }
+
+  /**
+   * Repositions the HUD to match the current screen size.
+   *
+   * @return void
+   */
+  public function refreshLayout(): void
+  {
+    $this->setPosition(new Vector2(1, get_screen_height() - self::HEIGHT));
   }
 
   /**

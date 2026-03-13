@@ -26,4 +26,17 @@ class BattleCommandContextWindow extends Window
       $this->battleScreen->borderPack
     );
   }
+
+  /**
+   * Clears the context window while preserving its reserved layout space.
+   *
+   * @return void
+   */
+  public function clear(): void
+  {
+    $this->setTitle('');
+    $this->setHelp('');
+    $this->setContent(array_fill(0, self::HEIGHT - 2, ''));
+    $this->render();
+  }
 }

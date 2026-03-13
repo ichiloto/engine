@@ -15,6 +15,7 @@ use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Debug;
@@ -33,7 +34,7 @@ class MapManager implements CanRenderAt
    */
   protected static ?self $instance = null;
   /**
-   * @var string[] The tile map.
+   * @var array<int, string[]> The tile map.
    */
   protected array $tileMap = [];
   /**
@@ -281,7 +282,7 @@ class MapManager implements CanRenderAt
   /**
    * Loads the collision map from a tile map.
    *
-   * @param string[] $tileMap The tile map.
+   * @param array<int, string[]> $tileMap The tile map.
    * @return void
    * @throws NotFoundException
    */
@@ -294,7 +295,7 @@ class MapManager implements CanRenderAt
   /**
    * Generates a collision map from a tile map.
    *
-   * @param string[] $tilemap The tile map.
+   * @param array<int, string[]|string> $tilemap The tile map.
    * @param array<string, CollisionType> $dictionary The dictionary that maps tile characters to collision types.
    * @return int[][] The collision map.
    */
@@ -312,8 +313,10 @@ class MapManager implements CanRenderAt
     foreach ($tilemap as $row) {
       $collisionRow = [];
 
-      foreach (mb_str_split($row) as $tile) {
-        $cleanedTile = ASCII::to_ascii($tile);
+      $tiles = is_array($row) ? $row : TerminalText::visibleSymbols($row);
+
+      foreach ($tiles as $tile) {
+        $cleanedTile = ASCII::to_ascii(TerminalText::stripAnsi($tile));
         $collisionRow[] = $dictionary[$cleanedTile]->value ?? CollisionType::SOLID->value;
       }
 
@@ -392,7 +395,7 @@ class MapManager implements CanRenderAt
    */
   public function renderBackgroundTile(int $x, int $y): void
   {
-    $tile = $this->tileMap[$y][$x];
+    $tile = $this->tileMap[$y][$x] ?? ' ';
     $screenSpacePosition = $this->camera->getScreenSpacePosition(new Vector2($x, $y));
     $this->camera->draw($tile, $screenSpacePosition->x, $screenSpacePosition->y);
   }
@@ -419,55 +422,69 @@ class MapManager implements CanRenderAt
   public function scrollMap(Player $player, Vector2 $moveDirection): bool
   {
     $didScroll = false;
-    $halfScreenWidth = $this->camera->screen->getWidth() / 2;
-    $halfScreenHeight = $this->camera->screen->getHeight() / 2;
+    $horizontalFocus = $this->camera->getHorizontalFocusPosition();
+    $verticalFocus = $this->camera->getVerticalFocusPosition();
+    $rightViewportPadding = $this->camera->screen->getWidth() - $horizontalFocus - 1;
+    $bottomViewportPadding = $this->camera->screen->getHeight() - $verticalFocus - 1;
+    $canScrollHorizontally = ! $this->screenIsWiderThanMap($this->camera->screen);
+    $canScrollVertically = ! $this->screenIsTallerThanMap($this->camera->screen);
+    $maxX = max(0, $this->mapWidth - $this->camera->screen->getWidth());
+    $maxY = max(0, $this->mapHeight - $this->camera->screen->getHeight());
 
-    if ($this->mapIsSmallerThanScreen($this->camera->screen)) {
+    if (! $canScrollHorizontally && ! $canScrollVertically) {
       return false;
     }
 
     switch ($moveDirection) {
       case Vector2::left():
+        if (! $canScrollHorizontally) {
+          break;
+        }
         $playerDistanceFromLeftScreenEdge = $player->position->x - $this->camera->screen->getLeft();
-        if ($playerDistanceFromLeftScreenEdge < $halfScreenWidth) {
-          if (($player->position->x - $halfScreenWidth) > 0) {
+        if ($playerDistanceFromLeftScreenEdge < $horizontalFocus) {
+          if (($player->position->x - $horizontalFocus) > 0) {
             $newX = max(0, $this->camera->position->x - 1);
-            $newX = clamp($newX, 0, $this->camera->screen->getWidth());
-            $this->camera->screen->setX(max(0, $newX));
+            $this->camera->screen->setX(clamp($newX, 0, $maxX));
             $didScroll = true;
           }
         }
         break;
 
       case Vector2::right():
-        $playerDistanceFromRightScreenEdge = $this->camera->screen->getRight() - $player->position->x;
-        if ($playerDistanceFromRightScreenEdge < $halfScreenWidth) {
-          if (($player->position->x + $halfScreenWidth) < $this->mapWidth) {
-            $newX = min($this->mapWidth - $halfScreenWidth,$this->camera->position->x + 1);
-            $newX = clamp($newX, 0, $this->camera->screen->getWidth());
-            $this->camera->screen->setX(min($this->mapWidth - $halfScreenWidth, $newX));
+        if (! $canScrollHorizontally) {
+          break;
+        }
+        $playerDistanceFromRightScreenEdge = ($this->camera->screen->getRight() - 1) - $player->position->x;
+        if ($playerDistanceFromRightScreenEdge < $rightViewportPadding) {
+          if (($player->position->x + $rightViewportPadding) < $this->mapWidth - 1) {
+            $newX = min($maxX, $this->camera->position->x + 1);
+            $this->camera->screen->setX(clamp($newX, 0, $maxX));
             $didScroll = true;
           }
         }
         break;
 
       case Vector2::up():
-        $playerDistanceFromBottomScreenEdge = $player->position->y - $this->camera->screen->getTop();
-        if ($playerDistanceFromBottomScreenEdge < $halfScreenHeight) {
+        if (! $canScrollVertically) {
+          break;
+        }
+        $playerDistanceFromTopScreenEdge = $player->position->y - $this->camera->screen->getTop();
+        if ($playerDistanceFromTopScreenEdge < $verticalFocus) {
           $newY = max(0, $this->camera->position->y - 1);
-          $newY = clamp($newY, 0, $this->camera->screen->getHeight());
-          $this->camera->screen->setY($newY);
+          $this->camera->screen->setY(clamp($newY, 0, $maxY));
           $didScroll = true;
         }
         break;
 
       case Vector2::down():
-        $playerDistanceFromBottomScreenEdge = $this->camera->screen->getBottom() - $player->position->y;
-        if ($playerDistanceFromBottomScreenEdge < $halfScreenHeight) {
-          if (($player->position->y + $halfScreenHeight) < $this->mapHeight) {
-            $newY = min($this->mapHeight - $halfScreenHeight, $this->camera->position->y + 1);
-            $newY = clamp($newY, 0, $this->camera->screen->getHeight());
-            $this->camera->screen->setY($newY);
+        if (! $canScrollVertically) {
+          break;
+        }
+        $playerDistanceFromBottomScreenEdge = ($this->camera->screen->getBottom() - 1) - $player->position->y;
+        if ($playerDistanceFromBottomScreenEdge < $bottomViewportPadding) {
+          if (($player->position->y + $bottomViewportPadding) < $this->mapHeight - 1) {
+            $newY = min($maxY, $this->camera->position->y + 1);
+            $this->camera->screen->setY(clamp($newY, 0, $maxY));
             $didScroll = true;
           }
         }
@@ -485,7 +502,7 @@ class MapManager implements CanRenderAt
   protected function calculateMapDimensions(): void
   {
     $this->mapHeight = count($this->tileMap);
-    $this->mapWidth = array_reduce($this->tileMap, fn($carry, $row) => max($carry, strlen($row)), 0);
+    $this->mapWidth = array_reduce($this->tileMap, fn($carry, $row) => max($carry, count($row)), 0);
   }
 
   /**
@@ -544,7 +561,11 @@ class MapManager implements CanRenderAt
       throw new NotFoundException("File $filename does not return an array.");
     }
 
-    $this->tileMap = $map['tile_map'] ?? throw new InvalidArgumentException("tile_map not found in map array of $filename.");
+    $rawTileMap = $map['tile_map'] ?? throw new InvalidArgumentException("tile_map not found in map array of $filename.");
+    $this->tileMap = array_map(
+      static fn(string $row): array => TerminalText::visibleSymbols($row),
+      $rawTileMap
+    );
     $this->camera->worldSpace = $this->tileMap;
     return $map;
   }

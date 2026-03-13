@@ -2,21 +2,35 @@
 
 namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States;
 
-use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnState;
+use Ichiloto\Engine\Battle\Actions\AttackAction;
 
 class EnemyActionState extends TurnState
 {
-
   /**
    * @inheritDoc
    */
   public function update(TurnStateExecutionContext $context): void
   {
-    // TODO: Implement execute() method.
-    // For each enemy,
+    $targets = $context->getLivingPartyBattlers();
 
-    // Select action
+    if (empty($targets)) {
+      $this->setState($this->engine->turnResolutionState);
+      return;
+    }
 
-    // Select target
+    foreach ($context->getLivingTroopBattlers() as $enemy) {
+      $turn = $context->findTurnForBattler($enemy);
+
+      if ($turn === null) {
+        continue;
+      }
+
+      $turn->action = new AttackAction('Attack');
+      $turn->targets = [$targets[array_rand($targets)]];
+    }
+
+    $context->ui->commandContextWindow->clear();
+
+    $this->setState($this->engine->actionExecutionState);
   }
 }

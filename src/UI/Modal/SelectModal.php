@@ -11,6 +11,7 @@ use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
 use Ichiloto\Engine\Events\ModalEvent;
 use Ichiloto\Engine\Events\ObservableTrait;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
@@ -57,7 +58,7 @@ class SelectModal implements ModalInterface
     }
     set {
       $this->title = $value;
-      $this->titleLength = strlen($value);
+      $this->titleLength = TerminalText::displayWidth($value);
     }
   }
   /**
@@ -178,7 +179,7 @@ class SelectModal implements ModalInterface
     $totalOptions = 0;
     foreach ($this->options as $option) {
       $totalOptions++;
-      $this->rect->setWidth(max($this->rect->getWidth(), strlen($option) + 6));
+      $this->rect->setWidth(max($this->rect->getWidth(), TerminalText::displayWidth($option) + 6));
     }
     $this->totalOptions = $totalOptions;
   }
@@ -321,7 +322,7 @@ class SelectModal implements ModalInterface
   public function setContent(string $content): void
   {
     $this->message = $content;
-    $this->messageLength = strlen($this->message);
+    $this->messageLength = TerminalText::displayWidth($this->message);
   }
 
   public function getHelp(): string
@@ -332,7 +333,7 @@ class SelectModal implements ModalInterface
   public function setHelp(string $help): void
   {
     $this->help = $help;
-    $this->helpLength = strlen($this->help);
+    $this->helpLength = TerminalText::displayWidth($this->help);
   }
 
   public function getHelpLength(): int
@@ -440,7 +441,7 @@ class SelectModal implements ModalInterface
     if ($this->message) {
       foreach ($this->messageLines as $lineIndex => $line) {
         $output = $this->borderPack->getVerticalBorder();
-        $output .= sprintf(" %-{$lineSize}s", $line);
+        $output .= ' ' . TerminalText::padRight($line, $lineSize - 1);
         $output .= $this->borderPack->getVerticalBorder();
         Console::cursor()->moveTo($x, $y + $lineIndex);
         $this->output->write($output);
@@ -453,7 +454,7 @@ class SelectModal implements ModalInterface
     foreach ($this->options as $optionIndex => $option) {
       $output = $this->borderPack->getVerticalBorder();
       $prefix = $optionIndex === $this->activeOptionIndex ? '>' : ' ';
-      $content = sprintf(" %s %-{$spacing}s", $prefix, $option);
+      $content = " {$prefix} " . TerminalText::padRight($option, $spacing);
 
       if ($optionIndex === $this->activeOptionIndex) {
         $content = Color::apply($content, Color::LIGHT_BLUE);

@@ -12,6 +12,7 @@ enum KeyCode: string
   case ENTER      = 'enter';
   case SPACE      = 'space';
   case TAB        = 'tab';
+  case SHIFT_TAB  = 'shift_tab';
   case BACKSPACE  = 'backspace';
   case ESCAPE     = 'escape';
   case DELETE     = 'delete';

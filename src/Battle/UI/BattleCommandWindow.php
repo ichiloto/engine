@@ -69,7 +69,7 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
    */
   public function focus(): void
   {
-    $this->activeCommandIndex = 0;
+    $this->activeCommandIndex = $this->totalCommands > 0 ? 0 : -1;
     $this->updateContent();
   }
 
@@ -78,13 +78,16 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
    */
   public function blur(): void
   {
-    // TODO: Implement blur() method.
+    $this->activeCommandIndex = -1;
+    $this->updateContent();
   }
 
   public function clear(): void
   {
-    $this->setContent([]);
-    $this->render();
+    $this->commands = [];
+    $this->activeCommandIndex = -1;
+    $this->totalCommands = 0;
+    $this->updateContent();
   }
 
   /**
@@ -111,6 +114,10 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
    */
   public function selectPrevious(): void
   {
+    if ($this->totalCommands < 1) {
+      return;
+    }
+
     $index = wrap($this->activeCommandIndex - 1, 0, $this->totalCommands - 1);
     $this->activeCommandIndex = $index;
     $this->updateContent();
@@ -121,6 +128,10 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
    */
   public function selectNext(): void
   {
+    if ($this->totalCommands < 1) {
+      return;
+    }
+
     $index = wrap($this->activeCommandIndex + 1, 0, $this->totalCommands - 1);
     $this->activeCommandIndex = $index;
     $this->updateContent();

@@ -9,6 +9,7 @@ use Ichiloto\Engine\Entities\Enemies\Enemy;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\UI\Windows\Window;
 use RuntimeException;
 
@@ -19,6 +20,7 @@ use RuntimeException;
  */
 class BattleFieldWindow extends Window
 {
+  const int TROOP_STEP_X_OFFSET = 3;
   /**
    * The width of the window.
    */
@@ -127,7 +129,7 @@ class BattleFieldWindow extends Window
   {
     foreach ($spriteData as $rowIndex => $row) {
       Console::cursor()->moveTo($x, $y + $rowIndex);
-      $output = str_repeat(' ', mb_strlen($row));
+      $output = str_repeat(' ', TerminalText::displayWidth($row));
       $this->output->write($output);
     }
   }
@@ -149,6 +151,39 @@ class BattleFieldWindow extends Window
   }
 
   /**
+   * Returns the idle position of the specified party battler.
+   *
+   * @param int $index The battler index.
+   * @return Vector2
+   */
+  protected function getPartyIdlePosition(int $index): Vector2
+  {
+    return $this->partyBattlerPositions->idlePositions[$index] ?? throw new RuntimeException('Invalid party battler position.');
+  }
+
+  /**
+   * Returns the active position of the specified party battler.
+   *
+   * @param int $index The battler index.
+   * @return Vector2
+   */
+  protected function getPartyActivePosition(int $index): Vector2
+  {
+    return $this->partyBattlerPositions->activePositions[$index] ?? throw new RuntimeException('Invalid party battler active position.');
+  }
+
+  /**
+   * Returns the active position of the specified troop battler.
+   *
+   * @param Enemy $battler The battler to inspect.
+   * @return Vector2
+   */
+  protected function getTroopActivePosition(Enemy $battler): Vector2
+  {
+    return new Vector2($battler->position->x + self::TROOP_STEP_X_OFFSET, $battler->position->y);
+  }
+
+  /**
    * Renders the party on the battle screen.
    *
    * @param Party $party The party to render.
@@ -157,9 +192,13 @@ class BattleFieldWindow extends Window
   public function renderParty(Party $party): void
   {
     foreach ($party->battlers->toArray() as $index => $battler) {
+      if ($battler->isKnockedOut) {
+        continue;
+      }
+
       $this->renderPartyBattler(
         $battler,
-        $this->partyBattlerPositions->idlePositions[$index] ?? throw new RuntimeException('Invalid party battler position.')
+        $this->getPartyIdlePosition($index)
       );
     }
   }
@@ -173,8 +212,72 @@ class BattleFieldWindow extends Window
   public function renderTroop(Troop $troop): void
   {
     foreach ($troop->members->toArray() as $battler) {
+      if ($battler->isKnockedOut) {
+        continue;
+      }
+
       $this->renderTroopBattler($battler);
     }
+  }
+
+  /**
+   * Steps the specified party battler forward.
+   *
+   * @param Character $battler The battler to move.
+   * @param int $index The battler index.
+   * @return void
+   */
+  public function stepPartyBattlerForward(Character $battler, int $index): void
+  {
+    $this->erasePartyBattler($battler, $this->getPartyIdlePosition($index));
+    $this->renderPartyBattler($battler, $this->getPartyActivePosition($index));
+  }
+
+  /**
+   * Returns the specified party battler to idle position.
+   *
+   * @param Character $battler The battler to move.
+   * @param int $index The battler index.
+   * @return void
+   */
+  public function stepPartyBattlerBack(Character $battler, int $index): void
+  {
+    $this->erasePartyBattler($battler, $this->getPartyActivePosition($index));
+    $this->renderPartyBattler($battler, $this->getPartyIdlePosition($index));
+  }
+
+  /**
+   * Steps the specified enemy battler forward.
+   *
+   * @param Enemy $battler The battler to move.
+   * @return void
+   */
+  public function stepTroopBattlerForward(Enemy $battler): void
+  {
+    $this->eraseTroopBattler($battler);
+    $activePosition = $this->getTroopActivePosition($battler);
+    $this->renderBattlerSprite(
+      $battler->image,
+      $this->position->x + $activePosition->x,
+      $this->position->y + $activePosition->y
+    );
+  }
+
+  /**
+   * Returns the specified enemy battler to idle position.
+   *
+   * @param Enemy $battler The battler to move.
+   * @return void
+   */
+  public function stepTroopBattlerBack(Enemy $battler): void
+  {
+    $activePosition = $this->getTroopActivePosition($battler);
+    $this->eraseBattlerSprite(
+      $battler->image,
+      $this->position->x + $activePosition->x,
+      $this->position->y + $activePosition->y
+    );
+    $this->renderTroopBattler($battler);
   }
 
   /**

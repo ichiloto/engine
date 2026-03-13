@@ -214,6 +214,18 @@ abstract class AbstractScene implements SceneInterface
   }
 
   /**
+   * Updates the scene layout after the terminal size changes.
+   *
+   * @param int $width The new terminal width.
+   * @param int $height The new terminal height.
+   * @return void
+   */
+  public function onScreenResize(int $width, int $height): void
+  {
+    $this->camera->resizeViewport($width, $height);
+  }
+
+  /**
    * Initialize event handlers.
    *
    * @return void

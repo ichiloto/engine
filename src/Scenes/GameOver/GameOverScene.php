@@ -7,6 +7,7 @@ use Ichiloto\Engine\Core\Menu\Commands\ContinueGameCommand;
 use Ichiloto\Engine\Core\Menu\Commands\QuitGameCommand;
 use Ichiloto\Engine\Core\Menu\Commands\ToTitleMenuCommand;
 use Ichiloto\Engine\Core\Rect;
+use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Scenes\AbstractScene;
 use Ichiloto\Engine\Scenes\Game\GameLoader;
@@ -94,7 +95,7 @@ class GameOverScene extends AbstractScene
       $headerWidth = max($headerWidth, mb_strlen($line));
     }
 
-    $x = intval((DEFAULT_SCREEN_WIDTH - $headerWidth) / 2);
+    $x = intval((get_screen_width() - $headerWidth) / 2);
     $y = 2;
 
     $this->camera->draw($this->headerContent, $x, $y);
@@ -118,5 +119,27 @@ class GameOverScene extends AbstractScene
   public function suspend(): void
   {
     Console::clear();
+  }
+
+  /**
+   * Re-centers the game-over layout after a terminal resize.
+   *
+   * @param int $width The new terminal width.
+   * @param int $height The new terminal height.
+   * @return void
+   */
+  public function onScreenResize(int $width, int $height): void
+  {
+    parent::onScreenResize($width, $height);
+
+    if (! isset($this->menu)) {
+      return;
+    }
+
+    $this->menu->setPosition(new Vector2(max(0, intdiv(get_screen_width() - 16, 2)), $this->headerHeight + 2));
+
+    Console::clear();
+    $this->renderHeader();
+    $this->menu->render();
   }
 }

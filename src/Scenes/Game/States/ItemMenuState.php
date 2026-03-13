@@ -180,7 +180,7 @@ class ItemMenuState extends GameSceneState implements CanRender
    */
   protected function calculateMargins(): void
   {
-    $this->leftMargin = (get_screen_width() - self::ITEM_MENU_WIDTH) / 2;
+    $this->leftMargin = max(0, intdiv(get_screen_width() - self::ITEM_MENU_WIDTH, 2));
     $this->topMargin = 0;
   }
 

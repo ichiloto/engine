@@ -16,6 +16,7 @@ use Ichiloto\Engine\Events\Triggers\EventTrigger;
 use Ichiloto\Engine\Events\Triggers\EventTriggerContext;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
@@ -81,9 +82,7 @@ class Player extends GameObject
    */
   public Vector2 $screenPosition {
     get {
-      $screenPosition = $this->position;
-      $screenPosition->subtract($this->scene->camera->position);
-      return $screenPosition;
+      return $this->scene->camera->getScreenSpacePosition($this->position);
     }
   }
 
@@ -114,6 +113,8 @@ class Player extends GameObject
       $sprite
     );
     $this->heading = $heading;
+    $this->canShowLocationHUDWindow = config(ProjectConfig::class, 'ui.hud.location', false);
+    $this->events = new ItemList(EventTrigger::class);
   }
 
   /**
@@ -122,14 +123,13 @@ class Player extends GameObject
   #[Override]
   public function activate(): void
   {
-    parent::activate();
     $this->canShowLocationHUDWindow = config(ProjectConfig::class, 'ui.hud.location', false);
 
     if (!$this->canShowLocationHUDWindow) {
       $this->getLocationHUDWindow()->erase();
     }
 
-    $this->events = new ItemList(EventTrigger::class);
+    parent::activate();
   }
 
   /**
@@ -356,16 +356,23 @@ class Player extends GameObject
 
   public function renderPlayer(?Vector2 $offset = null): void
   {
-    $x = $this->position->x - ($offset?->x ?? 0);
-    $y = $this->position->y - ($offset?->y ?? 0);
+    $worldPosition = new Vector2(
+      $this->position->x - ($offset?->x ?? 0),
+      $this->position->y - ($offset?->y ?? 0)
+    );
+    $screenPosition = $this->scene->camera->getScreenSpacePosition($worldPosition);
 
     for ($row = $this->shape->getY(); $row < $this->shape->getY() + $this->shape->getHeight(); $row++) {
-      $output = substr($this->sprite[$row], $this->shape->getX(), $this->shape->getWidth());
-      $this->scene->camera->draw($output, $x, $y + $row);
+      $output = TerminalText::sliceSymbols($this->sprite[$row], $this->shape->getX(), $this->shape->getWidth());
+      $this->scene->camera->draw($output, $screenPosition->x, $screenPosition->y + $row);
     }
 
     if ($this->canAct) {
-      $this->scene->camera->draw($this->actionSprite, $x, clamp($y - 1, 1, get_screen_height()));
+      $this->scene->camera->draw(
+        $this->actionSprite,
+        $screenPosition->x,
+        clamp($screenPosition->y - 1, 1, get_screen_height())
+      );
     }
   }
 

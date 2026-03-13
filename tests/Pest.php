@@ -1,5 +1,10 @@
 <?php
 
+use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Rendering\Camera;
+use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
+use Ichiloto\Engine\UI\UIManager;
+
 /*
 |--------------------------------------------------------------------------
 | Test Case
@@ -39,7 +44,73 @@ expect()->extend('toBeOne', function () {
 |
 */
 
-function something()
+/**
+ * Creates a lightweight scene stub for camera-oriented unit tests.
+ *
+ * @return SceneInterface
+ */
+function makeCameraTestScene(): SceneInterface
 {
-    // ..
+    $uiManager = (new ReflectionClass(UIManager::class))->newInstanceWithoutConstructor();
+
+    return new class($uiManager) implements SceneInterface {
+        public Camera $camera;
+        public string $name = 'Test';
+
+        public function __construct(private UIManager $uiManager)
+        {
+        }
+
+        public function start(): void
+        {
+        }
+
+        public function stop(): void
+        {
+        }
+
+        public function resume(): void
+        {
+        }
+
+        public function suspend(): void
+        {
+        }
+
+        public function render(): void
+        {
+        }
+
+        public function erase(): void
+        {
+        }
+
+        public function update(): void
+        {
+        }
+
+        public function getGame(): Game
+        {
+            throw new RuntimeException('Not required for camera unit tests.');
+        }
+
+        public function getRootGameObjects(): array
+        {
+            return [];
+        }
+
+        public function getUI(): UIManager
+        {
+            return $this->uiManager;
+        }
+
+        public function isStarted(): bool
+        {
+            return true;
+        }
+
+        public function renderBackgroundTile(int $x, int $y): void
+        {
+        }
+    };
 }

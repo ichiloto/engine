@@ -157,6 +157,10 @@ class Game implements CanRun, SubjectInterface
   public function configure(array $options): self
   {
     $this->options = array_merge_recursive($this->options, $options);
+    ['width' => $this->width, 'height' => $this->height] = $this->resolveScreenSize($this->options);
+    $this->options['width'] = $this->width;
+    $this->options['height'] = $this->height;
+    $this->options['screen'] = ['width' => $this->width, 'height' => $this->height];
 
     foreach ($this->options as $key => $value) {
       ConfigStore::get(PlaySettings::class)->set($key, $value);
@@ -260,6 +264,52 @@ class Game implements CanRun, SubjectInterface
   }
 
   /**
+   * Resolves the screen size that should be used for the current session.
+   *
+   * Default constructor dimensions are treated as "auto", which allows the
+   * engine to adopt the full size of the user's terminal on boot.
+   *
+   * @param array<string, mixed> $options The current game options.
+   * @return array{width: int, height: int} The resolved screen size.
+   */
+  protected function resolveScreenSize(array $options): array
+  {
+    $availableSize = Console::getAvailableSize();
+    $requestedWidth = $options['width'] ?? $options['screen']['width'] ?? $this->width;
+    $requestedHeight = $options['height'] ?? $options['screen']['height'] ?? $this->height;
+
+    return [
+      'width' => $this->resolveScreenDimension($requestedWidth, $availableSize['width'], DEFAULT_SCREEN_WIDTH),
+      'height' => $this->resolveScreenDimension($requestedHeight, $availableSize['height'], DEFAULT_SCREEN_HEIGHT),
+    ];
+  }
+
+  /**
+   * Resolves an individual screen dimension.
+   *
+   * @param mixed $requestedDimension The configured dimension.
+   * @param int $availableDimension The current terminal dimension.
+   * @param int $defaultDimension The legacy default dimension.
+   * @return int The resolved dimension.
+   */
+  protected function resolveScreenDimension(
+    mixed $requestedDimension,
+    int $availableDimension,
+    int $defaultDimension
+  ): int
+  {
+    if (is_numeric($requestedDimension)) {
+      $requestedDimension = intval($requestedDimension);
+
+      if ($requestedDimension > 0 && $requestedDimension !== $defaultDimension) {
+        return $requestedDimension;
+      }
+    }
+
+    return max(1, $availableDimension);
+  }
+
+  /**
    * Handle the input.
    *
    * @return void
@@ -277,10 +327,44 @@ class Game implements CanRun, SubjectInterface
   protected function update(): void
   {
     $this->frameCount++;
+    $this->syncScreenSize();
     $this->sceneManager->update();
     $this->notificationManager->update();
 
     $this->notify($this, new GameEvent(GameEventType::UPDATE));
+  }
+
+  /**
+   * Synchronizes the engine with the current terminal size.
+   *
+   * @return void
+   */
+  protected function syncScreenSize(): void
+  {
+    $availableSize = Console::getAvailableSize();
+
+    if ($availableSize['width'] === $this->width && $availableSize['height'] === $this->height) {
+      return;
+    }
+
+    $this->width = $availableSize['width'];
+    $this->height = $availableSize['height'];
+    $this->options['width'] = $this->width;
+    $this->options['height'] = $this->height;
+    $this->options['screen'] = ['width' => $this->width, 'height' => $this->height];
+
+    ConfigStore::get(PlaySettings::class)->set('width', $this->width);
+    ConfigStore::get(PlaySettings::class)->set('height', $this->height);
+    ConfigStore::get(PlaySettings::class)->set('screen.width', $this->width);
+    ConfigStore::get(PlaySettings::class)->set('screen.height', $this->height);
+
+    Console::syncDimensions($this->width, $this->height);
+
+    $currentScene = $this->sceneManager->currentScene;
+
+    if ($currentScene && method_exists($currentScene, 'onScreenResize')) {
+      $currentScene->onScreenResize($this->width, $this->height);
+    }
   }
 
   /**
