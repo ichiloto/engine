@@ -3,9 +3,9 @@
 namespace Ichiloto\Engine\Battle\UI;
 
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\UI\Interfaces\CanFocus;
 use Ichiloto\Engine\UI\Windows\Window;
-use Ichiloto\Engine\Util\Debug;
 
 /**
  * Represents the battle character name window.
@@ -39,6 +39,10 @@ class BattleCharacterNameWindow extends Window implements CanFocus
    * @var string[] The names of the characters.
    */
   protected(set) array $names = [];
+  /**
+   * @var bool Whether the active name should blink to show pending input.
+   */
+  protected bool $blinkActiveSelection = false;
 
   public function __construct(protected BattleScreen $battleScreen)
   {
@@ -75,10 +79,17 @@ class BattleCharacterNameWindow extends Window implements CanFocus
   public function updateContent(): void
   {
     $content = [];
+    $availableWidth = $this->getContentWidth();
 
     foreach ($this->names as $index => $name) {
       $prefix = $this->activeIndex === $index ? '>' : ' ';
-      $content[] = " $prefix $name";
+      $line = TerminalText::padRight(" $prefix $name", $availableWidth);
+
+      if ($this->activeIndex === $index) {
+        $line = $this->battleScreen->styleSelectionLine($line, $this->blinkActiveSelection);
+      }
+
+      $content[] = $line;
     }
 
     $content = array_pad($content, self::HEIGHT - 2, '');
@@ -91,7 +102,7 @@ class BattleCharacterNameWindow extends Window implements CanFocus
    */
   public function focus(): void
   {
-    $this->activeIndex = 0;
+    $this->setActiveSelection(0, blink: true);
   }
 
   /**
@@ -99,6 +110,32 @@ class BattleCharacterNameWindow extends Window implements CanFocus
    */
   public function blur(): void
   {
-    // Do nothing
+    $this->setActiveSelection(-1);
+  }
+
+  /**
+   * Updates the active name and whether it should blink.
+   *
+   * @param int $index The active name index.
+   * @param bool $blink Whether the active name should blink.
+   * @return void
+   */
+  public function setActiveSelection(int $index, bool $blink = false): void
+  {
+    $this->blinkActiveSelection = $blink;
+    $this->activeIndex = $index;
+  }
+
+  /**
+   * Returns the width available for content inside the window frame.
+   *
+   * @return int The inner content width.
+   */
+  protected function getContentWidth(): int
+  {
+    return max(
+      0,
+      $this->width - 2 - $this->padding->getLeftPadding() - $this->padding->getRightPadding()
+    );
   }
 }

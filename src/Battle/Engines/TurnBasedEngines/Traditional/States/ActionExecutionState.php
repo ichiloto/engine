@@ -17,7 +17,7 @@ class ActionExecutionState extends TurnState
   {
     $context->resetTurnCursor();
     $context->ui->commandWindow->blur();
-    $context->ui->characterNameWindow->activeIndex = -1;
+    $context->ui->characterNameWindow->setActiveSelection(-1);
     $context->ui->commandContextWindow->clear();
     $context->ui->hideMessage();
     $context->ui->refresh();
@@ -128,7 +128,7 @@ class ActionExecutionState extends TurnState
 
     $this->displayPhase($context, $summary, $timings->statChanges);
     $this->displayPhase($context, 'Turn over.', $timings->turnOver, hideAfter: true);
-    $context->ui->characterNameWindow->activeIndex = -1;
+    $context->ui->characterNameWindow->setActiveSelection(-1);
   }
 
   /**
@@ -142,7 +142,7 @@ class ActionExecutionState extends TurnState
   {
     $partyBattlers = $context->party->battlers->toArray();
     $actorIndex = array_search($actor, $partyBattlers, true);
-    $context->ui->characterNameWindow->activeIndex = is_int($actorIndex) ? $actorIndex : -1;
+    $context->ui->characterNameWindow->setActiveSelection(is_int($actorIndex) ? $actorIndex : -1);
   }
 
   /**

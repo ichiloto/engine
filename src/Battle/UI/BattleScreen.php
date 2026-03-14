@@ -3,7 +3,6 @@
 namespace Ichiloto\Engine\Battle\UI;
 
 use Ichiloto\Engine\Battle\BattlePacing;
-use Ichiloto\Engine\Battle\PartyBattlerPositions;
 use Ichiloto\Engine\Battle\UI\States\BattleScreenState;
 use Ichiloto\Engine\Battle\UI\States\PlayerActionState;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
@@ -13,14 +12,12 @@ use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Troop;
+use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
-use Ichiloto\Engine\Scenes\Battle\States\BattleSceneState;
-use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
-use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -118,6 +115,10 @@ class BattleScreen implements CanRender, CanUpdate
    */
   protected BattlePacing $pacing;
   /**
+   * @var Color The configured selection highlight color.
+   */
+  protected Color $selectionColor;
+  /**
    * @var float The time to hide the message.
    */
   protected float $alertHideTime = 0;
@@ -146,10 +147,7 @@ class BattleScreen implements CanRender, CanUpdate
    */
   public function __construct(protected BattleScene $battleScene)
   {
-    $leftMargin = intval((get_screen_width() - self::WIDTH) / 2);
-    $topMargin = 0;
-
-    $this->screenDimensions = new Rect($leftMargin, $topMargin, self::WIDTH, self::HEIGHT);
+    $this->screenDimensions = $this->resolveScreenDimensions();
     $borderPack = config(ProjectConfig::class, 'ui.menu.border', new DefaultBorderPack());
 
     if (! $borderPack instanceof BorderPackInterface) {
@@ -158,6 +156,9 @@ class BattleScreen implements CanRender, CanUpdate
 
     $this->borderPack = $borderPack;
     $this->pacing = BattlePacing::fromConfig();
+    $this->selectionColor = $this->resolveSelectionColor(
+      config(ProjectConfig::class, 'ui.battle.selection_color', Color::LIGHT_BLUE)
+    );
     $this->alertDuration = $this->pacing->getMessageDurationSeconds();
     $this->initializeWindows();
     $this->initializeScreenStates();
@@ -345,5 +346,108 @@ class BattleScreen implements CanRender, CanUpdate
   protected function initializeScreenStates(): void
   {
     $this->playerActionState = new PlayerActionState($this);
+  }
+
+  /**
+   * Recomputes the battle layout to match the current terminal size.
+   *
+   * @return void
+   */
+  public function refreshLayout(): void
+  {
+    $this->screenDimensions = $this->resolveScreenDimensions();
+    $this->fieldWindow->setPosition($this->getWindowPosition(0, 0));
+    $this->messageWindow->setPosition($this->getWindowPosition(2, 1));
+    $this->commandWindow->setPosition($this->getWindowPosition(0, $this->fieldWindow->height));
+    $this->commandContextWindow->setPosition($this->getWindowPosition($this->commandWindow->width, $this->fieldWindow->height));
+    $this->characterNameWindow->setPosition(
+      $this->getWindowPosition(
+        $this->commandWindow->width + $this->commandContextWindow->width,
+        $this->fieldWindow->height
+      )
+    );
+    $this->characterStatusWindow->setPosition(
+      $this->getWindowPosition(
+        $this->commandWindow->width + $this->commandContextWindow->width + $this->characterNameWindow->width,
+        $this->fieldWindow->height
+      )
+    );
+  }
+
+  /**
+   * Returns the selection highlight color for battle input windows.
+   *
+   * @return Color The configured highlight color.
+   */
+  public function getSelectionColor(): Color
+  {
+    return $this->selectionColor;
+  }
+
+  /**
+   * Applies battle-selection styling to a line of content.
+   *
+   * @param string $text The content line to style.
+   * @param bool $blink Whether the line should blink to indicate pending input.
+   * @return string The styled line.
+   */
+  public function styleSelectionLine(string $text, bool $blink = false): string
+  {
+    $prefix = $blink ? "\033[5m" : '';
+
+    return $prefix . $this->selectionColor->value . $text . Color::RESET->value;
+  }
+
+  /**
+   * Resolves the configured battle selection color.
+   *
+   * @param mixed $configuredColor The configured color value.
+   * @return Color The resolved color.
+   */
+  protected function resolveSelectionColor(mixed $configuredColor): Color
+  {
+    if ($configuredColor instanceof Color) {
+      return $configuredColor;
+    }
+
+    if (is_string($configuredColor)) {
+      $normalizedName = strtoupper(str_replace([' ', '-'], '_', $configuredColor));
+
+      foreach (Color::cases() as $color) {
+        if ($color->name === $normalizedName || $color->value === $configuredColor) {
+          return $color;
+        }
+      }
+    }
+
+    return Color::LIGHT_BLUE;
+  }
+
+  /**
+   * Resolves the screen-space frame used to center the battle layout.
+   *
+   * @return Rect The centered battle frame.
+   */
+  protected function resolveScreenDimensions(): Rect
+  {
+    $leftMargin = max(0, intdiv(get_screen_width() - self::WIDTH, 2));
+    $topMargin = max(0, intdiv(get_screen_height() - self::HEIGHT, 2));
+
+    return new Rect($leftMargin, $topMargin, self::WIDTH, self::HEIGHT);
+  }
+
+  /**
+   * Returns a position relative to the centered battle frame.
+   *
+   * @param int $xOffset The x offset inside the battle frame.
+   * @param int $yOffset The y offset inside the battle frame.
+   * @return \Ichiloto\Engine\Core\Vector2 The resolved window position.
+   */
+  protected function getWindowPosition(int $xOffset, int $yOffset): \Ichiloto\Engine\Core\Vector2
+  {
+    return new \Ichiloto\Engine\Core\Vector2(
+      $this->screenDimensions->getLeft() + $xOffset,
+      $this->screenDimensions->getTop() + $yOffset,
+    );
   }
 }

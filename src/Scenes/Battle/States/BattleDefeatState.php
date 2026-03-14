@@ -22,7 +22,16 @@ class BattleDefeatState extends BattleSceneState
    */
   public function execute(?SceneStateContext $context = null): void
   {
+    $revealedThisFrame = $this->scene->resultWindow?->update() ?? false;
+
     if (Input::isButtonDown('action')) {
+      if ($this->scene->resultWindow && ! $this->scene->resultWindow->isComplete()) {
+        if (! $revealedThisFrame) {
+          $this->scene->resultWindow->advance();
+        }
+        return;
+      }
+
       $this->scene->shouldLoadGameOver = true;
       $this->setState($this->scene->endState);
     }

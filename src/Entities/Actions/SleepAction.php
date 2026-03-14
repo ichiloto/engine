@@ -78,7 +78,7 @@ class SleepAction extends FieldAction
       $context->player->availableAction = null;
       $context->player->position->x = $this->trigger->spawnPoint->x;
       $context->player->position->y = $this->trigger->spawnPoint->y;
-      $context->player->sprite = $this->trigger->spawnSprite;
+      $context->player->setFacingSprite($this->trigger->spawnSprite);
       Console::clear();
       $context->scene->mapManager->render();
       $context->player->render();

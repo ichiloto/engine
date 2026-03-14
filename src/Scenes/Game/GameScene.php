@@ -147,7 +147,8 @@ class GameScene extends AbstractScene
       $this->config->playerPosition,
       $this->config->playerShape,
       $this->config->playerSprite,
-      $this->config->playerHeading
+      $this->config->playerHeading,
+      $this->config->playerSprites
     );
     $this->party = $this->config->party;
 
@@ -215,7 +216,7 @@ class GameScene extends AbstractScene
     $this->player->position->x = $location->playerPosition->x;
     $this->player->position->y = $location->playerPosition->y;
     if ($location->playerSprite) {
-      $this->player->sprite = $location->playerSprite;
+      $this->player->setFacingSprite($location->playerSprite);
     }
     $this->loadMap($location->mapFilename, $this->player);
     $this->player->render();

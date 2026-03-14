@@ -51,12 +51,20 @@ class TurnResolutionState extends TurnState
         sprintf('Experience gained: %d', $experience),
         sprintf('Gold found: %dG', $gold),
       ];
+      $entries = [
+        ['label' => 'Experience gained:', 'value' => (string)$experience],
+        ['label' => 'Gold found:', 'value' => sprintf('%dG', $gold)],
+      ];
 
       if (! empty($items)) {
         $lines[] = 'Loot: ' . implode(', ', array_map(fn($item) => $item->name, $items));
+        $entries[] = [
+          'label' => 'Item drops:',
+          'value' => implode(', ', array_map(fn($item) => $item->name, $items)),
+        ];
       }
 
-      $scene->result = new BattleResult('Victory', $lines, $items);
+      $scene->result = new BattleResult('Victory', $lines, $items, $entries);
       $scene->setState($scene->victoryState);
       return;
     }

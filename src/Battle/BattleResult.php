@@ -17,11 +17,13 @@ class BattleResult
    * @param string $title The result title.
    * @param string[] $lines The result summary lines.
    * @param InventoryItem[] $items The earned items.
+   * @param array<int, array{label: string, value: string}> $entries The staged reward entries.
    */
   public function __construct(
     protected(set) string $title,
     protected(set) array $lines = [],
     protected(set) array $items = [],
+    protected(set) array $entries = [],
   )
   {
   }

@@ -7,6 +7,7 @@ use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\UI\Modal\ModalManager;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
+use ReflectionClass;
 use RuntimeException;
 use Symfony\Component\Console\Output\ConsoleOutput;
 use Symfony\Component\Console\Terminal;
@@ -79,11 +80,30 @@ class Console
    */
   public static function getAvailableSize(): array
   {
-    $terminal = new Terminal();
-    $width = max(1, $terminal->getWidth() ?: DEFAULT_SCREEN_WIDTH);
-    $height = max(1, $terminal->getHeight() ?: DEFAULT_SCREEN_HEIGHT);
+    if ($size = self::readAvailableSizeFromStty()) {
+      return $size;
+    }
 
-    return ['width' => $width, 'height' => $height];
+    if ($size = self::readAvailableSizeFromTput()) {
+      return $size;
+    }
+
+    if ($size = self::readAvailableSizeFromSymfonyTerminal()) {
+      return $size;
+    }
+
+    $width = getenv('COLUMNS');
+    $height = getenv('LINES');
+    $size = self::normalizeAvailableSize($width, $height);
+
+    if ($size) {
+      return $size;
+    }
+
+    return [
+      'width' => max(1, self::$width ?: DEFAULT_SCREEN_WIDTH),
+      'height' => max(1, self::$height ?: DEFAULT_SCREEN_HEIGHT),
+    ];
   }
 
   /**
@@ -320,6 +340,106 @@ class Console
   private static function getEmptyBuffer(): array
   {
     return array_fill(0, self::$height, str_repeat(' ', self::$width));
+  }
+
+  /**
+   * Attempts to read the current terminal size via stty.
+   *
+   * @return array{width: int, height: int}|null The detected size, if available.
+   */
+  protected static function readAvailableSizeFromStty(): ?array
+  {
+    $commands = [
+      'stty size < /dev/tty 2>/dev/null',
+      'stty size 2>/dev/null',
+    ];
+
+    foreach ($commands as $command) {
+      $size = self::parseSttySizeOutput(shell_exec($command) ?: '');
+
+      if ($size) {
+        return $size;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Attempts to read the current terminal size via tput.
+   *
+   * @return array{width: int, height: int}|null The detected size, if available.
+   */
+  protected static function readAvailableSizeFromTput(): ?array
+  {
+    $width = shell_exec('tput cols 2>/dev/null');
+    $height = shell_exec('tput lines 2>/dev/null');
+
+    return self::normalizeAvailableSize($width, $height);
+  }
+
+  /**
+   * Attempts to read the current terminal size from Symfony's terminal helper.
+   *
+   * Symfony caches width and height statically, so those cached values are
+   * cleared before each probe to keep resize handling live.
+   *
+   * @return array{width: int, height: int}|null The detected size, if available.
+   */
+  protected static function readAvailableSizeFromSymfonyTerminal(): ?array
+  {
+    try {
+      $reflection = new ReflectionClass(Terminal::class);
+
+      foreach (['width', 'height'] as $propertyName) {
+        if (! $reflection->hasProperty($propertyName)) {
+          continue;
+        }
+
+        $property = $reflection->getProperty($propertyName);
+        $property->setValue(null, null);
+      }
+    } catch (\Throwable) {
+      return null;
+    }
+
+    $terminal = new Terminal();
+
+    return self::normalizeAvailableSize($terminal->getWidth(), $terminal->getHeight());
+  }
+
+  /**
+   * Parses the output of `stty size`.
+   *
+   * @param string $output The raw `stty size` output.
+   * @return array{width: int, height: int}|null The parsed size, if valid.
+   */
+  protected static function parseSttySizeOutput(string $output): ?array
+  {
+    if (! preg_match('/^\s*(\d+)\s+(\d+)\s*$/', trim($output), $matches)) {
+      return null;
+    }
+
+    return self::normalizeAvailableSize($matches[2], $matches[1]);
+  }
+
+  /**
+   * Normalizes raw terminal size values into positive integer dimensions.
+   *
+   * @param mixed $width The raw width.
+   * @param mixed $height The raw height.
+   * @return array{width: int, height: int}|null The normalized size, if valid.
+   */
+  protected static function normalizeAvailableSize(mixed $width, mixed $height): ?array
+  {
+    if (! is_numeric($width) || ! is_numeric($height)) {
+      return null;
+    }
+
+    $width = max(1, intval($width));
+    $height = max(1, intval($height));
+
+    return ['width' => $width, 'height' => $height];
   }
 
   /**

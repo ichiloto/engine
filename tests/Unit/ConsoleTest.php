@@ -3,6 +3,19 @@
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 
+class ConsoleTestProxy extends Console
+{
+  public static function parseSttySize(string $output): ?array
+  {
+    return parent::parseSttySizeOutput($output);
+  }
+
+  public static function normalizeSize(mixed $width, mixed $height): ?array
+  {
+    return parent::normalizeAvailableSize($width, $height);
+  }
+}
+
 it('floors float coordinates when writing to the console buffer', function () {
   $console = new ReflectionClass(Console::class);
 
@@ -30,4 +43,19 @@ it('floors float coordinates when writing to the console buffer', function () {
   $symbols = TerminalText::visibleSymbols($bufferRows[2]);
 
   expect(TerminalText::stripAnsi($symbols[10] ?? ''))->toBe('Z');
+});
+
+it('parses stty terminal size output into width and height', function () {
+  expect(ConsoleTestProxy::parseSttySize("36 170\n"))->toBe([
+    'width' => 170,
+    'height' => 36,
+  ]);
+});
+
+it('rejects invalid terminal size values during normalization', function () {
+  expect(ConsoleTestProxy::normalizeSize('abc', 36))->toBeNull()
+    ->and(ConsoleTestProxy::normalizeSize(0, 0))->toBe([
+      'width' => 1,
+      'height' => 1,
+    ]);
 });

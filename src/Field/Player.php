@@ -34,21 +34,21 @@ use RuntimeException;
 class Player extends GameObject
 {
   /**
-   * @var string $upSprite The sprite of the player when facing up.
+   * @var string[] $upSprite The sprite of the player when facing up.
    */
-  protected string $upSprite = '^';
+  protected array $upSprite = ['^'];
   /**
-   * @var string $downSprite The sprite of the player when facing down.
+   * @var string[] $downSprite The sprite of the player when facing down.
    */
-  protected string $downSprite = 'v';
+  protected array $downSprite = ['v'];
   /**
-   * @var string $rightSprite The sprite of the player when facing right.
+   * @var string[] $rightSprite The sprite of the player when facing right.
    */
-  protected string $rightSprite = '>';
+  protected array $rightSprite = ['>'];
   /**
-   * @var string $leftSprite The sprite of the player when facing left.
+   * @var string[] $leftSprite The sprite of the player when facing left.
    */
-  protected string $leftSprite = '<';
+  protected array $leftSprite = ['<'];
   /**
    * @var string $actionSprite The sprite of the player when performing an action.
    */
@@ -93,8 +93,9 @@ class Player extends GameObject
    * @param string $name The name of the player.
    * @param Vector2 $position The position of the player.
    * @param Rect $shape The shape of the player.
-   * @param array $sprite The sprite of the player.
+   * @param string[] $sprite The active sprite of the player.
    * @param MovementHeading $heading The heading of the player.
+   * @param array<string, string[]> $directionalSprites The configured directional sprite set.
    */
   public function __construct(
     SceneInterface $scene,
@@ -102,7 +103,8 @@ class Player extends GameObject
     Vector2 $position,
     Rect $shape,
     array $sprite,
-    MovementHeading $heading = MovementHeading::NONE
+    MovementHeading $heading = MovementHeading::NONE,
+    array $directionalSprites = []
   )
   {
     parent::__construct(
@@ -112,7 +114,10 @@ class Player extends GameObject
       $shape,
       $sprite
     );
+
+    $this->configureDirectionalSprites($directionalSprites);
     $this->heading = $heading;
+    $this->setFacingSprite($sprite, $heading);
     $this->canShowLocationHUDWindow = config(ProjectConfig::class, 'ui.hud.location', false);
     $this->events = new ItemList(EventTrigger::class);
   }
@@ -284,12 +289,20 @@ class Player extends GameObject
    */
   public function updatePlayerSprite(Vector2 $direction): void
   {
-    $this->sprite[0] = match (true) {
-      $direction->y < 0 => $this->upSprite,
-      $direction->y > 0 => $this->downSprite,
-      $direction->x < 0 => $this->leftSprite,
-      $direction->x > 0 => $this->rightSprite,
-      default => $this->sprite[0],
+    $this->heading = match (true) {
+      $direction->y < 0 => MovementHeading::NORTH,
+      $direction->y > 0 => MovementHeading::SOUTH,
+      $direction->x < 0 => MovementHeading::WEST,
+      $direction->x > 0 => MovementHeading::EAST,
+      default => $this->heading,
+    };
+
+    $this->sprite = match ($this->heading) {
+      MovementHeading::NORTH => $this->upSprite,
+      MovementHeading::EAST => $this->rightSprite,
+      MovementHeading::SOUTH => $this->downSprite,
+      MovementHeading::WEST => $this->leftSprite,
+      default => $this->sprite,
     };
   }
 
@@ -309,27 +322,74 @@ class Player extends GameObject
       $mapManager->render();
     }
     $this->render();
-    $this->renderLocationHUDWindow($direction);
+    $this->renderLocationHUDWindow();
   }
 
   /**
    * Renders the location HUD window.
    *
-   * @param Vector2 $direction The direction.
    * @return void
    */
-  protected function renderLocationHUDWindow(Vector2 $direction): void
+  protected function renderLocationHUDWindow(): void
   {
     if ($this->canShowLocationHUDWindow) {
-      $this->heading = match (true) {
-        $direction->y < 0 => MovementHeading::NORTH,
-        $direction->y > 0 => MovementHeading::SOUTH,
-        $direction->x < 0 => MovementHeading::WEST,
-        $direction->x > 0 => MovementHeading::EAST,
-        default => MovementHeading::NONE,
-      };
       $this->getLocationHUDWindow()->updateDetails($this->position, $this->heading);
     }
+  }
+
+  /**
+   * Sets the active player sprite and synchronizes the heading when possible.
+   *
+   * @param string[] $sprite The sprite rows to display.
+   * @param MovementHeading|null $heading The heading to force, if already known.
+   * @return void
+   */
+  public function setFacingSprite(array $sprite, ?MovementHeading $heading = null): void
+  {
+    $this->sprite = $sprite;
+    $this->heading = $heading ?? $this->resolveHeadingFromSprite($sprite);
+  }
+
+  /**
+   * Applies the configured directional sprite set for movement updates.
+   *
+   * @param array<string, string[]> $directionalSprites The directional sprite map.
+   * @return void
+   */
+  protected function configureDirectionalSprites(array $directionalSprites): void
+  {
+    if (isset($directionalSprites['north'])) {
+      $this->upSprite = PlayerSpriteSet::normalizeSprite($directionalSprites['north']);
+    }
+
+    if (isset($directionalSprites['east'])) {
+      $this->rightSprite = PlayerSpriteSet::normalizeSprite($directionalSprites['east']);
+    }
+
+    if (isset($directionalSprites['south'])) {
+      $this->downSprite = PlayerSpriteSet::normalizeSprite($directionalSprites['south']);
+    }
+
+    if (isset($directionalSprites['west'])) {
+      $this->leftSprite = PlayerSpriteSet::normalizeSprite($directionalSprites['west']);
+    }
+  }
+
+  /**
+   * Resolves a heading from the current directional sprite set.
+   *
+   * @param string[] $sprite The sprite rows to inspect.
+   * @return MovementHeading The heading that matches the sprite.
+   */
+  protected function resolveHeadingFromSprite(array $sprite): MovementHeading
+  {
+    return match (true) {
+      $sprite === $this->upSprite => MovementHeading::NORTH,
+      $sprite === $this->rightSprite => MovementHeading::EAST,
+      $sprite === $this->downSprite => MovementHeading::SOUTH,
+      $sprite === $this->leftSprite => MovementHeading::WEST,
+      default => MovementHeading::NONE,
+    };
   }
 
   /**

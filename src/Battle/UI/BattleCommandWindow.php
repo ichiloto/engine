@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Battle\UI;
 
 use Ichiloto\Engine\Core\Interfaces\CanChangeSelection;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\UI\Interfaces\CanFocus;
 use Ichiloto\Engine\UI\Windows\Window;
 
@@ -26,6 +27,10 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
    * The index of the active command.
    */
   protected(set) int $activeCommandIndex = -1;
+  /**
+   * @var bool Whether the active command should blink.
+   */
+  protected bool $blinkActiveSelection = false;
   /**
    * The commands available to the player.
    */
@@ -69,6 +74,7 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
    */
   public function focus(): void
   {
+    $this->blinkActiveSelection = true;
     $this->activeCommandIndex = $this->totalCommands > 0 ? 0 : -1;
     $this->updateContent();
   }
@@ -78,6 +84,7 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
    */
   public function blur(): void
   {
+    $this->blinkActiveSelection = false;
     $this->activeCommandIndex = -1;
     $this->updateContent();
   }
@@ -98,10 +105,17 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
   public function updateContent(): void
   {
     $content = [];
+    $availableWidth = $this->getContentWidth();
 
     foreach ($this->commands as $index => $command) {
       $prefix = $this->activeCommandIndex === $index ? '>' : ' ';
-      $content[] = "$prefix $command";
+      $line = TerminalText::padRight("$prefix $command", $availableWidth);
+
+      if ($this->activeCommandIndex === $index) {
+        $line = $this->battleScreen->styleSelectionLine($line, $this->blinkActiveSelection);
+      }
+
+      $content[] = $line;
     }
 
     $content = array_pad($content, $this->height - 2, '');
@@ -135,5 +149,18 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
     $index = wrap($this->activeCommandIndex + 1, 0, $this->totalCommands - 1);
     $this->activeCommandIndex = $index;
     $this->updateContent();
+  }
+
+  /**
+   * Returns the width available for content inside the window frame.
+   *
+   * @return int The inner content width.
+   */
+  protected function getContentWidth(): int
+  {
+    return max(
+      0,
+      $this->width - 2 - $this->padding->getLeftPadding() - $this->padding->getRightPadding()
+    );
   }
 }

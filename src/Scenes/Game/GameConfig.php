@@ -19,12 +19,14 @@ class GameConfig implements SceneConfigurationInterface
    * GameConfig constructor.
    *
    * @param string $mapId The ID of the map.
+   * @param Party $party The party.
    * @param Vector2 $playerPosition The position of the player.
    * @param Rect $playerShape The size of the player.
    * @param MovementHeading $playerHeading The heading of the player.
    * @param array $playerStats The stats of the player.
    * @param array $events The events of the game.
    * @param array $playerSprite The sprite of the player.
+   * @param array<string, string[]> $playerSprites The directional player sprites.
    */
   public function __construct(
     protected(set) string $mapId,
@@ -35,6 +37,7 @@ class GameConfig implements SceneConfigurationInterface
     protected(set) array $playerStats = [],
     protected(set) array $events = [],
     protected(set) array $playerSprite = ['v'],
+    protected(set) array $playerSprites = [],
   )
   {
   }
@@ -87,28 +90,33 @@ class GameConfig implements SceneConfigurationInterface
   /**
    * Returns the data of the game configuration.
    *
-   * @return array{mapId: string, playerPosition: Vector2, playerPosition: Vector2, playerHeading: MovementHeading, playerStats: array, events: array, playerSprite: array}
+   * @return array{mapId: string, playerPosition: Vector2, playerShape: Rect, playerHeading: MovementHeading, playerStats: array, events: array, playerSprite: array, playerSprites: array<string, string[]>}
    */
   protected function getData(): array
   {
     return [
       'mapId' => $this->mapId,
       'playerPosition' => $this->playerPosition,
-      'playerSize' => $this->playerShape,
+      'playerShape' => $this->playerShape,
       'playerHeading' => $this->playerHeading,
       'playerStats' => $this->playerStats,
       'events' => $this->events,
       'playerSprite' => $this->playerSprite,
+      'playerSprites' => $this->playerSprites,
     ];
   }
 
   /**
-   * @param array{mapId: string, playerPosition: Vector2, playerHeading: MovementHeading, playerStats: array, events: array} $data
+   * @param array{mapId: string, playerPosition: Vector2, playerShape?: Rect, playerSize?: Rect, playerHeading: MovementHeading, playerStats: array, events: array, playerSprite?: array, playerSprites?: array<string, string[]>} $data
    * @return void
    */
   protected function setData(array $data): void
   {
     foreach ($data as $key => $value) {
+      if ($key === 'playerSize') {
+        $key = 'playerShape';
+      }
+
       $this->$key = $value;
     }
   }

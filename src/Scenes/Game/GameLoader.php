@@ -10,6 +10,7 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\PartyLocation;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
+use Ichiloto\Engine\Field\PlayerSpriteSet;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 use RuntimeException;
@@ -89,21 +90,19 @@ class GameLoader
     $party->inventory->addItems(...$this->itemStore->load($systemData->startingInventory));
 
     $playerPosition = new Vector2($systemData->startingPositions->player->spawnPoint->x, $systemData->startingPositions->player->spawnPoint->y);
+    $playerSprites = $this->loadPlayerSprites();
+    $spawnSprite = PlayerSpriteSet::normalizeSprite($systemData->startingPositions->player->spawnSprite ?? throw new RequiredFieldException('startingPositions.player.spawnSprite'));
+
     return new GameConfig(
       mapId: $systemData->startingPositions->player->destinationMap,
       party: $party,
       playerPosition: $playerPosition,
       playerShape: new Rect(0, 0, 1, 1),
-      playerHeading: match($systemData->startingPositions->player->spawnSprite) {
-        ['^'] => MovementHeading::NORTH,
-        ['v'] => MovementHeading::SOUTH,
-        ['<'] => MovementHeading::WEST,
-        ['>'] => MovementHeading::EAST,
-        default => MovementHeading::NONE,
-      },
+      playerHeading: $playerSprites->resolveHeading($spawnSprite),
       playerStats: [],
       events: [],
-      playerSprite: $systemData->startingPositions->player->spawnSprite,
+      playerSprite: $spawnSprite,
+      playerSprites: $playerSprites->toArray(),
     );
   }
 
@@ -116,6 +115,7 @@ class GameLoader
   public function loadSavedGame(string $saveFilePath): GameConfig
   {
     // Load game data from a saved file
+    $playerSprites = $this->loadPlayerSprites();
     $systemData = new SystemData(
       'Last Legend',
       (object)['name' => 'Gold', 'symbol' => 'G', 'amount' => 1000],
@@ -124,7 +124,13 @@ class GameLoader
         ['item' => 'S-Potion', 'quantity' => 5],
         ['item' => 'M-Potion', 'quantity' => 3],
       ],
-      (object)['player' => (object)['destinationMap' => 'happyville/home', 'spawnPoint' => (object)['x' => 4, 'y' => 5], 'spawnSprite' => ['v']]],
+      (object)[
+        'player' => (object)[
+          'destinationMap' => 'happyville/home',
+          'spawnPoint' => (object)['x' => 4, 'y' => 5],
+          'spawnSprite' => $playerSprites->getSpriteForHeading(MovementHeading::SOUTH),
+        ],
+      ],
     );
 
     $party = new Party();
@@ -132,6 +138,9 @@ class GameLoader
       $party->accountBalance = $systemData->currency->amount;
     }
     $party->location = new PartyLocation();
+    $spawnSprite = PlayerSpriteSet::normalizeSprite(
+      $systemData->startingPositions->player->spawnSprite ?? $playerSprites->getSpriteForHeading(MovementHeading::SOUTH)
+    );
     $playerPosition = new Vector2(
       $systemData->startingPositions->player->spawnPoint->x,
       $systemData->startingPositions->player->spawnPoint->y
@@ -141,10 +150,11 @@ class GameLoader
       'party' => $party,
       'playerPosition' => $playerPosition,
       'playerShape' => new Rect(0, 0, 1, 1),
-      'playerHeading' => $systemData->startingPositions->player->heading,
+      'playerHeading' => $playerSprites->resolveHeading($spawnSprite),
       'playerStats' => [],
       'events' => [],
-      'playerSprite' => $systemData->startingPositions->player->spawnSprite,
+      'playerSprite' => $spawnSprite,
+      'playerSprites' => $playerSprites->toArray(),
     ];
 
     return new GameConfig(
@@ -156,6 +166,23 @@ class GameLoader
       playerStats: $savedData['playerStats'],
       events: $savedData['events'],
       playerSprite: $savedData['playerSprite'],
+      playerSprites: $savedData['playerSprites'],
     );
+  }
+
+  /**
+   * Loads the configured player directional sprite set.
+   *
+   * @return PlayerSpriteSet The normalized sprite set.
+   */
+  protected function loadPlayerSprites(): PlayerSpriteSet
+  {
+    $playerData = asset('Data/Entities/player.php', true);
+
+    if (! is_array($playerData)) {
+      return new PlayerSpriteSet();
+    }
+
+    return PlayerSpriteSet::fromArray($playerData);
   }
 }

@@ -114,7 +114,7 @@ class PlayerActionState extends TurnState
     $engine = $this->engine;
     $ui = $engine->battleConfig->ui;
 
-    $ui->characterNameWindow->activeIndex = $this->activeCharacterIndex;
+    $ui->characterNameWindow->setActiveSelection($this->activeCharacterIndex);
     $ui->commandWindow->commands = array_map(
       fn(BattleAction $action) => $action->name,
       $this->activeCharacter->commandAbilities
@@ -152,7 +152,7 @@ class PlayerActionState extends TurnState
     }
 
     $this->activeCharacterIndex = -1;
-    $context->ui->characterNameWindow->activeIndex = -1;
+    $context->ui->characterNameWindow->setActiveSelection(-1);
     $context->ui->commandWindow->blur();
     $context->ui->commandContextWindow->clear();
     $this->setState($this->engine->enemyActionState);

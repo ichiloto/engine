@@ -75,7 +75,7 @@ class TurnInitState extends TurnState
   private function updateUI(TurnStateExecutionContext $context): void
   {
     $context->ui->characterStatusWindow->setCharacters($context->party->battlers->toArray());
-    $context->ui->characterNameWindow->activeIndex = -1;
+    $context->ui->characterNameWindow->setActiveSelection(-1);
     $context->ui->commandContextWindow->clear();
     $context->ui->refresh();
   }
