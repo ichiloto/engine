@@ -341,6 +341,21 @@ class Game implements CanRun, SubjectInterface
    */
   protected function syncScreenSize(): void
   {
+    // Throttle expensive terminal size probes to avoid per-frame shell_exec() calls.
+    // Uses static variables so the throttle state persists across calls without
+    // requiring additional class properties.
+    static float $lastProbeTime = 0.0;
+    static float $minProbeIntervalSeconds = 0.25; // adjust as needed
+
+    $now = microtime(true);
+
+    if ($lastProbeTime !== 0.0 && ($now - $lastProbeTime) < $minProbeIntervalSeconds) {
+      // Recently probed; skip re-checking the terminal size this frame.
+      return;
+    }
+
+    $lastProbeTime = $now;
+
     $availableSize = Console::getAvailableSize();
 
     if ($availableSize['width'] === $this->width && $availableSize['height'] === $this->height) {
