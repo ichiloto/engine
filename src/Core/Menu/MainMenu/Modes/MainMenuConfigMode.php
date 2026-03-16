@@ -30,6 +30,7 @@ class MainMenuConfigMode extends MainMenuMode
   {
     $this->settings = $this->mainMenuState->settingsManager->getSettings();
     $this->statusMessage = null;
+    $this->mainMenuState->infoPanel?->setText('Configure game settings.');
     $this->mainMenuState->eraseSummaryPanels();
     $this->mainMenuState->mainMenu?->erase();
     $this->mainMenuState->characterSelectionMenu?->erase();

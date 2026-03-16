@@ -104,7 +104,10 @@ class StatusViewState extends GameSceneState
   protected function calculateMargins(): void
   {
     $this->leftMargin = max(0, intdiv(get_screen_width() - self::PROFILE_SUMMARY_PANEL_WIDTH, 2));
-    $this->topMargin = 0;
+    $this->topMargin = max(0, intdiv(
+      get_screen_height() - (self::PROFILE_SUMMARY_PANEL_HEIGHT + self::STATS_SUMMARY_PANEL_HEIGHT + self::INFO_PANEL_HEIGHT),
+      2
+    ));
   }
 
   /**
@@ -142,7 +145,7 @@ class StatusViewState extends GameSceneState
     );
     $this->infoPanel = new Window(
       'Info',
-      'tab:Next s-tab:Prev esc:Back',
+      'tab:Next shift+Tab:Prev esc:Back',
       new Vector2($this->leftMargin, $this->topMargin + self::PROFILE_SUMMARY_PANEL_HEIGHT + self::STATS_SUMMARY_PANEL_HEIGHT),
       self::INFO_PANEL_WIDTH,
       self::INFO_PANEL_HEIGHT,

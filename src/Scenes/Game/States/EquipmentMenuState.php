@@ -164,7 +164,7 @@ class EquipmentMenuState extends GameSceneState
   protected function calculateMargins(): void
   {
     $this->leftMargin = max(0, intdiv(get_screen_width() - self::EQUIPMENT_MENU_WIDTH, 2));
-    $this->topMargin = 0;
+    $this->topMargin = max(0, intdiv(get_screen_height() - self::EQUIPMENT_MENU_HEIGHT, 2));
   }
 
   /**

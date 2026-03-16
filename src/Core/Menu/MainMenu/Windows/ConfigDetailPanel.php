@@ -26,7 +26,7 @@ class ConfigDetailPanel extends Window
   )
   {
     parent::__construct(
-      '',
+      'Description',
       '',
       new Vector2($rect->getX(), $rect->getY()),
       $rect->getWidth(),

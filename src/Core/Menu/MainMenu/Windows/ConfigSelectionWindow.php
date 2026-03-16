@@ -25,6 +25,7 @@ class ConfigSelectionWindow extends Window implements CanFocus, CanChangeSelecti
    * @var MainMenuSetting[] The configurable settings shown in the list.
    */
   protected array $settings = [];
+  protected int $totalSettings = 0;
   /**
    * @var int The currently selected setting index.
    */
@@ -42,8 +43,8 @@ class ConfigSelectionWindow extends Window implements CanFocus, CanChangeSelecti
   )
   {
     parent::__construct(
-      'System',
-      '',
+      'Config',
+      'enter:Next  c:Cancel',
       new Vector2($rect->getX(), $rect->getY()),
       $rect->getWidth(),
       $rect->getHeight(),
@@ -64,6 +65,7 @@ class ConfigSelectionWindow extends Window implements CanFocus, CanChangeSelecti
       static fn(mixed $setting): bool => $setting instanceof MainMenuSetting
     ));
     $this->activeIndex = empty($this->settings) ? -1 : 0;
+    $this->totalSettings = count($this->settings);
     $this->updateContent();
   }
 
@@ -106,7 +108,7 @@ class ConfigSelectionWindow extends Window implements CanFocus, CanChangeSelecti
       return;
     }
 
-    $this->activeIndex = wrap($this->activeIndex - 1, 0, count($this->settings) - 1);
+    $this->activeIndex = clamp($this->activeIndex - 1, 0, $this->totalSettings - 1);
     $this->updateContent();
   }
 
@@ -119,7 +121,7 @@ class ConfigSelectionWindow extends Window implements CanFocus, CanChangeSelecti
       return;
     }
 
-    $this->activeIndex = wrap($this->activeIndex + 1, 0, count($this->settings) - 1);
+    $this->activeIndex = clamp($this->activeIndex + 1, 0, $this->totalSettings - 1);
     $this->updateContent();
   }
 
@@ -132,14 +134,15 @@ class ConfigSelectionWindow extends Window implements CanFocus, CanChangeSelecti
   {
     $content = [];
     $availableWidth = max(0, $this->width - 4);
-    $labelWidth = min(22, max(14, intdiv(max(1, $availableWidth - 6), 3)));
+    $labelWidth = 22;
+    $valueWidth = max(0, $availableWidth - $labelWidth - 3);
 
     foreach ($this->settings as $index => $setting) {
       $prefix = $index === $this->activeIndex ? '>' : ' ';
       $label = TerminalText::padRight($setting->label, $labelWidth);
-      $choices = $this->formatChoiceList($setting);
+      $value = TerminalText::padRight($this->settingsManager->getCurrentChoiceLabel($setting), $valueWidth);
       $line = TerminalText::padRight(
-        TerminalText::truncateToWidth("{$prefix} {$label} : {$choices}", $availableWidth),
+        TerminalText::truncateToWidth("{$prefix} {$label} : {$value}", $availableWidth),
         $availableWidth
       );
 
@@ -153,22 +156,5 @@ class ConfigSelectionWindow extends Window implements CanFocus, CanChangeSelecti
     $content = array_pad($content, $this->height - 2, '');
     $this->setContent($content);
     $this->render();
-  }
-
-  /**
-   * Formats the inline choice list for the specified setting.
-   *
-   * @param MainMenuSetting $setting The setting being rendered.
-   * @return string The formatted inline choices.
-   */
-  protected function formatChoiceList(MainMenuSetting $setting): string
-  {
-    $currentLabel = $this->settingsManager->getCurrentChoiceLabel($setting);
-    $choices = array_map(
-      static fn(string $label): string => $label === $currentLabel ? "[{$label}]" : $label,
-      $this->settingsManager->getChoiceLabels($setting)
-    );
-
-    return implode('  ', $choices);
   }
 }
