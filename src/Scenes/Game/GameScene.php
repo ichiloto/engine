@@ -19,6 +19,7 @@ use Ichiloto\Engine\Scenes\Game\States\FieldState;
 use Ichiloto\Engine\Scenes\Game\States\GameSceneState;
 use Ichiloto\Engine\Scenes\Game\States\ItemMenuState;
 use Ichiloto\Engine\Scenes\Game\States\MainMenuState;
+use Ichiloto\Engine\Scenes\Game\States\MagicMenuState;
 use Ichiloto\Engine\Scenes\Game\States\MapState;
 use Ichiloto\Engine\Scenes\Game\States\OverworldState;
 use Ichiloto\Engine\Scenes\Game\States\ShopState;
@@ -71,6 +72,10 @@ class GameScene extends AbstractScene
    * @var EquipmentMenuState|null The equipment menu state.
    */
   protected(set) ?EquipmentMenuState $equipmentMenuState = null;
+  /**
+   * @var MagicMenuState|null The magic menu state.
+   */
+  protected(set) ?MagicMenuState $magicMenuState = null;
   /**
    * @var MapState|null The map state.
    */
@@ -249,6 +254,7 @@ class GameScene extends AbstractScene
     $this->mainMenuState = new MainMenuState($this->sceneStateContext);
     $this->equipmentMenuState = new EquipmentMenuState($this->sceneStateContext);
     $this->itemMenuState = new ItemMenuState($this->sceneStateContext);
+    $this->magicMenuState = new MagicMenuState($this->sceneStateContext);
     $this->mapState = new MapState($this->sceneStateContext);
     $this->overworldState = new OverworldState($this->sceneStateContext);
     $this->shopState = new ShopState($this->sceneStateContext);

@@ -14,6 +14,7 @@ use Ichiloto\Engine\Entities\Inventory\Inventory;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
+use Ichiloto\Engine\Entities\Magic\Spellbook;
 use Ichiloto\Engine\Entities\Roles\CharacterRole;
 use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
@@ -138,6 +139,10 @@ class Character implements CharacterInterface, CanEquip
    * @var array The character's equipment.
    */
   protected(set) array $equipment = [];
+  /**
+   * @var Spellbook The character's managed magic data.
+   */
+  protected(set) Spellbook $spellbook;
     /**
    * @var CharacterRole The character's role.
    */
@@ -195,6 +200,7 @@ class Character implements CharacterInterface, CanEquip
    * @param string $bio The character's biography.
    * @param string $note The character's note.
    * @param EquipmentSlot[] $equipment The character's equipment.
+   * @param Spellbook|null $spellbook The character's spellbook.
    */
   public function __construct(
     protected(set) string $name,
@@ -206,12 +212,14 @@ class Character implements CharacterInterface, CanEquip
     protected(set) string $bio = '',
     protected(set) string $note = '',
     array $equipment = [],
-    ?CharacterRole $role = null
+    ?CharacterRole $role = null,
+    ?Spellbook $spellbook = null,
   )
   {
     $this->maxLevel = $maxLevel;
     $this->currentExp = $currentExp;
     $this->equipment = $equipment;
+    $this->spellbook = $spellbook ?? new Spellbook();
     if (!$role) {
       $role = new CharacterRole($this, 'Hero');
     }
@@ -250,10 +258,21 @@ class Character implements CharacterInterface, CanEquip
   public static function fromArray(array $data): self
   {
     return new Character(
-        $data['name'] ?? throw new InvalidArgumentException('Character name is required.'),
-        $data['currentExp'] ?? throw new InvalidArgumentException('Current experience points are required.'),
-        Stats::fromArray($data['stats'] ?? throw new InvalidArgumentException('Character stats are required.')),
-        CharacterSprites::fromArray($data['images'] ?? [])
+      $data['name'] ?? throw new InvalidArgumentException('Character name is required.'),
+      $data['currentExp'] ?? throw new InvalidArgumentException('Current experience points are required.'),
+      Stats::fromArray($data['stats'] ?? throw new InvalidArgumentException('Character stats are required.')),
+      CharacterSprites::fromArray($data['images'] ?? []),
+      $data['nickname'] ?? '',
+      intval($data['maxLevel'] ?? self::DEFAULT_MAX_LEVEL),
+      strval($data['bio'] ?? $data['description'] ?? ''),
+      strval($data['note'] ?? ''),
+      is_array($data['equipment'] ?? null) ? $data['equipment'] : [],
+      (($data['role'] ?? null) instanceof CharacterRole) ? $data['role'] : null,
+      Spellbook::fromArray(
+        is_array($data['magic'] ?? null)
+          ? $data['magic']
+          : (is_array($data['spellbook'] ?? null) ? $data['spellbook'] : [])
+      ),
     );
   }
 
@@ -493,6 +512,13 @@ class Character implements CharacterInterface, CanEquip
   protected function bindDataToProperties(array $data): void
   {
     foreach ($data as $key => $value) {
+      if ($key === 'magic' || $key === 'spellbook') {
+        $this->spellbook = is_array($value)
+          ? Spellbook::fromArray($value)
+          : ($value instanceof Spellbook ? $value : new Spellbook());
+        continue;
+      }
+
       if (property_exists($this, $key)) {
         $this->{$key} = match($key) {
           'images' => is_array($value) ? CharacterSprites::fromArray($value) : $value,
@@ -518,7 +544,8 @@ class Character implements CharacterInterface, CanEquip
       'bio' => $this->bio,
       'note' => $this->note,
       'equipment' => $this->equipment,
-      'role' => $this->role
+      'role' => $this->role,
+      'magic' => $this->spellbook->toArray(),
     ];
   }
 
