@@ -2,8 +2,12 @@
 
 namespace Ichiloto\Engine\Core\Menu\Commands;
 
+use Exception;
+use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
+use Ichiloto\Engine\Core\Menu\MainMenu\Modes\MainMenuPartyOrderMode;
 use Ichiloto\Engine\Core\Menu\MenuItem;
+use Ichiloto\Engine\Scenes\Game\States\MainMenuState;
 
 /**
  * OpenPartyOrderCommand. This class represents a menu item that opens the party order menu.
@@ -20,5 +24,21 @@ class OpenPartyOrderCommand extends MenuItem
   public function __construct(MenuInterface $menu)
   {
     parent::__construct($menu, 'Order', 'Change the order of the party members.');
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function execute(?ExecutionContextInterface $context = null): int
+  {
+    $state = $context?->args['state'] ?? throw new Exception('State not found in context.');
+
+    if (! $state instanceof MainMenuState) {
+      throw new Exception('Invalid state');
+    }
+
+    $state->setMode(new MainMenuPartyOrderMode($state));
+
+    return self::SUCCESS;
   }
 }

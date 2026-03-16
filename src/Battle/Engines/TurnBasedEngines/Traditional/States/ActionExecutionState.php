@@ -19,6 +19,7 @@ class ActionExecutionState extends TurnState
     $context->ui->commandWindow->blur();
     $context->ui->characterNameWindow->setActiveSelection(-1);
     $context->ui->commandContextWindow->clear();
+    $context->ui->fieldWindow->clearTargetIndicators();
     $context->ui->hideMessage();
     $context->ui->refresh();
   }
@@ -102,6 +103,7 @@ class ActionExecutionState extends TurnState
     $timings = $context->ui->getPacing()->getTurnTimings($action);
 
     $this->highlightActor($context, $actor);
+    $this->highlightTarget($context, $target);
     $this->stepActorForward($context, $actor);
     $this->pause($timings->stepForward);
     $this->displayPhase($context, sprintf('%s uses %s!', $actor->name, $actionName), $timings->announcement);
@@ -109,6 +111,7 @@ class ActionExecutionState extends TurnState
     $this->displayPhase($context, '*SFX*', $timings->effectAnimation);
 
     $previousHp = $target->stats->currentHp;
+    $previousMp = $target->stats->currentMp;
     $resolveAction();
 
     $this->stepActorBack($context, $actor);
@@ -117,10 +120,16 @@ class ActionExecutionState extends TurnState
     $context->ui->characterStatusWindow->setCharacters($context->party->battlers->toArray());
     $context->ui->refresh();
 
-    $damage = max(0, $previousHp - $target->stats->currentHp);
-    $summary = $damage > 0
-      ? sprintf('%s took %d damage.', $target->name, $damage)
-      : sprintf('%s was unaffected.', $target->name);
+    $hpDelta = $target->stats->currentHp - $previousHp;
+    $mpDelta = $target->stats->currentMp - $previousMp;
+    $summary = match (true) {
+      $hpDelta < 0 => sprintf('%s took %d damage.', $target->name, abs($hpDelta)),
+      $hpDelta > 0 && $previousHp <= 0 => sprintf('%s was revived with %d HP.', $target->name, $target->stats->currentHp),
+      $hpDelta > 0 => sprintf('%s recovered %d HP.', $target->name, $hpDelta),
+      $mpDelta < 0 => sprintf('%s lost %d MP.', $target->name, abs($mpDelta)),
+      $mpDelta > 0 => sprintf('%s recovered %d MP.', $target->name, $mpDelta),
+      default => sprintf('%s was unaffected.', $target->name),
+    };
 
     if ($target->isKnockedOut) {
       $summary .= sprintf(' %s was defeated.', $target->name);
@@ -129,6 +138,8 @@ class ActionExecutionState extends TurnState
     $this->displayPhase($context, $summary, $timings->statChanges);
     $this->displayPhase($context, 'Turn over.', $timings->turnOver, hideAfter: true);
     $context->ui->characterNameWindow->setActiveSelection(-1);
+    $context->ui->fieldWindow->clearTargetIndicators();
+    $context->ui->refreshField();
   }
 
   /**
@@ -143,6 +154,38 @@ class ActionExecutionState extends TurnState
     $partyBattlers = $context->party->battlers->toArray();
     $actorIndex = array_search($actor, $partyBattlers, true);
     $context->ui->characterNameWindow->setActiveSelection(is_int($actorIndex) ? $actorIndex : -1);
+  }
+
+  /**
+   * Highlights the current action target on the battlefield.
+   *
+   * @param TurnStateExecutionContext $context The turn context.
+   * @param CharacterInterface $target The action target.
+   * @return void
+   */
+  protected function highlightTarget(TurnStateExecutionContext $context, CharacterInterface $target): void
+  {
+    $context->ui->fieldWindow->clearTargetIndicators();
+
+    if ($target instanceof Character) {
+      $partyBattlers = $context->party->battlers->toArray();
+      $targetIndex = array_search($target, $partyBattlers, true);
+
+      if (is_int($targetIndex)) {
+        $context->ui->fieldWindow->focusPartyBattler($targetIndex);
+      }
+    }
+
+    if ($target instanceof Enemy) {
+      $troopMembers = $context->troop->members->toArray();
+      $targetIndex = array_search($target, $troopMembers, true);
+
+      if (is_int($targetIndex)) {
+        $context->ui->fieldWindow->focusOnTroopBattler($targetIndex);
+      }
+    }
+
+    $context->ui->refreshField();
   }
 
   /**

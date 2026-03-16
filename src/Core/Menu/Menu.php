@@ -14,6 +14,7 @@ use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
 use Ichiloto\Engine\Events\MenuEvent;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
+use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
@@ -329,6 +330,7 @@ abstract class Menu implements MenuInterface
   public function updateWindowContent(): void
   {
     $content = [];
+    $contentWidth = max(0, $this->rect->getWidth() - 4);
     /**
      * @var int $itemIndex
      * @var MenuItemInterface $item
@@ -340,7 +342,12 @@ abstract class Menu implements MenuInterface
         $prefix = "$this->cursor ";
       }
 
-      $output = $prefix . $item;
+      $output = TerminalText::padRight($prefix . $item, $contentWidth);
+
+      if ($itemIndex === $this->activeIndex) {
+        $output = SelectionStyle::apply($output);
+      }
+
       $content[] = $output;
     }
 

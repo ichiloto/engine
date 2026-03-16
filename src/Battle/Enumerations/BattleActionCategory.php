@@ -3,7 +3,9 @@
 namespace Ichiloto\Engine\Battle\Enumerations;
 
 use Ichiloto\Engine\Battle\Actions\AttackAction;
+use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Battle\BattleAction;
+use Ichiloto\Engine\Entities\Skills\MagicSkill;
 
 /**
  * Represents the timing category used for battle turn pacing.
@@ -27,6 +29,17 @@ enum BattleActionCategory: string
   {
     if ($action instanceof AttackAction || $action === null) {
       return self::PHYSICAL_ATTACK;
+    }
+
+    if ($action instanceof SkillBattleAction) {
+      if ($action->skill instanceof MagicSkill) {
+        $name = strtolower($action->name);
+
+        return match (true) {
+          str_contains($name, 'flare'), str_contains($name, 'ultima'), str_contains($name, 'meteor') => self::HIGH_MAGIC,
+          default => self::BASIC_MAGIC,
+        };
+      }
     }
 
     $name = strtolower($action->name);

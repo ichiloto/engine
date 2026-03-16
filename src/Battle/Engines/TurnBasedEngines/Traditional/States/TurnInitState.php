@@ -77,6 +77,7 @@ class TurnInitState extends TurnState
     $context->ui->characterStatusWindow->setCharacters($context->party->battlers->toArray());
     $context->ui->characterNameWindow->setActiveSelection(-1);
     $context->ui->commandContextWindow->clear();
+    $context->ui->fieldWindow->clearTargetIndicators();
     $context->ui->refresh();
   }
 

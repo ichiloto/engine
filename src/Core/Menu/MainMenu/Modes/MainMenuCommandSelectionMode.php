@@ -40,9 +40,13 @@ class MainMenuCommandSelectionMode extends MainMenuMode
   public function enter(): void
   {
     $this->totalItems = $this->getMainMenu()->getItems()->count();
+    $this->mainMenuState->renderSummaryPanels();
     $this->getMainMenu()->setActiveItemByIndex($this->mainMenuState->startingIndex);
     $this->getMainMenu()->focus();
     $this->getMainMenu()->updateWindowContent();
+    $this->mainMenuState->characterSelectionMenu?->refreshMembers();
+    $this->mainMenuState->characterSelectionMenu?->render();
+    $this->getInfoPanel()?->setText($this->getMainMenu()?->getActiveItem()->getDescription() ?? '');
   }
 
   /**

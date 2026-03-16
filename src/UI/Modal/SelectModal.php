@@ -13,11 +13,11 @@ use Ichiloto\Engine\Events\ObservableTrait;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
-use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\UI\Interfaces\ModalInterface;
+use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\Util\Debug;
@@ -457,7 +457,7 @@ class SelectModal implements ModalInterface
       $content = " {$prefix} " . TerminalText::padRight($option, $spacing);
 
       if ($optionIndex === $this->activeOptionIndex) {
-        $content = Color::apply($content, Color::LIGHT_BLUE);
+        $content = SelectionStyle::apply($content);
       }
       $output .= $content;
       $output .= $this->borderPack->getVerticalBorder();

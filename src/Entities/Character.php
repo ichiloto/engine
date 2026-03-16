@@ -127,6 +127,7 @@ class Character implements CharacterInterface, CanEquip
     get {
       return [
         new AttackAction('Attack'),
+        new AttackAction('Skill'),
         new AttackAction('Magic'),
         new AttackAction('Summon'),
         new AttackAction('Item'),

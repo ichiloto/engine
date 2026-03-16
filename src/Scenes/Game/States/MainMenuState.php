@@ -19,7 +19,10 @@ use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuItemInterface;
 use Ichiloto\Engine\Core\Menu\MainMenu\CharacterSelectionMenu;
 use Ichiloto\Engine\Core\Menu\MainMenu\MainMenu;
+use Ichiloto\Engine\Core\Menu\MainMenu\MainMenuSettingsManager;
 use Ichiloto\Engine\Core\Menu\MainMenu\Modes\MainMenuCommandSelectionMode;
+use Ichiloto\Engine\Core\Menu\MainMenu\Windows\ConfigDetailPanel;
+use Ichiloto\Engine\Core\Menu\MainMenu\Windows\ConfigSelectionWindow;
 use Ichiloto\Engine\Core\Menu\MainMenu\Windows\AccountBalancePanel;
 use Ichiloto\Engine\Core\Menu\MainMenu\Windows\InfoPanel;
 use Ichiloto\Engine\Core\Menu\MainMenu\Windows\LocationDetailPanel;
@@ -36,6 +39,8 @@ use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
+use Ichiloto\Engine\UI\Windows\WindowAlignment;
+use Ichiloto\Engine\UI\Windows\WindowPadding;
 use Ichiloto\Engine\Util\Debug;
 use Symfony\Component\Console\Output\ConsoleOutput;
 
@@ -69,6 +74,18 @@ class MainMenuState extends GameSceneState implements CanRender
    */
   protected const int MENU_OPTIONS_HEIGHT = 22;
   /**
+   * The width of the right-side config utility column.
+   */
+  protected const int CONFIG_UTILITY_WIDTH = 22;
+  /**
+   * The height of the config header strip.
+   */
+  protected const int CONFIG_HEADER_HEIGHT = 3;
+  /**
+   * The height of the config description strip.
+   */
+  protected const int CONFIG_FOOTER_HEIGHT = 5;
+  /**
    * @var InfoPanel|null The info panel.
    */
   protected(set) ?InfoPanel $infoPanel = null;
@@ -84,6 +101,30 @@ class MainMenuState extends GameSceneState implements CanRender
    * @var CharacterSelectionMenu|null The character selection menu.
    */
   protected(set) ?CharacterSelectionMenu $characterSelectionMenu = null;
+  /**
+   * @var ConfigSelectionWindow|null The config settings list window.
+   */
+  protected(set) ?ConfigSelectionWindow $configSelectionWindow = null;
+  /**
+   * @var ConfigDetailPanel|null The config setting detail window.
+   */
+  protected(set) ?ConfigDetailPanel $configDetailPanel = null;
+  /**
+   * @var Window|null The config header window.
+   */
+  protected(set) ?Window $configHeaderWindow = null;
+  /**
+   * @var Window|null The small config badge window.
+   */
+  protected(set) ?Window $configBadgeWindow = null;
+  /**
+   * @var Window|null The config legend window.
+   */
+  protected(set) ?Window $configLegendWindow = null;
+  /**
+   * @var MainMenuSettingsManager|null Resolves and persists config menu settings.
+   */
+  protected(set) ?MainMenuSettingsManager $settingsManager = null;
   /**
    * @var PlayTimePanel|null The play time panel.
    */
@@ -184,6 +225,7 @@ class MainMenuState extends GameSceneState implements CanRender
   protected function initializeMenuUI(): void
   {
     $this->borderPack = new DefaultBorderPack();
+    $this->settingsManager = new MainMenuSettingsManager();
 
     $this->mainMenu = new MainMenu(
       $this->context->getScene(),
@@ -242,6 +284,63 @@ class MainMenuState extends GameSceneState implements CanRender
       borderPack: $this->borderPack
     );
     $this->characterSelectionMenu->render();
+
+    $configMainWidth = self::MAIN_MENU_WIDTH - self::CONFIG_UTILITY_WIDTH;
+    $configBodyHeight = self::MAIN_MENU_HEIGHT - self::CONFIG_HEADER_HEIGHT - self::CONFIG_FOOTER_HEIGHT;
+
+    $this->configHeaderWindow = new Window(
+      '',
+      '',
+      new Vector2($this->leftMargin, $this->topMargin),
+      $configMainWidth,
+      self::CONFIG_HEADER_HEIGHT,
+      $this->borderPack,
+      WindowAlignment::middleLeft(),
+      new WindowPadding(leftPadding: 2, rightPadding: 2)
+    );
+    $this->configHeaderWindow->setContent(['Game Settings']);
+
+    $this->configBadgeWindow = new Window(
+      '',
+      '',
+      new Vector2($this->leftMargin + $configMainWidth, $this->topMargin),
+      self::CONFIG_UTILITY_WIDTH,
+      self::CONFIG_HEADER_HEIGHT,
+      $this->borderPack,
+      WindowAlignment::middleCenter()
+    );
+    $this->configBadgeWindow->setContent(['Config']);
+
+    $this->configSelectionWindow = new ConfigSelectionWindow(
+      new Rect(
+        $this->leftMargin,
+        $this->topMargin + self::CONFIG_HEADER_HEIGHT,
+        $configMainWidth,
+        $configBodyHeight
+      ),
+      $this->settingsManager,
+      $this->borderPack
+    );
+    $this->configLegendWindow = new Window(
+      '',
+      '',
+      new Vector2($this->leftMargin + $configMainWidth, $this->topMargin + self::CONFIG_HEADER_HEIGHT),
+      self::CONFIG_UTILITY_WIDTH,
+      $configBodyHeight,
+      $this->borderPack,
+      WindowAlignment::middleCenter()
+    );
+    $this->configLegendWindow->setContent($this->buildConfigLegendContent($configBodyHeight - 2));
+
+    $this->configDetailPanel = new ConfigDetailPanel(
+      new Rect(
+        $this->leftMargin,
+        $this->topMargin + self::CONFIG_HEADER_HEIGHT + $configBodyHeight,
+        self::MAIN_MENU_WIDTH,
+        self::CONFIG_FOOTER_HEIGHT
+      ),
+      $this->borderPack
+    );
   }
 
   /**
@@ -251,6 +350,88 @@ class MainMenuState extends GameSceneState implements CanRender
   {
     $this->leftMargin = max(0, intdiv(get_screen_width() - self::MAIN_MENU_WIDTH, 2));
     $this->topMargin = 0;
+  }
+
+  /**
+   * Renders the summary panels used by the default main menu layout.
+   *
+   * @return void
+   */
+  public function renderSummaryPanels(): void
+  {
+    $this->infoPanel?->render();
+    $this->playTimePanel?->render();
+    $this->accountBalancePanel?->render();
+    $this->locationDetailPanel?->render();
+  }
+
+  /**
+   * Erases the summary panels used by the default main menu layout.
+   *
+   * @return void
+   */
+  public function eraseSummaryPanels(): void
+  {
+    $this->infoPanel?->erase();
+    $this->playTimePanel?->erase();
+    $this->accountBalancePanel?->erase();
+    $this->locationDetailPanel?->erase();
+  }
+
+  /**
+   * Renders the static windows used by the config layout.
+   *
+   * @return void
+   */
+  public function renderConfigPanels(): void
+  {
+    $this->configHeaderWindow?->render();
+    $this->configBadgeWindow?->render();
+    $this->configLegendWindow?->render();
+  }
+
+  /**
+   * Erases the windows used by the config layout.
+   *
+   * @return void
+   */
+  public function eraseConfigPanels(): void
+  {
+    $this->configHeaderWindow?->erase();
+    $this->configBadgeWindow?->erase();
+    $this->configLegendWindow?->erase();
+    $this->configSelectionWindow?->erase();
+    $this->configDetailPanel?->erase();
+  }
+
+  /**
+   * Builds the fixed legend content for the config layout.
+   *
+   * @param int $lineCount The number of content rows available in the legend window.
+   * @return string[] The padded legend lines.
+   */
+  protected function buildConfigLegendContent(int $lineCount): array
+  {
+    $content = array_fill(0, max(0, $lineCount), '');
+    $start = max(0, intdiv(max(0, $lineCount - 6), 2));
+
+    if ($lineCount > $start) {
+      $content[$start] = 'Enter';
+    }
+
+    if ($lineCount > $start + 1) {
+      $content[$start + 1] = 'Change';
+    }
+
+    if ($lineCount > $start + 3) {
+      $content[$start + 3] = 'C';
+    }
+
+    if ($lineCount > $start + 4) {
+      $content[$start + 4] = 'Exit';
+    }
+
+    return $content;
   }
 
   /**
@@ -272,7 +453,7 @@ class MainMenuState extends GameSceneState implements CanRender
   public function resume(): void
   {
     $this->getGameScene()->locationHUDWindow->deactivate();
-    $this->infoPanel->render();
+    $this->renderSummaryPanels();
     $this->mainMenu->render();
     $this->characterSelectionMenu->render();
   }
@@ -290,10 +471,7 @@ class MainMenuState extends GameSceneState implements CanRender
    */
   public function render(): void
   {
-    $this->infoPanel->render();
-    $this->playTimePanel->render();
-    $this->accountBalancePanel->render();
-    $this->locationDetailPanel->render();
+    $this->renderSummaryPanels();
     $this->mainMenu->render();
     $this->characterSelectionMenu->render();
   }

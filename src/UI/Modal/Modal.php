@@ -18,6 +18,7 @@ use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\UI\Interfaces\ModalInterface;
+use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
@@ -366,7 +367,7 @@ abstract class Modal implements ModalInterface
    */
   protected function renderButtons(): void
   {
-    $activeColor = Color::LIGHT_BLUE;
+    $activeColor = $this->getSelectionColor();
     $buttonOutput = implode(' ', $this->buttons);
     $output = TerminalText::padCenter($buttonOutput, $this->rect->getWidth() - 2);
     $output =
@@ -374,5 +375,15 @@ abstract class Modal implements ModalInterface
       str_replace($this->buttons[$this->activeIndex] ?? '', Color::apply($this->buttons[$this->activeIndex] ?? '', $activeColor), $output) .
       $this->borderPack->getVerticalBorder();
     $this->output->write($output);
+  }
+
+  /**
+   * Resolves the configured highlight color for modal actions.
+   *
+   * @return Color The configured selection color.
+   */
+  protected function getSelectionColor(): Color
+  {
+    return SelectionStyle::resolveColor();
   }
 }

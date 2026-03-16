@@ -40,6 +40,8 @@ class MainMenuCharacterSelectionMode extends MainMenuMode
    */
   public function enter(): void
   {
+    $this->characterSelectionMenu->refreshMembers();
+    $this->characterSelectionMenu->setHelpText(CharacterSelectionMenu::DEFAULT_HELP_TEXT);
     $this->characterSelectionMenu->focus();
   }
 

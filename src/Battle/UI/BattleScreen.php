@@ -310,6 +310,7 @@ class BattleScreen implements CanRender, CanUpdate
     $this->fieldWindow->render();
     $this->fieldWindow->renderParty($this->party);
     $this->fieldWindow->renderTroop($this->troop);
+    $this->fieldWindow->renderTargetIndicators();
   }
 
   /**

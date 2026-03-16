@@ -41,7 +41,11 @@ class Dialogue
       $this->name,
       '',
       config(ProjectConfig::class, 'ui.dialogue.window.position', WindowPosition::BOTTOM),
-      config(ProjectConfig::class, 'ui.dialogue.message.speed', 20),
+      config(
+        ProjectConfig::class,
+        'ui.dialogue.speed',
+        config(ProjectConfig::class, 'ui.dialogue.message.speed', 20)
+      ),
     );
   }
 

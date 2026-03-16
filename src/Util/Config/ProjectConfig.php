@@ -35,12 +35,7 @@ class ProjectConfig extends AbstractConfig
   public function persist(): void
   {
     $filename = $this->getFilename();
-
-    $content = json_encode($this->config);
-
-    if (false === $content) {
-      throw new Exception("Could not encode JSON: " . json_last_error_msg());
-    }
+    $content = "<?php\n\nreturn " . var_export($this->config, true) . ";\n";
 
     $bytes = file_put_contents($filename, $content);
 
