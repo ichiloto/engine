@@ -103,7 +103,10 @@ class GameOverMenu extends Menu
 
     if (Input::isButtonDown("confirm")) {
       $selectedCommand = $this->items->toArray()[$this->activeIndex];
-      $selectedCommand->execute($this->executionContext);
+
+      if (! $selectedCommand->isDisabled()) {
+        $selectedCommand->execute($this->executionContext);
+      }
     }
   }
 }

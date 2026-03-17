@@ -17,6 +17,12 @@ use InvalidArgumentException;
 class Time implements StaticObserverInterface
 {
   /**
+   * The elapsed-time offset used when starting from a loaded save.
+   *
+   * @var float
+   */
+  protected static float $elapsedTimeOffset = 0.0;
+  /**
    * The time the game started.
    *
    * @var float
@@ -87,8 +93,7 @@ class Time implements StaticObserverInterface
 
   protected static function onGameStart(): void
   {
-    self::$startTime = self::getSystemTime();
-    self::$lastTime = self::$startTime;
+    self::setElapsedTime(self::$elapsedTimeOffset);
   }
 
   /**
@@ -170,7 +175,33 @@ class Time implements StaticObserverInterface
    */
   public static function getPrettyTime(ChronoUnit $chronoUnit = ChronoUnit::MINUTES): string
   {
-    $time = (int)self::$time;
+    return self::formatDuration(self::$time, $chronoUnit);
+  }
+
+  /**
+   * Sets the elapsed play time used as the baseline for future updates.
+   *
+   * @param float $seconds The elapsed play time in seconds.
+   * @return void
+   */
+  public static function setElapsedTime(float $seconds): void
+  {
+    self::$elapsedTimeOffset = max(0.0, $seconds);
+    self::$time = self::$elapsedTimeOffset;
+    self::$lastTime = self::$time;
+    self::$startTime = self::getSystemTime() - self::$time;
+  }
+
+  /**
+   * Formats an elapsed duration as `HH:MM:SS` or `DD:HH:MM`.
+   *
+   * @param float|int $seconds The elapsed duration in seconds.
+   * @param ChronoUnit $chronoUnit The display unit to use.
+   * @return string The formatted duration.
+   */
+  public static function formatDuration(float|int $seconds, ChronoUnit $chronoUnit = ChronoUnit::MINUTES): string
+  {
+    $time = max(0, (int)$seconds);
     $hours = floor($time / 3600);
     $minutes = floor((int)($time / 60) % 60);
     $seconds = $time % 60;

@@ -40,7 +40,7 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
   /**
    * @var int The left margin.
    */
-  protected int $leftMargin = 0;
+  protected int $leftMargin = 1;
   /**
    * @var int The top margin.
    */
@@ -104,8 +104,12 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
    */
   public function notify(NotificationInterface $notification): void
   {
+    $queueWasEmpty = ! $this->notifications->isNotEmpty();
     $this->notifications->enqueue($notification);
-    $this->openActiveNotification();
+
+    if ($queueWasEmpty) {
+      $this->openActiveNotification();
+    }
   }
 
   /**
@@ -113,7 +117,10 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
    */
   public function render(?int $x = null, ?int $y = null): void
   {
-    $this->getActiveNotification()?->render($x + $this->leftMargin, $y + $this->topMargin);
+    $this->getActiveNotification()?->render(
+      ($x ?? 0) + $this->leftMargin,
+      ($y ?? 0) + $this->topMargin
+    );
   }
 
   /**
@@ -121,7 +128,10 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
    */
   public function erase(?int $x = null, ?int $y = null): void
   {
-    $this->getActiveNotification()?->erase($x + $this->leftMargin, $y + $this->topMargin);
+    $this->getActiveNotification()?->erase(
+      ($x ?? 0) + $this->leftMargin,
+      ($y ?? 0) + $this->topMargin
+    );
   }
 
   /**
@@ -145,16 +155,22 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
    */
   public function update(): void
   {
-    $notificationsQueueIsNotEmpty = $this->notifications->isNotEmpty();
+    $activeNotification = $this->getActiveNotification();
 
-    if (Time::getTime() >= $this->nextNotificationShowTime) {
-      if ($notificationsQueueIsNotEmpty) {
-        $this->dismissActiveNotification();
-        $this->openActiveNotification();
-      }
+    if (! $activeNotification instanceof NotificationInterface) {
+      return;
     }
 
-    $this->getActiveNotification()?->update();
+    if (Time::getTime() >= $this->nextNotificationShowTime) {
+      $activeNotification->dismiss();
+    }
+
+    $activeNotification->update();
+
+    if ($activeNotification->isFinished()) {
+      $this->notifications->dequeue();
+      $this->openActiveNotification();
+    }
   }
 
   /**
@@ -174,8 +190,14 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
    */
   protected function openActiveNotification(): void
   {
-    $this->getActiveNotification()?->open();
-    $this->nextNotificationShowTime = Time::getTime() + $this->getActiveNotification()?->getDuration() ?? 0;
+    $notification = $this->getActiveNotification();
+
+    if (! $notification instanceof NotificationInterface) {
+      return;
+    }
+
+    $notification->open();
+    $this->nextNotificationShowTime = Time::getTime() + $notification->getAnimationDuration() + $notification->getDuration();
   }
 
   /**
@@ -186,7 +208,6 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
   protected function dismissActiveNotification(): void
   {
     $this->getActiveNotification()?->dismiss();
-    $this->notifications->dequeue();
   }
 
   /**

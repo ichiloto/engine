@@ -67,7 +67,6 @@ class LocationHUDWindow extends Window implements UIElementInterface
       "Coordinates: ({$this->coordinates->x}, {$this->coordinates->y})",
       "Heading: {$this->heading->value}"
     ]);
-    $this->render();
   }
 
   /**

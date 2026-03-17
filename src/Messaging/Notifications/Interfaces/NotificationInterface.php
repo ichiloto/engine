@@ -6,6 +6,7 @@ use Ichiloto\Engine\Core\Interfaces\CanRenderAt;
 use Ichiloto\Engine\Core\Interfaces\CanResume;
 use Ichiloto\Engine\Core\Interfaces\CanUpdate;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
+use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationSlideDirection;
 
 /**
  * Interface NotificationInterface. Represents a notification.
@@ -75,6 +76,29 @@ interface NotificationInterface extends CanUpdate, CanRenderAt, CanResume
   public function setDuration(float $duration): static;
 
   /**
+   * Returns the notification animation duration in seconds.
+   *
+   * @return float The animation duration.
+   */
+  public function getAnimationDuration(): float;
+
+  /**
+   * Sets the entry slide direction.
+   *
+   * @param NotificationSlideDirection $direction The entry direction.
+   * @return static Returns the notification.
+   */
+  public function setEnterDirection(NotificationSlideDirection $direction): static;
+
+  /**
+   * Sets the exit slide direction.
+   *
+   * @param NotificationSlideDirection $direction The exit direction.
+   * @return static Returns the notification.
+   */
+  public function setExitDirection(NotificationSlideDirection $direction): static;
+
+  /**
    * Opens the notification.
    *
    * @return static Returns the notification.
@@ -87,4 +111,11 @@ interface NotificationInterface extends CanUpdate, CanRenderAt, CanResume
    * @return static Returns the notification.
    */
   public function dismiss(): static;
+
+  /**
+   * Returns whether the notification has finished its full lifecycle.
+   *
+   * @return bool True when the notification is fully dismissed.
+   */
+  public function isFinished(): bool;
 }

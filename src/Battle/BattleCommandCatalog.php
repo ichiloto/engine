@@ -55,8 +55,8 @@ final class BattleCommandCatalog
 
     return match ($normalized) {
       'attack' => self::buildAttackOptions(),
-      'skill' => self::buildSkillOptions(),
-      'magic' => self::buildMagicOptions(),
+      'skill' => self::buildSkillOptions($character),
+      'magic' => self::buildMagicOptions($character),
       'summon' => self::buildSummonOptions(),
       'item' => self::buildItemOptions($party, $reservedItemCounts),
       default => [],
@@ -99,10 +99,23 @@ final class BattleCommandCatalog
   /**
    * Builds special-skill options.
    *
+   * @param Character $character The active character whose ability book should be inspected.
    * @return BattleCommandOption[] The available skill options.
    */
-  protected static function buildSkillOptions(): array
+  protected static function buildSkillOptions(Character $character): array
   {
+    $learnedAbilities = $character->abilityBook->getBattleUsableAbilities();
+    $knownAbilities = $character->abilityBook->getLearnedAbilities();
+    $discoverableAbilities = $character->abilityBook->getLearnableAbilities();
+
+    if (! empty($learnedAbilities)) {
+      return array_values(array_map(self::createSkillOption(...), $learnedAbilities));
+    }
+
+    if (! empty($knownAbilities) || ! empty($discoverableAbilities)) {
+      return [];
+    }
+
     return array_values(array_map(
       self::createSkillOption(...),
       array_filter(self::loadBattleSkills(), static fn(Skill $skill): bool => $skill instanceof SpecialSkill)
@@ -112,10 +125,20 @@ final class BattleCommandCatalog
   /**
    * Builds magic-skill options.
    *
+   * @param Character $character The active character whose spellbook should be inspected.
    * @return BattleCommandOption[] The available magic options.
    */
-  protected static function buildMagicOptions(): array
+  protected static function buildMagicOptions(Character $character): array
   {
+    $learnedMagic = array_values(array_filter(
+      $character->spellbook->getLearnedSpells(),
+      static fn(MagicSkill $skill): bool => in_array($skill->occasion, [Occasion::ALWAYS, Occasion::BATTLE_SCREEN], true)
+    ));
+
+    if (! empty($learnedMagic)) {
+      return array_values(array_map(self::createSkillOption(...), $learnedMagic));
+    }
+
     return array_values(array_map(
       self::createSkillOption(...),
       array_filter(self::loadBattleSkills(), static fn(Skill $skill): bool => $skill instanceof MagicSkill)

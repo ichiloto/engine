@@ -333,7 +333,8 @@ class Player extends GameObject
   protected function renderLocationHUDWindow(): void
   {
     if ($this->canShowLocationHUDWindow) {
-      $this->getLocationHUDWindow()->updateDetails($this->position, $this->heading);
+      $locationHUDWindow = $this->getLocationHUDWindow();
+      $locationHUDWindow->updateDetails($this->position, $this->heading);
     }
   }
 
@@ -373,6 +374,21 @@ class Player extends GameObject
     if (isset($directionalSprites['west'])) {
       $this->leftSprite = PlayerSpriteSet::normalizeSprite($directionalSprites['west']);
     }
+  }
+
+  /**
+   * Returns the active directional sprite set.
+   *
+   * @return array<string, string[]> The configured directional sprite map.
+   */
+  public function getDirectionalSprites(): array
+  {
+    return [
+      'north' => $this->upSprite,
+      'east' => $this->rightSprite,
+      'south' => $this->downSprite,
+      'west' => $this->leftSprite,
+    ];
   }
 
   /**

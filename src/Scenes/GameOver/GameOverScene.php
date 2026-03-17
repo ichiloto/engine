@@ -25,6 +25,10 @@ class GameOverScene extends AbstractScene
    */
   protected GameOverMenu $menu;
   /**
+   * @var ContinueGameCommand|null The continue command entry in the game-over menu.
+   */
+  protected ?ContinueGameCommand $continueCommand = null;
+  /**
    * @var string The header content.
    */
   protected string $headerContent = '';
@@ -60,11 +64,14 @@ class GameOverScene extends AbstractScene
       '',
       rect: new Rect($leftMargin, $topMargin, $menuWidth, $menuHeight)
     );
+    $this->continueCommand = new ContinueGameCommand($this->menu, $gameLoader);
+
     $this
       ->menu
-      ->addItem(new ContinueGameCommand($this->menu, $gameLoader))
+      ->addItem($this->continueCommand)
       ->addItem(new ToTitleMenuCommand($this->menu))
       ->addItem(new QuitGameCommand($this->menu));
+    $this->syncContinueAvailability();
 
     Console::clear();
     $this->renderHeader();
@@ -107,6 +114,7 @@ class GameOverScene extends AbstractScene
   public function resume(): void
   {
     Console::clear();
+    $this->syncContinueAvailability();
     usleep(300);
     $this->renderHeader();
     usleep(300);
@@ -137,9 +145,30 @@ class GameOverScene extends AbstractScene
     }
 
     $this->menu->setPosition(new Vector2(max(0, intdiv(get_screen_width() - 16, 2)), $this->headerHeight + 2));
+    $this->syncContinueAvailability();
 
     Console::clear();
     $this->renderHeader();
     $this->menu->render();
+  }
+
+  /**
+   * Synchronizes the Continue command's availability with the save directory.
+   *
+   * @return void
+   */
+  protected function syncContinueAvailability(): void
+  {
+    if (! $this->continueCommand instanceof ContinueGameCommand) {
+      return;
+    }
+
+    if ($this->sceneManager->saveManager->hasSaveFiles(true)) {
+      $this->continueCommand->enable();
+    } else {
+      $this->continueCommand->disable();
+    }
+
+    $this->menu?->updateWindowContent();
   }
 }

@@ -323,6 +323,19 @@ abstract class Menu implements MenuInterface
   }
 
   /**
+   * Repositions the menu and its backing window.
+   *
+   * @param Vector2 $position The new top-left menu position.
+   * @return void
+   */
+  public function setPosition(Vector2 $position): void
+  {
+    $this->rect->setX($position->x);
+    $this->rect->setY($position->y);
+    $this->window?->setPosition($position);
+  }
+
+  /**
    * Updates the menu window content.
    *
    * @return void

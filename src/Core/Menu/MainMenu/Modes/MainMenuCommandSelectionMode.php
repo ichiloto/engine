@@ -129,7 +129,11 @@ class MainMenuCommandSelectionMode extends MainMenuMode
 
     if (Input::isButtonDown("confirm")) {
       $this->mainMenuState->startingIndex = $this->getMainMenu()->activeIndex;
-      $this->getMainMenu()->getActiveItem()->execute($this->mainMenuState->mainMenuContext);
+      $activeItem = $this->getMainMenu()->getActiveItem();
+
+      if (! $activeItem->isDisabled()) {
+        $activeItem->execute($this->mainMenuState->mainMenuContext);
+      }
     }
   }
 }

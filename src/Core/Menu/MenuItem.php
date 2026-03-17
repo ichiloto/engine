@@ -121,7 +121,7 @@ abstract class MenuItem implements MenuItemInterface
    */
   public function enable(): void
   {
-    $this->disabled = true;
+    $this->disabled = false;
   }
 
   /**
@@ -129,6 +129,6 @@ abstract class MenuItem implements MenuItemInterface
    */
   public function disable(): void
   {
-    $this->disabled = false;
+    $this->disabled = true;
   }
 }

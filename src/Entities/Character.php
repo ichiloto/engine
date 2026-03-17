@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Entities;
 use Exception;
 use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Battle\BattleAction;
+use Ichiloto\Engine\Entities\Abilities\AbilityBook;
 use Ichiloto\Engine\Entities\Interfaces\CanEquip;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Inventory\Accessory;
@@ -140,6 +141,10 @@ class Character implements CharacterInterface, CanEquip
    */
   protected(set) array $equipment = [];
   /**
+   * @var AbilityBook The character's managed ability data.
+   */
+  protected(set) AbilityBook $abilityBook;
+  /**
    * @var Spellbook The character's managed magic data.
    */
   protected(set) Spellbook $spellbook;
@@ -200,6 +205,7 @@ class Character implements CharacterInterface, CanEquip
    * @param string $bio The character's biography.
    * @param string $note The character's note.
    * @param EquipmentSlot[] $equipment The character's equipment.
+   * @param AbilityBook|null $abilityBook The character's ability book.
    * @param Spellbook|null $spellbook The character's spellbook.
    */
   public function __construct(
@@ -213,12 +219,14 @@ class Character implements CharacterInterface, CanEquip
     protected(set) string $note = '',
     array $equipment = [],
     ?CharacterRole $role = null,
+    ?AbilityBook $abilityBook = null,
     ?Spellbook $spellbook = null,
   )
   {
     $this->maxLevel = $maxLevel;
     $this->currentExp = $currentExp;
     $this->equipment = $equipment;
+    $this->abilityBook = $abilityBook ?? new AbilityBook();
     $this->spellbook = $spellbook ?? new Spellbook();
     if (!$role) {
       $role = new CharacterRole($this, 'Hero');
@@ -268,6 +276,11 @@ class Character implements CharacterInterface, CanEquip
       strval($data['note'] ?? ''),
       is_array($data['equipment'] ?? null) ? $data['equipment'] : [],
       (($data['role'] ?? null) instanceof CharacterRole) ? $data['role'] : null,
+      AbilityBook::fromArray(
+        is_array($data['abilities'] ?? null)
+          ? $data['abilities']
+          : (is_array($data['abilityBook'] ?? null) ? $data['abilityBook'] : [])
+      ),
       Spellbook::fromArray(
         is_array($data['magic'] ?? null)
           ? $data['magic']
@@ -512,6 +525,13 @@ class Character implements CharacterInterface, CanEquip
   protected function bindDataToProperties(array $data): void
   {
     foreach ($data as $key => $value) {
+      if ($key === 'abilities' || $key === 'abilityBook') {
+        $this->abilityBook = is_array($value)
+          ? AbilityBook::fromArray($value)
+          : ($value instanceof AbilityBook ? $value : new AbilityBook());
+        continue;
+      }
+
       if ($key === 'magic' || $key === 'spellbook') {
         $this->spellbook = is_array($value)
           ? Spellbook::fromArray($value)
@@ -545,6 +565,7 @@ class Character implements CharacterInterface, CanEquip
       'note' => $this->note,
       'equipment' => $this->equipment,
       'role' => $this->role,
+      'abilities' => $this->abilityBook->toArray(),
       'magic' => $this->spellbook->toArray(),
     ];
   }
