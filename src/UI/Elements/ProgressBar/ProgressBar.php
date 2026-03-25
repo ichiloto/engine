@@ -32,7 +32,19 @@ class ProgressBar implements UIElementInterface
    */
   protected int $filledUnits {
     get {
-      return (int) ($this->fillPercentage * $this->units);
+      if ($this->units < 1 || $this->fillPercentage <= 0.0) {
+        return 0;
+      }
+
+      if ($this->fillPercentage >= 1.0) {
+        return $this->units;
+      }
+
+      return clamp(
+        intval(round($this->fillPercentage * $this->units)),
+        1,
+        max(1, $this->units - 1)
+      );
     }
   }
   /**
@@ -40,7 +52,7 @@ class ProgressBar implements UIElementInterface
    */
   protected int $emptyUnits {
     get {
-      return $this->units - $this->filledUnits;
+      return max(0, $this->units - $this->filledUnits);
     }
   }
 

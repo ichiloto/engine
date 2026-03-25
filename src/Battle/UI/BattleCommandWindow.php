@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Battle\UI;
 
 use Ichiloto\Engine\Core\Interfaces\CanChangeSelection;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\UI\Interfaces\CanFocus;
 use Ichiloto\Engine\UI\Windows\Window;
 
@@ -26,6 +27,18 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
    * The index of the active command.
    */
   protected(set) int $activeCommandIndex = -1;
+  /**
+   * @var bool Whether the active command should blink.
+   */
+  protected bool $blinkActiveSelection = false;
+  /**
+   * @var int The first visible command index.
+   */
+  protected int $scrollOffset = 0;
+  /**
+   * @var string The base title shown above the command list.
+   */
+  protected string $titleBase = 'Command';
   /**
    * The commands available to the player.
    */
@@ -69,7 +82,9 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
    */
   public function focus(): void
   {
-    $this->activeCommandIndex = 0;
+    $this->blinkActiveSelection = true;
+    $this->scrollOffset = 0;
+    $this->activeCommandIndex = $this->totalCommands > 0 ? 0 : -1;
     $this->updateContent();
   }
 
@@ -78,13 +93,31 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
    */
   public function blur(): void
   {
-    // TODO: Implement blur() method.
+    $this->blinkActiveSelection = false;
+    $this->scrollOffset = 0;
+    $this->activeCommandIndex = -1;
+    $this->updateContent();
+  }
+
+  /**
+   * Toggles blink state for the active command without changing the selection.
+   *
+   * @param bool $blink Whether the active command should blink.
+   * @return void
+   */
+  public function setSelectionBlink(bool $blink): void
+  {
+    $this->blinkActiveSelection = $blink;
+    $this->updateContent();
   }
 
   public function clear(): void
   {
-    $this->setContent([]);
-    $this->render();
+    $this->commands = [];
+    $this->activeCommandIndex = -1;
+    $this->totalCommands = 0;
+    $this->scrollOffset = 0;
+    $this->updateContent();
   }
 
   /**
@@ -95,13 +128,24 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
   public function updateContent(): void
   {
     $content = [];
+    $availableWidth = $this->getContentWidth();
+    $visibleRowCount = $this->getVisibleRowCount();
 
-    foreach ($this->commands as $index => $command) {
+    $this->syncScrollOffset();
+    $this->updateTitle();
+
+    foreach (array_slice($this->commands, $this->scrollOffset, $visibleRowCount, true) as $index => $command) {
       $prefix = $this->activeCommandIndex === $index ? '>' : ' ';
-      $content[] = "$prefix $command";
+      $line = TerminalText::padRight("$prefix $command", $availableWidth);
+
+      if ($this->activeCommandIndex === $index) {
+        $line = $this->battleScreen->styleSelectionLine($line, $this->blinkActiveSelection);
+      }
+
+      $content[] = $line;
     }
 
-    $content = array_pad($content, $this->height - 2, '');
+    $content = array_pad($content, $visibleRowCount, '');
     $this->setContent($content);
     $this->render();
   }
@@ -111,8 +155,13 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
    */
   public function selectPrevious(): void
   {
+    if ($this->totalCommands < 1) {
+      return;
+    }
+
     $index = wrap($this->activeCommandIndex - 1, 0, $this->totalCommands - 1);
     $this->activeCommandIndex = $index;
+    $this->syncScrollOffset();
     $this->updateContent();
   }
 
@@ -121,8 +170,82 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
    */
   public function selectNext(): void
   {
+    if ($this->totalCommands < 1) {
+      return;
+    }
+
     $index = wrap($this->activeCommandIndex + 1, 0, $this->totalCommands - 1);
     $this->activeCommandIndex = $index;
+    $this->syncScrollOffset();
     $this->updateContent();
+  }
+
+  /**
+   * Returns the width available for content inside the window frame.
+   *
+   * @return int The inner content width.
+   */
+  protected function getContentWidth(): int
+  {
+    return max(
+      0,
+      $this->width - 2 - $this->padding->getLeftPadding() - $this->padding->getRightPadding()
+    );
+  }
+
+  /**
+   * Returns the number of command rows visible at once.
+   *
+   * @return int The visible row count.
+   */
+  protected function getVisibleRowCount(): int
+  {
+    return max(0, $this->height - 2);
+  }
+
+  /**
+   * Keeps the active command inside the visible scroll window.
+   *
+   * @return void
+   */
+  protected function syncScrollOffset(): void
+  {
+    $visibleRowCount = $this->getVisibleRowCount();
+
+    if ($visibleRowCount < 1 || $this->activeCommandIndex < 0) {
+      $this->scrollOffset = 0;
+      return;
+    }
+
+    if ($this->activeCommandIndex < $this->scrollOffset) {
+      $this->scrollOffset = $this->activeCommandIndex;
+      return;
+    }
+
+    $lastVisibleIndex = $this->scrollOffset + $visibleRowCount - 1;
+
+    if ($this->activeCommandIndex > $lastVisibleIndex) {
+      $this->scrollOffset = $this->activeCommandIndex - $visibleRowCount + 1;
+    }
+  }
+
+  /**
+   * Updates the title with the current command-list page.
+   *
+   * @return void
+   */
+  protected function updateTitle(): void
+  {
+    $visibleRowCount = max(1, $this->getVisibleRowCount());
+    $totalPages = max(1, (int)ceil($this->totalCommands / $visibleRowCount));
+    $currentPage = $this->activeCommandIndex < 0
+      ? 1
+      : max(1, (int)floor($this->activeCommandIndex / $visibleRowCount) + 1);
+
+    $this->setTitle(
+      $totalPages > 1
+        ? sprintf('%s %d/%d', $this->titleBase, $currentPage, $totalPages)
+        : $this->titleBase
+    );
   }
 }

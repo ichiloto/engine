@@ -61,6 +61,7 @@ class EquipmentMenuCommandSelectionMode extends EquipmentMenuMode
   public function enter(): void
   {
     $this->state->equipmentMenu->setActiveItemByIndex(0);
+    $this->state->equipmentCommandPanel->updateContent();
     $this->state->equipmentInfoPanel->setText($this->state->activeMenuCommand->getDescription());
   }
 

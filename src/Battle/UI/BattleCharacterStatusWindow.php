@@ -3,11 +3,11 @@
 namespace Ichiloto\Engine\Battle\UI;
 
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\UI\Elements\ProgressBar\ProgressBar;
 use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\Entities\Character;
-use Ichiloto\Engine\Util\Debug;
 
 /**
  * Represents the battle character status window.
@@ -24,6 +24,10 @@ class BattleCharacterStatusWindow extends Window
    * The height of the window.
    */
   const int HEIGHT = 6;
+  /**
+   * The visible content width inside the bordered status window.
+   */
+  protected const int CONTENT_WIDTH = self::WIDTH - 4;
   /**
    * @var Character[] The characters to display.
    */
@@ -94,19 +98,36 @@ class BattleCharacterStatusWindow extends Window
    */
   public function formatCharacterStats(Character $character): string
   {
-    $hpProgressBar = new ProgressBar($this->camera, 10);
-    $mpProgressBar = new ProgressBar($this->camera, 5);
-    $hpPercentage = $character->effectiveStats->currentHp / $character->effectiveStats->totalHp;
-    $mpPercentage = $character->effectiveStats->currentMp / $character->effectiveStats->totalMp;
-    $hpProgressBar->fill($hpPercentage);
-    $mpProgressBar->fill($mpPercentage);
+    $hpTotal = max(1, $character->effectiveStats->totalHp);
+    $mpTotal = max(1, $character->effectiveStats->totalMp);
+    $hpPercentage = $character->effectiveStats->currentHp / $hpTotal;
+    $mpPercentage = $character->effectiveStats->currentMp / $mpTotal;
+    $hpProgressBar = $this->createProgressBar(10, $hpPercentage);
+    $mpProgressBar = $this->createProgressBar(5, $mpPercentage);
 
-    return sprintf(
-      "%4d %-15s  %4d %-8s",
-      $character->effectiveStats->currentHp,
+    return implode('', [
+      TerminalText::padLeft(strval($character->effectiveStats->currentHp), 4),
+      ' ',
       $hpProgressBar->getRender(),
-      $character->effectiveStats->currentMp,
-      $mpProgressBar->getRender()
-    );
+      '  ',
+      TerminalText::padLeft(strval($character->effectiveStats->currentMp), 4),
+      ' ',
+      $mpProgressBar->getRender(),
+    ]);
+  }
+
+  /**
+   * Creates a progress bar for the given percentage.
+   *
+   * @param int $units The number of units in the bar.
+   * @param float $percentage The filled percentage.
+   * @return ProgressBar The configured progress bar.
+   */
+  protected function createProgressBar(int $units, float $percentage): ProgressBar
+  {
+    $progressBar = new ProgressBar($this->camera, $units);
+    $progressBar->fill($percentage);
+
+    return $progressBar;
   }
 }

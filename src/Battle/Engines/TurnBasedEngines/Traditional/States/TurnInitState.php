@@ -2,11 +2,9 @@
 
 namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States;
 
-use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\TraditionalTurnBasedBattleEngine;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Turn;
+use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
-use Ichiloto\Engine\Exceptions\NotImplementedException;
-use Ichiloto\Engine\Util\Debug;
 
 /**
  * Represents the turn init state.
@@ -21,6 +19,11 @@ class TurnInitState extends TurnState
    */
   public function update(TurnStateExecutionContext $context): void
   {
+    if ($context->party->isDefeated() || $context->troop->isDefeated()) {
+      $this->setState($this->engine->turnResolutionState);
+      return;
+    }
+
     $this->resetBuffsAndDebuffs($context);
     $this->determineTurnOrder($context);
     $this->updateUI($context);
@@ -45,14 +48,23 @@ class TurnInitState extends TurnState
   protected function determineTurnOrder(TurnStateExecutionContext $context): void
   {
     $this->engine->turnQueue->clear();
+    $turns = [];
 
     /** @var CharacterInterface[] $battlers */
-    $battlers = [...$context->party->battlers->toArray(), ...$context->troop->members->toArray()];
-    usort($battlers, fn(CharacterInterface $a, CharacterInterface $b) => $a->stats->speed <=> $b->stats->speed);
+    $battlers = array_values(array_filter(
+      [...$context->party->battlers->toArray(), ...$context->troop->members->toArray()],
+      fn(CharacterInterface $battler) => ! $battler->isKnockedOut
+    ));
+
+    usort($battlers, fn(CharacterInterface $a, CharacterInterface $b) => $this->getBattlerSpeed($b) <=> $this->getBattlerSpeed($a));
+
     foreach ($battlers as $battler) {
       $turn = new Turn($battler);
+      $turns[] = $turn;
       $this->engine->turnQueue->enqueue($turn);
     }
+
+    $context->setTurns($turns);
   }
 
   /**
@@ -62,6 +74,21 @@ class TurnInitState extends TurnState
    */
   private function updateUI(TurnStateExecutionContext $context): void
   {
-    // TODO: Implement updateUI() method.
+    $context->ui->characterStatusWindow->setCharacters($context->party->battlers->toArray());
+    $context->ui->characterNameWindow->setActiveSelection(-1);
+    $context->ui->commandContextWindow->clear();
+    $context->ui->fieldWindow->clearTargetIndicators();
+    $context->ui->refresh();
+  }
+
+  /**
+   * Returns the battler's effective speed.
+   *
+   * @param CharacterInterface $battler The battler to inspect.
+   * @return int
+   */
+  protected function getBattlerSpeed(CharacterInterface $battler): int
+  {
+    return $battler instanceof Character ? $battler->effectiveStats->speed : $battler->stats->speed;
   }
 }

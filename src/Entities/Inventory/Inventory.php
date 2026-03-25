@@ -174,6 +174,55 @@ class Inventory
   }
 
   /**
+   * Returns the quantity currently held for the named inventory item.
+   *
+   * @param string $itemName The inventory-item name.
+   * @return int The available quantity.
+   */
+  public function getQuantityByName(string $itemName): int
+  {
+    /** @var InventoryItem|null $foundItem */
+    $foundItem = array_find(
+      $this->inventoryItems->toArray(),
+      static fn(InventoryItem $item): bool => $item->name === $itemName
+    );
+
+    return $foundItem?->quantity ?? 0;
+  }
+
+  /**
+   * Consumes the requested quantity of the named inventory item.
+   *
+   * @param string $itemName The inventory-item name.
+   * @param int $quantity The quantity to consume.
+   * @return bool True when the quantity was consumed.
+   */
+  public function consumeQuantity(string $itemName, int $quantity): bool
+  {
+    if ($quantity < 1) {
+      return true;
+    }
+
+    /** @var InventoryItem|null $foundItem */
+    $foundItem = array_find(
+      $this->inventoryItems->toArray(),
+      static fn(InventoryItem $item): bool => $item->name === $itemName
+    );
+
+    if (! $foundItem instanceof InventoryItem || $foundItem->quantity < $quantity) {
+      return false;
+    }
+
+    $foundItem->quantity -= $quantity;
+
+    if ($foundItem->quantity < 1) {
+      $this->inventoryItems->remove($foundItem);
+    }
+
+    return true;
+  }
+
+  /**
    * Sorts the inventory.
    *
    * @return void

@@ -11,12 +11,13 @@ use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
 use Ichiloto\Engine\Events\ModalEvent;
 use Ichiloto\Engine\Events\ObservableTrait;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
-use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\UI\Interfaces\ModalInterface;
+use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\Util\Debug;
@@ -57,7 +58,7 @@ class SelectModal implements ModalInterface
     }
     set {
       $this->title = $value;
-      $this->titleLength = strlen($value);
+      $this->titleLength = TerminalText::displayWidth($value);
     }
   }
   /**
@@ -178,7 +179,7 @@ class SelectModal implements ModalInterface
     $totalOptions = 0;
     foreach ($this->options as $option) {
       $totalOptions++;
-      $this->rect->setWidth(max($this->rect->getWidth(), strlen($option) + 6));
+      $this->rect->setWidth(max($this->rect->getWidth(), TerminalText::displayWidth($option) + 6));
     }
     $this->totalOptions = $totalOptions;
   }
@@ -215,9 +216,10 @@ class SelectModal implements ModalInterface
   protected function getOptionsHeight(): int
   {
     if ($this->message) {
-      return $this->messageContentHeight + $this->totalOptions + 1;
+      return $this->messageContentHeight + $this->totalOptions + 2;
     }
-    return $this->totalOptions;
+
+    return $this->totalOptions + 1;
   }
 
   /**
@@ -228,10 +230,10 @@ class SelectModal implements ModalInterface
     $leftMargin = $this->rect->getX() + ($x ?? 0);
     $topMargin = $this->rect->getY() + ($y ?? 0);
 
-    $this->erase($leftMargin, $topMargin);
+    $this->erase($x, $y);
     $this->renderTopBorder($leftMargin, $topMargin);
     $this->renderOptions($leftMargin, $topMargin + 1);
-    $this->renderBottomBorder($leftMargin, $topMargin + $this->getModalHeight());
+    $this->renderBottomBorder($leftMargin, $topMargin + $this->getModalHeight() - 1);
   }
 
   /**
@@ -243,8 +245,9 @@ class SelectModal implements ModalInterface
     $topMargin = $this->rect->getY() + ($y ?? 0);
     $modalHeight = max($this->rect->getHeight(), $this->getModalHeight());
 
-    for ($row = $topMargin; $row < $topMargin + $modalHeight; $row++) {
-      Console::write(str_repeat(' ', $this->rect->getWidth()), $leftMargin, $row);
+    for ($row = 0; $row < $modalHeight; $row++) {
+      Console::cursor()->moveTo($leftMargin + 1, $topMargin + $row + 1);
+      $this->output->write(str_repeat(' ', $this->rect->getWidth()));
     }
   }
 
@@ -321,7 +324,7 @@ class SelectModal implements ModalInterface
   public function setContent(string $content): void
   {
     $this->message = $content;
-    $this->messageLength = strlen($this->message);
+    $this->messageLength = TerminalText::displayWidth($this->message);
   }
 
   public function getHelp(): string
@@ -332,7 +335,7 @@ class SelectModal implements ModalInterface
   public function setHelp(string $help): void
   {
     $this->help = $help;
-    $this->helpLength = strlen($this->help);
+    $this->helpLength = TerminalText::displayWidth($this->help);
   }
 
   public function getHelpLength(): int
@@ -413,7 +416,7 @@ class SelectModal implements ModalInterface
     $output .= str_repeat($this->borderPack->getHorizontalBorder(), $this->rect->getWidth() - 3 - $this->titleLength);
     $output .= $this->borderPack->getTopRightCorner();
 
-    Console::cursor()->moveTo($x, $y);
+    Console::cursor()->moveTo($x + 1, $y + 1);
     $this->output->write($output);
   }
 
@@ -428,43 +431,40 @@ class SelectModal implements ModalInterface
   {
     $topMargin = $y;
     $vSpacingSize = 0;
-    $spacing = $this->rect->getWidth() - 5;
-    $lineSize = $this->rect->size->width - 3;
-    $blankLine = sprintf(
-      "%s %-{$lineSize}s%s",
-      $this->borderPack->getVerticalBorder(),
-      '',
-      $this->borderPack->getVerticalBorder()
-    );
+    $contentWidth = max(0, $this->rect->getWidth() - 2);
+    $optionWidth = max(0, $contentWidth - 3);
+    $blankLine = $this->borderPack->getVerticalBorder()
+      . str_repeat(' ', $contentWidth)
+      . $this->borderPack->getVerticalBorder();
 
     if ($this->message) {
       foreach ($this->messageLines as $lineIndex => $line) {
         $output = $this->borderPack->getVerticalBorder();
-        $output .= sprintf(" %-{$lineSize}s", $line);
+        $output .= TerminalText::padRight($line, $contentWidth);
         $output .= $this->borderPack->getVerticalBorder();
-        Console::cursor()->moveTo($x, $y + $lineIndex);
+        Console::cursor()->moveTo($x + 1, $y + $lineIndex + 1);
         $this->output->write($output);
       }
       $vSpacingSize = 1;
-      Console::cursor()->moveTo($x, $y + $this->messageContentHeight);
+      Console::cursor()->moveTo($x + 1, $y + $this->messageContentHeight + 1);
       $this->output->write($blankLine);
     }
 
     foreach ($this->options as $optionIndex => $option) {
       $output = $this->borderPack->getVerticalBorder();
       $prefix = $optionIndex === $this->activeOptionIndex ? '>' : ' ';
-      $content = sprintf(" %s %-{$spacing}s", $prefix, $option);
+      $content = " {$prefix} " . TerminalText::padRight($option, $optionWidth);
 
       if ($optionIndex === $this->activeOptionIndex) {
-        $content = Color::apply($content, Color::LIGHT_BLUE);
+        $content = SelectionStyle::apply($content);
       }
       $output .= $content;
       $output .= $this->borderPack->getVerticalBorder();
-      Console::cursor()->moveTo($x, $y + $this->messageContentHeight + $vSpacingSize + $optionIndex);
+      Console::cursor()->moveTo($x + 1, $y + $this->messageContentHeight + $vSpacingSize + $optionIndex + 1);
       $this->output->write($output);
     }
 
-    Console::cursor()->moveTo($x, $y + $this->messageContentHeight + $vSpacingSize + $this->totalOptions);
+    Console::cursor()->moveTo($x + 1, $y + $this->messageContentHeight + $vSpacingSize + $this->totalOptions + 1);
     $this->output->write($blankLine);
   }
 
@@ -483,7 +483,7 @@ class SelectModal implements ModalInterface
     $output .= str_repeat($this->borderPack->getHorizontalBorder(), $this->rect->getWidth() - 3 - $this->helpLength);
     $output .= $this->borderPack->getBottomRightCorner();
 
-    Console::cursor()->moveTo($x, $y);
+    Console::cursor()->moveTo($x + 1, $y + 1);
     $this->output->write($output);
   }
 

@@ -11,6 +11,7 @@ use Ichiloto\Engine\Exceptions\RequiredFieldException;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
+use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationSlideDirection;
 use Ichiloto\Engine\Messaging\Notifications\Notification;
 use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
@@ -211,6 +212,9 @@ if (! function_exists('notify') ) {
    * @param string $title The notification title.
    * @param string $text The notification text.
    * @param NotificationDuration|float $duration The notification duration.
+   * @param NotificationSlideDirection $enterDirection The entry slide direction.
+   * @param NotificationSlideDirection|null $exitDirection The exit slide direction.
+   * @param float $animationDuration The slide-animation duration in seconds.
    * @return void
    */
   function notify(
@@ -218,10 +222,22 @@ if (! function_exists('notify') ) {
     NotificationChannel        $channel,
     string                     $title,
     string                     $text,
-    NotificationDuration|float $duration = NotificationDuration::LONG
+    NotificationDuration|float $duration = NotificationDuration::LONG,
+    NotificationSlideDirection $enterDirection = NotificationSlideDirection::RIGHT,
+    ?NotificationSlideDirection $exitDirection = null,
+    float $animationDuration = 0.18
   ): void
   {
-    $notification = new Notification($game, $channel, $title, $text, $duration);
+    $notification = new Notification(
+      $game,
+      $channel,
+      $title,
+      $text,
+      $duration,
+      enterDirection: $enterDirection,
+      exitDirection: $exitDirection,
+      animationDuration: $animationDuration
+    );
     NotificationManager::getInstance($game)->notify($notification);
   }
 }
@@ -448,7 +464,11 @@ if (! function_exists('get_screen_width') ) {
    */
   function get_screen_width(): int
   {
-    return config(PlaySettings::class, 'width', DEFAULT_SCREEN_WIDTH);
+    return config(
+      PlaySettings::class,
+      'width',
+      config(PlaySettings::class, 'screen.width', DEFAULT_SCREEN_WIDTH)
+    );
   }
 }
 
@@ -460,7 +480,11 @@ if (! function_exists('get_screen_height') ) {
    */
   function get_screen_height(): int
   {
-    return config(PlaySettings::class, 'height', DEFAULT_SCREEN_HEIGHT);
+    return config(
+      PlaySettings::class,
+      'height',
+      config(PlaySettings::class, 'screen.height', DEFAULT_SCREEN_HEIGHT)
+    );
   }
 }
 

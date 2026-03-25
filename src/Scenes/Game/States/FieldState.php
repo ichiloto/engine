@@ -47,8 +47,8 @@ class FieldState extends GameSceneState
   public function enter(): void
   {
     parent::enter();
-    $this->renderTheField();
     $this->getGameScene()->locationHUDWindow->activate();
+    $this->renderTheField();
   }
 
   /**
@@ -85,6 +85,7 @@ class FieldState extends GameSceneState
    */
   public function resume(): void
   {
+    $this->getGameScene()->locationHUDWindow->activate();
     $this->renderTheField();
   }
 

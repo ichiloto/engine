@@ -17,6 +17,11 @@ use Ichiloto\Engine\UI\Windows\Window;
 class CharacterDetailPanel extends Window
 {
   /**
+   * The width reserved for each stat value column.
+   */
+  private const int STAT_VALUE_WIDTH = 6;
+
+  /**
    * @var Character|null The character to display.
    */
   protected ?Character $character = null;
@@ -91,42 +96,72 @@ class CharacterDetailPanel extends Window
       "",
       "",
       "",
-      sprintf("  %-13s%4s    ->    %4s", 'HP', $this->character?->effectiveStats->totalHp ?? '', $this->highlightStat($this->character?->effectiveStats->totalHp, $totalHp)),
-      sprintf("  %-15s%2s    ->     %3s", 'MP', $this->character?->effectiveStats->totalMp ?? '', $this->highlightStat($this->character?->effectiveStats->totalMp, $totalMp)),
-      sprintf("  %-15s%2s    ->     %3s", 'Attack', $this->character?->effectiveStats->attack ?? '', $this->highlightStat($this->character?->effectiveStats->attack, $attack)),
-      sprintf("  %-15s%2s    ->     %3s", 'Defence', $this->character?->effectiveStats->defence ?? '', $this->highlightStat($this->character?->effectiveStats->defence, $defence)),
-      sprintf("  %-15s%2s    ->     %3s", 'M.Attack', $this->character?->effectiveStats->magicAttack ?? '', $this->highlightStat($this->character?->effectiveStats->magicAttack, $magicAttack)),
-      sprintf("  %-15s%2s    ->     %3s", 'M.Defence', $this->character?->effectiveStats->magicDefence ?? '', $this->highlightStat($this->character?->effectiveStats->magicDefence, $magicDefence)),
-      sprintf("  %-15s%2s    ->     %3s", 'Evasion', $this->character?->effectiveStats->evasion ?? '', $this->highlightStat($this->character?->effectiveStats->evasion, $evasion)),
-      sprintf("  %-15s%2s    ->     %3s", 'Speed', $this->character?->effectiveStats->speed ?? '', $this->highlightStat($this->character?->effectiveStats->speed, $speed)),
-      sprintf("  %-15s%2s    ->     %3s", 'Grace', $this->character?->effectiveStats->grace ?? '', $this->highlightStat($this->character?->effectiveStats->grace, $grace)),
+      $this->formatStatLine('HP', $this->character?->effectiveStats->totalHp, $totalHp),
+      $this->formatStatLine('MP', $this->character?->effectiveStats->totalMp, $totalMp),
+      $this->formatStatLine('Attack', $this->character?->effectiveStats->attack, $attack),
+      $this->formatStatLine('Defence', $this->character?->effectiveStats->defence, $defence),
+      $this->formatStatLine('M.Attack', $this->character?->effectiveStats->magicAttack, $magicAttack),
+      $this->formatStatLine('M.Defence', $this->character?->effectiveStats->magicDefence, $magicDefence),
+      $this->formatStatLine('Evasion', $this->character?->effectiveStats->evasion, $evasion),
+      $this->formatStatLine('Speed', $this->character?->effectiveStats->speed, $speed),
+      $this->formatStatLine('Grace', $this->character?->effectiveStats->grace, $grace),
     ];
-    $contentSize = count($content);
 
-    $content = [...$content, ...array_fill($contentSize - 1, $this->height - $contentSize - 2, '')]; // Subtract 2 for the border.
-    $this->setContent($content);
+    $this->setContent(array_pad($content, $this->height - 2, ''));
     $this->render();
   }
 
   /**
-   * Colorize the stat.
+   * Formats a stat row so the current and preview columns stay aligned.
    *
-   * @param int|null $currentStat The previous stat.
-   * @param int|null $previewStat The stat to colorize.
-   * @return string The colorized stat.
+   * @param string $label The stat label.
+   * @param int|null $currentStat The current effective stat.
+   * @param int|null $previewStat The preview stat after the pending change.
+   * @return string The formatted stat line.
    */
-  private function highlightStat(?int $currentStat, ?int $previewStat): string
+  private function formatStatLine(string $label, ?int $currentStat, ?int $previewStat): string
   {
-    $suffix = '';
+    return sprintf(
+      "  %-10s %6s  ->  %6s %1s",
+      $label,
+      $this->formatStatValue($currentStat),
+      $this->formatStatValue($previewStat ?? $currentStat),
+      $this->getStatIndicator($currentStat, $previewStat)
+    );
+  }
+
+  /**
+   * Formats a stat value for the right-aligned preview columns.
+   *
+   * @param int|null $stat The stat value to format.
+   * @return string The formatted stat value.
+   */
+  private function formatStatValue(?int $stat): string
+  {
+    if (! isset($stat)) {
+      return '';
+    }
+
+    return str_pad(number_format($stat), self::STAT_VALUE_WIDTH, ' ', STR_PAD_LEFT);
+  }
+
+  /**
+   * Returns the visual indicator for a stat preview change.
+   *
+   * @param int|null $currentStat The current stat.
+   * @param int|null $previewStat The preview stat.
+   * @return string The comparison indicator.
+   */
+  private function getStatIndicator(?int $currentStat, ?int $previewStat): string
+  {
     if (isset($currentStat)  && isset($previewStat)) {
-      $suffix = match(true) {
+      return match(true) {
         $currentStat < $previewStat => '↑',
         $currentStat > $previewStat => '↓',
         default => '',
       };
     }
-    $value = $previewStat ?? '';
 
-    return "{$value} {$suffix}";
+    return '';
   }
 }

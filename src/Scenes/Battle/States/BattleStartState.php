@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Scenes\Battle\States;
 
+use Ichiloto\Engine\Battle\UI\BattleResultWindow;
 use Ichiloto\Engine\Battle\UI\BattleScreen;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\IO\Console\Console;
@@ -45,6 +46,7 @@ class BattleStartState extends BattleSceneState
   public function enter(): void
   {
     $this->scene->ui = new BattleScreen($this->scene);
+    $this->scene->resultWindow = new BattleResultWindow($this->scene->ui);
     $this->cleanSlate = array_fill(0, $this->scene->ui->screenDimensions->getHeight(), str_repeat(' ', $this->scene->ui->screenDimensions->getWidth()));
     Console::clear();
     $this->startTheIntroAnimation();

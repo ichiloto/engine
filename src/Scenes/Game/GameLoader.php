@@ -2,14 +2,14 @@
 
 namespace Ichiloto\Engine\Scenes\Game;
 
-use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\SystemData;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Party;
-use Ichiloto\Engine\Entities\PartyLocation;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
+use Ichiloto\Engine\Field\PlayerSpriteSet;
+use Ichiloto\Engine\IO\SaveManager;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 use RuntimeException;
@@ -89,21 +89,20 @@ class GameLoader
     $party->inventory->addItems(...$this->itemStore->load($systemData->startingInventory));
 
     $playerPosition = new Vector2($systemData->startingPositions->player->spawnPoint->x, $systemData->startingPositions->player->spawnPoint->y);
+    $playerSprites = $this->loadPlayerSprites();
+    $spawnSprite = PlayerSpriteSet::normalizeSprite($systemData->startingPositions->player->spawnSprite ?? throw new RequiredFieldException('startingPositions.player.spawnSprite'));
+
     return new GameConfig(
       mapId: $systemData->startingPositions->player->destinationMap,
       party: $party,
       playerPosition: $playerPosition,
       playerShape: new Rect(0, 0, 1, 1),
-      playerHeading: match($systemData->startingPositions->player->spawnSprite) {
-        ['^'] => MovementHeading::NORTH,
-        ['v'] => MovementHeading::SOUTH,
-        ['<'] => MovementHeading::WEST,
-        ['>'] => MovementHeading::EAST,
-        default => MovementHeading::NONE,
-      },
+      playerHeading: $playerSprites->resolveHeading($spawnSprite),
       playerStats: [],
       events: [],
-      playerSprite: $systemData->startingPositions->player->spawnSprite,
+      playerSprite: $spawnSprite,
+      playerSprites: $playerSprites->toArray(),
+      playTimeSeconds: 0,
     );
   }
 
@@ -115,47 +114,24 @@ class GameLoader
    */
   public function loadSavedGame(string $saveFilePath): GameConfig
   {
-    // Load game data from a saved file
-    $systemData = new SystemData(
-      'Last Legend',
-      (object)['name' => 'Gold', 'symbol' => 'G', 'amount' => 1000],
-      ['hero'],
-      [
-        ['item' => 'S-Potion', 'quantity' => 5],
-        ['item' => 'M-Potion', 'quantity' => 3],
-      ],
-      (object)['player' => (object)['destinationMap' => 'happyville/home', 'spawnPoint' => (object)['x' => 4, 'y' => 5], 'spawnSprite' => ['v']]],
-    );
+    $savedGame = SaveManager::getInstance($this->game)->loadSaveFile($saveFilePath);
 
-    $party = new Party();
-    if ($systemData->currency->amount) {
-      $party->accountBalance = $systemData->currency->amount;
+    return $savedGame->config;
+  }
+
+  /**
+   * Loads the configured player directional sprite set.
+   *
+   * @return PlayerSpriteSet The normalized sprite set.
+   */
+  protected function loadPlayerSprites(): PlayerSpriteSet
+  {
+    $playerData = asset('Data/Entities/player.php', true);
+
+    if (! is_array($playerData)) {
+      return new PlayerSpriteSet();
     }
-    $party->location = new PartyLocation();
-    $playerPosition = new Vector2(
-      $systemData->startingPositions->player->spawnPoint->x,
-      $systemData->startingPositions->player->spawnPoint->y
-    );
-    $savedData = [
-      'mapId' => $systemData->startingPositions->player->destinationMap,
-      'party' => $party,
-      'playerPosition' => $playerPosition,
-      'playerShape' => new Rect(0, 0, 1, 1),
-      'playerHeading' => $systemData->startingPositions->player->heading,
-      'playerStats' => [],
-      'events' => [],
-      'playerSprite' => $systemData->startingPositions->player->spawnSprite,
-    ];
 
-    return new GameConfig(
-      mapId: $savedData['mapId'],
-      party: $savedData['party'],
-      playerPosition: $savedData['playerPosition'],
-      playerShape: $savedData['playerShape'],
-      playerHeading: $savedData['playerHeading'],
-      playerStats: $savedData['playerStats'],
-      events: $savedData['events'],
-      playerSprite: $savedData['playerSprite'],
-    );
+    return PlayerSpriteSet::fromArray($playerData);
   }
 }

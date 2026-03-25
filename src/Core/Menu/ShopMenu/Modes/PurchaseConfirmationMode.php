@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Core\Menu\ShopMenu\Modes;
 use Exception;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
@@ -204,11 +205,14 @@ class PurchaseConfirmationMode extends ShopMenuMode
    */
   public function updateWindowContent(): void
   {
+    $itemName = TerminalText::padRight($this->item->name ?? 'N/A', 45);
+    $quantity = TerminalText::padLeft((string)$this->quantity, 2);
+    $totalPrice = TerminalText::padLeft((string)$this->totalPrice, 48);
     $content = [
       "",
-      sprintf(" %-45s x %2d", $this->item->name ?? 'N/A', $this->quantity),
+      " {$itemName} x {$quantity}",
       " -------------------------------------------------- ",
-      sprintf(" %48d %s", $this->totalPrice, $this->symbol),
+      " {$totalPrice} {$this->symbol}",
     ];
     $content = array_pad($content, $this->state->mainPanel->contentHeight, '');
 

@@ -11,13 +11,8 @@ use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnResol
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnState;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnStateExecutionContext;
 use Ichiloto\Engine\Battle\Interfaces\BattleEngineInterface;
-use Ichiloto\Engine\Battle\PartyBattlerPositions;
 use Ichiloto\Engine\Core\Game;
-use Ichiloto\Engine\Core\Vector2;
-use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
-use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Scenes\Battle\BattleConfig;
-use Ichiloto\Engine\Scenes\Game\GameScene;
 
 /**
  * Class TurnBasedEngine. A base class for turn-based battle engines.
@@ -96,11 +91,13 @@ abstract class TurnBasedEngine implements BattleEngineInterface
 
   /**
    * @inheritDoc
-   * @throws NotFoundException If the game scene cannot be found.
    */
   public function stop(): void
   {
-    $this->game->sceneManager->loadScene(GameScene::class);
+    $this->turnQueue->clear();
+    $this->state = null;
+    $this->turnStateExecutionContext = null;
+    $this->battleConfig = null;
   }
 
   /**
@@ -137,7 +134,6 @@ abstract class TurnBasedEngine implements BattleEngineInterface
    */
   protected function positionBattlers(): void
   {
-    $this->battleConfig->ui->fieldWindow->renderParty($this->battleConfig->party);
-    $this->battleConfig->ui->fieldWindow->renderTroop($this->battleConfig->troop);
+    $this->battleConfig->ui->refreshField();
   }
 }

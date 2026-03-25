@@ -50,6 +50,7 @@ abstract class BattleGroup implements GroupInterface
    */
   public function isDefeated(): bool
   {
-    return array_all($this->members->toArray(), fn($member) => $member->isDefeated());
+    return $this->members->count() > 0 &&
+      array_all($this->members->toArray(), fn(Battler $member) => $member->isKnockedOut);
   }
 }

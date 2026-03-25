@@ -40,9 +40,13 @@ class MainMenuCommandSelectionMode extends MainMenuMode
   public function enter(): void
   {
     $this->totalItems = $this->getMainMenu()->getItems()->count();
+    $this->mainMenuState->renderSummaryPanels();
     $this->getMainMenu()->setActiveItemByIndex($this->mainMenuState->startingIndex);
     $this->getMainMenu()->focus();
     $this->getMainMenu()->updateWindowContent();
+    $this->mainMenuState->characterSelectionMenu?->refreshMembers();
+    $this->mainMenuState->characterSelectionMenu?->render();
+    $this->getInfoPanel()?->setText($this->getMainMenu()?->getActiveItem()->getDescription() ?? '');
   }
 
   /**
@@ -125,7 +129,11 @@ class MainMenuCommandSelectionMode extends MainMenuMode
 
     if (Input::isButtonDown("confirm")) {
       $this->mainMenuState->startingIndex = $this->getMainMenu()->activeIndex;
-      $this->getMainMenu()->getActiveItem()->execute($this->mainMenuState->mainMenuContext);
+      $activeItem = $this->getMainMenu()->getActiveItem();
+
+      if (! $activeItem->isDisabled()) {
+        $activeItem->execute($this->mainMenuState->mainMenuContext);
+      }
     }
   }
 }

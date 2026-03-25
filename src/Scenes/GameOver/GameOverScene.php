@@ -7,6 +7,7 @@ use Ichiloto\Engine\Core\Menu\Commands\ContinueGameCommand;
 use Ichiloto\Engine\Core\Menu\Commands\QuitGameCommand;
 use Ichiloto\Engine\Core\Menu\Commands\ToTitleMenuCommand;
 use Ichiloto\Engine\Core\Rect;
+use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Scenes\AbstractScene;
 use Ichiloto\Engine\Scenes\Game\GameLoader;
@@ -23,6 +24,10 @@ class GameOverScene extends AbstractScene
    * @var GameOverMenu The game over menu.
    */
   protected GameOverMenu $menu;
+  /**
+   * @var ContinueGameCommand|null The continue command entry in the game-over menu.
+   */
+  protected ?ContinueGameCommand $continueCommand = null;
   /**
    * @var string The header content.
    */
@@ -59,11 +64,14 @@ class GameOverScene extends AbstractScene
       '',
       rect: new Rect($leftMargin, $topMargin, $menuWidth, $menuHeight)
     );
+    $this->continueCommand = new ContinueGameCommand($this->menu, $gameLoader);
+
     $this
       ->menu
-      ->addItem(new ContinueGameCommand($this->menu, $gameLoader))
+      ->addItem($this->continueCommand)
       ->addItem(new ToTitleMenuCommand($this->menu))
       ->addItem(new QuitGameCommand($this->menu));
+    $this->syncContinueAvailability();
 
     Console::clear();
     $this->renderHeader();
@@ -94,7 +102,7 @@ class GameOverScene extends AbstractScene
       $headerWidth = max($headerWidth, mb_strlen($line));
     }
 
-    $x = intval((DEFAULT_SCREEN_WIDTH - $headerWidth) / 2);
+    $x = intval((get_screen_width() - $headerWidth) / 2);
     $y = 2;
 
     $this->camera->draw($this->headerContent, $x, $y);
@@ -106,6 +114,7 @@ class GameOverScene extends AbstractScene
   public function resume(): void
   {
     Console::clear();
+    $this->syncContinueAvailability();
     usleep(300);
     $this->renderHeader();
     usleep(300);
@@ -118,5 +127,48 @@ class GameOverScene extends AbstractScene
   public function suspend(): void
   {
     Console::clear();
+  }
+
+  /**
+   * Re-centers the game-over layout after a terminal resize.
+   *
+   * @param int $width The new terminal width.
+   * @param int $height The new terminal height.
+   * @return void
+   */
+  public function onScreenResize(int $width, int $height): void
+  {
+    parent::onScreenResize($width, $height);
+
+    if (! isset($this->menu)) {
+      return;
+    }
+
+    $this->menu->setPosition(new Vector2(max(0, intdiv(get_screen_width() - 16, 2)), $this->headerHeight + 2));
+    $this->syncContinueAvailability();
+
+    Console::clear();
+    $this->renderHeader();
+    $this->menu->render();
+  }
+
+  /**
+   * Synchronizes the Continue command's availability with the save directory.
+   *
+   * @return void
+   */
+  protected function syncContinueAvailability(): void
+  {
+    if (! $this->continueCommand instanceof ContinueGameCommand) {
+      return;
+    }
+
+    if ($this->sceneManager->saveManager->hasSaveFiles(true)) {
+      $this->continueCommand->enable();
+    } else {
+      $this->continueCommand->disable();
+    }
+
+    $this->menu?->updateWindowContent();
   }
 }

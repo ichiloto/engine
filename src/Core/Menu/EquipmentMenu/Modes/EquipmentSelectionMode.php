@@ -9,6 +9,7 @@ use Ichiloto\Engine\Entities\EquipmentSlot;
 use Ichiloto\Engine\Entities\Inventory\Equipment;
 use Ichiloto\Engine\Entities\Inventory\Inventory;
 use Ichiloto\Engine\Entities\Stats;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
 use RuntimeException;
@@ -36,6 +37,10 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
    * @var Equipment[] The compatible equipment.
    */
   protected array $compatibleEquipment = [];
+  /**
+   * @var array<string, int> The currently available quantities for the selection list.
+   */
+  protected array $availableQuantities = [];
   /**
    * @var int The active index.
    */
@@ -76,6 +81,8 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
     $this->updateCharacterDetailPanel();
     if ($this->activeEquipment) {
       $this->state->equipmentInfoPanel->setText($this->activeEquipment->description ?? '');
+    } else {
+      $this->state->equipmentInfoPanel->setText('No compatible equipment available.');
     }
     $this->render();
   }
@@ -101,7 +108,25 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
    */
   public function getCompatibleEquipment(Inventory $inventory, string $equipmentType): array
   {
-    $compatibleEquipment = array_filter($inventory->equipment->toArray(), fn(Equipment $equipment) => is_a($equipment, $equipmentType));
+    $compatibleEquipment = [];
+    $this->availableQuantities = [];
+    $currentEquipment = $this->equipmentSlot?->equipment;
+
+    foreach ($inventory->equipment->toArray() as $equipment) {
+      assert($equipment instanceof Equipment);
+
+      if (! is_a($equipment, $equipmentType)) {
+        continue;
+      }
+
+      $availableQuantity = $this->state->party->getAvailableEquipmentQuantity($equipment);
+      $this->availableQuantities[$this->getEquipmentKey($equipment)] = $availableQuantity;
+
+      if ($availableQuantity > 0 || $this->equipmentMatches($equipment, $currentEquipment)) {
+        $compatibleEquipment[] = $equipment;
+      }
+    }
+
     $this->totalEquipment = count($compatibleEquipment);
 
     return $compatibleEquipment;
@@ -114,6 +139,10 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
    */
   public function selectPrevious(): void
   {
+    if ($this->totalEquipment < 1) {
+      return;
+    }
+
     $this->activeIndex = wrap($this->activeIndex - 1, 0, $this->totalEquipment - 1);
   }
 
@@ -124,6 +153,10 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
    */
   public function selectNext(): void
   {
+    if ($this->totalEquipment < 1) {
+      return;
+    }
+
     $this->activeIndex = wrap($this->activeIndex + 1, 0, $this->totalEquipment - 1);
   }
 
@@ -138,7 +171,9 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
 
     foreach ($this->compatibleEquipment as $index => $equipment) {
       $prefix = $index === $this->activeIndex ? '>' : ' ';
-      $content[$index] = sprintf(" %s %-58s :%02d", $prefix, "{$equipment->icon} {$equipment->name}", $equipment->quantity);
+      $equipmentName = TerminalText::padRight("{$equipment->icon} {$equipment->name}", 58);
+      $quantity = TerminalText::padLeft((string)$this->getAvailableQuantity($equipment), 2);
+      $content[$index] = " {$prefix} {$equipmentName} :{$quantity}";
     }
 
     $this->state->equipmentAssignmentPanel->setContent($content);
@@ -167,7 +202,17 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
 
     if (Input::isButtonDown("confirm")) {
       if ($this->activeEquipment) {
-        $this->character->equip($this->activeEquipment);
+        if ($this->isCurrentEquipmentSelected()) {
+          $this->character->unequip($this->equipmentSlot ?? throw new RuntimeException('Equipment slot cannot be null.'));
+        } else if ($this->getAvailableQuantity($this->activeEquipment) < 1) {
+          alert(sprintf('%s is out of stock.', $this->activeEquipment->name));
+          return;
+        } else {
+          $this->character->equipInSlot(
+            $this->equipmentSlot ?? throw new RuntimeException('Equipment slot cannot be null.'),
+            $this->activeEquipment
+          );
+        }
       } else {
         $this->character->unequip($this->equipmentSlot);
       }
@@ -193,6 +238,8 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
       $this->updateCharacterDetailPanel();
       if ($this->activeEquipment) {
         $this->state->equipmentInfoPanel->setText($this->activeEquipment->description);
+      } else {
+        $this->state->equipmentInfoPanel->setText('No compatible equipment available.');
       }
       $this->render();
     }
@@ -205,17 +252,98 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
    */
   protected function updateCharacterDetailPanel(): void
   {
-    $previewStats = new Stats(
-      attack: $this->character?->stats->attack + $this->activeEquipment?->parameterChanges->attack,
-      defence: $this->character?->stats->defence + $this->activeEquipment?->parameterChanges->defence,
-      magicAttack: $this->character?->stats->magicAttack + $this->activeEquipment?->parameterChanges->magicAttack,
-      magicDefence: $this->character?->stats->magicDefence + $this->activeEquipment?->parameterChanges->magicDefence,
-      speed: $this->character?->stats->speed + $this->activeEquipment?->parameterChanges->speed,
-      grace: $this->character?->stats->grace + $this->activeEquipment?->parameterChanges->grace,
-      evasion: $this->character?->stats->evasion + $this->activeEquipment?->parameterChanges->evasion,
-      totalHp: $this->character?->stats->totalHp + $this->activeEquipment?->parameterChanges->totalHp,
-      totalMp: $this->character?->stats->totalMp + $this->activeEquipment?->parameterChanges->totalMp,
-    );
+    if (! $this->character) {
+      return;
+    }
+
+    if (! $this->activeEquipment) {
+      $this->state->characterDetailPanel->setDetails($this->character);
+      return;
+    }
+
+    $previewStats = clone $this->character->effectiveStats;
+    $currentEquipment = $this->equipmentSlot?->equipment;
+
+    if ($currentEquipment instanceof Equipment) {
+      $this->applyEquipmentChanges($previewStats, $currentEquipment, -1);
+    }
+
+    if (! $this->isCurrentEquipmentSelected()) {
+      $this->applyEquipmentChanges($previewStats, $this->activeEquipment, 1);
+    }
+
     $this->state->characterDetailPanel->setDetails($this->character, $previewStats);
+  }
+
+  /**
+   * Applies or removes an equipment's parameter changes from a preview stat block.
+   *
+   * @param Stats $stats The stats to modify.
+   * @param Equipment $equipment The equipment whose parameters should be applied.
+   * @param int $direction Use `1` to add the equipment and `-1` to remove it.
+   * @return void
+   */
+  protected function applyEquipmentChanges(Stats $stats, Equipment $equipment, int $direction): void
+  {
+    $stats->attack += ($equipment->parameterChanges->attack ?? 0) * $direction;
+    $stats->defence += ($equipment->parameterChanges->defence ?? 0) * $direction;
+    $stats->magicAttack += ($equipment->parameterChanges->magicAttack ?? 0) * $direction;
+    $stats->magicDefence += ($equipment->parameterChanges->magicDefence ?? 0) * $direction;
+    $stats->speed += ($equipment->parameterChanges->speed ?? 0) * $direction;
+    $stats->grace += ($equipment->parameterChanges->grace ?? 0) * $direction;
+    $stats->evasion += ($equipment->parameterChanges->evasion ?? 0) * $direction;
+    $stats->totalHp += ($equipment->parameterChanges->totalHp ?? 0) * $direction;
+    $stats->totalMp += ($equipment->parameterChanges->totalMp ?? 0) * $direction;
+  }
+
+  /**
+   * Returns the currently available quantity for an equipment entry.
+   *
+   * @param Equipment $equipment The equipment entry.
+   * @return int The number of unequipped copies still available.
+   */
+  protected function getAvailableQuantity(Equipment $equipment): int
+  {
+    return $this->availableQuantities[$this->getEquipmentKey($equipment)] ?? 0;
+  }
+
+  /**
+   * Builds a stable key for availability lookups.
+   *
+   * @param Equipment $equipment The equipment to identify.
+   * @return string The lookup key.
+   */
+  protected function getEquipmentKey(Equipment $equipment): string
+  {
+    return $equipment::class . ':' . $equipment->name;
+  }
+
+  /**
+   * Determines whether the selected item matches what the slot already has equipped.
+   *
+   * @return bool True if selecting this item should toggle the slot off.
+   */
+  protected function isCurrentEquipmentSelected(): bool
+  {
+    return $this->equipmentMatches($this->activeEquipment, $this->equipmentSlot?->equipment);
+  }
+
+  /**
+   * Compares two equipment entries by type and name.
+   *
+   * Inventory equipment is stack-based, so matching by class and name is the
+   * most reliable way to determine whether two entries represent the same item.
+   *
+   * @param Equipment|null $first The first equipment entry.
+   * @param Equipment|null $second The second equipment entry.
+   * @return bool True if both entries represent the same equipment item.
+   */
+  protected function equipmentMatches(?Equipment $first, ?Equipment $second): bool
+  {
+    if (! $first instanceof Equipment || ! $second instanceof Equipment) {
+      return false;
+    }
+
+    return $first::class === $second::class && $first->name === $second->name;
   }
 }

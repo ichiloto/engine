@@ -8,6 +8,7 @@ use Ichiloto\Engine\Events\Interfaces\EventInterface;
 use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\Cursor;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
@@ -96,10 +97,11 @@ class Window implements WindowInterface
     $linesOfContent = $this->getLinesOfContent();
     foreach ($linesOfContent as $index => $line) {
       $this->cursor->moveTo($leftMargin, $topMargin + $index + 1);
+      $output = TerminalText::truncateToWidth($line, $this->width);
       if ($this->foregroundColor) {
-        $this->output->write($this->foregroundColor->value . mb_substr($line, 0, $this->width) . Color::RESET->value);
+        $this->output->write($this->foregroundColor->value . $output . Color::RESET->value);
       } else {
-        $this->output->write($line);
+        $this->output->write($output);
       }
     }
 
@@ -286,7 +288,7 @@ class Window implements WindowInterface
    */
   private function getTopBorder(): string
   {
-    $titleLength = mb_strlen($this->title);
+    $titleLength = TerminalText::displayWidth($this->title);
     $borderLength = $this->width - $titleLength  - 3;
     $output = $this->borderPack->getTopLeftCorner() . $this->borderPack->getHorizontalBorder() . $this->title;
     $output .= str_repeat($this->borderPack->getHorizontalBorder(), max($borderLength, 0));
@@ -342,7 +344,7 @@ class Window implements WindowInterface
    */
   private function getBottomBorder(): string
   {
-    $helpLength = mb_strlen($this->help);
+    $helpLength = TerminalText::displayWidth($this->help);
     $output = $this->borderPack->getBottomLeftCorner() . $this->borderPack->getHorizontalBorder() . $this->help;
     $output .= str_repeat($this->borderPack->getHorizontalBorder(), max($this->width - $helpLength - 3, 0));
     $output .= $this->borderPack->getBottomRightCorner();
@@ -358,14 +360,17 @@ class Window implements WindowInterface
   private function getLeftAlignedContent(): array
   {
     $leftAlignedContent = [];
+    $innerWidth = $this->width - 2;
 
     foreach ($this->content as $content) {
-      $contentLength = mb_strlen($content);
       $leftPaddingLength = $this->padding->getLeftPadding();
-      $rightPaddingLength = $this->width - $contentLength - $this->padding->getRightPadding() - 2;
+      $rightPaddingLength = $this->padding->getRightPadding();
+      $availableWidth = max(0, $innerWidth - $leftPaddingLength - $rightPaddingLength);
 
       $output = $this->borderPack->getVerticalBorder();
-      $output .= $this->padContent($content, $leftPaddingLength, $rightPaddingLength, $this->width - 2);
+      $output .= str_repeat(' ', $leftPaddingLength);
+      $output .= TerminalText::padRight($content, $availableWidth);
+      $output .= str_repeat(' ', $rightPaddingLength);
       $output .= $this->borderPack->getVerticalBorder();
 
       $leftAlignedContent[] = $output;
@@ -382,19 +387,17 @@ class Window implements WindowInterface
   private function getCenterAlignedContent(): array
   {
     $centerAlignedContent = [];
+    $innerWidth = $this->width - 2;
 
     foreach ($this->content as $content) {
-      $contentLength = mb_strlen($content);
-      $totalPadding = $this->width - $this->padding->getLeftPadding() - $contentLength - $this->padding->getRightPadding() - 2;
-      $leftPaddingLength = max(floor($totalPadding / 2), 0);
-      $rightPaddingLength = max(ceil($totalPadding / 2), 0);
+      $leftPaddingLength = $this->padding->getLeftPadding();
+      $rightPaddingLength = $this->padding->getRightPadding();
+      $availableWidth = max(0, $innerWidth - $leftPaddingLength - $rightPaddingLength);
 
       $output = $this->borderPack->getVerticalBorder();
-      $contentRender = str_repeat(' ', max($leftPaddingLength, 0));
-      $contentRender .= $content;
-      $contentRender .= str_repeat(' ', max($rightPaddingLength, 0));
-
-      $output .= str_pad($contentRender, $this->width - 2, ' ', STR_PAD_BOTH);
+      $output .= str_repeat(' ', max($leftPaddingLength, 0));
+      $output .= TerminalText::padCenter($content, $availableWidth);
+      $output .= str_repeat(' ', max($rightPaddingLength, 0));
       $output .= $this->borderPack->getVerticalBorder();
 
       $centerAlignedContent[] = $output;
@@ -411,15 +414,16 @@ class Window implements WindowInterface
   private function getRightAlignedContent(): array
   {
     $rightAlignedContent = [];
+    $innerWidth = $this->width - 2;
 
     foreach ($this->content as $content) {
-      $contentLength = mb_strlen($content);
-      $leftPaddingLength = $this->width - $contentLength - $this->padding->getLeftPadding() - 2;
-      $rightPaddingLength = $this->padding->getRightPadding(); // -1 for the border
+      $leftPaddingLength = $this->padding->getLeftPadding();
+      $rightPaddingLength = $this->padding->getRightPadding();
+      $availableWidth = max(0, $innerWidth - $leftPaddingLength - $rightPaddingLength);
 
       $output = $this->borderPack->getVerticalBorder();
       $output .= str_repeat(' ', max($leftPaddingLength, 0));
-      $output .= $content;
+      $output .= TerminalText::padLeft($content, $availableWidth);
       $output .= str_repeat(' ', max($rightPaddingLength, 0));
       $output .= $this->borderPack->getVerticalBorder();
 
@@ -467,23 +471,4 @@ class Window implements WindowInterface
     return $this->position;
   }
 
-  /**
-   * @param string $content
-   * @param int $leftPaddingLength
-   * @param int $rightPaddingLength
-   * @param int $maxLength
-   * @return string
-   */
-  private function padContent(string $content, int $leftPaddingLength, int $rightPaddingLength, int $maxLength = -1): string
-  {
-    $ansiRegex = '/\033\[[0-9;]*m/';
-    $strippedString = preg_replace($ansiRegex, '', $content);
-
-    $contentLength = mb_strlen($content) - 3;
-
-    $leftPadding = str_repeat(' ', max($leftPaddingLength, 0));
-    $rightPadding = str_repeat(' ', max($rightPaddingLength, 0));
-
-    return mb_substr($leftPadding . $content . $rightPadding, 0, max($contentLength, $maxLength));
-  }
 }

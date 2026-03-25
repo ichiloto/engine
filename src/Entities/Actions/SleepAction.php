@@ -59,8 +59,8 @@ class SleepAction extends FieldAction
       $sleepTime = config(ProjectConfig::class, 'inn.sleep_time', self::SLEEP_TIME);
       $sleepInterval = intval((clamp($sleepTime, 1, 10) * 1000000) / $sleepAnimationFrameCount);
 
-      $leftMargin = (get_screen_width() / 2) - 2;
-      $topMargin = (get_screen_height() / 2)  - 1;
+      $leftMargin = intdiv(get_screen_width(), 2) - 2;
+      $topMargin = intdiv(get_screen_height(), 2) - 1;
       for ($index = 0; $index < $sleepAnimationFrameCount; $index++) {
         Console::clear();
         Console::write($sleepFrames[$index], $leftMargin, $topMargin);
@@ -78,7 +78,7 @@ class SleepAction extends FieldAction
       $context->player->availableAction = null;
       $context->player->position->x = $this->trigger->spawnPoint->x;
       $context->player->position->y = $this->trigger->spawnPoint->y;
-      $context->player->sprite = $this->trigger->spawnSprite;
+      $context->player->setFacingSprite($this->trigger->spawnSprite);
       Console::clear();
       $context->scene->mapManager->render();
       $context->player->render();

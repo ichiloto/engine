@@ -55,6 +55,8 @@ class Turn
   {
     if (!$this->action) {
       $context->battleConfig->ui->alert('No action set for turn.');
+      $this->complete();
+      return;
     }
 
     $this->action->execute($this->battler, $this->targets);

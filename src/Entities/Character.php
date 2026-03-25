@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Entities;
 use Exception;
 use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Battle\BattleAction;
+use Ichiloto\Engine\Entities\Abilities\AbilityBook;
 use Ichiloto\Engine\Entities\Interfaces\CanEquip;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Inventory\Accessory;
@@ -14,6 +15,7 @@ use Ichiloto\Engine\Entities\Inventory\Inventory;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
+use Ichiloto\Engine\Entities\Magic\Spellbook;
 use Ichiloto\Engine\Entities\Roles\CharacterRole;
 use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
@@ -127,6 +129,7 @@ class Character implements CharacterInterface, CanEquip
     get {
       return [
         new AttackAction('Attack'),
+        new AttackAction('Skill'),
         new AttackAction('Magic'),
         new AttackAction('Summon'),
         new AttackAction('Item'),
@@ -137,6 +140,14 @@ class Character implements CharacterInterface, CanEquip
    * @var array The character's equipment.
    */
   protected(set) array $equipment = [];
+  /**
+   * @var AbilityBook The character's managed ability data.
+   */
+  protected(set) AbilityBook $abilityBook;
+  /**
+   * @var Spellbook The character's managed magic data.
+   */
+  protected(set) Spellbook $spellbook;
     /**
    * @var CharacterRole The character's role.
    */
@@ -194,6 +205,8 @@ class Character implements CharacterInterface, CanEquip
    * @param string $bio The character's biography.
    * @param string $note The character's note.
    * @param EquipmentSlot[] $equipment The character's equipment.
+   * @param AbilityBook|null $abilityBook The character's ability book.
+   * @param Spellbook|null $spellbook The character's spellbook.
    */
   public function __construct(
     protected(set) string $name,
@@ -205,12 +218,16 @@ class Character implements CharacterInterface, CanEquip
     protected(set) string $bio = '',
     protected(set) string $note = '',
     array $equipment = [],
-    ?CharacterRole $role = null
+    ?CharacterRole $role = null,
+    ?AbilityBook $abilityBook = null,
+    ?Spellbook $spellbook = null,
   )
   {
     $this->maxLevel = $maxLevel;
     $this->currentExp = $currentExp;
     $this->equipment = $equipment;
+    $this->abilityBook = $abilityBook ?? new AbilityBook();
+    $this->spellbook = $spellbook ?? new Spellbook();
     if (!$role) {
       $role = new CharacterRole($this, 'Hero');
     }
@@ -249,10 +266,26 @@ class Character implements CharacterInterface, CanEquip
   public static function fromArray(array $data): self
   {
     return new Character(
-        $data['name'] ?? throw new InvalidArgumentException('Character name is required.'),
-        $data['currentExp'] ?? throw new InvalidArgumentException('Current experience points are required.'),
-        Stats::fromArray($data['stats'] ?? throw new InvalidArgumentException('Character stats are required.')),
-        CharacterSprites::fromArray($data['images'] ?? [])
+      $data['name'] ?? throw new InvalidArgumentException('Character name is required.'),
+      $data['currentExp'] ?? throw new InvalidArgumentException('Current experience points are required.'),
+      Stats::fromArray($data['stats'] ?? throw new InvalidArgumentException('Character stats are required.')),
+      CharacterSprites::fromArray($data['images'] ?? []),
+      $data['nickname'] ?? '',
+      intval($data['maxLevel'] ?? self::DEFAULT_MAX_LEVEL),
+      strval($data['bio'] ?? $data['description'] ?? ''),
+      strval($data['note'] ?? ''),
+      is_array($data['equipment'] ?? null) ? $data['equipment'] : [],
+      (($data['role'] ?? null) instanceof CharacterRole) ? $data['role'] : null,
+      AbilityBook::fromArray(
+        is_array($data['abilities'] ?? null)
+          ? $data['abilities']
+          : (is_array($data['abilityBook'] ?? null) ? $data['abilityBook'] : [])
+      ),
+      Spellbook::fromArray(
+        is_array($data['magic'] ?? null)
+          ? $data['magic']
+          : (is_array($data['spellbook'] ?? null) ? $data['spellbook'] : [])
+      ),
     );
   }
 
@@ -260,13 +293,8 @@ class Character implements CharacterInterface, CanEquip
    * @inheritDoc
    * @throws Exception If an error occurs while alerting the user.
    */
-  public function equip(?Equipment $equipment): void
+  public function equip(Equipment $equipment): void
   {
-    if (is_null($equipment)) {
-      alert('No equipment to equip.');
-      return;
-    }
-
     if (! $this->canEquip($equipment) ) {
       alert(sprintf('%s cannot be equipped.', $equipment->name));
       return;
@@ -274,11 +302,36 @@ class Character implements CharacterInterface, CanEquip
 
     foreach ($this->equipment as $slot) {
       if ($slot->acceptsType === $equipment::class) {
-        $slot->equipment = $equipment;
-        $this->adjustStatTotals($equipment);
-        alert(sprintf("Equipped %s on %s", $equipment->name, $this->name));
+        $this->equipInSlot($slot, $equipment);
         return;
       }
+    }
+  }
+
+  /**
+   * Equips an item into a specific slot.
+   *
+   * @param EquipmentSlot $slot The slot to equip into.
+   * @param Equipment $equipment The equipment to place in the slot.
+   * @return void
+   * @throws Exception If the equipment cannot be equipped.
+   */
+  public function equipInSlot(EquipmentSlot $slot, Equipment $equipment): void
+  {
+    if (! $this->canEquip($equipment) || $slot->acceptsType !== $equipment::class) {
+      alert(sprintf('%s cannot be equipped.', $equipment->name));
+      return;
+    }
+
+    foreach ($this->equipment as $equipmentSlot) {
+      if ($equipmentSlot->name !== $slot->name) {
+        continue;
+      }
+
+      $equipmentSlot->equipment = $equipment;
+      $this->adjustStatTotals();
+      alert(sprintf("Equipped %s on %s", $equipment->name, $this->name));
+      return;
     }
   }
 
@@ -290,7 +343,7 @@ class Character implements CharacterInterface, CanEquip
     foreach ($this->equipment as $equipmentSlot) {
       if ($equipmentSlot->name === $slot->name) {
         $equipmentSlot->equipment = null;
-        $this->adjustStatTotals($equipmentSlot->equipment);
+        $this->adjustStatTotals();
         return;
       }
     }
@@ -403,16 +456,16 @@ class Character implements CharacterInterface, CanEquip
 
       $equipmentSlot->equipment = $optimalEquipment;
     }
+    $this->adjustStatTotals();
     alert('Equipment optimized!');
   }
 
   /**
    * Adjusts the character's stat totals after equipping an item.
    *
-   * @param Equipment|null $equipment The equipment being equipped.
    * @return void
    */
-  protected function adjustStatTotals(?Equipment $equipment = null): void
+  protected function adjustStatTotals(): void
   {
     $this->stats->totalHp      = $this->totalHpCurve[$this->level] ?? 0;
     $this->stats->totalMp      = $this->totalMpCurve[$this->level] ?? 0;
@@ -424,17 +477,10 @@ class Character implements CharacterInterface, CanEquip
     $this->stats->grace        = $this->graceCurve[$this->level] ?? 0;
     $this->stats->speed        = $this->speedCurve[$this->level] ?? 0;
 
-    if ($equipment) {
-      $this->stats->totalHp       += ($equipment->parameterChanges->totalHp ?? 0);
-      $this->stats->totalMp       += ($equipment->parameterChanges->totalMp ?? 0);
-      $this->stats->attack        += ($equipment->parameterChanges->attack ?? 0);
-      $this->stats->defence       += ($equipment->parameterChanges->defence ?? 0);
-      $this->stats->magicAttack   += ($equipment->parameterChanges->magicAttack ?? 0);
-      $this->stats->magicDefence  += ($equipment->parameterChanges->magicDefence ?? 0);
-      $this->stats->evasion       += ($equipment->parameterChanges->evasion ?? 0);
-      $this->stats->grace         += ($equipment->parameterChanges->grace ?? 0);
-      $this->stats->speed         += ($equipment->parameterChanges->speed ?? 0);
-    }
+    // Re-apply the clamps after a level or equipment refresh.
+    $this->stats->currentHp = $this->stats->currentHp;
+    $this->stats->currentMp = $this->stats->currentMp;
+    $this->stats->currentAp = $this->stats->currentAp;
   }
 
   /**
@@ -479,6 +525,20 @@ class Character implements CharacterInterface, CanEquip
   protected function bindDataToProperties(array $data): void
   {
     foreach ($data as $key => $value) {
+      if ($key === 'abilities' || $key === 'abilityBook') {
+        $this->abilityBook = is_array($value)
+          ? AbilityBook::fromArray($value)
+          : ($value instanceof AbilityBook ? $value : new AbilityBook());
+        continue;
+      }
+
+      if ($key === 'magic' || $key === 'spellbook') {
+        $this->spellbook = is_array($value)
+          ? Spellbook::fromArray($value)
+          : ($value instanceof Spellbook ? $value : new Spellbook());
+        continue;
+      }
+
       if (property_exists($this, $key)) {
         $this->{$key} = match($key) {
           'images' => is_array($value) ? CharacterSprites::fromArray($value) : $value,
@@ -504,7 +564,9 @@ class Character implements CharacterInterface, CanEquip
       'bio' => $this->bio,
       'note' => $this->note,
       'equipment' => $this->equipment,
-      'role' => $this->role
+      'role' => $this->role,
+      'abilities' => $this->abilityBook->toArray(),
+      'magic' => $this->spellbook->toArray(),
     ];
   }
 

@@ -58,13 +58,19 @@ final class Cursor
   /**
    * Moves the cursor to the specified coordinates.
    *
-   * @param int $x The x coordinate.
-   * @param int $y The y coordinate.
+   * Sub-cell values are floored so centered layout calculations can safely
+   * pass intermediate float positions without crashing the terminal renderer.
+   *
+   * @param int|float $x The x coordinate.
+   * @param int|float $y The y coordinate.
    * @return void
    * @throws InvalidArgumentException Thrown if the x or y coordinate is less than 0.
    */
-  public function moveTo(int $x, int $y): void
+  public function moveTo(int|float $x, int|float $y): void
   {
+    $x = (int)floor($x);
+    $y = (int)floor($y);
+
     if ($x < 0 || $y < 0) {
       throw new InvalidArgumentException('The x and y coordinates must be greater than or equal to 0.');
     }

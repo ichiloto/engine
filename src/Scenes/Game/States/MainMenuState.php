@@ -2,7 +2,6 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
-use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Core\Menu\Commands\MenuCommandExecutionContext;
 use Ichiloto\Engine\Core\Menu\Commands\OpenAbilityMenuCommand;
@@ -16,27 +15,24 @@ use Ichiloto\Engine\Core\Menu\Commands\OpenSaveMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenStatusMenuCommand;
 use Ichiloto\Engine\Core\Menu\Interfaces\MainMenuModeInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
-use Ichiloto\Engine\Core\Menu\Interfaces\MenuItemInterface;
 use Ichiloto\Engine\Core\Menu\MainMenu\CharacterSelectionMenu;
 use Ichiloto\Engine\Core\Menu\MainMenu\MainMenu;
+use Ichiloto\Engine\Core\Menu\MainMenu\MainMenuSettingsManager;
 use Ichiloto\Engine\Core\Menu\MainMenu\Modes\MainMenuCommandSelectionMode;
 use Ichiloto\Engine\Core\Menu\MainMenu\Windows\AccountBalancePanel;
+use Ichiloto\Engine\Core\Menu\MainMenu\Windows\ConfigDetailPanel;
+use Ichiloto\Engine\Core\Menu\MainMenu\Windows\ConfigSelectionWindow;
 use Ichiloto\Engine\Core\Menu\MainMenu\Windows\InfoPanel;
 use Ichiloto\Engine\Core\Menu\MainMenu\Windows\LocationDetailPanel;
 use Ichiloto\Engine\Core\Menu\MainMenu\Windows\PlayTimePanel;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\Vector2;
-use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\IO\Console\Console;
-use Ichiloto\Engine\IO\Enumerations\KeyCode;
-use Ichiloto\Engine\IO\Input;
-use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
-use Ichiloto\Engine\Util\Debug;
 use Symfony\Component\Console\Output\ConsoleOutput;
 
 /**
@@ -52,257 +48,358 @@ use Symfony\Component\Console\Output\ConsoleOutput;
  */
 class MainMenuState extends GameSceneState implements CanRender
 {
-  /**
-   * The width of the main menu.
-   */
-  protected const int MAIN_MENU_WIDTH = 110;
-  /**
-   * The height of the main menu.
-   */
-  protected const int MAIN_MENU_HEIGHT = 35;
-  /**
-   * The width of the menu options.
-   */
-  protected const int MENU_OPTIONS_WIDTH = 30;
-  /**
-   * The height of the menu options.
-   */
-  protected const int MENU_OPTIONS_HEIGHT = 22;
-  /**
-   * @var InfoPanel|null The info panel.
-   */
-  protected(set) ?InfoPanel $infoPanel = null;
-  /**
-   * @var MenuInterface|null The menu.
-   */
-  protected(set) ?MenuInterface $menu = null;
-  /**
-   * @var MainMenu|null The main menu.
-   */
-  protected(set) ?MainMenu $mainMenu = null;
-  /**
-   * @var CharacterSelectionMenu|null The character selection menu.
-   */
-  protected(set) ?CharacterSelectionMenu $characterSelectionMenu = null;
-  /**
-   * @var PlayTimePanel|null The play time panel.
-   */
-  protected ?PlayTimePanel $playTimePanel = null;
-  /**
-   * @var AccountBalancePanel|null The account balance panel.
-   */
-  protected ?Window $accountBalancePanel = null;
-  /**
-   * @var LocationDetailPanel|null The location detail panel.
-   */
-  protected ?LocationDetailPanel $locationDetailPanel = null;
-  /**
-   * @var Window|null The party status panel.
-   */
-  protected ?Window $partyStatusPanel = null;
-  /**
-   * @var int The left margin of the main menu.
-   */
-  protected int $leftMargin = 0;
-  /**
-   * @var int The right margin of the main menu.
-   */
-  protected int $topMargin = 0;
-  /**
-   * @var BorderPackInterface|null The border pack.
-   */
-  protected ?BorderPackInterface $borderPack = null;
-  /**
-   * @var float The next time to update the play time.
-   */
-  protected float $nextTimeUpdate = 0;
-  /**
-   * @var float The update interval.
-   */
-  protected float $updateInterval = 60; // 60 seconds.
-  /**
-   * @var MainMenuModeInterface|null The mode of the main menu.
-   */
-  protected ?MainMenuModeInterface $mode = null;
-  /**
-   * @var bool Whether the game can be saved.
-   */
-  protected bool $canSave {
-    get {
-      return $this->getGameScene()->mapManager?->canSave;
-    }
-  }
-  /**
-   * @var MenuCommandExecutionContext|null The main menu context.
-   */
-  protected(set) ?MenuCommandExecutionContext $mainMenuContext = null;
-  /**
-   * @var int The starting index.
-   */
-  public int $startingIndex = 0;
-
-  /**
-   * @inheritDoc
-   */
-  public function enter(): void
-  {
-    Console::clear();
-    $this->getGameScene()->locationHUDWindow->deactivate();
-    $this->calculateMargins();
-    $this->initializeMenuUI();
-    $this->mainMenuContext = new MenuCommandExecutionContext(
-      [
-        'state' => $this,
-        'mode' => $this->mode
-      ],
-      new ConsoleOutput(),
-      $this->mainMenu,
-      $this->getGameScene()
-    );
-    $this->setMode(new MainMenuCommandSelectionMode($this));
-  }
-
-  /**
-   * @inheritDoc
-   * @param SceneStateContext|null $context
-   */
-  public function execute(?SceneStateContext $context = null): void
-  {
-    if (Time::getTime() > $this->nextTimeUpdate) {
-      $this->playTimePanel->updateTimeDisplay();
-      $this->nextTimeUpdate = Time::getTime() + $this->updateInterval;
+    /**
+     * The width of the main menu.
+     */
+    protected const int MAIN_MENU_WIDTH = 110;
+    /**
+     * The height of the main menu.
+     */
+    protected const int MAIN_MENU_HEIGHT = 35;
+    /**
+     * The width of the menu options.
+     */
+    protected const int MENU_OPTIONS_WIDTH = 30;
+    /**
+     * The height of the menu options.
+     */
+    protected const int MENU_OPTIONS_HEIGHT = 22;
+    /**
+     * The height of the config description panel.
+     */
+    protected const int CONFIG_DESCRIPTION_HEIGHT = 5;
+    /**
+     * @var InfoPanel|null The info panel.
+     */
+    protected(set) ?InfoPanel $infoPanel = null;
+    /**
+     * @var MenuInterface|null The menu.
+     */
+    protected(set) ?MenuInterface $menu = null;
+    /**
+     * @var MainMenu|null The main menu.
+     */
+    protected(set) ?MainMenu $mainMenu = null;
+    /**
+     * @var CharacterSelectionMenu|null The character selection menu.
+     */
+    protected(set) ?CharacterSelectionMenu $characterSelectionMenu = null;
+    /**
+     * @var ConfigSelectionWindow|null The config settings list window.
+     */
+    protected(set) ?ConfigSelectionWindow $configSelectionWindow = null;
+    /**
+     * @var ConfigDetailPanel|null The config setting detail window.
+     */
+    protected(set) ?ConfigDetailPanel $configDetailPanel = null;
+    /**
+     * @var MainMenuSettingsManager|null Resolves and persists config menu settings.
+     */
+    protected(set) ?MainMenuSettingsManager $settingsManager = null;
+    /**
+     * @var MenuCommandExecutionContext|null The main menu context.
+     */
+    protected(set) ?MenuCommandExecutionContext $mainMenuContext = null;
+    /**
+     * @var int The starting index.
+     */
+    public int $startingIndex = 0;
+    /**
+     * @var PlayTimePanel|null The play time panel.
+     */
+    protected ?PlayTimePanel $playTimePanel = null;
+    /**
+     * @var AccountBalancePanel|null The account balance panel.
+     */
+    protected ?Window $accountBalancePanel = null;
+    /**
+     * @var LocationDetailPanel|null The location detail panel.
+     */
+    protected ?LocationDetailPanel $locationDetailPanel = null;
+    /**
+     * @var Window|null The party status panel.
+     */
+    protected ?Window $partyStatusPanel = null;
+    /**
+     * @var bool Whether the play time and footer panels are currently visible.
+     */
+    protected bool $supplementalPanelsVisible = true;
+    /**
+     * @var int The left margin of the main menu.
+     */
+    protected int $leftMargin = 0;
+    /**
+     * @var int The right margin of the main menu.
+     */
+    protected int $topMargin = 0;
+        /**
+     * @var BorderPackInterface|null The border pack.
+     */
+    protected ?BorderPackInterface $borderPack = null; // 60 seconds.
+    /**
+     * @var float The next time to update the play time.
+     */
+    protected float $nextTimeUpdate = 0;
+/**
+     * @var float The update interval.
+     */
+    protected float $updateInterval = 60;
+    /**
+     * @var MainMenuModeInterface|null The mode of the main menu.
+     */
+    protected ?MainMenuModeInterface $mode = null;
+    /**
+     * @var bool Whether the game can be saved.
+     */
+    protected bool $canSave {
+        get {
+            return $this->getGameScene()->mapManager?->canSave;
+        }
     }
 
-    $this->mode->update();
-  }
-
-  /**
-   * Initializes the main menu UI.
-   *
-   * @return void
-   */
-  protected function initializeMenuUI(): void
-  {
-    $this->borderPack = new DefaultBorderPack();
-
-    $this->mainMenu = new MainMenu(
-      $this->context->getScene(),
-      '',
-      '',
-      rect: new Rect(
-        $this->leftMargin,
-        $this->topMargin + 3,
-        self::MENU_OPTIONS_WIDTH,
-        self::MENU_OPTIONS_HEIGHT
-      ),
-      borderPack: $this->borderPack
-    );
-    $this->mainMenu
-      ->addItem(new OpenItemsMenuCommand($this->mainMenu))
-      ->addItem(new OpenAbilityMenuCommand($this->mainMenu))
-      ->addItem(new OpenEquipmentMenuCommand($this->mainMenu))
-      ->addItem(new OpenMagicMenuCommand($this->mainMenu))
-      ->addItem(new OpenStatusMenuCommand($this->mainMenu))
-      ->addItem(new OpenPartyOrderCommand($this->mainMenu))
-      ->addItem(new OpenConfigMenuCommand($this->mainMenu));
-
-    if ($this->canSave) {
-      $this->mainMenu->addItem(new OpenSaveMenuCommand($this->mainMenu));
+    /**
+     * @inheritDoc
+     */
+    public function enter(): void
+    {
+        Console::clear();
+        $this->getGameScene()->locationHUDWindow->deactivate();
+        $this->calculateMargins();
+        $this->initializeMenuUI();
+        $this->mainMenuContext = new MenuCommandExecutionContext(
+            [
+                'state' => $this,
+                'mode' => $this->mode
+            ],
+            new ConsoleOutput(),
+            $this->mainMenu,
+            $this->getGameScene()
+        );
+        $this->setMode(new MainMenuCommandSelectionMode($this));
     }
-    $this->mainMenu->addItem(new OpenQuitMenuCommand($this->mainMenu));
-    $this->mainMenu->updateWindowContent();
 
-    $infoPanelPosition = new Vector2($this->leftMargin, $this->topMargin);
-    $this->infoPanel = new InfoPanel($infoPanelPosition, $this->borderPack);
-    $this->infoPanel->setText($this->mainMenu->getActiveItem()->getDescription());
+    /**
+     * @return void
+     */
+    protected function calculateMargins(): void
+    {
+        $this->leftMargin = max(0, intdiv(get_screen_width() - self::MAIN_MENU_WIDTH, 2));
+        $this->topMargin = max(0, intdiv(get_screen_height() - self::MAIN_MENU_HEIGHT, 2));
+    }
 
-    $playTimePanelPosition = new Vector2($this->leftMargin, $this->topMargin + 25);
-    $this->playTimePanel = new PlayTimePanel($playTimePanelPosition, $this->borderPack);
-    $this->playTimePanel->updateTimeDisplay();
+    /**
+     * Initializes the main menu UI.
+     *
+     * @return void
+     */
+    protected function initializeMenuUI(): void
+    {
+        $this->borderPack = new DefaultBorderPack();
+        $this->settingsManager = new MainMenuSettingsManager();
 
-    $accountBalancePosition = new Vector2($this->leftMargin, $this->topMargin + 28);
-    $this->accountBalancePanel = new AccountBalancePanel($accountBalancePosition, $this->borderPack);
-    $this->accountBalancePanel->setAmount($this->getGameScene()->party->accountBalance);
+        $this->mainMenu = new MainMenu(
+            $this->context->getScene(),
+            '',
+            '',
+            rect: new Rect(
+                $this->leftMargin,
+                $this->topMargin + 3,
+                self::MENU_OPTIONS_WIDTH,
+                self::MENU_OPTIONS_HEIGHT
+            ),
+            borderPack: $this->borderPack
+        );
+        $this->mainMenu
+            ->addItem(new OpenItemsMenuCommand($this->mainMenu))
+            ->addItem(new OpenAbilityMenuCommand($this->mainMenu))
+            ->addItem(new OpenEquipmentMenuCommand($this->mainMenu))
+            ->addItem(new OpenMagicMenuCommand($this->mainMenu))
+            ->addItem(new OpenStatusMenuCommand($this->mainMenu))
+            ->addItem(new OpenPartyOrderCommand($this->mainMenu))
+            ->addItem(new OpenConfigMenuCommand($this->mainMenu));
 
-    $partyLocation = $this->getGameScene()->party->location;
-    $locationDetailPosition = new Vector2($this->leftMargin, $this->topMargin + 31);
-    $this->locationDetailPanel = new LocationDetailPanel($locationDetailPosition, $this->borderPack);
-    $this->locationDetailPanel->setLocation($partyLocation?->name, $partyLocation?->region);
+        if ($this->canSave) {
+            $this->mainMenu->addItem(new OpenSaveMenuCommand($this->mainMenu));
+        }
+        $this->mainMenu->addItem(new OpenQuitMenuCommand($this->mainMenu));
+        $this->mainMenu->updateWindowContent();
 
-    $this->characterSelectionMenu = new CharacterSelectionMenu(
-      $this->context->getScene(),
-      '',
-      '',
-      rect: new Rect(
-        $this->leftMargin + self::MENU_OPTIONS_WIDTH,
-        $this->topMargin + 3,
-        self::MAIN_MENU_WIDTH - self::MENU_OPTIONS_WIDTH,
-        self::MAIN_MENU_HEIGHT - 3
-      ),
-      borderPack: $this->borderPack
-    );
-    $this->characterSelectionMenu->render();
-  }
+        $infoPanelPosition = new Vector2($this->leftMargin, $this->topMargin);
+        $this->infoPanel = new InfoPanel($infoPanelPosition, $this->borderPack);
+        $this->infoPanel->setText($this->mainMenu->getActiveItem()->getDescription());
 
-  /**
-   * @return void
-   */
-  protected function calculateMargins(): void
-  {
-    $this->leftMargin = (get_screen_width() - self::MAIN_MENU_WIDTH) / 2;
-    $this->topMargin = 0;
-  }
+        $playTimePanelPosition = new Vector2($this->leftMargin, $this->topMargin + 25);
+        $this->playTimePanel = new PlayTimePanel($playTimePanelPosition, $this->borderPack);
+        $this->playTimePanel->updateTimeDisplay();
 
-  /**
-   * Sets the mode of the main menu.
-   *
-   * @param MainMenuModeInterface $mode The main menu mode.
-   * @return void
-   */
-  public function setMode(MainMenuModeInterface $mode): void
-  {
-    $this->mode?->exit();
-    $this->mode = $mode;
-    $this->mode->enter();
-  }
+        $accountBalancePosition = new Vector2($this->leftMargin, $this->topMargin + 28);
+        $this->accountBalancePanel = new AccountBalancePanel($accountBalancePosition, $this->borderPack);
+        $this->accountBalancePanel->setAmount($this->getGameScene()->party->accountBalance);
 
-  /**
-   * @inheritDoc
-   */
-  public function resume(): void
-  {
-    $this->getGameScene()->locationHUDWindow->deactivate();
-    $this->infoPanel->render();
-    $this->mainMenu->render();
-    $this->characterSelectionMenu->render();
-  }
+        $partyLocation = $this->getGameScene()->party->location;
+        $locationDetailPosition = new Vector2($this->leftMargin, $this->topMargin + 31);
+        $this->locationDetailPanel = new LocationDetailPanel($locationDetailPosition, $this->borderPack);
+        $this->locationDetailPanel->setLocation($partyLocation?->name, $partyLocation?->region);
 
-  /**
-   * @inheritDoc
-   */
-  public function suspend(): void
-  {
-    $this->exit();
-  }
+        $this->characterSelectionMenu = new CharacterSelectionMenu(
+            $this->context->getScene(),
+            '',
+            '',
+            rect: new Rect(
+                $this->leftMargin + self::MENU_OPTIONS_WIDTH,
+                $this->topMargin + 3,
+                self::MAIN_MENU_WIDTH - self::MENU_OPTIONS_WIDTH,
+                self::MAIN_MENU_HEIGHT - 3
+            ),
+            borderPack: $this->borderPack
+        );
+        $this->characterSelectionMenu->render();
 
-  /**
-   * @inheritDoc
-   */
-  public function render(): void
-  {
-    $this->infoPanel->render();
-    $this->playTimePanel->render();
-    $this->accountBalancePanel->render();
-    $this->locationDetailPanel->render();
-    $this->mainMenu->render();
-    $this->characterSelectionMenu->render();
-  }
+        $this->configSelectionWindow = new ConfigSelectionWindow(
+            new Rect(
+                $this->leftMargin,
+                $this->topMargin + 3,
+                self::MAIN_MENU_WIDTH,
+                self::MAIN_MENU_HEIGHT - 3 - self::CONFIG_DESCRIPTION_HEIGHT
+            ),
+            $this->settingsManager,
+            $this->borderPack
+        );
 
-  /**
-   * @inheritDoc
-   */
-  public function erase(): void
-  {
-    Console::clear();
-  }
+        $this->configDetailPanel = new ConfigDetailPanel(
+            new Rect(
+                $this->leftMargin,
+                $this->topMargin + self::MAIN_MENU_HEIGHT - self::CONFIG_DESCRIPTION_HEIGHT,
+                self::MAIN_MENU_WIDTH,
+                self::CONFIG_DESCRIPTION_HEIGHT
+            ),
+            $this->borderPack
+        );
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function render(): void
+    {
+        $this->infoPanel?->render();
+
+        if ($this->supplementalPanelsVisible) {
+            $this->renderSummaryPanels();
+            $this->mainMenu->render();
+            $this->characterSelectionMenu->render();
+            return;
+        }
+
+        $this->renderConfigPanels();
+    }
+
+    /**
+     * Renders the summary panels used by the default main menu layout.
+     *
+     * @return void
+     */
+    public function renderSummaryPanels(): void
+    {
+        $this->playTimePanel?->render();
+        $this->accountBalancePanel?->render();
+        $this->locationDetailPanel?->render();
+        $this->supplementalPanelsVisible = true;
+    }
+
+    /**
+     * Sets the mode of the main menu.
+     *
+     * @param MainMenuModeInterface $mode The main menu mode.
+     * @return void
+     */
+    public function setMode(MainMenuModeInterface $mode): void
+    {
+        $this->mode?->exit();
+        $this->mode = $mode;
+        $this->mode->enter();
+    }
+
+    /**
+     * @inheritDoc
+     * @param SceneStateContext|null $context
+     */
+    public function execute(?SceneStateContext $context = null): void
+    {
+        if ($this->supplementalPanelsVisible && Time::getTime() > $this->nextTimeUpdate) {
+            $this->playTimePanel->updateTimeDisplay();
+            $this->nextTimeUpdate = Time::getTime() + $this->updateInterval;
+        }
+
+        $this->mode->update();
+    }
+
+    /**
+     * Erases the summary panels used by the default main menu layout.
+     *
+     * @return void
+     */
+    public function eraseSummaryPanels(): void
+    {
+        $this->playTimePanel?->erase();
+        $this->accountBalancePanel?->erase();
+        $this->locationDetailPanel?->erase();
+        $this->supplementalPanelsVisible = false;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function erase(): void
+    {
+        Console::clear();
+    }
+
+    /**
+     * Renders the static windows used by the config layout.
+     *
+     * @return void
+     */
+    public function renderConfigPanels(): void
+    {
+        $this->configSelectionWindow?->render();
+        $this->configDetailPanel?->render();
+    }
+
+    /**
+     * Erases the windows used by the config layout.
+     *
+     * @return void
+     */
+    public function eraseConfigPanels(): void
+    {
+        $this->configSelectionWindow?->erase();
+        $this->configDetailPanel?->erase();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function resume(): void
+    {
+        $this->getGameScene()->locationHUDWindow->deactivate();
+        $this->infoPanel?->render();
+
+        if ($this->supplementalPanelsVisible) {
+            $this->renderSummaryPanels();
+            $this->mainMenu->render();
+            $this->characterSelectionMenu->render();
+            return;
+        }
+
+        $this->renderConfigPanels();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function suspend(): void
+    {
+        $this->exit();
+    }
 }

@@ -18,11 +18,9 @@ use Ichiloto\Engine\Core\Menu\MenuItem;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\IO\Console\Console;
-use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
-use Ichiloto\Engine\Util\Debug;
 
 /**
  * Represents the equipment menu state.
@@ -130,6 +128,10 @@ class EquipmentMenuState extends GameSceneState
    */
   public function execute(?SceneStateContext $context = null): void
   {
+    if ($this->handleCharacterCycling()) {
+      return;
+    }
+
     $this->mode->update();
   }
 
@@ -140,6 +142,7 @@ class EquipmentMenuState extends GameSceneState
   {
     Console::clear();
     $this->getGameScene()->locationHUDWindow->deactivate();
+    $this->character ??= $this->getGameScene()->party->leader;
     $this->calculateMargins();
     $this->initializeMenuUI();
     $this->setMode(new EquipmentMenuCommandSelectionMode($this));
@@ -160,8 +163,8 @@ class EquipmentMenuState extends GameSceneState
    */
   protected function calculateMargins(): void
   {
-    $this->leftMargin = (get_screen_width() - self::EQUIPMENT_MENU_WIDTH) / 2;
-    $this->topMargin = 0;
+    $this->leftMargin = max(0, intdiv(get_screen_width() - self::EQUIPMENT_MENU_WIDTH, 2));
+    $this->topMargin = max(0, intdiv(get_screen_height() - self::EQUIPMENT_MENU_HEIGHT, 2));
   }
 
   /**
@@ -289,6 +292,7 @@ class EquipmentMenuState extends GameSceneState
       new Rect($this->leftMargin, $this->topMargin + self::EQUIPMENT_COMMAND_PANEL_HEIGHT + self::EQUIPMENT_ASSIGNMENT_PANEL_HEIGHT, self::EQUIPMENT_INFO_PANEL_WIDTH, self::EQUIPMENT_INFO_PANEL_HEIGHT),
       $this->borderPack
     );
+    $this->equipmentInfoPanel->setHelp('tab:Next s-tab:Prev esc:Back');
     $this->renderUI();
   }
 
@@ -357,5 +361,53 @@ class EquipmentMenuState extends GameSceneState
     $this->equipmentCommandPanel->render();
     $this->equipmentInfoPanel->render();
     $this->equipmentAssignmentPanel->setSlots($this->character?->equipment ?? []);
+  }
+
+  /**
+   * Handles character cycling shortcuts for single-character equipment screens.
+   *
+   * Cycling characters always resets the equipment screen back to command
+   * selection so the newly selected actor starts from a predictable state.
+   *
+   * @return bool True if the active character changed.
+   */
+  protected function handleCharacterCycling(): bool
+  {
+    if ($this->isNextCharacterRequested()) {
+      $this->selectCharacterByOffset(1);
+      return true;
+    }
+
+    if ($this->isPreviousCharacterRequested()) {
+      $this->selectCharacterByOffset(-1);
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Selects a different party member and refreshes the equipment screen.
+   *
+   * @param int $offset The relative direction to move through the party.
+   * @return void
+   */
+  protected function selectCharacterByOffset(int $offset): void
+  {
+    $characters = $this->getGameScene()->party->members->toArray();
+    $totalCharacters = count($characters);
+
+    if ($totalCharacters < 2) {
+      return;
+    }
+
+    $currentIndex = array_search($this->character, $characters, true);
+    $currentIndex = ($currentIndex === false) ? 0 : $currentIndex;
+    $nextIndex = wrap($currentIndex + $offset, 0, $totalCharacters - 1);
+    $this->character = $characters[$nextIndex];
+
+    $this->setMode(new EquipmentMenuCommandSelectionMode($this));
+    $this->characterDetailPanel->setDetails($this->character);
+    $this->equipmentAssignmentPanel->setSlots($this->character->equipment);
   }
 }

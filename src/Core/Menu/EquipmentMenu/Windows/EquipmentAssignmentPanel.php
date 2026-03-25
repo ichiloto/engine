@@ -6,6 +6,7 @@ use Ichiloto\Engine\Core\Area;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Entities\EquipmentSlot;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
 
@@ -83,7 +84,9 @@ class EquipmentAssignmentPanel extends Window
 
     foreach ($this->slots as $index => $slot) {
       $prefix = $index === $this->activeSlotIndex ? '>' : ' ';
-      $content[] = sprintf(" %s %-20s %s", $prefix, "{$slot->name}:", "{$slot->equipment?->icon} {$slot->equipment?->name}");
+      $slotName = TerminalText::padRight("{$slot->name}:", 20);
+      $equippedItem = trim("{$slot->equipment?->icon} {$slot->equipment?->name}");
+      $content[] = " {$prefix} {$slotName} {$equippedItem}";
     }
 
     $content = array_pad($content, $this->height - 2, '');

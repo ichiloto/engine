@@ -5,6 +5,8 @@ namespace Ichiloto\Engine\Core\Menu\ShopMenu\Windows;
 use Ichiloto\Engine\Core\Menu\ShopMenu\ShopMenu;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
+use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
@@ -106,11 +108,20 @@ class ShopMainPanel extends Window
   {
     $content = [];
     $symbol = config(ProjectConfig::class, 'vocab.currency.symbol', 'F');
+    $contentWidth = max(0, $this->width - 4);
 
     foreach ($this->items as $index => $item) {
       $prefix = $index === $this->activeItemIndex ? '>' : ' ';
       $price = $item->price * $this->priceRate;
-      $content[] = sprintf(" %s %-36s %10s", $prefix, $item->name, "{$price} {$symbol}");
+      $itemName = TerminalText::padRight($item->name, 36);
+      $priceText = TerminalText::padLeft("{$price} {$symbol}", 10);
+      $line = TerminalText::padRight(" {$prefix} {$itemName} {$priceText}", $contentWidth);
+
+      if ($index === $this->activeItemIndex) {
+        $line = SelectionStyle::apply($line);
+      }
+
+      $content[] = $line;
     }
 
     $content = array_pad($content, $this->contentHeight, '');

@@ -2,16 +2,22 @@
 
 namespace Ichiloto\Engine\Core\Menu\Commands;
 
-use Assegai\Util\Path;
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\MenuItem;
 use Ichiloto\Engine\Exceptions\NotFoundException;
+use Ichiloto\Engine\IO\SaveManager;
 use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Scenes\GameOver\GameOverScene;
+use Ichiloto\Engine\Scenes\Title\TitleScene;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
-use Ichiloto\Engine\Util\Debug;
 
+/**
+ * Opens or executes the most relevant continue flow for the current scene.
+ *
+ * @package Ichiloto\Engine\Core\Menu\Commands
+ */
 class ContinueGameCommand extends MenuItem
 {
   /**
@@ -26,8 +32,11 @@ class ContinueGameCommand extends MenuItem
   )
   {
     $label = config(ProjectConfig::class, 'vocab.game.continue') ?? 'Continue';
-    parent::__construct($menu, $label, 'Continue the game.', '');
-    $this->disabled = true;
+    parent::__construct($menu, $label, 'Continue from a save file.', '');
+
+    if (! SaveManager::getInstance($menu->getScene()->getGame())->hasSaveFiles(true)) {
+      $this->disable();
+    }
   }
 
   /**
@@ -36,24 +45,37 @@ class ContinueGameCommand extends MenuItem
    */
   public function execute(?ExecutionContextInterface $context = null): int
   {
-    if (! $context instanceof MenuCommandExecutionContext ) {
+    if ($this->isDisabled()) {
+      return self::FAILURE;
+    }
+
+    if (! $context instanceof MenuCommandExecutionContext) {
       throw new NotFoundException('The context is not a menu command execution context.');
     }
-    $sceneManager = $context->sceneManager;
-    $currentScene = $sceneManager->loadScene(GameScene::class)->currentScene;
 
-    if (! $currentScene instanceof GameScene ) {
+    if ($context->scene instanceof TitleScene) {
+      $context->scene->openContinueMenu();
+      return self::SUCCESS;
+    }
+
+    $savedGameFilePath = $context->sceneManager->saveManager->getLatestSaveFile(true);
+
+    if ($savedGameFilePath === null) {
+      $this->disable();
+      return self::FAILURE;
+    }
+
+    $currentScene = $context->sceneManager->loadScene(GameScene::class)->currentScene;
+
+    if (! $currentScene instanceof GameScene) {
       throw new NotFoundException('The current scene is not a game scene.');
     }
 
-    // TODO: Fetch the saved game file path from the game loader.
-    $savedGameFilePath = '';
-    foreach ($saveFiles = $sceneManager->saveManager->getSaveFiles(true) as $index => $path ) {
-      Debug::log("Path $index: $path");
-    }
-
     $currentScene->configure($this->gameLoader->loadSavedGame($savedGameFilePath));
-    $this->disabled = true;
+
+    if ($context->scene instanceof GameOverScene) {
+      $this->enable();
+    }
 
     return self::SUCCESS;
   }

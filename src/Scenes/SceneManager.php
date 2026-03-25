@@ -21,6 +21,7 @@ use Ichiloto\Engine\IO\SaveManager;
 use Ichiloto\Engine\Scenes\Battle\BattleConfig;
 use Ichiloto\Engine\Scenes\Battle\BattleLoader;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
+use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\GameOver\GameOverScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 
@@ -246,5 +247,20 @@ class SceneManager implements CanStart, CanRender, CanUpdate
     }
 
     $currentScene->configure($this->battleLoader->newConfig($party, $troop, $events));
+  }
+
+  /**
+   * Returns the player to the game scene and re-renders the field.
+   *
+   * @return void
+   * @throws NotFoundException If the game scene cannot be found.
+   */
+  public function returnFromBattleScene(): void
+  {
+    $currentScene = $this->loadScene(GameScene::class)->currentScene;
+
+    if ($currentScene instanceof GameScene) {
+      $currentScene->resume();
+    }
   }
 }

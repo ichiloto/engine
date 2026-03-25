@@ -16,6 +16,7 @@ use Ichiloto\Engine\Events\Triggers\EventTrigger;
 use Ichiloto\Engine\Events\Triggers\EventTriggerContext;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
@@ -33,21 +34,21 @@ use RuntimeException;
 class Player extends GameObject
 {
   /**
-   * @var string $upSprite The sprite of the player when facing up.
+   * @var string[] $upSprite The sprite of the player when facing up.
    */
-  protected string $upSprite = '^';
+  protected array $upSprite = ['^'];
   /**
-   * @var string $downSprite The sprite of the player when facing down.
+   * @var string[] $downSprite The sprite of the player when facing down.
    */
-  protected string $downSprite = 'v';
+  protected array $downSprite = ['v'];
   /**
-   * @var string $rightSprite The sprite of the player when facing right.
+   * @var string[] $rightSprite The sprite of the player when facing right.
    */
-  protected string $rightSprite = '>';
+  protected array $rightSprite = ['>'];
   /**
-   * @var string $leftSprite The sprite of the player when facing left.
+   * @var string[] $leftSprite The sprite of the player when facing left.
    */
-  protected string $leftSprite = '<';
+  protected array $leftSprite = ['<'];
   /**
    * @var string $actionSprite The sprite of the player when performing an action.
    */
@@ -81,9 +82,7 @@ class Player extends GameObject
    */
   public Vector2 $screenPosition {
     get {
-      $screenPosition = $this->position;
-      $screenPosition->subtract($this->scene->camera->position);
-      return $screenPosition;
+      return $this->getRenderScreenPosition($this->position);
     }
   }
 
@@ -94,8 +93,9 @@ class Player extends GameObject
    * @param string $name The name of the player.
    * @param Vector2 $position The position of the player.
    * @param Rect $shape The shape of the player.
-   * @param array $sprite The sprite of the player.
+   * @param string[] $sprite The active sprite of the player.
    * @param MovementHeading $heading The heading of the player.
+   * @param array<string, string[]> $directionalSprites The configured directional sprite set.
    */
   public function __construct(
     SceneInterface $scene,
@@ -103,7 +103,8 @@ class Player extends GameObject
     Vector2 $position,
     Rect $shape,
     array $sprite,
-    MovementHeading $heading = MovementHeading::NONE
+    MovementHeading $heading = MovementHeading::NONE,
+    array $directionalSprites = []
   )
   {
     parent::__construct(
@@ -113,7 +114,12 @@ class Player extends GameObject
       $shape,
       $sprite
     );
+
+    $this->configureDirectionalSprites($directionalSprites);
     $this->heading = $heading;
+    $this->setFacingSprite($sprite, $heading);
+    $this->canShowLocationHUDWindow = config(ProjectConfig::class, 'ui.hud.location', false);
+    $this->events = new ItemList(EventTrigger::class);
   }
 
   /**
@@ -122,14 +128,13 @@ class Player extends GameObject
   #[Override]
   public function activate(): void
   {
-    parent::activate();
     $this->canShowLocationHUDWindow = config(ProjectConfig::class, 'ui.hud.location', false);
 
     if (!$this->canShowLocationHUDWindow) {
       $this->getLocationHUDWindow()->erase();
     }
 
-    $this->events = new ItemList(EventTrigger::class);
+    parent::activate();
   }
 
   /**
@@ -146,6 +151,7 @@ class Player extends GameObject
     $origin = $this->position;
     $destination = Vector2::sum($origin, $direction);
     $collisionType = null;
+    $previousSprite = $this->sprite;
     $this->updatePlayerSprite($direction);
 
     if (! $this->getGameScene()->mapManager->canMoveTo(intval($destination->x), intval($destination->y), $collisionType) ) {
@@ -155,7 +161,7 @@ class Player extends GameObject
 
     $event = new MovementEvent(MovementEventType::PLAYER_MOVE, $origin, $destination);
     $this->handleCollision($collisionType);
-    $this->updatePlayerPosition($direction, $camera);
+    $this->updatePlayerPosition($direction, $camera, $previousSprite);
     $this->handleTriggers($event);
 
 
@@ -284,12 +290,20 @@ class Player extends GameObject
    */
   public function updatePlayerSprite(Vector2 $direction): void
   {
-    $this->sprite[0] = match (true) {
-      $direction->y < 0 => $this->upSprite,
-      $direction->y > 0 => $this->downSprite,
-      $direction->x < 0 => $this->leftSprite,
-      $direction->x > 0 => $this->rightSprite,
-      default => $this->sprite[0],
+    $this->heading = match (true) {
+      $direction->y < 0 => MovementHeading::NORTH,
+      $direction->y > 0 => MovementHeading::SOUTH,
+      $direction->x < 0 => MovementHeading::WEST,
+      $direction->x > 0 => MovementHeading::EAST,
+      default => $this->heading,
+    };
+
+    $this->sprite = match ($this->heading) {
+      MovementHeading::NORTH => $this->upSprite,
+      MovementHeading::EAST => $this->rightSprite,
+      MovementHeading::SOUTH => $this->downSprite,
+      MovementHeading::WEST => $this->leftSprite,
+      default => $this->sprite,
     };
   }
 
@@ -298,38 +312,102 @@ class Player extends GameObject
    *
    * @param Vector2 $direction The direction.
    * @param Camera $camera The camera.
+   * @param string[]|null $previousSprite The sprite to erase from the previous position.
    * @return void
    */
-  protected function updatePlayerPosition(Vector2 $direction, Camera $camera): void
+  protected function updatePlayerPosition(Vector2 $direction, Camera $camera, ?array $previousSprite = null): void
   {
     $mapManager = $this->getGameScene()->mapManager;
-    $this->erasePlayer($camera);
+    $this->erasePlayer($camera, $previousSprite ?? $this->sprite);
     $this->position->add($direction);
     if ( $mapManager->scrollMap($this, $direction) ) {
       $mapManager->render();
     }
     $this->render();
-    $this->renderLocationHUDWindow($direction);
+    $this->renderLocationHUDWindow();
   }
 
   /**
    * Renders the location HUD window.
    *
-   * @param Vector2 $direction The direction.
    * @return void
    */
-  protected function renderLocationHUDWindow(Vector2 $direction): void
+  protected function renderLocationHUDWindow(): void
   {
     if ($this->canShowLocationHUDWindow) {
-      $this->heading = match (true) {
-        $direction->y < 0 => MovementHeading::NORTH,
-        $direction->y > 0 => MovementHeading::SOUTH,
-        $direction->x < 0 => MovementHeading::WEST,
-        $direction->x > 0 => MovementHeading::EAST,
-        default => MovementHeading::NONE,
-      };
-      $this->getLocationHUDWindow()->updateDetails($this->position, $this->heading);
+      $locationHUDWindow = $this->getLocationHUDWindow();
+      $locationHUDWindow->updateDetails($this->position, $this->heading);
     }
+  }
+
+  /**
+   * Sets the active player sprite and synchronizes the heading when possible.
+   *
+   * @param string[] $sprite The sprite rows to display.
+   * @param MovementHeading|null $heading The heading to force, if already known.
+   * @return void
+   */
+  public function setFacingSprite(array $sprite, ?MovementHeading $heading = null): void
+  {
+    $this->sprite = $sprite;
+    $this->heading = $heading ?? $this->resolveHeadingFromSprite($sprite);
+  }
+
+  /**
+   * Applies the configured directional sprite set for movement updates.
+   *
+   * @param array<string, string[]> $directionalSprites The directional sprite map.
+   * @return void
+   */
+  protected function configureDirectionalSprites(array $directionalSprites): void
+  {
+    if (isset($directionalSprites['north'])) {
+      $this->upSprite = PlayerSpriteSet::normalizeSprite($directionalSprites['north']);
+    }
+
+    if (isset($directionalSprites['east'])) {
+      $this->rightSprite = PlayerSpriteSet::normalizeSprite($directionalSprites['east']);
+    }
+
+    if (isset($directionalSprites['south'])) {
+      $this->downSprite = PlayerSpriteSet::normalizeSprite($directionalSprites['south']);
+    }
+
+    if (isset($directionalSprites['west'])) {
+      $this->leftSprite = PlayerSpriteSet::normalizeSprite($directionalSprites['west']);
+    }
+  }
+
+  /**
+   * Returns the active directional sprite set.
+   *
+   * @return array<string, string[]> The configured directional sprite map.
+   */
+  public function getDirectionalSprites(): array
+  {
+    return [
+      'north' => $this->upSprite,
+      'east' => $this->rightSprite,
+      'south' => $this->downSprite,
+      'west' => $this->leftSprite,
+    ];
+  }
+
+  /**
+   * Resolves a heading from the current directional sprite set.
+   *
+   * @param string[] $sprite The sprite rows to inspect.
+   * @return MovementHeading The heading that matches the sprite.
+   */
+  protected function resolveHeadingFromSprite(array $sprite): MovementHeading
+  {
+    return match (true) {
+      $sprite === $this->upSprite => MovementHeading::NORTH,
+      $sprite === $this->rightSprite => MovementHeading::EAST,
+      $sprite === $this->downSprite => MovementHeading::SOUTH,
+      $sprite === $this->leftSprite => MovementHeading::WEST,
+      default => MovementHeading::NONE,
+    };
   }
 
   /**
@@ -347,25 +425,32 @@ class Player extends GameObject
    */
   public function render(): void
   {
-    parent::render();
+    $this->scene->camera->renderAtScreenPosition($this->sprite, $this->screenPosition);
 
     if ($this->canAct) {
-      $this->scene->camera->draw($this->actionSprite, $this->screenPosition->x, clamp($this->screenPosition->y - 1, 1, get_screen_height()));
+      $this->scene->camera->draw(
+        $this->actionSprite,
+        $this->screenPosition->x + $this->getActionSpriteHorizontalOffset(),
+        clamp($this->screenPosition->y - 1, 1, get_screen_height())
+      );
     }
   }
 
   public function renderPlayer(?Vector2 $offset = null): void
   {
-    $x = $this->position->x - ($offset?->x ?? 0);
-    $y = $this->position->y - ($offset?->y ?? 0);
+    $worldPosition = new Vector2(
+      $this->position->x - ($offset?->x ?? 0),
+      $this->position->y - ($offset?->y ?? 0)
+    );
+    $screenPosition = $this->getRenderScreenPosition($worldPosition);
 
     for ($row = $this->shape->getY(); $row < $this->shape->getY() + $this->shape->getHeight(); $row++) {
-      $output = substr($this->sprite[$row], $this->shape->getX(), $this->shape->getWidth());
-      $this->scene->camera->draw($output, $x, $y + $row);
+      $output = TerminalText::sliceSymbols($this->sprite[$row], $this->shape->getX(), $this->shape->getWidth());
+      $this->scene->camera->renderAtScreenPosition($output, new Vector2($screenPosition->x, $screenPosition->y + $row));
     }
 
     if ($this->canAct) {
-      $this->scene->camera->draw($this->actionSprite, $x, clamp($y - 1, 1, get_screen_height()));
+      $this->scene->camera->draw($this->actionSprite, $screenPosition->x + $this->getActionSpriteHorizontalOffset(), clamp($screenPosition->y - 1, 1, get_screen_height()));
     }
   }
 
@@ -374,27 +459,142 @@ class Player extends GameObject
    */
   public function erase(): void
   {
-    parent::erase();
+    $this->eraseSpriteFootprint($this->position, $this->sprite);
 
     if ($this->canAct) {
-      $this->scene->renderBackgroundTile($this->position->x, clamp($this->position->y - 1, 1, get_screen_height()));
+      $this->eraseActionFootprint($this->position, $this->sprite);
     }
   }
 
   /**
    * Erases the player.
    *
-   * @param Camera $camera
+   * @param Camera $camera The camera.
+   * @param string[]|null $sprite The sprite footprint to erase.
    * @return void
    */
-  public function erasePlayer(Camera $camera): void
+  public function erasePlayer(Camera $camera, ?array $sprite = null): void
   {
-    for($row = $this->shape->getY(); $row < $this->shape->getY() + $this->shape->getHeight(); $row++) {
-      $this->scene->renderBackgroundTile($this->position->x, $this->position->y + $row);
-    }
+    $sprite ??= $this->sprite;
+    $this->eraseSpriteFootprint($this->position, $sprite);
 
     if ($this->canAct) {
-      $this->scene->renderBackgroundTile($this->position->x, clamp($this->position->y - 1, 1, get_screen_height()));
+      $this->eraseActionFootprint($this->position, $sprite);
+    }
+  }
+
+  /**
+   * Returns the screen position used for rendering the current sprite.
+   *
+   * Wide glyphs such as emoji occupy multiple terminal cells, so we apply a
+   * small horizontal offset to keep the logical collision tile and the visual
+   * sprite feeling aligned.
+   *
+   * @param Vector2 $worldPosition The world position being rendered.
+   * @return Vector2 The adjusted screen-space position.
+   */
+  protected function getRenderScreenPosition(Vector2 $worldPosition): Vector2
+  {
+    $screenPosition = $this->scene->camera->getScreenSpacePosition($worldPosition);
+
+    return new Vector2(
+      $screenPosition->x - $this->getHorizontalRenderOffset($this->sprite),
+      $screenPosition->y
+    );
+  }
+
+  /**
+   * Returns the horizontal render offset needed for the given sprite.
+   *
+   * @param string[] $sprite The sprite rows to inspect.
+   * @return int The horizontal render offset in terminal cells.
+   */
+  protected function getHorizontalRenderOffset(array $sprite): int
+  {
+    $extraWidth = max(0, $this->getSpriteDisplayWidth($sprite) - $this->shape->getWidth());
+
+    return intdiv($extraWidth + 1, 2);
+  }
+
+  /**
+   * Returns the horizontal offset used to center the action prompt above the sprite.
+   *
+   * @return int The horizontal action-sprite offset.
+   */
+  protected function getActionSpriteHorizontalOffset(): int
+  {
+    return max(0, intdiv($this->getSpriteDisplayWidth($this->sprite) - TerminalText::displayWidth($this->actionSprite), 2));
+  }
+
+  /**
+   * Returns the display width of the widest sprite row.
+   *
+   * @param string[] $sprite The sprite rows to inspect.
+   * @return int The widest row width.
+   */
+  protected function getSpriteDisplayWidth(array $sprite): int
+  {
+    $width = 0;
+
+    foreach ($sprite as $row) {
+      $width = max($width, TerminalText::displayWidth($row));
+    }
+
+    return max(1, $width);
+  }
+
+  /**
+   * Re-renders the map tiles covered by the sprite footprint.
+   *
+   * @param Vector2 $worldPosition The world position being erased.
+   * @param string[] $sprite The sprite rows to inspect.
+   * @return void
+   */
+  protected function eraseSpriteFootprint(Vector2 $worldPosition, array $sprite): void
+  {
+    $startX = intval($worldPosition->x) - $this->getHorizontalRenderOffset($sprite);
+    $width = max($this->shape->getWidth(), $this->getSpriteDisplayWidth($sprite));
+
+    for ($row = 0; $row < max($this->shape->getHeight(), count($sprite)); $row++) {
+      for ($column = 0; $column < $width; $column++) {
+        $tileX = $startX + $column;
+        $tileY = intval($worldPosition->y) + $row;
+
+        if ($tileX < 0 || $tileY < 0) {
+          continue;
+        }
+
+        $this->scene->renderBackgroundTile($tileX, $tileY);
+      }
+    }
+  }
+
+  /**
+   * Re-renders the map tiles covered by the action prompt above the sprite.
+   *
+   * @param Vector2 $worldPosition The world position being erased.
+   * @param string[] $sprite The sprite rows to inspect.
+   * @return void
+   */
+  protected function eraseActionFootprint(Vector2 $worldPosition, array $sprite): void
+  {
+    $tileY = intval($worldPosition->y) - 1;
+
+    if ($tileY < 0) {
+      return;
+    }
+
+    $startX = intval($worldPosition->x) - $this->getHorizontalRenderOffset($sprite);
+    $width = max(1, $this->getSpriteDisplayWidth($sprite));
+
+    for ($column = 0; $column < $width; $column++) {
+      $tileX = $startX + $column;
+
+      if ($tileX < 0) {
+        continue;
+      }
+
+      $this->scene->renderBackgroundTile($tileX, $tileY);
     }
   }
 

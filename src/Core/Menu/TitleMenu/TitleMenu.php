@@ -6,7 +6,6 @@ use Ichiloto\Engine\Core\Menu\Commands\MenuCommandExecutionContext;
 use Ichiloto\Engine\Core\Menu\Menu;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
-use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
@@ -96,15 +95,18 @@ class TitleMenu extends Menu
     $v = Input::getAxis(AxisName::VERTICAL);
 
     if (abs($v) > 0) {
-      $this->activeIndex += $v;
-      $this->activeIndex = wrap($this->activeIndex, 0, $this->totalItems - 1);
+      $step = $v > 0 ? 1 : -1;
+      $this->activeIndex = wrap($this->activeIndex + $step, 0, $this->totalItems - 1);
       $this->updateWindowContent();
       $this->render();
     }
 
-    if (Input::isButtonDown("confirm")) {
+    if (Input::isButtonDown('confirm')) {
       $selectedCommand = $this->items->toArray()[$this->activeIndex];
-      $selectedCommand->execute($this->executionContext);
+
+      if (! $selectedCommand->isDisabled()) {
+        $selectedCommand->execute($this->executionContext);
+      }
     }
   }
 }

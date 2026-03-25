@@ -5,7 +5,9 @@ namespace Ichiloto\Engine\Entities;
 use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Interfaces\InventoryItemInterface;
+use Ichiloto\Engine\Entities\Inventory\Equipment;
 use Ichiloto\Engine\Entities\Inventory\Inventory;
+use InvalidArgumentException;
 
 /**
  * Class Party. Represents a party of characters in a battle.
@@ -49,7 +51,7 @@ class Party extends BattleGroup
    */
   public ?Character $leader {
     get {
-      return $this->members[0] ?? null;
+      return $this->members->toArray()[0] ?? null;
     }
   }
   /**
@@ -156,5 +158,66 @@ class Party extends BattleGroup
   public function cannotAfford(int $cost): bool
   {
     return ! $this->canAfford($cost);
+  }
+
+  /**
+   * Counts how many copies of an equipment item are currently worn by the party.
+   *
+   * @param Equipment $equipment The equipment to count.
+   * @return int The number of equipped copies.
+   */
+  public function getEquippedEquipmentCount(Equipment $equipment): int
+  {
+    $count = 0;
+
+    foreach ($this->members->toArray() as $member) {
+      assert($member instanceof Character);
+
+      foreach ($member->equipment as $slot) {
+        if ($slot->equipment === null) {
+          continue;
+        }
+
+        if ($slot->equipment::class === $equipment::class && $slot->equipment->name === $equipment->name) {
+          $count++;
+        }
+      }
+    }
+
+    return $count;
+  }
+
+  /**
+   * Returns the number of unequipped copies still available in the party inventory.
+   *
+   * @param Equipment $equipment The equipment to check.
+   * @return int The number of available copies.
+   */
+  public function getAvailableEquipmentQuantity(Equipment $equipment): int
+  {
+    return max(0, $equipment->quantity - $this->getEquippedEquipmentCount($equipment));
+  }
+
+  /**
+   * Swaps the positions of two party members.
+   *
+   * @param int $firstIndex The first party-member index.
+   * @param int $secondIndex The second party-member index.
+   * @return void
+   */
+  public function swapMembers(int $firstIndex, int $secondIndex): void
+  {
+    $members = $this->members->toArray();
+
+    if (! isset($members[$firstIndex], $members[$secondIndex])) {
+      throw new InvalidArgumentException('Invalid party-member index.');
+    }
+
+    if ($firstIndex === $secondIndex) {
+      return;
+    }
+
+    [$members[$firstIndex], $members[$secondIndex]] = [$members[$secondIndex], $members[$firstIndex]];
+    $this->members = new ItemList(CharacterInterface::class, $members);
   }
 }

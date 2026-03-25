@@ -12,8 +12,9 @@ use Ichiloto\Engine\Events\Enumerations\MenuEventType;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
 use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
 use Ichiloto\Engine\Events\MenuEvent;
-use Ichiloto\Engine\IO\Enumerations\Color;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
+use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
@@ -64,7 +65,7 @@ abstract class Menu implements MenuInterface
   {
     $this->observers = new ItemList(ObserverInterface::class);
     $this->totalItems = $this->items->count();
-    $this->cursor = substr($cursor, 0, 1);
+    $this->cursor = TerminalText::firstSymbol($cursor) ?: '>';
     $this->activate();
     $this->updateWindowContent();
   }
@@ -264,7 +265,7 @@ abstract class Menu implements MenuInterface
    */
   public function setCursor(string $cursor): void
   {
-    $this->cursor = substr($cursor, 0, 1);
+    $this->cursor = TerminalText::firstSymbol($cursor) ?: '>';
   }
 
   /**
@@ -322,6 +323,19 @@ abstract class Menu implements MenuInterface
   }
 
   /**
+   * Repositions the menu and its backing window.
+   *
+   * @param Vector2 $position The new top-left menu position.
+   * @return void
+   */
+  public function setPosition(Vector2 $position): void
+  {
+    $this->rect->setX($position->x);
+    $this->rect->setY($position->y);
+    $this->window?->setPosition($position);
+  }
+
+  /**
    * Updates the menu window content.
    *
    * @return void
@@ -329,19 +343,24 @@ abstract class Menu implements MenuInterface
   public function updateWindowContent(): void
   {
     $content = [];
+    $contentWidth = max(0, $this->rect->getWidth() - 4);
     /**
      * @var int $itemIndex
      * @var MenuItemInterface $item
      */
     foreach ($this->items as $itemIndex => $item) {
-      $color = $item->isDisabled() ? Color::BLUE->value : '';
       $prefix = '  ';
 
       if ($itemIndex === $this->activeIndex) {
         $prefix = "$this->cursor ";
       }
 
-      $output = $prefix . $item->getLabel();
+      $output = TerminalText::padRight($prefix . $item, $contentWidth);
+
+      if ($itemIndex === $this->activeIndex) {
+        $output = SelectionStyle::apply($output);
+      }
+
       $content[] = $output;
     }
 

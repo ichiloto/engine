@@ -24,9 +24,9 @@ readonly class PartyBattlerPositions
       new Vector2(109, 21),
     ],
     public array $activePositions = [
-      new Vector2(109, 5),
-      new Vector2(105, 13),
-      new Vector2(109, 21),
+      new Vector2(103, 5),
+      new Vector2(99, 13),
+      new Vector2(103, 21),
     ]
   )
   {
