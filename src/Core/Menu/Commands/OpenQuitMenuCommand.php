@@ -15,24 +15,69 @@ use Ichiloto\Engine\Util\Config\ProjectConfig;
  */
 class OpenQuitMenuCommand extends MenuItem
 {
-  protected MenuInterface $menu;
-
   public function __construct(MenuInterface $menu)
   {
     $label = config(ProjectConfig::class, 'vocab.command.quit_game', 'Quit');
-    parent::__construct($menu, $label, "Quit the game.");
+    parent::__construct($menu, $label, 'Return to title or close the game.');
   }
 
   /**
    * @inheritDoc
-   * @throws Exception If the 'confirm' modal cannot be displayed or quit command fails.
+   * @throws Exception If the quit-selection modal cannot be displayed.
    */
   public function execute(?ExecutionContextInterface $context = null): int
   {
-    $quitVerb = config(ProjectConfig::class, 'vocab.verb.quit', 'quit');
-    if (confirm("Are you sure you want to $quitVerb?", '', 40)) {
-      $this->menu->getScene()->getGame()->quit();
+    $selection = $this->promptForSelection();
+
+    if ($selection >= 0) {
+      $this->executeSelection($selection, $context);
     }
+
     return self::SUCCESS;
+  }
+
+  /**
+   * Returns the quit-menu option labels.
+   *
+   * @return string[] The option labels.
+   */
+  protected function getOptions(): array
+  {
+    return [
+      (new ToTitleMenuCommand($this->menu))->getLabel(),
+      (new QuitGameCommand($this->menu))->getLabel(),
+    ];
+  }
+
+  /**
+   * Executes the selected quit action.
+   *
+   * @param int $selection The selected option index.
+   * @param ExecutionContextInterface|null $context The execution context.
+   * @return void
+   */
+  protected function executeSelection(int $selection, ?ExecutionContextInterface $context = null): void
+  {
+    match ($selection) {
+      0 => (new ToTitleMenuCommand($this->menu))->execute($context),
+      1 => (new QuitGameCommand($this->menu))->execute($context),
+      default => null,
+    };
+  }
+
+  /**
+   * Opens the quit-selection modal and returns the selected option index.
+   *
+   * @return int The selected option index, or -1 when cancelled.
+   * @throws Exception If the selection modal cannot be displayed.
+   */
+  protected function promptForSelection(): int
+  {
+    return select(
+      'Choose where to go.',
+      $this->getOptions(),
+      $this->getLabel(),
+      width: 32
+    );
   }
 }

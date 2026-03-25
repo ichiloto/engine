@@ -478,7 +478,7 @@ class PlayerActionState extends TurnState
       };
     }
 
-    $context->ui->refreshField();
+    $context->ui->fieldWindow->redrawTargetIndicators();
   }
 
   /**

@@ -357,6 +357,26 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   }
 
   /**
+   * Renders output directly at the provided screen-space position.
+   *
+   * This is useful for overlays such as wide player sprites whose terminal
+   * cell width should not alter the camera's world-space bookkeeping.
+   *
+   * @param string[]|string $output The output to render.
+   * @param Vector2 $screenSpacePosition The zero-based screen-space position.
+   * @return void
+   */
+  public function renderAtScreenPosition(array|string $output, Vector2 $screenSpacePosition): void
+  {
+    $rows = is_array($output) ? $output : [$output];
+
+    foreach ($rows as $rowIndex => $row) {
+      Console::cursor()->moveTo($screenSpacePosition->x + 1, $screenSpacePosition->y + $rowIndex + 1);
+      $this->output->write($row);
+    }
+  }
+
+  /**
    * Resets the position of the camera.
    *
    * @param Player $player

@@ -6,6 +6,7 @@ use Ichiloto\Engine\Battle\PartyBattlerPositions;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
+use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\IO\Console\Console;
@@ -47,6 +48,10 @@ class BattleFieldWindow extends Window
    */
   protected array $queuedPartyTargets = [];
   /**
+   * @var array<int, array{text: string, x: int, y: int}> Active target indicators currently drawn on screen.
+   */
+  protected array $renderedTargetIndicators = [];
+  /**
    * @var array<int, int> Queued player target counts keyed by troop index.
    */
   protected array $queuedTroopTargets = [];
@@ -66,6 +71,22 @@ class BattleFieldWindow extends Window
    * @var bool Whether the troop focus marker should blink.
    */
   protected bool $blinkFocusedTroop = false;
+  /**
+   * @var array<int, array{text: string, x: int, y: int}> Active floating stat-change popups.
+   */
+  protected array $statChangePopups = [];
+  /**
+   * @var array<int, array{text: string, x: int, y: int}> Active magic cast effects.
+   */
+  protected array $magicCastEffects = [];
+  /**
+   * @var int[] Party battler indices whose sprites should remain visible during a popup.
+   */
+  protected array $popupPartyIndices = [];
+  /**
+   * @var int[] Troop battler indices whose sprites should remain visible during a popup.
+   */
+  protected array $popupTroopIndices = [];
 
   /**
    * Creates a new instance of the battlefield window.
@@ -225,7 +246,7 @@ class BattleFieldWindow extends Window
   public function renderParty(Party $party): void
   {
     foreach ($party->battlers->toArray() as $index => $battler) {
-      if ($battler->isKnockedOut) {
+      if ($battler->isKnockedOut && ! in_array($index, $this->popupPartyIndices, true)) {
         continue;
       }
 
@@ -244,8 +265,8 @@ class BattleFieldWindow extends Window
    */
   public function renderTroop(Troop $troop): void
   {
-    foreach ($troop->members->toArray() as $battler) {
-      if ($battler->isKnockedOut) {
+    foreach ($troop->members->toArray() as $index => $battler) {
+      if ($battler->isKnockedOut && ! in_array($index, $this->popupTroopIndices, true)) {
         continue;
       }
 
@@ -260,6 +281,11 @@ class BattleFieldWindow extends Window
    */
   public function renderTargetIndicators(): void
   {
+    if (! isset($this->battleScreen)) {
+      return;
+    }
+
+    $this->renderedTargetIndicators = [];
     $partyBattlers = $this->battleScreen->party->battlers->toArray();
     $troopMembers = $this->battleScreen->troop->members->toArray();
 
@@ -298,6 +324,147 @@ class BattleFieldWindow extends Window
         $this->renderPartyFocusMarker($battler, $this->focusedPartyIndex, $this->blinkFocusedParty);
       }
     }
+  }
+
+  /**
+   * Redraws only the target indicator layer without rebuilding the battlefield.
+   *
+   * @return void
+   */
+  public function redrawTargetIndicators(): void
+  {
+    $this->clearRenderedTargetIndicators();
+    $this->renderTargetIndicators();
+  }
+
+  /**
+   * Renders any active stat-change popups on top of the battlefield.
+   *
+   * @return void
+   */
+  public function renderStatChangePopups(): void
+  {
+    foreach ($this->statChangePopups as $popup) {
+      $this->renderIndicator($popup['text'], $popup['x'], $popup['y']);
+    }
+  }
+
+  /**
+   * Renders any active magic cast effects on top of the caster sprite.
+   *
+   * @return void
+   */
+  public function renderMagicCastEffects(): void
+  {
+    foreach ($this->magicCastEffects as $effect) {
+      $this->renderIndicator($effect['text'], $effect['x'], $effect['y']);
+    }
+  }
+
+  /**
+   * Displays floating stat-change text beside the provided battler.
+   *
+   * @param CharacterInterface $battler The battler receiving the popup.
+   * @param array<int, array{text: string, color?: Color}> $lines The popup lines to display.
+   * @return void
+   */
+  public function showStatChangePopup(CharacterInterface $battler, array $lines): void
+  {
+    $this->clearStatChangePopups();
+
+    $anchor = $this->resolveStatChangePopupAnchor($battler);
+
+    if ($anchor === null) {
+      return;
+    }
+
+    $formattedLines = array_values(array_filter(
+      $lines,
+      static fn(array $line): bool => isset($line['text']) && strval($line['text']) !== ''
+    ));
+
+    if (empty($formattedLines)) {
+      return;
+    }
+
+    $startY = $anchor['y'] - max(0, count($formattedLines) - 1);
+
+    foreach ($formattedLines as $index => $line) {
+      $text = $this->formatStatChangePopupLine(
+        strval($line['text']),
+        $line['color'] ?? Color::WHITE
+      );
+      $textWidth = TerminalText::displayWidth($text);
+
+      $this->statChangePopups[] = [
+        'text' => $text,
+        'x' => $anchor['x'] - intdiv($textWidth, 2),
+        'y' => $startY + $index,
+      ];
+    }
+
+    if (isset($anchor['partyIndex'])) {
+      $this->popupPartyIndices[] = $anchor['partyIndex'];
+    }
+
+    if (isset($anchor['troopIndex'])) {
+      $this->popupTroopIndices[] = $anchor['troopIndex'];
+    }
+  }
+
+  /**
+   * Clears any active stat-change popups from the battlefield.
+   *
+   * @return void
+   */
+  public function clearStatChangePopups(): void
+  {
+    $this->statChangePopups = [];
+    $this->popupPartyIndices = [];
+    $this->popupTroopIndices = [];
+  }
+
+  /**
+   * Displays a single magic cast animation frame around the acting party battler.
+   *
+   * @param Character $battler The casting battler.
+   * @param int $index The party battler index.
+   * @param Color $color The effect color.
+   * @param int $sequenceStep The clockwise frame index.
+   * @return void
+   */
+  public function showPartyMagicCastEffect(Character $battler, int $index, Color $color, int $sequenceStep): void
+  {
+    $positions = $this->resolvePartyMagicCastEffectPositions($battler, $index);
+    $frame = $positions[$sequenceStep] ?? null;
+
+    $this->clearMagicCastEffects();
+
+    if (! is_array($frame)) {
+      return;
+    }
+
+    $this->magicCastEffects[] = [
+      'text' => $this->formatMagicCastEffect($color),
+      'x' => $frame['x'],
+      'y' => $frame['y'],
+    ];
+
+    $this->renderMagicCastEffects();
+  }
+
+  /**
+   * Clears any active magic cast effects from the battlefield.
+   *
+   * @return void
+   */
+  public function clearMagicCastEffects(): void
+  {
+    foreach ($this->magicCastEffects as $effect) {
+      $this->eraseIndicator($effect['text'], $effect['x'], $effect['y']);
+    }
+
+    $this->magicCastEffects = [];
   }
 
   /**
@@ -428,6 +595,7 @@ class BattleFieldWindow extends Window
    */
   public function clearTargetIndicators(): void
   {
+    $this->clearRenderedTargetIndicators();
     $this->queuedPartyTargets = [];
     $this->queuedTroopTargets = [];
     $this->clearPartyFocus();
@@ -499,7 +667,7 @@ class BattleFieldWindow extends Window
     $x = $this->position->x + $battler->position->x + max(0, intdiv(max(0, $spriteWidth - $badgeWidth), 2));
     $y = $this->position->y + $battler->position->y - 1;
 
-    $this->renderIndicator($badge, $x, $y);
+    $this->renderTrackedTargetIndicator($badge, $x, $y);
   }
 
   /**
@@ -519,7 +687,7 @@ class BattleFieldWindow extends Window
     $x = $this->position->x + $position->x + max(0, intdiv(max(0, $spriteWidth - $badgeWidth), 2));
     $y = $this->position->y + $position->y - 1;
 
-    $this->renderIndicator($badge, $x, $y);
+    $this->renderTrackedTargetIndicator($badge, $x, $y);
   }
 
   /**
@@ -535,7 +703,7 @@ class BattleFieldWindow extends Window
     $x = $this->position->x + $battler->position->x - 2;
     $y = $this->position->y + $battler->position->y + intdiv(count($battler->image), 2);
 
-    $this->renderIndicator($marker, $x, $y);
+    $this->renderTrackedTargetIndicator($marker, $x, $y);
   }
 
   /**
@@ -553,7 +721,40 @@ class BattleFieldWindow extends Window
     $x = $this->position->x + $position->x + $this->getSpriteWidth($battler->images->battle) + 1;
     $y = $this->position->y + $position->y + intdiv(count($battler->images->battle), 2);
 
-    $this->renderIndicator($marker, $x, $y);
+    $this->renderTrackedTargetIndicator($marker, $x, $y);
+  }
+
+  /**
+   * Tracks and renders a target indicator so it can be cleared without repainting the field.
+   *
+   * @param string $text The indicator text.
+   * @param int $x The preferred x-coordinate.
+   * @param int $y The preferred y-coordinate.
+   * @return void
+   */
+  protected function renderTrackedTargetIndicator(string $text, int $x, int $y): void
+  {
+    $this->renderedTargetIndicators[] = [
+      'text' => $text,
+      'x' => $x,
+      'y' => $y,
+    ];
+
+    $this->renderIndicator($text, $x, $y);
+  }
+
+  /**
+   * Clears the currently rendered target indicator layer.
+   *
+   * @return void
+   */
+  protected function clearRenderedTargetIndicators(): void
+  {
+    foreach ($this->renderedTargetIndicators as $indicator) {
+      $this->eraseIndicator($indicator['text'], $indicator['x'], $indicator['y']);
+    }
+
+    $this->renderedTargetIndicators = [];
   }
 
   /**
@@ -566,17 +767,24 @@ class BattleFieldWindow extends Window
    */
   protected function renderIndicator(string $text, int $x, int $y): void
   {
-    $indicatorWidth = TerminalText::displayWidth($text);
-    $minX = $this->position->x + 1;
-    $maxX = $this->position->x + $this->width - $indicatorWidth - 1;
-    $minY = $this->position->y + 1;
-    $maxY = $this->position->y + $this->height - 2;
-
-    Console::cursor()->moveTo(
-      clamp($x, $minX, max($minX, $maxX)),
-      clamp($y, $minY, max($minY, $maxY))
-    );
+    ['x' => $renderX, 'y' => $renderY] = $this->resolveIndicatorPosition($text, $x, $y);
+    Console::cursor()->moveTo($renderX, $renderY);
     $this->output->write($text);
+  }
+
+  /**
+   * Erases an indicator inside the battlefield bounds.
+   *
+   * @param string $text The indicator text.
+   * @param int $x The preferred x-coordinate.
+   * @param int $y The preferred y-coordinate.
+   * @return void
+   */
+  protected function eraseIndicator(string $text, int $x, int $y): void
+  {
+    ['x' => $renderX, 'y' => $renderY] = $this->resolveIndicatorPosition($text, $x, $y);
+    Console::cursor()->moveTo($renderX, $renderY);
+    $this->output->write(str_repeat(' ', TerminalText::displayWidth($text)));
   }
 
   /**
@@ -591,6 +799,121 @@ class BattleFieldWindow extends Window
     $prefix = $blink ? "\033[5m" : '';
 
     return $prefix . $this->battleScreen->getSelectionColor()->value . $text . Color::RESET->value;
+  }
+
+  /**
+   * Applies styling to a magic cast animation glyph.
+   *
+   * @param Color $color The effect color.
+   * @return string
+   */
+  protected function formatMagicCastEffect(Color $color): string
+  {
+    return $color->value . '*' . Color::RESET->value;
+  }
+
+  /**
+   * Applies popup styling to floating stat-change text.
+   *
+   * @param string $text The popup text.
+   * @param Color $color The popup color.
+   * @return string The styled popup line.
+   */
+  protected function formatStatChangePopupLine(string $text, Color $color): string
+  {
+    return $color->value . $text . Color::RESET->value;
+  }
+
+  /**
+   * Resolves the battlefield anchor used to place a battler's popup text.
+   *
+   * @param CharacterInterface $battler The battler receiving the popup.
+   * @return array{x: int, y: int, partyIndex?: int, troopIndex?: int}|null The popup anchor.
+   */
+  protected function resolveStatChangePopupAnchor(CharacterInterface $battler): ?array
+  {
+    if ($battler instanceof Character) {
+      $partyBattlers = $this->battleScreen->party->battlers->toArray();
+      $index = array_search($battler, $partyBattlers, true);
+
+      if (! is_int($index)) {
+        return null;
+      }
+
+      $position = $this->getPartyIdlePosition($index);
+      $spriteWidth = $this->getSpriteWidth($battler->images->battle);
+
+      return [
+        'x' => $this->position->x + $position->x + intdiv(max(1, $spriteWidth), 2),
+        'y' => $this->position->y + $position->y - 1,
+        'partyIndex' => $index,
+      ];
+    }
+
+    if ($battler instanceof Enemy) {
+      $troopMembers = $this->battleScreen->troop->members->toArray();
+      $index = array_search($battler, $troopMembers, true);
+
+      if (! is_int($index)) {
+        return null;
+      }
+
+      $spriteWidth = $this->getSpriteWidth($battler->image);
+
+      return [
+        'x' => $this->position->x + $battler->position->x + intdiv(max(1, $spriteWidth), 2),
+        'y' => $this->position->y + $battler->position->y - 1,
+        'troopIndex' => $index,
+      ];
+    }
+
+    return null;
+  }
+
+  /**
+   * Resolves the direct-draw coordinates for a battlefield indicator.
+   *
+   * @param string $text The indicator text.
+   * @param int $x The preferred x-coordinate.
+   * @param int $y The preferred y-coordinate.
+   * @return array{x: int, y: int}
+   */
+  protected function resolveIndicatorPosition(string $text, int $x, int $y): array
+  {
+    $indicatorWidth = TerminalText::displayWidth($text);
+    $minX = $this->position->x + 1;
+    $maxX = $this->position->x + $this->width - $indicatorWidth - 1;
+    $minY = $this->position->y + 1;
+    $maxY = $this->position->y + $this->height - 2;
+
+    return [
+      'x' => clamp($x, $minX, max($minX, $maxX)),
+      'y' => clamp($y, $minY, max($minY, $maxY)),
+    ];
+  }
+
+  /**
+   * Resolves the four clockwise magic cast effect positions around a party battler.
+   *
+   * @param Character $battler The casting battler.
+   * @param int $index The party battler index.
+   * @return array<int, array{x: int, y: int}>
+   */
+  protected function resolvePartyMagicCastEffectPositions(Character $battler, int $index): array
+  {
+    $position = $this->getPartyActivePosition($index);
+    $spriteWidth = $this->getSpriteWidth($battler->images->battle);
+    $spriteHeight = count($battler->images->battle);
+    $baseX = $this->position->x + $position->x;
+    $baseY = $this->position->y + $position->y;
+    $minimumY = $this->battleScreen->screenDimensions->getTop() + 5;
+
+    return [
+      ['x' => $baseX - 1, 'y' => max($minimumY, $baseY - 1)],
+      ['x' => $baseX + $spriteWidth, 'y' => max($minimumY, $baseY - 1)],
+      ['x' => $baseX + $spriteWidth, 'y' => $baseY + $spriteHeight],
+      ['x' => $baseX - 1, 'y' => $baseY + $spriteHeight],
+    ];
   }
 
   /**

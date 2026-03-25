@@ -140,14 +140,13 @@ abstract class Modal implements ModalInterface
    */
   public function render(): void
   {
-
-    Console::cursor()->moveTo($this->leftMargin, $this->topMargin);
+    Console::cursor()->moveTo($this->leftMargin + 1, $this->topMargin + 1);
     $this->renderTopBorder();
-    Console::cursor()->moveTo($this->leftMargin, $this->topMargin + 1);
+    Console::cursor()->moveTo($this->leftMargin + 1, $this->topMargin + 2);
     $this->renderContent();
-    Console::cursor()->moveTo($this->leftMargin, $this->topMargin + 1 + $this->contentHeight);
+    Console::cursor()->moveTo($this->leftMargin + 1, $this->topMargin + 2 + $this->contentHeight);
     $this->renderButtons();
-    Console::cursor()->moveTo($this->leftMargin, $this->topMargin + 1 + $this->contentHeight + 1);
+    Console::cursor()->moveTo($this->leftMargin + 1, $this->topMargin + 3 + $this->contentHeight);
     $this->renderBottomBorder();
   }
 

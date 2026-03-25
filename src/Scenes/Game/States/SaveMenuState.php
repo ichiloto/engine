@@ -224,6 +224,7 @@ class SaveMenuState extends GameSceneState implements CanRender
     $this->refreshSlots();
     $this->statusMessage = sprintf('Saved to File %d.', $savedSlot->slot);
     $this->render();
+    alert($this->statusMessage, 'Save Complete');
   }
 
   /**

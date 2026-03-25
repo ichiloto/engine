@@ -311,6 +311,8 @@ class BattleScreen implements CanRender, CanUpdate
     $this->fieldWindow->renderParty($this->party);
     $this->fieldWindow->renderTroop($this->troop);
     $this->fieldWindow->renderTargetIndicators();
+    $this->fieldWindow->renderMagicCastEffects();
+    $this->fieldWindow->renderStatChangePopups();
   }
 
   /**

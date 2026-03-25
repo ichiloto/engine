@@ -97,6 +97,29 @@ class InputManager
   }
 
   /**
+   * Clears the cached key state and optionally drains any buffered input.
+   *
+   * This is useful after scene or modal transitions so a held confirm/cancel
+   * input does not immediately trigger the next screen.
+   *
+   * @param bool $drainBufferedInput Whether to consume any currently buffered input bytes.
+   * @return void
+   */
+  public static function resetState(bool $drainBufferedInput = false): void
+  {
+    if ($drainBufferedInput) {
+      while (($bufferedInput = fgets(STDIN)) !== false) {
+        if ($bufferedInput === '') {
+          break;
+        }
+      }
+    }
+
+    self::$previousKeyPress = '';
+    self::$keyPress = '';
+  }
+
+  /**
    * Returns the value of the virtual axis identified by axisName.
    *
    * @param AxisName $axisName The name of the axis.

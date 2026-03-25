@@ -169,7 +169,7 @@ class GameScene extends AbstractScene
         );
         $this->party = $this->config->party;
 
-        $this->loadMap("{$this->config->mapId}.php", $this->player);
+        $this->loadMap($this->config->mapId, $this->player);
         $this->player->activate();
         $this->locationHUDWindow->updateDetails($this->player->position, $this->player->heading);
         $this->setState($this->fieldState);
@@ -208,7 +208,7 @@ class GameScene extends AbstractScene
      */
     public function loadMap(string $mapFilename, Player $player): void
     {
-        $this->currentMapId = preg_replace('/\.php$/', '', $mapFilename) ?: $mapFilename;
+        $this->currentMapId = preg_replace('/(\.(data|map|event))?\.php$/', '', $mapFilename) ?: $mapFilename;
         $this->mapManager->loadMap($mapFilename, $player);
     }
 

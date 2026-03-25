@@ -9,6 +9,7 @@ use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeStatus;
 use Ichiloto\Engine\Entities\Enumerations\Occasion;
 use Ichiloto\Engine\Entities\ItemScope;
+use Ichiloto\Engine\Entities\Magic\MagicEffectType;
 use Ichiloto\Engine\Entities\Skills\BasicSkill;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
 use Ichiloto\Engine\Entities\Skills\SkillEffectContext;
@@ -166,6 +167,41 @@ describe('magic skills', function() {
       ->toBe($skillDescription)
       ->and($skill->icon)
       ->toBe($skillIcon);
+  });
+
+  it('infers restorative magic effect types from recovery effects', function() {
+    $skill = new MagicSkill(
+      'Heal',
+      'Restores an ally’s HP.',
+      '🩹',
+      4,
+      0,
+      new ItemScope(),
+      Occasion::ALWAYS,
+      effects: [
+        new HPRecoverSkillEffect('25'),
+      ],
+    );
+
+    expect($skill->effectType)->toBe(MagicEffectType::RESTORATIVE);
+  });
+
+  it('allows explicit magic effect types to override inferred ones', function() {
+    $skill = new MagicSkill(
+      'Barrier',
+      'Raises a shield.',
+      '🛡️',
+      6,
+      0,
+      new ItemScope(),
+      Occasion::BATTLE_SCREEN,
+      effects: [
+        new HPRecoverSkillEffect('20'),
+      ],
+      effectType: MagicEffectType::BUFF,
+    );
+
+    expect($skill->effectType)->toBe(MagicEffectType::BUFF);
   });
 });
 

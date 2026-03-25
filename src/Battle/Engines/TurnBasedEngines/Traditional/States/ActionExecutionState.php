@@ -2,11 +2,15 @@
 
 namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States;
 
+use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Battle\BattleAction;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnExecutionContext;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
+use Ichiloto\Engine\Entities\Magic\MagicEffectType;
+use Ichiloto\Engine\Entities\Skills\MagicSkill;
+use Ichiloto\Engine\IO\Enumerations\Color;
 
 class ActionExecutionState extends TurnState
 {
@@ -20,6 +24,8 @@ class ActionExecutionState extends TurnState
     $context->ui->characterNameWindow->setActiveSelection(-1);
     $context->ui->commandContextWindow->clear();
     $context->ui->fieldWindow->clearTargetIndicators();
+    $context->ui->fieldWindow->clearMagicCastEffects();
+    $context->ui->fieldWindow->clearStatChangePopups();
     $context->ui->hideMessage();
     $context->ui->refresh();
   }
@@ -106,7 +112,13 @@ class ActionExecutionState extends TurnState
     $this->highlightTarget($context, $target);
     $this->stepActorForward($context, $actor);
     $this->pause($timings->stepForward);
-    $this->displayPhase($context, sprintf('%s uses %s!', $actor->name, $actionName), $timings->announcement);
+    $this->displayAnnouncementPhase(
+      $context,
+      $actor,
+      $action,
+      sprintf('%s uses %s!', $actor->name, $actionName),
+      $timings->announcement
+    );
     $this->pause($timings->actionAnimation);
     $this->displayPhase($context, '*SFX*', $timings->effectAnimation);
 
@@ -118,28 +130,41 @@ class ActionExecutionState extends TurnState
     $this->pause($timings->stepBack);
 
     $context->ui->characterStatusWindow->setCharacters($context->party->battlers->toArray());
-    $context->ui->refresh();
-
-    $hpDelta = $target->stats->currentHp - $previousHp;
-    $mpDelta = $target->stats->currentMp - $previousMp;
-    $summary = match (true) {
-      $hpDelta < 0 => sprintf('%s took %d damage.', $target->name, abs($hpDelta)),
-      $hpDelta > 0 && $previousHp <= 0 => sprintf('%s was revived with %d HP.', $target->name, $target->stats->currentHp),
-      $hpDelta > 0 => sprintf('%s recovered %d HP.', $target->name, $hpDelta),
-      $mpDelta < 0 => sprintf('%s lost %d MP.', $target->name, abs($mpDelta)),
-      $mpDelta > 0 => sprintf('%s recovered %d MP.', $target->name, $mpDelta),
-      default => sprintf('%s was unaffected.', $target->name),
-    };
-
-    if ($target->isKnockedOut) {
-      $summary .= sprintf(' %s was defeated.', $target->name);
-    }
-
-    $this->displayPhase($context, $summary, $timings->statChanges);
+    $this->displayStatChanges($context, $target, $previousHp, $previousMp, $timings->statChanges);
     $this->displayPhase($context, 'Turn over.', $timings->turnOver, hideAfter: true);
     $context->ui->characterNameWindow->setActiveSelection(-1);
     $context->ui->fieldWindow->clearTargetIndicators();
+    $context->ui->fieldWindow->clearMagicCastEffects();
+    $context->ui->fieldWindow->clearStatChangePopups();
     $context->ui->refreshField();
+  }
+
+  /**
+   * Shows the action announcement, including the caster-side magic effect when applicable.
+   *
+   * @param TurnStateExecutionContext $context The turn context.
+   * @param CharacterInterface $actor The acting battler.
+   * @param BattleAction|null $action The resolved battle action.
+   * @param string $message The announcement text.
+   * @param float $delaySeconds The phase duration.
+   * @return void
+   */
+  protected function displayAnnouncementPhase(
+    TurnStateExecutionContext $context,
+    CharacterInterface $actor,
+    ?BattleAction $action,
+    string $message,
+    float $delaySeconds
+  ): void
+  {
+    $context->ui->showMessage($message);
+
+    if (! $this->shouldAnimateMagicCastEffect($context, $actor, $action)) {
+      $this->pause($delaySeconds);
+      return;
+    }
+
+    $this->playMagicCastEffect($context, $actor, $action, $delaySeconds);
   }
 
   /**
@@ -260,6 +285,158 @@ class ActionExecutionState extends TurnState
     if ($hideAfter) {
       $context->ui->hideMessage();
     }
+  }
+
+  /**
+   * Determines whether the announcement phase should render the caster magic effect.
+   *
+   * @param TurnStateExecutionContext $context The turn context.
+   * @param CharacterInterface $actor The acting battler.
+   * @param BattleAction|null $action The action being announced.
+   * @return bool
+   */
+  protected function shouldAnimateMagicCastEffect(
+    TurnStateExecutionContext $context,
+    CharacterInterface $actor,
+    ?BattleAction $action
+  ): bool
+  {
+    if (! $actor instanceof Character) {
+      return false;
+    }
+
+    if (! $action instanceof SkillBattleAction || ! $action->skill instanceof MagicSkill) {
+      return false;
+    }
+
+    return is_int(array_search($actor, $context->party->battlers->toArray(), true));
+  }
+
+  /**
+   * Plays the clockwise caster effect for magic announced by a party battler.
+   *
+   * @param TurnStateExecutionContext $context The turn context.
+   * @param CharacterInterface $actor The acting battler.
+   * @param BattleAction|null $action The resolved battle action.
+   * @param float $delaySeconds The time budget for the full sequence.
+   * @return void
+   */
+  protected function playMagicCastEffect(
+    TurnStateExecutionContext $context,
+    CharacterInterface $actor,
+    ?BattleAction $action,
+    float $delaySeconds
+  ): void
+  {
+    if (! $actor instanceof Character || ! $action instanceof SkillBattleAction || ! $action->skill instanceof MagicSkill) {
+      $this->pause($delaySeconds);
+      return;
+    }
+
+    $partyBattlers = $context->party->battlers->toArray();
+    $actorIndex = array_search($actor, $partyBattlers, true);
+
+    if (! is_int($actorIndex)) {
+      $this->pause($delaySeconds);
+      return;
+    }
+
+    $frameCount = 4;
+    $frameDuration = $frameCount > 0 ? $delaySeconds / $frameCount : 0.0;
+    $color = $this->resolveMagicCastEffectColor($action->skill);
+
+    for ($frame = 0; $frame < $frameCount; $frame++) {
+      $context->ui->fieldWindow->showPartyMagicCastEffect($actor, $actorIndex, $color, $frame);
+      $this->pause($frameDuration);
+    }
+
+    $context->ui->fieldWindow->clearMagicCastEffects();
+  }
+
+  /**
+   * Resolves the caster effect color for the provided magic skill.
+   *
+   * @param MagicSkill $skill The magic skill being announced.
+   * @return Color
+   */
+  protected function resolveMagicCastEffectColor(MagicSkill $skill): Color
+  {
+    return match ($skill->effectType) {
+      MagicEffectType::RESTORATIVE => Color::GREEN,
+      MagicEffectType::DESTRUCTIVE => Color::RED,
+      MagicEffectType::BUFF => Color::BLUE,
+      MagicEffectType::DEBUFF => Color::YELLOW,
+    };
+  }
+
+  /**
+   * Shows battlefield popups for the target's resolved HP and MP changes.
+   *
+   * @param TurnStateExecutionContext $context The turn context.
+   * @param CharacterInterface $target The resolved target.
+   * @param int $previousHp The target HP before the action.
+   * @param int $previousMp The target MP before the action.
+   * @param float $delaySeconds The time to show the popup.
+   * @return void
+   */
+  protected function displayStatChanges(
+    TurnStateExecutionContext $context,
+    CharacterInterface $target,
+    int $previousHp,
+    int $previousMp,
+    float $delaySeconds
+  ): void
+  {
+    $context->ui->hideMessage();
+    $context->ui->fieldWindow->showStatChangePopup(
+      $target,
+      $this->buildStatChangePopupLines($target, $previousHp, $previousMp)
+    );
+    $context->ui->refresh();
+    $this->pause($delaySeconds);
+    $context->ui->fieldWindow->clearStatChangePopups();
+    $context->ui->refreshField();
+  }
+
+  /**
+   * Builds the floating popup lines for the target's resolved stat changes.
+   *
+   * @param CharacterInterface $target The action target.
+   * @param int $previousHp The target HP before the action.
+   * @param int $previousMp The target MP before the action.
+   * @return array<int, array{text: string, color: Color}> The popup lines to render.
+   */
+  protected function buildStatChangePopupLines(
+    CharacterInterface $target,
+    int $previousHp,
+    int $previousMp
+  ): array
+  {
+    $hpDelta = $target->stats->currentHp - $previousHp;
+    $mpDelta = $target->stats->currentMp - $previousMp;
+    $lines = [];
+
+    if ($hpDelta < 0) {
+      $lines[] = ['text' => strval(abs($hpDelta)), 'color' => Color::LIGHT_RED];
+    } elseif ($hpDelta > 0) {
+      $lines[] = ['text' => '+' . $hpDelta, 'color' => Color::LIGHT_GREEN];
+    }
+
+    if ($mpDelta < 0) {
+      $lines[] = ['text' => '-' . abs($mpDelta) . ' MP', 'color' => Color::LIGHT_CYAN];
+    } elseif ($mpDelta > 0) {
+      $lines[] = ['text' => '+' . $mpDelta . ' MP', 'color' => Color::LIGHT_CYAN];
+    }
+
+    if ($target->isKnockedOut) {
+      $lines[] = ['text' => 'KO', 'color' => Color::YELLOW];
+    }
+
+    if (empty($lines)) {
+      $lines[] = ['text' => 'MISS', 'color' => Color::WHITE];
+    }
+
+    return $lines;
   }
 
   /**

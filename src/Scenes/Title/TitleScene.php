@@ -13,6 +13,7 @@ use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
+use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
 use Ichiloto\Engine\Scenes\AbstractScene;
 use Ichiloto\Engine\Scenes\Game\GameLoader;
@@ -128,6 +129,7 @@ class TitleScene extends AbstractScene
     $menuHeight = 3;
 
     parent::start();
+    Console::clear();
     $this->headerContent = graphics('System/title', false);
     $this->headerLines = explode("\n", $this->headerContent);
     $this->headerHeight = count($this->headerLines);
@@ -154,6 +156,7 @@ class TitleScene extends AbstractScene
 
     $this->initializeOptionsWindow();
     $this->initializeContinueMenuWindows();
+    $this->resetTitleInteractionState();
     $this->syncContinueAvailability();
 
     $this->renderHeader();
@@ -207,6 +210,7 @@ class TitleScene extends AbstractScene
   public function resume(): void
   {
     Console::clear();
+    $this->resetTitleInteractionState();
     $this->syncContinueAvailability();
 
     if ($this->showingContinueMenu) {
@@ -694,6 +698,26 @@ class TitleScene extends AbstractScene
     }
 
     return 0;
+  }
+
+  /**
+   * Resets the title scene to a neutral interactive state.
+   *
+   * Returning to title should not preserve the previously focused menu item or
+   * carry confirm input across the scene transition.
+   *
+   * @return void
+   */
+  protected function resetTitleInteractionState(): void
+  {
+    $this->showingOptions = false;
+    $this->showingContinueMenu = false;
+    $this->activeOptionIndex = 0;
+    $this->activeContinueSlotIndex = 0;
+    $this->continueStatusMessage = null;
+    $this->menu?->setActiveItemByIndex(0);
+    $this->menu?->updateWindowContent();
+    InputManager::resetState(true);
   }
 
   /**

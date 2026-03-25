@@ -82,7 +82,7 @@ class Player extends GameObject
    */
   public Vector2 $screenPosition {
     get {
-      return $this->scene->camera->getScreenSpacePosition($this->position);
+      return $this->getRenderScreenPosition($this->position);
     }
   }
 
@@ -151,6 +151,7 @@ class Player extends GameObject
     $origin = $this->position;
     $destination = Vector2::sum($origin, $direction);
     $collisionType = null;
+    $previousSprite = $this->sprite;
     $this->updatePlayerSprite($direction);
 
     if (! $this->getGameScene()->mapManager->canMoveTo(intval($destination->x), intval($destination->y), $collisionType) ) {
@@ -160,7 +161,7 @@ class Player extends GameObject
 
     $event = new MovementEvent(MovementEventType::PLAYER_MOVE, $origin, $destination);
     $this->handleCollision($collisionType);
-    $this->updatePlayerPosition($direction, $camera);
+    $this->updatePlayerPosition($direction, $camera, $previousSprite);
     $this->handleTriggers($event);
 
 
@@ -311,12 +312,13 @@ class Player extends GameObject
    *
    * @param Vector2 $direction The direction.
    * @param Camera $camera The camera.
+   * @param string[]|null $previousSprite The sprite to erase from the previous position.
    * @return void
    */
-  protected function updatePlayerPosition(Vector2 $direction, Camera $camera): void
+  protected function updatePlayerPosition(Vector2 $direction, Camera $camera, ?array $previousSprite = null): void
   {
     $mapManager = $this->getGameScene()->mapManager;
-    $this->erasePlayer($camera);
+    $this->erasePlayer($camera, $previousSprite ?? $this->sprite);
     $this->position->add($direction);
     if ( $mapManager->scrollMap($this, $direction) ) {
       $mapManager->render();
@@ -423,10 +425,14 @@ class Player extends GameObject
    */
   public function render(): void
   {
-    parent::render();
+    $this->scene->camera->renderAtScreenPosition($this->sprite, $this->screenPosition);
 
     if ($this->canAct) {
-      $this->scene->camera->draw($this->actionSprite, $this->screenPosition->x, clamp($this->screenPosition->y - 1, 1, get_screen_height()));
+      $this->scene->camera->draw(
+        $this->actionSprite,
+        $this->screenPosition->x + $this->getActionSpriteHorizontalOffset(),
+        clamp($this->screenPosition->y - 1, 1, get_screen_height())
+      );
     }
   }
 
@@ -436,19 +442,15 @@ class Player extends GameObject
       $this->position->x - ($offset?->x ?? 0),
       $this->position->y - ($offset?->y ?? 0)
     );
-    $screenPosition = $this->scene->camera->getScreenSpacePosition($worldPosition);
+    $screenPosition = $this->getRenderScreenPosition($worldPosition);
 
     for ($row = $this->shape->getY(); $row < $this->shape->getY() + $this->shape->getHeight(); $row++) {
       $output = TerminalText::sliceSymbols($this->sprite[$row], $this->shape->getX(), $this->shape->getWidth());
-      $this->scene->camera->draw($output, $screenPosition->x, $screenPosition->y + $row);
+      $this->scene->camera->renderAtScreenPosition($output, new Vector2($screenPosition->x, $screenPosition->y + $row));
     }
 
     if ($this->canAct) {
-      $this->scene->camera->draw(
-        $this->actionSprite,
-        $screenPosition->x,
-        clamp($screenPosition->y - 1, 1, get_screen_height())
-      );
+      $this->scene->camera->draw($this->actionSprite, $screenPosition->x + $this->getActionSpriteHorizontalOffset(), clamp($screenPosition->y - 1, 1, get_screen_height()));
     }
   }
 
@@ -457,27 +459,142 @@ class Player extends GameObject
    */
   public function erase(): void
   {
-    parent::erase();
+    $this->eraseSpriteFootprint($this->position, $this->sprite);
 
     if ($this->canAct) {
-      $this->scene->renderBackgroundTile($this->position->x, clamp($this->position->y - 1, 1, get_screen_height()));
+      $this->eraseActionFootprint($this->position, $this->sprite);
     }
   }
 
   /**
    * Erases the player.
    *
-   * @param Camera $camera
+   * @param Camera $camera The camera.
+   * @param string[]|null $sprite The sprite footprint to erase.
    * @return void
    */
-  public function erasePlayer(Camera $camera): void
+  public function erasePlayer(Camera $camera, ?array $sprite = null): void
   {
-    for($row = $this->shape->getY(); $row < $this->shape->getY() + $this->shape->getHeight(); $row++) {
-      $this->scene->renderBackgroundTile($this->position->x, $this->position->y + $row);
-    }
+    $sprite ??= $this->sprite;
+    $this->eraseSpriteFootprint($this->position, $sprite);
 
     if ($this->canAct) {
-      $this->scene->renderBackgroundTile($this->position->x, clamp($this->position->y - 1, 1, get_screen_height()));
+      $this->eraseActionFootprint($this->position, $sprite);
+    }
+  }
+
+  /**
+   * Returns the screen position used for rendering the current sprite.
+   *
+   * Wide glyphs such as emoji occupy multiple terminal cells, so we apply a
+   * small horizontal offset to keep the logical collision tile and the visual
+   * sprite feeling aligned.
+   *
+   * @param Vector2 $worldPosition The world position being rendered.
+   * @return Vector2 The adjusted screen-space position.
+   */
+  protected function getRenderScreenPosition(Vector2 $worldPosition): Vector2
+  {
+    $screenPosition = $this->scene->camera->getScreenSpacePosition($worldPosition);
+
+    return new Vector2(
+      $screenPosition->x - $this->getHorizontalRenderOffset($this->sprite),
+      $screenPosition->y
+    );
+  }
+
+  /**
+   * Returns the horizontal render offset needed for the given sprite.
+   *
+   * @param string[] $sprite The sprite rows to inspect.
+   * @return int The horizontal render offset in terminal cells.
+   */
+  protected function getHorizontalRenderOffset(array $sprite): int
+  {
+    $extraWidth = max(0, $this->getSpriteDisplayWidth($sprite) - $this->shape->getWidth());
+
+    return intdiv($extraWidth + 1, 2);
+  }
+
+  /**
+   * Returns the horizontal offset used to center the action prompt above the sprite.
+   *
+   * @return int The horizontal action-sprite offset.
+   */
+  protected function getActionSpriteHorizontalOffset(): int
+  {
+    return max(0, intdiv($this->getSpriteDisplayWidth($this->sprite) - TerminalText::displayWidth($this->actionSprite), 2));
+  }
+
+  /**
+   * Returns the display width of the widest sprite row.
+   *
+   * @param string[] $sprite The sprite rows to inspect.
+   * @return int The widest row width.
+   */
+  protected function getSpriteDisplayWidth(array $sprite): int
+  {
+    $width = 0;
+
+    foreach ($sprite as $row) {
+      $width = max($width, TerminalText::displayWidth($row));
+    }
+
+    return max(1, $width);
+  }
+
+  /**
+   * Re-renders the map tiles covered by the sprite footprint.
+   *
+   * @param Vector2 $worldPosition The world position being erased.
+   * @param string[] $sprite The sprite rows to inspect.
+   * @return void
+   */
+  protected function eraseSpriteFootprint(Vector2 $worldPosition, array $sprite): void
+  {
+    $startX = intval($worldPosition->x) - $this->getHorizontalRenderOffset($sprite);
+    $width = max($this->shape->getWidth(), $this->getSpriteDisplayWidth($sprite));
+
+    for ($row = 0; $row < max($this->shape->getHeight(), count($sprite)); $row++) {
+      for ($column = 0; $column < $width; $column++) {
+        $tileX = $startX + $column;
+        $tileY = intval($worldPosition->y) + $row;
+
+        if ($tileX < 0 || $tileY < 0) {
+          continue;
+        }
+
+        $this->scene->renderBackgroundTile($tileX, $tileY);
+      }
+    }
+  }
+
+  /**
+   * Re-renders the map tiles covered by the action prompt above the sprite.
+   *
+   * @param Vector2 $worldPosition The world position being erased.
+   * @param string[] $sprite The sprite rows to inspect.
+   * @return void
+   */
+  protected function eraseActionFootprint(Vector2 $worldPosition, array $sprite): void
+  {
+    $tileY = intval($worldPosition->y) - 1;
+
+    if ($tileY < 0) {
+      return;
+    }
+
+    $startX = intval($worldPosition->x) - $this->getHorizontalRenderOffset($sprite);
+    $width = max(1, $this->getSpriteDisplayWidth($sprite));
+
+    for ($column = 0; $column < $width; $column++) {
+      $tileX = $startX + $column;
+
+      if ($tileX < 0) {
+        continue;
+      }
+
+      $this->scene->renderBackgroundTile($tileX, $tileY);
     }
   }
 
