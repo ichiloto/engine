@@ -99,6 +99,16 @@ class BattleCommandContextWindow extends Window implements CanFocus, CanChangeSe
   }
 
   /**
+   * Returns the empty-state message shown when no submenu items are available.
+   *
+   * @return string The empty-state message.
+   */
+  public function getEmptyMessage(): string
+  {
+    return $this->emptyMessage;
+  }
+
+  /**
    * @inheritDoc
    */
   public function focus(): void
@@ -192,7 +202,7 @@ class BattleCommandContextWindow extends Window implements CanFocus, CanChangeSe
     $availableWidth = $this->getContentWidth();
     $this->syncScrollOffset();
     $this->updateTitle();
-    $this->setHelp($this->hasItems() ? 'enter:Select c:Back' : 'c:Back');
+    $this->setHelp($this->hasItems() ? 'enter:Select i:Info c:Back' : 'i:Info c:Back');
 
     if (! $this->hasItems()) {
       $content = array_fill(0, $visibleRowCount, '');

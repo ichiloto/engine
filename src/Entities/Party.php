@@ -59,7 +59,23 @@ class Party extends BattleGroup
    */
   public ItemList $battlers {
     get {
-      return new ItemList(CharacterInterface::class, array_slice($this->members->toArray(), 0, 3));
+      $members = $this->members->toArray();
+      $frontline = array_slice($members, 0, 3);
+      $livingFrontline = array_filter(
+        $frontline,
+        static fn(CharacterInterface $member): bool => ! $member->isKnockedOut
+      );
+
+      if (! empty($livingFrontline) || count($members) <= 3) {
+        return new ItemList(CharacterInterface::class, $frontline);
+      }
+
+      $livingMembers = array_values(array_filter(
+        $members,
+        static fn(CharacterInterface $member): bool => ! $member->isKnockedOut
+      ));
+
+      return new ItemList(CharacterInterface::class, array_slice($livingMembers, 0, 3));
     }
   }
 
@@ -220,4 +236,5 @@ class Party extends BattleGroup
     [$members[$firstIndex], $members[$secondIndex]] = [$members[$secondIndex], $members[$firstIndex]];
     $this->members = new ItemList(CharacterInterface::class, $members);
   }
+
 }

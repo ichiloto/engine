@@ -56,6 +56,11 @@ class BattleRunState extends BattleSceneState
   {
     $this->handleActions();
     $this->engine->run($this->battleEngineContext ?? throw new RuntimeException('Battle engine context is not set.'));
+
+    if ($this->scene->getGame()->sceneManager->currentScene !== $this->scene) {
+      return;
+    }
+
     $this->ui->update();
   }
 

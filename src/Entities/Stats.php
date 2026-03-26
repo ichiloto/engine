@@ -347,8 +347,6 @@ class Stats implements JsonSerializable, Stringable
 
         $equipment = $equipmentSlot->equipment;
 
-        $effectiveStats->totalHp += $equipment->parameterChanges->totalHp;
-        $effectiveStats->totalMp += $equipment->parameterChanges->totalMp;
         $effectiveStats->attack += $equipment->parameterChanges->attack;
         $effectiveStats->defence += $equipment->parameterChanges->defence;
         $effectiveStats->magicAttack += $equipment->parameterChanges->magicAttack;

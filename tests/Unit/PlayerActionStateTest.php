@@ -127,6 +127,11 @@ class PlayerActionStateTestProxy extends PlayerActionState
   {
     $this->queueActionForActiveCharacter($context);
   }
+
+  public function showFocusedInfoForTest(TurnStateExecutionContext $context): void
+  {
+    $this->showFocusedInfo($context);
+  }
 }
 
 function setTestProperty(object $object, string $property, mixed $value): void
@@ -215,4 +220,32 @@ it('queues the player action against the selected target and keeps a queued targ
     ->and($screen->lastAlert)->toContain('Slime B')
     ->and($fieldWindow->getQueuedTroopTargets())->toBe([1 => 1])
     ->and($fieldWindow->getFocusedTroopIndex())->toBeNull();
+});
+
+it('shows helpful info for the focused battle command and submenu option', function () {
+  $game = (new ReflectionClass(GameTargetingTestProxy::class))->newInstanceWithoutConstructor();
+  $party = new Party();
+  $party->addMember(new Character('Kaelion', 0, new Stats(currentHp: 120, attack: 14, defence: 8, speed: 8)));
+
+  $slime = createTargetingTestEnemy('Slime A');
+  $troop = new Troop('Slimes', [$slime]);
+  $screen = createTargetingTestScreen();
+
+  $engine = new TraditionalTurnBasedBattleEngine($game);
+  $engine->configure(new TurnBasedBattleConfig($party, $troop, $screen));
+
+  $context = new TurnStateExecutionContext($game, $party, $troop, $screen, []);
+  $context->setTurns([new Turn($party->battlers->toArray()[0])]);
+
+  $state = new PlayerActionStateTestProxy($engine);
+  $state->setActiveCharacterIndexForTest(0);
+  $state->loadCharacterActionsForTest($context);
+  $state->showFocusedInfoForTest($context);
+
+  expect($screen->lastAlert)->toContain('physical attack');
+
+  $state->beginSubmenuSelectionForTest($context);
+  $state->showFocusedInfoForTest($context);
+
+  expect($screen->lastAlert)->toContain('Strike a single enemy');
 });

@@ -23,7 +23,16 @@ class TurnResolutionState extends TurnState
       return;
     }
 
-    if ($context->troop->isDefeated()) {
+    if (empty($context->getLivingPartyBattlers())) {
+      $scene->result = new BattleResult('Defeat', [
+        'The party has been wiped out.',
+        'Press enter to continue.',
+      ]);
+      $scene->setState($scene->defeatState);
+      return;
+    }
+
+    if (empty($context->getLivingTroopBattlers())) {
       $experience = 0;
       $gold = 0;
       $items = [];
@@ -66,15 +75,6 @@ class TurnResolutionState extends TurnState
 
       $scene->result = new BattleResult('Victory', $lines, $items, $entries);
       $scene->setState($scene->victoryState);
-      return;
-    }
-
-    if ($context->party->isDefeated()) {
-      $scene->result = new BattleResult('Defeat', [
-        'The party has been wiped out.',
-        'Press enter to continue.',
-      ]);
-      $scene->setState($scene->defeatState);
       return;
     }
 

@@ -160,6 +160,10 @@ class PlayerActionState extends TurnState
    */
   protected function handleActions(TurnStateExecutionContext $context): void
   {
+    if (Input::isAnyKeyPressed([KeyCode::I, KeyCode::i])) {
+      $this->showFocusedInfo($context);
+    }
+
     if (Input::isButtonDown('action')) {
       match ($this->selectionMode) {
         self::MODE_COMMAND => $this->beginSubmenuSelection($context),
@@ -178,6 +182,28 @@ class PlayerActionState extends TurnState
       self::MODE_SUBMENU => $this->returnToCommandSelection($context),
       default => $this->selectPreviousCharacter($context),
     };
+  }
+
+  /**
+   * Displays info for the currently focused battle input option.
+   *
+   * @param TurnStateExecutionContext $context The turn context.
+   * @return void
+   */
+  protected function showFocusedInfo(TurnStateExecutionContext $context): void
+  {
+    $infoText = match ($this->selectionMode) {
+      self::MODE_COMMAND => $this->resolveCommandInfo($context),
+      self::MODE_SUBMENU => $this->resolveSelectedOptionInfo(),
+      self::MODE_TARGET => $this->resolveSelectedOptionInfo(true),
+      default => null,
+    };
+
+    if ($infoText === null || trim($infoText) === '') {
+      return;
+    }
+
+    $context->ui->alert($infoText);
   }
 
   /**
@@ -494,6 +520,24 @@ class PlayerActionState extends TurnState
   }
 
   /**
+   * Returns help text for the currently focused top-level command.
+   *
+   * @param TurnStateExecutionContext $context The turn context.
+   * @return string|null The command help text.
+   */
+  protected function resolveCommandInfo(TurnStateExecutionContext $context): ?string
+  {
+    return match (strtolower((string) $this->getSelectedCommandName($context))) {
+      'attack' => 'Choose a physical attack to strike an enemy.',
+      'skill' => 'Use one of this character\'s battle abilities.',
+      'magic' => 'Cast a learned spell that can be used in battle.',
+      'summon' => 'Call a summon or esper to aid the party.',
+      'item' => 'Use a battle item from the party inventory.',
+      default => null,
+    };
+  }
+
+  /**
    * Returns the submenu option that currently has focus.
    *
    * @return BattleCommandOption|null The active submenu option.
@@ -501,6 +545,32 @@ class PlayerActionState extends TurnState
   protected function getSelectedOption(): ?BattleCommandOption
   {
     return $this->engine->battleConfig->ui->commandContextWindow->getActiveItem();
+  }
+
+  /**
+   * Returns help text for the currently focused submenu option.
+   *
+   * @param bool $appendTargetHint Whether to append target-selection guidance.
+   * @return string|null The option help text.
+   */
+  protected function resolveSelectedOptionInfo(bool $appendTargetHint = false): ?string
+  {
+    $selectedOption = $this->getSelectedOption();
+
+    if (! $selectedOption instanceof BattleCommandOption) {
+      $emptyMessage = $this->engine->battleConfig->ui->commandContextWindow->getEmptyMessage();
+      return $emptyMessage !== '' ? $emptyMessage : null;
+    }
+
+    $description = $selectedOption->description !== ''
+      ? $selectedOption->description
+      : sprintf('Use %s.', $selectedOption->action->name);
+
+    if (! $appendTargetHint) {
+      return $description;
+    }
+
+    return trim($description . ' Choose a target.');
   }
 
   /**

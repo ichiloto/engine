@@ -120,7 +120,7 @@ class ActionExecutionState extends TurnState
       $timings->announcement
     );
     $this->pause($timings->actionAnimation);
-    $this->displayPhase($context, '*SFX*', $timings->effectAnimation);
+    $this->pause($timings->effectAnimation);
 
     $previousHp = $target->stats->currentHp;
     $previousMp = $target->stats->currentMp;

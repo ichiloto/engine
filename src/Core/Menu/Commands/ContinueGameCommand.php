@@ -12,6 +12,7 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\GameOver\GameOverScene;
 use Ichiloto\Engine\Scenes\Title\TitleScene;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Throwable;
 
 /**
  * Opens or executes the most relevant continue flow for the current scene.
@@ -58,7 +59,7 @@ class ContinueGameCommand extends MenuItem
       return self::SUCCESS;
     }
 
-    $savedGameFilePath = $context->sceneManager->saveManager->getLatestSaveFile(true);
+    $savedGameFilePath = $context->sceneManager->saveManager->getLatestLoadableSaveFile(true);
 
     if ($savedGameFilePath === null) {
       $this->disable();
@@ -71,7 +72,11 @@ class ContinueGameCommand extends MenuItem
       throw new NotFoundException('The current scene is not a game scene.');
     }
 
-    $currentScene->configure($this->gameLoader->loadSavedGame($savedGameFilePath));
+    try {
+      $currentScene->configure($this->gameLoader->loadSavedGame($savedGameFilePath));
+    } catch (Throwable) {
+      return self::FAILURE;
+    }
 
     if ($context->scene instanceof GameOverScene) {
       $this->enable();

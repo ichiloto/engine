@@ -467,8 +467,8 @@ class Character implements CharacterInterface, CanEquip
    */
   protected function adjustStatTotals(): void
   {
-    $this->stats->totalHp      = $this->totalHpCurve[$this->level] ?? 0;
-    $this->stats->totalMp      = $this->totalMpCurve[$this->level] ?? 0;
+    $this->stats->totalHp      = ($this->totalHpCurve[$this->level] ?? 0) + $this->getEquipmentTotalHpBonus();
+    $this->stats->totalMp      = ($this->totalMpCurve[$this->level] ?? 0) + $this->getEquipmentTotalMpBonus();
     $this->stats->attack       = $this->attackCurve[$this->level] ?? 0;
     $this->stats->defence      = $this->defenceCurve[$this->level] ?? 0;
     $this->stats->magicAttack  = $this->magicAttackCurve[$this->level] ?? 0;
@@ -481,6 +481,38 @@ class Character implements CharacterInterface, CanEquip
     $this->stats->currentHp = $this->stats->currentHp;
     $this->stats->currentMp = $this->stats->currentMp;
     $this->stats->currentAp = $this->stats->currentAp;
+  }
+
+  /**
+   * Returns the total HP bonus granted by currently equipped gear.
+   *
+   * @return int
+   */
+  protected function getEquipmentTotalHpBonus(): int
+  {
+    $bonus = 0;
+
+    foreach ($this->equipment as $equipmentSlot) {
+      $bonus += $equipmentSlot->equipment?->parameterChanges->totalHp ?? 0;
+    }
+
+    return $bonus;
+  }
+
+  /**
+   * Returns the total MP bonus granted by currently equipped gear.
+   *
+   * @return int
+   */
+  protected function getEquipmentTotalMpBonus(): int
+  {
+    $bonus = 0;
+
+    foreach ($this->equipment as $equipmentSlot) {
+      $bonus += $equipmentSlot->equipment?->parameterChanges->totalMp ?? 0;
+    }
+
+    return $bonus;
   }
 
   /**

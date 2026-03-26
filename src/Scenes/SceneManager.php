@@ -183,7 +183,10 @@ class SceneManager implements CanStart, CanRender, CanUpdate
       default => $this->scenes->find(fn(SceneInterface $scene) => $scene::class === $index) ?? throw new NotFoundException($index),
     };
 
-    $this->currentScene?->suspend();
+    if ($this->currentScene === $sceneToLoad) {
+      return $this;
+    }
+
     $this->unloadScene($this->currentScene);
     $this->currentScene = $sceneToLoad;
     if ($this->currentScene?->isStarted()) {
@@ -240,6 +243,11 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    */
   public function loadBattleScene(Party $party, Troop $troop, array $events = []): void
   {
+    if ($party->isDefeated()) {
+      $this->loadGameOverScene();
+      return;
+    }
+
     $currentScene = $this->loadScene(BattleScene::class)->currentScene;
 
     if (! $currentScene instanceof BattleScene) {
@@ -257,10 +265,10 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    */
   public function returnFromBattleScene(): void
   {
-    $currentScene = $this->loadScene(GameScene::class)->currentScene;
+    $this->loadScene(GameScene::class);
 
-    if ($currentScene instanceof GameScene) {
-      $currentScene->resume();
+    if ($this->currentScene instanceof GameScene) {
+      $this->currentScene->fieldState?->resume();
     }
   }
 }

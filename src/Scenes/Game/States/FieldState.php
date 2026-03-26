@@ -154,7 +154,8 @@ class FieldState extends GameSceneState
       $battleEvents = [];
       $troopNames = [
         'Rat + Bat',
-        'Bat x 2'
+        'Bat x 2',
+        'Loch Ness'
       ];
       $troopNameKey = array_rand($troopNames);
       $troop = get_troop($troopNames[$troopNameKey]);
