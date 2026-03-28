@@ -39,11 +39,13 @@ readonly class ExperienceCurveGenerator implements CurveGeneratorInterface
    */
   public function getValue(?int $level = null): int
   {
-    if (!$level) {
+    if (!$level || !$this->curve) {
       return 0;
     }
 
-    return $this->curve[$level] ?? 0;
+    $curveLevel = max(1, min($level, max(array_keys($this->curve))));
+
+    return $this->curve[$curveLevel] ?? 0;
   }
 
   /**

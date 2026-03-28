@@ -37,13 +37,14 @@ class ActionExecutionState extends TurnState
   {
     $turn = $context->getCurrentTurn();
 
-    if ($turn === null) {
+    if ($turn === null || $this->battleHasConcluded($context)) {
       $this->setState($this->engine->turnResolutionState);
       return;
     }
 
     if ($turn->battler->isKnockedOut) {
       $context->advanceTurn();
+      $this->transitionToResolutionIfNeeded($context);
       return;
     }
 
@@ -58,6 +59,7 @@ class ActionExecutionState extends TurnState
 
     if (empty($targets)) {
       $context->advanceTurn();
+      $this->transitionToResolutionIfNeeded($context);
       return;
     }
 
@@ -79,11 +81,37 @@ class ActionExecutionState extends TurnState
       }
     );
 
-    $context->advanceTurn();
+    if ($this->battleHasConcluded($context)) {
+      $this->setState($this->engine->turnResolutionState);
+      return;
+    }
 
-    if ($context->getCurrentTurn() === null) {
+    $context->advanceTurn();
+    $this->transitionToResolutionIfNeeded($context);
+  }
+
+  /**
+   * Transitions to turn resolution when the round is exhausted or battle end is already known.
+   *
+   * @param TurnStateExecutionContext $context The turn context.
+   * @return void
+   */
+  protected function transitionToResolutionIfNeeded(TurnStateExecutionContext $context): void
+  {
+    if ($context->getCurrentTurn() === null || $this->battleHasConcluded($context)) {
       $this->setState($this->engine->turnResolutionState);
     }
+  }
+
+  /**
+   * Determines whether one side has already been wiped out.
+   *
+   * @param TurnStateExecutionContext $context The turn context.
+   * @return bool
+   */
+  protected function battleHasConcluded(TurnStateExecutionContext $context): bool
+  {
+    return empty($context->getLivingPartyBattlers()) || empty($context->getLivingTroopBattlers());
   }
 
   /**

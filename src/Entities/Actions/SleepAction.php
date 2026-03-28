@@ -69,10 +69,8 @@ class SleepAction extends FieldAction
 
       /** @var Character $member */
       foreach ($context->scene->party->members as $member) {
-        if ($member->isConscious) {
-          $member->stats->currentHp = $member->stats->totalHp;
-          $member->stats->currentMp = $member->stats->totalMp;
-        }
+        $member->stats->currentHp = $member->stats->totalHp;
+        $member->stats->currentMp = $member->stats->totalMp;
       }
 
       $context->player->availableAction = null;

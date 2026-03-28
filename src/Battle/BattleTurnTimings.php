@@ -29,14 +29,15 @@ class BattleTurnTimings
    */
   public static function fromTotalDuration(float $totalDurationSeconds): self
   {
+    // Favor the announcement, visible effect beat, and result beat so players can read the action.
     return new self(
-      $totalDurationSeconds * 0.10,
-      $totalDurationSeconds * 0.30,
-      $totalDurationSeconds * 0.16,
+      $totalDurationSeconds * 0.07,
+      $totalDurationSeconds * 0.28,
       $totalDurationSeconds * 0.12,
+      $totalDurationSeconds * 0.18,
+      $totalDurationSeconds * 0.07,
+      $totalDurationSeconds * 0.18,
       $totalDurationSeconds * 0.10,
-      $totalDurationSeconds * 0.17,
-      $totalDurationSeconds * 0.05,
     );
   }
 

@@ -36,7 +36,14 @@ readonly class ParameterCurveGenerator implements CurveGeneratorInterface
    */
   public function getValue(?int $level = null): int
   {
-    return $this->curve[$level ?? $this->level] ?? 0;
+    if (!$this->curve) {
+      return 0;
+    }
+
+    $requestedLevel = $level ?? $this->level;
+    $curveLevel = max(1, min($requestedLevel, max(array_keys($this->curve))));
+
+    return $this->curve[$curveLevel] ?? 0;
   }
 
   /**

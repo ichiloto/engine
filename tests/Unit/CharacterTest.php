@@ -101,6 +101,27 @@ it('rehydrates level curves after unserializing so level 100 stats stay non-zero
     ->and($restored->stats->speed)->toBeGreaterThan(0);
 });
 
+it('recovers invalid zero-total vitals from legacy serialized character payloads', function () {
+  $character = new Character('Kaelion', 0, new Stats(currentHp: 120, currentMp: 18));
+  $character->addExperience(PHP_INT_MAX);
+
+  $payload = $character->__serialize();
+  $payload['stats'] = array_merge($payload['stats']->jsonSerialize(), [
+    'currentHp' => 0,
+    'currentMp' => 0,
+    'totalHp' => 0,
+    'totalMp' => 0,
+  ]);
+
+  $restored = (new ReflectionClass(Character::class))->newInstanceWithoutConstructor();
+  $restored->__unserialize($payload);
+
+  expect($restored->stats->totalHp)->toBeGreaterThan(0)
+    ->and($restored->stats->totalMp)->toBeGreaterThanOrEqual(0)
+    ->and($restored->stats->currentHp)->toBe($restored->stats->totalHp)
+    ->and($restored->stats->currentMp)->toBe($restored->stats->totalMp);
+});
+
 /**
  * Invokes the protected stat refresh routine on a character.
  *
@@ -126,4 +147,3 @@ function setCharacterProperty(Character $character, string $propertyName, mixed 
   $property = new ReflectionProperty(Character::class, $propertyName);
   $property->setValue($character, $value);
 }
-

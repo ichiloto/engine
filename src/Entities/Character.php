@@ -627,6 +627,8 @@ class Character implements CharacterInterface, CanEquip
    */
   protected function rehydrateDerivedState(): void
   {
+    $hasInvalidSavedVitals = isset($this->stats) && $this->stats->totalHp <= 0;
+
     if (! isset($this->abilityBook)) {
       $this->abilityBook = new AbilityBook();
     }
@@ -641,6 +643,12 @@ class Character implements CharacterInterface, CanEquip
 
     $this->calculateLevelExpThresholds();
     $this->generateParameterCurves();
+
+    if ($hasInvalidSavedVitals) {
+      // Recover legacy saves created while the level-cap bug had zeroed the stored vital totals.
+      $this->stats->currentHp = $this->stats->totalHp;
+      $this->stats->currentMp = $this->stats->totalMp;
+    }
   }
 
   /**
