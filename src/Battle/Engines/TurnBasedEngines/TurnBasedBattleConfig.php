@@ -21,14 +21,16 @@ class TurnBasedBattleConfig extends BattleConfig
    * @param Troop $troop The troop.
    * @param BattleScreen $ui The battle screen.
    * @param array $events The events.
+   * @param array<string, mixed> $settings Runtime battle settings.
    */
   public function __construct(
     Party $party,
     Troop $troop,
     protected(set) BattleScreen $ui,
-    array $events = []
+    array $events = [],
+    array $settings = [],
   )
   {
-    parent::__construct($party, $troop, $events);
+    parent::__construct($party, $troop, $events, $settings);
   }
 }

@@ -15,11 +15,13 @@ class CharacterSprites
    * @param string[] $dialog The sprite array for dialog.
    * @param string[] $field The sprite array for the field.
    * @param string[] $battle The sprite array for battle.
+   * @param int|string|null $battleAnimation The optional editor-authored battler animation id or name.
    */
   public function __construct(
     public array $dialog = [],
     public array $field = [],
     public array $battle = [],
+    public int|string|null $battleAnimation = null,
   )
   {
   }
@@ -27,7 +29,7 @@ class CharacterSprites
   /**
    * Creates a new character sprite list from an array.
    *
-   * @param array{dialog: string[]|null, field: string[]|null, battle: string[]|null} $data The data to create the character sprite array from.
+   * @param array{dialog: string[]|null, field: string[]|null, battle: string[]|null, battleAnimation?: int|string|null} $data The data to create the character sprite array from.
    * @return static The character sprites.
    */
   public static function fromArray(array $data): static
@@ -41,7 +43,8 @@ class CharacterSprites
         "  / | \  ",
         "   / \   ",
         "  /   \  ",
-      ]
+      ],
+      $data["battleAnimation"] ?? null,
     );
   }
 }

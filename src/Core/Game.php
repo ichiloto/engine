@@ -6,7 +6,10 @@ use Assegai\Collections\ItemList;
 use Assegai\Util\Path;
 use Error;
 use Exception;
+use Ichiloto\Engine\Battle\BattleEngineFactory;
+use Ichiloto\Engine\Battle\Engines\ActiveTime\ActiveTimeBattleEngine;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\TraditionalTurnBasedBattleEngine;
+use Ichiloto\Engine\Battle\Enumerations\BattleEngineType;
 use Ichiloto\Engine\Battle\Interfaces\BattleEngineInterface;
 use Ichiloto\Engine\Core\Enumerations\ChronoUnit;
 use Ichiloto\Engine\Core\Interfaces\CanRun;
@@ -373,7 +376,39 @@ class Game implements CanRun, SubjectInterface
         $this->modalManager = ModalManager::getInstance($this);
         $this->notificationManager = NotificationManager::getInstance($this);
         InputManager::init($this);
-        $this->engine = new TraditionalTurnBasedBattleEngine($this);
+        $this->engine = BattleEngineFactory::create($this, BattleEngineType::TRADITIONAL);
+    }
+
+    /**
+     * Replaces the active battle engine instance.
+     *
+     * @param BattleEngineInterface $engine The engine instance to use.
+     * @return void
+     */
+    public function setBattleEngine(BattleEngineInterface $engine): void
+    {
+        $this->engine = $engine;
+    }
+
+    /**
+     * Switches the battle engine implementation for subsequent battles.
+     *
+     * @param BattleEngineType $type The desired battle engine type.
+     * @return void
+     */
+    public function useBattleEngineType(BattleEngineType $type): void
+    {
+        $alreadyUsingRequestedType = match ($type) {
+            BattleEngineType::ACTIVE_TIME => $this->engine instanceof ActiveTimeBattleEngine,
+            BattleEngineType::TRADITIONAL => $this->engine instanceof TraditionalTurnBasedBattleEngine,
+        };
+
+        if ($alreadyUsingRequestedType) {
+            return;
+        }
+
+        $this->engine->stop();
+        $this->engine = BattleEngineFactory::create($this, $type);
     }
 
     /**

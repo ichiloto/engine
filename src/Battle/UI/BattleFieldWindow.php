@@ -2,6 +2,9 @@
 
 namespace Ichiloto\Engine\Battle\UI;
 
+use Ichiloto\Engine\Animations\Animation;
+use Ichiloto\Engine\Animations\AnimationCell;
+use Ichiloto\Engine\Animations\AnimationTargetPosition;
 use Ichiloto\Engine\Battle\PartyBattlerPositions;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
@@ -914,6 +917,108 @@ class BattleFieldWindow extends Window
       ['x' => $baseX + $spriteWidth, 'y' => $baseY + $spriteHeight],
       ['x' => $baseX - 1, 'y' => $baseY + $spriteHeight],
     ];
+  }
+
+
+  /**
+   * Displays one editor-authored action animation frame anchored to the battler.
+   *
+   * @param CharacterInterface $battler The battler receiving the animation.
+   * @param Animation $animation The animation to render.
+   * @param int $frameIndex The frame index to display.
+   * @return void
+   */
+  public function showActionAnimationFrame(CharacterInterface $battler, Animation $animation, int $frameIndex): void
+  {
+    $this->clearMagicCastEffects();
+    $origin = $this->resolveActionAnimationOrigin($battler, $animation->position);
+
+    if ($origin === null) {
+      return;
+    }
+
+    foreach ($animation->getFrame($frameIndex)->getCells() as $cell) {
+      $this->magicCastEffects[] = [
+        'text' => $this->formatAnimationCell($cell),
+        'x' => $origin['x'] + $cell->x,
+        'y' => $origin['y'] + $cell->y,
+      ];
+    }
+
+    $this->renderMagicCastEffects();
+  }
+
+  /**
+   * Resolves the anchor point for an action animation on the target battler.
+   *
+   * @param CharacterInterface $battler The battler receiving the animation.
+   * @param AnimationTargetPosition $position The configured animation anchor.
+   * @return array{x: int, y: int}|null
+   */
+  protected function resolveActionAnimationOrigin(
+    CharacterInterface $battler,
+    AnimationTargetPosition $position,
+  ): ?array
+  {
+    if ($position === AnimationTargetPosition::SCREEN) {
+      return [
+        'x' => $this->position->x + intdiv($this->width, 2),
+        'y' => $this->position->y + intdiv($this->height, 2),
+      ];
+    }
+
+    $anchor = $this->resolveStatChangePopupAnchor($battler);
+
+    if ($anchor === null) {
+      return null;
+    }
+
+    $baseY = $anchor['y'] + 1;
+    $spriteHeight = 5;
+
+    if ($battler instanceof Character) {
+      $partyBattlers = $this->battleScreen->party->battlers->toArray();
+      $index = array_search($battler, $partyBattlers, true);
+
+      if (is_int($index)) {
+        $baseY = $this->position->y + $this->getPartyIdlePosition($index)->y;
+      }
+
+      $spriteHeight = max(1, count($battler->images->battle));
+    }
+
+    if ($battler instanceof Enemy) {
+      $baseY = $this->position->y + $battler->position->y;
+      $spriteHeight = max(1, count($battler->image));
+    }
+
+    return match ($position) {
+      AnimationTargetPosition::HEAD => ['x' => $anchor['x'], 'y' => $baseY],
+      AnimationTargetPosition::FEET => ['x' => $anchor['x'], 'y' => $baseY + max(0, $spriteHeight - 1)],
+      AnimationTargetPosition::SCREEN,
+      AnimationTargetPosition::CENTER => ['x' => $anchor['x'], 'y' => $baseY + intdiv(max(1, $spriteHeight), 2)],
+    };
+  }
+
+  /**
+   * Applies optional color styling to an animation cell.
+   *
+   * @param AnimationCell $cell The animation cell.
+   * @return string
+   */
+  protected function formatAnimationCell(AnimationCell $cell): string
+  {
+    if ($cell->color === null || $cell->color === '') {
+      return $cell->symbol;
+    }
+
+    foreach (Color::cases() as $color) {
+      if (strtolower($color->name) === strtolower($cell->color)) {
+        return $color->value . $cell->symbol . Color::RESET->value;
+      }
+    }
+
+    return $cell->symbol;
   }
 
   /**

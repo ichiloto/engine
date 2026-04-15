@@ -4,7 +4,7 @@ namespace Ichiloto\Engine\Scenes;
 
 use Assegai\Collections\ItemList;
 use Exception;
-use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\TraditionalTurnBasedBattleEngine;
+use Ichiloto\Engine\Battle\Enumerations\BattleEngineType;
 use Ichiloto\Engine\Battle\Interfaces\BattleEngineInterface;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
@@ -248,13 +248,15 @@ class SceneManager implements CanStart, CanRender, CanUpdate
       return;
     }
 
+    $config = $this->battleLoader->newConfig($party, $troop, $events);
+    $this->game->useBattleEngineType(BattleEngineType::fromValue($config->settings['engine'] ?? null));
     $currentScene = $this->loadScene(BattleScene::class)->currentScene;
 
     if (! $currentScene instanceof BattleScene) {
       throw new NotFoundException('The current scene is not a battle scene.');
     }
 
-    $currentScene->configure($this->battleLoader->newConfig($party, $troop, $events));
+    $currentScene->configure($config);
   }
 
   /**

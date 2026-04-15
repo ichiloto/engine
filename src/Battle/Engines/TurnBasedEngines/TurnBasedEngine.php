@@ -22,9 +22,9 @@ use Ichiloto\Engine\Scenes\Battle\BattleConfig;
 abstract class TurnBasedEngine implements BattleEngineInterface
 {
   /**
-   * @var TurnBasedBattleConfig|null The battle configuration.
+   * @var BattleConfig|null The battle configuration.
    */
-  protected(set) ?TurnBasedBattleConfig $battleConfig = null;
+  protected(set) ?BattleConfig $battleConfig = null;
   /**
    * @var TurnState|null The state of the engine.
    */
@@ -50,9 +50,9 @@ abstract class TurnBasedEngine implements BattleEngineInterface
    */
   protected(set) ?PlayerActionState $playerActionState = null;
   /**
-   * @var TurnInitState|null The turn initialization state.
+   * @var TurnState|null The turn initialization state.
    */
-  protected(set) ?TurnInitState $turnInitState = null;
+  protected(set) ?TurnState $turnInitState = null;
   /**
    * @var TurnResolutionState|null The turn resolution state.
    */
@@ -76,9 +76,7 @@ abstract class TurnBasedEngine implements BattleEngineInterface
    */
   public function configure(BattleConfig $config): void
   {
-    if ($config instanceof TurnBasedBattleConfig) {
-      $this->battleConfig = $config;
-    }
+    $this->battleConfig = $config;
   }
 
   /**
@@ -134,6 +132,8 @@ abstract class TurnBasedEngine implements BattleEngineInterface
    */
   protected function positionBattlers(): void
   {
-    $this->battleConfig->ui->refreshField();
+    if ($this->battleConfig && property_exists($this->battleConfig, 'ui')) {
+      $this->battleConfig->ui->refreshField();
+    }
   }
 }

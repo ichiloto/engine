@@ -1,6 +1,7 @@
 <?php
 
 namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines;
+use Ichiloto\Engine\Scenes\Battle\BattleConfig;
 
 /**
  * Represents the turn execution context.
@@ -13,11 +14,11 @@ readonly class TurnExecutionContext
    * TurnExecutionContext constructor.
    *
    * @param TurnBasedEngine $engine The turn-based engine.
-   * @param TurnBasedBattleConfig $battleConfig The battle configuration.
+   * @param \Ichiloto\Engine\Scenes\Battle\BattleConfig $battleConfig The battle configuration.
    */
   public function __construct(
     public TurnBasedEngine $engine,
-    public TurnBasedBattleConfig $battleConfig,
+    public BattleConfig $battleConfig,
     public array $args = []
   )
   {

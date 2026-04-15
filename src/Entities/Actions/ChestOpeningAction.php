@@ -58,7 +58,7 @@ class ChestOpeningAction extends FieldAction
 
     switch ($this->trigger->lootType) {
       case LootType::GOLD:
-        $amount = $this->trigger->quantity;
+        $amount = is_numeric($this->trigger->loot) ? (int) $this->trigger->loot : $this->trigger->quantity;
         $symbol = config(ProjectConfig::class, 'vocab.currency.symbol', 'G');
         $message = config(ProjectConfig::class, 'messages.obtained_gold', '%1%2 found!');
         $message = str_replace('%1', $amount, $message);
@@ -68,6 +68,11 @@ class ChestOpeningAction extends FieldAction
 
       default:
         $loot = $this->itemStore->get($this->trigger->loot);
+        if ($loot === null) {
+          $replacement = (string) $this->trigger->loot;
+          $message = str_replace("%1", $replacement, $message);
+          break;
+        }
         $quantity = $this->trigger->quantity;
         $lootNameText = new Text($loot->name);
         $lootName = ($quantity > 1) ? $lootNameText->getPluralForm() : $lootNameText->getSingularForm();

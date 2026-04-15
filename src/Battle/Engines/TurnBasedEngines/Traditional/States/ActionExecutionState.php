@@ -2,6 +2,10 @@
 
 namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States;
 
+use Ichiloto\Engine\Animations\Animation;
+use Ichiloto\Engine\Animations\AnimationLibrary;
+use Ichiloto\Engine\Animations\AnimationPlayer;
+use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Battle\BattleAction;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnExecutionContext;
@@ -142,12 +146,10 @@ class ActionExecutionState extends TurnState
     $this->pause($timings->stepForward);
     $this->displayAnnouncementPhase(
       $context,
-      $actor,
-      $action,
       sprintf('%s uses %s!', $actor->name, $actionName),
       $timings->announcement
     );
-    $this->pause($timings->actionAnimation);
+    $this->playActionAnimation($context, $actor, $target, $action, $timings->actionAnimation);
     $this->pause($timings->effectAnimation);
 
     $previousHp = $target->stats->currentHp;
@@ -179,20 +181,12 @@ class ActionExecutionState extends TurnState
    */
   protected function displayAnnouncementPhase(
     TurnStateExecutionContext $context,
-    CharacterInterface $actor,
-    ?BattleAction $action,
     string $message,
     float $delaySeconds
   ): void
   {
     $context->ui->showMessage($message);
-
-    if (! $this->shouldAnimateMagicCastEffect($context, $actor, $action)) {
-      $this->pause($delaySeconds);
-      return;
-    }
-
-    $this->playMagicCastEffect($context, $actor, $action, $delaySeconds);
+    $this->pause($delaySeconds);
   }
 
   /**
@@ -316,75 +310,79 @@ class ActionExecutionState extends TurnState
   }
 
   /**
-   * Determines whether the announcement phase should render the caster magic effect.
+   * Plays the configured action animation over the current target.
    *
    * @param TurnStateExecutionContext $context The turn context.
    * @param CharacterInterface $actor The acting battler.
-   * @param BattleAction|null $action The action being announced.
-   * @return bool
-   */
-  protected function shouldAnimateMagicCastEffect(
-    TurnStateExecutionContext $context,
-    CharacterInterface $actor,
-    ?BattleAction $action
-  ): bool
-  {
-    if (! $actor instanceof Character) {
-      return false;
-    }
-
-    if (! $action instanceof SkillBattleAction || ! $action->skill instanceof MagicSkill) {
-      return false;
-    }
-
-    return is_int(array_search($actor, $context->party->battlers->toArray(), true));
-  }
-
-  /**
-   * Plays the clockwise caster effect for magic announced by a party battler.
-   *
-   * @param TurnStateExecutionContext $context The turn context.
-   * @param CharacterInterface $actor The acting battler.
-   * @param BattleAction|null $action The resolved battle action.
-   * @param float $delaySeconds The time budget for the full sequence.
+   * @param CharacterInterface $target The resolved action target.
+   * @param BattleAction|null $action The resolved action.
+   * @param float $delaySeconds The time budget for the animation phase.
    * @return void
    */
-  protected function playMagicCastEffect(
+  protected function playActionAnimation(
     TurnStateExecutionContext $context,
     CharacterInterface $actor,
+    CharacterInterface $target,
     ?BattleAction $action,
     float $delaySeconds
   ): void
   {
-    if (! $actor instanceof Character || ! $action instanceof SkillBattleAction || ! $action->skill instanceof MagicSkill) {
+    $animation = $this->resolveActionAnimation($action);
+
+    if (! $animation instanceof Animation) {
       $this->pause($delaySeconds);
       return;
     }
 
-    $partyBattlers = $context->party->battlers->toArray();
-    $actorIndex = array_search($actor, $partyBattlers, true);
-
-    if (! is_int($actorIndex)) {
-      $this->pause($delaySeconds);
-      return;
-    }
-
-    $frameCount = 4;
-    $frameDuration = $frameCount > 0 ? $delaySeconds / $frameCount : 0.0;
-    $color = $this->resolveMagicCastEffectColor($action->skill);
-
-    for ($frame = 0; $frame < $frameCount; $frame++) {
-      $context->ui->fieldWindow->showPartyMagicCastEffect($actor, $actorIndex, $color, $frame);
-      $this->pause($frameDuration);
-    }
-
+    $player = new AnimationPlayer(max(0.01, $delaySeconds / max(1, $animation->maxFrames)));
+    $player->play($animation, function (int $frameIndex) use ($context, $target, $animation): void {
+      $context->ui->fieldWindow->showActionAnimationFrame($target, $animation, $frameIndex);
+    });
     $context->ui->fieldWindow->clearMagicCastEffects();
+    $context->ui->refreshField();
   }
 
   /**
-   * Resolves the caster effect color for the provided magic skill.
+   * Resolves the editor-authored animation that should play for the action.
    *
-   * @param MagicSkill $skill The magic skill being announced.
+   * @param BattleAction|null $action The action being resolved.
+   * @return Animation|null
+   */
+  protected function resolveActionAnimation(?BattleAction $action): ?Animation
+  {
+    $animationLibrary = new AnimationLibrary('Data/animations.php');
+
+    if ($action instanceof SkillBattleAction) {
+      $explicitAnimation = $animationLibrary->findByName($action->skill->name);
+
+      if ($explicitAnimation instanceof Animation) {
+        return $explicitAnimation;
+      }
+
+      if ($action->skill instanceof MagicSkill) {
+        return match ($action->skill->effectType) {
+          MagicEffectType::RESTORATIVE,
+          MagicEffectType::BUFF => $animationLibrary->findByName('Healing Aura'),
+          MagicEffectType::DESTRUCTIVE,
+          MagicEffectType::DEBUFF => $animationLibrary->findByName('Hit Spark'),
+        };
+      }
+
+      return $animationLibrary->findByName('Hit Spark');
+    }
+
+    if ($action instanceof AttackAction) {
+      return $animationLibrary->findByName('Hit Spark');
+    }
+
+    return null;
+  }
+
+  /**
+   * Resolves the legacy magic effect color for compatibility with battle tests
+   * and any remaining effect-driven fallback logic.
+   *
+   * @param MagicSkill $skill The magic skill being resolved.
    * @return Color
    */
   protected function resolveMagicCastEffectColor(MagicSkill $skill): Color

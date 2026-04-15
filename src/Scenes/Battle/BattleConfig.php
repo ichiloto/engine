@@ -2,7 +2,6 @@
 
 namespace Ichiloto\Engine\Scenes\Battle;
 
-use Ichiloto\Engine\Battle\Interfaces\BattleEngineInterface;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\Scenes\Interfaces\SceneConfigurationInterface;
@@ -20,11 +19,13 @@ class BattleConfig implements SceneConfigurationInterface
    * @param Party $party The party of player characters.
    * @param Troop $troop The troop of enemies.
    * @param array $events The battle events.
+   * @param array<string, mixed> $settings Runtime battle settings.
    */
   public function __construct(
     protected(set) Party $party,
     protected(set) Troop $troop,
-    protected(set) array $events = []
+    protected(set) array $events = [],
+    protected(set) array $settings = [],
   )
   {
   }
@@ -93,6 +94,7 @@ class BattleConfig implements SceneConfigurationInterface
       'party' => $this->party,
       'troop' => $this->troop,
       'events' => $this->events,
+      'settings' => $this->settings,
     ];
   }
 
@@ -108,5 +110,8 @@ class BattleConfig implements SceneConfigurationInterface
         $this->{$key} = $value;
       }
     }
+
+    $this->events = is_array($data['events'] ?? null) ? $data['events'] : [];
+    $this->settings = is_array($data['settings'] ?? null) ? $data['settings'] : [];
   }
 }
