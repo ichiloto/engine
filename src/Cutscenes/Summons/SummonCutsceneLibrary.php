@@ -48,6 +48,30 @@ final class SummonCutsceneLibrary
       : null;
   }
 
+  public function findByLinkedActionId(string $actionId): ?SummonCutsceneDefinition
+  {
+    $normalizedActionId = trim($actionId);
+
+    foreach ($this->load() as $definition) {
+      if ($definition->linkedActionId === $normalizedActionId) {
+        return $definition;
+      }
+    }
+
+    return null;
+  }
+
+  public function loadCompiledOrCompileByLinkedActionId(string $actionId): ?SummonCompiledCutscene
+  {
+    $definition = $this->findByLinkedActionId($actionId);
+
+    if (! $definition instanceof SummonCutsceneDefinition) {
+      return null;
+    }
+
+    return $this->loadCompiledOrCompile($definition->id);
+  }
+
   public function loadCompiledOrCompile(string $id): ?SummonCompiledCutscene
   {
     $definition = $this->findById($id);
@@ -123,7 +147,7 @@ final class SummonCutsceneLibrary
 
   protected function resolveRootPath(): string
   {
-    if (str_starts_with($this->assetPath, DIRECTORY_SEPARATOR) || preg_match('/^[A-Za-z]:\\/', $this->assetPath) === 1) {
+    if (str_starts_with($this->assetPath, DIRECTORY_SEPARATOR)) {
       return $this->assetPath;
     }
 

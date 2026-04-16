@@ -15,6 +15,7 @@ use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\Color;
+use Ichiloto\Engine\Cutscenes\Summons\SummonCompiledCutscene;
 use Ichiloto\Engine\UI\Windows\Window;
 use RuntimeException;
 
@@ -946,6 +947,228 @@ class BattleFieldWindow extends Window
     }
 
     $this->renderMagicCastEffects();
+  }
+
+  /**
+   * Displays one compiled summon cutscene frame across the battlefield.
+   *
+   * @param SummonCompiledCutscene $cutscene The compiled summon cutscene.
+   * @param int $frameIndex The frame index to display.
+   * @return void
+   */
+  public function showSummonCutsceneFrame(SummonCompiledCutscene $cutscene, int $frameIndex): void
+  {
+    $this->clearMagicCastEffects();
+
+    foreach ($cutscene->playbackSegments as $segment) {
+      $startFrame = intval($segment['startFrame'] ?? -1);
+      $endFrame = intval($segment['endFrame'] ?? -1);
+
+      if ($frameIndex < $startFrame || $frameIndex > $endFrame) {
+        continue;
+      }
+
+      foreach (array_values(array_filter($segment['drawCommands'] ?? [], 'is_array')) as $drawCommand) {
+        $this->queueSummonDrawCommand($drawCommand);
+      }
+    }
+
+    $this->renderMagicCastEffects();
+  }
+
+  /**
+   * Displays one summon transition frame over the battlefield.
+   *
+   * @param float $progress The normalized transition progress.
+   * @param string $direction The transition direction.
+   * @param string|null $colorName The optional transition color.
+   * @return void
+   */
+  public function showSummonTransitionFrame(float $progress, string $direction = "in", ?string $colorName = null): void
+  {
+    $glyphs = [".", ":", "*", "#"];
+    $normalizedProgress = max(0.0, min(1.0, $progress));
+    $glyphIndex = intval(floor($normalizedProgress * max(1, count($glyphs) - 1)));
+
+    if ($direction === "out") {
+      $glyphIndex = max(0, count($glyphs) - 1 - $glyphIndex);
+    }
+
+    $glyph = $glyphs[max(0, min(count($glyphs) - 1, $glyphIndex))];
+    $color = $this->resolveNamedColor($colorName) ?? Color::DARK_GRAY;
+    $innerWidth = max(1, $this->width - 2);
+    $innerHeight = max(1, $this->height - 2);
+
+    $this->clearMagicCastEffects();
+
+    for ($row = 0; $row < $innerHeight; $row++) {
+      $this->queueSummonOverlayLine(
+        $this->formatSummonDrawCommandLine(str_repeat($glyph, $innerWidth), $color),
+        $this->position->x + 1,
+        $this->position->y + 1 + $row,
+      );
+    }
+
+    $this->renderMagicCastEffects();
+  }
+
+  /**
+   * Displays a simple summon title card over the cleared battlefield.
+   *
+   * @param string $summonName The summon display name.
+   * @param string|null $casterName The optional caster banner line.
+   * @return void
+   */
+  public function showSummonTitleCard(string $summonName, ?string $casterName = null): void
+  {
+    $title = "[ " . strtoupper(trim($summonName)) . " ]";
+
+    if (trim($summonName) === "") {
+      return;
+    }
+
+    $this->clearMagicCastEffects();
+
+    $innerWidth = max(1, $this->width - 2);
+    $titleX = $this->position->x + 1 + max(0, intdiv($innerWidth - TerminalText::displayWidth($title), 2));
+    $titleY = $this->position->y + 4;
+
+    $this->queueSummonOverlayLine(
+      $this->formatSummonDrawCommandLine($title, Color::LIGHT_RED),
+      $titleX,
+      $titleY,
+    );
+
+    if ($casterName !== null && trim($casterName) !== "") {
+      $subtitle = $casterName;
+      $subtitleX = $this->position->x + 1 + max(0, intdiv($innerWidth - TerminalText::displayWidth($subtitle), 2));
+      $this->queueSummonOverlayLine(
+        $this->formatSummonDrawCommandLine($subtitle, Color::WHITE),
+        $subtitleX,
+        $titleY + 2,
+      );
+    }
+
+    $this->renderMagicCastEffects();
+  }
+
+  /**
+   * Queues a summon overlay line into the reusable overlay layer.
+   *
+   * @param string $text The line text.
+   * @param int $x The target x-coordinate.
+   * @param int $y The target y-coordinate.
+   * @return void
+   */
+  protected function queueSummonOverlayLine(string $text, int $x, int $y): void
+  {
+    $this->magicCastEffects[] = [
+      "text" => $text,
+      "x" => $x,
+      "y" => $y,
+    ];
+  }
+
+  /**
+   * Resolves an optional color name into a terminal color.
+   *
+   * @param string|null $colorName The color name.
+   * @return Color|null
+   */
+  protected function resolveNamedColor(?string $colorName): ?Color
+  {
+    if ($colorName === null || trim($colorName) === "") {
+      return null;
+    }
+
+    foreach (Color::cases() as $color) {
+      if (strtolower($color->name) === strtolower(trim($colorName))) {
+        return $color;
+      }
+    }
+
+    return null;
+  }
+  /**
+   * Queues a summon draw command for the overlay renderer.
+   *
+   * @param array<string, mixed> $drawCommand The compiled draw command.
+   * @return void
+   */
+  protected function queueSummonDrawCommand(array $drawCommand): void
+  {
+    if (($drawCommand['visible'] ?? true) === false) {
+      return;
+    }
+
+    $position = $drawCommand['position'] ?? [];
+    $x = intval($position['x'] ?? $position[0] ?? 0);
+    $y = intval($position['y'] ?? $position[1] ?? 0);
+    $lines = $this->resolveSummonDrawCommandLines($drawCommand);
+    $color = $this->resolveSummonDrawCommandColor($drawCommand);
+
+    foreach ($lines as $lineIndex => $line) {
+      if ($line === '') {
+        continue;
+      }
+
+      $this->magicCastEffects[] = [
+        'text' => $this->formatSummonDrawCommandLine($line, $color),
+        'x' => $this->position->x + 1 + $x,
+        'y' => $this->position->y + 1 + $y + $lineIndex,
+      ];
+    }
+  }
+
+  /**
+   * @param array<string, mixed> $drawCommand
+   * @return string[]
+   */
+  protected function resolveSummonDrawCommandLines(array $drawCommand): array
+  {
+    $content = trim(strval($drawCommand['content'] ?? ''));
+
+    if ($content === '') {
+      $assetId = trim(strval($drawCommand['assetId'] ?? ''));
+      $content = $assetId !== '' ? '[' . strtoupper($assetId) . ']' : '';
+    }
+
+    return preg_split('/\r?\n/', $content) ?: [];
+  }
+
+  /**
+   * @param array<string, mixed> $drawCommand
+   * @return Color|null
+   */
+  protected function resolveSummonDrawCommandColor(array $drawCommand): ?Color
+  {
+    $colorName = trim(strval($drawCommand['color'] ?? ''));
+
+    if ($colorName === '') {
+      return null;
+    }
+
+    foreach (Color::cases() as $color) {
+      if (strtolower($color->name) === strtolower($colorName)) {
+        return $color;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Applies optional color styling to one summon cutscene draw line.
+   *
+   * @param string $line The line to style.
+   * @param Color|null $color The optional color.
+   * @return string
+   */
+  protected function formatSummonDrawCommandLine(string $line, ?Color $color): string
+  {
+    return $color instanceof Color
+      ? $color->value . $line . Color::RESET->value
+      : $line;
   }
 
   /**
