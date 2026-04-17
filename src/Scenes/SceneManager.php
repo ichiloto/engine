@@ -176,8 +176,6 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    */
   public function loadScene(string|int $index): self
   {
-    $this->eventManager->dispatchEvent(new SceneEvent(SceneEventType::LOAD_START, $this->currentScene));
-
     $sceneToLoad = match(true) {
       is_int($index) => $this->scenes->toArray()[$index] ?? throw new NotFoundException($index),
       default => $this->scenes->find(fn(SceneInterface $scene) => $scene::class === $index) ?? throw new NotFoundException($index),
@@ -186,6 +184,8 @@ class SceneManager implements CanStart, CanRender, CanUpdate
     if ($this->currentScene === $sceneToLoad) {
       return $this;
     }
+
+    $this->eventManager->dispatchEvent(new SceneEvent(SceneEventType::LOAD_START, $this->currentScene));
 
     $this->unloadScene($this->currentScene);
     $this->currentScene = $sceneToLoad;

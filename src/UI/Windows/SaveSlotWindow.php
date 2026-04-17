@@ -76,7 +76,8 @@ class SaveSlotWindow extends Window
     }
 
     if (! $slot->isLoadable) {
-      return 'Cannot be loaded.';
+      $contentWidth = max(0, $this->width - 4);
+      return TerminalText::padRight(strval($slot->statusMessage ?? 'Cannot be loaded.'), $contentWidth);
     }
 
     $contentWidth = max(0, $this->width - 4);

@@ -461,7 +461,7 @@ class Game implements CanRun, SubjectInterface
                     $nextFrameTime = microtime(true) + 1;
                 }
             }
-        } catch (Exception $exception) {
+        } catch (Throwable $exception) {
             $this->handleException($exception);
         }
     }

@@ -34,7 +34,7 @@ final class SummonCue
       strval($data['id'] ?? ''),
       intval($data['frame'] ?? 0),
       strval($data['type'] ?? 'showMessage'),
-      array_filter($data['payload'] ?? [], static fn(mixed $item): bool => true),
+      is_array($data['payload'] ?? null) ? array_filter($data['payload'], static fn(mixed $item): bool => true) : [],
     );
   }
 

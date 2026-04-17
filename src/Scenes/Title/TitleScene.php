@@ -744,16 +744,27 @@ class TitleScene extends AbstractScene
 
     $gameLoader = GameLoader::getInstance($this->getGame());
     $sceneManager = $this->sceneManager;
-    $currentScene = $sceneManager->loadScene(\Ichiloto\Engine\Scenes\Game\GameScene::class)->currentScene;
 
-    if (! $currentScene instanceof \Ichiloto\Engine\Scenes\Game\GameScene) {
+    try {
+      $gameConfig = $gameLoader->loadSavedGame($slot->path);
+    } catch (Throwable) {
+      $this->continueStatusMessage = "That save file cannot be loaded.";
+      $this->renderContinueMenu();
       return;
     }
 
     try {
-      $currentScene->configure($gameLoader->loadSavedGame($slot->path));
+      $currentScene = $sceneManager->loadScene(\Ichiloto\Engine\Scenes\Game\GameScene::class)->currentScene;
+
+      if (! $currentScene instanceof \Ichiloto\Engine\Scenes\Game\GameScene) {
+        return;
+      }
+
+      $currentScene->configure($gameConfig);
     } catch (Throwable) {
-      $this->continueStatusMessage = 'That save file cannot be loaded.';
+      $sceneManager->loadScene(self::class);
+      $this->openContinueMenu();
+      $this->continueStatusMessage = "That save file cannot be loaded.";
       $this->renderContinueMenu();
     }
   }

@@ -150,6 +150,7 @@ class ActionExecutionState extends TurnState
     $this->displayAnnouncementPhase($context, $action !== null && $this->resolveSummonCutscene($action) instanceof SummonCompiledCutscene ? $actionName : sprintf("%s uses %s!", $actor->name, $actionName), $timings->announcement);
     $extendedAnimationHandled = $this->playActionAnimation($context, $actor, $target, $action, $timings->actionAnimation);
     if (! $extendedAnimationHandled) {
+      $this->pause($timings->actionAnimation);
       $this->pause($timings->effectAnimation);
     }
 
