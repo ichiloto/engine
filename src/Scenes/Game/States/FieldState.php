@@ -3,12 +3,8 @@
 namespace Ichiloto\Engine\Scenes\Game\States;
 
 use Exception;
-use Ichiloto\Engine\Battle\BattleRewards;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
-use Ichiloto\Engine\Entities\Enemies\Enemy;
-use Ichiloto\Engine\Entities\Stats;
-use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\IO\Console\Console;
@@ -16,10 +12,8 @@ use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
-use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\SceneStateContext;
-use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
 
@@ -41,146 +35,148 @@ use Ichiloto\Engine\Util\Debug;
  */
 class FieldState extends GameSceneState
 {
-  /**
-   * @inheritDoc
-   */
-  public function enter(): void
-  {
-    parent::enter();
-    $this->getGameScene()->locationHUDWindow->activate();
-    $this->renderTheField();
-  }
-
-  /**
-   * @inheritDoc
-   * @param SceneStateContext|null $context
-   * @throws NotFoundException If the scene is not set.
-   * @throws OutOfBounds If the player is out of bounds.
-   * @throws Exception If a failure occurs when trying to quit the game.
-   */
-  public function execute(?SceneStateContext $context = null): void
-  {
-    $scene = $this->context->getScene();
-    assert($scene instanceof GameScene);
-
-    $this->handleActions($scene);
-    $this->handleNavigation($scene);
-  }
-
-  /**
-   * Renders the field.
-   *
-   * @return void
-   */
-  public function renderTheField(): void
-  {
-    Console::clear();
-    $this->getGameScene()->mapManager->render();
-    $this->getGameScene()->player->render();
-    $this->getGameScene()->locationHUDWindow->render();
-  }
-
-  /**
-   * @inheritDoc
-   */
-  public function resume(): void
-  {
-    $this->getGameScene()->locationHUDWindow->activate();
-    $this->renderTheField();
-  }
-
-  /**
-   * Handles the player's navigation.
-   *
-   * @param GameScene $scene
-   * @return void
-   * @throws NotFoundException
-   * @throws OutOfBounds
-   */
-  protected function handleNavigation(GameScene $scene): void
-  {
-    $h = Input::getAxis(AxisName::HORIZONTAL);
-    $v = Input::getAxis(AxisName::VERTICAL);
-
-    if (abs($h) || abs($v)) {
-      $scene->player->move(new Vector2(intval($h), intval($v)), $this->getGameScene()->camera);
-    }
-  }
-
-  /**
-   * Handles the actions of the player.
-   *
-   * @param GameScene $scene The game scene.
-   * @return void
-   * @throws NotFoundException
-   * @throws Exception
-   */
-  protected function handleActions(GameScene $scene): void
-  {
-    if (
-      Input::isButtonDown("quit") &&
-      confirm(
-        get_message("confirm.quit", "Are you sure you want to quit?"),
-        config(ProjectConfig::class, 'vocab.game.shutdown', 'Exit Game'))) {
-      $scene->getGame()->quit();
+    /**
+     * @inheritDoc
+     */
+    public function enter(): void
+    {
+        parent::enter();
+        $this->getGameScene()->locationHUDWindow->activate();
+        $this->renderTheField();
     }
 
-    if (Input::isButtonDown("menu")) {
-      $this->setState($scene->mainMenuState);
+    /**
+     * Renders the field.
+     *
+     * @return void
+     */
+    public function renderTheField(): void
+    {
+        Console::clear();
+        $this->getGameScene()->mapManager->render();
+        $this->getGameScene()->player->render();
+        $this->getGameScene()->locationHUDWindow->render();
     }
 
-    if (Input::isButtonDown("action")) {
-      $scene->player->interact();
+    /**
+     * @inheritDoc
+     * @param SceneStateContext|null $context
+     * @throws NotFoundException If the scene is not set.
+     * @throws OutOfBounds If the player is out of bounds.
+     * @throws Exception If a failure occurs when trying to quit the game.
+     */
+    public function execute(?SceneStateContext $context = null): void
+    {
+        $scene = $this->context->getScene();
+        assert($scene instanceof GameScene);
+
+        $this->handleActions($scene);
+        $this->handleNavigation($scene);
     }
 
-    if (Input::isAnyKeyPressed([KeyCode::C, KeyCode::c])) {
-      Debug::log("Selected choice: " . select("Choose an option", ["Option 1", "Option 2", "Option 3"]));
+    /**
+     * Handles the actions of the player.
+     *
+     * @param GameScene $scene The game scene.
+     * @return void
+     * @throws NotFoundException
+     * @throws Exception
+     */
+    protected function handleActions(GameScene $scene): void
+    {
+        if (
+            Input::isButtonDown("quit") &&
+            confirm(
+                get_message("confirm.quit", "Are you sure you want to quit?"),
+                config(ProjectConfig::class, 'vocab.game.shutdown', 'Exit Game'))) {
+            $scene->getGame()->quit();
+        }
+
+        if (Input::isButtonDown("menu")) {
+            $this->setState($scene->mainMenuState);
+        }
+
+        if (Input::isButtonDown("action")) {
+            $scene->player->interact();
+        }
+
+        if (Input::isAnyKeyPressed([KeyCode::C, KeyCode::c])) {
+            Debug::log("Selected choice: " . select("Choose an option", ["Option 1", "Option 2", "Option 3"]));
+        }
+
+        if (Input::isButtonDown("notify")) {
+            notify(
+                $this->getGameScene()->getGame(),
+                NotificationChannel::ACHIEVEMENT,
+                'Achievement unlocked',
+                '100G - New Character Created'
+            );
+        }
+
+        if (Input::isAnyKeyPressed([KeyCode::G, KeyCode::g])) {
+            $scene->sceneManager->loadGameOverScene();
+        }
+
+        if (Input::isAnyKeyPressed([KeyCode::B, KeyCode::b])) {
+            $battleEvents = [];
+            $troopNames = [
+                'Rat + Bat',
+                'Bat x 2',
+                'Loch Ness',
+                'Great Wolf'
+            ];
+            $troopNameKey = array_rand($troopNames);
+            $troop = get_troop($troopNames[$troopNameKey]);
+            $this->getGameScene()->sceneManager->loadBattleScene($this->getGameScene()->party, $troop, $battleEvents);
+        }
+
+        if (Input::isButtonDown("map")) {
+            $this->showInGameMap();
+        }
+
+        if (Input::isAnyKeyPressed([KeyCode::x, KeyCode::X])) {
+            $xp = 3000;
+            /** @var Character $member */
+            foreach ($this->party->members->toArray() as $member) {
+                $member->addExperience(intval(rand($xp * 0.5, $xp * 1.5)));
+            }
+        }
     }
 
-    if (Input::isButtonDown("notify")) {
-      notify(
-        $this->getGameScene()->getGame(),
-        NotificationChannel::ACHIEVEMENT,
-        'Achievement unlocked',
-        '100G - New Character Created'
-      );
+    /**
+     * Displays the in-game map.
+     *
+     * @return void
+     */
+    public function showInGameMap(): void
+    {
+        // TODO: Implement the in-game map feature.
     }
 
-    if (Input::isAnyKeyPressed([KeyCode::G, KeyCode::g])) {
-      $scene->sceneManager->loadGameOverScene();
+    /**
+     * Handles the player's navigation.
+     *
+     * @param GameScene $scene
+     * @return void
+     * @throws NotFoundException
+     * @throws OutOfBounds
+     */
+    protected function handleNavigation(GameScene $scene): void
+    {
+        $h = Input::getAxis(AxisName::HORIZONTAL);
+        $v = Input::getAxis(AxisName::VERTICAL);
+
+        if (abs($h) || abs($v)) {
+            $scene->player->move(new Vector2(intval($h), intval($v)), $this->getGameScene()->camera);
+        }
     }
 
-    if (Input::isAnyKeyPressed([KeyCode::B, KeyCode::b])) {
-      $battleEvents = [];
-      $troopNames = [
-        'Rat + Bat',
-        'Bat x 2'
-      ];
-      $troopNameKey = array_rand($troopNames);
-      $troop = get_troop($troopNames[$troopNameKey]);
-      $this->getGameScene()->sceneManager->loadBattleScene($this->getGameScene()->party, $troop, $battleEvents);
+    /**
+     * @inheritDoc
+     */
+    public function resume(): void
+    {
+        $this->getGameScene()->locationHUDWindow->activate();
+        $this->renderTheField();
     }
-
-    if (Input::isButtonDown("map")) {
-      $this->showInGameMap();
-    }
-
-    if (Input::isAnyKeyPressed([KeyCode::x, KeyCode::X])) {
-      $xp = 3000;
-      /** @var Character $member */
-      foreach ($this->party->members->toArray() as $member) {
-        $member->addExperience(intval(rand($xp * 0.5, $xp * 1.5)));
-      }
-    }
-  }
-
-  /**
-   * Displays the in-game map.
-   *
-   * @return void
-   */
-  public function showInGameMap(): void
-  {
-    // TODO: Implement the in-game map feature.
-  }
 }

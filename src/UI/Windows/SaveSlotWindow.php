@@ -75,6 +75,11 @@ class SaveSlotWindow extends Window
       return '';
     }
 
+    if (! $slot->isLoadable) {
+      $contentWidth = max(0, $this->width - 4);
+      return TerminalText::padRight(strval($slot->statusMessage ?? 'Cannot be loaded.'), $contentWidth);
+    }
+
     $contentWidth = max(0, $this->width - 4);
     $leaderSummary = $slot->getLeaderSummary();
     $playTime = Time::formatDuration($slot->playTimeSeconds, ChronoUnit::SECONDS);

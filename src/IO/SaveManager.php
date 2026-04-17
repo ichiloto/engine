@@ -9,7 +9,9 @@ use Ichiloto\Engine\IO\Saves\SavedGame;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Util\Debug;
 use RuntimeException;
+use Throwable;
 
 /**
  * The SaveManager class. Manages the saving of the game.
@@ -108,6 +110,23 @@ class SaveManager
   }
 
   /**
+   * Returns the newest save-file path that can still be decoded.
+   *
+   * @param bool $includeQuickSaves Whether to include quick saves.
+   * @return string|null The newest loadable save-file path.
+   */
+  public function getLatestLoadableSaveFile(bool $includeQuickSaves = false): ?string
+  {
+    foreach ($this->getSaveFiles($includeQuickSaves) as $path) {
+      if ($this->canLoadSaveFile($path)) {
+        return $path;
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Returns the configured save slots for the current project.
    *
    * @param int $slotCount The number of slots to resolve.
@@ -119,9 +138,22 @@ class SaveManager
 
     for ($slot = 1; $slot <= $slotCount; $slot++) {
       $path = $this->getSlotPath($slot);
-      $slots[] = file_exists($path)
-        ? $this->loadSaveFile($path)->slot
-        : SaveSlot::empty($slot, $path);
+
+      if (! file_exists($path)) {
+        $slots[] = SaveSlot::empty($slot, $path);
+        continue;
+      }
+
+      try {
+        $slots[] = $this->loadSaveFile($path)->slot;
+      } catch (Throwable $throwable) {
+        try {
+          Debug::warn(sprintf('Skipping incompatible save slot %d (%s): %s', $slot, $path, $throwable->getMessage()));
+        } catch (Throwable) {
+        }
+
+        $slots[] = SaveSlot::incompatible($slot, $path, 'This save file is from an incompatible format.');
+      }
     }
 
     return $slots;
@@ -179,24 +211,7 @@ class SaveManager
       throw new RuntimeException(sprintf('Save file not found: %s', $path));
     }
 
-    $contents = file_get_contents($path);
-
-    if ($contents === false) {
-      throw new RuntimeException(sprintf('Could not read save file: %s', $path));
-    }
-
-    if (! str_starts_with($contents, self::FILE_HEADER)) {
-      throw new RuntimeException(sprintf('Invalid save file header: %s', $path));
-    }
-
-    $compressedPayload = substr($contents, strlen(self::FILE_HEADER));
-    $serializedPayload = gzdecode($compressedPayload);
-
-    if ($serializedPayload === false) {
-      throw new RuntimeException(sprintf('Could not decode save file: %s', $path));
-    }
-
-    $payload = unserialize($serializedPayload, ['allowed_classes' => true]);
+    $payload = unserialize($this->decodeSavePayload($path), ['allowed_classes' => true]);
 
     if (! is_array($payload)) {
       throw new RuntimeException(sprintf('Invalid save file payload: %s', $path));
@@ -210,6 +225,22 @@ class SaveManager
     }
 
     return new SavedGame($slot, $config);
+  }
+
+  /**
+   * Returns whether the specified save file can still be decoded.
+   *
+   * @param string $path The save-file path.
+   * @return bool True when the file can be loaded.
+   */
+  public function canLoadSaveFile(string $path): bool
+  {
+    try {
+      $this->loadSaveFile($path);
+      return true;
+    } catch (Throwable) {
+      return false;
+    }
   }
 
   /**
@@ -281,5 +312,33 @@ class SaveManager
         throw new RuntimeException(sprintf('Could not create save directory: %s', $directory));
       }
     }
+  }
+
+  /**
+   * Decodes the binary payload stored in a save file.
+   *
+   * @param string $path The save-file path.
+   * @return string The decoded serialized payload.
+   */
+  protected function decodeSavePayload(string $path): string
+  {
+    $contents = file_get_contents($path);
+
+    if ($contents === false) {
+      throw new RuntimeException(sprintf('Could not read save file: %s', $path));
+    }
+
+    if (! str_starts_with($contents, self::FILE_HEADER)) {
+      throw new RuntimeException(sprintf('Invalid save file header: %s', $path));
+    }
+
+    $compressedPayload = substr($contents, strlen(self::FILE_HEADER));
+    $serializedPayload = gzdecode($compressedPayload);
+
+    if ($serializedPayload === false) {
+      throw new RuntimeException(sprintf('Could not decode save file: %s', $path));
+    }
+
+    return $serializedPayload;
   }
 }

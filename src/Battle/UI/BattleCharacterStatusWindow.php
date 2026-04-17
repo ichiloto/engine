@@ -3,11 +3,11 @@
 namespace Ichiloto\Engine\Battle\UI;
 
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\UI\Elements\ProgressBar\ProgressBar;
 use Ichiloto\Engine\UI\Windows\Window;
-use Ichiloto\Engine\Entities\Character;
 
 /**
  * Represents the battle character status window.
@@ -32,6 +32,10 @@ class BattleCharacterStatusWindow extends Window
    * @var Character[] The characters to display.
    */
   protected array $characters = [];
+  /**
+   * @var float[] The optional ATB fill percentages.
+   */
+  protected array $atbPercentages = [];
 
   /**
    * Creates a new instance of the battle character status window.
@@ -52,7 +56,7 @@ class BattleCharacterStatusWindow extends Window
 
     $position = new Vector2($leftMargin, $topMargin);
     parent::__construct(
-      'HP═══════════════════MP',
+      'HP══════MP══ATB',
       '',
       $position,
       self::WIDTH,
@@ -73,6 +77,29 @@ class BattleCharacterStatusWindow extends Window
   }
 
   /**
+   * Sets optional ATB gauge percentages for the current battlers.
+   *
+   * @param float[] $atbPercentages The ATB percentages.
+   * @return void
+   */
+  public function setAtbPercentages(array $atbPercentages): void
+  {
+    $this->atbPercentages = array_values($atbPercentages);
+    $this->updateContent();
+  }
+
+  /**
+   * Clears the ATB gauge display.
+   *
+   * @return void
+   */
+  public function clearAtbPercentages(): void
+  {
+    $this->atbPercentages = [];
+    $this->updateContent();
+  }
+
+  /**
    * Updates the content of the window.
    *
    * @return void
@@ -80,8 +107,9 @@ class BattleCharacterStatusWindow extends Window
   public function updateContent(): void
   {
     $content = [];
-    foreach ($this->characters as $character) {
-      $content[] = $this->formatCharacterStats($character);
+
+    foreach ($this->characters as $index => $character) {
+      $content[] = $this->formatCharacterStats($character, $this->atbPercentages[$index] ?? null);
     }
 
     $content = array_pad($content, self::HEIGHT - 2, '');
@@ -94,25 +122,38 @@ class BattleCharacterStatusWindow extends Window
    * Formats the character stats.
    *
    * @param Character $character The character.
+   * @param float|null $atbPercentage The optional ATB gauge percentage.
    * @return string The formatted character stats.
    */
-  public function formatCharacterStats(Character $character): string
+  public function formatCharacterStats(Character $character, ?float $atbPercentage = null): string
   {
     $hpTotal = max(1, $character->effectiveStats->totalHp);
     $mpTotal = max(1, $character->effectiveStats->totalMp);
     $hpPercentage = $character->effectiveStats->currentHp / $hpTotal;
     $mpPercentage = $character->effectiveStats->currentMp / $mpTotal;
-    $hpProgressBar = $this->createProgressBar(10, $hpPercentage);
-    $mpProgressBar = $this->createProgressBar(5, $mpPercentage);
+
+    if ($atbPercentage !== null) {
+      return implode('', [
+        TerminalText::padLeft(strval($character->effectiveStats->currentHp), 4),
+        ' ',
+        $this->createProgressBar(6, $hpPercentage)->getRender(),
+        ' ',
+        TerminalText::padLeft(strval($character->effectiveStats->currentMp), 4),
+        ' ',
+        $this->createProgressBar(3, $mpPercentage)->getRender(),
+        ' ',
+        $this->createProgressBar(3, $atbPercentage)->getRender(),
+      ]);
+    }
 
     return implode('', [
       TerminalText::padLeft(strval($character->effectiveStats->currentHp), 4),
       ' ',
-      $hpProgressBar->getRender(),
+      $this->createProgressBar(10, $hpPercentage)->getRender(),
       '  ',
       TerminalText::padLeft(strval($character->effectiveStats->currentMp), 4),
       ' ',
-      $mpProgressBar->getRender(),
+      $this->createProgressBar(5, $mpPercentage)->getRender(),
     ]);
   }
 

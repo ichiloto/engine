@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Scenes\Battle\States;
 
+use Ichiloto\Engine\Battle\Engines\ActiveTime\ActiveTimeBattleConfig;
+use Ichiloto\Engine\Battle\Engines\ActiveTime\ActiveTimeBattleEngine;
 use Ichiloto\Engine\Battle\Engines\BattleEngineContext;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnBasedBattleConfig;
 use Ichiloto\Engine\Battle\Interfaces\BattleEngineContextInterface;
@@ -29,9 +31,13 @@ class BattleRunState extends BattleSceneState
   {
     $characters = $this->scene->party->battlers->toArray();
     $names = array_map(fn(CharacterInterface $character) => $character->name, $characters);
+    $settings = is_array($this->scene->config?->settings ?? null) ? $this->scene->config->settings : [];
+    $activeTimeSettings = is_array($settings['activeTime'] ?? null) ? $settings['activeTime'] : [];
+
     $this->ui->render();
     $this->ui->characterNameWindow->setNames($names);
     $this->ui->characterStatusWindow->setCharacters($characters);
+    $this->ui->characterStatusWindow->clearAtbPercentages();
 
     $this->battleEngineContext = new BattleEngineContext(
       $this->scene->getGame(),
@@ -39,12 +45,32 @@ class BattleRunState extends BattleSceneState
       $this->scene->troop,
       $this->ui
     );
-    $this->engine->configure(new TurnBasedBattleConfig(
-      $this->scene->party,
-      $this->scene->troop,
-      $this->ui,
-      $this->scene->events,
-    ));
+
+    if ($this->engine instanceof ActiveTimeBattleEngine) {
+      $this->engine->configure(new ActiveTimeBattleConfig(
+        $this->scene->party,
+        $this->scene->troop,
+        $this->ui,
+        $this->scene->events,
+        strval($activeTimeSettings['mode'] ?? 'wait'),
+        max(1.0, floatval($activeTimeSettings['baseFillRate'] ?? 35)),
+        max(0.0, floatval($activeTimeSettings['speedFactorPercent'] ?? 100)) / 100,
+        max(0.0, floatval($activeTimeSettings['openingVariance'] ?? 24)),
+        max(0.0, floatval($activeTimeSettings['openingSpeedFactorPercent'] ?? 250)) / 100,
+        min(100, max(0, intval($activeTimeSettings['surpriseAttackChancePercent'] ?? 8))),
+        min(100, max(0, intval($activeTimeSettings['backAttackChancePercent'] ?? 6))),
+        $settings,
+      ));
+    } else {
+      $this->engine->configure(new TurnBasedBattleConfig(
+        $this->scene->party,
+        $this->scene->troop,
+        $this->ui,
+        $this->scene->events,
+        $settings,
+      ));
+    }
+
     $this->engine->start();
   }
 
@@ -56,6 +82,11 @@ class BattleRunState extends BattleSceneState
   {
     $this->handleActions();
     $this->engine->run($this->battleEngineContext ?? throw new RuntimeException('Battle engine context is not set.'));
+
+    if ($this->scene->getGame()->sceneManager->currentScene !== $this->scene) {
+      return;
+    }
+
     $this->ui->update();
   }
 
@@ -65,11 +96,11 @@ class BattleRunState extends BattleSceneState
    */
   protected function handleActions(): void
   {
-    if (Input::isButtonDown("quit")) {
+    if (Input::isButtonDown('quit')) {
       $this->scene->getGame()->quit();
     }
 
-    if (Input::isButtonDown("pause")) {
+    if (Input::isButtonDown('pause')) {
       $this->setState($this->scene->pauseState);
     }
   }

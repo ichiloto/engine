@@ -467,20 +467,89 @@ class Character implements CharacterInterface, CanEquip
    */
   protected function adjustStatTotals(): void
   {
-    $this->stats->totalHp      = $this->totalHpCurve[$this->level] ?? 0;
-    $this->stats->totalMp      = $this->totalMpCurve[$this->level] ?? 0;
-    $this->stats->attack       = $this->attackCurve[$this->level] ?? 0;
-    $this->stats->defence      = $this->defenceCurve[$this->level] ?? 0;
-    $this->stats->magicAttack  = $this->magicAttackCurve[$this->level] ?? 0;
-    $this->stats->magicDefence = $this->magicDefenceCurve[$this->level] ?? 0;
-    $this->stats->evasion      = $this->evasionCurve[$this->level] ?? 0;
-    $this->stats->grace        = $this->graceCurve[$this->level] ?? 0;
-    $this->stats->speed        = $this->speedCurve[$this->level] ?? 0;
+    $curveLevel = $this->resolveCurveLevel($this->level);
+
+    $this->stats->totalHp      = ($this->totalHpCurve[$curveLevel] ?? 0) + $this->getEquipmentTotalHpBonus();
+    $this->stats->totalMp      = ($this->totalMpCurve[$curveLevel] ?? 0) + $this->getEquipmentTotalMpBonus();
+    $this->stats->attack       = $this->attackCurve[$curveLevel] ?? 0;
+    $this->stats->defence      = $this->defenceCurve[$curveLevel] ?? 0;
+    $this->stats->magicAttack  = $this->magicAttackCurve[$curveLevel] ?? 0;
+    $this->stats->magicDefence = $this->magicDefenceCurve[$curveLevel] ?? 0;
+    $this->stats->evasion      = $this->evasionCurve[$curveLevel] ?? 0;
+    $this->stats->grace        = $this->graceCurve[$curveLevel] ?? 0;
+    $this->stats->speed        = $this->speedCurve[$curveLevel] ?? 0;
 
     // Re-apply the clamps after a level or equipment refresh.
     $this->stats->currentHp = $this->stats->currentHp;
     $this->stats->currentMp = $this->stats->currentMp;
     $this->stats->currentAp = $this->stats->currentAp;
+  }
+
+  /**
+   * Resolves the safest shared curve level for all stat curves.
+   *
+   * @param int $preferredLevel The desired level.
+   * @return int
+   */
+  protected function resolveCurveLevel(int $preferredLevel): int
+  {
+    $curveMaxLevels = [];
+
+    foreach ([
+      $this->totalHpCurve,
+      $this->totalMpCurve,
+      $this->attackCurve,
+      $this->defenceCurve,
+      $this->magicAttackCurve,
+      $this->magicDefenceCurve,
+      $this->evasionCurve,
+      $this->graceCurve,
+      $this->speedCurve,
+    ] as $curve) {
+      if (!$curve) {
+        continue;
+      }
+
+      $curveMaxLevels[] = max(array_keys($curve));
+    }
+
+    if (!$curveMaxLevels) {
+      return max(1, $preferredLevel);
+    }
+
+    return min(max(1, $preferredLevel), min($curveMaxLevels));
+  }
+
+  /**
+   * Returns the total HP bonus granted by currently equipped gear.
+   *
+   * @return int
+   */
+  protected function getEquipmentTotalHpBonus(): int
+  {
+    $bonus = 0;
+
+    foreach ($this->equipment as $equipmentSlot) {
+      $bonus += $equipmentSlot->equipment?->parameterChanges->totalHp ?? 0;
+    }
+
+    return $bonus;
+  }
+
+  /**
+   * Returns the total MP bonus granted by currently equipped gear.
+   *
+   * @return int
+   */
+  protected function getEquipmentTotalMpBonus(): int
+  {
+    $bonus = 0;
+
+    foreach ($this->equipment as $equipmentSlot) {
+      $bonus += $equipmentSlot->equipment?->parameterChanges->totalMp ?? 0;
+    }
+
+    return $bonus;
   }
 
   /**
@@ -497,6 +566,7 @@ class Character implements CharacterInterface, CanEquip
   public function unserialize(string $data): void
   {
     $this->bindDataToProperties(json_decode($data, true));
+    $this->rehydrateDerivedState();
   }
 
   public function __serialize(): array
@@ -507,6 +577,7 @@ class Character implements CharacterInterface, CanEquip
   public function __unserialize(array $data): void
   {
     $this->bindDataToProperties($data);
+    $this->rehydrateDerivedState();
   }
 
   /**
@@ -546,6 +617,37 @@ class Character implements CharacterInterface, CanEquip
           default => $value
         };
       }
+    }
+  }
+
+  /**
+   * Rebuilds derived state that is intentionally omitted from serialization.
+   *
+   * @return void
+   */
+  protected function rehydrateDerivedState(): void
+  {
+    $hasInvalidSavedVitals = isset($this->stats) && $this->stats->totalHp <= 0;
+
+    if (! isset($this->abilityBook)) {
+      $this->abilityBook = new AbilityBook();
+    }
+
+    if (! isset($this->spellbook)) {
+      $this->spellbook = new Spellbook();
+    }
+
+    if (! isset($this->role) || ! $this->role instanceof CharacterRole) {
+      $this->role = new CharacterRole($this, 'Hero');
+    }
+
+    $this->calculateLevelExpThresholds();
+    $this->generateParameterCurves();
+
+    if ($hasInvalidSavedVitals) {
+      // Recover legacy saves created while the level-cap bug had zeroed the stored vital totals.
+      $this->stats->currentHp = $this->stats->totalHp;
+      $this->stats->currentMp = $this->stats->totalMp;
     }
   }
 

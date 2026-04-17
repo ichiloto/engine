@@ -22,6 +22,7 @@ use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\SaveSlotWindow;
 use Ichiloto\Engine\UI\Windows\Window;
 use Override;
+use Throwable;
 
 /**
  * The title scene.
@@ -735,14 +736,36 @@ class TitleScene extends AbstractScene
       return;
     }
 
-    $gameLoader = GameLoader::getInstance($this->getGame());
-    $sceneManager = $this->sceneManager;
-    $currentScene = $sceneManager->loadScene(\Ichiloto\Engine\Scenes\Game\GameScene::class)->currentScene;
-
-    if (! $currentScene instanceof \Ichiloto\Engine\Scenes\Game\GameScene) {
+    if (! $slot->isLoadable) {
+      $this->continueStatusMessage = $slot->statusMessage ?? 'That save file cannot be loaded.';
+      $this->renderContinueMenu();
       return;
     }
 
-    $currentScene->configure($gameLoader->loadSavedGame($slot->path));
+    $gameLoader = GameLoader::getInstance($this->getGame());
+    $sceneManager = $this->sceneManager;
+
+    try {
+      $gameConfig = $gameLoader->loadSavedGame($slot->path);
+    } catch (Throwable) {
+      $this->continueStatusMessage = "That save file cannot be loaded.";
+      $this->renderContinueMenu();
+      return;
+    }
+
+    try {
+      $currentScene = $sceneManager->loadScene(\Ichiloto\Engine\Scenes\Game\GameScene::class)->currentScene;
+
+      if (! $currentScene instanceof \Ichiloto\Engine\Scenes\Game\GameScene) {
+        return;
+      }
+
+      $currentScene->configure($gameConfig);
+    } catch (Throwable) {
+      $sceneManager->loadScene(self::class);
+      $this->openContinueMenu();
+      $this->continueStatusMessage = "That save file cannot be loaded.";
+      $this->renderContinueMenu();
+    }
   }
 }

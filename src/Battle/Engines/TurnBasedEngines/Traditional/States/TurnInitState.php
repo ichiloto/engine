@@ -19,7 +19,7 @@ class TurnInitState extends TurnState
    */
   public function update(TurnStateExecutionContext $context): void
   {
-    if ($context->party->isDefeated() || $context->troop->isDefeated()) {
+    if (empty($context->getLivingPartyBattlers()) || empty($context->getLivingTroopBattlers())) {
       $this->setState($this->engine->turnResolutionState);
       return;
     }

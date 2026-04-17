@@ -6,6 +6,7 @@ use Assegai\Util\Path;
 use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Battle\Actions\ItemBattleAction;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
+use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Effects\HPRecoveryEffect;
 use Ichiloto\Engine\Entities\Effects\MPRecoveryEffect;
@@ -146,18 +147,17 @@ final class BattleCommandCatalog
   }
 
   /**
-   * Builds summon options from battle-usable skills whose names imply summons.
+   * Builds summon options from authored summon cutscenes.
    *
    * @return BattleCommandOption[] The available summon options.
    */
   protected static function buildSummonOptions(): array
   {
     $options = [];
+    $linkedActionIds = self::loadSummonActionNames();
 
     foreach (self::loadBattleSkills() as $skill) {
-      $name = strtolower($skill->name);
-
-      if (! str_contains($name, 'summon') && ! str_contains($name, 'esper')) {
+      if (! in_array($skill->name, $linkedActionIds, true)) {
         continue;
       }
 
@@ -165,6 +165,43 @@ final class BattleCommandCatalog
     }
 
     return $options;
+  }
+
+  /**
+   * Creates a submenu option from a skill.
+   *
+   * @param Skill $skill The skill to convert.
+   * @return BattleCommandOption The submenu option.
+   */
+  protected static function createSkillOption(Skill $skill): BattleCommandOption
+  {
+    $costLabel = $skill->cost > 0 ? sprintf(' (%d MP)', $skill->cost) : '';
+    $displayName = self::isSummonSkill($skill)
+      ? $skill->name . $costLabel
+      : trim(sprintf('%s %s%s', $skill->icon, $skill->name, $costLabel));
+
+    return new BattleCommandOption(
+      $displayName,
+      $skill->description,
+      new SkillBattleAction($skill),
+      $skill->scope->side,
+      $skill->scope->status,
+      $skill
+    );
+  }
+
+  /**
+   * Determines whether the given skill is backed by an authored summon cutscene.
+   *
+   * @param Skill $skill The skill being inspected.
+   * @return bool True when the skill is a summon.
+   */
+  protected static function isSummonSkill(Skill $skill): bool
+  {
+    static $summonActionIds = null;
+    $summonActionIds ??= self::loadSummonActionNames();
+
+    return in_array($skill->name, $summonActionIds, true);
   }
 
   /**
@@ -205,26 +242,6 @@ final class BattleCommandCatalog
   }
 
   /**
-   * Creates a submenu option from a skill.
-   *
-   * @param Skill $skill The skill to convert.
-   * @return BattleCommandOption The submenu option.
-   */
-  protected static function createSkillOption(Skill $skill): BattleCommandOption
-  {
-    $costLabel = $skill->cost > 0 ? sprintf(' (%d MP)', $skill->cost) : '';
-
-    return new BattleCommandOption(
-      trim(sprintf('%s %s%s', $skill->icon, $skill->name, $costLabel)),
-      $skill->description,
-      new SkillBattleAction($skill),
-      $skill->scope->side,
-      $skill->scope->status,
-      $skill
-    );
-  }
-
-  /**
    * Infers a sensible targeting side and status for the given item.
    *
    * @param Item $item The item being inspected.
@@ -243,6 +260,17 @@ final class BattleCommandCatalog
     }
 
     return [$item->scope->side, $item->scope->status];
+  }
+
+  /**
+   * @return string[]
+   */
+  protected static function loadSummonActionNames(): array
+  {
+    return array_values(array_filter(array_map(
+      static fn($definition): ?string => $definition->linkedActionId,
+      (new SummonCutsceneLibrary())->load()
+    )));
   }
 
   /**

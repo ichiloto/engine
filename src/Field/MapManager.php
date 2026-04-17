@@ -545,72 +545,34 @@ class MapManager implements CanRenderAt
    */
   public function readMapDataFromFile(string $filename): mixed
   {
-    $paths = $this->resolveMapPaths($filename);
-
-    if (file_exists($paths['data']) || file_exists($paths['map']) || file_exists($paths['event'])) {
-      return $this->readSplitMapDataFromFiles($paths);
-    }
-
-    if (! file_exists($paths['legacy'])) {
-      throw new NotFoundException("File {$paths['legacy']} not found.");
-    }
-
-    $map = require $paths['legacy'];
-
-    if (! is_array($map)) {
-      throw new NotFoundException("File {$paths['legacy']} does not return an array.");
-    }
-
-    $rawTileMap = $map['tile_map'] ?? throw new InvalidArgumentException("tile_map not found in map array of {$paths['legacy']}.");
-    $this->tileMap = $this->parseMapLayer($rawTileMap, $paths['legacy'], 'tile_map');
-    $this->camera->worldSpace = $this->tileMap;
-
-    return $map;
+    return $this->readSplitMapDataFromFiles($this->resolveMapPaths($filename));
   }
 
   /**
    * Resolves the canonical file paths for the supplied map ID.
    *
    * @param string $filename The logical map filename or any of its PHP file variants.
-   * @return array{id: string, legacy: string, data: string, map: string, event: string} The resolved file paths.
+   * @return array{id: string, data: string, map: string, event: string} The resolved file paths.
    */
   protected function resolveMapPaths(string $filename): array
   {
     $assetsDirectory = Path::join(Path::getCurrentWorkingDirectory(), 'assets', 'Maps');
     $mapId = preg_replace('/(\.(data|map|event))?\.php$/', '', $filename) ?: $filename;
     $mapLeafName = basename(str_replace('\\', '/', $mapId));
-    $nestedBaseDirectory = Path::join($assetsDirectory, $mapId);
-    $flatBaseFilename = Path::join($assetsDirectory, $mapId);
-
-    $nestedPaths = [
-      'data' => Path::join($nestedBaseDirectory, "{$mapLeafName}.data.php"),
-      'map' => Path::join($nestedBaseDirectory, "{$mapLeafName}.map.php"),
-      'event' => Path::join($nestedBaseDirectory, "{$mapLeafName}.event.php"),
-    ];
-    $flatPaths = [
-      'data' => "{$flatBaseFilename}.data.php",
-      'map' => "{$flatBaseFilename}.map.php",
-      'event' => "{$flatBaseFilename}.event.php",
-    ];
-    $splitPaths = array_reduce(
-      ['data', 'map', 'event'],
-      static fn(bool $carry, string $type): bool => $carry || file_exists($nestedPaths[$type]),
-      false
-    ) ? $nestedPaths : $flatPaths;
+    $directory = Path::join($assetsDirectory, $mapId);
 
     return [
       'id' => $mapId,
-      'legacy' => "{$flatBaseFilename}.php",
-      'data' => $splitPaths['data'],
-      'map' => $splitPaths['map'],
-      'event' => $splitPaths['event'],
+      'data' => Path::join($directory, "{$mapLeafName}.data.php"),
+      'map' => Path::join($directory, "{$mapLeafName}.map.php"),
+      'event' => Path::join($directory, "{$mapLeafName}.event.php"),
     ];
   }
 
   /**
    * Reads a split map definition from `.data.php`, `.map.php`, and `.event.php` files.
    *
-   * @param array{id: string, legacy: string, data: string, map: string, event: string} $paths The resolved map file paths.
+   * @param array{id: string, data: string, map: string, event: string} $paths The resolved map file paths.
    * @return array<string, mixed> The hydrated map data.
    * @throws NotFoundException If any required split-map file is missing.
    */

@@ -50,4 +50,15 @@ abstract class TurnState
   {
     $this->engine->setState($state);
   }
+
+  /**
+   * Waits for the given number of seconds.
+   *
+   * @param float $seconds The time to wait in seconds.
+   * @return void
+   */
+  protected function pause(float $seconds): void
+  {
+    usleep(max(0, intval(round($seconds * 1000000))));
+  }
 }

@@ -29,3 +29,17 @@ it('throws when asked to swap an invalid party slot', function () {
 
   expect(fn() => $party->swapMembers(0, 3))->toThrow(InvalidArgumentException::class);
 });
+
+it('falls back to living party members when the frontline is fully knocked out', function () {
+  $party = new Party();
+  $party->addMember(new Character('Kaelion', 1, new Stats(currentHp: 0, currentMp: 10)));
+  $party->addMember(new Character('Liora', 1, new Stats(currentHp: 0, currentMp: 10)));
+  $party->addMember(new Character('Drazek', 1, new Stats(currentHp: 0, currentMp: 10)));
+  $party->addMember(new Character('Seraphis', 1, new Stats(currentHp: 250, currentMp: 50)));
+
+  $battlers = $party->battlers->toArray();
+
+  expect($battlers)->toHaveCount(1)
+    ->and($battlers[0]->name)->toBe('Seraphis')
+    ->and($battlers[0]->isKnockedOut)->toBeFalse();
+});

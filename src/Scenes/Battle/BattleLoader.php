@@ -2,8 +2,8 @@
 
 namespace Ichiloto\Engine\Scenes\Battle;
 
-use Ichiloto\Engine\Battle\Interfaces\BattleEngineInterface;
 use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Core\SystemData;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Troop;
 
@@ -53,10 +53,22 @@ class BattleLoader
   ): BattleConfig
   {
     $events = [];
+
     foreach ($battleEvents as $event) {
-      // TODO: Check if battle event page
       $events[] = $event;
     }
-    return new BattleConfig($party, $troop, $events);
+
+    $systemPayload = asset('Data/system.php', true);
+    $systemData = SystemData::fromArray(is_array($systemPayload) ? $systemPayload : []);
+
+    return new BattleConfig(
+      $party,
+      $troop,
+      $events,
+      [
+        'engine' => $systemData->getBattleEngineType()->value,
+        'activeTime' => (array) $systemData->getActiveTimeSettings(),
+      ],
+    );
   }
 }

@@ -347,8 +347,6 @@ class Stats implements JsonSerializable, Stringable
 
         $equipment = $equipmentSlot->equipment;
 
-        $effectiveStats->totalHp += $equipment->parameterChanges->totalHp;
-        $effectiveStats->totalMp += $equipment->parameterChanges->totalMp;
         $effectiveStats->attack += $equipment->parameterChanges->attack;
         $effectiveStats->defence += $equipment->parameterChanges->defence;
         $effectiveStats->magicAttack += $equipment->parameterChanges->magicAttack;
@@ -370,6 +368,7 @@ class Stats implements JsonSerializable, Stringable
     return [
       'currentHp' => $this->currentHp,
       'currentMp' => $this->currentMp,
+      'currentAp' => $this->currentAp,
       'attack' => $this->attack,
       'defence' => $this->defence,
       'magicAttack' => $this->magicAttack,
@@ -379,6 +378,7 @@ class Stats implements JsonSerializable, Stringable
       'evasion' => $this->evasion,
       'totalHp' => $this->totalHp,
       'totalMp' => $this->totalMp,
+      'totalAp' => $this->totalAp,
       'totalAttack' => $this->totalAttack,
       'totalDefence' => $this->totalDefence,
       'totalMagicAttack' => $this->totalMagicAttack,

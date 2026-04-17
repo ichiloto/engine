@@ -15,6 +15,7 @@ class BattleEndState extends BattleSceneState
     $this->scene->resultWindow?->erase();
     $this->scene->ui?->erase();
     $this->engine->stop();
+    $this->scene->stop();
     Console::clear();
 
     if ($this->scene->shouldLoadGameOver) {

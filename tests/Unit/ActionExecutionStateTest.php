@@ -1,14 +1,17 @@
 <?php
 
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\ActionExecutionState;
+use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnStateExecutionContext;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\HPRecoverSkillEffect;
 use Ichiloto\Engine\Entities\Enumerations\Occasion;
 use Ichiloto\Engine\Entities\ItemScope;
 use Ichiloto\Engine\Entities\Magic\MagicEffectType;
+use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
 use Ichiloto\Engine\Entities\Stats;
+use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\IO\Enumerations\Color;
 
 it('builds floating damage and knockout popup lines for defeated targets', function () {
@@ -55,6 +58,19 @@ it('maps restorative magic to a green cast effect', function () {
   expect($color)->toBe(Color::GREEN);
 });
 
+it('treats battle as concluded when a side has no living battlers', function () {
+  $state = makeActionExecutionStateForTest();
+  $party = new Party();
+  $troop = new Troop('Test Troop');
+
+  $party->addMember(new Character('Kaelion', 0, new Stats(currentHp: 100, totalHp: 100, currentMp: 20, totalMp: 20)));
+  $troop->addMember(new Character('Slime', 0, new Stats(currentHp: 0, totalHp: 50, currentMp: 0, totalMp: 0)));
+
+  $context = makeActionExecutionContextForTest($party, $troop);
+
+  expect(invokeBattleConclusionChecker($state, $context))->toBeTrue();
+});
+
 /**
  * Creates a lightweight action execution state for popup-line tests.
  *
@@ -98,4 +114,40 @@ function invokeMagicCastEffectColorResolver(ActionExecutionState $state, SkillBa
   $method = new ReflectionMethod(ActionExecutionState::class, 'resolveMagicCastEffectColor');
 
   return $method->invoke($state, $action->skill);
+}
+
+/**
+ * Creates a lightweight turn-state execution context for battle-end checks.
+ *
+ * @param Party $party The test party.
+ * @param Troop $troop The test troop.
+ * @return TurnStateExecutionContext
+ */
+function makeActionExecutionContextForTest(Party $party, Troop $troop): TurnStateExecutionContext
+{
+  $context = (new ReflectionClass(TurnStateExecutionContext::class))->newInstanceWithoutConstructor();
+
+  foreach (['party' => $party, 'troop' => $troop] as $property => $value) {
+    $reflectionProperty = new ReflectionProperty(TurnStateExecutionContext::class, $property);
+    $reflectionProperty->setValue($context, $value);
+  }
+
+  return $context;
+}
+
+/**
+ * Invokes the protected battle-conclusion helper on the action execution state.
+ *
+ * @param ActionExecutionState $state The action execution state under test.
+ * @param TurnStateExecutionContext $context The execution context to inspect.
+ * @return bool
+ */
+function invokeBattleConclusionChecker(
+  ActionExecutionState $state,
+  TurnStateExecutionContext $context
+): bool
+{
+  $method = new ReflectionMethod(ActionExecutionState::class, 'battleHasConcluded');
+
+  return $method->invoke($state, $context);
 }

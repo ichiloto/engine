@@ -1,6 +1,8 @@
 <?php
 
 use Assegai\Util\Path;
+use Ichiloto\Engine\Animations\Animation;
+use Ichiloto\Engine\Animations\AnimationLibrary;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
@@ -372,6 +374,37 @@ if (! function_exists('graphics') ) {
   function graphics(string $path, bool $asArray = true): array|string
   {
     return asset("Graphics/$path.txt", $asArray);
+  }
+}
+
+if (! function_exists('animations')) {
+  /**
+   * Loads the project's configured terminal animations.
+   *
+   * @param string $path The asset path relative to assets/.
+   * @return Animation[]
+   */
+  function animations(string $path = 'Data/animations.php'): array
+  {
+    return (new AnimationLibrary($path))->load();
+  }
+}
+
+if (! function_exists('animation')) {
+  /**
+   * Loads one animation by id or name.
+   *
+   * @param int|string $identifier The numeric id or animation name.
+   * @param string $path The asset path relative to assets/.
+   * @return Animation|null
+   */
+  function animation(int|string $identifier, string $path = 'Data/animations.php'): ?Animation
+  {
+    $library = new AnimationLibrary($path);
+
+    return is_int($identifier)
+      ? $library->findById($identifier)
+      : $library->findByName(strval($identifier));
   }
 }
 

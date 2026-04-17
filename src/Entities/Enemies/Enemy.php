@@ -53,7 +53,8 @@ class Enemy implements CharacterInterface
     protected(set) string $imagePath,
     protected(set) BattleRewards $rewards,
     array $actionPatterns,
-    protected(set) Vector2 $position = new Vector2()
+    protected(set) Vector2 $position = new Vector2(),
+    protected(set) int|string|null $battleAnimation = null,
   )
   {
     foreach ($actionPatterns as $pattern) {

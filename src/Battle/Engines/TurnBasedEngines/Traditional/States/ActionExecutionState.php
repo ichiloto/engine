@@ -2,6 +2,13 @@
 
 namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States;
 
+use Ichiloto\Engine\Animations\Animation;
+use Ichiloto\Engine\Animations\AnimationLibrary;
+use Ichiloto\Engine\Animations\AnimationPlayer;
+use Ichiloto\Engine\Battle\Actions\AttackAction;
+use Ichiloto\Engine\Cutscenes\Summons\SummonCompiledCutscene;
+use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
+use Ichiloto\Engine\Cutscenes\Summons\SummonCutscenePlayer;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Battle\BattleAction;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnExecutionContext;
@@ -37,13 +44,14 @@ class ActionExecutionState extends TurnState
   {
     $turn = $context->getCurrentTurn();
 
-    if ($turn === null) {
+    if ($turn === null || $this->battleHasConcluded($context)) {
       $this->setState($this->engine->turnResolutionState);
       return;
     }
 
     if ($turn->battler->isKnockedOut) {
       $context->advanceTurn();
+      $this->transitionToResolutionIfNeeded($context);
       return;
     }
 
@@ -58,6 +66,7 @@ class ActionExecutionState extends TurnState
 
     if (empty($targets)) {
       $context->advanceTurn();
+      $this->transitionToResolutionIfNeeded($context);
       return;
     }
 
@@ -79,11 +88,37 @@ class ActionExecutionState extends TurnState
       }
     );
 
-    $context->advanceTurn();
+    if ($this->battleHasConcluded($context)) {
+      $this->setState($this->engine->turnResolutionState);
+      return;
+    }
 
-    if ($context->getCurrentTurn() === null) {
+    $context->advanceTurn();
+    $this->transitionToResolutionIfNeeded($context);
+  }
+
+  /**
+   * Transitions to turn resolution when the round is exhausted or battle end is already known.
+   *
+   * @param TurnStateExecutionContext $context The turn context.
+   * @return void
+   */
+  protected function transitionToResolutionIfNeeded(TurnStateExecutionContext $context): void
+  {
+    if ($context->getCurrentTurn() === null || $this->battleHasConcluded($context)) {
       $this->setState($this->engine->turnResolutionState);
     }
+  }
+
+  /**
+   * Determines whether one side has already been wiped out.
+   *
+   * @param TurnStateExecutionContext $context The turn context.
+   * @return bool
+   */
+  protected function battleHasConcluded(TurnStateExecutionContext $context): bool
+  {
+    return empty($context->getLivingPartyBattlers()) || empty($context->getLivingTroopBattlers());
   }
 
   /**
@@ -112,15 +147,12 @@ class ActionExecutionState extends TurnState
     $this->highlightTarget($context, $target);
     $this->stepActorForward($context, $actor);
     $this->pause($timings->stepForward);
-    $this->displayAnnouncementPhase(
-      $context,
-      $actor,
-      $action,
-      sprintf('%s uses %s!', $actor->name, $actionName),
-      $timings->announcement
-    );
-    $this->pause($timings->actionAnimation);
-    $this->displayPhase($context, '*SFX*', $timings->effectAnimation);
+    $this->displayAnnouncementPhase($context, $action !== null && $this->resolveSummonCutscene($action) instanceof SummonCompiledCutscene ? $actionName : sprintf("%s uses %s!", $actor->name, $actionName), $timings->announcement);
+    $extendedAnimationHandled = $this->playActionAnimation($context, $actor, $target, $action, $timings->actionAnimation);
+    if (! $extendedAnimationHandled) {
+      $this->pause($timings->actionAnimation);
+      $this->pause($timings->effectAnimation);
+    }
 
     $previousHp = $target->stats->currentHp;
     $previousMp = $target->stats->currentMp;
@@ -151,20 +183,12 @@ class ActionExecutionState extends TurnState
    */
   protected function displayAnnouncementPhase(
     TurnStateExecutionContext $context,
-    CharacterInterface $actor,
-    ?BattleAction $action,
     string $message,
     float $delaySeconds
   ): void
   {
     $context->ui->showMessage($message);
-
-    if (! $this->shouldAnimateMagicCastEffect($context, $actor, $action)) {
-      $this->pause($delaySeconds);
-      return;
-    }
-
-    $this->playMagicCastEffect($context, $actor, $action, $delaySeconds);
+    $this->pause($delaySeconds);
   }
 
   /**
@@ -288,75 +312,226 @@ class ActionExecutionState extends TurnState
   }
 
   /**
-   * Determines whether the announcement phase should render the caster magic effect.
+   * Plays the configured action animation over the current target.
    *
    * @param TurnStateExecutionContext $context The turn context.
    * @param CharacterInterface $actor The acting battler.
-   * @param BattleAction|null $action The action being announced.
-   * @return bool
+   * @param CharacterInterface $target The resolved action target.
+   * @param BattleAction|null $action The resolved action.
+   * @param float $delaySeconds The time budget for the animation phase.
+   * @return bool Whether the action animation consumed the phase timing.
    */
-  protected function shouldAnimateMagicCastEffect(
+  protected function playActionAnimation(
     TurnStateExecutionContext $context,
     CharacterInterface $actor,
-    ?BattleAction $action
+    CharacterInterface $target,
+    ?BattleAction $action,
+    float $delaySeconds
   ): bool
   {
-    if (! $actor instanceof Character) {
+    $summonCutscene = $this->resolveSummonCutscene($action);
+
+    if ($summonCutscene instanceof SummonCompiledCutscene) {
+      $this->playSummonCutscene($context, $actor, $summonCutscene);
+      return true;
+    }
+
+    $animation = $this->resolveActionAnimation($action);
+
+    if (! $animation instanceof Animation) {
       return false;
     }
 
-    if (! $action instanceof SkillBattleAction || ! $action->skill instanceof MagicSkill) {
-      return false;
-    }
+    $player = new AnimationPlayer(max(0.01, $delaySeconds / max(1, $animation->maxFrames)));
+    $player->play($animation, function (int $frameIndex) use ($context, $target, $animation): void {
+      $context->ui->fieldWindow->showActionAnimationFrame($target, $animation, $frameIndex);
+    });
+    $context->ui->fieldWindow->clearMagicCastEffects();
+    $context->ui->refreshField();
 
-    return is_int(array_search($actor, $context->party->battlers->toArray(), true));
+    return true;
   }
 
   /**
-   * Plays the clockwise caster effect for magic announced by a party battler.
+   * Resolves an authored summon cutscene linked to the current battle action.
+   *
+   * @param BattleAction|null $action The action being resolved.
+   * @return SummonCompiledCutscene|null
+   */
+  protected function resolveSummonCutscene(?BattleAction $action): ?SummonCompiledCutscene
+  {
+    if (! $action instanceof SkillBattleAction) {
+      return null;
+    }
+
+    try {
+      return (new SummonCutsceneLibrary())->loadCompiledOrCompileByLinkedActionId($action->skill->name);
+    } catch (\Throwable) {
+      return null;
+    }
+  }
+
+  /**
+   * Plays a full-screen summon cutscene over the battlefield.
+   *
+   * @param TurnStateExecutionContext $context The turn context.
+   * @param SummonCompiledCutscene $cutscene The compiled summon cutscene.
+   * @return void
+   */
+  protected function playSummonCutscene(
+    TurnStateExecutionContext $context,
+    CharacterInterface $actor,
+    SummonCompiledCutscene $cutscene,
+  ): void
+  {
+    $transitionIn = is_array($cutscene->transitionCache["in"] ?? null)
+      ? $cutscene->transitionCache["in"]
+      : [];
+    $transitionOut = is_array($cutscene->transitionCache["out"] ?? null)
+      ? $cutscene->transitionCache["out"]
+      : [];
+
+    $context->ui->hideMessage();
+    $context->ui->hideControls();
+    $context->ui->fieldWindow->clearTargetIndicators();
+    $context->ui->fieldWindow->clearMagicCastEffects();
+    $context->ui->fieldWindow->clearStatChangePopups();
+
+    $this->playSummonTransition($context, $transitionIn, "in");
+    $context->ui->fieldWindow->erase();
+    $context->ui->fieldWindow->render();
+    $this->displaySummonTitleCard($context, $actor, $cutscene);
+
+    (new SummonCutscenePlayer())->play(
+      $cutscene,
+      function (int $frameIndex) use ($context, $cutscene): void {
+        $context->ui->fieldWindow->showSummonCutsceneFrame($cutscene, $frameIndex);
+      }
+    );
+
+    $context->ui->fieldWindow->clearMagicCastEffects();
+    $context->ui->refreshField();
+    $this->playSummonTransition($context, $transitionOut, "out");
+    $context->ui->fieldWindow->clearMagicCastEffects();
+    $context->ui->refreshField();
+    $context->ui->showControls();
+  }
+
+  /**
+   * Displays a short summon title card before playback begins.
    *
    * @param TurnStateExecutionContext $context The turn context.
    * @param CharacterInterface $actor The acting battler.
-   * @param BattleAction|null $action The resolved battle action.
-   * @param float $delaySeconds The time budget for the full sequence.
+   * @param SummonCompiledCutscene $cutscene The compiled summon cutscene.
    * @return void
    */
-  protected function playMagicCastEffect(
+  protected function displaySummonTitleCard(
     TurnStateExecutionContext $context,
     CharacterInterface $actor,
-    ?BattleAction $action,
-    float $delaySeconds
+    SummonCompiledCutscene $cutscene,
   ): void
   {
-    if (! $actor instanceof Character || ! $action instanceof SkillBattleAction || ! $action->skill instanceof MagicSkill) {
-      $this->pause($delaySeconds);
+    $summonName = trim(strval($cutscene->defaults["name"] ?? $cutscene->sourceId));
+
+    if ($summonName === "") {
       return;
     }
 
-    $partyBattlers = $context->party->battlers->toArray();
-    $actorIndex = array_search($actor, $partyBattlers, true);
+    $targetPresentation = is_array($cutscene->defaults["targetPresentation"] ?? null)
+      ? $cutscene->defaults["targetPresentation"]
+      : [];
+    $showCasterNameBanner = boolval($targetPresentation["showCasterNameBanner"] ?? false);
 
-    if (! is_int($actorIndex)) {
-      $this->pause($delaySeconds);
+    $context->ui->fieldWindow->showSummonTitleCard(
+      $summonName,
+      $showCasterNameBanner ? $actor->name : null,
+    );
+    $this->pause(0.8);
+  }
+
+  /**
+   * Plays a lightweight summon transition over the battlefield.
+   *
+   * @param TurnStateExecutionContext $context The turn context.
+   * @param array<string, mixed> $transition The compiled transition data.
+   * @param string $direction The transition direction.
+   * @return void
+   */
+  protected function playSummonTransition(
+    TurnStateExecutionContext $context,
+    array $transition,
+    string $direction,
+  ): void
+  {
+    $durationMs = intval($transition["durationMs"] ?? 0);
+
+    if ($durationMs <= 0) {
       return;
     }
 
-    $frameCount = 4;
-    $frameDuration = $frameCount > 0 ? $delaySeconds / $frameCount : 0.0;
-    $color = $this->resolveMagicCastEffectColor($action->skill);
+    $type = strtolower(trim(strval($transition["type"] ?? "")));
 
-    for ($frame = 0; $frame < $frameCount; $frame++) {
-      $context->ui->fieldWindow->showPartyMagicCastEffect($actor, $actorIndex, $color, $frame);
-      $this->pause($frameDuration);
+    if ($type === "" || ! in_array($type, ["fadetoblack", "fadefromblack"], true)) {
+      $this->pause($durationMs / 1000);
+      return;
+    }
+
+    $steps = 4;
+    $stepDelay = max(0.01, ($durationMs / 1000) / $steps);
+    $colorName = isset($transition["color"]) ? strval($transition["color"]) : null;
+
+    for ($stepIndex = 0; $stepIndex < $steps; $stepIndex++) {
+      $progress = $steps === 1
+        ? 1.0
+        : $stepIndex / max(1, $steps - 1);
+      $context->ui->fieldWindow->showSummonTransitionFrame($progress, $direction, $colorName);
+      $this->pause($stepDelay);
     }
 
     $context->ui->fieldWindow->clearMagicCastEffects();
   }
 
   /**
-   * Resolves the caster effect color for the provided magic skill.
+   * Resolves the editor-authored animation that should play for the action.
    *
-   * @param MagicSkill $skill The magic skill being announced.
+   * @param BattleAction|null $action The action being resolved.
+   * @return Animation|null
+   */
+  protected function resolveActionAnimation(?BattleAction $action): ?Animation
+  {
+    $animationLibrary = new AnimationLibrary('Data/animations.php');
+
+    if ($action instanceof SkillBattleAction) {
+      $explicitAnimation = $animationLibrary->findByName($action->skill->name);
+
+      if ($explicitAnimation instanceof Animation) {
+        return $explicitAnimation;
+      }
+
+      if ($action->skill instanceof MagicSkill) {
+        return match ($action->skill->effectType) {
+          MagicEffectType::RESTORATIVE,
+          MagicEffectType::BUFF => $animationLibrary->findByName('Healing Aura'),
+          MagicEffectType::DESTRUCTIVE,
+          MagicEffectType::DEBUFF => $animationLibrary->findByName('Hit Spark'),
+        };
+      }
+
+      return $animationLibrary->findByName('Hit Spark');
+    }
+
+    if ($action instanceof AttackAction) {
+      return $animationLibrary->findByName('Hit Spark');
+    }
+
+    return null;
+  }
+
+  /**
+   * Resolves the legacy magic effect color for compatibility with battle tests
+   * and any remaining effect-driven fallback logic.
+   *
+   * @param MagicSkill $skill The magic skill being resolved.
    * @return Color
    */
   protected function resolveMagicCastEffectColor(MagicSkill $skill): Color

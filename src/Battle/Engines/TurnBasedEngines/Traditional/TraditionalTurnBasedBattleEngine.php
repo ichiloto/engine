@@ -25,6 +25,8 @@ class TraditionalTurnBasedBattleEngine extends TurnBasedEngine
    */
   public function start(): void
   {
+    // Rebuild phase-state objects so each battle starts with a clean turn-state slate.
+    $this->initializeTurnStates();
     $this->positionBattlers();
     $this->turnStateExecutionContext = new TurnStateExecutionContext(
       $this->game,

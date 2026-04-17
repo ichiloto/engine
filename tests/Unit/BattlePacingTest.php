@@ -14,5 +14,7 @@ it('matches the slow physical attack timing budget', function () {
   $pacing = new BattlePacing(BattlePace::SLOW, BattlePace::SLOW);
   $timings = $pacing->getTurnTimings(new AttackAction('Attack'));
 
-  expect(round($timings->totalDurationSeconds(), 1))->toBe(4.0);
+  expect(round($timings->totalDurationSeconds(), 1))->toBe(4.0)
+    ->and(round($timings->turnOver, 2))->toBeGreaterThan(0.3)
+    ->and(round($timings->effectAnimation, 2))->toBeGreaterThan(0.7);
 });

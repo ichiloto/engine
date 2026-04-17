@@ -4,7 +4,7 @@ namespace Ichiloto\Engine\Scenes;
 
 use Assegai\Collections\ItemList;
 use Exception;
-use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\TraditionalTurnBasedBattleEngine;
+use Ichiloto\Engine\Battle\Enumerations\BattleEngineType;
 use Ichiloto\Engine\Battle\Interfaces\BattleEngineInterface;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
@@ -176,14 +176,17 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    */
   public function loadScene(string|int $index): self
   {
-    $this->eventManager->dispatchEvent(new SceneEvent(SceneEventType::LOAD_START, $this->currentScene));
-
     $sceneToLoad = match(true) {
       is_int($index) => $this->scenes->toArray()[$index] ?? throw new NotFoundException($index),
       default => $this->scenes->find(fn(SceneInterface $scene) => $scene::class === $index) ?? throw new NotFoundException($index),
     };
 
-    $this->currentScene?->suspend();
+    if ($this->currentScene === $sceneToLoad) {
+      return $this;
+    }
+
+    $this->eventManager->dispatchEvent(new SceneEvent(SceneEventType::LOAD_START, $this->currentScene));
+
     $this->unloadScene($this->currentScene);
     $this->currentScene = $sceneToLoad;
     if ($this->currentScene?->isStarted()) {
@@ -240,13 +243,20 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    */
   public function loadBattleScene(Party $party, Troop $troop, array $events = []): void
   {
+    if ($party->isDefeated()) {
+      $this->loadGameOverScene();
+      return;
+    }
+
+    $config = $this->battleLoader->newConfig($party, $troop, $events);
+    $this->game->useBattleEngineType(BattleEngineType::fromValue($config->settings['engine'] ?? null));
     $currentScene = $this->loadScene(BattleScene::class)->currentScene;
 
     if (! $currentScene instanceof BattleScene) {
       throw new NotFoundException('The current scene is not a battle scene.');
     }
 
-    $currentScene->configure($this->battleLoader->newConfig($party, $troop, $events));
+    $currentScene->configure($config);
   }
 
   /**
@@ -257,10 +267,10 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    */
   public function returnFromBattleScene(): void
   {
-    $currentScene = $this->loadScene(GameScene::class)->currentScene;
+    $this->loadScene(GameScene::class);
 
-    if ($currentScene instanceof GameScene) {
-      $currentScene->resume();
+    if ($this->currentScene instanceof GameScene) {
+      $this->currentScene->fieldState?->resume();
     }
   }
 }

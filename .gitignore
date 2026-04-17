@@ -5,3 +5,10 @@
 *.log
 logs/*
 *.iedata
+tmp
+*.tmp
+tmp_*
+*.bak
+*.backup
+*.swp
+*.swo
