@@ -1,5 +1,5 @@
 <p align="center">
-    <img src="/docs/images/ichiloto-logo-md.png" alt="Ichiloto 2D Game Engine Logo" width="200">
+    <img src="docs/images/ichiloto-logo-md.png" alt="Ichiloto 2D Game Engine Logo" width="200">
 </p>
 
 # Ichiloto 2D Game Engine
