@@ -16,6 +16,15 @@ use Ichiloto\Engine\UI\Windows\Window;
  */
 class BattleCharacterStatusWindow extends Window
 {
+  protected const int MAX_VISIBLE_CHARACTERS = self::HEIGHT - 2;
+  protected const int HP_VALUE_WIDTH = 4;
+  protected const int MP_VALUE_WIDTH = 4;
+  protected const int HP_BAR_UNITS = 10;
+  protected const int MP_BAR_UNITS = 5;
+  protected const int COMPACT_HP_BAR_UNITS = 6;
+  protected const int COMPACT_BAR_UNITS = 3;
+  protected const int INTER_STAT_GAP = 2;
+  protected const int COLUMN_GAP = 1;
   /**
    * The width of the window.
    */
@@ -72,7 +81,7 @@ class BattleCharacterStatusWindow extends Window
    */
   public function setCharacters(array $characters): void
   {
-    $this->characters = array_slice($characters, 0, 3);
+    $this->characters = array_slice($characters, 0, self::MAX_VISIBLE_CHARACTERS);
     $this->updateContent();
   }
 
@@ -106,10 +115,15 @@ class BattleCharacterStatusWindow extends Window
    */
   public function updateContent(): void
   {
+    $showAtb = $this->usesAtbLayout();
     $content = [];
+    $this->setTitle($this->formatHeaderLine($showAtb));
 
     foreach ($this->characters as $index => $character) {
-      $content[] = $this->formatCharacterStats($character, $this->atbPercentages[$index] ?? null);
+      $content[] = $this->formatCharacterStats(
+        $character,
+        $showAtb ? ($this->atbPercentages[$index] ?? 0.0) : null
+      );
     }
 
     $content = array_pad($content, self::HEIGHT - 2, '');
@@ -133,28 +147,155 @@ class BattleCharacterStatusWindow extends Window
     $mpPercentage = $character->effectiveStats->currentMp / $mpTotal;
 
     if ($atbPercentage !== null) {
-      return implode('', [
-        TerminalText::padLeft(strval($character->effectiveStats->currentHp), 4),
-        ' ',
-        $this->createProgressBar(6, $hpPercentage)->getRender(),
-        ' ',
-        TerminalText::padLeft(strval($character->effectiveStats->currentMp), 4),
-        ' ',
-        $this->createProgressBar(3, $mpPercentage)->getRender(),
-        ' ',
-        $this->createProgressBar(3, $atbPercentage)->getRender(),
-      ]);
+      return TerminalText::padRight(implode('', [
+        TerminalText::padLeft(strval($character->effectiveStats->currentHp), self::HP_VALUE_WIDTH),
+        str_repeat(' ', self::COLUMN_GAP),
+        $this->createProgressBar(self::COMPACT_HP_BAR_UNITS, $hpPercentage)->getRender(),
+        str_repeat(' ', self::COLUMN_GAP),
+        TerminalText::padLeft(strval($character->effectiveStats->currentMp), self::MP_VALUE_WIDTH),
+        str_repeat(' ', self::COLUMN_GAP),
+        $this->createProgressBar(self::COMPACT_BAR_UNITS, $mpPercentage)->getRender(),
+        str_repeat(' ', self::COLUMN_GAP),
+        $this->createProgressBar(self::COMPACT_BAR_UNITS, $atbPercentage)->getRender(),
+      ]), self::CONTENT_WIDTH);
     }
 
-    return implode('', [
-      TerminalText::padLeft(strval($character->effectiveStats->currentHp), 4),
-      ' ',
-      $this->createProgressBar(10, $hpPercentage)->getRender(),
-      '  ',
-      TerminalText::padLeft(strval($character->effectiveStats->currentMp), 4),
-      ' ',
-      $this->createProgressBar(5, $mpPercentage)->getRender(),
-    ]);
+    return TerminalText::padRight(implode('', [
+      TerminalText::padLeft(strval($character->effectiveStats->currentHp), self::HP_VALUE_WIDTH),
+      str_repeat(' ', self::COLUMN_GAP),
+      $this->createProgressBar(self::HP_BAR_UNITS, $hpPercentage)->getRender(),
+      str_repeat(' ', self::INTER_STAT_GAP),
+      TerminalText::padLeft(strval($character->effectiveStats->currentMp), self::MP_VALUE_WIDTH),
+      str_repeat(' ', self::COLUMN_GAP),
+      $this->createProgressBar(self::MP_BAR_UNITS, $mpPercentage)->getRender(),
+    ]), self::CONTENT_WIDTH);
+  }
+
+  /**
+   * Formats the header row so labels follow the same geometry as the stat lines.
+   *
+   * @param bool $showAtb Whether the ATB column is currently visible.
+   * @return string The aligned header line.
+   */
+  protected function formatHeaderLine(bool $showAtb): string
+  {
+    $horizontal = $this->borderPack::getHorizontalBorder();
+    $cells = array_fill(0, self::CONTENT_WIDTH, $horizontal);
+
+    if ($showAtb) {
+      $this->writeHeaderLabel($cells, 'HP', $this->getCompactHpBarStart());
+      $this->writeHeaderLabel($cells, 'MP', $this->getCompactMpBarStart());
+      $this->writeHeaderLabel($cells, 'ATB', $this->getCompactAtbBarStart());
+
+      return implode('', $cells);
+    }
+
+    $this->writeHeaderLabel($cells, 'HP', $this->getStandardHpBarStart());
+    $this->writeHeaderLabel($cells, 'MP', $this->getStandardMpBarStart());
+
+    return implode('', $cells);
+  }
+
+  /**
+   * Writes a border title label into the provided header cell buffer.
+   *
+   * @param array<int, string> $cells The mutable header cells.
+   * @param string $label The label to stamp into the border title.
+   * @param int $start The zero-based content start column.
+   * @return void
+   */
+  protected function writeHeaderLabel(array &$cells, string $label, int $start): void
+  {
+    foreach (TerminalText::visibleSymbols($label) as $offset => $symbol) {
+      $cellIndex = $start + $offset;
+
+      if ($cellIndex < 0 || $cellIndex >= self::CONTENT_WIDTH) {
+        continue;
+      }
+
+      $cells[$cellIndex] = $symbol;
+    }
+  }
+
+  /**
+   * Returns the HP bar start column for the standard battle layout.
+   *
+   * @return int
+   */
+  protected function getStandardHpBarStart(): int
+  {
+    return self::HP_VALUE_WIDTH + self::COLUMN_GAP;
+  }
+
+  /**
+   * Returns the MP bar start column for the standard battle layout.
+   *
+   * @return int
+   */
+  protected function getStandardMpBarStart(): int
+  {
+    return $this->getStandardHpBarStart()
+      + $this->getProgressBarWidth(self::HP_BAR_UNITS)
+      + self::INTER_STAT_GAP
+      + self::MP_VALUE_WIDTH
+      + self::COLUMN_GAP;
+  }
+
+  /**
+   * Returns the HP bar start column for the compact ATB layout.
+   *
+   * @return int
+   */
+  protected function getCompactHpBarStart(): int
+  {
+    return self::HP_VALUE_WIDTH + self::COLUMN_GAP;
+  }
+
+  /**
+   * Returns the MP bar start column for the compact ATB layout.
+   *
+   * @return int
+   */
+  protected function getCompactMpBarStart(): int
+  {
+    return $this->getCompactHpBarStart()
+      + $this->getProgressBarWidth(self::COMPACT_HP_BAR_UNITS)
+      + self::COLUMN_GAP
+      + self::MP_VALUE_WIDTH
+      + self::COLUMN_GAP;
+  }
+
+  /**
+   * Returns the ATB bar start column for the compact ATB layout.
+   *
+   * @return int
+   */
+  protected function getCompactAtbBarStart(): int
+  {
+    return $this->getCompactMpBarStart()
+      + $this->getProgressBarWidth(self::COMPACT_BAR_UNITS)
+      + self::COLUMN_GAP;
+  }
+
+  /**
+   * Returns the display width of a progress bar for the given unit count.
+   *
+   * @param int $units The number of fill units.
+   * @return int
+   */
+  protected function getProgressBarWidth(int $units): int
+  {
+    return TerminalText::displayWidth($this->createProgressBar($units, 0.0)->getRender());
+  }
+
+  /**
+   * Returns whether the status window should include the ATB gauge column.
+   *
+   * @return bool True when the ATB layout is active.
+   */
+  protected function usesAtbLayout(): bool
+  {
+    return $this->atbPercentages !== [];
   }
 
   /**

@@ -27,6 +27,13 @@ class InputManager
    * @var string
    */
   private static string $keyPress = '';
+
+  /**
+   * Buffered input bytes that were read but not yet consumed as a key sequence.
+   *
+   * @var string
+   */
+  private static string $pendingInput = '';
   /**
    * @var EventManager|null The event manager.
    */
@@ -46,6 +53,7 @@ class InputManager
   {
     self::$eventManager = EventManager::getInstance($game);
     self::$previousKeyPress = self::$keyPress = '';
+    self::$pendingInput = '';
     $inputConfig = ConfigStore::get(InputConfig::class);
     assert($inputConfig instanceof InputConfig);
     self::$config = $inputConfig->all();
@@ -85,11 +93,7 @@ class InputManager
   public static function handleInput(): void
   {
     self::$previousKeyPress = self::$keyPress;
-    self::$keyPress = fgets(STDIN);
-
-    if (false === self::$keyPress) {
-      throw new RuntimeException('Failed to read input.');
-    }
+    self::$keyPress = self::readInputSequence();
 
     if (self::$keyPress) {
       self::$eventManager?->dispatchEvent(event: new KeyboardEvent(key: self::getKey(keyPress: self::$keyPress)));
@@ -117,6 +121,7 @@ class InputManager
 
     self::$previousKeyPress = '';
     self::$keyPress = '';
+    self::$pendingInput = '';
   }
 
   /**
@@ -256,6 +261,7 @@ class InputManager
       "\033[C"  => KeyCode::RIGHT->value,
       "\033[D"  => KeyCode::LEFT->value,
       "\033[Z"  => KeyCode::SHIFT_TAB->value,
+      "\r",
       "\n"      => KeyCode::ENTER->value,
       " "       => KeyCode::SPACE->value,
       "\010",
@@ -264,10 +270,14 @@ class InputManager
       "\033",
       "\e"      => KeyCode::ESCAPE->value,
       "\033[1~",
+      "\033[H",
+      "\033OH",
       "\033[7~" => KeyCode::HOME->value,
       "\033[2~" => KeyCode::INSERT->value,
       "\033[3~" => KeyCode::DELETE->value,
-      "\033[8",
+      "\033[8~",
+      "\033[F",
+      "\033OF",
       "\033[4~" => KeyCode::END->value,
       "\033[5~" => KeyCode::PAGE_UP->value,
       "\033[6~" => KeyCode::PAGE_DOWN->value,
@@ -288,6 +298,104 @@ class InputManager
     };
   }
 
+  /**
+   * Reads one logical input sequence from stdin.
+   *
+   * Arrow keys and other special keys often arrive as multi-byte escape
+   * sequences. Buffering the sequence prevents terminals that deliver those
+   * bytes in short bursts from misreporting the initial ESC byte.
+   *
+   * @return string
+   */
+  private static function readInputSequence(mixed $stream = null): string
+  {
+    $stream ??= STDIN;
+    $input = self::$pendingInput;
+    self::$pendingInput = '';
+
+    if ($input === '') {
+      $input = fread($stream, 32);
+    }
+
+    if ($input === false || $input === '') {
+      return '';
+    }
+
+    if (! str_starts_with($input, "\033")) {
+      self::$pendingInput = substr($input, 1);
+      return $input[0];
+    }
+
+    $sequence = $input;
+    $emptyReads = 0;
+
+    for ($attempt = 0; $attempt < 4; $attempt++) {
+      if (self::isCompleteEscapeSequence($sequence)) {
+        break;
+      }
+
+      usleep(1_000);
+      $chunk = fread($stream, 32);
+
+      if ($chunk === false || $chunk === '') {
+        $emptyReads++;
+
+        if ($emptyReads >= 2) {
+          break;
+        }
+
+        continue;
+      }
+
+      $emptyReads = 0;
+      $sequence .= $chunk;
+    }
+
+    [$firstSequence, $remainingInput] = self::splitInputSequence($sequence);
+    self::$pendingInput = $remainingInput;
+
+    return $firstSequence;
+  }
+
+  /**
+   * Splits the first logical input sequence from buffered bytes.
+   *
+   * @param string $input Buffered input bytes.
+   * @return array{0: string, 1: string}
+   */
+  private static function splitInputSequence(string $input): array
+  {
+    if ($input === '') {
+      return ['', ''];
+    }
+
+    if (! str_starts_with($input, "\033")) {
+      return [$input[0], substr($input, 1)];
+    }
+
+    if (preg_match('/^\033(\[[0-9;?<]*[~A-Za-z]|\[<\d+;\d+;\d+[mM]|O[A-Za-z])/', $input, $matches) === 1) {
+      $firstSequence = $matches[0];
+      return [$firstSequence, substr($input, strlen($firstSequence))];
+    }
+
+    return [$input[0], substr($input, 1)];
+  }
+
+  /**
+   * Returns whether the current escape sequence appears complete.
+   *
+   * @param string $sequence The buffered input sequence.
+   * @return bool
+   */
+  private static function isCompleteEscapeSequence(string $sequence): bool
+  {
+    if ($sequence === "\033") {
+      return false;
+    }
+
+    return preg_match('/^\033(\[[0-9;?<]*[~A-Za-z]|\[<\d+;\d+;\d+[mM]|O[A-Za-z])$/', $sequence) === 1;
+  }
+
   public static function disableEcho(): void
   {
     system('stty cbreak -echo');
@@ -295,10 +403,9 @@ class InputManager
 
   public static function enableEcho(): void
   {
-    system('tput reset');
+    system('stty -cbreak echo');
 
     // Turn on cursor blinking
-    echo "\033[?12l";
-    system('stty -cbreak echo');
+    echo "\033[?12h";
   }
 }

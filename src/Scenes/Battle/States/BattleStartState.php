@@ -92,7 +92,17 @@ class BattleStartState extends BattleSceneState
   protected function loadAnimationFrameData(): void
   {
     $frameSeparator = "@@---\n";
-    $animationData = graphics('Animations/battle-transition', false);
+    try {
+      $animationData = graphics('Animations/battle-transition', false);
+    } catch (\Throwable $exception) {
+      Debug::warn($exception->getMessage());
+      $animationData = <<<TXT
+****************
+*   BATTLE!    *
+****************
+TXT;
+    }
+
     $this->frames = explode($frameSeparator, $animationData);
     $this->totalFrames = count($this->frames);
     $this->currentFrameIndex = 0;
