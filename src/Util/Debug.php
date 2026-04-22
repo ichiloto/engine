@@ -39,13 +39,9 @@ final class Debug
 
   public static function error(mixed $message): void
   {
-    if (! self::isEnabled()) {
-      return;
-    }
-
     self::writeLine("ERROR", $message, "error.log");
 
-    if (self::shouldLog(self::ERROR)) {
+    if (self::isEnabled() && self::shouldLog(self::ERROR)) {
       self::writeLine("ERROR", $message, "debug.log");
     }
   }
@@ -147,6 +143,10 @@ final class Debug
 
   private static function isEnabled(): bool
   {
-    return config(AppConfig::class, "debug.enabled", false);
+    try {
+      return config(AppConfig::class, "debug.enabled", false);
+    } catch (\Throwable) {
+      return false;
+    }
   }
 }

@@ -20,6 +20,11 @@ use Symfony\Component\Console\Terminal;
 class Console
 {
   /**
+   * Placeholder marker used for continuation cells of wide terminal symbols.
+   */
+  private const string WIDE_SYMBOL_CONTINUATION = "\0";
+
+  /**
    * @var Game|null $game The game instance.
    */
   private static ?Game $game = null;
@@ -279,14 +284,28 @@ class Console
         self::$buffer[$currentBufferRow] = str_repeat(' ', self::$width);
       }
 
-      $bufferSymbols = TerminalText::visibleSymbols(self::$buffer[$currentBufferRow]);
-      $bufferSymbols = array_pad($bufferSymbols, self::$width, ' ');
-      $text = TerminalText::sliceSymbols((string)$text, 0, max(0, self::$width - $x));
-      $textSymbols = TerminalText::visibleSymbols($text);
+      $rowCells = self::rowToCells(self::$buffer[$currentBufferRow]);
+      $text = TerminalText::truncateToWidth((string)$text, max(0, self::$width - $x));
+      $cellCursor = $x;
 
-      array_splice($bufferSymbols, $x, count($textSymbols), $textSymbols);
-      $bufferSymbols = array_pad(array_slice($bufferSymbols, 0, self::$width), self::$width, ' ');
-      self::$buffer[$currentBufferRow] = implode('', $bufferSymbols);
+      foreach (TerminalText::visibleSymbols($text) as $symbol) {
+        $symbolWidth = max(1, TerminalText::displayWidth($symbol));
+
+        if ($cellCursor >= self::$width || $cellCursor + $symbolWidth > self::$width) {
+          break;
+        }
+
+        self::clearCellRange($rowCells, $cellCursor, $symbolWidth);
+        $rowCells[$cellCursor] = $symbol;
+
+        for ($offset = 1; $offset < $symbolWidth && $cellCursor + $offset < self::$width; $offset++) {
+          $rowCells[$cellCursor + $offset] = self::WIDE_SYMBOL_CONTINUATION;
+        }
+
+        $cellCursor += $symbolWidth;
+      }
+
+      self::$buffer[$currentBufferRow] = self::cellsToRow($rowCells);
       self::writeBufferRow($currentBufferRow);
     }
   }
@@ -465,6 +484,118 @@ class Console
     }
 
     echo self::$buffer[$row];
+  }
+
+  /**
+   * Expands a rendered row into terminal cells so wide glyphs occupy multiple slots.
+   *
+   * @param string $row The rendered buffer row.
+   * @return string[] A cell buffer aligned to the console width.
+   */
+  private static function rowToCells(string $row): array
+  {
+    $cells = [];
+    $cellIndex = 0;
+
+    foreach (TerminalText::visibleSymbols($row) as $symbol) {
+      $symbolWidth = max(1, TerminalText::displayWidth($symbol));
+
+      if ($cellIndex >= self::$width) {
+        break;
+      }
+
+      $cells[$cellIndex] = $symbol;
+
+      for ($offset = 1; $offset < $symbolWidth && $cellIndex + $offset < self::$width; $offset++) {
+        $cells[$cellIndex + $offset] = self::WIDE_SYMBOL_CONTINUATION;
+      }
+
+      $cellIndex += $symbolWidth;
+    }
+
+    return array_pad(array_slice($cells, 0, self::$width), self::$width, ' ');
+  }
+
+  /**
+   * Converts a cell buffer back into a rendered row string.
+   *
+   * @param string[] $cells The cell buffer.
+   * @return string The rendered row.
+   */
+  private static function cellsToRow(array $cells): string
+  {
+    $output = [];
+
+    foreach (array_slice($cells, 0, self::$width) as $cell) {
+      $output[] = $cell === self::WIDE_SYMBOL_CONTINUATION ? '' : $cell;
+    }
+
+    return implode('', $output);
+  }
+
+  /**
+   * Clears a cell range, removing any wide glyphs that overlap the target span.
+   *
+   * @param array<int, string> $cells The cell buffer.
+   * @param int $start The starting cell.
+   * @param int $width The number of cells to clear.
+   * @return void
+   */
+  private static function clearCellRange(array &$cells, int $start, int $width): void
+  {
+    if ($width <= 0 || $start >= self::$width) {
+      return;
+    }
+
+    $anchorsToClear = [];
+    $end = min(self::$width - 1, max($start, $start + $width - 1));
+
+    for ($cellIndex = max(0, $start); $cellIndex <= $end; $cellIndex++) {
+      $anchorIndex = self::resolveCellAnchor($cells, $cellIndex);
+
+      if ($anchorIndex === null) {
+        continue;
+      }
+
+      $anchorsToClear[$anchorIndex] = true;
+    }
+
+    foreach (array_keys($anchorsToClear) as $anchorIndex) {
+      $symbol = $cells[$anchorIndex] ?? ' ';
+      $symbolWidth = $symbol === self::WIDE_SYMBOL_CONTINUATION
+        ? 1
+        : max(1, TerminalText::displayWidth($symbol));
+
+      for ($offset = 0; $offset < $symbolWidth && $anchorIndex + $offset < self::$width; $offset++) {
+        $cells[$anchorIndex + $offset] = ' ';
+      }
+    }
+  }
+
+  /**
+   * Resolves the leading cell index for the symbol occupying the given cell.
+   *
+   * @param array<int, string> $cells The cell buffer.
+   * @param int $cellIndex The cell index to inspect.
+   * @return int|null The anchor cell index, or null if out of bounds.
+   */
+  private static function resolveCellAnchor(array $cells, int $cellIndex): ?int
+  {
+    if ($cellIndex < 0 || $cellIndex >= self::$width) {
+      return null;
+    }
+
+    if (($cells[$cellIndex] ?? ' ') !== self::WIDE_SYMBOL_CONTINUATION) {
+      return $cellIndex;
+    }
+
+    for ($anchorIndex = $cellIndex - 1; $anchorIndex >= 0; $anchorIndex--) {
+      if (($cells[$anchorIndex] ?? ' ') !== self::WIDE_SYMBOL_CONTINUATION) {
+        return $anchorIndex;
+      }
+    }
+
+    return null;
   }
 
   /**
