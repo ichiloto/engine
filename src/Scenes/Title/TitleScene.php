@@ -21,6 +21,8 @@ use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\SaveSlotWindow;
 use Ichiloto\Engine\UI\Windows\Window;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Util\Debug;
 use Override;
 use Throwable;
 
@@ -131,7 +133,7 @@ class TitleScene extends AbstractScene
 
     parent::start();
     Console::clear();
-    $this->headerContent = graphics('System/title', false);
+    $this->headerContent = $this->loadHeaderContent();
     $this->headerLines = explode("\n", $this->headerContent);
     $this->headerHeight = count($this->headerLines);
     $this->optionsManager = new TitleOptionsSettingsManager();
@@ -203,6 +205,42 @@ class TitleScene extends AbstractScene
     $y = 2;
 
     $this->camera->draw($this->headerContent, $x, $y);
+  }
+
+  /**
+   * Loads the title header art, falling back to a built-in banner when the
+   * project has not provided a `Graphics/System/title.txt` asset yet.
+   *
+   * @return string
+   */
+  protected function loadHeaderContent(): string
+  {
+    try {
+      return graphics('System/title', false);
+    } catch (Throwable $exception) {
+      Debug::warn($exception->getMessage());
+
+      return $this->buildFallbackHeader();
+    }
+  }
+
+  /**
+   * Builds a simple title banner for projects that do not ship custom art yet.
+   *
+   * @return string
+   */
+  protected function buildFallbackHeader(): string
+  {
+    $title = strtoupper((string) (config(ProjectConfig::class, 'title', 'ICHILOTO') ?? 'ICHILOTO'));
+    $lineWidth = max(strlen($title) + 12, 32);
+    $border = str_repeat('=', $lineWidth);
+
+    return implode("\n", [
+      $border,
+      str_pad($title, $lineWidth, ' ', STR_PAD_BOTH),
+      str_pad('FORGE YOUR LEGEND', $lineWidth, ' ', STR_PAD_BOTH),
+      $border,
+    ]);
   }
 
   /**

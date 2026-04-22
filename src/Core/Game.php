@@ -100,6 +100,10 @@ class Game implements CanRun, SubjectInterface
      * @var int $frameRate The frame rate of the game.
      */
     private int $frameRate = 0;
+    /**
+     * @var bool Tracks whether the current session ended because of a crash.
+     */
+    private bool $crashed = false;
 
     /**
      * Game constructor.
@@ -167,9 +171,11 @@ class Game implements CanRun, SubjectInterface
     private function handleError(int $errno, string $errstr, string $errfile, int $errline): never
     {
         $message = "Error: $errstr in $errfile on line $errline";
-        Debug::error($message);
+        $this->crashed = true;
+        $this->logCrash($message);
         $this->stop();
-        exit($errno);
+        $this->writeCrashNotice();
+        exit(1);
     }
 
     /**
@@ -177,17 +183,7 @@ class Game implements CanRun, SubjectInterface
      */
     protected function stop(): void
     {
-        // Disable non-blocking input mode
-        InputManager::disableNonBlockingMode();
-
-        // Enable echo
-        InputManager::enableEcho();
-
-        // Show the cursor
-        Console::cursor()->show();
-
-        // Restore the terminal settings
-        Console::restoreTerminalSettings();
+        $this->cleanupTerminal();
 
         $this->notify($this, new GameEvent(GameEventType::STOP));
 
@@ -213,7 +209,11 @@ class Game implements CanRun, SubjectInterface
                 $observer::onNotify($entity, $event);
             }
         } catch (Error|Exception|Throwable $exception) {
-            exit($exception);
+            $this->crashed = true;
+            $this->logCrash($exception);
+            $this->cleanupTerminal();
+            $this->writeCrashNotice();
+            exit(1);
         }
     }
 
@@ -241,9 +241,101 @@ class Game implements CanRun, SubjectInterface
      */
     private function handleException(Exception|Throwable|Error $exception): never
     {
-        Debug::error($exception);
+        $this->crashed = true;
+        $this->logCrash($exception);
         $this->stop();
-        exit("$exception\n");
+        $this->writeCrashNotice();
+        exit(1);
+    }
+
+    /**
+     * Safely logs crash details without letting log failures mask the original problem.
+     *
+     * @param mixed $details The error or exception details to log.
+     * @return void
+     */
+    private function logCrash(mixed $details): void
+    {
+        try {
+            Debug::error($details);
+        } catch (Throwable) {
+            // Ignore secondary logging failures during crash handling.
+        }
+    }
+
+    /**
+     * Restores the terminal to a readable state.
+     *
+     * @return void
+     */
+    private function cleanupTerminal(): void
+    {
+        try {
+            InputManager::disableNonBlockingMode();
+        } catch (Throwable) {
+        }
+
+        try {
+            InputManager::enableEcho();
+        } catch (Throwable) {
+        }
+
+        try {
+            Console::cursor()->show();
+        } catch (Throwable) {
+        }
+
+        try {
+            Console::restoreTerminalSettings();
+        } catch (Throwable) {
+        }
+
+        try {
+            Console::cursor()->enableBlinking();
+        } catch (Throwable) {
+        }
+    }
+
+    /**
+     * Writes a short crash notice that points the user to the log file.
+     *
+     * @return void
+     */
+    private function writeCrashNotice(): void
+    {
+        fwrite(STDERR, sprintf(
+            "The game crashed. Details were written to %s%s",
+            $this->getErrorLogPath(),
+            PHP_EOL,
+        ));
+    }
+
+    /**
+     * Returns the error log path for the active project.
+     *
+     * @return string
+     */
+    private function getErrorLogPath(): string
+    {
+        return Path::join(Path::getCurrentWorkingDirectory(), 'logs', 'error.log');
+    }
+
+    /**
+     * Returns whether a shutdown error should be treated as fatal.
+     *
+     * @param array<string, mixed> $lastError The shutdown error payload.
+     * @return bool
+     */
+    private function isFatalShutdownError(array $lastError): bool
+    {
+        return in_array((int) ($lastError['type'] ?? 0), [
+            E_ERROR,
+            E_PARSE,
+            E_CORE_ERROR,
+            E_COMPILE_ERROR,
+            E_USER_ERROR,
+            E_RECOVERABLE_ERROR,
+        ], true);
     }
 
     /**
@@ -429,12 +521,28 @@ class Game implements CanRun, SubjectInterface
      */
     public function __destruct()
     {
-        Console::restoreTerminalSettings();
-        Console::reset();
-
-        if ($lastError = error_get_last()) {
-            $this->handleError($lastError['type'], $lastError['message'], $lastError['file'], $lastError['line']);
+        if ($this->crashed) {
+            return;
         }
+
+        $lastError = error_get_last();
+
+        if (is_array($lastError) && $this->isFatalShutdownError($lastError)) {
+            $this->crashed = true;
+            $message = sprintf(
+                'Fatal error: %s in %s on line %d',
+                $lastError['message'] ?? 'Unknown error',
+                $lastError['file'] ?? 'unknown file',
+                (int) ($lastError['line'] ?? 0),
+            );
+
+            $this->logCrash($message);
+            $this->cleanupTerminal();
+            $this->writeCrashNotice();
+            return;
+        }
+
+        $this->cleanupTerminal();
     }
 
     /**
@@ -650,9 +758,9 @@ SPLASH_SCREEN;
      */
     public function quit(): void
     {
-        Console::reset();
         $this->notify($this, new GameEvent(GameEventType::QUIT));
         $this->stop();
+        Console::reset();
     }
 
     /**

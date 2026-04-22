@@ -12,6 +12,8 @@ use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Scenes\AbstractScene;
 use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Ichiloto\Engine\Scenes\GameOver\Menus\GameOverMenu;
+use Ichiloto\Engine\Util\Debug;
+use Throwable;
 
 /**
  * The game over scene.
@@ -51,7 +53,7 @@ class GameOverScene extends AbstractScene
     $menuHeight = 3;
 
     parent::start();
-    $this->headerContent = graphics('System/game-over', false);
+    $this->headerContent = $this->loadHeaderContent();
     $this->headerLines = explode("\n", $this->headerContent);
     $this->headerHeight = count($this->headerLines);
 
@@ -106,6 +108,27 @@ class GameOverScene extends AbstractScene
     $y = 2;
 
     $this->camera->draw($this->headerContent, $x, $y);
+  }
+
+  /**
+   * Loads the game-over header art, falling back to a built-in banner when
+   * the project has not provided a `Graphics/System/game-over.txt` asset yet.
+   *
+   * @return string
+   */
+  protected function loadHeaderContent(): string
+  {
+    try {
+      return graphics('System/game-over', false);
+    } catch (Throwable $exception) {
+      Debug::warn($exception->getMessage());
+
+      return implode("\n", [
+        '================',
+        '   GAME OVER',
+        '================',
+      ]);
+    }
   }
 
   /**

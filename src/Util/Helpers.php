@@ -424,7 +424,7 @@ if (! function_exists('os_program_exists') ) {
   }
 }
 
-if (! file_exists('get_local_timezone') ) {
+if (! function_exists('get_local_timezone') ) {
   /**
    * Gets the local timezone.
    *
@@ -434,27 +434,22 @@ if (! file_exists('get_local_timezone') ) {
   {
     $timezoneCommand = 'timedatectl';
 
-    # If timedatectl is not available raise an exception.
-    if (! os_program_exists($timezoneCommand) ) {
-      throw new RuntimeException("The command $timezoneCommand is not available.");
-    }
+    if (os_program_exists($timezoneCommand)) {
+      $output = shell_exec($timezoneCommand) ?? '';
+      $lines = explode("\n", $output);
 
-    # Get output of timedatectl
-    $output = shell_exec($timezoneCommand);
+      foreach ($lines as $line) {
+        if (str_contains($line, 'Local time')) {
+          preg_match('/Local time: (.*)\s([A-Z]{1,5})$/', $line, $matches);
 
-    # Split the output by newline
-    $lines = explode("\n", $output);
-
-    # Loop through the lines and extract the timezone
-    foreach ($lines as $line) {
-      if (str_contains($line, 'Local time')) {
-        // Extract the timezone part
-        preg_match('/Local time: (.*)\s([A-Z]{1,5})$/', $line, $matches);
-        return $matches[2] ?? '';
+          if (! empty($matches[2])) {
+            return $matches[2];
+          }
+        }
       }
     }
 
-    return '';
+    return date_default_timezone_get();
   }
 }
 
