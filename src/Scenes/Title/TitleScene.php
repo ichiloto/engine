@@ -235,7 +235,7 @@ class TitleScene extends AbstractScene
     $lineWidth = max(strlen($title) + 12, 32);
     $border = str_repeat('=', $lineWidth);
 
-    return implode(PHP_EOL, [
+    return implode("\n", [
       $border,
       str_pad($title, $lineWidth, ' ', STR_PAD_BOTH),
       str_pad('FORGE YOUR LEGEND', $lineWidth, ' ', STR_PAD_BOTH),
