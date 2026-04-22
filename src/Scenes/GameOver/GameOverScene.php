@@ -123,7 +123,7 @@ class GameOverScene extends AbstractScene
     } catch (Throwable $exception) {
       Debug::warn($exception->getMessage());
 
-      return implode(PHP_EOL, [
+      return implode("\n", [
         '================',
         '   GAME OVER',
         '================',
