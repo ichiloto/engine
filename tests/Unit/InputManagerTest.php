@@ -43,3 +43,19 @@ it('treats an empty non-blocking stream as no input', function () {
 
   fclose($stream);
 });
+
+it('consumes only one key sequence per poll and buffers the remaining bytes', function () {
+  $stream = fopen('php://temp', 'r+');
+
+  expect($stream)->not->toBeFalse();
+
+  fwrite($stream, "\033[A\033[A");
+  rewind($stream);
+  stream_set_blocking($stream, false);
+
+  expect(invokeInputManagerMethod('readInputSequence', $stream))->toBe("\033[A")
+    ->and(invokeInputManagerMethod('readInputSequence', $stream))->toBe("\033[A")
+    ->and(invokeInputManagerMethod('readInputSequence', $stream))->toBe('');
+
+  fclose($stream);
+});
