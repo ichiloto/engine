@@ -216,24 +216,29 @@ class SummonsMenuState extends GameSceneState
 
     $content[] = '';
 
+    $labels = array_merge(['Move', 'Element', 'Strong vs', 'Weak vs'], array_map('strval', array_keys($definition->attributes)));
+    $labelWidth = max(array_map(TerminalText::displayWidth(...), $labels));
+    $row = static fn(string $label, string $value): string =>
+      sprintf(' %s : %s', TerminalText::padRight($label, $labelWidth), $value);
+
     if ($definition->moveName !== null) {
-      $content[] = sprintf(' Move      : %s — %s', $definition->moveName, $definition->description);
+      $content[] = $row('Move', sprintf('%s — %s', $definition->moveName, $definition->description));
     }
 
     if ($definition->element !== '') {
-      $content[] = sprintf(' Element   : %s', $definition->element);
+      $content[] = $row('Element', $definition->element);
     }
 
     foreach ($definition->attributes as $attribute => $value) {
-      $content[] = sprintf(' %s: %s', TerminalText::padRight((string)$attribute, 10), (string)$value);
+      $content[] = $row((string)$attribute, (string)$value);
     }
 
     if (! empty($definition->strengths)) {
-      $content[] = sprintf(' Strong vs : %s', implode(', ', $definition->strengths));
+      $content[] = $row('Strong vs', implode(', ', $definition->strengths));
     }
 
     if (! empty($definition->weaknesses)) {
-      $content[] = sprintf(' Weak vs   : %s', implode(', ', $definition->weaknesses));
+      $content[] = $row('Weak vs', implode(', ', $definition->weaknesses));
     }
 
     $content[] = '';

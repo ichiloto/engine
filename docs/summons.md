@@ -33,6 +33,27 @@ return [
 - `moveName` is what the battle log announces when the summon acts. Without
   it, the summon name is announced instead.
 
+### Codex fields
+
+Optional lore fields feed the in-game summon codex (the detail view players
+open from the Summons menu):
+
+```php
+'lore' => 'A djinn of living flame, bound to the mortal world by an oath …',
+'element' => 'Fire',
+'strengths' => ['Ice', 'Flora'],
+'weaknesses' => ['Water'],
+'attributes' => [               // free-form label => value pairs
+  'Power' => 'A',
+  'Speed' => 'C',
+  'Temperament' => 'Wrathful',
+],
+```
+
+`lore` is the long-form "who or what is this being" text (the short
+`description` describes the move instead). All codex fields are optional —
+missing ones are simply omitted from the detail view.
+
 ## Choosing who can wield a summon
 
 By default a summon is **open**: every party member can use it and no
@@ -107,10 +128,14 @@ with its move name, wielder rules, and status:
   be released by its holder first.
 - `[Not eligible]` — the character fails the summon's role or name rules.
 
-Tab cycles through party members. The screen is the natural home for future
-summon mechanics (growth, junctioned skills and magic attributes), so it is
-always available — it only disappears when the project has no summons at
-all.
+Tab cycles through party members. Pressing confirm on a summon opens its
+**codex entry**: lore, move, element, attributes, strengths, and weaknesses,
+plus the wielder rule and this character's status. Inside the entry, confirm
+assigns or releases policy summons; `c` returns to the list.
+
+The screen is the natural home for future summon mechanics (growth,
+junctioned skills and magic attributes), so it is always available — it only
+disappears when the project has no summons at all.
 
 ## Renaming the summon command
 
