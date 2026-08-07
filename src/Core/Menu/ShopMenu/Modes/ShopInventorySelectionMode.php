@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Core\Menu\ShopMenu\Modes;
 
 use Exception;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
@@ -54,6 +55,8 @@ class ShopInventorySelectionMode extends ShopMenuMode
     $v = Input::getAxis(AxisName::VERTICAL);
 
     if (abs($v) > 0) {
+      play_sound(SystemSound::CURSOR);
+
       if ($v > 0) {
         $this->selectNextItem();
       } else {
@@ -64,17 +67,20 @@ class ShopInventorySelectionMode extends ShopMenuMode
       $this->updateItemsInPossession();
     }
     if (Input::isButtonDown("back")) {
+      play_sound(SystemSound::CANCEL);
       $this->navigateToPreviousMode();
     }
 
     if (Input::isButtonDown("confirm")) {
       if ($this->selectedItem) {
+        play_sound(SystemSound::CONFIRM);
         $purchaseConfirmationMode = new PurchaseConfirmationMode($this->state);
         $purchaseConfirmationMode->previousMode = $this;
         $purchaseConfirmationMode->item = $this->selectedItem;
 
         $this->state->setMode($purchaseConfirmationMode);
       } else {
+        play_sound(SystemSound::BUZZER);
         alert("No items.");
         $this->navigateToPreviousMode();
       }

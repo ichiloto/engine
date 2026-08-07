@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Core\Menu\ItemMenu\Modes;
 
 use Exception;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Menu\ItemMenu\Modes\ItemMenuMode;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
@@ -17,12 +18,15 @@ class DiscardItemMode extends ItemMenuMode
   public function update(): void
   {
     if (Input::isButtonDown("back")) {
+      play_sound(SystemSound::CANCEL);
       $this->state->setMode(new SelectIemMenuCommandMode($this->state));
     }
 
     $v = Input::getAxis(AxisName::VERTICAL);
 
     if (abs($v) > 0) {
+      play_sound(SystemSound::CURSOR);
+
       if ($v > 0) {
         $this->state->selectionPanel->selectNext();
       } else {

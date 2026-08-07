@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core\Menu\ItemMenu\Modes;
 
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\IO\Input;
 
 /**
@@ -17,6 +18,7 @@ class SortItemsMode extends ItemMenuMode
   public function update(): void
   {
     if (Input::isButtonDown("back")) {
+      play_sound(SystemSound::CANCEL);
       $this->state->setMode(new SelectIemMenuCommandMode($this->state));
     }
 

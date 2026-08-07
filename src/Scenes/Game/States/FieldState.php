@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Scenes\Game\States;
 
 use Exception;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Exceptions\NotFoundException;
@@ -93,6 +94,7 @@ class FieldState extends GameSceneState
         }
 
         if (Input::isButtonDown("menu")) {
+            play_sound(SystemSound::CONFIRM);
             $this->setState($scene->mainMenuState);
         }
 

@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Core\Menu\ItemMenu\Modes;
 
 use Exception;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
@@ -28,11 +29,13 @@ class SelectItemTargetMode extends ItemMenuMode
   public function update(): void
   {
     if (Input::isButtonDown("back")) {
+      play_sound(SystemSound::CANCEL);
       $this->goBackToThePreviousMode();
     }
 
     if (Input::isButtonDown("confirm")) {
       if (($item = $this->state->selectionPanel->activeItem) && ($target = $this->state->targetSelectionPanel->activeCharacter)) {
+        play_sound(SystemSound::CONFIRM);
         $useQuantity = $this->getNumberOfUses($item);
         $target->use($item, $useQuantity);
         if ($item->quantity === 0) {
@@ -41,12 +44,16 @@ class SelectItemTargetMode extends ItemMenuMode
         }
         $this->state->statusPanel->updateContent();
         $this->state->selectionPanel->updateContent();
+      } else {
+        play_sound(SystemSound::BUZZER);
       }
     }
 
     $v = Input::getAxis(AxisName::VERTICAL);
 
     if (abs($v) > 0) {
+      play_sound(SystemSound::CURSOR);
+
       if ($v > 0) {
         $this->selectNext();
       } else {

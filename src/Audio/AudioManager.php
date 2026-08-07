@@ -193,6 +193,21 @@ class AudioManager implements CanUpdate
   }
 
   /**
+   * Returns the already-initialized audio manager, or null when the game has
+   * not booted one (e.g. unit tests or tooling contexts).
+   *
+   * This powers the global `play_sound()` / `play_music()` helpers, which
+   * follow the same idiom as `alert()`: callable from anywhere without
+   * threading the Game instance through every layer.
+   *
+   * @return AudioManager|null The audio manager, or null when uninitialized.
+   */
+  public static function getCurrentInstance(): ?AudioManager
+  {
+    return self::$instance;
+  }
+
+  /**
    * Plays the given background music track, replacing the current one.
    *
    * The path may be absolute, relative to the assets directory, or relative to

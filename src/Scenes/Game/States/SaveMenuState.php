@@ -186,6 +186,7 @@ class SaveMenuState extends GameSceneState implements CanRender
 
     if ($vertical > 0) {
       $this->activeSlotIndex = wrap($this->activeSlotIndex + 1, 0, count($this->slots) - 1);
+      play_sound(SystemSound::CURSOR);
       $this->statusMessage = null;
       $this->render();
       return;
@@ -193,12 +194,14 @@ class SaveMenuState extends GameSceneState implements CanRender
 
     if ($vertical < 0) {
       $this->activeSlotIndex = wrap($this->activeSlotIndex - 1, 0, count($this->slots) - 1);
+      play_sound(SystemSound::CURSOR);
       $this->statusMessage = null;
       $this->render();
       return;
     }
 
     if (Input::isButtonDown('cancel') || Input::isButtonDown('back')) {
+      play_sound(SystemSound::CANCEL);
       $this->setState($this->getGameScene()->mainMenuState);
       return;
     }

@@ -220,6 +220,38 @@ it('starts the incoming scene music on transition and silences scenes without on
   ]);
 });
 
+it('routes the global audio helpers through the current audio manager', function () {
+  putSceneAudioConfig(['audio' => ['sounds' => ['cursor' => 'cursor-blip']]]);
+  [, $audioManager] = makeSceneAudioGame();
+  $instanceProperty = new ReflectionProperty(AudioManager::class, 'instance');
+  $instanceProperty->setValue(null, $audioManager);
+
+  try {
+    play_sound(SystemSound::CURSOR);
+    play_sound('slash');
+    play_music('overworld-theme');
+    stop_music();
+
+    expect($audioManager->calls)->toBe([
+      ['playSoundEffect', 'cursor-blip'],
+      ['playSoundEffect', 'slash'],
+      ['playBackgroundMusic', 'overworld-theme'],
+      ['stopBackgroundMusic', null],
+    ]);
+  } finally {
+    $instanceProperty->setValue(null, null);
+  }
+});
+
+it('quietly ignores the global audio helpers when audio is not booted', function () {
+  // No audio manager has been initialized in this process state.
+  play_sound(SystemSound::CURSOR);
+  play_music('overworld-theme');
+  stop_music();
+
+  expect(true)->toBeTrue();
+});
+
 it('lets a troop declare its own battle theme', function () {
   $troop = new Ichiloto\Engine\Entities\Troop('Boss Troop', backgroundMusic: '  boss-theme  ');
 

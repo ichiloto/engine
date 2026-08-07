@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core\Menu\MainMenu\Modes;
 
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Menu\MainMenu\CharacterSelectionMenu;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
@@ -78,11 +79,13 @@ class MainMenuPartyOrderMode extends MainMenuMode
     $v = Input::getAxis(AxisName::VERTICAL);
 
     if ($v > 0) {
+      play_sound(SystemSound::CURSOR);
       $this->getCharacterSelectionMenu()->selectNext();
       return;
     }
 
     if ($v < 0) {
+      play_sound(SystemSound::CURSOR);
       $this->getCharacterSelectionMenu()->selectPrevious();
     }
   }
@@ -95,10 +98,12 @@ class MainMenuPartyOrderMode extends MainMenuMode
   protected function handleActions(): void
   {
     if (Input::isButtonDown('cancel')) {
+      play_sound(SystemSound::CANCEL);
       $this->handleCancel();
     }
 
     if (Input::isButtonDown('confirm')) {
+      play_sound(SystemSound::CONFIRM);
       $this->handleConfirm();
     }
   }

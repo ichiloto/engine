@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core\Menu\EquipmentMenu\Modes;
 
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Exception;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Entities\Character;
@@ -197,6 +198,7 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
   protected function handleActions(): void
   {
     if (Input::isButtonDown("back")) {
+      play_sound(SystemSound::CANCEL);
       $this->state->setMode($this->previousMode ?? throw new RuntimeException('Previous mode cannot be null.'));
     }
 
@@ -205,6 +207,7 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
         if ($this->isCurrentEquipmentSelected()) {
           $this->character->unequip($this->equipmentSlot ?? throw new RuntimeException('Equipment slot cannot be null.'));
         } else if ($this->getAvailableQuantity($this->activeEquipment) < 1) {
+          play_sound(SystemSound::BUZZER);
           alert(sprintf('%s is out of stock.', $this->activeEquipment->name));
           return;
         } else {
@@ -216,6 +219,8 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
       } else {
         $this->character->unequip($this->equipmentSlot);
       }
+
+      play_sound(SystemSound::CONFIRM);
       $this->state->setMode($this->previousMode);
     }
   }
@@ -230,6 +235,8 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
     $v = Input::getAxis(AxisName::VERTICAL);
 
     if (abs($v) > 0) {
+      play_sound(SystemSound::CURSOR);
+
       if ($v > 0) {
         $this->selectNext();
       } else {

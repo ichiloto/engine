@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core\Menu\MainMenu\Modes;
 
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Menu\MainMenu\MainMenu;
 use Ichiloto\Engine\Core\Menu\MainMenu\Windows\InfoPanel;
 use Ichiloto\Engine\Exceptions\NotFoundException;
@@ -123,6 +124,7 @@ class MainMenuCommandSelectionMode extends MainMenuMode
   protected function handleActions(): void
   {
     if (Input::isButtonDown("cancel")) {
+      play_sound(SystemSound::CANCEL);
       $this->mainMenuState->startingIndex = 0;
       $this->mainMenuState->setState($this->mainMenuState->getGameScene()->fieldState ?? throw new NotFoundException('FieldState'));
     }
@@ -131,7 +133,10 @@ class MainMenuCommandSelectionMode extends MainMenuMode
       $this->mainMenuState->startingIndex = $this->getMainMenu()->activeIndex;
       $activeItem = $this->getMainMenu()->getActiveItem();
 
-      if (! $activeItem->isDisabled()) {
+      if ($activeItem->isDisabled()) {
+        play_sound(SystemSound::BUZZER);
+      } else {
+        play_sound(SystemSound::CONFIRM);
         $activeItem->execute($this->mainMenuState->mainMenuContext);
       }
     }
