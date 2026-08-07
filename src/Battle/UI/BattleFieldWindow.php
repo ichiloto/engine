@@ -783,7 +783,7 @@ class BattleFieldWindow extends Window
   {
     ['x' => $renderX, 'y' => $renderY] = $this->resolveIndicatorPosition($text, $x, $y);
     Console::cursor()->moveTo($renderX, $renderY);
-    $this->output->write($text);
+    $this->output->write(TerminalText::stabilize($text));
   }
 
   /**

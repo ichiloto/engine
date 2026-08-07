@@ -39,7 +39,15 @@ class MpvBackend extends CommandLineAudioBackend
   /**
    * @inheritDoc
    */
-  public function buildCommand(string $filePath, float $volume, bool $loop): array
+  public function supportsSeeking(): bool
+  {
+    return true;
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function buildCommand(string $filePath, float $volume, bool $loop, float $startAtSeconds = 0.0): array
   {
     $command = [
       $this->getExecutableName(),
@@ -48,6 +56,10 @@ class MpvBackend extends CommandLineAudioBackend
       '--really-quiet',
       sprintf('--volume=%d', (int)round($this->clampVolume($volume) * 100)),
     ];
+
+    if ($startAtSeconds > 0) {
+      $command[] = sprintf('--start=%.2F', $startAtSeconds);
+    }
 
     if ($loop) {
       $command[] = '--loop-file=inf';

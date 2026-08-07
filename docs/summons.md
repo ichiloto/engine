@@ -41,7 +41,7 @@ assignment is needed. To restrict it, add a `wielders` block to the data file:
 ```php
 'wielders' => [
   'mode' => 'characters',       // 'all' | 'roles' | 'characters'
-  'characters' => ['Yuna'],     // used when mode = characters
+  'characters' => ['Luna'],     // used when mode = characters
   'roles' => ['Summoner'],      // used when mode = roles
   'tenancy' => 'exclusive',     // 'shared' | 'exclusive'
 ],
@@ -69,9 +69,9 @@ summon for it to appear in their battle menu.
 Grant starting summons in actor data:
 
 ```php
-// assets/Data/Actors/Yuna.php
+// assets/Data/Actors/Luna.php
 'data' => [
-  'name' => 'Yuna',
+  'name' => 'Luna',
   // ...
   'summons' => ['ifrit'],   // summon ids
 ],
@@ -92,6 +92,25 @@ $party->canAssignSummon($definition, $character);
 ```
 
 Assignments serialize with the character, so they survive saving and loading.
+
+### The in-game Summons menu
+
+Any project with at least one authored summon gets a summon-management entry
+in the in-game main menu (labelled from the project's summon vocabulary —
+"Summons", "Petitions", …). Players pick a character and see every summon
+with its move name, wielder rules, and status:
+
+- `[Open to all]` — no wielder policy; the whole party can call it.
+- `[Assigned]` — held by this character; confirm releases it.
+- `[Available]` — eligible; confirm assigns it.
+- `[Held by <name>]` — an exclusive summon bound to another member; it must
+  be released by its holder first.
+- `[Not eligible]` — the character fails the summon's role or name rules.
+
+Tab cycles through party members. The screen is the natural home for future
+summon mechanics (growth, junctioned skills and magic attributes), so it is
+always available — it only disappears when the project has no summons at
+all.
 
 ## Renaming the summon command
 

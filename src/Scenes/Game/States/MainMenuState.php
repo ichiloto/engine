@@ -9,6 +9,7 @@ use Ichiloto\Engine\Core\Menu\Commands\OpenConfigMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenEquipmentMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenItemsMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenMagicMenuCommand;
+use Ichiloto\Engine\Core\Menu\Commands\OpenSummonsMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenPartyOrderCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenQuitMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenSaveMenuCommand;
@@ -213,7 +214,16 @@ class MainMenuState extends GameSceneState implements CanRender
             ->addItem(new OpenItemsMenuCommand($this->mainMenu))
             ->addItem(new OpenAbilityMenuCommand($this->mainMenu))
             ->addItem(new OpenEquipmentMenuCommand($this->mainMenu))
-            ->addItem(new OpenMagicMenuCommand($this->mainMenu))
+            ->addItem(new OpenMagicMenuCommand($this->mainMenu));
+
+        // The summon screen is the player's window into every authored
+        // summon — assignment, and later growth and junction mechanics, layer
+        // on top. It only disappears when the project has no summons at all.
+        if (! empty(SummonsMenuState::loadSummons())) {
+            $this->mainMenu->addItem(new OpenSummonsMenuCommand($this->mainMenu));
+        }
+
+        $this->mainMenu
             ->addItem(new OpenStatusMenuCommand($this->mainMenu))
             ->addItem(new OpenPartyOrderCommand($this->mainMenu))
             ->addItem(new OpenConfigMenuCommand($this->mainMenu));

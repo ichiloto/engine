@@ -47,13 +47,25 @@ interface AudioBackendInterface
   public function supports(string $filePath): bool;
 
   /**
+   * Determines whether the player can start playback at an arbitrary offset.
+   *
+   * Seeking lets the AudioManager restart a track mid-way — e.g. resuming at
+   * the current position after a volume change — instead of from the top.
+   *
+   * @return bool True when the player supports a start offset.
+   */
+  public function supportsSeeking(): bool;
+
+  /**
    * Builds the argv list used to play the given file.
    *
    * @param string $filePath The absolute path of the audio file.
    * @param float $volume The normalized playback volume between 0.0 and 1.0.
    * @param bool $loop Whether the player should loop the track natively. Only
    *   honoured when supportsNativeLooping() returns true.
+   * @param float $startAtSeconds The offset to start playback from. Only
+   *   honoured when supportsSeeking() returns true.
    * @return string[] The argv list, executable first.
    */
-  public function buildCommand(string $filePath, float $volume, bool $loop): array;
+  public function buildCommand(string $filePath, float $volume, bool $loop, float $startAtSeconds = 0.0): array;
 }

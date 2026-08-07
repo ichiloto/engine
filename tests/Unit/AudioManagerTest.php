@@ -73,7 +73,8 @@ class FakeAudioBackend implements AudioBackendInterface
 {
   public function __construct(
     private array $extensions = ['ogg', 'wav', 'mp3'],
-    private bool $loopsNatively = true
+    private bool $loopsNatively = true,
+    private bool $seekable = false
   )
   {
   }
@@ -100,9 +101,22 @@ class FakeAudioBackend implements AudioBackendInterface
     return in_array($extension, $this->extensions, true);
   }
 
-  public function buildCommand(string $filePath, float $volume, bool $loop): array
+  public function supportsSeeking(): bool
   {
-    return ['fake-player', sprintf('%.2F', $volume), $loop ? 'loop' : 'once', $filePath];
+    return $this->seekable;
+  }
+
+  public function buildCommand(string $filePath, float $volume, bool $loop, float $startAtSeconds = 0.0): array
+  {
+    $command = ['fake-player', sprintf('%.2F', $volume), $loop ? 'loop' : 'once'];
+
+    if ($startAtSeconds > 0) {
+      $command[] = sprintf('start=%.2F', $startAtSeconds);
+    }
+
+    $command[] = $filePath;
+
+    return $command;
   }
 }
 
@@ -116,6 +130,25 @@ class TestableAudioManager extends AudioManager
    * @var array<int, string[]> Every argv list passed to spawn().
    */
   public array $spawnedCommands = [];
+
+  /**
+   * @var float|null The track duration reported instead of probing ffprobe.
+   */
+  public ?float $fakeTrackDuration = null;
+
+  /**
+   * Rewinds the current playback's spawn timestamp so elapsed-position logic
+   * can be exercised without sleeping in tests.
+   */
+  public function pretendBgmHasPlayedFor(float $seconds): void
+  {
+    $this->bgmStartedAt = microtime(true) - $seconds;
+  }
+
+  protected function probeTrackDuration(?string $filePath): ?float
+  {
+    return $this->fakeTrackDuration;
+  }
 
   /**
    * @var AudioPlayback[] Every playback handle returned by spawn().
@@ -394,12 +427,12 @@ it('stops background music when music is disabled mid-play', function () {
   $manager->shutdown();
 });
 
-it('restarts background music when the master volume changes', function () {
+it('defers a volume change on backends that cannot seek instead of restarting the track', function () {
   $config = new AudioArrayConfigStub(['audio' => ['music' => true, 'master_volume' => 100]]);
   ConfigStore::put(ProjectConfig::class, $config);
   $root = makeAudioAssetsRoot(['theme.ogg']);
 
-  $manager = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend()]);
+  $manager = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend(loopsNatively: false, seekable: false)]);
   $manager->playBackgroundMusic("$root/theme.ogg");
   $manager->update();
 
@@ -407,9 +440,74 @@ it('restarts background music when the master volume changes', function () {
 
   $config->set('audio.master_volume', 40);
   $manager->update();
+  $manager->update();
+
+  // The running track is left untouched; the new volume applies on the next
+  // natural respawn.
+  expect($manager->spawnedCommands)->toHaveCount(1)
+    ->and($manager->spawnedPlaybacks[0]->isRunning)->toBeTrue();
+
+  $manager->shutdown();
+});
+
+it('resumes at the current track position when the volume changes on a seek-capable backend', function () {
+  $config = new AudioArrayConfigStub(['audio' => ['music' => true, 'master_volume' => 100]]);
+  ConfigStore::put(ProjectConfig::class, $config);
+  $root = makeAudioAssetsRoot(['theme.ogg']);
+
+  $manager = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend(loopsNatively: false, seekable: true)]);
+  $manager->playBackgroundMusic("$root/theme.ogg");
+  $manager->update();
+  $manager->pretendBgmHasPlayedFor(42.0);
+
+  $config->set('audio.master_volume', 40);
+  $manager->update();
 
   expect($manager->spawnedCommands)->toHaveCount(2)
-    ->and($manager->spawnedCommands[1][1])->toBe('0.40');
+    ->and($manager->spawnedCommands[1][1])->toBe('0.40')
+    ->and($manager->spawnedCommands[1][3])->toStartWith('start=42');
+
+  $manager->shutdown();
+});
+
+it('folds the resume position back into the track for natively looping players', function () {
+  $config = new AudioArrayConfigStub(['audio' => ['music' => true, 'master_volume' => 100]]);
+  ConfigStore::put(ProjectConfig::class, $config);
+  $root = makeAudioAssetsRoot(['theme.ogg']);
+
+  $manager = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend(loopsNatively: true, seekable: true)]);
+  $manager->fakeTrackDuration = 60.0;
+  $manager->playBackgroundMusic("$root/theme.ogg");
+  $manager->update();
+  $manager->pretendBgmHasPlayedFor(150.0);
+
+  $config->set('audio.master_volume', 40);
+  $manager->update();
+
+  // 150s into a 60s loop is 30s into the current iteration.
+  expect($manager->spawnedCommands)->toHaveCount(2)
+    ->and($manager->spawnedCommands[1][3])->toStartWith('start=30');
+
+  $manager->shutdown();
+});
+
+it('defers a volume change for natively looping players when the track duration is unknown', function () {
+  $config = new AudioArrayConfigStub(['audio' => ['music' => true, 'master_volume' => 100]]);
+  ConfigStore::put(ProjectConfig::class, $config);
+  $root = makeAudioAssetsRoot(['theme.ogg']);
+
+  $manager = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend(loopsNatively: true, seekable: true)]);
+  $manager->fakeTrackDuration = null;
+  $manager->playBackgroundMusic("$root/theme.ogg");
+  $manager->update();
+  $manager->pretendBgmHasPlayedFor(150.0);
+
+  $config->set('audio.master_volume', 40);
+  $manager->update();
+  $manager->update();
+
+  expect($manager->spawnedCommands)->toHaveCount(1)
+    ->and($manager->spawnedPlaybacks[0]->isRunning)->toBeTrue();
 
   $manager->shutdown();
 });

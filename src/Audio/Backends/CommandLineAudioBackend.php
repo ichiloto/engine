@@ -53,6 +53,14 @@ abstract class CommandLineAudioBackend implements AudioBackendInterface
   }
 
   /**
+   * @inheritDoc
+   */
+  public function supportsSeeking(): bool
+  {
+    return false;
+  }
+
+  /**
    * Determines whether the given executable exists on the PATH.
    *
    * @param string $executable The executable name.

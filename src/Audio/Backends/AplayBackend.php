@@ -40,7 +40,7 @@ class AplayBackend extends CommandLineAudioBackend
   /**
    * @inheritDoc
    */
-  public function buildCommand(string $filePath, float $volume, bool $loop): array
+  public function buildCommand(string $filePath, float $volume, bool $loop, float $startAtSeconds = 0.0): array
   {
     return [
       $this->getExecutableName(),

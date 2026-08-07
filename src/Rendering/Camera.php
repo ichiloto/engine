@@ -353,7 +353,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   {
     $screenSpacePosition = $this->getScreenSpacePosition($worldSpacePosition);
     Console::cursor()->moveTo($screenSpacePosition->x + 1, $screenSpacePosition->y +1);
-    $this->output->write($output);
+    $this->output->write(array_map(TerminalText::stabilize(...), $output));
   }
 
   /**
@@ -372,7 +372,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
 
     foreach ($rows as $rowIndex => $row) {
       Console::cursor()->moveTo($screenSpacePosition->x + 1, $screenSpacePosition->y + $rowIndex + 1);
-      $this->output->write($row);
+      $this->output->write(TerminalText::stabilize($row));
     }
   }
 

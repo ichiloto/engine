@@ -16,6 +16,7 @@ use Ichiloto\Engine\Scenes\AbstractScene;
 use Ichiloto\Engine\Scenes\Game\States\CutsceneState;
 use Ichiloto\Engine\Scenes\Game\States\DialogueState;
 use Ichiloto\Engine\Scenes\Game\States\AbilityMenuState;
+use Ichiloto\Engine\Scenes\Game\States\SummonsMenuState;
 use Ichiloto\Engine\Scenes\Game\States\EquipmentMenuState;
 use Ichiloto\Engine\Scenes\Game\States\FieldState;
 use Ichiloto\Engine\Scenes\Game\States\GameSceneState;
@@ -67,6 +68,10 @@ class GameScene extends AbstractScene
      * @var AbilityMenuState|null The ability menu state.
      */
     protected(set) ?AbilityMenuState $abilityMenuState = null;
+    /**
+     * @var SummonsMenuState|null The summon-assignment menu state.
+     */
+    protected(set) ?SummonsMenuState $summonsMenuState = null;
     /**
      * @var MagicMenuState|null The magic menu state.
      */
@@ -190,6 +195,7 @@ class GameScene extends AbstractScene
         $this->equipmentMenuState = new EquipmentMenuState($this->sceneStateContext);
         $this->itemMenuState = new ItemMenuState($this->sceneStateContext);
         $this->abilityMenuState = new AbilityMenuState($this->sceneStateContext);
+        $this->summonsMenuState = new SummonsMenuState($this->sceneStateContext);
         $this->magicMenuState = new MagicMenuState($this->sceneStateContext);
         $this->mapState = new MapState($this->sceneStateContext);
         $this->overworldState = new OverworldState($this->sceneStateContext);

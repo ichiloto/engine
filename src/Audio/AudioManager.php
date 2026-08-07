@@ -28,8 +28,11 @@ use Ichiloto\Engine\Util\Debug;
  *
  * The manager honours the project audio settings exposed in the title options
  * menu (`audio.music`, `audio.sfx` and `audio.master_volume`) live: toggling
- * music off stops the current track, toggling it back on resumes it, and
- * volume changes restart the track at the new volume.
+ * music off stops the current track and toggling it back on resumes it. A
+ * master volume change never restarts the track from the top: seek-capable
+ * players (mpv, ffplay) are respawned at the current track position, and
+ * players that cannot seek (afplay, aplay, paplay, mpg123) keep playing
+ * untouched and pick up the new volume on their next natural respawn.
  *
  * Background music loops by default. Backends that cannot loop natively are
  * respawned by update() whenever the track ends, which is why update() must be
@@ -154,6 +157,23 @@ class AudioManager implements CanUpdate
    * @var float
    */
   protected float $bgmStartedAt = 0.0;
+
+  /**
+   * The track offset the current background music process started playing
+   * from. Non-zero after a mid-track respawn (e.g. a volume change on a
+   * seek-capable backend).
+   *
+   * @var float
+   */
+  protected float $bgmSpawnOffset = 0.0;
+
+  /**
+   * Whether the current background music process loops natively (in which
+   * case elapsed wall-clock time can span multiple loop iterations).
+   *
+   * @var bool
+   */
+  protected bool $bgmSpawnedWithNativeLoop = false;
 
   /**
    * How many times in a row background music playback died shortly after
@@ -467,10 +487,7 @@ class AudioManager implements CanUpdate
       $currentVolume = $this->getMasterVolume();
 
       if (abs($currentVolume - $this->bgmVolume) > PHP_FLOAT_EPSILON) {
-        // The player process volume is fixed at spawn time, so a master
-        // volume change requires restarting the track.
-        $this->stopBgmPlayback();
-        $this->startBgmPlayback();
+        $this->applyMasterVolumeToBgm($currentVolume);
       }
 
       return;
@@ -506,11 +523,89 @@ class AudioManager implements CanUpdate
   }
 
   /**
-   * Spawns the background music player for the current track.
+   * Applies a changed master volume to the running background music.
    *
+   * The player process volume is fixed at spawn time, so an immediate change
+   * needs a respawn. Seek-capable players are respawned at the current track
+   * position so the change is close to seamless. Players that cannot seek are
+   * left untouched — restarting the track from the top for a volume tweak is
+   * jarring — and simply pick up the new volume on their next natural respawn
+   * (end-of-track loop or track change).
+   *
+   * @param float $currentVolume The new normalized master volume.
    * @return void
    */
-  protected function startBgmPlayback(): void
+  protected function applyMasterVolumeToBgm(float $currentVolume): void
+  {
+    $backend = $this->bgmPath !== null ? $this->selectBackend($this->bgmPath) : null;
+
+    if ($backend === null || ! $backend->supportsSeeking()) {
+      // Acknowledge the change without restarting; the next spawn reads the
+      // master volume fresh.
+      $this->bgmVolume = $currentVolume;
+      return;
+    }
+
+    $resumeAt = max(0.0, microtime(true) - $this->bgmStartedAt + $this->bgmSpawnOffset);
+
+    if ($this->bgmSpawnedWithNativeLoop) {
+      // A natively looping player has been running across loop iterations, so
+      // the elapsed time no longer maps to a position inside the track. Fold
+      // it back into the track when the duration is known; otherwise defer
+      // the volume change rather than jump the music around.
+      $duration = $this->probeTrackDuration($this->bgmPath);
+
+      if ($duration === null || $duration <= 0.0) {
+        $this->bgmVolume = $currentVolume;
+        return;
+      }
+
+      $resumeAt = fmod($resumeAt, $duration);
+    }
+
+    $this->stopBgmPlayback();
+    $this->startBgmPlayback($resumeAt);
+  }
+
+  /**
+   * Returns the duration of the given track in seconds, when discoverable.
+   *
+   * Uses ffprobe when it is installed; results are cached per path. Returns
+   * null when the duration cannot be determined.
+   *
+   * @param string|null $filePath The track path.
+   * @return float|null The duration in seconds, or null if unknown.
+   */
+  protected function probeTrackDuration(?string $filePath): ?float
+  {
+    static $durationCache = [];
+
+    if ($filePath === null) {
+      return null;
+    }
+
+    if (array_key_exists($filePath, $durationCache)) {
+      return $durationCache[$filePath];
+    }
+
+    $output = shell_exec(sprintf(
+      'command -v ffprobe >/dev/null 2>&1 && ffprobe -v quiet -show_entries format=duration -of csv=p=0 %s 2>/dev/null',
+      escapeshellarg($filePath)
+    ));
+
+    $duration = is_string($output) && is_numeric(trim($output)) ? floatval(trim($output)) : null;
+
+    return $durationCache[$filePath] = $duration;
+  }
+
+  /**
+   * Spawns the background music player for the current track.
+   *
+   * @param float $startAtSeconds The offset to resume playback from, for
+   *   backends that support seeking.
+   * @return void
+   */
+  protected function startBgmPlayback(float $startAtSeconds = 0.0): void
   {
     if ($this->bgmPath === null) {
       return;
@@ -526,7 +621,8 @@ class AudioManager implements CanUpdate
 
     $volume = $this->getMasterVolume();
     $loopNatively = $this->bgmLoops && $backend->supportsNativeLooping();
-    $playback = $this->spawn($backend->buildCommand($this->bgmPath, $volume, $loopNatively));
+    $startAtSeconds = $backend->supportsSeeking() ? max(0.0, $startAtSeconds) : 0.0;
+    $playback = $this->spawn($backend->buildCommand($this->bgmPath, $volume, $loopNatively, $startAtSeconds));
 
     if ($playback === null) {
       $this->warnOnce("bgm-spawn:$this->bgmPath", "Failed to start the audio player for: $this->bgmPath");
@@ -537,6 +633,8 @@ class AudioManager implements CanUpdate
     $this->bgmPlayback = $playback;
     $this->bgmVolume = $volume;
     $this->bgmStartedAt = microtime(true);
+    $this->bgmSpawnOffset = $startAtSeconds;
+    $this->bgmSpawnedWithNativeLoop = $loopNatively;
   }
 
   /**

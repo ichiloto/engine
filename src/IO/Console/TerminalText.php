@@ -252,13 +252,23 @@ final class TerminalText
    */
   private static function getSymbolWidth(string $symbol): int
   {
-    $symbol = self::stripAnsi($symbol);
+    $symbol = self::stabilizeSymbol(self::stripAnsi($symbol));
 
     if ($symbol === '') {
       return 0;
     }
 
-    if (preg_match('/\x{200D}/u', $symbol) === 1 || preg_match('/\p{Extended_Pictographic}/u', $symbol) === 1) {
+    if (preg_match('/\x{200D}/u', $symbol) === 1) {
+      return 2;
+    }
+
+    // Astral-plane pictographs render double-width everywhere. BMP
+    // pictographs (⚔, ❤, ➡ …) default to narrow text presentation in
+    // terminals, so they fall through to the mb_strwidth measurement.
+    if (
+      preg_match('/[\x{10000}-\x{10FFFF}]/u', $symbol) === 1 &&
+      preg_match('/\p{Extended_Pictographic}/u', $symbol) === 1
+    ) {
       return 2;
     }
 
@@ -269,6 +279,84 @@ final class TerminalText
     }
 
     return max(1, min(2, mb_strwidth($baseSymbol, 'UTF-8')));
+  }
+
+  /**
+   * Rewrites every width-unstable grapheme in the text into its stable form.
+   *
+   * Safe for text containing ANSI styling: escape sequences carry none of the
+   * rewritten code points, so they pass through untouched.
+   *
+   * @param string $text The text to stabilize.
+   * @return string The stabilized text.
+   */
+  public static function stabilize(string $text): string
+  {
+    if ($text === '' || preg_match('/[\x{200D}\x{FE0E}\x{FE0F}\x{1F3FB}-\x{1F3FF}]/u', $text) !== 1) {
+      return $text;
+    }
+
+    return preg_replace_callback(
+      '/\X/u',
+      static fn(array $match): string => self::stabilizeSymbol($match[0]),
+      $text
+    ) ?? $text;
+  }
+
+  /**
+   * Rewrites a width-unstable grapheme into its terminal-stable form.
+   *
+   * Terminals disagree on how far these sequences advance the cursor, which
+   * is the classic source of misaligned panel borders:
+   *
+   * - ZWJ sequences and skin-tone modifiers (e.g. "🏃🏽‍➡️") are reduced to
+   *   their base glyph, which renders one predictable cell pair everywhere.
+   * - A variation selector on a narrow BMP base (e.g. "⚔️" = U+2694 + VS16)
+   *   is stripped, rendering the plain text glyph at one column everywhere.
+   *   Astral emoji keep their selectors: they are reliably double-width.
+   *
+   * @param string $symbol The grapheme to stabilize.
+   * @return string The stabilized grapheme.
+   */
+  public static function stabilizeSymbol(string $symbol): string
+  {
+    $visible = self::stripAnsi($symbol);
+
+    if ($visible === '' || preg_match('/[\x{200D}\x{FE0E}\x{FE0F}\x{1F3FB}-\x{1F3FF}]/u', $visible) !== 1) {
+      return $symbol;
+    }
+
+    // ZWJ sequences and skin-tone modifiers: reduce to the base code point.
+    if (preg_match('/[\x{200D}\x{1F3FB}-\x{1F3FF}]/u', $visible) === 1) {
+      $codepoints = preg_split('//u', $visible, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+      $base = $codepoints[0] ?? '';
+
+      if ($base === '') {
+        return $symbol;
+      }
+
+      // Keep a directly attached VS16 only on astral bases, where emoji
+      // presentation is already the default width.
+      if (($codepoints[1] ?? '') === "\u{FE0F}" && mb_ord($base, 'UTF-8') >= 0x10000) {
+        $base .= "\u{FE0F}";
+      }
+
+      return str_replace($visible, $base, $symbol);
+    }
+
+    // Variation selector on a BMP base: astral emoji are stable as-is.
+    if (preg_match('/[\x{10000}-\x{10FFFF}]/u', $visible) === 1) {
+      return $symbol;
+    }
+
+    $visibleBase = preg_replace('/[\x{FE0E}\x{FE0F}]/u', '', $visible) ?? $visible;
+
+    if ($visibleBase === '' || mb_strwidth($visibleBase, 'UTF-8') > 1) {
+      return $symbol;
+    }
+
+    // Drop the selector from the full symbol so any ANSI styling survives.
+    return preg_replace('/[\x{FE0E}\x{FE0F}]/u', '', $symbol) ?? $symbol;
   }
 
   /**
