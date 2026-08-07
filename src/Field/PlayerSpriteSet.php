@@ -110,9 +110,75 @@ class PlayerSpriteSet
   public static function normalizeSprite(array|string $sprite): array
   {
     if (is_array($sprite)) {
-      return array_values(array_map(static fn(mixed $row): string => (string)$row, $sprite));
+      return array_values(array_map(
+        static fn(mixed $row): string => self::sanitizeSpriteRow((string)$row),
+        $sprite
+      ));
     }
 
-    return [(string)$sprite];
+    return [self::sanitizeSpriteRow((string)$sprite)];
+  }
+
+  /**
+   * Reduces composite emoji to their terminal-safe base glyph.
+   *
+   * Skin-tone modifiers and ZWJ sequences (e.g. "🏃🏽‍➡️") advance the terminal
+   * cursor by a different number of cells than the engine's grapheme-based
+   * width accounting, leaving unerased glyph fragments on the map. Only the
+   * base code point of such sequences renders one predictable double-width
+   * cell pair across terminals.
+   *
+   * @param string $row The sprite row to sanitize.
+   * @return string The sanitized sprite row.
+   */
+  public static function sanitizeSpriteRow(string $row): string
+  {
+    if (preg_match_all('/\X/u', $row, $matches) === false) {
+      return $row;
+    }
+
+    $sanitized = '';
+
+    foreach ($matches[0] as $grapheme) {
+      $codepoints = preg_split('//u', $grapheme, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+      if (count($codepoints) < 2 || ! self::containsUnsafeEmojiComponent($codepoints)) {
+        $sanitized .= $grapheme;
+        continue;
+      }
+
+      $sanitized .= $codepoints[0];
+
+      // Keep an immediately following variation selector so emoji that need
+      // VS16 for emoji presentation retain it.
+      if (isset($codepoints[1]) && $codepoints[1] === "\u{FE0F}") {
+        $sanitized .= $codepoints[1];
+      }
+    }
+
+    return $sanitized;
+  }
+
+  /**
+   * Determines whether the code points contain width-unstable emoji components.
+   *
+   * @param string[] $codepoints The grapheme's code points.
+   * @return bool True when a ZWJ or skin-tone modifier is present.
+   */
+  protected static function containsUnsafeEmojiComponent(array $codepoints): bool
+  {
+    foreach ($codepoints as $codepoint) {
+      if ($codepoint === "\u{200D}") {
+        return true;
+      }
+
+      $ordinal = mb_ord($codepoint, 'UTF-8');
+
+      if ($ordinal >= 0x1F3FB && $ordinal <= 0x1F3FF) {
+        return true;
+      }
+    }
+
+    return false;
   }
 }

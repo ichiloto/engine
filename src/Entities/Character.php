@@ -421,7 +421,6 @@ class Character implements CharacterInterface, CanEquip
 
   /**
    * @return void
-   * @throws Exception
    */
   public function clearEquipment(): void
   {
@@ -429,35 +428,60 @@ class Character implements CharacterInterface, CanEquip
       $equipmentSlot->equipment = null;
     }
     $this->adjustStatTotals();
-    alert('Equipment cleared!');
   }
 
   /**
    * Optimizes the character's equipment.
    *
-   * @param Inventory $inventory The character's inventory.
+   * Each slot is filled with the highest-rated compatible equipment that is
+   * still available, i.e. not already worn by another party member.
+   *
+   * @param Inventory $inventory The party's inventory.
+   * @param Party|null $party The party, used to respect equipment worn by other members.
    * @return void
-   * @throws Exception If an error occurs while alerting the user.
    */
-  public function optimizeEquipment(Inventory $inventory): void
+  public function optimizeEquipment(Inventory $inventory, ?Party $party = null): void
   {
-    // Optimization algorithm will be simple for now. We will just equip the best equipment available.
+    // Release this character's gear first so it competes for slots on merit.
+    foreach ($this->equipment as $equipmentSlot) {
+      $equipmentSlot->equipment = null;
+    }
+
+    $assignedCounts = [];
+
     foreach ($this->equipment as $equipmentSlot) {
       $optimalEquipment = null;
 
-      foreach ($inventory->equipment as $index => $equipment) {
-        if ($index === 0) {
-          $optimalEquipment = $equipment;
+      foreach ($inventory->equipment as $equipment) {
+        assert($equipment instanceof Equipment);
+
+        if (! is_a($equipment, $equipmentSlot->acceptsType)) {
           continue;
         }
 
-        $optimalEquipment = Equipment::getBetterRated($optimalEquipment, $equipment);
+        $equipmentKey = $equipment::class . ':' . $equipment->name;
+        $availableQuantity = $party
+          ? $party->getAvailableEquipmentQuantity($equipment)
+          : $equipment->quantity;
+        $availableQuantity -= $assignedCounts[$equipmentKey] ?? 0;
+
+        if ($availableQuantity < 1) {
+          continue;
+        }
+
+        if (! $optimalEquipment || $equipment->rating > $optimalEquipment->rating) {
+          $optimalEquipment = $equipment;
+        }
       }
 
-      $equipmentSlot->equipment = $optimalEquipment;
+      if ($optimalEquipment) {
+        $equipmentSlot->equipment = $optimalEquipment;
+        $optimalKey = $optimalEquipment::class . ':' . $optimalEquipment->name;
+        $assignedCounts[$optimalKey] = ($assignedCounts[$optimalKey] ?? 0) + 1;
+      }
     }
+
     $this->adjustStatTotals();
-    alert('Equipment optimized!');
   }
 
   /**

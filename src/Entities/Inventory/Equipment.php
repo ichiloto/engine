@@ -8,6 +8,23 @@ use Ichiloto\Engine\Entities\ParameterChanges;
 
 abstract class Equipment extends InventoryItem
 {
+  /**
+   * @var int The equipment's net rating across all parameter changes.
+   */
+  public int $rating {
+    get {
+      return $this->parameterChanges->attack
+        + $this->parameterChanges->defence
+        + $this->parameterChanges->magicAttack
+        + $this->parameterChanges->magicDefence
+        + $this->parameterChanges->speed
+        + $this->parameterChanges->grace
+        + $this->parameterChanges->evasion
+        + $this->parameterChanges->totalHp
+        + $this->parameterChanges->totalMp;
+    }
+  }
+
   public function __construct(
     string $name,
     string $description,
@@ -32,16 +49,7 @@ abstract class Equipment extends InventoryItem
    */
   public static function getBetterRated(Equipment $a, Equipment $b): ?Equipment
   {
-    $netRatingForA = 0;
-    $netRatingForB = 0;
-
-    if ($netRatingForA > $netRatingForB) {
-      return $a;
-    } else if ($netRatingForB > $netRatingForA) {
-      return $b;
-    }
-
-    return null;
+    return ($b->rating > $a->rating) ? $b : $a;
   }
 
   public function __clone(): void

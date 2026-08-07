@@ -1126,9 +1126,11 @@ class BattleFieldWindow extends Window
    */
   protected function resolveSummonDrawCommandLines(array $drawCommand): array
   {
-    $content = trim(strval($drawCommand['content'] ?? ''));
+    // Trim surrounding blank lines only — leading spaces are significant in
+    // multi-line ASCII art and must survive to keep the art aligned.
+    $content = trim(strval($drawCommand['content'] ?? ''), "\r\n");
 
-    if ($content === '') {
+    if (trim($content) === '') {
       $assetId = trim(strval($drawCommand['assetId'] ?? ''));
       $content = $assetId !== '' ? '[' . strtoupper($assetId) . ']' : '';
     }
