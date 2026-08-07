@@ -341,12 +341,18 @@ class Console
    */
   public static function charAt(int $x, int $y): string
   {
-    if ($x < 0 || $x > get_screen_width() || $y < 1 || $y > get_screen_height()) {
+    if ($x < 0 || $x >= self::$width || $y < 0 || $y >= self::$height) {
       return '';
     }
 
-    $symbols = TerminalText::visibleSymbols(self::$buffer[$y] ?? '');
-    $char = TerminalText::stripAnsi($symbols[$x] ?? ' ');
+    $cells = self::rowToCells(self::$buffer[$y] ?? '');
+    $anchorIndex = self::resolveCellAnchor($cells, $x);
+
+    if ($anchorIndex === null) {
+      return '';
+    }
+
+    $char = TerminalText::stripAnsi($cells[$anchorIndex] ?? ' ');
 
     return $char === '' ? ' ' : $char;
   }

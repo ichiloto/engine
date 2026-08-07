@@ -57,6 +57,19 @@ it('clears a full wide glyph when overwriting its trailing cell', function () {
     ->and(TerminalText::stripAnsi($row))->toBe('  A   ');
 });
 
+it('reads terminal cells correctly after wide glyph writes', function () {
+  setConsoleDimensionsForTest(8, 3);
+
+  ob_start();
+  Console::write('😀', 1, 0);
+  Console::write('Z', 3, 0);
+  ob_end_clean();
+
+  expect(Console::charAt(1, 0))->toBe('😀')
+    ->and(Console::charAt(2, 0))->toBe('😀')
+    ->and(Console::charAt(3, 0))->toBe('Z');
+});
+
 it('parses stty terminal size output into width and height', function () {
   expect(ConsoleTestProxy::parseSttySize("36 170\n"))->toBe([
     'width' => 170,

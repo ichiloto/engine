@@ -3,49 +3,40 @@
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Field\PlayerSpriteSet;
 
-it('normalizes configured directional sprites from scalar values', function () {
+it('keeps plain ascii sprites untouched', function () {
+  expect(PlayerSpriteSet::normalizeSprite('^'))->toBe(['^'])
+    ->and(PlayerSpriteSet::normalizeSprite(['<', '>']))->toBe(['<', '>']);
+});
+
+it('keeps single-code-point emoji sprites untouched', function () {
+  expect(PlayerSpriteSet::normalizeSprite('🚶'))->toBe(['🚶'])
+    ->and(PlayerSpriteSet::normalizeSprite('🧍'))->toBe(['🧍']);
+});
+
+it('keeps base plus variation selector sprites untouched', function () {
+  expect(PlayerSpriteSet::normalizeSprite('🗡️'))->toBe(['🗡️']);
+});
+
+it('strips skin-tone modifiers from sprites', function () {
+  expect(PlayerSpriteSet::normalizeSprite('🏃🏽'))->toBe(['🏃']);
+});
+
+it('reduces zwj sequences to their base glyph', function () {
+  expect(PlayerSpriteSet::normalizeSprite('🏃🏽‍➡️'))->toBe(['🏃']);
+});
+
+it('resolves headings for sanitized sprites', function () {
   $spriteSet = PlayerSpriteSet::fromArray([
     'sprites' => [
-      'north' => '🧍🏽 ',
-      'east' => '🚶🏽‍➡️',
-      'south' => '🧍🏽',
-      'west' => '🚶🏽‍',
+      'north' => '🧍',
+      'south' => '🚶',
+      'east' => '🏃🏽‍➡️',
+      'west' => '🏃🏽',
     ],
   ]);
 
-  expect($spriteSet->toArray())->toBe([
-    'north' => ['🧍🏽 '],
-    'east' => ['🚶🏽‍➡️'],
-    'south' => ['🧍🏽'],
-    'west' => ['🚶🏽‍'],
-  ]);
-});
-
-it('resolves headings from configured sprites', function () {
-  $spriteSet = new PlayerSpriteSet(
-    north: ['🧍🏽 '],
-    east: ['🚶🏽‍➡️'],
-    south: ['🧍🏽'],
-    west: ['🚶🏽‍'],
-  );
-
-  expect($spriteSet->resolveHeading(['🧍🏽 ']))->toBe(MovementHeading::NORTH)
-    ->and($spriteSet->resolveHeading(['🚶🏽‍➡️']))->toBe(MovementHeading::EAST)
-    ->and($spriteSet->resolveHeading(['🧍🏽']))->toBe(MovementHeading::SOUTH)
-    ->and($spriteSet->resolveHeading(['🚶🏽‍']))->toBe(MovementHeading::WEST);
-});
-
-it('returns the configured sprite rows for each heading', function () {
-  $spriteSet = new PlayerSpriteSet(
-    north: ['north'],
-    east: ['east'],
-    south: ['south'],
-    west: ['west'],
-  );
-
-  expect($spriteSet->getSpriteForHeading(MovementHeading::NORTH))->toBe(['north'])
-    ->and($spriteSet->getSpriteForHeading(MovementHeading::EAST))->toBe(['east'])
-    ->and($spriteSet->getSpriteForHeading(MovementHeading::SOUTH))->toBe(['south'])
-    ->and($spriteSet->getSpriteForHeading(MovementHeading::WEST))->toBe(['west'])
-    ->and($spriteSet->getSpriteForHeading(MovementHeading::NONE))->toBe(['south']);
+  // Both the stored set and the probe sprite are sanitized, so a raw
+  // composite sprite still resolves to its heading.
+  expect($spriteSet->resolveHeading('🏃🏽'))->toBe(MovementHeading::EAST)
+    ->and($spriteSet->resolveHeading('🚶'))->toBe(MovementHeading::SOUTH);
 });

@@ -349,6 +349,7 @@ class Player extends GameObject
    */
   public function setFacingSprite(array $sprite, ?MovementHeading $heading = null): void
   {
+    $sprite = PlayerSpriteSet::normalizeSprite($sprite);
     $this->sprite = $sprite;
     $this->heading = $heading ?? $this->resolveHeadingFromSprite($sprite);
   }

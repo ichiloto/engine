@@ -27,6 +27,13 @@ class InputManager
    * @var string
    */
   private static string $keyPress = '';
+
+  /**
+   * Buffered input bytes that were read but not yet consumed as a key sequence.
+   *
+   * @var string
+   */
+  private static string $pendingInput = '';
   /**
    * @var EventManager|null The event manager.
    */
@@ -46,6 +53,7 @@ class InputManager
   {
     self::$eventManager = EventManager::getInstance($game);
     self::$previousKeyPress = self::$keyPress = '';
+    self::$pendingInput = '';
     $inputConfig = ConfigStore::get(InputConfig::class);
     assert($inputConfig instanceof InputConfig);
     self::$config = $inputConfig->all();
@@ -113,6 +121,7 @@ class InputManager
 
     self::$previousKeyPress = '';
     self::$keyPress = '';
+    self::$pendingInput = '';
   }
 
   /**
@@ -301,14 +310,20 @@ class InputManager
   private static function readInputSequence(mixed $stream = null): string
   {
     $stream ??= STDIN;
-    $input = fread($stream, 32);
+    $input = self::$pendingInput;
+    self::$pendingInput = '';
+
+    if ($input === '') {
+      $input = fread($stream, 32);
+    }
 
     if ($input === false || $input === '') {
       return '';
     }
 
     if (! str_starts_with($input, "\033")) {
-      return $input;
+      self::$pendingInput = substr($input, 1);
+      return $input[0];
     }
 
     $sequence = $input;
@@ -336,7 +351,34 @@ class InputManager
       $sequence .= $chunk;
     }
 
-    return $sequence;
+    [$firstSequence, $remainingInput] = self::splitInputSequence($sequence);
+    self::$pendingInput = $remainingInput;
+
+    return $firstSequence;
+  }
+
+  /**
+   * Splits the first logical input sequence from buffered bytes.
+   *
+   * @param string $input Buffered input bytes.
+   * @return array{0: string, 1: string}
+   */
+  private static function splitInputSequence(string $input): array
+  {
+    if ($input === '') {
+      return ['', ''];
+    }
+
+    if (! str_starts_with($input, "\033")) {
+      return [$input[0], substr($input, 1)];
+    }
+
+    if (preg_match('/^\033(\[[0-9;?<]*[~A-Za-z]|\[<\d+;\d+;\d+[mM]|O[A-Za-z])/', $input, $matches) === 1) {
+      $firstSequence = $matches[0];
+      return [$firstSequence, substr($input, strlen($firstSequence))];
+    }
+
+    return [$input[0], substr($input, 1)];
   }
 
   /**
