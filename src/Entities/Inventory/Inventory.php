@@ -146,7 +146,8 @@ class Inventory
   }
 
   /**
-   * Adds items to the inventory.
+   * Removes items from the inventory. Each passed item decrements the matching
+   * stack's quantity by one; the stack is only removed once it is depleted.
    *
    * @param InventoryItemInterface ...$items The items.
    */
@@ -164,12 +165,11 @@ class Inventory
       /** @var InventoryItem $foundItem */
       if ($foundItem = array_find($this->inventoryItems->toArray(), fn(InventoryItem $entry) => $entry->name === $item->name)) {
         $foundItem->quantity -= 1;
-        if ($item->quantity > 0) {
-          return;
+
+        if ($foundItem->quantity < 1) {
+          $this->inventoryItems->remove($foundItem);
         }
       }
-
-      $this->inventoryItems->remove($item);
     }
   }
 

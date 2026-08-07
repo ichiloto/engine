@@ -839,7 +839,7 @@ SPLASH_SCREEN;
         // Throttle expensive terminal size probes to avoid per-frame shell_exec() calls.
         // Uses static variables so the throttle state persists across calls without
         // requiring additional class properties.
-        $lastProbeTime = 0.0;
+        static $lastProbeTime = 0.0;
         $minProbeIntervalSeconds = 0.25; // adjust as needed
 
         $now = microtime(true);

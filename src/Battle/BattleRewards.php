@@ -21,7 +21,8 @@ class BattleRewards
   protected(set) array $items = [];
 
   /**
-   * @var InventoryItem|null $item
+   * @var InventoryItem|null $item The first drop candidate to pass its
+   *                               drop-rate roll, or null when none pass.
    */
   public ?InventoryItem $item {
     get {
@@ -30,13 +31,12 @@ class BattleRewards
       }
 
       foreach ($this->items as $item) {
-        if (mt_rand() / mt_getrandmax() <= $item->dropRate) {
+        if ($item->dropRate > 0 && mt_rand() / mt_getrandmax() <= $item->dropRate) {
           return $item->item;
         }
       }
 
-      $index = array_rand($this->items);
-      return $this->items[$index]->item;
+      return null;
     }
   }
 

@@ -46,7 +46,7 @@ class Shop
    */
   public function sell(InventoryItem $item, int $quantity, Trader $trader): void
   {
-    $totalCost = $item->price * $quantity * $this->traderBuyRate;
+    $totalCost = (int) round($item->price * $quantity * $this->traderBuyRate);
 
     if ($trader->accountBalance < $totalCost) {
       alert('Not enough ' . config(ProjectConfig::class, 'vocab.currency.name', 'Gold') . '!');
@@ -77,7 +77,19 @@ class Shop
    */
   public function buy(InventoryItem $item, int $quantity, Trader $trader): void
   {
-    $totalPayout = $item->price * $quantity * $this->traderSellRate;
+    if ($quantity < 1) {
+      return;
+    }
+
+    if ($item->isKeyItem) {
+      return;
+    }
+
+    if ($trader->inventory->getQuantityByName($item->name) < $quantity) {
+      return;
+    }
+
+    $totalPayout = (int) round($item->price * $quantity * $this->traderSellRate);
 
     for($count = 0; $count < $quantity; $count++) {
       $trader->inventory->removeItems($item);

@@ -17,6 +17,7 @@ class HPDamageSkillEffect extends SkillEffect
       return;
     }
 
-    $context->target->stats->currentHp -= $this->getValue($context);
+    // Damage is floored at 1 so a high-defence target is never healed by an attack.
+    $context->target->stats->currentHp -= max(1, $this->getValue($context));
   }
 }

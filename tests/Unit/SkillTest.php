@@ -113,6 +113,33 @@ describe('basic skills', function() {
       ->toBeBetween($minMp, $maxMp);
   });
 
+  it('deals at least 1 HP damage when the formula yields a negative value', function() {
+    /** @var Character $target */
+    $target = $this->target;
+    $targetHp = 544;
+    $target->stats->currentHp = $targetHp;
+
+    // A heavily-armoured target would otherwise be healed by the negative result.
+    $damageFormula = '$user->stats->attack - $target->stats->defence * 10';
+    $hpDamageEffect = new HPDamageSkillEffect($damageFormula);
+    $hpDamageEffect->apply($this->skillEffectContext);
+
+    expect($target->stats->currentHp)->toBeLessThan($targetHp);
+  });
+
+  it('drains at least 1 MP when the formula yields a negative value', function() {
+    /** @var Character $target */
+    $target = $this->target;
+    $targetMp = 50;
+    $target->stats->currentMp = $targetMp;
+
+    $damageFormula = '-25';
+    $mpDamageEffect = new MPDamageSkillEffect($damageFormula);
+    $mpDamageEffect->apply($this->skillEffectContext);
+
+    expect($target->stats->currentMp)->toBeLessThan($targetMp);
+  });
+
   it('can recover HP', function() {
     $targetHp = 544;
     $this->skillEffectContext->target->stats->currentHp = $targetHp;

@@ -105,7 +105,8 @@ class ItemStore implements ConfigInterface
           $item->price = $itemPrice;
         }
         for ($count = 0; $count < $itemQuantity; $count++) {
-          $items[] = $item;
+          // Clone so callers never alias the catalog singletons held by the store.
+          $items[] = clone $item;
         }
       }
     }

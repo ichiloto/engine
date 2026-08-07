@@ -26,7 +26,7 @@ class ShopInventorySelectionMode extends ShopMenuMode
    */
   public int $totalInventory {
     get {
-      return $this->state->inventory->all->count();
+      return count($this->state->sellableItems);
     }
   }
   /**
@@ -34,7 +34,7 @@ class ShopInventorySelectionMode extends ShopMenuMode
    */
   public ?InventoryItem $selectedItem {
     get {
-      return $this->state->inventory->all->toArray()[$this->state->mainPanel->activeItemIndex] ?? null;
+      return $this->state->sellableItems[$this->state->mainPanel->activeItemIndex] ?? null;
     }
   }
   /**
@@ -92,7 +92,7 @@ class ShopInventorySelectionMode extends ShopMenuMode
    */
   public function enter(): void
   {
-    $this->state->mainPanel->setItems($this->state->inventory->all->toArray(), $this->state->traderSellRate);
+    $this->state->mainPanel->setItems($this->state->sellableItems, $this->state->traderSellRate);
     $this->state->mainPanel->activeItemIndex = 0;
     $this->updateItemsInPossession();
     $this->state->infoPanel->setText($this->selectedItem->description);

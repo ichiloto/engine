@@ -245,7 +245,7 @@ class PurchaseConfirmationMode extends ShopMenuMode
     if ($this->isShopPurchase) {
       $this->state->shop->buy($this->item, $this->quantity, $this->party);
       $this->state->accountBalancePanel->setBalance($this->party->accountBalance);
-      $this->state->mainPanel->setItems($this->state->inventory->all->toArray(), $this->state->traderSellRate);
+      $this->state->mainPanel->setItems($this->state->sellableItems, $this->state->traderSellRate);
       $this->previousMode->updateItemsInPossession();
     }
   }

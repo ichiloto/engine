@@ -3,7 +3,7 @@
 namespace Ichiloto\Engine\Entities\Inventory;
 
 use Ichiloto\Engine\Entities\Enumerations\ItemUserType;
-use Ichiloto\Engine\Exceptions\NotImplementedException;
+use Ichiloto\Engine\Entities\ParameterChanges;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
 
 /**
@@ -13,9 +13,11 @@ use Ichiloto\Engine\Exceptions\RequiredFieldException;
  */
 class Accessory extends Equipment
 {
+  /**
+   * @inheritDoc
+   */
   public static function fromArray(array $data): static
   {
-    // TODO: Implement fromArray() method.
     $userType = $data['userType'] ?? ItemUserType::ALL;
     if (is_string($userType)) {
       $userType = ItemUserType::tryFrom($userType) ?? ItemUserType::ALL;
@@ -30,7 +32,7 @@ class Accessory extends Equipment
       $userType,
       $data['isKeyItem'] ?? false,
       false,
-
+      $data['parameterChanges'] ?? new ParameterChanges()
     );
   }
 }

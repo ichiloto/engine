@@ -137,6 +137,17 @@ class ShopState extends GameSceneState
     }
   }
   /**
+   * @var InventoryItem[] The player's items eligible for sale. Key items are excluded.
+   */
+  public array $sellableItems {
+    get {
+      return array_values(array_filter(
+        $this->inventory->all->toArray(),
+        static fn(InventoryItem $item): bool => ! $item->isKeyItem
+      ));
+    }
+  }
+  /**
    * @var int The index of the selected item.
    */
   protected int $leftMargin = 0;
@@ -279,7 +290,7 @@ class ShopState extends GameSceneState
 
         public function execute(?ExecutionContextInterface $context = null): int
         {
-          if ($this->state->inventory->isNotEmpty) {
+          if (! empty($this->state->sellableItems)) {
             $nextMode = new ShopInventorySelectionMode($this->state);
             $nextMode->previousMode = $this->state->mode;
             $this->state->setMode($nextMode);

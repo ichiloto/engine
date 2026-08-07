@@ -80,7 +80,8 @@ class ChestOpeningAction extends FieldAction
         $replacement = "{$quantity} {$lootName}";
         $message = str_replace('%1', $replacement, $message);
         for ($count = 0; $count < $quantity; $count++) {
-          $context->party->addItems($loot);
+          // Clone so the party inventory never aliases the item store's catalog instance.
+          $context->party->addItems(clone $loot);
         }
         break;
     }

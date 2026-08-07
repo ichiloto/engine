@@ -50,6 +50,7 @@ abstract class SkillEffect
     $minValue = intval($value * $minMultiplier);
     $maxValue = intval($value * $maxMultiplier);
 
-    return rand($minValue, $maxValue);
+    // A negative formula value flips the bounds, so order them before rolling.
+    return rand(min($minValue, $maxValue), max($minValue, $maxValue));
   }
 }

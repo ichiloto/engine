@@ -19,6 +19,8 @@ use Serializable;
  * Class Trigger. Represents a trigger.
  *
  * @package Ichiloto\Engine\Field
+ * @deprecated Superseded by {@see \Ichiloto\Engine\Events\Triggers\TransferPlayerTrigger}.
+ *             Still referenced by {@see MapManager} for the legacy map trigger format.
  */
 class MapTrigger implements Serializable, ObserverInterface
 {
@@ -41,7 +43,7 @@ class MapTrigger implements Serializable, ObserverInterface
   /**
    * Converts an array to a trigger.
    *
-   * @param array{destinationMap: string, trigger_area: array{x: int, y: int, width: int, height: int}, spawn_point: array{x: int, y: int} $data The data.
+   * @param array{destinationMap: string, trigger_area: array{x: int, y: int, width: int, height: int}, spawn_point: array{x: int, y: int}, spawn_sprite: string[]|null} $data The data.
    * @return MapTrigger
    * @throws IchilotoException If the trigger cannot be created from the array.
    */
@@ -59,7 +61,8 @@ class MapTrigger implements Serializable, ObserverInterface
         new Vector2(
           $data['spawn_point']['x'] ?? 0,
           $data['spawn_point']['y'] ?? 0
-        )
+        ),
+        $data['spawn_sprite'] ?? null
       );
     } catch (Exception $e) {
       throw new IchilotoException('Failed to create trigger from array.', IchilotoException::RUNTIME, $e);
@@ -69,7 +72,7 @@ class MapTrigger implements Serializable, ObserverInterface
   /**
    * Converts the trigger to an array.
    *
-   * @return array{destinationMap: string, trigger_area: array{x: int, y: int, width: int, height: int}, spawn_point: array{x: int, y: int} The array.
+   * @return array{destinationMap: string, trigger_area: array{x: int, y: int, width: int, height: int}, spawn_point: array{x: int, y: int}, spawn_sprite: string[]|null} The array.
    */
   private function toArray(): array
   {
@@ -81,16 +84,20 @@ class MapTrigger implements Serializable, ObserverInterface
         'width' => $this->area->getWidth(),
         'height' => $this->area->getHeight(),
       ],
-      'spawn_point' => ['x' => $this->destinationMap, 'y' => $this->spawnPoint],
+      'spawn_point' => [
+        'x' => $this->spawnPoint->x,
+        'y' => $this->spawnPoint->y,
+      ],
+      'spawn_sprite' => $this->spawnSprite,
     ];
   }
 
   /**
    * @inheritDoc
    */
-  public function serialize(): void
+  public function serialize(): ?string
   {
-    serialize($this->toArray());
+    return serialize($this->toArray());
   }
 
   /**
@@ -98,7 +105,7 @@ class MapTrigger implements Serializable, ObserverInterface
    */
   public function unserialize(string $data): void
   {
-    unserialize($data);
+    $this->__unserialize(unserialize($data));
   }
 
   /**
@@ -120,8 +127,17 @@ class MapTrigger implements Serializable, ObserverInterface
   public function __unserialize(array $data): void
   {
     $this->destinationMap = $data['destinationMap'];
-    $this->area = new Rect($data['x'], $data['y'], $data['width'], $data['height']);
-    $this->spawnPoint = new Vector2($data['x'], $data['y']);
+    $this->area = new Rect(
+      $data['trigger_area']['x'] ?? 0,
+      $data['trigger_area']['y'] ?? 0,
+      $data['trigger_area']['width'] ?? 1,
+      $data['trigger_area']['height'] ?? 1
+    );
+    $this->spawnPoint = new Vector2(
+      $data['spawn_point']['x'] ?? 0,
+      $data['spawn_point']['y'] ?? 0
+    );
+    $this->spawnSprite = $data['spawn_sprite'] ?? null;
   }
 
   /**

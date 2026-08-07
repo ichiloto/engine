@@ -106,7 +106,13 @@ class Party extends BattleGroup
       $locationData['region'] ?? PartyLocation::DEFAULT_LOCATION_REGION
     );
 
-    foreach ($data as $datum) {
+    unset($data['location']);
+
+    foreach ($data as $key => $datum) {
+      if (! is_int($key) || ! is_array($datum)) {
+        continue;
+      }
+
       $party->addMember(Character::fromArray($datum));
     }
 
