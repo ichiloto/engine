@@ -6,6 +6,7 @@ use Assegai\Collections\ItemList;
 use Assegai\Util\Path;
 use Error;
 use Exception;
+use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\Battle\BattleEngineFactory;
 use Ichiloto\Engine\Battle\Engines\ActiveTime\ActiveTimeBattleEngine;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\TraditionalTurnBasedBattleEngine;
@@ -52,6 +53,10 @@ use Throwable;
  */
 class Game implements CanRun, SubjectInterface
 {
+    /**
+     * @var AudioManager The audio manager.
+     */
+    protected(set) AudioManager $audioManager;
     /**
      * @var SceneManager The scene manager.
      */
@@ -183,6 +188,7 @@ class Game implements CanRun, SubjectInterface
      */
     protected function stop(): void
     {
+        $this->shutdownAudio();
         $this->cleanupTerminal();
 
         $this->notify($this, new GameEvent(GameEventType::STOP));
@@ -260,6 +266,27 @@ class Game implements CanRun, SubjectInterface
             Debug::error($details);
         } catch (Throwable) {
             // Ignore secondary logging failures during crash handling.
+        }
+    }
+
+    /**
+     * Stops all audio playback so no player processes outlive the game.
+     *
+     * Safe to call during crash handling, before the managers have been
+     * initialized.
+     *
+     * @return void
+     */
+    private function shutdownAudio(): void
+    {
+        if (! isset($this->audioManager)) {
+            return;
+        }
+
+        try {
+            $this->audioManager->shutdown();
+        } catch (Throwable) {
+            // Never let audio cleanup mask the reason the game is stopping.
         }
     }
 
@@ -463,6 +490,7 @@ class Game implements CanRun, SubjectInterface
      */
     private function initializeManagers(): void
     {
+        $this->audioManager = AudioManager::getInstance($this);
         $this->sceneManager = SceneManager::getInstance($this);
         $this->eventManager = EventManager::getInstance($this);
         $this->modalManager = ModalManager::getInstance($this);
@@ -796,6 +824,7 @@ SPLASH_SCREEN;
         $this->syncScreenSize();
         $this->sceneManager->update();
         $this->notificationManager->update();
+        $this->audioManager->update();
 
         $this->notify($this, new GameEvent(GameEventType::UPDATE));
     }
