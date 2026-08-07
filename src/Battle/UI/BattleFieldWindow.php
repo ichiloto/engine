@@ -28,6 +28,16 @@ class BattleFieldWindow extends Window
 {
   const int TROOP_STEP_X_OFFSET = 3;
   /**
+   * Horizontal offset applied to summon cutscene draw commands: one cell for
+   * the window border plus a one-column inset.
+   */
+  const int SUMMON_CUTSCENE_OFFSET_X = 2;
+  /**
+   * Vertical offset applied to summon cutscene draw commands: one cell for
+   * the window border plus a one-row inset.
+   */
+  const int SUMMON_CUTSCENE_OFFSET_Y = 2;
+  /**
    * @var string The marker shown for the active troop focus.
    */
   protected const string TROOP_FOCUS_MARKER = '>';
@@ -996,16 +1006,16 @@ class BattleFieldWindow extends Window
 
     $glyph = $glyphs[max(0, min(count($glyphs) - 1, $glyphIndex))];
     $color = $this->resolveNamedColor($colorName) ?? Color::DARK_GRAY;
-    $innerWidth = max(1, $this->width - 2);
-    $innerHeight = max(1, $this->height - 2);
+    $innerWidth = max(1, $this->width - 2 * self::SUMMON_CUTSCENE_OFFSET_X);
+    $innerHeight = max(1, $this->height - 2 * self::SUMMON_CUTSCENE_OFFSET_Y);
 
     $this->clearMagicCastEffects();
 
     for ($row = 0; $row < $innerHeight; $row++) {
       $this->queueSummonOverlayLine(
         $this->formatSummonDrawCommandLine(str_repeat($glyph, $innerWidth), $color),
-        $this->position->x + 1,
-        $this->position->y + 1 + $row,
+        $this->position->x + self::SUMMON_CUTSCENE_OFFSET_X,
+        $this->position->y + self::SUMMON_CUTSCENE_OFFSET_Y + $row,
       );
     }
 
@@ -1114,8 +1124,8 @@ class BattleFieldWindow extends Window
 
       $this->magicCastEffects[] = [
         'text' => $this->formatSummonDrawCommandLine($line, $color),
-        'x' => $this->position->x + 1 + $x,
-        'y' => $this->position->y + 1 + $y + $lineIndex,
+        'x' => $this->position->x + self::SUMMON_CUTSCENE_OFFSET_X + $x,
+        'y' => $this->position->y + self::SUMMON_CUTSCENE_OFFSET_Y + $y + $lineIndex,
       ];
     }
   }
