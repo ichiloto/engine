@@ -21,7 +21,7 @@ class EventTriggerFactory
    * @throws NotFoundException If the class does not exist.
    * @throws RequiredFieldException If a required field is missing.
    */
-  public static function create(array $args): EventTrigger
+  public static function create(array $args, ?string $mapId = null): EventTrigger
   {
     $class = $args['class'] ?? throw new RequiredFieldException('class');
     if (! class_exists($class) ) {
@@ -45,6 +45,13 @@ class EventTriggerFactory
 
     $data = $args['data'] ?? throw new RequiredFieldException('data');
 
-    return new $class($area, $data);
+    return new $class(
+      $area,
+      $data,
+      is_array($args['conditions'] ?? null) ? $args['conditions'] : [],
+      is_array($args['sets'] ?? null) ? $args['sets'] : [],
+      $mapId,
+      isset($args['marker']) ? strval($args['marker']) : null,
+    );
   }
 }

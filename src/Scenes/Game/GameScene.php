@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Scenes\Game;
 
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
+use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Party;
@@ -13,6 +14,7 @@ use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Field\Player;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Scenes\AbstractScene;
+use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Scenes\Game\States\CutsceneState;
 use Ichiloto\Engine\Scenes\Game\States\DialogueState;
 use Ichiloto\Engine\Scenes\Game\States\AbilityMenuState;
@@ -40,6 +42,15 @@ use Override;
  */
 class GameScene extends AbstractScene
 {
+    /**
+     * @inheritDoc
+     */
+    public function __construct(SceneManager $sceneManager, string $name)
+    {
+        parent::__construct($sceneManager, $name);
+        $this->gameState = new GameState();
+    }
+
     /**
      * @var CutsceneState|null The cutscene state.
      */
@@ -113,9 +124,18 @@ class GameScene extends AbstractScene
      */
     protected(set) ?Party $party = null;
     /**
+     * @var GameState The persistent world state (switches, variables, story
+     * events, one-shot event completion).
+     */
+    protected(set) GameState $gameState;
+    /**
      * @var string[] The currently recorded story-event flags.
      */
-    protected(set) array $storyEvents = [];
+    public array $storyEvents {
+        get {
+            return $this->gameState->storyEvents;
+        }
+    }
     /**
      * @var string The currently loaded map identifier.
      */
@@ -160,7 +180,14 @@ class GameScene extends AbstractScene
         $this->uiManager->uiElements->add($this->locationHUDWindow);
 
         $this->config = $config;
-        $this->storyEvents = array_values(array_map('strval', array_filter($this->config->events, 'is_string')));
+        $this->gameState = GameState::fromArray($this->config->gameState);
+
+        // Saves from before the GameState store carried story events as a
+        // plain list; fold them in so old files keep their progress.
+        foreach (array_filter($this->config->events, 'is_string') as $legacyEvent) {
+            $this->gameState->recordStoryEvent($legacyEvent);
+        }
+
         Time::setElapsedTime($this->config->playTimeSeconds);
 
         $this->player = new Player(
@@ -293,10 +320,11 @@ class GameScene extends AbstractScene
             playerShape: clone $this->player->getShape(),
             playerHeading: $this->player->heading,
             playerStats: [],
-            events: $this->storyEvents,
+            events: $this->gameState->storyEvents,
             playerSprite: $this->player->sprite,
             playerSprites: $this->player->getDirectionalSprites(),
             playTimeSeconds: $playTimeSeconds,
+            gameState: $this->gameState->toArray(),
         );
     }
 
@@ -308,7 +336,7 @@ class GameScene extends AbstractScene
      */
     public function hasStoryEvent(string $eventName): bool
     {
-        return in_array($eventName, $this->storyEvents, true);
+        return $this->gameState->hasStoryEvent($eventName);
     }
 
     /**
@@ -319,13 +347,7 @@ class GameScene extends AbstractScene
      */
     public function recordStoryEvent(string $eventName): void
     {
-        $eventName = trim($eventName);
-
-        if ($eventName === '' || $this->hasStoryEvent($eventName)) {
-            return;
-        }
-
-        $this->storyEvents[] = $eventName;
+        $this->gameState->recordStoryEvent($eventName);
     }
 
     /**

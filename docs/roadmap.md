@@ -92,7 +92,19 @@ story feature depends on persistent game state existing.
 > `TurnBasedEngine::$turnQueue`, `Skill::execute()` stubs) is quarantined for
 > Phase 3's battle work.
 
-### Phase 1 — The persistence spine (switches, variables, world state)
+### Phase 1 — The persistence spine (switches, variables, world state) ✅ *shipped 2026-08*
+> Status: `Core\GameState` ships switches, variables, story events, and
+> per-map/per-marker completion, serialized through `GameConfig::$gameState`
+> into saves (legacy saves migrate their `events` list on load). Every
+> `EventTrigger` accepts `conditions` (switch/event/variable/item tests, each
+> negatable) and `sets` (switch/event/variable writes on completion), carries
+> its map id + event-layer marker, and one-shot triggers persist their
+> completion — verified live: a looted chest stays looted across a map
+> round-trip and the party's gold reflects a single loot. `Player` gates
+> trigger entry on availability so conditional events appear/disappear as
+> state changes. 14 new unit tests in `GameStateTest`. See
+> [persistence.md](persistence.md) for the authoring guide.
+
 The single highest-leverage build. A `GameState` store carried by
 `GameScene`/`GameConfig` and serialized into saves:
 - **Switches** (named booleans) and **variables** (named ints/strings)

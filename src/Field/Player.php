@@ -222,6 +222,16 @@ class Player extends GameObject
         continue;
       }
 
+      if (! $event->isAvailable()) {
+        // Conditions no longer hold — treat an active trigger as exited.
+        if ($this->eventManager->activeEvents->contains($event)) {
+          $event->exit($eventTriggerContext);
+          $this->eventManager->activeEvents->remove($event);
+        }
+
+        continue;
+      }
+
       if ( $event->area->contains($movementEvent->destination) ) {
         if (! $this->eventManager->activeEvents->contains($event)) {
           $this->eventManager->activeEvents->add($event);

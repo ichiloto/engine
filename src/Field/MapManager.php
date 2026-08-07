@@ -281,7 +281,7 @@ class MapManager implements CanRenderAt
     $this->calculateMapDimensions();
     $this->loadCollisionMap($this->tileMap);
     $this->loadMapTriggers($map['triggers'] ?? []);
-    $this->loadMapEvents($map['events'] ?? []);
+    $this->loadMapEvents($map['events'] ?? [], strval($map['id'] ?? ''));
     $this->applyMapBackgroundMusic($map['bgm'] ?? null);
 
     $this->camera->resetPosition($player);
@@ -402,13 +402,27 @@ class MapManager implements CanRenderAt
    * @throws NotFoundException If the class does not exist.
    * @throws RequiredFieldException If a required field is missing.
    */
-  protected function loadMapEvents(array $events): void
+  protected function loadMapEvents(array $events, string $mapId = ''): void
   {
     if ($player = $this->gameScene->player) {
       $player->removeEventTriggers();
+      $gameState = $this->gameScene->gameState;
 
       foreach ($events as $eventData) {
-        $eventTrigger = EventTriggerFactory::create($eventData);
+        $eventTrigger = EventTriggerFactory::create($eventData, $mapId !== '' ? $mapId : null);
+        $eventTrigger->bind($gameState, $this->gameScene->party);
+
+        // A one-shot event the world state already records as completed
+        // stays completed — a looted chest does not refill on map re-entry.
+        if (
+          ! $eventTrigger->isReusable &&
+          $eventTrigger->mapId !== null &&
+          $eventTrigger->marker !== null &&
+          $gameState->isEventComplete($eventTrigger->mapId, $eventTrigger->marker)
+        ) {
+          $eventTrigger->restoreCompleted();
+        }
+
         $player->addTrigger($eventTrigger);
       }
     }
@@ -618,6 +632,8 @@ class MapManager implements CanRenderAt
       throw new NotFoundException("File {$paths['data']} does not return an array.");
     }
 
+    $map['id'] ??= $paths['id'];
+
     $this->tileMap = $this->parseMapLayer(require $paths['map'], $paths['map'], 'map');
     $this->camera->worldSpace = $this->tileMap;
 
@@ -720,8 +736,9 @@ class MapManager implements CanRenderAt
       }
 
       $area = $areas[$resolvedMarker] ?? throw new InvalidArgumentException("Event marker '{$resolvedMarker}' was not found in {$filename}.");
-      unset($areas[$resolvedMarker], $eventDefinition['marker']);
+      unset($areas[$resolvedMarker]);
       $eventDefinition['area'] = $area;
+      $eventDefinition['marker'] = $resolvedMarker;
       $resolvedEvents[] = $eventDefinition;
     }
 
