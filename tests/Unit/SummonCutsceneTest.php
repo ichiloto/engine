@@ -161,3 +161,30 @@ PHP);
   rmdir($directory);
   rmdir($root);
 });
+
+it('round-trips codex fields through the definition', function () {
+  $definition = SummonCutsceneDefinition::fromArrays(
+    [
+      'id' => 'codex-summon',
+      'name' => 'Codex Summon',
+      'lore' => 'An ancient spirit.',
+      'element' => 'Fire',
+      'strengths' => ['Ice', ''],
+      'weaknesses' => ['Water'],
+      'attributes' => ['Power' => 'A'],
+    ],
+    ['fps' => 12, 'lengthFrames' => 1, 'tracks' => [], 'cues' => []],
+  );
+
+  expect($definition->lore)->toBe('An ancient spirit.')
+    ->and($definition->element)->toBe('Fire')
+    ->and($definition->strengths)->toBe(['Ice'])
+    ->and($definition->weaknesses)->toBe(['Water'])
+    ->and($definition->attributes)->toBe(['Power' => 'A']);
+
+  $data = $definition->toDataArray();
+  expect($data['lore'])->toBe('An ancient spirit.')
+    ->and($data['element'])->toBe('Fire')
+    ->and($data['strengths'])->toBe(['Ice'])
+    ->and($data['attributes'])->toBe(['Power' => 'A']);
+});

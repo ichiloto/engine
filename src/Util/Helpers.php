@@ -725,3 +725,38 @@ if (! function_exists('generate_experience_curve') ) {
     return $curveValues;
   }
 }
+
+if (! function_exists('play_sound') ) {
+  /**
+   * Plays a system UI sound through the active audio manager.
+   *
+   * Follows the same idiom as alert(): callable from anywhere without
+   * threading the Game instance through every layer. Degrades to a silent
+   * no-op when no audio manager has been booted (unit tests, tooling) or no
+   * audio player is installed.
+   *
+   * @param SystemSound $sound The system sound to play.
+   * @return void
+   */
+  function play_sound(SystemSound $sound): void
+  {
+    AudioManager::getCurrentInstance()?->playSystemSound($sound);
+  }
+}
+
+if (! function_exists('play_music') ) {
+  /**
+   * Plays a background music track through the active audio manager.
+   *
+   * Degrades to a silent no-op when no audio manager has been booted or no
+   * audio player is installed.
+   *
+   * @param string $path The track path (absolute, assets-relative, or BGM-relative).
+   * @param bool $loop Whether the track should loop.
+   * @return void
+   */
+  function play_music(string $path, bool $loop = true): void
+  {
+    AudioManager::getCurrentInstance()?->playBackgroundMusic($path, $loop);
+  }
+}

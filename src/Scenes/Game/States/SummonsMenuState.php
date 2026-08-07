@@ -48,6 +48,10 @@ class SummonsMenuState extends GameSceneState
    */
   protected int $activeIndex = 0;
   /**
+   * @var bool Whether the codex detail view is open for the active summon.
+   */
+  protected bool $viewingDetail = false;
+  /**
    * @var int The centered left margin.
    */
   protected int $leftMargin = 0;
@@ -92,6 +96,7 @@ class SummonsMenuState extends GameSceneState
     $this->character ??= $this->getGameScene()->party->leader;
     $this->summons = self::loadSummons();
     $this->activeIndex = 0;
+    $this->viewingDetail = false;
     $this->calculateMargins();
     $this->initializeUI();
     $this->refreshUI();
@@ -151,7 +156,7 @@ class SummonsMenuState extends GameSceneState
 
     $this->infoPanel = new Window(
       'Info',
-      'enter:Assign/Release  tab:Next  c:Cancel',
+      'enter:Details  tab:Next  c:Cancel',
       new Vector2($this->leftMargin, $this->topMargin + self::SUMMARY_PANEL_HEIGHT + self::LIST_PANEL_HEIGHT),
       self::MENU_WIDTH,
       self::INFO_PANEL_HEIGHT,
@@ -167,8 +172,80 @@ class SummonsMenuState extends GameSceneState
   protected function refreshUI(): void
   {
     $this->refreshSummaryPanel();
-    $this->refreshListPanel();
+
+    if ($this->viewingDetail) {
+      $this->refreshDetailPanel();
+    } else {
+      $this->refreshListPanel();
+    }
+
     $this->refreshInfoPanel();
+  }
+
+  /**
+   * Redraws the codex detail view for the active summon.
+   *
+   * @return void
+   */
+  protected function refreshDetailPanel(): void
+  {
+    $definition = $this->summons[$this->activeIndex] ?? null;
+
+    if ($definition === null) {
+      return;
+    }
+
+    $innerWidth = self::MENU_WIDTH - 6;
+    $content = [];
+
+    $header = sprintf(' %s', $definition->name);
+
+    if ($definition->element !== '') {
+      $header .= sprintf('  —  %s', $definition->element);
+    }
+
+    $content[] = $header;
+    $content[] = ' ' . str_repeat('─', $innerWidth);
+    $content[] = '';
+
+    $loreText = $definition->lore !== '' ? $definition->lore : $definition->description;
+
+    foreach (explode("\n", wordwrap($loreText, $innerWidth, "\n", true)) as $line) {
+      $content[] = ' ' . $line;
+    }
+
+    $content[] = '';
+
+    if ($definition->moveName !== null) {
+      $content[] = sprintf(' Move      : %s — %s', $definition->moveName, $definition->description);
+    }
+
+    if ($definition->element !== '') {
+      $content[] = sprintf(' Element   : %s', $definition->element);
+    }
+
+    foreach ($definition->attributes as $attribute => $value) {
+      $content[] = sprintf(' %s: %s', TerminalText::padRight((string)$attribute, 10), (string)$value);
+    }
+
+    if (! empty($definition->strengths)) {
+      $content[] = sprintf(' Strong vs : %s', implode(', ', $definition->strengths));
+    }
+
+    if (! empty($definition->weaknesses)) {
+      $content[] = sprintf(' Weak vs   : %s', implode(', ', $definition->weaknesses));
+    }
+
+    $content[] = '';
+    $content[] = ' ' . $this->describeWielderRule($definition);
+
+    if ($definition->wielders !== null) {
+      $content[] = sprintf(' %s: %s', $this->character->name ?? '', trim($this->describeStatus($definition), '[]'));
+    }
+
+    $content = array_pad($content, self::LIST_PANEL_HEIGHT - 2, '');
+    $this->listPanel->setContent(array_slice($content, 0, self::LIST_PANEL_HEIGHT - 2));
+    $this->listPanel->render();
   }
 
   /**
@@ -238,10 +315,24 @@ class SummonsMenuState extends GameSceneState
   protected function refreshInfoPanel(): void
   {
     $definition = $this->summons[$this->activeIndex] ?? null;
-    $this->infoPanel->setContent([
-      ' ' . trim($definition?->description ?? ''),
-      ' ' . ($definition !== null ? $this->describeWielderRule($definition) : ''),
-    ]);
+
+    if ($this->viewingDetail) {
+      $help = $definition?->wielders !== null
+        ? 'enter:Assign/Release  tab:Next  c:Back'
+        : 'tab:Next  c:Back';
+      $this->infoPanel->setHelp($help);
+      $this->infoPanel->setContent([
+        ' ' . ($definition?->name ?? ''),
+        '',
+      ]);
+    } else {
+      $this->infoPanel->setHelp('enter:Details  tab:Next  c:Cancel');
+      $this->infoPanel->setContent([
+        ' ' . trim($definition?->description ?? ''),
+        ' ' . ($definition !== null ? $this->describeWielderRule($definition) : ''),
+      ]);
+    }
+
     $this->infoPanel->render();
   }
 
@@ -310,6 +401,10 @@ class SummonsMenuState extends GameSceneState
    */
   protected function handleNavigation(): void
   {
+    if ($this->viewingDetail) {
+      return;
+    }
+
     $v = Input::getAxis(AxisName::VERTICAL);
 
     if (abs($v) > 0 && count($this->summons) > 0) {
@@ -332,6 +427,12 @@ class SummonsMenuState extends GameSceneState
   protected function handleActions(): void
   {
     if (Input::isButtonDown('back') || Input::isButtonDown('cancel')) {
+      if ($this->viewingDetail) {
+        $this->viewingDetail = false;
+        $this->refreshUI();
+        return;
+      }
+
       $this->setState($this->getGameScene()->mainMenuState);
       return;
     }
@@ -346,8 +447,14 @@ class SummonsMenuState extends GameSceneState
       return;
     }
 
+    if (! $this->viewingDetail) {
+      // First confirm opens the codex entry for the selected summon.
+      $this->viewingDetail = true;
+      $this->refreshUI();
+      return;
+    }
+
     if ($definition->wielders === null) {
-      alert(sprintf('%s answers the whole party — no assignment needed.', $definition->name));
       return;
     }
 

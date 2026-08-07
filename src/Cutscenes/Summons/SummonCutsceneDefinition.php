@@ -35,6 +35,11 @@ final class SummonCutsceneDefinition
     public string $description = '',
     public ?string $moveName = null,
     public ?SummonWielderPolicy $wielders = null,
+    public string $lore = '',
+    public string $element = '',
+    public array $strengths = [],
+    public array $weaknesses = [],
+    public array $attributes = [],
     public int $version = 1,
     public ?string $linkedSummonId = null,
     public ?string $linkedActionId = null,
@@ -57,6 +62,11 @@ final class SummonCutsceneDefinition
     $this->name = trim($name) !== '' ? trim($name) : 'New Summon';
     $this->description = trim($description);
     $this->moveName = $this->normalizeOptionalString($moveName);
+    $this->lore = trim($lore);
+    $this->element = trim($element);
+    $this->strengths = array_values(array_filter(array_map('strval', $strengths), static fn(string $entry): bool => trim($entry) !== ''));
+    $this->weaknesses = array_values(array_filter(array_map('strval', $weaknesses), static fn(string $entry): bool => trim($entry) !== ''));
+    $this->attributes = $attributes;
     $this->version = max(1, $version);
     $this->linkedSummonId = $this->normalizeOptionalString($linkedSummonId);
     $this->linkedActionId = $this->normalizeOptionalString($linkedActionId);
@@ -105,6 +115,11 @@ final class SummonCutsceneDefinition
       strval($data['description'] ?? ''),
       isset($data['moveName']) ? strval($data['moveName']) : null,
       is_array($data['wielders'] ?? null) ? SummonWielderPolicy::fromArray($data['wielders']) : null,
+      strval($data['lore'] ?? ''),
+      strval($data['element'] ?? ''),
+      is_array($data['strengths'] ?? null) ? $data['strengths'] : [],
+      is_array($data['weaknesses'] ?? null) ? $data['weaknesses'] : [],
+      is_array($data['attributes'] ?? null) ? $data['attributes'] : [],
       intval($data['version'] ?? 1),
       isset($data['linkedSummonId']) ? strval($data['linkedSummonId']) : null,
       isset($data['linkedActionId']) ? strval($data['linkedActionId']) : null,
@@ -159,6 +174,11 @@ final class SummonCutsceneDefinition
       'description' => $this->description,
       'moveName' => $this->moveName,
       'wielders' => $this->wielders?->toArray(),
+      'lore' => $this->lore,
+      'element' => $this->element,
+      'strengths' => $this->strengths,
+      'weaknesses' => $this->weaknesses,
+      'attributes' => $this->attributes,
       'version' => $this->version,
       'linkedSummonId' => $this->linkedSummonId,
       'linkedActionId' => $this->linkedActionId,
