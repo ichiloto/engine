@@ -125,6 +125,16 @@ class GameConfig implements SceneConfigurationInterface
 
       $this->$key = $value;
     }
+
+    // Saves written before an optional field existed leave its typed property
+    // uninitialized here (__unserialize() bypasses the constructor), so
+    // backfill the constructor defaults.
+    $this->playerStats ??= [];
+    $this->events ??= [];
+    $this->playerSprite ??= ['v'];
+    $this->playerSprites ??= [];
+    $this->playTimeSeconds ??= 0;
+    $this->gameState ??= [];
   }
 
   /**
