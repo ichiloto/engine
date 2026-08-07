@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\Field;
 
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 
 /**
  * Represents the directional sprite set used by the field player.
@@ -102,21 +104,53 @@ class PlayerSpriteSet
   }
 
   /**
+   * The project config path of the composite emoji opt-in.
+   */
+  public const string CONFIG_ALLOW_COMPOSITE_EMOJI = 'graphics.sprites.allow_composite_emoji';
+
+  /**
    * Normalizes a configured sprite into a row array.
+   *
+   * Composite emoji (skin tones, ZWJ sequences such as the right-facing
+   * runner) are reduced to their base glyph unless the project opts in via
+   * `graphics.sprites.allow_composite_emoji` — see sanitizeSpriteRow() for
+   * why the safe default reduces them.
    *
    * @param string[]|string $sprite The configured sprite.
    * @return string[] The normalized sprite rows.
    */
   public static function normalizeSprite(array|string $sprite): array
   {
+    $normalizeRow = self::allowsCompositeEmoji()
+      ? static fn(mixed $row): string => (string)$row
+      : static fn(mixed $row): string => self::sanitizeSpriteRow((string)$row);
+
     if (is_array($sprite)) {
-      return array_values(array_map(
-        static fn(mixed $row): string => self::sanitizeSpriteRow((string)$row),
-        $sprite
-      ));
+      return array_values(array_map($normalizeRow, $sprite));
     }
 
-    return [self::sanitizeSpriteRow((string)$sprite)];
+    return [$normalizeRow($sprite)];
+  }
+
+  /**
+   * Whether the project allows composite emoji sprites.
+   *
+   * Directional emoji variants (e.g. "🏃‍➡️", the runner facing right) only
+   * exist as ZWJ sequences, so games that want direction-consistent art must
+   * opt in. The opt-in requires a terminal that composes ZWJ sequences into a
+   * single double-width glyph (Windows Terminal, iTerm2, kitty, and other
+   * modern emulators do); on terminals that render the components separately,
+   * composite sprites leave glyph fragments on the map.
+   *
+   * @return bool True when composite emoji sprites are allowed.
+   */
+  protected static function allowsCompositeEmoji(): bool
+  {
+    if (ConfigStore::doesntHave(ProjectConfig::class)) {
+      return false;
+    }
+
+    return boolval(ConfigStore::get(ProjectConfig::class)->get(self::CONFIG_ALLOW_COMPOSITE_EMOJI, false));
   }
 
   /**

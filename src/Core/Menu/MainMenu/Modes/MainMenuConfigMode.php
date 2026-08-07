@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core\Menu\MainMenu\Modes;
 
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Menu\MainMenu\MainMenuSetting;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
@@ -67,6 +68,7 @@ class MainMenuConfigMode extends MainMenuMode
     $v = Input::getAxis(AxisName::VERTICAL);
 
     if ($v > 0) {
+      play_sound(SystemSound::CURSOR);
       $this->statusMessage = null;
       $this->mainMenuState->configSelectionWindow?->selectNext();
       $this->renderActiveSetting();
@@ -74,6 +76,7 @@ class MainMenuConfigMode extends MainMenuMode
     }
 
     if ($v < 0) {
+      play_sound(SystemSound::CURSOR);
       $this->statusMessage = null;
       $this->mainMenuState->configSelectionWindow?->selectPrevious();
       $this->renderActiveSetting();
@@ -88,6 +91,7 @@ class MainMenuConfigMode extends MainMenuMode
   protected function handleActions(): void
   {
     if (Input::isButtonDown('cancel')) {
+      play_sound(SystemSound::CANCEL);
       $this->mainMenuState->setMode(new MainMenuCommandSelectionMode($this->mainMenuState));
       return;
     }
@@ -95,11 +99,13 @@ class MainMenuConfigMode extends MainMenuMode
     $h = Input::getAxis(AxisName::HORIZONTAL);
 
     if ($h > 0 || Input::isButtonDown('confirm')) {
+      play_sound(SystemSound::CURSOR);
       $this->changeSetting(1);
       return;
     }
 
     if ($h < 0) {
+      play_sound(SystemSound::CURSOR);
       $this->changeSetting(-1);
     }
   }

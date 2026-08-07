@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core\Menu\ItemMenu\Modes;
 
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Menu\ItemMenu\Modes\ItemMenuMode;
 use Ichiloto\Engine\IO\Input;
 
@@ -15,6 +16,7 @@ class ViewKeyItemsMode extends ItemMenuMode
   {
     // TODO: Implement update() method.
     if (Input::isButtonDown("back")) {
+      play_sound(SystemSound::CANCEL);
       $this->state->setMode(new SelectIemMenuCommandMode($this->state));
     }
 

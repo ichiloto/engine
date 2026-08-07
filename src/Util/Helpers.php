@@ -3,6 +3,8 @@
 use Assegai\Util\Path;
 use Ichiloto\Engine\Animations\Animation;
 use Ichiloto\Engine\Animations\AnimationLibrary;
+use Ichiloto\Engine\Audio\AudioManager;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
@@ -360,6 +362,65 @@ if (! function_exists('asset') ) {
     }
 
     return $content;
+  }
+}
+
+if (! function_exists('play_sound') ) {
+  /**
+   * Plays a system sound (by catalog entry) or a one-shot sound effect (by
+   * audio reference).
+   *
+   * Follows the same idiom as `alert()`: callable from anywhere without
+   * threading the Game instance through every layer. Safe to call before the
+   * game has booted audio — it no-ops when no audio manager exists (e.g. in
+   * unit tests or tooling contexts).
+   *
+   * @param SystemSound|string $sound The system sound, or a sound effect
+   *   reference resolved by the AudioManager.
+   * @return void
+   */
+  function play_sound(SystemSound|string $sound): void
+  {
+    $audioManager = AudioManager::getCurrentInstance();
+
+    if ($audioManager === null) {
+      return;
+    }
+
+    if ($sound instanceof SystemSound) {
+      $audioManager->playSystemSound($sound);
+    } else {
+      $audioManager->playSoundEffect($sound);
+    }
+  }
+}
+
+if (! function_exists('play_music') ) {
+  /**
+   * Plays the given background music track, replacing the current one.
+   *
+   * Safe to call before the game has booted audio — it no-ops when no audio
+   * manager exists.
+   *
+   * @param string $track The track reference resolved by the AudioManager.
+   * @param bool $loop Whether the track should loop. Defaults to true.
+   * @return void
+   */
+  function play_music(string $track, bool $loop = true): void
+  {
+    AudioManager::getCurrentInstance()?->playBackgroundMusic($track, $loop);
+  }
+}
+
+if (! function_exists('stop_music') ) {
+  /**
+   * Stops the current background music track, if any.
+   *
+   * @return void
+   */
+  function stop_music(): void
+  {
+    AudioManager::getCurrentInstance()?->stopBackgroundMusic();
   }
 }
 

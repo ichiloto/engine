@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core\Menu\MainMenu\Modes;
 
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Menu\MainMenu\CharacterSelectionMenu;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
@@ -63,6 +64,8 @@ class MainMenuCharacterSelectionMode extends MainMenuMode
     $v = Input::getAxis(AxisName::VERTICAL);
 
     if (abs($v) > 0) {
+      play_sound(SystemSound::CURSOR);
+
       if ($v > 0) {
         $this->characterSelectionMenu->selectNext();
       }
@@ -81,10 +84,13 @@ class MainMenuCharacterSelectionMode extends MainMenuMode
   protected function handleActions(): void
   {
     if (Input::isButtonDown("cancel")) {
+      play_sound(SystemSound::CANCEL);
       $this->mainMenuState->setMode(new MainMenuCommandSelectionMode($this->mainMenuState));
     }
 
     if (Input::isButtonDown("confirm")) {
+      play_sound(SystemSound::CONFIRM);
+
       if (property_exists($this->nextGameSceneState, 'character')) {
         $this->nextGameSceneState->character = $this->characterSelectionMenu->activeCharacter ?? throw new RuntimeException("Character not found.");
       }

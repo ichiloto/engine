@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core\Menu\ItemMenu\Modes;
 
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Scenes\Game\GameScene;
@@ -38,6 +39,8 @@ class SelectIemMenuCommandMode extends ItemMenuMode
     $h = Input::getAxis(AxisName::HORIZONTAL);
 
     if (abs($h) > 0) {
+      play_sound(SystemSound::CURSOR);
+
       if ($h > 0) {
         $this->selectNextMode();
       } else {
@@ -49,12 +52,14 @@ class SelectIemMenuCommandMode extends ItemMenuMode
       $scene = $this->state->context->getScene();
 
       if ($scene instanceof GameScene) {
+        play_sound(SystemSound::CANCEL);
         $scene->setState($scene->mainMenuState);
       }
     }
 
     if (Input::isButtonDown("confirm")) {
       if ($this->inventory->isNotEmpty) {
+        play_sound(SystemSound::CONFIRM);
         $this->state->itemMenu->getActiveItem()?->execute($this->state->itemMenuContext);
         $mode = match ($this->state->itemMenu->activeIndex) {
           self::SORT_ITEMS_INDEX => new SortItemsMode($this->state),
@@ -69,6 +74,7 @@ class SelectIemMenuCommandMode extends ItemMenuMode
           $this->state->setMode($mode);
         }
       } else {
+        play_sound(SystemSound::BUZZER);
         alert(get_message("inventory.empty", "Inventory is empty."));
       }
     }

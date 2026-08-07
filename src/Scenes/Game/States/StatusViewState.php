@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Scenes\Game\States;
 
 use Assegai\Collections\ItemList;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\EquipmentSlot;
@@ -228,11 +229,13 @@ class StatusViewState extends GameSceneState
   protected function handleNavigation(): void
   {
     if ($this->isNextCharacterRequested()) {
+      play_sound(SystemSound::CURSOR);
       $this->selectNextCharacter();
       return;
     }
 
     if ($this->isPreviousCharacterRequested()) {
+      play_sound(SystemSound::CURSOR);
       $this->selectPreviousCharacter();
     }
   }
@@ -245,6 +248,7 @@ class StatusViewState extends GameSceneState
   protected function handleActions(): void
   {
     if (Input::isButtonDown("back")) {
+      play_sound(SystemSound::CANCEL);
       $this->setState($this->getGameScene()->mainMenuState);
     }
   }

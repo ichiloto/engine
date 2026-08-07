@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core\Menu\EquipmentMenu\Modes;
 
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Menu\EquipmentMenu\Modes\EquipmentMenuMode;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
@@ -46,6 +47,8 @@ class EquipmentSlotSelectionMode extends EquipmentMenuMode
     $v = Input::getAxis(AxisName::VERTICAL);
 
     if (abs($v) > 0) {
+      play_sound(SystemSound::CURSOR);
+
       if ($v > 0) {
         $this->state->equipmentAssignmentPanel->selectNextSlot();
       } else {
@@ -62,10 +65,12 @@ class EquipmentSlotSelectionMode extends EquipmentMenuMode
   protected function handleActions(): void
   {
     if (Input::isButtonDown("cancel")) {
+      play_sound(SystemSound::CANCEL);
       $this->state->setMode(new EquipmentMenuCommandSelectionMode($this->state));
     }
 
     if (Input::isButtonDown("confirm")) {
+      play_sound(SystemSound::CONFIRM);
       $mode = new EquipmentSelectionMode($this->state);
       $mode->character = $this->state->character;
       $mode->equipmentSlot = $this->state->equipmentAssignmentPanel->activeSlot;

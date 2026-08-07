@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core\Menu\ItemMenu\Modes;
 
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Menu\MenuItem;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
@@ -20,10 +21,12 @@ class UseItemMode extends ItemMenuMode
   public function update(): void
   {
     if (Input::isButtonDown("back")) {
+      play_sound(SystemSound::CANCEL);
       $this->state->setMode(new SelectIemMenuCommandMode($this->state));
     }
 
     if (Input::isButtonDown("confirm")) {
+      play_sound(SystemSound::CONFIRM);
       $this->state->setMode(new SelectItemTargetMode($this->state));
       if ($mode = $this->state->mode) {
         if ($mode instanceof SelectItemTargetMode) {
@@ -35,6 +38,8 @@ class UseItemMode extends ItemMenuMode
     $v = Input::getAxis(AxisName::VERTICAL);
 
     if (abs($v) > 0) {
+      play_sound(SystemSound::CURSOR);
+
       if ($v > 0) {
         $this->state->selectionPanel->selectNext();
       } else {

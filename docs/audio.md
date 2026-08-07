@@ -104,26 +104,31 @@ Games opt in per sound by declaring a track under `audio.sounds`:
 Sounds without a configured track are silent. The available keys are the
 cases of `Ichiloto\Engine\Audio\Enumerations\SystemSound`.
 
-The engine fires these at its built-in interaction points: menu and battle
-cursor movement, confirm/cancel in menus, modals and battle command selection,
-a buzzer for disabled commands, battle start, damage landing (party vs. enemy,
-with a separate collapse sound for defeated enemies), chest loot, and saving.
-Dialogue boxes deliberately stay silent when advancing text.
+The engine fires these at its built-in interaction points: cursor movement,
+confirm and cancel across every menu surface (title, main menu, item, shop,
+equipment, magic, ability, status, save, modals, and battle command
+selection), a buzzer for disabled or invalid choices, the shop sound on
+checkout, battle start, damage landing (party vs. enemy, with a separate
+collapse sound for defeated enemies), chest loot, and saving. Dialogue boxes
+deliberately stay silent when advancing text.
 
 ## Direct playback (custom systems)
 
+The global helpers follow the same idiom as `alert()` — callable from any
+engine or game code without threading the `Game` instance through, and safe
+no-ops when audio is unavailable:
+
 ```php
-// Loops by default; replaces whatever track is playing.
-$game->audioManager->playBackgroundMusic('overworld');
-
-// One-shot, non-blocking.
-$game->audioManager->playSoundEffect('menu-select');
-
-// A system sound by catalog entry.
-$game->audioManager->playSystemSound(SystemSound::CONFIRM);
-
-$game->audioManager->stopBackgroundMusic();
+play_sound(SystemSound::CONFIRM);  // a system sound by catalog entry
+play_sound('roar');                // a one-shot sound effect by reference
+play_music('overworld-theme');     // loops by default; replaces current track
+play_music('jingle', loop: false); // one-shot track
+stop_music();
 ```
+
+The `AudioManager` on `$game->audioManager` exposes the same operations as
+methods (`playBackgroundMusic()`, `playSoundEffect()`, `playSystemSound()`,
+`stopBackgroundMusic()`) for code that already holds the game instance.
 
 ## Zero dependencies, graceful degradation
 

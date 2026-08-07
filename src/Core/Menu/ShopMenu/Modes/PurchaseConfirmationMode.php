@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core\Menu\ShopMenu\Modes;
 
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Exception;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Entities\Party;
@@ -124,6 +125,8 @@ class PurchaseConfirmationMode extends ShopMenuMode
     $h = Input::getAxis(AxisName::HORIZONTAL);
 
     if (abs($v) > 0 || abs($h) > 0) {
+      play_sound(SystemSound::CURSOR);
+
       if ($v > 0) {
         $this->decreaseQuantity();
       }
@@ -149,11 +152,13 @@ class PurchaseConfirmationMode extends ShopMenuMode
   {
     if (Input::isButtonDown("cancel")) {
       if ($this->previousMode) {
+        play_sound(SystemSound::CANCEL);
         $this->state->setMode($this->previousMode);
       }
     }
 
     if (Input::isButtonDown("confirm")) {
+      play_sound(SystemSound::SHOP);
       $this->completeCheckout();
       $this->state->setMode($this->previousMode);
     }
