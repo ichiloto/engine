@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\UI\Modal;
 
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
@@ -183,6 +184,17 @@ class TextBoxModal extends Modal
     } else {
       $this->cancel();
     }
+  }
+
+  /**
+   * @inheritDoc
+   *
+   * Dialogue boxes stay quiet: confirm merely advances or fast-forwards the
+   * message, so system sounds here would turn every conversation into noise.
+   */
+  protected function playInteractionSound(SystemSound $sound): void
+  {
+    // Intentionally silent.
   }
 
   /**

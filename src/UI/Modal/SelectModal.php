@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\UI\Modal;
 
 use Assegai\Collections\ItemList;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Events\Enumerations\ModalEventType;
@@ -197,10 +198,12 @@ class SelectModal implements ModalInterface
       } else {
         $this->activeOptionIndex = wrap($this->activeOptionIndex - 1, 0, $this->totalOptions - 1);
       }
+      $this->playInteractionSound(SystemSound::CURSOR);
       $this->render();
     }
 
     if (Input::isButtonDown("confirm")) {
+      $this->playInteractionSound(SystemSound::CONFIRM);
       $this->value = $this->activeOptionIndex;
       $this->close();
     } else if (Input::isAnyKeyPressed([KeyCode::C, KeyCode::c])) {
@@ -504,7 +507,19 @@ class SelectModal implements ModalInterface
    */
   protected function cancel(): void
   {
+    $this->playInteractionSound(SystemSound::CANCEL);
     $this->value = -1;
     $this->hide();
+  }
+
+  /**
+   * Plays a system sound for a modal interaction.
+   *
+   * @param SystemSound $sound The system sound to play.
+   * @return void
+   */
+  protected function playInteractionSound(SystemSound $sound): void
+  {
+    $this->game->audioManager->playSystemSound($sound);
   }
 }

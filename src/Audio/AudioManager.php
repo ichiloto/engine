@@ -9,6 +9,7 @@ use Ichiloto\Engine\Audio\Backends\FfplayBackend;
 use Ichiloto\Engine\Audio\Backends\Mpg123Backend;
 use Ichiloto\Engine\Audio\Backends\MpvBackend;
 use Ichiloto\Engine\Audio\Backends\PaplayBackend;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Audio\Interfaces\AudioBackendInterface;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Interfaces\CanUpdate;
@@ -284,6 +285,27 @@ class AudioManager implements CanUpdate
     if ($playback !== null) {
       $this->sfxPlaybacks[] = $playback;
     }
+  }
+
+  /**
+   * Plays one of the engine's system sounds (cursor, confirm, cancel, ...).
+   *
+   * The sound's track comes from the project config key the enum names
+   * (`audio.sounds.<sound>`). Sounds without a configured track are silent,
+   * so games opt in per sound simply by declaring a track.
+   *
+   * @param SystemSound $sound The system sound to play.
+   * @return void
+   */
+  public function playSystemSound(SystemSound $sound): void
+  {
+    $track = $this->getProjectSetting($sound->getConfigPath(), null);
+
+    if (! is_string($track) || trim($track) === '') {
+      return;
+    }
+
+    $this->playSoundEffect(trim($track));
   }
 
   /**

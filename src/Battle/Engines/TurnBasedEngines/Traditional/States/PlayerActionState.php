@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States;
 
 use Assegai\Collections\Stack;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Battle\Actions\ItemBattleAction;
 use Ichiloto\Engine\Battle\BattleAction;
 use Ichiloto\Engine\Battle\BattleCommandCatalog;
@@ -101,6 +102,8 @@ class PlayerActionState extends TurnState
       return;
     }
 
+    $context->game->audioManager->playSystemSound(SystemSound::CURSOR);
+
     if ($v > 0) {
       $context->ui->state->selectNext();
       return;
@@ -123,6 +126,8 @@ class PlayerActionState extends TurnState
       return;
     }
 
+    $context->game->audioManager->playSystemSound(SystemSound::CURSOR);
+
     if ($v > 0) {
       $context->ui->commandContextWindow->selectNext();
       return;
@@ -143,11 +148,13 @@ class PlayerActionState extends TurnState
     $v = Input::getAxis(AxisName::VERTICAL);
 
     if ($h > 0 || $v > 0) {
+      $context->game->audioManager->playSystemSound(SystemSound::CURSOR);
       $this->cycleTarget($context, 1);
       return;
     }
 
     if ($h < 0 || $v < 0) {
+      $context->game->audioManager->playSystemSound(SystemSound::CURSOR);
       $this->cycleTarget($context, -1);
     }
   }
@@ -165,6 +172,8 @@ class PlayerActionState extends TurnState
     }
 
     if (Input::isButtonDown('action')) {
+      $context->game->audioManager->playSystemSound(SystemSound::CONFIRM);
+
       match ($this->selectionMode) {
         self::MODE_COMMAND => $this->beginSubmenuSelection($context),
         self::MODE_SUBMENU => $this->selectSubmenuOption($context),
@@ -176,6 +185,8 @@ class PlayerActionState extends TurnState
     if (! Input::isAnyKeyPressed([KeyCode::C, KeyCode::c])) {
       return;
     }
+
+    $context->game->audioManager->playSystemSound(SystemSound::CANCEL);
 
     match ($this->selectionMode) {
       self::MODE_TARGET => $this->returnToSubmenuSelection($context),

@@ -46,6 +46,14 @@ class GameOverScene extends AbstractScene
   /**
    * @inheritDoc
    */
+  public function getBackgroundMusic(): ?string
+  {
+    return $this->getConfiguredBackgroundMusic('audio.bgm.game_over');
+  }
+
+  /**
+   * @inheritDoc
+   */
   public function start(): void
   {
     $gameLoader = GameLoader::getInstance($this->getGame());

@@ -102,6 +102,24 @@ class BattleScene extends AbstractScene
   public bool $shouldLoadGameOver = false;
 
   /**
+   * @inheritDoc
+   *
+   * A battle may override the project-wide battle theme through the
+   * `bgm` entry in its runtime settings (e.g. for boss encounters).
+   */
+  #[Override]
+  public function getBackgroundMusic(): ?string
+  {
+    $track = $this->config->settings['bgm'] ?? null;
+
+    if (is_string($track) && trim($track) !== '') {
+      return trim($track);
+    }
+
+    return $this->getConfiguredBackgroundMusic('audio.bgm.battle');
+  }
+
+  /**
    * Sets the state of the scene.
    *
    * @param BattleSceneState $state The state to set.

@@ -61,14 +61,22 @@ class BattleLoader
     $systemPayload = asset('Data/system.php', true);
     $systemData = SystemData::fromArray(is_array($systemPayload) ? $systemPayload : []);
 
+    $settings = [
+      'engine' => $systemData->getBattleEngineType()->value,
+      'activeTime' => (array) $systemData->getActiveTimeSettings(),
+    ];
+
+    // A troop that declares its own battle music (e.g. a boss theme)
+    // overrides the project-wide battle theme for this encounter.
+    if ($troop->backgroundMusic !== null) {
+      $settings['bgm'] = $troop->backgroundMusic;
+    }
+
     return new BattleConfig(
       $party,
       $troop,
       $events,
-      [
-        'engine' => $systemData->getBattleEngineType()->value,
-        'activeTime' => (array) $systemData->getActiveTimeSettings(),
-      ],
+      $settings,
     );
   }
 }

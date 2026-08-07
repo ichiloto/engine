@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Core\Menu;
 
 use Assegai\Collections\ItemList;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuItemInterface;
@@ -227,6 +228,12 @@ abstract class Menu implements MenuInterface
   {
     if (!isset($this->items->toArray()[$index])) {
       throw new InvalidArgumentException('Invalid index.');
+    }
+
+    // Only an actual selection change is a cursor movement — this method is
+    // also called on construction and (re)focus with the current index.
+    if ($index !== $this->activeIndex) {
+      $this->scene->getGame()->audioManager->playSystemSound(SystemSound::CURSOR);
     }
 
     $this->activeIndex = $index;

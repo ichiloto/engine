@@ -86,6 +86,13 @@ class MapManager implements CanRenderAt
     }
   }
   /**
+   * The background music the current map declares through the `bgm` entry in
+   * its data file, or null when the map declares none.
+   *
+   * @var string|null
+   */
+  protected(set) ?string $backgroundMusic = null;
+  /**
    * @var bool Whether the player is at a save point.
    */
   public bool $isAtSavePoint = false;
@@ -275,8 +282,29 @@ class MapManager implements CanRenderAt
     $this->loadCollisionMap($this->tileMap);
     $this->loadMapTriggers($map['triggers'] ?? []);
     $this->loadMapEvents($map['events'] ?? []);
+    $this->applyMapBackgroundMusic($map['bgm'] ?? null);
 
     $this->camera->resetPosition($player);
+  }
+
+  /**
+   * Applies the map's declared background music.
+   *
+   * A map that declares a `bgm` track starts it on entry (a no-op when the
+   * track is already playing, so travelling between maps that share a theme
+   * is seamless). A map that declares none keeps whatever music is already
+   * playing, mirroring RPG Maker's autoplay semantics.
+   *
+   * @param mixed $bgm The `bgm` entry from the map data file.
+   * @return void
+   */
+  protected function applyMapBackgroundMusic(mixed $bgm): void
+  {
+    $this->backgroundMusic = is_string($bgm) && trim($bgm) !== '' ? trim($bgm) : null;
+
+    if ($this->backgroundMusic !== null) {
+      $this->game->audioManager->playBackgroundMusic($this->backgroundMusic);
+    }
   }
 
   /**

@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Scenes;
 
 use Assegai\Collections\ItemList;
 use Exception;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Battle\Enumerations\BattleEngineType;
 use Ichiloto\Engine\Battle\Interfaces\BattleEngineInterface;
 use Ichiloto\Engine\Core\Game;
@@ -195,9 +196,41 @@ class SceneManager implements CanStart, CanRender, CanUpdate
       $this->currentScene?->start();
     }
 
+    $this->applySceneBackgroundMusic($this->currentScene);
+
     $this->eventManager->dispatchEvent(new SceneEvent(SceneEventType::LOAD_END, $this->currentScene));
 
     return $this;
+  }
+
+  /**
+   * Applies the scene's declared background music.
+   *
+   * This is the single choke point for scene music: every transition either
+   * starts the incoming scene's track (a no-op when it is already playing) or
+   * stops the music when the scene declares none, so an outgoing scene's
+   * music can never bleed into a scene that did not ask for it.
+   *
+   * Scenes that determine their track after loading (e.g. the game scene,
+   * whose track comes from the map that is loaded during configure()) start
+   * their music from that later step instead.
+   *
+   * @param SceneInterface|null $scene The scene that was just made current.
+   * @return void
+   */
+  protected function applySceneBackgroundMusic(?SceneInterface $scene): void
+  {
+    if ($scene === null) {
+      return;
+    }
+
+    $track = $scene->getBackgroundMusic();
+
+    if ($track !== null) {
+      $this->game->audioManager->playBackgroundMusic($track);
+    } else {
+      $this->game->audioManager->stopBackgroundMusic();
+    }
   }
 
   /**
@@ -248,6 +281,8 @@ class SceneManager implements CanStart, CanRender, CanUpdate
       return;
     }
 
+    $this->game->audioManager->playSystemSound(SystemSound::BATTLE_START);
+
     $config = $this->battleLoader->newConfig($party, $troop, $events);
     $this->game->useBattleEngineType(BattleEngineType::fromValue($config->settings['engine'] ?? null));
     $currentScene = $this->loadScene(BattleScene::class)->currentScene;
@@ -257,6 +292,11 @@ class SceneManager implements CanStart, CanRender, CanUpdate
     }
 
     $currentScene->configure($config);
+
+    // The battle's runtime settings may override the battle theme, and they
+    // only become known during configure(), after the scene transition has
+    // already applied music. Re-applying here is a no-op for the common case.
+    $this->applySceneBackgroundMusic($currentScene);
   }
 
   /**
