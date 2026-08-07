@@ -15,6 +15,7 @@ use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Interfaces\SceneConfigurationInterface;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\UI\UIManager;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 
 /**
  * Class AbstractScene. The abstract scene.
@@ -77,6 +78,33 @@ abstract class AbstractScene implements SceneInterface
   public function configure(SceneConfigurationInterface $config): void
   {
     // Do nothing. This method is meant to be overridden.
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function getBackgroundMusic(): ?string
+  {
+    return null;
+  }
+
+  /**
+   * Reads a background music reference from the project config.
+   *
+   * @param string $configPath The project config path, e.g. "audio.bgm.title".
+   * @return string|null The configured track, or null when not configured.
+   */
+  protected function getConfiguredBackgroundMusic(string $configPath): ?string
+  {
+    $track = config(ProjectConfig::class, $configPath);
+
+    if (! is_string($track)) {
+      return null;
+    }
+
+    $track = trim($track);
+
+    return $track === '' ? null : $track;
   }
 
   /**

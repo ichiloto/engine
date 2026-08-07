@@ -142,7 +142,7 @@ class Game implements CanRun, SubjectInterface
                     new BattleScene($this->sceneManager, "$this->name - Battle Screen"),
                     new GameOverScene($this->sceneManager, "$this->name - Game Over Screen")
                 );
-        } catch (Error|Exception|Throwable $exception) {
+        } catch (Throwable $exception) {
             $this->handleException($exception);
         }
     }
@@ -214,7 +214,7 @@ class Game implements CanRun, SubjectInterface
             foreach ($this->staticObservers as $observer) {
                 $observer::onNotify($entity, $event);
             }
-        } catch (Error|Exception|Throwable $exception) {
+        } catch (Throwable $exception) {
             $this->crashed = true;
             $this->logCrash($exception);
             $this->cleanupTerminal();

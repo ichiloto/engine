@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Entities\Actions;
 
 use Assegai\Util\Text;
 use Exception;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Entities\Interfaces\ActionContextInterface;
 use Ichiloto\Engine\Events\Enumerations\LootType;
 use Ichiloto\Engine\Events\Triggers\ChestEventTrigger;
@@ -85,6 +86,7 @@ class ChestOpeningAction extends FieldAction
     }
 
     $this->trigger->complete();
+    $context->scene->getGame()->audioManager->playSystemSound(SystemSound::ITEM_GET);
     $context->player->availableAction = null;
     alert($message);
   }

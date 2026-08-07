@@ -3,8 +3,10 @@
 namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States;
 
 use Ichiloto\Engine\Animations\Animation;
+use Ichiloto\Engine\Animations\AnimationCue;
 use Ichiloto\Engine\Animations\AnimationLibrary;
 use Ichiloto\Engine\Animations\AnimationPlayer;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCompiledCutscene;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
@@ -162,6 +164,7 @@ class ActionExecutionState extends TurnState
     $this->pause($timings->stepBack);
 
     $context->ui->characterStatusWindow->setCharacters($context->party->battlers->toArray());
+    $this->playDamageFeedbackSound($context, $target, $previousHp);
     $this->displayStatChanges($context, $target, $previousHp, $previousMp, $timings->statChanges);
     $this->displayPhase($context, 'Turn over.', $timings->turnOver, hideAfter: true);
     $context->ui->characterNameWindow->setActiveSelection(-1);
@@ -169,6 +172,37 @@ class ActionExecutionState extends TurnState
     $context->ui->fieldWindow->clearMagicCastEffects();
     $context->ui->fieldWindow->clearStatChangePopups();
     $context->ui->refreshField();
+  }
+
+  /**
+   * Plays the system sound matching the damage the target just took.
+   *
+   * Fired alongside the damage popup so sight and sound land together. Heals
+   * and misses stay silent — their feedback is already visual, and positive
+   * outcomes have their own cues elsewhere.
+   *
+   * @param TurnStateExecutionContext $context The turn context.
+   * @param CharacterInterface $target The action target.
+   * @param int $previousHp The target's HP before the action resolved.
+   * @return void
+   */
+  protected function playDamageFeedbackSound(
+    TurnStateExecutionContext $context,
+    CharacterInterface $target,
+    int $previousHp
+  ): void
+  {
+    if ($target->stats->currentHp >= $previousHp) {
+      return;
+    }
+
+    $sound = match (true) {
+      ! $target instanceof Enemy => SystemSound::ACTOR_DAMAGE,
+      $target->stats->currentHp <= 0 => SystemSound::ENEMY_COLLAPSE,
+      default => SystemSound::ENEMY_DAMAGE,
+    };
+
+    $context->game->audioManager->playSystemSound($sound);
   }
 
   /**
@@ -343,7 +377,11 @@ class ActionExecutionState extends TurnState
     }
 
     $player = new AnimationPlayer(max(0.01, $delaySeconds / max(1, $animation->maxFrames)));
-    $player->play($animation, function (int $frameIndex) use ($context, $target, $animation): void {
+    $player->play($animation, function (int $frameIndex, mixed $frame, ?AnimationCue $cue) use ($context, $target, $animation): void {
+      if ($cue instanceof AnimationCue && $cue->soundEffect !== '') {
+        $context->game->audioManager->playSoundEffect($cue->soundEffect);
+      }
+
       $context->ui->fieldWindow->showActionAnimationFrame($target, $animation, $frameIndex);
     });
     $context->ui->fieldWindow->clearMagicCastEffects();

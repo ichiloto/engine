@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\UI\Modal;
 
 use Assegai\Collections\ItemList;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Events\Enumerations\ModalEventType;
@@ -179,6 +180,10 @@ abstract class Modal implements ModalInterface
       } else {
         $this->activeIndex = wrap($this->activeIndex + 1, 0, count($this->buttons) - 1);
       }
+
+      if (count($this->buttons) > 1) {
+        $this->game->audioManager->playSystemSound(SystemSound::CURSOR);
+      }
     }
 
     if (Input::isButtonDown("confirm")) {
@@ -297,6 +302,7 @@ abstract class Modal implements ModalInterface
    */
   protected function submit(): void
   {
+    $this->playInteractionSound(SystemSound::CONFIRM);
     $this->value = $this->buttons[$this->activeIndex];
     $this->hide();
   }
@@ -306,8 +312,24 @@ abstract class Modal implements ModalInterface
    */
   protected function cancel(): void
   {
+    $this->playInteractionSound(SystemSound::CANCEL);
     $this->value = null;
     $this->hide();
+  }
+
+  /**
+   * Plays a system sound for a modal interaction.
+   *
+   * Modals that repurpose the interaction flow for quiet flows (e.g. the
+   * dialogue text box, where confirm merely advances the message) override
+   * this to stay silent.
+   *
+   * @param SystemSound $sound The system sound to play.
+   * @return void
+   */
+  protected function playInteractionSound(SystemSound $sound): void
+  {
+    $this->game->audioManager->playSystemSound($sound);
   }
 
   /**

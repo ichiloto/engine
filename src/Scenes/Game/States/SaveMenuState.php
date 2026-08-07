@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\Console\Console;
@@ -221,6 +222,7 @@ class SaveMenuState extends GameSceneState implements CanRender
     }
 
     $savedSlot = $this->getGameScene()->sceneManager->saveManager->save($this->getGameScene(), $slot->slot);
+    $this->getGameScene()->getGame()->audioManager->playSystemSound(SystemSound::SAVE);
     $this->refreshSlots();
     $this->statusMessage = sprintf('Saved to File %d.', $savedSlot->slot);
     $this->render();

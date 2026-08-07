@@ -27,20 +27,33 @@ class Troop extends BattleGroup
   protected(set) int $id = 0;
 
   /**
+   * The battle music this troop declares (e.g. a boss theme), or null to use
+   * the project-wide battle theme.
+   *
+   * @var string|null
+   */
+  protected(set) ?string $backgroundMusic = null;
+
+  /**
    * Creates a new troop.
    *
    * @param string $name The name of the troop.
    * @param array|null $enemies The enemies in the troop.
    * @param array $events The events of the troop.
    * @param array $config The configuration of the troop.
+   * @param string|null $backgroundMusic The troop's battle music, or null to
+   *   use the project-wide battle theme.
    */
   public function __construct(
     protected string $name,
     ?array $enemies = null,
     protected array $events = [],
-    array $config = []
+    array $config = [],
+    ?string $backgroundMusic = null
   )
   {
+    $backgroundMusic = is_string($backgroundMusic) ? trim($backgroundMusic) : '';
+    $this->backgroundMusic = $backgroundMusic === '' ? null : $backgroundMusic;
     self::$count++;
     $this->id = self::$count;
 
@@ -94,6 +107,8 @@ class Troop extends BattleGroup
       $enemies[] = $enemyClone;
     }
 
-    return new self($name, $enemies, $events);
+    $backgroundMusic = $data['bgm'] ?? null;
+
+    return new self($name, $enemies, $events, backgroundMusic: is_string($backgroundMusic) ? $backgroundMusic : null);
   }
 }

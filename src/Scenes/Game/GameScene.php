@@ -198,6 +198,18 @@ class GameScene extends AbstractScene
     }
 
     /**
+     * @inheritDoc
+     *
+     * The field's music belongs to the current map, so returning to the game
+     * scene (e.g. after a battle) resumes whatever the map declares.
+     */
+    #[Override]
+    public function getBackgroundMusic(): ?string
+    {
+        return $this->mapManager?->backgroundMusic;
+    }
+
+    /**
      * Loads the map.
      *
      * @param string $mapFilename The map filename.

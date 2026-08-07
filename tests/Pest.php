@@ -89,6 +89,11 @@ function makeCameraTestScene(): SceneInterface
         {
         }
 
+        public function getBackgroundMusic(): ?string
+        {
+            return null;
+        }
+
         public function getGame(): Game
         {
             throw new RuntimeException('Not required for camera unit tests.');
