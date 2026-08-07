@@ -33,6 +33,7 @@ final class SummonCutsceneDefinition
     public string $id,
     public string $name,
     public string $description = '',
+    public ?string $moveName = null,
     public int $version = 1,
     public ?string $linkedSummonId = null,
     public ?string $linkedActionId = null,
@@ -54,6 +55,7 @@ final class SummonCutsceneDefinition
     $this->id = trim($id);
     $this->name = trim($name) !== '' ? trim($name) : 'New Summon';
     $this->description = trim($description);
+    $this->moveName = $this->normalizeOptionalString($moveName);
     $this->version = max(1, $version);
     $this->linkedSummonId = $this->normalizeOptionalString($linkedSummonId);
     $this->linkedActionId = $this->normalizeOptionalString($linkedActionId);
@@ -100,6 +102,7 @@ final class SummonCutsceneDefinition
       strval($data['id'] ?? ''),
       strval($data['name'] ?? 'New Summon'),
       strval($data['description'] ?? ''),
+      isset($data['moveName']) ? strval($data['moveName']) : null,
       intval($data['version'] ?? 1),
       isset($data['linkedSummonId']) ? strval($data['linkedSummonId']) : null,
       isset($data['linkedActionId']) ? strval($data['linkedActionId']) : null,
@@ -152,6 +155,7 @@ final class SummonCutsceneDefinition
       'id' => $this->id,
       'name' => $this->name,
       'description' => $this->description,
+      'moveName' => $this->moveName,
       'version' => $this->version,
       'linkedSummonId' => $this->linkedSummonId,
       'linkedActionId' => $this->linkedActionId,
