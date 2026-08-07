@@ -6,6 +6,7 @@ use Assegai\Util\Path;
 use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Battle\Actions\ItemBattleAction;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
+use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneDefinition;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Effects\HPRecoveryEffect;
@@ -52,14 +53,12 @@ final class BattleCommandCatalog
     array $reservedItemCounts = []
   ): array
   {
-    $normalized = strtolower(trim($commandName));
-
-    return match ($normalized) {
-      'attack' => self::buildAttackOptions(),
-      'skill' => self::buildSkillOptions($character),
-      'magic' => self::buildMagicOptions($character),
-      'summon' => self::buildSummonOptions(),
-      'item' => self::buildItemOptions($party, $reservedItemCounts),
+    return match (BattleCommandType::fromCommandName($commandName)) {
+      BattleCommandType::ATTACK => self::buildAttackOptions(),
+      BattleCommandType::SKILL => self::buildSkillOptions($character),
+      BattleCommandType::MAGIC => self::buildMagicOptions($character),
+      BattleCommandType::SUMMON => self::buildSummonOptions($character),
+      BattleCommandType::ITEM => self::buildItemOptions($party, $reservedItemCounts),
       default => [],
     };
   }
@@ -149,15 +148,34 @@ final class BattleCommandCatalog
   /**
    * Builds summon options from authored summon cutscenes.
    *
+   * A summon with a wielder policy only appears for characters that satisfy
+   * the policy AND currently hold the summon; a summon without a policy is
+   * openly usable by everyone.
+   *
+   * @param Character $character The active party character.
    * @return BattleCommandOption[] The available summon options.
    */
-  protected static function buildSummonOptions(): array
+  protected static function buildSummonOptions(Character $character): array
   {
     $options = [];
-    $linkedActionIds = self::loadSummonActionNames();
+    $definitionsByActionId = [];
+
+    foreach (self::loadSummonDefinitions() as $definition) {
+      if ($definition->linkedActionId !== null) {
+        $definitionsByActionId[$definition->linkedActionId] = $definition;
+      }
+    }
 
     foreach (self::loadBattleSkills() as $skill) {
-      if (! in_array($skill->name, $linkedActionIds, true)) {
+      $definition = $definitionsByActionId[$skill->name] ?? null;
+
+      if ($definition === null) {
+        continue;
+      }
+
+      $policy = $definition->wielders;
+
+      if ($policy !== null && (! $policy->allowsCharacter($character) || ! $character->hasSummon($definition->id))) {
         continue;
       }
 
@@ -269,8 +287,22 @@ final class BattleCommandCatalog
   {
     return array_values(array_filter(array_map(
       static fn($definition): ?string => $definition->linkedActionId,
-      (new SummonCutsceneLibrary())->load()
+      self::loadSummonDefinitions()
     )));
+  }
+
+  /**
+   * Loads all authored summon cutscene definitions.
+   *
+   * @return SummonCutsceneDefinition[] The authored summon definitions.
+   */
+  protected static function loadSummonDefinitions(): array
+  {
+    try {
+      return (new SummonCutsceneLibrary())->load();
+    } catch (Throwable) {
+      return [];
+    }
   }
 
   /**

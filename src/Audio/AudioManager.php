@@ -35,6 +35,12 @@ use Ichiloto\Engine\Util\Debug;
  * respawned by update() whenever the track ends, which is why update() must be
  * pumped from the game loop.
  *
+ * Player processes never outlive the game: besides the explicit shutdown()
+ * hook on the engine's quit path, the manager registers a shutdown function
+ * (and, when pcntl is available, SIGTERM/SIGINT/SIGHUP handlers) that stop
+ * every spawned player, so a crash or a killed game process cannot leave
+ * music playing.
+ *
  * @package Ichiloto\Engine\Audio
  */
 class AudioManager implements CanUpdate
@@ -89,6 +95,22 @@ class AudioManager implements CanUpdate
    * @var AudioManager|null
    */
   protected static ?AudioManager $instance = null;
+
+  /**
+   * Every constructed manager, keyed by object ID. The process-wide cleanup
+   * handlers walk this list so no manager's player processes can outlive the
+   * game process.
+   *
+   * @var array<int, AudioManager>
+   */
+  protected static array $managers = [];
+
+  /**
+   * Whether the process-wide cleanup handlers have been registered.
+   *
+   * @var bool
+   */
+  protected static bool $cleanupHandlersAreRegistered = false;
 
   /**
    * The available playback backends, in order of preference.
@@ -175,6 +197,9 @@ class AudioManager implements CanUpdate
   protected function __construct(protected Game $game)
   {
     $this->backends = $this->createBackends();
+
+    self::$managers[spl_object_id($this)] = $this;
+    self::registerCleanupHandlers();
   }
 
   /**
@@ -331,6 +356,62 @@ class AudioManager implements CanUpdate
     }
 
     $this->sfxPlaybacks = [];
+  }
+
+  /**
+   * Stops every player process spawned by any manager in this process.
+   *
+   * This is the cleanup entry point used by the process-wide shutdown and
+   * signal handlers; it is idempotent and safe to call at any time.
+   *
+   * @return void
+   */
+  public static function shutdownAll(): void
+  {
+    foreach (self::$managers as $manager) {
+      $manager->shutdown();
+    }
+  }
+
+  /**
+   * Registers the process-wide handlers that stop all player processes when
+   * the game process ends, however it ends.
+   *
+   * A shutdown function covers normal termination and fatal errors. When the
+   * pcntl extension is loaded, handlers for SIGTERM, SIGINT and SIGHUP cover
+   * the process being killed; without pcntl those signals still end the
+   * process immediately, so this remains a best-effort safety net rather than
+   * a hard dependency. Signals a handler is already installed for are left
+   * untouched.
+   *
+   * @return void
+   */
+  protected static function registerCleanupHandlers(): void
+  {
+    if (self::$cleanupHandlersAreRegistered) {
+      return;
+    }
+
+    self::$cleanupHandlersAreRegistered = true;
+
+    register_shutdown_function(static fn() => self::shutdownAll());
+
+    if (! function_exists('pcntl_async_signals') || ! function_exists('pcntl_signal')) {
+      return;
+    }
+
+    pcntl_async_signals(true);
+
+    foreach ([SIGTERM, SIGINT, SIGHUP] as $signal) {
+      if (pcntl_signal_get_handler($signal) !== SIG_DFL) {
+        continue;
+      }
+
+      pcntl_signal($signal, static function (int $signal): never {
+        self::shutdownAll();
+        exit(128 + $signal);
+      });
+    }
   }
 
   /**

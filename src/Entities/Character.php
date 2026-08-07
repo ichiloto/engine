@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Entities;
 use Exception;
 use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Battle\BattleAction;
+use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\Entities\Abilities\AbilityBook;
 use Ichiloto\Engine\Entities\Interfaces\CanEquip;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
@@ -128,11 +129,11 @@ class Character implements CharacterInterface, CanEquip
   public array $commandAbilities {
     get {
       return [
-        new AttackAction('Attack'),
-        new AttackAction('Skill'),
-        new AttackAction('Magic'),
-        new AttackAction('Summon'),
-        new AttackAction('Item'),
+        new AttackAction(BattleCommandType::ATTACK->label()),
+        new AttackAction(BattleCommandType::SKILL->label()),
+        new AttackAction(BattleCommandType::MAGIC->label()),
+        new AttackAction(BattleCommandType::SUMMON->labelForRole($this->role->name)),
+        new AttackAction(BattleCommandType::ITEM->label()),
       ];
     }
   }
@@ -140,6 +141,10 @@ class Character implements CharacterInterface, CanEquip
    * @var array The character's equipment.
    */
   protected(set) array $equipment = [];
+  /**
+   * @var string[] The ids of the summons assigned to this character.
+   */
+  protected(set) array $summons = [];
   /**
    * @var AbilityBook The character's managed ability data.
    */
@@ -265,7 +270,7 @@ class Character implements CharacterInterface, CanEquip
    */
   public static function fromArray(array $data): self
   {
-    return new Character(
+    $character = new Character(
       $data['name'] ?? throw new InvalidArgumentException('Character name is required.'),
       $data['currentExp'] ?? throw new InvalidArgumentException('Current experience points are required.'),
       Stats::fromArray($data['stats'] ?? throw new InvalidArgumentException('Character stats are required.')),
@@ -287,6 +292,12 @@ class Character implements CharacterInterface, CanEquip
           : (is_array($data['spellbook'] ?? null) ? $data['spellbook'] : [])
       ),
     );
+
+    foreach (array_filter(is_array($data['summons'] ?? null) ? $data['summons'] : [], 'is_string') as $summonId) {
+      $character->assignSummon($summonId);
+    }
+
+    return $character;
   }
 
   /**
@@ -347,6 +358,52 @@ class Character implements CharacterInterface, CanEquip
         return;
       }
     }
+  }
+
+  /**
+   * Assigns a summon to this character.
+   *
+   * Eligibility and tenancy rules live on the party — use
+   * {@see Party::assignSummon()} when those rules should be enforced.
+   *
+   * @param string $summonId The summon id to assign.
+   * @return void
+   */
+  public function assignSummon(string $summonId): void
+  {
+    $summonId = strtolower(trim($summonId));
+
+    if ($summonId === '' || $this->hasSummon($summonId)) {
+      return;
+    }
+
+    $this->summons[] = $summonId;
+  }
+
+  /**
+   * Removes a summon assignment from this character.
+   *
+   * @param string $summonId The summon id to remove.
+   * @return void
+   */
+  public function unassignSummon(string $summonId): void
+  {
+    $summonId = strtolower(trim($summonId));
+    $this->summons = array_values(array_filter(
+      $this->summons,
+      static fn(string $assigned): bool => $assigned !== $summonId
+    ));
+  }
+
+  /**
+   * Determines whether this character currently holds the given summon.
+   *
+   * @param string $summonId The summon id to check.
+   * @return bool True when the summon is assigned to this character.
+   */
+  public function hasSummon(string $summonId): bool
+  {
+    return in_array(strtolower(trim($summonId)), $this->summons, true);
   }
 
   /**
@@ -690,6 +747,7 @@ class Character implements CharacterInterface, CanEquip
       'bio' => $this->bio,
       'note' => $this->note,
       'equipment' => $this->equipment,
+      'summons' => $this->summons,
       'role' => $this->role,
       'abilities' => $this->abilityBook->toArray(),
       'magic' => $this->spellbook->toArray(),

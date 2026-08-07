@@ -22,6 +22,14 @@ class AudioPlayback
   protected $process;
 
   /**
+   * The operating system process ID of the player, or null when it could not
+   * be determined.
+   *
+   * @var int|null
+   */
+  public readonly ?int $pid;
+
+  /**
    * Whether the process handle has been closed.
    *
    * @var bool
@@ -54,6 +62,9 @@ class AudioPlayback
   protected function __construct($process, public readonly array $command)
   {
     $this->process = $process;
+
+    $status = proc_get_status($process);
+    $this->pid = $status !== false ? ($status['pid'] ?? null) : null;
   }
 
   /**

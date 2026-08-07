@@ -118,6 +118,11 @@ class TestableAudioManager extends AudioManager
   public array $spawnedCommands = [];
 
   /**
+   * @var AudioPlayback[] Every playback handle returned by spawn().
+   */
+  public array $spawnedPlaybacks = [];
+
+  /**
    * @param AudioBackendInterface[] $testBackends
    */
   public function __construct(Game $game, protected array $testBackends)
@@ -135,7 +140,13 @@ class TestableAudioManager extends AudioManager
     $this->spawnedCommands[] = $command;
 
     // A real, harmless process so handle bookkeeping is exercised for real.
-    return AudioPlayback::start(['sleep', '30']);
+    $playback = AudioPlayback::start(['sleep', '30']);
+
+    if ($playback !== null) {
+      $this->spawnedPlaybacks[] = $playback;
+    }
+
+    return $playback;
   }
 }
 
@@ -159,7 +170,11 @@ function makeAudioAssetsRoot(array $relativePaths): string
 
   foreach ($relativePaths as $relativePath) {
     $absolutePath = $root . DIRECTORY_SEPARATOR . $relativePath;
-    mkdir(dirname($absolutePath), 0777, true);
+
+    if (! is_dir(dirname($absolutePath))) {
+      mkdir(dirname($absolutePath), 0777, true);
+    }
+
     file_put_contents($absolutePath, 'stub');
   }
 
@@ -245,6 +260,25 @@ it('tracks and terminates a spawned process', function () {
 
   // stop() must be idempotent.
   $playback->stop();
+});
+
+it('tracks the process ID of a spawned player', function () {
+  $playback = AudioPlayback::start(['sleep', '30']);
+
+  expect($playback)->not->toBeNull()
+    ->and($playback->pid)->toBeInt()
+    ->and($playback->pid)->toBeGreaterThan(0);
+
+  if (function_exists('posix_kill')) {
+    expect(posix_kill($playback->pid, 0))->toBeTrue();
+  }
+
+  $playback->stop();
+
+  if (function_exists('posix_kill')) {
+    // stop() reaps the child, so its pid must no longer exist.
+    expect(posix_kill($playback->pid, 0))->toBeFalse();
+  }
 });
 
 it('reports a finished process as not running', function () {
@@ -427,6 +461,63 @@ it('silently ignores missing audio files', function () {
   expect($manager->spawnedCommands)->toBeEmpty();
 
   $manager->shutdown();
+});
+
+it('terminates every tracked player process on shutdown', function () {
+  putAudioProjectConfig(['audio' => ['music' => true, 'sfx' => true]]);
+  $root = makeAudioAssetsRoot(['theme.ogg', 'hit.wav']);
+
+  $manager = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend()]);
+  $manager->playBackgroundMusic("$root/theme.ogg");
+  $manager->playSoundEffect("$root/hit.wav");
+  $manager->playSoundEffect("$root/hit.wav");
+
+  expect($manager->spawnedPlaybacks)->toHaveCount(3);
+
+  foreach ($manager->spawnedPlaybacks as $playback) {
+    expect($playback->isRunning)->toBeTrue();
+  }
+
+  $manager->shutdown();
+
+  foreach ($manager->spawnedPlaybacks as $playback) {
+    expect($playback->isRunning)->toBeFalse();
+
+    if (function_exists('posix_kill')) {
+      expect(posix_kill($playback->pid, 0))->toBeFalse();
+    }
+  }
+});
+
+it('terminates a replaced background music player when the track switches', function () {
+  putAudioProjectConfig(['audio' => ['music' => true]]);
+  $root = makeAudioAssetsRoot(['theme.ogg', 'battle.ogg']);
+
+  $manager = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend()]);
+  $manager->playBackgroundMusic("$root/theme.ogg");
+  $manager->playBackgroundMusic("$root/battle.ogg");
+
+  expect($manager->spawnedPlaybacks)->toHaveCount(2)
+    ->and($manager->spawnedPlaybacks[0]->isRunning)->toBeFalse()
+    ->and($manager->spawnedPlaybacks[1]->isRunning)->toBeTrue();
+
+  $manager->shutdown();
+});
+
+it('stops the players of every constructed manager via shutdownAll', function () {
+  putAudioProjectConfig(['audio' => ['music' => true, 'sfx' => true]]);
+  $root = makeAudioAssetsRoot(['theme.ogg', 'hit.wav']);
+
+  $first = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend()]);
+  $second = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend()]);
+  $first->playBackgroundMusic("$root/theme.ogg");
+  $second->playSoundEffect("$root/hit.wav");
+
+  AudioManager::shutdownAll();
+
+  foreach ([...$first->spawnedPlaybacks, ...$second->spawnedPlaybacks] as $playback) {
+    expect($playback->isRunning)->toBeFalse();
+  }
 });
 
 it('skips files no available backend can decode', function () {

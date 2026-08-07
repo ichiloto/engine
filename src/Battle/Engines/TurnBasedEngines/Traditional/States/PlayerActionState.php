@@ -7,6 +7,7 @@ use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Battle\Actions\ItemBattleAction;
 use Ichiloto\Engine\Battle\BattleAction;
 use Ichiloto\Engine\Battle\BattleCommandCatalog;
+use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\Battle\BattleCommandOption;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\TraditionalTurnBasedBattleEngine;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
@@ -538,14 +539,7 @@ class PlayerActionState extends TurnState
    */
   protected function resolveCommandInfo(TurnStateExecutionContext $context): ?string
   {
-    return match (strtolower((string) $this->getSelectedCommandName($context))) {
-      'attack' => 'Choose a physical attack to strike an enemy.',
-      'skill' => 'Use one of this character\'s battle abilities.',
-      'magic' => 'Cast a learned spell that can be used in battle.',
-      'summon' => 'Call a summon or esper to aid the party.',
-      'item' => 'Use a battle item from the party inventory.',
-      default => null,
-    };
+    return BattleCommandType::fromCommandName((string) $this->getSelectedCommandName($context))?->helpText();
   }
 
   /**
@@ -751,13 +745,6 @@ class PlayerActionState extends TurnState
    */
   protected function getEmptyMenuMessage(string $commandName): string
   {
-    return match (strtolower($commandName)) {
-      'attack' => 'No attacks.',
-      'skill' => 'No skills.',
-      'magic' => 'No magic.',
-      'summon' => 'No summons.',
-      'item' => 'No items.',
-      default => 'Nothing available.',
-    };
+    return BattleCommandType::fromCommandName($commandName)?->emptyMessage() ?? 'Nothing available.';
   }
 }

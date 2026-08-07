@@ -39,6 +39,12 @@ enum BattleCommandType: string
       ) {
         return $type;
       }
+
+      foreach ($type->roleLabels() as $roleLabel) {
+        if ($normalized === self::normalize($roleLabel)) {
+          return $type;
+        }
+      }
     }
 
     return null;
@@ -58,6 +64,72 @@ enum BattleCommandType: string
     $label = is_string($label) ? trim($label) : '';
 
     return $label !== '' ? $label : $this->defaultLabel();
+  }
+
+  /**
+   * Returns the player-facing label for a character with the given role.
+   *
+   * Games can rename a command per role via project config — e.g. lore where
+   * one tribe "Summons" while another "Petitions":
+   *
+   * ```php
+   * 'vocab' => [
+   *   'command' => [
+   *     'summon' => 'Summon',
+   *     'summon_by_role' => [
+   *       'Oracle' => 'Petition',
+   *       'Vanguard' => 'Request',
+   *     ],
+   *   ],
+   * ],
+   * ```
+   *
+   * @param string|null $roleName The character's role name.
+   * @return string The command label for that role.
+   */
+  public function labelForRole(?string $roleName): string
+  {
+    if ($roleName === null || trim($roleName) === '') {
+      return $this->label();
+    }
+
+    $normalizedRole = self::normalize($roleName);
+
+    foreach ($this->roleLabels() as $configuredRole => $roleLabel) {
+      if (self::normalize((string)$configuredRole) === $normalizedRole) {
+        return $roleLabel;
+      }
+    }
+
+    return $this->label();
+  }
+
+  /**
+   * Returns the configured per-role labels for this command.
+   *
+   * @return array<string, string> Role name to label.
+   */
+  public function roleLabels(): array
+  {
+    if (! ConfigStore::has(ProjectConfig::class)) {
+      return [];
+    }
+
+    $labels = config(ProjectConfig::class, 'vocab.command.' . $this->value . '_by_role', []);
+
+    if (! is_array($labels)) {
+      return [];
+    }
+
+    $normalized = [];
+
+    foreach ($labels as $roleName => $label) {
+      if (is_string($label) && trim($label) !== '') {
+        $normalized[(string)$roleName] = trim($label);
+      }
+    }
+
+    return $normalized;
   }
 
   /**

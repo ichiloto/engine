@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\Entities;
 
 use Assegai\Collections\ItemList;
+use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneDefinition;
+use Ichiloto\Engine\Cutscenes\Summons\SummonWielderPolicy;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Interfaces\InventoryItemInterface;
 use Ichiloto\Engine\Entities\Inventory\Equipment;
@@ -212,6 +214,92 @@ class Party extends BattleGroup
   public function getAvailableEquipmentQuantity(Equipment $equipment): int
   {
     return max(0, $equipment->quantity - $this->getEquippedEquipmentCount($equipment));
+  }
+
+  /**
+   * Returns the party members currently holding the given summon.
+   *
+   * @param string $summonId The summon id to look up.
+   * @return Character[] The members with the summon assigned.
+   */
+  public function getSummonHolders(string $summonId): array
+  {
+    $holders = [];
+
+    foreach ($this->members->toArray() as $member) {
+      assert($member instanceof Character);
+
+      if ($member->hasSummon($summonId)) {
+        $holders[] = $member;
+      }
+    }
+
+    return $holders;
+  }
+
+  /**
+   * Determines whether the summon can be assigned to the given member.
+   *
+   * Checks the summon's wielder eligibility (role, named character, or open)
+   * and its tenancy (an exclusive summon may only be held by one member at a
+   * time). A summon without a wielder policy is openly usable and never needs
+   * assignment.
+   *
+   * @param SummonCutsceneDefinition $definition The summon definition.
+   * @param Character $character The member to assign the summon to.
+   * @return bool True when the assignment is allowed.
+   */
+  public function canAssignSummon(SummonCutsceneDefinition $definition, Character $character): bool
+  {
+    $policy = $definition->wielders;
+
+    if (! $policy instanceof SummonWielderPolicy) {
+      return false;
+    }
+
+    if (! $policy->allowsCharacter($character)) {
+      return false;
+    }
+
+    if ($policy->isExclusive()) {
+      foreach ($this->getSummonHolders($definition->id) as $holder) {
+        if ($holder !== $character) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Assigns the summon to the given member when the rules allow it.
+   *
+   * @param SummonCutsceneDefinition $definition The summon definition.
+   * @param Character $character The member to assign the summon to.
+   * @return bool True when the summon was assigned.
+   */
+  public function assignSummon(SummonCutsceneDefinition $definition, Character $character): bool
+  {
+    if (! $this->canAssignSummon($definition, $character)) {
+      return false;
+    }
+
+    $character->assignSummon($definition->id);
+
+    return true;
+  }
+
+  /**
+   * Removes the summon assignment from the given member.
+   *
+   * @param string $summonId The summon id to remove.
+   * @param Character $character The member losing the summon.
+   * @return void
+   */
+  public function unassignSummon(string $summonId, Character $character): void
+  {
+    $character->unassignSummon($summonId);
   }
 
   /**
