@@ -234,7 +234,7 @@ class MagicMenuState extends GameSceneState
         }
 
         $learnedCount = count($this->character->spellbook->getLearnedSpells());
-        $readyCount = $this->character->spellbook->getReadyToLearnCount($this->character, $this->party);
+        $readyCount = $this->character->spellbook->getReadyToLearnCount($this->character, $this->party, $this->getGameScene()->storyEvents);
 
         return [
             sprintf(' %s', $this->character->name),
@@ -775,7 +775,7 @@ class MagicMenuState extends GameSceneState
             return;
         }
 
-        if ($this->character->spellbook->learn($learnableSpell, $this->character, $this->party)) {
+        if ($this->character->spellbook->learn($learnableSpell, $this->character, $this->party, $this->getGameScene()->storyEvents)) {
             $this->statusMessage = sprintf('%s learned %s.', $this->character->name, $learnableSpell->skill->name);
             return;
         }

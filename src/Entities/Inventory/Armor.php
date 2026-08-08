@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Entities\Inventory;
 
 use Ichiloto\Engine\Entities\Enumerations\ItemUserType;
+use Ichiloto\Engine\Entities\Inventory\Equipment;
 use Ichiloto\Engine\Entities\ParameterChanges;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
 
@@ -32,7 +33,8 @@ class Armor extends Equipment
       $userType,
       $data['isKeyItem'] ?? false,
       false,
-      $data['parameterChanges'] ?? new ParameterChanges()
+      $data['parameterChanges'] ?? new ParameterChanges(),
+      Equipment::resolveEquipmentType($data['type'] ?? null, isWeapon: false)
     );
   }
 

@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Events\Triggers;
 
 use Ichiloto\Engine\Core\GameState;
+use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Events\Interfaces\EventTriggerContextInterface;
@@ -152,6 +153,7 @@ abstract class EventTrigger implements EventTriggerInterface
    * - `['type' => 'event',    'name' => 'story_flag']`
    * - `['type' => 'variable', 'name' => 'n', 'op' => '>=', 'value' => 5]`
    * - `['type' => 'item',     'name' => 'Rusty Key', 'quantity' => 1]`
+   * - `['type' => 'key_item', 'name' => 'Rusty Key']`
    * - `['type' => 'quest',    'name' => 'quest-id', 'status' => 'completed'|'active']`
    *
    * @param array<string, mixed> $condition The condition entry.
@@ -159,46 +161,7 @@ abstract class EventTrigger implements EventTriggerInterface
    */
   protected function evaluateCondition(array $condition): bool
   {
-    $name = trim(strval($condition['name'] ?? ''));
-
-    if ($name === '') {
-      return true;
-    }
-
-    $result = match (strval($condition['type'] ?? '')) {
-      'switch' => $this->gameState->getSwitch($name) === (bool) ($condition['value'] ?? true),
-      'event' => $this->gameState->hasStoryEvent($name),
-      'variable' => $this->compare(
-        $this->gameState->getVariable($name),
-        strval($condition['op'] ?? '=='),
-        $condition['value'] ?? 0
-      ),
-      'item' => ($this->party?->inventory?->getQuantityByName($name) ?? 0) >= max(1, intval($condition['quantity'] ?? 1)),
-      'quest' => QuestManager::current()?->questStatusMatches($name, strval($condition['status'] ?? 'completed')) ?? false,
-      default => true,
-    };
-
-    return ($condition['negate'] ?? false) ? ! $result : $result;
-  }
-
-  /**
-   * Compares a variable value against an expectation.
-   *
-   * @param int|float|string $actual The stored value.
-   * @param string $operator The comparison operator.
-   * @param mixed $expected The expected value.
-   * @return bool True when the comparison holds.
-   */
-  private function compare(int|float|string $actual, string $operator, mixed $expected): bool
-  {
-    return match ($operator) {
-      '!=' => $actual != $expected,
-      '>' => $actual > $expected,
-      '>=' => $actual >= $expected,
-      '<' => $actual < $expected,
-      '<=' => $actual <= $expected,
-      default => $actual == $expected,
-    };
+    return WorldConditionEvaluator::allHold([$condition], $this->gameState, $this->party);
   }
 
   /**

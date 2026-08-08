@@ -21,6 +21,7 @@ use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
 use Ichiloto\Engine\Entities\Magic\Spellbook;
 use Ichiloto\Engine\Entities\Roles\CharacterRole;
 use Ichiloto\Engine\Util\Debug;
+use Ichiloto\Engine\Util\Stores\ClassStore;
 use InvalidArgumentException;
 
 /**
@@ -277,6 +278,12 @@ class Character implements CharacterInterface, CanEquip
    */
   public static function fromArray(array $data): self
   {
+    // The class name lives inside the actor's `data` block. A `role` entry
+    // may instead hold a hydrated CharacterRole (older saves), so only a
+    // string names a class here.
+    $className = is_string($data['class'] ?? null)
+      ? trim($data['class'])
+      : (is_string($data['role'] ?? null) ? trim($data['role']) : '');
     $character = new Character(
       $data['name'] ?? throw new InvalidArgumentException('Character name is required.'),
       $data['currentExp'] ?? throw new InvalidArgumentException('Current experience points are required.'),
@@ -300,11 +307,42 @@ class Character implements CharacterInterface, CanEquip
       ),
     );
 
+    // Actors reference a class by name (`'class' => 'Vanguard'`); the role
+    // is built once the character exists, since its curves are seeded from
+    // that character's level and stats.
+    if ($className !== '') {
+      $character->applyClass($className);
+    }
+
     foreach (array_filter(is_array($data['summons'] ?? null) ? $data['summons'] : [], 'is_string') as $summonId) {
       $character->assignSummon($summonId);
     }
 
     return $character;
+  }
+
+  /**
+   * Applies an authored character class, replacing this character's role
+   * with the class's curves, traits, and level-gated skill grants.
+   *
+   * @param string $className The class name from `assets/Data/classes.php`.
+   * @return bool True when the class was found and applied.
+   */
+  public function applyClass(string $className): bool
+  {
+    $role = ClassStore::createRole($className, $this);
+
+    if ($role === null) {
+      Debug::warn(sprintf('Unknown character class: %s', $className));
+      return false;
+    }
+
+    $this->role = $role;
+    $this->calculateLevelExpThresholds();
+    $this->generateParameterCurves();
+    $this->adjustStatTotals();
+
+    return true;
   }
 
   /**
@@ -421,6 +459,11 @@ class Character implements CharacterInterface, CanEquip
     $canEquip = false;
 
     if ($item instanceof Item) {
+      return false;
+    }
+
+    // A class may restrict which weapon/armor types its members can wear.
+    if ($item instanceof Equipment && ! $this->role->allowsEquipmentType($item->equipmentType)) {
       return false;
     }
 

@@ -2,7 +2,9 @@
 
 namespace Ichiloto\Engine\Entities\Inventory;
 
+use Ichiloto\Engine\Entities\Enumerations\ArmorType;
 use Ichiloto\Engine\Entities\Enumerations\ItemUserType;
+use Ichiloto\Engine\Entities\Enumerations\WeaponType;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Entities\ParameterChanges;
 
@@ -35,9 +37,32 @@ abstract class Equipment extends InventoryItem
     bool $isKeyItem = false,
     bool $consumable = false,
     protected(set) ParameterChanges $parameterChanges = new ParameterChanges(),
+    protected(set) WeaponType|ArmorType|null $equipmentType = null,
   )
   {
     parent::__construct($name, $description, $icon, $price, $quantity, $userType, $isKeyItem, $consumable);
+  }
+
+  /**
+   * Resolves an authored equipment-type name into its enum case.
+   *
+   * @param mixed $type The authored `type` entry (a WeaponType/ArmorType case or its name).
+   * @param bool $isWeapon True to resolve weapon types, false for armor types.
+   * @return WeaponType|ArmorType|null The resolved type, or null when unset/unknown.
+   */
+  public static function resolveEquipmentType(mixed $type, bool $isWeapon): WeaponType|ArmorType|null
+  {
+    if ($type instanceof WeaponType || $type instanceof ArmorType) {
+      return $type;
+    }
+
+    if (! is_string($type) || trim($type) === '') {
+      return null;
+    }
+
+    return $isWeapon
+      ? WeaponType::tryFrom(trim($type))
+      : ArmorType::tryFrom(trim($type));
   }
 
   /**

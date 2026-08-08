@@ -18,6 +18,11 @@ use Ichiloto\Engine\Util\Debug;
 class SelectItemTargetMode extends ItemMenuMode
 {
   /**
+   * The largest quantity offered by the use-quantity prompt.
+   */
+  protected const int MAX_PROMPTED_USES = 9;
+
+  /**
    * @var ItemMenuMode|null The previous mode.
    */
   public ?ItemMenuMode $previousMode = null;
@@ -130,8 +135,22 @@ class SelectItemTargetMode extends ItemMenuMode
    */
   private function getNumberOfUses(InventoryItem $item): int
   {
-    // TODO: Implement a way to prompt the player for the number of uses.
-//    return (int)prompt("How many {$item->name} do you want to use?", 1);
-    return 1;
+    $available = max(1, $item->quantity);
+
+    // A single copy needs no prompt — asking would just add a keystroke.
+    if ($available < 2) {
+      return 1;
+    }
+
+    $options = array_map(
+      static fn(int $quantity): string => sprintf('x%d', $quantity),
+      range(1, min($available, self::MAX_PROMPTED_USES))
+    );
+
+    return select(
+      sprintf('How many %s?', $item->name),
+      $options,
+      $item->name
+    ) + 1;
   }
 }

@@ -20,12 +20,14 @@ class SpellLearningRequirement
    * @param int $trainingHoursRequired The required training-time progress.
    * @param int $goldCost The gold cost paid on learning.
    * @param array<string, int> $itemCosts The required item costs keyed by item name.
+   * @param string[] $requiredEvents The required story-event flags.
    */
   public function __construct(
     public int $experienceRequired = 0,
     public int $trainingHoursRequired = 0,
     public int $goldCost = 0,
     public array $itemCosts = [],
+    public array $requiredEvents = [],
   )
   {
   }
@@ -42,7 +44,11 @@ class SpellLearningRequirement
       intval($data['experienceRequired'] ?? 0),
       intval($data['trainingHoursRequired'] ?? 0),
       intval($data['goldCost'] ?? 0),
-      array_map('intval', $data['itemCosts'] ?? [])
+      array_map('intval', $data['itemCosts'] ?? []),
+      array_values(array_map('strval', array_filter(
+        is_array($data['requiredEvents'] ?? null) ? $data['requiredEvents'] : [],
+        'is_string'
+      )))
     );
   }
 
@@ -58,6 +64,7 @@ class SpellLearningRequirement
       'trainingHoursRequired' => $this->trainingHoursRequired,
       'goldCost' => $this->goldCost,
       'itemCosts' => $this->itemCosts,
+      'requiredEvents' => $this->requiredEvents,
     ];
   }
 
@@ -69,10 +76,18 @@ class SpellLearningRequirement
    * @param int $trainingHours The accumulated training progress.
    * @return bool True when the spell can be learned.
    */
-  public function isSatisfiedBy(Character $character, Party $party, int $trainingHours): bool
+  public function isSatisfiedBy(Character $character, Party $party, int $trainingHours, array $storyEvents = []): bool
   {
     if ($character->currentExp < $this->experienceRequired) {
       return false;
+    }
+
+    // Story-flag gating, matching AbilityLearningRequirement: a spell can
+    // wait on the plot as well as on training.
+    foreach ($this->requiredEvents as $requiredEvent) {
+      if (! in_array($requiredEvent, $storyEvents, true)) {
+        return false;
+      }
     }
 
     if ($trainingHours < $this->trainingHoursRequired) {

@@ -196,6 +196,20 @@ class Inventory
   }
 
   /**
+   * Determines whether the party holds the named key item.
+   *
+   * @param string $itemName The item name.
+   * @return bool True when a key item with that name is held.
+   */
+  public function hasKeyItem(string $itemName): bool
+  {
+    return null !== array_find(
+      $this->inventoryItems->toArray(),
+      static fn(InventoryItem $item): bool => $item->isKeyItem && $item->name === $itemName
+    );
+  }
+
+  /**
    * Consumes the requested quantity of the named inventory item.
    *
    * @param string $itemName The inventory-item name.

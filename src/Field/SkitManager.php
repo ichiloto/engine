@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Field;
 use Assegai\Util\Path;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
+use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Debug;
 use Throwable;
@@ -187,29 +188,10 @@ class SkitManager
       return false;
     }
 
-    foreach ((array) ($skit['conditions'] ?? []) as $condition) {
-      if (! is_array($condition)) {
-        continue;
-      }
-
-      $name = trim(strval($condition['name'] ?? ''));
-
-      if ($name === '') {
-        continue;
-      }
-
-      $result = match (strval($condition['type'] ?? '')) {
-        'switch' => $gameState->getSwitch($name) === (bool) ($condition['value'] ?? true),
-        'event' => $gameState->hasStoryEvent($name),
-        'quest' => \Ichiloto\Engine\Quests\QuestManager::current()?->questStatusMatches($name, strval($condition['status'] ?? 'completed')) ?? false,
-        default => true,
-      };
-
-      if (($condition['negate'] ?? false) ? $result : ! $result) {
-        return false;
-      }
-    }
-
-    return true;
+    return WorldConditionEvaluator::allHold(
+      (array) ($skit['conditions'] ?? []),
+      $gameState,
+      $this->gameScene->party
+    );
   }
 }

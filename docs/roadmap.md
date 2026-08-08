@@ -278,7 +278,41 @@ Turn the polished stage into a real fight. Roughly in order:
 - **DialogueTree wiring** — the branching dialogue model exists unused;
   connect choices to switches/variables so conversations can matter.
 
-### Phase 5 — Progression wiring
+### Phase 5 — Progression wiring ✅ *shipped 2026-08*
+> Status: **Classes** — `Util\Stores\ClassStore` loads `assets/Data/classes.php`
+> and builds real `CharacterRole`s on demand (roles need their character, since
+> curves seed from its level and stats); actors reference a class by name inside
+> their `data` block (`'class' => 'Vanguard'`), resolved by
+> `Character::fromArray()`, with `Character::applyClass()` for runtime class
+> changes (recalculates thresholds, curves, and stat totals). This closes the
+> Phase 3 caveat: every demo actor now carries a real class instead of the
+> default 'Hero', so authored curves finally apply (Kaelion's max MP moved 8 → 10
+> on hydration) and **learn-on-level works** — classes author `skillsToLearn`
+> (`['level' => 4, 'skill' => 'War Cry']`) resolved against `skills.php`, which
+> Phase 3's level-up beat already consumes. **Key items** — `ViewKeyItemsMode`
+> is implemented (browsable read-only list with descriptions, restoring the full
+> inventory on exit), `Inventory::hasKeyItem()` added, and a `key_item`
+> condition type distinguishes quest tokens from same-named ordinary items;
+> shops already excluded key items from selling. **Equipment class restrictions**
+> — the dead `WeaponType`/`ArmorType` enums are wired: `Equipment` carries an
+> `equipmentType`, hydrated from an authored `'type' => 'Sword'`; classes declare
+> `'equipment' => ['weapons' => [...], 'armor' => [...]]`; `Character::canEquip()`
+> enforces it (untyped items and unrestricted classes stay permissive, so old
+> data is unaffected — verified live: Kaelion the Vanguard can wield a sword,
+> Liora the Oracle cannot). **Item-use quantity prompt** — the `getNumberOfUses`
+> TODO is a real prompt (skipped for single copies, capped at 9). **Spell
+> story-flag parity** — `SpellLearningRequirement` gained `requiredEvents`
+> matching `AbilityLearningRequirement`, threaded through `LearnableSpell`,
+> `Spellbook`, and the magic menu. Also this phase: the world-condition
+> evaluator that had been **copy-pasted into five places** (event triggers,
+> quest prerequisites, event-script branches, NPC visibility, skit availability)
+> is now one `Core\WorldConditionEvaluator`, which is where `key_item` landed
+> once for all of them. 12 new tests (suite: 236 passed, 0 failed). Deferred:
+> class-change *mechanics* (the `applyClass` API exists; no in-game UI yet), the
+> `trainingHours` decision (kept — spells still gate on it), and the equipment
+> stat-delta preview, which was already implemented in `CharacterDetailPanel`.
+
+#### Original plan
 - **Classes** — `ClassStore` over `classes.php`; actors reference a class by
   name; `Character::fromArray` resolves it into a real `CharacterRole` with
   the authored curves; recalculate on role change; class-change mechanics

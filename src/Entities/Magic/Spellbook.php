@@ -179,13 +179,14 @@ class Spellbook
    *
    * @param Character $character The learning character.
    * @param Party $party The party that may pay shared costs.
+   * @param string[] $storyEvents The recorded story-event flags.
    * @return int The number of ready spells.
    */
-  public function getReadyToLearnCount(Character $character, Party $party): int
+  public function getReadyToLearnCount(Character $character, Party $party, array $storyEvents = []): int
   {
     return count(array_filter(
       $this->getLearnableSpells(),
-      static fn(LearnableSpell $spell): bool => $spell->isReady($character, $party)
+      static fn(LearnableSpell $spell): bool => $spell->isReady($character, $party, $storyEvents)
     ));
   }
 
@@ -195,13 +196,14 @@ class Spellbook
    * @param LearnableSpell $learnableSpell The spell to learn.
    * @param Character $character The learning character.
    * @param Party $party The party that may pay shared costs.
+   * @param string[] $storyEvents The recorded story-event flags.
    * @return bool True when the spell was learned.
    */
-  public function learn(LearnableSpell $learnableSpell, Character $character, Party $party): bool
+  public function learn(LearnableSpell $learnableSpell, Character $character, Party $party, array $storyEvents = []): bool
   {
     $registeredSpell = $this->learnableSpells[$learnableSpell->skill->name] ?? null;
 
-    if (! $registeredSpell instanceof LearnableSpell || ! $registeredSpell->isReady($character, $party)) {
+    if (! $registeredSpell instanceof LearnableSpell || ! $registeredSpell->isReady($character, $party, $storyEvents)) {
       return false;
     }
 

@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Quests;
 
 use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
@@ -460,58 +461,11 @@ class QuestManager
    */
   protected function meetsPrerequisites(Quest $quest): bool
   {
-    $gameState = $this->gameScene->gameState;
-
-    foreach ($quest->prerequisites as $condition) {
-      if (! is_array($condition)) {
-        continue;
-      }
-
-      $name = trim(strval($condition['name'] ?? ''));
-
-      if ($name === '') {
-        continue;
-      }
-
-      $result = match (strval($condition['type'] ?? '')) {
-        'switch' => $gameState->getSwitch($name) === (bool) ($condition['value'] ?? true),
-        'event' => $gameState->hasStoryEvent($name),
-        'variable' => $this->compare(
-          $gameState->getVariable($name),
-          strval($condition['op'] ?? '=='),
-          $condition['value'] ?? 0
-        ),
-        'item' => ($this->gameScene->party?->inventory?->getQuantityByName($name) ?? 0) >= max(1, intval($condition['quantity'] ?? 1)),
-        'quest' => $this->questStatusMatches($name, strval($condition['status'] ?? 'completed')),
-        default => true,
-      };
-
-      if (($condition['negate'] ?? false) ? $result : ! $result) {
-        return false;
-      }
-    }
-
-    return true;
-  }
-
-  /**
-   * Compares a variable value against an expectation.
-   *
-   * @param int|float|string $actual The stored value.
-   * @param string $operator The comparison operator.
-   * @param mixed $expected The expected value.
-   * @return bool True when the comparison holds.
-   */
-  private function compare(int|float|string $actual, string $operator, mixed $expected): bool
-  {
-    return match ($operator) {
-      '!=' => $actual != $expected,
-      '>' => $actual > $expected,
-      '>=' => $actual >= $expected,
-      '<' => $actual < $expected,
-      '<=' => $actual <= $expected,
-      default => $actual == $expected,
-    };
+    return WorldConditionEvaluator::allHold(
+      $quest->prerequisites,
+      $this->gameScene->gameState,
+      $this->gameScene->party
+    );
   }
 
   /**

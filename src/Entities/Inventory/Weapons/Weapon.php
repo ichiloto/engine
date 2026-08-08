@@ -35,7 +35,8 @@ class Weapon extends Equipment
       $userType,
       $data['isKeyItem'] ?? false,
       false,
-      $data['parameterChanges'] ?? new ParameterChanges()
+      $data['parameterChanges'] ?? new ParameterChanges(),
+      Equipment::resolveEquipmentType($data['type'] ?? null, isWeapon: true)
     );
   }
 
