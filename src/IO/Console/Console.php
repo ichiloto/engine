@@ -20,6 +20,15 @@ use Symfony\Component\Console\Terminal;
 class Console
 {
   /**
+   * @var int How many batched frames are open.
+   */
+  private static int $frameDepth = 0;
+  /**
+   * @var string Row updates collected while a frame is open.
+   */
+  private static string $frameBuffer = '';
+
+  /**
    * Placeholder marker used for continuation cells of wide terminal symbols.
    */
   private const string WIDE_SYMBOL_CONTINUATION = "\0";
@@ -284,7 +293,34 @@ class Console
         self::$buffer[$currentBufferRow] = str_repeat(' ', self::$width);
       }
 
-      $rowCells = self::rowToCells(self::$buffer[$currentBufferRow]);
+      // Fast path: plain ASCII written into a plain ASCII row needs no cell
+      // bookkeeping, because every character is exactly one column. Map rows,
+      // borders, and menu text are almost always this shape, and the slow
+      // path below costs two grapheme splits per row.
+      $existingRow = self::$buffer[$currentBufferRow];
+      $incoming = (string) $text;
+
+      if (
+        ! preg_match('/[^\x20-\x7E]/', $incoming)
+        && ! preg_match('/[^\x20-\x7E]/', $existingRow)
+      ) {
+        $available = max(0, self::$width - $x);
+        $incoming = substr($incoming, 0, $available);
+
+        if ($incoming !== '') {
+          // The row is always re-emitted, never skipped on the grounds that
+          // the buffer is unchanged: sprites are drawn straight to the
+          // terminal (see Camera::renderOnScreen), so the buffer is not a
+          // faithful picture of the screen and an "unchanged" row can still
+          // be covering a sprite that must be erased.
+          self::$buffer[$currentBufferRow] = substr_replace($existingRow, $incoming, $x, strlen($incoming));
+          self::writeBufferRow($currentBufferRow);
+        }
+
+        continue;
+      }
+
+      $rowCells = self::rowToCells($existingRow);
       $text = TerminalText::truncateToWidth((string)$text, max(0, self::$width - $x));
       $cellCursor = $x;
 
@@ -472,6 +508,49 @@ class Console
   }
 
   /**
+   * Opens a batched frame.
+   *
+   * Row updates are collected instead of written immediately, so a frame
+   * costs one terminal write rather than one per row. Terminal writes are
+   * the expensive part on Windows consoles and over SSH, where a 45-row
+   * scroll step otherwise means 45 cursor moves and 45 writes.
+   *
+   * Calls nest: the frame flushes when the outermost one closes.
+   *
+   * @return void
+   */
+  public static function beginFrame(): void
+  {
+    self::$frameDepth++;
+  }
+
+  /**
+   * Closes a batched frame, flushing it when the outermost one closes.
+   *
+   * @return void
+   */
+  public static function endFrame(): void
+  {
+    if (self::$frameDepth > 0) {
+      self::$frameDepth--;
+    }
+
+    if (self::$frameDepth > 0 || self::$frameBuffer === '') {
+      return;
+    }
+
+    $payload = self::$frameBuffer;
+    self::$frameBuffer = '';
+
+    if (self::$output) {
+      self::$output->write($payload);
+      return;
+    }
+
+    echo $payload;
+  }
+
+  /**
    * Flushes a single buffered row to the terminal without adding a trailing newline.
    *
    * Avoiding a final line-feed prevents full-screen renders from triggering
@@ -483,6 +562,13 @@ class Console
   private static function writeBufferRow(int $row): void
   {
     if (!isset(self::$buffer[$row])) {
+      return;
+    }
+
+    if (self::$frameDepth > 0) {
+      // Position and content travel together so the batch can be replayed
+      // as one write.
+      self::$frameBuffer .= sprintf("\033[%d;1H%s", $row + 1, self::$buffer[$row]);
       return;
     }
 

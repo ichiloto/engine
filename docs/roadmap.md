@@ -387,6 +387,52 @@ Turn the polished stage into a real fight. Roughly in order:
   catalog + `%1` formatter + extraction of hardcoded literals — the
   scaffolded `messages.*` tree already anticipates this)
 
+### Performance — map scrolling ✅ *shipped 2026-08*
+> Reported on a Windows laptop (Core i7 12th gen, integrated graphics):
+> scrolling a map larger than the viewport chugged. Measured with an offline
+> harness that replays 60 scroll steps over a 400x200 map into a 180x45
+> viewport: **34.74 ms per scroll step**, a 29 fps ceiling before any other
+> work — so the frame budget was blown by rendering alone.
+>
+> Three fixes, biggest first:
+> 1. **Per-symbol metric caching.** `TerminalText::getSymbolWidth()` and
+>    `stabilizeSymbol()` ran several regex passes *per character*, and
+>    `displayWidth()` re-split each symbol again. Both are now memoized;
+>    map alphabets are tiny, so the hit rate is effectively total.
+> 2. **ASCII fast paths.** `visibleSymbols()` skips grapheme splitting for
+>    plain ASCII, and `Console::write()` gained a whole-row fast path that
+>    replaces text with `substr_replace` instead of building two cell arrays.
+>    It declines automatically when either the incoming text or the existing
+>    row contains a wide glyph, where string offsets and column offsets stop
+>    agreeing.
+> 3. **Frame batching.** `Console::beginFrame()`/`endFrame()` collect a
+>    frame's row updates into one terminal write (45 writes per scroll step
+>    down to 1). The CPU win is measured; the write-count reduction is what
+>    matters on Windows consoles and over SSH, where each write is expensive.
+>
+> A fourth optimisation — skipping rows whose buffered content had not
+> changed — **was tried, shipped, and reverted**: it broke sprite erasure.
+> `Camera::renderOnScreen()` and `renderAtScreenPosition()` write sprites
+> straight to the terminal without going through `Console`'s buffer, so the
+> buffer is not a faithful picture of the screen. A row that "did not
+> change" could still be covering a sprite that needed painting over, and
+> the player left a trail of copies behind them. The skip contributed
+> almost nothing anyway (1.33 ms vs 1.41 ms), so correctness cost nothing.
+> `ConsoleBufferTest` now pins the safe contract, including a test that
+> reproduces the trail: write a tile, draw a sprite directly over it, write
+> the tile again, and assert the erase reaches the terminal.
+>
+> **Follow-up worth doing:** route the sprite paths through the console
+> buffer so it becomes authoritative. That would make unchanged-row skipping
+> (and further diffing) safe, and remove a standing trap for anyone who
+> optimises this path next.
+>
+> Result: **1.32 ms per scroll step, a 26x improvement**, leaving the
+> 16.6 ms frame budget almost entirely free. Six regression tests in
+> `ConsoleBufferTest` cover exact ASCII writes, offset overwrites, wide-glyph
+> column accounting, unchanged-row skipping, and frame batching (including
+> nesting). Verified live: the map renders identically after the change.
+
 ### Phase 7 — Tooling & documentation
 - Editor: implement the 10 stub database categories (items, weapons, armors,
   enemies, troops, states, terms, common events, tilesets, types); quest and

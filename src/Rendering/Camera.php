@@ -149,6 +149,11 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
     $visibleWidth = $this->getVisibleWorldWidth();
     $visibleHeight = $this->getVisibleWorldHeight();
 
+    // One terminal write for the whole map instead of one per row: the
+    // difference is felt most while scrolling, and on consoles where each
+    // write is expensive.
+    Console::beginFrame();
+
     for ($row = 0; $row < $visibleHeight; $row++) {
       $worldSpaceY = $this->position->y + $row;
       $worldRow = $this->worldSpace[$worldSpaceY] ?? array_fill(0, $visibleWidth, ' ');
@@ -159,6 +164,8 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
 
       $this->draw($content, $renderOffset->x, $renderOffset->y + $row);
     }
+
+    Console::endFrame();
   }
 
   /**

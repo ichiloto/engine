@@ -18,6 +18,13 @@ use Throwable;
 final class TerminalText
 {
   /**
+   * The most symbols kept in the per-symbol metric caches. Alphabets are
+   * small in practice; the bound only guards against unbounded growth from
+   * procedurally generated content.
+   */
+  private const int SYMBOL_CACHE_LIMIT = 4096;
+
+  /**
    * Matches ANSI control sequences that should not count toward display width.
    */
   private const string ANSI_PATTERN = '/\x1B\[[0-9;?]*[ -\/]*[@-~]/';
@@ -107,6 +114,13 @@ final class TerminalText
     }
 
     $text = self::normalizeStyles($text);
+
+    // Plain ASCII is by far the common case (map rows, borders, menu text).
+    // Splitting it bytewise skips the grapheme regex entirely, which is the
+    // single hottest operation in the render path.
+    if (! preg_match('/[^\x20-\x7E]/', $text)) {
+      return $text === '' ? [] : str_split($text);
+    }
 
     $symbols = [];
     $activeAnsi = '';
@@ -252,6 +266,29 @@ final class TerminalText
    */
   private static function getSymbolWidth(string $symbol): int
   {
+    // Rendering repeats the same handful of glyphs thousands of times per
+    // frame, and measuring one costs several regex passes. Cache by symbol.
+    static $widths = [];
+
+    if (isset($widths[$symbol])) {
+      return $widths[$symbol];
+    }
+
+    if (count($widths) > self::SYMBOL_CACHE_LIMIT) {
+      $widths = [];
+    }
+
+    return $widths[$symbol] = self::measureSymbolWidth($symbol);
+  }
+
+  /**
+   * Measures a symbol's column width.
+   *
+   * @param string $symbol The symbol to measure.
+   * @return int The width in columns.
+   */
+  private static function measureSymbolWidth(string $symbol): int
+  {
     $symbol = self::stabilizeSymbol(self::stripAnsi($symbol));
 
     if ($symbol === '') {
@@ -333,6 +370,27 @@ final class TerminalText
    * @return string The stabilized grapheme.
    */
   public static function stabilizeSymbol(string $symbol): string
+  {
+    static $stabilized = [];
+
+    if (isset($stabilized[$symbol])) {
+      return $stabilized[$symbol];
+    }
+
+    if (count($stabilized) > self::SYMBOL_CACHE_LIMIT) {
+      $stabilized = [];
+    }
+
+    return $stabilized[$symbol] = self::computeStabilizedSymbol($symbol);
+  }
+
+  /**
+   * Computes the terminal-stable form of a grapheme.
+   *
+   * @param string $symbol The symbol to stabilize.
+   * @return string The stabilized symbol.
+   */
+  private static function computeStabilizedSymbol(string $symbol): string
   {
     $visible = self::stripAnsi($symbol);
 
