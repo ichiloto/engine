@@ -49,7 +49,8 @@ class BattleLoader
   public function newConfig(
     Party $party,
     Troop $troop,
-    array $battleEvents
+    array $battleEvents,
+    array $extraSettings = []
   ): BattleConfig
   {
     $events = [];
@@ -76,7 +77,7 @@ class BattleLoader
       $party,
       $troop,
       $events,
-      $settings,
+      array_merge($settings, $extraSettings),
     );
   }
 }

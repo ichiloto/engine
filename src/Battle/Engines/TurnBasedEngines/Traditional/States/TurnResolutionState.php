@@ -49,8 +49,35 @@ class TurnResolutionState extends TurnState
         }
       }
 
+      $levelUps = [];
+
       foreach ($context->party->members->toArray() as $member) {
+        $previousLevel = $member->level;
         $member->addExperience($experience);
+
+        if ($member->level <= $previousLevel) {
+          continue;
+        }
+
+        // Consume the role's level-gated skill grants for every level
+        // crossed this battle.
+        $learnedSkillNames = [];
+
+        foreach ($member->role->skillsToLearn as $skillToLearn) {
+          if (
+            $skillToLearn->level > $previousLevel
+            && $skillToLearn->level <= $member->level
+            && $member->abilityBook->learnSkillDirectly($skillToLearn->skill)
+          ) {
+            $learnedSkillNames[] = $skillToLearn->skill->name;
+          }
+        }
+
+        $levelUps[] = [
+          'name' => $member->name,
+          'level' => $member->level,
+          'skills' => $learnedSkillNames,
+        ];
       }
 
       $context->party->credit($gold);
@@ -80,6 +107,22 @@ class TurnResolutionState extends TurnState
           'label' => 'Item drops:',
           'value' => implode(', ', array_map(fn($item) => $item->name, $items)),
         ];
+      }
+
+      foreach ($levelUps as $levelUp) {
+        $lines[] = sprintf('%s grew to level %d!', $levelUp['name'], $levelUp['level']);
+        $entries[] = [
+          'label' => sprintf('%s:', $levelUp['name']),
+          'value' => sprintf('Level %d!', $levelUp['level']),
+        ];
+
+        foreach ($levelUp['skills'] as $skillName) {
+          $lines[] = sprintf('%s learned %s!', $levelUp['name'], $skillName);
+          $entries[] = [
+            'label' => sprintf('%s learned:', $levelUp['name']),
+            'value' => $skillName,
+          ];
+        }
       }
 
       $scene->result = new BattleResult('Victory', $lines, $items, $entries);

@@ -274,7 +274,7 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    * @throws IchilotoException If an error occurs while loading the battle scene.
    * @throws NotFoundException If the battle scene is not found.
    */
-  public function loadBattleScene(Party $party, Troop $troop, array $events = []): void
+  public function loadBattleScene(Party $party, Troop $troop, array $events = [], array $extraSettings = []): void
   {
     if ($party->isDefeated()) {
       $this->loadGameOverScene();
@@ -283,7 +283,7 @@ class SceneManager implements CanStart, CanRender, CanUpdate
 
     $this->game->audioManager->playSystemSound(SystemSound::BATTLE_START);
 
-    $config = $this->battleLoader->newConfig($party, $troop, $events);
+    $config = $this->battleLoader->newConfig($party, $troop, $events, $extraSettings);
     $this->game->useBattleEngineType(BattleEngineType::fromValue($config->settings['engine'] ?? null));
     $currentScene = $this->loadScene(BattleScene::class)->currentScene;
 

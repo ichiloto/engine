@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Entities\Abilities;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enumerations\Occasion;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Entities\Skills\Skill;
 use Ichiloto\Engine\Entities\Skills\SpecialSkill;
 
 /**
@@ -202,6 +203,27 @@ class AbilityBook
    * @param int $playTimeSeconds The elapsed play time in seconds.
    * @return bool True when the ability was learned.
    */
+  /**
+   * Learns a skill outright, bypassing ability requirements.
+   *
+   * The level-up path: role `skillsToLearn` grants land here the moment
+   * their level is reached.
+   *
+   * @param Skill $skill The skill to learn.
+   * @return bool True when newly learned; false when already known.
+   */
+  public function learnSkillDirectly(Skill $skill): bool
+  {
+    if (isset($this->learnedAbilities[$skill->name])) {
+      return false;
+    }
+
+    $this->learnedAbilities[$skill->name] = $skill;
+    $this->sortLearnedAbilities();
+
+    return true;
+  }
+
   public function learn(
     LearnableAbility $learnableAbility,
     Character $character,

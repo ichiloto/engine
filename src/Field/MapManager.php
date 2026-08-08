@@ -289,6 +289,10 @@ class MapManager implements CanRenderAt
       $this->gameScene->questManager?->recordMapEntered($mapId);
     }
 
+    $this->gameScene->encounterManager?->configure(
+      is_array($map['encounters'] ?? null) ? $map['encounters'] : null
+    );
+
     $this->camera->resetPosition($player);
   }
 

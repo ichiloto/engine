@@ -205,7 +205,8 @@ final class BattleCommandCatalog
       $skill->scope->side,
       $skill->scope->status,
       $skill,
-      max(0, $skill->cost)
+      max(0, $skill->cost),
+      $skill->scope->number
     );
   }
 

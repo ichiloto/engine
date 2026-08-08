@@ -150,7 +150,7 @@ A pure consumer of Phase 1:
   notifications on accept/progress/completion
 - Editor: quests database category
 
-### Phase 3 — Battle simulation depth ⏳ *in progress 2026-08: items 1–5 shipped*
+### Phase 3 — Battle simulation depth ✅ *shipped 2026-08*
 > Status: **States** (`Entities\States`): `State` definitions from
 > `assets/Data/states.php`, `HasStates` on characters and enemies with
 > resist-table multipliers, `AddStateSkillEffect`/`RemoveStateSkillEffect`,
@@ -180,8 +180,32 @@ A pure consumer of Phase 1:
 > fizzling after the announcement. And the three long-flaky `SkillTest`
 > RNG cases are fixed at the root (they re-rolled `getValue()` after
 > `apply()` against float bounds the engine floors to ints, and healed into
-> the HP ceiling) — the suite is now fully green: 217 passed, 0 failed.
-> Items 6–9 below remain.
+> the HP ceiling) — the suite is now fully green.
+> **Multi-target**: `ItemScopeNumber::ALL` works end to end — the
+> first-target collapse in action execution is gone, all-target options
+> skip the target cursor, every target takes its own popup (they now
+> coexist on the field), and enemies' all-target skills hit the whole
+> party (demo: Whirlwind). **Enemy AI**: `EnemyActionEvaluator` runs the
+> authored `ActionPattern`/`ActionCondition` schema with RPG-Maker
+> semantics — condition gating (always/turn/HP%/MP%/status/party-level/
+> switch), MP affordability, and rating-weighted picks within 3 of the
+> best — falling back to a basic attack for pattern-less enemies (demo:
+> the Sewer Rat's Venom Bite, the Great Wolf's below-half-HP Savage
+> Howl). **Random encounters**: maps opt in with an `encounters` block
+> (weighted troop table + step rate); `EncounterManager` burns a
+> randomized step counter on ENCOUNTER tiles (or every tile via
+> `'tiles' => 'any'`), with 5% preemptive-strike and 5% ambush rolls that
+> drop the surprised side's opening-round turns, and
+> `encounterRateMultiplier` as the repel/lure hook (demo: the overworld's
+> grass). **Level-up beat**: victory now reports each member's new level
+> and any `CharacterRole::$skillsToLearn` grants crossed this battle
+> (learned straight into the ability book). Caveat: the demo's
+> `classes.php` roles are authored but never hydrated — every actor still
+> falls back to the default role, so level-gated skill grants need that
+> wiring (flagged as a follow-up task) to be visible in play. Deferred:
+> simultaneous multi-target highlight (the field window holds one focus
+> index), and battle-flow items verified by unit tests + boot smoke
+> rather than a full live battle drive.
 
 Turn the polished stage into a real fight. Roughly in order:
 1. **States system** — State entity, per-battler state list, durations/ticks,

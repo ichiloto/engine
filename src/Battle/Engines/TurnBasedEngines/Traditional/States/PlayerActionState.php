@@ -17,6 +17,7 @@ use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\TraditionalTurnB
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
+use Ichiloto\Engine\Entities\Enumerations\ItemScopeNumber;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeStatus;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
@@ -456,6 +457,13 @@ class PlayerActionState extends TurnState
       return;
     }
 
+    // An all-target action needs no target cursor — queue it against
+    // every eligible battler on the relevant side.
+    if ($option->targetNumber === ItemScopeNumber::ALL) {
+      $this->queueActionForActiveCharacter($context);
+      return;
+    }
+
     $targetIndexes = $this->getSelectableTargetIndexes($context);
 
     if (empty($targetIndexes)) {
@@ -747,6 +755,17 @@ class PlayerActionState extends TurnState
 
     if ($selectedOption->targetSide === ItemScopeSide::USER && $this->activeCharacter) {
       return [$this->activeCharacter];
+    }
+
+    if ($selectedOption->targetNumber === ItemScopeNumber::ALL) {
+      $pool = $selectedOption->targetSide === ItemScopeSide::ALLY
+        ? $context->party->battlers->toArray()
+        : $context->troop->members->toArray();
+
+      return array_values(array_filter(
+        $pool,
+        fn(CharacterInterface $battler): bool => $this->matchesStatus($battler, $selectedOption->targetStatus)
+      ));
     }
 
     return match ($selectedOption->targetSide) {

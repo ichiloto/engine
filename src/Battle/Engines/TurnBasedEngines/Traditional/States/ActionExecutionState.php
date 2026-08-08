@@ -87,14 +87,13 @@ class ActionExecutionState extends TurnState
       return;
     }
 
-    $target = $targets[0];
-    $turn->targets = [$target];
+    $turn->targets = $targets;
 
     $actionName = $turn->action?->name ?? 'Attack';
     $this->performTurnSequence(
       $context,
       $turn->battler,
-      $target,
+      $targets,
       $turn->action,
       $actionName,
       function () use ($turn) {
@@ -152,16 +151,17 @@ class ActionExecutionState extends TurnState
   protected function performTurnSequence(
     TurnStateExecutionContext $context,
     CharacterInterface $actor,
-    CharacterInterface $target,
+    array $targets,
     ?BattleAction $action,
     string $actionName,
     callable $resolveAction
   ): void
   {
     $timings = $context->ui->getPacing()->getTurnTimings($action);
+    $focusTarget = $targets[0];
 
     $this->highlightActor($context, $actor);
-    $this->highlightTarget($context, $target);
+    $this->highlightTarget($context, $focusTarget);
     $this->stepActorForward($context, $actor);
     $this->pause($timings->stepForward);
     $summonCutscene = $action !== null ? $this->resolveSummonCutscene($action) : null;
@@ -169,22 +169,26 @@ class ActionExecutionState extends TurnState
       ? (trim(strval($summonCutscene->defaults['moveName'] ?? '')) ?: $actionName)
       : sprintf("%s uses %s!", $actor->name, $actionName);
     $this->displayAnnouncementPhase($context, $announcement, $timings->announcement);
-    $extendedAnimationHandled = $this->playActionAnimation($context, $actor, $target, $action, $timings->actionAnimation);
+    $extendedAnimationHandled = $this->playActionAnimation($context, $actor, $focusTarget, $action, $timings->actionAnimation);
     if (! $extendedAnimationHandled) {
       $this->pause($timings->actionAnimation);
       $this->pause($timings->effectAnimation);
     }
 
-    $previousHp = $target->stats->currentHp;
-    $previousMp = $target->stats->currentMp;
+    $previousVitals = [];
+
+    foreach ($targets as $index => $target) {
+      $previousVitals[$index] = [$target->stats->currentHp, $target->stats->currentMp];
+    }
+
     $resolveAction();
 
     $this->stepActorBack($context, $actor);
     $this->pause($timings->stepBack);
 
     $context->ui->characterStatusWindow->setCharacters($context->party->battlers->toArray());
-    $this->playDamageFeedbackSound($context, $target, $previousHp);
-    $this->displayStatChanges($context, $target, $previousHp, $previousMp, $timings->statChanges);
+    $this->playDamageFeedbackSound($context, $focusTarget, $previousVitals[0][0]);
+    $this->displayStatChangesForTargets($context, $targets, $previousVitals, $timings->statChanges);
     $this->displayPhase($context, 'Turn over.', $timings->turnOver, hideAfter: true);
     $context->ui->characterNameWindow->setActiveSelection(-1);
     $context->ui->fieldWindow->clearTargetIndicators();
@@ -599,6 +603,39 @@ class ActionExecutionState extends TurnState
       MagicEffectType::BUFF => Color::BLUE,
       MagicEffectType::DEBUFF => Color::YELLOW,
     };
+  }
+
+  /**
+   * Shows battlefield popups for every resolved target at once.
+   *
+   * @param TurnStateExecutionContext $context The turn context.
+   * @param CharacterInterface[] $targets The resolved targets.
+   * @param array<int, array{0: int, 1: int}> $previousVitals Pre-action [HP, MP] per target index.
+   * @param float $delaySeconds The time to show the popups.
+   * @return void
+   */
+  protected function displayStatChangesForTargets(
+    TurnStateExecutionContext $context,
+    array $targets,
+    array $previousVitals,
+    float $delaySeconds
+  ): void
+  {
+    $context->ui->hideMessage();
+
+    foreach ($targets as $index => $target) {
+      [$previousHp, $previousMp] = $previousVitals[$index] ?? [$target->stats->currentHp, $target->stats->currentMp];
+      $context->ui->fieldWindow->showStatChangePopup(
+        $target,
+        $this->buildStatChangePopupLines($target, $previousHp, $previousMp),
+        clearExisting: $index === 0
+      );
+    }
+
+    $context->ui->refresh();
+    $this->pause($delaySeconds);
+    $context->ui->fieldWindow->clearStatChangePopups();
+    $context->ui->refreshField();
   }
 
   /**

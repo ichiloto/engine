@@ -18,6 +18,7 @@ use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Scenes\Game\States\CutsceneState;
 use Ichiloto\Engine\Scenes\Game\States\DialogueState;
 use Ichiloto\Engine\Scenes\Game\States\AbilityMenuState;
+use Ichiloto\Engine\Field\EncounterManager;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Game\States\QuestMenuState;
 use Ichiloto\Engine\Scenes\Game\States\SummonsMenuState;
@@ -139,6 +140,10 @@ class GameScene extends AbstractScene
      */
     protected(set) ?QuestManager $questManager = null;
     /**
+     * @var EncounterManager|null The random-encounter manager.
+     */
+    protected(set) ?EncounterManager $encounterManager = null;
+    /**
      * @var string[] The currently recorded story-event flags.
      */
     public array $storyEvents {
@@ -223,6 +228,7 @@ class GameScene extends AbstractScene
         // starting map counts toward reach-map objectives.
         $this->questManager = new QuestManager($this->getGame(), $this);
         $this->questManager->hydrate($this->config->questLog);
+        $this->encounterManager = new EncounterManager($this);
 
         $this->loadMap($this->config->mapId, $this->player);
         $this->player->activate();

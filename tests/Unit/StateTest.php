@@ -147,6 +147,24 @@ it('raises and drops guard, and never carries it out of battle', function () {
   expect($battler->isGuarding)->toBeFalse();
 });
 
+it('learns level-up skills directly and never twice', function () {
+  $book = new Ichiloto\Engine\Entities\Abilities\AbilityBook();
+  $skill = new Ichiloto\Engine\Entities\Skills\BasicSkill(
+    'Whirlwind',
+    '',
+    '',
+    8,
+    0,
+    new Ichiloto\Engine\Entities\ItemScope(),
+    Ichiloto\Engine\Entities\Enumerations\Occasion::BATTLE_SCREEN,
+    new Ichiloto\Engine\Entities\Skills\SkillInvocation()
+  );
+
+  expect($book->learnSkillDirectly($skill))->toBeTrue()
+    ->and($book->learnSkillDirectly($skill))->toBeFalse()
+    ->and(array_map(fn($ability) => $ability->name, $book->getLearnedAbilities()))->toContain('Whirlwind');
+});
+
 it('tracks remaining turns on instances', function () {
   $instance = new StateInstance(stunState(), 1);
 

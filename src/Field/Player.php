@@ -163,6 +163,7 @@ class Player extends GameObject
     $this->handleCollision($collisionType);
     $this->updatePlayerPosition($direction, $camera, $previousSprite);
     $this->handleTriggers($event);
+    $this->getGameScene()->encounterManager?->registerStep($collisionType);
 
 
     if ($this->getGameScene()->mapManager->isAtSavePoint) {

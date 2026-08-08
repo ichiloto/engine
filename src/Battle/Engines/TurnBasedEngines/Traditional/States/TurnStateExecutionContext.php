@@ -17,6 +17,10 @@ use Ichiloto\Engine\Entities\Troop;
 class TurnStateExecutionContext
 {
   /**
+   * @var int The 1-based battle round, advanced at each round's init.
+   */
+  public int $roundNumber = 0;
+  /**
    * @var Turn[] The turns to resolve this round.
    */
   protected array $turns = [];

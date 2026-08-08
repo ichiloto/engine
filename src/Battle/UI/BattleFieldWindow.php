@@ -382,9 +382,11 @@ class BattleFieldWindow extends Window
    * @param array<int, array{text: string, color?: Color}> $lines The popup lines to display.
    * @return void
    */
-  public function showStatChangePopup(CharacterInterface $battler, array $lines): void
+  public function showStatChangePopup(CharacterInterface $battler, array $lines, bool $clearExisting = true): void
   {
-    $this->clearStatChangePopups();
+    if ($clearExisting) {
+      $this->clearStatChangePopups();
+    }
 
     $anchor = $this->resolveStatChangePopupAnchor($battler);
 
