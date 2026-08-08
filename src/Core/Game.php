@@ -26,6 +26,7 @@ use Ichiloto\Engine\Events\Interfaces\StaticObserverInterface;
 use Ichiloto\Engine\Events\Interfaces\SubjectInterface;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\IO\Console\TerminalCapabilities;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
@@ -386,6 +387,12 @@ class Game implements CanRun, SubjectInterface
         ConfigStore::put(PlaySettings::class, new PlaySettings($this->options));
         ConfigStore::put(AppConfig::class, new AppConfig());
         ConfigStore::put(ProjectConfig::class, new ProjectConfig());
+
+        // Detect what this terminal can render before anything draws, so the
+        // engine picks a rendering strategy that matches the host instead of
+        // assuming one.
+        TerminalCapabilities::detect();
+
         ConfigStore::put(InputConfig::class, new InputConfig());
         ConfigStore::put(ItemStore::class, new ItemStore());
         ConfigStore::put(EnemyStore::class, new EnemyStore());

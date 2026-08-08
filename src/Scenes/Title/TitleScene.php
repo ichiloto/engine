@@ -7,6 +7,7 @@ use Ichiloto\Engine\Core\Menu\Commands\ContinueGameCommand;
 use Ichiloto\Engine\Core\Menu\Commands\NewGameCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenTitleOptionsCommand;
 use Ichiloto\Engine\Core\Menu\Commands\QuitGameCommand;
+use Ichiloto\Engine\Core\Menu\Commands\ShowCreditsCommand;
 use Ichiloto\Engine\Core\Menu\TitleMenu\TitleMenu;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
@@ -155,8 +156,14 @@ class TitleScene extends AbstractScene
       ->menu
       ->addItem(new NewGameCommand($this->menu, $gameLoader))
       ->addItem($this->continueCommand)
-      ->addItem(new OpenTitleOptionsCommand($this->menu))
-      ->addItem(new QuitGameCommand($this->menu));
+      ->addItem(new OpenTitleOptionsCommand($this->menu));
+
+    // The credits entry only appears when the project authors them.
+    if (ShowCreditsCommand::projectHasCredits()) {
+      $this->menu->addItem(new ShowCreditsCommand($this->menu));
+    }
+
+    $this->menu->addItem(new QuitGameCommand($this->menu));
 
     $this->initializeOptionsWindow();
     $this->initializeContinueMenuWindows();

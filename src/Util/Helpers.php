@@ -217,11 +217,13 @@ if (! function_exists('dialogue_speed') ) {
    */
   function dialogue_speed(): float
   {
-    return floatval(config(
+    $speed = floatval(config(
       ProjectConfig::class,
       'ui.dialogue.speed',
       config(ProjectConfig::class, 'ui.dialogue.message.speed', 20)
     ));
+
+    return max(1.0, $speed * \Ichiloto\Engine\UI\Accessibility::textSpeedScale());
   }
 }
 
@@ -557,9 +559,24 @@ if (! function_exists('get_message') ) {
    * @param string $default The default message.
    * @return string The message.
    */
-  function get_message(string $path, string $default): string
+  function get_message(string $path, string $default, int|float|string ...$arguments): string
   {
-    return config(ProjectConfig::class, "messages.$path", $default);
+    return \Ichiloto\Engine\Localization\MessageCatalog::get($path, $default, ...$arguments);
+  }
+}
+
+if (! function_exists('format_message') ) {
+  /**
+   * Substitutes positional placeholders (`%1`, `%2`, …) in a message that
+   * has already been resolved.
+   *
+   * @param string $message The message template.
+   * @param int|float|string ...$arguments The replacement values.
+   * @return string The formatted message.
+   */
+  function format_message(string $message, int|float|string ...$arguments): string
+  {
+    return \Ichiloto\Engine\Localization\MessageCatalog::format($message, ...$arguments);
   }
 }
 

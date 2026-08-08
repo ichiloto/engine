@@ -812,7 +812,7 @@ class BattleFieldWindow extends Window
    */
   protected function formatIndicator(string $text, bool $blink = false): string
   {
-    $prefix = $blink ? "\033[5m" : '';
+    $prefix = ($blink && \Ichiloto\Engine\UI\Accessibility::allowsBlink()) ? "\033[5m" : '';
 
     return $prefix . $this->battleScreen->getSelectionColor()->value . $text . Color::RESET->value;
   }

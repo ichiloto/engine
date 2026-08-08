@@ -116,8 +116,7 @@ class Player extends GameObject
     );
 
     $this->configureDirectionalSprites($directionalSprites);
-    $this->heading = $heading;
-    $this->setFacingSprite($sprite, $heading);
+    $this->setFacingSprite($sprite, $heading === MovementHeading::NONE ? null : $heading);
     $this->canShowLocationHUDWindow = config(ProjectConfig::class, 'ui.hud.location', false);
     $this->events = new ItemList(EventTrigger::class);
   }
@@ -363,8 +362,38 @@ class Player extends GameObject
   public function setFacingSprite(array $sprite, ?MovementHeading $heading = null): void
   {
     $sprite = PlayerSpriteSet::normalizeSprite($sprite);
+    $resolvedHeading = $heading ?? $this->resolveHeadingFromSprite($sprite);
+
+    // A sprite that belongs to no direction (a placeholder glyph in the
+    // project's spawn data, say) would otherwise be drawn verbatim and leave
+    // the player facing nowhere. Fall back to the configured art for the
+    // heading so every direction always shows its own sprite.
+    if ($resolvedHeading === MovementHeading::NONE) {
+      $resolvedHeading = MovementHeading::SOUTH;
+      $sprite = $this->getSpriteForHeading($resolvedHeading);
+    } elseif ($heading !== null && $sprite !== $this->getSpriteForHeading($resolvedHeading)) {
+      // An explicit heading wins over a mismatched sprite.
+      $sprite = $this->getSpriteForHeading($resolvedHeading);
+    }
+
     $this->sprite = $sprite;
-    $this->heading = $heading ?? $this->resolveHeadingFromSprite($sprite);
+    $this->heading = $resolvedHeading;
+  }
+
+  /**
+   * Returns the configured sprite for a heading.
+   *
+   * @param MovementHeading $heading The heading.
+   * @return string[] The sprite rows.
+   */
+  public function getSpriteForHeading(MovementHeading $heading): array
+  {
+    return match ($heading) {
+      MovementHeading::NORTH => $this->upSprite,
+      MovementHeading::EAST => $this->rightSprite,
+      MovementHeading::WEST => $this->leftSprite,
+      default => $this->downSprite,
+    };
   }
 
   /**

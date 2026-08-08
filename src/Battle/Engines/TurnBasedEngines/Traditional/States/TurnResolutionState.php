@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States;
 use Ichiloto\Engine\Battle\BattleResult;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
+use Ichiloto\Engine\Scenes\Game\GameScene;
 
 /**
  * Represents the turn resolution state.
@@ -86,10 +87,13 @@ class TurnResolutionState extends TurnState
         $context->party->addItems(...$items);
       }
 
-      if ($questManager = QuestManager::current()) {
-        foreach ($context->troop->members->toArray() as $enemy) {
-          $questManager->recordDefeat($enemy->name);
-        }
+      $questManager = QuestManager::current();
+      $gameScene = $context->game->sceneManager->findScene(GameScene::class);
+      $bestiary = $gameScene instanceof GameScene ? $gameScene->bestiary : null;
+
+      foreach ($context->troop->members->toArray() as $enemy) {
+        $questManager?->recordDefeat($enemy->name);
+        $bestiary?->recordDefeated($enemy->name);
       }
 
       $lines = [

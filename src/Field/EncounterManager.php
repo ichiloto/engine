@@ -133,7 +133,7 @@ class EncounterManager
     try {
       $troop = get_troop($troopName);
     } catch (Throwable $exception) {
-      Debug::warn(sprintf('Encounter skipped — unknown troop "%s": %s', $troopName, $exception->getMessage()));
+      Debug::warn(sprintf('Encounter skipped, unknown troop "%s": %s', $troopName, $exception->getMessage()));
       return;
     }
 

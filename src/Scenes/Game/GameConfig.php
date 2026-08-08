@@ -42,6 +42,8 @@ class GameConfig implements SceneConfigurationInterface
     protected(set) int $playTimeSeconds = 0,
     protected(set) array $gameState = [],
     protected(set) array $questLog = [],
+    protected(set) array $achievements = [],
+    protected(set) array $bestiary = [],
   )
   {
   }
@@ -111,6 +113,8 @@ class GameConfig implements SceneConfigurationInterface
       'playTimeSeconds' => $this->playTimeSeconds,
       'gameState' => $this->gameState,
       'questLog' => $this->questLog,
+      'achievements' => $this->achievements,
+      'bestiary' => $this->bestiary,
     ];
   }
 
@@ -138,6 +142,8 @@ class GameConfig implements SceneConfigurationInterface
     $this->playTimeSeconds ??= 0;
     $this->gameState ??= [];
     $this->questLog ??= [];
+    $this->achievements ??= [];
+    $this->bestiary ??= [];
   }
 
   /**

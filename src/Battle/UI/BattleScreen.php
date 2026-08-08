@@ -396,7 +396,7 @@ class BattleScreen implements CanRender, CanUpdate
    */
   public function styleSelectionLine(string $text, bool $blink = false): string
   {
-    $prefix = $blink ? "\033[5m" : '';
+    $prefix = ($blink && \Ichiloto\Engine\UI\Accessibility::allowsBlink()) ? "\033[5m" : '';
 
     return $prefix . $this->selectionColor->value . $text . Color::RESET->value;
   }

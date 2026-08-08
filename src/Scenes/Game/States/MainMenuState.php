@@ -10,6 +10,7 @@ use Ichiloto\Engine\Core\Menu\Commands\OpenEquipmentMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenItemsMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenMagicMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenQuestsMenuCommand;
+use Ichiloto\Engine\Core\Menu\Commands\OpenRecordsMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenSummonsMenuCommand;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Core\Menu\Commands\OpenPartyOrderCommand;
@@ -229,6 +230,12 @@ class MainMenuState extends GameSceneState implements CanRender
         // before any are accepted, so players always know where to look.
         if (QuestManager::projectHasQuests()) {
             $this->mainMenu->addItem(new OpenQuestsMenuCommand($this->mainMenu));
+        }
+
+        // Records collect achievements and the bestiary; the entry appears
+        // as soon as a project authors either.
+        if (RecordsMenuState::projectHasRecords()) {
+            $this->mainMenu->addItem(new OpenRecordsMenuCommand($this->mainMenu));
         }
 
         $this->mainMenu

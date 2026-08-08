@@ -23,6 +23,17 @@ class SaveManager
   protected const string FILE_EXTENSION = 'iedata';
   protected const string FILE_HEADER = 'IED1';
   protected const int DEFAULT_SLOT_COUNT = 5;
+  /**
+   * The slot number recorded in quick saves (outside the player-visible range).
+   */
+  public const int QUICK_SAVE_SLOT = -1;
+  /**
+   * The slot number recorded in autosaves.
+   */
+  public const int AUTO_SAVE_SLOT = -2;
+  protected const string QUICK_SAVE_NAME = 'quick';
+  protected const string AUTO_SAVE_NAME = 'auto';
+  protected const int AUTO_SAVE_RING_SIZE = 3;
 
   /**
    * The data directory path.
@@ -168,7 +179,69 @@ class SaveManager
    */
   public function save(GameScene $scene, int $slot): SaveSlot
   {
-    $savedGame = $this->createSavedGame($scene, $slot);
+    return $this->writeSave($scene, $slot, $this->getSlotPath($slot));
+  }
+
+  /**
+   * Writes a quick save, overwriting the previous one.
+   *
+   * Quick saves live beside the numbered slots in their own directory and
+   * never consume a player-visible slot.
+   *
+   * @param GameScene $scene The live game scene.
+   * @return SaveSlot The saved slot summary.
+   */
+  public function quickSave(GameScene $scene): SaveSlot
+  {
+    return $this->writeSave($scene, self::QUICK_SAVE_SLOT, $this->getQuickSavePath(self::QUICK_SAVE_NAME));
+  }
+
+  /**
+   * Writes an autosave, rotating through a small ring of files so one bad
+   * autosave can never be the only copy.
+   *
+   * @param GameScene $scene The live game scene.
+   * @return SaveSlot The saved slot summary.
+   */
+  public function autoSave(GameScene $scene): SaveSlot
+  {
+    $existing = glob($this->quickSaveDirectory . '/' . self::AUTO_SAVE_NAME . '-*.' . self::FILE_EXTENSION) ?: [];
+    usort($existing, static fn(string $a, string $b): int => filemtime($a) <=> filemtime($b));
+
+    // Reuse the oldest file once the ring is full.
+    $name = count($existing) >= self::AUTO_SAVE_RING_SIZE
+      ? pathinfo($existing[0], PATHINFO_FILENAME)
+      : sprintf('%s-%02d', self::AUTO_SAVE_NAME, count($existing) + 1);
+
+    return $this->writeSave($scene, self::AUTO_SAVE_SLOT, $this->getQuickSavePath($name));
+  }
+
+  /**
+   * Returns the path for a named file in the quick-save directory.
+   *
+   * @param string $name The file name without its extension.
+   * @return string The absolute path.
+   */
+  public function getQuickSavePath(string $name): string
+  {
+    if (! is_dir($this->quickSaveDirectory)) {
+      mkdir($this->quickSaveDirectory, 0o775, true);
+    }
+
+    return Path::join($this->quickSaveDirectory, sprintf('%s.%s', $name, self::FILE_EXTENSION));
+  }
+
+  /**
+   * Serializes the live scene to the given path.
+   *
+   * @param GameScene $scene The live game scene.
+   * @param int $slot The slot number recorded in the payload.
+   * @param string $path The destination path.
+   * @return SaveSlot The saved slot summary.
+   */
+  protected function writeSave(GameScene $scene, int $slot, string $path): SaveSlot
+  {
+    $savedGame = $this->createSavedGame($scene, $slot, $path);
     $serializedPayload = serialize([
       'slot' => $savedGame->slot,
       'config' => $savedGame->config,
@@ -182,7 +255,7 @@ class SaveManager
     $bytes = file_put_contents($savedGame->slot->path, self::FILE_HEADER . $encodedPayload);
 
     if ($bytes === false) {
-      throw new RuntimeException(sprintf('Could not write save slot %d.', $slot));
+      throw new RuntimeException(sprintf('Could not write save to %s.', $path));
     }
 
     return $savedGame->slot;
@@ -278,13 +351,13 @@ class SaveManager
    * @param int $slot The 1-based save slot.
    * @return SavedGame The created save payload.
    */
-  protected function createSavedGame(GameScene $scene, int $slot): SavedGame
+  protected function createSavedGame(GameScene $scene, int $slot, ?string $path = null): SavedGame
   {
     $config = $scene->createSnapshot((int) Time::getTime());
     $leader = $scene->party?->leader;
     $saveSlot = new SaveSlot(
       slot: $slot,
-      path: $this->getSlotPath($slot),
+      path: $path ?? $this->getSlotPath($slot),
       isEmpty: false,
       locationName: $scene->party?->location?->name ?? 'Unknown',
       leaderName: $leader?->name ?? '',

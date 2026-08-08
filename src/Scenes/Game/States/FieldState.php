@@ -13,6 +13,7 @@ use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
+use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
@@ -139,6 +140,24 @@ class FieldState extends GameSceneState
 
         if (Input::isAnyKeyPressed([KeyCode::T, KeyCode::t])) {
             $scene->skitManager?->playNextAvailableSkit();
+        }
+
+        // F5 quick-saves from the field, the way a PC RPG player expects.
+        if (Input::isKeyDown(KeyCode::F5)) {
+            try {
+                $scene->sceneManager->saveManager->quickSave($scene);
+                play_sound(SystemSound::SAVE);
+                notify(
+                    $scene->getGame(),
+                    NotificationChannel::SYSTEM,
+                    'Quick saved',
+                    $scene->party?->location?->name ?? '',
+                    NotificationDuration::SHORT
+                );
+            } catch (\Throwable $exception) {
+                Debug::warn(sprintf('Quick save failed: %s', $exception->getMessage()));
+                alert('Could not quick save.');
+            }
         }
 
         if (Input::isAnyKeyPressed([KeyCode::x, KeyCode::X])) {

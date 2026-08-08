@@ -29,7 +29,7 @@ final class SelectionStyle
    */
   public static function apply(string $text, bool $blink = false): string
   {
-    $prefix = $blink ? "\033[5m" : '';
+    $prefix = ($blink && Accessibility::allowsBlink()) ? "\033[5m" : '';
 
     return $prefix . self::resolveColor()->value . $text . Color::RESET->value;
   }

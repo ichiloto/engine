@@ -201,7 +201,7 @@ class SummonsMenuState extends GameSceneState
     $header = sprintf(' %s', $definition->name);
 
     if ($definition->element !== '') {
-      $header .= sprintf('  —  %s', $definition->element);
+      $header .= sprintf('  |  %s', $definition->element);
     }
 
     $content[] = $header;
@@ -222,7 +222,7 @@ class SummonsMenuState extends GameSceneState
       sprintf(' %s : %s', TerminalText::padRight($label, $labelWidth), $value);
 
     if ($definition->moveName !== null) {
-      $content[] = $row('Move', sprintf('%s — %s', $definition->moveName, $definition->description));
+      $content[] = $row('Move', sprintf('%s: %s', $definition->moveName, $definition->description));
     }
 
     if ($definition->element !== '') {

@@ -276,7 +276,15 @@ abstract class GameObject implements CanActivate, SubjectInterface, CanUpdate, C
   public function erase(): void
   {
     for($y = $this->shape->getY(); $y < $this->shape->getY() + $this->shape->getHeight(); $y++) {
-      $this->scene->renderBackgroundTile($this->position->x, $this->position->y + $y);
+      $row = $this->sprite[$y - $this->shape->getY()] ?? ($this->sprite[0] ?? '');
+      // A sprite may be wider than one map cell (an emoji is two columns,
+      // and a fallback sprite adds a direction marker). Restore every cell
+      // it covered, or the extra columns stay smeared on the map.
+      $columns = max(1, \Ichiloto\Engine\IO\Console\TerminalText::displayWidth((string) $row));
+
+      for ($x = 0; $x < $columns; $x++) {
+        $this->scene->renderBackgroundTile($this->position->x + $x, $this->position->y + $y);
+      }
     }
   }
 

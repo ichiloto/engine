@@ -443,7 +443,7 @@ class PlayerActionState extends TurnState
     // until execution would let the move fizzle after it was announced.
     if ($this->activeCharacter && $option->mpCost > $this->activeCharacter->stats->currentMp) {
       $context->ui->alert(sprintf(
-        'Not enough MP! %s needs %d MP — %s has %d.',
+        'Not enough MP! %s needs %d MP, %s has %d.',
         $option->action->name,
         $option->mpCost,
         $this->activeCharacter->name,
@@ -557,7 +557,7 @@ class PlayerActionState extends TurnState
 
     if ($selectedOption->mpCost > $this->activeCharacter->stats->currentMp) {
       $context->ui->alert(sprintf(
-        'Not enough MP! %s needs %d MP — %s has %d.',
+        'Not enough MP! %s needs %d MP, %s has %d.',
         $selectedOption->action->name,
         $selectedOption->mpCost,
         $this->activeCharacter->name,

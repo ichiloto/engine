@@ -282,6 +282,20 @@ final class TerminalText
   }
 
   /**
+   * Whether the project opted into composite (ZWJ) emoji.
+   *
+   * Answered by {@see TerminalCapabilities}, which detects the host
+   * terminal at start-up: composing terminals keep their glyphs intact,
+   * everything else gets the width-stable reduction.
+   *
+   * @return bool True when composite emoji are allowed.
+   */
+  protected static function allowsCompositeEmoji(): bool
+  {
+    return TerminalCapabilities::supportsCompositeEmoji();
+  }
+
+  /**
    * Rewrites every width-unstable grapheme in the text into its stable form.
    *
    * Safe for text containing ANSI styling: escape sequences carry none of the
@@ -327,7 +341,14 @@ final class TerminalText
     }
 
     // ZWJ sequences and skin-tone modifiers: reduce to the base code point.
+    // A project that opts into composite emoji keeps them intact, since
+    // reducing them would collapse distinct sprites (the east-facing runner
+    // and the plain runner) into the same glyph.
     if (preg_match('/[\x{200D}\x{1F3FB}-\x{1F3FF}]/u', $visible) === 1) {
+      if (self::allowsCompositeEmoji()) {
+        return $symbol;
+      }
+
       $codepoints = preg_split('//u', $visible, -1, PREG_SPLIT_NO_EMPTY) ?: [];
       $base = $codepoints[0] ?? '';
 

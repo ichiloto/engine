@@ -21,8 +21,11 @@ use Ichiloto\Engine\Scenes\Game\States\AbilityMenuState;
 use Ichiloto\Engine\Field\EncounterManager;
 use Ichiloto\Engine\Field\NpcManager;
 use Ichiloto\Engine\Field\SkitManager;
+use Ichiloto\Engine\Progress\AchievementManager;
+use Ichiloto\Engine\Progress\Bestiary;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Game\States\QuestMenuState;
+use Ichiloto\Engine\Scenes\Game\States\RecordsMenuState;
 use Ichiloto\Engine\Scenes\Game\States\SummonsMenuState;
 use Ichiloto\Engine\Scenes\Game\States\EquipmentMenuState;
 use Ichiloto\Engine\Scenes\Game\States\FieldState;
@@ -37,6 +40,7 @@ use Ichiloto\Engine\Scenes\Game\States\ShopState;
 use Ichiloto\Engine\Scenes\Interfaces\SceneConfigurationInterface;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Elements\LocationHUDWindow;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
 use Override;
 
@@ -92,6 +96,10 @@ class GameScene extends AbstractScene
      * @var QuestMenuState|null The quest-journal menu state.
      */
     protected(set) ?QuestMenuState $questMenuState = null;
+    /**
+     * @var RecordsMenuState|null The achievements/bestiary records state.
+     */
+    protected(set) ?RecordsMenuState $recordsMenuState = null;
     /**
      * @var MagicMenuState|null The magic menu state.
      */
@@ -153,6 +161,14 @@ class GameScene extends AbstractScene
      * @var SkitManager|null The skit manager.
      */
     protected(set) ?SkitManager $skitManager = null;
+    /**
+     * @var AchievementManager|null The achievement manager.
+     */
+    protected(set) ?AchievementManager $achievementManager = null;
+    /**
+     * @var Bestiary The party's enemy codex.
+     */
+    protected(set) Bestiary $bestiary;
     /**
      * @var string[] The currently recorded story-event flags.
      */
@@ -219,6 +235,7 @@ class GameScene extends AbstractScene
             if ($kind !== 'variable') {
                 $this->questManager?->recordFlag($name);
                 $this->skitManager?->announceAvailableSkits();
+                $this->achievementManager?->evaluateConditionalAchievements();
             }
         };
 
@@ -242,6 +259,9 @@ class GameScene extends AbstractScene
         $this->encounterManager = new EncounterManager($this);
         $this->npcManager = new NpcManager($this);
         $this->skitManager = new SkitManager($this);
+        $this->achievementManager = new AchievementManager($this->getGame(), $this);
+        $this->achievementManager->hydrate($this->config->achievements);
+        $this->bestiary = Bestiary::fromArray($this->config->bestiary);
 
         $this->loadMap($this->config->mapId, $this->player);
         $this->player->activate();
@@ -266,6 +286,7 @@ class GameScene extends AbstractScene
         $this->abilityMenuState = new AbilityMenuState($this->sceneStateContext);
         $this->summonsMenuState = new SummonsMenuState($this->sceneStateContext);
         $this->questMenuState = new QuestMenuState($this->sceneStateContext);
+        $this->recordsMenuState = new RecordsMenuState($this->sceneStateContext);
         $this->magicMenuState = new MagicMenuState($this->sceneStateContext);
         $this->mapState = new MapState($this->sceneStateContext);
         $this->overworldState = new OverworldState($this->sceneStateContext);
@@ -369,6 +390,8 @@ class GameScene extends AbstractScene
             playTimeSeconds: $playTimeSeconds,
             gameState: $this->gameState->toArray(),
             questLog: $this->questManager?->log->toArray() ?? [],
+            achievements: $this->achievementManager?->toArray() ?? [],
+            bestiary: $this->bestiary->toArray(),
         );
     }
 
@@ -417,6 +440,30 @@ class GameScene extends AbstractScene
         $this->locationHUDWindow->updateDetails($this->player->position, $this->player->heading);
         $this->locationHUDWindow->render();
         Debug::info("Player transferred to $location->mapFilename... at {$this->player->position}");
+
+        $this->autoSave();
+    }
+
+    /**
+     * Writes an autosave when the project enables them.
+     *
+     * Map transfers are the natural checkpoint: the player has just
+     * committed to a new area. Opt in with `save.autosave` in the project
+     * config; failures warn and never interrupt play.
+     *
+     * @return void
+     */
+    public function autoSave(): void
+    {
+        if (! config(ProjectConfig::class, 'save.autosave', false)) {
+            return;
+        }
+
+        try {
+            $this->sceneManager->saveManager->autoSave($this);
+        } catch (\Throwable $exception) {
+            Debug::warn(sprintf('Autosave failed: %s', $exception->getMessage()));
+        }
     }
 
     /**

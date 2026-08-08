@@ -221,7 +221,7 @@ class QuestMenuState extends GameSceneState
     foreach ($this->quests as $index => $quest) {
       $prefix = $index === $this->activeIndex ? '>' : ' ';
       $name = TerminalText::padRight($quest->name, 40);
-      $giver = TerminalText::padRight($quest->giver !== '' ? $quest->giver : '—', 24);
+      $giver = TerminalText::padRight($quest->giver !== '' ? $quest->giver : '-', 24);
       $content[] = sprintf(' %s %s %s %s', $prefix, $name, $giver, $this->describeOverallProgress($quest));
     }
 
@@ -250,7 +250,7 @@ class QuestMenuState extends GameSceneState
     $header = sprintf(' %s', $quest->name);
 
     if ($quest->giver !== '') {
-      $header .= sprintf('  —  from %s', $quest->giver);
+      $header .= sprintf('  |  from %s', $quest->giver);
     }
 
     $content[] = $header;

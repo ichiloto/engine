@@ -165,7 +165,7 @@ enum BattleCommandType: string
       self::MAGIC => 'Cast a learned spell that can be used in battle.',
       self::SUMMON => sprintf('Use one of this character\'s %s actions.', $this->label()),
       self::ITEM => 'Use a battle item from the party inventory.',
-      self::GUARD => 'Brace for impact — take half damage until your next turn.',
+      self::GUARD => 'Brace for impact and take half damage until your next turn.',
       self::ESCAPE => 'Attempt to flee the battle.',
     };
   }

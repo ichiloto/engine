@@ -169,6 +169,20 @@ class SceneManager implements CanStart, CanRender, CanUpdate
   }
 
   /**
+   * Returns a registered scene by class name without loading it.
+   *
+   * Lets a running scene reach a sibling's state — the battle scene
+   * recording into the field scene's bestiary, for instance.
+   *
+   * @param class-string $className The scene class.
+   * @return SceneInterface|null The scene, or null when not registered.
+   */
+  public function findScene(string $className): ?SceneInterface
+  {
+    return $this->scenes->find(fn(SceneInterface $scene) => $scene::class === $className);
+  }
+
+  /**
    * Load a scene.
    *
    * @param string|int $index The index of the scene to load.

@@ -74,9 +74,12 @@ it('resolves headings for sanitized sprites', function () {
     ],
   ]);
 
-  // Both the stored set and the probe sprite are sanitized, so a raw
-  // composite sprite still resolves to its heading.
-  expect($spriteSet->resolveHeading('🏃🏽'))->toBe(MovementHeading::EAST)
+  // On a terminal that cannot compose ZWJ, the composite east sprite is
+  // derived into "base glyph + direction marker", so the plain runner is
+  // west's sprite alone and the two directions stay distinct instead of
+  // both sanitizing down to the same glyph.
+  expect($spriteSet->resolveHeading('🏃🏽'))->toBe(MovementHeading::WEST)
+    ->and($spriteSet->resolveHeading('🏃>'))->toBe(MovementHeading::EAST)
     ->and($spriteSet->resolveHeading('🚶'))->toBe(MovementHeading::SOUTH);
 });
 

@@ -134,6 +134,17 @@ class TextBoxModal extends Modal
   public function updateContent(): void
   {
     if ($this->isPrinting) {
+      $now = microtime(true);
+
+      if ($now >= $this->nextPrintTime) {
+        $this->nextPrintTime = $now + (1 / $this->charactersPerSecond);
+        $this->currentCharacterIndex++;
+      }
+
+      // The content is built *after* the cursor advances, and printing stops
+      // only once that final content has been set — otherwise the closing
+      // character of every message would never be drawn.
+      $this->isPrinting = $this->currentCharacterIndex < $this->messageLength;
       $this->content = $this->convertMessageToLinesOfContent($this->message);
 
       // Calculate the number of lines.
@@ -143,14 +154,6 @@ class TextBoxModal extends Modal
       for ($row = 0; $row < $verticalPadding; $row++) {
         $this->content[] = '';
       }
-
-      $now = microtime(true);
-      if ($now >= $this->nextPrintTime) {
-        $this->nextPrintTime = $now + (1 / $this->charactersPerSecond);
-        $this->currentCharacterIndex++;
-      }
-
-      $this->isPrinting = $this->currentCharacterIndex < $this->messageLength;
 
       $this->window->setContent($this->content);
     } else {
@@ -205,8 +208,10 @@ class TextBoxModal extends Modal
    */
   protected function convertMessageToLinesOfContent(string $message): array
   {
-    // Split the message into lines.
+    // Split the message into lines. The cursor counts characters, so the
+    // slice must too — byte slicing would cut a multibyte character in half
+    // and stop short of the end on any message containing one.
     $contentString = wordwrap($message, $this->rect->getWidth() - 3, "\n", true);
-    return explode("\n", substr($contentString, 0, $this->currentCharacterIndex));
+    return explode("\n", mb_substr($contentString, 0, $this->currentCharacterIndex));
   }
 }

@@ -324,7 +324,55 @@ Turn the polished stage into a real fight. Roughly in order:
 - Item-use quantity prompt; equipment class restrictions via the dead
   `WeaponType`/`ArmorType` enums; equipment stat-delta preview
 
-### Phase 6 — Shipping polish
+### Phase 6 — Shipping polish ⏳ *in progress 2026-08: achievements, bestiary, saves, accessibility shipped*
+> Status: **Achievements** (`Progress\Achievement` + `AchievementManager`):
+> definitions from `assets/Data/achievements.php` (id/name/description/icon/
+> points/secret/conditions), unlock state persisted in saves, explicit
+> `unlock()` plus automatic unlocking whenever declared world-state
+> conditions come true (wired to the same `GameState::onChange` hook quests
+> and skits use), notification on unlock, and the `AchievementEvent`
+> broadcast. **Bestiary** (`Progress\Bestiary`): seen/defeated counts per
+> enemy, recorded at battle start (met) and victory (defeated), persisted in
+> saves. **Records screen**: a new main-menu entry with Achievements and
+> Bestiary tabs — undiscovered enemies mask to `??????`, secret achievements
+> hide until earned, and the entry only appears when a project authors
+> either. **Quicksave/autosave**: `SaveManager::quickSave()` (F5 in the
+> field) and `autoSave()` (a 3-file rotating ring, written on map transfer
+> when `save.autosave` is on) both land in the existing quick-save
+> directory and never consume a player-visible slot. **Accessibility**
+> (`UI\Accessibility`): `reducedMotion`, `disableBlink`, `highContrast`,
+> and `textSpeedScale` under `accessibility.*`, all defaulting to current
+> behaviour; blinking highlights across menus and battle now honour them and
+> dialogue typing scales. Also added `SceneManager::findScene()` so a
+> running scene can reach a sibling's state (the battle scene recording into
+> the field scene's bestiary) and `EnemyStore::all()`. 8 new tests (suite:
+> 244 passed, 0 failed); verified live — the chest unlocked Treasure Hunter,
+> the Records screen rendered both tabs, and F5 + a map transfer wrote
+> `quick.iedata` and `auto-01.iedata` that both load back cleanly.
+> **Localization foundation**: `Localization\MessageCatalog` resolves
+> `messages.*` with locale-first lookup (`messages.<locale>.<path>` then the
+> untagged tree, so partial translations degrade to the base language) and
+> substitutes the `%1`/`%2` placeholders the scaffolded message tree already
+> used but nothing formatted; `get_message()` now takes arguments and a new
+> `format_message()` handles pre-resolved strings. Chest loot messages were
+> the first literals extracted onto it. **Credits**: `ShowCreditsCommand`
+> reads `assets/Data/credits.php` as titled sections and appears on the
+> title menu only when a project authors them.
+> **Two real dialogue bugs surfaced and fixed while verifying credits**:
+> (1) the typing loop built its content *before* advancing the cursor and
+> stopped as soon as the cursor reached the end, so **the final character of
+> every message was never drawn** (Mom's dialogue had been silently losing
+> its full stop all along); (2) the cursor counted characters via
+> `mb_strlen` but sliced with byte-based `substr`, so any message containing
+> a multibyte character (an em-dash, an emoji) stopped several characters
+> short. Both verified live: strings that previously never completed now
+> render in full.
+> **Still open in this phase**: overworld & in-game map states, scene
+> fade/wipe transitions, non-blocking modal/animation timers, remaining SFX
+> coverage, unifying the two settings managers, and the input-rebinding UI
+> (and `InputConfig::persist`).
+
+#### Original plan
 - **Achievements** — real registry, definitions file, unlock persistence in
   saves, list UI; create the missing `AchievementEvent`
 - **Bestiary** — seen/defeated tracking over `EnemyStore`, codex UI (the
