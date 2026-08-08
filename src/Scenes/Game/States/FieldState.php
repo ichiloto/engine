@@ -73,6 +73,7 @@ class FieldState extends GameSceneState
 
         $this->handleActions($scene);
         $this->handleNavigation($scene);
+        $scene->npcManager?->update();
     }
 
     /**
@@ -134,6 +135,10 @@ class FieldState extends GameSceneState
 
         if (Input::isButtonDown("map")) {
             $this->showInGameMap();
+        }
+
+        if (Input::isAnyKeyPressed([KeyCode::T, KeyCode::t])) {
+            $scene->skitManager?->playNextAvailableSkit();
         }
 
         if (Input::isAnyKeyPressed([KeyCode::x, KeyCode::X])) {

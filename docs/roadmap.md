@@ -232,7 +232,35 @@ Turn the polished stage into a real fight. Roughly in order:
 11. Honor the inert skill fields (invocation message templates, repeat,
     speed, accuracy, cooldown, required weapons); replace formula `eval()`
 
-### Phase 4 — World & story presentation (cutscenes, NPCs, skits)
+### Phase 4 — World & story presentation (cutscenes, NPCs, skits) ✅ *shipped 2026-08*
+> Status: **Event-command interpreter** (`Events\Interpreter\EventInterpreter`):
+> data-driven scripts with text, choice (nested command blocks per option),
+> wait, switch/variable/story-event writes, give item/gold, sounds/music,
+> quest accept, move-player, transfer, start-battle, and condition branches;
+> `ScriptEventTrigger` fires scripts from map tiles (auto or action mode,
+> inline or `assets/Events/<id>.php`), composing with Phase 1
+> conditions/sets/one-shots (demo: the dresser note with a read/leave choice
+> and an item-gated hidden coin). **NPC field actors** (`Field\Npc` +
+> `NpcManager`): per-map `npcs` blocks with sprite, fixed/wander movement
+> (bounded areas, collision-aware — live NPCs block tiles exactly like
+> authored NPC tiles), visibility conditions, dialogue or full scripts,
+> post-talk `sets`, and talk-to quest recording via the action key on the
+> faced tile (demo: Whiskers the wandering cat). **Skits**
+> (`Field\SkitManager`): authored beat lists under `assets/Data/Skits/`,
+> gated on map + conditions, announced by notification when they become
+> available, played with T, marked seen via `skit_seen:<id>` (demo:
+> Breakfast Banter in the town center while the errand is active).
+> **DialogueTree wiring**: choices connect to switches/variables through the
+> interpreter's `choice` + `branch` + write commands — the standalone
+> `DialogueTree` class is superseded by this and remains unused. Live e2e:
+> dresser scene (choice both paths + gated coin), quest accept, town skit
+> notification + playback, all coordinate-verified. The chase also fixed
+> the e2e driver's understanding of typing-speed pacing (the modal
+> fast-forwards a confirm that lands mid-typing — standard behavior, but
+> drivers must wait out long pages). Deferred: fade/camera-pan script
+> commands (no engine fade facility yet), NPC patrol routes and party
+> followers (wander/fixed shipped), and a dedicated compact skit overlay
+> (beats currently use the standard dialogue box).
 - **Event-command interpreter** — the generic cutscene engine `CutsceneState`
   was meant to host: a data-driven command list (show text, move actor, wait,
   fade, pan camera, play sound/music, set switch/variable, conditional

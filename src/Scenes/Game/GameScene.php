@@ -19,6 +19,8 @@ use Ichiloto\Engine\Scenes\Game\States\CutsceneState;
 use Ichiloto\Engine\Scenes\Game\States\DialogueState;
 use Ichiloto\Engine\Scenes\Game\States\AbilityMenuState;
 use Ichiloto\Engine\Field\EncounterManager;
+use Ichiloto\Engine\Field\NpcManager;
+use Ichiloto\Engine\Field\SkitManager;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Game\States\QuestMenuState;
 use Ichiloto\Engine\Scenes\Game\States\SummonsMenuState;
@@ -144,6 +146,14 @@ class GameScene extends AbstractScene
      */
     protected(set) ?EncounterManager $encounterManager = null;
     /**
+     * @var NpcManager|null The field NPC manager.
+     */
+    protected(set) ?NpcManager $npcManager = null;
+    /**
+     * @var SkitManager|null The skit manager.
+     */
+    protected(set) ?SkitManager $skitManager = null;
+    /**
      * @var string[] The currently recorded story-event flags.
      */
     public array $storyEvents {
@@ -204,10 +214,11 @@ class GameScene extends AbstractScene
         }
 
         // Flag writes feed quest objectives that watch switches and story
-        // events.
+        // events, and can make new skits available.
         $this->gameState->onChange = function (string $kind, string $name): void {
             if ($kind !== 'variable') {
                 $this->questManager?->recordFlag($name);
+                $this->skitManager?->announceAvailableSkits();
             }
         };
 
@@ -229,6 +240,8 @@ class GameScene extends AbstractScene
         $this->questManager = new QuestManager($this->getGame(), $this);
         $this->questManager->hydrate($this->config->questLog);
         $this->encounterManager = new EncounterManager($this);
+        $this->npcManager = new NpcManager($this);
+        $this->skitManager = new SkitManager($this);
 
         $this->loadMap($this->config->mapId, $this->player);
         $this->player->activate();

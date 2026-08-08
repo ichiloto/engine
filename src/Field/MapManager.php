@@ -159,6 +159,7 @@ class MapManager implements CanRenderAt
     $this->loadTileMap($filename, $player);
     Console::clear();
     $this->render();
+    $this->gameScene->npcManager?->render();
     return $this;
   }
 
@@ -174,6 +175,12 @@ class MapManager implements CanRenderAt
   public function canMoveTo(int $x, int $y, ?CollisionType &$collisionType = null): bool
   {
     if ($this->coordinatesAreNotDefined($x, $y)) {
+      return false;
+    }
+
+    // Live NPCs block a tile the same way authored NPC tiles do.
+    if ($this->gameScene->npcManager?->npcAt($x, $y) !== null) {
+      $collisionType = CollisionType::NPC;
       return false;
     }
 
@@ -292,6 +299,10 @@ class MapManager implements CanRenderAt
     $this->gameScene->encounterManager?->configure(
       is_array($map['encounters'] ?? null) ? $map['encounters'] : null
     );
+    $this->gameScene->npcManager?->configure(
+      is_array($map['npcs'] ?? null) ? $map['npcs'] : []
+    );
+    $this->gameScene->skitManager?->announceAvailableSkits();
 
     $this->camera->resetPosition($player);
   }

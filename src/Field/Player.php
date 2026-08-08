@@ -164,6 +164,8 @@ class Player extends GameObject
     $this->updatePlayerPosition($direction, $camera, $previousSprite);
     $this->handleTriggers($event);
     $this->getGameScene()->encounterManager?->registerStep($collisionType);
+    // Camera scroll can repaint over NPC sprites; refresh them per step.
+    $this->getGameScene()->npcManager?->render();
 
 
     if ($this->getGameScene()->mapManager->isAtSavePoint) {
@@ -617,10 +619,47 @@ class Player extends GameObject
    */
   public function interact(): void
   {
+    if ($this->availableAction === null && $this->talkToFacingNpc()) {
+      return;
+    }
+
     $this->availableAction?->execute(new FieldActionContext(
       $this,
       $this->getGameScene(),
       $this->position
     ));
+  }
+
+  /**
+   * Talks to the NPC on the tile the player faces, when one is there.
+   *
+   * @return bool True when a conversation happened.
+   */
+  protected function talkToFacingNpc(): bool
+  {
+    [$dx, $dy] = match ($this->heading) {
+      MovementHeading::NORTH => [0, -1],
+      MovementHeading::SOUTH => [0, 1],
+      MovementHeading::EAST => [1, 0],
+      MovementHeading::WEST => [-1, 0],
+      default => [0, 0],
+    };
+
+    if ($dx === 0 && $dy === 0) {
+      return false;
+    }
+
+    $npc = $this->getGameScene()->npcManager?->npcAt(
+      intval($this->position->x) + $dx,
+      intval($this->position->y) + $dy
+    );
+
+    if ($npc === null) {
+      return false;
+    }
+
+    $npc->talk($this->getGameScene());
+
+    return true;
   }
 }

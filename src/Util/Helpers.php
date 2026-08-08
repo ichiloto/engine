@@ -207,6 +207,24 @@ if (! function_exists('show_text') ) {
   }
 }
 
+if (! function_exists('dialogue_speed') ) {
+  /**
+   * Returns the project's configured dialogue typing speed in characters
+   * per second. Every conversational surface (dialogue, skits, event-script
+   * text) should type at this one speed.
+   *
+   * @return float The typing speed in characters per second.
+   */
+  function dialogue_speed(): float
+  {
+    return floatval(config(
+      ProjectConfig::class,
+      'ui.dialogue.speed',
+      config(ProjectConfig::class, 'ui.dialogue.message.speed', 20)
+    ));
+  }
+}
+
 if (! function_exists('notify') ) {
   /**
    * Notifies the user with the given title and text.
