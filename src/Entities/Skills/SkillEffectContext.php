@@ -24,4 +24,9 @@ class SkillEffectContext
   )
   {
   }
+
+  /**
+   * @var bool True when the action rolled a critical hit for this target.
+   */
+  public bool $criticalHit = false;
 }

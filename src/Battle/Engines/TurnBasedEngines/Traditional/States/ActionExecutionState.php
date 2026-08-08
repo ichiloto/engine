@@ -57,6 +57,21 @@ class ActionExecutionState extends TurnState
       return;
     }
 
+    // A guard raised last round protects until this battler acts again.
+    if (method_exists($turn->battler, 'stopGuarding')) {
+      $turn->battler->stopGuarding();
+    }
+
+    // A state like sleep or paralysis consumes the turn outright.
+    if (method_exists($turn->battler, 'getActionBlockingState')
+      && ($blockingState = $turn->battler->getActionBlockingState()) !== null
+    ) {
+      $context->ui->alert(sprintf('%s is down with %s and cannot act!', $turn->battler->name, $blockingState->name));
+      $context->advanceTurn();
+      $this->transitionToResolutionIfNeeded($context);
+      return;
+    }
+
     $targets = array_values(array_filter(
       $turn->targets,
       fn(CharacterInterface $target) => ! $target->isKnockedOut
@@ -643,6 +658,22 @@ class ActionExecutionState extends TurnState
       $lines[] = ['text' => '-' . abs($mpDelta) . ' MP', 'color' => Color::LIGHT_CYAN];
     } elseif ($mpDelta > 0) {
       $lines[] = ['text' => '+' . $mpDelta . ' MP', 'color' => Color::LIGHT_CYAN];
+    }
+
+    if ($target->lastHitWasCritical ?? false) {
+      array_unshift($lines, ['text' => 'CRITICAL', 'color' => Color::YELLOW]);
+      $target->lastHitWasCritical = false;
+    }
+
+    // An elemental reaction (set by the damage effect) leads the popup.
+    if (($target->lastElementReaction ?? null) !== null) {
+      $reactionColor = match ($target->lastElementReaction) {
+        'WEAK!' => Color::LIGHT_RED,
+        'ABSORB' => Color::LIGHT_GREEN,
+        default => Color::LIGHT_CYAN,
+      };
+      array_unshift($lines, ['text' => $target->lastElementReaction, 'color' => $reactionColor]);
+      $target->lastElementReaction = null;
     }
 
     if ($target->isKnockedOut) {

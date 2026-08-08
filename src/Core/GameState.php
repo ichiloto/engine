@@ -19,6 +19,12 @@ namespace Ichiloto\Engine\Core;
 class GameState
 {
   /**
+   * @var \Closure|null Observer invoked as `($kind, $name)` after a write,
+   * where `$kind` is `switch`, `variable`, or `event`. Never serialized —
+   * the owning scene re-wires it on load.
+   */
+  public ?\Closure $onChange = null;
+  /**
    * @var array<string, bool> Named boolean switches.
    */
   protected array $switches = [];
@@ -51,6 +57,10 @@ class GameState
     }
 
     $this->switches[$name] = $value;
+
+    if ($value) {
+      $this->onChange?->__invoke('switch', $name);
+    }
   }
 
   /**
@@ -80,6 +90,7 @@ class GameState
     }
 
     $this->variables[$name] = $value;
+    $this->onChange?->__invoke('variable', $name);
   }
 
   /**
@@ -122,6 +133,7 @@ class GameState
     }
 
     $this->storyEvents[] = $eventName;
+    $this->onChange?->__invoke('event', $eventName);
   }
 
   /**

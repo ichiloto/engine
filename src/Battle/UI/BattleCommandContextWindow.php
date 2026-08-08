@@ -68,6 +68,33 @@ class BattleCommandContextWindow extends Window implements CanFocus, CanChangeSe
    * @param string $emptyMessage The empty-state message.
    * @return void
    */
+  /**
+   * @var int|null The acting character's current MP; null disables affordability styling.
+   */
+  protected ?int $mpBudget = null;
+
+  /**
+   * Sets the acting character's current MP so unaffordable options render dimmed.
+   *
+   * @param int|null $mpBudget The current MP, or null to disable affordability styling.
+   * @return void
+   */
+  public function setMpBudget(?int $mpBudget): void
+  {
+    $this->mpBudget = $mpBudget;
+  }
+
+  /**
+   * Returns whether the acting character can afford the given option.
+   *
+   * @param BattleCommandOption $option The submenu option.
+   * @return bool True when affordable (or when no budget is set).
+   */
+  public function isAffordable(BattleCommandOption $option): bool
+  {
+    return $this->mpBudget === null || $option->mpCost <= $this->mpBudget;
+  }
+
   public function setItems(array $items, string $title = '', string $emptyMessage = 'Nothing available.'): void
   {
     $this->items = array_values(array_filter($items, static fn(mixed $item): bool => $item instanceof BattleCommandOption));
@@ -220,6 +247,8 @@ class BattleCommandContextWindow extends Window implements CanFocus, CanChangeSe
 
       if ($this->activeIndex === $index) {
         $line = $this->battleScreen->styleSelectionLine($line, $this->blinkActiveSelection);
+      } elseif (! $this->isAffordable($item)) {
+        $line = "\033[2m{$line}\033[22m";
       }
 
       $content[] = $line;

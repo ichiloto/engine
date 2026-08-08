@@ -18,6 +18,8 @@ use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Scenes\Game\States\CutsceneState;
 use Ichiloto\Engine\Scenes\Game\States\DialogueState;
 use Ichiloto\Engine\Scenes\Game\States\AbilityMenuState;
+use Ichiloto\Engine\Quests\QuestManager;
+use Ichiloto\Engine\Scenes\Game\States\QuestMenuState;
 use Ichiloto\Engine\Scenes\Game\States\SummonsMenuState;
 use Ichiloto\Engine\Scenes\Game\States\EquipmentMenuState;
 use Ichiloto\Engine\Scenes\Game\States\FieldState;
@@ -84,6 +86,10 @@ class GameScene extends AbstractScene
      */
     protected(set) ?SummonsMenuState $summonsMenuState = null;
     /**
+     * @var QuestMenuState|null The quest-journal menu state.
+     */
+    protected(set) ?QuestMenuState $questMenuState = null;
+    /**
      * @var MagicMenuState|null The magic menu state.
      */
     protected(set) ?MagicMenuState $magicMenuState = null;
@@ -128,6 +134,10 @@ class GameScene extends AbstractScene
      * events, one-shot event completion).
      */
     protected(set) GameState $gameState;
+    /**
+     * @var QuestManager|null The quest manager.
+     */
+    protected(set) ?QuestManager $questManager = null;
     /**
      * @var string[] The currently recorded story-event flags.
      */
@@ -188,6 +198,14 @@ class GameScene extends AbstractScene
             $this->gameState->recordStoryEvent($legacyEvent);
         }
 
+        // Flag writes feed quest objectives that watch switches and story
+        // events.
+        $this->gameState->onChange = function (string $kind, string $name): void {
+            if ($kind !== 'variable') {
+                $this->questManager?->recordFlag($name);
+            }
+        };
+
         Time::setElapsedTime($this->config->playTimeSeconds);
 
         $this->player = new Player(
@@ -200,6 +218,11 @@ class GameScene extends AbstractScene
             $this->config->playerSprites
         );
         $this->party = $this->config->party;
+
+        // The quest manager must exist before the first map load so the
+        // starting map counts toward reach-map objectives.
+        $this->questManager = new QuestManager($this->getGame(), $this);
+        $this->questManager->hydrate($this->config->questLog);
 
         $this->loadMap($this->config->mapId, $this->player);
         $this->player->activate();
@@ -223,6 +246,7 @@ class GameScene extends AbstractScene
         $this->itemMenuState = new ItemMenuState($this->sceneStateContext);
         $this->abilityMenuState = new AbilityMenuState($this->sceneStateContext);
         $this->summonsMenuState = new SummonsMenuState($this->sceneStateContext);
+        $this->questMenuState = new QuestMenuState($this->sceneStateContext);
         $this->magicMenuState = new MagicMenuState($this->sceneStateContext);
         $this->mapState = new MapState($this->sceneStateContext);
         $this->overworldState = new OverworldState($this->sceneStateContext);
@@ -325,6 +349,7 @@ class GameScene extends AbstractScene
             playerSprites: $this->player->getDirectionalSprites(),
             playTimeSeconds: $playTimeSeconds,
             gameState: $this->gameState->toArray(),
+            questLog: $this->questManager?->log->toArray() ?? [],
         );
     }
 

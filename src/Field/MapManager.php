@@ -280,9 +280,14 @@ class MapManager implements CanRenderAt
 
     $this->calculateMapDimensions();
     $this->loadCollisionMap($this->tileMap);
+    $mapId = strval($map['id'] ?? '');
     $this->loadMapTriggers($map['triggers'] ?? []);
-    $this->loadMapEvents($map['events'] ?? [], strval($map['id'] ?? ''));
+    $this->loadMapEvents($map['events'] ?? [], $mapId);
     $this->applyMapBackgroundMusic($map['bgm'] ?? null);
+
+    if ($mapId !== '') {
+      $this->gameScene->questManager?->recordMapEntered($mapId);
+    }
 
     $this->camera->resetPosition($player);
   }

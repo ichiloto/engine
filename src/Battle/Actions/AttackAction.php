@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Battle\Actions;
 
 use Ichiloto\Engine\Battle\BattleAction;
+use Ichiloto\Engine\Battle\BattlerBattleView;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface as Actor;
 
@@ -17,15 +18,39 @@ class AttackAction extends BattleAction
       return;
     }
 
-    $attack = $actor instanceof Character ? $actor->effectiveStats->attack : $actor->stats->attack;
+    $actorView = new BattlerBattleView($actor);
+    $attack = $actorView->stats->attack;
 
     foreach ($targets as $target) {
       if (! $target instanceof Actor || $target->isKnockedOut) {
         continue;
       }
 
-      $defence = $target instanceof Character ? $target->effectiveStats->defence : $target->stats->defence;
-      $damage = max(1, $attack - intval($defence / 2));
+      $targetView = new BattlerBattleView($target);
+
+      // A basic attack lands 95% of the time before grace and evasion.
+      $hitChance = intval(clamp(95 + $actorView->stats->grace - $targetView->stats->evasion, 5, 100));
+
+      if (rand(1, 100) > $hitChance) {
+        continue; // The battle UI reads the unchanged stats as a MISS.
+      }
+
+      $damage = max(1, $attack - intval($targetView->stats->defence / 2));
+
+      $critChance = intval(clamp(5 + intdiv($actorView->stats->grace, 10), 1, 50));
+
+      if (rand(1, 100) <= $critChance) {
+        $damage = intval(round($damage * 1.5));
+
+        if (method_exists($target, 'addState')) {
+          $target->lastHitWasCritical = true;
+        }
+      }
+
+      if ($target->isGuarding ?? false) {
+        $damage = max(1, intval($damage / 2));
+      }
+
       $target->stats->currentHp -= $damage;
     }
   }

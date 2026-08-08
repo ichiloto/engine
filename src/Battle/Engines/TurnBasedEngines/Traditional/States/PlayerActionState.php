@@ -4,8 +4,12 @@ namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States;
 
 use Assegai\Collections\Stack;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
+use Ichiloto\Engine\Battle\Actions\GuardAction;
 use Ichiloto\Engine\Battle\Actions\ItemBattleAction;
+use Ichiloto\Engine\Battle\Actions\PassAction;
 use Ichiloto\Engine\Battle\BattleAction;
+use Ichiloto\Engine\Battle\BattleResult;
+use Ichiloto\Engine\Battle\BattlerBattleView;
 use Ichiloto\Engine\Battle\BattleCommandCatalog;
 use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\Battle\BattleCommandOption;
@@ -17,6 +21,7 @@ use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeStatus;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
+use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 
@@ -303,6 +308,18 @@ class PlayerActionState extends TurnState
       return;
     }
 
+    // Guard and Escape resolve at the top level — no submenu.
+    switch (BattleCommandType::fromCommandName($commandName)) {
+      case BattleCommandType::GUARD:
+        $this->queueGuardForActiveCharacter($context);
+        return;
+      case BattleCommandType::ESCAPE:
+        $this->attemptEscape($context);
+        return;
+      default:
+        break;
+    }
+
     $options = BattleCommandCatalog::buildOptions(
       $this->activeCharacter,
       $context->party,
@@ -313,9 +330,98 @@ class PlayerActionState extends TurnState
     $this->selectionMode = self::MODE_SUBMENU;
     $this->activeTargetIndex = -1;
     $context->ui->commandWindow->setSelectionBlink(false);
+    $context->ui->commandContextWindow->setMpBudget($this->activeCharacter->stats->currentMp);
     $context->ui->commandContextWindow->setItems($options, $commandName, $this->getEmptyMenuMessage($commandName));
     $context->ui->commandContextWindow->focus();
     $this->applyTargetingVisuals($context);
+  }
+
+  /**
+   * Queues a guard for the active character and moves on.
+   *
+   * @param TurnStateExecutionContext $context The turn context.
+   * @return void
+   */
+  protected function queueGuardForActiveCharacter(TurnStateExecutionContext $context): void
+  {
+    $turn = $context->findTurnForBattler($this->activeCharacter);
+
+    if ($turn === null) {
+      return;
+    }
+
+    $turn->action = new GuardAction(BattleCommandType::GUARD->label());
+    $turn->targets = [$this->activeCharacter];
+    $this->selectionMode = self::MODE_COMMAND;
+    $this->activeTargetIndex = -1;
+    $context->ui->alert(sprintf('%s braces for impact.', $this->activeCharacter->name));
+    $this->selectNextCharacter($context);
+  }
+
+  /**
+   * Rolls an escape attempt: the party's speed against the troop's.
+   *
+   * Success ends the battle immediately with no rewards; failure consumes
+   * the active character's turn.
+   *
+   * @param TurnStateExecutionContext $context The turn context.
+   * @return void
+   */
+  protected function attemptEscape(TurnStateExecutionContext $context): void
+  {
+    $partySpeed = $this->averageSpeed($context->getLivingPartyBattlers());
+    $troopSpeed = $this->averageSpeed($context->getLivingTroopBattlers());
+    $chance = intval(clamp(50 + ($partySpeed - $troopSpeed) * 2, 5, 95));
+
+    if (rand(1, 100) <= $chance) {
+      $scene = $context->game->sceneManager->currentScene;
+
+      if ($scene instanceof BattleScene) {
+        play_sound(SystemSound::ESCAPE->value);
+        $scene->result = new BattleResult('Escaped', [
+          'The party slipped away!',
+          'Press enter to continue.',
+        ]);
+        $scene->shouldLoadGameOver = false;
+        $scene->setState($scene->victoryState);
+      }
+
+      return;
+    }
+
+    $turn = $context->findTurnForBattler($this->activeCharacter);
+
+    if ($turn !== null) {
+      // The failed attempt still costs the character their turn.
+      $turn->action = new PassAction(BattleCommandType::ESCAPE->label());
+      $turn->targets = [$this->activeCharacter];
+    }
+
+    $context->ui->alert('Could not escape!');
+    $this->selectionMode = self::MODE_COMMAND;
+    $this->activeTargetIndex = -1;
+    $this->selectNextCharacter($context);
+  }
+
+  /**
+   * Returns the average speed of the given battlers.
+   *
+   * @param CharacterInterface[] $battlers The battlers.
+   * @return float The average speed.
+   */
+  protected function averageSpeed(array $battlers): float
+  {
+    if (empty($battlers)) {
+      return 0.0;
+    }
+
+    $total = 0;
+
+    foreach ($battlers as $battler) {
+      $total += new BattlerBattleView($battler)->stats->speed;
+    }
+
+    return $total / count($battlers);
   }
 
   /**
@@ -329,6 +435,19 @@ class PlayerActionState extends TurnState
     $option = $context->ui->commandContextWindow->getActiveItem();
 
     if (! $option instanceof BattleCommandOption) {
+      return;
+    }
+
+    // Insufficient MP blocks the option here, at selection time — waiting
+    // until execution would let the move fizzle after it was announced.
+    if ($this->activeCharacter && $option->mpCost > $this->activeCharacter->stats->currentMp) {
+      $context->ui->alert(sprintf(
+        'Not enough MP! %s needs %d MP — %s has %d.',
+        $option->action->name,
+        $option->mpCost,
+        $this->activeCharacter->name,
+        $this->activeCharacter->stats->currentMp
+      ));
       return;
     }
 
@@ -425,6 +544,17 @@ class PlayerActionState extends TurnState
     $targets = $this->resolveSelectedTargets($context, $selectedOption);
 
     if (! $selectedOption instanceof BattleCommandOption || $turn === null || empty($targets)) {
+      return;
+    }
+
+    if ($selectedOption->mpCost > $this->activeCharacter->stats->currentMp) {
+      $context->ui->alert(sprintf(
+        'Not enough MP! %s needs %d MP — %s has %d.',
+        $selectedOption->action->name,
+        $selectedOption->mpCost,
+        $this->activeCharacter->name,
+        $this->activeCharacter->stats->currentMp
+      ));
       return;
     }
 

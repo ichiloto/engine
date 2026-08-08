@@ -7,6 +7,7 @@ use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Events\Interfaces\EventTriggerContextInterface;
 use Ichiloto\Engine\Events\Interfaces\EventTriggerInterface;
+use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
 use JsonException;
@@ -151,6 +152,7 @@ abstract class EventTrigger implements EventTriggerInterface
    * - `['type' => 'event',    'name' => 'story_flag']`
    * - `['type' => 'variable', 'name' => 'n', 'op' => '>=', 'value' => 5]`
    * - `['type' => 'item',     'name' => 'Rusty Key', 'quantity' => 1]`
+   * - `['type' => 'quest',    'name' => 'quest-id', 'status' => 'completed'|'active']`
    *
    * @param array<string, mixed> $condition The condition entry.
    * @return bool True when the condition holds.
@@ -172,6 +174,7 @@ abstract class EventTrigger implements EventTriggerInterface
         $condition['value'] ?? 0
       ),
       'item' => ($this->party?->inventory?->getQuantityByName($name) ?? 0) >= max(1, intval($condition['quantity'] ?? 1)),
+      'quest' => QuestManager::current()?->questStatusMatches($name, strval($condition['status'] ?? 'completed')) ?? false,
       default => true,
     };
 
@@ -206,6 +209,7 @@ abstract class EventTrigger implements EventTriggerInterface
    * - `['type' => 'switch',   'name' => 'x', 'value' => true]`
    * - `['type' => 'event',    'name' => 'story_flag']`
    * - `['type' => 'variable', 'name' => 'n', 'op' => 'set'|'add', 'value' => 1]`
+   * - `['type' => 'quest',    'name' => 'quest-id']` — accepts the quest
    *
    * @return void
    */
@@ -228,6 +232,7 @@ abstract class EventTrigger implements EventTriggerInterface
         'variable' => strval($set['op'] ?? 'set') === 'add'
           ? $this->gameState->addToVariable($name, is_numeric($set['value'] ?? 1) ? $set['value'] + 0 : 1)
           : $this->gameState->setVariable($name, $set['value'] ?? 0),
+        'quest' => QuestManager::current()?->acceptQuest($name),
         default => null,
       };
     }

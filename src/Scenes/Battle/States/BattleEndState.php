@@ -12,6 +12,19 @@ class BattleEndState extends BattleSceneState
    */
   public function enter(): void
   {
+    // Only states flagged persistent (classic poison) follow the party out
+    // of battle; everything else — including buff/debuff stages — clears
+    // here.
+    foreach ($this->scene->party?->battlers?->toArray() ?? [] as $battler) {
+      if (method_exists($battler, 'clearBattleStates')) {
+        $battler->clearBattleStates();
+      }
+
+      if (method_exists($battler, 'resetStatStages')) {
+        $battler->resetStatStages();
+      }
+    }
+
     $this->scene->resultWindow?->erase();
     $this->scene->ui?->erase();
     $this->engine->stop();

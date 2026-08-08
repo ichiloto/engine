@@ -204,7 +204,8 @@ final class BattleCommandCatalog
       new SkillBattleAction($skill),
       $skill->scope->side,
       $skill->scope->status,
-      $skill
+      $skill,
+      max(0, $skill->cost)
     );
   }
 

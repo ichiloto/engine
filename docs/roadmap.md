@@ -118,7 +118,28 @@ The single highest-leverage build. A `GameState` store carried by
 - This immediately makes the authored-but-dead `requiredEvents` ability gates
   satisfiable and conditional world design possible.
 
-### Phase 2 — Quest system
+### Phase 2 — Quest system ✅ *shipped 2026-08*
+> Status: the `Quests` namespace ships `Quest`/`QuestObjective` definitions
+> (loaded from `assets/Data/quests.php`), a serializable `QuestLog` riding
+> `GameConfig::$questLog` into saves, and a `QuestManager` that advances
+> objectives from real game moments: dialogue completion (talk-to; this also
+> fixed `ShowDialogAction` never calling `complete()`, which had left every
+> dialogue trigger's `sets` dead), inventory changes (collect, synced at the
+> `Inventory` level so shop purchases, chest loot, drops, and item use all
+> count), battle victory (defeat, per enemy name), map loads (reach-map),
+> and `GameState` writes (flag). Quests are granted through trigger `sets`
+> (`['type' => 'quest', ...]`), gated by prerequisites (including
+> quest-status conditions), and completion grants gold/exp/item rewards,
+> records `quest_completed:<id>`, and announces through the notification
+> system's new QUEST channel. The journal (main-menu Quests entry, states
+> `QuestMenuState`) shows active/completed tabs with per-objective progress.
+> Verified live end-to-end in last-legend: Mom's dialogue grants Breakfast
+> Duty → reach-town objective pings → buying the S-Mana completes the quest
+> mid-shop with the 200 G reward (balance 400 → 580). 9 new unit tests.
+> See [quests.md](quests.md). The editor's quests database category also
+> shipped (list/objectives/rewards/preview panes, lossless round-trip,
+> Save All + dirty markers + identity-pinned undo integration).
+
 A pure consumer of Phase 1:
 - `assets/Data/quests.php`: id, name, description, giver, steps/objectives
   (talk-to / collect / defeat / reach-map / flag), rewards, prerequisites
@@ -129,7 +150,39 @@ A pure consumer of Phase 1:
   notifications on accept/progress/completion
 - Editor: quests database category
 
-### Phase 3 — Battle simulation depth
+### Phase 3 — Battle simulation depth ⏳ *in progress 2026-08: items 1–5 shipped*
+> Status: **States** (`Entities\States`): `State` definitions from
+> `assets/Data/states.php`, `HasStates` on characters and enemies with
+> resist-table multipliers, `AddStateSkillEffect`/`RemoveStateSkillEffect`,
+> round ticks with popups and expiry alerts in `TurnResolutionState`,
+> prevents-action states consume turns, non-persistent states clear at
+> battle end (demo: Poison + Stun, Venom Strike + Cleanse skills).
+> **Buffs/debuffs** (`HasStatStages`): ±4 stages at 25% per stage,
+> `ModifyStatStageSkillEffect`, composed through `BattlerBattleView` so
+> damage formulas, basic attacks, and turn-order speed all see
+> equipment-adjusted, stage-multiplied stats (this also fixed formulas
+> ignoring equipment); stages reset at battle end; the dead per-round
+> `resetBuffsAndDebuffs()` stub is gone (demo: War Cry). **Guard/Escape**:
+> new top-level commands — Guard halves incoming damage until the
+> character next acts; Escape rolls party-vs-troop speed (5–95%), ending
+> the battle rewardless on success and costing the turn on failure.
+> **Elements**: battlers carry affinity tables (2.0 weak, 0.5 resist, 0
+> null, negative absorbs — an absorbing hit heals); `SkillEffect::$element`
+> now scales final damage with WEAK!/RESIST/NULL/ABSORB popups; the four
+> demo summons carry their elements and every demo enemy has affinities.
+> **To-hit & crits**: skills with `SkillInvocation::$accuracy` > 0 roll to
+> hit (accuracy + grace − evasion, clamped 5–95; 0 stays a guaranteed
+> action so existing data is unaffected), basic attacks land at 95% before
+> grace/evasion, crits roll at 5% + grace/10 for ×1.5 damage with a
+> CRITICAL popup; the MISS popup fires on any whiff.
+> Also this phase (user-reported): insufficient MP now blocks skill/summon
+> selection immediately — dimmed submenu rows plus an alert — instead of
+> fizzling after the announcement. And the three long-flaky `SkillTest`
+> RNG cases are fixed at the root (they re-rolled `getValue()` after
+> `apply()` against float bounds the engine floors to ints, and healed into
+> the HP ceiling) — the suite is now fully green: 217 passed, 0 failed.
+> Items 6–9 below remain.
+
 Turn the polished stage into a real fight. Roughly in order:
 1. **States system** — State entity, per-battler state list, durations/ticks,
    inflict chances on effects, resist tables, popups, cure effects (make the

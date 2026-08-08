@@ -41,6 +41,7 @@ class GameConfig implements SceneConfigurationInterface
     protected(set) array $playerSprites = [],
     protected(set) int $playTimeSeconds = 0,
     protected(set) array $gameState = [],
+    protected(set) array $questLog = [],
   )
   {
   }
@@ -109,6 +110,7 @@ class GameConfig implements SceneConfigurationInterface
       'playerSprites' => $this->playerSprites,
       'playTimeSeconds' => $this->playTimeSeconds,
       'gameState' => $this->gameState,
+      'questLog' => $this->questLog,
     ];
   }
 
@@ -135,6 +137,7 @@ class GameConfig implements SceneConfigurationInterface
     $this->playerSprites ??= [];
     $this->playTimeSeconds ??= 0;
     $this->gameState ??= [];
+    $this->questLog ??= [];
   }
 
   /**

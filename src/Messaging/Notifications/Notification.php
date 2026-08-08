@@ -408,10 +408,25 @@ class Notification implements NotificationInterface
    */
   private function buildWindowContent(): void
   {
-    $this->content = [
-      $this->getContentTitle(),
-      $this->getContentText()
-    ];
+    $padding = $this->contentPadding ?? new WindowPadding(0, 1, 0, 1);
+    $availableWidth = max(
+      1,
+      self::WIDTH - 2 - $padding->getLeftPadding() - $padding->getRightPadding()
+    );
+
+    // Every content entry must be exactly one window row: an embedded
+    // newline would move the cursor to column 0 mid-render, spilling text
+    // outside the window (and outside its erase rectangle). Split explicit
+    // newlines into rows, wrap long rows, and cap to the window height.
+    $lines = [$this->getContentTitle()];
+
+    foreach (preg_split('/\r\n|\n|\r/', $this->getContentText()) ?: [] as $textLine) {
+      foreach (explode("\n", wordwrap($textLine, $availableWidth, "\n", true)) as $wrappedLine) {
+        $lines[] = $wrappedLine;
+      }
+    }
+
+    $this->content = array_slice($lines, 0, max(1, self::HEIGHT - 2));
     $this->window->setContent($this->content);
   }
 

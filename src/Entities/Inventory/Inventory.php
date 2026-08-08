@@ -6,6 +6,7 @@ use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Entities\Interfaces\InventoryItemInterface;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
+use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
 
@@ -128,7 +129,7 @@ class Inventory
   {
     foreach ($items as $index => $item) {
       if ($this->inventoryItems->count() >= $this->capacity) {
-        return;
+        break;
       }
 
       if (! $item instanceof InventoryItemInterface) {
@@ -143,6 +144,8 @@ class Inventory
 
       $this->inventoryItems->add($item);
     }
+
+    QuestManager::current()?->syncCollectObjectives();
   }
 
   /**
@@ -155,7 +158,7 @@ class Inventory
   {
     foreach ($items as $item) {
       if ($this->inventoryItems->isEmpty()) {
-        return;
+        break;
       }
 
       if (! $item instanceof InventoryItemInterface) {
@@ -171,6 +174,8 @@ class Inventory
         }
       }
     }
+
+    QuestManager::current()?->syncCollectObjectives();
   }
 
   /**

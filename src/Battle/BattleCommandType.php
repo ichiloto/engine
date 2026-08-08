@@ -20,6 +20,8 @@ enum BattleCommandType: string
   case MAGIC = 'magic';
   case SUMMON = 'summon';
   case ITEM = 'item';
+  case GUARD = 'guard';
+  case ESCAPE = 'escape';
 
   /**
    * Resolves a command type from a visible command label or command id.
@@ -145,6 +147,8 @@ enum BattleCommandType: string
       self::MAGIC => 'Magic',
       self::SUMMON => 'Summon',
       self::ITEM => 'Item',
+      self::GUARD => 'Guard',
+      self::ESCAPE => 'Escape',
     };
   }
 
@@ -161,6 +165,8 @@ enum BattleCommandType: string
       self::MAGIC => 'Cast a learned spell that can be used in battle.',
       self::SUMMON => sprintf('Use one of this character\'s %s actions.', $this->label()),
       self::ITEM => 'Use a battle item from the party inventory.',
+      self::GUARD => 'Brace for impact — take half damage until your next turn.',
+      self::ESCAPE => 'Attempt to flee the battle.',
     };
   }
 
@@ -177,6 +183,8 @@ enum BattleCommandType: string
       self::MAGIC => 'No magic.',
       self::SUMMON => sprintf('No %s actions.', $this->label()),
       self::ITEM => 'No items.',
+      self::GUARD => 'Cannot guard.',
+      self::ESCAPE => 'Cannot escape.',
     };
   }
 

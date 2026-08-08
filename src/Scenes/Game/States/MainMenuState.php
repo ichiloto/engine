@@ -9,7 +9,9 @@ use Ichiloto\Engine\Core\Menu\Commands\OpenConfigMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenEquipmentMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenItemsMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenMagicMenuCommand;
+use Ichiloto\Engine\Core\Menu\Commands\OpenQuestsMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenSummonsMenuCommand;
+use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Core\Menu\Commands\OpenPartyOrderCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenQuitMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenSaveMenuCommand;
@@ -221,6 +223,12 @@ class MainMenuState extends GameSceneState implements CanRender
         // on top. It only disappears when the project has no summons at all.
         if (! empty(SummonsMenuState::loadSummons())) {
             $this->mainMenu->addItem(new OpenSummonsMenuCommand($this->mainMenu));
+        }
+
+        // The journal appears whenever the project authors quests, even
+        // before any are accepted, so players always know where to look.
+        if (QuestManager::projectHasQuests()) {
+            $this->mainMenu->addItem(new OpenQuestsMenuCommand($this->mainMenu));
         }
 
         $this->mainMenu

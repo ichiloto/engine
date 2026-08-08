@@ -41,8 +41,12 @@ abstract class SkillEffect
   abstract public function apply(SkillEffectContext $context): void;
 
   public function getValue(SkillEffectContext $context): int {
-    $user = $context->user;
-    $target = $context->target;
+    // Formulas see combat views: equipment-adjusted stats with buff/debuff
+    // stage multipliers applied. Writes still land on the real battlers.
+    $user = new \Ichiloto\Engine\Battle\BattlerBattleView($context->user);
+    $target = is_array($context->target)
+      ? array_map(static fn($battler) => new \Ichiloto\Engine\Battle\BattlerBattleView($battler), $context->target)
+      : new \Ichiloto\Engine\Battle\BattlerBattleView($context->target);
 
     $value = eval("return $this->formula;") ?? throw new RuntimeException("Invalid formula: $this->formula");
     $minMultiplier = 1 - $this->variance;

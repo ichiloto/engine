@@ -24,20 +24,9 @@ class TurnInitState extends TurnState
       return;
     }
 
-    $this->resetBuffsAndDebuffs($context);
     $this->determineTurnOrder($context);
     $this->updateUI($context);
     $this->setState($this->engine->playerActionState);
-  }
-
-  /**
-   * Resets the buffs and debuffs.
-   *
-   * @param TurnStateExecutionContext $context The context.
-   */
-  protected function resetBuffsAndDebuffs(TurnStateExecutionContext $context): void
-  {
-    // TODO: Implement resetBuffsAndDebuffs() method.
   }
 
   /**
@@ -89,6 +78,6 @@ class TurnInitState extends TurnState
    */
   protected function getBattlerSpeed(CharacterInterface $battler): int
   {
-    return $battler instanceof Character ? $battler->effectiveStats->speed : $battler->stats->speed;
+    return new \Ichiloto\Engine\Battle\BattlerBattleView($battler)->stats->speed;
   }
 }

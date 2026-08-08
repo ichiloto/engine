@@ -19,9 +19,12 @@ class ShowDialogAction extends FieldAction
    */
   public function execute(ActionContextInterface $context): void
   {
-    // TODO: Implement execute() method.
     foreach ($this->trigger->dialogue as $dialogue) {
       $dialogue->show();
     }
+
+    // Finishing the conversation completes the trigger: completion writes
+    // (`sets`, quest grants) apply and talk-to objectives advance.
+    $this->trigger->complete();
   }
 }

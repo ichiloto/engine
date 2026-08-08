@@ -14,6 +14,8 @@ use Ichiloto\Engine\Entities\Inventory\Armor;
 use Ichiloto\Engine\Entities\Inventory\Equipment;
 use Ichiloto\Engine\Entities\Inventory\Inventory;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
+use Ichiloto\Engine\Entities\States\HasStates;
+use Ichiloto\Engine\Entities\States\HasStatStages;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
 use Ichiloto\Engine\Entities\Magic\Spellbook;
@@ -28,6 +30,9 @@ use InvalidArgumentException;
  */
 class Character implements CharacterInterface, CanEquip
 {
+  use HasStates;
+  use HasStatStages;
+
   /**
    * The maximum level.
    */
@@ -134,6 +139,8 @@ class Character implements CharacterInterface, CanEquip
         new AttackAction(BattleCommandType::MAGIC->label()),
         new AttackAction(BattleCommandType::SUMMON->labelForRole($this->role->name)),
         new AttackAction(BattleCommandType::ITEM->label()),
+        new AttackAction(BattleCommandType::GUARD->label()),
+        new AttackAction(BattleCommandType::ESCAPE->label()),
       ];
     }
   }

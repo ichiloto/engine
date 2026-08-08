@@ -19,6 +19,7 @@ readonly class BattleCommandOption
    * @param ItemScopeSide $targetSide The target side this action expects.
    * @param ItemScopeStatus $targetStatus The target status this action expects.
    * @param mixed $source The original source object backing the action.
+   * @param int $mpCost The MP the acting character must hold to use this option.
    */
   public function __construct(
     public string $label,
@@ -27,6 +28,7 @@ readonly class BattleCommandOption
     public ItemScopeSide $targetSide = ItemScopeSide::ENEMY,
     public ItemScopeStatus $targetStatus = ItemScopeStatus::ALIVE,
     public mixed $source = null,
+    public int $mpCost = 0,
   )
   {
   }
