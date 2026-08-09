@@ -40,12 +40,16 @@ class Item extends InventoryItem
     int $quantity = 1,
     ItemUserType $userType = ItemUserType::ALL,
     bool $isKeyItem = false,
-    protected(set) bool $consumable = true,
+    bool $consumable = true,
     protected(set) ItemScope $scope = new ItemScope(),
     protected(set) Occasion $occasion = Occasion::ALWAYS,
     protected(set) array $effects = []
   )
   {
+    // $consumable is deliberately not promoted here: InventoryItem already
+    // owns that property, and re-promoting it would let the parent
+    // constructor below reset it to the parent's default, silently marking
+    // every item non-consumable.
     parent::__construct(
       $name,
       $description,
@@ -53,7 +57,8 @@ class Item extends InventoryItem
       $price,
       $quantity,
       $userType,
-      $isKeyItem
+      $isKeyItem,
+      $consumable
     );
   }
 
