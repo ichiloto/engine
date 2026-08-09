@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Scenes\Game;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Time;
+use Ichiloto\Engine\Rendering\ScreenTransition;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Exceptions\IchilotoException;
@@ -435,12 +436,21 @@ class GameScene extends AbstractScene
     {
         Debug::info("Transferring player to $location->mapFilename... at $location->playerPosition");
 
+        $transition = ScreenTransition::fromConfig();
+        $transition->out();
+
         $this->player->position->x = $location->playerPosition->x;
         $this->player->position->y = $location->playerPosition->y;
         if ($location->playerSprite) {
             $this->player->setFacingSprite($location->playerSprite);
         }
         $this->loadMap($location->mapFilename, $this->player);
+
+        // The field is drawn behind the cover, then revealed.
+        $transition->in(function (): void {
+            $this->fieldState?->renderTheField();
+        });
+
         $this->player->render();
 
         $this->locationHUDWindow->updateDetails($this->player->position, $this->player->heading);
