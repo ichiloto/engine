@@ -90,7 +90,7 @@ class GameLoader
 
     $playerPosition = new Vector2($systemData->startingPositions->player->spawnPoint->x, $systemData->startingPositions->player->spawnPoint->y);
     $playerSprites = $this->loadPlayerSprites();
-    $spawnSprite = PlayerSpriteSet::normalizeSprite($systemData->startingPositions->player->spawnSprite ?? throw new RequiredFieldException('startingPositions.player.spawnSprite'));
+    $spawnSprite = $playerSprites->resolveSprite($systemData->startingPositions->player->spawnSprite ?? throw new RequiredFieldException('startingPositions.player.spawnSprite'));
 
     return new GameConfig(
       mapId: $systemData->startingPositions->player->destinationMap,

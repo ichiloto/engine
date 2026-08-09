@@ -386,6 +386,13 @@ class Player extends GameObject
    */
   public function setFacingSprite(array $sprite, ?MovementHeading $heading = null): void
   {
+    // Spawn data may name a heading rather than spell out the art, so a map
+    // never has to repeat the project's sprites.
+    if (($named = PlayerSpriteSet::headingFromName($sprite)) !== null) {
+      $heading ??= $named;
+      $sprite = $this->getSpriteForHeading($named);
+    }
+
     $sprite = PlayerSpriteSet::normalizeSprite($sprite);
     $resolvedHeading = $heading ?? $this->resolveHeadingFromSprite($sprite);
 

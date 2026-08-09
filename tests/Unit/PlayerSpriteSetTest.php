@@ -113,3 +113,51 @@ it('sanitizes composite emoji without the opt-in', function () {
 
   expect(PlayerSpriteSet::normalizeSprite('🏃🏽‍➡️'))->toBe(['🏃']);
 });
+
+/* Spawn data that names a heading instead of spelling out the art */
+
+it('resolves a named heading to the configured sprite', function () {
+  ConfigStore::put(ProjectConfig::class, new SpriteConfigStub(false));
+
+  $set = PlayerSpriteSet::fromArray(['sprites' => [
+    'north' => '▲',
+    'east' => '▶',
+    'south' => '▼',
+    'west' => '◀',
+  ]]);
+
+  expect($set->resolveSprite(['South']))->toBe(['▼'])
+    ->and($set->resolveSprite('north'))->toBe(['▲'])
+    ->and($set->resolveSprite(['EAST']))->toBe(['▶'])
+    // Art still works exactly as before.
+    ->and($set->resolveSprite(['◀']))->toBe(['◀']);
+});
+
+it('reads a heading out of spawn data that names one', function () {
+  expect(PlayerSpriteSet::headingFromName(['South']))->toBe(MovementHeading::SOUTH)
+    ->and(PlayerSpriteSet::headingFromName('West'))->toBe(MovementHeading::WEST)
+    ->and(PlayerSpriteSet::headingFromName([MovementHeading::NORTH->value]))->toBe(MovementHeading::NORTH);
+});
+
+it('treats sprite art as art, never as a heading name', function () {
+  expect(PlayerSpriteSet::headingFromName(['▼']))->toBeNull()
+    ->and(PlayerSpriteSet::headingFromName('🚶'))->toBeNull()
+    ->and(PlayerSpriteSet::headingFromName(['Northward']))->toBeNull()
+    ->and(PlayerSpriteSet::headingFromName(['None']))->toBeNull()
+    // Multi-row art is a sprite, whatever the rows happen to say.
+    ->and(PlayerSpriteSet::headingFromName(['South', 'North']))->toBeNull();
+});
+
+it('resolves a heading from spawn data that names it', function () {
+  ConfigStore::put(ProjectConfig::class, new SpriteConfigStub(false));
+
+  $set = PlayerSpriteSet::fromArray(['sprites' => [
+    'north' => '▲',
+    'east' => '▶',
+    'south' => '▼',
+    'west' => '◀',
+  ]]);
+
+  expect($set->resolveHeading(['East']))->toBe(MovementHeading::EAST)
+    ->and($set->resolveHeading(['▲']))->toBe(MovementHeading::NORTH);
+});

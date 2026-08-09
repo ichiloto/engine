@@ -200,6 +200,51 @@ class PlayerSpriteSet
   }
 
   /**
+   * Resolves configured spawn data into concrete sprite rows.
+   *
+   * Spawn data may name a heading ("South") instead of spelling out the art,
+   * which is what keeps map files free of glyphs: change the project's sprite
+   * set and every spawn point follows, with nothing to migrate.
+   *
+   * @param string[]|string $sprite The configured sprite rows, or a heading name.
+   * @return string[] The sprite rows to display.
+   */
+  public function resolveSprite(array|string $sprite): array
+  {
+    $heading = self::headingFromName($sprite);
+
+    return $heading !== null
+      ? $this->getSpriteForHeading($heading)
+      : self::normalizeSprite($sprite);
+  }
+
+  /**
+   * Reads a heading out of spawn data that names one.
+   *
+   * Names are matched case insensitively, so 'South', 'south', and
+   * MovementHeading::SOUTH->value all mean the same thing. Anything else,
+   * including every sprite glyph, resolves to null.
+   *
+   * @param string[]|string $sprite The configured sprite rows, or a heading name.
+   * @return MovementHeading|null The named heading, or null when the value is art.
+   */
+  public static function headingFromName(array|string $sprite): ?MovementHeading
+  {
+    $rows = array_values(array_filter(
+      is_array($sprite) ? $sprite : [$sprite],
+      static fn(mixed $row): bool => is_string($row) && trim($row) !== ''
+    ));
+
+    if (count($rows) !== 1) {
+      return null;
+    }
+
+    $heading = MovementHeading::tryFrom(ucfirst(strtolower(trim($rows[0]))));
+
+    return $heading === MovementHeading::NONE ? null : $heading;
+  }
+
+  /**
    * Resolves a heading from a concrete sprite.
    *
    * @param string[]|string $sprite The sprite rows to inspect.
@@ -207,6 +252,10 @@ class PlayerSpriteSet
    */
   public function resolveHeading(array|string $sprite): MovementHeading
   {
+    if (($named = self::headingFromName($sprite)) !== null) {
+      return $named;
+    }
+
     $sprite = self::normalizeSprite($sprite);
 
     return match (true) {

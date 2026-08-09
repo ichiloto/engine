@@ -1,6 +1,7 @@
 <?php
 
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
+use Ichiloto\Engine\Field\Player;
 use Ichiloto\Engine\Field\PlayerSpriteSet;
 use Ichiloto\Engine\IO\Console\TerminalText;
 
@@ -87,4 +88,63 @@ it('measures every directional sprite as a stable two columns', function () {
     expect(TerminalText::displayWidth(TerminalText::stabilize($sprite[0])))
       ->toBe(2, "sprite for $direction should occupy two columns");
   }
+});
+
+/* Spawn data that names a heading */
+
+/**
+ * Builds a player carrying the given directional art, without booting a game.
+ *
+ * @param array<string, string[]> $sprites The directional sprite rows.
+ * @return Player The player under test.
+ */
+function makePlayerWithSprites(array $sprites): Player
+{
+  $player = (new ReflectionClass(Player::class))->newInstanceWithoutConstructor();
+
+  foreach ([
+    'upSprite' => $sprites['north'],
+    'rightSprite' => $sprites['east'],
+    'downSprite' => $sprites['south'],
+    'leftSprite' => $sprites['west'],
+    'sprite' => $sprites['south'],
+    'heading' => MovementHeading::SOUTH,
+  ] as $property => $value) {
+    (new ReflectionProperty(Player::class, $property))->setValue($player, $value);
+  }
+
+  return $player;
+}
+
+it('spawns facing the heading its map names', function () {
+  $player = makePlayerWithSprites([
+    'north' => ['▲'],
+    'east' => ['▶'],
+    'south' => ['▼'],
+    'west' => ['◀'],
+  ]);
+
+  $player->setFacingSprite([MovementHeading::NORTH->value]);
+
+  expect($player->heading)->toBe(MovementHeading::NORTH)
+    ->and($player->sprite)->toBe(['▲']);
+
+  $player->setFacingSprite(['west']);
+
+  expect($player->heading)->toBe(MovementHeading::WEST)
+    ->and($player->sprite)->toBe(['◀']);
+});
+
+it('still accepts spawn data that spells out the art', function () {
+  $player = makePlayerWithSprites([
+    'north' => ['▲'],
+    'east' => ['▶'],
+    'south' => ['▼'],
+    'west' => ['◀'],
+  ]);
+
+  $player->setFacingSprite(['▶']);
+
+  expect($player->heading)->toBe(MovementHeading::EAST)
+    ->and($player->sprite)->toBe(['▶']);
 });
