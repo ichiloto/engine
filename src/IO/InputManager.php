@@ -42,6 +42,11 @@ class InputManager
    * @var array $config The configuration.
    */
   protected static array $config = [];
+  /**
+   * @var array The bindings as the project authored them, captured at boot so
+   * a player who rebinds their way into a corner can get back out.
+   */
+  protected static array $defaultConfig = [];
 
   /**
    * Initializes the InputManager.
@@ -57,6 +62,70 @@ class InputManager
     $inputConfig = ConfigStore::get(InputConfig::class);
     assert($inputConfig instanceof InputConfig);
     self::$config = $inputConfig->all();
+    self::$defaultConfig = self::$config;
+  }
+
+  /**
+   * Returns the current bindings.
+   *
+   * @return array<string, array{description?: string, keys?: KeyCode[]}> The bindings, keyed by action.
+   */
+  public static function getBindings(): array
+  {
+    return self::$config;
+  }
+
+  /**
+   * Returns the bindings the project shipped with.
+   *
+   * @return array<string, array{description?: string, keys?: KeyCode[]}> The default bindings.
+   */
+  public static function getDefaultBindings(): array
+  {
+    return self::$defaultConfig;
+  }
+
+  /**
+   * Rebinds an action, taking effect immediately.
+   *
+   * @param string $action The action to rebind.
+   * @param KeyCode[] $keys The keys to bind to it.
+   * @return bool True when the action exists and was rebound.
+   */
+  public static function setBinding(string $action, array $keys): bool
+  {
+    if (! isset(self::$config[$action])) {
+      return false;
+    }
+
+    self::$config[$action]['keys'] = array_values($keys);
+
+    return true;
+  }
+
+  /**
+   * Replaces every binding, taking effect immediately.
+   *
+   * @param array<string, array{description?: string, keys?: KeyCode[]}> $bindings The bindings to apply.
+   * @return void
+   */
+  public static function setBindings(array $bindings): void
+  {
+    self::$config = $bindings;
+  }
+
+  /**
+   * Returns the key currently pressed, if it maps to a known key code.
+   *
+   * @return KeyCode|null The pressed key, or null when nothing recognisable is down.
+   */
+  public static function getPressedKeyCode(): ?KeyCode
+  {
+    if (self::$keyPress === '' || self::$keyPress === null) {
+      return null;
+    }
+
+    return KeyCode::tryFrom(self::getKey(self::$keyPress));
   }
 
   /**

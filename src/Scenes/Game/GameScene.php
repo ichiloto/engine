@@ -27,6 +27,7 @@ use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Game\States\QuestMenuState;
 use Ichiloto\Engine\Scenes\Game\States\RecordsMenuState;
 use Ichiloto\Engine\Scenes\Game\States\SummonsMenuState;
+use Ichiloto\Engine\Scenes\Game\States\ControlsMenuState;
 use Ichiloto\Engine\Scenes\Game\States\EquipmentMenuState;
 use Ichiloto\Engine\Scenes\Game\States\FieldState;
 use Ichiloto\Engine\Scenes\Game\States\GameSceneState;
@@ -100,6 +101,10 @@ class GameScene extends AbstractScene
      * @var RecordsMenuState|null The achievements/bestiary records state.
      */
     protected(set) ?RecordsMenuState $recordsMenuState = null;
+    /**
+     * @var ControlsMenuState|null The key-rebinding state.
+     */
+    protected(set) ?ControlsMenuState $controlsMenuState = null;
     /**
      * @var MagicMenuState|null The magic menu state.
      */
@@ -287,6 +292,7 @@ class GameScene extends AbstractScene
         $this->summonsMenuState = new SummonsMenuState($this->sceneStateContext);
         $this->questMenuState = new QuestMenuState($this->sceneStateContext);
         $this->recordsMenuState = new RecordsMenuState($this->sceneStateContext);
+        $this->controlsMenuState = new ControlsMenuState($this->sceneStateContext);
         $this->magicMenuState = new MagicMenuState($this->sceneStateContext);
         $this->mapState = new MapState($this->sceneStateContext);
         $this->overworldState = new OverworldState($this->sceneStateContext);

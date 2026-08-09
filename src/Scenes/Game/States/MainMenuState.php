@@ -6,6 +6,7 @@ use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Core\Menu\Commands\MenuCommandExecutionContext;
 use Ichiloto\Engine\Core\Menu\Commands\OpenAbilityMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenConfigMenuCommand;
+use Ichiloto\Engine\Core\Menu\Commands\OpenControlsMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenEquipmentMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenItemsMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenMagicMenuCommand;
@@ -241,7 +242,8 @@ class MainMenuState extends GameSceneState implements CanRender
         $this->mainMenu
             ->addItem(new OpenStatusMenuCommand($this->mainMenu))
             ->addItem(new OpenPartyOrderCommand($this->mainMenu))
-            ->addItem(new OpenConfigMenuCommand($this->mainMenu));
+            ->addItem(new OpenConfigMenuCommand($this->mainMenu))
+            ->addItem(new OpenControlsMenuCommand($this->mainMenu));
 
         if ($this->canSave) {
             $this->mainMenu->addItem(new OpenSaveMenuCommand($this->mainMenu));
