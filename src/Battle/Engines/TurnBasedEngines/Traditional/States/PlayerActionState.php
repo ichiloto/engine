@@ -73,7 +73,7 @@ class PlayerActionState extends TurnState
     $context->ui->refreshField();
 
     if (empty($context->getLivingPartyBattlers())) {
-      $this->setState($this->engine->enemyActionState);
+      $this->setStateIfPresent($this->engine->enemyActionState);
       return;
     }
 
@@ -288,7 +288,7 @@ class PlayerActionState extends TurnState
     $context->ui->commandContextWindow->clear();
     $context->ui->fieldWindow->clearTargetIndicators();
     $context->ui->refreshField();
-    $this->setState($this->engine->enemyActionState);
+    $this->setStateIfPresent($this->engine->enemyActionState);
   }
 
   /**

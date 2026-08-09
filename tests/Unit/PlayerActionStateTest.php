@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\Battle\Engines\ActiveTime\ActiveTimeBattleEngine;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\PlayerActionState;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnStateExecutionContext;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\TraditionalTurnBasedBattleEngine;
@@ -248,4 +249,45 @@ it('shows helpful info for the focused battle command and submenu option', funct
   $state->showFocusedInfoForTest($context);
 
   expect($screen->lastAlert)->toContain('Strike a single enemy');
+});
+
+class ActiveTimePlayerActionStateProxy extends PlayerActionState
+{
+  public function setActiveCharacterIndexForTest(int $index): void
+  {
+    $this->activeCharacterIndex = $index;
+  }
+
+  public function selectNextCharacterForTest(TurnStateExecutionContext $context): void
+  {
+    $this->selectNextCharacter($context);
+  }
+}
+
+it('returns control to the active-time flow when there is no enemy phase to hand to', function () {
+  $game = (new ReflectionClass(GameTargetingTestProxy::class))->newInstanceWithoutConstructor();
+  $party = new Party();
+  $party->addMember(new Character('Kaelion', 0, new Stats(currentHp: 120, attack: 14, defence: 8, speed: 8)));
+
+  $troop = new Troop('Lake', [createTargetingTestEnemy('Lochness Monster')]);
+  $screen = createTargetingTestScreen();
+
+  // The active-time engine drives every battler from its flow state, so it has
+  // no separate player and enemy phases at all.
+  $engine = new ActiveTimeBattleEngine($game);
+  $engine->configure(new TurnBasedBattleConfig($party, $troop, $screen));
+
+  expect($engine->enemyActionState)->toBeNull();
+
+  $context = new TurnStateExecutionContext($game, $party, $troop, $screen, []);
+  $context->setTurns([new Turn($party->battlers->toArray()[0])]);
+
+  $state = new ActiveTimePlayerActionStateProxy($engine);
+  $state->setActiveCharacterIndexForTest(0);
+
+  // Running out of characters to ask, which a failed escape does, used to hand
+  // off to a null enemy phase and crash the battle.
+  $state->selectNextCharacterForTest($context);
+
+  expect(true)->toBeTrue();
 });
