@@ -324,7 +324,7 @@ Turn the polished stage into a real fight. Roughly in order:
 - Item-use quantity prompt; equipment class restrictions via the dead
   `WeaponType`/`ArmorType` enums; equipment stat-delta preview
 
-### Phase 6 — Shipping polish ⏳ *in progress 2026-08: achievements, bestiary, saves, accessibility shipped*
+### Phase 6 — Shipping polish ✅ *shipped 2026-08*
 > Status: **Achievements** (`Progress\Achievement` + `AchievementManager`):
 > definitions from `assets/Data/achievements.php` (id/name/description/icon/
 > points/secret/conditions), unlock state persisted in saves, explicit
@@ -367,10 +367,46 @@ Turn the polished stage into a real fight. Roughly in order:
 > a multibyte character (an em-dash, an emoji) stopped several characters
 > short. Both verified live: strings that previously never completed now
 > render in full.
-> **Still open in this phase**: overworld & in-game map states, scene
-> fade/wipe transitions, non-blocking modal/animation timers, remaining SFX
-> coverage, unifying the two settings managers, and the input-rebinding UI
-> (and `InputConfig::persist`).
+> **Closing out the phase (2026-08-09)**: **Settings** are now defined once
+> in `Settings\SettingsCatalog`, with `SettingsManager` holding the shared
+> read/cycle/persist behaviour and each surface naming only the keys it
+> lists; the title overlay and the config menu had drifted (volume existed
+> in three copies, and "Text Speed" and "Dialogue Speed" turned out to be
+> one setting writing the same paths). Cycling now wraps for short lists and
+> clamps for volume, so stepping past the loudest step cannot drop the
+> player to silence. **Audio options** (volume, music, SFX) were added to
+> the in-game config menu, so adjusting them no longer means a trip to the
+> title screen. **Controls**: a rebinding screen (`ControlsMenuState` +
+> `IO\InputBindings`) where a key press rebinds an action live and writes
+> back through `InputConfig`, which already exports key codes as enum
+> references; `r` restores the bindings captured at boot, and escape is
+> deliberately not rebindable. **SFX coverage**: `notification` and
+> `level_up` sounds, and a real bug fixed — the two calls that played a
+> system sound passed the enum's *value*, which `play_sound()` treats as a
+> track reference, so they looked for a file named "escape" and played
+> nothing. **In-game map** (`MapState`, the M key): the current map sampled
+> down to fit its panel, with the player highlighted on it; sampling keeps a
+> block containing a wall as wall, so a corridor is not sampled away into
+> open floor. `FieldState` also stops processing a frame once an action has
+> handed the screen to another state. **Transitions**
+> (`Rendering\ScreenTransition`): a terminal has no alpha, so a fade steps
+> through the block shades and a wipe sweeps solid columns, around map
+> transfers, configurable and skipped entirely for reduced motion.
+> **Timers** (`Core\Timers`): every wait in the engine was a `usleep()`,
+> which stops music looping, freezes notifications part-way through their
+> slide, and makes engine time jump when it ends (the notification manager
+> carried a workaround for exactly that). `after()`/`every()` schedule
+> callbacks and `wait()` hands the loop back frame by frame; modals, the
+> inn's sleep animation, and the script `wait` command now keep the world
+> running. 41 new tests (suite: **323 passed, 0 failed**); verified live —
+> the config menu lists Volume/Music/SFX, rebinding Cancel to `k` persisted
+> to `input.php`, the map screen drew Home with the player marked, and
+> walking out of the house played four full-width fade frames each way
+> before the town centre appeared.
+>
+> **Left for later**: `OverworldState` is still a stub. It wants authored
+> world-map data (named destinations, their maps and spawn points, and the
+> conditions that unlock them) before fast travel is worth building.
 
 #### Original plan
 - **Achievements** — real registry, definitions file, unlock persistence in
