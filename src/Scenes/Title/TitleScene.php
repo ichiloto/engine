@@ -6,6 +6,7 @@ use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Menu\Commands\ContinueGameCommand;
 use Ichiloto\Engine\Core\Menu\Commands\NewGameCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenTitleOptionsCommand;
+use Ichiloto\Engine\Settings\GameSetting;
 use Ichiloto\Engine\Core\Menu\Commands\QuitGameCommand;
 use Ichiloto\Engine\Core\Menu\Commands\ShowCreditsCommand;
 use Ichiloto\Engine\Core\Menu\TitleMenu\TitleMenu;
@@ -612,7 +613,11 @@ class TitleScene extends AbstractScene
       return;
     }
 
-    $this->optionsManager->cycle($option, $step);
+
+    try {
+      $label = $this->optionsManager->cycle($option, $step);
+    } catch (\Throwable $e) {
+    }
     $this->renderOptionsMenu();
   }
 
