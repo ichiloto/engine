@@ -1,6 +1,6 @@
 <?php
 
-use Ichiloto\Engine\Scenes\Title\TitleOption;
+use Ichiloto\Engine\Settings\GameSetting;
 use Ichiloto\Engine\Scenes\Title\TitleOptionsSettingsManager;
 use Ichiloto\Engine\Util\Config\AppConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
@@ -70,7 +70,7 @@ class TitleProjectConfigPersistProxy extends ProjectConfig
   }
 }
 
-function getTitleOptionByKey(TitleOptionsSettingsManager $manager, string $key): TitleOption
+function getTitleOptionByKey(TitleOptionsSettingsManager $manager, string $key): GameSetting
 {
   foreach ($manager->getOptions() as $option) {
     if ($option->key === $key) {
@@ -98,7 +98,7 @@ it('updates and persists the title volume setting', function () {
   $option = getTitleOptionByKey($manager, 'volume');
   $label = $manager->cycle($option, 1);
 
-  expect($label)->toBe('80')
+  expect($label)->toBe('80%')
     ->and($config->get('audio.master_volume'))->toBe(80)
     ->and(file_get_contents($filename))->toContain("return [")
     ->and(file_get_contents($filename))->not->toContain('return array (')
@@ -107,7 +107,7 @@ it('updates and persists the title volume setting', function () {
   unlink($filename);
 });
 
-it('clamps title option values instead of wrapping them', function () {
+it('clamps volume at its ends and wraps short choice lists', function () {
   $filename = tempnam(sys_get_temp_dir(), 'ichiloto-title-options-');
   $config = new TitleProjectConfigPersistProxy([
     'filename' => $filename,
@@ -134,14 +134,17 @@ it('clamps title option values instead of wrapping them', function () {
   $volumeOption = getTitleOptionByKey($manager, 'volume');
   $volumeLabel = $manager->cycle($volumeOption, 1);
 
-  $textSpeedOption = getTitleOptionByKey($manager, 'text_speed');
+  $textSpeedOption = getTitleOptionByKey($manager, 'dialogue_speed');
   $textSpeedLabel = $manager->cycle($textSpeedOption, -1);
 
-  expect($volumeLabel)->toBe('100')
+  // Volume stops at its ends: stepping past the loudest step must never drop
+  // the player to silence. A three-choice list wraps, so either direction
+  // reaches any value in one press.
+  expect($volumeLabel)->toBe('100%')
     ->and($config->get('audio.master_volume'))->toBe(100)
-    ->and($textSpeedLabel)->toBe('Slow')
-    ->and($config->get('ui.dialogue.speed'))->toBe(20)
-    ->and($config->get('ui.dialogue.message.speed'))->toBe(20);
+    ->and($textSpeedLabel)->toBe('Fast')
+    ->and($config->get('ui.dialogue.speed'))->toBe(80)
+    ->and($config->get('ui.dialogue.message.speed'))->toBe(80);
 
   unlink($filename);
 });
@@ -165,7 +168,7 @@ it('updates title text speed on both supported dialogue paths', function () {
   ConfigStore::put(ProjectConfig::class, $config);
 
   $manager = new TitleOptionsSettingsManager();
-  $option = getTitleOptionByKey($manager, 'text_speed');
+  $option = getTitleOptionByKey($manager, 'dialogue_speed');
   $label = $manager->cycle($option, 1);
 
   expect($label)->toBe('Normal')

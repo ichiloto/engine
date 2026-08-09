@@ -1,7 +1,7 @@
 <?php
 
 use Ichiloto\Engine\Core\Menu\MainMenu\MainMenuSettingsManager;
-use Ichiloto\Engine\Core\Menu\MainMenu\MainMenuSetting;
+use Ichiloto\Engine\Settings\GameSetting;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\Util\Config\AppConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
@@ -72,7 +72,7 @@ class ProjectConfigPersistProxy extends ProjectConfig
   }
 }
 
-function getMainMenuSettingByKey(MainMenuSettingsManager $manager, string $key): MainMenuSetting
+function getMainMenuSettingByKey(MainMenuSettingsManager $manager, string $key): GameSetting
 {
   foreach ($manager->getSettings() as $setting) {
     if ($setting->key === $key) {

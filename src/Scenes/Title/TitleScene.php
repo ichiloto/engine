@@ -65,7 +65,7 @@ class TitleScene extends AbstractScene
    */
   protected ?TitleOptionsSettingsManager $optionsManager = null;
   /**
-   * @var TitleOption[] The configurable title options.
+   * @var GameSetting[] The configurable title options.
    */
   protected array $options = [];
   /**
@@ -608,7 +608,7 @@ class TitleScene extends AbstractScene
   {
     $option = $this->options[$this->activeOptionIndex] ?? null;
 
-    if (! $option instanceof TitleOption || ! $this->optionsManager instanceof TitleOptionsSettingsManager) {
+    if (! $option instanceof GameSetting || ! $this->optionsManager instanceof TitleOptionsSettingsManager) {
       return;
     }
 

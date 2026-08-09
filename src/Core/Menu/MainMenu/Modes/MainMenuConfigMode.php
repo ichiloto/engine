@@ -3,7 +3,7 @@
 namespace Ichiloto\Engine\Core\Menu\MainMenu\Modes;
 
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
-use Ichiloto\Engine\Core\Menu\MainMenu\MainMenuSetting;
+use Ichiloto\Engine\Settings\GameSetting;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
 use Throwable;
@@ -16,7 +16,7 @@ use Throwable;
 class MainMenuConfigMode extends MainMenuMode
 {
   /**
-   * @var MainMenuSetting[] The configurable settings shown in this mode.
+   * @var GameSetting[] The configurable settings shown in this mode.
    */
   protected array $settings = [];
   /**
@@ -120,7 +120,7 @@ class MainMenuConfigMode extends MainMenuMode
   {
     $setting = $this->mainMenuState->configSelectionWindow?->getActiveSetting();
 
-    if (! $setting instanceof MainMenuSetting) {
+    if (! $setting instanceof GameSetting) {
       return;
     }
 
@@ -144,7 +144,7 @@ class MainMenuConfigMode extends MainMenuMode
   {
     $setting = $this->mainMenuState->configSelectionWindow?->getActiveSetting();
 
-    if (! $setting instanceof MainMenuSetting) {
+    if (! $setting instanceof GameSetting) {
       return;
     }
 
