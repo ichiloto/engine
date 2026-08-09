@@ -83,6 +83,13 @@ class EncounterManager
 
     if (! empty($this->troopWeights)) {
       $this->averageStepsBetween = max(1, intval($encounters['rate'] ?? 15));
+    } elseif (! empty($encounters)) {
+      // A map that asks for encounters and gets none is a data mistake, not a
+      // design choice, and silence is how it stays unnoticed.
+      Debug::warn(
+        'A map declares encounters but names no troops the engine can read. '
+        . "Expected ['troops' => ['Troop Name' => weight, ...], 'rate' => steps]."
+      );
     }
 
     $this->resetCounter();
