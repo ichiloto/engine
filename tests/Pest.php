@@ -1,6 +1,7 @@
 <?php
 
 use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Field\RegionMap;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\UI\UIManager;
@@ -135,4 +136,51 @@ function makeCameraTestScene(): SceneInterface
         {
         }
     };
+}
+
+/**
+ * Writes a throwaway project's maps and points the region map at them.
+ *
+ * @param array<string, array{name: string, region: string, to?: string[]}> $maps The maps to write, keyed by id.
+ * @return string The maps directory.
+ */
+function writeTestMaps(array $maps): string
+{
+  $root = sys_get_temp_dir() . DIRECTORY_SEPARATOR . uniqid('ichiloto-region-', true);
+
+  foreach ($maps as $id => $map) {
+    $path = $root . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $id) . '.data.php';
+
+    if (! is_dir(dirname($path))) {
+      mkdir(dirname($path), 0777, true);
+    }
+
+    $events = '';
+
+    foreach ($map['to'] ?? [] as $index => $destination) {
+      $marker = chr(65 + $index);
+      $events .= <<<PHP
+        '{$marker}' => [
+          'class' => 'Ichiloto\\\\Engine\\\\Events\\\\Triggers\\\\TransferPlayerTrigger',
+          'data' => ['destinationMap' => '{$destination}'],
+        ],
+
+      PHP;
+    }
+
+    file_put_contents($path, <<<PHP
+    <?php
+
+    return [
+      'name' => '{$map['name']}',
+      'region' => '{$map['region']}',
+      'events' => [
+    {$events}  ],
+    ];
+    PHP);
+  }
+
+  RegionMap::loadFrom($root);
+
+  return $root;
 }

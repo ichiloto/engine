@@ -404,6 +404,19 @@ Turn the polished stage into a real fight. Roughly in order:
 > walking out of the house played four full-width fade frames each way
 > before the town centre appeared.
 >
+> **Reworked after play (2026-08-09)**: the map screen originally redrew the
+> current map sampled down, which told the player nothing they were not
+> already looking at. It now draws the *region*: `Field\RegionMap` builds a
+> graph from the maps themselves (every map names itself and its region, and
+> every transfer event names where that door leads), and the screen lays the
+> region out from where the player stands, one column per door away.
+> `GameState` remembers which maps the party has set foot on, so places they
+> have been are named, places one door away show as unknown, and the rest stay
+> off the map until they get closer. Transitions also became **opt in** after
+> the same play session: cutting straight to the next place is snappier, so
+> the default is off, with Off/Fade/Wipe offered as a player setting on both
+> settings surfaces.
+>
 > **Left for later**: `OverworldState` is still a stub. It wants authored
 > world-map data (named destinations, their maps and spawn points, and the
 > conditions that unlock them) before fast travel is worth building.

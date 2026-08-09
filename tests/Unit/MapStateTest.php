@@ -1,63 +1,113 @@
 <?php
 
+use Ichiloto\Engine\Field\RegionMap;
 use Ichiloto\Engine\Scenes\Game\States\MapState;
 
 /**
- * Runs the real sampling against a tile map, without a running game.
+ * Draws the region map without a running game: what the party has been to and
+ * where they are standing are the only things the drawing needs from one.
  */
-class MapSamplingProbe extends MapState
+class RegionMapDrawingProbe extends MapState
 {
-  public function __construct()
+  /**
+   * @param string $currentId The map the player is on.
+   * @param string[] $visited The maps the party has been to.
+   */
+  public function __construct(private string $currentId, private array $visited)
   {
-    // The sampler needs no scene.
   }
 
-  public function sample(array $tileMap, int $x, int $y, int $horizontalStep, int $verticalStep): string
+  public function draw(int $width = 108, int $height = 26): array
   {
-    return $this->sampleTile($tileMap, $x, $y, $horizontalStep, $verticalStep);
+    return $this->buildMapContent($width, $height);
+  }
+
+  protected function currentMapId(): string
+  {
+    return $this->currentId;
+  }
+
+  protected function hasVisited(string $id): bool
+  {
+    return in_array($id, $this->visited, true);
   }
 }
 
-/**
- * Splits rows of text into the character grid a tile map is.
- *
- * @param string[] $rows The map rows.
- * @return array<int, string[]> The tile map.
- */
-function tileMapFrom(array $rows): array
-{
-  return array_map(static fn(string $row): array => mb_str_split($row), $rows);
-}
-
-it('keeps a thin wall that a sampled block would otherwise lose', function () {
-  $tileMap = tileMapFrom([
-    '    ',
-    ' |  ',
-    '    ',
-    '    ',
+beforeEach(function () {
+  // The demo's shape: a hub with a house, a shop, and an inn with a back room.
+  writeTestMaps([
+    'happyville/town-center' => ['name' => 'Town Center', 'region' => 'Happyville', 'to' => ['happyville/home', 'happyville/shop', 'happyville/inn-front']],
+    'happyville/home' => ['name' => 'Home', 'region' => 'Happyville', 'to' => ['happyville/town-center']],
+    'happyville/shop' => ['name' => 'Shop', 'region' => 'Happyville', 'to' => ['happyville/town-center']],
+    'happyville/inn-front' => ['name' => 'Inn', 'region' => 'Happyville', 'to' => ['happyville/town-center', 'happyville/inn-back']],
+    'happyville/inn-back' => ['name' => 'Inn Rooms', 'region' => 'Happyville', 'to' => ['happyville/inn-front']],
   ]);
-
-  // A 2x2 block holding one wall character reads as wall, not as floor: a
-  // corridor sampled away would read as an open room.
-  expect(new MapSamplingProbe()->sample($tileMap, 0, 0, 2, 2))->toBe('|');
 });
 
-it('reads an empty block as empty', function () {
-  $tileMap = tileMapFrom(['    ', '    ']);
-
-  expect(new MapSamplingProbe()->sample($tileMap, 0, 0, 2, 2))->toBe(' ');
+afterEach(function () {
+  RegionMap::reset();
 });
 
-it('samples past the edge of the map without failing', function () {
-  $tileMap = tileMapFrom(['##', '##']);
+it('draws the places around the player and how they connect', function () {
+  $rows = new RegionMapDrawingProbe(
+    'happyville/town-center',
+    ['happyville/town-center', 'happyville/home']
+  )->draw();
 
-  expect(new MapSamplingProbe()->sample($tileMap, 4, 4, 2, 2))->toBe(' ');
+  $drawing = implode("\n", $rows);
+
+  expect($drawing)->toContain('Town Center')
+    ->and($drawing)->toContain('Home')
+    // Two doors from here, and never opened: not on the map yet.
+    ->and($drawing)->not->toContain('Inn Rooms');
 });
 
-it('takes a single column from a wide tile', function () {
-  $tileMap = tileMapFrom(['🌲.', '..']);
+it('names only the places the party has been to', function () {
+  $drawing = implode("\n", new RegionMapDrawingProbe(
+    'happyville/town-center',
+    ['happyville/town-center']
+  )->draw());
 
-  // Sprites in the tile layer can be wider than a cell; the map is a grid, so
-  // one column is all a sampled block may contribute.
-  expect(mb_strlen(new MapSamplingProbe()->sample($tileMap, 0, 0, 1, 1)))->toBe(1);
+  // The doors out of the town centre are visible from it, but where they go is
+  // not known until they are opened.
+  expect($drawing)->toContain('Town Center')
+    ->and($drawing)->not->toContain('Shop')
+    ->and(substr_count($drawing, '?????'))->toBe(3);
+});
+
+it('merges the doors leaving one place into a single branch', function () {
+  $rows = new RegionMapDrawingProbe(
+    'happyville/town-center',
+    ['happyville/town-center', 'happyville/home', 'happyville/shop', 'happyville/inn-front']
+  )->draw();
+
+  $drawing = implode("\n", $rows);
+
+  // Three doors from the same place share one column, so the run through it
+  // branches rather than being overwritten by each in turn.
+  expect($drawing)->toContain('┬')
+    ->and($drawing)->toContain('├')
+    ->and($drawing)->toContain('└');
+});
+
+it('says so plainly when the player is somewhere off the map', function () {
+  $rows = new RegionMapDrawingProbe('atlantis/deep', [])->draw();
+
+  expect($rows[0])->toContain('not on any map');
+});
+
+it('draws nothing wider than the panel it was given', function () {
+  $rows = new RegionMapDrawingProbe(
+    'happyville/town-center',
+    ['happyville/town-center', 'happyville/home', 'happyville/shop', 'happyville/inn-front', 'happyville/inn-back']
+  )->draw(60, 12);
+
+  expect($rows)->toHaveCount(12);
+
+  foreach ($rows as $row) {
+    // The row the player is on carries colour codes, which take no columns.
+    $visible = preg_replace('/\x1b\[[0-9;]*m/', '', $row);
+
+    expect(mb_strlen($visible))->toBeLessThanOrEqual(60);
+  }
 });

@@ -294,6 +294,7 @@ class MapManager implements CanRenderAt
 
     if ($mapId !== '') {
       $this->gameScene->questManager?->recordMapEntered($mapId);
+      $this->gameScene->gameState?->markMapVisited($mapId);
     }
 
     $this->gameScene->encounterManager?->configure(

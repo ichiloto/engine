@@ -40,6 +40,10 @@ class GameState
    * @var array<string, true> Completed one-shot map events, keyed "mapId:marker".
    */
   protected array $completedEvents = [];
+  /**
+   * @var array<string, true> The maps the party has set foot on, keyed by map id.
+   */
+  protected array $visitedMaps = [];
 
   /**
    * Sets a named switch.
@@ -180,7 +184,43 @@ class GameState
   }
 
   /**
-   * @return array{switches: array<string, bool>, variables: array<string, int|float|string>, storyEvents: string[], completedEvents: array<string, true>}
+   * Records that the party has been to a map.
+   *
+   * @param string $mapId The map's id.
+   * @return void
+   */
+  public function markMapVisited(string $mapId): void
+  {
+    $mapId = trim($mapId);
+
+    if ($mapId !== '') {
+      $this->visitedMaps[$mapId] = true;
+    }
+  }
+
+  /**
+   * Determines whether the party has been to a map.
+   *
+   * @param string $mapId The map's id.
+   * @return bool True when they have.
+   */
+  public function hasVisitedMap(string $mapId): bool
+  {
+    return isset($this->visitedMaps[trim($mapId)]);
+  }
+
+  /**
+   * Returns the maps the party has been to.
+   *
+   * @return string[] The visited map ids.
+   */
+  public function visitedMaps(): array
+  {
+    return array_keys($this->visitedMaps);
+  }
+
+  /**
+   * @return array{switches: array<string, bool>, variables: array<string, int|float|string>, storyEvents: string[], completedEvents: array<string, true>, visitedMaps: array<string, true>}
    */
   public function toArray(): array
   {
@@ -189,6 +229,7 @@ class GameState
       'variables' => $this->variables,
       'storyEvents' => $this->storyEvents,
       'completedEvents' => $this->completedEvents,
+      'visitedMaps' => $this->visitedMaps,
     ];
   }
 
@@ -220,6 +261,14 @@ class GameState
       if (is_string($key) && str_contains($key, ':')) {
         [$mapId, $marker] = explode(':', $key, 2);
         $state->markEventComplete($mapId, $marker);
+      }
+    }
+
+    // Absent in saves written before the region map existed, which simply
+    // means the party has been nowhere yet as far as it is concerned.
+    foreach (array_keys((array) ($data['visitedMaps'] ?? [])) as $mapId) {
+      if (is_string($mapId)) {
+        $state->markMapVisited($mapId);
       }
     }
 
