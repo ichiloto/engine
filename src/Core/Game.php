@@ -683,6 +683,13 @@ class Game implements CanRun, SubjectInterface
         $this->sceneManager->loadScene(0);
         $this->addObserver(Time::class);
 
+        // Lets anything that has to wait hand the loop back instead of
+        // sleeping through it: music, notifications, and engine time all keep
+        // running while it waits.
+        Timers::setFrameTick(function (): void {
+            $this->tickWhileBlocked();
+        });
+
         $this->isRunning = true;
 
         $this->notify($this, new GameEvent(GameEventType::START));
@@ -885,8 +892,27 @@ SPLASH_SCREEN;
         $this->sceneManager->update();
         $this->notificationManager->update();
         $this->audioManager->update();
+        Timers::update();
 
         $this->notify($this, new GameEvent(GameEventType::UPDATE));
+    }
+
+    /**
+     * Runs the part of a frame that must keep going while something blocks.
+     *
+     * Scene updates are deliberately left out: whatever is blocking owns the
+     * screen and the input, and re-entering the scene under it would fight for
+     * both.
+     *
+     * @return void
+     */
+    public function tickWhileBlocked(): void
+    {
+        $this->notify($this, new GameEvent(GameEventType::UPDATE));
+        Timers::update();
+        $this->notificationManager->update();
+        $this->audioManager->update();
+        $this->notificationManager->render();
     }
 
     /**

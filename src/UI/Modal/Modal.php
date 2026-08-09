@@ -234,6 +234,11 @@ abstract class Modal implements ModalInterface
       $this->update();
       $this->render();
 
+      // The game loop is not running while this modal is up, so the world is
+      // ticked from here: music keeps looping and engine time keeps advancing
+      // rather than jumping when the modal closes.
+      $this->game->tickWhileBlocked();
+
       usleep($sleepTime);
     }
 

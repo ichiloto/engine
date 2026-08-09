@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Entities\Actions;
 
+use Ichiloto\Engine\Core\Timers;
 use Exception;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Interfaces\ActionContextInterface;
@@ -64,7 +65,7 @@ class SleepAction extends FieldAction
       for ($index = 0; $index < $sleepAnimationFrameCount; $index++) {
         Console::clear();
         Console::write($sleepFrames[$index], $leftMargin, $topMargin);
-        usleep($sleepInterval);
+        Timers::wait($sleepInterval / 1_000_000);
       }
 
       /** @var Character $member */

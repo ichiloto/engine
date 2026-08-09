@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Events\Interpreter;
 
+use Ichiloto\Engine\Core\Timers;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Field\Location;
@@ -107,7 +108,7 @@ class EventInterpreter
         break;
 
       case 'wait':
-        usleep(intval(floatval($command['seconds'] ?? 0.5) * 1_000_000));
+        Timers::wait(floatval($command['seconds'] ?? 0.5));
         break;
 
       case 'set_switch':
