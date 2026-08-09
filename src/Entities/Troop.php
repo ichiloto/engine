@@ -45,7 +45,7 @@ class Troop extends BattleGroup
    *   use the project-wide battle theme.
    */
   public function __construct(
-    protected string $name,
+    protected(set) string $name,
     ?array $enemies = null,
     protected array $events = [],
     array $config = [],
