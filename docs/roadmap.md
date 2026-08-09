@@ -594,6 +594,22 @@ Turn the polished stage into a real fight. Roughly in order:
 > It found three dangling quest references in the editor's own sample fixture
 > on its first run.
 >
+> **`ichiloto battle`** (`Battle\Simulation\BattleSimulator`, surfaced by the
+> console's `BattleCommand`, which was a TODO that printed what it would have
+> done): fights a project's real party against its troops as many times as
+> asked and reports what each fight *is*, win rate, length, the health a win
+> costs, damage per member, and who keeps dying. The combat is the game's own,
+> so the numbers are the ones a player meets; both sides simply attack,
+> because a designer wants the shape of a fight before tactics. 8 new tests
+> (suite: 347 passed).
+>
+> It earned itself on the first run: every early enemy in the demo shared one
+> placeholder stat block (a level 14 bat with 203 HP and 30 defence) against
+> three level 1 characters whose best attack is 12, so **the party lost 100%
+> of every random encounter in the game** — encounters this phase had just
+> switched on. Retuned, the opening fights are won in three or four turns for
+> about a tenth of the party's health and Loch Ness stays a wall.
+>
 > Also fixed while wiring it: both `edit` and `validate` looked for the
 > engine beside the console, which only exists inside this workspace. They
 > now try the project's own vendor directory first, so a project that
