@@ -1,6 +1,7 @@
 <?php
 
 use Ichiloto\Engine\Audio\AudioManager;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Audio\AudioPlayback;
 use Ichiloto\Engine\Audio\Backends\AfplayBackend;
 use Ichiloto\Engine\Audio\Backends\FfplayBackend;
@@ -626,6 +627,40 @@ it('skips files no available backend can decode', function () {
   $manager->playSoundEffect("$root/hit.mid");
 
   expect($manager->spawnedCommands)->toBeEmpty();
+
+  $manager->shutdown();
+});
+
+/* System sounds */
+
+it('plays a system sound through its configured track', function () {
+  $root = makeAudioAssetsRoot(['level-up.wav']);
+  putAudioProjectConfig([
+    'audio' => [
+      'sfx' => true,
+      'master_volume' => 50,
+      'sounds' => [
+        'level_up' => "$root/level-up.wav",
+      ],
+    ],
+  ]);
+
+  $manager = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend()]);
+  $manager->playSystemSound(SystemSound::LEVEL_UP);
+
+  expect($manager->spawnedCommands)->toHaveCount(1)
+    ->and($manager->spawnedCommands[0])->toBe(['fake-player', '0.50', 'once', "$root/level-up.wav"]);
+
+  $manager->shutdown();
+});
+
+it('stays silent for a system sound the project has not configured', function () {
+  putAudioProjectConfig(['audio' => ['sfx' => true, 'master_volume' => 50]]);
+
+  $manager = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend()]);
+  $manager->playSystemSound(SystemSound::NOTIFICATION);
+
+  expect($manager->spawnedCommands)->toBe([]);
 
   $manager->shutdown();
 });

@@ -38,6 +38,14 @@ enum SystemSound: string
   case ITEM_GET = 'item_get';
   /** Currency changed hands (shops, rewards). */
   case SHOP = 'shop';
+  /**
+   * Played when a notification appears.
+   */
+  case NOTIFICATION = 'notification';
+  /**
+   * Played when a party member gains a level.
+   */
+  case LEVEL_UP = 'level_up';
 
   /**
    * Returns the project config path holding this sound's track.

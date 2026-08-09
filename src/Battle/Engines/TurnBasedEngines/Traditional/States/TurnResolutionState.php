@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States;
 
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Battle\BattleResult;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
@@ -111,6 +112,10 @@ class TurnResolutionState extends TurnState
           'label' => 'Item drops:',
           'value' => implode(', ', array_map(fn($item) => $item->name, $items)),
         ];
+      }
+
+      if (! empty($levelUps)) {
+        play_sound(SystemSound::LEVEL_UP);
       }
 
       foreach ($levelUps as $levelUp) {

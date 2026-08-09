@@ -378,7 +378,7 @@ class PlayerActionState extends TurnState
       $scene = $context->game->sceneManager->currentScene;
 
       if ($scene instanceof BattleScene) {
-        play_sound(SystemSound::ESCAPE->value);
+        play_sound(SystemSound::ESCAPE);
         $scene->result = new BattleResult('Escaped', [
           'The party slipped away!',
           'Press enter to continue.',

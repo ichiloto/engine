@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Messaging\Notifications;
 
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
+
 use Assegai\Collections\Queue;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
@@ -111,6 +113,10 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
   {
     $queueWasEmpty = ! $this->notifications->isNotEmpty();
     $this->notifications->enqueue($notification);
+
+    // A notification can arrive while the player is looking elsewhere on
+    // screen, so it says so.
+    play_sound(SystemSound::NOTIFICATION);
 
     if ($queueWasEmpty) {
       $this->openActiveNotification();
