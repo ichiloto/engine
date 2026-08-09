@@ -578,7 +578,28 @@ Turn the polished stage into a real fight. Roughly in order:
 > two-columns-per-tile world grid, which is a much larger change and belongs
 > on the roadmap rather than in a bug fix.
 
-### Phase 7 — Tooling & documentation
+### Phase 7 — Tooling & documentation ⏳ *in progress 2026-08: validation shipped*
+> **`ichiloto validate`** (`Editor\Validation\ProjectValidator`, surfaced by
+> the console's `ValidateCommand`): reads a project and reports the content
+> mistakes that are otherwise found by playing it. Map layers that disagree,
+> markers placed but undefined (the engine's "Unmapped event markers" crash,
+> caught without running it) and defined but never placed, doors leading to
+> maps that do not exist, encounters the engine cannot read or naming troops
+> the project lacks, a top-level key written twice (PHP keeps the last and
+> says nothing, which is how the demo's overworld ended up never rolling an
+> encounter), and quests asking for maps, items, enemies, or other quests
+> that are not there. Errors are what breaks the game, warnings are content
+> being ignored; it exits non-zero on errors, and with `--strict` on warnings
+> too, so it can stand in a build. 12 new tests (editor suite: 262 passed).
+> It found three dangling quest references in the editor's own sample fixture
+> on its first run.
+>
+> Also fixed while wiring it: both `edit` and `validate` looked for the
+> engine beside the console, which only exists inside this workspace. They
+> now try the project's own vendor directory first, so a project that
+> installed the engine normally opens.
+
+#### Original plan
 - Editor: implement the 10 stub database categories (items, weapons, armors,
   enemies, troops, states, terms, common events, tilesets, types); quest and
   skit editors; undo/redo; playtest-from-editor
