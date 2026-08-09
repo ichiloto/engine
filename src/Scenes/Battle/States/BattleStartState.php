@@ -49,7 +49,7 @@ class BattleStartState extends BattleSceneState
     // Meeting an enemy is enough to open its bestiary entry.
     $gameScene = $this->scene->getGame()->sceneManager->findScene(GameScene::class);
 
-    if ($gameScene instanceof GameScene) {
+    if ($gameScene instanceof GameScene && $gameScene->isStarted()) {
       foreach ($this->scene->troop?->members?->toArray() ?? [] as $enemy) {
         $gameScene->bestiary->recordSeen($enemy->name);
       }

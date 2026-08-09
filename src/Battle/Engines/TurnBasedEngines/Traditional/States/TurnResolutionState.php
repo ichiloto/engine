@@ -90,7 +90,7 @@ class TurnResolutionState extends TurnState
 
       $questManager = QuestManager::current();
       $gameScene = $context->game->sceneManager->findScene(GameScene::class);
-      $bestiary = $gameScene instanceof GameScene ? $gameScene->bestiary : null;
+      $bestiary = $gameScene instanceof GameScene && $gameScene->isStarted() ? $gameScene->bestiary : null;
 
       foreach ($context->troop->members->toArray() as $enemy) {
         $questManager?->recordDefeat($enemy->name);

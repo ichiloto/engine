@@ -64,6 +64,12 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    * @var BattleLoader The battle loader.
    */
   protected(set) BattleLoader $battleLoader;
+  /**
+   * @var class-string|null The scene a battle was started from, so it can be
+   * returned to. A fight from the field goes back to the field; one from the
+   * arena goes back to the arena.
+   */
+  protected ?string $sceneBeforeBattle = null;
 
   /**
    * SceneManager constructor.
@@ -268,6 +274,24 @@ class SceneManager implements CanStart, CanRender, CanUpdate
   }
 
   /**
+   * Returns the scene a finished battle goes back to.
+   *
+   * A fight started from the field returns to the field. One started from
+   * somewhere else, the arena, returns there instead, so a developer testing
+   * a battle is not dumped into a map they never loaded.
+   *
+   * @return class-string The scene to load.
+   */
+  protected function sceneToReturnTo(): string
+  {
+    $previous = $this->sceneBeforeBattle;
+
+    return $previous !== null && $this->findScene($previous) !== null
+      ? $previous
+      : GameScene::class;
+  }
+
+  /**
    * Load the game over scene.
    *
    * @return void
@@ -290,6 +314,13 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    */
   public function loadBattleScene(Party $party, Troop $troop, array $events = [], array $extraSettings = []): void
   {
+    // Remembered so the battle goes back where it came from. A fight started
+    // from the field returns to the field; one started from the arena returns
+    // to the arena.
+    $this->sceneBeforeBattle = $this->currentScene instanceof BattleScene
+      ? $this->sceneBeforeBattle
+      : $this->currentScene::class;
+
     if ($party->isDefeated()) {
       $this->loadGameOverScene();
       return;
@@ -321,10 +352,12 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    */
   public function returnFromBattleScene(): void
   {
-    $this->loadScene(GameScene::class);
+    $this->loadScene($this->sceneToReturnTo());
+    $this->sceneBeforeBattle = null;
 
     if ($this->currentScene instanceof GameScene) {
       $this->currentScene->fieldState?->resume();
     }
   }
+
 }

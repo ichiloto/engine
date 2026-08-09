@@ -34,6 +34,7 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\GameOver\GameOverScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\Scenes\SceneManager;
+use Ichiloto\Engine\Scenes\Arena\ArenaScene;
 use Ichiloto\Engine\Scenes\Title\TitleScene;
 use Ichiloto\Engine\UI\Modal\ModalManager;
 use Ichiloto\Engine\UI\Windows\DebugWindow;
@@ -128,7 +129,7 @@ class Game implements CanRun, SubjectInterface
         protected string $name,
         protected int    $width = DEFAULT_SCREEN_WIDTH,
         protected int    $height = DEFAULT_SCREEN_HEIGHT,
-        protected array  $options = []
+        protected(set) array  $options = []
     )
     {
         try {
@@ -145,7 +146,8 @@ class Game implements CanRun, SubjectInterface
                     new TitleScene($this->sceneManager, "Title Screen"),
                     new GameScene($this->sceneManager, $this->name),
                     new BattleScene($this->sceneManager, "$this->name - Battle Screen"),
-                    new GameOverScene($this->sceneManager, "$this->name - Game Over Screen")
+                    new GameOverScene($this->sceneManager, "$this->name - Game Over Screen"),
+                    new ArenaScene($this->sceneManager, "$this->name - Arena")
                 );
         } catch (Throwable $exception) {
             $this->handleException($exception);
@@ -481,7 +483,10 @@ class Game implements CanRun, SubjectInterface
      */
     public function configure(array $options): self
     {
-        $this->options = array_merge_recursive($this->options, $options);
+        // Replace rather than merge: the constructor configures the options
+        // with themselves, and a recursive merge turns every scalar a caller
+        // passed into a two-element array of itself.
+        $this->options = array_replace_recursive($this->options, $options);
         ['width' => $this->width, 'height' => $this->height] = $this->resolveScreenSize($this->options);
         $this->options['width'] = $this->width;
         $this->options['height'] = $this->height;
@@ -680,7 +685,10 @@ class Game implements CanRun, SubjectInterface
         $this->buildItemStore();
         $this->handleGameEvents();
 
-        $this->sceneManager->loadScene(0);
+        // A project normally opens on its title screen. Tooling can start
+        // somewhere else, which is how `ichiloto battle` drops a developer
+        // straight into the arena.
+        $this->sceneManager->loadScene($this->options['starting_scene'] ?? 0);
         $this->addObserver(Time::class);
 
         // Lets anything that has to wait hand the loop back instead of

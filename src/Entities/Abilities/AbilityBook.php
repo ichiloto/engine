@@ -25,7 +25,7 @@ class AbilityBook
   protected array $learnableAbilities = [];
 
   /**
-   * @param SpecialSkill[] $learnedAbilities The learned abilities.
+   * @param Skill[] $learnedAbilities The learned abilities.
    * @param LearnableAbility[] $learnableAbilities The learnable abilities.
    * @param AbilitySortOrder $sortOrder The learned-ability sort order.
    */
@@ -36,7 +36,7 @@ class AbilityBook
   )
   {
     foreach ($learnedAbilities as $ability) {
-      if ($ability instanceof SpecialSkill) {
+      if ($ability instanceof Skill) {
         $this->learnedAbilities[$ability->name] = $ability;
       }
     }
@@ -135,10 +135,11 @@ class AbilityBook
   /**
    * Adds a learned ability to the ability book.
    *
-   * @param SpecialSkill $ability The ability to add.
+   * @param Skill $ability The ability to add. A character's book holds every
+   * kind of skill they know, magic included.
    * @return void
    */
-  public function addLearnedAbility(SpecialSkill $ability): void
+  public function addLearnedAbility(Skill $ability): void
   {
     $this->learnedAbilities[$ability->name] = $ability;
     $this->sortLearnedAbilities();
@@ -155,7 +156,7 @@ class AbilityBook
     $this->sortOrder = $sortOrder ?? $this->sortOrder;
     $abilities = $this->learnedAbilities;
 
-    uasort($abilities, static function(SpecialSkill $left, SpecialSkill $right): int {
+    uasort($abilities, static function(Skill $left, Skill $right): int {
       return strcmp($left->name, $right->name);
     });
 
