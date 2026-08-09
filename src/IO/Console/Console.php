@@ -38,6 +38,18 @@ class Console
   private const string WIDE_SYMBOL_CONTINUATION = "\0";
 
   /**
+   * How long to wait for the terminal to accept more output before retrying.
+   */
+  private const int WRITE_STALL_TIMEOUT_MICROSECONDS = 20000;
+
+  /**
+   * How many consecutive stalled writes to tolerate before abandoning a
+   * payload. At the timeout above this is roughly two seconds, far longer
+   * than a terminal needs to drain, so reaching it means the stream is gone.
+   */
+  private const int WRITE_MAX_STALLED_ATTEMPTS = 100;
+
+  /**
    * @var Game|null $game The game instance.
    */
   private static ?Game $game = null;
@@ -594,12 +606,71 @@ class Console
     $payload = self::$frameBuffer;
     self::$frameBuffer = '';
 
-    if (self::$output) {
-      self::$output->write($payload);
+    self::writeToTerminal($payload);
+  }
+
+  /**
+   * Writes a payload to the terminal, guaranteeing every byte is delivered.
+   *
+   * The engine puts STDIN in non-blocking mode so the game loop can poll for
+   * input. A terminal's STDIN and STDOUT share one open file description, so
+   * that flag applies to output as well: a write larger than the terminal's
+   * buffer (~30KB on WSL) writes what fits and reports a short count for the
+   * rest. Symfony's StreamOutput discards fwrite()'s return value, so those
+   * bytes vanish silently — which truncates a large map to its first rows.
+   *
+   * Looping until the payload is fully written is the correct way to write to
+   * a non-blocking descriptor, and it is also the only way partial writes are
+   * handled safely in general: even a blocking write can be cut short by a
+   * signal.
+   *
+   * @param string $payload The terminal-ready payload to write.
+   * @return void
+   */
+  private static function writeToTerminal(string $payload): void
+  {
+    if ($payload === '') {
       return;
     }
 
-    echo $payload;
+    $stream = self::$output?->getStream();
+
+    if (! is_resource($stream)) {
+      // PHP's CLI output layer loops until every byte is written, so the
+      // echo fallback is already safe (and stays capturable by output
+      // buffering, which tests rely on).
+      echo $payload;
+      return;
+    }
+
+    $totalBytes = strlen($payload);
+    $bytesWritten = 0;
+    $stalledAttempts = 0;
+
+    while ($bytesWritten < $totalBytes) {
+      $written = @fwrite($stream, substr($payload, $bytesWritten));
+
+      if ($written !== false && $written > 0) {
+        $bytesWritten += $written;
+        $stalledAttempts = 0;
+        continue;
+      }
+
+      // Either the terminal buffer is full (a 0/false short write on a
+      // non-blocking descriptor) or the stream is genuinely broken. Wait for
+      // writability, and give up rather than spin forever if it never comes.
+      if (++$stalledAttempts > self::WRITE_MAX_STALLED_ATTEMPTS) {
+        break;
+      }
+
+      $readStreams = [];
+      $writeStreams = [$stream];
+      $exceptStreams = [];
+
+      @stream_select($readStreams, $writeStreams, $exceptStreams, 0, self::WRITE_STALL_TIMEOUT_MICROSECONDS);
+    }
+
+    @fflush($stream);
   }
 
   /**
@@ -626,12 +697,7 @@ class Console
 
     self::cursor()->moveTo(1, $row + 1);
 
-    if (self::$output) {
-      self::$output->write(self::$buffer[$row]);
-      return;
-    }
-
-    echo self::$buffer[$row];
+    self::writeToTerminal(self::$buffer[$row]);
   }
 
   /**
