@@ -2,6 +2,7 @@
 
 use Ichiloto\Engine\Core\Menu\MainMenu\MainMenuSettingsManager;
 use Ichiloto\Engine\Scenes\Title\TitleOptionsSettingsManager;
+use Ichiloto\Engine\Rendering\Enumerations\TransitionStyle;
 use Ichiloto\Engine\Settings\GameSetting;
 use Ichiloto\Engine\Settings\SettingsCatalog;
 use Ichiloto\Engine\Util\Config\ConfigStore;
@@ -124,4 +125,18 @@ it('writes dialogue speed to both paths a project may read', function () {
 
   expect($config->get('ui.dialogue.speed'))->toBe(80)
     ->and($config->get('ui.dialogue.message.speed'))->toBe(80);
+});
+
+it('lets a player choose a screen transition', function () {
+  $config = new CatalogConfigStub([]);
+  ConfigStore::put(ProjectConfig::class, $config);
+
+  $catalog = new SettingsCatalog();
+
+  expect($catalog->read('transitions'))->toBe(TransitionStyle::NONE);
+
+  $catalog->write('transitions', TransitionStyle::WIPE);
+
+  expect($config->get('ui.transitions.style'))->toBe('wipe')
+    ->and($catalog->read('transitions'))->toBe(TransitionStyle::WIPE);
 });

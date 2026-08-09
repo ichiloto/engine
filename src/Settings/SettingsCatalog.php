@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\Settings;
 
 use Ichiloto\Engine\IO\Enumerations\Color;
+use Ichiloto\Engine\Rendering\Enumerations\TransitionStyle;
+use Ichiloto\Engine\Rendering\ScreenTransition;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use RuntimeException;
@@ -90,6 +92,16 @@ class SettingsCatalog
         ],
       ),
       new GameSetting(
+        'transitions',
+        'Screen Transitions',
+        'Plays an effect when moving between places, instead of cutting straight there.',
+        [
+          'Off' => TransitionStyle::NONE,
+          'Fade' => TransitionStyle::FADE,
+          'Wipe' => TransitionStyle::WIPE,
+        ],
+      ),
+      new GameSetting(
         'location_hud',
         'Location HUD',
         'Toggles the field HUD that shows coordinates and facing direction.',
@@ -154,6 +166,9 @@ class SettingsCatalog
         config(ProjectConfig::class, 'ui.battle.selection_color', Color::LIGHT_BLUE)
       ),
       'location_hud' => boolval(config(ProjectConfig::class, 'ui.hud.location', false)),
+      'transitions' => TransitionStyle::tryFrom(strtolower(strval(
+        config(ProjectConfig::class, ScreenTransition::CONFIG_STYLE, TransitionStyle::NONE->value)
+      ))) ?? TransitionStyle::NONE,
       default => null,
     };
   }
@@ -185,6 +200,10 @@ class SettingsCatalog
         $value instanceof Color ? $value : Color::LIGHT_BLUE
       ),
       'location_hud' => $config->set('ui.hud.location', boolval($value)),
+      'transitions' => $config->set(
+        ScreenTransition::CONFIG_STYLE,
+        ($value instanceof TransitionStyle ? $value : TransitionStyle::NONE)->value
+      ),
       default => null,
     };
   }

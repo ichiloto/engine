@@ -25,6 +25,7 @@ class MainMenuSettingsManager extends SettingsManager
             'battle_message_pace',
             'battle_animation_pace',
             'selection_color',
+            'transitions',
             'location_hud',
         ];
     }

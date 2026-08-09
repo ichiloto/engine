@@ -92,12 +92,20 @@ it('reads its style and duration from the project config', function () {
     ->and($transition->durationMs)->toBe(500);
 });
 
-it('falls back to a fade when the project names a style that does not exist', function () {
+it('stays off unless a project opts in', function () {
+  ConfigStore::put(ProjectConfig::class, new TransitionConfigStub([]));
+
+  // A straight cut is the baseline; an effect between every doorway is
+  // something a project or a player asks for.
+  expect(ScreenTransition::fromConfig()->style)->toBe(TransitionStyle::NONE);
+});
+
+it('stays off when the project names a style that does not exist', function () {
   ConfigStore::put(ProjectConfig::class, new TransitionConfigStub([
     'ui' => ['transitions' => ['style' => 'dissolve']],
   ]));
 
-  expect(ScreenTransition::fromConfig()->style)->toBe(TransitionStyle::FADE);
+  expect(ScreenTransition::fromConfig()->style)->toBe(TransitionStyle::NONE);
 });
 
 it('draws nothing when a project turns transitions off', function () {

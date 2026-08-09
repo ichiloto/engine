@@ -14,9 +14,10 @@ use Ichiloto\Engine\Util\Config\ProjectConfig;
  * the screen fills with progressively heavier blocks on the way out and
  * empties on the way back in. A wipe sweeps solid columns across instead.
  *
- * Motion is a preference, so a project can turn transitions off with
- * `ui.transitions.style`, and a player who has asked for reduced motion never
- * sees one regardless.
+ * Transitions are opt in: a straight cut is snappier, and an effect between
+ * every doorway wears thin fast. A project turns them on with
+ * `ui.transitions.style`, players can change it in the config menu, and a
+ * player who has asked for reduced motion never sees one regardless.
  *
  * @package Ichiloto\Engine\Rendering
  */
@@ -45,7 +46,7 @@ class ScreenTransition
    * @param int $durationMs How long a single direction takes.
    */
   public function __construct(
-    protected(set) TransitionStyle $style = TransitionStyle::FADE,
+    protected(set) TransitionStyle $style = TransitionStyle::NONE,
     protected(set) int $durationMs = self::DEFAULT_DURATION_MS,
   )
   {
@@ -59,8 +60,8 @@ class ScreenTransition
   public static function fromConfig(): self
   {
     $style = TransitionStyle::tryFrom(strtolower(strval(
-      config(ProjectConfig::class, self::CONFIG_STYLE, TransitionStyle::FADE->value)
-    ))) ?? TransitionStyle::FADE;
+      config(ProjectConfig::class, self::CONFIG_STYLE, TransitionStyle::NONE->value)
+    ))) ?? TransitionStyle::NONE;
 
     return new self(
       $style,
