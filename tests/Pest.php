@@ -141,7 +141,10 @@ function makeCameraTestScene(): SceneInterface
 /**
  * Writes a throwaway project's maps and points the region map at them.
  *
- * @param array<string, array{name: string, region: string, to?: string[]}> $maps The maps to write, keyed by id.
+ * Doors are given a position on a 20x10 event layer, which is where the
+ * direction of the place behind them comes from.
+ *
+ * @param array<string, array{name: string, region: string, to?: array<string, array{0: int, 1: int}>}> $maps The maps, keyed by id.
  * @return string The maps directory.
  */
 function writeTestMaps(array $maps): string
@@ -149,26 +152,31 @@ function writeTestMaps(array $maps): string
   $root = sys_get_temp_dir() . DIRECTORY_SEPARATOR . uniqid('ichiloto-region-', true);
 
   foreach ($maps as $id => $map) {
-    $path = $root . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $id) . '.data.php';
+    $directory = $root . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $id);
+    $leaf = basename($id);
 
-    if (! is_dir(dirname($path))) {
-      mkdir(dirname($path), 0777, true);
+    if (! is_dir($directory)) {
+      mkdir($directory, 0777, true);
     }
 
     $events = '';
+    $layer = array_fill(0, 10, array_fill(0, 20, ' '));
 
-    foreach ($map['to'] ?? [] as $index => $destination) {
+    foreach (array_values($map['to'] ?? []) as $index => $position) {
+      $destination = array_keys($map['to'])[$index];
       $marker = chr(65 + $index);
+      $layer[$position[1]][$position[0]] = $marker;
+
       $events .= <<<PHP
         '{$marker}' => [
-          'class' => 'Ichiloto\\\\Engine\\\\Events\\\\Triggers\\\\TransferPlayerTrigger',
+          'class' => 'Ichiloto\\Engine\\Events\\Triggers\\TransferPlayerTrigger',
           'data' => ['destinationMap' => '{$destination}'],
         ],
 
       PHP;
     }
 
-    file_put_contents($path, <<<PHP
+    file_put_contents($directory . DIRECTORY_SEPARATOR . "{$leaf}.data.php", <<<PHP
     <?php
 
     return [
@@ -177,6 +185,17 @@ function writeTestMaps(array $maps): string
       'events' => [
     {$events}  ],
     ];
+    PHP);
+
+    $rows = implode("\n", array_map(static fn(array $row): string => implode('', $row), $layer));
+
+    file_put_contents($directory . DIRECTORY_SEPARATOR . "{$leaf}.event.php", <<<PHP
+    <?php
+
+    return <<<'ICHILOTO_EVENT_MAP'
+    {$rows}
+    ICHILOTO_EVENT_MAP;
+
     PHP);
   }
 

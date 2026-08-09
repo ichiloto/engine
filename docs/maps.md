@@ -30,22 +30,45 @@ and the map screen draws them together.
 ## The map screen
 
 The `map` action (M by default) opens the region the player is standing in,
-drawn as the places in it and the doors between them:
+drawn the way the region actually is:
 
 ```
-[ Town Center ]──┬──[    Home     ]
-                 │
-                 ├──[    Shop     ]
-                 │
-                 └──[    ?????    ]
+  [    Home     ]──┐                                    N
+                   │                                  W ─ E
+                   └──[ Town Center ]──┐                 S
+                             │         │
+                      [    Shop     ]  └──[  Inn Front  ]
 ```
 
 Nothing about this is authored twice. `Field\RegionMap` reads every map's
 `name`, `region`, and `TransferPlayerTrigger` destinations, so a door drawn on
-a map appears on the region map by existing. The layout is built from where
-the player is: their place is the first column, everywhere one door away is
-the second, and so on, which is what makes it answer "how do I get from here
-to there?".
+a map appears on the region map by existing.
+
+### Where a place is drawn
+
+**Where a door sits on its map is where the place behind it lies.** The house's
+door is up on the north-west side of the square because the house is north-west
+of it; the shop's is straight down at the south. The engine reads the door's
+position out of the map's event layer and places the destination that way, so
+a region that was drawn sensibly maps sensibly, for free.
+
+A door in the middle of a map says nothing about direction, and its
+destination is simply set down beside what it connects to.
+
+The region is laid out around its **hub**, the place with the most doors,
+rather than around the player, so it does not rearrange itself depending on
+where the player is standing.
+
+When the doors get it wrong, a map can say where it belongs:
+
+```php
+return [
+  'name' => 'Sealed Vault',
+  'region' => 'Crypt',
+  // Grid position on the region map. Beats anything the doors imply.
+  'station' => ['x' => 4, 'y' => 2],
+];
+```
 
 What the player has seen governs what it says:
 

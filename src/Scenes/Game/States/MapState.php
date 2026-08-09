@@ -44,6 +44,11 @@ class MapState extends GameSceneState
   protected ?BorderPackInterface $borderPack = null;
   protected ?Window $mapPanel = null;
   protected ?Window $infoPanel = null;
+  /**
+   * @var array<string, true> The cells the places occupy, which no door may be
+   * drawn through: a line crossing a name makes it unreadable.
+   */
+  protected array $blocked = [];
 
   /**
    * @inheritDoc
@@ -135,7 +140,7 @@ class MapState extends GameSceneState
   }
 
   /**
-   * Draws the region as connected places.
+   * Draws the region the way the world is laid out.
    *
    * @param int $width The panel's inner width.
    * @param int $height The panel's inner height.
@@ -144,38 +149,42 @@ class MapState extends GameSceneState
   protected function buildMapContent(int $width, int $height): array
   {
     $currentId = $this->currentMapId();
-    $columns = $this->visibleColumns($currentId);
+    $placed = $this->visiblePlaces($currentId);
 
-    if ($columns === []) {
+    if ($placed === []) {
       return array_pad([' This place is not on any map.'], $height, '');
     }
 
     $areas = RegionMap::areas();
-    $cellWidth = $this->cellWidth($columns, $areas);
+    $cellWidth = $this->cellWidth(array_keys($placed), $areas);
+    $step = $cellWidth + self::GUTTER;
     $canvas = array_fill(0, $height, array_fill(0, $width, ' '));
-    $positions = [];
+    $cells = [];
     $here = null;
+    $this->blocked = [];
 
-    foreach ($columns as $columnIndex => $column) {
-      $x = $columnIndex * ($cellWidth + self::GUTTER) + 1;
+    foreach ($placed as $id => [$gridX, $gridY]) {
+      $x = $gridX * $step + 1;
+      $y = $gridY * self::ROW_SPACING + 1;
 
-      foreach (array_values($column) as $rowIndex => $id) {
-        $y = $rowIndex * self::ROW_SPACING + 1;
+      if ($x + $cellWidth >= $width || $y >= $height) {
+        continue;
+      }
 
-        if ($x + $cellWidth >= $width || $y >= $height) {
-          continue;
-        }
+      $cells[$id] = ['x' => $x, 'y' => $y];
+      $this->paint($canvas, $x, $y, $this->cellFor($id, $areas, $cellWidth));
 
-        $positions[$id] = ['x' => $x, 'y' => $y];
-        $this->paint($canvas, $x, $y, $this->cellFor($id, $areas, $cellWidth));
+      for ($column = $x; $column < $x + $cellWidth; $column++) {
+        $this->blocked["{$y}:{$column}"] = true;
+      }
 
-        if ($id === $currentId) {
-          $here = ['x' => $x, 'y' => $y];
-        }
+      if ($id === $currentId) {
+        $here = ['x' => $x, 'y' => $y];
       }
     }
 
-    $this->paintLinks($canvas, $positions, $areas, $cellWidth);
+    $this->paintLinks($canvas, $cells, $areas, $cellWidth);
+    $this->paintCompass($canvas, $width);
 
     $rows = [];
 
@@ -195,6 +204,22 @@ class MapState extends GameSceneState
     }
 
     return array_slice($rows, 0, $height);
+  }
+
+  /**
+   * Draws a compass in the corner, so the layout reads as a map.
+   *
+   * @param array<int, array<int, string>> $canvas The canvas.
+   * @param int $width The panel's inner width.
+   * @return void
+   */
+  protected function paintCompass(array &$canvas, int $width): void
+  {
+    $x = $width - 8;
+
+    foreach (['  N  ', 'W ─ E', '  S  '] as $offset => $row) {
+      $this->paint($canvas, $x, $offset, $row);
+    }
   }
 
   /**
@@ -229,31 +254,23 @@ class MapState extends GameSceneState
   }
 
   /**
-   * Returns the columns worth drawing.
+   * Returns the places worth drawing, and where each sits.
    *
-   * A place the party has never been and has no route to from anywhere they
+   * Somewhere the party has never been and has no door to from anywhere they
    * have been is not on their map yet.
    *
    * @param string $currentId The map the player is on.
-   * @return array<int, string[]> The map ids, by column.
+   * @return array<string, array{0: int, 1: int}> The visible places.
    */
-  protected function visibleColumns(string $currentId): array
+  protected function visiblePlaces(string $currentId): array
   {
     $areas = RegionMap::areas();
-    $columns = [];
 
-    foreach (RegionMap::layout($currentId) as $column) {
-      $visible = array_values(array_filter(
-        $column,
-        fn(string $id): bool => $this->hasVisited($id) || $this->isNextToVisited($id, $areas)
-      ));
-
-      if ($visible !== []) {
-        $columns[] = $visible;
-      }
-    }
-
-    return $columns;
+    return array_filter(
+      RegionMap::place($currentId),
+      fn(array $position, string $id): bool => $this->hasVisited($id) || $this->isNextToVisited($id, $areas),
+      ARRAY_FILTER_USE_BOTH
+    );
   }
 
   /**
@@ -266,7 +283,7 @@ class MapState extends GameSceneState
   protected function isNextToVisited(string $id, array $areas): bool
   {
     foreach ($areas as $area) {
-      if ($this->hasVisited($area->id) && in_array($id, $area->links, true)) {
+      if ($this->hasVisited($area->id) && array_key_exists($id, $area->links)) {
         return true;
       }
     }
@@ -298,20 +315,16 @@ class MapState extends GameSceneState
   /**
    * Sizes every cell to the longest name it has to hold.
    *
-   * @param array<int, string[]> $columns The laid-out map ids.
+   * @param string[] $ids The map ids being drawn.
    * @param array<string, RegionArea> $areas Every area.
    * @return int The cell width.
    */
-  protected function cellWidth(array $columns, array $areas): int
+  protected function cellWidth(array $ids, array $areas): int
   {
     $longest = self::MIN_CELL_WIDTH;
 
-    foreach ($columns as $column) {
-      foreach ($column as $id) {
-        if (! $this->hasVisited($id)) {
-          continue;
-        }
-
+    foreach ($ids as $id) {
+      if ($this->hasVisited($id)) {
         $longest = max($longest, TerminalText::displayWidth($areas[$id]->name ?? $id) + 4);
       }
     }
@@ -341,31 +354,128 @@ class MapState extends GameSceneState
   /**
    * Draws the doors between places.
    *
-   * @param array<int, array<int, string>> $canvas The canvas, by row.
-   * @param array<string, array{x: int, y: int}> $positions Where each place was drawn.
+   * @param array<int, array<int, string>> $canvas The canvas.
+   * @param array<string, array{x: int, y: int}> $cells Where each place was drawn.
    * @param array<string, RegionArea> $areas Every area.
    * @param int $cellWidth The cell width.
    * @return void
    */
-  protected function paintLinks(array &$canvas, array $positions, array $areas, int $cellWidth): void
+  protected function paintLinks(array &$canvas, array $cells, array $areas, int $cellWidth): void
   {
-    foreach ($positions as $id => $from) {
-      foreach (($areas[$id]->links ?? []) as $link) {
-        $to = $positions[$link] ?? null;
+    $drawn = [];
 
-        if ($to === null || $to['x'] <= $from['x']) {
+    foreach ($cells as $id => $from) {
+      foreach (array_keys($areas[$id]->links ?? []) as $link) {
+        $to = $cells[$link] ?? null;
+        $pair = $id < $link ? "{$id}|{$link}" : "{$link}|{$id}";
+
+        // A door is drawn once, however many maps declare it.
+        if ($to === null || isset($drawn[$pair])) {
           continue;
         }
 
-        $startX = $from['x'] + $cellWidth;
-        $endX = $to['x'] - 1;
-        $turnX = min($endX, $startX + intdiv(max(1, $endX - $startX), 2));
-
-        $this->paintHorizontal($canvas, $startX, $turnX, $from['y']);
-        $this->paintVertical($canvas, $turnX, $from['y'], $to['y']);
-        $this->paintHorizontal($canvas, $turnX, $endX, $to['y']);
+        $drawn[$pair] = true;
+        $this->connect($canvas, $from, $to, $cellWidth);
       }
     }
+  }
+
+  /**
+   * Draws one door, from the edge of a place to the edge of its neighbour.
+   *
+   * Lines run through the gaps between places, never across them: a door drawn
+   * over a name makes the name unreadable.
+   *
+   * @param array<int, array<int, string>> $canvas The canvas.
+   * @param array{x: int, y: int} $from The place the door leaves.
+   * @param array{x: int, y: int} $to The place it leads to.
+   * @param int $cellWidth The cell width.
+   * @return void
+   */
+  protected function connect(array &$canvas, array $from, array $to, int $cellWidth): void
+  {
+    $rightwards = $to['x'] > $from['x'];
+    $downwards = $to['y'] > $from['y'];
+
+    if ($from['y'] === $to['y']) {
+      $left = $rightwards ? $from : $to;
+      $right = $rightwards ? $to : $from;
+
+      $this->paintHorizontal($canvas, $left['x'] + $cellWidth, $right['x'] - 1, $left['y']);
+
+      return;
+    }
+
+    if ($from['x'] === $to['x']) {
+      // Straight above or below: one run down the middle, through the gap.
+      $this->paintVertical($canvas, $from['x'] + intdiv($cellWidth, 2), $from['y'], $to['y']);
+
+      return;
+    }
+
+    // Diagonally placed: out of the side, along the gap, and back in.
+    $startX = $rightwards ? $from['x'] + $cellWidth : $from['x'] - 1;
+    $endX = $rightwards ? $to['x'] - 1 : $to['x'] + $cellWidth;
+    $turnX = $rightwards ? min($startX + 2, $endX) : max($startX - 2, $endX);
+
+    $step = $rightwards ? 1 : -1;
+    $inner = $downwards ? [$from['y'] + 1, $to['y'] - 1] : [$to['y'] + 1, $from['y'] - 1];
+
+    // The legs stop short of the turns, and the run between them covers only
+    // the rows in between, so each turn lands on a cell of its own.
+    $this->paintHorizontal($canvas, $startX, $turnX - $step, $from['y']);
+    $this->paintVertical($canvas, $turnX, $inner[0], $inner[1]);
+    $this->paintHorizontal($canvas, $turnX + $step, $endX, $to['y']);
+
+    $this->stamp($canvas, $turnX, $from['y'], $this->corner($rightwards, $downwards, true));
+    $this->stamp($canvas, $turnX, $to['y'], $this->corner($rightwards, $downwards, false));
+  }
+
+  /**
+   * Returns the corner a turn draws.
+   *
+   * @param bool $rightwards Whether the door leads right.
+   * @param bool $downwards Whether it leads down.
+   * @param bool $leaving Whether this is the turn out of the first place.
+   * @return string The corner.
+   */
+  protected function corner(bool $rightwards, bool $downwards, bool $leaving): string
+  {
+    return match (true) {
+      $leaving && $rightwards => $downwards ? '┐' : '┘',
+      $leaving => $downwards ? '┌' : '└',
+      $rightwards => $downwards ? '└' : '┌',
+      default => $downwards ? '┘' : '┐',
+    };
+  }
+
+  /**
+   * Writes one piece of track, merging it with whatever is already there.
+   *
+   * Several doors share the gaps between places, so a corner landing on a run
+   * becomes a junction rather than replacing it.
+   *
+   * @param array<int, array<int, string>> $canvas The canvas.
+   * @param int $x The column.
+   * @param int $y The row.
+   * @param string $piece The piece to write.
+   * @return void
+   */
+  protected function stamp(array &$canvas, int $x, int $y, string $piece): void
+  {
+    if (! isset($canvas[$y][$x]) || isset($this->blocked["{$y}:{$x}"])) {
+      return;
+    }
+
+    $existing = $canvas[$y][$x];
+    $pointsDown = in_array($piece, ['┌', '┐'], true);
+
+    $canvas[$y][$x] = match (true) {
+      $existing === ' ', $existing === $piece => $piece,
+      $existing === '─' => $pointsDown ? '┬' : '┴',
+      $existing === '│' => in_array($piece, ['┐', '┘'], true) ? '┤' : '├',
+      default => '┼',
+    };
   }
 
   /**
@@ -382,7 +492,7 @@ class MapState extends GameSceneState
     for ($x = min($fromX, $toX); $x <= max($fromX, $toX); $x++) {
       $existing = $canvas[$y][$x] ?? null;
 
-      if ($existing === null || $existing === '│') {
+      if ($existing === null || $existing === '│' || isset($this->blocked["{$y}:{$x}"])) {
         continue;
       }
 
@@ -405,40 +515,15 @@ class MapState extends GameSceneState
    */
   protected function paintVertical(array &$canvas, int $x, int $fromY, int $toY): void
   {
-    if ($fromY === $toY) {
-      if (isset($canvas[$fromY][$x]) && $canvas[$fromY][$x] === ' ') {
-        $canvas[$fromY][$x] = '─';
-      }
-
-      return;
-    }
-
-    $down = $toY > $fromY;
-
-    for ($y = min($fromY, $toY) + 1; $y < max($fromY, $toY); $y++) {
-      if (! isset($canvas[$y][$x])) {
+    for ($y = min($fromY, $toY); $y <= max($fromY, $toY); $y++) {
+      if (! isset($canvas[$y][$x]) || isset($this->blocked["{$y}:{$x}"])) {
         continue;
       }
 
       $canvas[$y][$x] = match ($canvas[$y][$x]) {
         ' ' => '│',
         '─' => '┼',
-        '└', '┌', '├' => '├',
         default => $canvas[$y][$x],
-      };
-    }
-
-    if (isset($canvas[$fromY][$x])) {
-      $canvas[$fromY][$x] = match ($canvas[$fromY][$x]) {
-        '─', '┬', '┴', '┼' => $down ? '┬' : '┴',
-        default => $down ? '┐' : '┘',
-      };
-    }
-
-    if (isset($canvas[$toY][$x])) {
-      $canvas[$toY][$x] = match ($canvas[$toY][$x]) {
-        '│', '└', '┌', '├' => '├',
-        default => $down ? '└' : '┌',
       };
     }
   }
