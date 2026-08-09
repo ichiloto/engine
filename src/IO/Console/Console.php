@@ -28,6 +28,14 @@ class Console
    */
   private static bool $usingAlternateScreen = false;
   /**
+   * @var bool Whether the terminal has been handed back to the user.
+   *
+   * Once it has, nothing may draw to it. Quitting happens partway through a
+   * frame, and whatever was midway through drawing would otherwise finish its
+   * work on the user's shell.
+   */
+  private static bool $terminalHandedBack = false;
+  /**
    * @var string Row updates collected while a frame is open.
    */
   private static string $frameBuffer = '';
@@ -273,6 +281,7 @@ class Console
     }
 
     self::$usingAlternateScreen = true;
+    self::$terminalHandedBack = false;
     echo "\033[?1049h";
   }
 
@@ -289,6 +298,7 @@ class Console
     }
 
     self::$usingAlternateScreen = false;
+    self::$terminalHandedBack = true;
     echo "\033[?1049l";
   }
 
@@ -322,6 +332,10 @@ class Console
    */
   public static function write(iterable|string $message, int|float $x, int|float $y): void
   {
+    if (self::$terminalHandedBack) {
+      return;
+    }
+
     $textRows = is_string($message) ? explode("\n", $message) : $message;
     $x = (int)floor($x);
     $y = (int)floor($y);

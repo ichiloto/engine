@@ -80,6 +80,10 @@ class Game implements CanRun, SubjectInterface
      */
     private bool $terminalRestoreHandlersRegistered = false;
     /**
+     * @var bool Whether the terminal has already been handed back.
+     */
+    private bool $terminalCleanedUp = false;
+    /**
      * @var BattleEngineInterface $engine The battle engine.
      */
     protected(set) BattleEngineInterface $engine;
@@ -345,6 +349,15 @@ class Game implements CanRun, SubjectInterface
      */
     private function cleanupTerminal(): void
     {
+        // Quitting, the end of run(), and the shutdown handler all lead here,
+        // because any of them may be the last thing that happens. The work is
+        // only worth doing once.
+        if ($this->terminalCleanedUp) {
+            return;
+        }
+
+        $this->terminalCleanedUp = true;
+
         try {
             InputManager::disableNonBlockingMode();
         } catch (Throwable) {
@@ -650,6 +663,14 @@ class Game implements CanRun, SubjectInterface
             while ($this->isRunning) {
                 $this->handleInput();
                 $this->update();
+
+                // Quitting happens inside update(), and by then the terminal
+                // has already been handed back. Painting this frame would draw
+                // the game over the user's shell.
+                if (! $this->isRunning) {
+                    break;
+                }
+
                 $this->render();
 
                 usleep($sleepTime);
@@ -663,6 +684,11 @@ class Game implements CanRun, SubjectInterface
         } catch (Throwable $exception) {
             $this->handleException($exception);
         }
+
+        // Whatever ended the loop, the terminal goes back the way it was
+        // found: quitting through a menu, running out of scenes, or an
+        // exception that was handled rather than thrown on.
+        $this->cleanupTerminal();
     }
 
     /**
