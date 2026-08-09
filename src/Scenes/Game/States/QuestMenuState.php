@@ -253,6 +253,10 @@ class QuestMenuState extends GameSceneState
       $header .= sprintf('  |  from %s', $quest->giver);
     }
 
+    if ($quest->isOptional) {
+      $header .= '  |  Side Quest';
+    }
+
     $content[] = $header;
     $content[] = ' ' . str_repeat('─', $innerWidth);
     $content[] = '';

@@ -15,6 +15,14 @@ use RuntimeException;
 class MainMenuSettingsManager
 {
     /**
+     * The master volume bounds and granularity. These match the title-screen
+     * options, so a volume set in one place is selectable in the other.
+     */
+    protected const int MIN_VOLUME = 0;
+    protected const int MAX_VOLUME = 100;
+    protected const int VOLUME_STEP = 5;
+
+    /**
      * Returns the settings shown in the config menu.
      *
      * @return MainMenuSetting[] The available settings.
@@ -22,6 +30,30 @@ class MainMenuSettingsManager
     public function getSettings(): array
     {
         return [
+            new MainMenuSetting(
+                'volume',
+                'Volume',
+                'Sets the master volume for music and sound effects.',
+                $this->buildVolumeChoices()
+            ),
+            new MainMenuSetting(
+                'music',
+                'Music',
+                'Turns background music on or off.',
+                [
+                    'Off' => false,
+                    'On' => true,
+                ]
+            ),
+            new MainMenuSetting(
+                'sfx',
+                'SFX',
+                'Turns sound effects on or off.',
+                [
+                    'Off' => false,
+                    'On' => true,
+                ]
+            ),
             new MainMenuSetting(
                 'dialogue_speed',
                 'Dialogue Speed',
@@ -114,6 +146,11 @@ class MainMenuSettingsManager
     protected function getSettingValue(string $key): mixed
     {
         return match ($key) {
+            'volume' => $this->snapVolumeToStep(
+                intval(config(ProjectConfig::class, 'audio.master_volume', 75))
+            ),
+            'music' => boolval(config(ProjectConfig::class, 'audio.music', false)),
+            'sfx' => boolval(config(ProjectConfig::class, 'audio.sfx', false)),
             'dialogue_speed' => config(
                 ProjectConfig::class,
                 'ui.dialogue.speed',
@@ -177,6 +214,9 @@ class MainMenuSettingsManager
         $config = ConfigStore::get(ProjectConfig::class);
 
         match ($key) {
+            'volume' => $config->set('audio.master_volume', intval($value)),
+            'music' => $config->set('audio.music', boolval($value)),
+            'sfx' => $config->set('audio.sfx', boolval($value)),
             'dialogue_speed' => $this->applyDialogueSpeedSetting($config, intval($value)),
             'battle_message_pace' => $config->set('ui.battle.message_pace', strval($value)),
             'battle_animation_pace' => $config->set('ui.battle.animation_pace', strval($value)),
@@ -211,6 +251,39 @@ class MainMenuSettingsManager
         $color = $value instanceof Color ? $value : Color::LIGHT_BLUE;
         $config->set('ui.menu.selection_color', $color);
         $config->set('ui.battle.selection_color', $color);
+    }
+
+    /**
+     * Builds the selectable master volume steps, labelled as percentages.
+     *
+     * @return array<string, int> The volume choices keyed by display label.
+     */
+    protected function buildVolumeChoices(): array
+    {
+        $choices = [];
+
+        for ($volume = self::MIN_VOLUME; $volume <= self::MAX_VOLUME; $volume += self::VOLUME_STEP) {
+            $choices["{$volume}%"] = $volume;
+        }
+
+        return $choices;
+    }
+
+    /**
+     * Snaps a stored volume to the nearest selectable step.
+     *
+     * A project may ship any volume it likes in its config, and a value that
+     * is not one of the steps would otherwise match no choice at all and show
+     * as the first one (silence).
+     *
+     * @param int $volume The stored volume.
+     * @return int The nearest selectable volume.
+     */
+    protected function snapVolumeToStep(int $volume): int
+    {
+        $clamped = clamp($volume, self::MIN_VOLUME, self::MAX_VOLUME);
+
+        return (int)(round($clamped / self::VOLUME_STEP) * self::VOLUME_STEP);
     }
 
     /**

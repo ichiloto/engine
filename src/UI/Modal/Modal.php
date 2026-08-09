@@ -222,6 +222,8 @@ abstract class Modal implements ModalInterface
   public function open(): mixed
   {
     $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::OPEN, true));
+    // Fit before centring, so the box is measured at its final height.
+    $this->fitContentToWidth();
     $this->leftMargin = (int)( (get_screen_width() / 2) - ($this->rect->getWidth() / 2) );
     $this->topMargin = (int)( (get_screen_height() / 2) - ($this->rect->getHeight() / 2) );
     $this->show();
@@ -367,13 +369,58 @@ abstract class Modal implements ModalInterface
   }
 
   /**
+   * Wraps the message to the box's inner width and grows the box to fit.
+   *
+   * Without this a message longer than the dialog is simply cut off mid
+   * sentence. The player sees "The shop is still shuttered. Perhaps someone
+   * at" and never learns the rest. Wrapping is done on word boundaries, and
+   * the box grows downward to hold the result.
+   *
+   * Subclasses that lay out their own text (the dialogue text box types its
+   * message character by character) override this to do nothing.
+   *
+   * @return void
+   */
+  protected function fitContentToWidth(): void
+  {
+    $innerWidth = max(1, $this->rect->getWidth() - 2);
+    $lines = [];
+
+    foreach (explode("\n", $this->message) as $paragraph) {
+      foreach (explode("\n", wordwrap($paragraph, $innerWidth, "\n", true)) as $line) {
+        $lines[] = $line;
+      }
+    }
+
+    $this->content = $lines;
+    $this->contentHeight = count($lines);
+
+    // Top border + content + button row + bottom border.
+    $this->rect->setHeight($this->contentHeight + 3);
+    // Window has no resize, so rebuild it at the fitted height. It owns the
+    // erase footprint and would otherwise leave the extra rows on screen.
+    $this->window = new Window(
+      $this->title,
+      '',
+      $this->rect->position,
+      $this->rect->getWidth(),
+      $this->rect->getHeight(),
+      $this->borderPack
+    );
+    $this->window->setContent($this->content);
+  }
+
+  /**
    * Renders the content.
    *
    * @return void
    */
   protected function renderContent(): void
   {
-    foreach ($this->content as $line) {
+    foreach ($this->content as $index => $line) {
+      // Each line is placed explicitly. Writing them back to back leaves the
+      // second one trailing off the end of the first row.
+      Console::cursor()->moveTo($this->leftMargin + 1, $this->topMargin + 2 + $index);
       $output = $this->borderPack->getVerticalBorder() .
         TerminalText::padCenter($line, $this->rect->getWidth() - 2) .
         $this->borderPack->getVerticalBorder();

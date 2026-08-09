@@ -1,7 +1,9 @@
 <?php
 
+use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
 use Ichiloto\Engine\Quests\Quest;
 use Ichiloto\Engine\Quests\QuestLog;
+use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Quests\QuestObjective;
 use Ichiloto\Engine\Quests\QuestObjectiveType;
 
@@ -105,3 +107,140 @@ it('ignores malformed persisted entries', function () {
     ->and($restored->getProgress('ok'))->toBe([2, 3])
     ->and($restored->completed)->toBe(['done']);
 });
+
+/* Optional (side) quests */
+
+it('marks a quest optional from its data-file entry', function () {
+  $side = Quest::fromArray([
+    'id' => 'lost-cat',
+    'name' => 'Lost Cat',
+    'description' => 'Whiskers wandered off again.',
+    'optional' => true,
+    'objectives' => [['type' => 'talk_to', 'target' => 'Whiskers']],
+    'rewards' => ['gold' => 50],
+  ]);
+  $main = Quest::fromArray([
+    'id' => 'breakfast-duty',
+    'name' => 'Breakfast Duty',
+    'objectives' => [['type' => 'collect', 'target' => 'S-Mana']],
+  ]);
+
+  expect($side->isOptional)->toBeTrue()
+    ->and($main->isOptional)->toBeFalse()
+    ->and($side->describeOffer())->toBe("Whiskers wandered off again.\nReward: 50 G\nAccept this quest?");
+});
+
+it('offers a side quest and honours the answer', function () {
+  $manager = new OfferRecordingQuestManager([
+    'lost-cat' => Quest::fromArray([
+      'id' => 'lost-cat',
+      'name' => 'Lost Cat',
+      'optional' => true,
+      'objectives' => [['type' => 'talk_to', 'target' => 'Whiskers']],
+    ]),
+  ]);
+
+  $manager->answer = false;
+
+  expect($manager->acceptQuest('lost-cat'))->toBeFalse()
+    ->and($manager->offered)->toBe(['lost-cat'])
+    ->and($manager->log->isActive('lost-cat'))->toBeFalse()
+    ->and($manager->declined)->toBe(['quest_declined:lost-cat']);
+
+  // Declining leaves it offerable, so the giver can ask again.
+  $manager->answer = true;
+
+  expect($manager->acceptQuest('lost-cat'))->toBeTrue()
+    ->and($manager->offered)->toBe(['lost-cat', 'lost-cat'])
+    ->and($manager->log->isActive('lost-cat'))->toBeTrue();
+});
+
+it('never re-offers a quest already in the journal', function () {
+  $manager = new OfferRecordingQuestManager([
+    'lost-cat' => Quest::fromArray([
+      'id' => 'lost-cat',
+      'name' => 'Lost Cat',
+      'optional' => true,
+      'objectives' => [['type' => 'talk_to', 'target' => 'Whiskers']],
+    ]),
+  ]);
+
+  expect($manager->acceptQuest('lost-cat'))->toBeTrue()
+    ->and($manager->acceptQuest('lost-cat'))->toBeFalse()
+    ->and($manager->offered)->toBe(['lost-cat']);
+});
+
+it('accepts a main-story quest without asking', function () {
+  $manager = new OfferRecordingQuestManager([
+    'breakfast-duty' => Quest::fromArray([
+      'id' => 'breakfast-duty',
+      'name' => 'Breakfast Duty',
+      'objectives' => [['type' => 'collect', 'target' => 'S-Mana']],
+    ]),
+  ]);
+
+  expect($manager->acceptQuest('breakfast-duty'))->toBeTrue()
+    ->and($manager->offered)->toBe([])
+    ->and($manager->log->isActive('breakfast-duty'))->toBeTrue();
+});
+
+it('grants an optional quest outright when the author asks it to', function () {
+  $manager = new OfferRecordingQuestManager([
+    'lost-cat' => Quest::fromArray([
+      'id' => 'lost-cat',
+      'name' => 'Lost Cat',
+      'optional' => true,
+      'objectives' => [['type' => 'talk_to', 'target' => 'Whiskers']],
+    ]),
+  ]);
+
+  $manager->answer = false;
+
+  expect($manager->acceptQuest('lost-cat', offer: false))->toBeTrue()
+    ->and($manager->offered)->toBe([])
+    ->and($manager->log->isActive('lost-cat'))->toBeTrue();
+});
+
+/**
+ * Drives the offer flow without a running game: the prompt, the notification,
+ * and the world-state reads all belong to a live scene.
+ */
+class OfferRecordingQuestManager extends QuestManager
+{
+  public array $offered = [];
+  public array $declined = [];
+  public bool $answer = true;
+
+  public function __construct(array $quests)
+  {
+    $this->quests = $quests;
+    $this->log = new QuestLog();
+  }
+
+  protected function confirmAcceptance(Quest $quest): bool
+  {
+    $this->offered[] = $quest->id;
+
+    return $this->answer;
+  }
+
+  protected function recordQuestDeclined(Quest $quest): void
+  {
+    $this->declined[] = sprintf('quest_declined:%s', $quest->id);
+  }
+
+  protected function meetsPrerequisites(Quest $quest): bool
+  {
+    return true;
+  }
+
+  public function refreshStatefulObjectives(bool $quiet = false): void
+  {
+    // Needs a live scene; irrelevant to the offer flow.
+  }
+
+  protected function notifyQuest(string $title, string $text, NotificationDuration $duration): void
+  {
+    // Needs a live game; irrelevant to the offer flow.
+  }
+}

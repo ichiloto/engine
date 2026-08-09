@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\UI\Modal;
 
+use Override;
+
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Rect;
@@ -198,6 +200,18 @@ class TextBoxModal extends Modal
   protected function playInteractionSound(SystemSound $sound): void
   {
     // Intentionally silent.
+  }
+
+  /**
+   * The text box types its message out one character at a time and wraps as it
+   * goes, so it lays out its own content. Leave it alone.
+   *
+   * @return void
+   */
+  #[Override]
+  protected function fitContentToWidth(): void
+  {
+    // Intentionally empty.
   }
 
   /**

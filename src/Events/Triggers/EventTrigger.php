@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Events\Triggers;
 
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
+use Ichiloto\Engine\Core\WorldStateWriter;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Events\Interfaces\EventTriggerContextInterface;
@@ -75,6 +76,9 @@ abstract class EventTrigger implements EventTriggerInterface
    * @param array<int, array<string, mixed>> $sets World-state writes applied when the trigger completes.
    * @param string|null $mapId The owning map's id.
    * @param string|null $marker The trigger's event marker on that map.
+   * @param string|null $whenBlocked Message shown when the player enters the
+   * area while the conditions do not hold. Without one a gated trigger is
+   * simply absent, which is indistinguishable from a bug.
    * @throws JsonException If the data cannot be serialized.
    */
   final public function __construct(
@@ -84,6 +88,7 @@ abstract class EventTrigger implements EventTriggerInterface
     array $sets = [],
     ?string $mapId = null,
     ?string $marker = null,
+    protected(set) ?string $whenBlocked = null,
   )
   {
     $serializedData = json_encode($data, JSON_THROW_ON_ERROR);
@@ -182,23 +187,7 @@ abstract class EventTrigger implements EventTriggerInterface
       return;
     }
 
-    foreach ($this->sets as $set) {
-      $name = trim(strval($set['name'] ?? ''));
-
-      if ($name === '') {
-        continue;
-      }
-
-      match (strval($set['type'] ?? '')) {
-        'switch' => $this->gameState->setSwitch($name, (bool) ($set['value'] ?? true)),
-        'event' => $this->gameState->recordStoryEvent($name),
-        'variable' => strval($set['op'] ?? 'set') === 'add'
-          ? $this->gameState->addToVariable($name, is_numeric($set['value'] ?? 1) ? $set['value'] + 0 : 1)
-          : $this->gameState->setVariable($name, $set['value'] ?? 0),
-        'quest' => QuestManager::current()?->acceptQuest($name),
-        default => null,
-      };
-    }
+    WorldStateWriter::applyAll($this->sets, $this->gameState);
 
     if (! $this->isReusable && $this->mapId !== null && $this->marker !== null) {
       $this->gameState->markEventComplete($this->mapId, $this->marker);

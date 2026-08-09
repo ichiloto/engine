@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Field;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 
@@ -175,10 +176,32 @@ class NpcManager
       return;
     }
 
-    $this->gameScene->renderBackgroundTile(intval($npc->position->x), intval($npc->position->y));
+    $this->eraseNpc($npc);
     $npc->position->x = $destinationX;
     $npc->position->y = $destinationY;
     $this->gameScene->camera->renderOnScreen([$npc->sprite], $npc->position);
+  }
+
+  /**
+   * Restores the map tiles an NPC's sprite covered.
+   *
+   * Sprites are anchored to their tile and overhang to the right, so a
+   * two-column emoji covers two cells. Clearing only the anchor cell leaves
+   * the other half of the glyph on the map.
+   *
+   * @param Npc $npc The NPC to erase.
+   * @return void
+   */
+  protected function eraseNpc(Npc $npc): void
+  {
+    $columns = max(1, TerminalText::displayWidth($npc->sprite));
+
+    for ($column = 0; $column < $columns; $column++) {
+      $this->gameScene->renderBackgroundTile(
+        intval($npc->position->x) + $column,
+        intval($npc->position->y)
+      );
+    }
   }
 
   /**

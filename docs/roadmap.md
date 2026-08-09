@@ -422,16 +422,112 @@ Turn the polished stage into a real fight. Roughly in order:
 > reproduces the trail: write a tile, draw a sprite directly over it, write
 > the tile again, and assert the erase reaches the terminal.
 >
-> **Follow-up worth doing:** route the sprite paths through the console
-> buffer so it becomes authoritative. That would make unchanged-row skipping
-> (and further diffing) safe, and remove a standing trap for anyone who
-> optimises this path next.
+> **Follow-up, now done:** `Camera::renderOnScreen()` and
+> `renderAtScreenPosition()` route through `Console::write()`, so the buffer
+> is authoritative for every draw including sprites. Unchanged-row skipping
+> is back on that footing, verified by a test that draws a wide sprite over
+> a map row, erases both of its cells, and asserts the row returns to the
+> map tiles at the right display width. Live check: walking south, west and
+> north leaves exactly one player sprite and one NPC on screen.
+>
+> **Note for future verification.** `expect` double-encodes astral
+> characters (each UTF-8 byte becomes its own codepoint), so emoji appear as
+> `ð...` mojibake in captured pty output and byte scans for them find
+> nothing. This is a harness artifact, not an engine bug: the same write
+> through a plain pipe emits correct bytes. Recover the real stream with
+> `raw.decode('utf-8').encode('latin-1').decode('utf-8')` before asserting
+> on sprites, or the evidence will look like the sprite never rendered.
 >
 > Result: **1.32 ms per scroll step, a 26x improvement**, leaving the
 > 16.6 ms frame budget almost entirely free. Six regression tests in
 > `ConsoleBufferTest` cover exact ASCII writes, offset overwrites, wide-glyph
 > column accounting, unchanged-row skipping, and frame batching (including
 > nesting). Verified live: the map renders identically after the change.
+
+### Known issue — rare unreproducible test flake
+> Twice during Phase 6/7 work a single suite run reported one failure that
+> did not reproduce. The first cause was real and fixed: static caches
+> (`TerminalCapabilities`, symbol metrics) leaked between tests, so a test
+> that installed a config stub could change a later test's result depending
+> on order. `tests/Pest.php` now clears that state before every test.
+>
+> A second one-off appeared after that fix and has **not** been reproduced
+> in 45 consecutive runs, and no run has ever printed the failing test's
+> name before passing again. It is recorded here rather than declared
+> fixed. If it resurfaces, capture the run's full output first — the name
+> of the failing test is the missing piece, and a green re-run is not
+> evidence that it is gone.
+
+### Terminal restore on exit ✅ *fixed 2026-08*
+> Reported: the terminal is not returned to its previous state after a
+> session, leaving map remnants above the shell prompt.
+>
+> **Cause.** The engine drew straight onto the primary screen buffer, so
+> there was nothing to restore *to*, and cleanup only ran on the tidy exit
+> path. `Console::reset()` (reachable only from `Game::quit()`) ran
+> `tput reset`, which clears scrollback and colours — destruction, not
+> restoration. Ctrl+C and fatal errors bypassed cleanup entirely, leaving
+> the shell in raw mode with echo off.
+>
+> **Fix.** The engine now borrows the terminal properly:
+> - `Console::enterAlternateScreen()` / `leaveAlternateScreen()` use the
+>   alternate screen buffer (`\033[?1049h` / `l`), so the shell's prompt,
+>   scrollback and output come back exactly as they were.
+> - `reset()` leaves the alternate screen and restores the cursor instead of
+>   running `tput reset`.
+> - `Game::registerTerminalRestoreHandlers()` installs a
+>   `register_shutdown_function` (covers fatal errors and normal exits) plus
+>   `SIGINT`/`SIGTERM`/`SIGHUP` handlers that clean up and then re-raise with
+>   the default handler, so the exit status still reports the signal.
+>
+> Verified by counting the escape sequences in a captured session: the
+> alternate screen is entered once and left once, and the cursor is
+> restored, on both a normal quit **and** Ctrl+C.
+
+### Rendering — sprite/tile alignment ✅ *fixed 2026-08*
+> Reported: "the player stops on the wall instead of before it." Correct
+> diagnosis from the user, and it was engine-wide rather than a one-off.
+>
+> **Cause.** `Player::getRenderScreenPosition()` shifted a sprite left by
+> `intdiv(spriteWidth - tileWidth + 1, 2)` to "centre" it. For a
+> two-column emoji on a one-column tile that is exactly one column, so a
+> player standing on the first walkable tile (x=1) beside a wall (x=0) was
+> drawn starting at the wall's column. ASCII sprites computed an offset of
+> zero, which is why this only ever showed with emoji sprites and went
+> unnoticed for a long time. A test even pinned the old value, so this was
+> a deliberate past decision rather than an accident.
+>
+> **The contract, now applied consistently.** A sprite is anchored to its
+> own tile: its first column is that tile's column, and glyphs wider than
+> one cell overhang to the right. Everything that erases a sprite clears
+> that full width. This matches what NPCs already did, so the player and
+> NPCs no longer disagree about what a tile means.
+>
+> Fixed together, since they were the same mistake:
+> - `Player::getRenderScreenPosition()` no longer shifts; the dead
+>   `getHorizontalRenderOffset()` helper is gone rather than left returning
+>   zero as a trap.
+> - Both player erase footprints (`eraseSpriteFootprint`,
+>   `eraseActionFootprint`) start at the tile, matching where the sprite is
+>   drawn.
+> - `NpcManager` erased **one cell** for a two-column NPC sprite, so a
+>   wandering emoji NPC (the demo cat) left half of itself behind. It now
+>   clears the sprite's full display width.
+> - `GameObject::erase()` likewise clears the sprite width rather than a
+>   single cell.
+>
+> `PlayerRenderAlignmentTest` was rewritten around the new contract and now
+> drives the **real** erase footprint through a recording scene rather than
+> asserting a hand-computed offset, so it fails if the anchoring regresses.
+> Verified live: walking west into the wall puts the player at column 74
+> with the wall at 73 — beside it, not on it.
+>
+> **Known trade-off, stated plainly.** A two-column glyph cannot sit inside
+> a one-column tile, so the overhang has to go somewhere; it now goes right.
+> Against a right-hand wall the sprite's second column touches the wall
+> glyph. Removing that entirely means either one-column sprites or a
+> two-columns-per-tile world grid, which is a much larger change and belongs
+> on the roadmap rather than in a bug fix.
 
 ### Phase 7 — Tooling & documentation
 - Editor: implement the 10 stub database categories (items, weapons, armors,

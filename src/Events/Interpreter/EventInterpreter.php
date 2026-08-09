@@ -30,7 +30,7 @@ use Throwable;
  * - `['type' => 'give_item', 'item' => 'S-Potion', 'quantity' => 1]`
  * - `['type' => 'give_gold', 'amount' => 100]` (negative debits)
  * - `['type' => 'play_sound', 'sound' => '...']` / `['type' => 'play_music', 'music' => '...']`
- * - `['type' => 'accept_quest', 'id' => 'quest-id']`
+ * - `['type' => 'accept_quest', 'id' => 'quest-id', 'confirm' => true]`
  * - `['type' => 'move_player', 'x' => 5, 'y' => 6]`
  * - `['type' => 'transfer', 'map' => 'happyville/town-center', 'x' => 10, 'y' => 8]`
  * - `['type' => 'start_battle', 'troop' => 'Bat x 2']` — switches scenes; make it the final command
@@ -149,7 +149,10 @@ class EventInterpreter
         break;
 
       case 'accept_quest':
-        QuestManager::current()?->acceptQuest(strval($command['id'] ?? ''));
+        QuestManager::current()?->acceptQuest(
+          strval($command['id'] ?? ''),
+          ($command['confirm'] ?? true) !== false
+        );
         break;
 
       case 'move_player':

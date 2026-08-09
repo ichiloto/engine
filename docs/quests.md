@@ -37,6 +37,8 @@ return [
 - `description` and `giver` feed the journal; both optional.
 - `rewards` supports `gold`, `experience` (granted to every member), and
   `items` (names resolved through the item store). All optional.
+- `optional` marks a side quest, which is offered rather than granted. See
+  [Side quests the player can turn down](#side-quests-the-player-can-turn-down).
 
 ## Objectives
 
@@ -70,8 +72,43 @@ Any event trigger can grant a quest through its completion `sets`:
 ],
 ```
 
-Accepting is idempotent — re-running the dialogue never re-grants a
-completed or active quest.
+Accepting is idempotent: re-running the dialogue never re-grants a completed
+or active quest.
+
+### Side quests the player can turn down
+
+Story quests are handed over the moment their trigger fires. A quest marked
+`'optional' => true` is *offered* instead: the player sees a confirmation
+carrying the description and rewards, and it only enters the journal if they
+accept.
+
+```php
+[
+  'id' => 'lost-cat',
+  'name' => 'Lost Cat',
+  'description' => 'Whiskers has wandered off again.',
+  'optional' => true,
+  'objectives' => [ /* ... */ ],
+],
+```
+
+Declining changes nothing except one story event, `quest_declined:<id>`, so:
+
+- the giver can offer the quest again on the next conversation, and
+- dialogue can acknowledge the refusal with a
+  `['type' => 'event', 'name' => 'quest_declined:lost-cat']` condition.
+
+Optional quests are labelled **Side Quest** in the journal. To hand one over
+without asking (the character has already agreed to it in dialogue, say), add
+`'confirm' => false` to the grant:
+
+```php
+'sets' => [
+  ['type' => 'quest', 'name' => 'lost-cat', 'confirm' => false],
+],
+```
+
+The same flag works on the `accept_quest` event-script command.
 
 ### Prerequisites
 
@@ -104,3 +141,68 @@ When every objective is satisfied the quest completes on the spot: rewards
 are granted, a `quest_completed:<id>` story event is recorded (usable in
 any trigger or prerequisite condition), and a notification announces it.
 The quest moves to the journal's Completed tab and can never re-activate.
+
+## Dialogue that acknowledges progress
+
+A speaker's `dialogue` may be a plain list of pages (always the same), or an
+ordered list of **variants** where the first whose conditions hold is spoken:
+
+```php
+'dialogue' => [
+  [
+    'conditions' => [['type' => 'quest', 'name' => 'breakfast-duty', 'status' => 'completed']],
+    'lines' => [['name' => 'Mom', 'text' => 'You found one! I knew I could count on you.']],
+  ],
+  [
+    'conditions' => [['type' => 'quest', 'name' => 'breakfast-duty', 'status' => 'active']],
+    'lines' => [['name' => 'Mom', 'text' => 'Still no S-Mana wafer? The shop is in the town centre.']],
+  ],
+  [
+    'lines' => [['name' => 'Mom', 'text' => 'Good morning, dear.']],   // fallback
+  ],
+],
+```
+
+Order matters: put the most advanced state first and leave an unconditional
+variant last as the fallback. Conditions use the same vocabulary as event
+triggers (switch, event, variable, item, key_item, quest), so dialogue can
+react to anything the world remembers.
+
+A variant may also carry:
+
+- `sets` — world-state writes applied when that line is spoken, which is how
+  "the first time you report back" is recorded.
+- `script` — event-script commands run instead of (or alongside) its lines,
+  for handing over rewards or starting a cutscene.
+
+This works for both map dialogue triggers and NPCs, and existing flat page
+lists keep working untouched — they are simply a single unconditional variant.
+
+## Gating areas behind progress
+
+Any event trigger accepts `conditions`, and `TransferPlayerTrigger` is an
+event trigger, so a door is gated by adding them. Pair it with `whenBlocked`
+so the door explains itself:
+
+```php
+'B' => [
+  'class' => 'Ichiloto\\Engine\\Events\\Triggers\\TransferPlayerTrigger',
+  'conditions' => [
+    ['type' => 'quest', 'name' => 'breakfast-duty', 'status' => 'active'],
+  ],
+  'whenBlocked' => 'The shop is still shuttered. Perhaps someone at home needs something first.',
+  'data' => [ /* destinationMap, spawnPoint, … */ ],
+],
+```
+
+Without `whenBlocked` a gated trigger is simply absent: the player walks into
+the doorway and nothing happens at all, which reads as a bug rather than a
+locked door. The message is shown once each time they step into the area.
+
+Two limits worth knowing:
+
+- Gating is per-trigger, not per-tile. A locked *door* works; a wall that
+  crumbles later does not, because map tiles are static per map. Transfer to
+  a different version of the map for that.
+- Conditions are re-evaluated on movement, so a door unlocking while the
+  player stands in it takes effect when they step out and back.

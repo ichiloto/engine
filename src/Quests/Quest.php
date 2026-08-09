@@ -22,6 +22,8 @@ class Quest
    * @param QuestObjective[] $objectives The objectives, in order.
    * @param array{gold?: int, experience?: int, items?: string[]} $rewards The completion rewards.
    * @param array<int, array<string, mixed>> $prerequisites Conditions that must hold before the quest can be accepted (same shapes as event-trigger conditions, plus `['type' => 'quest', 'name' => ..., 'status' => 'completed'|'active']`).
+   * @param bool $isOptional True for a side quest, which is offered to the
+   * player and only entered in the journal if they accept it.
    */
   public function __construct(
     protected(set) string $id,
@@ -31,8 +33,31 @@ class Quest
     protected(set) array $objectives = [],
     protected(set) array $rewards = [],
     protected(set) array $prerequisites = [],
+    protected(set) bool $isOptional = false,
   )
   {
+  }
+
+  /**
+   * Builds the text of the offer shown when a side quest is proposed.
+   *
+   * @return string The offer prompt.
+   */
+  public function describeOffer(): string
+  {
+    $parts = [];
+
+    if (trim($this->description) !== '') {
+      $parts[] = trim($this->description);
+    }
+
+    if (($rewards = $this->describeRewards()) !== '') {
+      $parts[] = sprintf('Reward: %s', $rewards);
+    }
+
+    $parts[] = 'Accept this quest?';
+
+    return implode("\n", $parts);
   }
 
   /**
@@ -90,6 +115,7 @@ class Quest
       $objectives,
       is_array($data['rewards'] ?? null) ? $data['rewards'] : [],
       is_array($data['prerequisites'] ?? null) ? $data['prerequisites'] : [],
+      (bool) ($data['optional'] ?? false),
     );
   }
 }

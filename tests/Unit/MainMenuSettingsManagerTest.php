@@ -144,3 +144,65 @@ it('updates dialogue speed on both supported config paths', function () {
 
   unlink($filename);
 });
+
+it('toggles music and sfx from the in-game config menu', function () {
+  $filename = tempnam(sys_get_temp_dir(), 'ichiloto-config-');
+  $config = new ProjectConfigPersistProxy([
+    'filename' => $filename,
+    'initial' => [
+      'audio' => [
+        'music' => true,
+        'sfx' => true,
+        'master_volume' => 75,
+      ],
+    ],
+  ]);
+  ConfigStore::put(AppConfig::class, new InlineConfigStub(['debug' => ['file' => false]]));
+  ConfigStore::put(ProjectConfig::class, $config);
+
+  $manager = new MainMenuSettingsManager();
+
+  expect($manager->getCurrentChoiceLabel(getMainMenuSettingByKey($manager, 'music')))->toBe('On');
+
+  $label = $manager->cycle(getMainMenuSettingByKey($manager, 'music'), 1);
+  expect($label)->toBe('Off')
+    ->and($config->get('audio.music'))->toBeFalse();
+
+  $label = $manager->cycle(getMainMenuSettingByKey($manager, 'sfx'), 1);
+  expect($label)->toBe('Off')
+    ->and($config->get('audio.sfx'))->toBeFalse();
+
+  unlink($filename);
+});
+
+it('adjusts master volume without leaving the field', function () {
+  $filename = tempnam(sys_get_temp_dir(), 'ichiloto-config-');
+  $config = new ProjectConfigPersistProxy([
+    'filename' => $filename,
+    'initial' => ['audio' => ['master_volume' => 75]],
+  ]);
+  ConfigStore::put(AppConfig::class, new InlineConfigStub(['debug' => ['file' => false]]));
+  ConfigStore::put(ProjectConfig::class, $config);
+
+  $manager = new MainMenuSettingsManager();
+  $setting = getMainMenuSettingByKey($manager, 'volume');
+
+  expect($manager->getCurrentChoiceLabel($setting))->toBe('75%');
+
+  expect($manager->cycle($setting, 1))->toBe('80%')
+    ->and($config->get('audio.master_volume'))->toBe(80);
+
+  expect($manager->cycle($setting, -1))->toBe('75%')
+    ->and($config->get('audio.master_volume'))->toBe(75);
+
+  unlink($filename);
+});
+
+it('shows the nearest step for a volume the project set off-step', function () {
+  ConfigStore::put(AppConfig::class, new InlineConfigStub(['debug' => ['file' => false]]));
+  ConfigStore::put(ProjectConfig::class, new InlineConfigStub(['audio' => ['master_volume' => 63]]));
+
+  $manager = new MainMenuSettingsManager();
+
+  expect($manager->getCurrentChoiceLabel(getMainMenuSettingByKey($manager, 'volume')))->toBe('65%');
+});

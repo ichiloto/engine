@@ -154,8 +154,31 @@ class SelectModal implements ModalInterface
     $this->title = $title;
     $this->setHelp($help);
     $this->output = new ConsoleOutput();
-    $this->messageLines = explode("\n", $this->message);
-    $this->messageContentHeight = count($this->messageLines);
+    $this->wrapMessage();
+  }
+
+  /**
+   * Wraps the message to the modal's inner width.
+   *
+   * Splitting on newlines alone cuts a long prompt off mid sentence, and the
+   * box's height derives from the line count, so wrapping is also what makes
+   * it grow to fit.
+   *
+   * @return void
+   */
+  protected function wrapMessage(): void
+  {
+    $innerWidth = max(1, $this->rect->getWidth() - 2);
+    $lines = [];
+
+    foreach (explode("\n", $this->message) as $paragraph) {
+      foreach (explode("\n", wordwrap($paragraph, $innerWidth, "\n", true)) as $line) {
+        $lines[] = $line;
+      }
+    }
+
+    $this->messageLines = $lines;
+    $this->messageContentHeight = count($lines);
   }
 
   /**
@@ -328,6 +351,7 @@ class SelectModal implements ModalInterface
   {
     $this->message = $content;
     $this->messageLength = TerminalText::displayWidth($this->message);
+    $this->wrapMessage();
   }
 
   public function getHelp(): string

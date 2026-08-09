@@ -64,7 +64,7 @@ it('keeps column accounting correct when a wide glyph lands in an ascii row', fu
     ->and($buffer[0])->toContain('ok');
 });
 
-it('re-emits a row even when its buffered content is unchanged', function () {
+it('skips re-emitting a row whose content is genuinely unchanged', function () {
   $reflection = withConsole(20, 2);
 
   ob_start();
@@ -75,31 +75,38 @@ it('re-emits a row even when its buffered content is unchanged', function () {
   Console::write('| hello  |', 0, 0);
   $secondPass = ob_get_clean();
 
-  // Skipping "unchanged" rows looks like a free optimisation and is not:
-  // sprites are drawn straight to the terminal and never enter this buffer,
-  // so a row that matches the buffer may still be covering a sprite that
-  // has to be painted over.
+  // Safe only because every draw goes through this buffer, sprites
+  // included; see the sprite-erasure test below for the case that made
+  // skipping unsafe when sprites bypassed it.
   expect($firstPass)->not->toBe('')
-    ->and($secondPass)->not->toBe('')
+    ->and($secondPass)->toBe('')
     ->and($reflection->getProperty('buffer')->getValue()[0])->toBe('| hello  |          ');
 });
 
-it('erases a sprite that was drawn outside the buffer', function () {
-  // Reproduces the real regression: the map tile is written, a sprite is
-  // drawn directly over it (as Camera::renderOnScreen does), and then the
-  // tile is written again to erase the sprite. That final write must reach
-  // the terminal even though the buffer never changed.
-  withConsole(20, 2);
+it('erases a wide sprite from the row it covered', function () {
+  // The regression that trailed copies of the player across the map: a
+  // sprite is drawn over a map row and then erased tile by tile. Both cells
+  // of the two-column glyph must come back, and the erase must reach the
+  // terminal.
+  $reflection = withConsole(24, 2);
 
   ob_start();
-  Console::write('....................', 0, 0);   // map row
-  echo "\033[1;5H@";                               // sprite drawn directly
-  Console::write('....................', 0, 0);   // erase pass
-  $output = ob_get_clean();
+  Console::write(str_repeat('.', 24), 0, 0);
+  ob_end_clean();
 
-  $eraseWrite = substr($output, strpos($output, '@') + 1);
+  ob_start();
+  Console::write(TerminalText::stabilize('🚶'), 4, 0);
+  $withSprite = $reflection->getProperty('buffer')->getValue()[0];
+  Console::write('.', 4, 0);
+  Console::write('.', 5, 0);
+  $eraseOutput = ob_get_clean();
 
-  expect($eraseWrite)->toContain('....................');
+  $afterErase = $reflection->getProperty('buffer')->getValue()[0];
+
+  expect($withSprite)->toContain('🚶')
+    ->and($afterErase)->toBe(str_repeat('.', 24))
+    ->and(TerminalText::displayWidth($afterErase))->toBe(24)
+    ->and($eraseOutput)->not->toBe('');
 });
 
 it('batches a frame into a single terminal write', function () {

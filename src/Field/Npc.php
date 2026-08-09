@@ -3,7 +3,9 @@
 namespace Ichiloto\Engine\Field;
 
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Core\WorldStateWriter;
 use Ichiloto\Engine\Events\Interpreter\EventInterpreter;
+use Ichiloto\Engine\Messaging\Dialogue\ConditionalDialogue;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 
@@ -20,6 +22,8 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
  *     'x' => 23, 'y' => 5,
  *     'movement' => 'fixed',                     // or 'wander'
  *     'wanderArea' => ['x' => 20, 'y' => 4, 'width' => 6, 'height' => 3],
+ *     // Either a plain page list, or conditional variants where the first
+ *     // matching entry is spoken (see ConditionalDialogue).
  *     'dialogue' => [['name' => 'Mom', 'text' => '…'], …],
  *     'script' => [ …event commands… ],          // replaces dialogue when present
  *     'conditions' => [ …trigger conditions… ],  // NPC only appears while these hold
@@ -74,15 +78,25 @@ class Npc
     if (! empty($this->script)) {
       new EventInterpreter($gameScene)->run($this->script);
     } else {
-      foreach ($this->dialogue as $page) {
-        if (is_array($page)) {
-          show_text(
-            strval($page['text'] ?? ''),
-            strval($page['name'] ?? $this->name),
-            charactersPerSecond: dialogue_speed()
-          );
-        }
+      // Pick what to say from the state of the world, so a character can
+      // acknowledge what the player has actually done.
+      $variant = ConditionalDialogue::select($this->dialogue, $gameScene->gameState, $gameScene->party);
+
+      foreach ($variant['lines'] as $page) {
+        show_text(
+          strval($page['text'] ?? ''),
+          strval($page['name'] ?? $this->name),
+          charactersPerSecond: dialogue_speed()
+        );
       }
+
+      if (! empty($variant['script'])) {
+        new EventInterpreter($gameScene)->run($variant['script']);
+      }
+
+      // A variant's own writes land before the NPC's, so "first time you
+      // report back" state is recorded by the line that said it.
+      WorldStateWriter::applyAll($variant['sets'], $gameScene->gameState);
     }
 
     $this->applySets($gameScene);
@@ -116,26 +130,6 @@ class Npc
    */
   protected function applySets(GameScene $gameScene): void
   {
-    foreach ($this->sets as $set) {
-      if (! is_array($set)) {
-        continue;
-      }
-
-      $name = trim(strval($set['name'] ?? ''));
-
-      if ($name === '') {
-        continue;
-      }
-
-      match (strval($set['type'] ?? '')) {
-        'switch' => $gameScene->gameState->setSwitch($name, (bool) ($set['value'] ?? true)),
-        'event' => $gameScene->gameState->recordStoryEvent($name),
-        'variable' => strval($set['op'] ?? 'set') === 'add'
-          ? $gameScene->gameState->addToVariable($name, is_numeric($set['value'] ?? 1) ? $set['value'] + 0 : 1)
-          : $gameScene->gameState->setVariable($name, $set['value'] ?? 0),
-        'quest' => QuestManager::current()?->acceptQuest($name),
-        default => null,
-      };
-    }
+    WorldStateWriter::applyAll($this->sets, $gameScene->gameState);
   }
 }

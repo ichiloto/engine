@@ -20,6 +20,23 @@ use Ichiloto\Engine\UI\UIManager;
 
 /*
 |--------------------------------------------------------------------------
+| Shared State
+|--------------------------------------------------------------------------
+|
+| A few engine services cache answers in static properties for the life of
+| the process: terminal capability detection, and the per-symbol metric
+| caches behind text measurement. Left alone they leak between tests, so a
+| test that configures a stub can change the result of one that runs later
+| and the suite fails depending on order. Clear them before every test.
+|
+*/
+
+uses()->beforeEach(function () {
+    Ichiloto\Engine\IO\Console\TerminalCapabilities::reset();
+})->in(__DIR__);
+
+/*
+|--------------------------------------------------------------------------
 | Expectations
 |--------------------------------------------------------------------------
 |

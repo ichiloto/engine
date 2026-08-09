@@ -8,6 +8,7 @@ use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\UI\Modal\ModalManager;
 use Assegai\Util\Path;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Debug;
@@ -131,7 +132,7 @@ class QuestManager
    * @param string $questId The quest id.
    * @return bool True when newly accepted.
    */
-  public function acceptQuest(string $questId): bool
+  public function acceptQuest(string $questId, bool $offer = true): bool
   {
     $quest = $this->quests[trim($questId)] ?? null;
 
@@ -141,6 +142,16 @@ class QuestManager
     }
 
     if (! $this->meetsPrerequisites($quest)) {
+      return false;
+    }
+
+    // Asked before the offer, so a quest already in the journal never prompts
+    // the player a second time.
+    if ($this->log->isActive($quest->id) || $this->log->isCompleted($quest->id)) {
+      return false;
+    }
+
+    if ($offer && $quest->isOptional && ! $this->offerQuest($quest)) {
       return false;
     }
 
@@ -450,6 +461,58 @@ class QuestManager
       if ($itemStore instanceof ItemStore) {
         $party->addItems(...$itemStore->load($itemNames));
       }
+    }
+  }
+
+  /**
+   * Offers a side quest and reports whether the player took it.
+   *
+   * Declining leaves the quest out of the journal, so the giver can offer it
+   * again, and records a `quest_declined:<id>` story event that dialogue can
+   * condition on.
+   *
+   * @param Quest $quest The quest being offered.
+   * @return bool True when the player accepted.
+   */
+  protected function offerQuest(Quest $quest): bool
+  {
+    if (! $this->confirmAcceptance($quest)) {
+      $this->recordQuestDeclined($quest);
+
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Records that the player turned a quest down.
+   *
+   * @param Quest $quest The declined quest.
+   * @return void
+   */
+  protected function recordQuestDeclined(Quest $quest): void
+  {
+    $this->gameScene->gameState->recordStoryEvent(sprintf('quest_declined:%s', $quest->id));
+  }
+
+  /**
+   * Asks the player whether to take the quest.
+   *
+   * When the prompt cannot be shown at all the quest is accepted rather than
+   * silently dropped: losing content outright is worse than a missing prompt.
+   *
+   * @param Quest $quest The quest being offered.
+   * @return bool True when the player accepted.
+   */
+  protected function confirmAcceptance(Quest $quest): bool
+  {
+    try {
+      return ModalManager::getInstance($this->game)->confirm($quest->describeOffer(), $quest->name);
+    } catch (Throwable $exception) {
+      Debug::warn(sprintf('Quest offer prompt failed: %s', $exception->getMessage()));
+
+      return true;
     }
   }
 

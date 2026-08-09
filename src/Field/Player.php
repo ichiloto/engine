@@ -78,6 +78,12 @@ class Player extends GameObject
    */
   public ?ActionInterface $availableAction = null;
   /**
+   * @var array<int, true> Blocked triggers already announced, keyed by object
+   * id, so a locked door explains itself once per approach rather than on
+   * every step inside its area.
+   */
+  protected array $announcedBlockedEvents = [];
+  /**
    * @var Vector2 $screenPosition The screen position of the player.
    */
   public Vector2 $screenPosition {
@@ -147,7 +153,10 @@ class Player extends GameObject
    */
   public function move(Vector2 $direction, Camera $camera): void
   {
-    $origin = $this->position;
+    // Clone: $this->position is mutated by the move below, so holding a
+    // reference would make the movement event report an origin equal to its
+    // destination.
+    $origin = clone $this->position;
     $destination = Vector2::sum($origin, $direction);
     $collisionType = null;
     $previousSprite = $this->sprite;
@@ -229,6 +238,22 @@ class Player extends GameObject
         if ($this->eventManager->activeEvents->contains($event)) {
           $event->exit($eventTriggerContext);
           $this->eventManager->activeEvents->remove($event);
+        }
+
+        // A gated trigger that says nothing is indistinguishable from a bug:
+        // the player walks into a doorway and the game ignores them. Announce
+        // it once per entry, clearing the mark when they step away.
+        if ($event->whenBlocked !== null) {
+          $eventId = spl_object_id($event);
+
+          if ($event->area->contains($movementEvent->destination)) {
+            if (! isset($this->announcedBlockedEvents[$eventId])) {
+              $this->announcedBlockedEvents[$eventId] = true;
+              alert($event->whenBlocked);
+            }
+          } else {
+            unset($this->announcedBlockedEvents[$eventId]);
+          }
         }
 
         continue;
@@ -538,25 +563,11 @@ class Player extends GameObject
    */
   protected function getRenderScreenPosition(Vector2 $worldPosition): Vector2
   {
-    $screenPosition = $this->scene->camera->getScreenSpacePosition($worldPosition);
-
-    return new Vector2(
-      $screenPosition->x - $this->getHorizontalRenderOffset($this->sprite),
-      $screenPosition->y
-    );
-  }
-
-  /**
-   * Returns the horizontal render offset needed for the given sprite.
-   *
-   * @param string[] $sprite The sprite rows to inspect.
-   * @return int The horizontal render offset in terminal cells.
-   */
-  protected function getHorizontalRenderOffset(array $sprite): int
-  {
-    $extraWidth = max(0, $this->getSpriteDisplayWidth($sprite) - $this->shape->getWidth());
-
-    return intdiv($extraWidth + 1, 2);
+    // A sprite is anchored to its own tile: its first column is the tile's
+    // column. Glyphs wider than one cell (emoji are two) overhang to the
+    // right. Shifting them left to "centre" them instead made a character
+    // standing beside a wall appear to be standing on it.
+    return $this->scene->camera->getScreenSpacePosition($worldPosition);
   }
 
   /**
@@ -595,7 +606,7 @@ class Player extends GameObject
    */
   protected function eraseSpriteFootprint(Vector2 $worldPosition, array $sprite): void
   {
-    $startX = intval($worldPosition->x) - $this->getHorizontalRenderOffset($sprite);
+    $startX = intval($worldPosition->x);
     $width = max($this->shape->getWidth(), $this->getSpriteDisplayWidth($sprite));
 
     for ($row = 0; $row < max($this->shape->getHeight(), count($sprite)); $row++) {
@@ -627,7 +638,7 @@ class Player extends GameObject
       return;
     }
 
-    $startX = intval($worldPosition->x) - $this->getHorizontalRenderOffset($sprite);
+    $startX = intval($worldPosition->x);
     $width = max(1, $this->getSpriteDisplayWidth($sprite));
 
     for ($column = 0; $column < $width; $column++) {

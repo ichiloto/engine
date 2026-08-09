@@ -359,8 +359,18 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   public function renderOnScreen(array $output, Vector2 $worldSpacePosition): void
   {
     $screenSpacePosition = $this->getScreenSpacePosition($worldSpacePosition);
-    Console::cursor()->moveTo($screenSpacePosition->x + 1, $screenSpacePosition->y +1);
-    $this->output->write(array_map(TerminalText::stabilize(...), $output));
+
+    // Routed through Console so the cell buffer stays a faithful picture of
+    // the screen. Writing sprites straight to the terminal used to leave the
+    // buffer unaware of them, which made "this row is unchanged" an unsafe
+    // conclusion and left sprite trails behind the player.
+    foreach (array_values($output) as $rowIndex => $row) {
+      Console::write(
+        TerminalText::stabilize((string) $row),
+        (int) $screenSpacePosition->x,
+        (int) $screenSpacePosition->y + $rowIndex
+      );
+    }
   }
 
   /**
@@ -377,9 +387,12 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   {
     $rows = is_array($output) ? $output : [$output];
 
-    foreach ($rows as $rowIndex => $row) {
-      Console::cursor()->moveTo($screenSpacePosition->x + 1, $screenSpacePosition->y + $rowIndex + 1);
-      $this->output->write(TerminalText::stabilize($row));
+    foreach (array_values($rows) as $rowIndex => $row) {
+      Console::write(
+        TerminalText::stabilize((string) $row),
+        (int) $screenSpacePosition->x,
+        (int) $screenSpacePosition->y + $rowIndex
+      );
     }
   }
 

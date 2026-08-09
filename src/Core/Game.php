@@ -75,6 +75,10 @@ class Game implements CanRun, SubjectInterface
      */
     protected(set) NotificationManager $notificationManager;
     /**
+     * @var bool Whether terminal-restore handlers are installed.
+     */
+    private bool $terminalRestoreHandlersRegistered = false;
+    /**
      * @var BattleEngineInterface $engine The battle engine.
      */
     protected(set) BattleEngineInterface $engine;
@@ -182,6 +186,47 @@ class Game implements CanRun, SubjectInterface
         $this->stop();
         $this->writeCrashNotice();
         exit(1);
+    }
+
+    /**
+     * Ensures the terminal is handed back however the game ends.
+     *
+     * A game that only restores the terminal on the tidy exit path leaves
+     * the player with a raw-mode shell and a screen full of map whenever
+     * they press Ctrl+C or something throws. The shutdown function covers
+     * fatal errors and normal exits; the signal handlers cover Ctrl+C and
+     * `kill`.
+     *
+     * @return void
+     */
+    private function registerTerminalRestoreHandlers(): void
+    {
+        if ($this->terminalRestoreHandlersRegistered) {
+            return;
+        }
+
+        $this->terminalRestoreHandlersRegistered = true;
+
+        register_shutdown_function(function (): void {
+            $this->cleanupTerminal();
+        });
+
+        if (! function_exists('pcntl_signal')) {
+            return;
+        }
+
+        pcntl_async_signals(true);
+
+        foreach ([SIGINT, SIGTERM, SIGHUP] as $signal) {
+            pcntl_signal($signal, function (int $signal): void {
+                $this->cleanupTerminal();
+
+                // Re-raise with the default handler so the exit status
+                // reports the signal, as a well-behaved program should.
+                pcntl_signal($signal, SIG_DFL);
+                posix_kill(posix_getpid(), $signal);
+            });
+        }
     }
 
     /**
@@ -315,6 +360,12 @@ class Game implements CanRun, SubjectInterface
 
         try {
             Console::restoreTerminalSettings();
+        } catch (Throwable) {
+        }
+
+        try {
+            // Hand back the screen the player started with.
+            Console::leaveAlternateScreen();
         } catch (Throwable) {
         }
 
@@ -617,6 +668,8 @@ class Game implements CanRun, SubjectInterface
     {
         Console::clear();
         Console::saveTerminalSettings();
+        Console::enterAlternateScreen();
+        $this->registerTerminalRestoreHandlers();
         Console::setTerminalName($this->name);
         Console::setTerminalSize($this->width, $this->height);
         Console::cursor()->hide();

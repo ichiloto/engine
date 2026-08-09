@@ -24,6 +24,10 @@ class Console
    */
   private static int $frameDepth = 0;
   /**
+   * @var bool Whether the alternate screen buffer is currently in use.
+   */
+  private static bool $usingAlternateScreen = false;
+  /**
    * @var string Row updates collected while a frame is open.
    */
   private static string $frameBuffer = '';
@@ -127,8 +131,11 @@ class Console
    */
   public static function reset(): void
   {
-    system('tput reset');
-    echo "\033c";
+    // Leave the borrowed screen and hand the terminal back as found. A
+    // `tput reset` here would also clear the user's scrollback and colours,
+    // which is destruction rather than restoration.
+    self::leaveAlternateScreen();
+    self::cursor()->show();
     self::cursor()->enableBlinking();
   }
 
@@ -248,6 +255,44 @@ class Console
   }
 
   /**
+   * Switches to the terminal's alternate screen buffer.
+   *
+   * The alternate buffer is how a full-screen program borrows the terminal
+   * without destroying what was there: on exit the shell's scrollback,
+   * prompt, and previous output come back exactly as the player left them.
+   * The previous approach — drawing over the primary buffer and running
+   * `tput reset` on the way out — wiped scrollback and colours instead of
+   * restoring anything.
+   *
+   * @return void
+   */
+  public static function enterAlternateScreen(): void
+  {
+    if (self::$usingAlternateScreen) {
+      return;
+    }
+
+    self::$usingAlternateScreen = true;
+    echo "\033[?1049h";
+  }
+
+  /**
+   * Returns to the primary screen buffer, restoring the prior terminal
+   * contents. Safe to call more than once.
+   *
+   * @return void
+   */
+  public static function leaveAlternateScreen(): void
+  {
+    if (! self::$usingAlternateScreen) {
+      return;
+    }
+
+    self::$usingAlternateScreen = false;
+    echo "\033[?1049l";
+  }
+
+  /**
    * Saves the terminal settings.
    *
    * @return void
@@ -308,13 +353,16 @@ class Console
         $incoming = substr($incoming, 0, $available);
 
         if ($incoming !== '') {
-          // The row is always re-emitted, never skipped on the grounds that
-          // the buffer is unchanged: sprites are drawn straight to the
-          // terminal (see Camera::renderOnScreen), so the buffer is not a
-          // faithful picture of the screen and an "unchanged" row can still
-          // be covering a sprite that must be erased.
-          self::$buffer[$currentBufferRow] = substr_replace($existingRow, $incoming, $x, strlen($incoming));
-          self::writeBufferRow($currentBufferRow);
+          $updatedRow = substr_replace($existingRow, $incoming, $x, strlen($incoming));
+
+          // Every draw goes through this buffer — sprites included — so a row
+          // that is genuinely unchanged is also unchanged on screen and need
+          // not be re-emitted. (Skipping was unsafe while sprites bypassed
+          // the buffer: it left trails behind the player.)
+          if ($updatedRow !== $existingRow) {
+            self::$buffer[$currentBufferRow] = $updatedRow;
+            self::writeBufferRow($currentBufferRow);
+          }
         }
 
         continue;
@@ -345,8 +393,12 @@ class Console
         $cellCursor += $symbolWidth;
       }
 
-      self::$buffer[$currentBufferRow] = self::cellsToRow($rowCells);
-      self::writeBufferRow($currentBufferRow);
+      $updatedRow = self::cellsToRow($rowCells);
+
+      if ($updatedRow !== self::$buffer[$currentBufferRow]) {
+        self::$buffer[$currentBufferRow] = $updatedRow;
+        self::writeBufferRow($currentBufferRow);
+      }
     }
   }
 
