@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\Entities;
  * Represents the character sprites. This is a collection of character sprites for different contexts.
  *
  * @package Ichiloto\Engine\Entities
+  * @phpstan-consistent-constructor
  */
 class CharacterSprites
 {

@@ -11,6 +11,7 @@ use Ichiloto\Engine\Util\Config\ProjectConfig;
  * Represents a dialogue.
  *
  * @package Ichiloto\Engine\Messaging\Dialogue
+  * @phpstan-consistent-constructor
  */
 class Dialogue
 {

@@ -610,6 +610,26 @@ Turn the polished stage into a real fight. Roughly in order:
 > switched on. Retuned, the opening fights are won in three or four turns for
 > about a tenth of the party's health and Loch Ness stays a wall.
 >
+> **Static analysis** is now wired into all three repositories
+> (`phpstan.neon` + a `composer analyse` script), after a rename left the
+> title screen's options overlay guarding on `GameSetting` resolving to a
+> class that did not exist. `instanceof` against a name that does not resolve
+> is quietly false rather than an error, so the overlay listed every setting,
+> answered every key, and changed nothing; PHPStan says
+> `Class Ichiloto\Engine\Scenes\Title\GameSetting not found` in one line.
+> The engine is clean at level 0 (six real findings fixed: a PHP 8.4
+> implicitly-nullable parameter, two template types naming nothing, three
+> factories building `new static()` without saying subclasses must keep the
+> constructor). The editor is clean once the engine names it deliberately does
+> not depend on are ignored, and the CLI is clean under PHPStan 2, which its
+> composer constraint now asks for: the 1.x line cannot parse the PHP 8.4
+> `new Thing()->method()` syntax these codebases use.
+>
+> Level 0 is a floor rather than a ceiling. It catches names that do not
+> resolve, which is the mistake that has actually cost time here; level 1 adds
+> 22 findings and level 3 adds 87, mostly serialization patterns the analyser
+> cannot see through, and they are worth doing on their own day.
+>
 > Also fixed while wiring it: both `edit` and `validate` looked for the
 > engine beside the console, which only exists inside this workspace. They
 > now try the project's own vendor directory first, so a project that

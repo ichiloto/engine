@@ -10,6 +10,7 @@ use Ichiloto\Engine\Exceptions\RequiredFieldException;
  * The Accessory class.
  *
  * @package Ichiloto\Engine\Entities\Inventory
+  * @phpstan-consistent-constructor
  */
 class Accessory extends Equipment
 {
