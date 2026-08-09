@@ -40,7 +40,7 @@ class Item extends InventoryItem
     int $quantity = 1,
     ItemUserType $userType = ItemUserType::ALL,
     bool $isKeyItem = false,
-    protected(set) bool $consumable = true,
+    bool $consumable = true,
     protected(set) ItemScope $scope = new ItemScope(),
     protected(set) Occasion $occasion = Occasion::ALWAYS,
     protected(set) array $effects = []
@@ -53,7 +53,10 @@ class Item extends InventoryItem
       $price,
       $quantity,
       $userType,
-      $isKeyItem
+      $isKeyItem,
+      // The parent owns this: re-promoting it here left every item with the
+      // parent's default, so an item declared consumable never was one.
+      $consumable
     );
   }
 
