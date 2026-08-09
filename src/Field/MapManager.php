@@ -36,7 +36,7 @@ class MapManager implements CanRenderAt
   /**
    * @var array<int, string[]> The tile map.
    */
-  protected array $tileMap = [];
+  protected(set) array $tileMap = [];
   /**
    * The collision map.
    *
@@ -64,11 +64,11 @@ class MapManager implements CanRenderAt
   /**
    * @var int The width of the map.
    */
-  protected int $mapWidth = 0;
+  protected(set) int $mapWidth = 0;
   /**
    * @var int The height of the map.
    */
-  protected int $mapHeight = 0;
+  protected(set) int $mapHeight = 0;
   /**
    * @var Camera The camera.
    */

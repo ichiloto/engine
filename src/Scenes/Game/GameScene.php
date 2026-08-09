@@ -189,7 +189,7 @@ class GameScene extends AbstractScene
     /**
      * @var GameSceneState|null The state of the scene.
      */
-    protected ?GameSceneState $state = null;
+    protected(set) ?GameSceneState $state = null;
     /**
      * @var SceneStateContext|null The scene state context.
      */

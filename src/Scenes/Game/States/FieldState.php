@@ -73,6 +73,14 @@ class FieldState extends GameSceneState
         assert($scene instanceof GameScene);
 
         $this->handleActions($scene);
+
+        // An action may have handed the screen to another state (the menu, the
+        // map). Moving the player or wandering an NPC now would draw the field
+        // over whatever that state just rendered.
+        if ($scene->state !== $this) {
+            return;
+        }
+
         $this->handleNavigation($scene);
         $scene->npcManager?->update();
     }
@@ -176,7 +184,11 @@ class FieldState extends GameSceneState
      */
     public function showInGameMap(): void
     {
-        // TODO: Implement the in-game map feature.
+        $scene = $this->context->getScene();
+        assert($scene instanceof GameScene);
+
+        play_sound(SystemSound::CONFIRM);
+        $this->setState($scene->mapState);
     }
 
     /**
