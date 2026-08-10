@@ -80,6 +80,20 @@ it('says nothing when every variant is gated out', function () {
     ->and($selected['script'])->toBe([]);
 });
 
+it('does not expose content guarded by an unknown condition', function () {
+  $dialogue = [
+    [
+      'conditions' => [['type' => 'phase_of_moon', 'name' => 'full']],
+      'lines' => [['text' => 'Guarded content']],
+    ],
+    ['lines' => [['text' => 'Safe fallback']]],
+  ];
+
+  $selected = ConditionalDialogue::select($dialogue, new GameState());
+
+  expect($selected['lines'][0]['text'])->toBe('Safe fallback');
+});
+
 it('supports a script variant as well as lines', function () {
   $withScript = [
     [

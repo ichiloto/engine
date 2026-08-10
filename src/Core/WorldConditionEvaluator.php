@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Core;
 
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Quests\QuestManager;
+use Ichiloto\Engine\Util\Debug;
 
 /**
  * Evaluates world-state condition lists.
@@ -20,7 +21,8 @@ use Ichiloto\Engine\Quests\QuestManager;
  * - `['type' => 'key_item', 'name' => 'Rusty Key']`
  * - `['type' => 'quest',    'name' => 'quest-id', 'status' => 'completed'|'active']`
  *
- * An unknown type passes, so authoring a typo never silently hides content.
+ * Unknown types fail closed and warn in debug logs so an authoring typo can
+ * never expose guarded content.
  *
  * @package Ichiloto\Engine\Core
  */
@@ -41,13 +43,26 @@ class WorldConditionEvaluator
         continue;
       }
 
+      $typeValue = strval($condition['type'] ?? '');
+      $type = WorldConditionType::tryFrom($typeValue);
+
+      if (! $type instanceof WorldConditionType) {
+        Debug::warn(sprintf(
+          'Unknown world condition type "%s" for "%s"; guarded content was not exposed.',
+          $typeValue,
+          strval($condition['name'] ?? '(unnamed)')
+        ));
+
+        return false;
+      }
+
       $name = trim(strval($condition['name'] ?? ''));
 
       if ($name === '') {
         continue;
       }
 
-      $result = self::evaluate($condition, $name, $gameState, $party);
+      $result = self::evaluate($type, $condition, $name, $gameState, $party);
 
       if (($condition['negate'] ?? false) ? $result : ! $result) {
         return false;
@@ -60,6 +75,7 @@ class WorldConditionEvaluator
   /**
    * Evaluates a single condition, ignoring its `negate` flag.
    *
+   * @param WorldConditionType $type The recognized condition type.
    * @param array<string, mixed> $condition The condition entry.
    * @param string $name The trimmed condition name.
    * @param GameState $gameState The world state.
@@ -67,24 +83,24 @@ class WorldConditionEvaluator
    * @return bool True when the condition's test passes.
    */
   protected static function evaluate(
+    WorldConditionType $type,
     array $condition,
     string $name,
     GameState $gameState,
     ?Party $party
   ): bool
   {
-    return match (strval($condition['type'] ?? '')) {
-      'switch' => $gameState->getSwitch($name) === (bool) ($condition['value'] ?? true),
-      'event' => $gameState->hasStoryEvent($name),
-      'variable' => self::compare(
+    return match ($type) {
+      WorldConditionType::SWITCH => $gameState->getSwitch($name) === (bool) ($condition['value'] ?? true),
+      WorldConditionType::EVENT => $gameState->hasStoryEvent($name),
+      WorldConditionType::VARIABLE => self::compare(
         $gameState->getVariable($name),
         strval($condition['op'] ?? '=='),
         $condition['value'] ?? 0
       ),
-      'item' => ($party?->inventory?->getQuantityByName($name) ?? 0) >= max(1, intval($condition['quantity'] ?? 1)),
-      'key_item' => $party?->inventory?->hasKeyItem($name) ?? false,
-      'quest' => QuestManager::current()?->questStatusMatches($name, strval($condition['status'] ?? 'completed')) ?? false,
-      default => true,
+      WorldConditionType::ITEM => ($party?->inventory?->getQuantityByName($name) ?? 0) >= max(1, intval($condition['quantity'] ?? 1)),
+      WorldConditionType::KEY_ITEM => $party?->inventory?->hasKeyItem($name) ?? false,
+      WorldConditionType::QUEST => QuestManager::current()?->questStatusMatches($name, strval($condition['status'] ?? 'completed')) ?? false,
     };
   }
 

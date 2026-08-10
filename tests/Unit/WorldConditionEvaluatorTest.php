@@ -2,11 +2,23 @@
 
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
+use Ichiloto\Engine\Core\WorldConditionType;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\Party;
 
 it('passes an empty condition list', function () {
   expect(WorldConditionEvaluator::allHold([], new GameState()))->toBeTrue();
+});
+
+it('publishes the complete stable condition vocabulary', function () {
+  expect(WorldConditionType::values())->toBe([
+    'quest',
+    'switch',
+    'event',
+    'variable',
+    'item',
+    'key_item',
+  ]);
 });
 
 it('evaluates switch, event, and variable conditions', function () {
@@ -76,6 +88,9 @@ it('honours item quantity thresholds', function () {
   expect(WorldConditionEvaluator::allHold([['type' => 'item', 'name' => 'Potion', 'quantity' => 2]], $state, $party))->toBeTrue();
 });
 
-it('passes unknown condition types so typos never hide content', function () {
-  expect(WorldConditionEvaluator::allHold([['type' => 'phase_of_moon', 'name' => 'full']], new GameState()))->toBeTrue();
+it('fails closed for unknown condition types even when they are negated', function () {
+  $state = new GameState();
+
+  expect(WorldConditionEvaluator::allHold([['type' => 'phase_of_moon', 'name' => 'full']], $state))->toBeFalse()
+    ->and(WorldConditionEvaluator::allHold([['type' => 'phase_of_moon', 'name' => 'full', 'negate' => true]], $state))->toBeFalse();
 });
