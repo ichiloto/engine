@@ -18,6 +18,8 @@ Scene themes live in the project config:
   'bgm' => [
     'title' => 'title-theme',        // plays on the title screen
     'battle' => 'clash-of-steel',    // plays during battles
+    'victory' => 'fanfare',          // plays over the battle results
+    'sleep' => 'lullaby',            // plays while the party rests at an inn
     'game_over' => 'requiem',        // plays on the game-over screen
   ],
 ],
@@ -44,9 +46,20 @@ The rules, mirroring RPG Maker:
 - Entering a map plays its declared theme. Moving between maps that share a
   theme is seamless (replaying the current track is a no-op). A map with no
   `bgm` entry keeps whatever is playing (autoplay-off semantics).
+- Winning a battle starts the victory theme over the results screen; leaving
+  the results restores the map's theme. It plays like any other track (it
+  loops), so a long results screen never falls silent. A project that
+  configures no victory theme simply keeps the battle music playing.
+- Resting at an inn plays the sleep theme, then restores whatever was playing
+  before the rest — sleeping never changes maps, so the music resumes exactly
+  where it left off. A specific inn can declare its own track through the
+  `bgm` entry in its `SleepEventTrigger` data, and a project that configures
+  no sleep theme keeps the field music playing.
 - After a battle, the current map's theme resumes automatically.
 - A specific battle can override the project battle theme (e.g. a boss theme)
-  by declaring `bgm` on its troop in `assets/Data/troops.php`:
+  through `bgm` in its runtime battle settings, and its victory theme through
+  `victory_bgm`. Troops declare the battle theme directly in
+  `assets/Data/troops.php`:
 
   ```php
   [
@@ -123,8 +136,12 @@ play_sound(SystemSound::CONFIRM);  // a system sound by catalog entry
 play_sound('roar');                // a one-shot sound effect by reference
 play_music('overworld-theme');     // loops by default; replaces current track
 play_music('jingle', loop: false); // one-shot track
+current_music();                   // what is playing, or null
 stop_music();
 ```
+
+`current_music()` pairs with `play_music()` to interrupt the music for a
+moment and put back exactly what was there — the pattern the inn rest uses.
 
 The `AudioManager` on `$game->audioManager` exposes the same operations as
 methods (`playBackgroundMusic()`, `playSoundEffect()`, `playSystemSound()`,

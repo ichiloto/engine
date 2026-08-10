@@ -49,6 +49,12 @@ class SleepAction extends FieldAction
       }
 
       $context->party->debit($this->trigger->cost);
+
+      // Remember what was playing so the field picks up exactly where it
+      // left off: sleeping never changes maps, so nothing else restores it.
+      $previousTrack = current_music();
+      $restMusicStarted = $this->playSleepMusic();
+
       $sleepFrames = [
         'Z',
         'Zz',
@@ -68,6 +74,8 @@ class SleepAction extends FieldAction
         Timers::wait($sleepInterval / 1_000_000);
       }
 
+      $this->restoreMusic($previousTrack, $restMusicStarted);
+
       /** @var Character $member */
       foreach ($context->scene->party->members as $member) {
         $member->stats->currentHp = $member->stats->totalHp;
@@ -82,5 +90,69 @@ class SleepAction extends FieldAction
       $context->scene->mapManager->render();
       $context->player->render();
     }
+  }
+
+  /**
+   * Starts the rest theme while the party sleeps.
+   *
+   * An inn may declare its own track through the `bgm` entry in its trigger
+   * data; otherwise the project-wide `audio.bgm.sleep` theme is used. A
+   * project that configures neither keeps whatever is already playing, so
+   * this stays optional like the rest of the audio.
+   *
+   * @return bool True when rest music replaced the current track.
+   */
+  protected function playSleepMusic(): bool
+  {
+    $track = $this->trigger->backgroundMusic
+      ?? $this->getConfiguredTrack('audio.bgm.sleep');
+
+    if ($track === null) {
+      return false;
+    }
+
+    play_music($track);
+
+    return true;
+  }
+
+  /**
+   * Restores the music that was playing before the party slept.
+   *
+   * @param string|null $previousTrack The track playing before the rest.
+   * @param bool $wasInterrupted Whether rest music actually replaced it.
+   * @return void
+   */
+  protected function restoreMusic(?string $previousTrack, bool $wasInterrupted): void
+  {
+    if (! $wasInterrupted) {
+      return;
+    }
+
+    if ($previousTrack === null) {
+      stop_music();
+      return;
+    }
+
+    play_music($previousTrack);
+  }
+
+  /**
+   * Reads a background music reference from the project config.
+   *
+   * @param string $configPath The project config path.
+   * @return string|null The configured track, or null when not configured.
+   */
+  protected function getConfiguredTrack(string $configPath): ?string
+  {
+    $track = config(ProjectConfig::class, $configPath);
+
+    if (! is_string($track)) {
+      return null;
+    }
+
+    $track = trim($track);
+
+    return $track === '' ? null : $track;
   }
 }

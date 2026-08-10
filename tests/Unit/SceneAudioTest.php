@@ -6,6 +6,8 @@ use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Scenes\Battle\BattleConfig;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
+use Ichiloto\Engine\Scenes\Battle\States\BattleVictoryState;
+use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\GameOver\GameOverScene;
 use Ichiloto\Engine\Scenes\SceneManager;
@@ -13,113 +15,6 @@ use Ichiloto\Engine\Scenes\Title\TitleScene;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
-
-/**
- * A ProjectConfig stand-in backed by a plain array.
- */
-class SceneAudioConfigStub implements ConfigInterface
-{
-  public function __construct(private array $values = [])
-  {
-  }
-
-  public function get(string $path, mixed $default = null): mixed
-  {
-    $segments = explode('.', $path);
-    $value = $this->values;
-
-    foreach ($segments as $segment) {
-      if (! is_array($value) || ! array_key_exists($segment, $value)) {
-        return $default;
-      }
-
-      $value = $value[$segment];
-    }
-
-    return $value;
-  }
-
-  public function set(string $path, mixed $value): void
-  {
-  }
-
-  public function has(string $path): bool
-  {
-    $sentinel = new stdClass();
-
-    return $this->get($path, $sentinel) !== $sentinel;
-  }
-
-  public function persist(): void
-  {
-  }
-}
-
-/**
- * An AudioManager that records calls instead of spawning player processes.
- */
-class RecordingAudioManager extends AudioManager
-{
-  /** @var array<int, array{string, mixed}> */
-  public array $calls = [];
-
-  public function __construct(Game $game)
-  {
-    parent::__construct($game);
-  }
-
-  protected function createBackends(): array
-  {
-    return [];
-  }
-
-  public function playBackgroundMusic(string $path, bool $loop = true): void
-  {
-    $this->calls[] = ['playBackgroundMusic', $path];
-  }
-
-  public function stopBackgroundMusic(): void
-  {
-    $this->calls[] = ['stopBackgroundMusic', null];
-  }
-
-  public function playSoundEffect(string $path): void
-  {
-    $this->calls[] = ['playSoundEffect', $path];
-  }
-}
-
-/**
- * Creates a Game whose audio manager records calls, without running the
- * heavyweight Game constructor.
- *
- * @return array{Game, RecordingAudioManager}
- */
-function makeSceneAudioGame(): array
-{
-  $game = (new ReflectionClass(Game::class))->newInstanceWithoutConstructor();
-  $audioManager = new RecordingAudioManager($game);
-  new ReflectionProperty(Game::class, 'audioManager')->setValue($game, $audioManager);
-
-  return [$game, $audioManager];
-}
-
-/**
- * Instantiates a scene class without running its constructor.
- *
- * @template T of object
- * @param class-string<T> $sceneClass
- * @return T
- */
-function makeBareScene(string $sceneClass): object
-{
-  return (new ReflectionClass($sceneClass))->newInstanceWithoutConstructor();
-}
-
-function putSceneAudioConfig(array $values): void
-{
-  ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub($values));
-}
 
 afterEach(function () {
   putSceneAudioConfig([]);
@@ -165,6 +60,67 @@ it('lets a battle override the project battle theme through its settings', funct
     ->setValue($scene, new BattleConfig($party, $troop, settings: ['bgm' => 'boss-theme']));
 
   expect($scene->getBackgroundMusic())->toBe('boss-theme');
+});
+
+it('reads the victory theme from the project config', function () {
+  putSceneAudioConfig(['audio' => ['bgm' => ['victory' => 'crystal-fanfare']]]);
+
+  expect(makeBareScene(BattleScene::class)->getVictoryMusic())->toBe('crystal-fanfare');
+});
+
+it('declares no victory theme when the config has none', function () {
+  putSceneAudioConfig([]);
+
+  expect(makeBareScene(BattleScene::class)->getVictoryMusic())->toBeNull();
+});
+
+it('lets a battle override the project victory theme through its settings', function () {
+  putSceneAudioConfig(['audio' => ['bgm' => ['victory' => 'crystal-fanfare']]]);
+
+  $scene = makeBareScene(BattleScene::class);
+  $party = (new ReflectionClass(Ichiloto\Engine\Entities\Party::class))->newInstanceWithoutConstructor();
+  $troop = (new ReflectionClass(Ichiloto\Engine\Entities\Troop::class))->newInstanceWithoutConstructor();
+  new ReflectionProperty(BattleScene::class, 'config')
+    ->setValue($scene, new BattleConfig($party, $troop, settings: ['victory_bgm' => 'boss-fanfare']));
+
+  expect($scene->getVictoryMusic())->toBe('boss-fanfare');
+});
+
+it('plays the victory theme when the party wins', function () {
+  putSceneAudioConfig(['audio' => ['bgm' => ['victory' => 'crystal-fanfare']]]);
+  [$game, $audioManager] = makeSceneAudioGame();
+  $instanceProperty = new ReflectionProperty(AudioManager::class, 'instance');
+  $instanceProperty->setValue(null, $audioManager);
+
+  try {
+    $scene = makeBareScene(BattleScene::class);
+    new ReflectionProperty(BattleScene::class, 'sceneManager')
+      ->setValue($scene, makeBareScene(SceneManager::class));
+
+    $state = new BattleVictoryState(new SceneStateContext($scene));
+    new ReflectionMethod(BattleVictoryState::class, 'playVictoryMusic')->invoke($state);
+
+    expect($audioManager->calls)->toBe([['playBackgroundMusic', 'crystal-fanfare']]);
+  } finally {
+    $instanceProperty->setValue(null, null);
+  }
+});
+
+it('leaves the battle music alone when no victory theme is configured', function () {
+  putSceneAudioConfig([]);
+  [$game, $audioManager] = makeSceneAudioGame();
+  $instanceProperty = new ReflectionProperty(AudioManager::class, 'instance');
+  $instanceProperty->setValue(null, $audioManager);
+
+  try {
+    $scene = makeBareScene(BattleScene::class);
+    $state = new BattleVictoryState(new SceneStateContext($scene));
+    new ReflectionMethod(BattleVictoryState::class, 'playVictoryMusic')->invoke($state);
+
+    expect($audioManager->calls)->toBeEmpty();
+  } finally {
+    $instanceProperty->setValue(null, null);
+  }
 });
 
 it('derives the game scene theme from the current map', function () {

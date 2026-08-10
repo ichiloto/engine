@@ -432,6 +432,22 @@ if (! function_exists('play_music') ) {
   }
 }
 
+if (! function_exists('current_music') ) {
+  /**
+   * Returns the background music currently playing, or null when there is
+   * none (or when audio has not been booted).
+   *
+   * Pair it with `play_music()` to restore the music after interrupting it
+   * for a moment, e.g. an inn rest.
+   *
+   * @return string|null The current background music track.
+   */
+  function current_music(): ?string
+  {
+    return AudioManager::getCurrentInstance()?->currentBackgroundMusic;
+  }
+}
+
 if (! function_exists('stop_music') ) {
   /**
    * Stops the current background music track, if any.

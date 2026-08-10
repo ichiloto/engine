@@ -199,6 +199,22 @@ class AudioManager implements CanUpdate
   protected array $loggedWarnings = [];
 
   /**
+   * The background music currently playing, or null when there is none.
+   *
+   * Remains set while music is disabled in the options, since that track is
+   * pending rather than cancelled. Callers that interrupt the music for a
+   * moment — an inn rest, a cutscene — use this to restore what was playing
+   * instead of guessing.
+   *
+   * @var string|null
+   */
+  public ?string $currentBackgroundMusic {
+    get {
+      return $this->bgmPath;
+    }
+  }
+
+  /**
    * Whether at least one audio player is available on this system.
    *
    * @var bool

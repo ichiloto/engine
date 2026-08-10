@@ -13,8 +13,30 @@ class BattleVictoryState extends BattleSceneState
    */
   public function enter(): void
   {
+    $this->playVictoryMusic();
     $this->ui->hideControls();
     $this->scene->resultWindow?->display($this->scene->result ?? throw new RuntimeException('Battle result is not set.'));
+  }
+
+  /**
+   * Starts the victory theme, replacing the battle music.
+   *
+   * The track plays for as long as the results are on screen; returning to
+   * the field then restores the map's own theme through the scene-music
+   * choke point. A project that configures no victory theme simply keeps the
+   * battle music playing, so this stays optional like the rest of the audio.
+   *
+   * @return void
+   */
+  protected function playVictoryMusic(): void
+  {
+    $track = $this->scene->getVictoryMusic();
+
+    if ($track === null) {
+      return;
+    }
+
+    play_music($track);
   }
 
   /**

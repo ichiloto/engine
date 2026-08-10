@@ -18,8 +18,10 @@ use Ichiloto\Engine\Entities\States\HasStates;
 use Ichiloto\Engine\Entities\States\HasStatStages;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
+use Ichiloto\Engine\Entities\Skills\MagicSkill;
 use Ichiloto\Engine\Entities\Magic\Spellbook;
 use Ichiloto\Engine\Entities\Roles\CharacterRole;
+use Ichiloto\Engine\Entities\Skills\Skill;
 use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Stores\ClassStore;
 use InvalidArgumentException;
@@ -475,6 +477,28 @@ class Character implements CharacterInterface, CanEquip
     }
 
     return $canEquip;
+  }
+
+  /**
+   * Learns a skill, filing it in the book that owns its kind.
+   *
+   * A character keeps magic in their spellbook and everything else in their
+   * ability book: the two are stored, serialized and surfaced in the UI
+   * separately. Routing here keeps every caller — level-up grants, events,
+   * items — from having to know that rule, and stops a spell being misfiled
+   * as an ability (where it would never reach the magic menu and would break
+   * saving).
+   *
+   * @param Skill $skill The skill to learn.
+   * @return bool True when newly learned; false when already known.
+   */
+  public function learnSkill(Skill $skill): bool
+  {
+    if ($skill instanceof MagicSkill) {
+      return $this->spellbook->learnSpellDirectly($skill);
+    }
+
+    return $this->abilityBook->learnSkillDirectly($skill);
   }
 
   /**
