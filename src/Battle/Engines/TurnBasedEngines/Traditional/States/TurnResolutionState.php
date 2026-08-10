@@ -69,7 +69,7 @@ class TurnResolutionState extends TurnState
           if (
             $skillToLearn->level > $previousLevel
             && $skillToLearn->level <= $member->level
-            && $member->abilityBook->learnSkillDirectly($skillToLearn->skill)
+            && $member->learnSkill($skillToLearn->skill)
           ) {
             $learnedSkillNames[] = $skillToLearn->skill->name;
           }

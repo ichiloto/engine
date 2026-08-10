@@ -143,6 +143,26 @@ class Spellbook
   }
 
   /**
+   * Learns a spell outright, bypassing spell requirements.
+   *
+   * The level-up path: role `skillsToLearn` grants land here the moment their
+   * level is reached.
+   *
+   * @param MagicSkill $spell The spell to learn.
+   * @return bool True when newly learned; false when already known.
+   */
+  public function learnSpellDirectly(MagicSkill $spell): bool
+  {
+    if (isset($this->learnedSpells[$spell->name])) {
+      return false;
+    }
+
+    $this->addLearnedSpell($spell);
+
+    return true;
+  }
+
+  /**
    * Sorts the learned spells according to the selected order.
    *
    * @param SpellSortOrder|null $sortOrder The sort order to apply.

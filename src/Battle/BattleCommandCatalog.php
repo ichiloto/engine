@@ -251,7 +251,7 @@ final class BattleCommandCatalog
       $options[] = new BattleCommandOption(
         sprintf('%s %s x%d', $item->icon, $item->name, $availableQuantity),
         $item->description,
-        new ItemBattleAction($item),
+        new ItemBattleAction($item, $party->inventory),
         $targetSide,
         $targetStatus,
         $item

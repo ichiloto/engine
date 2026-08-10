@@ -120,6 +120,25 @@ class BattleScene extends AbstractScene
   }
 
   /**
+   * Returns the victory theme played while the battle results are shown.
+   *
+   * A battle may override the project-wide victory theme through the
+   * `victory_bgm` entry in its runtime settings.
+   *
+   * @return string|null The victory track, or null when none is configured.
+   */
+  public function getVictoryMusic(): ?string
+  {
+    $track = $this->config->settings['victory_bgm'] ?? null;
+
+    if (is_string($track) && trim($track) !== '') {
+      return trim($track);
+    }
+
+    return $this->getConfiguredBackgroundMusic('audio.bgm.victory');
+  }
+
+  /**
    * Sets the state of the scene.
    *
    * @param BattleSceneState $state The state to set.

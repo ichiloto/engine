@@ -46,6 +46,10 @@ class Item extends InventoryItem
     protected(set) array $effects = []
   )
   {
+    // $consumable is deliberately not promoted here: InventoryItem already
+    // owns that property, and re-promoting it would let the parent
+    // constructor below reset it to the parent's default, silently marking
+    // every item non-consumable.
     parent::__construct(
       $name,
       $description,
@@ -54,8 +58,6 @@ class Item extends InventoryItem
       $quantity,
       $userType,
       $isKeyItem,
-      // The parent owns this: re-promoting it here left every item with the
-      // parent's default, so an item declared consumable never was one.
       $consumable
     );
   }

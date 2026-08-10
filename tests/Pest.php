@@ -1,5 +1,9 @@
 <?php
 
+use Ichiloto\Engine\Audio\AudioManager;
+use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Field\RegionMap;
 use Ichiloto\Engine\Rendering\Camera;
@@ -202,4 +206,123 @@ function writeTestMaps(array $maps): string
   RegionMap::loadFrom($root);
 
   return $root;
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| Audio Test Doubles
+|--------------------------------------------------------------------------
+|
+| Shared by every test that asserts on engine audio behaviour. They live here
+| rather than in one test file so any suite can use them, and so running a
+| single file in isolation still works.
+|
+*/
+
+/**
+ * A ProjectConfig stand-in backed by a plain array.
+ */
+class SceneAudioConfigStub implements ConfigInterface
+{
+  public function __construct(private array $values = [])
+  {
+  }
+
+  public function get(string $path, mixed $default = null): mixed
+  {
+    $segments = explode('.', $path);
+    $value = $this->values;
+
+    foreach ($segments as $segment) {
+      if (! is_array($value) || ! array_key_exists($segment, $value)) {
+        return $default;
+      }
+
+      $value = $value[$segment];
+    }
+
+    return $value;
+  }
+
+  public function set(string $path, mixed $value): void
+  {
+  }
+
+  public function has(string $path): bool
+  {
+    $sentinel = new stdClass();
+
+    return $this->get($path, $sentinel) !== $sentinel;
+  }
+
+  public function persist(): void
+  {
+  }
+}
+
+/**
+ * An AudioManager that records calls instead of spawning player processes.
+ */
+class RecordingAudioManager extends AudioManager
+{
+  /** @var array<int, array{string, mixed}> */
+  public array $calls = [];
+
+  public function __construct(Game $game)
+  {
+    parent::__construct($game);
+  }
+
+  protected function createBackends(): array
+  {
+    return [];
+  }
+
+  public function playBackgroundMusic(string $path, bool $loop = true): void
+  {
+    $this->calls[] = ['playBackgroundMusic', $path];
+  }
+
+  public function stopBackgroundMusic(): void
+  {
+    $this->calls[] = ['stopBackgroundMusic', null];
+  }
+
+  public function playSoundEffect(string $path): void
+  {
+    $this->calls[] = ['playSoundEffect', $path];
+  }
+}
+
+/**
+ * Creates a Game whose audio manager records calls, without running the
+ * heavyweight Game constructor.
+ *
+ * @return array{Game, RecordingAudioManager}
+ */
+function makeSceneAudioGame(): array
+{
+  $game = (new ReflectionClass(Game::class))->newInstanceWithoutConstructor();
+  $audioManager = new RecordingAudioManager($game);
+  new ReflectionProperty(Game::class, 'audioManager')->setValue($game, $audioManager);
+
+  return [$game, $audioManager];
+}
+
+/**
+ * Instantiates a scene class without running its constructor.
+ *
+ * @template T of object
+ * @param class-string<T> $sceneClass
+ * @return T
+ */
+function makeBareScene(string $sceneClass): object
+{
+  return (new ReflectionClass($sceneClass))->newInstanceWithoutConstructor();
+}
+
+function putSceneAudioConfig(array $values): void
+{
+  ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub($values));
 }

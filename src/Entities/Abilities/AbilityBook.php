@@ -5,8 +5,10 @@ namespace Ichiloto\Engine\Entities\Abilities;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enumerations\Occasion;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Entities\Skills\MagicSkill;
 use Ichiloto\Engine\Entities\Skills\Skill;
 use Ichiloto\Engine\Entities\Skills\SpecialSkill;
+use InvalidArgumentException;
 
 /**
  * Stores a character's learned and learnable special abilities.
@@ -16,7 +18,13 @@ use Ichiloto\Engine\Entities\Skills\SpecialSkill;
 class AbilityBook
 {
   /**
-   * @var SpecialSkill[] The currently learned abilities.
+   * The currently learned abilities.
+   *
+   * Any non-magic skill may be filed here; magic lives in the spellbook. The
+   * accessors below are typed to match, so no skill kind can break
+   * serialization.
+   *
+   * @var Skill[]
    */
   protected array $learnedAbilities = [];
   /**
@@ -37,6 +45,7 @@ class AbilityBook
   {
     foreach ($learnedAbilities as $ability) {
       if ($ability instanceof Skill) {
+        $this->guardAgainstMagic($ability);
         $this->learnedAbilities[$ability->name] = $ability;
       }
     }
@@ -88,7 +97,7 @@ class AbilityBook
   {
     return [
       'learned' => array_map(
-        static fn(SpecialSkill $ability): string => $ability->name,
+        static fn(Skill $ability): string => $ability->name,
         $this->getLearnedAbilities()
       ),
       'learnables' => array_map(
@@ -102,7 +111,7 @@ class AbilityBook
   /**
    * Returns the learned abilities in the current sort order.
    *
-   * @return SpecialSkill[] The learned abilities.
+   * @return Skill[] The learned abilities.
    */
   public function getLearnedAbilities(): array
   {
@@ -122,27 +131,53 @@ class AbilityBook
   /**
    * Returns the subset of learned abilities that can be used in battle.
    *
-   * @return SpecialSkill[] The battle-usable abilities.
+   * @return Skill[] The battle-usable abilities.
    */
   public function getBattleUsableAbilities(): array
   {
     return array_values(array_filter(
       $this->getLearnedAbilities(),
-      static fn(SpecialSkill $ability): bool => in_array($ability->occasion, [Occasion::ALWAYS, Occasion::BATTLE_SCREEN], true)
+      static fn(Skill $ability): bool => in_array($ability->occasion, [Occasion::ALWAYS, Occasion::BATTLE_SCREEN], true)
     ));
   }
 
   /**
    * Adds a learned ability to the ability book.
    *
-   * @param Skill $ability The ability to add. A character's book holds every
-   * kind of skill they know, magic included.
+   * Magic belongs in the character's spellbook, not here — the two are
+   * stored, serialized and surfaced separately. Use Character::learnSkill()
+   * to file a skill without having to know which book owns it.
+   *
+   * @param Skill $ability The ability to add.
    * @return void
+   * @throws InvalidArgumentException If a magic skill is filed as an ability.
    */
   public function addLearnedAbility(Skill $ability): void
   {
+    $this->guardAgainstMagic($ability);
+
     $this->learnedAbilities[$ability->name] = $ability;
     $this->sortLearnedAbilities();
+  }
+
+  /**
+   * Rejects magic skills, which belong in the character's spellbook.
+   *
+   * Accepting one here silently corrupts the book: it cannot be serialized,
+   * and it would be dropped on load and never surface in the magic menu.
+   *
+   * @param Skill $ability The skill being filed.
+   * @return void
+   * @throws InvalidArgumentException If the skill is a magic skill.
+   */
+  protected function guardAgainstMagic(Skill $ability): void
+  {
+    if ($ability instanceof MagicSkill) {
+      throw new InvalidArgumentException(sprintf(
+        'The magic skill "%s" belongs in the spellbook, not the ability book. Use Character::learnSkill().',
+        $ability->name
+      ));
+    }
   }
 
   /**
@@ -215,6 +250,8 @@ class AbilityBook
    */
   public function learnSkillDirectly(Skill $skill): bool
   {
+    $this->guardAgainstMagic($skill);
+
     if (isset($this->learnedAbilities[$skill->name])) {
       return false;
     }
