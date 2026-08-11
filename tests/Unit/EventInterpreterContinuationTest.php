@@ -14,6 +14,9 @@ use Ichiloto\Engine\Events\Interpreter\EventExecutionStatus;
 use Ichiloto\Engine\Events\Interpreter\EventPresentationInterface;
 use Ichiloto\Engine\Events\Interpreter\EventSessionCompletionTargetInterface;
 use Ichiloto\Engine\Events\Interpreter\EventInterpreter;
+use Ichiloto\Engine\Events\MovementEvent;
+use Ichiloto\Engine\Events\Enumerations\MovementEventType;
+use Ichiloto\Engine\Events\Triggers\EventTriggerContext;
 use Ichiloto\Engine\Events\Triggers\ScriptEventTrigger;
 use Ichiloto\Engine\Exceptions\ActiveEventSaveException;
 use Ichiloto\Engine\Field\Location;
@@ -599,6 +602,38 @@ it('prevents trigger re-entry and applies one-shot completion writes once', func
     ->and($scene->gameState->getVariable('reward_count'))->toBe(1)
     ->and($trigger->startSession($scene))->toBeNull()
     ->and($scene->gameState->getVariable('reward_count'))->toBe(1);
+});
+
+it('starts an automatic script through the live event context', function () {
+  [$scene] = makeEventRuntime();
+  $player = new EventTestPlayer(new Vector2(1, 1));
+  $scene->installPlayer($player);
+  $trigger = new ScriptEventTrigger(
+    new Rect(1, 1, 1, 1),
+    ['mode' => 'auto', 'reusable' => false, 'script' => [
+      ['type' => 'record_event', 'name' => 'automatic_trigger_started'],
+    ]],
+    mapId: 'map-a',
+    marker: 'A',
+  );
+  $trigger->bind($scene->gameState, $scene->party);
+  $movement = new MovementEvent(
+    MovementEventType::PLAYER_MOVE,
+    new Vector2(0, 1),
+    new Vector2(1, 1),
+  );
+
+  $trigger->enter(new EventTriggerContext(
+    $movement,
+    $player->position,
+    $player,
+    $scene,
+    $scene->mapManager,
+  ));
+
+  expect($scene->gameState->hasStoryEvent('automatic_trigger_started'))->toBeTrue()
+    ->and($trigger->isComplete)->toBeTrue()
+    ->and($scene->gameState->isEventComplete('map-a', 'A'))->toBeTrue();
 });
 
 it('defers NPC conversation writes and prevents duplicate rewards while its script is active', function () {

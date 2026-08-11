@@ -111,7 +111,7 @@ class ScriptEventTrigger extends EventTrigger implements EventSessionCompletionT
     if ($this->runsAutomatically) {
       new RunScriptAction($this)->execute(new \Ichiloto\Engine\Entities\Actions\FieldActionContext(
         $context->player,
-        $context->player->getGameScene(),
+        $context->scene,
         $context->player->position
       ));
       return;
