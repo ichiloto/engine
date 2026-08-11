@@ -267,6 +267,17 @@ class Player extends GameObject
     /** @var EventTrigger $event */
     foreach ($this->events as $event) {
       if ($event->isComplete) {
+        // A one-shot action trigger can complete while the player is still
+        // standing inside it. It remains in activeEvents until the next
+        // movement, so its exit hook must still run to clear transient field
+        // state such as availableAction. Skipping completed triggers before
+        // this cleanup leaves a stale action prompt that can block NPC and
+        // object interaction on every later map.
+        if ($this->eventManager->activeEvents->contains($event)) {
+          $event->exit($eventTriggerContext);
+          $this->eventManager->activeEvents->remove($event);
+        }
+
         continue;
       }
 

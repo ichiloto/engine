@@ -15,6 +15,8 @@ use Ichiloto\Engine\Events\Interpreter\EventPresentationInterface;
 use Ichiloto\Engine\Events\Interpreter\EventSessionCompletionTargetInterface;
 use Ichiloto\Engine\Events\Interpreter\EventInterpreter;
 use Ichiloto\Engine\Events\EventManager;
+use Ichiloto\Engine\Events\Enumerations\MovementEventType;
+use Ichiloto\Engine\Events\MovementEvent;
 use Ichiloto\Engine\Events\Triggers\ScriptEventTrigger;
 use Ichiloto\Engine\Events\Triggers\EventTrigger;
 use Ichiloto\Engine\Exceptions\ActiveEventSaveException;
@@ -250,9 +252,27 @@ class EventTestPlayer extends Player
     };
   }
 
+  public function render(): void
+  {
+  }
+
+  public function erase(): void
+  {
+  }
+
   public function bindScene(GameScene $scene): void
   {
     $this->scene = $scene;
+  }
+
+  public function dispatchMovement(Vector2 $origin, Vector2 $destination): void
+  {
+    $this->position = clone $destination;
+    $this->handleTriggers(new MovementEvent(
+      MovementEventType::PLAYER_MOVE,
+      clone $origin,
+      clone $destination,
+    ));
   }
 }
 
@@ -604,6 +624,34 @@ it('prevents trigger re-entry and applies one-shot completion writes once', func
     ->and($scene->gameState->getVariable('reward_count'))->toBe(1)
     ->and($trigger->startSession($scene))->toBeNull()
     ->and($scene->gameState->getVariable('reward_count'))->toBe(1);
+});
+
+it('runs exit cleanup after a one-shot action trigger completes in place', function () {
+  [$scene] = makeEventRuntime();
+  $player = new EventTestPlayer(new Vector2(0, 0));
+  $scene->installPlayer($player);
+  $trigger = new ScriptEventTrigger(
+    new Rect(1, 0, 1, 1),
+    ['mode' => 'action', 'reusable' => false, 'script' => [
+      ['type' => 'record_event', 'name' => 'one_shot_action_finished'],
+    ]],
+    mapId: 'map-a',
+    marker: 'B',
+  );
+  $trigger->bind($scene->gameState, $scene->party);
+  $player->addTrigger($trigger);
+
+  $player->dispatchMovement(new Vector2(0, 0), new Vector2(1, 0));
+  expect($player->availableAction)->not->toBeNull();
+
+  $player->interact();
+  expect($trigger->isComplete)->toBeTrue()
+    ->and($scene->gameState->hasStoryEvent('one_shot_action_finished'))->toBeTrue()
+    ->and($player->availableAction)->not->toBeNull();
+
+  $player->dispatchMovement(new Vector2(1, 0), new Vector2(2, 0));
+
+  expect($player->availableAction)->toBeNull();
 });
 
 it('starts an automatic script at the initial field position', function () {
