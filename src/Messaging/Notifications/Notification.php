@@ -218,11 +218,9 @@ class Notification implements NotificationInterface
     $this->animationStartedAt = \Ichiloto\Engine\Core\Time::getTime();
 
     if ($this->state === self::STATE_FINISHED) {
-      $this->erase();
-      $this->isOpen = false;
+      $this->finishDismissal();
     }
 
-    $this->eventManager->dispatchEvent(new NotificationEvent(NotificationEventType::DISMISS));
     return $this;
   }
 
@@ -465,12 +463,21 @@ class Notification implements NotificationInterface
     );
 
     if ($progress >= 1.0) {
-      $this->erase();
-      $this->isOpen = false;
-      $this->state = self::STATE_FINISHED;
-      $this->isDismissing = false;
-      $this->renderPosition = clone $this->position;
+      $this->finishDismissal();
     }
+  }
+
+  /**
+   * Removes the final overlay footprint before allowing the scene to redraw.
+   */
+  private function finishDismissal(): void
+  {
+    $this->erase();
+    $this->isOpen = false;
+    $this->state = self::STATE_FINISHED;
+    $this->isDismissing = false;
+    $this->renderPosition = clone $this->position;
+    $this->eventManager->dispatchEvent(new NotificationEvent(NotificationEventType::DISMISS));
   }
 
   /**

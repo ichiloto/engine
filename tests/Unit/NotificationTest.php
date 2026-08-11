@@ -2,7 +2,10 @@
 
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Events\Enumerations\EventType;
+use Ichiloto\Engine\Events\Enumerations\NotificationEventType;
 use Ichiloto\Engine\Events\EventManager;
+use Ichiloto\Engine\Events\NotificationEvent;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationSlideDirection;
 use Ichiloto\Engine\Messaging\Notifications\Notification;
 use Ichiloto\Engine\UI\Windows\Window;
@@ -68,6 +71,38 @@ it('starts fully off-screen when sliding in from the right', function () {
 
   expect(getNotificationRenderPosition($notification)->x)->toBe((float)get_screen_width())
     ->and(getNotificationRenderPosition($notification)->y)->toBe(0.0);
+});
+
+it('resumes the scene only after an animated notification is fully erased', function () {
+  $notification = makeNotificationForTest(
+    new Vector2(40, 0),
+    NotificationSlideDirection::NONE,
+    NotificationSlideDirection::UP,
+    0.2
+  );
+  $eventManager = getNotificationProperty($notification, 'eventManager');
+  $dismissedWhileFinished = [];
+  $listener = static function (NotificationEvent $event) use ($notification, &$dismissedWhileFinished): void {
+    if ($event->notificationEventType === NotificationEventType::DISMISS) {
+      $dismissedWhileFinished[] = $notification->isFinished();
+    }
+  };
+  $eventManager->addEventListener(EventType::NOTIFICATION, $listener);
+
+  try {
+    Time::setElapsedTime(0.0);
+    $notification->open();
+    $notification->dismiss();
+
+    expect($dismissedWhileFinished)->toBeEmpty();
+
+    Time::setElapsedTime(0.2);
+    $notification->update();
+  } finally {
+    $eventManager->removeEventListener(EventType::NOTIFICATION, $listener);
+  }
+
+  expect($dismissedWhileFinished)->toBe([true]);
 });
 
 /**

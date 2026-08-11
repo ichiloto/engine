@@ -6,8 +6,15 @@ use Ichiloto\Engine\Events\Enumerations\ModalEventType;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\Interpreter\ModalEventPresentation;
 use Ichiloto\Engine\Events\ModalEvent;
+use Ichiloto\Engine\Field\MapManager;
+use Ichiloto\Engine\Field\NpcManager;
+use Ichiloto\Engine\Field\Player;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Scenes\Game\States\FieldState;
+use Ichiloto\Engine\Scenes\SceneStateContext;
+use Ichiloto\Engine\UI\Elements\LocationHUDWindow;
 use Ichiloto\Engine\UI\Modal\Modal;
+use Ichiloto\Engine\UI\UIManager;
 
 final class FieldRestorationModalProbe extends Modal
 {
@@ -45,6 +52,80 @@ final class FieldRestorationGameSceneProbe extends GameScene
   }
 }
 
+final class FieldCompositionMapProbe extends MapManager
+{
+  public int $renderCount = 0;
+
+  public function __construct()
+  {
+  }
+
+  public function render(?int $x = null, ?int $y = null): void
+  {
+    $this->renderCount++;
+  }
+}
+
+final class FieldCompositionNpcProbe extends NpcManager
+{
+  public int $renderCount = 0;
+
+  public function __construct()
+  {
+  }
+
+  public function render(): void
+  {
+    $this->renderCount++;
+  }
+}
+
+final class FieldCompositionPlayerProbe extends Player
+{
+  public int $renderCount = 0;
+
+  public function __construct()
+  {
+  }
+
+  public function render(): void
+  {
+    $this->renderCount++;
+  }
+}
+
+final class FieldCompositionHudProbe extends LocationHUDWindow
+{
+  public int $renderCount = 0;
+
+  public function __construct()
+  {
+  }
+
+  public function render(?int $x = null, ?int $y = null): void
+  {
+    $this->renderCount++;
+  }
+}
+
+final class FieldCompositionSceneProbe extends GameScene
+{
+  public function __construct(
+    MapManager $mapManager,
+    NpcManager $npcManager,
+    Player $player,
+    LocationHUDWindow $hud,
+  )
+  {
+    $uiManager = (new ReflectionClass(UIManager::class))->newInstanceWithoutConstructor();
+    $uiManager->locationHUDWindow = $hud;
+    $this->uiManager = $uiManager;
+    $this->mapManager = $mapManager;
+    $this->npcManager = $npcManager;
+    $this->player = $player;
+  }
+}
+
 it('erases a blocking modal before resuming and redrawing the scene', function () {
   $game = (new ReflectionClass(Game::class))->newInstanceWithoutConstructor();
   $eventManager = EventManager::getInstance($game);
@@ -77,4 +158,20 @@ it('restores the field after non-blocking story dialogue is dismissed', function
 
   expect($scene->fieldRestorations)->toBe(1)
     ->and($modalProperty->getValue($presentation))->toBeNull();
+});
+
+it('composites map NPCs player and HUD on every field restoration', function () {
+  $map = new FieldCompositionMapProbe();
+  $npcs = new FieldCompositionNpcProbe();
+  $player = new FieldCompositionPlayerProbe();
+  $hud = new FieldCompositionHudProbe();
+  $scene = new FieldCompositionSceneProbe($map, $npcs, $player, $hud);
+  $state = new FieldState(new SceneStateContext($scene));
+
+  $state->renderTheField();
+
+  expect($map->renderCount)->toBe(1)
+    ->and($npcs->renderCount)->toBe(1)
+    ->and($player->renderCount)->toBe(1)
+    ->and($hud->renderCount)->toBe(1);
 });
