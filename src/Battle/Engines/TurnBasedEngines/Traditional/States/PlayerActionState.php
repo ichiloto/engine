@@ -654,7 +654,11 @@ class PlayerActionState extends TurnState
       };
     }
 
-    $context->ui->fieldWindow->redrawTargetIndicators();
+    // Selection layers sit over a battlefield that can also be touched by
+    // alerts and other transient UI. Recompose every battle layer here so
+    // opening Skill, Magic, Item, Summon, or targeting never leaves only the
+    // controls visible after an overlay changed the same terminal cells.
+    $context->ui->recomposeField();
   }
 
   /**

@@ -7,7 +7,6 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
 use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
 use Ichiloto\Engine\IO\Console\Console;
-use Ichiloto\Engine\IO\Console\Cursor;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
@@ -16,8 +15,6 @@ use Ichiloto\Engine\UI\Windows\Enumerations\VerticalAlignment;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Interfaces\WindowInterface;
 use Ichiloto\Engine\Util\Debug;
-use Symfony\Component\Console\Output\ConsoleOutput;
-use Symfony\Component\Console\Output\OutputInterface;
 
 /**
  * Class Window. The base class for all windows.
@@ -36,15 +33,6 @@ class Window implements WindowInterface
    * @var array
    */
   protected array $content = [];
-  /**
-   * @var Cursor The window's cursor.
-   */
-  protected Cursor $cursor;
-  /**
-   * @var OutputInterface The window's output.
-   */
-  protected OutputInterface $output;
-
   /**
    * Window constructor.
    *
@@ -72,8 +60,6 @@ class Window implements WindowInterface
   {
     $this->observers = new ItemList(ObserverInterface::class);
     $this->setContent(array_fill(0, $this->height - 2, ' '));
-    $this->cursor = Console::cursor();
-    $this->output = new ConsoleOutput();
   }
 
   /**
@@ -83,36 +69,33 @@ class Window implements WindowInterface
   {
     $leftMargin = max(0, ($this->position->x + ($x ?? 1)));
     $topMargin = max(0, ($this->position->y + ($y ?? 1)));
+    $bufferX = max(0, $leftMargin - 1);
+    $bufferY = max(0, $topMargin - 1);
 
-    // Render the top border
-    $output = $this->getTopBorder();
-    Console::cursor()->moveTo($leftMargin, $topMargin);
-    if ($this->foregroundColor) {
-      $this->output->write($this->foregroundColor->value . $output . Color::RESET->value);
-    } else {
-      $this->output->write($output);
-    }
+    Console::beginFrame();
 
-    // Render the content
-    $linesOfContent = $this->getLinesOfContent();
-    foreach ($linesOfContent as $index => $line) {
-      $this->cursor->moveTo($leftMargin, $topMargin + $index + 1);
-      $output = TerminalText::truncateToWidth($line, $this->width);
-      if ($this->foregroundColor) {
-        $this->output->write($this->foregroundColor->value . $output . Color::RESET->value);
-      } else {
-        $this->output->write($output);
+    try {
+      // Render the top border
+      $output = $this->applyForegroundColor($this->getTopBorder());
+      Console::write($output, $bufferX, $bufferY);
+
+      // Render the content
+      $linesOfContent = $this->getLinesOfContent();
+      foreach ($linesOfContent as $index => $line) {
+        $output = TerminalText::truncateToWidth($line, $this->width);
+        Console::write(
+          $this->applyForegroundColor($output),
+          $bufferX,
+          $bufferY + $index + 1,
+        );
       }
-    }
 
-    // Render the bottom border
-    $topMargin = $topMargin + count($linesOfContent) + 1; // We add 1 to account for the top border
-    $output = $this->getBottomBorder();
-    Console::cursor()->moveTo($leftMargin, $topMargin);
-    if ($this->foregroundColor) {
-      $this->output->write($this->foregroundColor->value . $output . Color::RESET->value);
-    } else {
-      $this->output->write($output);
+      // Render the bottom border
+      $bottomY = $bufferY + count($linesOfContent) + 1;
+      $output = $this->applyForegroundColor($this->getBottomBorder());
+      Console::write($output, $bufferX, $bottomY);
+    } finally {
+      Console::endFrame();
     }
   }
 
@@ -123,11 +106,31 @@ class Window implements WindowInterface
   {
     $leftMargin = max(0, ($this->position->x + ($x ?? 1)));
     $topMargin = max(0, ($this->position->y + ($y ?? 1)));
+    $bufferX = max(0, $leftMargin - 1);
+    $bufferY = max(0, $topMargin - 1);
 
-    for ($row = 0; $row < $this->height; $row++) {
-      Console::cursor()->moveTo($leftMargin, $topMargin + $row);
-      $this->output->write(str_repeat(' ', $this->width));
+    Console::beginFrame();
+
+    try {
+      for ($row = 0; $row < $this->height; $row++) {
+        Console::write(str_repeat(' ', $this->width), $bufferX, $bufferY + $row);
+      }
+    } finally {
+      Console::endFrame();
     }
+  }
+
+  /**
+   * Applies the configured foreground color without bypassing the console's
+   * canonical cell buffer.
+   */
+  private function applyForegroundColor(string $output): string
+  {
+    if (! $this->foregroundColor) {
+      return $output;
+    }
+
+    return $this->foregroundColor->value . $output . Color::RESET->value;
   }
 
   /**

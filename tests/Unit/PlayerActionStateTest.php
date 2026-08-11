@@ -90,10 +90,16 @@ class BattleFieldWindowTargetingTestProxy extends BattleFieldWindow
 class BattleScreenTargetingTestProxy extends BattleScreen
 {
   public string $lastAlert = '';
+  public int $recomposeCount = 0;
 
   public function refreshField(): void
   {
     // Field refresh is not needed for this state-only unit test.
+  }
+
+  public function recomposeField(): void
+  {
+    $this->recomposeCount++;
   }
 
   public function alert(string $text): void
@@ -261,7 +267,8 @@ it('shows helpful info for the focused battle command and submenu option', funct
   $state->beginSubmenuSelectionForTest($context);
   $state->showFocusedInfoForTest($context);
 
-  expect($screen->lastAlert)->toContain('Strike a single enemy');
+  expect($screen->lastAlert)->toContain('Strike a single enemy')
+    ->and($screen->recomposeCount)->toBe(2);
 });
 
 class ActiveTimePlayerActionStateProxy extends PlayerActionState

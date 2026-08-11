@@ -2,6 +2,8 @@
 
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\UI\Windows\Window;
 
 /**
  * Prepares a console of the given size with an empty buffer.
@@ -155,4 +157,31 @@ it('nests batched frames and flushes once at the outermost close', function () {
   expect($beforeOuterClose)->toBe('')
     ->and($afterOuterClose)->toContain('outer')
     ->and($afterOuterClose)->toContain('inner');
+});
+
+it('tracks window borders and content in the canonical console buffer', function () {
+  $reflection = withConsole(24, 8);
+  $window = new Window('Info', '', new Vector2(2, 1), 12, 3);
+  $window->setContent(['tracked']);
+
+  ob_start();
+  $window->render();
+  ob_end_clean();
+
+  $buffer = $reflection->getProperty('buffer')->getValue();
+  $renderedRows = array_map(TerminalText::stripAnsi(...), $buffer);
+
+  expect(substr($renderedRows[1], 2, 12))->toContain('Info')
+    ->and(substr($renderedRows[2], 2, 12))->toContain('tracked')
+    ->and(substr($renderedRows[3], 2, 12))->not->toBe(str_repeat(' ', 12));
+
+  ob_start();
+  $window->erase();
+  ob_end_clean();
+
+  $erasedRows = $reflection->getProperty('buffer')->getValue();
+
+  expect(substr(TerminalText::stripAnsi($erasedRows[1]), 2, 12))->toBe(str_repeat(' ', 12))
+    ->and(substr(TerminalText::stripAnsi($erasedRows[2]), 2, 12))->toBe(str_repeat(' ', 12))
+    ->and(substr(TerminalText::stripAnsi($erasedRows[3]), 2, 12))->toBe(str_repeat(' ', 12));
 });

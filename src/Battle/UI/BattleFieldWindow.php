@@ -196,9 +196,8 @@ class BattleFieldWindow extends Window
   protected function eraseBattlerSprite(array $spriteData, int $x, int $y): void
   {
     foreach ($spriteData as $rowIndex => $row) {
-      Console::cursor()->moveTo($x, $y + $rowIndex);
       $output = str_repeat(' ', TerminalText::displayWidth($row));
-      $this->output->write($output);
+      Console::write($output, max(0, $x - 1), max(0, $y + $rowIndex - 1));
     }
   }
 
@@ -213,8 +212,11 @@ class BattleFieldWindow extends Window
   protected function renderBattlerSprite(array $spriteData, float|int $x, float|int $y): void
   {
     foreach ($spriteData as $rowIndex => $row) {
-      Console::cursor()->moveTo($x, $y + $rowIndex);
-      $this->output->write($row);
+      Console::write(
+        TerminalText::stabilize($row),
+        max(0, (int)floor($x) - 1),
+        max(0, (int)floor($y) + $rowIndex - 1),
+      );
     }
   }
 
@@ -784,8 +786,11 @@ class BattleFieldWindow extends Window
   protected function renderIndicator(string $text, int $x, int $y): void
   {
     ['x' => $renderX, 'y' => $renderY] = $this->resolveIndicatorPosition($text, $x, $y);
-    Console::cursor()->moveTo($renderX, $renderY);
-    $this->output->write(TerminalText::stabilize($text));
+    Console::write(
+      TerminalText::stabilize($text),
+      max(0, $renderX - 1),
+      max(0, $renderY - 1),
+    );
   }
 
   /**
@@ -799,8 +804,11 @@ class BattleFieldWindow extends Window
   protected function eraseIndicator(string $text, int $x, int $y): void
   {
     ['x' => $renderX, 'y' => $renderY] = $this->resolveIndicatorPosition($text, $x, $y);
-    Console::cursor()->moveTo($renderX, $renderY);
-    $this->output->write(str_repeat(' ', TerminalText::displayWidth($text)));
+    Console::write(
+      str_repeat(' ', TerminalText::displayWidth($text)),
+      max(0, $renderX - 1),
+      max(0, $renderY - 1),
+    );
   }
 
   /**

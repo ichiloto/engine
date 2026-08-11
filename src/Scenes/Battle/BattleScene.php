@@ -197,6 +197,44 @@ class BattleScene extends AbstractScene
   }
 
   /**
+   * Restores the active battle composition after a blocking overlay.
+   *
+   * Notifications and modals may cover battle cells while the scene is
+   * suspended. The field scene already redraws on resume; battles must obey
+   * the same lifecycle contract instead of depending on a later command or
+   * ATB update to repaint only part of the UI.
+   */
+  #[Override]
+  public function resume(): void
+  {
+    parent::resume();
+    $this->state?->resume();
+
+    if (! $this->ui || $this->state instanceof BattleStartState) {
+      return;
+    }
+
+    if ($this->state instanceof BattleVictoryState || $this->state instanceof BattleDefeatState) {
+      $this->ui->renderField();
+      $this->ui->hideControls();
+      $this->resultWindow?->render();
+      return;
+    }
+
+    $this->ui->refresh();
+  }
+
+  /**
+   * Forwards suspension to the active battle state.
+   */
+  #[Override]
+  public function suspend(): void
+  {
+    parent::suspend();
+    $this->state?->suspend();
+  }
+
+  /**
    * @inheritDoc
    */
   #[Override]
