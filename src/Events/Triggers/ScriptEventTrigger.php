@@ -41,6 +41,7 @@ class ScriptEventTrigger extends EventTrigger implements EventSessionCompletionT
    */
   protected(set) bool $runsAutomatically = false;
   protected(set) ?string $scriptId = null;
+  protected(set) ?string $scriptSource = null;
   protected(set) bool $sessionIsActive = false;
 
   /**
@@ -73,7 +74,12 @@ class ScriptEventTrigger extends EventTrigger implements EventSessionCompletionT
     // inside startEventScript(), and its completion callback must be allowed
     // to leave this false rather than being overwritten afterward.
     $this->sessionIsActive = true;
-    $session = $gameScene->startEventScript($this->script, $identity, $this);
+    $session = $gameScene->startEventScript($this->script, $identity, $this, [
+      'map' => $this->mapId ?? $gameScene->currentMapId,
+      'marker' => $this->marker,
+      'trigger' => static::class,
+      'source' => $this->scriptSource,
+    ]);
 
     if ($session === null) {
       $this->sessionIsActive = false;
@@ -150,6 +156,7 @@ class ScriptEventTrigger extends EventTrigger implements EventSessionCompletionT
     }
 
     $filename = \Assegai\Util\Path::join(\Assegai\Util\Path::getCurrentWorkingDirectory(), 'assets', 'Events', "$scriptId.php");
+    $this->scriptSource = $filename;
 
     if (! file_exists($filename)) {
       \Ichiloto\Engine\Util\Debug::warn("Event script not found: $filename");

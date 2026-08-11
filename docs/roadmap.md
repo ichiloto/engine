@@ -692,7 +692,12 @@ iterative frame stack, pending command state, and `RUNNING`, `YIELDED`,
 scripts remain source-compatible. Dialogue, choices, timers, awaited movement
 routes, transfers, and battles yield to the game loop and resume in order.
 Automatic/action trigger re-entry is guarded, and completion writes plus
-one-shot state occur only after the final command succeeds.
+one-shot state occur only after the final command succeeds. Runtime command
+dispatch is fail-closed: an unknown top-level or nested command stops the whole
+session with script/frame/origin context, clears pending continuation state,
+discards any deferred autosave, and leaves the incomplete trigger retryable.
+The editor validator and runtime share `EventInterpreter::COMMAND_TYPES`, but
+runtime rejection remains independent when validation is skipped.
 
 The generic `move_route` command targets the player or a current-map NPC by a
 new optional stable map-local NPC `id`. Cardinal repeated/facing-only steps

@@ -161,7 +161,11 @@ class Npc implements EventSessionCompletionTargetInterface
     // State-only scripts may finish before startEventScript() returns. Set
     // the guard first so the completion callback remains authoritative.
     $this->conversationIsActive = true;
-    $session = $gameScene->startEventScript($script, $identity, $this);
+    $session = $gameScene->startEventScript($script, $identity, $this, [
+      'map' => $gameScene->currentMapId,
+      'trigger' => static::class,
+      'npc' => $this->id ?? $this->name,
+    ]);
 
     if ($session === null) {
       $this->conversationIsActive = false;

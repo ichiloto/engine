@@ -24,19 +24,25 @@ final class EventExecutionSession
   protected(set) EventExecutionStatus $status = EventExecutionStatus::RUNNING;
   protected(set) ?string $failureMessage = null;
 
+  /** @var array<string, scalar|null> Plain authoring origin used in diagnostics. */
+  protected(set) array $origin = [];
+
   /**
    * @param array<int, array<string, mixed>> $commands The root command list.
    * @param string|null $scriptId Stable script identity when one exists.
    * @param EventSessionCompletionTargetInterface|null $completionTarget The
    * trigger or NPC whose completion work runs after the final command.
+   * @param array<string, scalar|null> $origin Plain authoring origin metadata.
    */
   public function __construct(
     array $commands,
     protected(set) ?string $scriptId = null,
     protected(set) ?EventSessionCompletionTargetInterface $completionTarget = null,
+    array $origin = [],
   )
   {
     $this->id = ++self::$nextId;
+    $this->origin = $origin;
     $this->frames[] = new EventExecutionFrame($commands, $scriptId ?? 'inline script');
   }
 
@@ -125,6 +131,7 @@ final class EventExecutionSession
   public function fail(string $message): void
   {
     $this->failureMessage = $message;
+    $this->pendingCommand = null;
     $this->pendingState = [];
     $this->status = EventExecutionStatus::FAILED;
   }

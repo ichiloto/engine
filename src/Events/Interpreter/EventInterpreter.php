@@ -65,15 +65,17 @@ class EventInterpreter
    *
    * @param array<int, array<string, mixed>> $commands The script commands.
    * @param string|null $scriptId Stable script identity when available.
+   * @param array<string, scalar|null> $origin Plain authoring origin metadata.
    * @return EventExecutionSession|null The session, or null when another is active.
    */
   public function run(
     array $commands,
     ?string $scriptId = null,
     ?EventSessionCompletionTargetInterface $completionTarget = null,
+    array $origin = [],
   ): ?EventExecutionSession
   {
-    $session = $this->start($commands, $scriptId, $completionTarget);
+    $session = $this->start($commands, $scriptId, $completionTarget, $origin);
 
     if ($session !== null) {
       $this->update(0.0);
@@ -91,6 +93,7 @@ class EventInterpreter
     array $commands,
     ?string $scriptId = null,
     ?EventSessionCompletionTargetInterface $completionTarget = null,
+    array $origin = [],
   ): ?EventExecutionSession
   {
     if ($this->activeSession !== null) {
@@ -103,7 +106,10 @@ class EventInterpreter
     }
 
     $commands = array_values(array_filter($commands, is_array(...)));
-    $this->activeSession = new EventExecutionSession($commands, $scriptId, $completionTarget);
+    $origin['map'] ??= $this->gameScene->currentMapId !== ''
+      ? $this->gameScene->currentMapId
+      : null;
+    $this->activeSession = new EventExecutionSession($commands, $scriptId, $completionTarget, $origin);
     $this->gameScene->onEventSessionStarted($this->activeSession);
 
     return $this->activeSession;
@@ -397,11 +403,42 @@ class EventInterpreter
         return EventCommandResult::COMPLETED;
 
       default:
-        // Preserve the old interpreter's tolerant behavior for unknown
-        // commands while validation reports them as authoring errors.
-        Debug::warn(sprintf('Unknown event command type: %s', $type));
-        return EventCommandResult::COMPLETED;
+        throw new RuntimeException($this->unknownCommandDiagnostic($session, $type));
     }
+  }
+
+  /**
+   * Builds a fail-closed diagnostic with the deepest command-frame context.
+   */
+  protected function unknownCommandDiagnostic(EventExecutionSession $session, string $type): string
+  {
+    $frame = $session->currentFrame();
+    $details = [
+      sprintf('script "%s"', $session->scriptId ?? 'inline script'),
+      sprintf('command %d', ($frame?->commandIndex ?? 0) + 1),
+      sprintf('frame "%s"', $frame?->label ?? 'unknown'),
+    ];
+    $originLabels = [
+      'map' => 'map',
+      'marker' => 'marker',
+      'trigger' => 'trigger',
+      'npc' => 'NPC',
+      'source' => 'source',
+    ];
+
+    foreach ($originLabels as $key => $label) {
+      $value = $session->origin[$key] ?? null;
+
+      if (is_scalar($value) && trim(strval($value)) !== '') {
+        $details[] = sprintf('%s "%s"', $label, strval($value));
+      }
+    }
+
+    return sprintf(
+      'Unknown event command type "%s" in %s.',
+      $type !== '' ? $type : '(empty)',
+      implode(', ', $details),
+    );
   }
 
   /**

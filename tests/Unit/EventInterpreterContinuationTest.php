@@ -25,6 +25,7 @@ use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityManifest;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Progress\Bestiary;
+use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Battle\BattleConfig;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
@@ -39,6 +40,7 @@ final class EventTestPresentation implements EventPresentationInterface
   public ?int $choice = null;
   public ?string $kind = null;
   public int $updates = 0;
+  public int $resets = 0;
 
   public function beginText(string $text, string $name = ''): void
   {
@@ -73,6 +75,7 @@ final class EventTestPresentation implements EventPresentationInterface
 
   public function reset(): void
   {
+    $this->resets++;
     $this->kind = null;
     $this->complete = false;
     $this->choice = null;
@@ -103,6 +106,30 @@ final class EventTestCompletionTarget implements EventSessionCompletionTargetInt
   public function onEventSessionFailed(GameScene $gameScene, EventExecutionSession $session): void
   {
     $this->failed++;
+  }
+}
+
+class EventTestScriptTrigger extends ScriptEventTrigger
+{
+  public int $completedSessions = 0;
+  public int $failedSessions = 0;
+  public bool $restartOnFailure = false;
+  public ?EventExecutionSession $restartDuringFailure = null;
+
+  public function onEventSessionCompleted(GameScene $gameScene, EventExecutionSession $session): void
+  {
+    $this->completedSessions++;
+    parent::onEventSessionCompleted($gameScene, $session);
+  }
+
+  public function onEventSessionFailed(GameScene $gameScene, EventExecutionSession $session): void
+  {
+    $this->failedSessions++;
+    parent::onEventSessionFailed($gameScene, $session);
+
+    if ($this->restartOnFailure) {
+      $this->restartDuringFailure = $this->startSession($gameScene);
+    }
   }
 }
 
@@ -257,6 +284,11 @@ class EventTestGameScene extends GameScene
     $this->npcManager = $npcManager;
   }
 
+  public function deferAutoSaveForTesting(): void
+  {
+    $this->hasDeferredAutoSave = true;
+  }
+
   public function transferPlayer(Location $location): void
   {
     $this->currentMapId = $location->mapFilename;
@@ -307,6 +339,184 @@ it('keeps immediate scripts compatible and completes once', function () {
     ->and($scene->gameState->hasStoryEvent('technical_event'))->toBeTrue()
     ->and($target->completed)->toBe(1)
     ->and($target->failed)->toBe(0);
+});
+
+it('fails closed on an unknown top-level command and permits a corrected trigger retry', function () {
+  $root = sys_get_temp_dir() . '/event-unknown-' . uniqid();
+  mkdir($root . '/assets/Events', 0o777, true);
+  mkdir($root . '/assets/Data', 0o777, true);
+  file_put_contents($root . '/assets/Events/fail-closed.php', <<<'PHP'
+  <?php
+  return [
+    ['type' => 'set_switch', 'name' => 'before_unknown', 'value' => true],
+    ['type' => 'parallel_cutscene'],
+    ['type' => 'set_switch', 'name' => 'after_unknown', 'value' => true],
+    ['type' => 'record_event', 'name' => 'forbidden_story_flag'],
+    ['type' => 'accept_quest', 'id' => 'forbidden-quest', 'confirm' => false],
+    ['type' => 'give_gold', 'amount' => 500],
+  ];
+  PHP);
+  file_put_contents($root . '/assets/Data/quests.php', <<<'PHP'
+  <?php
+  return [[
+    'id' => 'forbidden-quest',
+    'name' => 'Forbidden Quest',
+    'objectives' => [['type' => 'talk_to', 'target' => 'Nobody']],
+  ]];
+  PHP);
+  $previousDirectory = getcwd();
+  chdir($root);
+  $questManagerProperty = new ReflectionProperty(QuestManager::class, 'current');
+
+  try {
+    [$scene, $interpreter, $presentation] = makeEventRuntime();
+    $scene->installPlayer(new EventTestPlayer(new Vector2(1, 1)));
+    $questManager = new QuestManager(new EventTestGame(), $scene);
+    $scene->deferAutoSaveForTesting();
+    $trigger = new EventTestScriptTrigger(
+      new Rect(0, 0, 1, 1),
+      ['mode' => 'auto', 'reusable' => false, 'scriptId' => 'fail-closed'],
+      sets: [
+        ['type' => 'variable', 'name' => 'completion_count', 'op' => 'add', 'value' => 1],
+        ['type' => 'event', 'name' => 'trigger_completion_flag'],
+      ],
+      mapId: 'map-a',
+      marker: 'U',
+    );
+    $trigger->bind($scene->gameState, $scene->party);
+    $trigger->restartOnFailure = true;
+
+    $session = $trigger->startSession($scene);
+
+    expect($session?->status)->toBe(EventExecutionStatus::FAILED)
+      ->and($session?->failureMessage)->toContain('Unknown event command type "parallel_cutscene"')
+      ->and($session?->failureMessage)->toContain('script "fail-closed"')
+      ->and($session?->failureMessage)->toContain('command 2')
+      ->and($session?->failureMessage)->toContain('frame "fail-closed"')
+      ->and($session?->failureMessage)->toContain('map "map-a"')
+      ->and($session?->failureMessage)->toContain('marker "U"')
+      ->and($session?->failureMessage)->toContain('trigger "' . EventTestScriptTrigger::class . '"')
+      ->and($session?->failureMessage)->toContain('/assets/Events/fail-closed.php"')
+      ->and($session?->pendingCommand)->toBeNull()
+      ->and($session?->pendingState)->toBe([])
+      ->and($scene->gameState->getSwitch('before_unknown'))->toBeTrue()
+      ->and($scene->gameState->getSwitch('after_unknown'))->toBeFalse()
+      ->and($scene->gameState->hasStoryEvent('forbidden_story_flag'))->toBeFalse()
+      ->and($scene->gameState->hasStoryEvent('trigger_completion_flag'))->toBeFalse()
+      ->and($scene->gameState->getVariable('completion_count'))->toBe(0)
+      ->and($questManager->log->isActive('forbidden-quest'))->toBeFalse()
+      ->and($scene->party->accountBalance)->toBe(0)
+      ->and($trigger->isComplete)->toBeFalse()
+      ->and($trigger->failedSessions)->toBe(1)
+      ->and($trigger->completedSessions)->toBe(0)
+      ->and($trigger->restartDuringFailure)->toBeNull()
+      ->and($interpreter->hasActiveSession())->toBeFalse()
+      ->and($scene->hasDeferredAutoSave)->toBeFalse()
+      ->and($scene->testSceneManager->eventTestSaveManager->autoSaveCount)->toBe(0)
+      ->and($presentation->resets)->toBeGreaterThanOrEqual(1);
+
+    $manifest = SaveCompatibilityManifest::fromArray('ichiloto/event-fail-closed', [
+      'contentVersion' => 0,
+      'migrations' => [],
+      'aliases' => [],
+      'tombstones' => [],
+    ], 'Fail-closed event test manifest');
+    $saveManager = new SaveManager(new EventTestGame(), 'saves', 'saves/quick', $manifest);
+    $savedSlot = $saveManager->save($scene, 1);
+    expect(file_get_contents($savedSlot->path))->toStartWith('IED1');
+
+    file_put_contents($root . '/assets/Events/fail-closed.php', <<<'PHP'
+    <?php
+    return [
+      ['type' => 'set_variable', 'name' => 'corrected_retry_count', 'op' => 'add', 'value' => 1],
+    ];
+    PHP);
+    $trigger->configure();
+    $retry = $trigger->startSession($scene);
+
+    expect($retry?->status)->toBe(EventExecutionStatus::COMPLETED)
+      ->and($trigger->isComplete)->toBeTrue()
+      ->and($trigger->failedSessions)->toBe(1)
+      ->and($trigger->completedSessions)->toBe(1)
+      ->and($scene->gameState->getVariable('corrected_retry_count'))->toBe(1)
+      ->and($scene->gameState->getVariable('completion_count'))->toBe(1)
+      ->and($scene->gameState->hasStoryEvent('trigger_completion_flag'))->toBeTrue()
+      ->and(array_count_values($scene->gameState->storyEvents)['trigger_completion_flag'])->toBe(1);
+  } finally {
+    $questManagerProperty->setValue(null, null);
+    chdir($previousDirectory);
+  }
+});
+
+it('propagates unknown commands out of nested branch arms before parent commands', function (bool $condition, string $arm) {
+  [$scene, $interpreter] = makeEventRuntime();
+  $scene->gameState->setSwitch('branch_condition', $condition);
+  $target = new EventTestCompletionTarget();
+  $session = $interpreter->run([
+    [
+      'type' => 'branch',
+      'conditions' => [['type' => 'switch', 'name' => 'branch_condition']],
+      'then' => [
+        ['type' => 'set_switch', 'name' => 'inside_then', 'value' => true],
+        ['type' => 'unknown_then'],
+        ['type' => 'set_switch', 'name' => 'after_then_unknown', 'value' => true],
+      ],
+      'else' => [
+        ['type' => 'set_switch', 'name' => 'inside_else', 'value' => true],
+        ['type' => 'unknown_else'],
+        ['type' => 'set_switch', 'name' => 'after_else_unknown', 'value' => true],
+      ],
+    ],
+    ['type' => 'set_switch', 'name' => 'after_parent_branch', 'value' => true],
+  ], 'nested-branch', $target);
+
+  expect($session?->status)->toBe(EventExecutionStatus::FAILED)
+    ->and($session?->failureMessage)->toContain('Unknown event command type "unknown_' . $arm . '"')
+    ->and($session?->failureMessage)->toContain('command 2')
+    ->and($session?->failureMessage)->toContain('frame "branch:' . $arm . '"')
+    ->and($scene->gameState->getSwitch('inside_' . $arm))->toBeTrue()
+    ->and($scene->gameState->getSwitch('after_' . $arm . '_unknown'))->toBeFalse()
+    ->and($scene->gameState->getSwitch('after_parent_branch'))->toBeFalse()
+    ->and($target->completed)->toBe(0)
+    ->and($target->failed)->toBe(1)
+    ->and($interpreter->hasActiveSession())->toBeFalse();
+})->with([
+  'then arm' => [true, 'then'],
+  'else arm' => [false, 'else'],
+]);
+
+it('propagates an unknown choice-arm command before later arm and parent commands', function () {
+  [$scene, $interpreter, $presentation] = makeEventRuntime();
+  $target = new EventTestCompletionTarget();
+  $session = $interpreter->run([
+    [
+      'type' => 'choice',
+      'prompt' => 'Choose the technical arm.',
+      'options' => [[
+        'text' => 'Continue',
+        'then' => [
+          ['type' => 'set_switch', 'name' => 'inside_choice', 'value' => true],
+          ['type' => 'unknown_choice'],
+          ['type' => 'set_switch', 'name' => 'after_choice_unknown', 'value' => true],
+        ],
+      ]],
+    ],
+    ['type' => 'set_switch', 'name' => 'after_parent_choice', 'value' => true],
+  ], 'nested-choice', $target);
+
+  $presentation->resolveChoice(0);
+  $interpreter->update(0.016);
+
+  expect($session?->status)->toBe(EventExecutionStatus::FAILED)
+    ->and($session?->failureMessage)->toContain('Unknown event command type "unknown_choice"')
+    ->and($session?->failureMessage)->toContain('command 2')
+    ->and($session?->failureMessage)->toContain('frame "choice:0"')
+    ->and($scene->gameState->getSwitch('inside_choice'))->toBeTrue()
+    ->and($scene->gameState->getSwitch('after_choice_unknown'))->toBeFalse()
+    ->and($scene->gameState->getSwitch('after_parent_choice'))->toBeFalse()
+    ->and($target->completed)->toBe(0)
+    ->and($target->failed)->toBe(1)
+    ->and($interpreter->hasActiveSession())->toBeFalse();
 });
 
 it('yields waits without blocking and retains a nested branch frame', function () {

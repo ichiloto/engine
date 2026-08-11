@@ -53,10 +53,15 @@ and the originating completion target. Choice and branch arms push frames;
 they do not recursively block the terminal loop. Only one session can be
 active on a `GameScene`.
 
-Existing command lists remain valid. Unknown command types retain the old
-tolerant runtime behavior of warning and moving on, while project validation
-reports them as authoring errors. Other runtime failures terminate the session
-without applying trigger completion writes.
+Existing commands retain their behavior. Unknown command types fail the active
+session immediately at runtime, even when editor validation was skipped. The
+diagnostic identifies the script, command index, nested frame, and available
+map/marker/trigger/source context. No later command or parent frame runs, and
+trigger completion writes, one-shot state, rewards, and deferred autosaves are
+not applied. Failure cleanup releases field input and saving so a corrected
+reusable or incomplete one-shot trigger can be tried again. Project validation
+also reports unknown commands before playtesting from the same authoritative
+`EventInterpreter::COMMAND_TYPES` vocabulary.
 
 ## Movement routes
 

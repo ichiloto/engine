@@ -505,15 +505,17 @@ class GameScene extends AbstractScene
      *
      * @param array<int, array<string, mixed>> $commands The commands.
      * @param string|null $scriptId Stable script identity when available.
+     * @param array<string, scalar|null> $origin Plain authoring origin metadata.
      * @return EventExecutionSession|null The session, or null when one is active.
      */
     public function startEventScript(
         array $commands,
         ?string $scriptId = null,
         ?EventSessionCompletionTargetInterface $completionTarget = null,
+        array $origin = [],
     ): ?EventExecutionSession
     {
-        return $this->eventInterpreter?->run($commands, $scriptId, $completionTarget);
+        return $this->eventInterpreter?->run($commands, $scriptId, $completionTarget, $origin);
     }
 
     /**
