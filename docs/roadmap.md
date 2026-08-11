@@ -264,12 +264,13 @@ Turn the polished stage into a real fight. Roughly in order:
 > Production continuation, movement-route, battle-return, and active-event
 > save-safety details are documented in the Phase 7 production-hardening
 > extension below and in [story-events.md](story-events.md).
-- **Event-command interpreter** — the generic cutscene engine `CutsceneState`
-  was meant to host: a data-driven command list (show text, move actor, wait,
-  fade, pan camera, play sound/music, set switch/variable, conditional
-  branch, start battle, give item). This is deliberately *not* the summon
-  timeline system — cutscenes are logic-driven, not frame-driven — but the
-  summon player's transition/title machinery is reusable for staging.
+- **Event-command interpreter** — originally planned for `CutsceneState`, but
+  shipped through the active `EventInterpreter`: a data-driven command list
+  (show text, move actor, wait, play sound/music, set switch/variable,
+  conditional branch, start battle, give item). Fade and camera commands
+  remain deferred. This is deliberately *not* the summon timeline system —
+  cutscenes are logic-driven, not frame-driven — but the summon player's
+  transition/title machinery is reusable for staging.
 - **NPC field actors** — a real NPC entity: sprite, facing, movement profile
   (fixed/wander/patrol route), talk trigger, per-page conditions from
   Phase 1. Party followers become possible on the same machinery.
