@@ -76,9 +76,9 @@ abstract class EventTrigger implements EventTriggerInterface
    * @param array<int, array<string, mixed>> $sets World-state writes applied when the trigger completes.
    * @param string|null $mapId The owning map's id.
    * @param string|null $marker The trigger's event marker on that map.
-   * @param string|null $whenBlocked Message shown when the player enters the
-   * area while the conditions do not hold. Without one a gated trigger is
-   * simply absent, which is indistinguishable from a bug.
+   * @param string|null $whenBlocked Message shown when the player attempts to
+   * enter the area while the conditions do not hold. A non-empty message also
+   * makes the unavailable event reject entry; without one it is simply absent.
    * @throws JsonException If the data cannot be serialized.
    */
   final public function __construct(
@@ -97,6 +97,7 @@ abstract class EventTrigger implements EventTriggerInterface
     $this->sets = array_values(array_filter($sets, 'is_array'));
     $this->mapId = $mapId !== null && trim($mapId) !== '' ? trim($mapId) : null;
     $this->marker = $marker !== null && trim($marker) !== '' ? trim($marker) : null;
+    $this->whenBlocked = $whenBlocked !== null && trim($whenBlocked) !== '' ? trim($whenBlocked) : null;
     $this->configure();
   }
 

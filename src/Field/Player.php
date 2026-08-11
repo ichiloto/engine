@@ -187,6 +187,15 @@ class Player extends GameObject
     }
 
     $event = new MovementEvent(MovementEventType::PLAYER_MOVE, $origin, $destination);
+
+    // A conditioned event with a blocked message is an authored field gate,
+    // not merely an advisory notification. Reject entry before mutating the
+    // player position, advancing encounters, or notifying movement observers.
+    if ($this->isMovementBlockedByUnavailableEvent($event)) {
+      $this->render();
+      return false;
+    }
+
     $this->handleCollision($collisionType);
     $this->updatePlayerPosition($direction, $camera, $previousSprite);
     $this->handleTriggers($event);
@@ -250,6 +259,67 @@ class Player extends GameObject
   }
 
   /**
+   * Determines whether an unavailable event rejects the attempted entry.
+   *
+   * A non-empty whenBlocked message makes the event area fail closed while
+   * its conditions do not hold. Movement from inside the area remains
+   * permitted so a loaded save or a condition change cannot trap the player.
+   *
+   * @param MovementEvent $movementEvent The attempted movement.
+   * @return bool True when the movement must not update field state.
+   */
+  protected function isMovementBlockedByUnavailableEvent(MovementEvent $movementEvent): bool
+  {
+    $blockingEvent = null;
+
+    /** @var EventTrigger $event */
+    foreach ($this->events as $event) {
+      $eventId = spl_object_id($event);
+      $destinationIsInside = $event->area->contains($movementEvent->destination);
+
+      if (! $destinationIsInside || $event->isComplete || $event->isAvailable() || $event->whenBlocked === null) {
+        unset($this->announcedBlockedEvents[$eventId]);
+        continue;
+      }
+
+      // Never trap a player whose save already places them inside a gate.
+      // The transition from outside to inside is the authoritative boundary.
+      if ($event->area->contains($movementEvent->origin)) {
+        continue;
+      }
+
+      $blockingEvent ??= $event;
+    }
+
+    if ($blockingEvent === null) {
+      return false;
+    }
+
+    $eventId = spl_object_id($blockingEvent);
+
+    if (! isset($this->announcedBlockedEvents[$eventId])) {
+      $this->announcedBlockedEvents[$eventId] = true;
+      $this->announceBlockedEvent($blockingEvent->whenBlocked);
+    }
+
+    return true;
+  }
+
+  /**
+   * Presents the authored explanation for a blocked field event.
+   *
+   * Kept behind a method so movement policy stays independently testable
+   * from the terminal modal implementation.
+   *
+   * @param string $message The authored blocked-event message.
+   * @return void
+   */
+  protected function announceBlockedEvent(string $message): void
+  {
+    alert($message);
+  }
+
+  /**
    * Handles the triggers.
    *
    * @param MovementEvent $movementEvent The movement event.
@@ -286,22 +356,6 @@ class Player extends GameObject
         if ($this->eventManager->activeEvents->contains($event)) {
           $event->exit($eventTriggerContext);
           $this->eventManager->activeEvents->remove($event);
-        }
-
-        // A gated trigger that says nothing is indistinguishable from a bug:
-        // the player walks into a doorway and the game ignores them. Announce
-        // it once per entry, clearing the mark when they step away.
-        if ($event->whenBlocked !== null) {
-          $eventId = spl_object_id($event);
-
-          if ($event->area->contains($movementEvent->destination)) {
-            if (! isset($this->announcedBlockedEvents[$eventId])) {
-              $this->announcedBlockedEvents[$eventId] = true;
-              alert($event->whenBlocked);
-            }
-          } else {
-            unset($this->announcedBlockedEvents[$eventId]);
-          }
         }
 
         continue;
@@ -409,6 +463,8 @@ class Player extends GameObject
     foreach ($this->events as $event) {
       $this->events->remove($event);
     }
+
+    $this->announcedBlockedEvents = [];
   }
 
   /**
@@ -585,6 +641,7 @@ class Player extends GameObject
   public function removeEventTriggers(): void
   {
     $this->events->clear();
+    $this->announcedBlockedEvents = [];
   }
 
   /**

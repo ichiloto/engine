@@ -197,7 +197,10 @@ so the door explains itself:
 
 Without `whenBlocked` a gated trigger is simply absent: the player walks into
 the doorway and nothing happens at all, which reads as a bug rather than a
-locked door. The message is shown once each time they step into the area.
+locked door. A non-empty `whenBlocked` rejects the step before the player's
+position or field state advances, and shows the message once per approach.
+The player can always move out if an older save already placed them inside the
+area, so introducing a new gate cannot trap an existing save.
 
 Two limits worth knowing:
 

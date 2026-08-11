@@ -39,6 +39,10 @@ triggers are evaluated on initial field entry as well as after movement, so a
 New Game or loaded save that starts inside the trigger area runs it without
 requiring the player to step out and back in.
 
+When the conditions fail, a non-empty `whenBlocked` makes entry into the event
+area fail closed and presents that message without advancing field movement.
+Omit it when the unavailable event should be absent rather than act as a gate.
+
 ## Execution lifecycle
 
 `EventExecutionStatus` distinguishes:

@@ -204,11 +204,13 @@ it('builds triggers with conditions, sets, and identity through the factory', fu
     'marker' => 'C',
     'conditions' => [['type' => 'switch', 'name' => 'gate_open']],
     'sets' => [['type' => 'event', 'name' => 'talked_to_mom']],
+    'whenBlocked' => '   ',
     'data' => ['dialogue' => [['name' => 'Mom', 'text' => 'Hi.']]],
   ], 'happyville/home');
 
   expect($trigger->mapId)->toBe('happyville/home')
     ->and($trigger->marker)->toBe('C')
     ->and($trigger->conditions)->toBe([['type' => 'switch', 'name' => 'gate_open']])
-    ->and($trigger->sets)->toBe([['type' => 'event', 'name' => 'talked_to_mom']]);
+    ->and($trigger->sets)->toBe([['type' => 'event', 'name' => 'talked_to_mom']])
+    ->and($trigger->whenBlocked)->toBeNull();
 });

@@ -210,11 +210,18 @@ class EventTestMapManager extends MapManager
   {
     return ! isset($this->blocked["{$x}:{$y}"]);
   }
+
+  public function scrollMap(Player $player, Vector2 $moveDirection): bool
+  {
+    return false;
+  }
 }
 
 class EventTestPlayer extends Player
 {
   public ?string $facing = null;
+  public array $blockedMessages = [];
+  public int $movementNotifications = 0;
 
   public function __construct(Vector2 $position)
   {
@@ -242,6 +249,11 @@ class EventTestPlayer extends Player
     return true;
   }
 
+  public function tryFieldMove(Vector2 $direction, Camera $camera): bool
+  {
+    return parent::tryMove($direction, $camera);
+  }
+
   public function face(Vector2 $direction, Camera $camera): void
   {
     $this->facing = match (true) {
@@ -263,6 +275,16 @@ class EventTestPlayer extends Player
   public function bindScene(GameScene $scene): void
   {
     $this->scene = $scene;
+  }
+
+  protected function announceBlockedEvent(string $message): void
+  {
+    $this->blockedMessages[] = $message;
+  }
+
+  public function notify(object $entity, \Ichiloto\Engine\Events\Interfaces\EventInterface $event): void
+  {
+    $this->movementNotifications++;
   }
 
   public function dispatchMovement(Vector2 $origin, Vector2 $destination): void
@@ -652,6 +674,63 @@ it('runs exit cleanup after a one-shot action trigger completes in place', funct
   $player->dispatchMovement(new Vector2(1, 0), new Vector2(2, 0));
 
   expect($player->availableAction)->toBeNull();
+});
+
+it('rejects unavailable field gates before movement advances any field state', function () {
+  [$scene] = makeEventRuntime();
+  $player = new EventTestPlayer(new Vector2(0, 0));
+  $scene->installPlayer($player);
+  $trigger = new \Ichiloto\Engine\Events\Triggers\DialogueEventTrigger(
+    new Rect(1, 0, 2, 1),
+    ['dialogue' => [['name' => '', 'text' => 'The route is open.']]],
+    conditions: [['type' => 'switch', 'name' => 'gate_open']],
+    whenBlocked: 'The route is locked.',
+  );
+  $trigger->bind($scene->gameState, $scene->party);
+  $player->addTrigger($trigger);
+
+  expect($player->tryFieldMove(Vector2::right(), $scene->camera))->toBeFalse()
+    ->and($player->position->x)->toBe(0.0)
+    ->and($player->position->y)->toBe(0.0)
+    ->and($player->blockedMessages)->toBe(['The route is locked.'])
+    ->and($player->movementNotifications)->toBe(0);
+
+  // Repeated input against the same boundary stays blocked without stacking
+  // alerts. Moving away starts a new approach and permits another explanation.
+  expect($player->tryFieldMove(Vector2::right(), $scene->camera))->toBeFalse()
+    ->and($player->blockedMessages)->toHaveCount(1)
+    ->and($player->tryFieldMove(Vector2::left(), $scene->camera))->toBeTrue()
+    ->and($player->tryFieldMove(Vector2::right(), $scene->camera))->toBeTrue()
+    ->and($player->tryFieldMove(Vector2::right(), $scene->camera))->toBeFalse()
+    ->and($player->blockedMessages)->toHaveCount(2)
+    ->and($player->movementNotifications)->toBe(2);
+
+  $scene->gameState->setSwitch('gate_open', true);
+
+  expect($player->tryFieldMove(Vector2::right(), $scene->camera))->toBeTrue()
+    ->and($player->position->x)->toBe(1.0)
+    ->and($player->position->y)->toBe(0.0)
+    ->and($player->movementNotifications)->toBe(3);
+});
+
+it('lets a loaded player already inside a newly locked event area move out', function () {
+  [$scene] = makeEventRuntime();
+  $player = new EventTestPlayer(new Vector2(2, 0));
+  $scene->installPlayer($player);
+  $trigger = new \Ichiloto\Engine\Events\Triggers\DialogueEventTrigger(
+    new Rect(1, 0, 2, 1),
+    ['dialogue' => [['name' => '', 'text' => 'The route is open.']]],
+    conditions: [['type' => 'switch', 'name' => 'gate_open']],
+    whenBlocked: 'The route is locked.',
+  );
+  $trigger->bind($scene->gameState, $scene->party);
+  $player->addTrigger($trigger);
+
+  expect($player->tryFieldMove(Vector2::left(), $scene->camera))->toBeTrue()
+    ->and($player->tryFieldMove(Vector2::left(), $scene->camera))->toBeTrue()
+    ->and($player->position->x)->toBe(0.0)
+    ->and($player->position->y)->toBe(0.0)
+    ->and($player->blockedMessages)->toBe([]);
 });
 
 it('starts an automatic script at the initial field position', function () {
