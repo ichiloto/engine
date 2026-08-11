@@ -190,6 +190,26 @@ class Window implements WindowInterface
   }
 
   /**
+   * Returns the width available to content after borders and padding.
+   *
+   * Content producers must use this value for wrapping and truncation. The
+   * window applies the same limit while rendering, so duplicating the
+   * calculation outside this class can otherwise lose edge characters.
+   *
+   * @return int The usable content width in terminal cells.
+   */
+  public function getContentWidth(): int
+  {
+    return max(
+      0,
+      $this->width
+        - 2
+        - $this->padding->getLeftPadding()
+        - $this->padding->getRightPadding()
+    );
+  }
+
+  /**
    * Returns the window's content.
    *
    * @return array The window's content.
@@ -360,12 +380,11 @@ class Window implements WindowInterface
   private function getLeftAlignedContent(): array
   {
     $leftAlignedContent = [];
-    $innerWidth = $this->width - 2;
 
     foreach ($this->content as $content) {
       $leftPaddingLength = $this->padding->getLeftPadding();
       $rightPaddingLength = $this->padding->getRightPadding();
-      $availableWidth = max(0, $innerWidth - $leftPaddingLength - $rightPaddingLength);
+      $availableWidth = $this->getContentWidth();
 
       $output = $this->borderPack->getVerticalBorder();
       $output .= str_repeat(' ', $leftPaddingLength);
@@ -387,12 +406,11 @@ class Window implements WindowInterface
   private function getCenterAlignedContent(): array
   {
     $centerAlignedContent = [];
-    $innerWidth = $this->width - 2;
 
     foreach ($this->content as $content) {
       $leftPaddingLength = $this->padding->getLeftPadding();
       $rightPaddingLength = $this->padding->getRightPadding();
-      $availableWidth = max(0, $innerWidth - $leftPaddingLength - $rightPaddingLength);
+      $availableWidth = $this->getContentWidth();
 
       $output = $this->borderPack->getVerticalBorder();
       $output .= str_repeat(' ', max($leftPaddingLength, 0));
@@ -414,12 +432,11 @@ class Window implements WindowInterface
   private function getRightAlignedContent(): array
   {
     $rightAlignedContent = [];
-    $innerWidth = $this->width - 2;
 
     foreach ($this->content as $content) {
       $leftPaddingLength = $this->padding->getLeftPadding();
       $rightPaddingLength = $this->padding->getRightPadding();
-      $availableWidth = max(0, $innerWidth - $leftPaddingLength - $rightPaddingLength);
+      $availableWidth = $this->getContentWidth();
 
       $output = $this->borderPack->getVerticalBorder();
       $output .= str_repeat(' ', max($leftPaddingLength, 0));

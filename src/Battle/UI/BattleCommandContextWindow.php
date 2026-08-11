@@ -270,19 +270,6 @@ class BattleCommandContextWindow extends Window implements CanFocus, CanChangeSe
   }
 
   /**
-   * Returns the width available for submenu content.
-   *
-   * @return int The visible content width.
-   */
-  protected function getContentWidth(): int
-  {
-    return max(
-      0,
-      $this->width - 2 - $this->padding->getLeftPadding() - $this->padding->getRightPadding()
-    );
-  }
-
-  /**
    * Keeps the active submenu item within the visible scroll window.
    *
    * @return void

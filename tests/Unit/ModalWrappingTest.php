@@ -1,9 +1,14 @@
 <?php
 
 use Ichiloto\Engine\Core\Rect;
+use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\UI\Modal\Modal;
 use Ichiloto\Engine\UI\Modal\SelectModal;
+use Ichiloto\Engine\UI\Modal\TextBoxModal;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
+use Ichiloto\Engine\UI\Windows\Window;
+use Ichiloto\Engine\UI\Windows\WindowPadding;
 use Symfony\Component\Console\Output\BufferedOutput;
 
 /**
@@ -82,6 +87,27 @@ class WrappingSelectModalProxy extends SelectModal
   }
 }
 
+class WrappingTextBoxModalProxy extends TextBoxModal
+{
+  public function __construct(string $message, int $width = DEFAULT_DIALOG_WIDTH)
+  {
+    $this->message = $message;
+    $this->rect = new Rect(0, 0, $width, 5);
+    $this->window = new Window('', '', new Vector2(), $width, 5);
+    $this->currentCharacterIndex = mb_strlen($message);
+  }
+
+  public function lines(): array
+  {
+    return $this->convertMessageToLinesOfContent($this->message);
+  }
+
+  public function contentWidth(): int
+  {
+    return $this->window->getContentWidth();
+  }
+}
+
 it('wraps a message too long for the box instead of cutting it off', function () {
   $modal = new WrappingModalProxy(LONG_MESSAGE);
   $modal->fit();
@@ -157,4 +183,29 @@ it('wraps a select modal prompt and grows it to fit', function () {
     ->and(implode(' ', $modal->lines()))->toBe(LONG_MESSAGE)
     // Message lines + the two options + spacing.
     ->and($modal->optionsHeight())->toBe(count($modal->lines()) + 4);
+});
+
+it('wraps typed dialogue to the window content width without clipping an edge character', function () {
+  $message = 'Standard language. Pass the practicum, pass the exam, join the BSA.';
+  $modal = new WrappingTextBoxModalProxy($message);
+  $lines = $modal->lines();
+
+  expect(implode(' ', $lines))->toBe($message)
+    ->and($lines)->toContain('the exam, join the BSA.')
+    ->and($modal->contentWidth())->toBe(DEFAULT_DIALOG_WIDTH - 4);
+
+  foreach ($lines as $line) {
+    expect(TerminalText::displayWidth($line))->toBeLessThanOrEqual($modal->contentWidth());
+  }
+});
+
+it('derives usable window width from borders and configured padding', function () {
+  $window = new Window(
+    position: new Vector2(),
+    width: 20,
+    height: 3,
+    padding: new WindowPadding(rightPadding: 2, leftPadding: 3),
+  );
+
+  expect($window->getContentWidth())->toBe(13);
 });

@@ -225,7 +225,7 @@ class TextBoxModal extends Modal
     // Split the message into lines. The cursor counts characters, so the
     // slice must too — byte slicing would cut a multibyte character in half
     // and stop short of the end on any message containing one.
-    $contentString = wordwrap($message, $this->rect->getWidth() - 3, "\n", true);
+    $contentString = wordwrap($message, max(1, $this->window->getContentWidth()), "\n", true);
     return explode("\n", mb_substr($contentString, 0, $this->currentCharacterIndex));
   }
 }

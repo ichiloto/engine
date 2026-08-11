@@ -406,11 +406,7 @@ class Notification implements NotificationInterface
    */
   private function buildWindowContent(): void
   {
-    $padding = $this->contentPadding ?? new WindowPadding(0, 1, 0, 1);
-    $availableWidth = max(
-      1,
-      self::WIDTH - 2 - $padding->getLeftPadding() - $padding->getRightPadding()
-    );
+    $availableWidth = max(1, $this->window->getContentWidth());
 
     // Every content entry must be exactly one window row: an embedded
     // newline would move the cursor to column 0 mid-render, spilling text
