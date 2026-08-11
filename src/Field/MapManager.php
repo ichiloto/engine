@@ -253,7 +253,7 @@ class MapManager implements CanRenderAt
       throw new NotFoundException("File $filename not found.");
     }
 
-    $dictionary = require $filename;
+    $dictionary = $this->requirePhpFile($filename);
 
     if (! is_array($dictionary)) {
       throw new NotFoundException("File $filename does not return an array.");
@@ -663,7 +663,7 @@ class MapManager implements CanRenderAt
       }
     }
 
-    $map = require $paths['data'];
+    $map = $this->requirePhpFile($paths['data']);
 
     if (! is_array($map)) {
       throw new NotFoundException("File {$paths['data']} does not return an array.");
@@ -671,14 +671,33 @@ class MapManager implements CanRenderAt
 
     $map['id'] ??= $paths['id'];
 
-    $this->tileMap = $this->parseMapLayer(require $paths['map'], $paths['map'], 'map');
+    $this->tileMap = $this->parseMapLayer($this->requirePhpFile($paths['map']), $paths['map'], 'map');
     $this->camera->worldSpace = $this->tileMap;
 
-    $eventLayer = $this->parseMapLayer(require $paths['event'], $paths['event'], 'event');
+    $eventLayer = $this->parseMapLayer($this->requirePhpFile($paths['event']), $paths['event'], 'event');
     $this->assertEventLayerMatchesTileMap($eventLayer, $paths['event']);
     $map['events'] = $this->resolveEventDefinitions($map['events'] ?? [], $eventLayer, $paths['event']);
 
     return $map;
+  }
+
+  /**
+   * Requires an authored PHP asset without exposing the caller's local scope.
+   *
+   * PHP includes inherit and may mutate variables from the scope that invokes
+   * them. Map assets are executable PHP and commonly use descriptive local
+   * names such as `$map`, `$events`, or `$paths`; loading each file inside a
+   * dedicated static closure prevents those implementation details from
+   * replacing the loader's own state.
+   *
+   * @param string $filename The PHP asset to load.
+   * @return mixed The value returned by the asset.
+   */
+  protected function requirePhpFile(string $filename): mixed
+  {
+    return (static function (string $isolatedFilename): mixed {
+      return require $isolatedFilename;
+    })($filename);
   }
 
   /**
