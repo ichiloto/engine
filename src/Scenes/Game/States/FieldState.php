@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Scenes\Game\States;
 use Exception;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
@@ -72,7 +73,20 @@ class FieldState extends GameSceneState
         $scene = $this->context->getScene();
         assert($scene instanceof GameScene);
 
+        // A story event owns field input while it is running. Its pending
+        // dialogue, timer, route, transfer, or battle continuation advances
+        // once, then the frame returns without reopening actions or moving
+        // the player underneath it.
+        if ($scene->hasUnstableEventSession()) {
+            $scene->updateEventSession(Time::getDeltaTime());
+            return;
+        }
+
         $this->handleActions($scene);
+
+        if ($scene->hasUnstableEventSession()) {
+            return;
+        }
 
         // An action may have handed the screen to another state (the menu, the
         // map). Moving the player or wandering an NPC now would draw the field
@@ -82,6 +96,11 @@ class FieldState extends GameSceneState
         }
 
         $this->handleNavigation($scene);
+
+        if ($scene->hasUnstableEventSession()) {
+            return;
+        }
+
         $scene->npcManager?->update();
     }
 
@@ -164,7 +183,7 @@ class FieldState extends GameSceneState
                 );
             } catch (\Throwable $exception) {
                 Debug::warn(sprintf('Quick save failed: %s', $exception->getMessage()));
-                alert('Could not quick save.');
+                alert($exception->getMessage(), 'Quick Save Unavailable');
             }
         }
 

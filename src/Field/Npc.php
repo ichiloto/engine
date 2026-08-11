@@ -2,9 +2,11 @@
 
 namespace Ichiloto\Engine\Field;
 
+use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Core\WorldStateWriter;
-use Ichiloto\Engine\Events\Interpreter\EventInterpreter;
+use Ichiloto\Engine\Events\Interpreter\EventExecutionSession;
+use Ichiloto\Engine\Events\Interpreter\EventSessionCompletionTargetInterface;
 use Ichiloto\Engine\Messaging\Dialogue\ConditionalDialogue;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Game\GameScene;
@@ -34,12 +36,18 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
  *
  * @package Ichiloto\Engine\Field
  */
-class Npc
+class Npc implements EventSessionCompletionTargetInterface
 {
   /**
    * @var float The next time this NPC may take a wander step.
    */
   public float $nextWanderTime = 0.0;
+
+  protected MovementHeading $heading = MovementHeading::SOUTH;
+
+  /** @var array<int, array<string, mixed>> Variant writes awaiting script completion. */
+  protected array $pendingConversationSets = [];
+  protected bool $conversationIsActive = false;
 
   /**
    * @param string $name The NPC's name (talk-to quests match it).
@@ -51,6 +59,8 @@ class Npc
    * @param array<int, array<string, mixed>> $script Event-script commands; replaces dialogue when non-empty.
    * @param array<int, array<string, mixed>> $conditions Visibility conditions (trigger shapes).
    * @param array<int, array<string, mixed>> $sets World-state writes applied after each conversation.
+   * @param string|null $id Stable map-local script identity.
+   * @param array<string, string> $directionalSprites Optional cardinal sprite glyphs.
    */
   public function __construct(
     protected(set) string $name,
@@ -62,8 +72,11 @@ class Npc
     protected(set) array $script = [],
     protected(set) array $conditions = [],
     protected(set) array $sets = [],
+    protected(set) ?string $id = null,
+    protected(set) array $directionalSprites = [],
   )
   {
+    $this->id = $id !== null && trim($id) !== '' ? trim($id) : null;
   }
 
   /**
@@ -75,8 +88,13 @@ class Npc
    */
   public function talk(GameScene $gameScene): void
   {
+    if ($this->conversationIsActive) {
+      return;
+    }
+
     if (! empty($this->script)) {
-      new EventInterpreter($gameScene)->run($this->script);
+      $this->beginScript($gameScene, $this->script, []);
+      return;
     } else {
       // Pick what to say from the state of the world, so a character can
       // acknowledge what the player has actually done.
@@ -91,7 +109,8 @@ class Npc
       }
 
       if (! empty($variant['script'])) {
-        new EventInterpreter($gameScene)->run($variant['script']);
+        $this->beginScript($gameScene, $variant['script'], $variant['sets']);
+        return;
       }
 
       // A variant's own writes land before the NPC's, so "first time you
@@ -101,6 +120,70 @@ class Npc
 
     $this->applySets($gameScene);
     QuestManager::current()?->recordTalkTo($this->name);
+  }
+
+  /**
+   * Faces a direction, using authored directional art when available.
+   *
+   * @param Vector2 $direction The cardinal direction vector.
+   * @return void
+   */
+  public function face(Vector2 $direction): void
+  {
+    $this->heading = match (true) {
+      $direction->y < 0 => MovementHeading::NORTH,
+      $direction->y > 0 => MovementHeading::SOUTH,
+      $direction->x < 0 => MovementHeading::WEST,
+      $direction->x > 0 => MovementHeading::EAST,
+      default => $this->heading,
+    };
+    $authored = $this->directionalSprites[$this->heading->name] ?? $this->directionalSprites[strtolower($this->heading->name)] ?? null;
+
+    if (is_string($authored) && $authored !== '') {
+      $this->sprite = $authored;
+    }
+  }
+
+  /**
+   * Starts the asynchronous script portion of an NPC conversation.
+   *
+   * @param array<int, array<string, mixed>> $script The commands to run.
+   * @param array<int, array<string, mixed>> $variantSets Writes belonging to the chosen dialogue variant.
+   */
+  protected function beginScript(GameScene $gameScene, array $script, array $variantSets): void
+  {
+    $identity = sprintf(
+      'npc:%s:%s',
+      $gameScene->currentMapId,
+      $this->id ?? $this->name,
+    );
+    $this->pendingConversationSets = $variantSets;
+    // State-only scripts may finish before startEventScript() returns. Set
+    // the guard first so the completion callback remains authoritative.
+    $this->conversationIsActive = true;
+    $session = $gameScene->startEventScript($script, $identity, $this);
+
+    if ($session === null) {
+      $this->conversationIsActive = false;
+      $this->pendingConversationSets = [];
+    }
+  }
+
+  /** @inheritDoc */
+  public function onEventSessionCompleted(GameScene $gameScene, EventExecutionSession $session): void
+  {
+    WorldStateWriter::applyAll($this->pendingConversationSets, $gameScene->gameState);
+    $this->applySets($gameScene);
+    QuestManager::current()?->recordTalkTo($this->name);
+    $this->pendingConversationSets = [];
+    $this->conversationIsActive = false;
+  }
+
+  /** @inheritDoc */
+  public function onEventSessionFailed(GameScene $gameScene, EventExecutionSession $session): void
+  {
+    $this->pendingConversationSets = [];
+    $this->conversationIsActive = false;
   }
 
   /**

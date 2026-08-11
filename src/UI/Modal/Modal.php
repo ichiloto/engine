@@ -255,6 +255,12 @@ abstract class Modal implements ModalInterface
     return $this->value;
   }
 
+  /** @inheritDoc */
+  public function isShowing(): bool
+  {
+    return $this->isShowing;
+  }
+
   /**
    * @inheritDoc
    */

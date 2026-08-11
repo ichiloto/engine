@@ -3,7 +3,10 @@
 namespace Ichiloto\Engine\Events\Triggers;
 
 use Ichiloto\Engine\Entities\Actions\RunScriptAction;
+use Ichiloto\Engine\Events\Interpreter\EventExecutionSession;
+use Ichiloto\Engine\Events\Interpreter\EventSessionCompletionTargetInterface;
 use Ichiloto\Engine\Events\Interfaces\EventTriggerContextInterface;
+use Ichiloto\Engine\Scenes\Game\GameScene;
 
 /**
  * Fires a data-driven event script (the cutscene engine's map hook).
@@ -27,7 +30,7 @@ use Ichiloto\Engine\Events\Interfaces\EventTriggerContextInterface;
  *
  * @package Ichiloto\Engine\Events\Triggers
  */
-class ScriptEventTrigger extends EventTrigger
+class ScriptEventTrigger extends EventTrigger implements EventSessionCompletionTargetInterface
 {
   /**
    * @var array<int, array<string, mixed>> The script commands.
@@ -37,6 +40,8 @@ class ScriptEventTrigger extends EventTrigger
    * @var bool True when the script runs the moment the player steps in.
    */
   protected(set) bool $runsAutomatically = false;
+  protected(set) ?string $scriptId = null;
+  protected(set) bool $sessionIsActive = false;
 
   /**
    * @inheritDoc
@@ -45,7 +50,49 @@ class ScriptEventTrigger extends EventTrigger
   {
     $this->isReusable = (bool) ($this->data->reusable ?? true);
     $this->runsAutomatically = strval($this->data->mode ?? 'action') === 'auto';
+    $scriptId = trim(strval($this->data->scriptId ?? ''));
+    $this->scriptId = $scriptId !== '' ? $scriptId : null;
     $this->script = $this->resolveScript();
+  }
+
+  /**
+   * Starts this trigger's script if it is not already running or complete.
+   */
+  public function startSession(GameScene $gameScene): ?EventExecutionSession
+  {
+    if ($this->sessionIsActive || $this->isComplete) {
+      return null;
+    }
+
+    $identity = $this->scriptId ?? (
+      $this->mapId !== null && $this->marker !== null
+        ? sprintf('%s:%s', $this->mapId, $this->marker)
+        : null
+    );
+    // Mark before starting: a state-only script may finish synchronously
+    // inside startEventScript(), and its completion callback must be allowed
+    // to leave this false rather than being overwritten afterward.
+    $this->sessionIsActive = true;
+    $session = $gameScene->startEventScript($this->script, $identity, $this);
+
+    if ($session === null) {
+      $this->sessionIsActive = false;
+    }
+
+    return $session;
+  }
+
+  /** @inheritDoc */
+  public function onEventSessionCompleted(GameScene $gameScene, EventExecutionSession $session): void
+  {
+    $this->sessionIsActive = false;
+    $this->complete();
+  }
+
+  /** @inheritDoc */
+  public function onEventSessionFailed(GameScene $gameScene, EventExecutionSession $session): void
+  {
+    $this->sessionIsActive = false;
   }
 
   /**

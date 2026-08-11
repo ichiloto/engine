@@ -71,4 +71,9 @@ interface ModalInterface extends CanUpdate, CanRender, SubjectInterface
    * @return mixed
    */
   public function close(): mixed;
+
+  /**
+   * Returns whether the modal is currently accepting input.
+   */
+  public function isShowing(): bool;
 }

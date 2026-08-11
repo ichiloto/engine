@@ -326,6 +326,12 @@ class SelectModal implements ModalInterface
     return $this->value;
   }
 
+  /** @inheritDoc */
+  public function isShowing(): bool
+  {
+    return $this->isShowing;
+  }
+
   /**
    * Returns the length of the title.
    *

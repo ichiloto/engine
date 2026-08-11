@@ -2,7 +2,8 @@
 
 namespace Ichiloto\Engine\Events\Interpreter;
 
-use Ichiloto\Engine\Core\Timers;
+use Ichiloto\Engine\Battle\BattleResult;
+use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Field\Location;
@@ -11,120 +12,294 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Stores\ItemStore;
+use RuntimeException;
 use Throwable;
 
 /**
- * Runs a data-driven event script: the generic cutscene engine.
+ * Runs data-driven story-event scripts through one resumable command stack.
  *
- * A script is a list of command entries executed in order. Commands use the
- * engine's blocking presentation primitives (dialogue boxes, selection
- * dialogs), so a script runs to completion within the frame that starts it —
- * the same model the dialogue system already uses.
- *
- * Supported commands:
- * - `['type' => 'text', 'name' => 'Elder', 'text' => '...']`
- * - `['type' => 'choice', 'prompt' => '...', 'options' => [['text' => 'Yes', 'then' => [...]], ...]]`
- * - `['type' => 'wait', 'seconds' => 1.0]`
- * - `['type' => 'set_switch', 'name' => 'x', 'value' => true]`
- * - `['type' => 'set_variable', 'name' => 'n', 'op' => 'set'|'add', 'value' => 1]`
- * - `['type' => 'record_event', 'name' => 'story_flag']`
- * - `['type' => 'give_item', 'item' => 'S-Potion', 'quantity' => 1]`
- * - `['type' => 'give_gold', 'amount' => 100]` (negative debits)
- * - `['type' => 'play_sound', 'sound' => '...']` / `['type' => 'play_music', 'music' => '...']`
- * - `['type' => 'accept_quest', 'id' => 'quest-id', 'confirm' => true]`
- * - `['type' => 'move_player', 'x' => 5, 'y' => 6]`
- * - `['type' => 'transfer', 'map' => 'happyville/town-center', 'x' => 10, 'y' => 8]`
- * - `['type' => 'start_battle', 'troop' => 'Bat x 2']` — switches scenes; make it the final command
- * - `['type' => 'branch', 'conditions' => [...], 'then' => [...], 'else' => [...]]` —
- *   trigger-style conditions (switch/event/variable/item/quest, negatable)
- *
- * @package Ichiloto\Engine\Events\Interpreter
+ * Immediate commands may share a frame. Dialogue, choices, waits, movement,
+ * transfers, and battles retain explicit pending state and hand control back
+ * to the game loop. Nested arms are frames, not recursive interpreter calls.
  */
 class EventInterpreter
 {
-  /**
-   * EventInterpreter constructor.
-   *
-   * @param GameScene $gameScene The running game scene.
-   */
-  public function __construct(protected GameScene $gameScene)
+  /** The single runtime/editor command vocabulary. */
+  public const array COMMAND_TYPES = [
+    'text',
+    'choice',
+    'wait',
+    'set_switch',
+    'set_variable',
+    'record_event',
+    'give_item',
+    'give_gold',
+    'play_sound',
+    'play_music',
+    'accept_quest',
+    'move_player',
+    'move_route',
+    'transfer',
+    'start_battle',
+    'branch',
+  ];
+
+  protected ?EventExecutionSession $activeSession = null;
+  protected(set) ?EventExecutionSession $lastSession = null;
+  protected ?MovementRouteRunner $pendingRoute = null;
+  protected ?array $frameToPush = null;
+
+  public function __construct(
+    protected GameScene $gameScene,
+    protected ?EventPresentationInterface $presentation = null,
+  )
   {
+    $this->presentation ??= new ModalEventPresentation($gameScene);
   }
 
   /**
-   * Runs a script.
+   * Starts a script and immediately drains its synchronous prefix.
+   *
+   * This keeps simple state-only scripts source compatible with the old
+   * `run()` entry point while yielded commands continue on later field ticks.
    *
    * @param array<int, array<string, mixed>> $commands The script commands.
-   * @return void
+   * @param string|null $scriptId Stable script identity when available.
+   * @return EventExecutionSession|null The session, or null when another is active.
    */
-  public function run(array $commands): void
+  public function run(
+    array $commands,
+    ?string $scriptId = null,
+    ?EventSessionCompletionTargetInterface $completionTarget = null,
+  ): ?EventExecutionSession
   {
-    foreach ($commands as $command) {
-      if (! is_array($command)) {
+    $session = $this->start($commands, $scriptId, $completionTarget);
+
+    if ($session !== null) {
+      $this->update(0.0);
+    }
+
+    return $session;
+  }
+
+  /**
+   * Creates one execution session without running it.
+   *
+   * @param array<int, array<string, mixed>> $commands The script commands.
+   */
+  public function start(
+    array $commands,
+    ?string $scriptId = null,
+    ?EventSessionCompletionTargetInterface $completionTarget = null,
+  ): ?EventExecutionSession
+  {
+    if ($this->activeSession !== null) {
+      Debug::warn(sprintf(
+        'Event script "%s" did not start because session %d is already active.',
+        $scriptId ?? 'inline script',
+        $this->activeSession->id,
+      ));
+      return null;
+    }
+
+    $commands = array_values(array_filter($commands, is_array(...)));
+    $this->activeSession = new EventExecutionSession($commands, $scriptId, $completionTarget);
+    $this->gameScene->onEventSessionStarted($this->activeSession);
+
+    return $this->activeSession;
+  }
+
+  /**
+   * Advances the active session by one field tick.
+   *
+   * @param float|null $deltaSeconds Elapsed time; engine delta when omitted.
+   */
+  public function update(?float $deltaSeconds = null): void
+  {
+    $session = $this->activeSession;
+
+    if ($session === null || in_array($session->status, [EventExecutionStatus::COMPLETED, EventExecutionStatus::FAILED], true)) {
+      return;
+    }
+
+    if ($session->status === EventExecutionStatus::SUSPENDED) {
+      return;
+    }
+
+    $deltaSeconds ??= Time::getDeltaTime();
+
+    if ($session->status === EventExecutionStatus::YIELDED) {
+      try {
+        if (! $this->updatePendingCommand($session, max(0.0, $deltaSeconds))) {
+          return;
+        }
+      } catch (Throwable $throwable) {
+        $this->fail($throwable->getMessage(), $throwable);
+        return;
+      }
+    }
+
+    // A malformed but finite script should never monopolize a frame. This is
+    // a diagnostic ceiling, not a sequencing mechanism.
+    for ($commandsThisTick = 0; $commandsThisTick < 1000; $commandsThisTick++) {
+      if ($session->hasFinishedFrames()) {
+        $this->finish();
+        return;
+      }
+
+      $command = $session->currentCommand();
+
+      if ($command === null) {
+        $session->advance();
         continue;
       }
 
       try {
-        $this->execute($command);
-      } catch (Throwable $exception) {
-        Debug::error(sprintf(
+        $result = $this->execute($session, $command);
+      } catch (Throwable $throwable) {
+        $this->fail(sprintf(
           'Event command %s failed: %s',
           strval($command['type'] ?? '?'),
-          $exception->getMessage()
-        ));
+          $throwable->getMessage(),
+        ), $throwable);
+        return;
       }
+
+      if ($result === EventCommandResult::COMPLETED) {
+        $session->advance();
+
+        if ($this->frameToPush !== null) {
+          $session->pushFrame($this->frameToPush['commands'], $this->frameToPush['label']);
+          $this->frameToPush = null;
+        }
+
+        continue;
+      }
+
+      return;
     }
+
+    $this->fail('Event script exceeded 1000 immediate commands in one tick.');
   }
 
   /**
-   * Executes one command.
+   * Resumes a transfer command after the existing map-transfer path finishes.
+   */
+  public function resumeAfterTransfer(): void
+  {
+    $session = $this->activeSession;
+
+    if (
+      $session === null
+      || $session->status !== EventExecutionStatus::SUSPENDED
+      || strval($session->pendingCommand['type'] ?? '') !== 'transfer'
+    ) {
+      return;
+    }
+
+    $session->completePendingCommand();
+  }
+
+  /**
+   * Resumes a scripted battle through the existing BattleResult object.
+   */
+  public function resumeAfterBattle(BattleResult $result): void
+  {
+    $session = $this->activeSession;
+
+    if (
+      $session === null
+      || $session->status !== EventExecutionStatus::SUSPENDED
+      || strval($session->pendingCommand['type'] ?? '') !== 'start_battle'
+    ) {
+      return;
+    }
+
+    $resultVariable = trim(strval($session->pendingState['resultVariable'] ?? ''));
+
+    if ($resultVariable !== '') {
+      $this->gameScene->gameState->setVariable($resultVariable, $result->outcome());
+    }
+
+    $session->completePendingCommand();
+  }
+
+  public function failActiveSession(string $message): void
+  {
+    if ($this->activeSession !== null) {
+      $this->fail($message);
+    }
+  }
+
+  public function hasActiveSession(): bool
+  {
+    return $this->activeSession !== null;
+  }
+
+  public function activeSession(): ?EventExecutionSession
+  {
+    return $this->activeSession;
+  }
+
+  /**
+   * Executes one command until it either completes or records pending state.
    *
    * @param array<string, mixed> $command The command entry.
-   * @return void
    */
-  protected function execute(array $command): void
+  protected function execute(EventExecutionSession $session, array $command): EventCommandResult
   {
     $gameState = $this->gameScene->gameState;
+    $type = strval($command['type'] ?? '');
 
-    switch (strval($command['type'] ?? '')) {
+    switch ($type) {
       case 'text':
-        show_text(
+        $this->presentation->beginText(
           strval($command['text'] ?? ''),
           strval($command['name'] ?? ''),
-          charactersPerSecond: dialogue_speed()
         );
-        break;
+        $session->yieldFor($command, ['kind' => 'dialogue']);
+        return EventCommandResult::YIELDED;
 
       case 'choice':
         $options = array_values(array_filter((array) ($command['options'] ?? []), is_array(...)));
 
-        if (empty($options)) {
-          break;
+        if ($options === []) {
+          return EventCommandResult::COMPLETED;
         }
 
         $labels = array_map(static fn(array $option): string => strval($option['text'] ?? '…'), $options);
-        $chosen = select(strval($command['prompt'] ?? 'Choose:'), $labels, strval($command['title'] ?? ''));
-        $this->run((array) ($options[$chosen]['then'] ?? []));
-        break;
+        $this->presentation->beginChoice(
+          strval($command['prompt'] ?? 'Choose:'),
+          $labels,
+          strval($command['title'] ?? ''),
+        );
+        $session->yieldFor($command, ['kind' => 'choice']);
+        return EventCommandResult::YIELDED;
 
       case 'wait':
-        Timers::wait(floatval($command['seconds'] ?? 0.5));
-        break;
+        $seconds = max(0.0, floatval($command['seconds'] ?? 0.5));
+
+        if ($seconds <= 0.0) {
+          return EventCommandResult::COMPLETED;
+        }
+
+        $session->yieldFor($command, ['kind' => 'wait', 'remainingSeconds' => $seconds]);
+        return EventCommandResult::YIELDED;
 
       case 'set_switch':
         $gameState->setSwitch(strval($command['name'] ?? ''), (bool) ($command['value'] ?? true));
-        break;
+        return EventCommandResult::COMPLETED;
 
       case 'set_variable':
         $name = strval($command['name'] ?? '');
         strval($command['op'] ?? 'set') === 'add'
           ? $gameState->addToVariable($name, is_numeric($command['value'] ?? 1) ? $command['value'] + 0 : 1)
           : $gameState->setVariable($name, $command['value'] ?? 0);
-        break;
+        return EventCommandResult::COMPLETED;
 
       case 'record_event':
         $gameState->recordStoryEvent(strval($command['name'] ?? ''));
-        break;
+        return EventCommandResult::COMPLETED;
 
       case 'give_item':
         $itemStore = ConfigStore::get(ItemStore::class);
@@ -135,26 +310,26 @@ class EventInterpreter
             $this->gameScene->party->addItems(...$itemStore->load([strval($command['item'] ?? '')]));
           }
         }
-        break;
+        return EventCommandResult::COMPLETED;
 
       case 'give_gold':
         $this->gameScene->party?->credit(intval($command['amount'] ?? 0));
-        break;
+        return EventCommandResult::COMPLETED;
 
       case 'play_sound':
         play_sound(strval($command['sound'] ?? ''));
-        break;
+        return EventCommandResult::COMPLETED;
 
       case 'play_music':
         play_music(strval($command['music'] ?? ''));
-        break;
+        return EventCommandResult::COMPLETED;
 
       case 'accept_quest':
         QuestManager::current()?->acceptQuest(
           strval($command['id'] ?? ''),
-          ($command['confirm'] ?? true) !== false
+          ($command['confirm'] ?? true) !== false,
         );
-        break;
+        return EventCommandResult::COMPLETED;
 
       case 'move_player':
         $player = $this->gameScene->player;
@@ -165,44 +340,203 @@ class EventInterpreter
           $player->position->y = intval($command['y']);
           $player->render();
         }
-        break;
+        return EventCommandResult::COMPLETED;
+
+      case 'move_route':
+        $this->pendingRoute = new MovementRouteRunner($this->gameScene, $command);
+        $session->yieldFor($command, ['kind' => 'movement_route']);
+        return EventCommandResult::YIELDED;
 
       case 'transfer':
+        $session->suspendFor($command, ['kind' => 'transfer']);
         $spawn = new Vector2(intval($command['x'] ?? 0), intval($command['y'] ?? 0));
         $sprite = (array) ($command['sprite'] ?? ($this->gameScene->player?->sprite ?? ['@']));
         $this->gameScene->transferPlayer(new Location(strval($command['map'] ?? ''), $spawn, $sprite));
-        break;
+        return EventCommandResult::SUSPENDED;
 
       case 'start_battle':
-        $troop = get_troop(strval($command['troop'] ?? ''));
+        $troopName = trim(strval($command['troop'] ?? ''));
 
-        if ($this->gameScene->party) {
-          $this->gameScene->sceneManager->loadBattleScene($this->gameScene->party, $troop);
+        if ($troopName === '') {
+          throw new RuntimeException('start_battle requires a troop.');
         }
-        break;
+
+        if (! $this->gameScene->party) {
+          throw new RuntimeException('start_battle requires a configured party.');
+        }
+
+        if ($this->gameScene->party->isDefeated()) {
+          throw new RuntimeException('start_battle cannot launch with a defeated party.');
+        }
+
+        $defeatPolicy = strval($command['defeatPolicy'] ?? 'game_over');
+
+        if (! in_array($defeatPolicy, ['game_over', 'continue'], true)) {
+          throw new RuntimeException(sprintf('Unsupported battle defeat policy "%s".', $defeatPolicy));
+        }
+
+        $session->suspendFor($command, [
+          'kind' => 'battle',
+          'resultVariable' => trim(strval($command['resultVariable'] ?? '')),
+          'defeatPolicy' => $defeatPolicy,
+        ]);
+        $this->gameScene->sceneManager->loadBattleScene(
+          $this->gameScene->party,
+          get_troop($troopName),
+          extraSettings: ['event_defeat_policy' => $defeatPolicy],
+        );
+        return EventCommandResult::SUSPENDED;
 
       case 'branch':
         $holds = $this->conditionsHold((array) ($command['conditions'] ?? []));
-        $this->run((array) ($command[$holds ? 'then' : 'else'] ?? []));
-        break;
+        $commands = array_values(array_filter((array) ($command[$holds ? 'then' : 'else'] ?? []), is_array(...)));
+        $this->frameToPush = [
+          'commands' => $commands,
+          'label' => sprintf('branch:%s', $holds ? 'then' : 'else'),
+        ];
+        return EventCommandResult::COMPLETED;
 
       default:
-        Debug::warn(sprintf('Unknown event command type: %s', strval($command['type'] ?? '')));
+        // Preserve the old interpreter's tolerant behavior for unknown
+        // commands while validation reports them as authoring errors.
+        Debug::warn(sprintf('Unknown event command type: %s', $type));
+        return EventCommandResult::COMPLETED;
     }
   }
 
   /**
-   * Evaluates a trigger-style condition list against the world state.
+   * Updates a command that yielded on a prior tick.
    *
-   * @param array<int, array<string, mixed>> $conditions The condition entries.
-   * @return bool True when every condition holds.
+   * @return bool True when the command completed and immediate execution may continue.
    */
+  protected function updatePendingCommand(EventExecutionSession $session, float $deltaSeconds): bool
+  {
+    $type = strval($session->pendingCommand['type'] ?? '');
+
+    if ($type === 'wait') {
+      $remaining = max(0.0, floatval($session->pendingState['remainingSeconds'] ?? 0.0) - $deltaSeconds);
+
+      if ($remaining > 0.0) {
+        $session->updatePendingState(['kind' => 'wait', 'remainingSeconds' => $remaining]);
+        return false;
+      }
+
+      $session->completePendingCommand();
+      return true;
+    }
+
+    if ($type === 'text') {
+      $this->presentation->update();
+      $this->presentation->render();
+
+      if (! $this->presentation->isComplete()) {
+        return false;
+      }
+
+      $this->presentation->reset();
+      $session->completePendingCommand();
+      return true;
+    }
+
+    if ($type === 'choice') {
+      $this->presentation->update();
+      $this->presentation->render();
+
+      if (! $this->presentation->isComplete()) {
+        return false;
+      }
+
+      $chosen = $this->presentation->choiceResult();
+      $this->presentation->reset();
+      $options = array_values(array_filter((array) ($session->pendingCommand['options'] ?? []), is_array(...)));
+
+      // Preserve the old SelectModal contract: cancelling a choice runs no
+      // arm and continues with the following command.
+      if ($chosen === -1) {
+        $session->completePendingCommand();
+        return true;
+      }
+
+      if (! is_int($chosen) || ! isset($options[$chosen])) {
+        throw new RuntimeException('Event choice was cancelled without selecting an option.');
+      }
+
+      $commands = array_values(array_filter((array) ($options[$chosen]['then'] ?? []), is_array(...)));
+      $session->completePendingCommand();
+      $session->pushFrame($commands, sprintf('choice:%d', $chosen));
+      return true;
+    }
+
+    if ($type === 'move_route') {
+      if (! $this->pendingRoute instanceof MovementRouteRunner) {
+        throw new RuntimeException('Movement-route continuation is missing.');
+      }
+
+      if (! $this->pendingRoute->update($deltaSeconds)) {
+        return false;
+      }
+
+      $this->pendingRoute = null;
+      $session->completePendingCommand();
+      return true;
+    }
+
+    throw new RuntimeException(sprintf('Unsupported pending event command "%s".', $type));
+  }
+
+  protected function finish(): void
+  {
+    $session = $this->activeSession;
+
+    if ($session === null) {
+      return;
+    }
+
+    try {
+      $session->completionTarget?->onEventSessionCompleted($this->gameScene, $session);
+    } catch (Throwable $throwable) {
+      $this->fail(sprintf('Event completion failed: %s', $throwable->getMessage()), $throwable);
+      return;
+    }
+
+    $session->complete();
+    $this->lastSession = $session;
+    $this->activeSession = null;
+    $this->gameScene->onEventSessionFinished($session, true);
+  }
+
+  protected function fail(string $message, ?Throwable $throwable = null): void
+  {
+    $session = $this->activeSession;
+
+    if ($session === null) {
+      return;
+    }
+
+    $this->presentation->reset();
+    $this->pendingRoute = null;
+    $this->frameToPush = null;
+    $session->fail($message);
+    Debug::error($message);
+
+    try {
+      $session->completionTarget?->onEventSessionFailed($this->gameScene, $session);
+    } catch (Throwable $completionFailure) {
+      Debug::error(sprintf('Event failure cleanup failed: %s', $completionFailure->getMessage()));
+    }
+
+    $this->lastSession = $session;
+    $this->activeSession = null;
+    $this->gameScene->onEventSessionFinished($session, false);
+  }
+
+  /** @param array<int, array<string, mixed>> $conditions The condition entries. */
   protected function conditionsHold(array $conditions): bool
   {
     return WorldConditionEvaluator::allHold(
       $conditions,
       $this->gameScene->gameState,
-      $this->gameScene->party
+      $this->gameScene->party,
     );
   }
 }

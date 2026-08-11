@@ -5,6 +5,10 @@ namespace Ichiloto\Engine\Scenes\Game;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Time;
+use Ichiloto\Engine\Battle\BattleResult;
+use Ichiloto\Engine\Events\Interpreter\EventExecutionSession;
+use Ichiloto\Engine\Events\Interpreter\EventInterpreter;
+use Ichiloto\Engine\Events\Interpreter\EventSessionCompletionTargetInterface;
 use Ichiloto\Engine\Rendering\ScreenTransition;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Party;
@@ -164,6 +168,14 @@ class GameScene extends AbstractScene
      */
     protected(set) ?NpcManager $npcManager = null;
     /**
+     * @var EventInterpreter|null The one active story-event runtime.
+     */
+    protected(set) ?EventInterpreter $eventInterpreter = null;
+    /**
+     * @var bool Whether a transfer requested an autosave during an event.
+     */
+    protected(set) bool $hasDeferredAutoSave = false;
+    /**
      * @var SkitManager|null The skit manager.
      */
     protected(set) ?SkitManager $skitManager = null;
@@ -258,6 +270,8 @@ class GameScene extends AbstractScene
         $this->questManager->hydrate($this->config->questLog);
         $this->encounterManager = new EncounterManager($this);
         $this->npcManager = new NpcManager($this);
+        $this->eventInterpreter = new EventInterpreter($this);
+        $this->hasDeferredAutoSave = false;
         $this->skitManager = new SkitManager($this);
         $this->achievementManager = new AchievementManager($this->getGame(), $this);
         $this->achievementManager->hydrate($this->config->achievements);
@@ -451,6 +465,11 @@ class GameScene extends AbstractScene
         $this->locationHUDWindow->render();
         Debug::info("Player transferred to $location->mapFilename... at {$this->player->position}");
 
+        // The originating interpreter stays in memory while MapManager and
+        // NpcManager load the destination. It advances past transfer only
+        // after that existing path has fully completed.
+        $this->eventInterpreter?->resumeAfterTransfer();
+
         $this->autoSave();
     }
 
@@ -469,10 +488,100 @@ class GameScene extends AbstractScene
             return;
         }
 
+        if ($this->hasUnstableEventSession()) {
+            $this->hasDeferredAutoSave = true;
+            return;
+        }
+
         try {
             $this->sceneManager->saveManager->autoSave($this);
         } catch (\Throwable $exception) {
             Debug::warn(sprintf('Autosave failed: %s', $exception->getMessage()));
+        }
+    }
+
+    /**
+     * Starts a script on the GameScene-owned interpreter.
+     *
+     * @param array<int, array<string, mixed>> $commands The commands.
+     * @param string|null $scriptId Stable script identity when available.
+     * @return EventExecutionSession|null The session, or null when one is active.
+     */
+    public function startEventScript(
+        array $commands,
+        ?string $scriptId = null,
+        ?EventSessionCompletionTargetInterface $completionTarget = null,
+    ): ?EventExecutionSession
+    {
+        return $this->eventInterpreter?->run($commands, $scriptId, $completionTarget);
+    }
+
+    /**
+     * Ticks the active story-event continuation.
+     */
+    public function updateEventSession(?float $deltaSeconds = null): void
+    {
+        $this->eventInterpreter?->update($deltaSeconds);
+    }
+
+    /**
+     * Returns whether saving would capture a half-completed story event.
+     */
+    public function hasUnstableEventSession(): bool
+    {
+        return $this->eventInterpreter?->hasActiveSession() ?? false;
+    }
+
+    /**
+     * Resumes a suspended scripted battle after the field has been restored.
+     */
+    public function resumeEventAfterBattle(BattleResult $result): void
+    {
+        $this->eventInterpreter?->resumeAfterBattle($result);
+    }
+
+    /**
+     * Cancels a scripted battle continuation when normal defeat goes to the
+     * game-over scene.
+     */
+    public function failEventAfterBattle(string $message): void
+    {
+        $this->eventInterpreter?->failActiveSession($message);
+    }
+
+    /**
+     * Lifecycle hook called when a new session begins.
+     */
+    public function onEventSessionStarted(EventExecutionSession $session): void
+    {
+        Debug::info(sprintf(
+            'Event session %d started (%s).',
+            $session->id,
+            $session->scriptId ?? 'inline script',
+        ));
+    }
+
+    /**
+     * Lifecycle hook called after completion or controlled failure.
+     */
+    public function onEventSessionFinished(EventExecutionSession $session, bool $completed): void
+    {
+        Debug::info(sprintf(
+            'Event session %d %s.',
+            $session->id,
+            $completed ? 'completed' : 'failed',
+        ));
+
+        if (! $completed) {
+            // Never turn a failed, potentially partial script into an
+            // automatic checkpoint.
+            $this->hasDeferredAutoSave = false;
+            return;
+        }
+
+        if ($this->hasDeferredAutoSave) {
+            $this->hasDeferredAutoSave = false;
+            $this->autoSave();
         }
     }
 

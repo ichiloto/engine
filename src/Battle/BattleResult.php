@@ -27,4 +27,23 @@ class BattleResult
   )
   {
   }
+
+  /**
+   * Returns the stable script-facing outcome represented by this result.
+   *
+   * Existing battle states already use result titles such as Victory and
+   * Defeat. Event scripts consume a normalized value without introducing a
+   * second battle-result model.
+   */
+  public function outcome(): string
+  {
+    $title = strtolower(trim($this->title));
+
+    return match (true) {
+      str_starts_with($title, 'victory') => 'victory',
+      str_starts_with($title, 'defeat') => 'defeat',
+      str_starts_with($title, 'escape'), str_starts_with($title, 'retreat') => 'escape',
+      default => $title !== '' ? preg_replace('/[^a-z0-9]+/', '_', $title) ?: 'unknown' : 'unknown',
+    };
+  }
 }

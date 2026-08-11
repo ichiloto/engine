@@ -153,6 +153,24 @@ class Player extends GameObject
    */
   public function move(Vector2 $direction, Camera $camera): void
   {
+    $this->tryMove($direction, $camera);
+  }
+
+  /**
+   * Attempts a real field movement and reports whether it succeeded.
+   *
+   * Player input keeps using {@see move()}; story routes use this result so
+   * a collision becomes a controlled script failure instead of an endless
+   * wait or a silently skipped step.
+   *
+   * @param Vector2 $direction The cardinal movement vector.
+   * @param Camera $camera The field camera.
+   * @return bool True when the player moved.
+   * @throws NotFoundException If the scene is not set.
+   * @throws OutOfBounds If the destination is out of bounds.
+   */
+  public function tryMove(Vector2 $direction, Camera $camera): bool
+  {
     // Clone: $this->position is mutated by the move below, so holding a
     // reference would make the movement event report an origin equal to its
     // destination.
@@ -164,7 +182,7 @@ class Player extends GameObject
 
     if (! $this->getGameScene()->mapManager->canMoveTo(intval($destination->x), intval($destination->y), $collisionType) ) {
       $this->render();
-      return;
+      return false;
     }
 
     $event = new MovementEvent(MovementEventType::PLAYER_MOVE, $origin, $destination);
@@ -180,6 +198,24 @@ class Player extends GameObject
       alert("Access the Menu to save your progress.", 'Save Point');
     }
     $this->notify($this->getGameScene(), $event);
+
+    return true;
+  }
+
+  /**
+   * Faces a cardinal direction without changing tiles.
+   *
+   * @param Vector2 $direction The direction to face.
+   * @param Camera $camera The field camera.
+   * @return void
+   */
+  public function face(Vector2 $direction, Camera $camera): void
+  {
+    $previousSprite = $this->sprite;
+    $this->updatePlayerSprite($direction);
+    $this->erasePlayer($camera, $previousSprite);
+    $this->render();
+    $this->renderLocationHUDWindow();
   }
 
   /**

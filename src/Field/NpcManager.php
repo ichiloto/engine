@@ -8,6 +8,7 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use RuntimeException;
 
 /**
  * Manages the current map's field NPCs: visibility, wandering, rendering,
@@ -66,16 +67,28 @@ class NpcManager
         ];
       }
 
+      $id = trim(strval($entry['id'] ?? ''));
+
+      if ($id !== '' && $this->findById($id) !== null) {
+        throw new RuntimeException(sprintf(
+          'Duplicate NPC id "%s" on map "%s".',
+          $id,
+          $this->gameScene->currentMapId,
+        ));
+      }
+
       $this->npcs[] = new Npc(
-        $name,
-        strval($entry['sprite'] ?? '@'),
-        new Vector2(intval($entry['x']), intval($entry['y'])),
-        strval($entry['movement'] ?? 'fixed') === 'wander',
-        $wanderArea,
-        array_values(array_filter((array) ($entry['dialogue'] ?? []), is_array(...))),
-        array_values(array_filter((array) ($entry['script'] ?? []), is_array(...))),
-        array_values(array_filter((array) ($entry['conditions'] ?? []), is_array(...))),
-        array_values(array_filter((array) ($entry['sets'] ?? []), is_array(...))),
+        name: $name,
+        sprite: strval($entry['sprite'] ?? '@'),
+        position: new Vector2(intval($entry['x']), intval($entry['y'])),
+        wanders: strval($entry['movement'] ?? 'fixed') === 'wander',
+        wanderArea: $wanderArea,
+        dialogue: array_values(array_filter((array) ($entry['dialogue'] ?? []), is_array(...))),
+        script: array_values(array_filter((array) ($entry['script'] ?? []), is_array(...))),
+        conditions: array_values(array_filter((array) ($entry['conditions'] ?? []), is_array(...))),
+        sets: array_values(array_filter((array) ($entry['sets'] ?? []), is_array(...))),
+        id: $id !== '' ? $id : null,
+        directionalSprites: is_array($entry['sprites'] ?? null) ? $entry['sprites'] : [],
       );
     }
   }
@@ -139,6 +152,85 @@ class NpcManager
   }
 
   /**
+   * Finds a current-map NPC by its stable authored id.
+   */
+  public function findById(string $id): ?Npc
+  {
+    $id = trim($id);
+
+    if ($id === '') {
+      return null;
+    }
+
+    foreach ($this->npcs as $npc) {
+      if ($npc->id === $id) {
+        return $npc;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Moves a stable-id NPC one cardinal tile using current passability.
+   */
+  public function moveNpcById(string $id, Vector2 $direction): bool
+  {
+    $npc = $this->findById($id);
+
+    if ($npc === null) {
+      throw new RuntimeException(sprintf(
+        'NPC id "%s" was not found on map "%s".',
+        $id,
+        $this->gameScene->currentMapId,
+      ));
+    }
+
+    $destinationX = intval($npc->position->x + $direction->x);
+    $destinationY = intval($npc->position->y + $direction->y);
+    $player = $this->gameScene->player;
+
+    if (
+      ! $this->gameScene->mapManager->canMoveTo($destinationX, $destinationY)
+      || ($player !== null
+        && intval($player->position->x) === $destinationX
+        && intval($player->position->y) === $destinationY)
+    ) {
+      return false;
+    }
+
+    $this->eraseNpc($npc);
+    $npc->face($direction);
+    $npc->position->x = $destinationX;
+    $npc->position->y = $destinationY;
+    $this->gameScene->camera->renderOnScreen([$npc->sprite], $npc->position);
+
+    return true;
+  }
+
+  /**
+   * Faces a stable-id NPC without moving it.
+   */
+  public function faceNpc(string $id, Vector2 $direction): bool
+  {
+    $npc = $this->findById($id);
+
+    if ($npc === null) {
+      throw new RuntimeException(sprintf(
+        'NPC id "%s" was not found on map "%s".',
+        $id,
+        $this->gameScene->currentMapId,
+      ));
+    }
+
+    $this->eraseNpc($npc);
+    $npc->face($direction);
+    $this->gameScene->camera->renderOnScreen([$npc->sprite], $npc->position);
+
+    return true;
+  }
+
+  /**
    * Returns the NPCs whose visibility conditions currently hold.
    *
    * @return Npc[] The visible NPCs.
@@ -177,6 +269,7 @@ class NpcManager
     }
 
     $this->eraseNpc($npc);
+    $npc->face(new Vector2($dx, $dy));
     $npc->position->x = $destinationX;
     $npc->position->y = $destinationY;
     $this->gameScene->camera->renderOnScreen([$npc->sprite], $npc->position);
