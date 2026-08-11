@@ -50,6 +50,17 @@ it('overwrites at an offset without disturbing the rest of the row', function ()
   expect($buffer[0])->toBe('| hXllo  |          ');
 });
 
+it('formats documented Symfony named and hexadecimal colors before buffering sprites', function () {
+  $buffer = bufferAfter(function (): void {
+    Console::write('<fg=bright-magenta>@</>', 0, 0);
+    Console::write('<fg=#c0392b>!</>', 2, 0);
+  });
+
+  expect($buffer[0])->not->toContain('<fg=')
+    ->and($buffer[0])->toContain("\033[")
+    ->and(TerminalText::stripAnsi($buffer[0]))->toBe('@ !                 ');
+});
+
 it('keeps column accounting correct when a wide glyph lands in an ascii row', function () {
   // The ASCII fast path must decline here: a two-column glyph occupies one
   // string position, so byte offsets and column offsets stop agreeing.

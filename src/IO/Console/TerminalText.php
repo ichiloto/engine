@@ -52,7 +52,7 @@ final class TerminalText
    */
   public static function stripAnsi(string $text): string
   {
-    $text = self::normalizeStyles($text);
+    $text = self::formatStyles($text);
     return preg_replace(self::ANSI_PATTERN, '', $text) ?? $text;
   }
 
@@ -113,7 +113,7 @@ final class TerminalText
       return [];
     }
 
-    $text = self::normalizeStyles($text);
+    $text = self::formatStyles($text);
 
     // Plain ASCII is by far the common case (map rows, borders, menu text).
     // Splitting it bytewise skips the grapheme regex entirely, which is the
@@ -444,9 +444,9 @@ final class TerminalText
    * @param string $text The text to normalize.
    * @return string The normalized text.
    */
-  private static function normalizeStyles(string $text): string
+  public static function formatStyles(string $text): string
   {
-    if ($text === '' || preg_match(self::FORMATTER_TAG_PATTERN, $text) !== 1) {
+    if ($text === '' || ! str_contains($text, '<') || preg_match(self::FORMATTER_TAG_PATTERN, $text) !== 1) {
       return $text;
     }
 

@@ -369,7 +369,12 @@ class Console
       // borders, and menu text are almost always this shape, and the slow
       // path below costs two grapheme splits per row.
       $existingRow = self::$buffer[$currentBufferRow];
-      $incoming = (string) $text;
+      // Symfony formatter tags are author-facing markup, not terminal text.
+      // Convert them before choosing the ASCII fast path; otherwise a styled
+      // one-cell sprite such as `<fg=#c0392b>@</>` is copied into the buffer
+      // literally because the markup itself contains only ASCII bytes.
+      $incoming = TerminalText::formatStyles((string) $text);
+      $text = $incoming;
 
       if (
         ! preg_match('/[^\x20-\x7E]/', $incoming)
