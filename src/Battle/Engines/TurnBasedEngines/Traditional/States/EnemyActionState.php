@@ -2,15 +2,9 @@
 
 namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States;
 
-use Ichiloto\Engine\Battle\Actions\AttackAction;
-use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Battle\EnemyActionEvaluator;
 use Ichiloto\Engine\Entities\Character;
-use Ichiloto\Engine\Entities\Enemies\Enemy;
-use Ichiloto\Engine\Entities\Enumerations\ItemScopeNumber;
-use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
-use Ichiloto\Engine\Entities\Skills\Skill;
 
 class EnemyActionState extends TurnState
 {
@@ -66,57 +60,12 @@ class EnemyActionState extends TurnState
     int $maxPartyLevel
   ): array
   {
-    $patterns = $enemy instanceof Enemy ? $enemy->actionPatterns : [];
-
-    if (! empty($patterns)) {
-      $usable = EnemyActionEvaluator::filterUsablePatterns(
-        $patterns,
-        $enemy,
-        $context->roundNumber,
-        $maxPartyLevel
-      );
-      $pattern = EnemyActionEvaluator::pickPattern($usable);
-
-      if ($pattern !== null && $pattern->skill instanceof Skill) {
-        return [
-          new SkillBattleAction($pattern->skill),
-          $this->resolveEnemyTargets($context, $enemy, $pattern->skill, $partyTargets),
-        ];
-      }
-    }
-
-    return [new AttackAction('Attack'), [$partyTargets[array_rand($partyTargets)]]];
-  }
-
-  /**
-   * Resolves a chosen skill's targets from the enemy's perspective:
-   * the "enemy" side is the player party, allies are the troop.
-   *
-   * @param TurnStateExecutionContext $context The turn context.
-   * @param CharacterInterface $enemy The acting enemy.
-   * @param Skill $skill The chosen skill.
-   * @param CharacterInterface[] $partyTargets The living party battlers.
-   * @return CharacterInterface[] The resolved targets.
-   */
-  protected function resolveEnemyTargets(
-    TurnStateExecutionContext $context,
-    CharacterInterface $enemy,
-    Skill $skill,
-    array $partyTargets
-  ): array
-  {
-    $pool = match ($skill->scope->side) {
-      ItemScopeSide::USER => [$enemy],
-      ItemScopeSide::ALLY => $context->getLivingTroopBattlers(),
-      default => $partyTargets,
-    };
-
-    if (empty($pool)) {
-      return [$enemy];
-    }
-
-    return $skill->scope->number === ItemScopeNumber::ALL
-      ? $pool
-      : [$pool[array_rand($pool)]];
+    return EnemyActionEvaluator::chooseAction(
+      $enemy,
+      $partyTargets,
+      $context->getLivingTroopBattlers(),
+      $context->roundNumber,
+      $maxPartyLevel,
+    );
   }
 }

@@ -3,8 +3,10 @@
 namespace Ichiloto\Engine\Battle\Engines\ActiveTime\States;
 
 use Assegai\Collections\Stack;
-use Ichiloto\Engine\Battle\Actions\AttackAction;
+use Ichiloto\Engine\Battle\Actions\GuardAction;
+use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\Battle\BattleCommandOption;
+use Ichiloto\Engine\Battle\EnemyActionEvaluator;
 use Ichiloto\Engine\Battle\Engines\ActiveTime\ActiveTimeBattleEngine;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\PlayerActionState;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnStateExecutionContext;
@@ -119,6 +121,38 @@ class ActiveTimeFlowState extends PlayerActionState
   }
 
   /**
+   * Queues Guard as an immediate ATB action for the ready character.
+   *
+   * Traditional battles store Guard in the current round's prebuilt turn.
+   * ATB has no such turn until an action is confirmed, so it must create the
+   * immediate turn here just like every submenu action.
+   *
+   * @param TurnStateExecutionContext $context The turn context.
+   * @return void
+   */
+  protected function queueGuardForActiveCharacter(TurnStateExecutionContext $context): void
+  {
+    if (! $this->activeCharacter) {
+      return;
+    }
+
+    $actor = $this->activeCharacter;
+    $this->selectionMode = self::MODE_COMMAND;
+    $this->activeTargetIndex = -1;
+    $this->activeCharacterIndex = -1;
+    $context->ui->commandWindow->blur();
+    $context->ui->commandContextWindow->clear();
+    $context->ui->characterNameWindow->setActiveSelection(-1);
+    $context->ui->fieldWindow->clearTargetIndicators();
+    $this->getAtbEngine()->queueImmediateTurn(
+      $context,
+      $actor,
+      new GuardAction(BattleCommandType::GUARD->label()),
+      [$actor],
+    );
+  }
+
+  /**
    * Cancelling a ready battler keeps them selected in wait mode.
    *
    * @param TurnStateExecutionContext $context The turn context.
@@ -165,7 +199,7 @@ class ActiveTimeFlowState extends PlayerActionState
   }
 
   /**
-   * Queues a basic attack for the ready enemy battler.
+   * Queues the authored action selected for the ready enemy battler.
    *
    * @param TurnStateExecutionContext $context The turn context.
    * @param Enemy $enemy The ready enemy.
@@ -180,12 +214,27 @@ class ActiveTimeFlowState extends PlayerActionState
       return;
     }
 
-    $target = $targets[array_rand($targets)];
+    $maxPartyLevel = 1;
+
+    foreach ($targets as $battler) {
+      if ($battler instanceof Character) {
+        $maxPartyLevel = max($maxPartyLevel, $battler->level);
+      }
+    }
+
+    [$action, $resolvedTargets] = EnemyActionEvaluator::chooseAction(
+      $enemy,
+      $targets,
+      $context->getLivingTroopBattlers(),
+      max(1, $context->roundNumber),
+      $maxPartyLevel,
+    );
+
     $this->getAtbEngine()->queueImmediateTurn(
       $context,
       $enemy,
-      new AttackAction('Attack'),
-      [$target],
+      $action,
+      $resolvedTargets,
     );
   }
 

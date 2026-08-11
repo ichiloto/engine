@@ -2,9 +2,15 @@
 
 namespace Ichiloto\Engine\Battle;
 
+use Ichiloto\Engine\Battle\Actions\AttackAction;
+use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
+use Ichiloto\Engine\Entities\Enemies\Enemy;
 use Ichiloto\Engine\Entities\Enemies\ActionCondition;
 use Ichiloto\Engine\Entities\Enemies\ActionPattern;
 use Ichiloto\Engine\Entities\Enumerations\ActionConditionType;
+use Ichiloto\Engine\Entities\Enumerations\ItemScopeNumber;
+use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
+use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Skills\Skill;
 
 /**
@@ -19,6 +25,44 @@ use Ichiloto\Engine\Entities\Skills\Skill;
  */
 class EnemyActionEvaluator
 {
+  /**
+   * Chooses an enemy action and resolves its targets from authored patterns.
+   *
+   * The enemy's "enemy" scope points at the player party, while ally scope
+   * points at its own troop. A basic attack is used when no pattern is usable.
+   *
+   * @param CharacterInterface $enemy The acting enemy.
+   * @param CharacterInterface[] $partyTargets The living player battlers.
+   * @param CharacterInterface[] $troopTargets The living enemy battlers.
+   * @param int $roundNumber The current battle round.
+   * @param int $maxPartyLevel The highest level in the player party.
+   * @return array{0: BattleAction, 1: CharacterInterface[]} The chosen action and targets.
+   */
+  public static function chooseAction(
+    CharacterInterface $enemy,
+    array $partyTargets,
+    array $troopTargets,
+    int $roundNumber,
+    int $maxPartyLevel
+  ): array
+  {
+    $patterns = $enemy instanceof Enemy ? $enemy->actionPatterns : [];
+
+    if (! empty($patterns)) {
+      $usable = self::filterUsablePatterns($patterns, $enemy, $roundNumber, $maxPartyLevel);
+      $pattern = self::pickPattern($usable);
+
+      if ($pattern !== null && $pattern->skill instanceof Skill) {
+        return [
+          new SkillBattleAction($pattern->skill),
+          self::resolveTargets($enemy, $pattern->skill, $partyTargets, $troopTargets),
+        ];
+      }
+    }
+
+    return [new AttackAction('Attack'), [$partyTargets[array_rand($partyTargets)]]];
+  }
+
   /**
    * Returns the patterns the enemy could use right now.
    *
@@ -151,5 +195,36 @@ class EnemyActionEvaluator
     $percent = ($current / $total) * 100;
 
     return $percent >= $condition->range->min && $percent <= $condition->range->max;
+  }
+
+  /**
+   * Resolves a selected skill's targets from the enemy's perspective.
+   *
+   * @param CharacterInterface $enemy The acting enemy.
+   * @param Skill $skill The selected skill.
+   * @param CharacterInterface[] $partyTargets The living player battlers.
+   * @param CharacterInterface[] $troopTargets The living enemy battlers.
+   * @return CharacterInterface[] The selected targets.
+   */
+  protected static function resolveTargets(
+    CharacterInterface $enemy,
+    Skill $skill,
+    array $partyTargets,
+    array $troopTargets
+  ): array
+  {
+    $pool = match ($skill->scope->side) {
+      ItemScopeSide::USER => [$enemy],
+      ItemScopeSide::ALLY => $troopTargets,
+      default => $partyTargets,
+    };
+
+    if (empty($pool)) {
+      return [$enemy];
+    }
+
+    return $skill->scope->number === ItemScopeNumber::ALL
+      ? $pool
+      : [$pool[array_rand($pool)]];
   }
 }

@@ -1,6 +1,11 @@
 <?php
 
 use Ichiloto\Engine\Battle\Engines\ActiveTime\ActiveTimeBattleEngine;
+use Ichiloto\Engine\Battle\Engines\ActiveTime\ActiveTimeBattleConfig;
+use Ichiloto\Engine\Battle\Engines\ActiveTime\States\ActiveTimeFlowState;
+use Ichiloto\Engine\Battle\Actions\GuardAction;
+use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
+use Ichiloto\Engine\Battle\BattleAction;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\PlayerActionState;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnStateExecutionContext;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\TraditionalTurnBasedBattleEngine;
@@ -15,7 +20,15 @@ use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
+use Ichiloto\Engine\Entities\Enemies\ActionCondition;
+use Ichiloto\Engine\Entities\Enemies\ActionPattern;
+use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
+use Ichiloto\Engine\Entities\Enumerations\Occasion;
+use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
+use Ichiloto\Engine\Entities\ItemScope;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Entities\Skills\BasicSkill;
+use Ichiloto\Engine\Entities\Skills\SkillInvocation;
 use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Entities\Troop;
 
@@ -290,4 +303,94 @@ it('returns control to the active-time flow when there is no enemy phase to hand
   $state->selectNextCharacterForTest($context);
 
   expect(true)->toBeTrue();
+});
+
+class ActiveTimeBattleEngineCaptureProxy extends ActiveTimeBattleEngine
+{
+  public ?CharacterInterface $capturedBattler = null;
+  public ?BattleAction $capturedAction = null;
+  /** @var CharacterInterface[] */
+  public array $capturedTargets = [];
+
+  public function queueImmediateTurn(
+    TurnStateExecutionContext $context,
+    CharacterInterface $battler,
+    BattleAction $action,
+    array $targets,
+  ): void
+  {
+    $this->capturedBattler = $battler;
+    $this->capturedAction = $action;
+    $this->capturedTargets = $targets;
+  }
+}
+
+class ActiveTimeFlowStateTestProxy extends ActiveTimeFlowState
+{
+  public function setActiveCharacterIndexForTest(int $index): void
+  {
+    $this->activeCharacterIndex = $index;
+  }
+
+  public function queueGuardForActiveCharacterForTest(TurnStateExecutionContext $context): void
+  {
+    $this->queueGuardForActiveCharacter($context);
+  }
+
+  public function executeEnemyTurnForTest(TurnStateExecutionContext $context, Enemy $enemy): void
+  {
+    $this->executeEnemyTurn($context, $enemy);
+  }
+}
+
+it('queues Guard immediately for a ready active-time battler', function () {
+  $game = (new ReflectionClass(GameTargetingTestProxy::class))->newInstanceWithoutConstructor();
+  $party = new Party();
+  $kaelion = new Character('Kaelion', 0, new Stats(currentHp: 120, attack: 14, defence: 8, speed: 8));
+  $party->addMember($kaelion);
+  $troop = new Troop('Lake', [createTargetingTestEnemy('Lochness Monster')]);
+  $screen = createTargetingTestScreen();
+  $engine = new ActiveTimeBattleEngineCaptureProxy($game);
+  $engine->configure(new ActiveTimeBattleConfig($party, $troop, $screen));
+  $context = new TurnStateExecutionContext($game, $party, $troop, $screen, []);
+  $state = new ActiveTimeFlowStateTestProxy($engine);
+  $state->setActiveCharacterIndexForTest(0);
+
+  $state->queueGuardForActiveCharacterForTest($context);
+
+  expect($engine->capturedBattler)->toBe($kaelion)
+    ->and($engine->capturedAction)->toBeInstanceOf(GuardAction::class)
+    ->and($engine->capturedTargets)->toBe([$kaelion]);
+});
+
+it('queues an authored enemy action in active-time battles', function () {
+  $game = (new ReflectionClass(GameTargetingTestProxy::class))->newInstanceWithoutConstructor();
+  $party = new Party();
+  $party->addMember(new Character('Kaelion', 0, new Stats(currentHp: 120, attack: 14, defence: 8, speed: 8)));
+  $enemy = createTargetingTestEnemy('Great Wolf');
+  $howl = new BasicSkill(
+    'Savage Howl',
+    '',
+    '',
+    0,
+    0,
+    new ItemScope(ItemScopeSide::USER),
+    Occasion::BATTLE_SCREEN,
+    new SkillInvocation(),
+  );
+  setTestProperty($enemy, 'actionPatterns', [new ActionPattern($howl, 6, new ActionCondition())]);
+  $troop = new Troop('Wolves', [$enemy]);
+  $screen = createTargetingTestScreen();
+  $engine = new ActiveTimeBattleEngineCaptureProxy($game);
+  $engine->configure(new ActiveTimeBattleConfig($party, $troop, $screen));
+  $context = new TurnStateExecutionContext($game, $party, $troop, $screen, []);
+  $context->roundNumber = 1;
+  $state = new ActiveTimeFlowStateTestProxy($engine);
+
+  $state->executeEnemyTurnForTest($context, $enemy);
+
+  expect($engine->capturedBattler)->toBe($enemy)
+    ->and($engine->capturedAction)->toBeInstanceOf(SkillBattleAction::class)
+    ->and($engine->capturedAction?->name)->toBe('Savage Howl')
+    ->and($engine->capturedTargets)->toBe([$enemy]);
 });
