@@ -14,6 +14,7 @@ use Ichiloto\Engine\Events\Enumerations\MovementEventType;
 use Ichiloto\Engine\Events\MovementEvent;
 use Ichiloto\Engine\Events\Triggers\EventTrigger;
 use Ichiloto\Engine\Events\Triggers\EventTriggerContext;
+use Ichiloto\Engine\Events\Triggers\ScriptEventTrigger;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\IO\Console\TerminalText;
@@ -308,6 +309,50 @@ class Player extends GameObject
           $this->eventManager->activeEvents->remove($event);
         }
       }
+    }
+  }
+
+  /**
+   * Starts the first available automatic script under the current position.
+   *
+   * Initial field entry does not produce a movement event, but an automatic
+   * map script must still run when a new game or loaded save spawns inside its area.
+   * Action and transfer triggers remain movement-driven.
+   *
+   * @return void
+   */
+  public function evaluateAutomaticTriggersAtCurrentPosition(): void
+  {
+    $position = clone $this->position;
+    $movementEvent = new MovementEvent(MovementEventType::PLAYER_MOVE, $position, clone $position);
+    $context = new EventTriggerContext(
+      $movementEvent,
+      $this->position,
+      $this,
+      $this->getGameScene(),
+      $this->getGameScene()->mapManager,
+    );
+
+    foreach ($this->events as $event) {
+      if (
+        ! $event instanceof ScriptEventTrigger
+        || ! $event->runsAutomatically
+        || $event->isComplete
+        || ! $event->isAvailable()
+        || ! $event->area->contains($this->position)
+        || $this->eventManager->activeEvents->contains($event)
+      ) {
+        continue;
+      }
+
+      $this->eventManager->activeEvents->add($event);
+      $event->enter($context);
+
+      if ($event->isComplete) {
+        $this->eventManager->activeEvents->remove($event);
+      }
+
+      break;
     }
   }
 

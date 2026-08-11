@@ -14,10 +14,9 @@ use Ichiloto\Engine\Events\Interpreter\EventExecutionStatus;
 use Ichiloto\Engine\Events\Interpreter\EventPresentationInterface;
 use Ichiloto\Engine\Events\Interpreter\EventSessionCompletionTargetInterface;
 use Ichiloto\Engine\Events\Interpreter\EventInterpreter;
-use Ichiloto\Engine\Events\MovementEvent;
-use Ichiloto\Engine\Events\Enumerations\MovementEventType;
-use Ichiloto\Engine\Events\Triggers\EventTriggerContext;
+use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\Triggers\ScriptEventTrigger;
+use Ichiloto\Engine\Events\Triggers\EventTrigger;
 use Ichiloto\Engine\Exceptions\ActiveEventSaveException;
 use Ichiloto\Engine\Field\Location;
 use Ichiloto\Engine\Field\MapManager;
@@ -36,6 +35,7 @@ use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Stores\EnemyStore;
+use Assegai\Collections\ItemList;
 
 final class EventTestPresentation implements EventPresentationInterface
 {
@@ -219,6 +219,8 @@ class EventTestPlayer extends Player
     $this->position = $position;
     $this->shape = new Rect(0, 0, 1, 1);
     $this->sprite = ['@'];
+    $this->events = new ItemList(EventTrigger::class);
+    $this->eventManager = EventManager::getInstance(new EventTestGame());
   }
 
   public function tryMove(Vector2 $direction, Camera $camera): bool
@@ -604,7 +606,7 @@ it('prevents trigger re-entry and applies one-shot completion writes once', func
     ->and($scene->gameState->getVariable('reward_count'))->toBe(1);
 });
 
-it('starts an automatic script through the live event context', function () {
+it('starts an automatic script at the initial field position', function () {
   [$scene] = makeEventRuntime();
   $player = new EventTestPlayer(new Vector2(1, 1));
   $scene->installPlayer($player);
@@ -617,19 +619,8 @@ it('starts an automatic script through the live event context', function () {
     marker: 'A',
   );
   $trigger->bind($scene->gameState, $scene->party);
-  $movement = new MovementEvent(
-    MovementEventType::PLAYER_MOVE,
-    new Vector2(0, 1),
-    new Vector2(1, 1),
-  );
-
-  $trigger->enter(new EventTriggerContext(
-    $movement,
-    $player->position,
-    $player,
-    $scene,
-    $scene->mapManager,
-  ));
+  $player->addTrigger($trigger);
+  $player->evaluateAutomaticTriggersAtCurrentPosition();
 
   expect($scene->gameState->hasStoryEvent('automatic_trigger_started'))->toBeTrue()
     ->and($trigger->isComplete)->toBeTrue()

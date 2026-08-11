@@ -34,7 +34,10 @@ loop.
 The filename stem is the stable script ID. A non-reusable trigger keeps its
 existing `map-id:marker` one-shot identity. Its completion writes and one-shot
 flag are applied only after the final command succeeds. An automatic trigger
-or action trigger cannot re-enter while its session is active.
+or action trigger cannot re-enter while its session is active. Automatic
+triggers are evaluated on initial field entry as well as after movement, so a
+New Game or loaded save that starts inside the trigger area runs it without
+requiring the player to step out and back in.
 
 ## Execution lifecycle
 

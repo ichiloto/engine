@@ -281,6 +281,7 @@ class GameScene extends AbstractScene
         $this->player->activate();
         $this->locationHUDWindow->updateDetails($this->player->position, $this->player->heading);
         $this->setState($this->fieldState);
+        $this->player->evaluateAutomaticTriggersAtCurrentPosition();
     }
 
     /**

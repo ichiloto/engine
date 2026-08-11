@@ -15,7 +15,7 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
  * 'E' => [
  *   'class' => 'Ichiloto\\Engine\\Events\\Triggers\\ScriptEventTrigger',
  *   'data' => [
- *     'mode' => 'auto',            // 'auto' runs on step-in; 'action' waits for the action key
+ *     'mode' => 'auto',            // 'auto' runs on initial field entry or step-in; 'action' waits for the action key
  *     'reusable' => false,         // one-shot cutscenes persist like chests
  *     'script' => [                // inline commands, or 'scriptId' => 'intro' for assets/Events/intro.php
  *       ['type' => 'text', 'name' => 'Elder', 'text' => '...'],
