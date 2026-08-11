@@ -239,7 +239,10 @@ class MapManager implements CanRenderAt
    * Loads the collision dictionary from a file.
    *
    * @param string $filename The filename of the collision dictionary.
-   * @return array<string, CollisionType> The collision dictionary.
+   * PHP normalizes numeric-string array keys such as `"8"` to integers, so
+   * single decimal digit keys are valid tile glyphs alongside string keys.
+   *
+   * @return array<int|string, CollisionType> The collision dictionary.
    * @throws NotFoundException
    */
   public function loadCollisionDictionary(string $filename): array
@@ -258,8 +261,21 @@ class MapManager implements CanRenderAt
 
     if (!empty($dictionary)) {
       foreach ($dictionary as $key => $value) {
-        if (! is_string($key) || ! ($value instanceof CollisionType) ) {
-          throw new NotFoundException("Invalid dictionary entry: " . gettype($key) . "($key) => " . gettype($value) ."($value)");
+        $isSupportedKeyType = is_string($key) || is_int($key);
+        $isSingleGlyph = $isSupportedKeyType
+          && TerminalText::symbolCount((string) $key) === 1;
+
+        if (! $isSingleGlyph || ! ($value instanceof CollisionType)) {
+          $keyDescription = is_scalar($key) || $key === null
+            ? sprintf('%s(%s)', get_debug_type($key), var_export($key, true))
+            : get_debug_type($key);
+          $valueDescription = $value instanceof \UnitEnum
+            ? sprintf('%s::%s', $value::class, $value->name)
+            : (is_scalar($value) || $value === null
+              ? sprintf('%s(%s)', get_debug_type($value), var_export($value, true))
+              : get_debug_type($value));
+
+          throw new NotFoundException("Invalid dictionary entry: {$keyDescription} => {$valueDescription}");
         }
       }
     }
@@ -345,7 +361,7 @@ class MapManager implements CanRenderAt
    * Generates a collision map from a tile map.
    *
    * @param array<int, string[]|string> $tilemap The tile map.
-   * @param array<string, CollisionType> $dictionary The dictionary that maps tile characters to collision types.
+   * @param array<int|string, CollisionType> $dictionary The dictionary that maps tile glyphs to collision types.
    * @return int[][] The collision map.
    */
   public function generateCollisionMap(
@@ -466,7 +482,7 @@ class MapManager implements CanRenderAt
   /**
    * Gets the collision dictionary from a file.
    *
-   * @return CollisionType[] The collision dictionary.
+   * @return array<int|string, CollisionType> The collision dictionary.
    * @throws NotFoundException If the file is not found.
    */
   protected function getCollisionDictionary(): array
