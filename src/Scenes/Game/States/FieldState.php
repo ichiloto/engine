@@ -6,7 +6,6 @@ use Exception;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Core\Time;
-use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\IO\Console\Console;
@@ -132,41 +131,11 @@ class FieldState extends GameSceneState
             $scene->player->interact();
         }
 
-        if (Input::isAnyKeyPressed([KeyCode::C, KeyCode::c])) {
-            Debug::log("Selected choice: " . select("Choose an option", ["Option 1", "Option 2", "Option 3"]));
-        }
-
-        if (Input::isButtonDown("notify")) {
-            notify(
-                $this->getGameScene()->getGame(),
-                NotificationChannel::ACHIEVEMENT,
-                'Achievement unlocked',
-                '100G - New Character Created'
-            );
-        }
-
-        if (Input::isAnyKeyPressed([KeyCode::G, KeyCode::g])) {
-            $scene->sceneManager->loadGameOverScene();
-        }
-
-        if (Input::isAnyKeyPressed([KeyCode::B, KeyCode::b])) {
-            $battleEvents = [];
-            $troopNames = [
-                'Rat + Bat',
-                'Bat x 2',
-                'Loch Ness',
-                'Great Wolf'
-            ];
-            $troopNameKey = array_rand($troopNames);
-            $troop = get_troop($troopNames[$troopNameKey]);
-            $this->getGameScene()->sceneManager->loadBattleScene($this->getGameScene()->party, $troop, $battleEvents);
-        }
-
         if (Input::isButtonDown("map")) {
             $this->showInGameMap();
         }
 
-        if (Input::isAnyKeyPressed([KeyCode::T, KeyCode::t])) {
+        if (Input::isButtonDown("skit")) {
             $scene->skitManager?->playNextAvailableSkit();
         }
 
@@ -188,13 +157,6 @@ class FieldState extends GameSceneState
             }
         }
 
-        if (Input::isAnyKeyPressed([KeyCode::x, KeyCode::X])) {
-            $xp = 3000;
-            /** @var Character $member */
-            foreach ($this->party->members->toArray() as $member) {
-                $member->addExperience(intval(rand($xp * 0.5, $xp * 1.5)));
-            }
-        }
     }
 
     /**
