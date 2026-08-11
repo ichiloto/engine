@@ -50,6 +50,23 @@ envelope, legacy version-0 detection, engine versus project versions,
 migration order, aliases, tombstones, persistent character states, and the
 PHP-object-serialization constraints.
 
+## Save safety during story events
+
+Resumable story-event sessions are intentionally not serialized. While an
+`EventInterpreter` session is active, the shared `SaveManager` writer rejects
+numbered/manual saves and quicksaves with a clear
+`ActiveEventSaveException`. A map transfer inside the script still uses the
+normal transfer path, but any transfer-triggered autosave is deferred until
+the entire script and its trigger completion writes succeed. Failed scripts do
+not flush that deferred autosave.
+
+Consequently, terminating the process during a story event leaves the most
+recent stable save untouched. Loading starts from that stable snapshot rather
+than a partly applied command sequence. This production-hardening extension
+does not add active event sessions to the WP1 envelope. See
+[Story events and resumable cutscenes](story-events.md) for the lifecycle,
+movement-route, transfer, and battle-continuation contracts.
+
 ## Conditional events (`conditions`)
 
 Every event in a map's `*.data.php` may declare `conditions`. The trigger only

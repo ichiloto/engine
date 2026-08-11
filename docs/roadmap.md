@@ -261,6 +261,9 @@ Turn the polished stage into a real fight. Roughly in order:
 > commands (no engine fade facility yet), NPC patrol routes and party
 > followers (wander/fixed shipped), and a dedicated compact skit overlay
 > (beats currently use the standard dialogue box).
+> Production continuation, movement-route, battle-return, and active-event
+> save-safety details are documented in the Phase 7 production-hardening
+> extension below and in [story-events.md](story-events.md).
 - **Event-command interpreter** — the generic cutscene engine `CutsceneState`
   was meant to host: a data-driven command list (show text, move actor, wait,
   fade, pan camera, play sound/music, set switch/variable, conditional
@@ -674,6 +677,43 @@ cover all shipped save consumers. See
 Intentionally unsupported here: a replacement serializer/container, a strict
 PHP class allowlist redesign, automatic rename inference, cloud/synchronized
 saves, a TUI migration editor, and unrelated battle/story roadmap work.
+
+## Production-hardening extension — resumable story events ✅ *shipped 2026-08*
+
+> Status: shipped as an extension to the Phase 4 `EventInterpreter` and the
+> existing Phase 7 schema-driven editor/validator. It does not revive
+> `CutsceneState`, add another command registry, serialize executable
+> continuations, or renumber the roadmap.
+
+`EventInterpreter` now owns one explicit `EventExecutionSession` with an
+iterative frame stack, pending command state, and `RUNNING`, `YIELDED`,
+`SUSPENDED`, `COMPLETED`, and `FAILED` lifecycle states. Existing immediate
+scripts remain source-compatible. Dialogue, choices, timers, awaited movement
+routes, transfers, and battles yield to the game loop and resume in order.
+Automatic/action trigger re-entry is guarded, and completion writes plus
+one-shot state occur only after the final command succeeds.
+
+The generic `move_route` command targets the player or a current-map NPC by a
+new optional stable map-local NPC `id`. Cardinal repeated/facing-only steps
+use the existing collision/render paths and fail with a controlled diagnostic
+when blocked. Transfer continues through `GameScene::transferPlayer()`. A
+mid-script `start_battle` returns through the existing `BattleResult` path,
+optionally writes `victory`, `defeat`, or `escape` to a named variable, and
+continues after victory; normal game-over behavior remains the default, with
+defeat continuation requiring an explicit policy.
+
+Active sessions remain in memory rather than entering the WP1 save envelope.
+Manual/numbered saves and quicksaves are blocked centrally, and transfer
+autosaves are deferred until successful event completion. The TUI can author
+`ScriptEventTrigger`, structured route steps, and battle continuation fields;
+the existing validator covers script references, stable NPC identities,
+routes, defeat policies, and the shared runtime command vocabulary. See
+[story-events.md](story-events.md).
+
+Explicitly deferred: cutscene skipping/finalizers, camera and screen-fade
+commands, field-animation commands, parallel routes, pathfinding, party
+followers, NPC patrol routes, nested choice/branch editor redesign, boss
+phases, and scheduled/delayed battle actions.
 
 ## Sequencing notes
 
