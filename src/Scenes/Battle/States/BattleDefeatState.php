@@ -32,7 +32,7 @@ class BattleDefeatState extends BattleSceneState
         return;
       }
 
-      $this->scene->shouldLoadGameOver = true;
+      $this->scene->shouldLoadGameOver = ! $this->scene->continuesAfterDefeat();
       $this->setState($this->scene->endState);
     }
   }

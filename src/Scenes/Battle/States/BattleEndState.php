@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Scenes\Battle\States;
 
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 
 class BattleEndState extends BattleSceneState
@@ -32,6 +33,14 @@ class BattleEndState extends BattleSceneState
     Console::clear();
 
     if ($this->scene->shouldLoadGameOver) {
+      $gameScene = $this->scene->getGame()->sceneManager->findScene(GameScene::class);
+
+      if ($gameScene instanceof GameScene) {
+        $gameScene->failEventAfterBattle(
+          'Scripted battle ended in defeat under the default game-over policy.'
+        );
+      }
+
       $this->scene->getGame()->sceneManager->loadGameOverScene();
       return;
     }

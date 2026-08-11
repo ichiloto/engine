@@ -139,6 +139,18 @@ class BattleScene extends AbstractScene
   }
 
   /**
+   * Returns whether this battle explicitly returns to its caller on defeat.
+   *
+   * The default remains the existing game-over flow. Only event-authored
+   * battles that pass `event_defeat_policy => continue` opt into returning a
+   * defeat result to the suspended event session.
+   */
+  public function continuesAfterDefeat(): bool
+  {
+    return ($this->config?->settings['event_defeat_policy'] ?? 'game_over') === 'continue';
+  }
+
+  /**
    * Sets the state of the scene.
    *
    * @param BattleSceneState $state The state to set.

@@ -352,11 +352,19 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    */
   public function returnFromBattleScene(): void
   {
+    $battleResult = $this->currentScene instanceof BattleScene
+      ? $this->currentScene->result
+      : null;
+
     $this->loadScene($this->sceneToReturnTo());
     $this->sceneBeforeBattle = null;
 
     if ($this->currentScene instanceof GameScene) {
       $this->currentScene->fieldState?->resume();
+
+      if ($battleResult !== null) {
+        $this->currentScene->resumeEventAfterBattle($battleResult);
+      }
     }
   }
 
