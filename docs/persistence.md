@@ -5,7 +5,7 @@ every `GameScene`. It is the single home for everything the world needs to
 remember — and it is serialized into save files automatically, so anything
 written to it survives save/load with no extra work.
 
-It tracks four kinds of state:
+It tracks five kinds of state:
 
 | Kind | Shape | Typical use |
 |---|---|---|
@@ -13,6 +13,7 @@ It tracks four kinds of state:
 | **Variables** | named ints/floats/strings, default `0` | donation totals, reputation, titles |
 | **Story events** | an append-only list of names | "met_the_king", ability `requiredEvents` gates |
 | **Event completion** | per-map, per-marker flags | "chest B on happyville/home is looted" |
+| **Visited maps** | map-ID keys | region-map discovery and revisited places |
 
 ## Reading and writing from code
 
@@ -32,8 +33,22 @@ $state->hasStoryEvent('met_the_king');
 
 `GameScene::recordStoryEvent()` / `hasStoryEvent()` delegate to the store, so
 existing call sites keep working. Old save files that carried a plain
-`events` list migrate automatically: the list is folded into the store's
-story events on load.
+`events` list migrate automatically: the schema-0-to-schema-1 migration folds
+the list into the store's story events before scene configuration. There is
+no second legacy-events path in `GameScene`.
+
+## Save versions and compatibility
+
+`GameState` remains the single world-state store. The versioned save work
+wraps the existing `GameConfig` snapshot; it does not introduce another
+state model. Numbered slots, quicksave, autosave, title Continue, quests,
+achievements, and bestiary all use the same `SaveManager` compatibility
+pipeline.
+
+See [Versioned save compatibility](save-compatibility.md) for the `IED1`
+envelope, legacy version-0 detection, engine versus project versions,
+migration order, aliases, tombstones, persistent character states, and the
+PHP-object-serialization constraints.
 
 ## Conditional events (`conditions`)
 

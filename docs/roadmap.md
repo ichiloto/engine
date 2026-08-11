@@ -645,6 +645,36 @@ Turn the polished stage into a real fight. Roughly in order:
   save, menus, config reference, editor, CLI reference) — currently 35% of
   the doc corpus is Summons
 
+## Production-hardening extension — versioned save compatibility ✅ *shipped 2026-08*
+
+> Status: shipped. Implementation, frozen fixtures, production documentation,
+> full Engine/Editor/game suites, static analysis, Composer validation, and
+> clean-snapshot Console validation are complete. This extension builds on,
+> and does not renumber or replace, Phase 1 `GameState`, Phase 2 `QuestLog`,
+> Phase 3 states, or Phase 6 achievements, bestiary, quicksave, autosave, and
+> Continue.
+
+The existing `IED1` container now carries save schema version 1, a
+project-owned content version (Last Legend begins at 1), the canonical
+`ichiloto.json` project ID, and the existing `SaveSlot`/`GameConfig` payload.
+Pre-extension roots are schema 0/content 0 and migrate in memory. The old
+plain `events` list is absorbed exactly once by schema migration `0 -> 1`,
+rather than again during `GameScene` configuration.
+
+`SaveManager` remains the only numbered/quick/auto reader and writer. It runs
+sequential engine and game migration pipelines, exact project-owned aliases,
+tombstone failures, and controlled future/wrong-game diagnostics before a
+scene is configured. `Character` now persists only authored states marked to
+survive battle, by state ID and remaining duration. Editor project validation
+uses the shared compatibility-category enum to catch unsafe manifests. Frozen
+legacy and current Last Legend fixtures plus full-domain integration tests
+cover all shipped save consumers. See
+[save-compatibility.md](save-compatibility.md).
+
+Intentionally unsupported here: a replacement serializer/container, a strict
+PHP class allowlist redesign, automatic rename inference, cloud/synchronized
+saves, a TUI migration editor, and unrelated battle/story roadmap work.
+
 ## Sequencing notes
 
 - Phase 1 before everything story-shaped; Phases 2 and 3 can proceed in
