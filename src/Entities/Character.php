@@ -16,6 +16,8 @@ use Ichiloto\Engine\Entities\Inventory\Inventory;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Entities\States\HasStates;
 use Ichiloto\Engine\Entities\States\HasStatStages;
+use Ichiloto\Engine\Entities\States\StateInstance;
+use Ichiloto\Engine\Entities\States\StateRegistry;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
@@ -24,6 +26,8 @@ use Ichiloto\Engine\Entities\Roles\CharacterRole;
 use Ichiloto\Engine\Entities\Skills\Skill;
 use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Stores\ClassStore;
+use Ichiloto\Engine\Exceptions\PersistentStateRestoreException;
+use Ichiloto\Engine\IO\SaveCompatibility\SaveHydrationContext;
 use InvalidArgumentException;
 
 /**
@@ -80,6 +84,14 @@ class Character implements CharacterInterface, CanEquip
    * @var array The experience point thresholds for each level.
    */
   protected array $levelExpThresholds = [];
+
+  /**
+   * Raw character data retained while save aliases and tombstones are being
+   * resolved. It is never included in a newly written save.
+   *
+   * @var array<string, mixed>|null
+   */
+  private ?array $deferredSaveData = null;
 
   /**
    * @var int The character's level.
@@ -731,8 +743,48 @@ class Character implements CharacterInterface, CanEquip
 
   public function __unserialize(array $data): void
   {
+    if (SaveHydrationContext::shouldDeferCharacters()) {
+      $this->deferredSaveData = $data;
+      return;
+    }
+
     $this->bindDataToProperties($data);
     $this->rehydrateDerivedState();
+  }
+
+  /**
+   * Returns the raw save array retained during compatibility processing.
+   *
+   * @return array<string, mixed>|null
+   */
+  public function getDeferredSaveData(): ?array
+  {
+    return $this->deferredSaveData;
+  }
+
+  /**
+   * Completes Character hydration after content compatibility has been
+   * applied to the raw save array.
+   *
+   * @param array<string, mixed>|null $data The compatibility-normalized data.
+   */
+  public function completeDeferredSaveHydration(?array $data = null): void
+  {
+    $data ??= $this->deferredSaveData;
+
+    if (! is_array($data)) {
+      return;
+    }
+
+    $this->deferredSaveData = null;
+    $this->bindDataToProperties($data);
+    $this->rehydrateDerivedState();
+  }
+
+  /** Applies an explicit actor-identity alias to this restored character. */
+  public function applySaveIdentity(string $name): void
+  {
+    $this->name = trim($name);
   }
 
   /**
@@ -750,7 +802,13 @@ class Character implements CharacterInterface, CanEquip
    */
   protected function bindDataToProperties(array $data): void
   {
+    $persistentStates = is_array($data['states'] ?? null) ? $data['states'] : [];
+
     foreach ($data as $key => $value) {
+      if ($key === 'states') {
+        continue;
+      }
+
       if ($key === 'abilities' || $key === 'abilityBook') {
         $this->abilityBook = is_array($value)
           ? AbilityBook::fromArray($value)
@@ -773,6 +831,8 @@ class Character implements CharacterInterface, CanEquip
         };
       }
     }
+
+    $this->restorePersistentStates($persistentStates);
   }
 
   /**
@@ -825,7 +885,60 @@ class Character implements CharacterInterface, CanEquip
       'role' => $this->role,
       'abilities' => $this->abilityBook->toArray(),
       'magic' => $this->spellbook->toArray(),
+      'states' => array_map(
+        static fn(StateInstance $instance): array => [
+          'id' => $instance->state->id,
+          'remainingTurns' => $instance->remainingTurns,
+        ],
+        array_values(array_filter(
+          $this->states,
+          static fn(StateInstance $instance): bool => $instance->state->persistsAfterBattle
+        ))
+      ),
     ];
+  }
+
+  /**
+   * Restores only authored states whose definitions explicitly persist beyond
+   * battle. Unknown saved state ids are compatibility failures, not objects to
+   * silently invent or discard.
+   *
+   * @param array<int, mixed> $stateData
+   */
+  private function restorePersistentStates(array $stateData): void
+  {
+    $this->states = [];
+
+    foreach ($stateData as $entry) {
+      if (! is_array($entry)) {
+        throw new PersistentStateRestoreException('A saved persistent-state entry is not an array.');
+      }
+
+      $stateId = trim(strval($entry['id'] ?? ''));
+      $state = StateRegistry::get($stateId);
+
+      if ($stateId === '' || $state === null) {
+        throw new PersistentStateRestoreException(sprintf(
+          'Persistent state "%s" cannot be restored because the project does not define it.',
+          $stateId
+        ));
+      }
+
+      if (! $state->persistsAfterBattle) {
+        continue;
+      }
+
+      $remainingTurns = $entry['remainingTurns'] ?? null;
+
+      if ($remainingTurns !== null && ! is_int($remainingTurns)) {
+        throw new PersistentStateRestoreException(sprintf(
+          'Persistent state "%s" has an invalid remainingTurns value.',
+          $stateId
+        ));
+      }
+
+      $this->states[] = new StateInstance($state, $remainingTurns);
+    }
   }
 
   /**

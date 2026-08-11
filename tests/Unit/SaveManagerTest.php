@@ -7,6 +7,7 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\PartyLocation;
 use Ichiloto\Engine\IO\SaveManager;
+use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityManifest;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
 
@@ -37,6 +38,16 @@ class SaveManagerBrokenPayloadStub
 function makeSaveManagerTestGame(): Game
 {
   return new SaveManagerTestGame();
+}
+
+function makeSaveManagerTestManifest(): SaveCompatibilityManifest
+{
+  return SaveCompatibilityManifest::fromArray('ichiloto/test-project', [
+    'contentVersion' => 0,
+    'migrations' => [],
+    'aliases' => [],
+    'tombstones' => [],
+  ], 'SaveManagerTest manifest');
 }
 
 function makeSaveManagerTestConfig(): GameConfig
@@ -86,7 +97,8 @@ it('loads binary .iedata save files and resolves slot summaries', function () {
   $manager = new SaveManager(
     makeSaveManagerTestGame(),
     "./tests/Support/Data/{$slug}",
-    "./tests/Support/Data/{$slug}/quick"
+    "./tests/Support/Data/{$slug}/quick",
+    makeSaveManagerTestManifest(),
   );
   $slotPath = $manager->getSlotPath(2);
   $slot = new SaveSlot(
@@ -125,7 +137,8 @@ it('marks incompatible save slots instead of crashing the slot list', function (
   $manager = new SaveManager(
     makeSaveManagerTestGame(),
     "./tests/Support/Data/{$slug}",
-    "./tests/Support/Data/{$slug}/quick"
+    "./tests/Support/Data/{$slug}/quick",
+    makeSaveManagerTestManifest(),
   );
   $slotPath = $manager->getSlotPath(1);
   $slot = new SaveSlot(
@@ -160,7 +173,8 @@ it('marks slots as incompatible when nested payload unserialization fails', func
   $manager = new SaveManager(
     makeSaveManagerTestGame(),
     "./tests/Support/Data/{$slug}",
-    "./tests/Support/Data/{$slug}/quick"
+    "./tests/Support/Data/{$slug}/quick",
+    makeSaveManagerTestManifest(),
   );
   $slotPath = $manager->getSlotPath(1);
   $slot = new SaveSlot(
@@ -185,7 +199,8 @@ it('marks slots as incompatible when nested payload unserialization fails', func
   expect($slots)->toHaveCount(1)
     ->and($slots[0]->isEmpty)->toBeFalse()
     ->and($slots[0]->isLoadable)->toBeFalse()
-    ->and($slots[0]->statusMessage)->toBe('This save file is from an incompatible format.');
+    ->and($slots[0]->statusMessage)->toContain('Could not unserialize save')
+    ->and($slots[0]->statusMessage)->toContain('Invalid serialized collection payload');
 
   cleanupSaveManagerTestFiles($slotPath);
 });
@@ -195,7 +210,8 @@ it('returns the latest loadable save file when newer incompatible saves exist', 
   $manager = new SaveManager(
     makeSaveManagerTestGame(),
     "./tests/Support/Data/{$slug}",
-    "./tests/Support/Data/{$slug}/quick"
+    "./tests/Support/Data/{$slug}/quick",
+    makeSaveManagerTestManifest(),
   );
   $olderPath = $manager->getSlotPath(1);
   $newerPath = $manager->getSlotPath(2);

@@ -5,6 +5,10 @@ namespace Ichiloto\Engine\IO;
 use Assegai\Util\Path;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Time;
+use Ichiloto\Engine\Exceptions\CorruptSaveException;
+use Ichiloto\Engine\Exceptions\SaveCompatibilityException;
+use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityManifest;
+use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityPipeline;
 use Ichiloto\Engine\IO\Saves\SavedGame;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
@@ -49,14 +53,20 @@ class SaveManager
    */
   protected static ?SaveManager $instance = null;
 
+  /** The single compatibility pipeline shared by every save surface. */
+  protected SaveCompatibilityPipeline $compatibilityPipeline;
+
   public function __construct(
     protected Game $game,
     protected string $saveDirectory = './saves',
     protected string $quickSaveDirectory = './saves/quick',
+    ?SaveCompatibilityManifest $compatibilityManifest = null,
   )
   {
     $this->saveDirectory = Path::normalize(Path::join(Path::getCurrentWorkingDirectory(), self::DATA_DIRECTORY, $this->saveDirectory));
     $this->quickSaveDirectory = Path::normalize(Path::join(Path::getCurrentWorkingDirectory(), self::DATA_DIRECTORY, $this->quickSaveDirectory));
+    $compatibilityManifest ??= SaveCompatibilityManifest::fromProjectRoot(Path::getCurrentWorkingDirectory());
+    $this->compatibilityPipeline = new SaveCompatibilityPipeline($compatibilityManifest);
     $this->ensureDirectoriesExist();
   }
 
@@ -163,7 +173,10 @@ class SaveManager
         } catch (Throwable) {
         }
 
-        $slots[] = SaveSlot::incompatible($slot, $path, 'This save file is from an incompatible format.');
+        $message = $throwable instanceof SaveCompatibilityException
+          ? $throwable->getMessage()
+          : 'This save file is from an incompatible format.';
+        $slots[] = SaveSlot::incompatible($slot, $path, $message);
       }
     }
 
@@ -242,10 +255,10 @@ class SaveManager
   protected function writeSave(GameScene $scene, int $slot, string $path): SaveSlot
   {
     $savedGame = $this->createSavedGame($scene, $slot, $path);
-    $serializedPayload = serialize([
-      'slot' => $savedGame->slot,
-      'config' => $savedGame->config,
-    ]);
+    $serializedPayload = serialize($this->compatibilityPipeline->createEnvelope(
+      $savedGame->slot,
+      $savedGame->config
+    ));
     $encodedPayload = gzencode($serializedPayload, 9);
 
     if ($encodedPayload === false) {
@@ -284,20 +297,7 @@ class SaveManager
       throw new RuntimeException(sprintf('Save file not found: %s', $path));
     }
 
-    $payload = unserialize($this->decodeSavePayload($path), ['allowed_classes' => true]);
-
-    if (! is_array($payload)) {
-      throw new RuntimeException(sprintf('Invalid save file payload: %s', $path));
-    }
-
-    $slot = $payload['slot'] ?? null;
-    $config = $payload['config'] ?? null;
-
-    if (! $slot instanceof SaveSlot || ! $config instanceof GameConfig) {
-      throw new RuntimeException(sprintf('Save file payload is incomplete: %s', $path));
-    }
-
-    return new SavedGame($slot, $config);
+    return $this->compatibilityPipeline->load($this->decodeSavePayload($path), $path);
   }
 
   /**
@@ -398,18 +398,18 @@ class SaveManager
     $contents = file_get_contents($path);
 
     if ($contents === false) {
-      throw new RuntimeException(sprintf('Could not read save file: %s', $path));
+      throw new CorruptSaveException(sprintf('Could not read save file: %s', $path));
     }
 
     if (! str_starts_with($contents, self::FILE_HEADER)) {
-      throw new RuntimeException(sprintf('Invalid save file header: %s', $path));
+      throw new CorruptSaveException(sprintf('Invalid save file header: %s', $path));
     }
 
     $compressedPayload = substr($contents, strlen(self::FILE_HEADER));
     $serializedPayload = gzdecode($compressedPayload);
 
     if ($serializedPayload === false) {
-      throw new RuntimeException(sprintf('Could not decode save file: %s', $path));
+      throw new CorruptSaveException(sprintf('Could not decode save file: %s', $path));
     }
 
     return $serializedPayload;

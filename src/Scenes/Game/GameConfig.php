@@ -119,6 +119,27 @@ class GameConfig implements SceneConfigurationInterface
   }
 
   /**
+   * Returns the decoded payload for compatibility migration before a scene is
+   * configured from it.
+   *
+   * @return array<string, mixed>
+   */
+  public function getSaveCompatibilityData(): array
+  {
+    return $this->getData();
+  }
+
+  /**
+   * Applies schema/content compatibility changes before scene hydration.
+   *
+   * @param array<string, mixed> $data
+   */
+  public function applySaveCompatibilityData(array $data): void
+  {
+    $this->setData($data);
+  }
+
+  /**
    * @param array{mapId: string, party?: Party, playerPosition: Vector2, playerShape?: Rect, playerSize?: Rect, playerHeading: MovementHeading, playerStats: array, events: array, playerSprite?: array, playerSprites?: array<string, string[]>, playTimeSeconds?: int} $data
    * @return void
    */

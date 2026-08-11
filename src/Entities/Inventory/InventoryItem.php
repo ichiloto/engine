@@ -134,6 +134,18 @@ abstract class InventoryItem implements InventoryItemInterface
   }
 
   /**
+   * Applies an explicit compatibility alias to the persisted item identity.
+   *
+   * Existing saves serialize item objects directly, so WP1 preserves that
+   * representation and updates only the identity used by current catalogs.
+   */
+  public function applySaveIdentity(string $name): void
+  {
+    $this->name = trim($name);
+    $this->hash = md5(self::class . $this->name . $this->description . $this->icon . $this->price);
+  }
+
+  /**
    * Creates an inventory item from an array.
    *
    * @param array<string, mixed> $data The data.

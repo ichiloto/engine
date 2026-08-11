@@ -229,12 +229,6 @@ class GameScene extends AbstractScene
         $this->config = $config;
         $this->gameState = GameState::fromArray($this->config->gameState);
 
-        // Saves from before the GameState store carried story events as a
-        // plain list; fold them in so old files keep their progress.
-        foreach (array_filter($this->config->events, 'is_string') as $legacyEvent) {
-            $this->gameState->recordStoryEvent($legacyEvent);
-        }
-
         // Flag writes feed quest objectives that watch switches and story
         // events, and can make new skits available.
         $this->gameState->onChange = function (string $kind, string $name): void {
