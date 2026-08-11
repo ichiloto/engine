@@ -76,6 +76,17 @@ class CharacterDetailPanel extends Window
    */
   public function updateContent(): void
   {
+    $this->setContent(array_pad($this->buildCharacterContent(), $this->height - 2, ''));
+    $this->render();
+  }
+
+  /**
+   * Builds the character identity and stat comparison rows.
+   *
+   * @return string[] The character detail rows.
+   */
+  protected function buildCharacterContent(): array
+  {
     $totalHp = $this->previewStats?->totalHp ?? null;
     $totalMp = $this->previewStats?->totalMp ?? null;
     $attack = $this->previewStats?->attack ?? null;
@@ -86,9 +97,9 @@ class CharacterDetailPanel extends Window
     $speed = $this->previewStats?->speed ?? null;
     $grace = $this->previewStats?->grace ?? null;
 
-    $content = [
-      "  {$this->character?->name}" ?? '',
-      "",
+    return [
+      sprintf('  %s', $this->character?->name ?? ''),
+      sprintf('  Role: %s', $this->character?->role->name ?? 'N/A'),
       "",
       "",
       "",
@@ -106,9 +117,6 @@ class CharacterDetailPanel extends Window
       $this->formatStatLine('Speed', $this->character?->effectiveStats->speed, $speed),
       $this->formatStatLine('Grace', $this->character?->effectiveStats->grace, $grace),
     ];
-
-    $this->setContent(array_pad($content, $this->height - 2, ''));
-    $this->render();
   }
 
   /**

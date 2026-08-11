@@ -163,26 +163,7 @@ class StatusViewState extends GameSceneState
    */
   public function updateContent(): void
   {
-    $currentHp = $this->character?->effectiveStats->currentHp ?? 0;
-    $currentMp = $this->character?->effectiveStats->currentMp ?? 0;
-    $currentAp = $this->character?->effectiveStats->currentAp ?? 0;
-    $totalHp = $this->character?->effectiveStats->totalHp ?? 0;
-    $totalMp = $this->character?->effectiveStats->totalMp ?? 0;
-    $totalAp = $this->character?->effectiveStats->totalAp ?? 0;
-
-    $this->profileSummaryPanel->setContent(array_pad([
-      " {$this->character?->name}" ?? 'N/A',
-      sprintf(
-        "%19s Lv:%12s       %-14s %20d",
-        ' ',
-        $this->character?->level ?? 1,
-        'Current EXP:', $this->character?->currentExp ?? 0,
-      ),
-      sprintf("%42s%-14s %20d",' ', 'To Next Level:', $this->character?->nextLevelExp ?? 0),
-      sprintf("%19s HP:%12s", ' ', "{$currentHp} / {$totalHp}"),
-      sprintf("%19s MP:%12s", ' ', "{$currentMp} / {$totalMp}"),
-      sprintf("%19s AP:%12s", ' ', "{$currentAp} / {$totalAp}"),
-    ], self::PROFILE_SUMMARY_PANEL_HEIGHT - 2, ''));
+    $this->profileSummaryPanel->setContent($this->buildProfileSummaryContent());
 
     $this->statsSummaryPanel->setContent(array_pad([
       sprintf(" Attack:%27s", $this->character?->effectiveStats->attack),
@@ -206,6 +187,36 @@ class StatusViewState extends GameSceneState
       ''));
 
     $this->renderUI();
+  }
+
+  /**
+   * Builds the character identity and resource summary shown by the status view.
+   *
+   * @return string[] The profile summary rows.
+   */
+  protected function buildProfileSummaryContent(): array
+  {
+    $currentHp = $this->character?->effectiveStats->currentHp ?? 0;
+    $currentMp = $this->character?->effectiveStats->currentMp ?? 0;
+    $currentAp = $this->character?->effectiveStats->currentAp ?? 0;
+    $totalHp = $this->character?->effectiveStats->totalHp ?? 0;
+    $totalMp = $this->character?->effectiveStats->totalMp ?? 0;
+    $totalAp = $this->character?->effectiveStats->totalAp ?? 0;
+
+    return array_pad([
+      sprintf(' %s', $this->character?->name ?? 'N/A'),
+      sprintf("%19s Role:%12s", ' ', $this->character?->role->name ?? 'N/A'),
+      sprintf(
+        "%19s Lv:%12s       %-14s %20d",
+        ' ',
+        $this->character?->level ?? 1,
+        'Current EXP:', $this->character?->currentExp ?? 0,
+      ),
+      sprintf("%42s%-14s %20d",' ', 'To Next Level:', $this->character?->nextLevelExp ?? 0),
+      sprintf("%19s HP:%12s", ' ', "{$currentHp} / {$totalHp}"),
+      sprintf("%19s MP:%12s", ' ', "{$currentMp} / {$totalMp}"),
+      sprintf("%19s AP:%12s", ' ', "{$currentAp} / {$totalAp}"),
+    ], self::PROFILE_SUMMARY_PANEL_HEIGHT - 2, '');
   }
 
   /**

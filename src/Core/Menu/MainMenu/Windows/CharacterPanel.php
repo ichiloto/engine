@@ -53,22 +53,24 @@ class CharacterPanel extends Window implements CanFocus
    * @param int $level
    * @param string $hp
    * @param string $mp
+   * @param string $role
    * @return void
    */
   public function setDetails(
     string $name,
     int $level,
     string $hp,
-    string $mp
+    string $mp,
+    string $role = 'N/A'
   ): void
   {
     $leftMargin = 18;
     $this->setContent([
       sprintf("%{$leftMargin}s%s", ' ', $name),
+      sprintf("%{$leftMargin}sRole: %s", ' ', $role),
       sprintf("%{$leftMargin}sLv %12d", ' ', $level),
       sprintf("%{$leftMargin}sHP %12s", ' ', $hp),
       sprintf("%{$leftMargin}sMP %12s", ' ', $mp),
-      ''
     ]);
     $this->render();
   }
