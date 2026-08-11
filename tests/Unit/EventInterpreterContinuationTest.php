@@ -228,6 +228,8 @@ class EventTestPlayer extends Player
     $this->position = $position;
     $this->shape = new Rect(0, 0, 1, 1);
     $this->sprite = ['@'];
+    $this->observers = new ItemList(\Ichiloto\Engine\Events\Interfaces\ObserverInterface::class);
+    $this->staticObservers = new ItemList(\Ichiloto\Engine\Events\Interfaces\StaticObserverInterface::class);
     $this->events = new ItemList(EventTrigger::class);
     $this->eventManager = EventManager::getInstance(new EventTestGame());
   }
@@ -295,6 +297,11 @@ class EventTestPlayer extends Player
       clone $origin,
       clone $destination,
     ));
+  }
+
+  public function hasActiveEvent(EventTrigger $event): bool
+  {
+    return $this->eventManager->activeEvents->contains($event);
   }
 }
 
@@ -674,6 +681,65 @@ it('runs exit cleanup after a one-shot action trigger completes in place', funct
   $player->dispatchMovement(new Vector2(1, 0), new Vector2(2, 0));
 
   expect($player->availableAction)->toBeNull();
+});
+
+it('retires map-owned action state when event triggers are replaced', function () {
+  [$scene] = makeEventRuntime();
+  $player = new EventTestPlayer(new Vector2(0, 0));
+  $scene->installPlayer($player);
+  $trigger = new ScriptEventTrigger(
+    new Rect(1, 0, 1, 1),
+    ['mode' => 'action', 'reusable' => true, 'script' => [
+      ['type' => 'record_event', 'name' => 'old_map_action_ran'],
+    ]],
+    mapId: 'map-a',
+    marker: 'C',
+  );
+  $trigger->bind($scene->gameState, $scene->party);
+  $player->addTrigger($trigger);
+
+  $player->dispatchMovement(new Vector2(0, 0), new Vector2(1, 0));
+
+  expect($player->availableAction)->not->toBeNull()
+    ->and($player->hasActiveEvent($trigger))->toBeTrue();
+
+  // This is the lifecycle used when a transfer replaces the source map's
+  // trigger definitions with the destination map's definitions.
+  $player->removeTriggers();
+
+  expect($player->availableAction)->toBeNull()
+    ->and($player->hasActiveEvent($trigger))->toBeFalse();
+
+  $player->interact();
+
+  expect($scene->gameState->hasStoryEvent('old_map_action_ran'))->toBeFalse();
+});
+
+it('fails closed when a prompted script trigger becomes unavailable before execution', function () {
+  [$scene, $interpreter] = makeEventRuntime();
+  $player = new EventTestPlayer(new Vector2(0, 0));
+  $scene->installPlayer($player);
+  $scene->gameState->setSwitch('boss_available', true);
+  $trigger = new ScriptEventTrigger(
+    new Rect(1, 0, 1, 1),
+    ['mode' => 'action', 'reusable' => true, 'script' => [
+      ['type' => 'record_event', 'name' => 'boss_started_again'],
+    ]],
+    conditions: [['type' => 'switch', 'name' => 'boss_available']],
+    mapId: 'map-a',
+    marker: 'C',
+  );
+  $trigger->bind($scene->gameState, $scene->party);
+  $player->addTrigger($trigger);
+  $player->dispatchMovement(new Vector2(0, 0), new Vector2(1, 0));
+
+  expect($player->availableAction)->not->toBeNull();
+
+  $scene->gameState->setSwitch('boss_available', false);
+  $player->interact();
+
+  expect($interpreter->hasActiveSession())->toBeFalse()
+    ->and($scene->gameState->hasStoryEvent('boss_started_again'))->toBeFalse();
 });
 
 it('rejects unavailable field gates before movement advances any field state', function () {

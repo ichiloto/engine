@@ -388,6 +388,41 @@ it('starts looping background music when music is enabled', function () {
   $manager->shutdown();
 });
 
+it('prefers native looping playback for background music when available', function () {
+  putAudioProjectConfig(['audio' => ['music' => true, 'master_volume' => 100]]);
+  $root = makeAudioAssetsRoot(['theme.ogg']);
+
+  $manager = new TestableAudioManager(makeAudioTestGame(), [
+    new FakeAudioBackend(loopsNatively: false),
+    new FakeAudioBackend(loopsNatively: true),
+  ]);
+  $manager->playBackgroundMusic("$root/theme.ogg");
+
+  expect($manager->spawnedCommands)->toHaveCount(1)
+    ->and($manager->spawnedCommands[0])->toBe(['fake-player', '1.00', 'loop', "$root/theme.ogg"]);
+
+  $manager->shutdown();
+});
+
+it('respawns looping background music when only a one-shot backend is available', function () {
+  putAudioProjectConfig(['audio' => ['music' => true, 'master_volume' => 100]]);
+  $root = makeAudioAssetsRoot(['theme.ogg']);
+
+  $manager = new TestableAudioManager(makeAudioTestGame(), [
+    new FakeAudioBackend(loopsNatively: false),
+  ]);
+  $manager->playBackgroundMusic("$root/theme.ogg");
+  $manager->pretendBgmHasPlayedFor(2.0);
+  $manager->spawnedPlaybacks[0]->stop();
+  $manager->update();
+
+  expect($manager->spawnedCommands)->toHaveCount(2)
+    ->and($manager->spawnedCommands[0])->toBe(['fake-player', '1.00', 'once', "$root/theme.ogg"])
+    ->and($manager->spawnedCommands[1])->toBe(['fake-player', '1.00', 'once', "$root/theme.ogg"]);
+
+  $manager->shutdown();
+});
+
 it('keeps a track pending while music is disabled and starts it once enabled', function () {
   $config = new AudioArrayConfigStub(['audio' => ['music' => false]]);
   ConfigStore::put(ProjectConfig::class, $config);

@@ -568,7 +568,9 @@ class AudioManager implements CanUpdate
    */
   protected function applyMasterVolumeToBgm(float $currentVolume): void
   {
-    $backend = $this->bgmPath !== null ? $this->selectBackend($this->bgmPath) : null;
+    $backend = $this->bgmPath !== null
+      ? $this->selectBackend($this->bgmPath, $this->bgmLoops)
+      : null;
 
     if ($backend === null || ! $backend->supportsSeeking()) {
       // Acknowledge the change without restarting; the next spawn reads the
@@ -642,7 +644,7 @@ class AudioManager implements CanUpdate
       return;
     }
 
-    $backend = $this->selectBackend($this->bgmPath);
+    $backend = $this->selectBackend($this->bgmPath, $this->bgmLoops);
 
     if ($backend === null) {
       $this->warnOnce("bgm-format:$this->bgmPath", "No available audio player supports: $this->bgmPath");
@@ -702,21 +704,37 @@ class AudioManager implements CanUpdate
   }
 
   /**
-   * Selects the first available backend that supports the given file.
+   * Selects an available backend that supports the given file.
+   *
+   * Looping background music prefers a player that can loop in-process. This
+   * avoids an audible gap and does not depend on the game observing and
+   * respawning a completed one-shot process at exactly the end of a track.
+   * The first compatible backend remains the fallback on systems whose only
+   * player (such as stock macOS afplay) cannot loop natively.
    *
    * @param string $filePath The path of the audio file.
+   * @param bool $preferNativeLooping Whether a native looping backend should
+   *   be preferred when one is available.
    * @return AudioBackendInterface|null The backend, or null when no available
    *   backend supports the file format.
    */
-  protected function selectBackend(string $filePath): ?AudioBackendInterface
+  protected function selectBackend(string $filePath, bool $preferNativeLooping = false): ?AudioBackendInterface
   {
+    $fallback = null;
+
     foreach ($this->backends as $backend) {
-      if ($backend->supports($filePath)) {
+      if (! $backend->supports($filePath)) {
+        continue;
+      }
+
+      $fallback ??= $backend;
+
+      if (! $preferNativeLooping || $backend->supportsNativeLooping()) {
         return $backend;
       }
     }
 
-    return null;
+    return $fallback;
   }
 
   /**

@@ -61,7 +61,10 @@ class ScriptEventTrigger extends EventTrigger implements EventSessionCompletionT
    */
   public function startSession(GameScene $gameScene): ?EventExecutionSession
   {
-    if ($this->sessionIsActive || $this->isComplete) {
+    // Re-check conditions at execution time. Field state can change after an
+    // action prompt was presented (or while a script transfers maps), and a
+    // stale RunScriptAction must never bypass its trigger's current gate.
+    if ($this->sessionIsActive || $this->isComplete || ! $this->isAvailable()) {
       return null;
     }
 

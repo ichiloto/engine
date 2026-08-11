@@ -460,11 +460,7 @@ class Player extends GameObject
       }
     }
 
-    foreach ($this->events as $event) {
-      $this->events->remove($event);
-    }
-
-    $this->announcedBlockedEvents = [];
+    $this->removeEventTriggers();
   }
 
   /**
@@ -640,7 +636,20 @@ class Player extends GameObject
    */
   public function removeEventTriggers(): void
   {
+    // EventManager is shared by the running game, so clearing only the
+    // player's map-local list leaves entered triggers alive across a map
+    // transfer. Besides leaking the old objects, an action trigger keeps its
+    // RunScriptAction attached to the player and renders a phantom "!" on the
+    // destination map. Retire the active membership and prompt together with
+    // the map-owned definitions.
+    foreach ($this->events as $event) {
+      if ($this->eventManager->activeEvents->contains($event)) {
+        $this->eventManager->activeEvents->remove($event);
+      }
+    }
+
     $this->events->clear();
+    $this->availableAction = null;
     $this->announcedBlockedEvents = [];
   }
 
