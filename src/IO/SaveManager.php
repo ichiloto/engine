@@ -6,6 +6,7 @@ use Assegai\Util\Path;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Exceptions\CorruptSaveException;
+use Ichiloto\Engine\Exceptions\ActiveEventSaveException;
 use Ichiloto\Engine\Exceptions\SaveCompatibilityException;
 use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityManifest;
 use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityPipeline;
@@ -254,6 +255,12 @@ class SaveManager
    */
   protected function writeSave(GameScene $scene, int $slot, string $path): SaveSlot
   {
+    if ($scene->hasUnstableEventSession()) {
+      throw new ActiveEventSaveException(
+        'Saving is unavailable while a story event is in progress. Finish the event first.'
+      );
+    }
+
     $savedGame = $this->createSavedGame($scene, $slot, $path);
     $serializedPayload = serialize($this->compatibilityPipeline->createEnvelope(
       $savedGame->slot,

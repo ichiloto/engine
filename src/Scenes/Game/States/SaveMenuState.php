@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Scenes\Game\States;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Exceptions\ActiveEventSaveException;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
@@ -13,6 +14,7 @@ use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\SaveSlotWindow;
 use Ichiloto\Engine\UI\Windows\Window;
+use Ichiloto\Engine\Util\Debug;
 
 /**
  * Displays the in-game save screen and writes snapshot data to `.iedata` files.
@@ -224,7 +226,16 @@ class SaveMenuState extends GameSceneState implements CanRender
       return;
     }
 
-    $savedSlot = $this->getGameScene()->sceneManager->saveManager->save($this->getGameScene(), $slot->slot);
+    try {
+      $savedSlot = $this->getGameScene()->sceneManager->saveManager->save($this->getGameScene(), $slot->slot);
+    } catch (ActiveEventSaveException $exception) {
+      $this->statusMessage = $exception->getMessage();
+      Debug::warn($this->statusMessage);
+      $this->render();
+      alert($this->statusMessage, 'Save Unavailable');
+      return;
+    }
+
     $this->getGameScene()->getGame()->audioManager->playSystemSound(SystemSound::SAVE);
     $this->refreshSlots();
     $this->statusMessage = sprintf('Saved to File %d.', $savedSlot->slot);
