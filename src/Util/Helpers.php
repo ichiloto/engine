@@ -238,7 +238,7 @@ if (! function_exists('notify') ) {
    * @param NotificationDuration|float $duration The notification duration.
    * @param NotificationSlideDirection $enterDirection The entry slide direction.
    * @param NotificationSlideDirection|null $exitDirection The exit slide direction.
-   * @param float $animationDuration The slide-animation duration in seconds.
+   * @param float|null $animationDuration The slide-animation duration in seconds, or null for project policy.
    * @return void
    */
   function notify(
@@ -249,7 +249,7 @@ if (! function_exists('notify') ) {
     NotificationDuration|float $duration = NotificationDuration::LONG,
     NotificationSlideDirection $enterDirection = NotificationSlideDirection::RIGHT,
     ?NotificationSlideDirection $exitDirection = null,
-    float $animationDuration = 0.18
+    ?float $animationDuration = null
   ): void
   {
     $notification = new Notification(

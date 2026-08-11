@@ -21,6 +21,7 @@ class MainMenuSettingsManager extends SettingsManager
             'music',
             'sfx',
             'dialogue_speed',
+            'notification_duration',
             'cursor_memory',
             'battle_message_pace',
             'battle_animation_pace',

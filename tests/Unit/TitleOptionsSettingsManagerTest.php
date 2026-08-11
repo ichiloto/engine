@@ -177,3 +177,13 @@ it('updates title text speed on both supported dialogue paths', function () {
 
   unlink($filename);
 });
+
+it('exposes the same notification duration profiles before starting a game', function () {
+  ConfigStore::put(ProjectConfig::class, new TitleInlineConfigStub([]));
+
+  $manager = new TitleOptionsSettingsManager();
+  $option = getTitleOptionByKey($manager, 'notification_duration');
+
+  expect($manager->getChoiceLabels($option))->toBe(['Standard', 'Long', 'Extended'])
+    ->and($manager->getCurrentChoiceLabel($option))->toBe('Standard');
+});

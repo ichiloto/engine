@@ -127,6 +127,20 @@ it('writes dialogue speed to both paths a project may read', function () {
     ->and($config->get('ui.dialogue.message.speed'))->toBe(80);
 });
 
+it('reads and writes the player notification duration profile', function () {
+  $config = new CatalogConfigStub([]);
+  ConfigStore::put(ProjectConfig::class, $config);
+
+  $catalog = new SettingsCatalog();
+
+  expect($catalog->read('notification_duration'))->toBe(1.0);
+
+  $catalog->write('notification_duration', 10.0);
+
+  expect($config->get('accessibility.notificationDurationScale'))->toBe(10.0)
+    ->and($catalog->read('notification_duration'))->toBe(10.0);
+});
+
 it('lets a player choose a screen transition', function () {
   $config = new CatalogConfigStub([]);
   ConfigStore::put(ProjectConfig::class, $config);

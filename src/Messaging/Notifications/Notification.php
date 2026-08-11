@@ -31,7 +31,6 @@ use Ichiloto\Engine\Util\Config\PlaySettings;
  */
 class Notification implements NotificationInterface
 {
-  protected const float DEFAULT_ANIMATION_DURATION = 0.18;
   protected const string STATE_HIDDEN = 'hidden';
   protected const string STATE_ENTERING = 'entering';
   protected const string STATE_VISIBLE = 'visible';
@@ -120,7 +119,7 @@ class Notification implements NotificationInterface
     protected BorderPackInterface $borderPack = new SlimBorderPack(),
     protected NotificationSlideDirection $enterDirection = NotificationSlideDirection::RIGHT,
     protected ?NotificationSlideDirection $exitDirection = null,
-    protected float $animationDuration = self::DEFAULT_ANIMATION_DURATION,
+    protected ?float $animationDuration = null,
   )
   {
     $this->id = uniqid('notification_');
@@ -132,6 +131,7 @@ class Notification implements NotificationInterface
     $this->position = new Vector2($leftMargin, $topMargin);
     $this->renderPosition = clone $this->position;
     $this->exitDirection ??= $this->enterDirection;
+    $this->animationDuration = NotificationTimingPolicy::animationDuration($this->animationDuration);
     $this->contentPadding =
       new WindowPadding(0, 1, 0, 1);
     $this->contentAlignment =
@@ -348,9 +348,7 @@ class Notification implements NotificationInterface
    */
   public function getDuration(): float
   {
-    return $this->duration instanceof NotificationDuration
-      ? $this->duration->toFloat()
-      : $this->duration;
+    return NotificationTimingPolicy::duration($this->duration);
   }
 
   /**

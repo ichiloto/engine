@@ -145,6 +145,24 @@ it('updates dialogue speed on both supported config paths', function () {
   unlink($filename);
 });
 
+it('updates notification duration without leaving the field', function () {
+  $filename = tempnam(sys_get_temp_dir(), 'ichiloto-config-');
+  $config = new ProjectConfigPersistProxy([
+    'filename' => $filename,
+    'initial' => ['accessibility' => ['notificationDurationScale' => 1.0]],
+  ]);
+  ConfigStore::put(AppConfig::class, new InlineConfigStub(['debug' => ['file' => false]]));
+  ConfigStore::put(ProjectConfig::class, $config);
+
+  $manager = new MainMenuSettingsManager();
+  $setting = getMainMenuSettingByKey($manager, 'notification_duration');
+
+  expect($manager->cycle($setting, 1))->toBe('Long')
+    ->and($config->get('accessibility.notificationDurationScale'))->toBe(2.0);
+
+  unlink($filename);
+});
+
 it('toggles music and sfx from the in-game config menu', function () {
   $filename = tempnam(sys_get_temp_dir(), 'ichiloto-config-');
   $config = new ProjectConfigPersistProxy([

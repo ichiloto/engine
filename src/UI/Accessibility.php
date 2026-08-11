@@ -16,6 +16,7 @@ use Ichiloto\Engine\Util\Config\ProjectConfig;
  * - `disableBlink`  — suppress blinking only (implied by reduced motion)
  * - `highContrast`  — draw selections in a high-contrast pair
  * - `textSpeedScale`— multiply dialogue typing speed (2.0 is twice as fast)
+ * - `notificationDurationScale` — multiply transient notification hold times
  *
  * @package Ichiloto\Engine\UI
  */
@@ -72,6 +73,18 @@ final class Accessibility
   public static function textSpeedScale(): float
   {
     $scale = self::setting('textSpeedScale', 1.0);
+
+    return is_numeric($scale) ? max(0.1, floatval($scale)) : 1.0;
+  }
+
+  /**
+   * Returns the transient-notification duration multiplier.
+   *
+   * @return float The multiplier; 1.0 uses the standard project timing.
+   */
+  public static function notificationDurationScale(): float
+  {
+    $scale = self::setting('notificationDurationScale', 1.0);
 
     return is_numeric($scale) ? max(0.1, floatval($scale)) : 1.0;
   }

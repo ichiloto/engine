@@ -24,6 +24,7 @@ class TitleOptionsSettingsManager extends SettingsManager
       'sfx',
       'transitions',
       'dialogue_speed',
+      'notification_duration',
     ];
   }
 

@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Settings;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\Rendering\Enumerations\TransitionStyle;
 use Ichiloto\Engine\Rendering\ScreenTransition;
+use Ichiloto\Engine\UI\Accessibility;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use RuntimeException;
@@ -60,6 +61,12 @@ class SettingsCatalog
         'Text Speed',
         'Controls how quickly dialogue text appears on screen.',
         ['Slow' => 20, 'Normal' => 50, 'Fast' => 80],
+      ),
+      new GameSetting(
+        'notification_duration',
+        'Notification Duration',
+        'Controls how long transient notifications remain on screen.',
+        ['Standard' => 1.0, 'Long' => 2.0, 'Extended' => 10.0],
       ),
       new GameSetting(
         'cursor_memory',
@@ -153,6 +160,7 @@ class SettingsCatalog
         'ui.dialogue.speed',
         config(ProjectConfig::class, 'ui.dialogue.message.speed', 50)
       ),
+      'notification_duration' => Accessibility::notificationDurationScale(),
       'cursor_memory' => boolval(config(ProjectConfig::class, 'ui.cursor.memory', false)),
       'battle_message_pace' => config(ProjectConfig::class, 'ui.battle.message_pace', 'slow'),
       'battle_animation_pace' => config(
@@ -191,6 +199,7 @@ class SettingsCatalog
       // Two paths, because dialogue speed was authored under both and a
       // project may read either.
       'dialogue_speed' => $this->writeBoth($config, ['ui.dialogue.speed', 'ui.dialogue.message.speed'], intval($value)),
+      'notification_duration' => $config->set('accessibility.notificationDurationScale', max(0.1, floatval($value))),
       'cursor_memory' => $config->set('ui.cursor.memory', boolval($value)),
       'battle_message_pace' => $config->set('ui.battle.message_pace', strval($value)),
       'battle_animation_pace' => $config->set('ui.battle.animation_pace', strval($value)),
