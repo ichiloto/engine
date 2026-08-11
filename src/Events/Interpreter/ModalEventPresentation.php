@@ -77,10 +77,16 @@ final class ModalEventPresentation implements EventPresentationInterface
 
   public function reset(): void
   {
+    $hadModal = $this->modal !== null;
+
     if ($this->modal?->isShowing()) {
       $this->modal->hide();
     }
 
     $this->modal = null;
+
+    if ($hadModal) {
+      $this->gameScene->restoreFieldAfterOverlay();
+    }
   }
 }

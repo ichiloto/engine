@@ -250,8 +250,11 @@ abstract class Modal implements ModalInterface
    */
   public function close(): mixed
   {
-    $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::CLOSE, $this->value));
+    // Remove the overlay before the scene resumes. FieldState::resume()
+    // redraws the world in response to CLOSE; erasing after that redraw would
+    // blank the modal footprint and leave dynamic field objects missing.
     $this->hide();
+    $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::CLOSE, $this->value));
     return $this->value;
   }
 

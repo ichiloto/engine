@@ -57,6 +57,7 @@ class FieldState extends GameSceneState
     {
         Console::clear();
         $this->getGameScene()->mapManager->render();
+        $this->getGameScene()->npcManager?->render();
         $this->getGameScene()->player->render();
         $this->getGameScene()->locationHUDWindow->render();
     }

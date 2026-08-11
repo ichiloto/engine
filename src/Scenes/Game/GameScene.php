@@ -589,6 +589,19 @@ class GameScene extends AbstractScene
     }
 
     /**
+     * Re-renders the complete field composition after a transient overlay.
+     *
+     * Story dialogue is driven without leaving FieldState, so it does not get
+     * the normal state-resume redraw that blocking modals receive.
+     */
+    public function restoreFieldAfterOverlay(): void
+    {
+        if ($this->state === $this->fieldState) {
+            $this->fieldState?->renderTheField();
+        }
+    }
+
+    /**
      * @inheritDoc
      */
     #[Override]
