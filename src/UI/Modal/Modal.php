@@ -6,6 +6,7 @@ use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Rect;
+use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Events\Enumerations\ModalEventType;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
@@ -23,6 +24,8 @@ use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
+use Ichiloto\Engine\UI\Windows\WindowAlignment;
+use Ichiloto\Engine\UI\Windows\WindowPadding;
 use Ichiloto\Engine\Util\Debug;
 use Symfony\Component\Console\Output\ConsoleOutput;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -127,11 +130,13 @@ abstract class Modal implements ModalInterface
     $this->output = new ConsoleOutput();
     $this->window = new Window(
       $this->title,
-      '',
+      $this->help ?? '',
       $this->rect->position,
       $this->rect->getWidth(),
       $this->rect->getHeight(),
-      $this->borderPack
+      $this->borderPack,
+      WindowAlignment::middleCenter(),
+      new WindowPadding(),
     );
     $this->window->setContent($this->content);
   }
@@ -141,14 +146,13 @@ abstract class Modal implements ModalInterface
    */
   public function render(): void
   {
-    Console::cursor()->moveTo($this->leftMargin + 1, $this->topMargin + 1);
-    $this->renderTopBorder();
-    Console::cursor()->moveTo($this->leftMargin + 1, $this->topMargin + 2);
-    $this->renderContent();
-    Console::cursor()->moveTo($this->leftMargin + 1, $this->topMargin + 2 + $this->contentHeight);
-    $this->renderButtons();
-    Console::cursor()->moveTo($this->leftMargin + 1, $this->topMargin + 3 + $this->contentHeight);
-    $this->renderBottomBorder();
+    $this->window->setTitle($this->title);
+    $this->window->setHelp($this->help ?? '');
+    $this->window->setContent([
+      ...$this->content,
+      $this->renderedButtonLine(),
+    ]);
+    $this->window->render();
   }
 
   /**
@@ -224,14 +228,22 @@ abstract class Modal implements ModalInterface
     $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::OPEN, true));
     // Fit before centring, so the box is measured at its final height.
     $this->fitContentToWidth();
-    $this->leftMargin = (int)( (get_screen_width() / 2) - ($this->rect->getWidth() / 2) );
-    $this->topMargin = (int)( (get_screen_height() / 2) - ($this->rect->getHeight() / 2) );
+    $this->positionForOpen();
     $this->show();
+    $this->render();
     $sleepTime = (int)(1000000 / 60);
 
     while ($this->isShowing) {
       $this->handleInput();
       $this->update();
+
+      // submit() and cancel() hide and erase the modal. Drawing again in the
+      // same iteration resurrects the overlay after dismissal, and close()
+      // will not erase it a second time because it is already hidden.
+      if (! $this->isShowing) {
+        break;
+      }
+
       $this->render();
 
       // The game loop is not running while this modal is up, so the world is
@@ -413,15 +425,67 @@ abstract class Modal implements ModalInterface
     $this->rect->setHeight($this->contentHeight + 3);
     // Window has no resize, so rebuild it at the fitted height. It owns the
     // erase footprint and would otherwise leave the extra rows on screen.
+    $this->rebuildWindow();
+    $this->window->setContent($this->content);
+  }
+
+  /** Rebuilds the canonical render/erase window after modal geometry changes. */
+  protected function rebuildWindow(): void
+  {
     $this->window = new Window(
       $this->title,
-      '',
+      $this->help ?? '',
       $this->rect->position,
       $this->rect->getWidth(),
       $this->rect->getHeight(),
-      $this->borderPack
+      $this->borderPack,
+      WindowAlignment::middleCenter(),
+      new WindowPadding(),
     );
-    $this->window->setContent($this->content);
+  }
+
+  /**
+   * Moves the modal rectangle and its erase/render window together.
+   *
+   * Modal geometry has one owner: if the visible box and the backing window
+   * diverge, dismissal clears a different area than the one that was drawn.
+   *
+   * @param int $left The zero-based left edge.
+   * @param int $top The zero-based top edge.
+   * @return void
+   */
+  protected function setPosition(int $left, int $top): void
+  {
+    $this->leftMargin = max(0, $left);
+    $this->topMargin = max(0, $top);
+    $this->rect->position = new Vector2($this->leftMargin, $this->topMargin);
+    $this->window->setPosition($this->rect->position);
+  }
+
+  /** Positions ordinary blocking modals in the center of the game screen. */
+  protected function positionForOpen(): void
+  {
+    $this->setPosition(
+      (int)((get_screen_width() - $this->rect->getWidth()) / 2),
+      (int)((get_screen_height() - $this->rect->getHeight()) / 2),
+    );
+  }
+
+  /** Returns the centered action text with the active button styled. */
+  protected function renderedButtonLine(): string
+  {
+    $activeButton = $this->buttons[$this->activeIndex] ?? '';
+    $buttonOutput = implode(' ', $this->buttons);
+
+    if ($activeButton === '') {
+      return $buttonOutput;
+    }
+
+    return str_replace(
+      $activeButton,
+      Color::apply($activeButton, $this->getSelectionColor()),
+      $buttonOutput,
+    );
   }
 
   /**

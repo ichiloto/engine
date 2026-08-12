@@ -21,6 +21,9 @@ use Ichiloto\Engine\UI\Interfaces\ModalInterface;
 use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
+use Ichiloto\Engine\UI\Windows\Window;
+use Ichiloto\Engine\UI\Windows\WindowAlignment;
+use Ichiloto\Engine\UI\Windows\WindowPadding;
 use Ichiloto\Engine\Util\Debug;
 use Symfony\Component\Console\Output\ConsoleOutput;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -117,6 +120,8 @@ class SelectModal implements ModalInterface
    * @var OutputInterface $output The output.
    */
   protected OutputInterface $output;
+  /** @var Window The canonical render and erase footprint. */
+  protected Window $window;
   /**
    * @var string[] $messageLines The message lines.
    */
@@ -155,6 +160,7 @@ class SelectModal implements ModalInterface
     $this->setHelp($help);
     $this->output = new ConsoleOutput();
     $this->wrapMessage();
+    $this->rebuildWindow();
   }
 
   /**
@@ -206,6 +212,10 @@ class SelectModal implements ModalInterface
       $this->rect->setWidth(max($this->rect->getWidth(), TerminalText::displayWidth($option) + 6));
     }
     $this->totalOptions = $totalOptions;
+
+    if (isset($this->window)) {
+      $this->rebuildWindow();
+    }
   }
 
   /**
@@ -228,7 +238,7 @@ class SelectModal implements ModalInterface
     if (Input::isButtonDown("confirm")) {
       $this->playInteractionSound(SystemSound::CONFIRM);
       $this->value = $this->activeOptionIndex;
-      $this->close();
+      $this->hide();
     } else if (Input::isAnyKeyPressed([KeyCode::C, KeyCode::c])) {
       $this->cancel();
     }
@@ -253,13 +263,10 @@ class SelectModal implements ModalInterface
    */
   public function render(?int $x = null, ?int $y = null): void
   {
-    $leftMargin = $this->rect->getX() + ($x ?? 0);
-    $topMargin = $this->rect->getY() + ($y ?? 0);
-
-    $this->erase($x, $y);
-    $this->renderTopBorder($leftMargin, $topMargin);
-    $this->renderOptions($leftMargin, $topMargin + 1);
-    $this->renderBottomBorder($leftMargin, $topMargin + $this->getModalHeight() - 1);
+    $this->window->setTitle($this->title);
+    $this->window->setHelp($this->help ?? '');
+    $this->window->setContent($this->renderedOptionLines());
+    $this->window->render($x === null ? null : $x + 1, $y === null ? null : $y + 1);
   }
 
   /**
@@ -267,14 +274,7 @@ class SelectModal implements ModalInterface
    */
   public function erase(?int $x = null, ?int $y = null): void
   {
-    $leftMargin = $this->rect->getX() + ($x ?? 0);
-    $topMargin = $this->rect->getY() + ($y ?? 0);
-    $modalHeight = max($this->rect->getHeight(), $this->getModalHeight());
-
-    for ($row = 0; $row < $modalHeight; $row++) {
-      Console::cursor()->moveTo($leftMargin + 1, $topMargin + $row + 1);
-      $this->output->write(str_repeat(' ', $this->rect->getWidth()));
-    }
+    $this->window->erase($x === null ? null : $x + 1, $y === null ? null : $y + 1);
   }
 
   /**
@@ -292,9 +292,11 @@ class SelectModal implements ModalInterface
    */
   public function hide(): void
   {
-    $this->erase();
-    $this->isShowing = false;
-    $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::HIDE, true));
+    if ($this->isShowing) {
+      $this->erase();
+      $this->isShowing = false;
+      $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::HIDE, true));
+    }
   }
 
   /**
@@ -358,6 +360,7 @@ class SelectModal implements ModalInterface
     $this->message = $content;
     $this->messageLength = TerminalText::displayWidth($this->message);
     $this->wrapMessage();
+    $this->rebuildWindow();
   }
 
   public function getHelp(): string
@@ -369,6 +372,10 @@ class SelectModal implements ModalInterface
   {
     $this->help = $help;
     $this->helpLength = TerminalText::displayWidth($this->help);
+
+    if (isset($this->window)) {
+      $this->window->setHelp($help);
+    }
   }
 
   public function getHelpLength(): int
@@ -528,6 +535,45 @@ class SelectModal implements ModalInterface
   private function getModalHeight(): int
   {
     return $this->getOptionsHeight() + 2;
+  }
+
+  /** Rebuilds the window after message wrapping or option sizing changes. */
+  protected function rebuildWindow(): void
+  {
+    $this->rect->setHeight($this->getModalHeight());
+    $this->window = new Window(
+      $this->title,
+      $this->help ?? '',
+      $this->rect->position,
+      $this->rect->getWidth(),
+      $this->rect->getHeight(),
+      $this->borderPack,
+      WindowAlignment::middleLeft(),
+      new WindowPadding(),
+    );
+    $this->window->setContent($this->renderedOptionLines());
+  }
+
+  /** @return string[] The prompt, options, and spacing inside the box. */
+  protected function renderedOptionLines(): array
+  {
+    $lines = [];
+
+    if ($this->message !== '') {
+      $lines = [...$this->messageLines, ''];
+    }
+
+    foreach ($this->options as $optionIndex => $option) {
+      $prefix = $optionIndex === $this->activeOptionIndex ? '>' : ' ';
+      $line = " {$prefix} {$option}";
+      $lines[] = $optionIndex === $this->activeOptionIndex
+        ? SelectionStyle::apply($line)
+        : $line;
+    }
+
+    $lines[] = '';
+
+    return $lines;
   }
 
   /**

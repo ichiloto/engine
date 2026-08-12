@@ -30,7 +30,10 @@ class TextBoxModal extends Modal
     }
     set {
       $this->help = $value;
-      $this->window->setHelp($value);
+
+      if (isset($this->window)) {
+        $this->window->setHelp($value);
+      }
     }
   }
   /**
@@ -80,14 +83,6 @@ class TextBoxModal extends Modal
     $positionCoordinates = $position->getCoordinates($width, $height);
     $this->messageLength = mb_strlen($message);
 
-    $this->window = new Window(
-      $title,
-      $help,
-      $positionCoordinates,
-      $width,
-      $height
-    );
-
     parent::__construct(
       $game,
       $message,
@@ -102,6 +97,8 @@ class TextBoxModal extends Modal
       $help,
       $borderPack
     );
+
+    $this->rebuildWindow();
   }
 
   /**
@@ -212,6 +209,30 @@ class TextBoxModal extends Modal
   protected function fitContentToWidth(): void
   {
     // Intentionally empty.
+  }
+
+  /**
+   * Dialogue owns an authored top/bottom screen position rather than using
+   * the centered placement of alerts, confirms, and prompts.
+   */
+  #[Override]
+  protected function positionForOpen(): void
+  {
+    $this->setPosition($this->rect->getX(), $this->rect->getY());
+  }
+
+  /** Dialogue windows retain their ordinary left-aligned text layout. */
+  #[Override]
+  protected function rebuildWindow(): void
+  {
+    $this->window = new Window(
+      $this->title,
+      $this->help ?? '',
+      $this->rect->position,
+      $this->rect->getWidth(),
+      $this->rect->getHeight(),
+      $this->borderPack,
+    );
   }
 
   /**
