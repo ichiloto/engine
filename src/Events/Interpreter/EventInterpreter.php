@@ -34,6 +34,7 @@ class EventInterpreter
     'record_event',
     'give_item',
     'give_gold',
+    'recover_party',
     'play_sound',
     'play_music',
     'accept_quest',
@@ -320,6 +321,15 @@ class EventInterpreter
 
       case 'give_gold':
         $this->gameScene->party?->credit(intval($command['amount'] ?? 0));
+        return EventCommandResult::COMPLETED;
+
+      case 'recover_party':
+        foreach ($this->gameScene->party?->members->toArray() ?? [] as $member) {
+          $member->stats->currentHp = $member->stats->totalHp;
+          $member->stats->currentMp = $member->stats->totalMp;
+          $member->stats->currentAp = $member->stats->totalAp;
+          $member->clearBattleStates();
+        }
         return EventCommandResult::COMPLETED;
 
       case 'play_sound':

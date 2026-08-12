@@ -70,6 +70,11 @@ reusable or incomplete one-shot trigger can be tried again. Project validation
 also reports unknown commands before playtesting from the same authoritative
 `EventInterpreter::COMMAND_TYPES` vocabulary.
 
+`recover_party` is the generic stable-checkpoint recovery command. It restores
+HP, MP, and AP for every travelling member and clears battle-only states. It
+does not change equipment, inventory, experience, party order, persistent
+states, or story state.
+
 ## Movement routes
 
 Use one awaited `move_route` command for either the player or one current-map

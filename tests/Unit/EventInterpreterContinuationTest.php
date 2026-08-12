@@ -395,6 +395,22 @@ it('keeps immediate scripts compatible and completes once', function () {
     ->and($target->failed)->toBe(0);
 });
 
+it('recovers every travelling member without changing roster order', function () {
+  [$scene, $interpreter] = makeEventRuntime();
+  $first = new Character('First', 0, new Stats(currentHp: 5, currentMp: 1, currentAp: 2, totalHp: 100, totalMp: 20, totalAp: 10));
+  $reserve = new Character('Reserve', 0, new Stats(currentHp: 1, currentMp: 0, currentAp: 0, totalHp: 80, totalMp: 30, totalAp: 6));
+  $scene->party->addMember($first);
+  $scene->party->addMember($reserve);
+
+  $session = $interpreter->run([['type' => 'recover_party']], 'recovery');
+
+  expect($session?->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and([$first->stats->currentHp, $first->stats->currentMp, $first->stats->currentAp])->toBe([100, 20, 10])
+    ->and([$reserve->stats->currentHp, $reserve->stats->currentMp, $reserve->stats->currentAp])->toBe([80, 30, 6])
+    ->and(array_map(static fn(Character $member): string => $member->name, $scene->party->members->toArray()))
+    ->toBe(['First', 'Reserve']);
+});
+
 it('fails closed on an unknown top-level command and permits a corrected trigger retry', function () {
   $root = sys_get_temp_dir() . '/event-unknown-' . uniqid();
   mkdir($root . '/assets/Events', 0o777, true);
