@@ -129,6 +129,8 @@ final readonly class SaveCompatibilityPipeline
       ));
     }
 
+    $postResolutionMigrations = [];
+
     while ($contentVersion < $this->manifest->contentVersion) {
       $migrationClass = $this->manifest->migrationFrom($contentVersion);
 
@@ -143,7 +145,12 @@ final readonly class SaveCompatibilityPipeline
       }
 
       try {
-        $payload = new $migrationClass()->migrate($envelope['payload']);
+        $migration = new $migrationClass();
+        $payload = $migration->migrate($envelope['payload']);
+
+        if ($migration instanceof PostResolutionContentMigrationInterface) {
+          $postResolutionMigrations[] = $migration;
+        }
       } catch (SaveCompatibilityException $exception) {
         throw $exception;
       } catch (Throwable $throwable) {
@@ -179,6 +186,20 @@ final readonly class SaveCompatibilityPipeline
     }
 
     $config = new SaveContentResolver($this->manifest, $savePath)->resolve($config);
+
+    foreach ($postResolutionMigrations as $migration) {
+      try {
+        $migration->migrateResolved($config);
+      } catch (SaveCompatibilityException $exception) {
+        throw $exception;
+      } catch (Throwable $throwable) {
+        throw new SaveMigrationException(sprintf(
+          'Post-resolution content migration failed for save %s: %s',
+          $savePath,
+          $throwable->getMessage()
+        ), previous: $throwable);
+      }
+    }
 
     return new SavedGame($slot, $config);
   }

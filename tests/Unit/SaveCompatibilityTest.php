@@ -16,6 +16,7 @@ use Ichiloto\Engine\Exceptions\UnsupportedContentVersionException;
 use Ichiloto\Engine\Exceptions\UnsupportedSaveSchemaException;
 use Ichiloto\Engine\Exceptions\WrongProjectSaveException;
 use Ichiloto\Engine\IO\SaveCompatibility\ContentMigrationInterface;
+use Ichiloto\Engine\IO\SaveCompatibility\PostResolutionContentMigrationInterface;
 use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityManifest;
 use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityPipeline;
 use Ichiloto\Engine\IO\SaveManager;
@@ -48,6 +49,27 @@ class RecordingContentVersion0To1 implements ContentMigrationInterface
     }
 
     return $payload;
+  }
+}
+
+class RecordingPostResolutionContentVersion0To1 implements ContentMigrationInterface, PostResolutionContentMigrationInterface
+{
+  public static bool $actorWasDeferred = false;
+  public static bool $actorWasHydrated = false;
+
+  public function migrate(array $payload): array
+  {
+    $config = $payload['config'] ?? null;
+    $actor = $config instanceof GameConfig ? ($config->party->members->toArray()[0] ?? null) : null;
+    self::$actorWasDeferred = $actor instanceof Character && $actor->getDeferredSaveData() !== null;
+
+    return $payload;
+  }
+
+  public function migrateResolved(GameConfig $config): void
+  {
+    $actor = $config->party->members->toArray()[0] ?? null;
+    self::$actorWasHydrated = $actor instanceof Character && $actor->getDeferredSaveData() === null;
   }
 }
 
@@ -205,6 +227,37 @@ it('runs schema migration before project content migration without rewriting the
     ->and($loaded->config->gameState['storyEvents'])->toBe(['legacy-event'])
     ->and(hash_file('sha256', $path))->toBe($before)
     ->and(decodeCompatibilityPayload($path))->not->toHaveKey('schemaVersion');
+
+  cleanupCompatibilityManager($manager);
+});
+
+it('offers content migrations a post-resolution phase only after actors hydrate', function () {
+  $slug = 'save-compatibility-post-resolution-' . uniqid();
+  $manager = new SaveManager(
+    new SaveCompatibilityTestGame(),
+    "./tests/Support/Data/{$slug}",
+    "./tests/Support/Data/{$slug}/quick",
+    makeCompatibilityManifest([
+      'contentVersion' => 1,
+      'migrations' => [[
+        'from' => 0,
+        'to' => 1,
+        'class' => RecordingPostResolutionContentVersion0To1::class,
+      ]],
+    ]),
+  );
+  $path = $manager->getSlotPath(1);
+  writeCompatibilityPayload($path, [
+    'slot' => makeCompatibilitySlot($path),
+    'config' => makeCompatibilityConfig(),
+  ]);
+  RecordingPostResolutionContentVersion0To1::$actorWasDeferred = false;
+  RecordingPostResolutionContentVersion0To1::$actorWasHydrated = false;
+
+  $manager->loadSaveFile($path);
+
+  expect(RecordingPostResolutionContentVersion0To1::$actorWasDeferred)->toBeTrue()
+    ->and(RecordingPostResolutionContentVersion0To1::$actorWasHydrated)->toBeTrue();
 
   cleanupCompatibilityManager($manager);
 });

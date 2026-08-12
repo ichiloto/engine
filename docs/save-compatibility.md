@@ -95,7 +95,12 @@ quick, and autosave files, and for readers used by Continue and tooling:
 8. `SaveContentResolver` resolves aliases and rejects tombstones.
 9. Deferred characters hydrate their current ability, magic, summon, item,
    equipment, and state references.
-10. The pipeline validates the required `SaveSlot` and `GameConfig` objects
+10. Content migrations that implement
+    `PostResolutionContentMigrationInterface` receive the resolved
+    `GameConfig`. This optional phase is for deterministic repairs that need
+    hydrated, current-content actors; identity migration remains in the
+    ordinary pre-resolution phase.
+11. The pipeline validates the required `SaveSlot` and `GameConfig` objects
     and returns a `SavedGame`.
 
 Loading never writes the source path. A migrated legacy game is written in
