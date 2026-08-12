@@ -13,6 +13,7 @@ use Ichiloto\Engine\Battle\BattlerBattleView;
 use Ichiloto\Engine\Battle\BattleCommandCatalog;
 use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\Battle\BattleCommandOption;
+use Ichiloto\Engine\Battle\EscapePolicy;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\TraditionalTurnBasedBattleEngine;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Entities\Character;
@@ -249,6 +250,7 @@ class PlayerActionState extends TurnState
         $this->activeCharacter,
         $context->party,
         $context->getGameState(),
+        $engine->battleConfig->getEscapePolicy(),
       ),
     );
     $ui->commandWindow->focus();
@@ -375,6 +377,12 @@ class PlayerActionState extends TurnState
    */
   protected function attemptEscape(TurnStateExecutionContext $context): void
   {
+    if ($this->engine->battleConfig->getEscapePolicy() === EscapePolicy::FORBIDDEN) {
+      $context->ui->alert('Escape is not available in this battle.');
+      $this->selectionMode = self::MODE_COMMAND;
+      return;
+    }
+
     $partySpeed = $this->averageSpeed($context->getLivingPartyBattlers());
     $troopSpeed = $this->averageSpeed($context->getLivingTroopBattlers());
     $chance = intval(clamp(50 + ($partySpeed - $troopSpeed) * 2, 5, 95));

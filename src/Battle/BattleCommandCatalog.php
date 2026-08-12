@@ -75,12 +75,19 @@ final class BattleCommandCatalog
     Character $character,
     Party $party,
     ?GameState $gameState = null,
+    EscapePolicy $escapePolicy = EscapePolicy::ALLOWED,
   ): array
   {
     return array_values(array_filter(
       $character->commandAbilities,
-      static function (BattleAction $action) use ($character, $party, $gameState): bool {
-        if (BattleCommandType::fromCommandName($action->name) !== BattleCommandType::SUMMON) {
+      static function (BattleAction $action) use ($character, $party, $gameState, $escapePolicy): bool {
+        $type = BattleCommandType::fromCommandName($action->name);
+
+        if ($type === BattleCommandType::ESCAPE) {
+          return $escapePolicy === EscapePolicy::ALLOWED;
+        }
+
+        if ($type !== BattleCommandType::SUMMON) {
           return true;
         }
 

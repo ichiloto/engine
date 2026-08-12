@@ -13,6 +13,8 @@ use Assegai\Util\Path;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Stores\ItemStore;
+use Ichiloto\Engine\Progression\ExperienceAwarder;
+use Ichiloto\Engine\Progression\ExperienceAwardResult;
 use Throwable;
 
 /**
@@ -415,7 +417,7 @@ class QuestManager
       return;
     }
 
-    $this->grantRewards($quest);
+    $progressionResults = $this->grantRewards($quest);
     $this->gameScene->gameState->recordStoryEvent(sprintf('quest_completed:%s', $quest->id));
 
     if (! $quiet) {
@@ -426,6 +428,7 @@ class QuestManager
       }
 
       $this->notifyQuest('Quest Complete', $text, NotificationDuration::LONG);
+      $this->notifyProgression($progressionResults);
     }
   }
 
@@ -435,12 +438,12 @@ class QuestManager
    * @param Quest $quest The quest.
    * @return void
    */
-  protected function grantRewards(Quest $quest): void
+  protected function grantRewards(Quest $quest): array
   {
     $party = $this->gameScene->party;
 
     if (! $party instanceof Party) {
-      return;
+      return [];
     }
 
     if (($gold = intval($quest->rewards['gold'] ?? 0)) > 0) {
@@ -448,9 +451,9 @@ class QuestManager
     }
 
     if (($experience = intval($quest->rewards['experience'] ?? 0)) > 0) {
-      foreach ($party->members->toArray() as $member) {
-        $member->addExperience($experience);
-      }
+      $progressionResults = ExperienceAwarder::awardParty($party, $experience);
+    } else {
+      $progressionResults = [];
     }
 
     $itemNames = array_values(array_filter((array) ($quest->rewards['items'] ?? []), is_string(...)));
@@ -461,6 +464,33 @@ class QuestManager
       if ($itemStore instanceof ItemStore) {
         $party->addItems(...$itemStore->load($itemNames));
       }
+    }
+
+    return $progressionResults;
+  }
+
+  /** @param ExperienceAwardResult[] $results */
+  protected function notifyProgression(array $results): void
+  {
+    $lines = [];
+
+    foreach ($results as $result) {
+      if (! $result->levelledUp()) {
+        continue;
+      }
+
+      $line = sprintf('%s reached level %d.', $result->character->name, $result->newLevel);
+      $learned = $result->learnedSkills();
+
+      if ($learned !== []) {
+        $line .= sprintf(' Learned %s.', implode(', ', $learned));
+      }
+
+      $lines[] = $line;
+    }
+
+    if ($lines !== []) {
+      $this->notifyQuest('Party Progress', implode("\n", $lines), NotificationDuration::LONG);
     }
   }
 

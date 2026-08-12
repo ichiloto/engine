@@ -7,6 +7,7 @@ use Ichiloto\Engine\Battle\BattleResult;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Progression\ExperienceAwarder;
 
 /**
  * Represents the turn resolution state.
@@ -51,36 +52,11 @@ class TurnResolutionState extends TurnState
         }
       }
 
-      $levelUps = [];
-
-      foreach ($context->party->members->toArray() as $member) {
-        $previousLevel = $member->level;
-        $member->addExperience($experience);
-
-        if ($member->level <= $previousLevel) {
-          continue;
-        }
-
-        // Consume the role's level-gated skill grants for every level
-        // crossed this battle.
-        $learnedSkillNames = [];
-
-        foreach ($member->role->skillsToLearn as $skillToLearn) {
-          if (
-            $skillToLearn->level > $previousLevel
-            && $skillToLearn->level <= $member->level
-            && $member->learnSkill($skillToLearn->skill)
-          ) {
-            $learnedSkillNames[] = $skillToLearn->skill->name;
-          }
-        }
-
-        $levelUps[] = [
-          'name' => $member->name,
-          'level' => $member->level,
-          'skills' => $learnedSkillNames,
-        ];
-      }
+      $progressionResults = ExperienceAwarder::awardParty($context->party, $experience);
+      $levelUps = array_values(array_filter(
+        $progressionResults,
+        static fn($result): bool => $result->levelledUp(),
+      ));
 
       $context->party->credit($gold);
 
@@ -119,16 +95,16 @@ class TurnResolutionState extends TurnState
       }
 
       foreach ($levelUps as $levelUp) {
-        $lines[] = sprintf('%s grew to level %d!', $levelUp['name'], $levelUp['level']);
+        $lines[] = sprintf('%s grew to level %d!', $levelUp->character->name, $levelUp->newLevel);
         $entries[] = [
-          'label' => sprintf('%s:', $levelUp['name']),
-          'value' => sprintf('Level %d!', $levelUp['level']),
+          'label' => sprintf('%s:', $levelUp->character->name),
+          'value' => sprintf('Level %d!', $levelUp->newLevel),
         ];
 
-        foreach ($levelUp['skills'] as $skillName) {
-          $lines[] = sprintf('%s learned %s!', $levelUp['name'], $skillName);
+        foreach ($levelUp->learnedSkills() as $skillName) {
+          $lines[] = sprintf('%s learned %s!', $levelUp->character->name, $skillName);
           $entries[] = [
-            'label' => sprintf('%s learned:', $levelUp['name']),
+            'label' => sprintf('%s learned:', $levelUp->character->name),
             'value' => $skillName,
           ];
         }

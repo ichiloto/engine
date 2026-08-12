@@ -37,6 +37,10 @@ return [
 - `description` and `giver` feed the journal; both optional.
 - `rewards` supports `gold`, `experience` (granted to every member), and
   `items` (names resolved through the item store). All optional.
+- Experience rewards use the same progression awarder as battles. Every
+  crossed level grants the role's automatic skills exactly once, including
+  reserve members, and quest presentation reports new levels and learned
+  abilities or magic without maintaining a second progression model.
 - `optional` marks a side quest, which is offered rather than granted. See
   [Side quests the player can turn down](#side-quests-the-player-can-turn-down).
 

@@ -381,15 +381,31 @@ class EventInterpreter
           throw new RuntimeException(sprintf('Unsupported battle defeat policy "%s".', $defeatPolicy));
         }
 
+        $escapePolicy = null;
+
+        if (array_key_exists('escapePolicy', $command)) {
+          try {
+            $escapePolicy = \Ichiloto\Engine\Battle\EscapePolicy::resolve($command['escapePolicy'])->value;
+          } catch (\InvalidArgumentException $exception) {
+            throw new RuntimeException($exception->getMessage(), previous: $exception);
+          }
+        }
+
         $session->suspendFor($command, [
           'kind' => 'battle',
           'resultVariable' => trim(strval($command['resultVariable'] ?? '')),
           'defeatPolicy' => $defeatPolicy,
         ]);
+        $extraSettings = ['event_defeat_policy' => $defeatPolicy];
+
+        if ($escapePolicy !== null) {
+          $extraSettings['escapePolicy'] = $escapePolicy;
+        }
+
         $this->gameScene->sceneManager->loadBattleScene(
           $this->gameScene->party,
           get_troop($troopName),
-          extraSettings: ['event_defeat_policy' => $defeatPolicy],
+          extraSettings: $extraSettings,
         );
         return EventCommandResult::SUSPENDED;
 

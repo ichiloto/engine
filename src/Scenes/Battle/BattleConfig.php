@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Scenes\Battle;
 
+use Ichiloto\Engine\Battle\EscapePolicy;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\Scenes\Interfaces\SceneConfigurationInterface;
@@ -52,6 +53,14 @@ class BattleConfig implements SceneConfigurationInterface
   public function __toString(): string
   {
     return json_encode($this);
+  }
+
+  /**
+   * Returns the resolved retreat policy for this battle.
+   */
+  public function getEscapePolicy(): EscapePolicy
+  {
+    return EscapePolicy::resolve($this->settings['escapePolicy'] ?? null);
   }
 
   /**

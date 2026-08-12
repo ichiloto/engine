@@ -179,7 +179,6 @@ final class SummonCutsceneDefinition
       'name' => $this->name,
       'description' => $this->description,
       'moveName' => $this->moveName,
-      'wielders' => $this->wielders?->toArray(),
       'lore' => $this->lore,
       'element' => $this->element,
       'strengths' => $this->strengths,
@@ -199,6 +198,10 @@ final class SummonCutsceneDefinition
 
     if ($this->availability !== null) {
       $data['availability'] = $this->availability->toArray();
+    }
+
+    if ($this->wielders !== null) {
+      $data['wielders'] = $this->wielders->toArray();
     }
 
     return $data;

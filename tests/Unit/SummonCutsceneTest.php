@@ -188,3 +188,19 @@ it('round-trips codex fields through the definition', function () {
     ->and($data['strengths'])->toBe(['Ice'])
     ->and($data['attributes'])->toBe(['Power' => 'A']);
 });
+
+it('keeps an omitted wielder policy omitted through source round-trip', function () {
+  $definition = SummonCutsceneDefinition::fromArrays(
+    ['id' => 'open-summon', 'name' => 'Open Summon'],
+    ['fps' => 12, 'lengthFrames' => 1, 'tracks' => [], 'cues' => []],
+  );
+  $serialized = $definition->toDataArray();
+  $restored = SummonCutsceneDefinition::fromArrays(
+    $serialized,
+    $definition->toTimelineArray(),
+  );
+
+  expect($serialized)->not->toHaveKey('wielders')
+    ->and($restored->wielders)->toBeNull()
+    ->and($restored->toDataArray())->not->toHaveKey('wielders');
+});

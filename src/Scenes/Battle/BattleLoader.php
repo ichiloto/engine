@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Scenes\Battle;
 
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\SystemData;
+use Ichiloto\Engine\Battle\EscapePolicy;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Troop;
 
@@ -72,6 +73,12 @@ class BattleLoader
     if ($troop->backgroundMusic !== null) {
       $settings['bgm'] = $troop->backgroundMusic;
     }
+
+    $scriptPolicy = array_key_exists('escapePolicy', $extraSettings)
+      ? EscapePolicy::resolve($extraSettings['escapePolicy'])
+      : null;
+    $settings['escapePolicy'] = ($scriptPolicy ?? $troop->escapePolicy ?? EscapePolicy::ALLOWED)->value;
+    $extraSettings['escapePolicy'] = $settings['escapePolicy'];
 
     return new BattleConfig(
       $party,

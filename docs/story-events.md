@@ -131,6 +131,7 @@ path:
   'troop' => 'Training Pair',
   'resultVariable' => 'training_result', // optional
   'defeatPolicy' => 'game_over',         // default; or continue
+  'escapePolicy' => 'forbidden',         // optional; allowed or forbidden
 ],
 ```
 
@@ -144,6 +145,12 @@ writes nothing.
 Victory rewards, quest tracking, achievements, bestiary recording, audio
 restoration, party cleanup, and persistent-state handling stay on the existing
 battle paths.
+
+`escapePolicy` overrides the troop's optional policy for this launch. If both
+are omitted, escape remains allowed for backward compatibility. A forbidden
+battle omits the Escape command and rechecks the rule at resolution, so stale
+or directly queued input cannot produce an escaped result. Malformed values
+fail closed at validation and produce a controlled runtime event failure.
 
 ## Save safety
 
