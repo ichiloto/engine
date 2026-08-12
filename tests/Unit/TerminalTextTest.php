@@ -41,21 +41,22 @@ it('treats symfony formatter tags as zero-width styling', function () {
 
 /* Width-unstable glyph stabilization */
 
-it('measures narrow BMP pictographs as one column with or without a variation selector', function () {
-  expect(TerminalText::displayWidth('⚔️'))->toBe(1)
+it('distinguishes plain text pictographs from explicit emoji presentation', function () {
+  expect(TerminalText::displayWidth('⚔️'))->toBe(2)
     ->and(TerminalText::displayWidth('⚔'))->toBe(1)
-    ->and(TerminalText::displayWidth('➡️'))->toBe(1);
+    ->and(TerminalText::displayWidth('➡️'))->toBe(2)
+    ->and(TerminalText::displayWidth('➡'))->toBe(1);
 });
 
 it('uses Unicode presentation defaults for astral pictograph widths', function () {
-  expect(TerminalText::displayWidth('🗡️'))->toBe(1)
+  expect(TerminalText::displayWidth('🗡️'))->toBe(2)
     ->and(TerminalText::displayWidth('🗡'))->toBe(1)
     ->and(TerminalText::displayWidth('🚶'))->toBe(2);
 });
 
-it('strips variation selectors from narrow BMP bases', function () {
-  expect(TerminalText::stabilizeSymbol('⚔️'))->toBe('⚔')
-    ->and(TerminalText::stabilizeSymbol('🗡️'))->toBe('🗡')
+it('preserves explicit variation selectors', function () {
+  expect(TerminalText::stabilizeSymbol('⚔️'))->toBe('⚔️')
+    ->and(TerminalText::stabilizeSymbol('🗡️'))->toBe('🗡️')
     ->and(TerminalText::stabilizeSymbol('🧪️'))->toBe('🧪️')
     ->and(TerminalText::stabilizeSymbol('A'))->toBe('A');
 });
@@ -69,15 +70,16 @@ it('reduces zwj sequences and skin tones to their base glyph', function () {
 it('stabilizes whole strings while preserving stable content and ansi styling', function () {
   $styled = Color::apply('⚔️', Color::LIGHT_GREEN);
 
-  expect(TerminalText::stabilize('⚔️ Radiant 🗡️ Slash'))->toBe('⚔ Radiant 🗡 Slash')
+  expect(TerminalText::stabilize('⚔️ Radiant 🗡️ Slash'))->toBe('⚔️ Radiant 🗡️ Slash')
     ->and(TerminalText::stabilize('plain ascii'))->toBe('plain ascii')
-    ->and(TerminalText::stripAnsi(TerminalText::stabilize($styled)))->toBe('⚔')
+    ->and(TerminalText::stripAnsi(TerminalText::stabilize($styled)))->toBe('⚔️')
     ->and(TerminalText::stabilize($styled))->toContain("\033[");
 });
 
 it('keeps padded columns aligned around unstable glyphs', function () {
   expect(TerminalText::displayWidth(TerminalText::padRight('⚔️ Radiant Slash', 24)))->toBe(24)
     ->and(TerminalText::displayWidth(TerminalText::padRight('🗡️ Shadowstep (2 MP)', 58)))->toBe(58)
-    ->and(TerminalText::stabilize(TerminalText::padRight('🗡️ Shadowstep (2 MP)', 58)))->not->toContain("️")
+    ->and(TerminalText::stabilize(TerminalText::padRight('🗡️ Shadowstep (2 MP)', 58)))->toContain("️")
+    ->and(TerminalText::displayWidth(TerminalText::padRight('> 🗡️ Shadowstep (2 MP)', 58) . '║'))->toBe(59)
     ->and(TerminalText::displayWidth(TerminalText::padRight('🏃🏽‍➡️ Sprint', 24)))->toBe(24);
 });

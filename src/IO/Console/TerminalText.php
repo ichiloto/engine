@@ -299,12 +299,13 @@ final class TerminalText
       return 2;
     }
 
-    // Characters whose Unicode default is emoji presentation render as two
-    // cells. Extended pictographs whose default is text presentation (for
-    // example U+1F5E1 DAGGER KNIFE) stay narrow after stabilization even
-    // though they live outside the BMP.
+    // Both a default emoji and an explicit U+FE0F emoji-presentation request
+    // occupy two cells. The selector is part of the grapheme's authored
+    // presentation; removing it turns symbols such as 🗡️ into a different,
+    // narrow text glyph and makes the buffer disagree with the terminal.
     if (
       preg_match('/\p{Emoji_Presentation}/u', $symbol) === 1
+      || str_contains($symbol, "\u{FE0F}")
     ) {
       return 2;
     }
@@ -362,10 +363,9 @@ final class TerminalText
    *
    * - ZWJ sequences and skin-tone modifiers (e.g. "🏃🏽‍➡️") are reduced to
    *   their base glyph, which renders one predictable cell pair everywhere.
-   * - A variation selector on a text-presentation base (e.g. "⚔️" or
-   *   "🗡️") is stripped, rendering the plain text glyph at its stable
-   *   width. Characters whose Unicode default is emoji presentation remain
-   *   double-width.
+   * - Explicit text/emoji variation selectors are preserved. They are
+   *   semantic presentation requests, and the width calculator reserves the
+   *   corresponding one or two cells for the complete grapheme.
    *
    * @param string $symbol The grapheme to stabilize.
    * @return string The stabilized grapheme.
@@ -415,29 +415,17 @@ final class TerminalText
         return $symbol;
       }
 
-      // Keep a directly attached VS16 only on astral bases, where emoji
-      // presentation is already the default width.
-      if (($codepoints[1] ?? '') === "\u{FE0F}" && mb_ord($base, 'UTF-8') >= 0x10000) {
-        $base .= "\u{FE0F}";
+      // Preserve a directly attached presentation selector on the reduced
+      // base. It determines whether the remaining glyph is text- or
+      // emoji-width independently of the code point's plane.
+      if (in_array(($codepoints[1] ?? ''), ["\u{FE0E}", "\u{FE0F}"], true)) {
+        $base .= $codepoints[1];
       }
 
       return str_replace($visible, $base, $symbol);
     }
 
-    $visibleBase = preg_replace('/[\x{FE0E}\x{FE0F}]/u', '', $visible) ?? $visible;
-
-    // A default-emoji base already has a stable two-cell presentation. Its
-    // selector is redundant but harmless, so preserve the authored glyph.
-    if (preg_match('/\p{Emoji_Presentation}/u', $visibleBase) === 1) {
-      return $symbol;
-    }
-
-    if ($visibleBase === '') {
-      return $symbol;
-    }
-
-    // Drop the selector from the full symbol so any ANSI styling survives.
-    return preg_replace('/[\x{FE0E}\x{FE0F}]/u', '', $symbol) ?? $symbol;
+    return $symbol;
   }
 
   /**

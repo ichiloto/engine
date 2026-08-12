@@ -6,6 +6,7 @@ use Ichiloto\Engine\Battle\UI\BattleCommandContextWindow;
 use Ichiloto\Engine\Battle\UI\BattleScreen;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeStatus;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\UI\Windows\WindowPadding;
 
@@ -71,4 +72,33 @@ it('scrolls battle submenu options when the list exceeds the viewport', function
   expect($window->getActiveItem()?->label)->toBe('Aero')
     ->and($window->getScrollOffset())->toBe(1)
     ->and($window->getTitle())->toContain('2/2');
+});
+
+it('keeps an emoji-presented skill label inside the battle submenu width', function () {
+  $screen = (new ReflectionClass(BattleScreen::class))->newInstanceWithoutConstructor();
+  (new ReflectionClass(BattleScreen::class))->getProperty('selectionColor')->setValue($screen, Color::YELLOW);
+
+  $window = (new ReflectionClass(BattleCommandContextWindowTestProxy::class))->newInstanceWithoutConstructor();
+  setBattleTestProperty($window, 'battleScreen', $screen);
+  setBattleTestProperty($window, 'width', BattleCommandContextWindow::WIDTH);
+  setBattleTestProperty($window, 'height', BattleCommandContextWindow::HEIGHT);
+  setBattleTestProperty($window, 'padding', new WindowPadding(rightPadding: 1, leftPadding: 1));
+
+  $window->setItems([
+    new BattleCommandOption(
+      '🗡️ Shadowstep (2 MP)',
+      'Move through the target line.',
+      new AttackAction('Shadowstep'),
+      ItemScopeSide::ENEMY,
+      ItemScopeStatus::ALIVE,
+      mpCost: 2,
+    ),
+  ], 'Skill');
+  $window->focus();
+
+  $line = $window->getContent()[0];
+
+  expect(TerminalText::stripAnsi($line))->toContain('🗡️ Shadowstep (2 MP)')
+    ->and(TerminalText::displayWidth($line))->toBe($window->getContentWidth())
+    ->and(TerminalText::stabilize($line))->toContain('🗡️');
 });

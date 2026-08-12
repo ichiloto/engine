@@ -411,9 +411,9 @@ class Console
       $cellCursor = $x;
 
       foreach (TerminalText::visibleSymbols($text) as $symbol) {
-        // Width-unstable glyphs (narrow BMP base + variation selector) are
-        // rewritten to their text presentation so every terminal advances the
-        // cursor by exactly the width the buffer accounts for.
+        // Unsupported composite emoji are reduced to a stable grapheme.
+        // Explicit presentation selectors remain intact; TerminalText
+        // reserves the width requested by the complete grapheme.
         $symbol = TerminalText::stabilizeSymbol($symbol);
         $symbolWidth = max(1, TerminalText::displayWidth($symbol));
 

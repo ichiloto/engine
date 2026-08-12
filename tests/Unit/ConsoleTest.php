@@ -43,6 +43,23 @@ it('keeps emoji writes aligned to terminal cell width', function () {
     ->and(TerminalText::stripAnsi($row))->toBe(" 😀Z    ");
 });
 
+it('keeps an explicitly presented emoji and trailing border in their cells', function () {
+  setConsoleDimensionsForTest(10, 3);
+
+  ob_start();
+  Console::write('🗡️', 1, 0);
+  Console::write('║', 3, 0);
+  ob_end_clean();
+
+  $row = Console::getBuffer()[0];
+
+  expect(TerminalText::displayWidth($row))->toBe(10)
+    ->and(TerminalText::stripAnsi($row))->toBe(" 🗡️║      ")
+    ->and(Console::charAt(1, 0))->toBe('🗡️')
+    ->and(Console::charAt(2, 0))->toBe('🗡️')
+    ->and(Console::charAt(3, 0))->toBe('║');
+});
+
 it('clears a full wide glyph when overwriting its trailing cell', function () {
   setConsoleDimensionsForTest(6, 3);
 
