@@ -35,14 +35,12 @@ function setBattleTestProperty(object $object, string $property, mixed $value): 
   }
 
   $reflectionProperty = $reflection->getProperty($property);
-  $reflectionProperty->setAccessible(true);
   $reflectionProperty->setValue($object, $value);
 }
 
 it('scrolls battle submenu options when the list exceeds the viewport', function () {
   $screen = (new ReflectionClass(BattleScreen::class))->newInstanceWithoutConstructor();
   $selectionColor = (new ReflectionClass(BattleScreen::class))->getProperty('selectionColor');
-  $selectionColor->setAccessible(true);
   $selectionColor->setValue($screen, Color::LIGHT_BLUE);
 
   $window = (new ReflectionClass(BattleCommandContextWindowTestProxy::class))->newInstanceWithoutConstructor();

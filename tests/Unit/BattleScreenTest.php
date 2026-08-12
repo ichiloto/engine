@@ -29,7 +29,6 @@ it('styles battle selection lines with the configured highlight color', function
   $screen = $reflection->newInstanceWithoutConstructor();
 
   $selectionColor = $reflection->getProperty('selectionColor');
-  $selectionColor->setAccessible(true);
   $selectionColor->setValue($screen, Color::LIGHT_BLUE);
 
   $styledLine = $screen->styleSelectionLine('> Attack');
@@ -44,7 +43,6 @@ it('can blink the active battle selection line', function () {
   $screen = $reflection->newInstanceWithoutConstructor();
 
   $selectionColor = $reflection->getProperty('selectionColor');
-  $selectionColor->setAccessible(true);
   $selectionColor->setValue($screen, Color::LIGHT_BLUE);
 
   $styledLine = $screen->styleSelectionLine('> Kaelion', blink: true);

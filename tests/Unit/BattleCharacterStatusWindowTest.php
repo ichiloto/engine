@@ -4,14 +4,12 @@ use Ichiloto\Engine\Battle\UI\BattleCharacterStatusWindow;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Stats;
-use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\WindowAlignment;
 use Ichiloto\Engine\UI\Windows\WindowPadding;
-use Symfony\Component\Console\Output\BufferedOutput;
 
 it('keeps low non-zero hp and mp bars visibly filled', function () {
   $window = makeBattleCharacterStatusWindow();
@@ -97,9 +95,6 @@ function makeBattleCharacterStatusWindow(): BattleCharacterStatusWindow
   (new ReflectionProperty(BattleCharacterStatusWindow::class, 'backgroundColor'))->setValue($window, Color::BLACK);
   (new ReflectionProperty(BattleCharacterStatusWindow::class, 'foregroundColor'))->setValue($window, null);
   (new ReflectionProperty(BattleCharacterStatusWindow::class, 'content'))->setValue($window, array_fill(0, BattleCharacterStatusWindow::HEIGHT - 2, ''));
-  (new ReflectionProperty(BattleCharacterStatusWindow::class, 'cursor'))->setValue($window, Console::cursor());
-  (new ReflectionProperty(BattleCharacterStatusWindow::class, 'output'))->setValue($window, new BufferedOutput());
-
   return $window;
 }
 

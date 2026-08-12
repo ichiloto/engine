@@ -201,11 +201,11 @@ it('routes the global audio helpers through the current audio manager', function
 
 it('quietly ignores the global audio helpers when audio is not booted', function () {
   // No audio manager has been initialized in this process state.
-  play_sound(SystemSound::CURSOR);
-  play_music('overworld-theme');
-  stop_music();
-
-  expect(true)->toBeTrue();
+  expect(function (): void {
+    play_sound(SystemSound::CURSOR);
+    play_music('overworld-theme');
+    stop_music();
+  })->not->toThrow(Throwable::class);
 });
 
 it('lets a troop declare its own battle theme', function () {

@@ -145,7 +145,6 @@ function setMenuHighlightProperty(object $object, string $property, mixed $value
   }
 
   $reflectionProperty = $reflection->getProperty($property);
-  $reflectionProperty->setAccessible(true);
   $reflectionProperty->setValue($object, $value);
 }
 

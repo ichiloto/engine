@@ -167,7 +167,6 @@ function setTestProperty(object $object, string $property, mixed $value): void
   }
 
   $reflectionProperty = $reflection->getProperty($property);
-  $reflectionProperty->setAccessible(true);
   $reflectionProperty->setValue($object, $value);
 }
 
@@ -307,9 +306,7 @@ it('returns control to the active-time flow when there is no enemy phase to hand
 
   // Running out of characters to ask, which a failed escape does, used to hand
   // off to a null enemy phase and crash the battle.
-  $state->selectNextCharacterForTest($context);
-
-  expect(true)->toBeTrue();
+  expect(fn() => $state->selectNextCharacterForTest($context))->not->toThrow(Throwable::class);
 });
 
 class ActiveTimeBattleEngineCaptureProxy extends ActiveTimeBattleEngine
