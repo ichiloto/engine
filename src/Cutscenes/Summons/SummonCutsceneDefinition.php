@@ -56,6 +56,7 @@ final class SummonCutsceneDefinition
     array $cues = [],
     public array $editor = [],
     public array $authoring = [],
+    public ?SummonAvailability $availability = null,
   )
   {
     $this->id = trim($id);
@@ -114,7 +115,9 @@ final class SummonCutsceneDefinition
       strval($data['name'] ?? 'New Summon'),
       strval($data['description'] ?? ''),
       isset($data['moveName']) ? strval($data['moveName']) : null,
-      is_array($data['wielders'] ?? null) ? SummonWielderPolicy::fromArray($data['wielders']) : null,
+      array_key_exists('wielders', $data)
+        ? SummonWielderPolicy::fromAuthored($data['wielders'])
+        : null,
       strval($data['lore'] ?? ''),
       strval($data['element'] ?? ''),
       is_array($data['strengths'] ?? null) ? $data['strengths'] : [],
@@ -136,6 +139,9 @@ final class SummonCutsceneDefinition
       $cues,
       is_array($timeline['editor'] ?? null) ? $timeline['editor'] : [],
       is_array($data['authoring'] ?? null) ? $data['authoring'] : [],
+      array_key_exists('availability', $data)
+        ? SummonAvailability::fromAuthored($data['availability'])
+        : null,
     );
   }
 
@@ -168,7 +174,7 @@ final class SummonCutsceneDefinition
    */
   public function toDataArray(): array
   {
-    return [
+    $data = [
       'id' => $this->id,
       'name' => $this->name,
       'description' => $this->description,
@@ -190,6 +196,12 @@ final class SummonCutsceneDefinition
       'targetPresentation' => $this->targetPresentation->toArray(),
       'authoring' => $this->authoring,
     ];
+
+    if ($this->availability !== null) {
+      $data['availability'] = $this->availability->toArray();
+    }
+
+    return $data;
   }
 
   /**
@@ -224,6 +236,16 @@ final class SummonCutsceneDefinition
     ];
   }
 
+  /**
+   * Determines whether this definition is currently available in the world.
+   *
+   * Omitting availability preserves the historical open-summon behavior.
+   */
+  public function isAvailable(\Ichiloto\Engine\Core\GameState $gameState, ?\Ichiloto\Engine\Entities\Party $party = null): bool
+  {
+    return $this->availability === null || $this->availability->isSatisfied($gameState, $party);
+  }
+
   protected function normalizeOptionalString(?string $value): ?string
   {
     return $value !== null && trim($value) !== ''
@@ -231,4 +253,3 @@ final class SummonCutsceneDefinition
       : null;
   }
 }
-

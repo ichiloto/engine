@@ -220,10 +220,8 @@ class MainMenuState extends GameSceneState implements CanRender
             ->addItem(new OpenEquipmentMenuCommand($this->mainMenu))
             ->addItem(new OpenMagicMenuCommand($this->mainMenu));
 
-        // The summon screen is the player's window into every authored
-        // summon — assignment, and later growth and junction mechanics, layer
-        // on top. It only disappears when the project has no summons at all.
-        if (! empty(SummonsMenuState::loadSummons())) {
+        // Only currently available summons belong in player management.
+        if (! empty(SummonsMenuState::loadSummons($this->getGameScene()->gameState, $this->party))) {
             $this->mainMenu->addItem(new OpenSummonsMenuCommand($this->mainMenu));
         }
 

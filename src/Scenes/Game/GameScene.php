@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Scenes\Game;
 
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\GameState;
+use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Battle\BattleResult;
 use Ichiloto\Engine\Events\Interpreter\EventExecutionSession;
@@ -263,6 +264,7 @@ class GameScene extends AbstractScene
             $this->config->playerSprites
         );
         $this->party = $this->config->party;
+        $this->party->assertSummonAssignments((new SummonCutsceneLibrary())->load());
 
         // The quest manager must exist before the first map load so the
         // starting map counts toward reach-map objectives.

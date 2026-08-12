@@ -27,6 +27,7 @@ use Ichiloto\Engine\Entities\Skills\Skill;
 use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Stores\ClassStore;
 use Ichiloto\Engine\Exceptions\PersistentStateRestoreException;
+use Ichiloto\Engine\Exceptions\SummonAssignmentException;
 use Ichiloto\Engine\IO\SaveCompatibility\SaveHydrationContext;
 use InvalidArgumentException;
 
@@ -328,7 +329,7 @@ class Character implements CharacterInterface, CanEquip
       $character->applyClass($className);
     }
 
-    foreach (array_filter(is_array($data['summons'] ?? null) ? $data['summons'] : [], 'is_string') as $summonId) {
+    foreach (self::normalizeSummonAssignments($data['summons'] ?? []) as $summonId) {
       $character->assignSummon($summonId);
     }
 
@@ -823,6 +824,11 @@ class Character implements CharacterInterface, CanEquip
         continue;
       }
 
+      if ($key === 'summons') {
+        $this->summons = self::normalizeSummonAssignments($value);
+        continue;
+      }
+
       if (property_exists($this, $key)) {
         $this->{$key} = match($key) {
           'images' => is_array($value) ? CharacterSprites::fromArray($value) : $value,
@@ -833,6 +839,43 @@ class Character implements CharacterInterface, CanEquip
     }
 
     $this->restorePersistentStates($persistentStates);
+  }
+
+  /**
+   * Normalizes authored or restored summon ids without silently repairing
+   * corrupt ownership data.
+   *
+   * @return string[]
+   * @throws SummonAssignmentException
+   */
+  private static function normalizeSummonAssignments(mixed $value): array
+  {
+    if (! is_array($value) || ! array_is_list($value)) {
+      throw new SummonAssignmentException('Summon assignments must be a list of summon ids.');
+    }
+
+    $normalized = [];
+    $seen = [];
+
+    foreach ($value as $summonId) {
+      if (! is_string($summonId) || trim($summonId) === '') {
+        throw new SummonAssignmentException('Summon assignments must contain non-empty string ids.');
+      }
+
+      $summonId = strtolower(trim($summonId));
+
+      if (isset($seen[$summonId])) {
+        throw new SummonAssignmentException(sprintf(
+          'Summon assignment "%s" is duplicated for one character.',
+          $summonId,
+        ));
+      }
+
+      $seen[$summonId] = true;
+      $normalized[] = $summonId;
+    }
+
+    return $normalized;
   }
 
   /**

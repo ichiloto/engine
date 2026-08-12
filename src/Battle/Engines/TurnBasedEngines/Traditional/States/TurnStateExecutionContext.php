@@ -5,9 +5,11 @@ namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Turn;
 use Ichiloto\Engine\Battle\UI\BattleScreen;
 use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Troop;
+use Ichiloto\Engine\Scenes\Game\GameScene;
 
 /**
  * Class TurnStateExecutionContext. Represents the context of a turn state.
@@ -128,6 +130,21 @@ class TurnStateExecutionContext
       $this->party->battlers->toArray(),
       fn(CharacterInterface $battler) => ! $battler->isKnockedOut
     ));
+  }
+
+  /**
+   * Returns persistent world state when this battle belongs to a configured
+   * field scene. Standalone battles intentionally have no world state.
+   */
+  public function getGameState(): ?GameState
+  {
+    if (! isset($this->game->sceneManager)) {
+      return null;
+    }
+
+    $scene = $this->game->sceneManager->findScene(GameScene::class);
+
+    return $scene instanceof GameScene ? $scene->gameState : null;
   }
 
   /**

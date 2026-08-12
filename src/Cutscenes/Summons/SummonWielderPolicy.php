@@ -23,6 +23,7 @@ use Ichiloto\Engine\Entities\Character;
  */
 final class SummonWielderPolicy
 {
+  protected bool $valid = true;
   /**
    * Any party member may be assigned the summon.
    */
@@ -67,17 +68,52 @@ final class SummonWielderPolicy
   )
   {
     $normalizedMode = strtolower(trim($mode));
-    $this->mode = in_array($normalizedMode, [self::MODE_ALL, self::MODE_ROLES, self::MODE_CHARACTERS], true)
-      ? $normalizedMode
-      : self::MODE_ALL;
+    $this->mode = $normalizedMode;
+    $this->valid = in_array($normalizedMode, [self::MODE_ALL, self::MODE_ROLES, self::MODE_CHARACTERS], true);
 
     $normalizedTenancy = strtolower(trim($tenancy));
-    $this->tenancy = in_array($normalizedTenancy, [self::TENANCY_SHARED, self::TENANCY_EXCLUSIVE], true)
-      ? $normalizedTenancy
-      : self::TENANCY_SHARED;
+    $this->tenancy = $normalizedTenancy;
+    $this->valid = $this->valid
+      && in_array($normalizedTenancy, [self::TENANCY_SHARED, self::TENANCY_EXCLUSIVE], true);
 
+    $rolesAreValid = self::isNameList($roles);
+    $charactersAreValid = self::isNameList($characters);
     $this->roles = self::normalizeNames($roles);
     $this->characters = self::normalizeNames($characters);
+    $this->valid = $this->valid
+      && $rolesAreValid
+      && $charactersAreValid
+      && ($this->mode !== self::MODE_ROLES || $this->roles !== [])
+      && ($this->mode !== self::MODE_CHARACTERS || $this->characters !== []);
+  }
+
+  /**
+   * Hydrates a declared policy without treating malformed data as omission.
+   *
+   * Omission means open access for backward compatibility. Once a project
+   * declares the block, invalid structure must instead fail closed.
+   */
+  public static function fromAuthored(mixed $data): self
+  {
+    if (! is_array($data)) {
+      return new self('__invalid__', [], [], '__invalid__');
+    }
+
+    $mode = $data['mode'] ?? self::MODE_ALL;
+    $tenancy = $data['tenancy'] ?? self::TENANCY_SHARED;
+
+    if (! is_string($mode) || ! is_string($tenancy)) {
+      return new self('__invalid__', [], [], '__invalid__');
+    }
+
+    $roles = $data['roles'] ?? [];
+    $characters = $data['characters'] ?? [];
+
+    if (! is_array($roles) || ! is_array($characters)) {
+      return new self('__invalid__', [], [], '__invalid__');
+    }
+
+    return new self($mode, $roles, $characters, $tenancy);
   }
 
   /**
@@ -115,6 +151,10 @@ final class SummonWielderPolicy
    */
   public function allowsCharacter(Character $character): bool
   {
+    if (! $this->valid) {
+      return false;
+    }
+
     return match ($this->mode) {
       self::MODE_ROLES => in_array(strtolower(trim($character->role->name)), array_map('strtolower', $this->roles), true),
       self::MODE_CHARACTERS => in_array(strtolower(trim($character->name)), array_map('strtolower', $this->characters), true),
@@ -132,6 +172,12 @@ final class SummonWielderPolicy
     return $this->tenancy === self::TENANCY_EXCLUSIVE;
   }
 
+  /** Returns whether the authored policy uses recognized values. */
+  public function isValid(): bool
+  {
+    return $this->valid;
+  }
+
   /**
    * @param array<int, mixed> $names
    * @return string[]
@@ -139,8 +185,24 @@ final class SummonWielderPolicy
   protected static function normalizeNames(array $names): array
   {
     return array_values(array_filter(
-      array_map(static fn(mixed $name): string => trim(strval($name)), $names),
+      array_map(static fn(mixed $name): string => is_string($name) ? trim($name) : '', $names),
       static fn(string $name): bool => $name !== ''
     ));
+  }
+
+  /** Returns whether the payload is a list of non-empty string identities. */
+  protected static function isNameList(array $names): bool
+  {
+    if (! array_is_list($names)) {
+      return false;
+    }
+
+    foreach ($names as $name) {
+      if (! is_string($name) || trim($name) === '') {
+        return false;
+      }
+    }
+
+    return true;
   }
 }

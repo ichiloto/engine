@@ -13,6 +13,7 @@ use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutscenePlayer;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Battle\BattleAction;
+use Ichiloto\Engine\Battle\BattleCommandCatalog;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnExecutionContext;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
@@ -67,6 +68,22 @@ class ActionExecutionState extends TurnState
       && ($blockingState = $turn->battler->getActionBlockingState()) !== null
     ) {
       $context->ui->alert(sprintf('%s is down with %s and cannot act!', $turn->battler->name, $blockingState->name));
+      $context->advanceTurn();
+      $this->transitionToResolutionIfNeeded($context);
+      return;
+    }
+
+    if ($turn->action instanceof SkillBattleAction
+      && BattleCommandCatalog::isSummonActionId($turn->action->skill->name)
+      && (! $turn->battler instanceof Character
+        || ! BattleCommandCatalog::canUseSummonAction(
+          $turn->battler,
+          $context->party,
+          $turn->action->skill->name,
+          $context->getGameState(),
+        ))
+    ) {
+      $context->ui->alert('That summon is no longer available to this character.');
       $context->advanceTurn();
       $this->transitionToResolutionIfNeeded($context);
       return;

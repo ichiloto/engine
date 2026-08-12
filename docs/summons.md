@@ -22,6 +22,11 @@ return [
   'moveName' => 'Hell Fire',               // announced when the summon attacks
   'description' => '...',
   'linkedActionId' => 'Ifrit',             // must match a skill name
+  'availability' => [
+    'conditions' => [
+      ['type' => 'event', 'name' => 'ifrit_linked'],
+    ],
+  ],
   'transitionIn' => ['type' => 'fadeToBlack', 'durationMs' => 450, 'color' => 'red'],
   'transitionOut' => ['type' => 'fadeFromBlack', 'durationMs' => 300, 'color' => 'red'],
   'effectTiming' => ['mode' => 'cue', 'cueId' => 'apply_ifrit_damage'],
@@ -54,6 +59,25 @@ open from the Summons menu):
 `description` describes the move instead). All codex fields are optional —
 missing ones are simply omitted from the detail view.
 
+## Controlling world availability
+
+Availability and assignment answer different questions. Availability says
+whether a summon exists for the player in the current world state. The
+optional `wielders` policy says who may hold or use it once available. Games
+may use either contract independently or compose both.
+
+An omitted `availability` block preserves the historical open behavior. When
+the block is present, every condition must hold according to the existing
+world-condition vocabulary described in [Story events](story-events.md).
+Locked summons are absent from battle, the management screen, and the main
+menu's Summons entry when nothing else is available.
+
+Availability can therefore model common JRPG schemes without changing the
+summon runtime: an always-known spell, a story unlock, an item- or actor-gated
+entity, or a summon temporarily suppressed by world state. Unknown condition
+types, an empty conditions list, and malformed blocks fail closed. They do
+not turn an authored asset into an open summon.
+
 ## Choosing who can wield a summon
 
 By default a summon is **open**: every party member can use it and no
@@ -73,17 +97,33 @@ Eligibility (`mode`):
 - `all` — any party member may be assigned the summon.
 - `roles` — only characters whose role name is listed in `roles`.
 - `characters` — only the named characters. This is how you build an
-  FFX-style game where only one character can summon.
+  actor-signature summon or a named group of summoners.
 
 Tenancy:
 
 - `shared` — any number of eligible members may hold the summon at once.
 - `exclusive` — only one member may hold it at a time; it must be
-  unassigned before another member can take it.
+  held by at most one member at a time.
 
 As soon as a summon declares `wielders`, it becomes **assignment-based**: a
 character must both satisfy the eligibility rules *and* currently hold the
 summon for it to appear in their battle menu.
+
+These two independent policies cover the usual JRPG arrangements without a
+game-specific summon subsystem:
+
+| Scheme | Availability | Wielder policy | Starting/runtime assignment |
+| --- | --- | --- | --- |
+| Shared spell-like summon list | omitted or world-gated | omitted | none; every member with the command may use it |
+| Equippable entity pool | optional world gate | `all` plus `exclusive` | player assigns one holder at a time |
+| Shared learned entity | optional world gate | `all` plus `shared` | assign every member who has learned it |
+| Job or class summon | optional world gate | `roles`, shared or exclusive | assign eligible role members |
+| Character-signature summon | optional world gate | `characters` plus `exclusive` | start or script the named actor's assignment |
+| Small named summoner group | optional world gate | `characters` plus either tenancy | assign within that authored group |
+
+Omitting a policy is intentionally different from declaring a malformed one.
+Omission retains the legacy open pool; malformed declared policies fail
+closed and require authoring correction.
 
 ### Assigning summons
 
@@ -103,20 +143,29 @@ Or assign at runtime — the party enforces eligibility and tenancy:
 ```php
 $definition = new SummonCutsceneLibrary()->findById('ifrit');
 
-if ($party->assignSummon($definition, $character)) {
+if ($party->assignSummon($definition, $character, $gameState)) {
   // assigned — appears in this character's battle menu
 }
 
 $party->unassignSummon('ifrit', $character);
 $party->getSummonHolders('ifrit');          // Character[]
-$party->canAssignSummon($definition, $character);
+$party->canAssignSummon($definition, $character, $gameState);
+$party->reassignSummon($definition, $otherCharacter, $gameState); // atomic move
 ```
 
 Assignments serialize with the character, so they survive saving and loading.
+A legal saved assignment remains recorded while its availability gate is
+false, but it cannot be used until the gate becomes true again. Corrupt,
+missing, ineligible, or duplicate exclusive ownership is rejected during
+runtime hydration instead of being silently opened or discarded.
+
+Starting assignments are appropriate for definitions that are available at
+New Game. A condition-gated summon should normally be assigned by game logic
+after its gate opens; project validation reports a gated starting assignment.
 
 ### The in-game Summons menu
 
-Any project with at least one authored summon gets a summon-management entry
+Any project with at least one currently available summon gets a summon-management entry
 in the in-game main menu (labelled from the project's summon vocabulary —
 "Summons", "Petitions", …). Players pick a character and see every summon
 with its move name, wielder rules, and status:
@@ -134,8 +183,9 @@ plus the wielder rule and this character's status. Inside the entry, confirm
 assigns or releases policy summons; `c` returns to the list.
 
 The screen is the natural home for future summon mechanics (growth,
-junctioned skills and magic attributes), so it is always available — it only
-disappears when the project has no summons at all.
+junctioned skills and magic attributes). It disappears when the project has
+no currently available summons, and locked definitions do not appear as
+assignable or player-owned.
 
 ## Renaming the summon command
 

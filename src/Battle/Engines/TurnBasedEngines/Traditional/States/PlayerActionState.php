@@ -245,7 +245,11 @@ class PlayerActionState extends TurnState
     $ui->characterNameWindow->setActiveSelection($this->activeCharacterIndex);
     $ui->commandWindow->commands = array_map(
       fn(BattleAction $action) => $action->name,
-      $this->activeCharacter->commandAbilities
+      BattleCommandCatalog::buildCommands(
+        $this->activeCharacter,
+        $context->party,
+        $context->getGameState(),
+      ),
     );
     $ui->commandWindow->focus();
     $ui->commandContextWindow->clear();
@@ -325,7 +329,8 @@ class PlayerActionState extends TurnState
       $this->activeCharacter,
       $context->party,
       $commandName,
-      $this->getReservedItemCounts($context)
+      $this->getReservedItemCounts($context),
+      $context->getGameState(),
     );
 
     $this->selectionMode = self::MODE_SUBMENU;

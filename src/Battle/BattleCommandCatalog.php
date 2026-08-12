@@ -8,6 +8,7 @@ use Ichiloto\Engine\Battle\Actions\ItemBattleAction;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneDefinition;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
+use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Effects\HPRecoveryEffect;
 use Ichiloto\Engine\Entities\Effects\MPRecoveryEffect;
@@ -50,17 +51,42 @@ final class BattleCommandCatalog
     Character $character,
     Party $party,
     string $commandName,
-    array $reservedItemCounts = []
+    array $reservedItemCounts = [],
+    ?GameState $gameState = null,
   ): array
   {
     return match (BattleCommandType::fromCommandName($commandName)) {
       BattleCommandType::ATTACK => self::buildAttackOptions(),
       BattleCommandType::SKILL => self::buildSkillOptions($character),
       BattleCommandType::MAGIC => self::buildMagicOptions($character),
-      BattleCommandType::SUMMON => self::buildSummonOptions($character),
+      BattleCommandType::SUMMON => self::buildSummonOptions($character, $party, $gameState),
       BattleCommandType::ITEM => self::buildItemOptions($party, $reservedItemCounts),
       default => [],
     };
+  }
+
+  /**
+   * Builds the visible top-level commands, hiding Summon when it has no
+   * currently usable option for this character.
+   *
+   * @return BattleAction[]
+   */
+  public static function buildCommands(
+    Character $character,
+    Party $party,
+    ?GameState $gameState = null,
+  ): array
+  {
+    return array_values(array_filter(
+      $character->commandAbilities,
+      static function (BattleAction $action) use ($character, $party, $gameState): bool {
+        if (BattleCommandType::fromCommandName($action->name) !== BattleCommandType::SUMMON) {
+          return true;
+        }
+
+        return self::buildSummonOptions($character, $party, $gameState) !== [];
+      },
+    ));
   }
 
   /**
@@ -155,7 +181,11 @@ final class BattleCommandCatalog
    * @param Character $character The active party character.
    * @return BattleCommandOption[] The available summon options.
    */
-  protected static function buildSummonOptions(Character $character): array
+  protected static function buildSummonOptions(
+    Character $character,
+    Party $party,
+    ?GameState $gameState,
+  ): array
   {
     $options = [];
     $definitionsByActionId = [];
@@ -175,6 +205,16 @@ final class BattleCommandCatalog
 
       $policy = $definition->wielders;
 
+      if ($definition->availability !== null
+        && ($gameState === null || ! $definition->isAvailable($gameState, $party))
+      ) {
+        continue;
+      }
+
+      if ($policy !== null && ! $policy->isValid()) {
+        continue;
+      }
+
       if ($policy !== null && (! $policy->allowsCharacter($character) || ! $character->hasSummon($definition->id))) {
         continue;
       }
@@ -183,6 +223,60 @@ final class BattleCommandCatalog
     }
 
     return $options;
+  }
+
+  /**
+   * Rechecks a summon action at resolution time so a queued action cannot
+   * bypass ownership or a world gate that has since become false.
+   */
+  public static function canUseSummonAction(
+    Character $character,
+    Party $party,
+    string $actionId,
+    ?GameState $gameState = null,
+  ): bool
+  {
+    $definition = self::findSummonDefinitionByActionId($actionId);
+
+    if (! $definition instanceof SummonCutsceneDefinition) {
+      return false;
+    }
+
+    if ($definition->availability !== null
+      && ($gameState === null || ! $definition->isAvailable($gameState, $party))
+    ) {
+      return false;
+    }
+
+    $policy = $definition->wielders;
+
+    if ($policy === null) {
+      return true;
+    }
+
+    return $policy->isValid()
+      && $policy->allowsCharacter($character)
+      && $character->hasSummon($definition->id)
+      && (! $policy->isExclusive() || $party->getSummonHolders($definition->id) === [$character]);
+  }
+
+  /** Returns whether the action id belongs to an authored summon. */
+  public static function isSummonActionId(string $actionId): bool
+  {
+    return self::findSummonDefinitionByActionId($actionId) instanceof SummonCutsceneDefinition;
+  }
+
+  protected static function findSummonDefinitionByActionId(string $actionId): ?SummonCutsceneDefinition
+  {
+    $normalized = trim($actionId);
+
+    foreach (self::loadSummonDefinitions() as $definition) {
+      if ($definition->linkedActionId === $normalized) {
+        return $definition;
+      }
+    }
+
+    return null;
   }
 
   /**

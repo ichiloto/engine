@@ -5,9 +5,11 @@ namespace Ichiloto\Engine\Scenes\Game\States;
 use Exception;
 use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneDefinition;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
@@ -81,9 +83,14 @@ class SummonsMenuState extends GameSceneState
    *
    * @return SummonCutsceneDefinition[] The summon definitions.
    */
-  public static function loadSummons(): array
+  public static function loadSummons(?GameState $gameState = null, ?Party $party = null): array
   {
-    return new SummonCutsceneLibrary()->load();
+    return array_values(array_filter(
+      (new SummonCutsceneLibrary())->load(),
+      static fn(SummonCutsceneDefinition $definition): bool =>
+        $definition->availability === null
+        || ($gameState !== null && $definition->isAvailable($gameState, $party)),
+    ));
   }
 
   /**
@@ -94,7 +101,7 @@ class SummonsMenuState extends GameSceneState
     Console::clear();
     $this->getGameScene()->locationHUDWindow->deactivate();
     $this->character ??= $this->getGameScene()->party->leader;
-    $this->summons = self::loadSummons();
+    $this->summons = self::loadSummons($this->getGameScene()->gameState, $this->party);
     $this->activeIndex = 0;
     $this->viewingDetail = false;
     $this->calculateMargins();
@@ -466,7 +473,7 @@ class SummonsMenuState extends GameSceneState
     if ($this->character->hasSummon($definition->id)) {
       $this->party->unassignSummon($definition->id, $this->character);
       alert(sprintf('%s released %s.', $this->character->name, $definition->name));
-    } elseif ($this->party->assignSummon($definition, $this->character)) {
+    } elseif ($this->party->assignSummon($definition, $this->character, $this->getGameScene()->gameState)) {
       alert(sprintf('%s can now call %s.', $this->character->name, $definition->name));
     } else {
       alert($this->describeAssignmentFailure($definition));

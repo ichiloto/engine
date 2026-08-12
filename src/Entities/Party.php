@@ -5,10 +5,12 @@ namespace Ichiloto\Engine\Entities;
 use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneDefinition;
 use Ichiloto\Engine\Cutscenes\Summons\SummonWielderPolicy;
+use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Interfaces\InventoryItemInterface;
 use Ichiloto\Engine\Entities\Inventory\Equipment;
 use Ichiloto\Engine\Entities\Inventory\Inventory;
+use Ichiloto\Engine\Exceptions\SummonAssignmentException;
 use InvalidArgumentException;
 
 /**
@@ -255,12 +257,26 @@ class Party extends BattleGroup
    * @param Character $character The member to assign the summon to.
    * @return bool True when the assignment is allowed.
    */
-  public function canAssignSummon(SummonCutsceneDefinition $definition, Character $character): bool
+  public function canAssignSummon(
+    SummonCutsceneDefinition $definition,
+    Character $character,
+    ?GameState $gameState = null,
+  ): bool
   {
     $policy = $definition->wielders;
 
-    if (! $policy instanceof SummonWielderPolicy) {
+    if (! $policy instanceof SummonWielderPolicy || ! $policy->isValid()) {
       return false;
+    }
+
+    if (! $this->members->contains($character)) {
+      return false;
+    }
+
+    if ($definition->availability !== null) {
+      if ($gameState === null || ! $definition->isAvailable($gameState, $this)) {
+        return false;
+      }
     }
 
     if (! $policy->allowsCharacter($character)) {
@@ -268,7 +284,16 @@ class Party extends BattleGroup
     }
 
     if ($policy->isExclusive()) {
-      foreach ($this->getSummonHolders($definition->id) as $holder) {
+      $holders = $this->getSummonHolders($definition->id);
+
+      if (count($holders) > 1) {
+        throw new SummonAssignmentException(sprintf(
+          'Exclusive summon "%s" has multiple holders.',
+          $definition->id,
+        ));
+      }
+
+      foreach ($holders as $holder) {
         if ($holder !== $character) {
           return false;
         }
@@ -285,15 +310,127 @@ class Party extends BattleGroup
    * @param Character $character The member to assign the summon to.
    * @return bool True when the summon was assigned.
    */
-  public function assignSummon(SummonCutsceneDefinition $definition, Character $character): bool
+  public function assignSummon(
+    SummonCutsceneDefinition $definition,
+    Character $character,
+    ?GameState $gameState = null,
+  ): bool
   {
-    if (! $this->canAssignSummon($definition, $character)) {
+    if (! $this->canAssignSummon($definition, $character, $gameState)) {
       return false;
     }
 
     $character->assignSummon($definition->id);
 
     return true;
+  }
+
+  /**
+   * Moves a summon to another eligible holder as one validated operation.
+   *
+   * Existing menu flows may still require an explicit release; this method
+   * gives scripted and future management flows an atomic reassignment seam.
+   */
+  public function reassignSummon(
+    SummonCutsceneDefinition $definition,
+    Character $character,
+    ?GameState $gameState = null,
+  ): bool
+  {
+    $policy = $definition->wielders;
+
+    if (! $policy instanceof SummonWielderPolicy || ! $policy->isExclusive()) {
+      return $this->assignSummon($definition, $character, $gameState);
+    }
+
+    $holders = $this->getSummonHolders($definition->id);
+
+    if (count($holders) > 1) {
+      throw new SummonAssignmentException(sprintf(
+        'Exclusive summon "%s" has multiple holders.',
+        $definition->id,
+      ));
+    }
+
+    if (! $policy->isValid()
+      || ! $this->members->contains($character)
+      || ! $policy->allowsCharacter($character)
+      || ($definition->availability !== null
+        && ($gameState === null || ! $definition->isAvailable($gameState, $this)))
+    ) {
+      return false;
+    }
+
+    foreach ($holders as $holder) {
+      if ($holder !== $character) {
+        $holder->unassignSummon($definition->id);
+      }
+    }
+
+    $character->assignSummon($definition->id);
+
+    return true;
+  }
+
+  /**
+   * Rejects malformed, stale, ineligible, or duplicate restored ownership.
+   * Locked but otherwise legal ownership is intentionally preserved.
+   *
+   * @param SummonCutsceneDefinition[] $definitions
+   * @throws SummonAssignmentException
+   */
+  public function assertSummonAssignments(array $definitions): void
+  {
+    $byId = [];
+
+    foreach ($definitions as $definition) {
+      if ($definition instanceof SummonCutsceneDefinition && $definition->id !== '') {
+        $byId[strtolower($definition->id)] = $definition;
+      }
+    }
+
+    foreach ($this->members->toArray() as $member) {
+      assert($member instanceof Character);
+
+      if (count($member->summons) !== count(array_unique($member->summons))) {
+        throw new SummonAssignmentException(sprintf('%s has duplicate summon assignments.', $member->name));
+      }
+
+      foreach ($member->summons as $summonId) {
+        if (! is_string($summonId) || trim($summonId) === '') {
+          throw new SummonAssignmentException(sprintf('%s has malformed summon assignment data.', $member->name));
+        }
+
+        $definition = $byId[strtolower(trim($summonId))] ?? null;
+
+        if (! $definition instanceof SummonCutsceneDefinition) {
+          throw new SummonAssignmentException(sprintf(
+            '%s references missing summon "%s".',
+            $member->name,
+            $summonId,
+          ));
+        }
+
+        if ($definition->wielders !== null
+          && (! $definition->wielders->isValid() || ! $definition->wielders->allowsCharacter($member))
+        ) {
+          throw new SummonAssignmentException(sprintf(
+            '%s is not eligible to hold summon "%s".',
+            $member->name,
+            $definition->id,
+          ));
+        }
+      }
+    }
+
+    foreach ($byId as $definition) {
+      if ($definition->wielders?->isExclusive() && count($this->getSummonHolders($definition->id)) > 1) {
+        throw new SummonAssignmentException(sprintf(
+          'Exclusive summon "%s" has multiple holders.',
+          $definition->id,
+        ));
+      }
+    }
   }
 
   /**
