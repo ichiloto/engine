@@ -36,9 +36,14 @@ class Console
    */
   private static bool $terminalHandedBack = false;
   /**
-   * @var string Row updates collected while a frame is open.
+   * @var array<int, true> Rows changed while a frame is open.
+   *
+   * A frame stores dirtiness rather than a journal of intermediate paints.
+   * When several windows touch the same row, only the final composed row is
+   * emitted. Replaying every intermediate row made large multi-pane screens
+   * visibly assemble from left to right despite using a frame.
    */
-  private static string $frameBuffer = '';
+  private static array $frameRows = [];
 
   /**
    * Placeholder marker used for continuation cells of wide terminal symbols.
@@ -225,6 +230,7 @@ class Console
   public static function clear(): void
   {
     self::$buffer = self::getEmptyBuffer();
+    self::$frameRows = [];
     if (PHP_OS_FAMILY === 'Windows') {
       system('cls');
     } else {
@@ -272,6 +278,7 @@ class Console
     self::$width = max(1, $width);
     self::$height = max(1, $height);
     self::$buffer = self::getEmptyBuffer();
+    self::$frameRows = [];
   }
 
   /**
@@ -618,12 +625,22 @@ class Console
       self::$frameDepth--;
     }
 
-    if (self::$frameDepth > 0 || self::$frameBuffer === '') {
+    if (self::$frameDepth > 0 || self::$frameRows === []) {
       return;
     }
 
-    $payload = self::$frameBuffer;
-    self::$frameBuffer = '';
+    ksort(self::$frameRows, SORT_NUMERIC);
+    $payload = '';
+
+    foreach (array_keys(self::$frameRows) as $row) {
+      if (! isset(self::$buffer[$row])) {
+        continue;
+      }
+
+      $payload .= sprintf("\033[%d;1H%s", $row + 1, self::$buffer[$row]);
+    }
+
+    self::$frameRows = [];
 
     self::writeToTerminal($payload);
   }
@@ -708,9 +725,9 @@ class Console
     }
 
     if (self::$frameDepth > 0) {
-      // Position and content travel together so the batch can be replayed
-      // as one write.
-      self::$frameBuffer .= sprintf("\033[%d;1H%s", $row + 1, self::$buffer[$row]);
+      // A later draw in the same frame may update this row again. Remember
+      // the row and emit its final composition when the outer frame closes.
+      self::$frameRows[$row] = true;
       return;
     }
 

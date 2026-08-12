@@ -19,7 +19,7 @@ function prepareSaveSlotConsole(): ReflectionClass
     'height' => 8,
     'buffer' => [],
     'frameDepth' => 0,
-    'frameBuffer' => '',
+    'frameRows' => [],
     'terminalHandedBack' => false,
     'output' => null,
   ] as $name => $value) {

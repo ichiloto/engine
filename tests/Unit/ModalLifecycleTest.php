@@ -102,7 +102,7 @@ beforeEach(function () {
   $console->getProperty('height')->setValue(null, 24);
   $console->getProperty('buffer')->setValue(null, array_fill(0, 24, str_repeat('.', 80)));
   $console->getProperty('frameDepth')->setValue(null, 0);
-  $console->getProperty('frameBuffer')->setValue(null, '');
+  $console->getProperty('frameRows')->setValue(null, []);
   $console->getProperty('terminalHandedBack')->setValue(null, false);
 
   (new ReflectionProperty(EventManager::class, 'instance'))->setValue(null, null);

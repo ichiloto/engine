@@ -12,7 +12,13 @@ function withConsole(int $width, int $height): ReflectionClass
 {
   $reflection = new ReflectionClass(Console::class);
 
-  foreach ([['width', $width], ['height', $height], ['buffer', []]] as [$name, $value]) {
+  foreach ([
+    ['width', $width],
+    ['height', $height],
+    ['buffer', []],
+    ['frameDepth', 0],
+    ['frameRows', []],
+  ] as [$name, $value]) {
     $reflection->getProperty($name)->setValue(null, $value);
   }
 
@@ -157,6 +163,24 @@ it('nests batched frames and flushes once at the outermost close', function () {
   expect($beforeOuterClose)->toBe('')
     ->and($afterOuterClose)->toContain('outer')
     ->and($afterOuterClose)->toContain('inner');
+});
+
+it('coalesces repeated row paints to the final frame composition', function () {
+  withConsole(20, 2);
+
+  ob_start();
+  Console::beginFrame();
+  Console::write('intermediate', 0, 0);
+  Console::write('final', 0, 0);
+  Console::write('second row', 0, 1);
+  Console::endFrame();
+  $output = ob_get_clean();
+
+  expect($output)->not->toContain('intermediate')
+    ->and($output)->toContain('final')
+    ->and($output)->toContain('second row')
+    ->and(substr_count($output, "\033[1;1H"))->toBe(1)
+    ->and(substr_count($output, "\033[2;1H"))->toBe(1);
 });
 
 it('tracks window borders and content in the canonical console buffer', function () {

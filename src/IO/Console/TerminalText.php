@@ -299,12 +299,12 @@ final class TerminalText
       return 2;
     }
 
-    // Astral-plane pictographs render double-width everywhere. BMP
-    // pictographs (⚔, ❤, ➡ …) default to narrow text presentation in
-    // terminals, so they fall through to the mb_strwidth measurement.
+    // Characters whose Unicode default is emoji presentation render as two
+    // cells. Extended pictographs whose default is text presentation (for
+    // example U+1F5E1 DAGGER KNIFE) stay narrow after stabilization even
+    // though they live outside the BMP.
     if (
-      preg_match('/[\x{10000}-\x{10FFFF}]/u', $symbol) === 1 &&
-      preg_match('/\p{Extended_Pictographic}/u', $symbol) === 1
+      preg_match('/\p{Emoji_Presentation}/u', $symbol) === 1
     ) {
       return 2;
     }
@@ -362,9 +362,10 @@ final class TerminalText
    *
    * - ZWJ sequences and skin-tone modifiers (e.g. "🏃🏽‍➡️") are reduced to
    *   their base glyph, which renders one predictable cell pair everywhere.
-   * - A variation selector on a narrow BMP base (e.g. "⚔️" = U+2694 + VS16)
-   *   is stripped, rendering the plain text glyph at one column everywhere.
-   *   Astral emoji keep their selectors: they are reliably double-width.
+   * - A variation selector on a text-presentation base (e.g. "⚔️" or
+   *   "🗡️") is stripped, rendering the plain text glyph at its stable
+   *   width. Characters whose Unicode default is emoji presentation remain
+   *   double-width.
    *
    * @param string $symbol The grapheme to stabilize.
    * @return string The stabilized grapheme.
@@ -423,14 +424,15 @@ final class TerminalText
       return str_replace($visible, $base, $symbol);
     }
 
-    // Variation selector on a BMP base: astral emoji are stable as-is.
-    if (preg_match('/[\x{10000}-\x{10FFFF}]/u', $visible) === 1) {
+    $visibleBase = preg_replace('/[\x{FE0E}\x{FE0F}]/u', '', $visible) ?? $visible;
+
+    // A default-emoji base already has a stable two-cell presentation. Its
+    // selector is redundant but harmless, so preserve the authored glyph.
+    if (preg_match('/\p{Emoji_Presentation}/u', $visibleBase) === 1) {
       return $symbol;
     }
 
-    $visibleBase = preg_replace('/[\x{FE0E}\x{FE0F}]/u', '', $visible) ?? $visible;
-
-    if ($visibleBase === '' || mb_strwidth($visibleBase, 'UTF-8') > 1) {
+    if ($visibleBase === '') {
       return $symbol;
     }
 
