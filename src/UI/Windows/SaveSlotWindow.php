@@ -55,12 +55,30 @@ class SaveSlotWindow extends Window
    */
   public function setSlot(SaveSlot $slot, bool $isSelected = false): void
   {
-    $this->title = sprintf('File %d', $slot->slot);
-    $this->foregroundColor = $isSelected ? SelectionStyle::resolveColor() : null;
+    // A save slot is a selectable record inside a window, not a differently
+    // themed window. Coloring Window::$foregroundColor also colors its
+    // borders and padding, producing a large, uneven block of selection color
+    // around otherwise ordinary metadata. Keep structural chrome neutral and
+    // apply the shared menu selection style to the record itself. This
+    // component is shared by both Save and Title Continue.
+    $this->foregroundColor = null;
+    $this->title = $this->styleSelection(sprintf('File %d', $slot->slot), $isSelected);
     $this->setContent([
-      $slot->isEmpty ? 'Empty File' : $slot->locationName,
-      $this->buildFooterLine($slot),
+      $this->styleSelection($slot->isEmpty ? 'Empty File' : $slot->locationName, $isSelected),
+      $this->styleSelection($this->buildFooterLine($slot), $isSelected),
     ]);
+  }
+
+  /**
+   * Applies the common selection treatment without styling window chrome.
+   *
+   * @param string $text The save-slot text.
+   * @param bool $isSelected Whether the slot owns focus.
+   * @return string The selected or neutral text.
+   */
+  protected function styleSelection(string $text, bool $isSelected): string
+  {
+    return $isSelected ? SelectionStyle::apply($text) : $text;
   }
 
   /**
