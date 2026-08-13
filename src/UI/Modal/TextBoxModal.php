@@ -7,7 +7,6 @@ use Override;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Rect;
-use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
@@ -21,6 +20,10 @@ use Ichiloto\Engine\UI\Windows\Window;
  */
 class TextBoxModal extends Modal
 {
+  /** Ordinary dialogue keeps a compact three-line footprint. */
+  private const int DEFAULT_CONTENT_LINES = 3;
+  /** A fourth wrapped line may grow the box; longer dialogue is paginated. */
+  private const int MAX_CONTENT_LINES_PER_PAGE = 4;
   /**
    * @var string|null $help The help text to display.
    */
@@ -56,6 +59,12 @@ class TextBoxModal extends Modal
    * @var int $topMargin The top margin.
    */
   protected int $messageLength = 0;
+  /** @var string[] Fully wrapped dialogue pages. */
+  protected array $messagePages = [];
+  /** The page currently being typed. */
+  protected int $currentPageIndex = 0;
+  /** Help authored by the caller, restored while a new page is typing. */
+  protected string $authoredHelp = '';
 
   /**
    * TextBoxModal constructor.
@@ -78,10 +87,24 @@ class TextBoxModal extends Modal
     protected float $charactersPerSecond = 60
   )
   {
-    $width = DEFAULT_DIALOG_WIDTH;
-    $height = 5;
+    $width = min(DEFAULT_DIALOG_WIDTH, max(4, get_screen_width()));
+    $contentWidth = max(1, $width - 4); // borders and Window's default horizontal padding
+    $wrappedLines = $this->wrapMessageIntoLines($message, $contentWidth);
+    $screenContentLines = max(1, get_screen_height() - 2);
+    $linesPerPage = min(self::MAX_CONTENT_LINES_PER_PAGE, $screenContentLines);
+    $this->messagePages = array_map(
+      static fn(array $page): string => implode("\n", $page),
+      array_chunk($wrappedLines, $linesPerPage),
+    );
+    $this->messagePages = $this->messagePages ?: [''];
+    $contentLines = min(
+      $screenContentLines,
+      max(self::DEFAULT_CONTENT_LINES, min(count($wrappedLines), $linesPerPage)),
+    );
+    $height = $contentLines + 2;
     $positionCoordinates = $position->getCoordinates($width, $height);
-    $this->messageLength = mb_strlen($message);
+    $this->messageLength = mb_strlen($this->currentPageMessage());
+    $this->authoredHelp = $help;
 
     parent::__construct(
       $game,
@@ -109,6 +132,10 @@ class TextBoxModal extends Modal
     parent::show();
     $this->leftMargin = $this->rect->getX();
     $this->topMargin = $this->rect->getY();
+    $this->currentPageIndex = 0;
+    $this->currentCharacterIndex = 0;
+    $this->messageLength = mb_strlen($this->currentPageMessage());
+    $this->help = $this->authoredHelp;
     $this->isPrinting = true;
 
     $this->updateContent();
@@ -119,14 +146,18 @@ class TextBoxModal extends Modal
    */
   public function update(): void
   {
-    parent::update();
-
     if ($this->isPrinting) {
       $this->updateContent();
     }
 
-    if (Input::isKeyDown(KeyCode::SPACE)) {
+    // Dialogue owns its confirm lifecycle. Calling Modal::update() and then
+    // checking Space separately made one Space press submit twice because
+    // Space is normally bound to confirm: it could finish typing and dismiss
+    // (or skip a page) in the same tick. Use the player's binding once.
+    if (Input::isButtonDown('confirm')) {
       $this->submit();
+    } elseif (Input::isButtonDown('cancel')) {
+      $this->cancel();
     }
   }
 
@@ -144,7 +175,7 @@ class TextBoxModal extends Modal
       // only once that final content has been set — otherwise the closing
       // character of every message would never be drawn.
       $this->isPrinting = $this->currentCharacterIndex < $this->messageLength;
-      $this->content = $this->convertMessageToLinesOfContent($this->message);
+      $this->content = $this->convertMessageToLinesOfContent($this->currentPageMessage());
 
       // Calculate the number of lines.
       $this->totalLinesOfContent = count($this->content);
@@ -183,6 +214,14 @@ class TextBoxModal extends Modal
   {
     if ($this->isPrinting) {
       $this->currentCharacterIndex = $this->messageLength;
+    } elseif (isset($this->messagePages[$this->currentPageIndex + 1])) {
+      $this->currentPageIndex++;
+      $this->currentCharacterIndex = 0;
+      $this->messageLength = mb_strlen($this->currentPageMessage());
+      $this->help = $this->authoredHelp;
+      $this->nextPrintTime = 0;
+      $this->isPrinting = true;
+      $this->updateContent();
     } else {
       $this->cancel();
     }
@@ -248,5 +287,25 @@ class TextBoxModal extends Modal
     // and stop short of the end on any message containing one.
     $contentString = wordwrap($message, max(1, $this->window->getContentWidth()), "\n", true);
     return explode("\n", mb_substr($contentString, 0, $this->currentCharacterIndex));
+  }
+
+  /** @return string[] Message lines wrapped to the terminal content width. */
+  protected function wrapMessageIntoLines(string $message, int $contentWidth): array
+  {
+    $lines = [];
+
+    foreach (explode("\n", $message) as $paragraph) {
+      foreach (explode("\n", wordwrap($paragraph, max(1, $contentWidth), "\n", true)) as $line) {
+        $lines[] = $line;
+      }
+    }
+
+    return $lines ?: [''];
+  }
+
+  /** Returns the already-wrapped text for the active dialogue page. */
+  protected function currentPageMessage(): string
+  {
+    return $this->messagePages[$this->currentPageIndex] ?? '';
   }
 }

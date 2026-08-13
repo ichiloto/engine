@@ -89,6 +89,20 @@ final class PositionedTextBoxModalProbe extends TextBoxModal
   {
     return [$this->rect->getWidth(), $this->rect->getHeight()];
   }
+
+  public function renderCompletePage(): void
+  {
+    $this->currentCharacterIndex = $this->messageLength;
+    $this->isPrinting = true;
+    $this->updateContent();
+    $this->render();
+  }
+
+  /** @return int[] */
+  public function pageLineCounts(): array
+  {
+    return array_map(static fn(string $page): int => count(explode("\n", $page)), $this->messagePages);
+  }
 }
 
 beforeEach(function () {
@@ -225,4 +239,65 @@ it('retains authored dialogue placement while sharing buffered erasure', functio
     expect(substr($erased[$expectedPosition->y + $row], $expectedPosition->x, $width))
       ->toBe(str_repeat(' ', $width));
   }
+});
+
+it('measures wrapped dialogue before bottom anchoring it inside the screen', function () {
+  $game = (new ReflectionClass(Game::class))->newInstanceWithoutConstructor();
+  $modal = new PositionedTextBoxModalProbe(
+    $game,
+    'E-Class authority covers supervised low-tier response, civilian protection, evidence handling, regulated weapons, and incident reports.',
+    'Inspector Adisa',
+    position: WindowPosition::BOTTOM,
+  );
+
+  [$rectPosition, $windowPosition] = $modal->positions();
+  [$width, $height] = $modal->size();
+
+  ob_start();
+  $modal->renderCompletePage();
+  ob_end_clean();
+  $rendered = array_map(TerminalText::stripAnsi(...), Console::getBuffer());
+
+  expect($height)->toBe(6)
+    ->and($rectPosition)->toEqual(WindowPosition::BOTTOM->getCoordinates($width, $height))
+    ->and($windowPosition)->toEqual($rectPosition)
+    ->and(intval($rectPosition->y + $height))->toBe(get_screen_height())
+    ->and(implode("\n", array_slice($rendered, intval($rectPosition->y), $height)))->toContain('reports.')
+    ->and($rendered[get_screen_height() - 1])->toContain('╚');
+});
+
+it('paginates dialogue that cannot fit its bounded text box', function () {
+  $game = (new ReflectionClass(Game::class))->newInstanceWithoutConstructor();
+  $modal = new PositionedTextBoxModalProbe(
+    $game,
+    implode(' ', array_fill(0, 20, 'A complete sentence must remain available to the player.')),
+    'Narrator',
+    position: WindowPosition::BOTTOM,
+  );
+
+  expect(count($modal->pageLineCounts()))->toBeGreaterThan(1);
+
+  foreach ($modal->pageLineCounts() as $lineCount) {
+    expect($lineCount)->toBeLessThanOrEqual(4);
+  }
+});
+
+it('keeps every window render inside its declared height', function () {
+  $window = new \Ichiloto\Engine\UI\Windows\Window(
+    position: new Vector2(4, 5),
+    width: 20,
+    height: 3,
+  );
+  $window->setContent(['first', 'overflow one', 'overflow two']);
+
+  ob_start();
+  $window->render();
+  ob_end_clean();
+
+  $rendered = array_map(TerminalText::stripAnsi(...), Console::getBuffer());
+
+  expect(substr($rendered[5], 4))->toContain('╔')
+    ->and(substr($rendered[6], 4, 20))->toContain('first')
+    ->and(substr($rendered[7], 4))->toContain('╚')
+    ->and(substr($rendered[8], 4, 20))->toBe(str_repeat('.', 20));
 });

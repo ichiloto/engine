@@ -357,6 +357,20 @@ class Window implements WindowInterface
       $content[] = $output;
     }
 
+    // A Window's declared height is its authoritative render and erase
+    // footprint. Content must never push the bottom border beyond it: that
+    // writes outside the window, evades erase(), and can cross the terminal's
+    // final row. Layout owners should size or paginate their content; this is
+    // the final invariant that keeps every window within its rectangle.
+    $contentRows = max(0, $this->height - 2);
+    $content = array_slice($content, 0, $contentRows);
+
+    while (count($content) < $contentRows) {
+      $content[] = $this->borderPack->getVerticalBorder()
+        . str_repeat(' ', max(0, $this->width - 2))
+        . $this->borderPack->getVerticalBorder();
+    }
+
     return $content;
   }
 
