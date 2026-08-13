@@ -16,10 +16,15 @@ use Ichiloto\Engine\Battle\BattleAction;
 use Ichiloto\Engine\Battle\BattleCommandCatalog;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnExecutionContext;
 use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDamageSkillEffect;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDrainSkillEffect;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\MPDamageSkillEffect;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\MPDrainSkillEffect;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Magic\MagicEffectType;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
+use Ichiloto\Engine\Entities\Skills\Skill;
 use Ichiloto\Engine\IO\Enumerations\Color;
 
 class ActionExecutionState extends TurnState
@@ -186,7 +191,28 @@ class ActionExecutionState extends TurnState
       ? (trim(strval($summonCutscene->defaults['moveName'] ?? '')) ?: $actionName)
       : sprintf("%s uses %s!", $actor->name, $actionName);
     $this->displayAnnouncementPhase($context, $announcement, $timings->announcement);
-    $extendedAnimationHandled = $this->playActionAnimation($context, $actor, $focusTarget, $action, $timings->actionAnimation);
+    $actionAnimation = $summonCutscene instanceof SummonCompiledCutscene
+      ? null
+      : $this->resolveActionAnimation($action);
+    $presentationSound = $this->resolveActionPresentationSound(
+      $action,
+      $actionAnimation,
+      $summonCutscene instanceof SummonCompiledCutscene,
+    );
+
+    if ($presentationSound instanceof SystemSound) {
+      $context->game->audioManager->playSystemSound($presentationSound);
+    }
+
+    $extendedAnimationHandled = $this->playActionAnimation(
+      $context,
+      $actor,
+      $focusTarget,
+      $action,
+      $timings->actionAnimation,
+      $summonCutscene,
+      $actionAnimation,
+    );
     if (! $extendedAnimationHandled) {
       $this->pause($timings->actionAnimation);
       $this->pause($timings->effectAnimation);
@@ -393,6 +419,8 @@ class ActionExecutionState extends TurnState
    * @param CharacterInterface $target The resolved action target.
    * @param BattleAction|null $action The resolved action.
    * @param float $delaySeconds The time budget for the animation phase.
+   * @param SummonCompiledCutscene|null $summonCutscene The pre-resolved summon presentation.
+   * @param Animation|null $animation The pre-resolved ordinary action animation.
    * @return bool Whether the action animation consumed the phase timing.
    */
   protected function playActionAnimation(
@@ -400,17 +428,17 @@ class ActionExecutionState extends TurnState
     CharacterInterface $actor,
     CharacterInterface $target,
     ?BattleAction $action,
-    float $delaySeconds
+    float $delaySeconds,
+    ?SummonCompiledCutscene $summonCutscene = null,
+    ?Animation $animation = null,
   ): bool
   {
-    $summonCutscene = $this->resolveSummonCutscene($action);
-
     if ($summonCutscene instanceof SummonCompiledCutscene) {
       $this->playSummonCutscene($context, $actor, $summonCutscene);
       return true;
     }
 
-    $animation = $this->resolveActionAnimation($action);
+    $animation ??= $this->resolveActionAnimation($action);
 
     if (! $animation instanceof Animation) {
       return false;
@@ -428,6 +456,87 @@ class ActionExecutionState extends TurnState
     $context->ui->refreshField();
 
     return true;
+  }
+
+  /**
+   * Resolves the project-configured action cue for a battle presentation.
+   *
+   * An animation's own sound cue is more specific and therefore wins. Summon
+   * timelines also own their complete audiovisual presentation. Games that
+   * omit the returned system-sound keys retain the historical silent action
+   * phase while damage feedback continues independently at impact time.
+   *
+   * @param BattleAction|null $action The action being presented.
+   * @param Animation|null $animation The resolved ordinary action animation.
+   * @param bool $isSummonAction Whether the action uses a summon timeline.
+   * @return SystemSound|null The generic action cue, or null when presentation owns it.
+   */
+  protected function resolveActionPresentationSound(
+    ?BattleAction $action,
+    ?Animation $animation = null,
+    bool $isSummonAction = false,
+  ): ?SystemSound
+  {
+    if ($action === null || $isSummonAction || $this->animationHasSoundCue($animation)) {
+      return null;
+    }
+
+    if ($action instanceof AttackAction) {
+      return SystemSound::BATTLE_ATTACK;
+    }
+
+    if (! $action instanceof SkillBattleAction) {
+      return null;
+    }
+
+    if (strtolower(trim($action->skill->name)) === 'attack') {
+      return SystemSound::BATTLE_ATTACK;
+    }
+
+    if (! $action->skill instanceof MagicSkill) {
+      return $this->skillHasDamageEffect($action->skill)
+        ? SystemSound::BATTLE_SKILL
+        : null;
+    }
+
+    return match ($action->skill->effectType) {
+      MagicEffectType::DESTRUCTIVE,
+      MagicEffectType::DEBUFF => SystemSound::BATTLE_MAGIC_DESTRUCTIVE,
+      MagicEffectType::RESTORATIVE,
+      MagicEffectType::BUFF => SystemSound::BATTLE_MAGIC_SUPPORT,
+    };
+  }
+
+  /** Returns whether a non-magical skill applies direct HP or MP damage. */
+  protected function skillHasDamageEffect(Skill $skill): bool
+  {
+    foreach ($skill->effects as $effect) {
+      if ($effect instanceof HPDamageSkillEffect
+        || $effect instanceof HPDrainSkillEffect
+        || $effect instanceof MPDamageSkillEffect
+        || $effect instanceof MPDrainSkillEffect
+      ) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /** Returns whether an animation already authors at least one sound cue. */
+  protected function animationHasSoundCue(?Animation $animation): bool
+  {
+    if (! $animation instanceof Animation) {
+      return false;
+    }
+
+    for ($frameIndex = 1; $frameIndex <= $animation->maxFrames; $frameIndex++) {
+      if (trim($animation->getCue($frameIndex)?->soundEffect ?? '') !== '') {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /**

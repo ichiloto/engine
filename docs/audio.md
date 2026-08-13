@@ -104,6 +104,10 @@ Games opt in per sound by declaring a track under `audio.sounds`:
     'buzzer' => 'buzzer',
     'save' => 'save-chime',
     'battle_start' => 'battle-start',
+    'battle_attack' => 'weapon-swing',
+    'battle_skill' => 'special-strike',
+    'battle_magic_destructive' => 'offensive-cast',
+    'battle_magic_support' => 'supportive-cast',
     'escape' => 'escape',
     'actor_damage' => 'actor-hit',
     'enemy_damage' => 'enemy-hit',
@@ -121,9 +125,12 @@ The engine fires these at its built-in interaction points: cursor movement,
 confirm and cancel across every menu surface (title, main menu, item, shop,
 equipment, magic, ability, status, save, modals, and battle command
 selection), a buzzer for disabled or invalid choices, the shop sound on
-checkout, battle start, damage landing (party vs. enemy, with a separate
-collapse sound for defeated enemies), chest loot, and saving. Dialogue boxes
-deliberately stay silent when advancing text.
+checkout, battle start, basic attacks, physical skills, destructive magic,
+supportive magic, damage landing (party vs. enemy, with a separate collapse
+sound for defeated enemies), chest loot, and saving. An animation's authored
+frame sound takes precedence over its generic action-category cue, and summon
+timelines own their audiovisual presentation. Dialogue boxes deliberately stay
+silent when advancing text.
 
 ## Direct playback (custom systems)
 

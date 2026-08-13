@@ -26,6 +26,14 @@ enum SystemSound: string
   case SAVE = 'save';
   /** A battle is starting. */
   case BATTLE_START = 'battle_start';
+  /** A battler begins a basic physical attack. */
+  case BATTLE_ATTACK = 'battle_attack';
+  /** A battler begins a non-magical battle skill. */
+  case BATTLE_SKILL = 'battle_skill';
+  /** A battler begins destructive or debilitating magic. */
+  case BATTLE_MAGIC_DESTRUCTIVE = 'battle_magic_destructive';
+  /** A battler begins restorative or supportive magic. */
+  case BATTLE_MAGIC_SUPPORT = 'battle_magic_support';
   /** The party escaped from battle. */
   case ESCAPE = 'escape';
   /** A party member took damage. */

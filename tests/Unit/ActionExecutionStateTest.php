@@ -1,17 +1,24 @@
 <?php
 
+use Ichiloto\Engine\Animations\Animation;
+use Ichiloto\Engine\Animations\AnimationCue;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
+use Ichiloto\Engine\Battle\Actions\AttackAction;
+use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
+use Ichiloto\Engine\Battle\BattleAction;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\ActionExecutionState;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnResolutionState;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnStateExecutionContext;
 use Ichiloto\Engine\Battle\UI\BattleFieldWindow;
-use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\HPRecoverSkillEffect;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDamageSkillEffect;
 use Ichiloto\Engine\Entities\Enumerations\Occasion;
 use Ichiloto\Engine\Entities\ItemScope;
 use Ichiloto\Engine\Entities\Magic\MagicEffectType;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
+use Ichiloto\Engine\Entities\Skills\SpecialSkill;
 use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\IO\Enumerations\Color;
@@ -58,6 +65,60 @@ it('maps restorative magic to a green cast effect', function () {
   $color = invokeMagicCastEffectColorResolver($state, new SkillBattleAction($skill));
 
   expect($color)->toBe(Color::GREEN);
+});
+
+it('maps battle actions to optional project-configured presentation sounds', function () {
+  $state = makeActionExecutionStateForTest();
+  $scope = new ItemScope();
+  $physicalSkill = new SpecialSkill(
+    'Dual Slash',
+    'Strike twice.',
+    'DSL',
+    0,
+    0,
+    $scope,
+    effects: [new HPDamageSkillEffect('10')],
+  );
+  $utilitySkill = new SpecialSkill('Observe', 'Study the field.', 'OBS', 0, 0, $scope);
+  $destructiveMagic = new MagicSkill(
+    'Fire',
+    'Deals fire damage.',
+    '*',
+    4,
+    0,
+    $scope,
+    effectType: MagicEffectType::DESTRUCTIVE,
+  );
+  $supportMagic = new MagicSkill(
+    'Barrier',
+    'Protects an ally.',
+    '*',
+    4,
+    0,
+    $scope,
+    effectType: MagicEffectType::BUFF,
+  );
+
+  expect(invokeActionPresentationSoundResolver($state, new AttackAction('Attack')))
+    ->toBe(SystemSound::BATTLE_ATTACK)
+    ->and(invokeActionPresentationSoundResolver($state, new SkillBattleAction($physicalSkill)))
+    ->toBe(SystemSound::BATTLE_SKILL)
+    ->and(invokeActionPresentationSoundResolver($state, new SkillBattleAction($destructiveMagic)))
+    ->toBe(SystemSound::BATTLE_MAGIC_DESTRUCTIVE)
+    ->and(invokeActionPresentationSoundResolver($state, new SkillBattleAction($supportMagic)))
+    ->toBe(SystemSound::BATTLE_MAGIC_SUPPORT)
+    ->and(invokeActionPresentationSoundResolver($state, new SkillBattleAction($utilitySkill)))
+    ->toBeNull();
+});
+
+it('lets authored animation and summon audio override generic battle cues', function () {
+  $state = makeActionExecutionStateForTest();
+  $action = new AttackAction('Attack');
+  $animation = new Animation(1, 'Authored Hit');
+  $animation->setCue(1, new AnimationCue(soundEffect: 'custom-hit'));
+
+  expect(invokeActionPresentationSoundResolver($state, $action, $animation))->toBeNull()
+    ->and(invokeActionPresentationSoundResolver($state, $action, isSummonAction: true))->toBeNull();
 });
 
 it('treats battle as concluded when a side has no living battlers', function () {
@@ -151,6 +212,21 @@ function invokeMagicCastEffectColorResolver(ActionExecutionState $state, SkillBa
   $method = new ReflectionMethod(ActionExecutionState::class, 'resolveMagicCastEffectColor');
 
   return $method->invoke($state, $action->skill);
+}
+
+/**
+ * Invokes the generic action-presentation sound resolver.
+ */
+function invokeActionPresentationSoundResolver(
+  ActionExecutionState $state,
+  ?BattleAction $action,
+  ?Animation $animation = null,
+  bool $isSummonAction = false,
+): ?SystemSound
+{
+  $method = new ReflectionMethod(ActionExecutionState::class, 'resolveActionPresentationSound');
+
+  return $method->invoke($state, $action, $animation, $isSummonAction);
 }
 
 /**
