@@ -6,6 +6,8 @@ use Assegai\Util\Path;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
+use Ichiloto\Engine\IO\Enumerations\Color;
+use Ichiloto\Engine\IO\InputBindings;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Debug;
 use Throwable;
@@ -115,11 +117,14 @@ class SkitManager
       $this->announced[] = $skitId;
 
       try {
+        $skitKeys = (new InputBindings())->describeKeys('skit');
+        $highlightedKeys = Color::apply($skitKeys, Color::YELLOW);
+
         notify(
           $this->gameScene->getGame(),
           NotificationChannel::INFO,
           'Skit available',
-          sprintf("%s\nPress T to watch.", strval($skit['title'] ?? $skitId)),
+          sprintf("%s\nPress %s to watch.", strval($skit['title'] ?? $skitId), $highlightedKeys),
           NotificationDuration::LONG
         );
       } catch (Throwable $exception) {

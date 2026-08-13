@@ -195,6 +195,61 @@ final class TerminalText
   }
 
   /**
+   * Wraps styled terminal text without counting ANSI codes as visible cells.
+   *
+   * @param string $text The text to wrap.
+   * @param int $width The maximum display width of each line.
+   * @return string[] Wrapped lines which preserve their original styling.
+   */
+  public static function wrapToWidth(string $text, int $width): array
+  {
+    if ($width <= 0 || $text === '') {
+      return [''];
+    }
+
+    $symbols = self::visibleSymbols($text);
+    $lines = [];
+    $line = [];
+    $lineWidth = 0;
+    $lastSpaceIndex = null;
+
+    while ($symbols !== []) {
+      $symbol = array_shift($symbols);
+      $symbolWidth = self::getSymbolWidth($symbol);
+
+      if ($line !== [] && $lineWidth + $symbolWidth > $width) {
+        if ($lastSpaceIndex !== null) {
+          $overflow = array_splice($line, $lastSpaceIndex + 1);
+          array_pop($line);
+          $lines[] = implode('', $line);
+          $symbols = array_merge($overflow, [$symbol], $symbols);
+        } else {
+          $lines[] = implode('', $line);
+          array_unshift($symbols, $symbol);
+        }
+
+        $line = [];
+        $lineWidth = 0;
+        $lastSpaceIndex = null;
+        continue;
+      }
+
+      $line[] = $symbol;
+      $lineWidth += $symbolWidth;
+
+      if (self::stripAnsi($symbol) === ' ') {
+        $lastSpaceIndex = count($line) - 1;
+      }
+    }
+
+    if ($line !== [] || $lines === []) {
+      $lines[] = implode('', $line);
+    }
+
+    return $lines;
+  }
+
+  /**
    * Right-pads text to the requested display width.
    *
    * @param string $text The text to pad.

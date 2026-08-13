@@ -413,7 +413,7 @@ class Notification implements NotificationInterface
     $lines = [$this->getContentTitle()];
 
     foreach (preg_split('/\r\n|\n|\r/', $this->getContentText()) ?: [] as $textLine) {
-      foreach (explode("\n", wordwrap($textLine, $availableWidth, "\n", true)) as $wrappedLine) {
+      foreach (TerminalText::wrapToWidth($textLine, $availableWidth) as $wrappedLine) {
         $lines[] = $wrappedLine;
       }
     }

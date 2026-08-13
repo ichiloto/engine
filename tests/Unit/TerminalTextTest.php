@@ -19,6 +19,14 @@ it('pads ansi colored text using visible width', function () {
     ->and(TerminalText::stripAnsi($padded))->toBe('Rare    ');
 });
 
+it('wraps styled text by visible width without losing the highlighted key', function () {
+  $text = 'Press ' . Color::apply('T', Color::YELLOW) . ' to watch.';
+  $lines = TerminalText::wrapToWidth($text, 10);
+
+  expect(array_map([TerminalText::class, 'stripAnsi'], $lines))->toBe(['Press T', 'to watch.'])
+    ->and(implode('', $lines))->toContain(Color::YELLOW->value);
+});
+
 it('slices visible symbols without breaking ansi styling', function () {
   $text = Color::apply('o', Color::LIGHT_GREEN) . 'x?';
   $slice = TerminalText::sliceSymbols($text, 0, 2);
