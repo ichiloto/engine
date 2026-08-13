@@ -48,17 +48,25 @@ it('distinguishes plain text pictographs from explicit emoji presentation', func
     ->and(TerminalText::displayWidth('➡'))->toBe(1);
 });
 
-it('uses Unicode presentation defaults for astral pictograph widths', function () {
+it('stabilizes astral pictograph widths and respects explicit text presentation', function () {
   expect(TerminalText::displayWidth('🗡️'))->toBe(2)
-    ->and(TerminalText::displayWidth('🗡'))->toBe(1)
+    ->and(TerminalText::displayWidth('🗡'))->toBe(2)
+    ->and(TerminalText::displayWidth("🗡\u{FE0E}"))->toBe(1)
     ->and(TerminalText::displayWidth('🚶'))->toBe(2);
 });
 
 it('preserves explicit variation selectors', function () {
   expect(TerminalText::stabilizeSymbol('⚔️'))->toBe('⚔️')
     ->and(TerminalText::stabilizeSymbol('🗡️'))->toBe('🗡️')
+    ->and(TerminalText::stabilizeSymbol("🗡\u{FE0E}"))->toBe("🗡\u{FE0E}")
     ->and(TerminalText::stabilizeSymbol('🧪️'))->toBe('🧪️')
     ->and(TerminalText::stabilizeSymbol('A'))->toBe('A');
+});
+
+it('makes ambiguous astral pictographs explicitly two cells', function () {
+  expect(TerminalText::stabilizeSymbol('🗡'))->toBe('🗡️')
+    ->and(TerminalText::stabilize('Weapon: 🗡Wooden Sword'))->toBe('Weapon: 🗡️Wooden Sword')
+    ->and(TerminalText::stabilize('plain ⚔ ♥ symbols'))->toBe('plain ⚔ ♥ symbols');
 });
 
 it('reduces zwj sequences and skin tones to their base glyph', function () {
@@ -79,6 +87,7 @@ it('stabilizes whole strings while preserving stable content and ansi styling', 
 it('keeps padded columns aligned around unstable glyphs', function () {
   expect(TerminalText::displayWidth(TerminalText::padRight('⚔️ Radiant Slash', 24)))->toBe(24)
     ->and(TerminalText::displayWidth(TerminalText::padRight('🗡️ Shadowstep (2 MP)', 58)))->toBe(58)
+    ->and(TerminalText::displayWidth(TerminalText::padRight('🗡 Wooden Sword', 24)))->toBe(24)
     ->and(TerminalText::stabilize(TerminalText::padRight('🗡️ Shadowstep (2 MP)', 58)))->toContain("️")
     ->and(TerminalText::displayWidth(TerminalText::padRight('> 🗡️ Shadowstep (2 MP)', 58) . '║'))->toBe(59)
     ->and(TerminalText::displayWidth(TerminalText::padRight('🏃🏽‍➡️ Sprint', 24)))->toBe(24);

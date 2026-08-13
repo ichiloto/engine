@@ -344,7 +344,10 @@ final class TerminalText
    */
   public static function stabilize(string $text): string
   {
-    if ($text === '' || preg_match('/[\x{200D}\x{FE0E}\x{FE0F}\x{1F3FB}-\x{1F3FF}]/u', $text) !== 1) {
+    if (
+      $text === ''
+      || preg_match('/[\x{200D}\x{FE0E}\x{FE0F}\x{1F3FB}-\x{1F3FF}\x{10000}-\x{10FFFF}]/u', $text) !== 1
+    ) {
       return $text;
     }
 
@@ -363,6 +366,11 @@ final class TerminalText
    *
    * - ZWJ sequences and skin-tone modifiers (e.g. "🏃🏽‍➡️") are reduced to
    *   their base glyph, which renders one predictable cell pair everywhere.
+   * - Astral pictographs whose Unicode default is text presentation (e.g.
+   *   "🗡") receive an explicit emoji selector. Terminal emulators commonly
+   *   paint these with an emoji font even without the selector; making that
+   *   presentation explicit keeps the emitted glyph and reserved cells in
+   *   agreement.
    * - Explicit text/emoji variation selectors are preserved. They are
    *   semantic presentation requests, and the width calculator reserves the
    *   corresponding one or two cells for the complete grapheme.
@@ -395,7 +403,13 @@ final class TerminalText
   {
     $visible = self::stripAnsi($symbol);
 
-    if ($visible === '' || preg_match('/[\x{200D}\x{FE0E}\x{FE0F}\x{1F3FB}-\x{1F3FF}]/u', $visible) !== 1) {
+    if (
+      $visible === ''
+      || (
+        preg_match('/[\x{200D}\x{FE0E}\x{FE0F}\x{1F3FB}-\x{1F3FF}]/u', $visible) !== 1
+        && ! self::isAmbiguousAstralPictograph($visible)
+      )
+    ) {
       return $symbol;
     }
 
@@ -425,7 +439,37 @@ final class TerminalText
       return str_replace($visible, $base, $symbol);
     }
 
+    // Unicode assigns a text default to a small set of astral pictographs,
+    // but emoji-capable terminals commonly select their two-cell emoji font
+    // anyway. Emit the presentation that the buffer reserves instead of
+    // relying on that terminal-specific fallback. An authored FE0E selector
+    // reaches this point unchanged and remains a one-cell text glyph.
+    if (self::isAmbiguousAstralPictograph($visible)) {
+      return str_replace($visible, $visible . "\u{FE0F}", $symbol);
+    }
+
     return $symbol;
+  }
+
+  /**
+   * Whether a grapheme is an astral pictograph with an ambiguous terminal
+   * presentation.
+   *
+   * BMP symbols are deliberately excluded: authors routinely use characters
+   * such as plain hearts and crossed swords as one-cell map tiles. Default
+   * emoji-presentation characters are already predictably two cells, and an
+   * explicit FE0E/FE0F selector is always authoritative.
+   *
+   * @param string $symbol The visible grapheme to inspect.
+   * @return bool True when the renderer should make emoji presentation explicit.
+   */
+  private static function isAmbiguousAstralPictograph(string $symbol): bool
+  {
+    return ! str_contains($symbol, "\u{FE0E}")
+      && ! str_contains($symbol, "\u{FE0F}")
+      && preg_match('/[\x{10000}-\x{10FFFF}]/u', $symbol) === 1
+      && preg_match('/\p{Extended_Pictographic}/u', $symbol) === 1
+      && preg_match('/\p{Emoji_Presentation}/u', $symbol) !== 1;
   }
 
   /**

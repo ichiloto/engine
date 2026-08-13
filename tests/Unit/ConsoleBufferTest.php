@@ -83,6 +83,19 @@ it('keeps column accounting correct when a wide glyph lands in an ascii row', fu
     ->and($buffer[0])->toContain('ok');
 });
 
+it('makes ambiguous item pictographs occupy their reserved terminal cells', function () {
+  $buffer = bufferAfter(function (): void {
+    Console::write('🗡', 0, 0);
+    Console::write('|', 2, 0);
+  });
+
+  // The continuation cell is internal and is omitted from the serialized
+  // row. If the sword were still treated as narrow, a literal blank would
+  // remain before the border and the terminal would wrap full-width rows.
+  expect(TerminalText::stripAnsi($buffer[0]))->toStartWith('🗡️|')
+    ->and(TerminalText::displayWidth($buffer[0]))->toBe(20);
+});
+
 it('skips re-emitting a row whose content is genuinely unchanged', function () {
   $reflection = withConsole(20, 2);
 
