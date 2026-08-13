@@ -1,7 +1,9 @@
 <?php
 
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\ActionExecutionState;
+use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnResolutionState;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnStateExecutionContext;
+use Ichiloto\Engine\Battle\UI\BattleFieldWindow;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\HPRecoverSkillEffect;
@@ -69,6 +71,41 @@ it('treats battle as concluded when a side has no living battlers', function () 
   $context = makeActionExecutionContextForTest($party, $troop);
 
   expect(invokeBattleConclusionChecker($state, $context))->toBeTrue();
+});
+
+it('builds typed popup lines for damaging and restorative state ticks', function () {
+  $state = (new ReflectionClass(TurnResolutionState::class))->newInstanceWithoutConstructor();
+  $battler = new Character('Kaelion', 0, new Stats(currentHp: 100, totalHp: 100));
+  $poison = Ichiloto\Engine\Entities\States\State::fromArray([
+    'id' => 'poison',
+    'name' => 'Poison',
+    'tickFormula' => '-4',
+  ]);
+  $regen = Ichiloto\Engine\Entities\States\State::fromArray([
+    'id' => 'regen',
+    'name' => 'Regen',
+    'tickFormula' => '2',
+  ]);
+  $battler->addState($poison);
+  $battler->addState($regen);
+  $events = $battler->tickStates();
+  $lines = invokeStateTickPopupBuilder($state, $events);
+
+  expect($lines)->toBe([
+    ['text' => '-4 Poison', 'color' => Color::LIGHT_RED],
+    ['text' => '+2 Regen', 'color' => Color::LIGHT_GREEN],
+  ]);
+});
+
+it('rejects malformed stat popup lines at the battlefield boundary', function () {
+  $window = (new ReflectionClass(BattleFieldWindow::class))->newInstanceWithoutConstructor();
+  $method = new ReflectionMethod(BattleFieldWindow::class, 'normalizeStatChangePopupLines');
+
+  expect($method->invoke($window, [['text' => ''], ['text' => '7', 'color' => Color::LIGHT_RED]]))->toBe([
+    ['text' => '7', 'color' => Color::LIGHT_RED],
+  ])
+    ->and(fn() => $method->invoke($window, ['-4 Poison']))
+    ->toThrow(InvalidArgumentException::class, 'must be an array containing text');
 });
 
 /**
@@ -150,4 +187,18 @@ function invokeBattleConclusionChecker(
   $method = new ReflectionMethod(ActionExecutionState::class, 'battleHasConcluded');
 
   return $method->invoke($state, $context);
+}
+
+/**
+ * Produces the same popup payload used by turn resolution from real tick events.
+ *
+ * @param TurnResolutionState $state The turn-resolution state.
+ * @param array<int, array{state: object, hpDelta: int, expired: bool}> $events State tick events.
+ * @return array<int, array{text: string, color: Color}>
+ */
+function invokeStateTickPopupBuilder(TurnResolutionState $state, array $events): array
+{
+  $method = new ReflectionMethod(TurnResolutionState::class, 'buildStateTickPopupLines');
+
+  return $method->invoke($state, $events);
 }

@@ -17,6 +17,7 @@ use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCompiledCutscene;
 use Ichiloto\Engine\UI\Windows\Window;
+use InvalidArgumentException;
 use RuntimeException;
 
 /**
@@ -396,10 +397,7 @@ class BattleFieldWindow extends Window
       return;
     }
 
-    $formattedLines = array_values(array_filter(
-      $lines,
-      static fn(array $line): bool => isset($line['text']) && strval($line['text']) !== ''
-    ));
+    $formattedLines = $this->normalizeStatChangePopupLines($lines);
 
     if (empty($formattedLines)) {
       return;
@@ -428,6 +426,45 @@ class BattleFieldWindow extends Window
     if (isset($anchor['troopIndex'])) {
       $this->popupTroopIndices[] = $anchor['troopIndex'];
     }
+  }
+
+  /**
+   * Validates and normalizes the single stat-popup line contract.
+   *
+   * @param array<int, mixed> $lines Raw popup line definitions.
+   * @return array<int, array{text: string, color: Color}> Normalized non-empty lines.
+   */
+  protected function normalizeStatChangePopupLines(array $lines): array
+  {
+    $normalized = [];
+
+    foreach ($lines as $index => $line) {
+      if (! is_array($line) || ! array_key_exists('text', $line)) {
+        throw new InvalidArgumentException(sprintf(
+          'Stat-change popup line %d must be an array containing text and an optional Color.',
+          $index,
+        ));
+      }
+
+      $text = strval($line['text']);
+
+      if ($text === '') {
+        continue;
+      }
+
+      $color = $line['color'] ?? Color::WHITE;
+
+      if (! $color instanceof Color) {
+        throw new InvalidArgumentException(sprintf(
+          'Stat-change popup line %d color must be a Color.',
+          $index,
+        ));
+      }
+
+      $normalized[] = ['text' => $text, 'color' => $color];
+    }
+
+    return $normalized;
   }
 
   /**

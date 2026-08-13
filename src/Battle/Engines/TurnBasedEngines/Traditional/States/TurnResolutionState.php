@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States;
 
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Battle\BattleResult;
+use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\Scenes\Game\GameScene;
@@ -134,13 +135,10 @@ class TurnResolutionState extends TurnState
         continue;
       }
 
-      $popupLines = [];
+      $events = $battler->tickStates();
+      $popupLines = $this->buildStateTickPopupLines($events);
 
-      foreach ($battler->tickStates() as $event) {
-        if ($event['hpDelta'] !== 0) {
-          $popupLines[] = sprintf('%+d %s', $event['hpDelta'], $event['state']->name);
-        }
-
+      foreach ($events as $event) {
         if ($event['expired']) {
           $announcements[] = sprintf('%s recovered from %s.', $battler->name, $event['state']->name);
         }
@@ -154,5 +152,29 @@ class TurnResolutionState extends TurnState
     if (! empty($announcements)) {
       $context->ui->alert(implode(' ', $announcements));
     }
+  }
+
+  /**
+   * Converts state ticks into the same typed popup payload used by actions.
+   *
+   * @param array<int, array{state: object, hpDelta: int, expired: bool}> $events State tick events.
+   * @return array<int, array{text: string, color: Color}> Popup lines.
+   */
+  protected function buildStateTickPopupLines(array $events): array
+  {
+    $lines = [];
+
+    foreach ($events as $event) {
+      if ($event['hpDelta'] === 0) {
+        continue;
+      }
+
+      $lines[] = [
+        'text' => sprintf('%+d %s', $event['hpDelta'], $event['state']->name),
+        'color' => $event['hpDelta'] < 0 ? Color::LIGHT_RED : Color::LIGHT_GREEN,
+      ];
+    }
+
+    return $lines;
   }
 }
