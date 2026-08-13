@@ -288,6 +288,12 @@ class QuestManager
     return $this->log->getProgress($quest->id)[$objectiveIndex] ?? 0;
   }
 
+  /** Resolves one objective's current spoiler-safe journal text. */
+  public function describeObjective(QuestObjective $objective): string
+  {
+    return $objective->displayDescription($this->gameScene->gameState, $this->gameScene->party);
+  }
+
   /**
    * Re-evaluates objectives that mirror world state — held items, the
    * current map, and already-set flags — so accepting a quest the player
@@ -378,8 +384,8 @@ class QuestManager
     if (! $quiet) {
       $objective = $quest->objectives[$objectiveIndex];
       $progress = $objective->quantity > 1
-        ? sprintf('%s (%d/%d)', $objective->description, $count, $objective->quantity)
-        : $objective->description;
+        ? sprintf('%s (%d/%d)', $this->describeObjective($objective), $count, $objective->quantity)
+        : $this->describeObjective($objective);
       $this->notifyQuest('Quest Updated', sprintf("%s\n%s", $quest->name, $progress), NotificationDuration::MEDIUM);
     }
   }

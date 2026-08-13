@@ -654,6 +654,57 @@ class Player extends GameObject
   }
 
   /**
+   * Renders authored cues for available, incomplete map events.
+   *
+   * Event-layer marker letters remain editor-only identities. A cue exists
+   * only when an author deliberately opts a trigger into player guidance.
+   */
+  public function renderEventCues(): void
+  {
+    /** @var EventTrigger $event */
+    foreach ($this->events as $event) {
+      if ($event->cue === null || $event->isComplete || ! $event->isAvailable()) {
+        continue;
+      }
+
+      $this->scene->camera->renderOnScreen(
+        [$event->cue->styledSymbol()],
+        $event->cue->positionFor($event->area),
+      );
+    }
+  }
+
+  /**
+   * Retires active triggers whose completion or conditions changed in place.
+   *
+   * A script can complete without player movement. Running only the exit half
+   * here clears stale action prompts without entering newly available triggers
+   * or unexpectedly chaining automatic scripts at the same coordinates.
+   */
+  public function reconcileActiveEventState(): void
+  {
+    $position = clone $this->position;
+    $context = new EventTriggerContext(
+      new MovementEvent(MovementEventType::PLAYER_MOVE, $position, clone $position),
+      $this->position,
+      $this,
+      $this->getGameScene(),
+      $this->getGameScene()->mapManager,
+    );
+
+    /** @var EventTrigger $event */
+    foreach ($this->events as $event) {
+      if (
+        $this->eventManager->activeEvents->contains($event)
+        && ($event->isComplete || ! $event->isAvailable())
+      ) {
+        $event->exit($context);
+        $this->eventManager->activeEvents->remove($event);
+      }
+    }
+  }
+
+  /**
    * @inheritDoc
    */
   public function render(): void

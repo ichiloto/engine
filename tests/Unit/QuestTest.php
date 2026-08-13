@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
 use Ichiloto\Engine\Quests\Quest;
 use Ichiloto\Engine\Quests\QuestLog;
@@ -43,6 +44,24 @@ it('derives objective descriptions from their type', function () {
   expect($objective->description)->toBe('Defeat Sewer Rat x2')
     ->and($objective->matches('sewer rat'))->toBeTrue()
     ->and($objective->matches('Great Wolf'))->toBeFalse();
+});
+
+it('reveals more specific objective text through existing world conditions', function () {
+  $state = new GameState();
+  $objective = QuestObjective::fromArray([
+    'type' => 'defeat',
+    'target' => 'Unknown Beast',
+    'description' => 'Deal with the creature blocking the road',
+    'revealedDescription' => 'Defeat the Great Beast',
+    'revealConditions' => [['type' => 'event', 'name' => 'great_beast_identified']],
+  ]);
+
+  expect($objective->displayDescription($state))->toBe('Deal with the creature blocking the road');
+
+  $state->recordStoryEvent('great_beast_identified');
+
+  expect($objective->displayDescription($state))->toBe('Defeat the Great Beast')
+    ->and($objective->target)->toBe('Unknown Beast');
 });
 
 it('rejects objectives with unknown types or blank targets', function () {

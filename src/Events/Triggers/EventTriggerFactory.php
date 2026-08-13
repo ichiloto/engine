@@ -53,6 +53,7 @@ class EventTriggerFactory
       $mapId,
       isset($args['marker']) ? strval($args['marker']) : null,
       isset($args['whenBlocked']) ? strval($args['whenBlocked']) : null,
+      is_array($args['cue'] ?? null) ? $args['cue'] : null,
     );
   }
 }

@@ -2,6 +2,9 @@
 
 namespace Ichiloto\Engine\Quests;
 
+use Ichiloto\Engine\Core\GameState;
+use Ichiloto\Engine\Core\WorldConditionEvaluator;
+use Ichiloto\Engine\Entities\Party;
 use InvalidArgumentException;
 
 /**
@@ -16,12 +19,18 @@ class QuestObjective
    * @param string $target The objective target (NPC, item, enemy, map id, or flag name).
    * @param int $quantity The required count.
    * @param string $description The journal text; derived from the type when blank.
+   * @param string $revealedDescription More specific journal text shown after
+   *   the reveal conditions hold.
+   * @param array<int, array<string, mixed>> $revealConditions World conditions
+   *   that reveal the more specific text.
    */
   public function __construct(
     protected(set) QuestObjectiveType $type,
     protected(set) string $target,
     protected(set) int $quantity = 1,
     protected(set) string $description = '',
+    protected(set) string $revealedDescription = '',
+    protected(set) array $revealConditions = [],
   )
   {
     $this->quantity = max(1, $this->quantity);
@@ -29,6 +38,34 @@ class QuestObjective
     if (trim($this->description) === '') {
       $this->description = $this->type->describe($this->target, $this->quantity);
     }
+
+    $this->revealedDescription = trim($this->revealedDescription);
+    $this->revealConditions = array_values(array_filter($this->revealConditions, is_array(...)));
+  }
+
+  /**
+   * Resolves the journal text the player is currently allowed to know.
+   *
+   * The objective target remains stable for progress and save compatibility;
+   * only its presentation changes as authored world conditions become true.
+   * Omitting reveal data preserves the historical static description.
+   *
+   * @param GameState|null $gameState The current persistent world state.
+   * @param Party|null $party The current party, for item-backed conditions.
+   * @return string The spoiler-safe current description.
+   */
+  public function displayDescription(?GameState $gameState = null, ?Party $party = null): string
+  {
+    if (
+      $this->revealedDescription === ''
+      || $this->revealConditions === []
+      || $gameState === null
+      || ! WorldConditionEvaluator::allHold($this->revealConditions, $gameState, $party)
+    ) {
+      return $this->description;
+    }
+
+    return $this->revealedDescription;
   }
 
   /**
@@ -64,6 +101,8 @@ class QuestObjective
       $target,
       intval($data['quantity'] ?? 1),
       strval($data['description'] ?? ''),
+      strval($data['revealedDescription'] ?? ''),
+      is_array($data['revealConditions'] ?? null) ? $data['revealConditions'] : [],
     );
   }
 }

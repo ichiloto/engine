@@ -56,6 +56,7 @@ class FieldState extends GameSceneState
     {
         Console::clear();
         $this->getGameScene()->mapManager->render();
+        $this->getGameScene()->player->renderEventCues();
         $this->getGameScene()->npcManager?->render();
         $this->getGameScene()->player->render();
         $this->getGameScene()->locationHUDWindow->render();
@@ -72,6 +73,8 @@ class FieldState extends GameSceneState
     {
         $scene = $this->context->getScene();
         assert($scene instanceof GameScene);
+
+        $scene->reconcileFieldPresentation();
 
         // A story event owns field input while it is running. Its pending
         // dialogue, timer, route, transfer, or battle continuation advances

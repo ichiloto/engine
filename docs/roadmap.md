@@ -721,6 +721,29 @@ commands, field-animation commands, parallel routes, pathfinding, party
 followers, NPC patrol routes, nested choice/branch editor redesign, boss
 phases, and scheduled/delayed battle actions.
 
+## Production-hardening extension — progressive objectives and field cues ✅ *shipped 2026-08*
+
+> Status: shipped as an extension to the Phase 2 quest journal, Phase 1 world
+> conditions, and Phase 4 map triggers. It does not add a parallel quest state
+> store, expose event-layer marker identities, or change save schemas.
+
+Quest objectives can now pair their spoiler-safe `description` with an
+optional `revealedDescription` and `revealConditions`. Presentation resolves
+through the existing `WorldConditionEvaluator`; the stable target and saved
+progress remain unchanged. Existing static objectives remain source-compatible.
+
+Any event trigger can opt into a single-cell `cue` with Symfony Console color.
+Cues render only while their trigger is available and incomplete, separately
+from editor-only event marker letters. State writes invalidate the dynamic
+field composition, then one authoritative reconciliation redraws map, cues,
+currently visible NPCs, player, and HUD after an event session. That same
+boundary retires completed or newly unavailable active triggers, removing
+stale action prompts without entering or chaining new triggers.
+
+Unavailable conditional triggers remain absent unless their author supplies
+`whenBlocked`; blocked text therefore remains a deliberate spatial-gate policy,
+not a default for future story stations.
+
 ## Sequencing notes
 
 - Phase 1 before everything story-shaped; Phases 2 and 3 can proceed in

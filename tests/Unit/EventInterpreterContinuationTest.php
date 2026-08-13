@@ -692,11 +692,39 @@ it('runs exit cleanup after a one-shot action trigger completes in place', funct
   $player->interact();
   expect($trigger->isComplete)->toBeTrue()
     ->and($scene->gameState->hasStoryEvent('one_shot_action_finished'))->toBeTrue()
-    ->and($player->availableAction)->not->toBeNull();
+    ->and($player->availableAction)->toBeNull();
 
   $player->dispatchMovement(new Vector2(1, 0), new Vector2(2, 0));
 
   expect($player->availableAction)->toBeNull();
+});
+
+it('renders an authored event cue only while its trigger is available and incomplete', function () {
+  [$scene] = makeEventRuntime();
+  $player = new EventTestPlayer(new Vector2(0, 0));
+  $scene->installPlayer($player);
+  $trigger = new ScriptEventTrigger(
+    new Rect(4, 6, 3, 3),
+    ['mode' => 'action', 'reusable' => false, 'script' => [['type' => 'wait', 'seconds' => 0.1]]],
+    conditions: [['type' => 'event', 'name' => 'station_ready']],
+    cue: ['symbol' => '!', 'color' => 'bright-yellow'],
+  );
+  $trigger->bind($scene->gameState, $scene->party);
+  $player->addTrigger($trigger);
+
+  $player->renderEventCues();
+  expect($scene->camera->renders)->toBe([]);
+
+  $scene->gameState->recordStoryEvent('station_ready');
+  $player->renderEventCues();
+
+  expect($scene->camera->renders)->toHaveCount(1)
+    ->and($scene->camera->renders[0][0])->toBe(['<fg=bright-yellow>!</>'])
+    ->and([$scene->camera->renders[0][1]->x, $scene->camera->renders[0][1]->y])->toBe([5.0, 7.0]);
+
+  $trigger->complete();
+  $player->renderEventCues();
+  expect($scene->camera->renders)->toHaveCount(1);
 });
 
 it('retires map-owned action state when event triggers are replaced', function () {

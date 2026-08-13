@@ -66,6 +66,10 @@ abstract class EventTrigger implements EventTriggerInterface
    * @var Party|null The bound party (for item conditions).
    */
   protected ?Party $party = null;
+  /**
+   * @var EventCue|null Optional player-visible guidance for this trigger.
+   */
+  protected(set) ?EventCue $cue = null;
 
   /**
    * EventTrigger constructor.
@@ -79,6 +83,8 @@ abstract class EventTrigger implements EventTriggerInterface
    * @param string|null $whenBlocked Message shown when the player attempts to
    * enter the area while the conditions do not hold. A non-empty message also
    * makes the unavailable event reject entry; without one it is simply absent.
+   * @param array{symbol?: string, color?: string}|null $cue Optional authored,
+   * player-visible guidance for the trigger while it is available.
    * @throws JsonException If the data cannot be serialized.
    */
   final public function __construct(
@@ -89,6 +95,7 @@ abstract class EventTrigger implements EventTriggerInterface
     ?string $mapId = null,
     ?string $marker = null,
     protected(set) ?string $whenBlocked = null,
+    ?array $cue = null,
   )
   {
     $serializedData = json_encode($data, JSON_THROW_ON_ERROR);
@@ -98,6 +105,7 @@ abstract class EventTrigger implements EventTriggerInterface
     $this->mapId = $mapId !== null && trim($mapId) !== '' ? trim($mapId) : null;
     $this->marker = $marker !== null && trim($marker) !== '' ? trim($marker) : null;
     $this->whenBlocked = $whenBlocked !== null && trim($whenBlocked) !== '' ? trim($whenBlocked) : null;
+    $this->cue = EventCue::fromArray($cue);
     $this->configure();
   }
 

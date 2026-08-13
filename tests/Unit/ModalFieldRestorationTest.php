@@ -83,6 +83,8 @@ final class FieldCompositionNpcProbe extends NpcManager
 final class FieldCompositionPlayerProbe extends Player
 {
   public int $renderCount = 0;
+  public int $cueRenderCount = 0;
+  public int $reconcileCount = 0;
 
   public function __construct()
   {
@@ -91,6 +93,16 @@ final class FieldCompositionPlayerProbe extends Player
   public function render(): void
   {
     $this->renderCount++;
+  }
+
+  public function renderEventCues(): void
+  {
+    $this->cueRenderCount++;
+  }
+
+  public function reconcileActiveEventState(): void
+  {
+    $this->reconcileCount++;
   }
 }
 
@@ -123,6 +135,8 @@ final class FieldCompositionSceneProbe extends GameScene
     $this->mapManager = $mapManager;
     $this->npcManager = $npcManager;
     $this->player = $player;
+    $this->fieldState = new FieldState(new SceneStateContext($this));
+    $this->state = $this->fieldState;
   }
 }
 
@@ -171,6 +185,26 @@ it('composites map NPCs player and HUD on every field restoration', function () 
   $state->renderTheField();
 
   expect($map->renderCount)->toBe(1)
+    ->and($player->cueRenderCount)->toBe(1)
+    ->and($npcs->renderCount)->toBe(1)
+    ->and($player->renderCount)->toBe(1)
+    ->and($hud->renderCount)->toBe(1);
+});
+
+it('rebuilds dynamic field layers once when world state makes them dirty', function () {
+  $map = new FieldCompositionMapProbe();
+  $npcs = new FieldCompositionNpcProbe();
+  $player = new FieldCompositionPlayerProbe();
+  $hud = new FieldCompositionHudProbe();
+  $scene = new FieldCompositionSceneProbe($map, $npcs, $player, $hud);
+
+  $scene->requestFieldPresentationReconciliation();
+  $scene->reconcileFieldPresentation();
+  $scene->reconcileFieldPresentation();
+
+  expect($map->renderCount)->toBe(1)
+    ->and($player->reconcileCount)->toBe(1)
+    ->and($player->cueRenderCount)->toBe(1)
     ->and($npcs->renderCount)->toBe(1)
     ->and($player->renderCount)->toBe(1)
     ->and($hud->renderCount)->toBe(1);

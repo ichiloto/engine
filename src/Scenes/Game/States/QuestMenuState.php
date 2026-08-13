@@ -272,7 +272,12 @@ class QuestMenuState extends GameSceneState
       $progress = $questManager?->getObjectiveProgress($quest, $index) ?? 0;
       $mark = $progress >= $objective->quantity ? '✓' : '·';
       $count = $objective->quantity > 1 ? sprintf(' (%d/%d)', $progress, $objective->quantity) : '';
-      $content[] = sprintf('   %s %s%s', $mark, $objective->description, $count);
+      $content[] = sprintf(
+        '   %s %s%s',
+        $mark,
+        $questManager?->describeObjective($objective) ?? $objective->description,
+        $count,
+      );
     }
 
     if (($rewards = $quest->describeRewards()) !== '') {

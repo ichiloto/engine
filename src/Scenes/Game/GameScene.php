@@ -212,6 +212,10 @@ class GameScene extends AbstractScene
      * @var GameConfig|null The configuration of the game.
      */
     protected ?GameConfig $config = null;
+    /**
+     * @var bool Whether world-state writes invalidated dynamic field layers.
+     */
+    protected bool $fieldPresentationIsDirty = false;
 
     /**
      * Configures the game scene.
@@ -245,6 +249,8 @@ class GameScene extends AbstractScene
         // Flag writes feed quest objectives that watch switches and story
         // events, and can make new skits available.
         $this->gameState->onChange = function (string $kind, string $name): void {
+            $this->requestFieldPresentationReconciliation();
+
             if ($kind !== 'variable') {
                 $this->questManager?->recordFlag($name);
                 $this->skitManager?->announceAvailableSkits();
@@ -577,6 +583,12 @@ class GameScene extends AbstractScene
             $completed ? 'completed' : 'failed',
         ));
 
+        // Completion targets and final immediate commands may change NPC
+        // visibility and event cues after the last dialogue overlay was
+        // erased. Rebuild the composition at this authoritative boundary.
+        $this->requestFieldPresentationReconciliation();
+        $this->reconcileFieldPresentation();
+
         if (! $completed) {
             // Never turn a failed, potentially partial script into an
             // automatic checkpoint.
@@ -600,7 +612,36 @@ class GameScene extends AbstractScene
     {
         if ($this->state === $this->fieldState) {
             $this->fieldState?->renderTheField();
+            $this->fieldPresentationIsDirty = false;
         }
+    }
+
+    /** Marks dynamic NPC and event-cue presentation stale after world state changes. */
+    public function requestFieldPresentationReconciliation(): void
+    {
+        $this->fieldPresentationIsDirty = true;
+    }
+
+    /**
+     * Rebuilds the field once after dynamic visibility changed.
+     *
+     * Writes can arrive in batches during scripts. Deferring while a session
+     * owns input prevents repainting over dialogue and collapses the batch to
+     * one canonical map/cue/NPC/player/HUD composition.
+     */
+    public function reconcileFieldPresentation(): void
+    {
+        if (
+            ! $this->fieldPresentationIsDirty
+            || $this->state !== $this->fieldState
+            || $this->hasUnstableEventSession()
+        ) {
+            return;
+        }
+
+        $this->fieldPresentationIsDirty = false;
+        $this->player?->reconcileActiveEventState();
+        $this->fieldState?->renderTheField();
     }
 
     /**

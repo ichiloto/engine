@@ -205,6 +205,7 @@ it('builds triggers with conditions, sets, and identity through the factory', fu
     'conditions' => [['type' => 'switch', 'name' => 'gate_open']],
     'sets' => [['type' => 'event', 'name' => 'talked_to_mom']],
     'whenBlocked' => '   ',
+    'cue' => ['symbol' => '!', 'color' => 'bright-yellow'],
     'data' => ['dialogue' => [['name' => 'Mom', 'text' => 'Hi.']]],
   ], 'happyville/home');
 
@@ -212,5 +213,25 @@ it('builds triggers with conditions, sets, and identity through the factory', fu
     ->and($trigger->marker)->toBe('C')
     ->and($trigger->conditions)->toBe([['type' => 'switch', 'name' => 'gate_open']])
     ->and($trigger->sets)->toBe([['type' => 'event', 'name' => 'talked_to_mom']])
-    ->and($trigger->whenBlocked)->toBeNull();
+    ->and($trigger->whenBlocked)->toBeNull()
+    ->and($trigger->cue?->symbol)->toBe('!')
+    ->and($trigger->cue?->color)->toBe('bright-yellow');
+});
+
+it('rejects event cues that cannot occupy one terminal cell', function () {
+  expect(fn() => EventTriggerFactory::create([
+    'class' => Ichiloto\Engine\Events\Triggers\DialogueEventTrigger::class,
+    'area' => ['x' => 0, 'y' => 0, 'width' => 1, 'height' => 1],
+    'cue' => ['symbol' => '!!', 'color' => 'bright-yellow'],
+    'data' => ['dialogue' => [['name' => 'Guide', 'text' => 'This way.']]],
+  ]))->toThrow(InvalidArgumentException::class);
+});
+
+it('rejects event cue colors outside Symfony Console syntax', function () {
+  expect(fn() => EventTriggerFactory::create([
+    'class' => Ichiloto\Engine\Events\Triggers\DialogueEventTrigger::class,
+    'area' => ['x' => 0, 'y' => 0, 'width' => 1, 'height' => 1],
+    'cue' => ['symbol' => '!', 'color' => 'quest-gold'],
+    'data' => ['dialogue' => [['name' => 'Guide', 'text' => 'This way.']]],
+  ]))->toThrow(InvalidArgumentException::class);
 });
