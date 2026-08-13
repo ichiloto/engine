@@ -313,9 +313,10 @@ class EventInterpreter
         $quantity = max(1, intval($command['quantity'] ?? 1));
 
         if ($itemStore instanceof ItemStore && $this->gameScene->party) {
-          for ($count = 0; $count < $quantity; $count++) {
-            $this->gameScene->party->addItems(...$itemStore->load([strval($command['item'] ?? '')]));
-          }
+          $this->gameScene->party->addItems(...$itemStore->instantiate(
+            strval($command['item'] ?? ''),
+            $quantity,
+          ));
         }
         return EventCommandResult::COMPLETED;
 

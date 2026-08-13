@@ -37,6 +37,7 @@ use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Stores\EnemyStore;
+use Ichiloto\Engine\Util\Stores\ItemStore;
 use Assegai\Collections\ItemList;
 
 final class EventTestPresentation implements EventPresentationInterface
@@ -376,6 +377,31 @@ function makeEventRuntime(): array
 
   return [$scene, $interpreter, $presentation];
 }
+
+it('grants catalog items by name and requested quantity', function () {
+  $store = (new ReflectionClass(ItemStore::class))->newInstanceWithoutConstructor();
+  $store->set('Test Blade', new Ichiloto\Engine\Entities\Inventory\Weapons\Weapon(
+    'Test Blade',
+    'A test weapon.',
+    '/',
+    10,
+  ));
+  ConfigStore::put(ItemStore::class, $store);
+
+  try {
+    [$scene, $interpreter] = makeEventRuntime();
+    $session = $interpreter->run([
+      ['type' => 'give_item', 'item' => 'Test Blade', 'quantity' => 2],
+      ['type' => 'record_event', 'name' => 'grant_complete'],
+    ], 'item-grant');
+
+    expect($session?->status)->toBe(EventExecutionStatus::COMPLETED)
+      ->and($scene->party->inventory->getQuantityByName('Test Blade'))->toBe(2)
+      ->and($scene->gameState->hasStoryEvent('grant_complete'))->toBeTrue();
+  } finally {
+    ConfigStore::remove(ItemStore::class);
+  }
+});
 
 it('keeps immediate scripts compatible and completes once', function () {
   [$scene, $interpreter] = makeEventRuntime();

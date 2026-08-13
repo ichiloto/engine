@@ -70,6 +70,36 @@ class ItemStore implements ConfigInterface
   }
 
   /**
+   * Creates independent inventory instances from one catalog entry.
+   *
+   * Runtime consumers deal in stable item names, whereas load() hydrates
+   * configuration rows. Keeping those contracts separate prevents commands
+   * from accidentally passing names into the configuration parser.
+   *
+   * @param string $itemName The exact catalog name.
+   * @param int $quantity The number of independent copies to create.
+   * @return InventoryItem[] The cloned inventory instances.
+   * @throws NotFoundException When the catalog has no matching entry.
+   */
+  public function instantiate(string $itemName, int $quantity = 1): array
+  {
+    $itemName = trim($itemName);
+
+    if ($itemName === '' || ! $this->has($itemName)) {
+      throw new NotFoundException(sprintf('Inventory item "%s"', $itemName));
+    }
+
+    $prototype = $this->items[$itemName];
+    $items = [];
+
+    for ($count = 0; $count < max(0, $quantity); $count++) {
+      $items[] = clone $prototype;
+    }
+
+    return $items;
+  }
+
+  /**
    * @inheritDoc
    */
   public function persist(): void
@@ -99,16 +129,15 @@ class ItemStore implements ConfigInterface
       $itemPrice = $datum['price'] ?? null;
       $itemQuantity = $datum['quantity'] ?? 1;
 
-      /** @var InventoryItem $item */
-      if ($item = $itemStore->get($itemName)) {
-        if (! is_null($itemPrice)) {
+      $loadedItems = $itemStore->instantiate($itemName, $itemQuantity);
+
+      if (! is_null($itemPrice)) {
+        foreach ($loadedItems as $item) {
           $item->price = $itemPrice;
         }
-        for ($count = 0; $count < $itemQuantity; $count++) {
-          // Clone so callers never alias the catalog singletons held by the store.
-          $items[] = clone $item;
-        }
       }
+
+      $items = [...$items, ...$loadedItems];
     }
 
     return $items;

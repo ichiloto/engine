@@ -37,3 +37,18 @@ it('loads clones so party items never alias the catalog singletons', function ()
 
   expect($store->get('Potion')->quantity)->toBe($catalogQuantity);
 });
+
+it('instantiates runtime item grants by stable catalog name', function () {
+  $store = makeEmptyItemStore();
+  $store->set('Potion', new Item('Potion', 'Restores a little HP.', '🧪', 50));
+
+  $items = $store->instantiate('Potion', 2);
+
+  expect($items)->toHaveCount(2)
+    ->and($items[0]->name)->toBe('Potion')
+    ->and($items[0])->not->toBe($store->get('Potion'))
+    ->and($items[1])->not->toBe($items[0])
+    ->and($store->instantiate('Potion', 0))->toBe([])
+    ->and(fn() => $store->instantiate('Missing Item'))
+    ->toThrow(Ichiloto\Engine\Exceptions\NotFoundException::class);
+});
