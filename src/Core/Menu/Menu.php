@@ -350,7 +350,8 @@ abstract class Menu implements MenuInterface
   public function updateWindowContent(): void
   {
     $content = [];
-    $contentWidth = max(0, $this->rect->getWidth() - 4);
+    $contentWidth = $this->window?->getContentWidth()
+      ?? max(0, $this->rect->getWidth() - 4);
     /**
      * @var int $itemIndex
      * @var MenuItemInterface $item
@@ -371,11 +372,19 @@ abstract class Menu implements MenuInterface
       $content[] = $output;
     }
 
-    if ($this->totalItems < $this->rect->getHeight()) {
-      $content = array_pad($content, $this->rect->getHeight() - 2, ''); // -2 for the top and bottom borders
+    $contentHeight = $this->window?->getContentHeight()
+      ?? max(0, $this->rect->getHeight() - 2);
+
+    if (count($content) < $contentHeight) {
+      $content = array_pad($content, $contentHeight, '');
     }
 
     $this->window?->setContent($content);
+
+    if ($this->window) {
+      $this->rect->setHeight($this->window->getHeight());
+    }
+
     $this->render();
   }
 }

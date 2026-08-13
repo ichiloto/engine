@@ -9,6 +9,7 @@ use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
+use Ichiloto\Engine\UI\Windows\Enumerations\WindowHeightPolicy;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
@@ -271,6 +272,7 @@ class TextBoxModal extends Modal
       $this->rect->getWidth(),
       $this->rect->getHeight(),
       $this->borderPack,
+      heightPolicy: WindowHeightPolicy::FIXED,
     );
   }
 

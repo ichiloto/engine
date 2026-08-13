@@ -12,6 +12,7 @@ use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
 use Ichiloto\Engine\UI\Windows\Enumerations\VerticalAlignment;
+use Ichiloto\Engine\UI\Windows\Enumerations\WindowHeightPolicy;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Interfaces\WindowInterface;
 use Ichiloto\Engine\Util\Debug;
@@ -33,6 +34,8 @@ class Window implements WindowInterface
    * @var array
    */
   protected array $content = [];
+  /** How authored content affects the window's vertical footprint. */
+  protected WindowHeightPolicy $heightPolicy = WindowHeightPolicy::GROW_TO_CONTENT;
   /**
    * Window constructor.
    *
@@ -55,11 +58,14 @@ class Window implements WindowInterface
     protected WindowAlignment $alignment = new WindowAlignment(HorizontalAlignment::LEFT, VerticalAlignment::MIDDLE),
     protected WindowPadding $padding = new WindowPadding(rightPadding: 1, leftPadding: 1),
     protected Color $backgroundColor = Color::BLACK,
-    protected ?Color $foregroundColor = null
+    protected ?Color $foregroundColor = null,
+    WindowHeightPolicy $heightPolicy = WindowHeightPolicy::GROW_TO_CONTENT,
   )
   {
+    $this->height = max(2, $this->height);
+    $this->heightPolicy = $heightPolicy;
     $this->observers = new ItemList(ObserverInterface::class);
-    $this->setContent(array_fill(0, $this->height - 2, ' '));
+    $this->setContent([]);
   }
 
   /**
@@ -193,6 +199,69 @@ class Window implements WindowInterface
   }
 
   /**
+   * @inheritDoc
+   */
+  public function getHeight(): int
+  {
+    return $this->height;
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function getContentHeight(): int
+  {
+    return max(
+      0,
+      $this->height
+        - 2
+        - $this->padding->getTopPadding()
+        - $this->padding->getBottomPadding()
+    );
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function fitHeightToContent(int $contentRows): void
+  {
+    if (! isset($this->height, $this->padding)) {
+      return;
+    }
+
+    $this->height = max(
+      $this->height,
+      max(0, $contentRows)
+        + $this->padding->getTopPadding()
+        + $this->padding->getBottomPadding()
+        + 2,
+    );
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function getHeightPolicy(): WindowHeightPolicy
+  {
+    return $this->heightPolicy;
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function setHeightPolicy(WindowHeightPolicy $heightPolicy): void
+  {
+    $this->heightPolicy = $heightPolicy;
+
+    if (
+      $this->heightPolicy === WindowHeightPolicy::GROW_TO_CONTENT
+      && isset($this->height, $this->padding)
+    ) {
+      $this->fitHeightToContent(count($this->content));
+    }
+  }
+
+  /**
    * Returns the width available to content after borders and padding.
    *
    * Content producers must use this value for wrapping and truncation. The
@@ -230,6 +299,13 @@ class Window implements WindowInterface
   public function setContent(array $content): void
   {
     $this->content = $content;
+
+    if (
+      $this->heightPolicy === WindowHeightPolicy::GROW_TO_CONTENT
+      && isset($this->height, $this->padding)
+    ) {
+      $this->fitHeightToContent(count($this->content));
+    }
   }
 
   /**
@@ -241,6 +317,13 @@ class Window implements WindowInterface
   public function addContent(string $content): void
   {
     $this->content[] = $content;
+
+    if (
+      $this->heightPolicy === WindowHeightPolicy::GROW_TO_CONTENT
+      && isset($this->height, $this->padding)
+    ) {
+      $this->fitHeightToContent(count($this->content));
+    }
   }
 
   /**
@@ -251,7 +334,7 @@ class Window implements WindowInterface
    */
   public function removeContent(string $content): void
   {
-    $this->content = array_diff($this->content, [$content]);
+    $this->setContent(array_values(array_diff($this->content, [$content])));
   }
 
   /**
@@ -261,7 +344,7 @@ class Window implements WindowInterface
    */
   public function clearContent(): void
   {
-    $this->content = [];
+    $this->setContent([]);
   }
 
   /**
@@ -357,11 +440,10 @@ class Window implements WindowInterface
       $content[] = $output;
     }
 
-    // A Window's declared height is its authoritative render and erase
-    // footprint. Content must never push the bottom border beyond it: that
-    // writes outside the window, evades erase(), and can cross the terminal's
-    // final row. Layout owners should size or paginate their content; this is
-    // the final invariant that keeps every window within its rectangle.
+    // Height is the authoritative render and erase footprint. Ordinary
+    // windows have already grown in setContent()/addContent() so every line
+    // fits. FIXED windows deliberately expose only their viewport because
+    // their content owner paginates or scrolls the remaining rows.
     $contentRows = max(0, $this->height - 2);
     $content = array_slice($content, 0, $contentRows);
 

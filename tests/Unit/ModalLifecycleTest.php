@@ -11,6 +11,7 @@ use Ichiloto\Engine\UI\Modal\Modal;
 use Ichiloto\Engine\UI\Modal\SelectModal;
 use Ichiloto\Engine\UI\Modal\TextBoxModal;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
+use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 
@@ -282,8 +283,8 @@ it('paginates dialogue that cannot fit its bounded text box', function () {
   }
 });
 
-it('keeps every window render inside its declared height', function () {
-  $window = new \Ichiloto\Engine\UI\Windows\Window(
+it('grows a window footprint before rendering content beyond its authored minimum', function () {
+  $window = new Window(
     position: new Vector2(4, 5),
     width: 20,
     height: 3,
@@ -298,6 +299,30 @@ it('keeps every window render inside its declared height', function () {
 
   expect(substr($rendered[5], 4))->toContain('╔')
     ->and(substr($rendered[6], 4, 20))->toContain('first')
-    ->and(substr($rendered[7], 4))->toContain('╚')
-    ->and(substr($rendered[8], 4, 20))->toBe(str_repeat('.', 20));
+    ->and(substr($rendered[7], 4, 20))->toContain('overflow one')
+    ->and(substr($rendered[8], 4, 20))->toContain('overflow two')
+    ->and(substr($rendered[9], 4))->toContain('╚')
+    ->and(substr($rendered[10], 4, 20))->toBe(str_repeat('.', 20));
+});
+
+it('erases the complete authoritative footprint after a window grows', function () {
+  $window = new Window(
+    position: new Vector2(4, 5),
+    width: 20,
+    height: 3,
+  );
+  $window->setContent(['first', 'second', 'third']);
+
+  ob_start();
+  $window->render();
+  $window->erase();
+  ob_end_clean();
+
+  $erased = array_map(TerminalText::stripAnsi(...), Console::getBuffer());
+
+  for ($row = 5; $row < 10; $row++) {
+    expect(substr($erased[$row], 4, 20))->toBe(str_repeat(' ', 20));
+  }
+
+  expect(substr($erased[10], 4, 20))->toBe(str_repeat('.', 20));
 });
