@@ -663,7 +663,7 @@ class Player extends GameObject
   {
     /** @var EventTrigger $event */
     foreach ($this->events as $event) {
-      if ($event->cue === null || $event->isComplete || ! $event->isAvailable()) {
+      if (! $event->shouldRenderCue()) {
         continue;
       }
 

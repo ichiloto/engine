@@ -83,8 +83,9 @@ abstract class EventTrigger implements EventTriggerInterface
    * @param string|null $whenBlocked Message shown when the player attempts to
    * enter the area while the conditions do not hold. A non-empty message also
    * makes the unavailable event reject entry; without one it is simply absent.
-   * @param array{symbol?: string, color?: string}|null $cue Optional authored,
-   * player-visible guidance for the trigger while it is available.
+   * @param array{symbol?: string, color?: string, conditions?: array<int, array<string, mixed>>}|null $cue Optional authored,
+   * player-visible guidance for the trigger while it is available. Cue
+   * conditions may further delay presentation without disabling interaction.
    * @throws JsonException If the data cannot be serialized.
    */
   final public function __construct(
@@ -144,6 +145,26 @@ abstract class EventTrigger implements EventTriggerInterface
     }
 
     return true;
+  }
+
+  /**
+   * Determines whether the trigger's optional player cue should be rendered.
+   *
+   * Cue conditions refine presentation without disabling interaction. This
+   * lets a reusable station explain missing prerequisites while advertising
+   * itself as the current objective only when the authored stage is ready.
+   */
+  public function shouldRenderCue(): bool
+  {
+    if ($this->cue === null || $this->isComplete || ! $this->isAvailable()) {
+      return false;
+    }
+
+    if ($this->cue->conditions === [] || $this->gameState === null) {
+      return true;
+    }
+
+    return WorldConditionEvaluator::allHold($this->cue->conditions, $this->gameState, $this->party);
   }
 
   /**

@@ -17,9 +17,14 @@ use Symfony\Component\Console\Formatter\OutputFormatterStyle;
  */
 final readonly class EventCue
 {
+  /**
+   * @param array<int, array<string, mixed>> $conditions Optional world-state
+   * conditions controlling presentation independently of trigger availability.
+   */
   public function __construct(
     public string $symbol = '!',
     public string $color = 'bright-yellow',
+    public array $conditions = [],
   )
   {
     if (TerminalText::symbolCount($this->symbol) !== 1 || TerminalText::displayWidth($this->symbol) !== 1) {
@@ -31,9 +36,15 @@ final readonly class EventCue
     } catch (InvalidArgumentException $exception) {
       throw new InvalidArgumentException(sprintf('Invalid event cue color "%s".', $this->color), previous: $exception);
     }
+
+    foreach ($this->conditions as $condition) {
+      if (! is_array($condition)) {
+        throw new InvalidArgumentException('Event cue conditions must be arrays.');
+      }
+    }
   }
 
-  /** @param array<string, mixed>|null $data */
+  /** @param array{symbol?: mixed, color?: mixed, conditions?: mixed}|null $data */
   public static function fromArray(?array $data): ?self
   {
     if ($data === null) {
@@ -48,6 +59,7 @@ final readonly class EventCue
     return new self(
       $symbol,
       trim(strval($data['color'] ?? 'bright-yellow')),
+      array_values(array_filter((array) ($data['conditions'] ?? []), 'is_array')),
     );
   }
 

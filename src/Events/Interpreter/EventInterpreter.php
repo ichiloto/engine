@@ -513,10 +513,17 @@ class EventInterpreter
       $this->presentation->reset();
       $options = array_values(array_filter((array) ($session->pendingCommand['options'] ?? []), is_array(...)));
 
-      // Preserve the old SelectModal contract: cancelling a choice runs no
-      // arm and continues with the following command.
+      // Preserve the old SelectModal contract when no cancel arm is authored,
+      // while allowing story-critical choices to acknowledge cancellation and
+      // restore a clear retry path without treating it as a selection.
       if ($chosen === -1) {
+        $commands = array_values(array_filter((array) ($session->pendingCommand['cancel'] ?? []), is_array(...)));
         $session->completePendingCommand();
+
+        if ($commands !== []) {
+          $session->pushFrame($commands, 'choice:cancel');
+        }
+
         return true;
       }
 

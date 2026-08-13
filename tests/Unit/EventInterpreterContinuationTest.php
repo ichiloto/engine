@@ -642,6 +642,31 @@ it('resumes dialogue and choices on later ticks', function () {
     ->and($scene->gameState->getSwitch('finished'))->toBeTrue();
 });
 
+it('runs an authored choice cancellation arm without selecting an option', function () {
+  [$scene, $interpreter, $presentation] = makeEventRuntime();
+
+  $session = $interpreter->run([
+    [
+      'type' => 'choice',
+      'prompt' => 'Submit?',
+      'options' => [[
+        'text' => 'Submit',
+        'then' => [['type' => 'set_switch', 'name' => 'submitted', 'value' => true]],
+      ]],
+      'cancel' => [['type' => 'set_switch', 'name' => 'cancelled', 'value' => true]],
+    ],
+    ['type' => 'set_switch', 'name' => 'continued', 'value' => true],
+  ]);
+
+  $presentation->resolveChoice(-1);
+  $interpreter->update(0.016);
+
+  expect($session?->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and($scene->gameState->getSwitch('submitted'))->toBeFalse()
+    ->and($scene->gameState->getSwitch('cancelled'))->toBeTrue()
+    ->and($scene->gameState->getSwitch('continued'))->toBeTrue();
+});
+
 it('prevents trigger re-entry and applies one-shot completion writes once', function () {
   [$scene, $interpreter] = makeEventRuntime();
   $trigger = new ScriptEventTrigger(
@@ -725,6 +750,38 @@ it('renders an authored event cue only while its trigger is available and incomp
   $trigger->complete();
   $player->renderEventCues();
   expect($scene->camera->renders)->toHaveCount(1);
+});
+
+it('can gate a cue without disabling its trigger interaction', function () {
+  [$scene] = makeEventRuntime();
+  $player = new EventTestPlayer(new Vector2(0, 0));
+  $scene->installPlayer($player);
+  $trigger = new ScriptEventTrigger(
+    new Rect(4, 6, 3, 3),
+    ['mode' => 'action', 'reusable' => true, 'script' => [['type' => 'wait', 'seconds' => 0.1]]],
+    conditions: [['type' => 'event', 'name' => 'station_online']],
+    cue: [
+      'symbol' => '!',
+      'color' => 'bright-yellow',
+      'conditions' => [['type' => 'event', 'name' => 'response_ready']],
+    ],
+  );
+  $trigger->bind($scene->gameState, $scene->party);
+  $player->addTrigger($trigger);
+  $scene->gameState->recordStoryEvent('station_online');
+
+  expect($trigger->isAvailable())->toBeTrue()
+    ->and($trigger->shouldRenderCue())->toBeFalse();
+
+  $player->dispatchMovement(new Vector2(0, 0), new Vector2(4, 6));
+  expect($player->availableAction)->not->toBeNull();
+
+  $scene->gameState->recordStoryEvent('response_ready');
+  $player->renderEventCues();
+
+  expect($trigger->shouldRenderCue())->toBeTrue()
+    ->and($scene->camera->renders)->toHaveCount(1)
+    ->and($scene->camera->renders[0][0])->toBe(['<fg=bright-yellow>!</>']);
 });
 
 it('retires map-owned action state when event triggers are replaced', function () {
