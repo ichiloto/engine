@@ -6,6 +6,7 @@ use Ichiloto\Engine\Battle\Engines\ActiveTime\States\ActiveTimeFlowState;
 use Ichiloto\Engine\Battle\Actions\GuardAction;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Battle\BattleAction;
+use Ichiloto\Engine\Battle\PartyBattlerPositions;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\PlayerActionState;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnStateExecutionContext;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\TraditionalTurnBasedBattleEngine;
@@ -84,6 +85,21 @@ class BattleFieldWindowTargetingTestProxy extends BattleFieldWindow
   public function isBlinkingTroopFocus(): bool
   {
     return $this->blinkFocusedTroop;
+  }
+
+  public function resolveTroopIdlePositionForTest(Enemy $battler): Vector2
+  {
+    return $this->getTroopIdlePosition($battler);
+  }
+
+  public function getPartyZoneLeftForTest(): int
+  {
+    return $this->getPartyZoneLeft();
+  }
+
+  public function getTroopAvailableWidthForTest(Vector2 $position): int
+  {
+    return $this->getTroopAvailableWidth($position);
   }
 }
 
@@ -199,6 +215,28 @@ function createTargetingTestScreen(): BattleScreenTargetingTestProxy
 
   return $screen;
 }
+
+it('keeps authored enemy formations out of the player-party render zone', function () {
+  $fieldWindow = (new ReflectionClass(BattleFieldWindowTargetingTestProxy::class))->newInstanceWithoutConstructor();
+  setTestProperty($fieldWindow, 'partyBattlerPositions', new PartyBattlerPositions());
+
+  $wolf = createTargetingTestEnemy('Wolf');
+  setTestProperty($wolf, 'image', [str_repeat('W', 31)]);
+  setTestProperty($wolf, 'position', new Vector2(99, 7));
+
+  $safePosition = $fieldWindow->resolveTroopIdlePositionForTest($wolf);
+  $partyZoneLeft = $fieldWindow->getPartyZoneLeftForTest();
+
+  expect($safePosition->x)->toBe(62.0)
+    ->and($safePosition->x + BattleFieldWindow::TROOP_STEP_X_OFFSET + 31)->toBeLessThanOrEqual(
+      $partyZoneLeft - BattleFieldWindow::BATTLE_SIDE_GAP,
+    )
+    ->and($fieldWindow->getTroopAvailableWidthForTest($safePosition))->toBe(34);
+
+  setTestProperty($wolf, 'position', new Vector2(10, 7));
+
+  expect($fieldWindow->resolveTroopIdlePositionForTest($wolf)->x)->toBe(10.0);
+});
 
 it('queues the player action against the selected target and keeps a queued target marker visible', function () {
   $game = (new ReflectionClass(GameTargetingTestProxy::class))->newInstanceWithoutConstructor();
