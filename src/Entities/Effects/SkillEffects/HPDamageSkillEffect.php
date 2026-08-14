@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Entities\Effects\SkillEffects;
 
+use Ichiloto\Engine\Battle\ElementalDamage;
 use Ichiloto\Engine\Entities\Skills\SkillEffectContext;
 
 /**
@@ -28,26 +29,7 @@ class HPDamageSkillEffect extends SkillEffect
       $damage = max(1, intval($damage / 2));
     }
 
-    // Elemental affinity scales the final damage: 2.0 weak, 0.5 resist,
-    // 0.0 null, negative absorbs (the hit heals instead).
-    if (method_exists($context->target, 'getElementMultiplier')) {
-      $multiplier = $context->target->getElementMultiplier($this->element);
-
-      if ($multiplier !== 1.0) {
-        $context->target->lastElementReaction = match (true) {
-          $multiplier < 0.0 => 'ABSORB',
-          $multiplier === 0.0 => 'NULL',
-          $multiplier < 1.0 => 'RESIST',
-          default => 'WEAK!',
-        };
-      }
-
-      $damage = intval(round($damage * $multiplier));
-
-      if ($multiplier > 0.0) {
-        $damage = max(1, $damage);
-      }
-    }
+    $damage = ElementalDamage::scale($context->target, $this->element, $damage);
 
     $context->target->stats->currentHp -= $damage;
   }

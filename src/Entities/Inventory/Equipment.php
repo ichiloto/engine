@@ -38,9 +38,36 @@ abstract class Equipment extends InventoryItem
     bool $consumable = false,
     protected(set) ParameterChanges $parameterChanges = new ParameterChanges(),
     protected(set) WeaponType|ArmorType|null $equipmentType = null,
+    protected(set) array $elementAffinities = [],
+    protected(set) ?string $element = null,
   )
   {
     parent::__construct($name, $description, $icon, $price, $quantity, $userType, $isKeyItem, $consumable);
+  }
+
+  /**
+   * Returns this piece's multiplier against an element.
+   *
+   * The same semantics as a battler's affinities: 2.0 weak, 0.5 resist,
+   * 0.0 null, negative absorbs. Unlisted elements are neutral, and lookup
+   * ignores case so authored data never fails on capitalisation.
+   *
+   * @param string|null $element The element name; null is always neutral.
+   * @return float The multiplier.
+   */
+  public function getElementMultiplier(?string $element): float
+  {
+    if ($element === null || trim($element) === '') {
+      return 1.0;
+    }
+
+    foreach ($this->elementAffinities as $affinityElement => $multiplier) {
+      if (strcasecmp(trim(strval($affinityElement)), trim($element)) === 0) {
+        return floatval($multiplier);
+      }
+    }
+
+    return 1.0;
   }
 
   /**

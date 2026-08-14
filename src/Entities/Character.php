@@ -38,7 +38,9 @@ use InvalidArgumentException;
  */
 class Character implements CharacterInterface, CanEquip
 {
-  use HasStates;
+  use HasStates {
+    getElementMultiplier as private getBaseElementMultiplier;
+  }
   use HasStatStages;
 
   /**
@@ -686,6 +688,58 @@ class Character implements CharacterInterface, CanEquip
     }
 
     return min(max(1, $preferredLevel), min($curveMaxLevels));
+  }
+
+  /**
+   * Returns this character's multiplier against an element, gear included.
+   *
+   * Multipliers multiply: a resist ring on top of a resist shield protects
+   * more than either alone. One deliberate clamp on top of the arithmetic:
+   * once any piece absorbs, the result keeps absorbing -- two absorb pieces
+   * multiply to a positive, and stacking wards must never turn healing back
+   * into harm. A null (0.0) still nullifies everything, absorbs included.
+   *
+   * @param string|null $element The element name; null is always neutral.
+   * @return float The composed multiplier.
+   */
+  public function getElementMultiplier(?string $element): float
+  {
+    $product = $this->getBaseElementMultiplier($element);
+    $sawAbsorb = $product < 0.0;
+
+    foreach ($this->equipment as $equipmentSlot) {
+      $gear = $equipmentSlot->equipment;
+
+      if ($gear === null) {
+        continue;
+      }
+
+      $factor = $gear->getElementMultiplier($element);
+      $sawAbsorb = $sawAbsorb || $factor < 0.0;
+      $product *= $factor;
+    }
+
+    if ($sawAbsorb && $product > 0.0) {
+      $product = -$product;
+    }
+
+    return $product;
+  }
+
+  /**
+   * Returns the element the equipped weapon imbues basic attacks with.
+   *
+   * @return string|null The element, or null when the weapon is plain.
+   */
+  public function getAttackElement(): ?string
+  {
+    foreach ($this->equipment as $equipmentSlot) {
+      if ($equipmentSlot->equipment instanceof Weapon && $equipmentSlot->equipment->element !== null) {
+        return $equipmentSlot->equipment->element;
+      }
+    }
+
+    return null;
   }
 
   /**

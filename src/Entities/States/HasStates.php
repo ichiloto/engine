@@ -74,6 +74,16 @@ trait HasStates
    * @param string|null $element The element name; null is always neutral.
    * @return float The multiplier (1.0 when unlisted).
    */
+  /**
+   * Returns the element this battler's basic attacks carry.
+   *
+   * @return string|null The element, or null for a neutral attack.
+   */
+  public function getAttackElement(): ?string
+  {
+    return null;
+  }
+
   public function getElementMultiplier(?string $element): float
   {
     if ($element === null || trim($element) === '') {

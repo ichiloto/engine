@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Battle\Actions;
 
 use Ichiloto\Engine\Battle\BattleAction;
+use Ichiloto\Engine\Battle\ElementalDamage;
 use Ichiloto\Engine\Battle\BattlerBattleView;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface as Actor;
@@ -50,6 +51,16 @@ class AttackAction extends BattleAction
       if ($target->isGuarding ?? false) {
         $damage = max(1, intval($damage / 2));
       }
+
+      // The weapon's element meets the target's affinities, exactly as a
+      // skill's element does. A plain weapon attacks neutrally, and until
+      // now a basic attack ignored affinities altogether -- an enemy that
+      // absorbs Water still took plain hits at full damage.
+      $damage = ElementalDamage::scale(
+        $target,
+        method_exists($actor, 'getAttackElement') ? $actor->getAttackElement() : null,
+        $damage,
+      );
 
       $target->stats->currentHp -= $damage;
     }
