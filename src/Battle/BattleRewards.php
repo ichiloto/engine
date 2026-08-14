@@ -54,10 +54,10 @@ class BattleRewards
     array $items
   )
   {
-    $itemStore = ConfigStore::get(ItemStore::class);
-    if (! $itemStore instanceof ItemStore) {
-      throw new RuntimeException('Item store is not set.');
-    }
+    // The store resolves item names, so rewards that name no items need no
+    // store. Demanding one up front made an empty rewards object impossible
+    // to build in authoring tools that have no game running.
+    $itemStore = null;
 
     foreach ($items as $item) {
       if ($item instanceof DropItem) {
@@ -71,6 +71,11 @@ class BattleRewards
 
         if (! isset($item['rate']) ) {
           throw new RequiredFieldException('rate');
+        }
+
+        $itemStore ??= ConfigStore::get(ItemStore::class);
+        if (! $itemStore instanceof ItemStore) {
+          throw new RuntimeException('Item store is not set.');
         }
 
         if ($dropItem = $itemStore->get($item['item']) ) {
