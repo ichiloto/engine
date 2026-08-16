@@ -66,6 +66,12 @@ trait HasStatStages
     return max(0.25, 1.0 + 0.25 * $this->getStatStage($stat));
   }
 
+  /** Applies the current stage to an uncapped stat-layer value. */
+  public function applyStatStage(string $stat, int $uncappedValue): int
+  {
+    return max(0, intval(round($uncappedValue * $this->getStatStageMultiplier($stat))));
+  }
+
   /**
    * Clears every stage (battle end).
    *

@@ -6,6 +6,7 @@ use Ichiloto\Engine\Entities\Enemies\Enemy;
 use Ichiloto\Engine\Entities\Skills\SkillEffectContext;
 use Ichiloto\Engine\Entities\States\HasStatStages;
 use Ichiloto\Engine\Entities\Stats;
+use Ichiloto\Engine\Entities\Stats\StatKey;
 
 function makeStagedBattler(int $attack = 40): object
 {
@@ -54,6 +55,57 @@ it('feeds staged stats into the battle view', function () {
     ->and($view->stats->defence)->toBe(20) // untouched stat passes through
     ->and($view->name)->toBe('Stagey')     // non-stat reads reach the battler
     ->and($battler->stats->attack)->toBe(40); // the real stats never mutate
+});
+
+it('applies player stages before the player cap and exposes final metadata', function () {
+  $character = new Ichiloto\Engine\Entities\Character(
+    'Capped',
+    0,
+    new Stats(currentHp: 100, attack: 900, defence: 20, speed: 30),
+  );
+  $character->addStatStage('attack', 1);
+
+  $view = new BattlerBattleView($character);
+  $resolution = $view->resolveStat(StatKey::ATTACK);
+
+  expect($view->stats->attack)->toBe(999)
+    ->and($resolution->uncappedValue)->toBe(1_125)
+    ->and($resolution->effectiveValue)->toBe(999)
+    ->and($resolution->temporary)->toBe(225)
+    ->and($resolution->capLoss)->toBe(126)
+    ->and($resolution->remainingHeadroom)->toBe(0)
+    ->and($character->stats->attack)->toBe(900);
+});
+
+it('restores persistent values after a debuff is removed', function () {
+  $character = new Ichiloto\Engine\Entities\Character(
+    'Debuffed',
+    0,
+    new Stats(currentHp: 100, attack: 120, defence: 20, speed: 30),
+  );
+  $character->addStatStage('attack', -2);
+
+  expect(new BattlerBattleView($character)->stats->attack)->toBe(60);
+
+  $character->resetStatStages();
+
+  expect(new BattlerBattleView($character)->stats->attack)->toBe(120)
+    ->and($character->stats->currentHp)->toBe(100);
+});
+
+it('uses the explicit enemy cap after enemy stages', function () {
+  $enemy = new ReflectionClass(Enemy::class)->newInstanceWithoutConstructor();
+  new ReflectionProperty(Enemy::class, 'stats')->setValue(
+    $enemy,
+    new Stats(currentHp: 100, attack: 9_000, defence: 20, speed: 30),
+  );
+  $enemy->addStatStage('attack', 1);
+
+  $resolution = new BattlerBattleView($enemy)->resolveStat(StatKey::ATTACK);
+
+  expect($resolution->uncappedValue)->toBe(11_250)
+    ->and($resolution->effectiveValue)->toBe(9_999)
+    ->and($resolution->capLoss)->toBe(1_251);
 });
 
 it('describes its stage shift', function () {

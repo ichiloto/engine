@@ -98,7 +98,7 @@ class WorldConditionEvaluator
         strval($condition['op'] ?? '=='),
         $condition['value'] ?? 0
       ),
-      WorldConditionType::ITEM => ($party?->inventory?->getQuantityByName($name) ?? 0) >= max(1, intval($condition['quantity'] ?? 1)),
+      WorldConditionType::ITEM => ($party?->inventory?->getQuantity($name, 'evaluating an item world condition') ?? 0) >= max(1, intval($condition['quantity'] ?? 1)),
       WorldConditionType::KEY_ITEM => $party?->inventory?->hasKeyItem($name) ?? false,
       WorldConditionType::QUEST => QuestManager::current()?->questStatusMatches($name, strval($condition['status'] ?? 'completed')) ?? false,
     };

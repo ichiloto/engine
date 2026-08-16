@@ -23,6 +23,8 @@ use Ichiloto\Engine\IO\SaveManager;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Stores\ActorStore;
 
 class SaveCompatibilityTestGame extends Game
 {
@@ -350,6 +352,42 @@ it('resolves map aliases in current visited and one-shot event identities', func
     ->and($loaded->gameState['completedEvents'])->toBe(['new-map:treasure-west' => true]);
 
   cleanupCompatibilityManager($manager);
+});
+
+it('resolves actor aliases before reconstructing current project definitions', function () {
+  $slug = 'save-compatibility-actor-alias-' . uniqid();
+  $actorStore = new ActorStore(dirname(__DIR__) . '/Fixtures/Actors');
+  ConfigStore::put(ActorStore::class, $actorStore);
+  $manager = new SaveManager(
+    new SaveCompatibilityTestGame(),
+    "./tests/Support/Data/{$slug}",
+    "./tests/Support/Data/{$slug}/quick",
+    makeCompatibilityManifest([
+      'aliases' => [
+        'actors' => [['from' => 'Legacy Hero', 'to' => 'actor.hero']],
+      ],
+    ]),
+  );
+  $config = makeCompatibilityConfig();
+  $config->party->members[0] = new Character(
+    'Legacy Hero',
+    0,
+    new Stats(currentHp: 80, totalHp: 100),
+  );
+
+  try {
+    $manager->save(new SaveCompatibilitySceneStub($config), 1);
+    $restored = $manager->loadSlot(1)->config->party->members->toArray()[0];
+
+    expect($restored)->toBeInstanceOf(Character::class)
+      ->and($restored->name)->toBe('Hero')
+      ->and($restored->naturalVariantId)->toBe('standard')
+      ->and($restored->actorNaturalAdjustments)->toBe(['maxHp' => 5])
+      ->and($restored->toArray())->not->toHaveKey('actorNaturalAdjustments');
+  } finally {
+    cleanupCompatibilityManager($manager);
+    ConfigStore::remove(ActorStore::class);
+  }
 });
 
 it('rejects tombstoned saved identities and invalid alias graphs', function () {

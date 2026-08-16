@@ -7,6 +7,8 @@ use Ichiloto\Engine\Entities\EquipmentSlot;
 use Ichiloto\Engine\Entities\Inventory\Equipment;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Stores\ActorStore;
 
 /** Applies project-declared aliases and tombstones to decoded save state. */
 final readonly class SaveContentResolver
@@ -97,7 +99,9 @@ final readonly class SaveContentResolver
       }
     }
 
-    foreach ($config->party->members->toArray() as $member) {
+    $actorStore = ConfigStore::has(ActorStore::class) ? ConfigStore::get(ActorStore::class) : null;
+
+    foreach ($config->party->members->toArray() as $index => $member) {
       if (! $member instanceof Character) {
         continue;
       }
@@ -105,7 +109,17 @@ final readonly class SaveContentResolver
       $raw = $member->getDeferredSaveData();
 
       if (! is_array($raw)) {
-        $member->applySaveIdentity($this->identity(ContentReferenceCategory::ACTOR, $member->name));
+        $identity = $this->identity(ContentReferenceCategory::ACTOR, $member->name);
+
+        if ($actorStore instanceof ActorStore) {
+          $savedState = $member->toArray();
+          $config->party->members[$index] = $actorStore->require(
+            $identity,
+            $this->actorLookupContext($identity, $savedState),
+          )->createCharacter($savedState, $this->savePath);
+        } else {
+          $member->applySaveIdentity($identity);
+        }
         continue;
       }
 
@@ -121,8 +135,30 @@ final readonly class SaveContentResolver
         }
       }
 
-      $member->completeDeferredSaveHydration($raw);
+      if ($actorStore instanceof ActorStore) {
+        $config->party->members[$index] = $actorStore->require(
+          strval($raw['name']),
+          $this->actorLookupContext(strval($raw['name']), $raw),
+        )->createCharacter($raw, $this->savePath);
+      } else {
+        // Compatibility for embedders without project actor assets. A running
+        // Ichiloto game always configures ActorStore before loading saves.
+        $member->completeDeferredSaveHydration($raw);
+      }
     }
+  }
+
+  /** @param array<string, mixed> $savedState */
+  private function actorLookupContext(string $actorId, array $savedState): string
+  {
+    $variantId = trim(strval($savedState['naturalVariantId'] ?? ''));
+
+    return sprintf(
+      'loading actor "%s" with natural variant "%s" from save %s',
+      $actorId,
+      $variantId !== '' ? $variantId : '[project default]',
+      $this->savePath,
+    );
   }
 
   private function resolveInventoryItem(InventoryItem $item): void

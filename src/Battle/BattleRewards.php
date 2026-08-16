@@ -78,9 +78,10 @@ class BattleRewards
           throw new RuntimeException('Item store is not set.');
         }
 
-        if ($dropItem = $itemStore->get($item['item']) ) {
-          $this->items[] = new DropItem($dropItem, $item['rate']);
-        }
+        $definitionId = $itemStore->requireDefinitionId(strval($item['item']), 'loading a battle drop');
+        $dropItem = $itemStore->get($definitionId);
+        assert($dropItem instanceof InventoryItem);
+        $this->items[] = new DropItem($dropItem, $item['rate']);
       }
     }
   }

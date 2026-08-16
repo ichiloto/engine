@@ -7,7 +7,9 @@ use Ichiloto\Engine\Entities\Interfaces\InventoryItemInterface;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
 use Ichiloto\Engine\Quests\QuestManager;
+use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Debug;
+use Ichiloto\Engine\Util\Stores\ItemStore;
 use InvalidArgumentException;
 
 /**
@@ -186,22 +188,39 @@ class Inventory
    */
   public function getQuantityByName(string $itemName): int
   {
-    /** @var InventoryItem|null $foundItem */
-    $foundItem = array_find(
-      $this->inventoryItems->toArray(),
-      static fn(InventoryItem $item): bool => $item->name === $itemName
-    );
-
-    return $foundItem?->quantity ?? 0;
+    return $this->getQuantity($itemName, 'checking inventory quantity by display name');
   }
 
   /** Returns the held quantity for one stable definition id. */
   public function getQuantityById(string $definitionId): int
   {
+    return $this->getQuantity($definitionId, 'checking inventory quantity by stable id');
+  }
+
+  /** Returns held quantity through the one stable-id/name/alias contract. */
+  public function getQuantity(string $reference, string $context = 'checking inventory quantity'): int
+  {
+    if (! ConfigStore::has(ItemStore::class)) {
+      $normalized = strtolower(trim($reference));
+      $hasLocalMatch = array_any(
+        $this->inventoryItems->toArray(),
+        static fn(InventoryItem $item): bool => $item->id === $normalized
+          || strtolower(trim($item->name)) === $normalized,
+      );
+
+      if (! $hasLocalMatch) {
+        // A catalogue-free standalone inventory can still answer that an
+        // exact reference is not currently held. Running projects always use
+        // ItemStore, where unknown authored references fail closed.
+        return 0;
+      }
+    }
+
+    $definitionId = $this->resolveDefinitionId($reference, $context);
     /** @var InventoryItem|null $foundItem */
     $foundItem = array_find(
       $this->inventoryItems->toArray(),
-      static fn(InventoryItem $item): bool => $item->id === strtolower(trim($definitionId))
+      static fn(InventoryItem $item): bool => $item->id === $definitionId
     );
 
     return $foundItem?->quantity ?? 0;
@@ -215,9 +234,11 @@ class Inventory
    */
   public function hasKeyItem(string $itemName): bool
   {
+    $definitionId = $this->resolveDefinitionId($itemName, 'checking a key-item world condition');
+
     return null !== array_find(
       $this->inventoryItems->toArray(),
-      static fn(InventoryItem $item): bool => $item->isKeyItem && $item->name === $itemName
+      static fn(InventoryItem $item): bool => $item->isKeyItem && $item->id === $definitionId
     );
   }
 
@@ -230,14 +251,28 @@ class Inventory
    */
   public function consumeQuantity(string $itemName, int $quantity): bool
   {
+    return $this->consumeReference($itemName, $quantity, 'consuming inventory by display name');
+  }
+
+  /** Consumes a quantity using durable definition identity. */
+  public function consumeQuantityById(string $definitionId, int $quantity): bool
+  {
+    return $this->consumeReference($definitionId, $quantity, 'consuming inventory by stable id');
+  }
+
+  /** Consumes through the one stable-id/name/alias contract. */
+  public function consumeReference(string $reference, int $quantity, string $context = 'consuming inventory'): bool
+  {
     if ($quantity < 1) {
       return true;
     }
 
+    $definitionId = $this->resolveDefinitionId($reference, $context);
+
     /** @var InventoryItem|null $foundItem */
     $foundItem = array_find(
       $this->inventoryItems->toArray(),
-      static fn(InventoryItem $item): bool => $item->name === $itemName
+      static fn(InventoryItem $item): bool => $item->id === $definitionId
     );
 
     if (! $foundItem instanceof InventoryItem || $foundItem->quantity < $quantity) {
@@ -253,30 +288,39 @@ class Inventory
     return true;
   }
 
-  /** Consumes a quantity using durable definition identity. */
-  public function consumeQuantityById(string $definitionId, int $quantity): bool
+  private function resolveDefinitionId(string $reference, string $context): string
   {
-    if ($quantity < 1) {
-      return true;
+    if (ConfigStore::has(ItemStore::class)) {
+      $store = ConfigStore::get(ItemStore::class);
+
+      if ($store instanceof ItemStore) {
+        return $store->requireDefinitionId($reference, $context);
+      }
     }
 
-    /** @var InventoryItem|null $foundItem */
-    $foundItem = array_find(
+    // Standalone embedders and unit-level inventories may have no project
+    // catalogue. Exact held stable IDs and current names remain deterministic;
+    // declared aliases require ItemStore and therefore fail closed here.
+    $normalized = strtolower(trim($reference));
+    $matches = array_values(array_filter(
       $this->inventoryItems->toArray(),
-      static fn(InventoryItem $item): bool => $item->id === strtolower(trim($definitionId))
-    );
+      static fn(InventoryItem $item): bool => $item->id === $normalized
+        || strtolower(trim($item->name)) === $normalized,
+    ));
+    $ids = array_values(array_unique(array_map(
+      static fn(InventoryItem $item): string => $item->id,
+      $matches,
+    )));
 
-    if (! $foundItem instanceof InventoryItem || $foundItem->quantity < $quantity) {
-      return false;
+    if (count($ids) !== 1) {
+      throw new InvalidArgumentException(sprintf(
+        'Inventory reference "%s" cannot be resolved while %s without a project ItemStore.',
+        trim($reference),
+        $context,
+      ));
     }
 
-    $foundItem->quantity -= $quantity;
-
-    if ($foundItem->quantity < 1) {
-      $this->inventoryItems->remove($foundItem);
-    }
-
-    return true;
+    return $ids[0];
   }
 
   /**

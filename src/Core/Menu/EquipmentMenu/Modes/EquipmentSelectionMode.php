@@ -336,10 +336,9 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
   }
 
   /**
-   * Compares two equipment entries by type and name.
+   * Compares two equipment entries by subtype and stable definition identity.
    *
-   * Inventory equipment is stack-based, so matching by class and name is the
-   * most reliable way to determine whether two entries represent the same item.
+   * Display names may change without changing ownership identity.
    *
    * @param Equipment|null $first The first equipment entry.
    * @param Equipment|null $second The second equipment entry.
@@ -351,6 +350,6 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
       return false;
     }
 
-    return $first::class === $second::class && $first->name === $second->name;
+    return $first::class === $second::class && $first->id === $second->id;
   }
 }

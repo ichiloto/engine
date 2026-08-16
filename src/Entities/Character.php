@@ -22,6 +22,9 @@ use Ichiloto\Engine\Entities\States\StateInstance;
 use Ichiloto\Engine\Entities\States\StateRegistry;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
+use Ichiloto\Engine\Entities\EquipmentOptimization\EquipmentOptimizationPolicyInterface;
+use Ichiloto\Engine\Entities\EquipmentOptimization\EquipmentOptimizationPolicyRegistry;
+use Ichiloto\Engine\Entities\EquipmentOptimization\EquipmentOptimizationScore;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
 use Ichiloto\Engine\Entities\Magic\Spellbook;
 use Ichiloto\Engine\Entities\Roles\CharacterRole;
@@ -610,15 +613,20 @@ class Character implements CharacterInterface, CanEquip
   /**
    * Optimizes the character's equipment.
    *
-   * Each slot is filled with the highest-rated compatible equipment that is
-   * still available, i.e. not already worn by another party member.
+   * Each slot is filled through the declared project policy while respecting
+   * compatibility and copies already worn by other party members.
    *
    * @param Inventory $inventory The party's inventory.
    * @param Party|null $party The party, used to respect equipment worn by other members.
    * @return void
    */
-  public function optimizeEquipment(Inventory $inventory, ?Party $party = null): void
+  public function optimizeEquipment(
+    Inventory $inventory,
+    ?Party $party = null,
+    ?EquipmentOptimizationPolicyInterface $policy = null,
+  ): void
   {
+    $policy ??= EquipmentOptimizationPolicyRegistry::current();
     // Release this character's gear first so it competes for slots on merit.
     foreach ($this->equipment as $equipmentSlot) {
       $equipmentSlot->equipment = null;
@@ -628,12 +636,14 @@ class Character implements CharacterInterface, CanEquip
 
     foreach ($this->equipment as $equipmentSlot) {
       $optimalEquipment = null;
+      $optimalScore = null;
 
       foreach ($inventory->equipment as $equipment) {
         assert($equipment instanceof Equipment);
 
         if (! is_a($equipment, $equipmentSlot->acceptsType)
-          || $equipment->semanticSlot !== $equipmentSlot->semanticSlot) {
+          || $equipment->semanticSlot !== $equipmentSlot->semanticSlot
+          || ! $this->canEquip($equipment)) {
           continue;
         }
 
@@ -647,8 +657,18 @@ class Character implements CharacterInterface, CanEquip
           continue;
         }
 
-        if (! $optimalEquipment || $equipment->rating > $optimalEquipment->rating) {
+        $score = $policy->score($this, $equipmentSlot, $equipment);
+
+        if (! $score instanceof EquipmentOptimizationScore) {
+          continue;
+        }
+
+        if (! $optimalEquipment
+          || ! $optimalScore
+          || $score->value > $optimalScore->value
+          || ($score->value === $optimalScore->value && strcmp($equipment->id, $optimalEquipment->id) < 0)) {
           $optimalEquipment = $equipment;
+          $optimalScore = $score;
         }
       }
 
@@ -999,6 +1019,83 @@ class Character implements CharacterInterface, CanEquip
   }
 
   /**
+   * Restores mutable state onto a character already built from the current
+   * project actor definition.
+   *
+   * Static actor text, sprites, fixed natural adjustments and variant scalar
+   * definitions deliberately stay project-owned. The saved variant identity,
+   * role identity, progression, resources, gear and learned state survive.
+   *
+   * @param array<string, mixed> $data
+   */
+  public function restoreMutableState(array $data): void
+  {
+    $savedStats = is_array($data['stats'] ?? null) ? $data['stats'] : [];
+    $savedCurrentHp = isset($savedStats['currentHp']) ? intval($savedStats['currentHp']) : $this->stats->currentHp;
+    $savedCurrentMp = isset($savedStats['currentMp']) ? intval($savedStats['currentMp']) : $this->stats->currentMp;
+    $savedCurrentAp = isset($savedStats['currentAp']) ? intval($savedStats['currentAp']) : $this->stats->currentAp;
+
+    if (isset($data['currentExp'])) {
+      $this->currentExp = intval($data['currentExp']);
+    }
+
+    if (isset($data['maxLevel'])) {
+      $this->maxLevel = max(1, intval($data['maxLevel']));
+    }
+
+    $this->abilityBook = AbilityBook::fromArray(
+      is_array($data['abilities'] ?? null)
+        ? $data['abilities']
+        : (is_array($data['abilityBook'] ?? null) ? $data['abilityBook'] : [])
+    );
+    $this->spellbook = Spellbook::fromArray(
+      is_array($data['magic'] ?? null)
+        ? $data['magic']
+        : (is_array($data['spellbook'] ?? null) ? $data['spellbook'] : [])
+    );
+    $this->permanentGrowth = PermanentGrowthLedger::fromArray(
+      is_array($data['permanentGrowth'] ?? null) ? $data['permanentGrowth'] : []
+    );
+    $this->summons = self::normalizeSummonAssignments($data['summons'] ?? []);
+
+    $savedRole = $data['role'] ?? $data['class'] ?? null;
+    $roleName = $savedRole instanceof CharacterRole
+      ? $savedRole->name
+      : (is_string($savedRole) ? trim($savedRole) : '');
+
+    if ($roleName !== '') {
+      $this->applyClass($roleName);
+    } else {
+      $this->calculateLevelExpThresholds();
+      $this->generateParameterCurves();
+      $this->adjustStatTotals();
+    }
+
+    $savedSlots = array_values(array_filter(
+      is_array($data['equipment'] ?? null) ? $data['equipment'] : [],
+      static fn(mixed $slot): bool => $slot instanceof EquipmentSlot,
+    ));
+
+    foreach ($this->equipment as $slot) {
+      $savedSlot = array_find(
+        $savedSlots,
+        static fn(EquipmentSlot $candidate): bool => $candidate->semanticSlot === $slot->semanticSlot,
+      );
+      $slot->equipment = $savedSlot?->equipment;
+    }
+
+    if (isset($savedStats['totalAp'])) {
+      $this->stats->totalAp = max(0, intval($savedStats['totalAp']));
+    }
+
+    $this->adjustStatTotals();
+    $this->stats->currentHp = $savedCurrentHp;
+    $this->stats->currentMp = $savedCurrentMp;
+    $this->stats->currentAp = $savedCurrentAp;
+    $this->restorePersistentStates(is_array($data['states'] ?? null) ? $data['states'] : []);
+  }
+
+  /**
    * @inheritDoc
    */
   public function jsonSerialize(): array
@@ -1014,9 +1111,15 @@ class Character implements CharacterInterface, CanEquip
   protected function bindDataToProperties(array $data): void
   {
     $persistentStates = is_array($data['states'] ?? null) ? $data['states'] : [];
+    $roleName = null;
 
     foreach ($data as $key => $value) {
       if ($key === 'states') {
+        continue;
+      }
+
+      if ($key === 'role' && is_string($value)) {
+        $roleName = trim($value);
         continue;
       }
 
@@ -1057,6 +1160,12 @@ class Character implements CharacterInterface, CanEquip
           'stats' => is_array($value) ? Stats::fromArray($value) : $value,
           default => $value
         };
+      }
+    }
+
+    if ($roleName !== null && $roleName !== '') {
+      if (! $this->applyClass($roleName)) {
+        $this->role = new CharacterRole($this, $roleName);
       }
     }
 
@@ -1151,7 +1260,7 @@ class Character implements CharacterInterface, CanEquip
       'note' => $this->note,
       'equipment' => $this->equipment,
       'summons' => $this->summons,
-      'role' => $this->role,
+      'role' => $this->role->name,
       'abilities' => $this->abilityBook->toArray(),
       'magic' => $this->spellbook->toArray(),
       'states' => array_map(
@@ -1165,6 +1274,7 @@ class Character implements CharacterInterface, CanEquip
         ))
       ),
       'permanentGrowth' => $this->permanentGrowth->jsonSerialize(),
+      ...($this->naturalVariantId !== null ? ['naturalVariantId' => $this->naturalVariantId] : []),
     ];
   }
 

@@ -11,6 +11,7 @@ use Ichiloto\Engine\Exceptions\RequiredFieldException;
 use Ichiloto\Engine\Field\PlayerSpriteSet;
 use Ichiloto\Engine\IO\SaveManager;
 use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Stores\ActorStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 use RuntimeException;
 
@@ -30,6 +31,7 @@ class GameLoader
    * @var ItemStore The item store.
    */
   protected ItemStore $itemStore;
+  protected ActorStore $actorStore;
 
   /**
    * GameLoader constructor.
@@ -44,6 +46,13 @@ class GameLoader
       throw new RuntimeException('Item store not found.');
     }
     $this->itemStore = $itemStore;
+    $actorStore = ConfigStore::get(ActorStore::class);
+
+    if (! $actorStore instanceof ActorStore) {
+      throw new RuntimeException('Actor store not found.');
+    }
+
+    $this->actorStore = $actorStore;
   }
 
   /**
@@ -73,16 +82,14 @@ class GameLoader
       throw new RuntimeException('System data is not an array.');
     }
     $systemData = SystemData::fromArray($systemData);
-    $startingParty = [];
+    $party = new Party();
 
     foreach ($systemData->startingParty as $member) {
-      $characterData = asset("Data/Actors/$member.php", true);
-      if (! is_array($characterData) ) {
-        throw new RuntimeException("Character data for $member is not an array.");
-      }
-      $startingParty[] = $characterData['data'];
+      $party->addMember($this->actorStore->require(
+        strval($member),
+        'loading the project starting party',
+      )->createCharacter());
     }
-    $party = Party::fromArray($startingParty);
     if ($systemData->currency->amount) {
       $party->accountBalance = $systemData->currency->amount;
     }

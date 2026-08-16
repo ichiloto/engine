@@ -102,12 +102,13 @@ it('builds battle skill options from a character ability book', function () {
 it('builds battle item options from the shared field inventory', function () {
   $character = new Character('Kaelion', 500000, new Stats());
   $party = new Party();
+  $potion = new Item('Potion', 'Restore HP.', '!', 10, 3, occasion: Occasion::ALWAYS);
   $party->inventory->addItems(
-    new Item('Potion', 'Restore HP.', '!', 10, 3, occasion: Occasion::ALWAYS),
+    $potion,
     new Item('Tent', 'Field-only rest.', 'T', 100, 1, occasion: Occasion::MENU_SCREEN),
   );
 
-  $options = BattleCommandCatalog::buildOptions($character, $party, 'Item', ['Potion' => 1]);
+  $options = BattleCommandCatalog::buildOptions($character, $party, 'Item', [$potion->id => 1]);
 
   expect(array_map(static fn($option) => $option->action->name, $options))
     ->toBe(['Potion'])

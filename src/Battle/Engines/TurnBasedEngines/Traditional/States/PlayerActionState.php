@@ -885,7 +885,7 @@ class PlayerActionState extends TurnState
    * Counts how many copies of each item have already been queued this round.
    *
    * @param TurnStateExecutionContext $context The turn context.
-   * @return array<string, int> Reserved item counts keyed by item name.
+   * @return array<string, int> Reserved item counts keyed by stable definition id.
    */
   protected function getReservedItemCounts(TurnStateExecutionContext $context): array
   {
@@ -896,8 +896,8 @@ class PlayerActionState extends TurnState
         continue;
       }
 
-      $itemName = $turn->action->item->name;
-      $reservedCounts[$itemName] = ($reservedCounts[$itemName] ?? 0) + 1;
+      $definitionId = $turn->action->item->id;
+      $reservedCounts[$definitionId] = ($reservedCounts[$definitionId] ?? 0) + 1;
     }
 
     return $reservedCounts;

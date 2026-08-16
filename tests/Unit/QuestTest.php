@@ -1,12 +1,17 @@
 <?php
 
 use Ichiloto\Engine\Core\GameState;
+use Ichiloto\Engine\Entities\Inventory\Items\Item;
+use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
 use Ichiloto\Engine\Quests\Quest;
 use Ichiloto\Engine\Quests\QuestLog;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Quests\QuestObjective;
 use Ichiloto\Engine\Quests\QuestObjectiveType;
+use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Stores\ItemStore;
 
 /* Definitions */
 
@@ -36,6 +41,38 @@ it('hydrates a quest from its data-file entry', function () {
 it('rejects quests without ids or objectives', function () {
   expect(fn() => Quest::fromArray(['name' => 'Nameless']))->toThrow(InvalidArgumentException::class)
     ->and(fn() => Quest::fromArray(['id' => 'empty']))->toThrow(InvalidArgumentException::class);
+});
+
+it('shows current item display names for stable-id and legacy-alias rewards', function () {
+  $previous = ConfigStore::has(ItemStore::class) ? ConfigStore::get(ItemStore::class) : null;
+  $store = (new ReflectionClass(ItemStore::class))->newInstanceWithoutConstructor();
+  $definition = new Item(
+    'Current Tonic',
+    'A renamed reward.',
+    '!',
+    10,
+    id: 'item.tonic',
+    aliases: ['Old Tonic'],
+  );
+  $store->set($definition->id, $definition);
+  ConfigStore::put(ItemStore::class, $store);
+
+  try {
+    $quest = Quest::fromArray([
+      'id' => 'reward-reference',
+      'name' => 'Reward Reference',
+      'objectives' => [['type' => 'flag', 'target' => 'done']],
+      'rewards' => ['items' => ['item.tonic', 'Old Tonic']],
+    ]);
+
+    expect($quest->describeRewards())->toBe('Current Tonic, Current Tonic');
+  } finally {
+    ConfigStore::remove(ItemStore::class);
+
+    if ($previous instanceof ItemStore) {
+      ConfigStore::put(ItemStore::class, $previous);
+    }
+  }
 });
 
 it('derives objective descriptions from their type', function () {
@@ -114,6 +151,45 @@ it('round-trips through toArray and fromArray', function () {
     ->and($restored->getProgress('breakfast-duty'))->toBe([0, 1])
     ->and($restored->isCompleted('pest-control'))->toBeTrue()
     ->and($restored->completed)->toBe(['pest-control']);
+});
+
+it('refreshes collect progress through a declared alias after an item label change', function () {
+  $previous = ConfigStore::has(ItemStore::class) ? ConfigStore::get(ItemStore::class) : null;
+  $store = (new ReflectionClass(ItemStore::class))->newInstanceWithoutConstructor();
+  $definition = new Item(
+    'Current Tonic',
+    'A renamed objective item.',
+    '!',
+    10,
+    id: 'item.tonic',
+    aliases: ['Old Tonic'],
+  );
+  $store->set($definition->id, $definition);
+  ConfigStore::put(ItemStore::class, $store);
+
+  try {
+    $party = new Party();
+    $party->addItems(clone $definition, clone $definition);
+    $quest = Quest::fromArray([
+      'id' => 'stable-collect',
+      'name' => 'Stable Collect',
+      'objectives' => [[
+        'type' => 'collect',
+        'target' => 'Old Tonic',
+        'quantity' => 3,
+      ]],
+    ]);
+    $manager = new CollectIdentityQuestManager($quest, $party, ['active' => ['stable-collect' => [1]]]);
+    $manager->syncCollectObjectives();
+
+    expect($manager->log->getProgress('stable-collect'))->toBe([2]);
+  } finally {
+    ConfigStore::remove(ItemStore::class);
+
+    if ($previous instanceof ItemStore) {
+      ConfigStore::put(ItemStore::class, $previous);
+    }
+  }
 });
 
 it('ignores malformed persisted entries', function () {
@@ -261,5 +337,29 @@ class OfferRecordingQuestManager extends QuestManager
   protected function notifyQuest(string $title, string $text, NotificationDuration $duration): void
   {
     // Needs a live game; irrelevant to the offer flow.
+  }
+}
+
+class CollectIdentityQuestScene extends GameScene
+{
+  public function __construct(Party $party)
+  {
+    $this->party = $party;
+    $this->gameState = new GameState();
+  }
+}
+
+class CollectIdentityQuestManager extends QuestManager
+{
+  /** @param array<string, mixed> $log */
+  public function __construct(Quest $quest, Party $party, array $log)
+  {
+    $this->quests = [$quest->id => $quest];
+    $this->log = QuestLog::fromArray($log);
+    $this->gameScene = new CollectIdentityQuestScene($party);
+  }
+
+  protected function notifyQuest(string $title, string $text, NotificationDuration $duration): void
+  {
   }
 }

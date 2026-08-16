@@ -1,6 +1,9 @@
 <?php
 
 use Ichiloto\Engine\Battle\Simulation\BattleSimulator;
+use Ichiloto\Engine\Battle\Actions\AttackAction;
+use Ichiloto\Engine\Battle\Resolution\CombatResolver;
+use Ichiloto\Engine\Battle\Resolution\SeededCombatRandomSource;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
 use Ichiloto\Engine\Entities\Party;
@@ -130,4 +133,19 @@ it('runs at least one battle however few it is asked for', function () {
   $troop = new Troop('Rat', [makeSimulationEnemy('Rat', new Stats(currentHp: 20, attack: 4, defence: 1, speed: 3))]);
 
   expect(new BattleSimulator()->simulate($party, $troop, 0)->runs)->toBe(1);
+});
+
+it('uses the live resolver and final staged stat values for seeded previews', function () {
+  $actor = new Character('Actor', 0, new Stats(currentHp: 100, attack: 900, defence: 10, speed: 8, grace: 4));
+  $actor->addStatStage('attack', 2);
+  $liveTarget = makeSimulationEnemy('Target', new Stats(currentHp: 500, attack: 5, defence: 20, speed: 3, grace: 2));
+  $simulationTarget = makeSimulationEnemy('Target', new Stats(currentHp: 500, attack: 5, defence: 20, speed: 3, grace: 2));
+
+  $live = new AttackAction('Attack', new CombatResolver(), new SeededCombatRandomSource(77));
+  $live->execute($actor, [$liveTarget]);
+  $preview = new BattleSimulator(seed: 77)->previewAttack($actor, $simulationTarget);
+
+  expect($live->lastResult?->targets[0]->hits[0]->rawMagnitude)->toBe($preview->targets[0]->hits[0]->rawMagnitude)
+    ->and($live->lastResult?->targets[0]->actualHpLost())->toBe($preview->targets[0]->actualHpLost())
+    ->and($liveTarget->stats->currentHp)->toBe($simulationTarget->stats->currentHp);
 });

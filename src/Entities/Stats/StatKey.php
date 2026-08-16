@@ -22,4 +22,14 @@ enum StatKey: string
     return self::tryFrom(trim($value))
       ?? throw new InvalidArgumentException(sprintf('Unknown stat key: %s.', $value));
   }
+
+  /** The corresponding property on the shared Stats value object. */
+  public function statsProperty(): string
+  {
+    return match ($this) {
+      self::MAX_HP => 'totalHp',
+      self::MAX_MP => 'totalMp',
+      default => $this->value,
+    };
+  }
 }

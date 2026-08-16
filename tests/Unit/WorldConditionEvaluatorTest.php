@@ -5,6 +5,8 @@ use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Core\WorldConditionType;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Stores\ItemStore;
 
 it('passes an empty condition list', function () {
   expect(WorldConditionEvaluator::allHold([], new GameState()))->toBeTrue();
@@ -86,6 +88,48 @@ it('honours item quantity thresholds', function () {
   $party->addItems(new Item('Potion', 'Heals.', 'p', 0));
 
   expect(WorldConditionEvaluator::allHold([['type' => 'item', 'name' => 'Potion', 'quantity' => 2]], $state, $party))->toBeTrue();
+});
+
+it('keeps item and key-item conditions stable across display-name changes', function () {
+  $previous = ConfigStore::has(ItemStore::class) ? ConfigStore::get(ItemStore::class) : null;
+  $store = (new ReflectionClass(ItemStore::class))->newInstanceWithoutConstructor();
+  $tonic = new Item(
+    'Current Tonic',
+    'A renamed consumable.',
+    '!',
+    10,
+    id: 'item.tonic',
+    aliases: ['Old Tonic'],
+  );
+  $sigil = new Item(
+    'Current Sigil',
+    'A renamed key item.',
+    'i',
+    0,
+    id: 'item.sigil',
+    isKeyItem: true,
+    aliases: ['Old Sigil'],
+  );
+  $store->set($tonic->id, $tonic);
+  $store->set($sigil->id, $sigil);
+  ConfigStore::put(ItemStore::class, $store);
+
+  try {
+    $state = new GameState();
+    $party = new Party();
+    $party->addItems(clone $tonic, clone $sigil);
+
+    expect(WorldConditionEvaluator::allHold([['type' => 'item', 'name' => 'item.tonic']], $state, $party))->toBeTrue()
+      ->and(WorldConditionEvaluator::allHold([['type' => 'item', 'name' => 'Old Tonic']], $state, $party))->toBeTrue()
+      ->and(WorldConditionEvaluator::allHold([['type' => 'key_item', 'name' => 'item.sigil']], $state, $party))->toBeTrue()
+      ->and(WorldConditionEvaluator::allHold([['type' => 'key_item', 'name' => 'Old Sigil']], $state, $party))->toBeTrue();
+  } finally {
+    ConfigStore::remove(ItemStore::class);
+
+    if ($previous instanceof ItemStore) {
+      ConfigStore::put(ItemStore::class, $previous);
+    }
+  }
 });
 
 it('fails closed for unknown condition types even when they are negated', function () {

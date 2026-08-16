@@ -4,6 +4,8 @@ namespace Ichiloto\Engine\Entities\Magic;
 
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Stores\ItemStore;
 
 /**
  * Represents the requirements and costs involved in learning a spell.
@@ -98,8 +100,8 @@ class SpellLearningRequirement
       return false;
     }
 
-    foreach ($this->itemCosts as $itemName => $quantity) {
-      if ($party->inventory->getQuantityByName($itemName) < $quantity) {
+    foreach ($this->itemCosts as $itemReference => $quantity) {
+      if ($party->inventory->getQuantity($itemReference, 'checking a spell learning cost') < $quantity) {
         return false;
       }
     }
@@ -119,8 +121,8 @@ class SpellLearningRequirement
       $party->debit($this->goldCost);
     }
 
-    foreach ($this->itemCosts as $itemName => $quantity) {
-      $party->inventory->consumeQuantity($itemName, $quantity);
+    foreach ($this->itemCosts as $itemReference => $quantity) {
+      $party->inventory->consumeReference($itemReference, $quantity, 'paying a spell learning cost');
     }
   }
 
@@ -148,8 +150,16 @@ class SpellLearningRequirement
       $parts[] = sprintf('Gold %d/%d', $party->accountBalance, $this->goldCost);
     }
 
-    foreach ($this->itemCosts as $itemName => $quantity) {
-      $parts[] = sprintf('%s %d/%d', $itemName, $party->inventory->getQuantityByName($itemName), $quantity);
+    $itemStore = ConfigStore::get(ItemStore::class);
+    assert($itemStore instanceof ItemStore);
+
+    foreach ($this->itemCosts as $itemReference => $quantity) {
+      $parts[] = sprintf(
+        '%s %d/%d',
+        $itemStore->displayNameFor($itemReference, 'describing a spell learning cost'),
+        $party->inventory->getQuantity($itemReference, 'describing a spell learning cost'),
+        $quantity,
+      );
     }
 
     return implode('  ', $parts);

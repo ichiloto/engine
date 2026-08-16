@@ -52,3 +52,40 @@ it('instantiates runtime item grants by stable catalog name', function () {
     ->and(fn() => $store->instantiate('Missing Item'))
     ->toThrow(Ichiloto\Engine\Exceptions\NotFoundException::class);
 });
+
+it('resolves stable id current display name and declared alias to one owned definition', function () {
+  $store = makeEmptyItemStore();
+  $definition = new Item(
+    'Current Tonic',
+    'Current definition',
+    '!',
+    10,
+    id: 'item.tonic',
+    aliases: ['Old Tonic'],
+  );
+  $store->set($definition->id, $definition);
+  ConfigStore::put(ItemStore::class, $store);
+  $inventory = new Ichiloto\Engine\Entities\Inventory\Inventory();
+  $inventory->addItems(clone $definition, clone $definition);
+
+  expect($store->definitionIdFor('item.tonic'))->toBe('item.tonic')
+    ->and($store->definitionIdFor('Current Tonic'))->toBe('item.tonic')
+    ->and($store->definitionIdFor('Old Tonic'))->toBe('item.tonic')
+    ->and($store->displayNameFor('Old Tonic'))->toBe('Current Tonic')
+    ->and($inventory->getQuantity('item.tonic'))->toBe(2)
+    ->and($inventory->getQuantity('Current Tonic'))->toBe(2)
+    ->and($inventory->getQuantity('Old Tonic'))->toBe(2)
+    ->and($inventory->consumeReference('Old Tonic', 1))->toBeTrue()
+    ->and($inventory->getQuantity('item.tonic'))->toBe(1);
+});
+
+it('fails unknown inventory references with the consumer context', function () {
+  $store = makeEmptyItemStore();
+  ConfigStore::put(ItemStore::class, $store);
+
+  expect(fn() => $store->requireDefinitionId('Removed Tonic', 'checking a quest objective'))
+    ->toThrow(
+      Ichiloto\Engine\Exceptions\NotFoundException::class,
+      'Inventory reference "Removed Tonic" while checking a quest objective',
+    );
+});

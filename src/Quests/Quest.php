@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Quests;
 
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Stores\ItemStore;
 use InvalidArgumentException;
 
 /**
@@ -77,8 +79,16 @@ class Quest
       $parts[] = sprintf('%d EXP', $experience);
     }
 
-    foreach ((array) ($this->rewards['items'] ?? []) as $itemName) {
-      $parts[] = strval($itemName);
+    $itemStore = ConfigStore::has(ItemStore::class) ? ConfigStore::get(ItemStore::class) : null;
+
+    foreach ((array) ($this->rewards['items'] ?? []) as $itemReference) {
+      if (! is_string($itemReference)) {
+        continue;
+      }
+
+      $parts[] = $itemStore instanceof ItemStore
+        ? $itemStore->displayNameFor($itemReference, sprintf('describing rewards for quest "%s"', $this->id))
+        : $itemReference;
     }
 
     return implode(', ', $parts);

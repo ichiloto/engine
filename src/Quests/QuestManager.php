@@ -231,7 +231,7 @@ class QuestManager
           continue;
         }
 
-        $held = $party->inventory->getQuantityByName($objective->target);
+        $held = $party->inventory->getQuantity($objective->target, 'synchronizing a collect objective');
         $this->applyProgress($quest, $index, min($held, $objective->quantity));
       }
     }
@@ -310,7 +310,10 @@ class QuestManager
       foreach ($quest->objectives as $index => $objective) {
         $count = match ($objective->type) {
           QuestObjectiveType::COLLECT => min(
-            $this->gameScene->party?->inventory?->getQuantityByName($objective->target) ?? 0,
+            $this->gameScene->party?->inventory?->getQuantity(
+              $objective->target,
+              'refreshing a collect objective',
+            ) ?? 0,
             $objective->quantity
           ),
           QuestObjectiveType::REACH_MAP => $objective->matches($this->gameScene->currentMapId)
@@ -462,13 +465,16 @@ class QuestManager
       $progressionResults = [];
     }
 
-    $itemNames = array_values(array_filter((array) ($quest->rewards['items'] ?? []), is_string(...)));
+    $itemReferences = array_values(array_filter(
+      (array) ($quest->rewards['items'] ?? []),
+      static fn(mixed $reference): bool => is_string($reference) || is_array($reference),
+    ));
 
-    if (! empty($itemNames)) {
+    if (! empty($itemReferences)) {
       $itemStore = ConfigStore::get(ItemStore::class);
 
       if ($itemStore instanceof ItemStore) {
-        $party->addItems(...$itemStore->load($itemNames));
+        $party->addItems(...$itemStore->load($itemReferences));
       }
     }
 

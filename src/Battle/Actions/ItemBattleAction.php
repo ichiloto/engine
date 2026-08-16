@@ -67,7 +67,7 @@ class ItemBattleAction extends BattleAction
    */
   protected function consumeOne(): void
   {
-    if ($this->inventory?->consumeQuantity($this->item->name, 1)) {
+    if ($this->inventory?->consumeReference($this->item->id, 1, 'consuming a battle item')) {
       return;
     }
 

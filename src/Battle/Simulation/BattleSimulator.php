@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Battle\Simulation;
 
 use Ichiloto\Engine\Battle\Actions\AttackAction;
+use Ichiloto\Engine\Battle\BattlerBattleView;
 use Ichiloto\Engine\Battle\Resolution\CombatResolver;
 use Ichiloto\Engine\Battle\Resolution\CombatActionResult;
 use Ichiloto\Engine\Battle\Resolution\SeededCombatRandomSource;
@@ -165,9 +166,16 @@ class BattleSimulator
 
       // Faster battlers act first, as they do in a real turn.
       $order = [...$allies, ...$enemies];
+      $battleSpeed = [];
+
+      foreach ($order as $battler) {
+        $battleSpeed[spl_object_id($battler)] = new BattlerBattleView($battler)->stats->speed;
+      }
+
       usort(
         $order,
-        static fn(CharacterInterface $a, CharacterInterface $b): int => $b->stats->speed <=> $a->stats->speed
+        static fn(CharacterInterface $a, CharacterInterface $b): int =>
+          $battleSpeed[spl_object_id($b)] <=> $battleSpeed[spl_object_id($a)]
       );
 
       foreach ($order as $battler) {

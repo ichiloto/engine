@@ -53,7 +53,7 @@ class Shop
       return;
     }
 
-    if ($foundItem = $trader->inventory->items->find(fn(InventoryItem $inventoryItem) => $item->name === $inventoryItem->name)) {
+    if ($foundItem = $trader->inventory->items->find(fn(InventoryItem $inventoryItem) => $item->id === $inventoryItem->id)) {
       if ($foundItem->quantity + $quantity > $foundItem->maxQuantity) {
         alert('Not enough space in inventory!');
         return;
@@ -85,7 +85,7 @@ class Shop
       return;
     }
 
-    if ($trader->inventory->getQuantityByName($item->name) < $quantity) {
+    if ($trader->inventory->getQuantity($item->id, 'selling an inventory item') < $quantity) {
       return;
     }
 

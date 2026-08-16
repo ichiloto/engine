@@ -142,7 +142,7 @@ class ShopMerchandiseSelectionMode extends ShopMenuMode
     if ($activeItem = $this->state->mainPanel->activeItem) {
       $this->state->detailPanel->possession = 0;
 
-      if ($inventoryItem = $this->state->inventory->all->find(fn(InventoryItem $item) => $item->name === $activeItem->name) ) {
+      if ($inventoryItem = $this->state->inventory->all->find(fn(InventoryItem $item) => $item->id === $activeItem->id) ) {
         $this->state->detailPanel->possession = $inventoryItem->quantity ?? 0;
       }
       $this->state->detailPanel->updateContent();

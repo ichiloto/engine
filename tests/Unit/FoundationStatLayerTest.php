@@ -151,7 +151,8 @@ it('keeps fixed actor-natural definitions out of mutable save payloads', functio
     naturalVariantId: 'variant.test',
   );
 
-  expect($character->toArray())->not->toHaveKeys(['actorNaturalAdjustments', 'naturalVariantId'])
+  expect($character->toArray())->not->toHaveKey('actorNaturalAdjustments')
+    ->and($character->toArray()['naturalVariantId'])->toBe('variant.test')
     ->and($character->toArray())->toHaveKey('permanentGrowth');
 });
 

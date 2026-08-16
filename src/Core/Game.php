@@ -47,6 +47,7 @@ use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Stores\EnemyStore;
+use Ichiloto\Engine\Util\Stores\ActorStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 use Throwable;
 
@@ -464,6 +465,7 @@ class Game implements CanRun, SubjectInterface
         ConfigStore::put(InputConfig::class, new InputConfig());
         $systemPayload = asset('Data/system.php', true);
         ElementRegistry::configure(is_array($systemPayload['elements'] ?? null) ? $systemPayload['elements'] : []);
+        ConfigStore::put(ActorStore::class, new ActorStore());
         ConfigStore::put(ItemStore::class, new ItemStore());
         ConfigStore::put(KnowledgeCatalog::class, KnowledgeCatalog::fromProject());
         ConfigStore::put(EnemyStore::class, new EnemyStore());

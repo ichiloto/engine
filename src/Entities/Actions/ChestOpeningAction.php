@@ -66,11 +66,11 @@ class ChestOpeningAction extends FieldAction
         break;
 
       default:
-        $loot = $this->itemStore->get($this->trigger->loot);
-        if ($loot === null) {
-          $message = format_message($message, (string) $this->trigger->loot);
-          break;
-        }
+        $loot = $this->itemStore->get($this->itemStore->requireDefinitionId(
+          strval($this->trigger->loot),
+          'opening a chest',
+        ));
+        assert($loot !== null);
         $quantity = $this->trigger->quantity;
         $lootNameText = new Text($loot->name);
         $lootName = ($quantity > 1) ? $lootNameText->getPluralForm() : $lootNameText->getSingularForm();

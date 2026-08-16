@@ -317,6 +317,7 @@ class EventInterpreter
           $this->gameScene->party->addItems(...$itemStore->instantiate(
             strval($command['item'] ?? ''),
             $quantity,
+            'granting an item from a story event command',
           ));
         }
         return EventCommandResult::COMPLETED;

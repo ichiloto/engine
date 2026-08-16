@@ -44,7 +44,7 @@ final class BattleCommandCatalog
    * @param Character $character The active party character.
    * @param Party $party The party whose inventory should be inspected.
    * @param string $commandName The selected top-level command name.
-   * @param array<string, int> $reservedItemCounts Already queued item counts keyed by item name.
+   * @param array<string, int> $reservedItemCounts Already queued item counts keyed by stable definition id.
    * @return BattleCommandOption[] The submenu options for the command.
    */
   public static function buildOptions(
@@ -329,7 +329,7 @@ final class BattleCommandCatalog
    * Builds item options from the current party inventory.
    *
    * @param Party $party The party whose inventory should be inspected.
-   * @param array<string, int> $reservedItemCounts Already queued item counts keyed by item name.
+   * @param array<string, int> $reservedItemCounts Already queued item counts keyed by stable definition id.
    * @return BattleCommandOption[] The available item options.
    */
   protected static function buildItemOptions(Party $party, array $reservedItemCounts): array
@@ -341,7 +341,7 @@ final class BattleCommandCatalog
         continue;
       }
 
-      $reservedCount = $reservedItemCounts[$item->name] ?? 0;
+      $reservedCount = $reservedItemCounts[$item->id] ?? 0;
       $availableQuantity = max(0, $item->quantity - $reservedCount);
 
       if ($availableQuantity < 1) {

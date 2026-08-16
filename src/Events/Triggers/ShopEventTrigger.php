@@ -46,12 +46,13 @@ class ShopEventTrigger extends EventTrigger
       $itemName = $itemData->item ?? throw new RequiredFieldException('item');
       $itemPrice = $itemData->price ?? null;
       /** @var InventoryItem $item */
-      if ($item = $itemStore->get($itemName)) {
-        if (! is_null($itemPrice)) {
-          $item->price = $itemPrice;
-        }
-        $this->items[] = $item;
+      $definitionId = $itemStore->requireDefinitionId(strval($itemName), 'loading shop merchandise');
+      $item = $itemStore->get($definitionId);
+      assert($item instanceof InventoryItem);
+      if (! is_null($itemPrice)) {
+        $item->price = $itemPrice;
       }
+      $this->items[] = $item;
     }
 
     foreach ($this->data->dialogue ?? [] as $dialogue) {

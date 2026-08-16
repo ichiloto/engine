@@ -5,7 +5,6 @@ namespace Ichiloto\Engine\Util\Stores;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
-use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
 use InvalidArgumentException;
 use RuntimeException;
@@ -33,16 +32,22 @@ class ItemStore implements ConfigInterface
 
     foreach ($items as $item) {
       if ($item instanceof InventoryItem) {
-        if (isset($this->items[$item->id])) {
+        $normalizedId = self::normalizeReference($item->id);
+
+        if (isset($this->aliases[$normalizedId]) && $this->aliases[$normalizedId] !== $normalizedId) {
+          throw new RuntimeException(sprintf('Inventory definition id "%s" conflicts with a declared alias.', $item->id));
+        }
+
+        if (isset($this->items[$normalizedId])) {
           throw new RuntimeException(sprintf('Duplicate inventory definition id: %s.', $item->id));
         }
 
-        $this->items[$item->id] = $item;
-        $this->registerAlias($item->name, $item->id);
+        $this->items[$normalizedId] = $item;
+        $this->registerAlias($item->name, $normalizedId);
 
         foreach ($item->aliases as $alias) {
           if (is_string($alias)) {
-            $this->registerAlias($alias, $item->id);
+            $this->registerAlias($alias, $normalizedId);
           }
         }
       }
@@ -73,8 +78,20 @@ class ItemStore implements ConfigInterface
       throw new InvalidArgumentException('The value must be an instance of ' . InventoryItem::class);
     }
 
-    $this->items[$value->id] = clone $value;
-    $this->registerAlias($value->name, $value->id);
+    $definitionId = self::normalizeReference($value->id);
+
+    if (isset($this->aliases[$definitionId]) && $this->aliases[$definitionId] !== $definitionId) {
+      throw new RuntimeException(sprintf('Inventory definition id "%s" conflicts with a declared alias.', $value->id));
+    }
+
+    $this->items[$definitionId] = clone $value;
+    $this->registerAlias($value->name, $definitionId);
+
+    foreach ($value->aliases as $alias) {
+      if (is_string($alias)) {
+        $this->registerAlias($alias, $definitionId);
+      }
+    }
   }
 
   /**
@@ -97,16 +114,11 @@ class ItemStore implements ConfigInterface
    * @return InventoryItem[] The cloned inventory instances.
    * @throws NotFoundException When the catalog has no matching entry.
    */
-  public function instantiate(string $itemName, int $quantity = 1): array
+  public function instantiate(string $itemName, int $quantity = 1, string $context = 'instantiating inventory content'): array
   {
     $itemName = trim($itemName);
 
-    if ($itemName === '' || ! $this->has($itemName)) {
-      throw new NotFoundException(sprintf('Inventory item "%s"', $itemName));
-    }
-
-    $definitionId = $this->resolveId($itemName);
-    assert($definitionId !== null);
+    $definitionId = $this->requireDefinitionId($itemName, $context);
     $prototype = $this->items[$definitionId];
     $items = [];
 
@@ -127,7 +139,7 @@ class ItemStore implements ConfigInterface
 
   private function resolveId(string $reference): ?string
   {
-    $reference = strtolower(trim($reference));
+    $reference = self::normalizeReference($reference);
 
     if (isset($this->items[$reference])) {
       return $reference;
@@ -142,15 +154,41 @@ class ItemStore implements ConfigInterface
     return $this->resolveId($reference);
   }
 
+  /** Resolves an authored/saved reference or fails closed with its consumer context. */
+  public function requireDefinitionId(string $reference, string $context): string
+  {
+    $id = $this->resolveId($reference);
+
+    if ($id === null) {
+      throw new NotFoundException(sprintf(
+        'Inventory reference "%s" while %s',
+        trim($reference),
+        $context,
+      ));
+    }
+
+    return $id;
+  }
+
+  /** Returns the current project display name for any legal reference. */
+  public function displayNameFor(string $reference, string $context = 'displaying inventory content'): string
+  {
+    return $this->items[$this->requireDefinitionId($reference, $context)]->name;
+  }
+
   private function registerAlias(string $alias, string $definitionId): void
   {
-    $alias = strtolower(trim($alias));
+    $alias = self::normalizeReference($alias);
 
     if ($alias === '') {
       return;
     }
 
     $existing = $this->aliases[$alias] ?? null;
+
+    if (isset($this->items[$alias]) && $alias !== $definitionId) {
+      throw new RuntimeException(sprintf('Inventory alias "%s" conflicts with a definition id.', $alias));
+    }
 
     if ($existing !== null && $existing !== $definitionId) {
       throw new RuntimeException(sprintf('Inventory alias "%s" resolves to multiple definitions.', $alias));
@@ -159,10 +197,15 @@ class ItemStore implements ConfigInterface
     $this->aliases[$alias] = $definitionId;
   }
 
+  private static function normalizeReference(string $reference): string
+  {
+    return strtolower(trim($reference));
+  }
+
   /**
    * Loads the data.
    *
-   * @param array<array{item: string, quantity: int}> $data The data to load.
+   * @param array<int, array{item: string, quantity?: int, price?: int}|string> $data The data to load.
    * @return InventoryItem[] The items.
    * @throws NotFoundException Thrown when the item store is not found.
    * @throws RequiredFieldException Thrown when a required field is missing.
@@ -170,18 +213,18 @@ class ItemStore implements ConfigInterface
   public function load(array $data): array
   {
     $items = [];
-    $itemStore = ConfigStore::get(ItemStore::class);
-
-    if (! $itemStore instanceof ItemStore) {
-      throw new NotFoundException(ItemStore::class);
-    }
-
     foreach ($data as $datum) {
-      $itemName = $datum['item'] ?? throw new RequiredFieldException('item');
-      $itemPrice = $datum['price'] ?? null;
-      $itemQuantity = $datum['quantity'] ?? 1;
+      $itemName = is_string($datum)
+        ? $datum
+        : ($datum['item'] ?? throw new RequiredFieldException('item'));
+      $itemPrice = is_array($datum) ? ($datum['price'] ?? null) : null;
+      $itemQuantity = is_array($datum) ? ($datum['quantity'] ?? 1) : 1;
 
-      $loadedItems = $itemStore->instantiate($itemName, $itemQuantity);
+      $loadedItems = $this->instantiate(
+        strval($itemName),
+        intval($itemQuantity),
+        'loading an authored inventory list',
+      );
 
       if (! is_null($itemPrice)) {
         foreach ($loadedItems as $item) {
