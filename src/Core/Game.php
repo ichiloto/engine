@@ -30,6 +30,7 @@ use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalCapabilities;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
+use Ichiloto\Engine\Progress\Knowledge\KnowledgeCatalog;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\GameOver\GameOverScene;
@@ -464,6 +465,7 @@ class Game implements CanRun, SubjectInterface
         $systemPayload = asset('Data/system.php', true);
         ElementRegistry::configure(is_array($systemPayload['elements'] ?? null) ? $systemPayload['elements'] : []);
         ConfigStore::put(ItemStore::class, new ItemStore());
+        ConfigStore::put(KnowledgeCatalog::class, KnowledgeCatalog::fromProject());
         ConfigStore::put(EnemyStore::class, new EnemyStore());
     }
 

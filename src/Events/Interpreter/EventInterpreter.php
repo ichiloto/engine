@@ -38,6 +38,7 @@ class EventInterpreter
     'play_sound',
     'play_music',
     'accept_quest',
+    'knowledge',
     'move_player',
     'move_route',
     'transfer',
@@ -346,6 +347,10 @@ class EventInterpreter
           strval($command['id'] ?? ''),
           ($command['confirm'] ?? true) !== false,
         );
+        return EventCommandResult::COMPLETED;
+
+      case 'knowledge':
+        $this->gameScene->knowledge->apply(strval($command['operation'] ?? ''), $command);
         return EventCommandResult::COMPLETED;
 
       case 'move_player':

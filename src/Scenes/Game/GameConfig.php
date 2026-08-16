@@ -44,6 +44,7 @@ class GameConfig implements SceneConfigurationInterface
     protected(set) array $questLog = [],
     protected(set) array $achievements = [],
     protected(set) array $bestiary = [],
+    protected(set) array $knowledge = [],
   )
   {
   }
@@ -115,6 +116,7 @@ class GameConfig implements SceneConfigurationInterface
       'questLog' => $this->questLog,
       'achievements' => $this->achievements,
       'bestiary' => $this->bestiary,
+      'knowledge' => $this->knowledge,
     ];
   }
 
@@ -165,6 +167,7 @@ class GameConfig implements SceneConfigurationInterface
     $this->questLog ??= [];
     $this->achievements ??= [];
     $this->bestiary ??= [];
+    $this->knowledge ??= [];
   }
 
   /**

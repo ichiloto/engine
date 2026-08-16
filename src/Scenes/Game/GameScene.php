@@ -29,6 +29,9 @@ use Ichiloto\Engine\Field\NpcManager;
 use Ichiloto\Engine\Field\SkitManager;
 use Ichiloto\Engine\Progress\AchievementManager;
 use Ichiloto\Engine\Progress\Bestiary;
+use Ichiloto\Engine\Progress\Knowledge\KnowledgeCatalog;
+use Ichiloto\Engine\Progress\Knowledge\KnowledgeProgress;
+use Ichiloto\Engine\Progress\Knowledge\KnowledgeProgressService;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Game\States\QuestMenuState;
 use Ichiloto\Engine\Scenes\Game\States\RecordsMenuState;
@@ -48,6 +51,7 @@ use Ichiloto\Engine\Scenes\Interfaces\SceneConfigurationInterface;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Elements\LocationHUDWindow;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Debug;
 use Override;
 
@@ -65,6 +69,7 @@ class GameScene extends AbstractScene
     {
         parent::__construct($sceneManager, $name);
         $this->gameState = new GameState();
+        $this->knowledge = new KnowledgeProgressService(KnowledgeCatalog::empty());
     }
 
     /**
@@ -188,6 +193,8 @@ class GameScene extends AbstractScene
      * @var Bestiary The party's enemy codex.
      */
     protected(set) Bestiary $bestiary;
+    /** Generic player-earned field knowledge and reports. */
+    protected(set) KnowledgeProgressService $knowledge;
     /**
      * @var string[] The currently recorded story-event flags.
      */
@@ -283,7 +290,15 @@ class GameScene extends AbstractScene
         $this->skitManager = new SkitManager($this);
         $this->achievementManager = new AchievementManager($this->getGame(), $this);
         $this->achievementManager->hydrate($this->config->achievements);
-        $this->bestiary = Bestiary::fromArray($this->config->bestiary);
+        $catalog = ConfigStore::get(KnowledgeCatalog::class);
+        $catalog = $catalog instanceof KnowledgeCatalog ? $catalog : KnowledgeCatalog::empty();
+        $this->knowledge = new KnowledgeProgressService(
+            $catalog,
+            KnowledgeProgress::fromArray($this->config->knowledge),
+        );
+        $this->bestiary = $this->config->bestiary === []
+            ? new Bestiary($this->knowledge)
+            : Bestiary::fromArray($this->config->bestiary, $this->knowledge);
 
         $this->loadMap($this->config->mapId, $this->player);
         $this->player->activate();
@@ -415,7 +430,8 @@ class GameScene extends AbstractScene
             gameState: $this->gameState->toArray(),
             questLog: $this->questManager?->log->toArray() ?? [],
             achievements: $this->achievementManager?->toArray() ?? [],
-            bestiary: $this->bestiary->toArray(),
+            bestiary: [],
+            knowledge: isset($this->knowledge) ? $this->knowledge->progress->toArray() : [],
         );
     }
 

@@ -51,7 +51,7 @@ class BattleStartState extends BattleSceneState
 
     if ($gameScene instanceof GameScene && $gameScene->isStarted()) {
       foreach ($this->scene->troop?->members?->toArray() ?? [] as $enemy) {
-        $gameScene->bestiary->recordSeen($enemy->name);
+        $gameScene->knowledge->discoverEnemy($enemy);
       }
     }
 

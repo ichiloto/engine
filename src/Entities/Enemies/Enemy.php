@@ -14,6 +14,7 @@ use Ichiloto\Engine\Entities\States\HasStates;
 use Ichiloto\Engine\Entities\States\HasStatStages;
 use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
 use Ichiloto\Engine\Entities\Stats;
+use Ichiloto\Engine\Progress\Knowledge\KnowledgeIdentity;
 
 /**
  * Class Enemy
@@ -39,6 +40,8 @@ class Enemy implements CharacterInterface
    * @var array The image of the enemy.
    */
   protected(set) array $image = [];
+  /** Stable project-authored knowledge subject, when this enemy has one. */
+  protected(set) ?string $knowledgeSubjectId = null;
 
   /**
    * Enemy constructor.
@@ -52,6 +55,7 @@ class Enemy implements CharacterInterface
    * @param Vector2 $position The position of the enemy.
    * @param array<string, float> $stateResistances Per-state infliction multipliers (0 grants immunity).
    * @param array<string, float> $elementAffinities Elemental damage multipliers (2.0 weak, 0.5 resist, 0 null, negative absorbs).
+   * @param string|null $knowledgeSubjectId Stable project-owned knowledge subject ID.
    */
   public function __construct(
     protected(set) string $name,
@@ -64,6 +68,7 @@ class Enemy implements CharacterInterface
     protected(set) int|string|null $battleAnimation = null,
     array $stateResistances = [],
     array $elementAffinities = [],
+    ?string $knowledgeSubjectId = null,
   )
   {
     foreach ($actionPatterns as $pattern) {
@@ -74,6 +79,9 @@ class Enemy implements CharacterInterface
 
     $this->setStateResistances($stateResistances);
     $this->setElementAffinities($elementAffinities);
+    $this->knowledgeSubjectId = $knowledgeSubjectId === null || trim($knowledgeSubjectId) === ''
+      ? null
+      : KnowledgeIdentity::require($knowledgeSubjectId, 'enemy knowledge subject id');
     $this->image = graphics("Enemies/$imagePath");
   }
 
@@ -136,6 +144,7 @@ class Enemy implements CharacterInterface
       'image' => $this->image,
       'rewards' => $this->rewards,
       'actionPatterns' => $this->actionPatterns,
+      'knowledgeSubjectId' => $this->knowledgeSubjectId,
     ];
   }
 

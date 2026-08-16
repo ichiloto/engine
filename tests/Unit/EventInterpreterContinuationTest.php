@@ -29,6 +29,8 @@ use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityManifest;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Progress\Bestiary;
+use Ichiloto\Engine\Progress\Knowledge\KnowledgeCatalog;
+use Ichiloto\Engine\Progress\Knowledge\KnowledgeProgressService;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Battle\BattleConfig;
@@ -321,6 +323,16 @@ class EventTestGameScene extends GameScene
     $this->mapManager = new EventTestMapManager();
     $this->party = new Party();
     $this->bestiary = new Bestiary();
+    $this->knowledge = new KnowledgeProgressService(new KnowledgeCatalog([
+      'recordTypes' => ['test'],
+      'subjects' => [[
+        'id' => 'test.subject',
+        'recordType' => 'test',
+        'displayName' => 'Test Subject',
+        'quickCard' => 'Test.',
+        'observations' => ['noticed'],
+      ]],
+    ]));
   }
 
   public function installInterpreter(EventInterpreter $interpreter): void
@@ -419,6 +431,27 @@ it('keeps immediate scripts compatible and completes once', function () {
     ->and($scene->gameState->hasStoryEvent('technical_event'))->toBeTrue()
     ->and($target->completed)->toBe(1)
     ->and($target->failed)->toBe(0);
+});
+
+it('routes generic knowledge commands through the shared progress service and fails closed when malformed', function () {
+  [$scene, $interpreter] = makeEventRuntime();
+
+  $completed = $interpreter->run([
+    ['type' => 'knowledge', 'operation' => 'discover', 'subject' => 'test.subject', 'source' => 'story.event'],
+    ['type' => 'knowledge', 'operation' => 'observe', 'subject' => 'test.subject', 'observation' => 'noticed', 'source' => 'story.event'],
+  ], 'knowledge-success');
+
+  expect($completed?->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and($scene->knowledge->progress->depth('test.subject')->name)->toBe('OBSERVED');
+
+  $failed = $interpreter->run([
+    ['type' => 'knowledge', 'operation' => 'invent_truth', 'subject' => 'test.subject'],
+    ['type' => 'record_event', 'name' => 'must_not_run'],
+  ], 'knowledge-failure');
+
+  expect($failed?->status)->toBe(EventExecutionStatus::FAILED)
+    ->and($failed?->failureMessage)->toContain('Unknown knowledge operation')
+    ->and($scene->gameState->hasStoryEvent('must_not_run'))->toBeFalse();
 });
 
 it('recovers every travelling member without changing roster order', function () {

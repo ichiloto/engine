@@ -2,139 +2,154 @@
 
 namespace Ichiloto\Engine\Progress;
 
+use Ichiloto\Engine\Progress\Knowledge\KnowledgeCatalog;
+use Ichiloto\Engine\Progress\Knowledge\KnowledgeProgress;
+use Ichiloto\Engine\Progress\Knowledge\KnowledgeProgressService;
+
 /**
- * Tracks which enemies the party has met and defeated.
+ * Backward-compatible enemy-record view over the generic knowledge spine.
  *
- * Pure serializable state that rides the save file; the codex screen reads
- * it to decide which entries to reveal.
- *
- * @package Ichiloto\Engine\Progress
+ * New runtime code should use KnowledgeProgressService. This adapter keeps
+ * historical integrations and v1-v3 migration readable without making enemy
+ * names authoritative persistence identities again.
  */
 class Bestiary
 {
-  /**
-   * @var array<string, int> Encounter counts, keyed by enemy name.
-   */
-  protected(set) array $seen = [];
-  /**
-   * @var array<string, int> Defeat counts, keyed by enemy name.
-   */
-  protected(set) array $defeated = [];
+  public function __construct(
+    public readonly KnowledgeProgressService $knowledge = new KnowledgeProgressService(
+      new KnowledgeCatalog(),
+      new KnowledgeProgress(),
+    ),
+  )
+  {
+  }
 
-  /**
-   * Records that an enemy was encountered.
-   *
-   * @param string $enemyName The enemy's name.
-   * @return bool True when this is the first sighting.
-   */
   public function recordSeen(string $enemyName): bool
   {
-    $enemyName = trim($enemyName);
+    $subject = $this->legacySubject($enemyName);
 
-    if ($enemyName === '') {
+    if ($subject === null) {
       return false;
     }
 
-    $isFirst = ! isset($this->seen[$enemyName]);
-    $this->seen[$enemyName] = ($this->seen[$enemyName] ?? 0) + 1;
+    $isFirst = $this->knowledge->discoverSubject($subject, 'legacy.bestiary');
+    $this->knowledge->recordOutcome($subject, 'encountered');
 
     return $isFirst;
   }
 
-  /**
-   * Records that an enemy was defeated (which also counts as seen).
-   *
-   * @param string $enemyName The enemy's name.
-   * @return bool True when this is the first defeat.
-   */
   public function recordDefeated(string $enemyName): bool
   {
-    $enemyName = trim($enemyName);
+    $subject = $this->legacySubject($enemyName);
 
-    if ($enemyName === '') {
+    if ($subject === null) {
       return false;
     }
 
-    if (! isset($this->seen[$enemyName])) {
+    if (! $this->knowledge->progress->isDiscovered($subject)) {
       $this->recordSeen($enemyName);
     }
 
-    $isFirst = ! isset($this->defeated[$enemyName]);
-    $this->defeated[$enemyName] = ($this->defeated[$enemyName] ?? 0) + 1;
-
-    return $isFirst;
+    return $this->knowledge->recordOutcome($subject, 'defeated');
   }
 
-  /**
-   * Determines whether an enemy has been encountered.
-   *
-   * @param string $enemyName The enemy's name.
-   * @return bool True when seen at least once.
-   */
   public function hasSeen(string $enemyName): bool
   {
-    return isset($this->seen[trim($enemyName)]);
+    $subject = $this->mappedSubject($enemyName);
+
+    return $subject !== null && $this->knowledge->progress->isDiscovered($subject);
   }
 
-  /**
-   * Returns how many times an enemy has been encountered.
-   *
-   * @param string $enemyName The enemy's name.
-   * @return int The encounter count.
-   */
   public function timesSeen(string $enemyName): int
   {
-    return $this->seen[trim($enemyName)] ?? 0;
+    $subject = $this->mappedSubject($enemyName);
+
+    return $subject === null ? 0 : $this->knowledge->progress->outcomeCount($subject, 'encountered');
   }
 
-  /**
-   * Returns how many times an enemy has been defeated.
-   *
-   * @param string $enemyName The enemy's name.
-   * @return int The defeat count.
-   */
   public function timesDefeated(string $enemyName): int
   {
-    return $this->defeated[trim($enemyName)] ?? 0;
+    $subject = $this->mappedSubject($enemyName);
+
+    return $subject === null ? 0 : $this->knowledge->progress->outcomeCount($subject, 'defeated');
   }
 
-  /**
-   * Returns the number of distinct enemies encountered.
-   *
-   * @return int The discovered count.
-   */
   public function discoveredCount(): int
   {
-    return count($this->seen);
+    return count($this->knowledge->progress->discoveredSubjectIds());
   }
 
-  /**
-   * @return array{seen: array<string, int>, defeated: array<string, int>}
-   */
+  /** @return array{seen: array<string, int>, defeated: array<string, int>} */
   public function toArray(): array
   {
-    return [
-      'seen' => $this->seen,
-      'defeated' => $this->defeated,
-    ];
+    $seen = [];
+    $defeated = [];
+
+    foreach ($this->knowledge->catalog->subjects() as $subject) {
+      if (! $this->knowledge->progress->isDiscovered($subject->id)) {
+        continue;
+      }
+
+      $seen[$subject->displayName] = max(1, $this->knowledge->progress->outcomeCount($subject->id, 'encountered'));
+      $defeatCount = $this->knowledge->progress->outcomeCount($subject->id, 'defeated');
+      if ($defeatCount > 0) {
+        $defeated[$subject->displayName] = $defeatCount;
+      }
+    }
+
+    return ['seen' => $seen, 'defeated' => $defeated];
   }
 
-  /**
-   * @param array<string, mixed> $data The persisted bestiary data.
-   * @return self The restored bestiary.
-   */
-  public static function fromArray(array $data): self
+  /** @param array<string, mixed> $data */
+  public static function fromArray(array $data, ?KnowledgeProgressService $knowledge = null): self
   {
-    $bestiary = new self();
+    $bestiary = new self($knowledge ?? new KnowledgeProgressService(new KnowledgeCatalog()));
 
-    foreach (['seen', 'defeated'] as $bucket) {
-      foreach ((array) ($data[$bucket] ?? []) as $enemyName => $count) {
-        if (is_string($enemyName) && trim($enemyName) !== '') {
-          $bestiary->$bucket[trim($enemyName)] = max(1, intval($count));
+    foreach ((array) ($data['seen'] ?? []) as $enemyName => $count) {
+      if (! is_string($enemyName) || trim($enemyName) === '') {
+        continue;
+      }
+      for ($index = 0, $total = max(1, intval($count)); $index < $total; $index++) {
+        $subject = $bestiary->legacySubject($enemyName);
+        if ($subject !== null) {
+          $bestiary->knowledge->discoverSubject($subject, 'legacy.save');
+          $bestiary->knowledge->recordOutcome($subject, 'encountered');
+        }
+      }
+    }
+
+    foreach ((array) ($data['defeated'] ?? []) as $enemyName => $count) {
+      if (! is_string($enemyName) || trim($enemyName) === '') {
+        continue;
+      }
+      for ($index = 0, $total = max(1, intval($count)); $index < $total; $index++) {
+        $subject = $bestiary->legacySubject($enemyName);
+        if ($subject !== null) {
+          $bestiary->knowledge->recordOutcome($subject, 'defeated');
         }
       }
     }
 
     return $bestiary;
+  }
+
+  private function mappedSubject(string $enemyName): ?string
+  {
+    $enemyName = trim($enemyName);
+    if ($enemyName === '') {
+      return null;
+    }
+
+    return $this->knowledge->catalog->subjectForEnemy($enemyName)?->id;
+  }
+
+  private function legacySubject(string $enemyName): ?string
+  {
+    $enemyName = trim($enemyName);
+    if ($enemyName === '') {
+      return null;
+    }
+
+    return $this->knowledge->catalog->registerLegacyEnemy($enemyName)->id;
   }
 }
