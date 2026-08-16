@@ -24,6 +24,7 @@ use Ichiloto\Engine\Events\Interfaces\EventInterface;
 use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
 use Ichiloto\Engine\Events\Interfaces\StaticObserverInterface;
 use Ichiloto\Engine\Events\Interfaces\SubjectInterface;
+use Ichiloto\Engine\Entities\Elements\ElementRegistry;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalCapabilities;
@@ -460,6 +461,8 @@ class Game implements CanRun, SubjectInterface
         TerminalCapabilities::detect();
 
         ConfigStore::put(InputConfig::class, new InputConfig());
+        $systemPayload = asset('Data/system.php', true);
+        ElementRegistry::configure(is_array($systemPayload['elements'] ?? null) ? $systemPayload['elements'] : []);
         ConfigStore::put(ItemStore::class, new ItemStore());
         ConfigStore::put(EnemyStore::class, new EnemyStore());
     }

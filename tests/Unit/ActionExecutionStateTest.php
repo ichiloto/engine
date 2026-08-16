@@ -6,6 +6,10 @@ use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Battle\BattleAction;
+use Ichiloto\Engine\Battle\Resolution\CombatHitResult;
+use Ichiloto\Engine\Battle\Resolution\CombatTargetResult;
+use Ichiloto\Engine\Battle\Resolution\ElementalOutcome;
+use Ichiloto\Engine\Battle\Resolution\ResolutionKind;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\ActionExecutionState;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnResolutionState;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnStateExecutionContext;
@@ -43,6 +47,55 @@ it('builds a miss popup when no visible stat changes occur', function () {
 
   expect($lines)->toBe([
     ['text' => 'MISS', 'color' => Color::WHITE],
+  ]);
+});
+
+it('builds damage Critical and elemental feedback from typed results', function () {
+  $state = makeActionExecutionStateForTest();
+  $target = new Character('Kaelion', 0, new Stats(currentHp: 70, totalHp: 100));
+  $hit = new CombatHitResult(
+    'attack',
+    'attack:1',
+    'Enemy',
+    'Kaelion',
+    true,
+    '',
+    20,
+    ResolutionKind::PHYSICAL_DAMAGE,
+    20,
+    0,
+    0,
+    0.0,
+    true,
+    1,
+    true,
+    1.5,
+    false,
+    'Fire',
+    ElementalOutcome::WEAK,
+    2.0,
+    100,
+    -30,
+    30,
+    0,
+    0,
+    70,
+    1,
+    100,
+  );
+
+  $lines = invokeActionExecutionPopupBuilder(
+    $state,
+    $target,
+    100,
+    10,
+    new CombatTargetResult('Kaelion', [$hit]),
+  );
+
+  expect($lines)->toBe([
+    ['text' => 'WEAK!', 'color' => Color::LIGHT_RED],
+    ['text' => 'CRITICAL', 'color' => Color::YELLOW],
+    ['text' => '30', 'color' => Color::LIGHT_RED],
   ]);
 });
 
@@ -186,18 +239,20 @@ function makeActionExecutionStateForTest(): ActionExecutionState
  * @param Character $target The target to inspect.
  * @param int $previousHp The target HP before the action.
  * @param int $previousMp The target MP before the action.
+ * @param CombatTargetResult|null $result Typed target resolution.
  * @return array<int, array{text: string, color: Color}>
  */
 function invokeActionExecutionPopupBuilder(
   ActionExecutionState $state,
   Character $target,
   int $previousHp,
-  int $previousMp
+  int $previousMp,
+  ?CombatTargetResult $result = null,
 ): array
 {
   $method = new ReflectionMethod(ActionExecutionState::class, 'buildStatChangePopupLines');
 
-  return $method->invoke($state, $target, $previousHp, $previousMp);
+  return $method->invoke($state, $target, $previousHp, $previousMp, $result);
 }
 
 /**

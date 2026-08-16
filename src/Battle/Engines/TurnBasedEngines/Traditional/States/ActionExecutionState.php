@@ -15,6 +15,9 @@ use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Battle\BattleAction;
 use Ichiloto\Engine\Battle\BattleCommandCatalog;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnExecutionContext;
+use Ichiloto\Engine\Battle\Resolution\CombatTargetResult;
+use Ichiloto\Engine\Battle\Resolution\CombatResolver;
+use Ichiloto\Engine\Battle\Resolution\ElementalOutcome;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDamageSkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDrainSkillEffect;
@@ -230,8 +233,28 @@ class ActionExecutionState extends TurnState
     $this->pause($timings->stepBack);
 
     $context->ui->characterStatusWindow->setCharacters($context->party->battlers->toArray());
-    $this->playDamageFeedbackSound($context, $focusTarget, $previousVitals[0][0]);
-    $this->displayStatChangesForTargets($context, $targets, $previousVitals, $timings->statChanges);
+    $typedTargetResults = [];
+    foreach ($targets as $target) {
+      $targetId = CombatResolver::identity($target);
+      $typedTargetResults[] = array_find(
+        $action?->lastResult?->targets ?? [],
+        static fn(CombatTargetResult $result): bool => $result->targetId === $targetId,
+      );
+    }
+
+    $this->playDamageFeedbackSound(
+      $context,
+      $focusTarget,
+      $previousVitals[0][0],
+      $typedTargetResults[0] ?? null,
+    );
+    $this->displayStatChangesForTargets(
+      $context,
+      $targets,
+      $previousVitals,
+      $timings->statChanges,
+      $typedTargetResults,
+    );
     $this->displayPhase($context, 'Turn over.', $timings->turnOver, hideAfter: true);
     $context->ui->characterNameWindow->setActiveSelection(-1);
     $context->ui->fieldWindow->clearTargetIndicators();
@@ -250,15 +273,19 @@ class ActionExecutionState extends TurnState
    * @param TurnStateExecutionContext $context The turn context.
    * @param CharacterInterface $target The action target.
    * @param int $previousHp The target's HP before the action resolved.
+   * @param CombatTargetResult|null $result The typed result for this target, when the action resolves HP.
    * @return void
    */
   protected function playDamageFeedbackSound(
     TurnStateExecutionContext $context,
     CharacterInterface $target,
-    int $previousHp
+    int $previousHp,
+    ?CombatTargetResult $result = null,
   ): void
   {
-    if ($target->stats->currentHp >= $previousHp) {
+    $actualHpLost = $result?->actualHpLost() ?? max(0, $previousHp - $target->stats->currentHp);
+
+    if ($actualHpLost < 1) {
       return;
     }
 
@@ -738,13 +765,15 @@ class ActionExecutionState extends TurnState
    * @param CharacterInterface[] $targets The resolved targets.
    * @param array<int, array{0: int, 1: int}> $previousVitals Pre-action [HP, MP] per target index.
    * @param float $delaySeconds The time to show the popups.
+   * @param CombatTargetResult[] $results Ordered typed results matching the targets.
    * @return void
    */
   protected function displayStatChangesForTargets(
     TurnStateExecutionContext $context,
     array $targets,
     array $previousVitals,
-    float $delaySeconds
+    float $delaySeconds,
+    array $results = [],
   ): void
   {
     $context->ui->hideMessage();
@@ -753,7 +782,12 @@ class ActionExecutionState extends TurnState
       [$previousHp, $previousMp] = $previousVitals[$index] ?? [$target->stats->currentHp, $target->stats->currentMp];
       $context->ui->fieldWindow->showStatChangePopup(
         $target,
-        $this->buildStatChangePopupLines($target, $previousHp, $previousMp),
+        $this->buildStatChangePopupLines(
+          $target,
+          $previousHp,
+          $previousMp,
+          $results[$index] ?? null,
+        ),
         clearExisting: $index === 0
       );
     }
@@ -771,6 +805,7 @@ class ActionExecutionState extends TurnState
    * @param CharacterInterface $target The resolved target.
    * @param int $previousHp The target HP before the action.
    * @param int $previousMp The target MP before the action.
+   * @param CombatTargetResult|null $result The typed HP-resolution result for this target.
    * @param float $delaySeconds The time to show the popup.
    * @return void
    */
@@ -804,17 +839,21 @@ class ActionExecutionState extends TurnState
   protected function buildStatChangePopupLines(
     CharacterInterface $target,
     int $previousHp,
-    int $previousMp
+    int $previousMp,
+    ?CombatTargetResult $result = null,
   ): array
   {
-    $hpDelta = $target->stats->currentHp - $previousHp;
     $mpDelta = $target->stats->currentMp - $previousMp;
     $lines = [];
+    $hpLost = $result?->actualHpLost() ?? max(0, $previousHp - $target->stats->currentHp);
+    $hpRestored = $result?->actualHpRestored() ?? max(0, $target->stats->currentHp - $previousHp);
 
-    if ($hpDelta < 0) {
-      $lines[] = ['text' => strval(abs($hpDelta)), 'color' => Color::LIGHT_RED];
-    } elseif ($hpDelta > 0) {
-      $lines[] = ['text' => '+' . $hpDelta, 'color' => Color::LIGHT_GREEN];
+    if ($hpLost > 0) {
+      $lines[] = ['text' => strval($hpLost), 'color' => Color::LIGHT_RED];
+    }
+
+    if ($hpRestored > 0) {
+      $lines[] = ['text' => '+' . $hpRestored, 'color' => Color::LIGHT_GREEN];
     }
 
     if ($mpDelta < 0) {
@@ -823,19 +862,26 @@ class ActionExecutionState extends TurnState
       $lines[] = ['text' => '+' . $mpDelta . ' MP', 'color' => Color::LIGHT_CYAN];
     }
 
-    if ($target->lastHitWasCritical ?? false) {
+    $critical = $result !== null
+      ? array_any($result->hits, static fn($hit): bool => $hit->critical)
+      : ($target->lastHitWasCritical ?? false);
+
+    if ($critical) {
       array_unshift($lines, ['text' => 'CRITICAL', 'color' => Color::YELLOW]);
       $target->lastHitWasCritical = false;
     }
 
-    // An elemental reaction (set by the damage effect) leads the popup.
-    if (($target->lastElementReaction ?? null) !== null) {
-      $reactionColor = match ($target->lastElementReaction) {
+    $reaction = $result !== null
+      ? $this->resolveElementalReaction($result)
+      : ($target->lastElementReaction ?? null);
+
+    if ($reaction !== null) {
+      $reactionColor = match ($reaction) {
         'WEAK!' => Color::LIGHT_RED,
         'ABSORB' => Color::LIGHT_GREEN,
         default => Color::LIGHT_CYAN,
       };
-      array_unshift($lines, ['text' => $target->lastElementReaction, 'color' => $reactionColor]);
+      array_unshift($lines, ['text' => $reaction, 'color' => $reactionColor]);
       $target->lastElementReaction = null;
     }
 
@@ -843,11 +889,34 @@ class ActionExecutionState extends TurnState
       $lines[] = ['text' => 'KO', 'color' => Color::YELLOW];
     }
 
-    if (empty($lines)) {
+    if (empty($lines) && $result === null) {
       $lines[] = ['text' => 'MISS', 'color' => Color::WHITE];
+    } elseif (empty($lines) && array_any($result->hits, static fn($hit): bool => ! $hit->hit)) {
+      $lines[] = ['text' => 'MISS', 'color' => Color::WHITE];
+    } elseif (empty($lines) && $result->hits !== []) {
+      $lines[] = ['text' => '0', 'color' => Color::WHITE];
     }
 
     return $lines;
+  }
+
+  /**
+   * Resolves the highest-priority elemental feedback from typed hit results.
+   */
+  protected function resolveElementalReaction(CombatTargetResult $result): ?string
+  {
+    foreach ([
+      [ElementalOutcome::ABSORB, 'ABSORB'],
+      [ElementalOutcome::NULL, 'NULL'],
+      [ElementalOutcome::WEAK, 'WEAK!'],
+      [ElementalOutcome::RESIST, 'RESIST'],
+    ] as [$outcome, $label]) {
+      if (array_any($result->hits, static fn($hit): bool => $hit->elementalOutcome === $outcome)) {
+        return $label;
+      }
+    }
+
+    return null;
   }
 
   /**

@@ -4,6 +4,7 @@ use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Battle\ElementalDamage;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
+use Ichiloto\Engine\Entities\Elements\ElementRegistry;
 use Ichiloto\Engine\Entities\Inventory\Armor;
 use Ichiloto\Engine\Entities\Inventory\Equipment;
 use Ichiloto\Engine\Entities\Inventory\EquipmentSlotType;
@@ -167,4 +168,41 @@ it('lands a weapon element on an enemy weakness in a real basic attack', functio
   expect(in_array($dealt, [40, 60], true))
     ->toBeTrue("Expected a doubled 40 (or 60 critical), got {$dealt}.")
     ->and($enemy->lastElementReaction)->toBe('WEAK!');
+});
+
+it('preserves canonical weapon elements and defensive affinities through hydration and cloning', function () {
+  $weapon = Weapon::fromArray([
+    'id' => 'weapon.flame-brand',
+    'name' => 'Flame Brand',
+    'description' => 'A calibrated test blade.',
+    'icon' => '/',
+    'price' => 100,
+    'element' => 'fire',
+    'elementAffinities' => ['water' => 0.5],
+  ]);
+  $clone = clone $weapon;
+
+  expect($weapon->element)->toBe('Fire')
+    ->and($weapon->getElementMultiplier('Water'))->toBe(0.5)
+    ->and($clone->element)->toBe('Fire')
+    ->and($clone->getElementMultiplier('Water'))->toBe(0.5);
+});
+
+it('rejects unknown elements and malformed affinity factors', function () {
+  expect(fn() => new Weapon('Unknown', '', '/', 0, element: 'Plasma'))
+    ->toThrow(InvalidArgumentException::class, 'Unknown element identity')
+    ->and(fn() => new Armor('Broken', '', '#', 0, elementAffinities: ['Fire' => INF]))
+    ->toThrow(InvalidArgumentException::class, 'Invalid affinity factor');
+});
+
+it('accepts a project-owned canonical element vocabulary', function () {
+  ElementRegistry::configure(['Heat', 'Cold']);
+
+  try {
+    $weapon = new Weapon('Heat Brand', '', '/', 0, element: 'heat');
+    expect($weapon->element)->toBe('Heat')
+      ->and(ElementRegistry::identities())->toBe(['Heat', 'Cold']);
+  } finally {
+    ElementRegistry::configure();
+  }
 });

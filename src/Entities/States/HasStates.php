@@ -2,6 +2,10 @@
 
 namespace Ichiloto\Engine\Entities\States;
 
+use Ichiloto\Engine\Entities\Elements\ElementRegistry;
+use Ichiloto\Engine\Battle\Resolution\CombatRandomSource;
+use Ichiloto\Engine\Battle\Resolution\NativeCombatRandomSource;
+
 /**
  * Gives a battler a live state list with resistances, ticks, and expiry.
  *
@@ -61,10 +65,8 @@ trait HasStates
   {
     $this->elementAffinities = [];
 
-    foreach ($elementAffinities as $element => $multiplier) {
-      if (is_string($element) && is_numeric($multiplier)) {
-        $this->elementAffinities[strtolower(trim($element))] = floatval($multiplier);
-      }
+    foreach (ElementRegistry::normalizeAffinities($elementAffinities) as $element => $multiplier) {
+      $this->elementAffinities[strtolower($element)] = $multiplier;
     }
   }
 
@@ -100,7 +102,11 @@ trait HasStates
    * @param int $chancePercent The base infliction chance (before resistance).
    * @return bool True when the state was newly inflicted.
    */
-  public function addState(State $state, int $chancePercent = 100): bool
+  public function addState(
+    State $state,
+    int $chancePercent = 100,
+    ?CombatRandomSource $random = null,
+  ): bool
   {
     if ($this->hasState($state->id)) {
       return false;
@@ -109,7 +115,9 @@ trait HasStates
     $resistance = $this->stateResistances[$state->id] ?? 1.0;
     $effectiveChance = intval(round(clamp($chancePercent, 0, 100) * $resistance));
 
-    if ($effectiveChance < 1 || rand(1, 100) > $effectiveChance) {
+    $random ??= new NativeCombatRandomSource();
+
+    if ($effectiveChance < 1 || $random->nextInt(1, 100) > $effectiveChance) {
       return false;
     }
 

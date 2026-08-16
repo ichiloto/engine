@@ -3,6 +3,9 @@
 namespace Ichiloto\Engine\Battle\Simulation;
 
 use Ichiloto\Engine\Battle\Actions\AttackAction;
+use Ichiloto\Engine\Battle\Resolution\CombatResolver;
+use Ichiloto\Engine\Battle\Resolution\CombatActionResult;
+use Ichiloto\Engine\Battle\Resolution\SeededCombatRandomSource;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Troop;
@@ -32,6 +35,7 @@ class BattleSimulator
    */
   public function __construct(
     protected int $turnLimit = self::DEFAULT_TURN_LIMIT,
+    protected int $seed = 1,
   )
   {
   }
@@ -65,11 +69,15 @@ class BattleSimulator
     $totalHpShare = 0.0;
     $deaths = [];
     $damage = [];
+    $hpLoss = [];
+    $healing = [];
+    $mitigation = [];
+    $random = new SeededCombatRandomSource($this->seed);
 
     for ($run = 0; $run < $runs; $run++) {
       $this->restore([...$allies, ...$enemies], $fullHealth);
 
-      $outcome = $this->fight($allies, $enemies, $damage);
+      $outcome = $this->fight($allies, $enemies, $damage, $hpLoss, $healing, $mitigation, $random);
       $totalTurns += $outcome['turns'];
 
       match ($outcome['result']) {
@@ -102,6 +110,32 @@ class BattleSimulator
       $victories > 0 ? $totalHpShare / $victories : 0.0,
       $deaths,
       array_map(static fn(float $total): float => $total / $runs, $damage),
+      $this->seed,
+      array_map(static fn(float $total): float => $total / $runs, $hpLoss),
+      array_map(static fn(float $total): float => $total / $runs, $healing),
+      array_map(static fn(float $total): float => $total / $runs, $mitigation),
+    );
+  }
+
+  /** Seeded preview seam proving simulator/live parity at the action boundary. */
+  public function previewAttack(
+    CharacterInterface $actor,
+    CharacterInterface $target,
+    ?int $seed = null,
+  ): CombatActionResult
+  {
+    $action = new AttackAction(
+      'Attack',
+      new CombatResolver(),
+      new SeededCombatRandomSource($seed ?? $this->seed),
+    );
+    $action->execute($actor, [$target]);
+
+    return $action->lastResult ?? new CombatActionResult(
+      'attack',
+      'attack:0',
+      CombatResolver::identity($actor),
+      [],
     );
   }
 
@@ -113,9 +147,17 @@ class BattleSimulator
    * @param array<string, float> $damage Running damage totals, by name.
    * @return array{result: string, turns: int} How it went.
    */
-  protected function fight(array $allies, array $enemies, array &$damage): array
+  protected function fight(
+    array $allies,
+    array $enemies,
+    array &$damage,
+    array &$hpLoss,
+    array &$healing,
+    array &$mitigation,
+    SeededCombatRandomSource $random,
+  ): array
   {
-    $attack = new AttackAction('Attack');
+    $attack = new AttackAction('Attack', new CombatResolver(), $random);
     $turns = 0;
 
     while ($turns < $this->turnLimit) {
@@ -140,14 +182,21 @@ class BattleSimulator
           break;
         }
 
-        $target = $targets[array_rand($targets)];
-        $before = $target->stats->currentHp;
-
+        $target = $targets[$random->nextInt(0, count($targets) - 1)];
         $attack->execute($battler, [$target]);
+        $result = $attack->lastResult;
+
+        if ($result === null) {
+          continue;
+        }
 
         if ($isAlly) {
-          $damage[$battler->name] = ($damage[$battler->name] ?? 0.0) + max(0, $before - $target->stats->currentHp);
+          $damage[$battler->name] = ($damage[$battler->name] ?? 0.0) + $result->actualHpLost();
         }
+
+        $hpLoss[$target->name] = ($hpLoss[$target->name] ?? 0.0) + $result->actualHpLost();
+        $healing[$battler->name] = ($healing[$battler->name] ?? 0.0) + $result->actualHpRestored();
+        $mitigation[$target->name] = ($mitigation[$target->name] ?? 0.0) + $result->mitigation();
       }
 
       if ($this->living($enemies) === []) {

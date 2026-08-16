@@ -67,20 +67,16 @@ describe('basic skills', function() {
     $target->stats->currentHp = $targetHp;
     $target->stats->defence = $targetDefence;
 
-    $expectedDamage = $userAttack * 4 - $targetDefence * 2;
+    $rawMagnitude = $userAttack * 4;
+    $mitigationRate = $targetDefence / ($targetDefence + 240);
+    $expectedDamage = intval(round($rawMagnitude * (1 - $mitigationRate), 0, PHP_ROUND_HALF_UP));
 
-    $damageFormula = '$user->stats->attack * 4 - $target->stats->defence * 2';
-    $hpDamageEffect = new HPDamageSkillEffect($damageFormula);
+    $damageFormula = '$user->stats->attack * 4';
+    $hpDamageEffect = new HPDamageSkillEffect($damageFormula, variance: 0.0);
     $hpDamageEffect->apply($this->skillEffectContext);
 
-    // The engine floors both variance bounds to ints before rolling, so the
-    // assertion must too — and one apply() is one roll; re-rolling getValue()
-    // here would assert a different random number.
-    $minValue = intval($expectedDamage * (1 - $hpDamageEffect->variance));
-    $maxValue = intval($expectedDamage * (1 + $hpDamageEffect->variance));
-
     expect($target->stats->currentHp)
-      ->toBeBetween($targetHp - $maxValue, $targetHp - $minValue);
+      ->toBe($targetHp - $expectedDamage);
   });
 
   it('can deal MP damage', function() {

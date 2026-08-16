@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Entities\Inventory;
 use Ichiloto\Engine\Entities\Enumerations\ArmorType;
 use Ichiloto\Engine\Entities\Enumerations\ItemUserType;
 use Ichiloto\Engine\Entities\Enumerations\WeaponType;
+use Ichiloto\Engine\Entities\Elements\ElementRegistry;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Entities\ParameterChanges;
 
@@ -56,6 +57,8 @@ abstract class Equipment extends InventoryItem
     ?string $acquisitionPolicy = null,
   )
   {
+    $this->element = ElementRegistry::canonicalize($this->element);
+    $this->elementAffinities = ElementRegistry::normalizeAffinities($this->elementAffinities);
     $this->semanticSlot = $semanticSlot ?? match (true) {
       $this instanceof \Ichiloto\Engine\Entities\Inventory\Weapons\Weapon => EquipmentSlotType::WEAPON,
       $this instanceof Accessory => EquipmentSlotType::ACCESSORY,

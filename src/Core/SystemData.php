@@ -14,6 +14,7 @@ readonly class SystemData
     public array $startingInventory,
     public object $startingPositions,
     public object $battle,
+    public array $elements = [],
   )
   {
   }
@@ -27,6 +28,7 @@ readonly class SystemData
       $data['startingInventory'] ?? [],
       json_decode(json_encode($data['startingPositions'])) ?? throw new RequiredFieldException('startingPositions'),
       self::normalizeBattleSettings($data['battle'] ?? []),
+      is_array($data['elements'] ?? null) ? $data['elements'] : [],
     );
   }
 

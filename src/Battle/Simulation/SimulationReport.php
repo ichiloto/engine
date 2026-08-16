@@ -30,6 +30,10 @@ final readonly class SimulationReport
     public float $averageHpRemaining,
     public array $deaths = [],
     public array $damageDealt = [],
+    public int $seed = 1,
+    public array $hpLost = [],
+    public array $healing = [],
+    public array $mitigation = [],
   )
   {
   }

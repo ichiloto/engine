@@ -6,6 +6,7 @@ use Exception;
 use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Battle\BattleAction;
 use Ichiloto\Engine\Battle\BattleCommandType;
+use Ichiloto\Engine\Battle\Resolution\ElementalAffinityResolver;
 use Ichiloto\Engine\Entities\Abilities\AbilityBook;
 use Ichiloto\Engine\Entities\Interfaces\CanEquip;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
@@ -848,8 +849,7 @@ class Character implements CharacterInterface, CanEquip
    */
   public function getElementMultiplier(?string $element): float
   {
-    $product = $this->getBaseElementMultiplier($element);
-    $sawAbsorb = $product < 0.0;
+    $factors = [$this->getBaseElementMultiplier($element)];
 
     foreach ($this->equipment as $equipmentSlot) {
       $gear = $equipmentSlot->equipment;
@@ -858,16 +858,28 @@ class Character implements CharacterInterface, CanEquip
         continue;
       }
 
-      $factor = $gear->getElementMultiplier($element);
-      $sawAbsorb = $sawAbsorb || $factor < 0.0;
-      $product *= $factor;
+      $factors[] = $gear->getElementMultiplier($element);
     }
 
-    if ($sawAbsorb && $product > 0.0) {
-      $product = -$product;
-    }
+    return ElementalAffinityResolver::compose($factors)['multiplier'];
+  }
 
-    return $product;
+  /** Bounded action-derived hit modifier from currently equipped forms. */
+  public function getEquipmentAccuracyModifier(): int
+  {
+    return array_sum(array_map(
+      static fn(EquipmentSlot $slot): int => $slot->equipment?->accuracyModifier ?? 0,
+      $this->equipment,
+    ));
+  }
+
+  /** Bounded action-derived critical modifier from currently equipped forms. */
+  public function getEquipmentCriticalModifier(): int
+  {
+    return array_sum(array_map(
+      static fn(EquipmentSlot $slot): int => $slot->equipment?->criticalModifier ?? 0,
+      $this->equipment,
+    ));
   }
 
   /**

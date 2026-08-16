@@ -11,6 +11,11 @@ use Ichiloto\Engine\Entities\Skills\SkillEffectContext;
  */
 class MPDamageSkillEffect extends SkillEffect
 {
+  public function repeatsWithInvocation(): bool
+  {
+    return true;
+  }
+
   /**
    * @inheritDoc
    */

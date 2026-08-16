@@ -2,7 +2,8 @@
 
 namespace Ichiloto\Engine\Entities\Effects\SkillEffects;
 
-use Ichiloto\Engine\Battle\ElementalDamage;
+use Ichiloto\Engine\Battle\Resolution\CombatResolutionRequest;
+use Ichiloto\Engine\Battle\Resolution\ResolutionKind;
 use Ichiloto\Engine\Entities\Skills\SkillEffectContext;
 
 /**
@@ -12,25 +13,45 @@ use Ichiloto\Engine\Entities\Skills\SkillEffectContext;
  */
 class HPDamageSkillEffect extends SkillEffect
 {
+  public function repeatsWithInvocation(): bool
+  {
+    return true;
+  }
+
+  public function __construct(
+    string $formula,
+    ?string $element = null,
+    float $variance = 0.2,
+    bool $isCriticalHit = false,
+    protected(set) ?ResolutionKind $resolutionKind = null,
+  )
+  {
+    parent::__construct($formula, $element, $variance, $isCriticalHit);
+  }
+
   public function apply(SkillEffectContext $context): void
   {
     if ($context->target->isKnockedOut) {
       return;
     }
 
-    // Damage is floored at 1 so a high-defence target is never healed by an attack.
-    $damage = max(1, $this->getValue($context));
-
-    if ($context->criticalHit || $this->isCriticalHit) {
-      $damage = intval(round($damage * 1.5));
-    }
-
-    if ($context->target->isGuarding ?? false) {
-      $damage = max(1, intval($damage / 2));
-    }
-
-    $damage = ElementalDamage::scale($context->target, $this->element, $damage);
-
-    $context->target->stats->currentHp -= $damage;
+    $result = $context->resolver->resolve(
+      new CombatResolutionRequest(
+        actionId: $context->actionId,
+        executionId: $context->executionId,
+        actor: $context->user,
+        target: $context->target,
+        rawMagnitude: max(0, $this->getValue($context)),
+        kind: $this->resolutionKind ?? $context->damageKind,
+        element: $this->element,
+        baseAccuracy: $context->baseAccuracy,
+        criticalEligible: true,
+        guaranteedCritical: $this->isCriticalHit,
+        hitRollOverride: $context->hitRollOverride(),
+        criticalRollOverride: $context->criticalRollOverride(),
+      ),
+      $context->random,
+    );
+    $context->recordResult($result);
   }
 }

@@ -82,6 +82,26 @@ it('exposes every stat layer cap loss and headroom', function () {
     ->and(EntityStatCapPolicy::enemy()->capFor(StatKey::MAX_HP))->toBeGreaterThan(9_999);
 });
 
+it('keeps the shared stat container wide enough for the explicit enemy policy', function () {
+  $stats = new Stats(
+    currentHp: 999_999,
+    totalHp: 999_999,
+    currentMp: 99_999,
+    totalMp: 99_999,
+    attack: 9_999,
+    defence: 9_999,
+    magicAttack: 9_999,
+    magicDefence: 9_999,
+    speed: 9_999,
+    grace: 9_999,
+    evasion: 9_999,
+  );
+
+  expect($stats->totalHp)->toBe(EntityStatCapPolicy::enemy()->capFor(StatKey::MAX_HP))
+    ->and($stats->totalMp)->toBe(EntityStatCapPolicy::enemy()->capFor(StatKey::MAX_MP))
+    ->and($stats->attack)->toBe(EntityStatCapPolicy::enemy()->capFor(StatKey::ATTACK));
+});
+
 it('preserves current resources and zero through growth class and equipment recalculation', function () {
   $character = new Character(
     'Tester',

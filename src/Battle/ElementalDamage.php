@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Battle;
 
+use Ichiloto\Engine\Battle\Resolution\ElementalAffinityResolver;
+use Ichiloto\Engine\Battle\Resolution\ElementalOutcome;
 /**
  * Applies a target's elemental affinity to damage.
  *
@@ -28,14 +30,16 @@ final class ElementalDamage
       return $damage;
     }
 
-    $multiplier = $target->getElementMultiplier($element);
+    $affinity = ElementalAffinityResolver::forTarget($target, $element);
+    $multiplier = $affinity['multiplier'];
 
-    if ($multiplier !== 1.0 && property_exists($target, 'lastElementReaction')) {
-      $target->lastElementReaction = match (true) {
-        $multiplier < 0.0 => 'ABSORB',
-        $multiplier === 0.0 => 'NULL',
-        $multiplier < 1.0 => 'RESIST',
-        default => 'WEAK!',
+    if ($affinity['outcome'] !== ElementalOutcome::NORMAL && property_exists($target, 'lastElementReaction')) {
+      $target->lastElementReaction = match ($affinity['outcome']) {
+        ElementalOutcome::ABSORB => 'ABSORB',
+        ElementalOutcome::NULL => 'NULL',
+        ElementalOutcome::RESIST => 'RESIST',
+        ElementalOutcome::WEAK => 'WEAK!',
+        default => null,
       };
     }
 

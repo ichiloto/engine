@@ -19,11 +19,11 @@ class Stats implements JsonSerializable, Stringable
   /**
    * The maximum hit points.
    */
-  const int MAX_HP = 99999;
+  const int MAX_HP = 999999;
   /**
    * The maximum magic points.
    */
-  const int MAX_MP = 999;
+  const int MAX_MP = 99999;
   /**
    * The maximum attack points.
    */
@@ -31,31 +31,31 @@ class Stats implements JsonSerializable, Stringable
   /**
    * The maximum attack points.
    */
-  const int MAX_ATTACK = 999;
+  const int MAX_ATTACK = 9999;
   /**
    * The maximum defence points.
    */
-  const int MAX_DEFENCE = 999;
+  const int MAX_DEFENCE = 9999;
   /**
    * The maximum magic attack points.
    */
-  const int MAX_MAGIC_ATTACK = 999;
+  const int MAX_MAGIC_ATTACK = 9999;
   /**
    * The maximum magic defence points.
    */
-  const int MAX_MAGIC_DEFENCE = 999;
+  const int MAX_MAGIC_DEFENCE = 9999;
   /**
    * The maximum speed points.
    */
-  const int MAX_SPEED = 999;
+  const int MAX_SPEED = 9999;
   /**
    * The maximum grace points.
    */
-  const int MAX_GRACE = 999;
+  const int MAX_GRACE = 9999;
   /**
    * The maximum evasion points.
    */
-  const int MAX_EVASION = 999;
+  const int MAX_EVASION = 9999;
   /**
    * The default HP.
    */

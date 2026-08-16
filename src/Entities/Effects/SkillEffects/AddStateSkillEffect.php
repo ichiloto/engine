@@ -45,7 +45,11 @@ class AddStateSkillEffect extends SkillEffect
 
     foreach (is_array($context->target) ? $context->target : [$context->target] as $target) {
       if (method_exists($target, 'addState')) {
-        $target->addState($state, $this->chancePercent);
+        $context->recordSecondaryOutcome(
+          'state',
+          $state->id,
+          $target->addState($state, $this->chancePercent, $context->random),
+        );
       }
     }
   }

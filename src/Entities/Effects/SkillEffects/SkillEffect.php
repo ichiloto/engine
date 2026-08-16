@@ -12,6 +12,11 @@ use RuntimeException;
  */
 abstract class SkillEffect
 {
+  /** Whether invocation repeat applies to this effect rather than the whole wrapper action. */
+  public function repeatsWithInvocation(): bool
+  {
+    return false;
+  }
   /**
    * Creates a new instance of the skill effect.
    *
@@ -55,6 +60,6 @@ abstract class SkillEffect
     $maxValue = intval($value * $maxMultiplier);
 
     // A negative formula value flips the bounds, so order them before rolling.
-    return rand(min($minValue, $maxValue), max($minValue, $maxValue));
+    return $context->random->nextInt(min($minValue, $maxValue), max($minValue, $maxValue));
   }
 }
