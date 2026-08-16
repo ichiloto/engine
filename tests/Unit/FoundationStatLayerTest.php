@@ -142,6 +142,19 @@ it('round trips acquired growth while keeping equipment out of the ledger', func
     ->and($restored->permanentGrowth->totalFor(StatKey::DEFENCE))->toBe(2);
 });
 
+it('keeps fixed actor-natural definitions out of mutable save payloads', function () {
+  $character = new Character(
+    'Tester',
+    0,
+    new Stats(currentHp: 80, totalHp: 100),
+    actorNaturalAdjustments: [StatKey::MAX_HP->value => 25],
+    naturalVariantId: 'variant.test',
+  );
+
+  expect($character->toArray())->not->toHaveKeys(['actorNaturalAdjustments', 'naturalVariantId'])
+    ->and($character->toArray())->toHaveKey('permanentGrowth');
+});
+
 it('persists inventory by definition id and genuine mutable state only', function () {
   $previous = ConfigStore::has(ItemStore::class)
     ? ConfigStore::get(ItemStore::class)

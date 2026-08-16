@@ -130,6 +130,31 @@ it('round-trips bounded stable progress without authored display text or hidden 
     ->toBe(['creature.wolf']);
 });
 
+it('withdraws an unlocked report through the shared operation boundary', function () {
+  $service = new KnowledgeProgressService(new KnowledgeCatalog(knowledgeFixture()));
+  $service->apply('unlock_report', [
+    'subject' => 'creature.wolf',
+    'report' => 'report.wolf.initial',
+    'source' => 'field.report',
+  ]);
+
+  expect($service->apply('withdraw_report', [
+    'subject' => 'creature.wolf',
+    'report' => 'report.wolf.initial',
+    'source' => 'field.withdrawal',
+  ]))->toBeTrue()
+    ->and($service->progress->depth('creature.wolf'))->toBe(KnowledgeDepth::CONTESTED)
+    ->and($service->progress->reportState('creature.wolf', 'report.wolf.initial')['status'])->toBe('withdrawn')
+    ->and(fn() => (new KnowledgeProgressService(new KnowledgeCatalog(knowledgeFixture())))->apply(
+      'withdraw_report',
+      [
+        'subject' => 'creature.wolf',
+        'report' => 'report.wolf.initial',
+        'source' => 'field.withdrawal',
+      ],
+    ))->toThrow(InvalidArgumentException::class, 'before it is unlocked');
+});
+
 it('keeps the historical Bestiary API as a view over stable knowledge progress', function () {
   $service = new KnowledgeProgressService(new KnowledgeCatalog(knowledgeFixture()));
   $bestiary = new Bestiary($service);

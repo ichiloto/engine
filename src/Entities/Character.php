@@ -1164,8 +1164,6 @@ class Character implements CharacterInterface, CanEquip
           static fn(StateInstance $instance): bool => $instance->state->persistsAfterBattle
         ))
       ),
-      'actorNaturalAdjustments' => $this->actorNaturalAdjustments,
-      'naturalVariantId' => $this->naturalVariantId,
       'permanentGrowth' => $this->permanentGrowth->jsonSerialize(),
     ];
   }

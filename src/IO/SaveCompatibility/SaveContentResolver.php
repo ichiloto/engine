@@ -79,6 +79,10 @@ final readonly class SaveContentResolver
   private function resolveBestiary(mixed $rawBestiary): array
   {
     $bestiary = is_array($rawBestiary) ? $rawBestiary : [];
+    if ($bestiary === []) {
+      return [];
+    }
+
     $bestiary['seen'] = $this->keyedIdentities(ContentReferenceCategory::ENEMY, $bestiary['seen'] ?? []);
     $bestiary['defeated'] = $this->keyedIdentities(ContentReferenceCategory::ENEMY, $bestiary['defeated'] ?? []);
 
