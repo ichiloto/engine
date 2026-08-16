@@ -10,6 +10,7 @@ use Ichiloto\Engine\Entities\ParameterChanges;
 
 abstract class Equipment extends InventoryItem
 {
+  protected(set) EquipmentSlotType $semanticSlot;
   /**
    * @var int The equipment's net rating across all parameter changes.
    */
@@ -40,9 +41,48 @@ abstract class Equipment extends InventoryItem
     protected(set) WeaponType|ArmorType|null $equipmentType = null,
     protected(set) array $elementAffinities = [],
     protected(set) ?string $element = null,
+    ?string $id = null,
+    ?EquipmentSlotType $semanticSlot = null,
+    protected(set) ?string $form = null,
+    protected(set) ?string $size = null,
+    protected(set) ?string $material = null,
+    protected(set) int $accuracyModifier = 0,
+    protected(set) int $criticalModifier = 0,
+    protected(set) ?array $specialProperty = null,
+    bool $sellable = true,
+    int $sellRateBasisPoints = 5000,
+    array $aliases = [],
+    string $availability = 'ordinary',
+    ?string $acquisitionPolicy = null,
   )
   {
-    parent::__construct($name, $description, $icon, $price, $quantity, $userType, $isKeyItem, $consumable);
+    $this->semanticSlot = $semanticSlot ?? match (true) {
+      $this instanceof \Ichiloto\Engine\Entities\Inventory\Weapons\Weapon => EquipmentSlotType::WEAPON,
+      $this instanceof Accessory => EquipmentSlotType::ACCESSORY,
+      default => EquipmentSlotType::BODY,
+    };
+
+    parent::__construct(
+      $name,
+      $description,
+      $icon,
+      $price,
+      $quantity,
+      $userType,
+      $isKeyItem,
+      $consumable,
+      id: $id,
+      sellable: $sellable,
+      sellRateBasisPoints: $sellRateBasisPoints,
+      aliases: $aliases,
+      availability: $availability,
+      acquisitionPolicy: $acquisitionPolicy,
+    );
+
+    if ($this->accuracyModifier < -100 || $this->accuracyModifier > 100
+      || $this->criticalModifier < -100 || $this->criticalModifier > 100) {
+      throw new \InvalidArgumentException('Equipment accuracy and critical modifiers must be between -100 and 100.');
+    }
   }
 
   /**
@@ -107,5 +147,24 @@ abstract class Equipment extends InventoryItem
   public function __clone(): void
   {
     $this->parameterChanges = clone $this->parameterChanges;
+  }
+
+  protected function copySubtypeDefinitionFrom(InventoryItem $prototype): void
+  {
+    if (! $prototype instanceof Equipment) {
+      throw new \InvalidArgumentException('Equipment definition subtype mismatch.');
+    }
+
+    $this->parameterChanges = clone $prototype->parameterChanges;
+    $this->equipmentType = $prototype->equipmentType;
+    $this->elementAffinities = $prototype->elementAffinities;
+    $this->element = $prototype->element;
+    $this->semanticSlot = $prototype->semanticSlot;
+    $this->form = $prototype->form;
+    $this->size = $prototype->size;
+    $this->material = $prototype->material;
+    $this->accuracyModifier = $prototype->accuracyModifier;
+    $this->criticalModifier = $prototype->criticalModifier;
+    $this->specialProperty = $prototype->specialProperty;
   }
 }

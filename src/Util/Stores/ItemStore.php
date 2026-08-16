@@ -21,6 +21,8 @@ class ItemStore implements ConfigInterface
    * @var array<string, InventoryItem> The items.
    */
   protected array $items = [];
+  /** @var array<string, string> Normalized display names and aliases to IDs. */
+  protected array $aliases = [];
 
   /**
    * ItemStore constructor.
@@ -31,8 +33,18 @@ class ItemStore implements ConfigInterface
 
     foreach ($items as $item) {
       if ($item instanceof InventoryItem) {
-        $key = $item->name;
-        $this->items[$key] = $item;
+        if (isset($this->items[$item->id])) {
+          throw new RuntimeException(sprintf('Duplicate inventory definition id: %s.', $item->id));
+        }
+
+        $this->items[$item->id] = $item;
+        $this->registerAlias($item->name, $item->id);
+
+        foreach ($item->aliases as $alias) {
+          if (is_string($alias)) {
+            $this->registerAlias($alias, $item->id);
+          }
+        }
       }
     }
   }
@@ -46,7 +58,10 @@ class ItemStore implements ConfigInterface
       $default = null;
     }
 
-    return $this->items[$path] ?? $default;
+    $id = $this->resolveId($path);
+    $definition = ($id !== null ? $this->items[$id] ?? null : null) ?? $default;
+
+    return $definition instanceof InventoryItem ? clone $definition : null;
   }
 
   /**
@@ -58,7 +73,8 @@ class ItemStore implements ConfigInterface
       throw new InvalidArgumentException('The value must be an instance of ' . InventoryItem::class);
     }
 
-    $this->items[$path] = $value;
+    $this->items[$value->id] = clone $value;
+    $this->registerAlias($value->name, $value->id);
   }
 
   /**
@@ -66,7 +82,7 @@ class ItemStore implements ConfigInterface
    */
   public function has(string $path): bool
   {
-    return isset($this->items[$path]);
+    return $this->resolveId($path) !== null;
   }
 
   /**
@@ -89,7 +105,9 @@ class ItemStore implements ConfigInterface
       throw new NotFoundException(sprintf('Inventory item "%s"', $itemName));
     }
 
-    $prototype = $this->items[$itemName];
+    $definitionId = $this->resolveId($itemName);
+    assert($definitionId !== null);
+    $prototype = $this->items[$definitionId];
     $items = [];
 
     for ($count = 0; $count < max(0, $quantity); $count++) {
@@ -105,6 +123,40 @@ class ItemStore implements ConfigInterface
   public function persist(): void
   {
     // Do nothing
+  }
+
+  private function resolveId(string $reference): ?string
+  {
+    $reference = strtolower(trim($reference));
+
+    if (isset($this->items[$reference])) {
+      return $reference;
+    }
+
+    return $this->aliases[$reference] ?? null;
+  }
+
+  /** Resolves a stable id or declared compatibility/display alias to its id. */
+  public function definitionIdFor(string $reference): ?string
+  {
+    return $this->resolveId($reference);
+  }
+
+  private function registerAlias(string $alias, string $definitionId): void
+  {
+    $alias = strtolower(trim($alias));
+
+    if ($alias === '') {
+      return;
+    }
+
+    $existing = $this->aliases[$alias] ?? null;
+
+    if ($existing !== null && $existing !== $definitionId) {
+      throw new RuntimeException(sprintf('Inventory alias "%s" resolves to multiple definitions.', $alias));
+    }
+
+    $this->aliases[$alias] = $definitionId;
   }
 
   /**

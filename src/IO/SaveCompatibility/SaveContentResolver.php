@@ -126,7 +126,12 @@ final readonly class SaveContentResolver
     $category = $item instanceof Equipment
       ? ContentReferenceCategory::EQUIPMENT
       : ContentReferenceCategory::ITEM;
-    $item->applySaveIdentity($this->identity($category, $item->name));
+    $raw = $item->getDeferredSaveData();
+    $reference = is_array($raw)
+      ? strval($raw['definitionId'] ?? $raw['id'] ?? $raw['name'] ?? '')
+      : $item->id;
+    $item->applyDefinitionId($this->identity($category, $reference));
+    $item->completeDeferredSaveHydration();
   }
 
   /** @param mixed $rawBook */

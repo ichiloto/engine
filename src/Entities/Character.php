@@ -12,6 +12,7 @@ use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Inventory\Accessory;
 use Ichiloto\Engine\Entities\Inventory\Armor;
 use Ichiloto\Engine\Entities\Inventory\Equipment;
+use Ichiloto\Engine\Entities\Inventory\EquipmentSlotType;
 use Ichiloto\Engine\Entities\Inventory\Inventory;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Entities\States\HasStates;
@@ -24,6 +25,12 @@ use Ichiloto\Engine\Entities\Skills\MagicSkill;
 use Ichiloto\Engine\Entities\Magic\Spellbook;
 use Ichiloto\Engine\Entities\Roles\CharacterRole;
 use Ichiloto\Engine\Entities\Skills\Skill;
+use Ichiloto\Engine\Entities\Stats\EntityStatCapPolicy;
+use Ichiloto\Engine\Entities\Stats\PermanentGrowthLedger;
+use Ichiloto\Engine\Entities\Stats\PermanentStatModifier;
+use Ichiloto\Engine\Entities\Stats\StatKey;
+use Ichiloto\Engine\Entities\Stats\StatResolution;
+use Ichiloto\Engine\Entities\Stats\StatResolver;
 use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Stores\ClassStore;
 use Ichiloto\Engine\Exceptions\PersistentStateRestoreException;
@@ -222,6 +229,12 @@ class Character implements CharacterInterface, CanEquip
    * @var int[] $evasionCurve
    */
   protected(set) array $evasionCurve = [];
+  /** @var array<string, int> Project-defined innate adjustments by canonical stat key. */
+  protected(set) array $actorNaturalAdjustments = [];
+  /** Saved acquired permanent growth; never contains equipment or temporary effects. */
+  protected(set) PermanentGrowthLedger $permanentGrowth;
+  /** Optional stable identity of a project-defined runtime-selectable natural variant. */
+  protected(set) ?string $naturalVariantId = null;
 
   /**
    * Character constructor.
@@ -251,6 +264,9 @@ class Character implements CharacterInterface, CanEquip
     ?CharacterRole $role = null,
     ?AbilityBook $abilityBook = null,
     ?Spellbook $spellbook = null,
+    array $actorNaturalAdjustments = [],
+    ?PermanentGrowthLedger $permanentGrowth = null,
+    ?string $naturalVariantId = null,
   )
   {
     $this->maxLevel = $maxLevel;
@@ -258,6 +274,11 @@ class Character implements CharacterInterface, CanEquip
     $this->equipment = $equipment;
     $this->abilityBook = $abilityBook ?? new AbilityBook();
     $this->spellbook = $spellbook ?? new Spellbook();
+    $this->actorNaturalAdjustments = self::normalizeNaturalAdjustments($actorNaturalAdjustments);
+    $this->permanentGrowth = $permanentGrowth ?? new PermanentGrowthLedger();
+    $this->naturalVariantId = ($naturalVariantId !== null && trim($naturalVariantId) !== '')
+      ? trim($naturalVariantId)
+      : null;
     if (!$role) {
       $role = new CharacterRole($this, 'Hero');
     }
@@ -266,11 +287,11 @@ class Character implements CharacterInterface, CanEquip
     $this->calculateLevelExpThresholds();
     if (!$this->equipment) {
       $this->equipment = [
-        new EquipmentSlot('Weapon', "The actor's primary weapon", '⚔️', Weapon::class),
-        new EquipmentSlot('Shield', "The actor's primary shield", '🛡️', Armor::class),
-        new EquipmentSlot('Head', "The actor's head gear", '🛡️', Armor::class),
-        new EquipmentSlot('Body', "The actor's body armor", '🛡️', Armor::class),
-        new EquipmentSlot('Accessory', "The actor's special accessory", '📿', Accessory::class),
+        new EquipmentSlot('Weapon', "The actor's primary weapon", '⚔️', Weapon::class, EquipmentSlotType::WEAPON),
+        new EquipmentSlot('Shield', "The actor's primary shield", '🛡️', Armor::class, EquipmentSlotType::SHIELD),
+        new EquipmentSlot('Head', "The actor's head gear", '🛡️', Armor::class, EquipmentSlotType::HEAD),
+        new EquipmentSlot('Body', "The actor's body armor", '🛡️', Armor::class, EquipmentSlotType::BODY),
+        new EquipmentSlot('Accessory', "The actor's special accessory", '📿', Accessory::class, EquipmentSlotType::ACCESSORY),
       ];
     }
     $this->generateParameterCurves();
@@ -322,6 +343,11 @@ class Character implements CharacterInterface, CanEquip
           ? $data['magic']
           : (is_array($data['spellbook'] ?? null) ? $data['spellbook'] : [])
       ),
+      is_array($data['actorNaturalAdjustments'] ?? null) ? $data['actorNaturalAdjustments'] : [],
+      PermanentGrowthLedger::fromArray(
+        is_array($data['permanentGrowth'] ?? null) ? $data['permanentGrowth'] : []
+      ),
+      isset($data['naturalVariantId']) ? strval($data['naturalVariantId']) : null,
     );
 
     // Actors reference a class by name (`'class' => 'Vanguard'`); the role
@@ -374,7 +400,7 @@ class Character implements CharacterInterface, CanEquip
     }
 
     foreach ($this->equipment as $slot) {
-      if ($slot->acceptsType === $equipment::class) {
+      if ($slot->acceptsType === $equipment::class && $slot->semanticSlot === $equipment->semanticSlot) {
         $this->equipInSlot($slot, $equipment);
         return;
       }
@@ -391,7 +417,9 @@ class Character implements CharacterInterface, CanEquip
    */
   public function equipInSlot(EquipmentSlot $slot, Equipment $equipment): void
   {
-    if (! $this->canEquip($equipment) || $slot->acceptsType !== $equipment::class) {
+    if (! $this->canEquip($equipment)
+      || $slot->acceptsType !== $equipment::class
+      || $slot->semanticSlot !== $equipment->semanticSlot) {
       alert(sprintf('%s cannot be equipped.', $equipment->name));
       return;
     }
@@ -485,7 +513,9 @@ class Character implements CharacterInterface, CanEquip
     }
 
     foreach ($this->equipment as $slot) {
-      if ($slot->acceptsType === $item::class) {
+      if ($slot->acceptsType === $item::class
+        && $item instanceof Equipment
+        && $slot->semanticSlot === $item->semanticSlot) {
         $canEquip = true;
         break;
       }
@@ -601,11 +631,12 @@ class Character implements CharacterInterface, CanEquip
       foreach ($inventory->equipment as $equipment) {
         assert($equipment instanceof Equipment);
 
-        if (! is_a($equipment, $equipmentSlot->acceptsType)) {
+        if (! is_a($equipment, $equipmentSlot->acceptsType)
+          || $equipment->semanticSlot !== $equipmentSlot->semanticSlot) {
           continue;
         }
 
-        $equipmentKey = $equipment::class . ':' . $equipment->name;
+        $equipmentKey = $equipment->id;
         $availableQuantity = $party
           ? $party->getAvailableEquipmentQuantity($equipment)
           : $equipment->quantity;
@@ -622,7 +653,7 @@ class Character implements CharacterInterface, CanEquip
 
       if ($optimalEquipment) {
         $equipmentSlot->equipment = $optimalEquipment;
-        $optimalKey = $optimalEquipment::class . ':' . $optimalEquipment->name;
+        $optimalKey = $optimalEquipment->id;
         $assignedCounts[$optimalKey] = ($assignedCounts[$optimalKey] ?? 0) + 1;
       }
     }
@@ -637,22 +668,135 @@ class Character implements CharacterInterface, CanEquip
    */
   protected function adjustStatTotals(): void
   {
-    $curveLevel = $this->resolveCurveLevel($this->level);
+    $currentHp = $this->stats->currentHp;
+    $currentMp = $this->stats->currentMp;
+    $effective = $this->resolveStats();
+    $persistent = $this->resolveStats(includeEquipment: false);
 
-    $this->stats->totalHp      = ($this->totalHpCurve[$curveLevel] ?? 0) + $this->getEquipmentTotalHpBonus();
-    $this->stats->totalMp      = ($this->totalMpCurve[$curveLevel] ?? 0) + $this->getEquipmentTotalMpBonus();
-    $this->stats->attack       = $this->attackCurve[$curveLevel] ?? 0;
-    $this->stats->defence      = $this->defenceCurve[$curveLevel] ?? 0;
-    $this->stats->magicAttack  = $this->magicAttackCurve[$curveLevel] ?? 0;
-    $this->stats->magicDefence = $this->magicDefenceCurve[$curveLevel] ?? 0;
-    $this->stats->evasion      = $this->evasionCurve[$curveLevel] ?? 0;
-    $this->stats->grace        = $this->graceCurve[$curveLevel] ?? 0;
-    $this->stats->speed        = $this->speedCurve[$curveLevel] ?? 0;
+    $this->stats->totalHp = $effective[StatKey::MAX_HP->value]->effectiveValue;
+    $this->stats->totalMp = $effective[StatKey::MAX_MP->value]->effectiveValue;
 
-    // Re-apply the clamps after a level or equipment refresh.
-    $this->stats->currentHp = $this->stats->currentHp;
-    $this->stats->currentMp = $this->stats->currentMp;
+    foreach ([
+      StatKey::ATTACK->value => 'attack',
+      StatKey::DEFENCE->value => 'defence',
+      StatKey::MAGIC_ATTACK->value => 'magicAttack',
+      StatKey::MAGIC_DEFENCE->value => 'magicDefence',
+      StatKey::SPEED->value => 'speed',
+      StatKey::GRACE->value => 'grace',
+      StatKey::EVASION->value => 'evasion',
+    ] as $key => $property) {
+      $stat = StatKey::from($key);
+      $base = $persistent[$stat->value]->effectiveValue;
+      $effectiveValue = $effective[$stat->value]->effectiveValue;
+      $this->stats->{$property} = $base;
+      $totalProperty = 'total' . ucfirst($property);
+      $this->stats->{$totalProperty} = $effectiveValue;
+    }
+
+    // Current resources are state: only clamp downward after maxima change.
+    $this->stats->currentHp = min($currentHp, $this->stats->totalHp);
+    $this->stats->currentMp = min($currentMp, $this->stats->totalMp);
     $this->stats->currentAp = $this->stats->currentAp;
+  }
+
+  /** Resolves one stat through every persistent layer and the player cap. */
+  public function resolveStat(StatKey $stat, bool $includeEquipment = true, int $temporary = 0): StatResolution
+  {
+    return $this->resolveStats($includeEquipment, [$stat->value => $temporary])[$stat->value];
+  }
+
+  /** @param array<string, int> $temporary @return array<string, StatResolution> */
+  public function resolveStats(bool $includeEquipment = true, array $temporary = []): array
+  {
+    $equipment = $includeEquipment ? $this->equipmentContributions() : [];
+    $resolved = [];
+
+    foreach (StatKey::cases() as $stat) {
+      $resolved[$stat->value] = StatResolver::resolve(
+        $stat,
+        $this->naturalStatValue($stat),
+        $this->actorNaturalAdjustments[$stat->value] ?? 0,
+        $this->permanentGrowth->totalFor($stat),
+        $equipment[$stat->value] ?? 0,
+        EntityStatCapPolicy::player(),
+        $temporary[$stat->value] ?? 0,
+      );
+    }
+
+    return $resolved;
+  }
+
+  public function grantPermanentGrowth(PermanentStatModifier $entry): bool
+  {
+    $granted = $this->permanentGrowth->grant($entry);
+
+    if ($granted) {
+      $this->adjustStatTotals();
+    }
+
+    return $granted;
+  }
+
+  public function removePermanentGrowth(string $id): bool
+  {
+    $removed = $this->permanentGrowth->remove($id);
+
+    if ($removed) {
+      $this->adjustStatTotals();
+    }
+
+    return $removed;
+  }
+
+  private function naturalStatValue(StatKey $stat): int
+  {
+    $level = $this->resolveCurveLevel($this->level);
+
+    return match ($stat) {
+      StatKey::MAX_HP => $this->totalHpCurve[$level] ?? 0,
+      StatKey::MAX_MP => $this->totalMpCurve[$level] ?? 0,
+      StatKey::ATTACK => $this->attackCurve[$level] ?? 0,
+      StatKey::DEFENCE => $this->defenceCurve[$level] ?? 0,
+      StatKey::MAGIC_ATTACK => $this->magicAttackCurve[$level] ?? 0,
+      StatKey::MAGIC_DEFENCE => $this->magicDefenceCurve[$level] ?? 0,
+      StatKey::SPEED => $this->speedCurve[$level] ?? 0,
+      StatKey::GRACE => $this->graceCurve[$level] ?? 0,
+      StatKey::EVASION => $this->evasionCurve[$level] ?? 0,
+    };
+  }
+
+  private function equipmentContribution(StatKey $stat): int
+  {
+    return $this->equipmentContributions()[$stat->value] ?? 0;
+  }
+
+  /** @return array<string, int> */
+  private function equipmentContributions(): array
+  {
+    $totals = array_fill_keys(array_map(
+      static fn(StatKey $stat): string => $stat->value,
+      StatKey::cases(),
+    ), 0);
+
+    foreach ($this->equipment as $slot) {
+      $changes = $slot->equipment?->parameterChanges;
+
+      if ($changes === null) {
+        continue;
+      }
+
+      $totals[StatKey::MAX_HP->value] += $changes->totalHp;
+      $totals[StatKey::MAX_MP->value] += $changes->totalMp;
+      $totals[StatKey::ATTACK->value] += $changes->attack;
+      $totals[StatKey::DEFENCE->value] += $changes->defence;
+      $totals[StatKey::MAGIC_ATTACK->value] += $changes->magicAttack;
+      $totals[StatKey::MAGIC_DEFENCE->value] += $changes->magicDefence;
+      $totals[StatKey::SPEED->value] += $changes->speed;
+      $totals[StatKey::GRACE->value] += $changes->grace;
+      $totals[StatKey::EVASION->value] += $changes->evasion;
+    }
+
+    return $totals;
   }
 
   /**
@@ -883,6 +1027,18 @@ class Character implements CharacterInterface, CanEquip
         continue;
       }
 
+      if ($key === 'permanentGrowth') {
+        $this->permanentGrowth = $value instanceof PermanentGrowthLedger
+          ? $value
+          : PermanentGrowthLedger::fromArray(is_array($value) ? $value : []);
+        continue;
+      }
+
+      if ($key === 'actorNaturalAdjustments') {
+        $this->actorNaturalAdjustments = self::normalizeNaturalAdjustments(is_array($value) ? $value : []);
+        continue;
+      }
+
       if (property_exists($this, $key)) {
         $this->{$key} = match($key) {
           'images' => is_array($value) ? CharacterSprites::fromArray($value) : $value,
@@ -949,6 +1105,10 @@ class Character implements CharacterInterface, CanEquip
       $this->spellbook = new Spellbook();
     }
 
+    $this->actorNaturalAdjustments ??= [];
+    $this->permanentGrowth ??= new PermanentGrowthLedger();
+    $this->naturalVariantId ??= null;
+
     if (! isset($this->role) || ! $this->role instanceof CharacterRole) {
       $this->role = new CharacterRole($this, 'Hero');
     }
@@ -992,7 +1152,28 @@ class Character implements CharacterInterface, CanEquip
           static fn(StateInstance $instance): bool => $instance->state->persistsAfterBattle
         ))
       ),
+      'actorNaturalAdjustments' => $this->actorNaturalAdjustments,
+      'naturalVariantId' => $this->naturalVariantId,
+      'permanentGrowth' => $this->permanentGrowth->jsonSerialize(),
     ];
+  }
+
+  /** @param array<string, mixed> $adjustments @return array<string, int> */
+  private static function normalizeNaturalAdjustments(array $adjustments): array
+  {
+    $normalized = [];
+
+    foreach ($adjustments as $key => $amount) {
+      $stat = StatKey::require(strval($key));
+
+      if (! is_int($amount)) {
+        throw new InvalidArgumentException(sprintf('Actor-natural adjustment for %s must be an integer.', $stat->value));
+      }
+
+      $normalized[$stat->value] = $amount;
+    }
+
+    return $normalized;
   }
 
   /**

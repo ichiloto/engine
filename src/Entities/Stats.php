@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Entities;
 
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
+use Ichiloto\Engine\Entities\Stats\StatKey;
 use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
 use JsonSerializable;
@@ -340,21 +341,16 @@ class Stats implements JsonSerializable, Stringable
     $effectiveStats = clone $this;
 
     if ($character instanceof Character) {
-      foreach ($character->equipment as $index => $equipmentSlot) {
-        if ($equipmentSlot->equipment === null) {
-          continue;
-        }
-
-        $equipment = $equipmentSlot->equipment;
-
-        $effectiveStats->attack += $equipment->parameterChanges->attack;
-        $effectiveStats->defence += $equipment->parameterChanges->defence;
-        $effectiveStats->magicAttack += $equipment->parameterChanges->magicAttack;
-        $effectiveStats->magicDefence += $equipment->parameterChanges->magicDefence;
-        $effectiveStats->speed += $equipment->parameterChanges->speed;
-        $effectiveStats->grace += $equipment->parameterChanges->grace;
-        $effectiveStats->evasion += $equipment->parameterChanges->evasion;
-      }
+      $resolved = $character->resolveStats();
+      $effectiveStats->totalHp = $resolved[StatKey::MAX_HP->value]->effectiveValue;
+      $effectiveStats->totalMp = $resolved[StatKey::MAX_MP->value]->effectiveValue;
+      $effectiveStats->attack = $resolved[StatKey::ATTACK->value]->effectiveValue;
+      $effectiveStats->defence = $resolved[StatKey::DEFENCE->value]->effectiveValue;
+      $effectiveStats->magicAttack = $resolved[StatKey::MAGIC_ATTACK->value]->effectiveValue;
+      $effectiveStats->magicDefence = $resolved[StatKey::MAGIC_DEFENCE->value]->effectiveValue;
+      $effectiveStats->speed = $resolved[StatKey::SPEED->value]->effectiveValue;
+      $effectiveStats->grace = $resolved[StatKey::GRACE->value]->effectiveValue;
+      $effectiveStats->evasion = $resolved[StatKey::EVASION->value]->effectiveValue;
     }
 
     return $effectiveStats;

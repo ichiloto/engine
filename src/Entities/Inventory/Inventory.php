@@ -137,7 +137,7 @@ class Inventory
       }
 
       /** @var InventoryItem $foundItem */
-      if ($foundItem = array_find($this->inventoryItems->toArray(), fn(InventoryItem $entry) => $entry->name === $item->name)) {
+      if ($foundItem = array_find($this->inventoryItems->toArray(), fn(InventoryItem $entry) => $entry->id === $item->id)) {
         $foundItem->quantity += 1;
         continue;
       }
@@ -166,7 +166,7 @@ class Inventory
       }
 
       /** @var InventoryItem $foundItem */
-      if ($foundItem = array_find($this->inventoryItems->toArray(), fn(InventoryItem $entry) => $entry->name === $item->name)) {
+      if ($foundItem = array_find($this->inventoryItems->toArray(), fn(InventoryItem $entry) => $entry->id === $item->id)) {
         $foundItem->quantity -= 1;
 
         if ($foundItem->quantity < 1) {
@@ -190,6 +190,18 @@ class Inventory
     $foundItem = array_find(
       $this->inventoryItems->toArray(),
       static fn(InventoryItem $item): bool => $item->name === $itemName
+    );
+
+    return $foundItem?->quantity ?? 0;
+  }
+
+  /** Returns the held quantity for one stable definition id. */
+  public function getQuantityById(string $definitionId): int
+  {
+    /** @var InventoryItem|null $foundItem */
+    $foundItem = array_find(
+      $this->inventoryItems->toArray(),
+      static fn(InventoryItem $item): bool => $item->id === strtolower(trim($definitionId))
     );
 
     return $foundItem?->quantity ?? 0;
@@ -226,6 +238,32 @@ class Inventory
     $foundItem = array_find(
       $this->inventoryItems->toArray(),
       static fn(InventoryItem $item): bool => $item->name === $itemName
+    );
+
+    if (! $foundItem instanceof InventoryItem || $foundItem->quantity < $quantity) {
+      return false;
+    }
+
+    $foundItem->quantity -= $quantity;
+
+    if ($foundItem->quantity < 1) {
+      $this->inventoryItems->remove($foundItem);
+    }
+
+    return true;
+  }
+
+  /** Consumes a quantity using durable definition identity. */
+  public function consumeQuantityById(string $definitionId, int $quantity): bool
+  {
+    if ($quantity < 1) {
+      return true;
+    }
+
+    /** @var InventoryItem|null $foundItem */
+    $foundItem = array_find(
+      $this->inventoryItems->toArray(),
+      static fn(InventoryItem $item): bool => $item->id === strtolower(trim($definitionId))
     );
 
     if (! $foundItem instanceof InventoryItem || $foundItem->quantity < $quantity) {

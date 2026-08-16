@@ -43,7 +43,13 @@ class Item extends InventoryItem
     bool $consumable = true,
     protected(set) ItemScope $scope = new ItemScope(),
     protected(set) Occasion $occasion = Occasion::ALWAYS,
-    protected(set) array $effects = []
+    protected(set) array $effects = [],
+    ?string $id = null,
+    bool $sellable = true,
+    int $sellRateBasisPoints = 5000,
+    array $aliases = [],
+    string $availability = 'ordinary',
+    ?string $acquisitionPolicy = null,
   )
   {
     // $consumable is deliberately not promoted here: InventoryItem already
@@ -58,7 +64,13 @@ class Item extends InventoryItem
       $quantity,
       $userType,
       $isKeyItem,
-      $consumable
+      $consumable,
+      id: $id,
+      sellable: $sellable,
+      sellRateBasisPoints: $sellRateBasisPoints,
+      aliases: $aliases,
+      availability: $availability,
+      acquisitionPolicy: $acquisitionPolicy,
     );
   }
 
@@ -97,7 +109,13 @@ class Item extends InventoryItem
       true,
       $scope,
       $occasion,
-      $effects
+      $effects,
+      $data['id'] ?? null,
+      boolval($data['sellable'] ?? true),
+      intval($data['sellRateBasisPoints'] ?? 5000),
+      is_array($data['aliases'] ?? null) ? $data['aliases'] : [],
+      strval($data['availability'] ?? 'ordinary'),
+      isset($data['acquisitionPolicy']) ? strval($data['acquisitionPolicy']) : null,
     );
   }
 
@@ -117,5 +135,16 @@ class Item extends InventoryItem
   public function __clone(): void
   {
     $this->scope = clone $this->scope;
+  }
+
+  protected function copySubtypeDefinitionFrom(InventoryItem $prototype): void
+  {
+    if (! $prototype instanceof self) {
+      throw new \InvalidArgumentException('Item definition subtype mismatch.');
+    }
+
+    $this->scope = clone $prototype->scope;
+    $this->occasion = $prototype->occasion;
+    $this->effects = $prototype->effects;
   }
 }

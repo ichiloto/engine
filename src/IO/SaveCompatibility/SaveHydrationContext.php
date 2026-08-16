@@ -27,4 +27,10 @@ final class SaveHydrationContext
   {
     return self::$depth > 0;
   }
+
+  /** Content-backed inventory definitions must also wait for migration. */
+  public static function shouldDeferInventoryItems(): bool
+  {
+    return self::$depth > 0;
+  }
 }

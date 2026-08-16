@@ -204,7 +204,7 @@ class Party extends BattleGroup
           continue;
         }
 
-        if ($slot->equipment::class === $equipment::class && $slot->equipment->name === $equipment->name) {
+        if ($slot->equipment->id === $equipment->id) {
           $count++;
         }
       }

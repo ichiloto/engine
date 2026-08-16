@@ -5,6 +5,8 @@ use Ichiloto\Engine\Battle\ElementalDamage;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
 use Ichiloto\Engine\Entities\Inventory\Armor;
+use Ichiloto\Engine\Entities\Inventory\Equipment;
+use Ichiloto\Engine\Entities\Inventory\EquipmentSlotType;
 use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
 use Ichiloto\Engine\Entities\ParameterChanges;
 use Ichiloto\Engine\Entities\Stats;
@@ -23,7 +25,10 @@ function gearedCharacter(): Character
 function equipPiece(Character $character, object $piece): void
 {
   foreach ($character->equipment as $slot) {
-    if ($slot->acceptsType === $piece::class && $slot->equipment === null) {
+    if ($slot->acceptsType === $piece::class
+      && $piece instanceof Equipment
+      && $slot->semanticSlot === $piece->semanticSlot
+      && $slot->equipment === null) {
       $slot->equipment = $piece;
 
       return;
@@ -51,7 +56,14 @@ it('halves an element a warding piece resists', function () {
 it('multiplies stacked wards', function () {
   $character = gearedCharacter();
   equipPiece($character, new Armor('Flame Ward', '', '🛡', 0, elementAffinities: ['Fire' => 0.5]));
-  equipPiece($character, new Armor('Ember Helm', '', '🛡', 0, elementAffinities: ['Fire' => 0.5]));
+  equipPiece($character, new Armor(
+    'Ember Helm',
+    '',
+    '🛡',
+    0,
+    elementAffinities: ['Fire' => 0.5],
+    semanticSlot: EquipmentSlotType::HEAD,
+  ));
 
   expect($character->getElementMultiplier('Fire'))->toBe(0.25);
 });
@@ -59,7 +71,14 @@ it('multiplies stacked wards', function () {
 it('keeps absorbing once anything absorbs', function () {
   $character = gearedCharacter();
   equipPiece($character, new Armor('Pyre Heart', '', '🛡', 0, elementAffinities: ['Fire' => -1.0]));
-  equipPiece($character, new Armor('Pyre Shell', '', '🛡', 0, elementAffinities: ['Fire' => -1.0]));
+  equipPiece($character, new Armor(
+    'Pyre Shell',
+    '',
+    '🛡',
+    0,
+    elementAffinities: ['Fire' => -1.0],
+    semanticSlot: EquipmentSlotType::HEAD,
+  ));
 
   // -1 x -1 is +1, and stacking wards must never turn healing back into
   // harm: the clamp keeps the sign.
@@ -69,7 +88,14 @@ it('keeps absorbing once anything absorbs', function () {
 it('lets a null piece nullify even an absorb', function () {
   $character = gearedCharacter();
   equipPiece($character, new Armor('Void Plate', '', '🛡', 0, elementAffinities: ['Fire' => 0.0]));
-  equipPiece($character, new Armor('Pyre Heart', '', '🛡', 0, elementAffinities: ['Fire' => -1.0]));
+  equipPiece($character, new Armor(
+    'Pyre Heart',
+    '',
+    '🛡',
+    0,
+    elementAffinities: ['Fire' => -1.0],
+    semanticSlot: EquipmentSlotType::HEAD,
+  ));
 
   expect($character->getElementMultiplier('Fire'))->toBe(0.0);
 });
