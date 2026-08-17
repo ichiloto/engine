@@ -166,3 +166,19 @@ it('sweeps a wipe across the full width', function () {
     ->and($columns[0])->toBeLessThan(end($columns))
     ->and(end($columns))->toBe(get_screen_width());
 });
+
+it('advances transition frames cooperatively without sleeping', function () {
+  ConfigStore::put(ProjectConfig::class, new TransitionConfigStub([]));
+  $transition = new RecordingScreenTransition(TransitionStyle::FADE, 400);
+  $session = $transition->session('out');
+
+  expect($session->isComplete)->toBeFalse()
+    ->and($session->update(0.05))->toBeFalse()
+    ->and($transition->frames)->toBe([]);
+
+  expect($session->update(0.25))->toBeFalse()
+    ->and(array_column($transition->frames, 0))->toBe(['░', '▒', '▓']);
+
+  expect($session->update(0.1))->toBeTrue()
+    ->and(array_column($transition->frames, 0))->toBe(['░', '▒', '▓', '█']);
+});

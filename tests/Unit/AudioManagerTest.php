@@ -3,6 +3,7 @@
 use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Audio\AudioPlayback;
+use Ichiloto\Engine\Audio\CinematicMusicRequest;
 use Ichiloto\Engine\Audio\Backends\AfplayBackend;
 use Ichiloto\Engine\Audio\Backends\FfplayBackend;
 use Ichiloto\Engine\Audio\Backends\Mpg123Backend;
@@ -685,6 +686,75 @@ it('plays a system sound through its configured track', function () {
 
   expect($manager->spawnedCommands)->toHaveCount(1)
     ->and($manager->spawnedCommands[0])->toBe(['fake-player', '0.50', 'once', "$root/level-up.wav"]);
+
+  $manager->shutdown();
+});
+
+it('switches and restores cinematic music through non-blocking authored fades', function () {
+  putAudioProjectConfig(['audio' => ['music' => true, 'master_volume' => 100]]);
+  $root = makeAudioAssetsRoot(['field.ogg', 'cinematic.ogg']);
+  $manager = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend()]);
+  $manager->playBackgroundMusic("$root/field.ogg", true);
+  $session = $manager->beginCinematicMusic(new CinematicMusicRequest(
+    track: "$root/cinematic.ogg",
+    loop: false,
+    fadeIn: 0.2,
+    fadeOut: 0.2,
+    completionBehavior: 'restore_previous',
+  ));
+
+  expect($session->isReady)->toBeFalse()
+    ->and($manager->spawnedCommands)->toHaveCount(1)
+    ->and($manager->captureBackgroundMusicState()->track)->toBe("$root/field.ogg");
+
+  expect($session->update(0.1))->toBeFalse()
+    ->and($manager->spawnedCommands)->toHaveCount(1);
+
+  expect($session->update(0.2))->toBeFalse()
+    ->and($manager->captureBackgroundMusicState()->track)->toBe("$root/cinematic.ogg")
+    ->and($manager->spawnedCommands[1][2])->toBe('once');
+
+  expect($session->update(0.1))->toBeTrue()
+    ->and($session->isReady)->toBeTrue();
+
+  $manager->finalizeCinematicMusic('complete');
+  expect($session->updateFinalization(0.1))->toBeFalse()
+    ->and($manager->captureBackgroundMusicState()->track)->toBe("$root/cinematic.ogg");
+
+  expect($session->updateFinalization(0.1))->toBeTrue()
+    ->and($manager->captureBackgroundMusicState()->track)->toBe("$root/field.ogg")
+    ->and($manager->spawnedCommands[2][2])->toBe('loop');
+
+  $manager->finalizeCinematicMusic('complete');
+  expect($manager->spawnedCommands)->toHaveCount(3);
+  $manager->shutdown();
+});
+
+it('preserves deterministic cinematic audio final state for continue and stop policies', function () {
+  putAudioProjectConfig(['audio' => ['music' => true]]);
+  $root = makeAudioAssetsRoot(['field.ogg', 'continue.ogg', 'stop.ogg']);
+  $manager = new TestableAudioManager(makeAudioTestGame(), [new FakeAudioBackend()]);
+  $manager->playBackgroundMusic("$root/field.ogg");
+
+  $continue = $manager->beginCinematicMusic(new CinematicMusicRequest(
+    "$root/continue.ogg",
+    loop: false,
+    completionBehavior: 'continue',
+  ));
+  expect($continue->isReady)->toBeTrue();
+  $manager->finalizeCinematicMusic('complete');
+  expect($continue->isFinalized)->toBeTrue()
+    ->and($manager->captureBackgroundMusicState()->track)->toBe("$root/continue.ogg");
+
+  $stop = $manager->beginCinematicMusic(new CinematicMusicRequest(
+    "$root/stop.ogg",
+    loop: false,
+    completionBehavior: 'stop',
+  ));
+  expect($stop->isReady)->toBeTrue();
+  $manager->finalizeCinematicMusic('failure');
+  expect($stop->isFinalized)->toBeTrue()
+    ->and($manager->captureBackgroundMusicState()->track)->toBeNull();
 
   $manager->shutdown();
 });

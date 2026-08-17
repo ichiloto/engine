@@ -90,6 +90,15 @@ For authored moments — a boss appearing, an eerie chamber — maps can place a
 Animation frames can carry a `soundEffect` cue that plays through the same
 pipeline when the frame is shown during battle.
 
+First-class Cinematics use the non-blocking `cinematic_music` command when a
+scene must define an explicit completion, skip, and failure state. It accepts
+`track`, `loop`, `fadeIn`, `fadeOut`, `completionBehavior`, and the compatible
+`restorePreviousMusic` flag. `completionBehavior` is `continue`, `stop`, or
+`restore_previous`. The Engine captures the preceding BGM state, advances the
+transition from the game loop, and applies the authored outcome without
+sleeping or creating a second audio manager. See
+[Cinematic cutscenes](cinematics.md#presentation-and-audio).
+
 ## System sounds
 
 The engine plays RPG-Maker-style system sounds at built-in interaction points.

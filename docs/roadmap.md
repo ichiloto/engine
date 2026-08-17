@@ -716,10 +716,45 @@ the existing validator covers script references, stable NPC identities,
 routes, defeat policies, and the shared runtime command vocabulary. See
 [story-events.md](story-events.md).
 
-Explicitly deferred: cutscene skipping/finalizers, camera and screen-fade
-commands, field-animation commands, parallel routes, pathfinding, party
-followers, NPC patrol routes, nested choice/branch editor redesign, boss
-phases, and scheduled/delayed battle actions.
+The later Cinematic And Summon Runtime Gate now supplies first-class cinematic
+assets, deterministic parallel lanes, staged actors, camera operations,
+transitions, field animations, authored safe skipping/finalizers, and a
+non-blocking summon preview/runtime session while retaining this same
+interpreter. See [cinematics.md](cinematics.md) and [summons.md](summons.md).
+
+Still deferred: active-session save serialization, pathfinding, party
+followers, NPC patrol routes, the first-class Editor cinematic authoring
+surface, boss phases, and scheduled/delayed battle actions.
+
+## Cinematic and summon runtime gate ✅ *shipped 2026-08*
+
+> Status: the Engine runtime gate is complete and awaiting orchestration
+> review. It does not claim completion of the separate Editor authoring gate.
+
+Folder-based Cinematics hydrate independently of the game scene and execute
+through the existing `EventInterpreter`. `EventExecutionSession` now supports
+deterministic cooperative `sequence` and `parallel` blocks with lane-local
+frames and pending operations. `GameScene` hosts one active field cinematic,
+suspends ordinary input while keeping rendering, audio, resize, and timers
+alive, and resumes the same session across transfer and battle boundaries.
+
+The runtime adds temporary staged actors, subject resolution, Camera-owned
+detach/focus/pan/route/track/shake/restore operations, field animations,
+transitions, narration/title overlays, and cinematic music state. Authored
+safe skip cancels all active lanes and applies a restricted finalizer exactly
+once; failure restores input, camera, cast, presentation, audio, and save
+safety with lane and command-path diagnostics. Reduced-motion mode reaches the
+same final state without requiring intermediate movement.
+
+`SummonPlaybackSession` now exposes elapsed-time, pause/resume, seek, step,
+restart, loop, segment inspection, and deterministic crossed-frame/cue
+traversal. The existing blocking `SummonCutscenePlayer` delegates to this
+session, so current battle behavior and source format remain compatible.
+`CinematicCommandSchema` and `CinematicScriptValidator` expose the central
+vocabulary and path-aware structural validation needed by the later Editor
+gate. The original Engine-only Sky Caravan fixture proves normal completion,
+several legal skip boundaries, transfer cleanup, camera/input restoration,
+exactly-once completion, and post-cinematic save availability.
 
 ## Production-hardening extension — progressive objectives and field cues ✅ *shipped 2026-08*
 

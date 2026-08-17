@@ -1,4 +1,4 @@
-# Story events and resumable cutscenes
+# Story events and resumable command sessions
 
 Ichiloto story events are ordered command lists executed by
 `Events\Interpreter\EventInterpreter`. They drive map-based JRPG scenes; the
@@ -10,6 +10,13 @@ interpreter owns one `EventExecutionSession` at a time. Immediate commands run
 in order, while dialogue, choices, waits, movement routes, transfers, and
 battles yield or suspend the session and continue it through the regular game
 loop.
+
+These scripts are story events or reusable Common Events. First-class
+Cinematics add cast, camera, presentation, safe-skip, and final-state metadata
+while hosting this same interpreter and session model. Skits remain optional
+party conversations, and Summons remain compiled frame timelines. See
+[Cinematic cutscenes](cinematics.md) for the asset taxonomy and cinematic
+runtime contract.
 
 ## Map trigger
 
@@ -54,11 +61,14 @@ Omit it when the unavailable event should be absent rather than act as a gate.
 - `COMPLETED`: all frames and the trigger completion callback succeeded.
 - `FAILED`: execution stopped with a controlled diagnostic.
 
-`EventExecutionSession` retains the script ID, a stack of
-`EventExecutionFrame` objects, the pending command and its plain-data state,
-and the originating completion target. Choice and branch arms push frames;
-they do not recursively block the terminal loop. Only one session can be
-active on a `GameScene`.
+`EventExecutionSession` retains the script ID, root execution lane, pending
+operations, suspended transfer or battle state, and originating completion
+target. Every lane owns its own stack of `EventExecutionFrame` objects,
+command cursor, and pending operation. Choice and branch arms push frames;
+`sequence` pushes an ordered block; `parallel` advances child lanes
+cooperatively in authored order. They do not recursively block the terminal
+loop or create operating-system threads. Only one event or cinematic session
+can own a `GameScene`.
 
 Existing commands retain their behavior. Unknown command types fail the active
 session immediately at runtime, even when editor validation was skipped. The
@@ -77,13 +87,13 @@ states, or story state.
 
 ## Movement routes
 
-Use one awaited `move_route` command for either the player or one current-map
-NPC:
+Use one awaited `move_route` command for the player, one current-map NPC, or a
+cinematic staged actor:
 
 ```php
 [
   'type' => 'move_route',
-  'subject' => 'npc',       // player or npc
+  'subject' => 'npc',       // player, npc, or staged_actor
   'npcId' => 'field-guide', // required for npc
   'wait' => true,
   'secondsPerStep' => 0.15, // or speed: steps per second
@@ -117,8 +127,9 @@ scripted NPC route requires an explicit stable ID. Optional cardinal sprites
 may be authored under `sprites` with `north`, `south`, `west`, and `east` keys;
 otherwise the existing sprite is retained while facing changes.
 
-Parallel routes, pathfinding, diagonal movement, jumping, collision bypass,
-party followers, and NPC patrol profiles are not supported by this extension.
+Concurrent routes are authored as separate lanes in a cinematic `parallel`
+block. Pathfinding, diagonal movement, jumping, collision bypass, party
+followers, and NPC patrol profiles are not supplied by this command.
 
 ## Transfers and battles
 
@@ -176,8 +187,10 @@ save entry points share it. See [Persistence](persistence.md) and
 
 ## Current limits
 
-There is no event-session save serialization, cutscene skipping or skip-state
-restoration, camera/focus command, screen-fade command, field-animation
-command, parallel route execution, or NPC patrol-route command. Choice and
-branch blocks execute resumably, but the TUI still preserves rather than
-structurally edits those nested trees.
+There is no active-session save serialization, pathfinding, diagonal or jump
+route command, party-follower staging, or NPC patrol-route command. Authored
+safe skip, camera operations, transitions, field animations, and parallel
+lanes are available through the first-class Cinematic contract described in
+[Cinematic cutscenes](cinematics.md). The Engine exposes validation-facing
+schemas, but the corresponding first-class TUI authoring surface is a separate
+Editor gate.

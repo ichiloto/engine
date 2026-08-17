@@ -1,5 +1,9 @@
 # Summons
 
+Summons are frame-driven audiovisual timelines used by battle and preview
+hosts. They are distinct from field Cinematics, which execute story-command
+trees through `EventInterpreter`; see [Cinematic cutscenes](cinematics.md).
+
 A summon is an authored cutscene paired with a battle skill. Each summon lives
 in its own folder under the project's `assets/Cutscenes/Summons/` directory:
 
@@ -162,6 +166,40 @@ runtime hydration instead of being silently opened or discarded.
 Starting assignments are appropriate for definitions that are available at
 New Game. A condition-gated summon should normally be assigned by game logic
 after its gate opens; project validation reports a gated starting assignment.
+
+## Non-blocking playback and preview
+
+`SummonCutsceneCompiler` remains the source-to-runtime boundary. A compiled
+cutscene can now be hosted cooperatively by `SummonPlaybackSession`:
+
+```php
+$compiled = (new SummonCutsceneCompiler())->compile($definition);
+$playback = new SummonPlaybackSession($compiled);
+
+$update = $playback->update($elapsedSeconds);
+$playback->currentFrame;
+$playback->activeSegments();
+$update->crossedFrames;
+$update->crossedCues;
+```
+
+The session exposes total frames, FPS, effective speed, current frame,
+paused/completed/looping state, pause/resume, clamped seek, forward/backward
+step, restart, active segments, and per-frame cue inspection. `update()`
+returns every crossed frame and cue in deterministic source order even when
+one elapsed-time update spans several frames.
+
+`cuesAt()` is inspection only: scrubbing or seeking in an authoring preview
+does not pretend runtime cues fired. Remaining in a frame does not re-emit its
+cue. The first positive elapsed-time update reports any frame-zero cues once.
+A loop begins a new traversal cleanly, and restart returns to frame zero with
+the same one-time opening-cue behavior.
+
+The existing blocking `SummonCutscenePlayer::play()` API is source-compatible
+and delegates traversal to this session. Battle damage timing, MP spending,
+assignment rules, definition/compiler formats, and authored cue meaning are
+unchanged. Authoring tools should obtain preview and definition field names
+from `CinematicCommandSchema::export()` instead of copying them.
 
 ### The in-game Summons menu
 

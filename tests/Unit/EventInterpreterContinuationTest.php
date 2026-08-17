@@ -1,6 +1,7 @@
 <?php
 
 use Ichiloto\Engine\Battle\BattleResult;
+use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Rect;
@@ -14,6 +15,11 @@ use Ichiloto\Engine\Events\Interpreter\EventExecutionStatus;
 use Ichiloto\Engine\Events\Interpreter\EventPresentationInterface;
 use Ichiloto\Engine\Events\Interpreter\EventSessionCompletionTargetInterface;
 use Ichiloto\Engine\Events\Interpreter\EventInterpreter;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicController;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicLibrary;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicPresentationManager;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicStageManager;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\Enumerations\MovementEventType;
 use Ichiloto\Engine\Events\MovementEvent;
@@ -38,6 +44,7 @@ use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Stores\EnemyStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 use Assegai\Collections\ItemList;
@@ -157,10 +164,24 @@ class EventTestSaveManager extends SaveManager
   }
 }
 
+class EventTestAudioManager extends AudioManager
+{
+  public function __construct(Game $game)
+  {
+    parent::__construct($game);
+  }
+
+  protected function createBackends(): array
+  {
+    return [];
+  }
+}
+
 class EventTestGame extends Game
 {
   public function __construct()
   {
+    $this->audioManager = new EventTestAudioManager($this);
   }
 
   public function __destruct()
@@ -176,6 +197,7 @@ class EventTestSceneManager extends SceneManager
 
   public function __construct(public EventTestSaveManager $eventTestSaveManager = new EventTestSaveManager())
   {
+    $this->game = new EventTestGame();
     $this->saveManager = $eventTestSaveManager;
   }
 
@@ -193,6 +215,11 @@ class EventTestCamera extends Camera
 
   public function __construct()
   {
+    $this->player = null;
+    $this->screen = new Rect(0, 0, 20, 10);
+    $this->position = new Vector2(0, 0);
+    $this->worldSpaceWidth = 100;
+    $this->worldSpaceHeight = 60;
   }
 
   public function renderOnScreen(array $output, Vector2 $worldSpacePosition): void
@@ -312,6 +339,7 @@ class EventTestGameScene extends GameScene
 {
   public array $finished = [];
   public array $restoredTiles = [];
+  public int $transferCount = 0;
 
   public function __construct(public EventTestSceneManager $testSceneManager = new EventTestSceneManager())
   {
@@ -351,6 +379,13 @@ class EventTestGameScene extends GameScene
     $this->npcManager = $npcManager;
   }
 
+  public function installCinematicRuntime(): void
+  {
+    $this->cinematicStage = new CinematicStageManager($this);
+    $this->cinematicPresentation = new CinematicPresentationManager($this);
+    $this->cinematicController = new CinematicController($this);
+  }
+
   public function deferAutoSaveForTesting(): void
   {
     $this->hasDeferredAutoSave = true;
@@ -358,6 +393,8 @@ class EventTestGameScene extends GameScene
 
   public function transferPlayer(Location $location): void
   {
+    $this->transferCount++;
+    $this->cinematicStage?->clear();
     $this->currentMapId = $location->mapFilename;
     $this->eventInterpreter?->resumeAfterTransfer();
     $this->autoSave();
@@ -1378,4 +1415,517 @@ it('retains exactly three active battlers from a larger travelling roster', func
       static fn(Character $character): string => $character->name,
       $party->battlers->toArray(),
     ))->toBe(['One', 'Two', 'Three']);
+});
+
+it('advances nested parallel lanes deterministically with lane-local pending state', function () {
+  [$scene, $interpreter] = makeEventRuntime();
+  $session = $interpreter->run([[
+    'type' => 'sequence',
+    'commands' => [[
+      'type' => 'parallel',
+      'lanes' => [
+        ['id' => 'first', 'commands' => [
+          ['type' => 'wait', 'seconds' => 0.1],
+          ['type' => 'record_event', 'name' => 'parallel_first'],
+        ]],
+        ['id' => 'second', 'commands' => [
+          ['type' => 'wait', 'seconds' => 0.1],
+          ['type' => 'record_event', 'name' => 'parallel_second'],
+        ]],
+        ['id' => 'slower', 'commands' => [
+          ['type' => 'wait', 'seconds' => 0.2],
+          ['type' => 'record_event', 'name' => 'parallel_slower'],
+        ]],
+      ],
+    ]],
+  ]], 'parallel-order');
+
+  $interpreter->update(0.0);
+  $interpreter->update(0.1);
+
+  expect($session?->status)->toBe(EventExecutionStatus::YIELDED)
+    ->and($scene->gameState->storyEvents)->toBe(['parallel_first', 'parallel_second']);
+
+  $interpreter->update(0.1);
+
+  expect($session?->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and($scene->gameState->storyEvents)->toBe([
+      'parallel_first',
+      'parallel_second',
+      'parallel_slower',
+    ]);
+});
+
+it('handles empty sequential blocks and fails malformed parallel blocks when validation is skipped', function () {
+  [$scene, $interpreter] = makeEventRuntime();
+  $emptySequence = $interpreter->run([
+    ['type' => 'sequence', 'commands' => []],
+    ['type' => 'record_event', 'name' => 'empty_sequence_completed'],
+  ], 'empty-sequence');
+
+  expect($emptySequence?->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and($scene->gameState->hasStoryEvent('empty_sequence_completed'))->toBeTrue();
+
+  $emptyParallel = $interpreter->run([[
+    'type' => 'parallel',
+    'lanes' => [],
+  ]], 'empty-parallel');
+
+  expect($emptyParallel?->status)->toBe(EventExecutionStatus::FAILED)
+    ->and($emptyParallel?->failureMessage)->toContain('non-empty list');
+
+  $duplicateLane = $interpreter->run([[
+    'type' => 'parallel',
+    'lanes' => [
+      ['id' => 'route', 'commands' => [['type' => 'wait', 'seconds' => 0.1]]],
+      ['id' => 'route', 'commands' => [['type' => 'wait', 'seconds' => 0.1]]],
+    ],
+  ]], 'duplicate-parallel-lane');
+
+  expect($duplicateLane?->status)->toBe(EventExecutionStatus::FAILED)
+    ->and($duplicateLane?->failureMessage)->toContain('duplicate lane id "route"');
+});
+
+it('cancels sibling lane operations when one parallel lane fails', function () {
+  [$scene, $interpreter] = makeEventRuntime();
+  $scene->installPlayer(new EventTestPlayer(new Vector2(1, 1)));
+  $scene->installCinematicRuntime();
+  $scene->cinematicStage?->add(['id' => 'runner', 'sprite' => '@', 'x' => 2, 'y' => 2]);
+
+  $session = $interpreter->run([[
+    'type' => 'parallel',
+    'lanes' => [
+      ['id' => 'failure', 'commands' => [[
+        'type' => 'camera',
+        'operation' => 'focus',
+        'target' => ['kind' => 'staged_actor', 'id' => 'missing'],
+      ]]],
+      ['id' => 'movement', 'commands' => [
+        [
+          'type' => 'move_route',
+          'subject' => 'staged_actor',
+          'actorId' => 'runner',
+          'secondsPerStep' => 0.1,
+          'steps' => [['direction' => 'right', 'count' => 3]],
+        ],
+        ['type' => 'record_event', 'name' => 'cancelled_lane_must_not_complete'],
+      ]],
+    ],
+  ]], 'parallel-failure');
+  $interpreter->update(0.0);
+
+  expect($session?->status)->toBe(EventExecutionStatus::FAILED)
+    ->and($session?->failureMessage)->toContain('parallel[failure]')
+    ->and($scene->gameState->hasStoryEvent('cancelled_lane_must_not_complete'))->toBeFalse()
+    ->and($scene->cinematicStage?->require('runner')->position->x)->toBe(2.0);
+});
+
+it('continues staged movement while a parallel dialogue lane owns presentation', function () {
+  [$scene, $interpreter, $presentation] = makeEventRuntime();
+  $scene->installPlayer(new EventTestPlayer(new Vector2(0, 0)));
+  $scene->installCinematicRuntime();
+  $scene->cinematicStage?->add(['id' => 'runner', 'sprite' => '@', 'x' => 2, 'y' => 2]);
+
+  $session = $interpreter->run([[
+    'type' => 'parallel',
+    'lanes' => [
+      ['id' => 'dialogue', 'commands' => [[
+        'type' => 'text',
+        'name' => 'Guide',
+        'text' => 'Keep moving.',
+      ]]],
+      ['id' => 'movement', 'commands' => [[
+        'type' => 'move_route',
+        'subject' => 'staged_actor',
+        'actorId' => 'runner',
+        'secondsPerStep' => 0.1,
+        'steps' => [['direction' => 'right', 'count' => 2]],
+      ]]],
+    ],
+  ]], 'dialogue-motion');
+
+  $interpreter->update(0.1);
+  $interpreter->update(0.1);
+
+  expect($presentation->kind)->toBe('text')
+    ->and($scene->cinematicStage?->require('runner')->position->x)->toBe(3.0)
+    ->and($session?->status)->toBe(EventExecutionStatus::YIELDED);
+
+  $interpreter->update(0.1);
+  $presentation->resolveText();
+  $interpreter->update(0.1);
+
+  expect($scene->cinematicStage?->require('runner')->position->x)->toBe(4.0)
+    ->and($session?->status)->toBe(EventExecutionStatus::COMPLETED);
+});
+
+it('runs the original cinematic fixture to deterministic cleanup and save availability', function () {
+  $projectRoot = dirname(__DIR__) . '/Fixtures/Projects/CinematicAcceptance';
+  $previousDirectory = getcwd();
+  chdir($projectRoot);
+  putSceneAudioConfig(['accessibility' => ['reducedMotion' => false]]);
+  ConfigStore::put(PlaySettings::class, new SceneAudioConfigStub([
+    'screen' => ['width' => 20, 'height' => 10],
+  ]));
+
+  try {
+    [$scene, $interpreter] = makeEventRuntime();
+    $scene->installPlayer(new EventTestPlayer(new Vector2(1, 1)));
+    $scene->installCinematicRuntime();
+    $definition = (new CinematicLibrary())->load('sky-caravan');
+    $session = $scene->cinematicController?->start($definition);
+    expect($session?->status)->toBe(EventExecutionStatus::YIELDED)
+      ->and($scene->hasUnstableEventSession())->toBeTrue()
+      ->and($scene->cinematicPresentation?->hasTransitionCover())->toBeTrue()
+      ->and($scene->cinematicStage?->all())->toHaveCount(3);
+
+    for ($tick = 0; $tick < 30 && $scene->hasUnstableEventSession(); $tick++) {
+      $interpreter->update(0.1);
+    }
+
+    expect($session?->status)->toBe(EventExecutionStatus::COMPLETED)
+      ->and($scene->currentMapId)->toBe('cinematic/skyfield-dawn')
+      ->and($scene->transferCount)->toBe(1)
+      ->and([$scene->player?->position->x, $scene->player?->position->y])->toBe([4.0, 4.0])
+      ->and($scene->gameState->getSwitch('sky_caravan_arrived'))->toBeTrue()
+      ->and(array_count_values($scene->gameState->storyEvents)['sky_caravan_finalized'])->toBe(1)
+      ->and(array_count_values($scene->gameState->storyEvents)['cinematic:sky-caravan:completed'])->toBe(1)
+      ->and($scene->cinematicStage?->all())->toBe([])
+      ->and($scene->cinematicPresentation?->hasTransitionCover())->toBeFalse()
+      ->and($scene->camera->followsPlayer)->toBeTrue()
+      ->and($scene->cinematicController?->active())->toBeNull()
+      ->and($scene->hasUnstableEventSession())->toBeFalse();
+
+    $saveRoot = sys_get_temp_dir() . '/cinematic-save-' . uniqid();
+    $saveManager = new SaveManager(
+      new EventTestGame(),
+      $saveRoot,
+      $saveRoot . '/quick',
+      SaveCompatibilityManifest::fromArray('ichiloto/cinematic-fixture', [
+        'contentVersion' => 0,
+        'migrations' => [],
+        'aliases' => [],
+        'tombstones' => [],
+      ], 'Cinematic fixture manifest'),
+    );
+    expect(file_get_contents($saveManager->save($scene, 1)->path))->toStartWith('IED1');
+  } finally {
+    ConfigStore::remove(ProjectConfig::class);
+    ConfigStore::remove(PlaySettings::class);
+    chdir($previousDirectory);
+  }
+});
+
+it('uses the same authored finalizer for skips before and after transfer', function (int|string $skipBoundary) {
+  $projectRoot = dirname(__DIR__) . '/Fixtures/Projects/CinematicAcceptance';
+  $previousDirectory = getcwd();
+  chdir($projectRoot);
+  putSceneAudioConfig(['accessibility' => ['reducedMotion' => true]]);
+  ConfigStore::put(PlaySettings::class, new SceneAudioConfigStub([
+    'screen' => ['width' => 20, 'height' => 10],
+  ]));
+
+  try {
+    [$scene, $interpreter] = makeEventRuntime();
+    $scene->installPlayer(new EventTestPlayer(new Vector2(1, 1)));
+    $scene->installCinematicRuntime();
+    $session = $scene->cinematicController?->start((new CinematicLibrary())->load('sky-caravan'));
+
+    if ($skipBoundary === 'after_transfer') {
+      for ($tick = 0; $tick < 30
+        && $scene->hasUnstableEventSession()
+        && $scene->currentMapId !== 'cinematic/skyfield-dawn';
+        $tick++
+      ) {
+        $interpreter->update(0.1);
+      }
+    } else {
+      for ($tick = 0; $tick < $skipBoundary && $scene->hasUnstableEventSession(); $tick++) {
+        $interpreter->update(0.1);
+      }
+    }
+
+    expect($scene->skipCinematic())->toBeTrue();
+
+    for ($tick = 0; $tick < 20 && $scene->hasUnstableEventSession(); $tick++) {
+      $interpreter->update(0.1);
+    }
+
+    expect($session?->status)->toBe(EventExecutionStatus::COMPLETED)
+      ->and($scene->currentMapId)->toBe('cinematic/skyfield-dawn')
+      ->and($scene->transferCount)->toBe(1)
+      ->and([$scene->player?->position->x, $scene->player?->position->y])->toBe([4.0, 4.0])
+      ->and($scene->gameState->getSwitch('sky_caravan_arrived'))->toBeTrue()
+      ->and(array_count_values($scene->gameState->storyEvents)['sky_caravan_finalized'])->toBe(1)
+      ->and(array_count_values($scene->gameState->storyEvents)['cinematic:sky-caravan:completed'])->toBe(1)
+      ->and($scene->cinematicStage?->all())->toBe([])
+      ->and($scene->camera->followsPlayer)->toBeTrue()
+      ->and($scene->hasUnstableEventSession())->toBeFalse();
+  } finally {
+    ConfigStore::remove(ProjectConfig::class);
+    ConfigStore::remove(PlaySettings::class);
+    chdir($previousDirectory);
+  }
+})->with([
+  'before movement' => 0,
+  'during camera, movement, and narration' => 3,
+  'after transfer' => 'after_transfer',
+]);
+
+it('skips safely during dialogue and refuses an active battle boundary', function () {
+  [$scene, $interpreter, $presentation] = makeEventRuntime();
+  $scene->installPlayer(new EventTestPlayer(new Vector2(1, 1)));
+  $scene->installCinematicRuntime();
+  $dialogue = CinematicDefinition::fromArrays([
+    'id' => 'dialogue-skip',
+    'name' => 'Dialogue Skip',
+    'skip' => ['policy' => 'authored'],
+    'finalizer' => [
+      ['type' => 'set_switch', 'name' => 'dialogue_finalized', 'value' => true],
+      ['type' => 'camera', 'operation' => 'attach'],
+    ],
+  ], [
+    ['type' => 'text', 'name' => 'Guide', 'text' => 'A cancellable cinematic line.'],
+    ['type' => 'set_switch', 'name' => 'dialogue_should_not_continue', 'value' => true],
+  ]);
+  $dialogueSession = $scene->cinematicController?->start($dialogue);
+
+  $dialogueSkipped = $scene->skipCinematic();
+
+  expect($presentation->kind)->toBeNull()
+    ->and($dialogueSkipped)->toBeTrue()
+    ->and($dialogueSession?->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and($scene->gameState->getSwitch('dialogue_finalized'))->toBeTrue()
+    ->and($scene->gameState->getSwitch('dialogue_should_not_continue'))->toBeFalse();
+
+  $root = sys_get_temp_dir() . '/cinematic-battle-skip-' . uniqid();
+  mkdir($root . '/assets/Data', 0o777, true);
+  file_put_contents($root . '/assets/Data/troops.php', "<?php\nreturn [['name' => 'Boundary Troop', 'enemies' => []]];\n");
+  $previousDirectory = getcwd();
+  chdir($root);
+  ConfigStore::put(EnemyStore::class, (new ReflectionClass(EnemyStore::class))->newInstanceWithoutConstructor());
+
+  try {
+    $battle = CinematicDefinition::fromArrays([
+      'id' => 'battle-boundary',
+      'name' => 'Battle Boundary',
+      'skip' => ['policy' => 'authored'],
+      'finalizer' => [['type' => 'set_switch', 'name' => 'battle_finalized', 'value' => true]],
+    ], [[
+      'type' => 'start_battle',
+      'troop' => 'Boundary Troop',
+      'defeatPolicy' => 'continue',
+    ]]);
+    $battleSession = $scene->cinematicController?->start($battle);
+
+    expect($battleSession?->status)->toBe(EventExecutionStatus::SUSPENDED)
+      ->and($scene->skipCinematic())->toBeFalse()
+      ->and($scene->gameState->getSwitch('battle_finalized'))->toBeFalse();
+
+    $scene->resumeEventAfterBattle(new BattleResult('Victory', []));
+    $interpreter->update(0.1);
+
+    expect($battleSession?->status)->toBe(EventExecutionStatus::COMPLETED)
+      ->and($scene->gameState->getSwitch('battle_finalized'))->toBeTrue();
+  } finally {
+    ConfigStore::remove(EnemyStore::class);
+    chdir($previousDirectory);
+  }
+});
+
+it('restores camera input and staged cast after controlled cinematic failure', function () {
+  [$scene] = makeEventRuntime();
+  $scene->installPlayer(new EventTestPlayer(new Vector2(1, 1)));
+  $scene->installCinematicRuntime();
+  $cinematic = CinematicDefinition::fromArrays([
+    'id' => 'controlled-failure',
+    'name' => 'Controlled Failure',
+    'cast' => [['kind' => 'staged_actor', 'id' => 'visible-runner', 'sprite' => '@', 'x' => 2, 'y' => 2]],
+  ], [
+    ['type' => 'camera', 'operation' => 'detach'],
+    ['type' => 'camera', 'operation' => 'focus', 'target' => ['kind' => 'staged_actor', 'id' => 'missing-runner']],
+    ['type' => 'record_event', 'name' => 'must_not_complete'],
+  ]);
+  $session = $scene->cinematicController?->start($cinematic);
+
+  expect($session?->status)->toBe(EventExecutionStatus::FAILED)
+    ->and($session?->failureMessage)->toContain('Cinematic "controlled-failure" failed')
+    ->and($session?->failureMessage)->toContain('lane "root"')
+    ->and($session?->failureMessage)->toContain('command path')
+    ->and($session?->failureMessage)->toContain('missing-runner')
+    ->and($session?->failureMessage)->toContain('was not found')
+    ->and($scene->gameState->hasStoryEvent('must_not_complete'))->toBeFalse()
+    ->and($scene->gameState->hasStoryEvent('cinematic:controlled-failure:completed'))->toBeFalse()
+    ->and($scene->cinematicStage?->all())->toBe([])
+    ->and($scene->camera->followsPlayer)->toBeTrue()
+    ->and($scene->cinematicController?->active())->toBeNull()
+    ->and($scene->hasUnstableEventSession())->toBeFalse();
+});
+
+it('composes common events inside a cinematic lane and propagates nested failure context', function () {
+  $root = sys_get_temp_dir() . '/cinematic-common-event-' . uniqid();
+  mkdir($root . '/assets/Events', 0o777, true);
+  file_put_contents($root . '/assets/Events/formation-ready.php', <<<'PHP'
+<?php
+return [
+  ['type' => 'record_event', 'name' => 'common_event_entered'],
+  ['type' => 'wait', 'seconds' => 0.1],
+  ['type' => 'record_event', 'name' => 'common_event_completed'],
+];
+PHP);
+  file_put_contents($root . '/assets/Events/broken-formation.php', <<<'PHP'
+<?php
+return [['type' => 'unknown_common_event_command']];
+PHP);
+  $previousDirectory = getcwd();
+  chdir($root);
+
+  try {
+    [$scene, $interpreter] = makeEventRuntime();
+    $completed = $interpreter->run([
+      ['type' => 'common_event', 'id' => 'formation-ready'],
+      ['type' => 'record_event', 'name' => 'cinematic_parent_completed'],
+    ], 'common-event-cinematic');
+    $interpreter->update(0.1);
+
+    expect($completed?->status)->toBe(EventExecutionStatus::COMPLETED)
+      ->and($scene->gameState->storyEvents)->toBe([
+        'common_event_entered',
+        'common_event_completed',
+        'cinematic_parent_completed',
+      ]);
+
+    $failed = $interpreter->run([
+      ['type' => 'common_event', 'id' => 'broken-formation'],
+      ['type' => 'record_event', 'name' => 'must_not_follow_common_failure'],
+    ], 'broken-common-event');
+
+    expect($failed?->status)->toBe(EventExecutionStatus::FAILED)
+      ->and($failed?->failureMessage)->toContain('common_event:broken-formation[1]')
+      ->and($failed?->failureMessage)->toContain('unknown_common_event_command')
+      ->and($scene->gameState->hasStoryEvent('must_not_follow_common_failure'))->toBeFalse();
+  } finally {
+    chdir($previousDirectory);
+  }
+});
+
+it('pans, tracks moving staged subjects, shakes within bounds and resets the camera', function () {
+  [$scene, $interpreter] = makeEventRuntime();
+  $scene->installPlayer(new EventTestPlayer(new Vector2(1, 1)));
+  $scene->installCinematicRuntime();
+
+  $pan = $interpreter->run([
+    ['type' => 'camera', 'operation' => 'detach'],
+    ['type' => 'camera', 'operation' => 'pan', 'target' => ['kind' => 'position', 'x' => 30, 'y' => 20], 'seconds' => 1.0],
+  ], 'camera-pan');
+  $interpreter->update(0.5);
+
+  expect($pan?->status)->toBe(EventExecutionStatus::YIELDED)
+    ->and([$scene->camera->position->x, $scene->camera->position->y])->toBe([11.0, 8.0]);
+
+  $interpreter->update(0.5);
+  expect($pan?->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and([$scene->camera->position->x, $scene->camera->position->y])->toBe([21.0, 16.0]);
+
+  $scene->cinematicStage?->add(['id' => 'tracked', 'sprite' => '@', 'x' => 30, 'y' => 20]);
+  $track = $interpreter->run([[
+    'type' => 'parallel',
+    'lanes' => [
+      ['id' => 'move', 'commands' => [[
+        'type' => 'move_route',
+        'subject' => 'staged_actor',
+        'actorId' => 'tracked',
+        'secondsPerStep' => 0.1,
+        'steps' => [['direction' => 'right', 'count' => 2]],
+      ]]],
+      ['id' => 'track', 'commands' => [[
+        'type' => 'camera',
+        'operation' => 'track',
+        'target' => ['kind' => 'staged_actor', 'id' => 'tracked'],
+        'seconds' => 0.2,
+      ]]],
+    ],
+  ]], 'camera-track');
+  $interpreter->update(0.1);
+  $interpreter->update(0.1);
+  $interpreter->update(0.1);
+
+  expect($track?->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and($scene->cinematicStage?->require('tracked')->position->x)->toBe(32.0)
+    ->and([$scene->camera->position->x, $scene->camera->position->y])->toBe([23.0, 16.0]);
+
+  $base = clone $scene->camera->position;
+  $shake = $interpreter->run([
+    ['type' => 'camera', 'operation' => 'shake', 'seconds' => 0.2, 'magnitude' => 2],
+    ['type' => 'camera', 'operation' => 'attach'],
+  ], 'camera-shake');
+  $interpreter->update(0.05);
+  expect(abs($scene->camera->position->x - $base->x) + abs($scene->camera->position->y - $base->y))->toBeLessThanOrEqual(2);
+  $interpreter->update(0.15);
+
+  expect($shake?->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and($scene->camera->followsPlayer)->toBeTrue();
+});
+
+it('applies cinematic motion final states immediately when reduced motion is enabled', function () {
+  putSceneAudioConfig(['accessibility' => ['reducedMotion' => true]]);
+
+  try {
+    [$scene, $interpreter] = makeEventRuntime();
+    $session = $interpreter->run([
+      ['type' => 'camera', 'operation' => 'pan', 'target' => ['kind' => 'position', 'x' => 30, 'y' => 20], 'seconds' => 5.0],
+      ['type' => 'record_event', 'name' => 'reduced_motion_camera_complete'],
+    ], 'reduced-camera');
+
+    expect($session?->status)->toBe(EventExecutionStatus::COMPLETED)
+      ->and([$scene->camera->position->x, $scene->camera->position->y])->toBe([21.0, 16.0])
+      ->and($scene->gameState->hasStoryEvent('reduced_motion_camera_complete'))->toBeTrue();
+
+    $scene->installPlayer(new EventTestPlayer(new Vector2(1, 1)));
+    $scene->installCinematicRuntime();
+    $scene->cinematicStage?->add(['id' => 'reduced-runner', 'sprite' => '@', 'x' => 2, 'y' => 2]);
+    $movement = $interpreter->run([[
+      'type' => 'move_route',
+      'subject' => 'staged_actor',
+      'actorId' => 'reduced-runner',
+      'secondsPerStep' => 5.0,
+      'steps' => [['direction' => 'right', 'count' => 3]],
+    ]], 'reduced-movement');
+    $interpreter->update(0.0);
+
+    expect($movement?->status)->toBe(EventExecutionStatus::COMPLETED)
+      ->and($scene->cinematicStage?->require('reduced-runner')->position->x)->toBe(5.0);
+
+    $transition = $interpreter->run([[
+      'type' => 'transition',
+      'style' => 'fade',
+      'direction' => 'in',
+      'seconds' => 5.0,
+    ]], 'reduced-transition');
+
+    expect($transition?->status)->toBe(EventExecutionStatus::COMPLETED)
+      ->and($scene->cinematicPresentation?->hasTransitionCover())->toBeFalse();
+  } finally {
+    ConfigStore::remove(ProjectConfig::class);
+  }
+});
+
+it('uses safe deterministic staged-actor visibility and collision defaults', function () {
+  [$scene] = makeEventRuntime();
+  $scene->installPlayer(new EventTestPlayer(new Vector2(0, 0)));
+  $scene->installCinematicRuntime();
+  $nonColliding = $scene->cinematicStage?->add(['id' => 'ghost', 'sprite' => '@', 'x' => 2, 'y' => 2]);
+  $colliding = $scene->cinematicStage?->add(['id' => 'solid', 'sprite' => '@', 'x' => 3, 'y' => 3, 'collision' => true]);
+
+  expect($nonColliding?->hasCollision)->toBeFalse()
+    ->and($scene->cinematicStage?->actorAt(2, 2))->toBeNull()
+    ->and($scene->cinematicStage?->actorAt(3, 3))->toBe($colliding);
+
+  $scene->cinematicStage?->hide('solid');
+  expect($scene->cinematicStage?->actorAt(3, 3))->toBeNull()
+    ->and($scene->cinematicStage?->require('solid')->isVisible)->toBeFalse();
+
+  $scene->cinematicStage?->show('solid');
+  expect($scene->cinematicStage?->actorAt(3, 3))->toBe($colliding)
+    ->and($scene->cinematicStage?->require('solid')->isVisible)->toBeTrue();
 });
