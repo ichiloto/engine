@@ -20,49 +20,20 @@ final class SummonCutscenePlayer
     ?callable $onCue = null,
   ): void
   {
-    $lengthFrames = max(1, intval($cutscene->defaults['lengthFrames'] ?? 1));
-    $playback = is_array($cutscene->defaults['playback'] ?? null)
-      ? $cutscene->defaults['playback']
-      : [];
-    $speed = max(0.01, floatval($playback['defaultSpeed'] ?? 1.0));
-    $frameDelayMicroseconds = intval(round((1000000 / max(1, $cutscene->fps)) / $speed));
-    $cuesByFrame = [];
+    $session = new SummonPlaybackSession($cutscene, loop: false);
 
-    foreach ($cutscene->cueSchedule as $cue) {
-      $frame = intval($cue['frame'] ?? -1);
-
-      if ($frame < 0) {
-        continue;
-      }
-
-      $cuesByFrame[$frame] ??= [];
-      $cuesByFrame[$frame][] = $cue;
-    }
-
-    for ($frameIndex = 0; $frameIndex < $lengthFrames; $frameIndex++) {
-      $segments = $this->resolveSegmentsForFrame($cutscene, $frameIndex);
-      $renderFrame($frameIndex, $segments);
+    while (! $session->isCompleted) {
+      $frame = $session->currentFrame;
+      $renderFrame($frame, $session->activeSegments());
 
       if ($onCue !== null) {
-        foreach ($cuesByFrame[$frameIndex] ?? [] as $cue) {
-          $onCue($cue, $frameIndex);
+        foreach ($session->cuesAt() as $cue) {
+          $onCue($cue, $frame);
         }
       }
 
-      usleep(max(0, $frameDelayMicroseconds));
+      usleep(max(0, intval(round($session->secondsPerFrame * 1000000))));
+      $session->update($session->secondsPerFrame);
     }
-  }
-
-  /**
-   * @return array<int, array<string, mixed>>
-   */
-  protected function resolveSegmentsForFrame(SummonCompiledCutscene $cutscene, int $frameIndex): array
-  {
-    return array_values(array_filter(
-      $cutscene->playbackSegments,
-      static fn(array $segment): bool =>
-        $frameIndex >= intval($segment['startFrame'] ?? -1) &&
-        $frameIndex <= intval($segment['endFrame'] ?? -1)
-    ));
   }
 }

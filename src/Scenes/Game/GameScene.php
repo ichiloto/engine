@@ -5,6 +5,11 @@ namespace Ichiloto\Engine\Scenes\Game;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicStageManager;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicController;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicLibrary;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicPresentationManager;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Battle\BattleResult;
 use Ichiloto\Engine\Events\Interpreter\EventExecutionSession;
@@ -173,6 +178,12 @@ class GameScene extends AbstractScene
      * @var NpcManager|null The field NPC manager.
      */
     protected(set) ?NpcManager $npcManager = null;
+    /** Temporary field participants owned by the active cinematic. */
+    protected(set) ?CinematicStageManager $cinematicStage = null;
+    /** Lifecycle host for the EventInterpreter-owned field cinematic. */
+    protected(set) ?CinematicController $cinematicController = null;
+    /** Temporary overlays and field animation frames for cinematics. */
+    protected(set) ?CinematicPresentationManager $cinematicPresentation = null;
     /**
      * @var EventInterpreter|null The one active story-event runtime.
      */
@@ -285,6 +296,9 @@ class GameScene extends AbstractScene
         $this->questManager->hydrate($this->config->questLog);
         $this->encounterManager = new EncounterManager($this);
         $this->npcManager = new NpcManager($this);
+        $this->cinematicStage = new CinematicStageManager($this);
+        $this->cinematicController = new CinematicController($this);
+        $this->cinematicPresentation = new CinematicPresentationManager($this);
         $this->eventInterpreter = new EventInterpreter($this);
         $this->hasDeferredAutoSave = false;
         $this->skitManager = new SkitManager($this);
@@ -469,6 +483,10 @@ class GameScene extends AbstractScene
     {
         Debug::info("Transferring player to $location->mapFilename... at $location->playerPosition");
 
+        // Staged actors are map-local presentation participants. A cinematic
+        // that needs cast in the destination explicitly stages them there.
+        $this->cinematicStage?->clear();
+
         $transition = ScreenTransition::fromConfig();
         $transition->out();
 
@@ -541,6 +559,22 @@ class GameScene extends AbstractScene
     ): ?EventExecutionSession
     {
         return $this->eventInterpreter?->run($commands, $scriptId, $completionTarget, $origin);
+    }
+
+    /** Starts a first-class cinematic asset by definition or stable id. */
+    public function startCinematic(CinematicDefinition|string $cinematic): ?EventExecutionSession
+    {
+        $definition = is_string($cinematic)
+            ? (new CinematicLibrary())->load($cinematic)
+            : $cinematic;
+
+        return $this->cinematicController?->start($definition);
+    }
+
+    /** Requests the active cinematic's authored safe skip path. */
+    public function skipCinematic(): bool
+    {
+        return $this->cinematicController?->skip() ?? false;
     }
 
     /**

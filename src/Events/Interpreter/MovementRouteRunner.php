@@ -5,11 +5,12 @@ namespace Ichiloto\Engine\Events\Interpreter;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Exceptions\MovementRouteException;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\UI\Accessibility;
 
 /**
  * Executes one sequential, collision-aware player or NPC movement route.
  */
-final class MovementRouteRunner
+final class MovementRouteRunner implements EventPendingOperationInterface
 {
   public const array DIRECTIONS = ['up', 'down', 'left', 'right'];
 
@@ -44,10 +45,35 @@ final class MovementRouteRunner
       return true;
     }
 
+    if (Accessibility::prefersReducedMotion()) {
+      $maximumUnits = 1;
+
+      foreach ($this->steps as $step) {
+        $maximumUnits += max(1, intval($step['count'] ?? 1));
+      }
+
+      for ($unit = 0; $unit < $maximumUnits && ! $this->isComplete; $unit++) {
+        $this->remainingDelay = 0.0;
+        $this->advanceVisibleUnit();
+      }
+
+      return $this->isComplete;
+    }
+
     $this->remainingDelay = max(0.0, $this->remainingDelay - max(0.0, $deltaSeconds));
 
     if ($this->remainingDelay > 0.0) {
       return false;
+    }
+
+    return $this->advanceVisibleUnit();
+  }
+
+  /** Advances one authored route unit after its delay has elapsed. */
+  protected function advanceVisibleUnit(): bool
+  {
+    if ($this->isComplete) {
+      return true;
     }
 
     $step = $this->steps[$this->stepIndex] ?? null;
@@ -75,6 +101,11 @@ final class MovementRouteRunner
       'npc' => $faceOnly
         ? $this->gameScene->npcManager?->faceNpc(strval($this->command['npcId'] ?? ''), $direction) ?? false
         : $this->gameScene->npcManager?->moveNpcById(strval($this->command['npcId'] ?? ''), $direction) ?? false,
+      'staged_actor' => $this->gameScene->cinematicStage?->move(
+        strval($this->command['actorId'] ?? ''),
+        $direction,
+        boolval($faceOnly),
+      ) ?? false,
       default => false,
     };
 
@@ -93,22 +124,31 @@ final class MovementRouteRunner
     return $this->isComplete;
   }
 
+  public function cancel(): void
+  {
+    $this->isComplete = true;
+  }
+
   protected function validate(): void
   {
     $wait = $this->command['wait'] ?? true;
 
     if (! is_bool($wait) || ! $wait) {
-      throw new MovementRouteException('Parallel movement routes are not supported; move_route.wait must be true.');
+      throw new MovementRouteException('move_route.wait must be true; use separate cinematic parallel lanes for concurrent routes.');
     }
 
     $subject = strtolower(trim(strval($this->command['subject'] ?? 'player')));
 
-    if (! in_array($subject, ['player', 'npc'], true)) {
+    if (! in_array($subject, ['player', 'npc', 'staged_actor'], true)) {
       throw new MovementRouteException(sprintf('Unsupported movement-route subject "%s".', $subject));
     }
 
     if ($subject === 'npc' && trim(strval($this->command['npcId'] ?? '')) === '') {
       throw new MovementRouteException('An NPC movement route requires a stable npcId.');
+    }
+
+    if ($subject === 'staged_actor' && trim(strval($this->command['actorId'] ?? '')) === '') {
+      throw new MovementRouteException('A staged-actor movement route requires a stable actorId.');
     }
 
     if ($this->steps === []) {
@@ -182,14 +222,18 @@ final class MovementRouteRunner
 
   protected function throwBlockedRoute(string $subject, string $directionName, Vector2 $direction): never
   {
-    $position = $subject === 'npc'
-      ? $this->gameScene->npcManager?->findById(strval($this->command['npcId'] ?? ''))?->position
-      : $this->gameScene->player?->position;
+    $position = match ($subject) {
+      'npc' => $this->gameScene->npcManager?->findById(strval($this->command['npcId'] ?? ''))?->position,
+      'staged_actor' => $this->gameScene->cinematicStage?->find(strval($this->command['actorId'] ?? ''))?->position,
+      default => $this->gameScene->player?->position,
+    };
     $attemptedX = intval($position?->x ?? 0) + intval($direction->x);
     $attemptedY = intval($position?->y ?? 0) + intval($direction->y);
-    $subjectLabel = $subject === 'npc'
-      ? sprintf('NPC "%s"', strval($this->command['npcId'] ?? ''))
-      : 'player';
+    $subjectLabel = match ($subject) {
+      'npc' => sprintf('NPC "%s"', strval($this->command['npcId'] ?? '')),
+      'staged_actor' => sprintf('staged actor "%s"', strval($this->command['actorId'] ?? '')),
+      default => 'player',
+    };
 
     throw new MovementRouteException(sprintf(
       'Movement route failed on map "%s": %s step %d (%s) was blocked at (%d, %d).',

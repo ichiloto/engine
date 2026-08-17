@@ -12,6 +12,7 @@ use Ichiloto\Engine\Audio\Backends\PaplayBackend;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Audio\Interfaces\AudioBackendInterface;
 use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\Interfaces\CanUpdate;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
@@ -197,6 +198,7 @@ class AudioManager implements CanUpdate
    * @var array<string, true>
    */
   protected array $loggedWarnings = [];
+  protected ?CinematicMusicSession $cinematicMusicSession = null;
 
   /**
    * The background music currently playing, or null when there is none.
@@ -212,6 +214,10 @@ class AudioManager implements CanUpdate
     get {
       return $this->bgmPath;
     }
+  }
+
+  public bool $currentBackgroundMusicLoops {
+    get => $this->bgmLoops;
   }
 
   /**
@@ -309,6 +315,34 @@ class AudioManager implements CanUpdate
     }
   }
 
+  public function captureBackgroundMusicState(): BackgroundMusicState
+  {
+    return new BackgroundMusicState($this->bgmPath, $this->bgmLoops);
+  }
+
+  public function beginCinematicMusic(CinematicMusicRequest $request): CinematicMusicSession
+  {
+    if ($this->cinematicMusicSession !== null && ! $this->cinematicMusicSession->isFinalized) {
+      $this->cinematicMusicSession->finalize('replaced');
+      $this->cinematicMusicSession->updateFinalization(PHP_FLOAT_MAX);
+    }
+
+    return $this->cinematicMusicSession = new CinematicMusicSession(
+      $this,
+      $request,
+      $this->captureBackgroundMusicState(),
+    );
+  }
+
+  public function finalizeCinematicMusic(string $outcome = 'complete'): void
+  {
+    $this->cinematicMusicSession?->finalize($outcome);
+
+    if ($this->cinematicMusicSession?->isFinalized) {
+      $this->cinematicMusicSession = null;
+    }
+  }
+
   /**
    * Stops the current background music track, if any.
    *
@@ -391,6 +425,10 @@ class AudioManager implements CanUpdate
   {
     $this->reapFinishedSoundEffects();
     $this->updateBackgroundMusic();
+
+    if ($this->cinematicMusicSession?->updateFinalization(Time::getDeltaTime())) {
+      $this->cinematicMusicSession = null;
+    }
   }
 
   /**

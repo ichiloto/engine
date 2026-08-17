@@ -2,13 +2,26 @@
 
 namespace Ichiloto\Engine\Events\Interpreter;
 
+use Assegai\Util\Path;
 use Ichiloto\Engine\Battle\BattleResult;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicCommandSchema;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
+use Ichiloto\Engine\Cutscenes\Cinematics\CameraOperation;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicSubjectResolver;
+use Ichiloto\Engine\Cutscenes\Cinematics\FieldAnimationOperation;
+use Ichiloto\Engine\Cutscenes\Cinematics\TimedPresentationOperation;
+use Ichiloto\Engine\Cutscenes\Cinematics\TransitionOperation;
+use Ichiloto\Engine\Animations\AnimationLibrary;
+use Ichiloto\Engine\Audio\CinematicMusicOperation;
+use Ichiloto\Engine\Audio\CinematicMusicRequest;
 use Ichiloto\Engine\Field\Location;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Rendering\ScreenTransition;
+use Ichiloto\Engine\Rendering\Enumerations\TransitionStyle;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Stores\ItemStore;
@@ -25,31 +38,10 @@ use Throwable;
 class EventInterpreter
 {
   /** The single runtime/editor command vocabulary. */
-  public const array COMMAND_TYPES = [
-    'text',
-    'choice',
-    'wait',
-    'set_switch',
-    'set_variable',
-    'record_event',
-    'give_item',
-    'give_gold',
-    'recover_party',
-    'play_sound',
-    'play_music',
-    'accept_quest',
-    'knowledge',
-    'move_player',
-    'move_route',
-    'transfer',
-    'start_battle',
-    'branch',
-  ];
+  public const array COMMAND_TYPES = CinematicCommandSchema::COMMAND_TYPES;
 
   protected ?EventExecutionSession $activeSession = null;
   protected(set) ?EventExecutionSession $lastSession = null;
-  protected ?MovementRouteRunner $pendingRoute = null;
-  protected ?array $frameToPush = null;
 
   public function __construct(
     protected GameScene $gameScene,
@@ -117,6 +109,27 @@ class EventInterpreter
     return $this->activeSession;
   }
 
+  /** Starts a first-class cinematic on this same interpreter. */
+  public function runCinematic(
+    CinematicDefinition $cinematic,
+    ?EventSessionCompletionTargetInterface $completionTarget = null,
+  ): ?EventExecutionSession
+  {
+    $session = $this->start(
+      $cinematic->commands,
+      $cinematic->id,
+      $completionTarget,
+      ['map' => $this->gameScene->currentMapId, 'source' => 'cinematic:' . $cinematic->id],
+    );
+
+    if ($session !== null) {
+      $session->configureCinematic($cinematic);
+      $this->update(0.0);
+    }
+
+    return $session;
+  }
+
   /**
    * Advances the active session by one field tick.
    *
@@ -134,60 +147,74 @@ class EventInterpreter
       return;
     }
 
-    $deltaSeconds ??= Time::getDeltaTime();
+    try {
+      $this->tickLane($session, $session->rootLane(), max(0.0, $deltaSeconds ?? Time::getDeltaTime()));
+      $session->refreshStatus();
 
-    if ($session->status === EventExecutionStatus::YIELDED) {
-      try {
-        if (! $this->updatePendingCommand($session, max(0.0, $deltaSeconds))) {
-          return;
+      if ($session->rootLane()->status === EventExecutionStatus::COMPLETED) {
+        if ($session->startFinalizerIfNeeded()) {
+          $this->tickLane($session, $session->rootLane(), 0.0);
         }
-      } catch (Throwable $throwable) {
-        $this->fail($throwable->getMessage(), $throwable);
-        return;
+
+        if ($session->rootLane()->status === EventExecutionStatus::COMPLETED) {
+          $this->finish();
+        }
       }
+    } catch (Throwable $throwable) {
+      $this->fail($throwable->getMessage(), $throwable);
+    }
+  }
+
+  /** Advances one lane, including any nested parallel children. */
+  protected function tickLane(
+    EventExecutionSession $session,
+    EventExecutionLane $lane,
+    float $deltaSeconds,
+  ): void
+  {
+    if (in_array($lane->status, [EventExecutionStatus::COMPLETED, EventExecutionStatus::FAILED, EventExecutionStatus::SUSPENDED], true)) {
+      return;
     }
 
-    // A malformed but finite script should never monopolize a frame. This is
-    // a diagnostic ceiling, not a sequencing mechanism.
+    if ($lane->status === EventExecutionStatus::YIELDED
+      && ! $this->updatePendingCommand($session, $lane, $deltaSeconds)
+    ) {
+      return;
+    }
+
     for ($commandsThisTick = 0; $commandsThisTick < 1000; $commandsThisTick++) {
-      if ($session->hasFinishedFrames()) {
-        $this->finish();
+      if ($lane->hasFinishedFrames()) {
+        $lane->complete();
         return;
       }
 
-      $command = $session->currentCommand();
+      $command = $lane->currentCommand();
 
       if ($command === null) {
-        $session->advance();
+        $lane->advance();
         continue;
       }
 
       try {
-        $result = $this->execute($session, $command);
+        $result = $this->execute($session, $lane, $command);
       } catch (Throwable $throwable) {
-        $this->fail(sprintf(
-          'Event command %s failed: %s',
-          strval($command['type'] ?? '?'),
-          $throwable->getMessage(),
-        ), $throwable);
-        return;
+        throw new RuntimeException($this->commandFailureDiagnostic($session, $lane, $command, $throwable), previous: $throwable);
       }
 
       if ($result === EventCommandResult::COMPLETED) {
-        $session->advance();
-
-        if ($this->frameToPush !== null) {
-          $session->pushFrame($this->frameToPush['commands'], $this->frameToPush['label']);
-          $this->frameToPush = null;
-        }
-
+        $lane->advance();
+        $lane->pushQueuedFrame();
         continue;
       }
 
       return;
     }
 
-    $this->fail('Event script exceeded 1000 immediate commands in one tick.');
+    throw new RuntimeException(sprintf(
+      'Event script "%s" lane "%s" exceeded 1000 immediate commands in one tick.',
+      $session->scriptId ?? 'inline script',
+      $lane->path,
+    ));
   }
 
   /**
@@ -239,6 +266,46 @@ class EventInterpreter
     }
   }
 
+  /** Requests authored safe skipping of the active cinematic. */
+  public function skipActiveCinematic(): bool
+  {
+    $session = $this->activeSession;
+
+    if ($session?->cinematic === null) {
+      Debug::warn('Cinematic skip was refused because no cinematic is active.');
+      return false;
+    }
+
+    if ($session->cinematic->skipPolicy !== 'authored' || $session->cinematic->finalizer === []) {
+      Debug::warn(sprintf('Cinematic "%s" does not declare an authored safe finalizer.', $session->cinematic->id));
+      return false;
+    }
+
+    if ($session->status === EventExecutionStatus::SUSPENDED
+      && strval($session->pendingCommand['type'] ?? '') === 'start_battle'
+    ) {
+      Debug::warn(sprintf('Cinematic "%s" cannot skip across an active battle boundary.', $session->cinematic->id));
+      return false;
+    }
+
+    $this->presentation->reset();
+    $session->cancelLanes();
+    $session->startFinalizerIfNeeded();
+
+    try {
+      $this->tickLane($session, $session->rootLane(), 0.0);
+
+      if ($session->rootLane()->status === EventExecutionStatus::COMPLETED) {
+        $this->finish();
+      }
+    } catch (Throwable $throwable) {
+      $this->fail($throwable->getMessage(), $throwable);
+      return false;
+    }
+
+    return true;
+  }
+
   public function hasActiveSession(): bool
   {
     return $this->activeSession !== null;
@@ -249,23 +316,36 @@ class EventInterpreter
     return $this->activeSession;
   }
 
+  /** Re-renders an active modal after a cinematic field composition redraw. */
+  public function renderPresentation(): void
+  {
+    if ($this->activeSession !== null) {
+      $this->presentation->render();
+    }
+  }
+
   /**
    * Executes one command until it either completes or records pending state.
    *
    * @param array<string, mixed> $command The command entry.
    */
-  protected function execute(EventExecutionSession $session, array $command): EventCommandResult
+  protected function execute(
+    EventExecutionSession $session,
+    EventExecutionLane $lane,
+    array $command,
+  ): EventCommandResult
   {
     $gameState = $this->gameScene->gameState;
     $type = strval($command['type'] ?? '');
 
     switch ($type) {
       case 'text':
+        $session->claimPresentation($lane);
         $this->presentation->beginText(
           strval($command['text'] ?? ''),
           strval($command['name'] ?? ''),
         );
-        $session->yieldFor($command, ['kind' => 'dialogue']);
+        $lane->yieldFor($command, ['kind' => 'dialogue']);
         return EventCommandResult::YIELDED;
 
       case 'choice':
@@ -275,13 +355,14 @@ class EventInterpreter
           return EventCommandResult::COMPLETED;
         }
 
+        $session->claimPresentation($lane);
         $labels = array_map(static fn(array $option): string => strval($option['text'] ?? '…'), $options);
         $this->presentation->beginChoice(
           strval($command['prompt'] ?? 'Choose:'),
           $labels,
           strval($command['title'] ?? ''),
         );
-        $session->yieldFor($command, ['kind' => 'choice']);
+        $lane->yieldFor($command, ['kind' => 'choice']);
         return EventCommandResult::YIELDED;
 
       case 'wait':
@@ -291,7 +372,7 @@ class EventInterpreter
           return EventCommandResult::COMPLETED;
         }
 
-        $session->yieldFor($command, ['kind' => 'wait', 'remainingSeconds' => $seconds]);
+        $lane->yieldFor($command, ['kind' => 'wait', 'remainingSeconds' => $seconds]);
         return EventCommandResult::YIELDED;
 
       case 'set_switch':
@@ -340,7 +421,7 @@ class EventInterpreter
         return EventCommandResult::COMPLETED;
 
       case 'play_music':
-        play_music(strval($command['music'] ?? ''));
+        play_music(strval($command['music'] ?? ''), boolval($command['loop'] ?? true));
         return EventCommandResult::COMPLETED;
 
       case 'accept_quest':
@@ -366,15 +447,36 @@ class EventInterpreter
         return EventCommandResult::COMPLETED;
 
       case 'move_route':
-        $this->pendingRoute = new MovementRouteRunner($this->gameScene, $command);
-        $session->yieldFor($command, ['kind' => 'movement_route']);
+        $route = new MovementRouteRunner($this->gameScene, $command);
+        $lane->yieldFor($command, ['kind' => 'movement_route'], $route);
         return EventCommandResult::YIELDED;
 
       case 'transfer':
-        $session->suspendFor($command, ['kind' => 'transfer']);
-        $spawn = new Vector2(intval($command['x'] ?? 0), intval($command['y'] ?? 0));
+        $destinationMap = strval($command['map'] ?? '');
+        $destinationX = intval($command['x'] ?? 0);
+        $destinationY = intval($command['y'] ?? 0);
+        $player = $this->gameScene->player;
+
+        // An always-run finalizer may describe the same destination reached by
+        // normal playback. Treat that already-satisfied final state as a
+        // no-op so map-entry hooks, deferred autosaves, and other transfer
+        // side effects are not repeated merely because cleanup is idempotent.
+        if ($session->isFinalizing
+          && $this->gameScene->currentMapId === $destinationMap
+          && intval($player?->position->x ?? PHP_INT_MIN) === $destinationX
+          && intval($player?->position->y ?? PHP_INT_MIN) === $destinationY
+        ) {
+          if ($player !== null && array_key_exists('sprite', $command)) {
+            $player->setFacingSprite((array) $command['sprite']);
+          }
+
+          return EventCommandResult::COMPLETED;
+        }
+
+        $session->suspendLane($lane, $command, ['kind' => 'transfer']);
+        $spawn = new Vector2($destinationX, $destinationY);
         $sprite = (array) ($command['sprite'] ?? ($this->gameScene->player?->sprite ?? ['@']));
-        $this->gameScene->transferPlayer(new Location(strval($command['map'] ?? ''), $spawn, $sprite));
+        $this->gameScene->transferPlayer(new Location($destinationMap, $spawn, $sprite));
         return EventCommandResult::SUSPENDED;
 
       case 'start_battle':
@@ -408,7 +510,7 @@ class EventInterpreter
           }
         }
 
-        $session->suspendFor($command, [
+        $session->suspendLane($lane, $command, [
           'kind' => 'battle',
           'resultVariable' => trim(strval($command['resultVariable'] ?? '')),
           'defeatPolicy' => $defeatPolicy,
@@ -429,25 +531,210 @@ class EventInterpreter
       case 'branch':
         $holds = $this->conditionsHold((array) ($command['conditions'] ?? []));
         $commands = array_values(array_filter((array) ($command[$holds ? 'then' : 'else'] ?? []), is_array(...)));
-        $this->frameToPush = [
-          'commands' => $commands,
-          'label' => sprintf('branch:%s', $holds ? 'then' : 'else'),
-        ];
+        $lane->queueFrame($commands, sprintf('branch:%s', $holds ? 'then' : 'else'));
         return EventCommandResult::COMPLETED;
 
+      case 'sequence':
+        $commands = array_values(array_filter((array) ($command['commands'] ?? []), is_array(...)));
+        $lane->queueFrame($commands, 'sequence');
+        return EventCommandResult::COMPLETED;
+
+      case 'parallel':
+        $entries = $command['lanes'] ?? [];
+
+        if (! is_array($entries)) {
+          throw new RuntimeException('Parallel command lanes must be an array.');
+        }
+
+        $group = new EventParallelGroup($entries, $lane->commandPath());
+
+        if ($group->lanes() === []) {
+          return EventCommandResult::COMPLETED;
+        }
+
+        $lane->yieldForParallel($command, $group);
+        return EventCommandResult::YIELDED;
+
+      case 'common_event':
+        $eventId = trim(strval($command['id'] ?? ''));
+
+        if ($eventId === '' || preg_match('/^[a-zA-Z0-9._-]+$/', $eventId) !== 1) {
+          throw new RuntimeException('common_event requires a safe stable id.');
+        }
+
+        $filename = Path::join(Path::getCurrentWorkingDirectory(), 'assets', 'Events', "$eventId.php");
+
+        if (! is_file($filename)) {
+          throw new RuntimeException(sprintf('Common Event "%s" was not found at "%s".', $eventId, $filename));
+        }
+
+        $commands = require $filename;
+
+        if (! is_array($commands)) {
+          throw new RuntimeException(sprintf('Common Event "%s" must return a command array.', $eventId));
+        }
+
+        $lane->queueFrame(array_values(array_filter($commands, is_array(...))), "common_event:$eventId");
+        return EventCommandResult::COMPLETED;
+
+      case 'checkpoint':
+        $name = trim(strval($command['name'] ?? ''));
+
+        if ($name === '') {
+          throw new RuntimeException('checkpoint requires a name.');
+        }
+
+        $session->recordCheckpoint($name);
+        return EventCommandResult::COMPLETED;
+
+      case 'camera':
+        $operation = new CameraOperation(
+          $this->gameScene->camera,
+          new CinematicSubjectResolver($this->gameScene),
+          $command,
+        );
+
+        if ($operation->isComplete) {
+          return EventCommandResult::COMPLETED;
+        }
+
+        $lane->yieldFor($command, ['kind' => 'camera'], $operation);
+        return EventCommandResult::YIELDED;
+
+      case 'stage_actor':
+        $this->gameScene->cinematicStage?->add(
+          is_array($command['actor'] ?? null) ? $command['actor'] : $command,
+        );
+        return EventCommandResult::COMPLETED;
+
+      case 'show_actor':
+        $this->gameScene->cinematicStage?->show(strval($command['actorId'] ?? $command['id'] ?? ''));
+        return EventCommandResult::COMPLETED;
+
+      case 'hide_actor':
+        $this->gameScene->cinematicStage?->hide(strval($command['actorId'] ?? $command['id'] ?? ''));
+        return EventCommandResult::COMPLETED;
+
+      case 'remove_actor':
+        $this->gameScene->cinematicStage?->remove(strval($command['actorId'] ?? $command['id'] ?? ''));
+        return EventCommandResult::COMPLETED;
+
+      case 'title_card':
+      case 'narration':
+        $presentation = $this->gameScene->cinematicPresentation
+          ?? throw new RuntimeException('Cinematic presentation host is not configured.');
+        $presentation->showOverlay(
+          $type,
+          strval($command['text'] ?? ''),
+          strval($command['title'] ?? ''),
+        );
+        $duration = max(0.0, floatval($command['seconds'] ?? 2.5));
+
+        if ($duration <= 0.0) {
+          $presentation->clear();
+          return EventCommandResult::COMPLETED;
+        }
+
+        $lane->yieldFor(
+          $command,
+          ['kind' => 'presentation', 'remainingSeconds' => $duration],
+          new TimedPresentationOperation($presentation, $duration),
+        );
+        return EventCommandResult::YIELDED;
+
+      case 'field_animation':
+        $reference = $command['animation'] ?? $command['id'] ?? null;
+        $library = new AnimationLibrary();
+        $animation = is_numeric($reference)
+          ? $library->findById(intval($reference))
+          : $library->findByName(strval($reference));
+
+        if ($animation === null) {
+          throw new RuntimeException(sprintf('Field animation "%s" was not found.', strval($reference)));
+        }
+
+        $target = is_array($command['target'] ?? null) ? $command['target'] : [];
+        $screenSpace = strtolower(strval($target['kind'] ?? '')) === 'screen_position';
+        $position = $screenSpace
+          ? new Vector2(intval($target['x'] ?? 0), intval($target['y'] ?? 0))
+          : (new CinematicSubjectResolver($this->gameScene))->position($target);
+        $operation = new FieldAnimationOperation(
+          $animation,
+          $this->gameScene->cinematicPresentation
+            ?? throw new RuntimeException('Cinematic presentation host is not configured.'),
+          $position,
+          $screenSpace,
+          max(0.01, floatval($command['secondsPerFrame'] ?? 0.12)),
+        );
+
+        if ($operation->isComplete) {
+          return EventCommandResult::COMPLETED;
+        }
+
+        $lane->yieldFor($command, ['kind' => 'field_animation'], $operation);
+        return EventCommandResult::YIELDED;
+
+      case 'transition':
+        $style = TransitionStyle::tryFrom(strtolower(strval($command['style'] ?? 'fade')))
+          ?? throw new RuntimeException(sprintf('Unsupported transition style "%s".', strval($command['style'] ?? '')));
+        $transition = new ScreenTransition(
+          $style,
+          max(0, intval(round(floatval($command['seconds'] ?? 0.24) * 1000))),
+        );
+        $direction = strval($command['direction'] ?? 'out');
+        $transitionSession = $transition->session($direction);
+        $operation = new TransitionOperation(
+          $transitionSession,
+          $this->gameScene->cinematicPresentation
+            ?? throw new RuntimeException('Cinematic presentation host is not configured.'),
+          $direction,
+        );
+
+        if ($transitionSession->isComplete) {
+          return EventCommandResult::COMPLETED;
+        }
+
+        $lane->yieldFor($command, ['kind' => 'transition'], $operation);
+        return EventCommandResult::YIELDED;
+
+      case 'clear_presentation':
+        $this->gameScene->cinematicPresentation?->clear();
+        return EventCommandResult::COMPLETED;
+
+      case 'cinematic_music':
+        $musicSession = $this->gameScene->getGame()->audioManager->beginCinematicMusic(
+          CinematicMusicRequest::fromArray($command),
+        );
+
+        if ($musicSession->isReady) {
+          return EventCommandResult::COMPLETED;
+        }
+
+        $lane->yieldFor(
+          $command,
+          ['kind' => 'cinematic_music'],
+          new CinematicMusicOperation($musicSession),
+        );
+        return EventCommandResult::YIELDED;
+
       default:
-        throw new RuntimeException($this->unknownCommandDiagnostic($session, $type));
+        throw new RuntimeException($this->unknownCommandDiagnostic($session, $lane, $type));
     }
   }
 
   /**
    * Builds a fail-closed diagnostic with the deepest command-frame context.
    */
-  protected function unknownCommandDiagnostic(EventExecutionSession $session, string $type): string
+  protected function unknownCommandDiagnostic(
+    EventExecutionSession $session,
+    EventExecutionLane $lane,
+    string $type,
+  ): string
   {
-    $frame = $session->currentFrame();
+    $frame = $lane->currentFrame();
     $details = [
       sprintf('script "%s"', $session->scriptId ?? 'inline script'),
+      sprintf('lane "%s"', $lane->path),
       sprintf('command %d', ($frame?->commandIndex ?? 0) + 1),
       sprintf('frame "%s"', $frame?->label ?? 'unknown'),
     ];
@@ -474,24 +761,95 @@ class EventInterpreter
     );
   }
 
+  /** Builds a controlled diagnostic for any command execution failure. */
+  protected function commandFailureDiagnostic(
+    EventExecutionSession $session,
+    EventExecutionLane $lane,
+    array $command,
+    Throwable $throwable,
+  ): string
+  {
+    $reference = '';
+
+    foreach (['subject', 'npcId', 'actorId', 'animation', 'music', 'sound', 'map', 'troop', 'id'] as $key) {
+      $value = $command[$key] ?? null;
+
+      if (is_scalar($value) && trim(strval($value)) !== '') {
+        $reference = sprintf(', %s "%s"', $key, strval($value));
+        break;
+      }
+    }
+
+    if ($reference === '' && is_array($command['target'] ?? null)) {
+      $target = $command['target'];
+      $kind = trim(strval($target['kind'] ?? 'subject'));
+      $identity = trim(strval($target['id'] ?? $target['npcId'] ?? $target['actorId'] ?? ''));
+      $reference = $identity !== ''
+        ? sprintf(', target %s "%s"', $kind, $identity)
+        : sprintf(', target %s', $kind !== '' ? $kind : 'subject');
+    }
+
+    return sprintf(
+      '%s "%s" failed in lane "%s" at command path "%s" (type "%s"%s): %s',
+      $session->cinematic !== null ? 'Cinematic' : 'Event script',
+      $session->scriptId ?? 'inline script',
+      $lane->path,
+      $lane->commandPath(),
+      strval($command['type'] ?? '(empty)'),
+      $reference,
+      $throwable->getMessage(),
+    );
+  }
+
   /**
    * Updates a command that yielded on a prior tick.
    *
    * @return bool True when the command completed and immediate execution may continue.
    */
-  protected function updatePendingCommand(EventExecutionSession $session, float $deltaSeconds): bool
+  protected function updatePendingCommand(
+    EventExecutionSession $session,
+    EventExecutionLane $lane,
+    float $deltaSeconds,
+  ): bool
   {
-    $type = strval($session->pendingCommand['type'] ?? '');
+    $type = strval($lane->pendingCommand['type'] ?? '');
 
-    if ($type === 'wait') {
-      $remaining = max(0.0, floatval($session->pendingState['remainingSeconds'] ?? 0.0) - $deltaSeconds);
+    if ($type === 'parallel') {
+      $group = $lane->parallelGroup;
 
-      if ($remaining > 0.0) {
-        $session->updatePendingState(['kind' => 'wait', 'remainingSeconds' => $remaining]);
+      if (! $group instanceof EventParallelGroup) {
+        throw new RuntimeException('Parallel continuation is missing its child lanes.');
+      }
+
+      foreach ($group->lanes() as $childLane) {
+        $this->tickLane($session, $childLane, $deltaSeconds);
+
+        if ($childLane->status === EventExecutionStatus::FAILED) {
+          throw new RuntimeException($childLane->failureMessage ?? 'A parallel lane failed.');
+        }
+
+        if ($session->status === EventExecutionStatus::SUSPENDED) {
+          return false;
+        }
+      }
+
+      if (! $group->isComplete()) {
         return false;
       }
 
-      $session->completePendingCommand();
+      $lane->completePendingCommand();
+      return true;
+    }
+
+    if ($type === 'wait') {
+      $remaining = max(0.0, floatval($lane->pendingState['remainingSeconds'] ?? 0.0) - $deltaSeconds);
+
+      if ($remaining > 0.0) {
+        $lane->updatePendingState(['kind' => 'wait', 'remainingSeconds' => $remaining]);
+        return false;
+      }
+
+      $lane->completePendingCommand();
       return true;
     }
 
@@ -504,7 +862,8 @@ class EventInterpreter
       }
 
       $this->presentation->reset();
-      $session->completePendingCommand();
+      $session->releasePresentation($lane);
+      $lane->completePendingCommand();
       return true;
     }
 
@@ -518,17 +877,18 @@ class EventInterpreter
 
       $chosen = $this->presentation->choiceResult();
       $this->presentation->reset();
-      $options = array_values(array_filter((array) ($session->pendingCommand['options'] ?? []), is_array(...)));
+      $session->releasePresentation($lane);
+      $options = array_values(array_filter((array) ($lane->pendingCommand['options'] ?? []), is_array(...)));
 
       // Preserve the old SelectModal contract when no cancel arm is authored,
       // while allowing story-critical choices to acknowledge cancellation and
       // restore a clear retry path without treating it as a selection.
       if ($chosen === -1) {
-        $commands = array_values(array_filter((array) ($session->pendingCommand['cancel'] ?? []), is_array(...)));
-        $session->completePendingCommand();
+        $commands = array_values(array_filter((array) ($lane->pendingCommand['cancel'] ?? []), is_array(...)));
+        $lane->completePendingCommand();
 
         if ($commands !== []) {
-          $session->pushFrame($commands, 'choice:cancel');
+          $lane->pushFrame($commands, 'choice:cancel');
         }
 
         return true;
@@ -539,22 +899,17 @@ class EventInterpreter
       }
 
       $commands = array_values(array_filter((array) ($options[$chosen]['then'] ?? []), is_array(...)));
-      $session->completePendingCommand();
-      $session->pushFrame($commands, sprintf('choice:%d', $chosen));
+      $lane->completePendingCommand();
+      $lane->pushFrame($commands, sprintf('choice:%d', $chosen));
       return true;
     }
 
-    if ($type === 'move_route') {
-      if (! $this->pendingRoute instanceof MovementRouteRunner) {
-        throw new RuntimeException('Movement-route continuation is missing.');
-      }
-
-      if (! $this->pendingRoute->update($deltaSeconds)) {
+    if ($lane->pendingOperation instanceof EventPendingOperationInterface) {
+      if (! $lane->pendingOperation->update($deltaSeconds)) {
         return false;
       }
 
-      $this->pendingRoute = null;
-      $session->completePendingCommand();
+      $lane->completePendingCommand();
       return true;
     }
 
@@ -566,6 +921,11 @@ class EventInterpreter
     $session = $this->activeSession;
 
     if ($session === null) {
+      return;
+    }
+
+    if (! $session->claimCompletion()) {
+      $this->fail('Event session attempted duplicate completion.');
       return;
     }
 
@@ -591,8 +951,8 @@ class EventInterpreter
     }
 
     $this->presentation->reset();
-    $this->pendingRoute = null;
-    $this->frameToPush = null;
+    $this->gameScene->cinematicPresentation?->clear();
+    $session->cancelLanes();
     $session->fail($message);
     Debug::error($message);
 

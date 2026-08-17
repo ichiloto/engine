@@ -28,7 +28,10 @@ final class AnimationPlayer
    */
   public function play(Animation $animation, callable $renderFrame): void
   {
-    for ($frameIndex = 1; $frameIndex <= $animation->maxFrames; $frameIndex++) {
+    $session = new AnimationPlaybackSession($animation, $this->secondsPerFrame);
+
+    while (! $session->isComplete) {
+      $frameIndex = $session->currentFrame;
       $renderFrame(
         $frameIndex,
         $animation->getFrame($frameIndex),
@@ -36,6 +39,7 @@ final class AnimationPlayer
       );
 
       usleep(intval(round($this->secondsPerFrame * 1000000)));
+      $session->update($this->secondsPerFrame);
     }
   }
 }

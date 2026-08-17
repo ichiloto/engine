@@ -184,6 +184,11 @@ class MapManager implements CanRenderAt
       return false;
     }
 
+    if ($this->gameScene->cinematicStage?->actorAt($x, $y) !== null) {
+      $collisionType = CollisionType::NPC;
+      return false;
+    }
+
     $collisionType = $this->getCollision($x, $y);
     return !in_array($collisionType, [CollisionType::SOLID, CollisionType::NPC]);
   }
@@ -500,6 +505,10 @@ class MapManager implements CanRenderAt
    */
   public function scrollMap(Player $player, Vector2 $moveDirection): bool
   {
+    if (! $this->camera->followsPlayer) {
+      return false;
+    }
+
     $didScroll = false;
     $horizontalFocus = $this->camera->getHorizontalFocusPosition();
     $verticalFocus = $this->camera->getVerticalFocusPosition();

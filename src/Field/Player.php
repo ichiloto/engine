@@ -653,6 +653,20 @@ class Player extends GameObject
     $this->announcedBlockedEvents = [];
   }
 
+  /** Returns the top-left position of a stable current-map event marker. */
+  public function findEventMarkerPosition(string $marker): ?Vector2
+  {
+    $marker = trim($marker);
+
+    foreach ($this->events as $event) {
+      if ($event->marker === $marker) {
+        return new Vector2($event->area->getX(), $event->area->getY());
+      }
+    }
+
+    return null;
+  }
+
   /**
    * Renders authored cues for available, incomplete map events.
    *

@@ -58,8 +58,11 @@ class FieldState extends GameSceneState
         $this->getGameScene()->mapManager->render();
         $this->getGameScene()->player->renderEventCues();
         $this->getGameScene()->npcManager?->render();
+        $this->getGameScene()->cinematicStage?->render();
         $this->getGameScene()->player->render();
         $this->getGameScene()->locationHUDWindow->render();
+        $this->getGameScene()->cinematicPresentation?->render();
+        $this->getGameScene()->eventInterpreter?->renderPresentation();
     }
 
     /**
@@ -81,7 +84,17 @@ class FieldState extends GameSceneState
         // once, then the frame returns without reopening actions or moving
         // the player underneath it.
         if ($scene->hasUnstableEventSession()) {
+            if ($scene->cinematicController?->active() !== null
+                && (Input::isButtonDown('cancel') || Input::isButtonDown('back'))
+            ) {
+                $scene->skipCinematic();
+            }
+
             $scene->updateEventSession(Time::getDeltaTime());
+
+            if ($scene->cinematicController?->active() !== null) {
+                $this->renderTheField();
+            }
             return;
         }
 

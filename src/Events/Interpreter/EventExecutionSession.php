@@ -2,38 +2,32 @@
 
 namespace Ichiloto\Engine\Events\Interpreter;
 
-/**
- * The explicit, in-memory continuation for one event script.
- *
- * Sessions deliberately contain no serialized callback or save payload.
- * Save surfaces reject an active session and return to the last stable save.
- */
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
+
+/** The explicit, non-serializable continuation for one event script. */
 final class EventExecutionSession
 {
   protected static int $nextId = 0;
-
-  /** @var EventExecutionFrame[] The nested command frames. */
-  protected array $frames = [];
-
-  /** @var array<string, mixed>|null The command currently waiting or suspended. */
-  protected(set) ?array $pendingCommand = null;
-
-  /** @var array<string, mixed> Plain diagnostic/runtime state for the pending command. */
-  protected(set) array $pendingState = [];
+  protected EventExecutionLane $rootLane;
+  protected ?EventExecutionLane $suspendedLane = null;
+  protected ?string $presentationOwner = null;
 
   protected(set) EventExecutionStatus $status = EventExecutionStatus::RUNNING;
   protected(set) ?string $failureMessage = null;
-
-  /** @var array<string, scalar|null> Plain authoring origin used in diagnostics. */
   protected(set) array $origin = [];
+  protected(set) array $checkpoints = [];
+  protected(set) bool $completionWasClaimed = false;
+  protected(set) bool $isFinalizing = false;
+  protected(set) ?CinematicDefinition $cinematic = null;
 
-  /**
-   * @param array<int, array<string, mixed>> $commands The root command list.
-   * @param string|null $scriptId Stable script identity when one exists.
-   * @param EventSessionCompletionTargetInterface|null $completionTarget The
-   * trigger or NPC whose completion work runs after the final command.
-   * @param array<string, scalar|null> $origin Plain authoring origin metadata.
-   */
+  public ?array $pendingCommand {
+    get => ($this->suspendedLane ?? $this->rootLane)->pendingCommand;
+  }
+
+  public array $pendingState {
+    get => ($this->suspendedLane ?? $this->rootLane)->pendingState;
+  }
+
   public function __construct(
     array $commands,
     protected(set) ?string $scriptId = null,
@@ -43,116 +37,185 @@ final class EventExecutionSession
   {
     $this->id = ++self::$nextId;
     $this->origin = $origin;
-    $this->frames[] = new EventExecutionFrame($commands, $scriptId ?? 'inline script');
+    $this->rootLane = new EventExecutionLane($commands, 'root', $scriptId ?? 'inline script');
   }
 
   protected(set) int $id;
 
-  /** @return EventExecutionFrame[] The current frame stack. */
+  public function rootLane(): EventExecutionLane
+  {
+    return $this->rootLane;
+  }
+
+  /** @return EventExecutionFrame[] */
   public function frames(): array
   {
-    return $this->frames;
+    return $this->rootLane->frames();
   }
 
   public function currentFrame(): ?EventExecutionFrame
   {
-    $this->discardCompletedFrames();
-
-    return $this->frames[array_key_last($this->frames)] ?? null;
+    return $this->rootLane->currentFrame();
   }
 
-  /** @return array<string, mixed>|null The current command. */
   public function currentCommand(): ?array
   {
-    return $this->currentFrame()?->currentCommand();
+    return $this->rootLane->currentCommand();
   }
 
   public function advance(): void
   {
-    $this->currentFrame()?->advance();
-    $this->discardCompletedFrames();
+    $this->rootLane->advance();
   }
 
-  /** @param array<int, array<string, mixed>> $commands The nested arm. */
   public function pushFrame(array $commands, string $label): void
   {
-    if ($commands !== []) {
-      $this->frames[] = new EventExecutionFrame($commands, $label);
-    }
+    $this->rootLane->pushFrame($commands, $label);
   }
 
-  /**
-   * @param array<string, mixed> $command The waiting command.
-   * @param array<string, mixed> $state Its plain pending state.
-   */
   public function yieldFor(array $command, array $state = []): void
   {
-    $this->pendingCommand = $command;
-    $this->pendingState = $state;
-    $this->status = EventExecutionStatus::YIELDED;
+    $this->rootLane->yieldFor($command, $state);
+    $this->refreshStatus();
   }
 
-  /**
-   * @param array<string, mixed> $command The suspending command.
-   * @param array<string, mixed> $state Its plain suspension state.
-   */
   public function suspendFor(array $command, array $state = []): void
   {
-    $this->pendingCommand = $command;
-    $this->pendingState = $state;
+    $this->suspendLane($this->rootLane, $command, $state);
+  }
+
+  public function suspendLane(EventExecutionLane $lane, array $command, array $state = []): void
+  {
+    if ($this->suspendedLane !== null && $this->suspendedLane !== $lane) {
+      throw new \RuntimeException('An event session cannot suspend two lanes at once.');
+    }
+
+    $lane->suspendFor($command, $state);
+    $this->suspendedLane = $lane;
     $this->status = EventExecutionStatus::SUSPENDED;
   }
 
   public function resumePendingCommand(): void
   {
-    $this->status = EventExecutionStatus::YIELDED;
+    if ($this->suspendedLane !== null) {
+      $this->status = EventExecutionStatus::YIELDED;
+    }
   }
 
   public function completePendingCommand(): void
   {
-    $this->pendingCommand = null;
-    $this->pendingState = [];
+    $lane = $this->suspendedLane ?? $this->rootLane;
+    $lane->completePendingCommand();
+    $this->suspendedLane = null;
     $this->status = EventExecutionStatus::RUNNING;
-    $this->advance();
+    $this->refreshStatus();
   }
 
   public function updatePendingState(array $state): void
   {
-    $this->pendingState = $state;
+    ($this->suspendedLane ?? $this->rootLane)->updatePendingState($state);
   }
 
   public function complete(): void
   {
-    $this->pendingCommand = null;
-    $this->pendingState = [];
+    $this->rootLane->complete();
     $this->status = EventExecutionStatus::COMPLETED;
   }
 
   public function fail(string $message): void
   {
     $this->failureMessage = $message;
-    $this->pendingCommand = null;
-    $this->pendingState = [];
+    $this->rootLane->fail($message);
     $this->status = EventExecutionStatus::FAILED;
+  }
+
+  public function cancelLanes(): void
+  {
+    $this->rootLane->cancel();
+    $this->suspendedLane = null;
+    $this->presentationOwner = null;
   }
 
   public function hasFinishedFrames(): bool
   {
-    $this->discardCompletedFrames();
-
-    return $this->frames === [];
+    return $this->rootLane->hasFinishedFrames();
   }
 
-  protected function discardCompletedFrames(): void
+  public function claimPresentation(EventExecutionLane $lane): void
   {
-    while ($this->frames !== []) {
-      $frame = $this->frames[array_key_last($this->frames)];
-
-      if (! $frame->isComplete()) {
-        return;
-      }
-
-      array_pop($this->frames);
+    if ($this->presentationOwner !== null && $this->presentationOwner !== $lane->path) {
+      throw new \RuntimeException(sprintf(
+        'Presentation is already owned by lane "%s"; lane "%s" cannot open another modal.',
+        $this->presentationOwner,
+        $lane->path,
+      ));
     }
+
+    $this->presentationOwner = $lane->path;
+  }
+
+  public function releasePresentation(EventExecutionLane $lane): void
+  {
+    if ($this->presentationOwner === $lane->path) {
+      $this->presentationOwner = null;
+    }
+  }
+
+  public function recordCheckpoint(string $name): void
+  {
+    $name = trim($name);
+
+    if ($name !== '' && ! in_array($name, $this->checkpoints, true)) {
+      $this->checkpoints[] = $name;
+    }
+  }
+
+  public function claimCompletion(): bool
+  {
+    if ($this->completionWasClaimed) {
+      return false;
+    }
+
+    $this->completionWasClaimed = true;
+    return true;
+  }
+
+  public function beginFinalizer(): void
+  {
+    $this->isFinalizing = true;
+  }
+
+  public function configureCinematic(CinematicDefinition $cinematic): void
+  {
+    $this->cinematic = $cinematic;
+  }
+
+  /** Starts the always-run finalizer once, returning whether it was started. */
+  public function startFinalizerIfNeeded(): bool
+  {
+    if ($this->cinematic === null || $this->isFinalizing || $this->cinematic->finalizer === []) {
+      return false;
+    }
+
+    $this->cancelLanes();
+    $this->isFinalizing = true;
+    $this->status = EventExecutionStatus::RUNNING;
+    $this->rootLane = new EventExecutionLane(
+      $this->cinematic->finalizer,
+      'root/finalizer',
+      sprintf('cinematic:%s:finalizer', $this->cinematic->id),
+    );
+    return true;
+  }
+
+  public function refreshStatus(): void
+  {
+    if (in_array($this->status, [EventExecutionStatus::COMPLETED, EventExecutionStatus::FAILED, EventExecutionStatus::SUSPENDED], true)) {
+      return;
+    }
+
+    $this->status = $this->rootLane->status === EventExecutionStatus::YIELDED
+      ? EventExecutionStatus::YIELDED
+      : EventExecutionStatus::RUNNING;
   }
 }

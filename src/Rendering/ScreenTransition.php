@@ -111,6 +111,22 @@ class ScreenTransition
     }
   }
 
+  public function session(string $direction = 'out'): ScreenTransitionSession
+  {
+    $frames = $this->frames();
+
+    if (strtolower($direction) === 'in') {
+      $frames = array_reverse($frames);
+    }
+
+    return new ScreenTransitionSession($this, $frames);
+  }
+
+  public function renderFrame(string $fill, int $columns): void
+  {
+    $this->drawFrame($fill, $columns);
+  }
+
   /**
    * Draws each frame in turn, pausing between them.
    *
@@ -142,6 +158,14 @@ class ScreenTransition
    */
   protected function frames(): array
   {
+    // Disabled and reduced-motion transitions are true no-ops. Avoid asking
+    // the terminal for dimensions when no frame can ever be rendered; this
+    // also keeps headless and pre-screen cinematic hosts independent of
+    // PlaySettings.
+    if (! $this->isEnabled()) {
+      return [];
+    }
+
     $width = get_screen_width();
 
     if ($this->style === TransitionStyle::WIPE) {
