@@ -48,6 +48,7 @@ final class CinematicScriptValidator
         'parallel' => self::validateParallel($command, $cinematicId, $commandPath),
         'branch' => self::validateBranch($command, $cinematicId, $commandPath),
         'choice' => self::validateChoice($command, $cinematicId, $commandPath),
+        'move_route' => self::validateMoveRoute($command, $cinematicId, $commandPath),
         'camera' => self::validateCamera($command, $cinematicId, $commandPath),
         'stage_actor' => self::validateStagedActor(
           is_array($command['actor'] ?? null) ? $command['actor'] : $command,
@@ -285,12 +286,20 @@ final class CinematicScriptValidator
   }
 
   /** @param array<string, mixed> $command */
-  protected static function validateCinematicMusic(array $command, string $cinematicId, string $path): void
+  public static function validateCinematicMusic(array $command, string $cinematicId, string $path): void
   {
     $track = trim(strval($command['track'] ?? $command['music'] ?? ''));
 
     if ($track === '') {
       throw self::failure($cinematicId, $path, 'cinematic music track is required.');
+    }
+
+    if (array_key_exists('loop', $command) && ! is_bool($command['loop'])) {
+      throw self::failure($cinematicId, $path, 'cinematic music loop must be boolean.');
+    }
+
+    if (array_key_exists('restorePreviousMusic', $command) && ! is_bool($command['restorePreviousMusic'])) {
+      throw self::failure($cinematicId, $path, 'restorePreviousMusic must be boolean.');
     }
 
     self::validateOptionalDuration($command, ['fadeIn', 'fadeOut'], $cinematicId, $path);
@@ -300,6 +309,68 @@ final class CinematicScriptValidator
 
     if (! in_array($behavior, CinematicCommandSchema::MUSIC_COMPLETION_BEHAVIORS, true)) {
       throw self::failure($cinematicId, $path, sprintf('unsupported music completion behavior "%s".', $behavior));
+    }
+  }
+
+  /** @param array<string, mixed> $command */
+  protected static function validateMoveRoute(array $command, string $cinematicId, string $path): void
+  {
+    $subject = strtolower(trim(strval($command['subject'] ?? 'player')));
+
+    if (! in_array($subject, ['player', 'npc', 'staged_actor'], true)) {
+      throw self::failure($cinematicId, $path, sprintf('unsupported movement-route subject "%s".', $subject));
+    }
+
+    if ($subject === 'npc') {
+      self::validateStableReference($command, 'npcId', $cinematicId, $path);
+    }
+
+    if ($subject === 'staged_actor') {
+      self::validateStableReference($command, 'actorId', $cinematicId, $path);
+    }
+
+    if (array_key_exists('wait', $command) && $command['wait'] !== true) {
+      throw self::failure($cinematicId, $path, 'movement-route wait must be true.');
+    }
+
+    self::validateOptionalDuration($command, ['secondsPerStep'], $cinematicId, $path);
+
+    if (array_key_exists('speed', $command)
+      && (! is_numeric($command['speed']) || floatval($command['speed']) <= 0.0)
+    ) {
+      throw self::failure($cinematicId, $path, 'movement-route speed must be greater than zero.');
+    }
+
+    $steps = $command['steps'] ?? null;
+
+    if (! is_array($steps) || ! array_is_list($steps) || $steps === []) {
+      throw self::failure($cinematicId, "$path/steps", 'movement-route steps must be a non-empty list.');
+    }
+
+    foreach ($steps as $index => $step) {
+      $stepPath = sprintf('%s/steps[%d]', $path, $index + 1);
+
+      if (! is_array($step) || array_is_list($step)) {
+        throw self::failure($cinematicId, $stepPath, 'movement-route step must be a keyed array.');
+      }
+
+      $direction = strtolower(trim(strval($step['direction'] ?? '')));
+
+      if (! in_array($direction, ['up', 'down', 'left', 'right'], true)) {
+        throw self::failure($cinematicId, $stepPath, sprintf('unsupported direction "%s".', $direction));
+      }
+
+      $count = $step['count'] ?? 1;
+
+      if (! is_int($count) || $count < 0) {
+        throw self::failure($cinematicId, $stepPath, 'count must be a non-negative integer.');
+      }
+
+      if (array_key_exists('faceOnly', $step) && ! is_bool($step['faceOnly'])) {
+        throw self::failure($cinematicId, $stepPath, 'faceOnly must be boolean.');
+      }
+
+      self::validateOptionalDuration($step, ['seconds'], $cinematicId, $stepPath);
     }
   }
 

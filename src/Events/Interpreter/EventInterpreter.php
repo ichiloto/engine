@@ -9,6 +9,7 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicCommandSchema;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicScriptValidator;
 use Ichiloto\Engine\Cutscenes\Cinematics\CameraOperation;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicSubjectResolver;
 use Ichiloto\Engine\Cutscenes\Cinematics\FieldAnimationOperation;
@@ -88,6 +89,7 @@ class EventInterpreter
     ?string $scriptId = null,
     ?EventSessionCompletionTargetInterface $completionTarget = null,
     array $origin = [],
+    bool $strictCommands = false,
   ): ?EventExecutionSession
   {
     if ($this->activeSession !== null) {
@@ -99,7 +101,11 @@ class EventInterpreter
       return null;
     }
 
-    $commands = array_values(array_filter($commands, is_array(...)));
+    if ($strictCommands) {
+      CinematicScriptValidator::validate($commands, $scriptId ?? 'cinematic');
+    } else {
+      $commands = array_values(array_filter($commands, is_array(...)));
+    }
     $origin['map'] ??= $this->gameScene->currentMapId !== ''
       ? $this->gameScene->currentMapId
       : null;
@@ -120,6 +126,7 @@ class EventInterpreter
       $cinematic->id,
       $completionTarget,
       ['map' => $this->gameScene->currentMapId, 'source' => 'cinematic:' . $cinematic->id],
+      strictCommands: true,
     );
 
     if ($session !== null) {
@@ -281,6 +288,11 @@ class EventInterpreter
       return false;
     }
 
+    if ($session->isFinalizing) {
+      Debug::warn(sprintf('Cinematic "%s" skip was ignored because its finalizer is already active.', $session->cinematic->id));
+      return false;
+    }
+
     if ($session->status === EventExecutionStatus::SUSPENDED
       && strval($session->pendingCommand['type'] ?? '') === 'start_battle'
     ) {
@@ -289,8 +301,11 @@ class EventInterpreter
     }
 
     $this->presentation->reset();
-    $session->cancelLanes();
-    $session->startFinalizerIfNeeded();
+
+    if (! $session->startFinalizerIfNeeded()) {
+      Debug::warn(sprintf('Cinematic "%s" finalizer could not be started.', $session->cinematic->id));
+      return false;
+    }
 
     try {
       $this->tickLane($session, $session->rootLane(), 0.0);
@@ -349,7 +364,7 @@ class EventInterpreter
         return EventCommandResult::YIELDED;
 
       case 'choice':
-        $options = array_values(array_filter((array) ($command['options'] ?? []), is_array(...)));
+        $options = $this->commandList($session, $command['options'] ?? [], 'choice/options');
 
         if ($options === []) {
           return EventCommandResult::COMPLETED;
@@ -476,7 +491,10 @@ class EventInterpreter
         $session->suspendLane($lane, $command, ['kind' => 'transfer']);
         $spawn = new Vector2($destinationX, $destinationY);
         $sprite = (array) ($command['sprite'] ?? ($this->gameScene->player?->sprite ?? ['@']));
-        $this->gameScene->transferPlayer(new Location($destinationMap, $spawn, $sprite));
+        $this->gameScene->transferPlayer(
+          new Location($destinationMap, $spawn, $sprite),
+          useConfiguredTransition: $session->cinematic === null,
+        );
         return EventCommandResult::SUSPENDED;
 
       case 'start_battle':
@@ -530,12 +548,13 @@ class EventInterpreter
 
       case 'branch':
         $holds = $this->conditionsHold((array) ($command['conditions'] ?? []));
-        $commands = array_values(array_filter((array) ($command[$holds ? 'then' : 'else'] ?? []), is_array(...)));
+        $arm = $holds ? 'then' : 'else';
+        $commands = $this->commandList($session, $command[$arm] ?? [], "branch/$arm");
         $lane->queueFrame($commands, sprintf('branch:%s', $holds ? 'then' : 'else'));
         return EventCommandResult::COMPLETED;
 
       case 'sequence':
-        $commands = array_values(array_filter((array) ($command['commands'] ?? []), is_array(...)));
+        $commands = $this->commandList($session, $command['commands'] ?? [], 'sequence/commands');
         $lane->queueFrame($commands, 'sequence');
         return EventCommandResult::COMPLETED;
 
@@ -574,7 +593,17 @@ class EventInterpreter
           throw new RuntimeException(sprintf('Common Event "%s" must return a command array.', $eventId));
         }
 
-        $lane->queueFrame(array_values(array_filter($commands, is_array(...))), "common_event:$eventId");
+        if ($session->cinematic !== null) {
+          CinematicScriptValidator::validate(
+            $commands,
+            sprintf('%s:common_event:%s', $session->cinematic->id, $eventId),
+          );
+          $commonEventCommands = $commands;
+        } else {
+          $commonEventCommands = array_values(array_filter($commands, is_array(...)));
+        }
+
+        $lane->queueFrame($commonEventCommands, "common_event:$eventId");
         return EventCommandResult::COMPLETED;
 
       case 'checkpoint':
@@ -878,13 +907,13 @@ class EventInterpreter
       $chosen = $this->presentation->choiceResult();
       $this->presentation->reset();
       $session->releasePresentation($lane);
-      $options = array_values(array_filter((array) ($lane->pendingCommand['options'] ?? []), is_array(...)));
+      $options = $this->commandList($session, $lane->pendingCommand['options'] ?? [], 'choice/options');
 
       // Preserve the old SelectModal contract when no cancel arm is authored,
       // while allowing story-critical choices to acknowledge cancellation and
       // restore a clear retry path without treating it as a selection.
       if ($chosen === -1) {
-        $commands = array_values(array_filter((array) ($lane->pendingCommand['cancel'] ?? []), is_array(...)));
+        $commands = $this->commandList($session, $lane->pendingCommand['cancel'] ?? [], 'choice/cancel');
         $lane->completePendingCommand();
 
         if ($commands !== []) {
@@ -898,7 +927,7 @@ class EventInterpreter
         throw new RuntimeException('Event choice was cancelled without selecting an option.');
       }
 
-      $commands = array_values(array_filter((array) ($options[$chosen]['then'] ?? []), is_array(...)));
+      $commands = $this->commandList($session, $options[$chosen]['then'] ?? [], sprintf('choice/options[%d]/then', $chosen));
       $lane->completePendingCommand();
       $lane->pushFrame($commands, sprintf('choice:%d', $chosen));
       return true;
@@ -975,5 +1004,39 @@ class EventInterpreter
       $this->gameScene->gameState,
       $this->gameScene->party,
     );
+  }
+
+  /**
+   * Keeps historical event scripts permissive while cinematic command trees
+   * fail closed instead of silently dropping malformed nested entries.
+   *
+   * @return array<int, array<string, mixed>>
+   */
+  protected function commandList(EventExecutionSession $session, mixed $commands, string $path): array
+  {
+    if ($session->cinematic === null) {
+      return array_values(array_filter((array) $commands, is_array(...)));
+    }
+
+    if (! is_array($commands) || ! array_is_list($commands)) {
+      throw new RuntimeException(sprintf(
+        'Cinematic "%s" command path "%s" must be a command list.',
+        $session->cinematic->id,
+        $path,
+      ));
+    }
+
+    foreach ($commands as $index => $command) {
+      if (! is_array($command) || array_is_list($command)) {
+        throw new RuntimeException(sprintf(
+          'Cinematic "%s" command path "%s[%d]" must be a keyed command array.',
+          $session->cinematic->id,
+          $path,
+          $index + 1,
+        ));
+      }
+    }
+
+    return $commands;
   }
 }

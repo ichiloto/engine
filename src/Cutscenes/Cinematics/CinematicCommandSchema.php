@@ -50,7 +50,25 @@ final class CinematicCommandSchema
   public const array SKIP_POLICIES = ['forbidden', 'authored'];
   public const array FINALIZER_COMMAND_TYPES = [
     'set_switch', 'set_variable', 'record_event', 'move_player', 'transfer',
-    'camera', 'remove_actor', 'clear_presentation', 'cinematic_music', 'checkpoint',
+    'camera', 'remove_actor', 'clear_presentation', 'cinematic_music',
+  ];
+  public const array UNSAFE_AUTHORED_SKIP_COMMAND_TYPES = [
+    'start_battle', 'give_item', 'give_gold', 'accept_quest', 'recover_party', 'knowledge',
+  ];
+  public const string AUTHORED_SKIP_COMMON_EVENT_POLICY = 'reject';
+  public const array FINALIZER_COMMAND_SHAPES = [
+    'set_switch' => ['required' => ['name' => 'non-empty string', 'value' => 'bool']],
+    'set_variable' => ['required' => ['name' => 'non-empty string', 'value' => 'int|float|string'], 'optional' => ['op' => 'set']],
+    'record_event' => ['required' => ['name' => 'stable event identity']],
+    'move_player' => ['required' => ['x' => 'int', 'y' => 'int']],
+    'transfer' => ['required' => ['map' => 'non-empty string', 'x' => 'int', 'y' => 'int'], 'optional' => ['sprite' => 'string|string[]']],
+    'camera' => ['required' => ['operation' => 'attach|reset']],
+    'remove_actor' => ['required' => ['actorId|id' => 'non-empty string']],
+    'clear_presentation' => ['required' => []],
+    'cinematic_music' => [
+      'required' => ['track' => 'non-empty string', 'loop' => 'bool', 'completionBehavior|restorePreviousMusic' => 'explicit completion policy'],
+      'optional' => ['fadeIn' => 'non-negative number', 'fadeOut' => 'non-negative number'],
+    ],
   ];
   public const array MUSIC_COMPLETION_BEHAVIORS = ['continue', 'stop', 'restore_previous'];
   public const array CINEMATIC_MUSIC_FIELDS = [
@@ -73,7 +91,7 @@ final class CinematicCommandSchema
     'isPaused', 'isCompleted', 'isLooping', 'traversal',
   ];
 
-  /** @return array<string, array<int, string>> */
+  /** @return array<string, mixed> */
   public static function export(): array
   {
     return [
@@ -86,6 +104,9 @@ final class CinematicCommandSchema
       'stagedActorFields' => self::STAGED_ACTOR_FIELDS,
       'skipPolicies' => self::SKIP_POLICIES,
       'finalizerCommandTypes' => self::FINALIZER_COMMAND_TYPES,
+      'finalizerCommandShapes' => self::FINALIZER_COMMAND_SHAPES,
+      'unsafeAuthoredSkipCommandTypes' => self::UNSAFE_AUTHORED_SKIP_COMMAND_TYPES,
+      'authoredSkipCommonEventPolicy' => self::AUTHORED_SKIP_COMMON_EVENT_POLICY,
       'musicCompletionBehaviors' => self::MUSIC_COMPLETION_BEHAVIORS,
       'cinematicMusicFields' => self::CINEMATIC_MUSIC_FIELDS,
       'summonDefinitionFields' => self::SUMMON_DEFINITION_FIELDS,

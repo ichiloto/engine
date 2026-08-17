@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Cutscenes\Cinematics;
 
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use RuntimeException;
@@ -13,6 +14,7 @@ final class CinematicStageManager
 {
   /** @var array<string, StagedActor> */
   protected array $actors = [];
+  protected(set) ?string $lastMoveFailure = null;
 
   public function __construct(protected GameScene $gameScene)
   {
@@ -123,6 +125,7 @@ final class CinematicStageManager
   public function move(string $id, Vector2 $direction, bool $faceOnly = false): bool
   {
     $actor = $this->require($id);
+    $this->lastMoveFailure = null;
     $actor->face($direction);
 
     if ($faceOnly) {
@@ -133,11 +136,47 @@ final class CinematicStageManager
     $y = intval($actor->position->y + $direction->y);
     $player = $this->gameScene->player;
 
-    if (! $this->gameScene->mapManager->canMoveTo($x, $y)
-      || $this->actorAt($x, $y, $id) !== null
-      || ($player !== null && intval($player->position->x) === $x && intval($player->position->y) === $y)
-    ) {
-      return false;
+    // Non-colliding actors are presentation-only. Their authored routes may
+    // cross terrain and occupied tiles (and may briefly leave map bounds)
+    // without affecting field passability.
+    if ($actor->hasCollision) {
+      $blocker = null;
+
+      if ($player !== null && intval($player->position->x) === $x && intval($player->position->y) === $y) {
+        $blocker = 'the player';
+      }
+
+      $npc = $this->gameScene->npcManager?->npcAt($x, $y);
+
+      if ($blocker === null && $npc !== null) {
+        $identity = $npc->id ?? $npc->name;
+        $blocker = sprintf('visible NPC "%s"', $identity);
+      }
+
+      $stagedActor = $this->actorAt($x, $y, $id);
+
+      if ($blocker === null && $stagedActor !== null) {
+        $blocker = sprintf('visible collidable staged actor "%s"', $stagedActor->id);
+      }
+
+      $collisionType = null;
+
+      if ($blocker === null && ! $this->gameScene->mapManager->canMoveTo($x, $y, $collisionType)) {
+        $blocker = $collisionType instanceof CollisionType
+          ? sprintf('map collision "%s"', strtolower($collisionType->name))
+          : 'map bounds or undefined terrain';
+      }
+
+      if ($blocker !== null) {
+        $this->lastMoveFailure = sprintf(
+          'Staged actor "%s" cannot move to (%d, %d): blocked by %s.',
+          $id,
+          $x,
+          $y,
+          $blocker,
+        );
+        return false;
+      }
     }
 
     $actor->position->x = $x;

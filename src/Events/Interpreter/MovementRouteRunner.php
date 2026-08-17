@@ -234,15 +234,19 @@ final class MovementRouteRunner implements EventPendingOperationInterface
       'staged_actor' => sprintf('staged actor "%s"', strval($this->command['actorId'] ?? '')),
       default => 'player',
     };
+    $blockerDetail = $subject === 'staged_actor'
+      ? $this->gameScene->cinematicStage?->lastMoveFailure
+      : null;
 
     throw new MovementRouteException(sprintf(
-      'Movement route failed on map "%s": %s step %d (%s) was blocked at (%d, %d).',
+      'Movement route failed on map "%s": %s step %d (%s) was blocked at (%d, %d).%s',
       $this->gameScene->currentMapId,
       $subjectLabel,
       $this->stepIndex + 1,
       $directionName,
       $attemptedX,
       $attemptedY,
+      $blockerDetail !== null ? ' ' . $blockerDetail : '',
     ));
   }
 

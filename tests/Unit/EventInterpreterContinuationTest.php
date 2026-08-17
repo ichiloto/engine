@@ -238,7 +238,12 @@ class EventTestMapManager extends MapManager
 
   public function canMoveTo(int $x, int $y, ?\Ichiloto\Engine\Events\Enumerations\CollisionType &$collisionType = null): bool
   {
-    return ! isset($this->blocked["{$x}:{$y}"]);
+    if (isset($this->blocked["{$x}:{$y}"])) {
+      $collisionType = \Ichiloto\Engine\Events\Enumerations\CollisionType::SOLID;
+      return false;
+    }
+
+    return true;
   }
 
   public function scrollMap(Player $player, Vector2 $moveDirection): bool
@@ -340,6 +345,9 @@ class EventTestGameScene extends GameScene
   public array $finished = [];
   public array $restoredTiles = [];
   public int $transferCount = 0;
+  public array $configuredTransferTransitions = [];
+  public array $cinematicCoverAtTransfer = [];
+  public bool $autoResumeTransfers = true;
 
   public function __construct(public EventTestSceneManager $testSceneManager = new EventTestSceneManager())
   {
@@ -391,12 +399,17 @@ class EventTestGameScene extends GameScene
     $this->hasDeferredAutoSave = true;
   }
 
-  public function transferPlayer(Location $location): void
+  public function transferPlayer(Location $location, bool $useConfiguredTransition = true): void
   {
     $this->transferCount++;
+    $this->configuredTransferTransitions[] = $useConfiguredTransition;
+    $this->cinematicCoverAtTransfer[] = $this->cinematicPresentation?->hasTransitionCover() ?? false;
     $this->cinematicStage?->clear();
     $this->currentMapId = $location->mapFilename;
-    $this->eventInterpreter?->resumeAfterTransfer();
+
+    if ($this->autoResumeTransfers) {
+      $this->eventInterpreter?->resumeAfterTransfer();
+    }
     $this->autoSave();
   }
 
@@ -1672,7 +1685,7 @@ it('uses the same authored finalizer for skips before and after transfer', funct
   'after transfer' => 'after_transfer',
 ]);
 
-it('skips safely during dialogue and refuses an active battle boundary', function () {
+it('skips safely during dialogue and rejects authored skipping across a battle boundary', function () {
   [$scene, $interpreter, $presentation] = makeEventRuntime();
   $scene->installPlayer(new EventTestPlayer(new Vector2(1, 1)));
   $scene->installCinematicRuntime();
@@ -1698,15 +1711,7 @@ it('skips safely during dialogue and refuses an active battle boundary', functio
     ->and($scene->gameState->getSwitch('dialogue_finalized'))->toBeTrue()
     ->and($scene->gameState->getSwitch('dialogue_should_not_continue'))->toBeFalse();
 
-  $root = sys_get_temp_dir() . '/cinematic-battle-skip-' . uniqid();
-  mkdir($root . '/assets/Data', 0o777, true);
-  file_put_contents($root . '/assets/Data/troops.php', "<?php\nreturn [['name' => 'Boundary Troop', 'enemies' => []]];\n");
-  $previousDirectory = getcwd();
-  chdir($root);
-  ConfigStore::put(EnemyStore::class, (new ReflectionClass(EnemyStore::class))->newInstanceWithoutConstructor());
-
-  try {
-    $battle = CinematicDefinition::fromArrays([
+  expect(fn() => CinematicDefinition::fromArrays([
       'id' => 'battle-boundary',
       'name' => 'Battle Boundary',
       'skip' => ['policy' => 'authored'],
@@ -1715,22 +1720,90 @@ it('skips safely during dialogue and refuses an active battle boundary', functio
       'type' => 'start_battle',
       'troop' => 'Boundary Troop',
       'defeatPolicy' => 'continue',
-    ]]);
-    $battleSession = $scene->cinematicController?->start($battle);
+    ]]))->toThrow(InvalidArgumentException::class, 'irreversible command "start_battle"');
+});
 
-    expect($battleSession?->status)->toBe(EventExecutionStatus::SUSPENDED)
-      ->and($scene->skipCinematic())->toBeFalse()
-      ->and($scene->gameState->getSwitch('battle_finalized'))->toBeFalse();
+it('does not let a second skip cancel an active authored finalizer', function () {
+  putSceneAudioConfig([]);
+  [$scene, $interpreter] = makeEventRuntime();
+  $scene->installPlayer(new EventTestPlayer(new Vector2(1, 1)));
+  $scene->installCinematicRuntime();
+  $scene->autoResumeTransfers = false;
+  $cinematic = CinematicDefinition::fromArrays([
+    'id' => 'single-finalizer',
+    'name' => 'Single Finalizer',
+    'skip' => ['policy' => 'authored'],
+    'finalizer' => [
+      ['type' => 'transfer', 'map' => 'map-b', 'x' => 4, 'y' => 5],
+      ['type' => 'set_switch', 'name' => 'single_finalizer_done', 'value' => true],
+    ],
+  ], [['type' => 'wait', 'seconds' => 10]]);
+  $session = $scene->cinematicController?->start($cinematic);
 
-    $scene->resumeEventAfterBattle(new BattleResult('Victory', []));
-    $interpreter->update(0.1);
+  expect($scene->skipCinematic())->toBeTrue()
+    ->and($session?->isFinalizing)->toBeTrue()
+    ->and($session?->status)->toBe(EventExecutionStatus::SUSPENDED)
+    ->and($scene->skipCinematic())->toBeFalse()
+    ->and($session?->isFinalizing)->toBeTrue()
+    ->and($session?->status)->toBe(EventExecutionStatus::SUSPENDED)
+    ->and($scene->gameState->getSwitch('single_finalizer_done'))->toBeFalse();
 
-    expect($battleSession?->status)->toBe(EventExecutionStatus::COMPLETED)
-      ->and($scene->gameState->getSwitch('battle_finalized'))->toBeTrue();
+  $interpreter->resumeAfterTransfer();
+  $interpreter->update(0.0);
+
+  expect($session?->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and($scene->gameState->getSwitch('single_finalizer_done'))->toBeTrue()
+    ->and($scene->transferCount)->toBe(1);
+  ConfigStore::remove(ProjectConfig::class);
+});
+
+it('uses cinematic transition coverage without the legacy blocking transfer transition', function (bool $reducedMotion) {
+  putSceneAudioConfig(['accessibility' => ['reducedMotion' => $reducedMotion]]);
+  ConfigStore::put(PlaySettings::class, new SceneAudioConfigStub([
+    'screen' => ['width' => 20, 'height' => 10],
+  ]));
+
+  try {
+    [$scene] = makeEventRuntime();
+    $scene->installPlayer(new EventTestPlayer(new Vector2(1, 1)));
+    $scene->installCinematicRuntime();
+    $cinematic = CinematicDefinition::fromArrays([
+      'id' => 'covered-transfer',
+      'name' => 'Covered Transfer',
+    ], [
+      ['type' => 'transition', 'style' => 'fade', 'direction' => 'out', 'seconds' => 0.1],
+      ['type' => 'transfer', 'map' => 'map-b', 'x' => 2, 'y' => 3],
+      ['type' => 'transition', 'style' => 'fade', 'direction' => 'in', 'seconds' => 0.1],
+    ]);
+    $session = $scene->cinematicController?->start($cinematic);
+
+    for ($tick = 0; $tick < 10 && $scene->hasUnstableEventSession(); $tick++) {
+      $scene->eventInterpreter?->update(0.1);
+    }
+
+    expect($session?->status)->toBe(EventExecutionStatus::COMPLETED)
+      ->and($scene->configuredTransferTransitions)->toBe([false])
+      ->and($scene->cinematicCoverAtTransfer)->toBe([true])
+      ->and($scene->cinematicPresentation?->hasTransitionCover())->toBeFalse();
   } finally {
-    ConfigStore::remove(EnemyStore::class);
-    chdir($previousDirectory);
+    ConfigStore::remove(ProjectConfig::class);
+    ConfigStore::remove(PlaySettings::class);
   }
+})->with([
+  'normal motion' => false,
+  'reduced motion' => true,
+]);
+
+it('retains configured transfer transitions for ordinary event scripts', function () {
+  putSceneAudioConfig([]);
+  [$scene, $interpreter] = makeEventRuntime();
+  $scene->installPlayer(new EventTestPlayer(new Vector2(1, 1)));
+  $session = $interpreter->run([['type' => 'transfer', 'map' => 'map-b', 'x' => 2, 'y' => 3]], 'ordinary-transfer');
+  $interpreter->update(0.0);
+
+  expect($session?->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and($scene->configuredTransferTransitions)->toBe([true]);
+  ConfigStore::remove(ProjectConfig::class);
 });
 
 it('restores camera input and staged cast after controlled cinematic failure', function () {
@@ -1804,6 +1877,40 @@ PHP);
       ->and($failed?->failureMessage)->toContain('common_event:broken-formation[1]')
       ->and($failed?->failureMessage)->toContain('unknown_common_event_command')
       ->and($scene->gameState->hasStoryEvent('must_not_follow_common_failure'))->toBeFalse();
+  } finally {
+    chdir($previousDirectory);
+  }
+});
+
+it('fails closed when a cinematic Common Event contains malformed command entries', function () {
+  $root = sys_get_temp_dir() . '/cinematic-malformed-common-event-' . uniqid();
+  mkdir($root . '/assets/Events', 0o777, true);
+  file_put_contents($root . '/assets/Events/malformed.php', <<<'PHP'
+<?php
+return [
+  ['type' => 'record_event', 'name' => 'must_not_be_recorded'],
+  'silently dropped before this correction',
+];
+PHP);
+  $previousDirectory = getcwd();
+  chdir($root);
+
+  try {
+    [$scene] = makeEventRuntime();
+    $scene->installPlayer(new EventTestPlayer(new Vector2(1, 1)));
+    $scene->installCinematicRuntime();
+    $definition = CinematicDefinition::fromArrays([
+      'id' => 'malformed-common-event',
+      'name' => 'Malformed Common Event',
+    ], [['type' => 'common_event', 'id' => 'malformed']]);
+    $session = $scene->cinematicController?->start($definition);
+
+    expect($session?->status)->toBe(EventExecutionStatus::FAILED)
+      ->and($session?->failureMessage)->toContain('Cinematic "malformed-common-event"')
+      ->and($session?->failureMessage)->toContain('lane "root"')
+      ->and($session?->failureMessage)->toContain('common_event:malformed')
+      ->and($session?->failureMessage)->toContain('script[2]')
+      ->and($scene->gameState->hasStoryEvent('must_not_be_recorded'))->toBeFalse();
   } finally {
     chdir($previousDirectory);
   }
@@ -1928,4 +2035,48 @@ it('uses safe deterministic staged-actor visibility and collision defaults', fun
   $scene->cinematicStage?->show('solid');
   expect($scene->cinematicStage?->actorAt(3, 3))->toBe($colliding)
     ->and($scene->cinematicStage?->require('solid')->isVisible)->toBeTrue();
+});
+
+it('enforces and diagnoses the complete staged-actor collision policy', function () {
+  [$scene, $interpreter] = makeEventRuntime();
+  $scene->installPlayer(new EventTestPlayer(new Vector2(2, 1)));
+  $npcs = new NpcManager($scene);
+  $npcs->configure([[
+    'id' => 'visible-guide',
+    'name' => 'Visible Guide',
+    'sprite' => '@',
+    'x' => 1,
+    'y' => 2,
+  ]]);
+  $scene->installNpcManager($npcs);
+  $scene->installCinematicRuntime();
+  $scene->mapManager->blocked['1:0'] = true;
+  $scene->cinematicStage?->add(['id' => 'mover', 'sprite' => '@', 'x' => 1, 'y' => 1, 'collision' => true]);
+  $scene->cinematicStage?->add(['id' => 'other', 'sprite' => '@', 'x' => 0, 'y' => 1, 'collision' => true]);
+
+  expect($scene->cinematicStage?->move('mover', new Vector2(1, 0)))->toBeFalse()
+    ->and($scene->cinematicStage?->lastMoveFailure)->toContain('Staged actor "mover"')
+    ->and($scene->cinematicStage?->lastMoveFailure)->toContain('(2, 1)')
+    ->and($scene->cinematicStage?->lastMoveFailure)->toContain('the player')
+    ->and($scene->cinematicStage?->move('mover', new Vector2(0, 1)))->toBeFalse()
+    ->and($scene->cinematicStage?->lastMoveFailure)->toContain('visible NPC "visible-guide"')
+    ->and($scene->cinematicStage?->move('mover', new Vector2(-1, 0)))->toBeFalse()
+    ->and($scene->cinematicStage?->lastMoveFailure)->toContain('staged actor "other"');
+
+  $blockedRoute = $interpreter->run([[
+    'type' => 'move_route',
+    'subject' => 'staged_actor',
+    'actorId' => 'mover',
+    'steps' => [['direction' => 'up', 'count' => 1]],
+  ]], 'staged-collision-diagnostic');
+  $interpreter->update(1.0);
+
+  expect($blockedRoute?->status)->toBe(EventExecutionStatus::FAILED)
+    ->and($blockedRoute?->failureMessage)->toContain('Staged actor "mover" cannot move to (1, 0)')
+    ->and($blockedRoute?->failureMessage)->toContain('map collision "solid"');
+
+  $ghost = $scene->cinematicStage?->add(['id' => 'ghost-route', 'sprite' => '@', 'x' => 1, 'y' => 1, 'collision' => false]);
+  expect($scene->cinematicStage?->move('ghost-route', new Vector2(1, 0)))->toBeTrue()
+    ->and([$ghost?->position->x, $ghost?->position->y])->toBe([2.0, 1.0])
+    ->and($scene->cinematicStage?->lastMoveFailure)->toBeNull();
 });

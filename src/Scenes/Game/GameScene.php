@@ -475,11 +475,12 @@ class GameScene extends AbstractScene
      * Transfers the player to the destination map.
      *
      * @param Location $location The destination location.
+     * @param bool $useConfiguredTransition Whether to run the project's legacy blocking transfer transition.
      * @return void
      * @throws IchilotoException If the map cannot be loaded.
      * @throws NotFoundException If the map is not found.
      */
-    public function transferPlayer(Location $location): void
+    public function transferPlayer(Location $location, bool $useConfiguredTransition = true): void
     {
         Debug::info("Transferring player to $location->mapFilename... at $location->playerPosition");
 
@@ -487,8 +488,8 @@ class GameScene extends AbstractScene
         // that needs cast in the destination explicitly stages them there.
         $this->cinematicStage?->clear();
 
-        $transition = ScreenTransition::fromConfig();
-        $transition->out();
+        $transition = $useConfiguredTransition ? ScreenTransition::fromConfig() : null;
+        $transition?->out();
 
         $this->player->position->x = $location->playerPosition->x;
         $this->player->position->y = $location->playerPosition->y;
@@ -497,15 +498,24 @@ class GameScene extends AbstractScene
         }
         $this->loadMap($location->mapFilename, $this->player);
 
-        // The field is drawn behind the cover, then revealed.
-        $transition->in(function (): void {
+        if ($transition !== null) {
+            // The field is drawn behind the configured cover, then revealed.
+            $transition->in(function (): void {
+                $this->fieldState?->renderTheField();
+            });
+        } else {
+            // Cinematics own their transition cover. Recompose the new map
+            // under that existing cover without invoking a second blocking
+            // ScreenTransition out/in pair.
             $this->fieldState?->renderTheField();
-        });
+        }
 
         $this->player->render();
 
         $this->locationHUDWindow->updateDetails($this->player->position, $this->player->heading);
         $this->locationHUDWindow->render();
+        $this->cinematicPresentation?->render();
+        $this->eventInterpreter?->renderPresentation();
         Debug::info("Player transferred to $location->mapFilename... at {$this->player->position}");
 
         // The originating interpreter stays in memory while MapManager and

@@ -121,7 +121,10 @@ Parallelism is cooperative and deterministic. Each lane owns its frame stack,
 cursor, and pending operation. Every game tick advances lanes in authored
 order, and the parent completes only after all lanes complete. No operating-
 system threads are used. A `common_event` command calls an existing
-`assets/Events/<id>.php` module within the same session.
+`assets/Events/<id>.php` module within the same session. Cinematic Common
+Events are validated recursively when loaded; malformed list shapes or
+command entries fail the cinematic with its ID, Common Event ID, lane, and
+command path instead of being silently filtered.
 
 ## Subjects, staged actors, and movement
 
@@ -137,6 +140,13 @@ defaults to `false`. `stage_actor`, `show_actor`, `hide_actor`, and
 `remove_actor` alter the temporary cast. `move_route` accepts
 `subject => staged_actor` with `actorId`; its timing and cardinal step shape
 are the same as player and NPC routes.
+
+A staged actor with `collision => true` obeys map passability and cannot enter
+the player's tile, a visible NPC's tile, or another visible collidable staged
+actor's tile. A failed route names the staged actor, attempted coordinate, and
+blocker. A staged actor with `collision => false` is explicitly
+presentation-only: its route ignores terrain, occupancy, and map bounds and
+does not affect field collision.
 
 Staged actors render through the field camera. Map transfer, normal
 completion, authored skip, and controlled failure remove temporary cast state.
@@ -188,6 +198,13 @@ session rather than launching a second interpreter. Battle results still use
 the existing `BattleResult` contract and existing reward, quest, bestiary,
 party-cleanup, and audio paths.
 
+Cinematic transfers do not invoke the project's legacy blocking configured
+`ScreenTransition` out/in pair. Authors cover them with explicit cinematic
+`transition` commands; an active transition cover is recomposed over the new
+map until the authored reveal. Ordinary event and field transfers retain the
+configured transition path. Reduced-motion mode reaches the same covered and
+revealed final states without intermediate animation frames.
+
 An active battle is an irreversible boundary for generic skipping. Skip is
 refused while a battle is active; authors must not use skip to infer or
 duplicate a battle outcome.
@@ -195,21 +212,33 @@ duplicate a battle outcome.
 ## Skip, checkpoints, finalizers, and cleanup
 
 The default skip policy is `forbidden`. `authored` skip requires a non-empty
-finalizer. A skip cancels every active lane and pending operation, clears
-dialogue and temporary presentation, then runs the authored finalizer through
-the same interpreter. Normal and skipped completion share the stable
-`cinematic:<id>:completed` identity and exactly-once completion claim.
+finalizer and is accepted only when every reachable path is skip-safe.
+Validation recursively inspects sequences, parallel lanes, branches, choice
+arms, and cancellation arms. `start_battle`, `give_item`, `give_gold`,
+`accept_quest`, `recover_party`, and `knowledge` are irreversible for this
+policy. Common Events inside authored-skippable cinematics are conservatively
+rejected because their future contents cannot be proven by the asset alone.
+
+A skip cancels every active playback lane and pending operation, clears
+dialogue and temporary presentation, then starts the authored finalizer once
+through the same interpreter. Further skip input while that finalizer is
+active is ignored and cannot cancel it. Normal and skipped completion share
+the stable `cinematic:<id>:completed` identity and exactly-once completion
+claim.
 
 Finalizers deliberately use a restricted central vocabulary:
 `set_switch`, `set_variable`, `record_event`, `move_player`, `transfer`,
-`camera`, `remove_actor`, `clear_presentation`, `cinematic_music`, and
-`checkpoint`. These commands must describe the deterministic, idempotent
-state needed after either playback route. Items, gold, quest changes, and
-battle rewards do not belong in a skip finalizer because replaying them could
-duplicate irreversible results.
+`camera`, `remove_actor`, `clear_presentation`, and `cinematic_music`. Type is
+not enough: `set_switch` requires an explicit boolean; `set_variable` requires
+an explicit scalar value and only `set`; player movement and transfer require
+integral coordinates; transfer requires a map; camera allows only `attach` or
+`reset`; actor removal requires an ID; presentation cleanup accepts no extra
+payload; and cinematic music requires explicit track, loop, and completion
+policies. These shapes are exported by `CinematicCommandSchema`.
 
-`checkpoint` records named progress inside the active in-memory session. It
-does not serialize the lane stack and is not a substitute for the finalizer.
+`checkpoint` remains a playback command, not a finalizer command. Checkpoint
+declarations are non-empty stable unique strings and record progress only
+inside the active in-memory session; they do not serialize the lane stack.
 A controlled failure cancels all lanes, clears temporary stage and
 presentation state, restores camera and field input, discards deferred
 autosave, and does not write cinematic completion.
@@ -233,16 +262,21 @@ Authoring tools must consume Engine-owned contracts rather than copy lists:
 
 - `CinematicLibrary` discovers and hydrates assets;
 - `CinematicDefinition::fromArrays()` validates metadata and finalizers;
+- `CinematicCommandPolicy` validates authored-skip reachability and finalizer
+  payload shapes;
 - `CinematicScriptValidator::validate()` validates nested command structure
   without booting a game;
 - `CinematicCommandSchema::export()` exposes command types, nested block
   shapes, cinematic fields, subject kinds, camera operations, staged-actor
-  fields, skip policies, allowed finalizer types, music fields, and summon
-  definition, timeline, playback-config, and session fields;
+  fields, skip policies, finalizer types and shapes, irreversible skip
+  commands, the Common Event skip policy, music fields, and summon definition,
+  timeline, playback-config, and session fields;
 - `EventInterpreter::COMMAND_TYPES` remains the authoritative runtime command
   vocabulary and is derived from the same schema.
 
-Validation failures include the cinematic ID and command path. Runtime
+Present cinematic list fields must be actual lists, every command entry must
+be a keyed array, and versions must be positive integers. Validation failures
+include the cinematic ID and command path. Runtime
 failures add lane path, nested content reference where available, and the
 underlying reason. Editor authoring for these contracts is a separate gate;
 the Engine APIs do not claim that the Editor surface is complete.
