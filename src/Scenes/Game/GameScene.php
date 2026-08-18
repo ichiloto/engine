@@ -572,13 +572,16 @@ class GameScene extends AbstractScene
     }
 
     /** Starts a first-class cinematic asset by definition or stable id. */
-    public function startCinematic(CinematicDefinition|string $cinematic): ?EventExecutionSession
+    public function startCinematic(
+        CinematicDefinition|string $cinematic,
+        ?EventSessionCompletionTargetInterface $completionTarget = null,
+    ): ?EventExecutionSession
     {
         $definition = is_string($cinematic)
             ? (new CinematicLibrary())->load($cinematic)
             : $cinematic;
 
-        return $this->cinematicController?->start($definition);
+        return $this->cinematicController?->start($definition, $completionTarget);
     }
 
     /** Requests the active cinematic's authored safe skip path. */

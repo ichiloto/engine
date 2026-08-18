@@ -23,6 +23,8 @@ use Ichiloto\Engine\Cutscenes\Cinematics\CinematicStageManager;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\Enumerations\MovementEventType;
 use Ichiloto\Engine\Events\MovementEvent;
+use Ichiloto\Engine\Entities\Actions\RunCinematicAction;
+use Ichiloto\Engine\Events\Triggers\CinematicEventTrigger;
 use Ichiloto\Engine\Events\Triggers\ScriptEventTrigger;
 use Ichiloto\Engine\Events\Triggers\EventTrigger;
 use Ichiloto\Engine\Exceptions\ActiveEventSaveException;
@@ -438,6 +440,37 @@ function makeEventRuntime(): array
   $scene->installInterpreter($interpreter);
 
   return [$scene, $interpreter, $presentation];
+}
+
+/**
+ * Creates one disposable project containing a first-class Cinematic asset.
+ *
+ * @param array<int, array<string, mixed>> $commands
+ * @param array<string, mixed> $definitionOverrides
+ */
+function makeCinematicTriggerProject(
+  string $id,
+  array $commands,
+  array $definitionOverrides = [],
+): string
+{
+  $root = sys_get_temp_dir() . '/cinematic-trigger-' . uniqid();
+  $assetRoot = $root . '/assets/Cutscenes/Cinematics/' . $id;
+  mkdir($assetRoot, 0o777, true);
+  $definition = array_replace([
+    'id' => $id,
+    'name' => 'Cinematic Trigger Fixture',
+  ], $definitionOverrides);
+  file_put_contents(
+    $assetRoot . '/' . $id . '.data.php',
+    "<?php\n\nreturn " . var_export($definition, true) . ";\n",
+  );
+  file_put_contents(
+    $assetRoot . '/' . $id . '.script.php',
+    "<?php\n\nreturn " . var_export($commands, true) . ";\n",
+  );
+
+  return $root;
 }
 
 it('grants catalog items by name and requested quantity', function () {
@@ -1684,6 +1717,266 @@ it('uses the same authored finalizer for skips before and after transfer', funct
   'during camera, movement, and narration' => 3,
   'after transfer' => 'after_transfer',
 ]);
+
+it('launches a stable cinematic id from an action trigger and completes after transfer', function () {
+  $projectRoot = dirname(__DIR__) . '/Fixtures/Projects/CinematicAcceptance';
+  $previousDirectory = getcwd();
+  chdir($projectRoot);
+  putSceneAudioConfig([
+    'accessibility' => ['reducedMotion' => false],
+    'save' => ['autosave' => true],
+  ]);
+  ConfigStore::put(PlaySettings::class, new SceneAudioConfigStub([
+    'screen' => ['width' => 20, 'height' => 10],
+  ]));
+
+  try {
+    [$scene, $interpreter] = makeEventRuntime();
+    $player = new EventTestPlayer(new Vector2(0, 0));
+    $scene->installPlayer($player);
+    $scene->installCinematicRuntime();
+    $trigger = new CinematicEventTrigger(
+      new Rect(1, 0, 1, 1),
+      ['mode' => 'action', 'reusable' => false, 'cinematicId' => 'sky-caravan'],
+      sets: [['type' => 'variable', 'name' => 'trigger_completions', 'op' => 'add', 'value' => 1]],
+      mapId: 'map-a',
+      marker: 'K',
+    );
+    $trigger->bind($scene->gameState, $scene->party);
+    $player->addTrigger($trigger);
+    $player->dispatchMovement(new Vector2(0, 0), new Vector2(1, 0));
+
+    expect($player->availableAction)->toBeInstanceOf(RunCinematicAction::class);
+    $player->interact();
+    $session = $interpreter->activeSession();
+    $saveRoot = sys_get_temp_dir() . '/cinematic-trigger-save-' . uniqid();
+    $saveManager = new SaveManager(
+      new EventTestGame(),
+      $saveRoot,
+      $saveRoot . '/quick',
+      SaveCompatibilityManifest::fromArray('ichiloto/cinematic-trigger', [
+        'contentVersion' => 0,
+        'migrations' => [],
+        'aliases' => [],
+        'tombstones' => [],
+      ], 'Cinematic trigger save guard'),
+    );
+
+    expect($session?->status)->toBe(EventExecutionStatus::YIELDED)
+      ->and($trigger->sessionIsActive)->toBeTrue()
+      ->and($trigger->startSession($scene))->toBeNull()
+      ->and(fn() => $saveManager->save($scene, 1))->toThrow(ActiveEventSaveException::class)
+      ->and(fn() => $saveManager->quickSave($scene))->toThrow(ActiveEventSaveException::class);
+
+    for ($tick = 0; $tick < 30 && $scene->hasUnstableEventSession(); $tick++) {
+      $interpreter->update(0.1);
+    }
+
+    expect($session?->status)->toBe(EventExecutionStatus::COMPLETED)
+      ->and($scene->currentMapId)->toBe('cinematic/skyfield-dawn')
+      ->and($scene->transferCount)->toBe(1)
+      ->and($scene->testSceneManager->eventTestSaveManager->autoSaveCount)->toBe(1)
+      ->and($trigger->sessionIsActive)->toBeFalse()
+      ->and($trigger->isComplete)->toBeTrue()
+      ->and($scene->gameState->isEventComplete('map-a', 'K'))->toBeTrue()
+      ->and($scene->gameState->getVariable('trigger_completions'))->toBe(1)
+      ->and(array_count_values($scene->gameState->storyEvents)['cinematic:sky-caravan:completed'])->toBe(1)
+      ->and($player->availableAction)->toBeNull()
+      ->and($trigger->startSession($scene))->toBeNull()
+      ->and($scene->gameState->getVariable('trigger_completions'))->toBe(1);
+  } finally {
+    ConfigStore::remove(ProjectConfig::class);
+    ConfigStore::remove(PlaySettings::class);
+    chdir($previousDirectory);
+  }
+});
+
+it('completes reusable automatic cinematic triggers through the authored skip path', function () {
+  $projectRoot = makeCinematicTriggerProject(
+    'trigger-skippable',
+    [['type' => 'wait', 'seconds' => 5.0]],
+    [
+      'skip' => ['policy' => 'authored'],
+      'finalizer' => [
+        ['type' => 'set_switch', 'name' => 'trigger_skip_finalized', 'value' => true],
+        ['type' => 'record_event', 'name' => 'trigger_skip_finalized'],
+      ],
+    ],
+  );
+  $previousDirectory = getcwd();
+  chdir($projectRoot);
+  putSceneAudioConfig([]);
+
+  try {
+    [$scene] = makeEventRuntime();
+    $player = new EventTestPlayer(new Vector2(2, 2));
+    $scene->installPlayer($player);
+    $scene->installCinematicRuntime();
+    $trigger = new CinematicEventTrigger(
+      new Rect(2, 2, 1, 1),
+      ['mode' => 'auto', 'reusable' => true, 'cinematicId' => 'trigger-skippable'],
+      sets: [['type' => 'variable', 'name' => 'reusable_trigger_count', 'op' => 'add', 'value' => 1]],
+      mapId: 'map-a',
+      marker: 'S',
+    );
+    $trigger->bind($scene->gameState, $scene->party);
+    $player->addTrigger($trigger);
+    $player->evaluateAutomaticTriggersAtCurrentPosition();
+
+    expect($trigger->sessionIsActive)->toBeTrue()
+      ->and($scene->skipCinematic())->toBeTrue()
+      ->and($trigger->sessionIsActive)->toBeFalse()
+      ->and($trigger->isComplete)->toBeFalse()
+      ->and($scene->gameState->isEventComplete('map-a', 'S'))->toBeFalse()
+      ->and($scene->gameState->getSwitch('trigger_skip_finalized'))->toBeTrue()
+      ->and($scene->gameState->getVariable('reusable_trigger_count'))->toBe(1)
+      ->and(array_count_values($scene->gameState->storyEvents)['cinematic:trigger-skippable:completed'])->toBe(1);
+
+    expect($trigger->startSession($scene))->not->toBeNull()
+      ->and($scene->skipCinematic())->toBeTrue()
+      ->and($scene->gameState->getVariable('reusable_trigger_count'))->toBe(2)
+      ->and(array_count_values($scene->gameState->storyEvents)['cinematic:trigger-skippable:completed'])->toBe(1);
+  } finally {
+    ConfigStore::remove(ProjectConfig::class);
+    chdir($previousDirectory);
+  }
+});
+
+it('preserves field conditions, blocked movement and cues for cinematic triggers', function () {
+  [$scene] = makeEventRuntime();
+  $player = new EventTestPlayer(new Vector2(0, 0));
+  $scene->installPlayer($player);
+  $trigger = new CinematicEventTrigger(
+    new Rect(1, 0, 1, 1),
+    ['mode' => 'action', 'reusable' => true, 'cinematicId' => 'stable-cinematic'],
+    conditions: [['type' => 'switch', 'name' => 'cinematic_ready']],
+    whenBlocked: 'The presentation is not ready.',
+    cue: ['symbol' => '!', 'color' => 'bright-yellow'],
+  );
+  $trigger->bind($scene->gameState, $scene->party);
+  $player->addTrigger($trigger);
+
+  $player->renderEventCues();
+  expect($scene->camera->renders)->toBe([])
+    ->and($player->tryFieldMove(Vector2::right(), $scene->camera))->toBeFalse()
+    ->and($player->blockedMessages)->toBe(['The presentation is not ready.']);
+
+  $scene->gameState->setSwitch('cinematic_ready', true);
+  $player->renderEventCues();
+
+  expect($scene->camera->renders)->toHaveCount(1)
+    ->and($scene->camera->renders[0][0])->toBe(['<fg=bright-yellow>!</>'])
+    ->and($player->tryFieldMove(Vector2::right(), $scene->camera))->toBeTrue()
+    ->and($player->availableAction)->toBeInstanceOf(RunCinematicAction::class);
+
+  $scene->gameState->setSwitch('cinematic_ready', false);
+  $player->interact();
+
+  expect($scene->hasUnstableEventSession())->toBeFalse()
+    ->and($player->availableAction)->toBeInstanceOf(RunCinematicAction::class);
+});
+
+it('fails cinematic triggers closed without completion writes and permits a retry', function () {
+  $projectRoot = makeCinematicTriggerProject('trigger-failure', [[
+    'type' => 'camera',
+    'operation' => 'focus',
+    'target' => ['kind' => 'staged_actor', 'id' => 'missing-actor'],
+  ]]);
+  $previousDirectory = getcwd();
+  chdir($projectRoot);
+
+  try {
+    [$scene] = makeEventRuntime();
+    $scene->installPlayer(new EventTestPlayer(new Vector2(0, 0)));
+    $scene->installCinematicRuntime();
+    $trigger = new CinematicEventTrigger(
+      new Rect(0, 0, 1, 1),
+      ['mode' => 'auto', 'reusable' => false, 'cinematicId' => 'trigger-failure'],
+      sets: [
+        ['type' => 'event', 'name' => 'failed_trigger_must_not_complete'],
+        ['type' => 'variable', 'name' => 'failed_trigger_count', 'op' => 'add', 'value' => 1],
+      ],
+      mapId: 'map-a',
+      marker: 'F',
+    );
+    $trigger->bind($scene->gameState, $scene->party);
+    $first = $trigger->startSession($scene);
+
+    expect($first?->status)->toBe(EventExecutionStatus::FAILED)
+      ->and($trigger->sessionIsActive)->toBeFalse()
+      ->and($trigger->isComplete)->toBeFalse()
+      ->and($scene->gameState->isEventComplete('map-a', 'F'))->toBeFalse()
+      ->and($scene->gameState->hasStoryEvent('failed_trigger_must_not_complete'))->toBeFalse()
+      ->and($scene->gameState->hasStoryEvent('cinematic:trigger-failure:completed'))->toBeFalse()
+      ->and($scene->gameState->getVariable('failed_trigger_count'))->toBe(0)
+      ->and($scene->cinematicController?->active())->toBeNull()
+      ->and($scene->hasUnstableEventSession())->toBeFalse();
+
+    $retry = $trigger->startSession($scene);
+    expect($retry)->not->toBeNull()
+      ->and($retry)->not->toBe($first)
+      ->and($retry?->status)->toBe(EventExecutionStatus::FAILED)
+      ->and($scene->gameState->getVariable('failed_trigger_count'))->toBe(0);
+  } finally {
+    chdir($previousDirectory);
+  }
+});
+
+it('rejects missing malformed unresolved and concurrently owned cinematic launches', function () {
+  $projectRoot = makeCinematicTriggerProject('trigger-after-wait', [['type' => 'wait', 'seconds' => 0.1]]);
+  $malformedAssetRoot = $projectRoot . '/assets/Cutscenes/Cinematics/malformed-asset';
+  mkdir($malformedAssetRoot, 0o777, true);
+  file_put_contents($malformedAssetRoot . '/malformed-asset.data.php', "<?php\n\nreturn 'not a definition';\n");
+  file_put_contents($malformedAssetRoot . '/malformed-asset.script.php', "<?php\n\nreturn [];\n");
+  $previousDirectory = getcwd();
+  chdir($projectRoot);
+
+  try {
+    [$scene, $interpreter] = makeEventRuntime();
+    $scene->installPlayer(new EventTestPlayer(new Vector2(0, 0)));
+    $scene->installCinematicRuntime();
+    $missing = new CinematicEventTrigger(new Rect(0, 0, 1, 1), ['mode' => 'auto']);
+    $malformed = new CinematicEventTrigger(
+      new Rect(0, 0, 1, 1),
+      ['mode' => 'auto', 'cinematicId' => 'Not A Stable ID'],
+    );
+    $unresolved = new CinematicEventTrigger(
+      new Rect(0, 0, 1, 1),
+      ['mode' => 'auto', 'cinematicId' => 'not-installed'],
+    );
+    $malformedAsset = new CinematicEventTrigger(
+      new Rect(0, 0, 1, 1),
+      ['mode' => 'auto', 'cinematicId' => 'malformed-asset'],
+    );
+
+    expect($missing->startSession($scene))->toBeNull()
+      ->and($malformed->startSession($scene))->toBeNull()
+      ->and($unresolved->startSession($scene))->toBeNull()
+      ->and($malformedAsset->startSession($scene))->toBeNull()
+      ->and($scene->hasUnstableEventSession())->toBeFalse();
+
+    $ordinary = $interpreter->run([['type' => 'wait', 'seconds' => 0.1]], 'ordinary-owner');
+    $trigger = new CinematicEventTrigger(
+      new Rect(0, 0, 1, 1),
+      ['mode' => 'auto', 'cinematicId' => 'trigger-after-wait'],
+    );
+    expect($ordinary?->status)->toBe(EventExecutionStatus::YIELDED)
+      ->and($trigger->startSession($scene))->toBeNull()
+      ->and($trigger->sessionIsActive)->toBeFalse();
+
+    $interpreter->update(0.1);
+    $cinematic = $trigger->startSession($scene);
+    expect($ordinary?->status)->toBe(EventExecutionStatus::COMPLETED)
+      ->and($cinematic)->not->toBeNull()
+      ->and($trigger->startSession($scene))->toBeNull();
+    $interpreter->update(0.1);
+
+    expect($cinematic?->status)->toBe(EventExecutionStatus::COMPLETED)
+      ->and($trigger->sessionIsActive)->toBeFalse();
+  } finally {
+    chdir($previousDirectory);
+  }
+});
 
 it('skips safely during dialogue and rejects authored skipping across a battle boundary', function () {
   [$scene, $interpreter, $presentation] = makeEventRuntime();

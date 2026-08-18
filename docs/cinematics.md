@@ -74,6 +74,62 @@ Unknown metadata is retained in `CinematicDefinition::$extra`. `startMap` and
 `presentation` are authoring metadata; the command tree remains responsible
 for every runtime transition and final-state write.
 
+## Launching a cinematic
+
+Code that already owns an appropriate field boundary may launch a hydrated
+definition or stable ID:
+
+```php
+$scene->startCinematic($definition);
+$scene->startCinematic('dawn-crossing');
+```
+
+Map data launches the same asset through an Engine-owned trigger:
+
+```php
+'C' => [
+  'class' => 'Ichiloto\\Engine\\Events\\Triggers\\CinematicEventTrigger',
+  'conditions' => [
+    ['type' => 'switch', 'name' => 'crossing_ready'],
+  ],
+  'sets' => [
+    ['type' => 'event', 'name' => 'crossing_complete'],
+  ],
+  'whenBlocked' => 'The crossing is not ready.',
+  'cue' => ['symbol' => '!', 'color' => 'bright-yellow'],
+  'data' => [
+    'cinematicId' => 'dawn-crossing',
+    'mode' => 'auto', // auto or action
+    'reusable' => false,
+  ],
+],
+```
+
+`auto` launches when the player enters the area, including an initial map or
+save spawn already inside it. `action` presents the ordinary field action.
+Both modes re-check inherited conditions at execution time, preserve cues and
+blocked messages, and refuse re-entry or launch while another field session
+owns control. Missing, malformed, and unresolved IDs fail closed with map,
+marker, and asset context; they never fall back to a story script.
+
+`CinematicController` remains the interpreter's direct completion target.
+`GameScene::startCinematic()` and `CinematicController::start()` accept an
+optional typed downstream completion target so the controller can first
+record `cinematic:<id>:completed`, finalize audio, restore camera and field
+presentation, and remove staged actors. It then notifies the trigger exactly
+once. Normal and legally skipped completion call the inherited
+`EventTrigger::complete()` path, which applies `sets` and persists a
+non-reusable `mapId:marker`. Reusable triggers apply their completion writes
+but do not persist that map marker. Controlled failure performs cinematic
+cleanup and notifies failure without cinematic completion, trigger
+completion, or trigger `sets`, leaving the trigger retryable.
+
+There is deliberately no nested `start_cinematic` event command. A command
+would execute while the same interpreter already has a session owner, making
+parent continuation and cleanup ambiguous. Compose reusable command work with
+a Common Event, or launch the complete Cinematic from the programmatic or map
+trigger boundary above.
+
 ## Command trees and cooperative lanes
 
 The script file returns a command list, or an array with a `commands` list.
@@ -269,7 +325,8 @@ Authoring tools must consume Engine-owned contracts rather than copy lists:
 - `CinematicCommandSchema::export()` exposes command types, nested block
   shapes, cinematic fields, subject kinds, camera operations, staged-actor
   fields, skip policies, finalizer types and shapes, irreversible skip
-  commands, the Common Event skip policy, music fields, and summon definition,
+  commands, the Common Event skip policy, music fields, the cinematic map-
+  trigger class/data/modes/completion semantics, and summon definition,
   timeline, playback-config, and session fields;
 - `EventInterpreter::COMMAND_TYPES` remains the authoritative runtime command
   vocabulary and is derived from the same schema.

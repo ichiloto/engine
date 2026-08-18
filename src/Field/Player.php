@@ -14,7 +14,7 @@ use Ichiloto\Engine\Events\Enumerations\MovementEventType;
 use Ichiloto\Engine\Events\MovementEvent;
 use Ichiloto\Engine\Events\Triggers\EventTrigger;
 use Ichiloto\Engine\Events\Triggers\EventTriggerContext;
-use Ichiloto\Engine\Events\Triggers\ScriptEventTrigger;
+use Ichiloto\Engine\Events\Interfaces\AutomaticEventTriggerInterface;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\IO\Console\TerminalText;
@@ -400,8 +400,8 @@ class Player extends GameObject
 
     foreach ($this->events as $event) {
       if (
-        ! $event instanceof ScriptEventTrigger
-        || ! $event->runsAutomatically
+        ! $event instanceof AutomaticEventTriggerInterface
+        || ! $event->runsAutomatically()
         || $event->isComplete
         || ! $event->isAvailable()
         || ! $event->area->contains($this->position)

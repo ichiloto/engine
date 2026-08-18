@@ -44,6 +44,18 @@ final class CinematicCommandSchema
     'id', 'name', 'description', 'version', 'authoring', 'startMap',
     'presentation', 'cast', 'skip', 'checkpoints', 'finalizer',
   ];
+  public const string CINEMATIC_TRIGGER_CLASS = 'Ichiloto\\Engine\\Events\\Triggers\\CinematicEventTrigger';
+  public const array CINEMATIC_TRIGGER_ROOT_FIELDS = [
+    'class', 'conditions', 'sets', 'whenBlocked', 'cue', 'data',
+  ];
+  public const array CINEMATIC_TRIGGER_DATA_FIELDS = ['cinematicId', 'mode', 'reusable'];
+  public const array CINEMATIC_TRIGGER_MODES = ['action', 'auto'];
+  public const array CINEMATIC_TRIGGER_COMPLETION = [
+    'success' => 'normal_or_legal_skip',
+    'sets' => 'after_success_only',
+    'oneShot' => 'mapId:marker',
+    'failure' => 'retryable_without_completion_writes',
+  ];
   public const array STAGED_ACTOR_FIELDS = [
     'id', 'sprite', 'asset', 'x', 'y', 'facing', 'visible', 'collision', 'sprites',
   ];
@@ -101,6 +113,13 @@ final class CinematicCommandSchema
       'subjectKinds' => self::SUBJECT_KINDS,
       'cameraOperations' => self::CAMERA_OPERATIONS,
       'cinematicDefinitionFields' => self::CINEMATIC_DEFINITION_FIELDS,
+      'cinematicEventTrigger' => [
+        'class' => self::CINEMATIC_TRIGGER_CLASS,
+        'rootFields' => self::CINEMATIC_TRIGGER_ROOT_FIELDS,
+        'dataFields' => self::CINEMATIC_TRIGGER_DATA_FIELDS,
+        'modes' => self::CINEMATIC_TRIGGER_MODES,
+        'completion' => self::CINEMATIC_TRIGGER_COMPLETION,
+      ],
       'stagedActorFields' => self::STAGED_ACTOR_FIELDS,
       'skipPolicies' => self::SKIP_POLICIES,
       'finalizerCommandTypes' => self::FINALIZER_COMMAND_TYPES,

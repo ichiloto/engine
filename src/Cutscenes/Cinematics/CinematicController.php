@@ -13,6 +13,8 @@ final class CinematicController implements EventSessionCompletionTargetInterface
 {
   protected ?CinematicDefinition $active = null;
   protected ?CameraStateSnapshot $cameraBefore = null;
+  protected ?EventSessionCompletionTargetInterface $downstreamCompletionTarget = null;
+  protected bool $terminalOutcomeHandled = false;
 
   public function __construct(protected GameScene $gameScene)
   {
@@ -23,7 +25,10 @@ final class CinematicController implements EventSessionCompletionTargetInterface
     return $this->active;
   }
 
-  public function start(CinematicDefinition $cinematic): ?EventExecutionSession
+  public function start(
+    CinematicDefinition $cinematic,
+    ?EventSessionCompletionTargetInterface $downstreamCompletionTarget = null,
+  ): ?EventExecutionSession
   {
     if ($this->active !== null || $this->gameScene->hasUnstableEventSession()) {
       throw new RuntimeException('Only one field cinematic may own control at a time.');
@@ -31,6 +36,8 @@ final class CinematicController implements EventSessionCompletionTargetInterface
 
     $this->active = $cinematic;
     $this->cameraBefore = $this->gameScene->camera->captureState();
+    $this->downstreamCompletionTarget = $downstreamCompletionTarget;
+    $this->terminalOutcomeHandled = false;
 
     try {
       $initialPresentation = strtolower(trim(strval($cinematic->presentation['initial'] ?? '')));
@@ -70,15 +77,30 @@ final class CinematicController implements EventSessionCompletionTargetInterface
       throw new RuntimeException('Cinematic completion identity did not match the active asset.');
     }
 
+    if ($this->terminalOutcomeHandled) {
+      throw new RuntimeException('Cinematic terminal outcome was already handled.');
+    }
+
+    $this->terminalOutcomeHandled = true;
+    $downstreamCompletionTarget = $this->downstreamCompletionTarget;
+
     $gameScene->gameState->recordStoryEvent('cinematic:' . $this->active->id . ':completed');
     $gameScene->getGame()->audioManager->finalizeCinematicMusic('complete');
     $this->cleanup();
+    $downstreamCompletionTarget?->onEventSessionCompleted($gameScene, $session);
   }
 
   public function onEventSessionFailed(GameScene $gameScene, EventExecutionSession $session): void
   {
+    if ($this->terminalOutcomeHandled) {
+      return;
+    }
+
+    $this->terminalOutcomeHandled = true;
+    $downstreamCompletionTarget = $this->downstreamCompletionTarget;
     $gameScene->getGame()->audioManager->finalizeCinematicMusic('failure');
     $this->cleanup();
+    $downstreamCompletionTarget?->onEventSessionFailed($gameScene, $session);
   }
 
   protected function cleanup(): void
@@ -94,5 +116,6 @@ final class CinematicController implements EventSessionCompletionTargetInterface
 
     $this->active = null;
     $this->cameraBefore = null;
+    $this->downstreamCompletionTarget = null;
   }
 }

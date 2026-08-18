@@ -50,6 +50,46 @@ When the conditions fail, a non-empty `whenBlocked` makes entry into the event
 area fail closed and presents that message without advancing field movement.
 Omit it when the unavailable event should be absent rather than act as a gate.
 
+## Cinematic map trigger
+
+A complete first-class Cinematic is referenced rather than copied into a
+story-event script:
+
+```php
+'C' => [
+  'class' => 'Ichiloto\\Engine\\Events\\Triggers\\CinematicEventTrigger',
+  'conditions' => [
+    ['type' => 'event', 'name' => 'presentation_available'],
+  ],
+  'sets' => [
+    ['type' => 'event', 'name' => 'presentation_complete'],
+  ],
+  'whenBlocked' => 'The presentation is not ready.',
+  'cue' => ['symbol' => '!', 'color' => 'bright-yellow'],
+  'data' => [
+    'cinematicId' => 'field-presentation',
+    'mode' => 'action', // action or auto
+    'reusable' => false,
+  ],
+],
+```
+
+The ID resolves through `CinematicLibrary`; no duplicate
+`assets/Events/<id>.php` fallback is used. The trigger shares ordinary
+conditions, blocked movement, cues, action behavior, completion writes, and
+`map-id:marker` one-shot persistence. A reusable trigger remains available
+after each successful completion. Normal and legally skipped cinematic
+completion apply trigger state after `CinematicController` has completed its
+own cleanup. Refused or controlled-failure launches retain field input and
+action state and write neither cinematic completion nor trigger completion.
+
+Programmatic code may use `GameScene::startCinematic()` at a field lifecycle
+boundary. There is no `start_cinematic` command inside story-event command
+trees because the interpreter already owns the parent session at that point.
+See [Cinematic cutscenes](cinematics.md) for the asset, skip, completion-chain,
+and cleanup contracts. Editor support for authoring this trigger is a separate
+gate; the runtime and exported Engine schema do not imply that it has shipped.
+
 ## Execution lifecycle
 
 `EventExecutionStatus` distinguishes:

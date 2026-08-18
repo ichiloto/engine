@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Events\Triggers;
 
 use Ichiloto\Engine\Entities\Actions\RunScriptAction;
+use Ichiloto\Engine\Events\Interfaces\AutomaticEventTriggerInterface;
 use Ichiloto\Engine\Events\Interpreter\EventExecutionSession;
 use Ichiloto\Engine\Events\Interpreter\EventSessionCompletionTargetInterface;
 use Ichiloto\Engine\Events\Interfaces\EventTriggerContextInterface;
@@ -30,7 +31,7 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
  *
  * @package Ichiloto\Engine\Events\Triggers
  */
-class ScriptEventTrigger extends EventTrigger implements EventSessionCompletionTargetInterface
+class ScriptEventTrigger extends EventTrigger implements AutomaticEventTriggerInterface, EventSessionCompletionTargetInterface
 {
   /**
    * @var array<int, array<string, mixed>> The script commands.
@@ -54,6 +55,11 @@ class ScriptEventTrigger extends EventTrigger implements EventSessionCompletionT
     $scriptId = trim(strval($this->data->scriptId ?? ''));
     $this->scriptId = $scriptId !== '' ? $scriptId : null;
     $this->script = $this->resolveScript();
+  }
+
+  public function runsAutomatically(): bool
+  {
+    return $this->runsAutomatically;
   }
 
   /**

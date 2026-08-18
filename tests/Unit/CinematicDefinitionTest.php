@@ -45,6 +45,16 @@ it('exports one authoritative runtime and authoring vocabulary', function () {
     ->and($schema['subjectKinds'])->toContain('player', 'npc', 'staged_actor', 'marker')
     ->and($schema['cameraOperations'])->toContain('detach', 'pan', 'track', 'route', 'shake', 'restore')
     ->and($schema['cinematicDefinitionFields'])->toContain('id', 'name', 'cast', 'skip', 'finalizer')
+    ->and($schema['cinematicEventTrigger']['class'])->toBe('Ichiloto\\Engine\\Events\\Triggers\\CinematicEventTrigger')
+    ->and($schema['cinematicEventTrigger']['rootFields'])->toBe(['class', 'conditions', 'sets', 'whenBlocked', 'cue', 'data'])
+    ->and($schema['cinematicEventTrigger']['dataFields'])->toBe(['cinematicId', 'mode', 'reusable'])
+    ->and($schema['cinematicEventTrigger']['modes'])->toBe(['action', 'auto'])
+    ->and($schema['cinematicEventTrigger']['completion'])->toBe([
+      'success' => 'normal_or_legal_skip',
+      'sets' => 'after_success_only',
+      'oneShot' => 'mapId:marker',
+      'failure' => 'retryable_without_completion_writes',
+    ])
     ->and($schema['skipPolicies'])->toBe(['forbidden', 'authored'])
     ->and($schema['finalizerCommandTypes'])->not->toContain('checkpoint')
     ->and($schema['finalizerCommandShapes']['set_switch']['required']['value'])->toBe('bool')
