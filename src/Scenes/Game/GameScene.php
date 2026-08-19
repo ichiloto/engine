@@ -513,7 +513,7 @@ class GameScene extends AbstractScene
         $this->player->render();
 
         $this->locationHUDWindow->updateDetails($this->player->position, $this->player->heading);
-        $this->locationHUDWindow->render();
+        $this->getUI()->render();
         $this->cinematicPresentation?->render();
         $this->eventInterpreter?->renderPresentation();
         Debug::info("Player transferred to $location->mapFilename... at {$this->player->position}");

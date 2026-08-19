@@ -15,6 +15,8 @@ use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Elements\LocationHUDWindow;
 use Ichiloto\Engine\UI\Modal\Modal;
 use Ichiloto\Engine\UI\UIManager;
+use Assegai\Collections\ItemList;
+use Ichiloto\Engine\UI\Interfaces\UIElementInterface;
 
 final class FieldRestorationModalProbe extends Modal
 {
@@ -118,6 +120,11 @@ final class FieldCompositionHudProbe extends LocationHUDWindow
   {
     $this->renderCount++;
   }
+
+  public function isPresentationVisible(): bool
+  {
+    return true;
+  }
 }
 
 final class FieldCompositionSceneProbe extends GameScene
@@ -129,8 +136,13 @@ final class FieldCompositionSceneProbe extends GameScene
     LocationHUDWindow $hud,
   )
   {
+    $hud->activate();
     $uiManager = (new ReflectionClass(UIManager::class))->newInstanceWithoutConstructor();
     $uiManager->locationHUDWindow = $hud;
+    $elements = new ItemList(UIElementInterface::class);
+    $elements->add($hud);
+    $uiElements = (new ReflectionClass(UIManager::class))->getProperty('uiElements');
+    $uiElements->setValue($uiManager, $elements);
     $this->uiManager = $uiManager;
     $this->mapManager = $mapManager;
     $this->npcManager = $npcManager;

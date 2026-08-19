@@ -20,4 +20,5 @@ interface UIElementInterface extends CanRender, CanActivate
   public bool $isActive {
     get;
   }
+
 }

@@ -60,7 +60,7 @@ class FieldState extends GameSceneState
         $this->getGameScene()->npcManager?->render();
         $this->getGameScene()->cinematicStage?->render();
         $this->getGameScene()->player->render();
-        $this->getGameScene()->locationHUDWindow->render();
+        $this->getGameScene()->getUI()->render();
         $this->getGameScene()->cinematicPresentation?->render();
         $this->getGameScene()->eventInterpreter?->renderPresentation();
     }

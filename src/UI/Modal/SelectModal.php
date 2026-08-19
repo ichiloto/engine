@@ -18,6 +18,9 @@ use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\UI\Interfaces\ModalInterface;
+use Ichiloto\Engine\UI\Interfaces\LayeredPresentationInterface;
+use Ichiloto\Engine\UI\Enumerations\PresentationPriority;
+use Ichiloto\Engine\UI\UIManager;
 use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
@@ -33,7 +36,7 @@ use Symfony\Component\Console\Output\OutputInterface;
  *
  * @package Ichiloto\Engine\UI\Modal
  */
-class SelectModal implements ModalInterface
+class SelectModal implements ModalInterface, LayeredPresentationInterface
 {
   use ObservableTrait;
 
@@ -283,6 +286,7 @@ class SelectModal implements ModalInterface
   public function show(): void
   {
     $this->isShowing = true;
+    $this->getUIManager()?->present($this);
     $this->render();
     $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::SHOW, true));
   }
@@ -295,8 +299,36 @@ class SelectModal implements ModalInterface
     if ($this->isShowing) {
       $this->erase();
       $this->isShowing = false;
+      $this->getUIManager()?->dismiss($this);
       $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::HIDE, true));
     }
+  }
+
+  /** @inheritDoc */
+  public function getPresentationBounds(): Rect
+  {
+    return new Rect(
+      $this->rect->getX(),
+      $this->rect->getY(),
+      $this->rect->getWidth(),
+      $this->rect->getHeight(),
+    );
+  }
+
+  /** @inheritDoc */
+  public function getPresentationPriority(): PresentationPriority
+  {
+    return PresentationPriority::MODAL;
+  }
+
+  /** Returns the active scene's UI manager when the game is fully booted. */
+  protected function getUIManager(): ?UIManager
+  {
+    if (! isset($this->game->sceneManager)) {
+      return null;
+    }
+
+    return $this->game->sceneManager->currentScene?->getUI();
   }
 
   /**

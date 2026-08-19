@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\UI\Windows;
 
 use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
 use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
 use Ichiloto\Engine\IO\Console\Console;
@@ -204,6 +205,27 @@ class Window implements WindowInterface
   public function getHeight(): int
   {
     return $this->height;
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function getWidth(): int
+  {
+    return $this->width;
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function getBounds(): Rect
+  {
+    return new Rect(
+      $this->position->x,
+      $this->position->y,
+      $this->width,
+      $this->height,
+    );
   }
 
   /**

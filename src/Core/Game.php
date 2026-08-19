@@ -1011,6 +1011,10 @@ SPLASH_SCREEN;
      */
     protected function render(): void
     {
+        // Modal dismissals are committed only at the frame boundary. That
+        // lets dialogue pages and choices replace one another within a single
+        // update without exposing a lower-precedence HUD between them.
+        $this->sceneManager->currentScene?->getUI()->commitPresentationChanges();
         $this->sceneManager->render();
         $this->notificationManager->render();
 

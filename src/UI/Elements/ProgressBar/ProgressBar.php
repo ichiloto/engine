@@ -3,9 +3,11 @@
 namespace Ichiloto\Engine\UI\Elements\ProgressBar;
 
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\UI\Elements\ProgressBar\Styles\DefaultProgressBarStyle;
-use Ichiloto\Engine\UI\Interfaces\UIElementInterface;
+use Ichiloto\Engine\UI\Interfaces\LayeredUIElementInterface;
+use Ichiloto\Engine\UI\Enumerations\PresentationPriority;
 use Ichiloto\Engine\UI\Windows\Interfaces\ProgressBarStyleInterface;
 
 /**
@@ -13,7 +15,7 @@ use Ichiloto\Engine\UI\Windows\Interfaces\ProgressBarStyleInterface;
  *
  * @package Ichiloto\Engine\UI\Elements
  */
-class ProgressBar implements UIElementInterface
+class ProgressBar implements LayeredUIElementInterface
 {
   /**
    * @inheritDoc
@@ -125,6 +127,24 @@ class ProgressBar implements UIElementInterface
   public function erase(): void
   {
     $this->camera->draw($this->getBlankPlate(), $this->position->x, $this->position->y);
+  }
+
+  /** @inheritDoc */
+  public function isPresentationVisible(): bool
+  {
+    return $this->isActive;
+  }
+
+  /** @inheritDoc */
+  public function getPresentationBounds(): Rect
+  {
+    return new Rect($this->position->x, $this->position->y, $this->units + 2, 1);
+  }
+
+  /** @inheritDoc */
+  public function getPresentationPriority(): PresentationPriority
+  {
+    return PresentationPriority::FIELD_HUD;
   }
 
   /**

@@ -208,6 +208,20 @@ class Rect implements Stringable
   }
 
   /**
+   * Determines whether this rectangle overlaps another rectangle.
+   *
+   * Rectangle right and bottom edges are exclusive, matching contains().
+   * Touching edges therefore do not count as an intersection.
+   */
+  public function intersects(Rect $other): bool
+  {
+    return $this->getLeft() < $other->getRight()
+      && $this->getRight() > $other->getLeft()
+      && $this->getTop() < $other->getBottom()
+      && $this->getBottom() > $other->getTop();
+  }
+
+  /**
    * @param array{x: int, y: int, width: int, height: int} $data
    * @return Rect
    */
