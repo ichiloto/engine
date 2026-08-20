@@ -100,6 +100,18 @@ class Console
    * @var ConsoleOutput|null $output The console output.
    */
   private static ?ConsoleOutput $output = null;
+  /**
+   * Dedicated terminal output descriptor on POSIX systems.
+   *
+   * Symfony writes through php://stdout. In a PTY that wrapper can accept a
+   * complete frame into PHP while only a prefix reaches the terminal after
+   * input polling has put its descriptor into non-blocking mode. Opening the
+   * controlling terminal separately gives rendering its own blocking file
+   * description and makes fwrite() delivery observable.
+   *
+   * @var resource|null
+   */
+  private static $terminalOutputStream = null;
 
   /**
    * Console constructor.
@@ -127,6 +139,7 @@ class Console
     self::$width = intval($options['width'] ?? $availableSize['width']);
     self::$height = intval($options['height'] ?? $availableSize['height']);
     self::$output = new ConsoleOutput();
+    self::openTerminalOutputStream();
     self::clear();
   }
 
@@ -176,6 +189,7 @@ class Console
     self::leaveAlternateScreen();
     self::cursor()->show();
     self::cursor()->enableBlinking();
+    self::closeTerminalOutputStream();
   }
 
   /**
@@ -743,18 +757,19 @@ class Console
   /**
    * Writes a payload to the terminal, guaranteeing every byte is delivered.
    *
-   * A complete field frame can exceed a terminal's output buffer. Depending
-   * on the PTY, a blocking fwrite() may wait indefinitely for the complete
-   * request or return a short count; a non-blocking write reports the portion
-   * accepted immediately. Symfony's StreamOutput discards fwrite()'s return
-   * value, so using it directly can silently truncate a large map.
+   * A complete field frame can exceed both PHP's userspace stream buffer and
+   * the terminal's output buffer. Accepting bytes into the former is not the
+   * same as delivering them to the latter: a final non-blocking flush can
+   * leave only the first rows visible while the canonical screen already
+   * believes the whole frame was painted. The stream is therefore made
+   * unbuffered before any frame bytes are offered to it.
    *
-   * Looping until the payload is fully written is the correct way to write to
-   * a non-blocking descriptor, and it is also the only way partial writes are
-   * handled safely in general: even a blocking write can be cut short by a
-   * signal. The writer must never silently abandon a frame. Doing so leaves
-   * the canonical buffer ahead of the physical terminal, causing remnants of
-   * the previous scene to survive until an unrelated redraw happens.
+   * Looping until the payload is fully written is the correct way to handle
+   * both blocking and non-blocking descriptors; even a blocking write can be
+   * cut short by a signal. The caller's blocking mode is deliberately left
+   * alone. Turning a healthy blocking terminal non-blocking for a frame merely
+   * moves delivery into PHP's buffering layer and recreates the truncation
+   * this method exists to prevent.
    *
    * @param string $payload The terminal-ready payload to write.
    * @return void
@@ -765,7 +780,9 @@ class Console
       return;
     }
 
-    $stream = self::$output?->getStream();
+    $stream = is_resource(self::$terminalOutputStream)
+      ? self::$terminalOutputStream
+      : self::$output?->getStream();
 
     if (! is_resource($stream)) {
       // PHP's CLI output layer loops until every byte is written, so the
@@ -775,64 +792,118 @@ class Console
       return;
     }
 
+    // php://stdout is buffered independently of the terminal descriptor.
+    // Disable that layer so fwrite()'s byte count describes terminal
+    // acceptance, not temporary userspace acceptance. This is process-local
+    // Console ownership, so keeping the stream unbuffered is intentional.
+    // Pipes and a few platform wrappers report that write buffering is not
+    // configurable because they are already direct descriptors. That is a
+    // safe fallback; php://stdout, the production path that needs this
+    // protection, accepts the unbuffered policy.
+    @stream_set_write_buffer($stream, 0);
+
     $totalBytes = strlen($payload);
     $bytesWritten = 0;
     $stalledAttempts = 0;
-    $streamMetadata = stream_get_meta_data($stream);
-    $wasBlocking = boolval($streamMetadata['blocked'] ?? true);
-    $controlsBlockingMode = $wasBlocking && @stream_set_blocking($stream, false);
 
-    try {
-      while ($bytesWritten < $totalBytes) {
-        $chunk = substr(
-          $payload,
-          $bytesWritten,
-          min(self::WRITE_CHUNK_BYTES, $totalBytes - $bytesWritten),
-        );
-        $written = @fwrite($stream, $chunk);
+    while ($bytesWritten < $totalBytes) {
+      $chunk = substr(
+        $payload,
+        $bytesWritten,
+        min(self::WRITE_CHUNK_BYTES, $totalBytes - $bytesWritten),
+      );
+      $written = @fwrite($stream, $chunk);
 
-        if ($written !== false && $written > 0) {
-          $bytesWritten += $written;
-          $stalledAttempts = 0;
-          continue;
-        }
-
-        // Either the terminal buffer is full (a 0/false short write on a
-        // non-blocking descriptor) or the stream is genuinely broken. Wait
-        // for writability. PHP's stdio wrapper is not selectable on every
-        // PTY, so a failed/empty select must still yield before retrying
-        // instead of burning through the retry budget immediately.
-        if (++$stalledAttempts > self::WRITE_MAX_STALLED_ATTEMPTS) {
-          throw new RuntimeException(sprintf(
-            'Terminal output stalled after %d of %d bytes.',
-            $bytesWritten,
-            $totalBytes,
-          ));
-        }
-
-        $readStreams = [];
-        $writeStreams = [$stream];
-        $exceptStreams = [];
-
-        $ready = @stream_select(
-          $readStreams,
-          $writeStreams,
-          $exceptStreams,
-          0,
-          self::WRITE_STALL_TIMEOUT_MICROSECONDS,
-        );
-
-        if ($ready !== 1) {
-          usleep(self::WRITE_STALL_TIMEOUT_MICROSECONDS);
-        }
+      if ($written !== false && $written > 0) {
+        $bytesWritten += $written;
+        $stalledAttempts = 0;
+        continue;
       }
 
-      @fflush($stream);
-    } finally {
-      if ($controlsBlockingMode) {
-        @stream_set_blocking($stream, true);
+      // Either a non-blocking terminal buffer is full or the stream is
+      // genuinely broken. Wait for writability. PHP's stdio wrapper is not
+      // selectable on every PTY, so a failed/empty select must still yield
+      // before retrying instead of burning through the retry budget.
+      if (++$stalledAttempts > self::WRITE_MAX_STALLED_ATTEMPTS) {
+        throw new RuntimeException(sprintf(
+          'Terminal output stalled after %d of %d bytes.',
+          $bytesWritten,
+          $totalBytes,
+        ));
+      }
+
+      $readStreams = [];
+      $writeStreams = [$stream];
+      $exceptStreams = [];
+
+      $ready = @stream_select(
+        $readStreams,
+        $writeStreams,
+        $exceptStreams,
+        0,
+        self::WRITE_STALL_TIMEOUT_MICROSECONDS,
+      );
+
+      if ($ready !== 1) {
+        usleep(self::WRITE_STALL_TIMEOUT_MICROSECONDS);
       }
     }
+
+    if (! @fflush($stream)) {
+      throw new RuntimeException(sprintf(
+        'Terminal output failed to flush after %d bytes.',
+        $totalBytes,
+      ));
+    }
+  }
+
+  /**
+   * Opens a rendering-only handle to the controlling terminal when one is
+   * available.
+   *
+   * STDIN must remain non-blocking for the game loop. A separately opened
+   * /dev/tty handle has independent descriptor flags, so output can remain
+   * blocking without changing input behaviour. Non-POSIX environments and
+   * redirected processes retain the existing ConsoleOutput fallback.
+   */
+  private static function openTerminalOutputStream(): void
+  {
+    self::closeTerminalOutputStream();
+
+    if (PHP_OS_FAMILY === 'Windows') {
+      return;
+    }
+
+    if (function_exists('stream_isatty') && ! @stream_isatty(STDOUT)) {
+      return;
+    }
+
+    try {
+      $stream = @fopen('/dev/tty', 'wb');
+    } catch (\Throwable) {
+      // Sandboxed processes and redirected automation can expose the path
+      // while forbidding access. They use the ConsoleOutput fallback below.
+      return;
+    }
+
+    if (! is_resource($stream)) {
+      return;
+    }
+
+    @stream_set_blocking($stream, true);
+    @stream_set_write_buffer($stream, 0);
+    self::$terminalOutputStream = $stream;
+  }
+
+  /** Closes the rendering-only terminal descriptor, if the console owns one. */
+  private static function closeTerminalOutputStream(): void
+  {
+    if (is_resource(self::$terminalOutputStream)) {
+      @fflush(self::$terminalOutputStream);
+      @fclose(self::$terminalOutputStream);
+    }
+
+    self::$terminalOutputStream = null;
   }
 
   /**

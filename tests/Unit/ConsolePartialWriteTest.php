@@ -41,11 +41,13 @@ class ConsoleWriteProbeStream
   public $context;
   public static int $largestWrite = 0;
   public static string $received = '';
+  public static bool $unbuffered = false;
 
   public function stream_open(string $path, string $mode, int $options, ?string &$openedPath): bool
   {
     self::$largestWrite = 0;
     self::$received = '';
+    self::$unbuffered = false;
 
     return true;
   }
@@ -69,6 +71,15 @@ class ConsoleWriteProbeStream
   }
 
   public function stream_set_option(int $option, int $arg1, ?int $arg2): bool
+  {
+    if ($option === STREAM_OPTION_WRITE_BUFFER && $arg1 === STREAM_BUFFER_NONE) {
+      self::$unbuffered = true;
+    }
+
+    return true;
+  }
+
+  public function stream_flush(): bool
   {
     return true;
   }
@@ -128,6 +139,16 @@ function writePayloadThroughConsole(string $payload): ?int
   return $received;
 }
 
+/** Replaces Console's dedicated descriptor for a test and returns its prior value. */
+function replaceDedicatedTerminalStream($stream): mixed
+{
+  $property = new ReflectionProperty(Console::class, 'terminalOutputStream');
+  $previous = $property->getValue();
+  $property->setValue(null, $stream);
+
+  return $previous;
+}
+
 it('delivers a payload larger than the pipe buffer in full', function () {
   // Comfortably larger than any terminal or pipe buffer, and the same order
   // of magnitude as a frame for a large map.
@@ -163,10 +184,38 @@ it('offers complete scene payloads to the terminal in bounded chunks', function 
   }
 
   expect(ConsoleWriteProbeStream::$received)->toBe($payload)
-    ->and(ConsoleWriteProbeStream::$largestWrite)->toBeLessThanOrEqual(4096);
+    ->and(ConsoleWriteProbeStream::$largestWrite)->toBeLessThanOrEqual(4096)
+    ->and(ConsoleWriteProbeStream::$unbuffered)->toBeTrue();
 });
 
-it('restores the terminal stream blocking mode after a controlled flush', function () {
+it('prefers the dedicated terminal descriptor over the shared output wrapper', function () {
+  $scheme = 'ichiloto-dedicated-terminal-probe';
+
+  if (! in_array($scheme, stream_get_wrappers(), true)) {
+    stream_wrapper_register($scheme, ConsoleWriteProbeStream::class);
+  }
+
+  $dedicatedStream = fopen($scheme . '://terminal', 'w');
+  $sharedStream = fopen('/dev/null', 'w');
+  $outputProperty = new ReflectionProperty(Console::class, 'output');
+  $previousOutput = $outputProperty->getValue();
+  $previousDedicatedStream = replaceDedicatedTerminalStream($dedicatedStream);
+  $outputProperty->setValue(null, new TestStreamConsoleOutput($sharedStream));
+  $payload = str_repeat('complete-first-frame;', 1_000);
+
+  try {
+    new ReflectionMethod(Console::class, 'writeToTerminal')->invoke(null, $payload);
+  } finally {
+    $outputProperty->setValue(null, $previousOutput);
+    replaceDedicatedTerminalStream($previousDedicatedStream);
+    fclose($dedicatedStream);
+    fclose($sharedStream);
+  }
+
+  expect(ConsoleWriteProbeStream::$received)->toBe($payload);
+});
+
+it('preserves a blocking terminal stream mode during a controlled flush', function () {
   $stream = fopen('/dev/null', 'w');
   stream_set_blocking($stream, true);
   $outputProperty = new ReflectionProperty(Console::class, 'output');
@@ -183,6 +232,26 @@ it('restores the terminal stream blocking mode after a controlled flush', functi
   }
 
   expect(stream_get_meta_data($stream)['blocked'])->toBeTrue();
+  fclose($stream);
+})->skipOnWindows();
+
+it('preserves a non-blocking terminal stream mode during a controlled flush', function () {
+  $stream = fopen('/dev/null', 'w');
+  stream_set_blocking($stream, false);
+  $outputProperty = new ReflectionProperty(Console::class, 'output');
+  $previousOutput = $outputProperty->getValue();
+  $outputProperty->setValue(null, new TestStreamConsoleOutput($stream));
+
+  try {
+    new ReflectionMethod(Console::class, 'writeToTerminal')->invoke(
+      null,
+      str_repeat('scene', 10_000),
+    );
+  } finally {
+    $outputProperty->setValue(null, $previousOutput);
+  }
+
+  expect(stream_get_meta_data($stream)['blocked'])->toBeFalse();
   fclose($stream);
 })->skipOnWindows();
 
