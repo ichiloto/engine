@@ -58,6 +58,43 @@ final class DismissOnFirstInputModalProbe extends Modal
   }
 }
 
+final class LowerLayerPaintingGameProbe extends Game
+{
+  public function tickWhileBlocked(): void
+  {
+    Console::write(str_repeat('x', 50), 15, 10);
+  }
+}
+
+final class ModalPrecedenceProbe extends AlertModal
+{
+  public int $inputCount = 0;
+  public int $renderCount = 0;
+  /** @var string[] */
+  public array $composedBuffer = [];
+
+  protected function handleInput(): void
+  {
+    if (++$this->inputCount > 1) {
+      $this->hide();
+    }
+  }
+
+  public function update(): void
+  {
+    // This probe advances solely through the blocking-loop lifecycle.
+  }
+
+  public function render(): void
+  {
+    parent::render();
+
+    if (++$this->renderCount === 2) {
+      $this->composedBuffer = Console::getBuffer();
+    }
+  }
+}
+
 final class PositionedSelectModalProbe extends SelectModal
 {
   public function position(): Vector2
@@ -157,6 +194,59 @@ it('erases the centered alert footprint rather than an obsolete origin', functio
   }
 
   expect(substr($erased[0], 0, $width))->toBe(str_repeat('.', $width));
+});
+
+it('renders every row of a wrapped alert over an existing field frame', function () {
+  $console = new ReflectionClass(Console::class);
+  $console->getProperty('width')->setValue(null, 230);
+  $console->getProperty('height')->setValue(null, 39);
+  $console->getProperty('buffer')->setValue(null, array_fill(0, 39, str_repeat('.', 230)));
+
+  $game = (new ReflectionClass(Game::class))->newInstanceWithoutConstructor();
+  $modal = new PositionedAlertModalProbe(
+    $game,
+    'Inspect the ROUTE CHECK enclosure west of the Field Post before checking in.',
+    '',
+  );
+
+  ob_start();
+  $modal->prepareAndRender();
+  ob_end_clean();
+
+  $position = $modal->position();
+  [$width, $height] = $modal->size();
+  $rendered = array_map(TerminalText::stripAnsi(...), Console::getBuffer());
+  $footprint = array_map(
+    static fn(string $row): string => TerminalText::sliceSymbols($row, $position->x, $width),
+    array_slice($rendered, $position->y, $height),
+  );
+
+  expect($height)->toBe(5)
+    ->and($footprint)->toHaveCount($height)
+    ->and($footprint[0])->toStartWith('╔')
+    ->and($footprint[1])->toContain('Inspect the ROUTE CHECK enclosure west of the')
+    ->and($footprint[2])->toContain('Field Post before checking in.')
+    ->and($footprint[3])->toContain('OK')
+    ->and($footprint[4])->toStartWith('╚');
+});
+
+it('composes a blocking modal after lower live layers update', function () {
+  $game = (new ReflectionClass(LowerLayerPaintingGameProbe::class))->newInstanceWithoutConstructor();
+  $modal = new ModalPrecedenceProbe(
+    $game,
+    'Inspect the ROUTE CHECK enclosure west of the Field Post before checking in.',
+    '',
+  );
+
+  ob_start();
+  $modal->open();
+  ob_end_clean();
+
+  $composed = array_map(TerminalText::stripAnsi(...), $modal->composedBuffer);
+
+  expect($modal->renderCount)->toBe(2)
+    ->and($composed[10])->toContain('Inspect the ROUTE CHECK enclosure west of the')
+    ->and($composed[10])->not->toContain(str_repeat('x', 10));
 });
 
 it('does not redraw a modal after input dismisses it in the same frame', function () {

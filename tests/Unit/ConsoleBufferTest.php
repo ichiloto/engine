@@ -133,8 +133,10 @@ it('atomically recomposes a complete screen and clears vanished rows', function 
 
   expect($buffer[0])->toBe('new map             ')
     ->and($buffer[1])->toBe(str_repeat(' ', 20))
-    ->and($output)->toContain('new map')
-    ->and($output)->toContain(str_repeat(' ', 20))
+    // Only the changed spans are emitted: " map" was already physically
+    // present, and only the occupied part of the vanished row needs clearing.
+    ->and($output)->toContain('new')
+    ->and($output)->toContain(str_repeat(' ', strlen('old dialogue')))
     ->and(substr_count($output, "\033["))->toBe(2);
 });
 
@@ -301,4 +303,36 @@ it('tracks window borders and content in the canonical console buffer', function
   expect(substr(TerminalText::stripAnsi($erasedRows[1]), 2, 12))->toBe(str_repeat(' ', 12))
     ->and(substr(TerminalText::stripAnsi($erasedRows[2]), 2, 12))->toBe(str_repeat(' ', 12))
     ->and(substr(TerminalText::stripAnsi($erasedRows[3]), 2, 12))->toBe(str_repeat(' ', 12));
+});
+
+it('flushes only an overlay span instead of retransmitting its styled field rows', function () {
+  withConsole(230, 39);
+  $styledFieldRow = '<fg=green>OUTSIDE ' . str_repeat(';', 210) . '</>';
+
+  ob_start();
+  foreach (range(17, 21) as $row) {
+    Console::write($styledFieldRow, 0, $row);
+  }
+  ob_end_clean();
+
+  $window = new Window(
+    position: new Vector2(90, 17),
+    width: 50,
+    height: 5,
+  );
+  $window->setContent([
+    'Inspect the ROUTE CHECK enclosure west of the',
+    'Field Post before checking in.',
+    'OK',
+  ]);
+
+  ob_start();
+  $window->render();
+  $output = ob_get_clean();
+  $visibleOutput = TerminalText::stripAnsi($output);
+
+  expect($visibleOutput)->not->toContain('OUTSIDE')
+    ->and($visibleOutput)->toContain('Inspect the ROUTE CHECK enclosure west of the')
+    ->and($visibleOutput)->toContain('Field Post before checking in.')
+    ->and(substr_count($output, "\033["))->toBe(5);
 });

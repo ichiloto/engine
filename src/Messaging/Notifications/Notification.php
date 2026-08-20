@@ -550,8 +550,10 @@ class Notification implements NotificationInterface
         continue;
       }
 
-      Console::cursor()->moveTo($visibleX, $targetY);
-      echo str_repeat(' ', $visibleWidth);
+      // Keep animated overlays inside the canonical console buffer. Direct
+      // cursor writes make later windows believe a row is unchanged even
+      // though the physical terminal was altered underneath them.
+      Console::write(str_repeat(' ', $visibleWidth), $visibleX - 1, $targetY - 1);
     }
   }
 
@@ -621,8 +623,7 @@ class Notification implements NotificationInterface
         continue;
       }
 
-      Console::cursor()->moveTo($visibleX, $targetY);
-      echo $visibleLine;
+      Console::write($visibleLine, $visibleX - 1, $targetY - 1);
     }
   }
 

@@ -36,12 +36,14 @@ class Console
    */
   private static bool $terminalHandedBack = false;
   /**
-   * @var array<int, true> Rows changed while a frame is open.
+   * @var array<int, array{start: int, end: int}> Changed cell spans by row.
    *
    * A frame stores dirtiness rather than a journal of intermediate paints.
-   * When several windows touch the same row, only the final composed row is
-   * emitted. Replaying every intermediate row made large multi-pane screens
-   * visibly assemble from left to right despite using a frame.
+   * When several windows touch the same row, their spans are coalesced and
+   * only the final composed segment is emitted. Flushing the complete row for
+   * a small overlay retransmitted the densely styled field behind it; on a
+   * large colour map that payload can fill a PTY before the alert body is
+   * delivered, leaving only a partial border on screen.
    */
   private static array $frameRows = [];
 
@@ -285,7 +287,14 @@ class Console
 
       for ($row = 0; $row < self::$height; $row++) {
         if ((self::$buffer[$row] ?? $emptyRow) !== ($previousBuffer[$row] ?? $emptyRow)) {
-          self::$frameRows[$row] = true;
+          $span = self::changedCellSpan(
+            $previousBuffer[$row] ?? $emptyRow,
+            self::$buffer[$row] ?? $emptyRow,
+          );
+
+          if ($span !== null) {
+            self::markFrameSpan($row, $span['start'], $span['end']);
+          }
         }
       }
 
@@ -459,7 +468,7 @@ class Console
           // the buffer: it left trails behind the player.)
           if ($updatedRow !== $existingRow) {
             self::$buffer[$currentBufferRow] = $updatedRow;
-            self::writeBufferRow($currentBufferRow);
+            self::writeBufferRow($currentBufferRow, $x, strlen($incoming));
           }
         }
 
@@ -467,6 +476,7 @@ class Console
       }
 
       $rowCells = self::rowToCells($existingRow);
+      $existingCells = $rowCells;
       $text = TerminalText::truncateToWidth((string)$text, max(0, self::$width - $x));
       $cellCursor = $x;
 
@@ -495,7 +505,15 @@ class Console
 
       if ($updatedRow !== self::$buffer[$currentBufferRow]) {
         self::$buffer[$currentBufferRow] = $updatedRow;
-        self::writeBufferRow($currentBufferRow);
+        $span = self::changedCellSpanFromCells($existingCells, $rowCells);
+
+        if ($span !== null) {
+          self::writeBufferRow(
+            $currentBufferRow,
+            $span['start'],
+            $span['end'] - $span['start'] + 1,
+          );
+        }
       }
     }
   }
@@ -692,12 +710,17 @@ class Console
     ksort(self::$frameRows, SORT_NUMERIC);
     $payload = '';
 
-    foreach (array_keys(self::$frameRows) as $row) {
+    foreach (self::$frameRows as $row => $span) {
       if (! isset(self::$buffer[$row])) {
         continue;
       }
 
-      $payload .= sprintf("\033[%d;1H%s", $row + 1, self::$buffer[$row]);
+      $payload .= sprintf(
+        "\033[%d;%dH%s",
+        $row + 1,
+        $span['start'] + 1,
+        self::getBufferSegment($row, $span['start'], $span['end']),
+      );
     }
 
     self::$frameRows = [];
@@ -778,22 +801,93 @@ class Console
    * @param int $row The zero-based buffer row to flush.
    * @return void
    */
-  private static function writeBufferRow(int $row): void
+  private static function writeBufferRow(int $row, int $start = 0, ?int $width = null): void
   {
     if (!isset(self::$buffer[$row])) {
       return;
     }
 
-    if (self::$frameDepth > 0) {
-      // A later draw in the same frame may update this row again. Remember
-      // the row and emit its final composition when the outer frame closes.
-      self::$frameRows[$row] = true;
+    $start = max(0, min($start, max(0, self::$width - 1)));
+    $end = min(
+      self::$width - 1,
+      $width === null ? self::$width - 1 : $start + max(0, $width) - 1,
+    );
+
+    if ($end < $start) {
       return;
     }
 
-    self::cursor()->moveTo(1, $row + 1);
+    if (self::$frameDepth > 0) {
+      // A later draw in the same frame may update this row again. Remember
+      // the affected span and emit its final composition at outer close.
+      self::markFrameSpan($row, $start, $end);
+      return;
+    }
 
-    self::writeToTerminal(self::$buffer[$row]);
+    self::cursor()->moveTo($start + 1, $row + 1);
+
+    self::writeToTerminal(self::getBufferSegment($row, $start, $end));
+  }
+
+  /** Coalesces a changed span with any earlier writes to the same frame row. */
+  private static function markFrameSpan(int $row, int $start, int $end): void
+  {
+    $start = max(0, min($start, max(0, self::$width - 1)));
+    $end = max($start, min($end, max(0, self::$width - 1)));
+    $current = self::$frameRows[$row] ?? null;
+
+    self::$frameRows[$row] = [
+      'start' => $current === null ? $start : min($current['start'], $start),
+      'end' => $current === null ? $end : max($current['end'], $end),
+    ];
+  }
+
+  /**
+   * Finds the terminal-cell span whose rendered value or style changed.
+   *
+   * @return array{start: int, end: int}|null
+   */
+  private static function changedCellSpan(string $before, string $after): ?array
+  {
+    return self::changedCellSpanFromCells(
+      self::rowToCells($before),
+      self::rowToCells($after),
+    );
+  }
+
+  /**
+   * Finds the changed span between two already expanded cell buffers.
+   *
+   * @param string[] $before
+   * @param string[] $after
+   * @return array{start: int, end: int}|null
+   */
+  private static function changedCellSpanFromCells(array $before, array $after): ?array
+  {
+    $start = null;
+    $end = null;
+
+    for ($cell = 0; $cell < self::$width; $cell++) {
+      if (($before[$cell] ?? ' ') === ($after[$cell] ?? ' ')) {
+        continue;
+      }
+
+      $start ??= $cell;
+      $end = $cell;
+    }
+
+    return $start === null || $end === null
+      ? null
+      : ['start' => $start, 'end' => $end];
+  }
+
+  /** Returns an ANSI-safe slice of one canonical buffer row. */
+  private static function getBufferSegment(int $row, int $start, int $end): string
+  {
+    $cells = self::rowToCells(self::$buffer[$row] ?? '');
+    $segment = array_slice($cells, $start, max(0, $end - $start + 1));
+
+    return self::cellsToRow($segment);
   }
 
   /**

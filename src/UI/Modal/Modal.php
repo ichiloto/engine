@@ -276,12 +276,15 @@ abstract class Modal implements ModalInterface, LayeredPresentationInterface
         break;
       }
 
-      $this->render();
-
       // The game loop is not running while this modal is up, so the world is
       // ticked from here: music keeps looping and engine time keeps advancing
       // rather than jumping when the modal closes.
       $this->game->tickWhileBlocked();
+
+      // A modal is the highest-precedence screen layer. Timed lower layers
+      // (notably sliding notifications) update above, then the modal owns the
+      // final composition for every row in its footprint.
+      $this->render();
 
       usleep($sleepTime);
     }
