@@ -16,6 +16,10 @@ use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
 use Ichiloto\Engine\Core\Menu\ShopMenu\Windows\ShopMainPanel;
 
+afterEach(function (): void {
+  ConfigStore::remove(ProjectConfig::class);
+});
+
 class ArrayConfigStub implements ConfigInterface
 {
   public function __construct(private array $values = [])
@@ -290,7 +294,7 @@ it('highlights the active shop item entry', function () {
     ->and($content[1])->toContain('Phoenix Down');
 });
 
-it('uses the shared menu selection color for focused character panels', function () {
+it('highlights character records while keeping their window chrome neutral', function () {
   ConfigStore::put(ProjectConfig::class, new ArrayConfigStub([
     'ui' => [
       'menu' => [
@@ -300,8 +304,16 @@ it('uses the shared menu selection color for focused character panels', function
   ]));
 
   $panel = new CharacterPanelHighlightProxy(new Rect(0, 0, 40, 7));
+  $panel->setDetails('Kaelion', 6, '140 / 376', '8 / 54', 'Vanguard');
 
   $panel->focus();
+  $selectedContent = $panel->getContent();
 
-  expect($panel->getForegroundColor())->toBe(Color::YELLOW);
+  expect($panel->getForegroundColor())->toBeNull()
+    ->and($selectedContent)->each->toContain(Color::YELLOW->value);
+
+  $panel->blur();
+
+  expect($panel->getForegroundColor())->toBeNull()
+    ->and(implode('', $panel->getContent()))->not->toContain(Color::YELLOW->value);
 });

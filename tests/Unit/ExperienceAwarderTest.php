@@ -33,21 +33,40 @@ function progressionTestCharacter(string $name): Character
 
 it('grants every crossed role skill and reports magic separately', function () {
   $character = progressionTestCharacter('Kaelion');
+  $character->stats->currentHp = 1;
+  $character->stats->currentMp = 1;
   $result = ExperienceAwarder::award($character, 10000);
 
   expect($result->oldLevel)->toBe(1)
     ->and($result->newLevel)->toBeGreaterThanOrEqual(4)
+    ->and($character->stats->currentHp)->toBe($character->stats->totalHp)
+    ->and($character->stats->currentMp)->toBe($character->stats->totalMp)
     ->and($result->learnedAbilities)->toBe(['Role Ability'])
     ->and($result->learnedMagic)->toBe(['Role Magic'])
     ->and(array_column($character->abilityBook->getLearnedAbilities(), 'name'))->toContain('Role Ability')
     ->and(array_column($character->spellbook->getLearnedSpells(), 'name'))->toContain('Role Magic');
 });
 
+it('preserves current resources when an experience award does not level up', function () {
+  $character = progressionTestCharacter('Kaelion');
+  $character->stats->currentHp = 7;
+  $character->stats->currentMp = 3;
+
+  $result = ExperienceAwarder::award($character, 1);
+
+  expect($result->levelledUp())->toBeFalse()
+    ->and($character->stats->currentHp)->toBe(7)
+    ->and($character->stats->currentMp)->toBe(3);
+});
+
 it('awards the full travelling roster and reconciles idempotently', function () {
   $party = new Party();
 
   foreach (['A', 'B', 'C', 'Reserve'] as $name) {
-    $party->addMember(progressionTestCharacter($name));
+    $character = progressionTestCharacter($name);
+    $character->stats->currentHp = 1;
+    $character->stats->currentMp = 0;
+    $party->addMember($character);
   }
 
   $results = ExperienceAwarder::awardParty($party, 10000);
@@ -60,5 +79,11 @@ it('awards the full travelling roster and reconciles idempotently', function () 
     ->and(array_map(static fn($result): array => $result->learnedSkills(), $results))
     ->each->toBe(['Role Ability', 'Role Magic'])
     ->and(array_map(static fn($result): array => $result->learnedSkills(), $secondPass))
-    ->each->toBe([]);
+    ->each->toBe([])
+    ->and(array_map(
+      static fn(Character $character): bool =>
+        $character->stats->currentHp === $character->stats->totalHp
+        && $character->stats->currentMp === $character->stats->totalMp,
+      $party->members->toArray(),
+    ))->each->toBeTrue();
 });

@@ -424,8 +424,7 @@ class EventInterpreter
 
       case 'recover_party':
         foreach ($this->gameScene->party?->members->toArray() ?? [] as $member) {
-          $member->stats->currentHp = $member->stats->totalHp;
-          $member->stats->currentMp = $member->stats->totalMp;
+          $member->restoreVitals();
           $member->stats->currentAp = $member->stats->totalAp;
           $member->clearBattleStates();
         }

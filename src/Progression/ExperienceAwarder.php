@@ -24,8 +24,16 @@ final class ExperienceAwarder
 
     $oldLevel = $character->level;
     $character->addExperience($experience);
+    $newLevel = $character->level;
 
-    return self::grantAutomaticRoleSkills($character, $oldLevel, $character->level, $experience);
+    // Level recovery is part of progression, not generic stat recalculation.
+    // Keeping it here makes battle, quest, and scripted EXP agree while
+    // equipment changes and save hydration continue to preserve damage.
+    if ($newLevel > $oldLevel) {
+      $character->restoreVitals();
+    }
+
+    return self::grantAutomaticRoleSkills($character, $oldLevel, $newLevel, $experience);
   }
 
   /**

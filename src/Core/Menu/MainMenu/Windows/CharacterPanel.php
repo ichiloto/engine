@@ -5,7 +5,6 @@ namespace Ichiloto\Engine\Core\Menu\MainMenu\Windows;
 use Ichiloto\Engine\Core\Interfaces\CanFocus;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
-use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
@@ -26,6 +25,10 @@ class CharacterPanel extends Window implements CanFocus
    * @var bool Whether this panel is marked as the first swap selection.
    */
   protected bool $isMarked = false;
+  /**
+   * @var string[] The neutral character record before selection styling.
+   */
+  protected array $details = [];
 
   /**
    * CharacterPanel constructor.
@@ -65,14 +68,14 @@ class CharacterPanel extends Window implements CanFocus
   ): void
   {
     $leftMargin = 18;
-    $this->setContent([
+    $this->details = [
       sprintf("%{$leftMargin}s%s", ' ', $name),
       sprintf("%{$leftMargin}sRole: %s", ' ', $role),
       sprintf("%{$leftMargin}sLv %12d", ' ', $level),
       sprintf("%{$leftMargin}sHP %12s", ' ', $hp),
       sprintf("%{$leftMargin}sMP %12s", ' ', $mp),
-    ]);
-    $this->render();
+    ];
+    $this->applyHighlightState();
   }
 
   /**
@@ -82,8 +85,8 @@ class CharacterPanel extends Window implements CanFocus
    */
   public function clearDetails(): void
   {
-    $this->setContent(array_fill(0, $this->height - 2, ''));
-    $this->render();
+    $this->details = array_fill(0, $this->height - 2, '');
+    $this->applyHighlightState();
   }
 
   /**
@@ -133,10 +136,19 @@ class CharacterPanel extends Window implements CanFocus
    */
   protected function applyHighlightState(): void
   {
-    $this->setForegroundColor(
-      $this->isFocused || $this->isMarked
-        ? SelectionStyle::resolveColor()
-        : Color::WHITE
+    // A character is the selectable record inside this window. Styling the
+    // Window foreground also colors its borders and padding, so keep that
+    // structural chrome neutral and style only the record content.
+    $this->foregroundColor = null;
+    $isSelected = $this->isFocused || $this->isMarked;
+    $this->setContent(
+      array_map(
+        static fn(string $line): string => $isSelected && $line !== ''
+          ? SelectionStyle::apply($line)
+          : $line,
+        $this->details,
+      )
     );
+    $this->render();
   }
 }

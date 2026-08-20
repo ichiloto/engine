@@ -1239,8 +1239,7 @@ class Character implements CharacterInterface, CanEquip
 
     if ($hasInvalidSavedVitals) {
       // Recover legacy saves created while the level-cap bug had zeroed the stored vital totals.
-      $this->stats->currentHp = $this->stats->totalHp;
-      $this->stats->currentMp = $this->stats->totalMp;
+      $this->restoreVitals();
     }
   }
 
@@ -1368,5 +1367,17 @@ class Character implements CharacterInterface, CanEquip
   {
     $this->currentExp += $exp;
     $this->adjustStatTotals();
+  }
+
+  /**
+   * Restores the character's persistent HP and MP resources to their current
+   * equipment-aware maxima without changing AP or battle states.
+   *
+   * @return void
+   */
+  public function restoreVitals(): void
+  {
+    $this->stats->currentHp = $this->stats->totalHp;
+    $this->stats->currentMp = $this->stats->totalMp;
   }
 }
