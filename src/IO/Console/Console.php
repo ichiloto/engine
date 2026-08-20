@@ -239,6 +239,66 @@ class Console
   }
 
   /**
+   * Rebuilds the complete screen off-screen and emits only changed rows.
+   *
+   * Full-screen scenes must occasionally replace every layer at once: map,
+   * sprites, windows, cues, and transient presentation. Physically clearing
+   * the terminal before each rebuild exposes that intermediate blank screen
+   * and produces visible flicker during camera pans and animations. Starting
+   * from an empty logical buffer also matters, though, because otherwise a
+   * layer that disappeared would remain on screen.
+   *
+   * This method provides both properties. The callback composes a fresh
+   * logical screen inside one outer frame. Once composition succeeds, only
+   * rows whose final content differs from the previous screen are flushed.
+   * If composition fails, the authoritative buffer is restored and no
+   * partial frame reaches the terminal.
+   *
+   * @param callable(): void $renderer The complete screen renderer.
+   * @return void
+   */
+  public static function recomposeFrame(callable $renderer): void
+  {
+    if (self::$frameDepth !== 0) {
+      throw new \RuntimeException('A complete screen cannot be recomposed inside an active console frame.');
+    }
+
+    $previousBuffer = self::$buffer === [] ? self::getEmptyBuffer() : self::$buffer;
+    $previousFrameRows = self::$frameRows;
+
+    self::$buffer = self::getEmptyBuffer();
+    self::$frameRows = [];
+    self::beginFrame();
+
+    try {
+      $renderer();
+
+      if (self::$frameDepth !== 1) {
+        throw new \RuntimeException('The screen renderer left an unbalanced console frame.');
+      }
+
+      // Intermediate writes merely built the new logical screen. Compare its
+      // final rows to the old authoritative screen so rows that disappeared
+      // are blanked while stable rows are not needlessly repainted.
+      self::$frameRows = [];
+      $emptyRow = str_repeat(' ', self::$width);
+
+      for ($row = 0; $row < self::$height; $row++) {
+        if ((self::$buffer[$row] ?? $emptyRow) !== ($previousBuffer[$row] ?? $emptyRow)) {
+          self::$frameRows[$row] = true;
+        }
+      }
+
+      self::endFrame();
+    } catch (\Throwable $throwable) {
+      self::$buffer = $previousBuffer;
+      self::$frameRows = $previousFrameRows;
+      self::$frameDepth = 0;
+      throw $throwable;
+    }
+  }
+
+  /**
    * Sets the terminal name.
    *
    * @param string $name The name of the terminal.

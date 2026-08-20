@@ -115,6 +115,86 @@ it('skips re-emitting a row whose content is genuinely unchanged', function () {
     ->and($reflection->getProperty('buffer')->getValue()[0])->toBe('| hello  |          ');
 });
 
+it('atomically recomposes a complete screen and clears vanished rows', function () {
+  $reflection = withConsole(20, 3);
+
+  ob_start();
+  Console::write('old map', 0, 0);
+  Console::write('old dialogue', 0, 1);
+  ob_end_clean();
+
+  ob_start();
+  Console::recomposeFrame(function (): void {
+    Console::write('new map', 0, 0);
+  });
+  $output = ob_get_clean();
+
+  $buffer = $reflection->getProperty('buffer')->getValue();
+
+  expect($buffer[0])->toBe('new map             ')
+    ->and($buffer[1])->toBe(str_repeat(' ', 20))
+    ->and($output)->toContain('new map')
+    ->and($output)->toContain(str_repeat(' ', 20))
+    ->and(substr_count($output, "\033["))->toBe(2);
+});
+
+it('emits only final changed rows from a complete screen recomposition', function () {
+  withConsole(20, 3);
+
+  ob_start();
+  Console::write('stable', 0, 0);
+  Console::write('before', 0, 1);
+  ob_end_clean();
+
+  ob_start();
+  Console::recomposeFrame(function (): void {
+    Console::write('stable', 0, 0);
+    Console::write('intermediate', 0, 1);
+    Console::write('after', 0, 1);
+  });
+  $output = ob_get_clean();
+
+  expect($output)->not->toContain('stable')
+    ->and($output)->not->toContain('intermediate')
+    ->and($output)->toContain('after')
+    ->and(substr_count($output, "\033["))->toBe(1);
+});
+
+it('restores the authoritative screen when recomposition fails', function () {
+  $reflection = withConsole(20, 2);
+
+  ob_start();
+  Console::write('authoritative', 0, 0);
+  ob_end_clean();
+  $before = $reflection->getProperty('buffer')->getValue();
+
+  ob_start();
+  try {
+    Console::recomposeFrame(function (): void {
+      Console::write('partial', 0, 0);
+      throw new RuntimeException('render failed');
+    });
+  } catch (RuntimeException $exception) {
+    expect($exception->getMessage())->toBe('render failed');
+  }
+  $output = ob_get_clean();
+
+  expect($output)->toBe('')
+    ->and($reflection->getProperty('buffer')->getValue())->toBe($before)
+    ->and($reflection->getProperty('frameDepth')->getValue())->toBe(0);
+});
+
+it('rejects complete screen recomposition inside an active frame', function () {
+  withConsole(20, 2);
+
+  Console::beginFrame();
+
+  expect(fn() => Console::recomposeFrame(static function (): void {}))
+    ->toThrow(RuntimeException::class, 'A complete screen cannot be recomposed inside an active console frame.');
+
+  Console::endFrame();
+});
+
 it('erases a wide sprite from the row it covered', function () {
   // The regression that trailed copies of the player across the map: a
   // sprite is drawn over a map row and then erased tile by tile. Both cells

@@ -14,7 +14,6 @@ use Ichiloto\Engine\Exceptions\IchilotoException;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
-use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Game\GameScene;
@@ -155,11 +154,11 @@ class MapManager implements CanRenderAt
    */
   public function loadMap(string $filename, Player $player): self
   {
-    // Load the tile map from the file
+    // Loading owns map state only. The active scene composes the complete
+    // field after the player, NPCs, cues, UI, and presentation layers are
+    // ready; drawing a partial map here caused duplicate clears and exposed
+    // intermediate frames during transfers.
     $this->loadTileMap($filename, $player);
-    Console::clear();
-    $this->render();
-    $this->gameScene->npcManager?->render();
     return $this;
   }
 

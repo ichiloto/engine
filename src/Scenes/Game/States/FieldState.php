@@ -54,15 +54,16 @@ class FieldState extends GameSceneState
      */
     public function renderTheField(): void
     {
-        Console::clear();
-        $this->getGameScene()->mapManager->render();
-        $this->getGameScene()->player->renderEventCues();
-        $this->getGameScene()->npcManager?->render();
-        $this->getGameScene()->cinematicStage?->render();
-        $this->getGameScene()->player->render();
-        $this->getGameScene()->getUI()->render();
-        $this->getGameScene()->cinematicPresentation?->render();
-        $this->getGameScene()->eventInterpreter?->renderPresentation();
+        Console::recomposeFrame(function (): void {
+            $this->getGameScene()->mapManager->render();
+            $this->getGameScene()->player->renderEventCues();
+            $this->getGameScene()->npcManager?->render();
+            $this->getGameScene()->cinematicStage?->render();
+            $this->getGameScene()->player->render();
+            $this->getGameScene()->getUI()->render();
+            $this->getGameScene()->cinematicPresentation?->render();
+            $this->getGameScene()->eventInterpreter?->renderPresentation();
+        });
     }
 
     /**
