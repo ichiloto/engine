@@ -162,6 +162,39 @@ it('emits only final changed rows from a complete screen recomposition', functio
     ->and(substr_count($output, "\033["))->toBe(1);
 });
 
+it('replaces a menu with every row of a dense styled field', function () {
+  $reflection = withConsole(230, 39);
+
+  ob_start();
+  foreach (range(7, 32) as $row) {
+    Console::write('| old load menu ' . str_repeat(' ', 100) . '|', 60, $row);
+  }
+  ob_end_clean();
+
+  ob_start();
+  Console::recomposeFrame(function (): void {
+    foreach (range(5, 34) as $row) {
+      Console::write(
+        '<fg=green>' . str_repeat(';', 118) . '</>',
+        56,
+        $row,
+      );
+    }
+
+    Console::write('Coordinates: (79, 12)', 2, 37);
+    Console::write('HUD COMPLETE', 2, 38);
+  });
+  $output = ob_get_clean();
+  $buffer = $reflection->getProperty('buffer')->getValue();
+
+  expect(TerminalText::stripAnsi($buffer[20]))->not->toContain('old load menu')
+    ->and(TerminalText::stripAnsi($buffer[34]))->toContain(str_repeat(';', 118))
+    ->and(TerminalText::stripAnsi($buffer[38]))->toContain('HUD COMPLETE')
+    ->and($output)->toContain("\033[35;57H")
+    ->and($output)->toContain("\033[39;3H")
+    ->and(TerminalText::stripAnsi($output))->not->toContain('old load menu');
+});
+
 it('restores the authoritative screen when recomposition fails', function () {
   $reflection = withConsole(20, 2);
 

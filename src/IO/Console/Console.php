@@ -58,9 +58,21 @@ class Console
   private const int WRITE_STALL_TIMEOUT_MICROSECONDS = 20000;
 
   /**
-   * How many consecutive stalled writes to tolerate before abandoning a
-   * payload. At the timeout above this is roughly two seconds, far longer
-   * than a terminal needs to drain, so reaching it means the stream is gone.
+   * Maximum number of bytes offered to the terminal in one write.
+   *
+   * A complete styled field can be hundreds of kilobytes even though it is
+   * only a few dozen terminal rows. Some PTYs accept an initial prefix of a
+   * large fwrite() and then temporarily refuse the remainder. Keeping each
+   * request below a conservative terminal-buffer size makes back-pressure
+   * observable and portable instead of depending on one stream wrapper's
+   * handling of an oversized write.
+   */
+  private const int WRITE_CHUNK_BYTES = 4096;
+
+  /**
+   * How many consecutive stalled writes to tolerate before reporting a
+   * broken stream. At the timeout above this is roughly two seconds, far
+   * longer than a terminal needs to drain.
    */
   private const int WRITE_MAX_STALLED_ATTEMPTS = 100;
 
@@ -731,17 +743,18 @@ class Console
   /**
    * Writes a payload to the terminal, guaranteeing every byte is delivered.
    *
-   * The engine puts STDIN in non-blocking mode so the game loop can poll for
-   * input. A terminal's STDIN and STDOUT share one open file description, so
-   * that flag applies to output as well: a write larger than the terminal's
-   * buffer (~30KB on WSL) writes what fits and reports a short count for the
-   * rest. Symfony's StreamOutput discards fwrite()'s return value, so those
-   * bytes vanish silently — which truncates a large map to its first rows.
+   * A complete field frame can exceed a terminal's output buffer. Depending
+   * on the PTY, a blocking fwrite() may wait indefinitely for the complete
+   * request or return a short count; a non-blocking write reports the portion
+   * accepted immediately. Symfony's StreamOutput discards fwrite()'s return
+   * value, so using it directly can silently truncate a large map.
    *
    * Looping until the payload is fully written is the correct way to write to
    * a non-blocking descriptor, and it is also the only way partial writes are
    * handled safely in general: even a blocking write can be cut short by a
-   * signal.
+   * signal. The writer must never silently abandon a frame. Doing so leaves
+   * the canonical buffer ahead of the physical terminal, causing remnants of
+   * the previous scene to survive until an unrelated redraw happens.
    *
    * @param string $payload The terminal-ready payload to write.
    * @return void
@@ -765,31 +778,61 @@ class Console
     $totalBytes = strlen($payload);
     $bytesWritten = 0;
     $stalledAttempts = 0;
+    $streamMetadata = stream_get_meta_data($stream);
+    $wasBlocking = boolval($streamMetadata['blocked'] ?? true);
+    $controlsBlockingMode = $wasBlocking && @stream_set_blocking($stream, false);
 
-    while ($bytesWritten < $totalBytes) {
-      $written = @fwrite($stream, substr($payload, $bytesWritten));
+    try {
+      while ($bytesWritten < $totalBytes) {
+        $chunk = substr(
+          $payload,
+          $bytesWritten,
+          min(self::WRITE_CHUNK_BYTES, $totalBytes - $bytesWritten),
+        );
+        $written = @fwrite($stream, $chunk);
 
-      if ($written !== false && $written > 0) {
-        $bytesWritten += $written;
-        $stalledAttempts = 0;
-        continue;
+        if ($written !== false && $written > 0) {
+          $bytesWritten += $written;
+          $stalledAttempts = 0;
+          continue;
+        }
+
+        // Either the terminal buffer is full (a 0/false short write on a
+        // non-blocking descriptor) or the stream is genuinely broken. Wait
+        // for writability. PHP's stdio wrapper is not selectable on every
+        // PTY, so a failed/empty select must still yield before retrying
+        // instead of burning through the retry budget immediately.
+        if (++$stalledAttempts > self::WRITE_MAX_STALLED_ATTEMPTS) {
+          throw new RuntimeException(sprintf(
+            'Terminal output stalled after %d of %d bytes.',
+            $bytesWritten,
+            $totalBytes,
+          ));
+        }
+
+        $readStreams = [];
+        $writeStreams = [$stream];
+        $exceptStreams = [];
+
+        $ready = @stream_select(
+          $readStreams,
+          $writeStreams,
+          $exceptStreams,
+          0,
+          self::WRITE_STALL_TIMEOUT_MICROSECONDS,
+        );
+
+        if ($ready !== 1) {
+          usleep(self::WRITE_STALL_TIMEOUT_MICROSECONDS);
+        }
       }
 
-      // Either the terminal buffer is full (a 0/false short write on a
-      // non-blocking descriptor) or the stream is genuinely broken. Wait for
-      // writability, and give up rather than spin forever if it never comes.
-      if (++$stalledAttempts > self::WRITE_MAX_STALLED_ATTEMPTS) {
-        break;
+      @fflush($stream);
+    } finally {
+      if ($controlsBlockingMode) {
+        @stream_set_blocking($stream, true);
       }
-
-      $readStreams = [];
-      $writeStreams = [$stream];
-      $exceptStreams = [];
-
-      @stream_select($readStreams, $writeStreams, $exceptStreams, 0, self::WRITE_STALL_TIMEOUT_MICROSECONDS);
     }
-
-    @fflush($stream);
   }
 
   /**
