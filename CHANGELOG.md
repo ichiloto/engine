@@ -31,6 +31,6 @@ into a complete authoring target for story-driven terminal RPGs.
 
 ### Requirements
 
-- PHP 8.4 or newer within the PHP 8 release line.
+- PHP 8.4.1 or newer within the PHP 8 release line.
 - Symfony Console 8.
 - Pest 5.1 for the development test suite.

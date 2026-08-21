@@ -43,6 +43,18 @@ it('uses the DEC private autowrap mode understood by terminal emulators', functi
   expect($output)->toBe("\033[?7l\033[?7h");
 });
 
+it('restores autowrap before handing the terminal screen back', function () {
+  $console = withConsole(20, 4);
+  $console->getProperty('usingAlternateScreen')->setValue(null, true);
+
+  ob_start();
+  Console::reset();
+  $output = ob_get_clean();
+
+  expect($output)->toStartWith("\033[?7h\033[?1049l")
+    ->and($console->getProperty('terminalHandedBack')->getValue())->toBeTrue();
+});
+
 it('can repaint an unchanged canonical region without repainting the screen', function () {
   withConsole(20, 4);
 

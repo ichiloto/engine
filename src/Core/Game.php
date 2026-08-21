@@ -372,23 +372,14 @@ class Game implements CanRun, SubjectInterface
         }
 
         try {
-            Console::cursor()->show();
-        } catch (Throwable) {
-        }
-
-        try {
             Console::restoreTerminalSettings();
         } catch (Throwable) {
         }
 
         try {
-            // Hand back the screen the player started with.
-            Console::leaveAlternateScreen();
-        } catch (Throwable) {
-        }
-
-        try {
-            Console::cursor()->enableBlinking();
+            // Restore every terminal mode that Console changed, then hand
+            // back the screen the player started with.
+            Console::reset();
         } catch (Throwable) {
         }
     }
@@ -901,7 +892,6 @@ SPLASH_SCREEN;
     {
         $this->notify($this, new GameEvent(GameEventType::QUIT));
         $this->stop();
-        Console::reset();
     }
 
     /**
