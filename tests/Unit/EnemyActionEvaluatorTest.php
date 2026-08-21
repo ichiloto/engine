@@ -1,7 +1,10 @@
 <?php
 
 use Ichiloto\Engine\Battle\EnemyActionEvaluator;
+use Ichiloto\Engine\Battle\Actions\AttackAction;
+use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Core\Range;
+use Ichiloto\Engine\Entities\Enemies\Enemy;
 use Ichiloto\Engine\Entities\Enemies\ActionCondition;
 use Ichiloto\Engine\Entities\Enemies\ActionPattern;
 use Ichiloto\Engine\Entities\Enumerations\ActionConditionType;
@@ -45,6 +48,18 @@ function makePattern(int $rating, ActionCondition $condition, int $cost = 0): Ac
   );
 
   return new ActionPattern($skill, $rating, $condition);
+}
+
+function makePatternEnemy(ActionPattern ...$patterns): Enemy
+{
+  $enemy = (new ReflectionClass(Enemy::class))->newInstanceWithoutConstructor();
+  (new ReflectionProperty(Enemy::class, 'stats'))->setValue(
+    $enemy,
+    new Stats(currentHp: 100, totalHp: 100, currentMp: 100, totalMp: 100),
+  );
+  (new ReflectionProperty(Enemy::class, 'actionPatterns'))->setValue($enemy, $patterns);
+
+  return $enemy;
 }
 
 it('always-conditions always hold', function () {
@@ -91,6 +106,31 @@ it('drops patterns the enemy cannot afford', function () {
 
   expect(EnemyActionEvaluator::filterUsablePatterns($patterns, makeAiEnemy(mp: 4), 1, 1))->toHaveCount(0)
     ->and(EnemyActionEvaluator::filterUsablePatterns($patterns, makeAiEnemy(mp: 12), 1, 1))->toHaveCount(1);
+});
+
+it('passes world switches through action selection', function () {
+  $pattern = makePattern(5, new ActionCondition(ActionConditionType::SWITCH, status: 'boss_enraged'));
+  $enemy = makePatternEnemy($pattern);
+
+  [$enabledAction] = EnemyActionEvaluator::chooseAction(
+    $enemy,
+    [$enemy],
+    [$enemy],
+    1,
+    1,
+    static fn(string $switch): bool => $switch === 'boss_enraged',
+  );
+  [$disabledAction] = EnemyActionEvaluator::chooseAction(
+    $enemy,
+    [$enemy],
+    [$enemy],
+    1,
+    1,
+    static fn(string $switch): bool => false,
+  );
+
+  expect($enabledAction)->toBeInstanceOf(SkillBattleAction::class)
+    ->and($disabledAction)->toBeInstanceOf(AttackAction::class);
 });
 
 it('keeps only patterns rated within two of the best', function () {

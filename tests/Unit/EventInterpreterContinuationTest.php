@@ -410,9 +410,10 @@ class EventTestGameScene extends GameScene
     $this->currentMapId = $location->mapFilename;
 
     if ($this->autoResumeTransfers) {
-      $this->eventInterpreter?->resumeAfterTransfer();
+      $this->finalizePlayerTransfer();
+    } else {
+      $this->autoSave();
     }
-    $this->autoSave();
   }
 
   public function onEventSessionStarted(EventExecutionSession $session): void
@@ -1203,6 +1204,40 @@ it('resumes after an in-script transfer and defers transfer autosave until compl
     ->and($scene->gameState->getSwitch('after_transfer'))->toBeTrue()
     ->and($scene->hasDeferredAutoSave)->toBeFalse()
     ->and($scene->testSceneManager->eventTestSaveManager->autoSaveCount)->toBe(1);
+
+  ConfigStore::remove(ProjectConfig::class);
+});
+
+it('runs destination automatic triggers after the transfer session finishes', function () {
+  putSceneAudioConfig([]);
+  [$scene, $interpreter] = makeEventRuntime();
+  $player = new EventTestPlayer(new Vector2(2, 3));
+  $scene->installPlayer($player);
+  $trigger = new ScriptEventTrigger(
+    new Rect(2, 3, 1, 1),
+    ['mode' => 'auto', 'reusable' => false, 'script' => [
+      ['type' => 'record_event', 'name' => 'arrival_event_started'],
+    ]],
+    mapId: 'map-b',
+    marker: 'B',
+  );
+  $trigger->bind($scene->gameState, $scene->party);
+  $player->addTrigger($trigger);
+
+  $session = $interpreter->run([
+    ['type' => 'transfer', 'map' => 'map-b', 'x' => 2, 'y' => 3],
+    ['type' => 'set_switch', 'name' => 'transfer_session_finished', 'value' => true],
+  ]);
+
+  expect($session?->status)->toBe(EventExecutionStatus::RUNNING)
+    ->and($scene->gameState->hasStoryEvent('arrival_event_started'))->toBeFalse();
+
+  $interpreter->update(0.016);
+
+  expect($session?->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and($scene->gameState->getSwitch('transfer_session_finished'))->toBeTrue()
+    ->and($scene->gameState->hasStoryEvent('arrival_event_started'))->toBeTrue()
+    ->and($scene->gameState->isEventComplete('map-b', 'B'))->toBeTrue();
 
   ConfigStore::remove(ProjectConfig::class);
 });

@@ -13,6 +13,7 @@ use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\TraditionalTurnB
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Turn;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnBasedBattleConfig;
 use Ichiloto\Engine\Battle\UI\BattleCharacterNameWindow;
+use Ichiloto\Engine\Battle\UI\BattleCharacterStatusWindow;
 use Ichiloto\Engine\Battle\UI\BattleCommandContextWindow;
 use Ichiloto\Engine\Battle\UI\BattleCommandWindow;
 use Ichiloto\Engine\Battle\UI\BattleFieldWindow;
@@ -46,6 +47,14 @@ class BattleCharacterNameWindowTargetingTestProxy extends BattleCharacterNameWin
   public function updateContent(): void
   {
     // Skip terminal rendering for battle target-selection tests.
+  }
+}
+
+class BattleCharacterStatusWindowTargetingTestProxy extends BattleCharacterStatusWindow
+{
+  public function setAtbPercentages(array $atbPercentages): void
+  {
+    // Skip terminal rendering for active-time flow tests.
   }
 }
 
@@ -116,6 +125,18 @@ class BattleScreenTargetingTestProxy extends BattleScreen
   public function recomposeField(): void
   {
     $this->recomposeCount++;
+  }
+
+  public function setState(\Ichiloto\Engine\Battle\UI\States\BattleScreenState $state): void
+  {
+  }
+
+  public function hideMessage(): void
+  {
+  }
+
+  public function refresh(): void
+  {
   }
 
   public function alert(string $text): void
@@ -207,11 +228,18 @@ function createTargetingTestScreen(): BattleScreenTargetingTestProxy
   $characterNameWindow = (new ReflectionClass(BattleCharacterNameWindowTargetingTestProxy::class))->newInstanceWithoutConstructor();
   $commandContextWindow = (new ReflectionClass(BattleCommandContextWindowTargetingTestProxy::class))->newInstanceWithoutConstructor();
   $fieldWindow = (new ReflectionClass(BattleFieldWindowTargetingTestProxy::class))->newInstanceWithoutConstructor();
+  $characterStatusWindow = (new ReflectionClass(BattleCharacterStatusWindowTargetingTestProxy::class))->newInstanceWithoutConstructor();
 
   setTestProperty($screen, 'commandWindow', $commandWindow);
   setTestProperty($screen, 'characterNameWindow', $characterNameWindow);
   setTestProperty($screen, 'commandContextWindow', $commandContextWindow);
   setTestProperty($screen, 'fieldWindow', $fieldWindow);
+  setTestProperty($screen, 'characterStatusWindow', $characterStatusWindow);
+  setTestProperty(
+    $screen,
+    'playerActionState',
+    new \Ichiloto\Engine\Battle\UI\States\PlayerActionState($screen),
+  );
 
   return $screen;
 }
@@ -384,6 +412,23 @@ class ActiveTimeFlowStateTestProxy extends ActiveTimeFlowState
     $this->executeEnemyTurn($context, $enemy);
   }
 }
+
+it('advances active-time rounds whenever the flow cycles', function () {
+  $game = (new ReflectionClass(GameTargetingTestProxy::class))->newInstanceWithoutConstructor();
+  $party = new Party();
+  $party->addMember(new Character('Kaelion', 0, new Stats(currentHp: 120, speed: 8)));
+  $troop = new Troop('Lake', [createTargetingTestEnemy('Lochness Monster')]);
+  $screen = createTargetingTestScreen();
+  $engine = new ActiveTimeBattleEngineCaptureProxy($game);
+  $engine->configure(new ActiveTimeBattleConfig($party, $troop, $screen));
+  $context = new TurnStateExecutionContext($game, $party, $troop, $screen, []);
+  $state = new ActiveTimeFlowStateTestProxy($engine);
+
+  $state->enter($context);
+  $state->enter($context);
+
+  expect($context->roundNumber)->toBe(2);
+});
 
 it('queues Guard immediately for a ready active-time battler', function () {
   $game = (new ReflectionClass(GameTargetingTestProxy::class))->newInstanceWithoutConstructor();

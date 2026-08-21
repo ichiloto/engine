@@ -36,6 +36,7 @@ class EnemyActionEvaluator
    * @param CharacterInterface[] $troopTargets The living enemy battlers.
    * @param int $roundNumber The current battle round.
    * @param int $maxPartyLevel The highest level in the player party.
+   * @param callable|null $switchLookup Resolves a world switch name to its current value.
    * @return array{0: BattleAction, 1: CharacterInterface[]} The chosen action and targets.
    */
   public static function chooseAction(
@@ -43,13 +44,14 @@ class EnemyActionEvaluator
     array $partyTargets,
     array $troopTargets,
     int $roundNumber,
-    int $maxPartyLevel
+    int $maxPartyLevel,
+    ?callable $switchLookup = null,
   ): array
   {
     $patterns = $enemy instanceof Enemy ? $enemy->actionPatterns : [];
 
     if (! empty($patterns)) {
-      $usable = self::filterUsablePatterns($patterns, $enemy, $roundNumber, $maxPartyLevel);
+      $usable = self::filterUsablePatterns($patterns, $enemy, $roundNumber, $maxPartyLevel, $switchLookup);
       $pattern = self::pickPattern($usable);
 
       if ($pattern !== null && $pattern->skill instanceof Skill) {

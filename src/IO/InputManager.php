@@ -201,18 +201,17 @@ class InputManager
    */
   public static function getAxis(AxisName $axisName): float
   {
-    if ($axisName === AxisName::HORIZONTAL) {
-      if (self::isAnyKeyPressed([KeyCode::LEFT, KeyCode::A, KeyCode::a])) {
-        return -1;
-      } else if (self::isAnyKeyPressed([KeyCode::RIGHT, KeyCode::D, KeyCode::d])) {
-        return 1;
-      }
-    } else if ($axisName === AxisName::VERTICAL) {
-      if (self::isAnyKeyPressed([KeyCode::UP, KeyCode::W, KeyCode::w])) {
-        return -1;
-      } else if (self::isAnyKeyPressed([KeyCode::DOWN, KeyCode::S, KeyCode::s])) {
-        return 1;
-      }
+    [$negativeAction, $positiveAction] = match ($axisName) {
+      AxisName::HORIZONTAL => ['left', 'right'],
+      AxisName::VERTICAL => ['up', 'down'],
+    };
+
+    if (self::isButtonDown($negativeAction)) {
+      return -1;
+    }
+
+    if (self::isButtonDown($positiveAction)) {
+      return 1;
     }
 
     return 0;

@@ -192,6 +192,8 @@ class GameScene extends AbstractScene
      * @var bool Whether a transfer requested an autosave during an event.
      */
     protected(set) bool $hasDeferredAutoSave = false;
+    /** Whether the destination map still needs its automatic entry triggers evaluated. */
+    protected bool $hasPendingAutomaticTriggerEvaluation = false;
     /**
      * @var SkitManager|null The skit manager.
      */
@@ -265,15 +267,16 @@ class GameScene extends AbstractScene
         $this->gameState = GameState::fromArray($this->config->gameState);
 
         // Flag writes feed quest objectives that watch switches and story
-        // events, and can make new skits available.
+        // events. Every world-state write can affect skits or achievements.
         $this->gameState->onChange = function (string $kind, string $name): void {
             $this->requestFieldPresentationReconciliation();
 
             if ($kind !== 'variable') {
                 $this->questManager?->recordFlag($name);
-                $this->skitManager?->announceAvailableSkits();
-                $this->achievementManager?->evaluateConditionalAchievements();
             }
+
+            $this->skitManager?->announceAvailableSkits();
+            $this->achievementManager?->evaluateConditionalAchievements();
         };
 
         Time::setElapsedTime($this->config->playTimeSeconds);
@@ -301,6 +304,7 @@ class GameScene extends AbstractScene
         $this->cinematicPresentation = new CinematicPresentationManager($this);
         $this->eventInterpreter = new EventInterpreter($this);
         $this->hasDeferredAutoSave = false;
+        $this->hasPendingAutomaticTriggerEvaluation = false;
         $this->skitManager = new SkitManager($this);
         $this->achievementManager = new AchievementManager($this->getGame(), $this);
         $this->achievementManager->hydrate($this->config->achievements);
@@ -518,12 +522,31 @@ class GameScene extends AbstractScene
         $this->eventInterpreter?->renderPresentation();
         Debug::info("Player transferred to $location->mapFilename... at {$this->player->position}");
 
+        $this->finalizePlayerTransfer();
+    }
+
+    /** Completes transfer side effects once the destination map is ready. */
+    protected function finalizePlayerTransfer(): void
+    {
+        $this->hasPendingAutomaticTriggerEvaluation = true;
+
         // The originating interpreter stays in memory while MapManager and
         // NpcManager load the destination. It advances past transfer only
         // after that existing path has fully completed.
         $this->eventInterpreter?->resumeAfterTransfer();
-
+        $this->evaluatePendingAutomaticTriggers();
         $this->autoSave();
+    }
+
+    /** Runs deferred destination triggers once no event session owns the interpreter. */
+    protected function evaluatePendingAutomaticTriggers(): void
+    {
+        if (! $this->hasPendingAutomaticTriggerEvaluation || $this->hasUnstableEventSession()) {
+            return;
+        }
+
+        $this->hasPendingAutomaticTriggerEvaluation = false;
+        $this->player?->evaluateAutomaticTriggersAtCurrentPosition();
     }
 
     /**
@@ -651,6 +674,7 @@ class GameScene extends AbstractScene
         // erased. Rebuild the composition at this authoritative boundary.
         $this->requestFieldPresentationReconciliation();
         $this->reconcileFieldPresentation();
+        $this->evaluatePendingAutomaticTriggers();
 
         if (! $completed) {
             // Never turn a failed, potentially partial script into an

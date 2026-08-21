@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\InputBindings;
 use Ichiloto\Engine\IO\InputManager;
@@ -77,6 +78,30 @@ it('rebinds an action immediately and writes it back', function () {
     // without a restart.
     ->and(InputManager::getBindings()['up']['keys'])->toBe([KeyCode::K])
     ->and($config->written['up']['keys'])->toBe([KeyCode::K]);
+});
+
+it('uses rebound directional actions for virtual axes', function () {
+  installBindings([
+    'up' => ['description' => 'Move up.', 'keys' => [KeyCode::UP]],
+    'down' => ['description' => 'Move down.', 'keys' => [KeyCode::DOWN]],
+    'left' => ['description' => 'Move left.', 'keys' => [KeyCode::LEFT]],
+    'right' => ['description' => 'Move right.', 'keys' => [KeyCode::RIGHT]],
+  ]);
+
+  expect((new InputBindings())->rebind('up', KeyCode::K))->toBeTrue();
+
+  $keyPress = new ReflectionProperty(InputManager::class, 'keyPress');
+  $previousKeyPress = new ReflectionProperty(InputManager::class, 'previousKeyPress');
+  $previousKeyPress->setValue(null, '');
+  $keyPress->setValue(null, KeyCode::K->value);
+
+  expect(InputManager::getAxis(AxisName::VERTICAL))->toBe(-1.0);
+
+  $keyPress->setValue(null, KeyCode::UP->value);
+
+  expect(InputManager::getAxis(AxisName::VERTICAL))->toBe(0.0);
+
+  InputManager::resetState();
 });
 
 it('refuses to rebind the way out of a screen', function () {
