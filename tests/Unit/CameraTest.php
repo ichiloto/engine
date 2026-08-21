@@ -45,3 +45,25 @@ it('re-centers smaller maps after the viewport is resized', function () {
   expect($screenPosition->x)->toBe(40.0)
     ->and($screenPosition->y)->toBe(25.0);
 });
+
+it('detaches, clamps, focuses, restores and reattaches without duplicating camera math', function () {
+  $scene = makeCameraTestScene();
+  $camera = new Camera($scene, 20, 10, new Vector2(3, 4), null, array_fill(0, 40, str_repeat('.', 80)));
+  $scene->camera = $camera;
+  $initial = $camera->captureState();
+
+  $camera->detach();
+  $camera->moveTo(500, -20);
+  expect($camera->followsPlayer)->toBeFalse()
+    ->and([$camera->position->x, $camera->position->y])->toBe([60.0, 0.0]);
+
+  $camera->focusOn(new Vector2(40, 20));
+  expect([$camera->position->x, $camera->position->y])->toBe([31.0, 16.0]);
+
+  $camera->restorePrevious();
+  expect($camera->followsPlayer)->toBeTrue()
+    ->and([$camera->position->x, $camera->position->y])->toBe([
+      $initial->position->x,
+      $initial->position->y,
+    ]);
+});

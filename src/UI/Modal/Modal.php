@@ -3,8 +3,10 @@
 namespace Ichiloto\Engine\UI\Modal;
 
 use Assegai\Collections\ItemList;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Rect;
+use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Events\Enumerations\ModalEventType;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
@@ -18,10 +20,15 @@ use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\UI\Interfaces\ModalInterface;
+use Ichiloto\Engine\UI\Interfaces\LayeredPresentationInterface;
+use Ichiloto\Engine\UI\Enumerations\PresentationPriority;
+use Ichiloto\Engine\UI\UIManager;
 use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
+use Ichiloto\Engine\UI\Windows\WindowAlignment;
+use Ichiloto\Engine\UI\Windows\WindowPadding;
 use Ichiloto\Engine\Util\Debug;
 use Symfony\Component\Console\Output\ConsoleOutput;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -31,7 +38,7 @@ use Symfony\Component\Console\Output\OutputInterface;
  *
  * @package Ichiloto\Engine\UI\Modal
  */
-abstract class Modal implements ModalInterface
+abstract class Modal implements ModalInterface, LayeredPresentationInterface
 {
   /**
    * @var Window $window The window of the modal.
@@ -126,11 +133,13 @@ abstract class Modal implements ModalInterface
     $this->output = new ConsoleOutput();
     $this->window = new Window(
       $this->title,
-      '',
+      $this->help ?? '',
       $this->rect->position,
       $this->rect->getWidth(),
       $this->rect->getHeight(),
-      $this->borderPack
+      $this->borderPack,
+      WindowAlignment::middleCenter(),
+      new WindowPadding(),
     );
     $this->window->setContent($this->content);
   }
@@ -140,14 +149,13 @@ abstract class Modal implements ModalInterface
    */
   public function render(): void
   {
-    Console::cursor()->moveTo($this->leftMargin + 1, $this->topMargin + 1);
-    $this->renderTopBorder();
-    Console::cursor()->moveTo($this->leftMargin + 1, $this->topMargin + 2);
-    $this->renderContent();
-    Console::cursor()->moveTo($this->leftMargin + 1, $this->topMargin + 2 + $this->contentHeight);
-    $this->renderButtons();
-    Console::cursor()->moveTo($this->leftMargin + 1, $this->topMargin + 3 + $this->contentHeight);
-    $this->renderBottomBorder();
+    $this->window->setTitle($this->title);
+    $this->window->setHelp($this->help ?? '');
+    $this->window->setContent([
+      ...$this->content,
+      $this->renderedButtonLine(),
+    ]);
+    $this->window->render();
   }
 
   /**
@@ -179,6 +187,10 @@ abstract class Modal implements ModalInterface
       } else {
         $this->activeIndex = wrap($this->activeIndex + 1, 0, count($this->buttons) - 1);
       }
+
+      if (count($this->buttons) > 1) {
+        $this->game->audioManager->playSystemSound(SystemSound::CURSOR);
+      }
     }
 
     if (Input::isButtonDown("confirm")) {
@@ -196,6 +208,7 @@ abstract class Modal implements ModalInterface
   public function show(): void
   {
     $this->isShowing = true;
+    $this->getUIManager()?->present($this);
     $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::SHOW, true));
   }
 
@@ -207,8 +220,36 @@ abstract class Modal implements ModalInterface
     if ($this->isShowing) {
       $this->erase();
       $this->isShowing = false;
+      $this->getUIManager()?->dismiss($this);
       $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::HIDE, false));
     }
+  }
+
+  /** @inheritDoc */
+  public function getPresentationBounds(): Rect
+  {
+    return new Rect(
+      $this->rect->getX(),
+      $this->rect->getY(),
+      $this->rect->getWidth(),
+      $this->rect->getHeight(),
+    );
+  }
+
+  /** @inheritDoc */
+  public function getPresentationPriority(): PresentationPriority
+  {
+    return PresentationPriority::MODAL;
+  }
+
+  /** Returns the active scene's UI manager when the game is fully booted. */
+  protected function getUIManager(): ?UIManager
+  {
+    if (! isset($this->game->sceneManager)) {
+      return null;
+    }
+
+    return $this->game->sceneManager->currentScene?->getUI();
   }
 
   /**
@@ -217,14 +258,32 @@ abstract class Modal implements ModalInterface
   public function open(): mixed
   {
     $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::OPEN, true));
-    $this->leftMargin = (int)( (get_screen_width() / 2) - ($this->rect->getWidth() / 2) );
-    $this->topMargin = (int)( (get_screen_height() / 2) - ($this->rect->getHeight() / 2) );
+    // Fit before centring, so the box is measured at its final height.
+    $this->fitContentToWidth();
+    $this->positionForOpen();
     $this->show();
+    $this->render();
     $sleepTime = (int)(1000000 / 60);
 
     while ($this->isShowing) {
       $this->handleInput();
       $this->update();
+
+      // submit() and cancel() hide and erase the modal. Drawing again in the
+      // same iteration resurrects the overlay after dismissal, and close()
+      // will not erase it a second time because it is already hidden.
+      if (! $this->isShowing) {
+        break;
+      }
+
+      // The game loop is not running while this modal is up, so the world is
+      // ticked from here: music keeps looping and engine time keeps advancing
+      // rather than jumping when the modal closes.
+      $this->game->tickWhileBlocked();
+
+      // A modal is the highest-precedence screen layer. Timed lower layers
+      // (notably sliding notifications) update above, then the modal owns the
+      // final composition for every row in its footprint.
       $this->render();
 
       usleep($sleepTime);
@@ -238,9 +297,18 @@ abstract class Modal implements ModalInterface
    */
   public function close(): mixed
   {
-    $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::CLOSE, $this->value));
+    // Remove the overlay before the scene resumes. FieldState::resume()
+    // redraws the world in response to CLOSE; erasing after that redraw would
+    // blank the modal footprint and leave dynamic field objects missing.
     $this->hide();
+    $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::CLOSE, $this->value));
     return $this->value;
+  }
+
+  /** @inheritDoc */
+  public function isShowing(): bool
+  {
+    return $this->isShowing;
   }
 
   /**
@@ -297,6 +365,7 @@ abstract class Modal implements ModalInterface
    */
   protected function submit(): void
   {
+    $this->playInteractionSound(SystemSound::CONFIRM);
     $this->value = $this->buttons[$this->activeIndex];
     $this->hide();
   }
@@ -306,8 +375,24 @@ abstract class Modal implements ModalInterface
    */
   protected function cancel(): void
   {
+    $this->playInteractionSound(SystemSound::CANCEL);
     $this->value = null;
     $this->hide();
+  }
+
+  /**
+   * Plays a system sound for a modal interaction.
+   *
+   * Modals that repurpose the interaction flow for quiet flows (e.g. the
+   * dialogue text box, where confirm merely advances the message) override
+   * this to stay silent.
+   *
+   * @param SystemSound $sound The system sound to play.
+   * @return void
+   */
+  protected function playInteractionSound(SystemSound $sound): void
+  {
+    $this->game->audioManager->playSystemSound($sound);
   }
 
   /**
@@ -345,13 +430,110 @@ abstract class Modal implements ModalInterface
   }
 
   /**
+   * Wraps the message to the box's inner width and grows the box to fit.
+   *
+   * Without this a message longer than the dialog is simply cut off mid
+   * sentence. The player sees "The shop is still shuttered. Perhaps someone
+   * at" and never learns the rest. Wrapping is done on word boundaries, and
+   * the box grows downward to hold the result.
+   *
+   * Subclasses that lay out their own text (the dialogue text box types its
+   * message character by character) override this to do nothing.
+   *
+   * @return void
+   */
+  protected function fitContentToWidth(): void
+  {
+    $innerWidth = max(1, $this->rect->getWidth() - 2);
+    $lines = [];
+
+    foreach (explode("\n", $this->message) as $paragraph) {
+      foreach (explode("\n", wordwrap($paragraph, $innerWidth, "\n", true)) as $line) {
+        $lines[] = $line;
+      }
+    }
+
+    $this->content = $lines;
+    $this->contentHeight = count($lines);
+
+    // Top border + content + button row + bottom border.
+    $this->rect->setHeight($this->contentHeight + 3);
+    // Window has no resize, so rebuild it at the fitted height. It owns the
+    // erase footprint and would otherwise leave the extra rows on screen.
+    $this->rebuildWindow();
+    $this->window->setContent($this->content);
+  }
+
+  /** Rebuilds the canonical render/erase window after modal geometry changes. */
+  protected function rebuildWindow(): void
+  {
+    $this->window = new Window(
+      $this->title,
+      $this->help ?? '',
+      $this->rect->position,
+      $this->rect->getWidth(),
+      $this->rect->getHeight(),
+      $this->borderPack,
+      WindowAlignment::middleCenter(),
+      new WindowPadding(),
+    );
+  }
+
+  /**
+   * Moves the modal rectangle and its erase/render window together.
+   *
+   * Modal geometry has one owner: if the visible box and the backing window
+   * diverge, dismissal clears a different area than the one that was drawn.
+   *
+   * @param int $left The zero-based left edge.
+   * @param int $top The zero-based top edge.
+   * @return void
+   */
+  protected function setPosition(int $left, int $top): void
+  {
+    $this->leftMargin = max(0, $left);
+    $this->topMargin = max(0, $top);
+    $this->rect->position = new Vector2($this->leftMargin, $this->topMargin);
+    $this->window->setPosition($this->rect->position);
+  }
+
+  /** Positions ordinary blocking modals in the center of the game screen. */
+  protected function positionForOpen(): void
+  {
+    $this->setPosition(
+      (int)((get_screen_width() - $this->rect->getWidth()) / 2),
+      (int)((get_screen_height() - $this->rect->getHeight()) / 2),
+    );
+  }
+
+  /** Returns the centered action text with the active button styled. */
+  protected function renderedButtonLine(): string
+  {
+    $activeButton = $this->buttons[$this->activeIndex] ?? '';
+    $buttonOutput = implode(' ', $this->buttons);
+
+    if ($activeButton === '') {
+      return $buttonOutput;
+    }
+
+    return str_replace(
+      $activeButton,
+      Color::apply($activeButton, $this->getSelectionColor()),
+      $buttonOutput,
+    );
+  }
+
+  /**
    * Renders the content.
    *
    * @return void
    */
   protected function renderContent(): void
   {
-    foreach ($this->content as $line) {
+    foreach ($this->content as $index => $line) {
+      // Each line is placed explicitly. Writing them back to back leaves the
+      // second one trailing off the end of the first row.
+      Console::cursor()->moveTo($this->leftMargin + 1, $this->topMargin + 2 + $index);
       $output = $this->borderPack->getVerticalBorder() .
         TerminalText::padCenter($line, $this->rect->getWidth() - 2) .
         $this->borderPack->getVerticalBorder();

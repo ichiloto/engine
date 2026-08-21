@@ -43,6 +43,17 @@ final class ConfigStore
   }
 
   /**
+   * Removes the given config class from the store.
+   *
+   * @param class-string $configClass The config class.
+   * @return void
+   */
+  public static function remove(string $configClass): void
+  {
+    unset(self::$store[$configClass]);
+  }
+
+  /**
    * Checks if the config store has the given config class.
    *
    * @param class-string $configClass The config class.

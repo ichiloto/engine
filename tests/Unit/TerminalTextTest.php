@@ -19,6 +19,14 @@ it('pads ansi colored text using visible width', function () {
     ->and(TerminalText::stripAnsi($padded))->toBe('Rare    ');
 });
 
+it('wraps styled text by visible width without losing the highlighted key', function () {
+  $text = 'Press ' . Color::apply('T', Color::YELLOW) . ' to watch.';
+  $lines = TerminalText::wrapToWidth($text, 10);
+
+  expect(array_map([TerminalText::class, 'stripAnsi'], $lines))->toBe(['Press T', 'to watch.'])
+    ->and(implode('', $lines))->toContain(Color::YELLOW->value);
+});
+
 it('slices visible symbols without breaking ansi styling', function () {
   $text = Color::apply('o', Color::LIGHT_GREEN) . 'x?';
   $slice = TerminalText::sliceSymbols($text, 0, 2);
@@ -37,4 +45,58 @@ it('treats symfony formatter tags as zero-width styling', function () {
     ->and(TerminalText::displayWidth($text))->toBe(2)
     ->and($symbols[0] ?? '')->toContain("\033[")
     ->and($symbols[1] ?? '')->toContain("\033[");
+});
+
+/* Width-unstable glyph stabilization */
+
+it('distinguishes plain text pictographs from explicit emoji presentation', function () {
+  expect(TerminalText::displayWidth('⚔️'))->toBe(2)
+    ->and(TerminalText::displayWidth('⚔'))->toBe(1)
+    ->and(TerminalText::displayWidth('➡️'))->toBe(2)
+    ->and(TerminalText::displayWidth('➡'))->toBe(1);
+});
+
+it('stabilizes astral pictograph widths and respects explicit text presentation', function () {
+  expect(TerminalText::displayWidth('🗡️'))->toBe(2)
+    ->and(TerminalText::displayWidth('🗡'))->toBe(2)
+    ->and(TerminalText::displayWidth("🗡\u{FE0E}"))->toBe(1)
+    ->and(TerminalText::displayWidth('🚶'))->toBe(2);
+});
+
+it('preserves explicit variation selectors', function () {
+  expect(TerminalText::stabilizeSymbol('⚔️'))->toBe('⚔️')
+    ->and(TerminalText::stabilizeSymbol('🗡️'))->toBe('🗡️')
+    ->and(TerminalText::stabilizeSymbol("🗡\u{FE0E}"))->toBe("🗡\u{FE0E}")
+    ->and(TerminalText::stabilizeSymbol('🧪️'))->toBe('🧪️')
+    ->and(TerminalText::stabilizeSymbol('A'))->toBe('A');
+});
+
+it('makes ambiguous astral pictographs explicitly two cells', function () {
+  expect(TerminalText::stabilizeSymbol('🗡'))->toBe('🗡️')
+    ->and(TerminalText::stabilize('Weapon: 🗡Wooden Sword'))->toBe('Weapon: 🗡️Wooden Sword')
+    ->and(TerminalText::stabilize('plain ⚔ ♥ symbols'))->toBe('plain ⚔ ♥ symbols');
+});
+
+it('reduces zwj sequences and skin tones to their base glyph', function () {
+  expect(TerminalText::stabilizeSymbol('🏃🏽‍➡️'))->toBe('🏃')
+    ->and(TerminalText::stabilizeSymbol('🏃🏽'))->toBe('🏃')
+    ->and(TerminalText::displayWidth('🏃🏽‍➡️'))->toBe(2);
+});
+
+it('stabilizes whole strings while preserving stable content and ansi styling', function () {
+  $styled = Color::apply('⚔️', Color::LIGHT_GREEN);
+
+  expect(TerminalText::stabilize('⚔️ Radiant 🗡️ Slash'))->toBe('⚔️ Radiant 🗡️ Slash')
+    ->and(TerminalText::stabilize('plain ascii'))->toBe('plain ascii')
+    ->and(TerminalText::stripAnsi(TerminalText::stabilize($styled)))->toBe('⚔️')
+    ->and(TerminalText::stabilize($styled))->toContain("\033[");
+});
+
+it('keeps padded columns aligned around unstable glyphs', function () {
+  expect(TerminalText::displayWidth(TerminalText::padRight('⚔️ Radiant Slash', 24)))->toBe(24)
+    ->and(TerminalText::displayWidth(TerminalText::padRight('🗡️ Shadowstep (2 MP)', 58)))->toBe(58)
+    ->and(TerminalText::displayWidth(TerminalText::padRight('🗡 Wooden Sword', 24)))->toBe(24)
+    ->and(TerminalText::stabilize(TerminalText::padRight('🗡️ Shadowstep (2 MP)', 58)))->toContain("️")
+    ->and(TerminalText::displayWidth(TerminalText::padRight('> 🗡️ Shadowstep (2 MP)', 58) . '║'))->toBe(59)
+    ->and(TerminalText::displayWidth(TerminalText::padRight('🏃🏽‍➡️ Sprint', 24)))->toBe(24);
 });

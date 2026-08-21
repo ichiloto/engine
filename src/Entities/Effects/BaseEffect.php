@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Entities\Effects;
 
+use Ichiloto\Engine\Battle\Resolution\CombatHitResult;
 use Ichiloto\Engine\Entities\Enumerations\EffectType;
 use Ichiloto\Engine\Entities\Enumerations\ValueBasis;
 use Ichiloto\Engine\Entities\Interfaces\EffectInterface;
@@ -13,6 +14,7 @@ use Ichiloto\Engine\Entities\Interfaces\EffectInterface;
  */
 abstract class BaseEffect implements EffectInterface
 {
+  protected(set) ?CombatHitResult $lastResult = null;
   /**
    * Constructs a new instance of the Effect.
    *

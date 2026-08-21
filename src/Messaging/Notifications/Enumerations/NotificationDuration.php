@@ -9,9 +9,9 @@ namespace Ichiloto\Engine\Messaging\Notifications\Enumerations;
  */
 enum NotificationDuration: int
 {
-  case SHORT = 1500;
-  case MEDIUM = 3000;
-  case LONG = 5000;
+  case SHORT = 4000;
+  case MEDIUM = 6000;
+  case LONG = 8000;
 
   /**
    * Returns the float value of the duration in milliseconds.

@@ -38,6 +38,16 @@ class EnemyStore implements ConfigInterface
   }
 
   /**
+   * Returns every authored enemy, keyed by name.
+   *
+   * @return array<string, \Ichiloto\Engine\Entities\Enemies\Enemy> The enemies.
+   */
+  public function all(): array
+  {
+    return $this->enemies;
+  }
+
+  /**
    * @inheritDoc
    */
   public function get(string $path, mixed $default = null): mixed

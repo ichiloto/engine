@@ -2,7 +2,7 @@
 
 namespace Ichiloto\Engine\Core\Menu\MainMenu\Windows;
 
-use Ichiloto\Engine\Core\Menu\MainMenu\MainMenuSetting;
+use Ichiloto\Engine\Settings\GameSetting;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
@@ -38,11 +38,11 @@ class ConfigDetailPanel extends Window
   /**
    * Displays the selected setting description and the latest status message.
    *
-   * @param MainMenuSetting $setting The selected setting.
+   * @param GameSetting $setting The selected setting.
    * @param string|null $statusMessage An optional status message to append.
    * @return void
    */
-  public function showSetting(MainMenuSetting $setting, ?string $statusMessage = null): void
+  public function showSetting(GameSetting $setting, ?string $statusMessage = null): void
   {
     $availableWidth = max(0, $this->width - 4);
     $lines = explode("\n", wrap_text($setting->description, max(1, $availableWidth)));

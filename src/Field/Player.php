@@ -14,6 +14,7 @@ use Ichiloto\Engine\Events\Enumerations\MovementEventType;
 use Ichiloto\Engine\Events\MovementEvent;
 use Ichiloto\Engine\Events\Triggers\EventTrigger;
 use Ichiloto\Engine\Events\Triggers\EventTriggerContext;
+use Ichiloto\Engine\Events\Interfaces\AutomaticEventTriggerInterface;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\IO\Console\TerminalText;
@@ -78,6 +79,12 @@ class Player extends GameObject
    */
   public ?ActionInterface $availableAction = null;
   /**
+   * @var array<int, true> Blocked triggers already announced, keyed by object
+   * id, so a locked door explains itself once per approach rather than on
+   * every step inside its area.
+   */
+  protected array $announcedBlockedEvents = [];
+  /**
    * @var Vector2 $screenPosition The screen position of the player.
    */
   public Vector2 $screenPosition {
@@ -116,8 +123,7 @@ class Player extends GameObject
     );
 
     $this->configureDirectionalSprites($directionalSprites);
-    $this->heading = $heading;
-    $this->setFacingSprite($sprite, $heading);
+    $this->setFacingSprite($sprite, $heading === MovementHeading::NONE ? null : $heading);
     $this->canShowLocationHUDWindow = config(ProjectConfig::class, 'ui.hud.location', false);
     $this->events = new ItemList(EventTrigger::class);
   }
@@ -148,7 +154,28 @@ class Player extends GameObject
    */
   public function move(Vector2 $direction, Camera $camera): void
   {
-    $origin = $this->position;
+    $this->tryMove($direction, $camera);
+  }
+
+  /**
+   * Attempts a real field movement and reports whether it succeeded.
+   *
+   * Player input keeps using {@see move()}; story routes use this result so
+   * a collision becomes a controlled script failure instead of an endless
+   * wait or a silently skipped step.
+   *
+   * @param Vector2 $direction The cardinal movement vector.
+   * @param Camera $camera The field camera.
+   * @return bool True when the player moved.
+   * @throws NotFoundException If the scene is not set.
+   * @throws OutOfBounds If the destination is out of bounds.
+   */
+  public function tryMove(Vector2 $direction, Camera $camera): bool
+  {
+    // Clone: $this->position is mutated by the move below, so holding a
+    // reference would make the movement event report an origin equal to its
+    // destination.
+    $origin = clone $this->position;
     $destination = Vector2::sum($origin, $direction);
     $collisionType = null;
     $previousSprite = $this->sprite;
@@ -156,19 +183,49 @@ class Player extends GameObject
 
     if (! $this->getGameScene()->mapManager->canMoveTo(intval($destination->x), intval($destination->y), $collisionType) ) {
       $this->render();
-      return;
+      return false;
     }
 
     $event = new MovementEvent(MovementEventType::PLAYER_MOVE, $origin, $destination);
+
+    // A conditioned event with a blocked message is an authored field gate,
+    // not merely an advisory notification. Reject entry before mutating the
+    // player position, advancing encounters, or notifying movement observers.
+    if ($this->isMovementBlockedByUnavailableEvent($event)) {
+      $this->render();
+      return false;
+    }
+
     $this->handleCollision($collisionType);
     $this->updatePlayerPosition($direction, $camera, $previousSprite);
     $this->handleTriggers($event);
+    $this->getGameScene()->encounterManager?->registerStep($collisionType);
+    // Camera scroll can repaint over NPC sprites; refresh them per step.
+    $this->getGameScene()->npcManager?->render();
 
 
     if ($this->getGameScene()->mapManager->isAtSavePoint) {
       alert("Access the Menu to save your progress.", 'Save Point');
     }
     $this->notify($this->getGameScene(), $event);
+
+    return true;
+  }
+
+  /**
+   * Faces a cardinal direction without changing tiles.
+   *
+   * @param Vector2 $direction The direction to face.
+   * @param Camera $camera The field camera.
+   * @return void
+   */
+  public function face(Vector2 $direction, Camera $camera): void
+  {
+    $previousSprite = $this->sprite;
+    $this->updatePlayerSprite($direction);
+    $this->erasePlayer($camera, $previousSprite);
+    $this->render();
+    $this->renderLocationHUDWindow();
   }
 
   /**
@@ -202,6 +259,67 @@ class Player extends GameObject
   }
 
   /**
+   * Determines whether an unavailable event rejects the attempted entry.
+   *
+   * A non-empty whenBlocked message makes the event area fail closed while
+   * its conditions do not hold. Movement from inside the area remains
+   * permitted so a loaded save or a condition change cannot trap the player.
+   *
+   * @param MovementEvent $movementEvent The attempted movement.
+   * @return bool True when the movement must not update field state.
+   */
+  protected function isMovementBlockedByUnavailableEvent(MovementEvent $movementEvent): bool
+  {
+    $blockingEvent = null;
+
+    /** @var EventTrigger $event */
+    foreach ($this->events as $event) {
+      $eventId = spl_object_id($event);
+      $destinationIsInside = $event->area->contains($movementEvent->destination);
+
+      if (! $destinationIsInside || $event->isComplete || $event->isAvailable() || $event->whenBlocked === null) {
+        unset($this->announcedBlockedEvents[$eventId]);
+        continue;
+      }
+
+      // Never trap a player whose save already places them inside a gate.
+      // The transition from outside to inside is the authoritative boundary.
+      if ($event->area->contains($movementEvent->origin)) {
+        continue;
+      }
+
+      $blockingEvent ??= $event;
+    }
+
+    if ($blockingEvent === null) {
+      return false;
+    }
+
+    $eventId = spl_object_id($blockingEvent);
+
+    if (! isset($this->announcedBlockedEvents[$eventId])) {
+      $this->announcedBlockedEvents[$eventId] = true;
+      $this->announceBlockedEvent($blockingEvent->whenBlocked);
+    }
+
+    return true;
+  }
+
+  /**
+   * Presents the authored explanation for a blocked field event.
+   *
+   * Kept behind a method so movement policy stays independently testable
+   * from the terminal modal implementation.
+   *
+   * @param string $message The authored blocked-event message.
+   * @return void
+   */
+  protected function announceBlockedEvent(string $message): void
+  {
+    alert($message);
+  }
+
+  /**
    * Handles the triggers.
    *
    * @param MovementEvent $movementEvent The movement event.
@@ -219,6 +337,27 @@ class Player extends GameObject
     /** @var EventTrigger $event */
     foreach ($this->events as $event) {
       if ($event->isComplete) {
+        // A one-shot action trigger can complete while the player is still
+        // standing inside it. It remains in activeEvents until the next
+        // movement, so its exit hook must still run to clear transient field
+        // state such as availableAction. Skipping completed triggers before
+        // this cleanup leaves a stale action prompt that can block NPC and
+        // object interaction on every later map.
+        if ($this->eventManager->activeEvents->contains($event)) {
+          $event->exit($eventTriggerContext);
+          $this->eventManager->activeEvents->remove($event);
+        }
+
+        continue;
+      }
+
+      if (! $event->isAvailable()) {
+        // Conditions no longer hold — treat an active trigger as exited.
+        if ($this->eventManager->activeEvents->contains($event)) {
+          $event->exit($eventTriggerContext);
+          $this->eventManager->activeEvents->remove($event);
+        }
+
         continue;
       }
 
@@ -235,6 +374,50 @@ class Player extends GameObject
           $this->eventManager->activeEvents->remove($event);
         }
       }
+    }
+  }
+
+  /**
+   * Starts the first available automatic script under the current position.
+   *
+   * Initial field entry does not produce a movement event, but an automatic
+   * map script must still run when a new game or loaded save spawns inside its area.
+   * Action and transfer triggers remain movement-driven.
+   *
+   * @return void
+   */
+  public function evaluateAutomaticTriggersAtCurrentPosition(): void
+  {
+    $position = clone $this->position;
+    $movementEvent = new MovementEvent(MovementEventType::PLAYER_MOVE, $position, clone $position);
+    $context = new EventTriggerContext(
+      $movementEvent,
+      $this->position,
+      $this,
+      $this->getGameScene(),
+      $this->getGameScene()->mapManager,
+    );
+
+    foreach ($this->events as $event) {
+      if (
+        ! $event instanceof AutomaticEventTriggerInterface
+        || ! $event->runsAutomatically()
+        || $event->isComplete
+        || ! $event->isAvailable()
+        || ! $event->area->contains($this->position)
+        || $this->eventManager->activeEvents->contains($event)
+      ) {
+        continue;
+      }
+
+      $this->eventManager->activeEvents->add($event);
+      $event->enter($context);
+
+      if ($event->isComplete) {
+        $this->eventManager->activeEvents->remove($event);
+      }
+
+      break;
     }
   }
 
@@ -277,9 +460,7 @@ class Player extends GameObject
       }
     }
 
-    foreach ($this->events as $event) {
-      $this->events->remove($event);
-    }
+    $this->removeEventTriggers();
   }
 
   /**
@@ -349,8 +530,46 @@ class Player extends GameObject
    */
   public function setFacingSprite(array $sprite, ?MovementHeading $heading = null): void
   {
+    // Spawn data may name a heading rather than spell out the art, so a map
+    // never has to repeat the project's sprites.
+    if (($named = PlayerSpriteSet::headingFromName($sprite)) !== null) {
+      $heading ??= $named;
+      $sprite = $this->getSpriteForHeading($named);
+    }
+
+    $sprite = PlayerSpriteSet::normalizeSprite($sprite);
+    $resolvedHeading = $heading ?? $this->resolveHeadingFromSprite($sprite);
+
+    // A sprite that belongs to no direction (a placeholder glyph in the
+    // project's spawn data, say) would otherwise be drawn verbatim and leave
+    // the player facing nowhere. Fall back to the configured art for the
+    // heading so every direction always shows its own sprite.
+    if ($resolvedHeading === MovementHeading::NONE) {
+      $resolvedHeading = MovementHeading::SOUTH;
+      $sprite = $this->getSpriteForHeading($resolvedHeading);
+    } elseif ($heading !== null && $sprite !== $this->getSpriteForHeading($resolvedHeading)) {
+      // An explicit heading wins over a mismatched sprite.
+      $sprite = $this->getSpriteForHeading($resolvedHeading);
+    }
+
     $this->sprite = $sprite;
-    $this->heading = $heading ?? $this->resolveHeadingFromSprite($sprite);
+    $this->heading = $resolvedHeading;
+  }
+
+  /**
+   * Returns the configured sprite for a heading.
+   *
+   * @param MovementHeading $heading The heading.
+   * @return string[] The sprite rows.
+   */
+  public function getSpriteForHeading(MovementHeading $heading): array
+  {
+    return match ($heading) {
+      MovementHeading::NORTH => $this->upSprite,
+      MovementHeading::EAST => $this->rightSprite,
+      MovementHeading::WEST => $this->leftSprite,
+      default => $this->downSprite,
+    };
   }
 
   /**
@@ -417,7 +636,86 @@ class Player extends GameObject
    */
   public function removeEventTriggers(): void
   {
+    // EventManager is shared by the running game, so clearing only the
+    // player's map-local list leaves entered triggers alive across a map
+    // transfer. Besides leaking the old objects, an action trigger keeps its
+    // RunScriptAction attached to the player and renders a phantom "!" on the
+    // destination map. Retire the active membership and prompt together with
+    // the map-owned definitions.
+    foreach ($this->events as $event) {
+      if ($this->eventManager->activeEvents->contains($event)) {
+        $this->eventManager->activeEvents->remove($event);
+      }
+    }
+
     $this->events->clear();
+    $this->availableAction = null;
+    $this->announcedBlockedEvents = [];
+  }
+
+  /** Returns the top-left position of a stable current-map event marker. */
+  public function findEventMarkerPosition(string $marker): ?Vector2
+  {
+    $marker = trim($marker);
+
+    foreach ($this->events as $event) {
+      if ($event->marker === $marker) {
+        return new Vector2($event->area->getX(), $event->area->getY());
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Renders authored cues for available, incomplete map events.
+   *
+   * Event-layer marker letters remain editor-only identities. A cue exists
+   * only when an author deliberately opts a trigger into player guidance.
+   */
+  public function renderEventCues(): void
+  {
+    /** @var EventTrigger $event */
+    foreach ($this->events as $event) {
+      if (! $event->shouldRenderCue()) {
+        continue;
+      }
+
+      $this->scene->camera->renderOnScreen(
+        [$event->cue->styledSymbol()],
+        $event->cue->positionFor($event->area),
+      );
+    }
+  }
+
+  /**
+   * Retires active triggers whose completion or conditions changed in place.
+   *
+   * A script can complete without player movement. Running only the exit half
+   * here clears stale action prompts without entering newly available triggers
+   * or unexpectedly chaining automatic scripts at the same coordinates.
+   */
+  public function reconcileActiveEventState(): void
+  {
+    $position = clone $this->position;
+    $context = new EventTriggerContext(
+      new MovementEvent(MovementEventType::PLAYER_MOVE, $position, clone $position),
+      $this->position,
+      $this,
+      $this->getGameScene(),
+      $this->getGameScene()->mapManager,
+    );
+
+    /** @var EventTrigger $event */
+    foreach ($this->events as $event) {
+      if (
+        $this->eventManager->activeEvents->contains($event)
+        && ($event->isComplete || ! $event->isAvailable())
+      ) {
+        $event->exit($context);
+        $this->eventManager->activeEvents->remove($event);
+      }
+    }
   }
 
   /**
@@ -495,25 +793,11 @@ class Player extends GameObject
    */
   protected function getRenderScreenPosition(Vector2 $worldPosition): Vector2
   {
-    $screenPosition = $this->scene->camera->getScreenSpacePosition($worldPosition);
-
-    return new Vector2(
-      $screenPosition->x - $this->getHorizontalRenderOffset($this->sprite),
-      $screenPosition->y
-    );
-  }
-
-  /**
-   * Returns the horizontal render offset needed for the given sprite.
-   *
-   * @param string[] $sprite The sprite rows to inspect.
-   * @return int The horizontal render offset in terminal cells.
-   */
-  protected function getHorizontalRenderOffset(array $sprite): int
-  {
-    $extraWidth = max(0, $this->getSpriteDisplayWidth($sprite) - $this->shape->getWidth());
-
-    return intdiv($extraWidth + 1, 2);
+    // A sprite is anchored to its own tile: its first column is the tile's
+    // column. Glyphs wider than one cell (emoji are two) overhang to the
+    // right. Shifting them left to "centre" them instead made a character
+    // standing beside a wall appear to be standing on it.
+    return $this->scene->camera->getScreenSpacePosition($worldPosition);
   }
 
   /**
@@ -552,7 +836,7 @@ class Player extends GameObject
    */
   protected function eraseSpriteFootprint(Vector2 $worldPosition, array $sprite): void
   {
-    $startX = intval($worldPosition->x) - $this->getHorizontalRenderOffset($sprite);
+    $startX = intval($worldPosition->x);
     $width = max($this->shape->getWidth(), $this->getSpriteDisplayWidth($sprite));
 
     for ($row = 0; $row < max($this->shape->getHeight(), count($sprite)); $row++) {
@@ -584,7 +868,7 @@ class Player extends GameObject
       return;
     }
 
-    $startX = intval($worldPosition->x) - $this->getHorizontalRenderOffset($sprite);
+    $startX = intval($worldPosition->x);
     $width = max(1, $this->getSpriteDisplayWidth($sprite));
 
     for ($column = 0; $column < $width; $column++) {
@@ -605,10 +889,47 @@ class Player extends GameObject
    */
   public function interact(): void
   {
+    if ($this->availableAction === null && $this->talkToFacingNpc()) {
+      return;
+    }
+
     $this->availableAction?->execute(new FieldActionContext(
       $this,
       $this->getGameScene(),
       $this->position
     ));
+  }
+
+  /**
+   * Talks to the NPC on the tile the player faces, when one is there.
+   *
+   * @return bool True when a conversation happened.
+   */
+  protected function talkToFacingNpc(): bool
+  {
+    [$dx, $dy] = match ($this->heading) {
+      MovementHeading::NORTH => [0, -1],
+      MovementHeading::SOUTH => [0, 1],
+      MovementHeading::EAST => [1, 0],
+      MovementHeading::WEST => [-1, 0],
+      default => [0, 0],
+    };
+
+    if ($dx === 0 && $dy === 0) {
+      return false;
+    }
+
+    $npc = $this->getGameScene()->npcManager?->npcAt(
+      intval($this->position->x) + $dx,
+      intval($this->position->y) + $dy
+    );
+
+    if ($npc === null) {
+      return false;
+    }
+
+    $npc->talk($this->getGameScene());
+
+    return true;
   }
 }

@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\UI\Windows\Interfaces;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Events\Interfaces\SubjectInterface;
 use Ichiloto\Engine\IO\Enumerations\Color;
+use Ichiloto\Engine\UI\Windows\Enumerations\WindowHeightPolicy;
 use Ichiloto\Engine\UI\Windows\WindowAlignment;
 
 /**
@@ -43,6 +44,40 @@ interface WindowInterface extends CanRender, SubjectInterface
    * @return void
    */
   public function setHelp(string $help): void;
+
+  /**
+   * Returns the window's total height, including its borders.
+   *
+   * @return int The total height in terminal rows.
+   */
+  public function getHeight(): int;
+
+  /**
+   * Returns the number of rows available to authored content after borders
+   * and vertical padding.
+   *
+   * @return int The usable content height in terminal rows.
+   */
+  public function getContentHeight(): int;
+
+  /**
+   * Resizes the window so the requested authored content rows, configured
+   * vertical padding, and borders all fit inside its declared footprint.
+   *
+   * @param int $contentRows The number of authored content rows.
+   * @return void
+   */
+  public function fitHeightToContent(int $contentRows): void;
+
+  /**
+   * Returns the policy controlling how content affects window height.
+   */
+  public function getHeightPolicy(): WindowHeightPolicy;
+
+  /**
+   * Changes how future content updates affect window height.
+   */
+  public function setHeightPolicy(WindowHeightPolicy $heightPolicy): void;
 
   /**
    * Returns the window's border pack. The border pack determines the window's border.

@@ -317,8 +317,11 @@ class EquipmentMenuState extends GameSceneState
    */
   public function optimizeEquipment(): void
   {
-    $this->character?->optimizeEquipment($this->getGameScene()->party->inventory);
+    $party = $this->getGameScene()->party;
+    $this->character?->optimizeEquipment($party->inventory, $party);
     $this->characterDetailPanel->updateContent();
+    $this->equipmentAssignmentPanel->updateContent();
+    alert('Equipment optimized!');
   }
 
   /**
@@ -331,6 +334,8 @@ class EquipmentMenuState extends GameSceneState
   {
     $this->character?->clearEquipment();
     $this->characterDetailPanel->updateContent();
+    $this->equipmentAssignmentPanel->updateContent();
+    alert('Equipment cleared!');
   }
 
   /**

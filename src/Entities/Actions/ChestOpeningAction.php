@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Entities\Actions;
 
 use Assegai\Util\Text;
 use Exception;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Entities\Interfaces\ActionContextInterface;
 use Ichiloto\Engine\Events\Enumerations\LootType;
 use Ichiloto\Engine\Events\Triggers\ChestEventTrigger;
@@ -46,45 +47,43 @@ class ChestOpeningAction extends FieldAction
    */
   public function execute(ActionContextInterface $context): void
   {
-    $message = config(ProjectConfig::class, 'messages.obtained_item');
     $loot = null;
     $replacement = 'Nothing';
 
     if ($this->trigger->isComplete) {
-      $message = str_replace('%1', $replacement, $message);
-      alert($message);
+      alert(get_message('obtained_item', '%1 found!', $replacement));
       return;
     }
+
+    $message = get_message('obtained_item', '%1 found!');
 
     switch ($this->trigger->lootType) {
       case LootType::GOLD:
         $amount = is_numeric($this->trigger->loot) ? (int) $this->trigger->loot : $this->trigger->quantity;
         $symbol = config(ProjectConfig::class, 'vocab.currency.symbol', 'G');
-        $message = config(ProjectConfig::class, 'messages.obtained_gold', '%1%2 found!');
-        $message = str_replace('%1', $amount, $message);
-        $message = str_replace('%2', $symbol, $message);
+        $message = get_message('obtained_gold', '%1 %2 found!', $amount, $symbol);
         $context->party->transact($amount);
         break;
 
       default:
-        $loot = $this->itemStore->get($this->trigger->loot);
-        if ($loot === null) {
-          $replacement = (string) $this->trigger->loot;
-          $message = str_replace("%1", $replacement, $message);
-          break;
-        }
+        $loot = $this->itemStore->get($this->itemStore->requireDefinitionId(
+          strval($this->trigger->loot),
+          'opening a chest',
+        ));
+        assert($loot !== null);
         $quantity = $this->trigger->quantity;
         $lootNameText = new Text($loot->name);
         $lootName = ($quantity > 1) ? $lootNameText->getPluralForm() : $lootNameText->getSingularForm();
-        $replacement = "{$quantity} {$lootName}";
-        $message = str_replace('%1', $replacement, $message);
+        $message = format_message($message, "{$quantity} {$lootName}");
         for ($count = 0; $count < $quantity; $count++) {
-          $context->party->addItems($loot);
+          // Clone so the party inventory never aliases the item store's catalog instance.
+          $context->party->addItems(clone $loot);
         }
         break;
     }
 
     $this->trigger->complete();
+    $context->scene->getGame()->audioManager->playSystemSound(SystemSound::ITEM_GET);
     $context->player->availableAction = null;
     alert($message);
   }

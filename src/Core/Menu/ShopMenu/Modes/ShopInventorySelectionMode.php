@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Core\Menu\ShopMenu\Modes;
 
 use Exception;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
@@ -25,7 +26,7 @@ class ShopInventorySelectionMode extends ShopMenuMode
    */
   public int $totalInventory {
     get {
-      return $this->state->inventory->all->count();
+      return count($this->state->sellableItems);
     }
   }
   /**
@@ -33,7 +34,7 @@ class ShopInventorySelectionMode extends ShopMenuMode
    */
   public ?InventoryItem $selectedItem {
     get {
-      return $this->state->inventory->all->toArray()[$this->state->mainPanel->activeItemIndex] ?? null;
+      return $this->state->sellableItems[$this->state->mainPanel->activeItemIndex] ?? null;
     }
   }
   /**
@@ -54,6 +55,8 @@ class ShopInventorySelectionMode extends ShopMenuMode
     $v = Input::getAxis(AxisName::VERTICAL);
 
     if (abs($v) > 0) {
+      play_sound(SystemSound::CURSOR);
+
       if ($v > 0) {
         $this->selectNextItem();
       } else {
@@ -64,17 +67,20 @@ class ShopInventorySelectionMode extends ShopMenuMode
       $this->updateItemsInPossession();
     }
     if (Input::isButtonDown("back")) {
+      play_sound(SystemSound::CANCEL);
       $this->navigateToPreviousMode();
     }
 
     if (Input::isButtonDown("confirm")) {
       if ($this->selectedItem) {
+        play_sound(SystemSound::CONFIRM);
         $purchaseConfirmationMode = new PurchaseConfirmationMode($this->state);
         $purchaseConfirmationMode->previousMode = $this;
         $purchaseConfirmationMode->item = $this->selectedItem;
 
         $this->state->setMode($purchaseConfirmationMode);
       } else {
+        play_sound(SystemSound::BUZZER);
         alert("No items.");
         $this->navigateToPreviousMode();
       }
@@ -86,7 +92,7 @@ class ShopInventorySelectionMode extends ShopMenuMode
    */
   public function enter(): void
   {
-    $this->state->mainPanel->setItems($this->state->inventory->all->toArray(), $this->state->traderSellRate);
+    $this->state->mainPanel->setItems($this->state->sellableItems, $this->state->traderSellRate);
     $this->state->mainPanel->activeItemIndex = 0;
     $this->updateItemsInPossession();
     $this->state->infoPanel->setText($this->selectedItem->description);
@@ -142,7 +148,7 @@ class ShopInventorySelectionMode extends ShopMenuMode
     if ($activeItem = $this->state->mainPanel->activeItem) {
       $this->state->detailPanel->possession = 0;
 
-      if ($inventoryItem = $this->state->inventory->all->find(fn(InventoryItem $item) => $item->name === $activeItem->name) ) {
+      if ($inventoryItem = $this->state->inventory->all->find(fn(InventoryItem $item) => $item->id === $activeItem->id) ) {
         $this->state->detailPanel->possession = $inventoryItem->quantity ?? 0;
       }
       $this->state->detailPanel->updateContent();

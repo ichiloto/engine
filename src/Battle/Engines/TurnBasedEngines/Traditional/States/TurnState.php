@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States;
 
+use Ichiloto\Engine\Core\Timers;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnBasedEngine;
 use Ichiloto\Engine\Util\Debug;
 
@@ -52,6 +53,28 @@ abstract class TurnState
   }
 
   /**
+   * Hands control to a state, when the engine has one to hand it to.
+   *
+   * The active-time engine has no separate player and enemy phases: its flow
+   * state drives every battler as their gauge fills, so the states the
+   * traditional turn order hands off to are null there. Handing off is then
+   * simply not something to do, and control returns to the flow state.
+   *
+   * @param TurnState|null $state The state to hand off to.
+   * @return bool True when the handoff was made.
+   */
+  protected function setStateIfPresent(?TurnState $state): bool
+  {
+    if ($state === null) {
+      return false;
+    }
+
+    $this->setState($state);
+
+    return true;
+  }
+
+  /**
    * Waits for the given number of seconds.
    *
    * @param float $seconds The time to wait in seconds.
@@ -59,6 +82,6 @@ abstract class TurnState
    */
   protected function pause(float $seconds): void
   {
-    usleep(max(0, intval(round($seconds * 1000000))));
+    Timers::wait(max(0, $seconds));
   }
 }

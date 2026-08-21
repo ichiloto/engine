@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core\Menu\TitleMenu;
 
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Menu\Commands\MenuCommandExecutionContext;
 use Ichiloto\Engine\Core\Menu\Menu;
 use Ichiloto\Engine\Core\Vector2;
@@ -93,10 +94,12 @@ class TitleMenu extends Menu
   public function update(): void
   {
     $v = Input::getAxis(AxisName::VERTICAL);
+    $audioManager = $this->getScene()->getGame()->audioManager;
 
     if (abs($v) > 0) {
       $step = $v > 0 ? 1 : -1;
       $this->activeIndex = wrap($this->activeIndex + $step, 0, $this->totalItems - 1);
+      $audioManager->playSystemSound(SystemSound::CURSOR);
       $this->updateWindowContent();
       $this->render();
     }
@@ -104,7 +107,10 @@ class TitleMenu extends Menu
     if (Input::isButtonDown('confirm')) {
       $selectedCommand = $this->items->toArray()[$this->activeIndex];
 
-      if (! $selectedCommand->isDisabled()) {
+      if ($selectedCommand->isDisabled()) {
+        $audioManager->playSystemSound(SystemSound::BUZZER);
+      } else {
+        $audioManager->playSystemSound(SystemSound::CONFIRM);
         $selectedCommand->execute($this->executionContext);
       }
     }

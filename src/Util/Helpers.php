@@ -3,6 +3,8 @@
 use Assegai\Util\Path;
 use Ichiloto\Engine\Animations\Animation;
 use Ichiloto\Engine\Animations\AnimationLibrary;
+use Ichiloto\Engine\Audio\AudioManager;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
@@ -205,6 +207,26 @@ if (! function_exists('show_text') ) {
   }
 }
 
+if (! function_exists('dialogue_speed') ) {
+  /**
+   * Returns the project's configured dialogue typing speed in characters
+   * per second. Every conversational surface (dialogue, skits, event-script
+   * text) should type at this one speed.
+   *
+   * @return float The typing speed in characters per second.
+   */
+  function dialogue_speed(): float
+  {
+    $speed = floatval(config(
+      ProjectConfig::class,
+      'ui.dialogue.speed',
+      config(ProjectConfig::class, 'ui.dialogue.message.speed', 20)
+    ));
+
+    return max(1.0, $speed * \Ichiloto\Engine\UI\Accessibility::textSpeedScale());
+  }
+}
+
 if (! function_exists('notify') ) {
   /**
    * Notifies the user with the given title and text.
@@ -216,7 +238,7 @@ if (! function_exists('notify') ) {
    * @param NotificationDuration|float $duration The notification duration.
    * @param NotificationSlideDirection $enterDirection The entry slide direction.
    * @param NotificationSlideDirection|null $exitDirection The exit slide direction.
-   * @param float $animationDuration The slide-animation duration in seconds.
+   * @param float|null $animationDuration The slide-animation duration in seconds, or null for project policy.
    * @return void
    */
   function notify(
@@ -227,7 +249,7 @@ if (! function_exists('notify') ) {
     NotificationDuration|float $duration = NotificationDuration::LONG,
     NotificationSlideDirection $enterDirection = NotificationSlideDirection::RIGHT,
     ?NotificationSlideDirection $exitDirection = null,
-    float $animationDuration = 0.18
+    ?float $animationDuration = null
   ): void
   {
     $notification = new Notification(
@@ -363,6 +385,81 @@ if (! function_exists('asset') ) {
   }
 }
 
+if (! function_exists('play_sound') ) {
+  /**
+   * Plays a system sound (by catalog entry) or a one-shot sound effect (by
+   * audio reference).
+   *
+   * Follows the same idiom as `alert()`: callable from anywhere without
+   * threading the Game instance through every layer. Safe to call before the
+   * game has booted audio — it no-ops when no audio manager exists (e.g. in
+   * unit tests or tooling contexts).
+   *
+   * @param SystemSound|string $sound The system sound, or a sound effect
+   *   reference resolved by the AudioManager.
+   * @return void
+   */
+  function play_sound(SystemSound|string $sound): void
+  {
+    $audioManager = AudioManager::getCurrentInstance();
+
+    if ($audioManager === null) {
+      return;
+    }
+
+    if ($sound instanceof SystemSound) {
+      $audioManager->playSystemSound($sound);
+    } else {
+      $audioManager->playSoundEffect($sound);
+    }
+  }
+}
+
+if (! function_exists('play_music') ) {
+  /**
+   * Plays the given background music track, replacing the current one.
+   *
+   * Safe to call before the game has booted audio — it no-ops when no audio
+   * manager exists.
+   *
+   * @param string $track The track reference resolved by the AudioManager.
+   * @param bool $loop Whether the track should loop. Defaults to true.
+   * @return void
+   */
+  function play_music(string $track, bool $loop = true): void
+  {
+    AudioManager::getCurrentInstance()?->playBackgroundMusic($track, $loop);
+  }
+}
+
+if (! function_exists('current_music') ) {
+  /**
+   * Returns the background music currently playing, or null when there is
+   * none (or when audio has not been booted).
+   *
+   * Pair it with `play_music()` to restore the music after interrupting it
+   * for a moment, e.g. an inn rest.
+   *
+   * @return string|null The current background music track.
+   */
+  function current_music(): ?string
+  {
+    return AudioManager::getCurrentInstance()?->currentBackgroundMusic;
+  }
+}
+
+if (! function_exists('stop_music') ) {
+  /**
+   * Stops the current background music track, if any.
+   *
+   * @return void
+   */
+  function stop_music(): void
+  {
+    AudioManager::getCurrentInstance()?->stopBackgroundMusic();
+  }
+}
+
 if (! function_exists('graphics') ) {
   /**
    * Opens a graphics resource file
@@ -478,9 +575,24 @@ if (! function_exists('get_message') ) {
    * @param string $default The default message.
    * @return string The message.
    */
-  function get_message(string $path, string $default): string
+  function get_message(string $path, string $default, int|float|string ...$arguments): string
   {
-    return config(ProjectConfig::class, "messages.$path", $default);
+    return \Ichiloto\Engine\Localization\MessageCatalog::get($path, $default, ...$arguments);
+  }
+}
+
+if (! function_exists('format_message') ) {
+  /**
+   * Substitutes positional placeholders (`%1`, `%2`, …) in a message that
+   * has already been resolved.
+   *
+   * @param string $message The message template.
+   * @param int|float|string ...$arguments The replacement values.
+   * @return string The formatted message.
+   */
+  function format_message(string $message, int|float|string ...$arguments): string
+  {
+    return \Ichiloto\Engine\Localization\MessageCatalog::format($message, ...$arguments);
   }
 }
 
@@ -662,5 +774,40 @@ if (! function_exists('generate_experience_curve') ) {
     }
 
     return $curveValues;
+  }
+}
+
+if (! function_exists('play_sound') ) {
+  /**
+   * Plays a system UI sound through the active audio manager.
+   *
+   * Follows the same idiom as alert(): callable from anywhere without
+   * threading the Game instance through every layer. Degrades to a silent
+   * no-op when no audio manager has been booted (unit tests, tooling) or no
+   * audio player is installed.
+   *
+   * @param SystemSound $sound The system sound to play.
+   * @return void
+   */
+  function play_sound(SystemSound $sound): void
+  {
+    AudioManager::getCurrentInstance()?->playSystemSound($sound);
+  }
+}
+
+if (! function_exists('play_music') ) {
+  /**
+   * Plays a background music track through the active audio manager.
+   *
+   * Degrades to a silent no-op when no audio manager has been booted or no
+   * audio player is installed.
+   *
+   * @param string $path The track path (absolute, assets-relative, or BGM-relative).
+   * @param bool $loop Whether the track should loop.
+   * @return void
+   */
+  function play_music(string $path, bool $loop = true): void
+  {
+    AudioManager::getCurrentInstance()?->playBackgroundMusic($path, $loop);
   }
 }

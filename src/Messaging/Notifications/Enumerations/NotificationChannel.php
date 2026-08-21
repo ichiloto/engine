@@ -10,6 +10,7 @@ namespace Ichiloto\Engine\Messaging\Notifications\Enumerations;
 enum NotificationChannel: string
 {
   case ACHIEVEMENT = 'ACHIEVEMENT';
+  case QUEST = 'QUEST';
   case SYSTEM = 'SYSTEM';
   case INFO = 'INFO';
   case ERROR = 'ERROR';

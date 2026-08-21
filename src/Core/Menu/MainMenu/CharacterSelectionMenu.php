@@ -250,7 +250,8 @@ class CharacterSelectionMenu extends Menu
           $member->name,
           $member->level,
           "{$member->effectiveStats->currentHp} / {$member->effectiveStats->totalHp}",
-          "{$member->effectiveStats->currentMp} / {$member->effectiveStats->totalMp}"
+          "{$member->effectiveStats->currentMp} / {$member->effectiveStats->totalMp}",
+          $member->role->name
         );
         continue;
       }

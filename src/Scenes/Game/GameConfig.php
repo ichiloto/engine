@@ -40,6 +40,11 @@ class GameConfig implements SceneConfigurationInterface
     protected(set) array $playerSprite = ['v'],
     protected(set) array $playerSprites = [],
     protected(set) int $playTimeSeconds = 0,
+    protected(set) array $gameState = [],
+    protected(set) array $questLog = [],
+    protected(set) array $achievements = [],
+    protected(set) array $bestiary = [],
+    protected(set) array $knowledge = [],
   )
   {
   }
@@ -107,7 +112,33 @@ class GameConfig implements SceneConfigurationInterface
       'playerSprite' => $this->playerSprite,
       'playerSprites' => $this->playerSprites,
       'playTimeSeconds' => $this->playTimeSeconds,
+      'gameState' => $this->gameState,
+      'questLog' => $this->questLog,
+      'achievements' => $this->achievements,
+      'bestiary' => $this->bestiary,
+      'knowledge' => $this->knowledge,
     ];
+  }
+
+  /**
+   * Returns the decoded payload for compatibility migration before a scene is
+   * configured from it.
+   *
+   * @return array<string, mixed>
+   */
+  public function getSaveCompatibilityData(): array
+  {
+    return $this->getData();
+  }
+
+  /**
+   * Applies schema/content compatibility changes before scene hydration.
+   *
+   * @param array<string, mixed> $data
+   */
+  public function applySaveCompatibilityData(array $data): void
+  {
+    $this->setData($data);
   }
 
   /**
@@ -123,6 +154,20 @@ class GameConfig implements SceneConfigurationInterface
 
       $this->$key = $value;
     }
+
+    // Saves written before an optional field existed leave its typed property
+    // uninitialized here (__unserialize() bypasses the constructor), so
+    // backfill the constructor defaults.
+    $this->playerStats ??= [];
+    $this->events ??= [];
+    $this->playerSprite ??= ['v'];
+    $this->playerSprites ??= [];
+    $this->playTimeSeconds ??= 0;
+    $this->gameState ??= [];
+    $this->questLog ??= [];
+    $this->achievements ??= [];
+    $this->bestiary ??= [];
+    $this->knowledge ??= [];
   }
 
   /**

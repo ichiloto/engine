@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Scenes;
 
 use Assegai\Collections\ItemList;
 use Exception;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Battle\Enumerations\BattleEngineType;
 use Ichiloto\Engine\Battle\Interfaces\BattleEngineInterface;
 use Ichiloto\Engine\Core\Game;
@@ -63,6 +64,12 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    * @var BattleLoader The battle loader.
    */
   protected(set) BattleLoader $battleLoader;
+  /**
+   * @var class-string|null The scene a battle was started from, so it can be
+   * returned to. A fight from the field goes back to the field; one from the
+   * arena goes back to the arena.
+   */
+  protected ?string $sceneBeforeBattle = null;
 
   /**
    * SceneManager constructor.
@@ -168,6 +175,20 @@ class SceneManager implements CanStart, CanRender, CanUpdate
   }
 
   /**
+   * Returns a registered scene by class name without loading it.
+   *
+   * Lets a running scene reach a sibling's state — the battle scene
+   * recording into the field scene's bestiary, for instance.
+   *
+   * @param class-string $className The scene class.
+   * @return SceneInterface|null The scene, or null when not registered.
+   */
+  public function findScene(string $className): ?SceneInterface
+  {
+    return $this->scenes->find(fn(SceneInterface $scene) => $scene::class === $className);
+  }
+
+  /**
    * Load a scene.
    *
    * @param string|int $index The index of the scene to load.
@@ -195,9 +216,41 @@ class SceneManager implements CanStart, CanRender, CanUpdate
       $this->currentScene?->start();
     }
 
+    $this->applySceneBackgroundMusic($this->currentScene);
+
     $this->eventManager->dispatchEvent(new SceneEvent(SceneEventType::LOAD_END, $this->currentScene));
 
     return $this;
+  }
+
+  /**
+   * Applies the scene's declared background music.
+   *
+   * This is the single choke point for scene music: every transition either
+   * starts the incoming scene's track (a no-op when it is already playing) or
+   * stops the music when the scene declares none, so an outgoing scene's
+   * music can never bleed into a scene that did not ask for it.
+   *
+   * Scenes that determine their track after loading (e.g. the game scene,
+   * whose track comes from the map that is loaded during configure()) start
+   * their music from that later step instead.
+   *
+   * @param SceneInterface|null $scene The scene that was just made current.
+   * @return void
+   */
+  protected function applySceneBackgroundMusic(?SceneInterface $scene): void
+  {
+    if ($scene === null) {
+      return;
+    }
+
+    $track = $scene->getBackgroundMusic();
+
+    if ($track !== null) {
+      $this->game->audioManager->playBackgroundMusic($track);
+    } else {
+      $this->game->audioManager->stopBackgroundMusic();
+    }
   }
 
   /**
@@ -221,6 +274,24 @@ class SceneManager implements CanStart, CanRender, CanUpdate
   }
 
   /**
+   * Returns the scene a finished battle goes back to.
+   *
+   * A fight started from the field returns to the field. One started from
+   * somewhere else, the arena, returns there instead, so a developer testing
+   * a battle is not dumped into a map they never loaded.
+   *
+   * @return class-string The scene to load.
+   */
+  protected function sceneToReturnTo(): string
+  {
+    $previous = $this->sceneBeforeBattle;
+
+    return $previous !== null && $this->findScene($previous) !== null
+      ? $previous
+      : GameScene::class;
+  }
+
+  /**
    * Load the game over scene.
    *
    * @return void
@@ -241,14 +312,23 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    * @throws IchilotoException If an error occurs while loading the battle scene.
    * @throws NotFoundException If the battle scene is not found.
    */
-  public function loadBattleScene(Party $party, Troop $troop, array $events = []): void
+  public function loadBattleScene(Party $party, Troop $troop, array $events = [], array $extraSettings = []): void
   {
+    // Remembered so the battle goes back where it came from. A fight started
+    // from the field returns to the field; one started from the arena returns
+    // to the arena.
+    $this->sceneBeforeBattle = $this->currentScene instanceof BattleScene
+      ? $this->sceneBeforeBattle
+      : $this->currentScene::class;
+
     if ($party->isDefeated()) {
       $this->loadGameOverScene();
       return;
     }
 
-    $config = $this->battleLoader->newConfig($party, $troop, $events);
+    $this->game->audioManager->playSystemSound(SystemSound::BATTLE_START);
+
+    $config = $this->battleLoader->newConfig($party, $troop, $events, $extraSettings);
     $this->game->useBattleEngineType(BattleEngineType::fromValue($config->settings['engine'] ?? null));
     $currentScene = $this->loadScene(BattleScene::class)->currentScene;
 
@@ -257,6 +337,11 @@ class SceneManager implements CanStart, CanRender, CanUpdate
     }
 
     $currentScene->configure($config);
+
+    // The battle's runtime settings may override the battle theme, and they
+    // only become known during configure(), after the scene transition has
+    // already applied music. Re-applying here is a no-op for the common case.
+    $this->applySceneBackgroundMusic($currentScene);
   }
 
   /**
@@ -267,10 +352,20 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    */
   public function returnFromBattleScene(): void
   {
-    $this->loadScene(GameScene::class);
+    $battleResult = $this->currentScene instanceof BattleScene
+      ? $this->currentScene->result
+      : null;
+
+    $this->loadScene($this->sceneToReturnTo());
+    $this->sceneBeforeBattle = null;
 
     if ($this->currentScene instanceof GameScene) {
       $this->currentScene->fieldState?->resume();
+
+      if ($battleResult !== null) {
+        $this->currentScene->resumeEventAfterBattle($battleResult);
+      }
     }
   }
+
 }

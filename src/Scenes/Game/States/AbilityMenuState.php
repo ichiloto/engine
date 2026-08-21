@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Menu\AbilityMenu\Windows\AbilityListPanel;
 use Ichiloto\Engine\Core\Menu\AbilityMenu\Windows\AbilityTabPanel;
 use Ichiloto\Engine\Core\Time;
@@ -639,11 +640,13 @@ class AbilityMenuState extends GameSceneState
         $horizontal = Input::getAxis(AxisName::HORIZONTAL);
 
         if ($horizontal > 0) {
+            play_sound(SystemSound::CURSOR);
             $this->selectTabByOffset(1);
             return;
         }
 
         if ($horizontal < 0) {
+            play_sound(SystemSound::CURSOR);
             $this->selectTabByOffset(-1);
             return;
         }
@@ -651,11 +654,13 @@ class AbilityMenuState extends GameSceneState
         $vertical = Input::getAxis(AxisName::VERTICAL);
 
         if ($vertical > 0) {
+            play_sound(SystemSound::CURSOR);
             $this->selectEntryByOffset(1);
             return;
         }
 
         if ($vertical < 0) {
+            play_sound(SystemSound::CURSOR);
             $this->selectEntryByOffset(-1);
         }
     }
@@ -717,12 +722,14 @@ class AbilityMenuState extends GameSceneState
     protected function handleActions(): void
     {
         if (Input::isButtonDown('cancel') || Input::isButtonDown('back')) {
+            play_sound(SystemSound::CANCEL);
             $this->statusMessage = null;
             $this->setState($this->getGameScene()->mainMenuState);
             return;
         }
 
         if (Input::isButtonDown('confirm')) {
+            play_sound(SystemSound::CONFIRM);
             $this->confirmCurrentSelection();
         }
     }

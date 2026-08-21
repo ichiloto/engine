@@ -1,15 +1,28 @@
 <?php
 
-use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\ActionExecutionState;
-use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnStateExecutionContext;
+use Ichiloto\Engine\Animations\Animation;
+use Ichiloto\Engine\Animations\AnimationCue;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
+use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
+use Ichiloto\Engine\Battle\BattleAction;
+use Ichiloto\Engine\Battle\Resolution\CombatHitResult;
+use Ichiloto\Engine\Battle\Resolution\CombatTargetResult;
+use Ichiloto\Engine\Battle\Resolution\ElementalOutcome;
+use Ichiloto\Engine\Battle\Resolution\ResolutionKind;
+use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\ActionExecutionState;
+use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnResolutionState;
+use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnStateExecutionContext;
+use Ichiloto\Engine\Battle\UI\BattleFieldWindow;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\HPRecoverSkillEffect;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDamageSkillEffect;
 use Ichiloto\Engine\Entities\Enumerations\Occasion;
 use Ichiloto\Engine\Entities\ItemScope;
 use Ichiloto\Engine\Entities\Magic\MagicEffectType;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
+use Ichiloto\Engine\Entities\Skills\SpecialSkill;
 use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\IO\Enumerations\Color;
@@ -37,6 +50,55 @@ it('builds a miss popup when no visible stat changes occur', function () {
   ]);
 });
 
+it('builds damage Critical and elemental feedback from typed results', function () {
+  $state = makeActionExecutionStateForTest();
+  $target = new Character('Kaelion', 0, new Stats(currentHp: 70, totalHp: 100));
+  $hit = new CombatHitResult(
+    'attack',
+    'attack:1',
+    'Enemy',
+    'Kaelion',
+    true,
+    '',
+    20,
+    ResolutionKind::PHYSICAL_DAMAGE,
+    20,
+    0,
+    0,
+    0.0,
+    true,
+    1,
+    true,
+    1.5,
+    false,
+    'Fire',
+    ElementalOutcome::WEAK,
+    2.0,
+    100,
+    -30,
+    30,
+    0,
+    0,
+    70,
+    1,
+    100,
+  );
+
+  $lines = invokeActionExecutionPopupBuilder(
+    $state,
+    $target,
+    100,
+    10,
+    new CombatTargetResult('Kaelion', [$hit]),
+  );
+
+  expect($lines)->toBe([
+    ['text' => 'WEAK!', 'color' => Color::LIGHT_RED],
+    ['text' => 'CRITICAL', 'color' => Color::YELLOW],
+    ['text' => '30', 'color' => Color::LIGHT_RED],
+  ]);
+});
+
 it('maps restorative magic to a green cast effect', function () {
   $state = makeActionExecutionStateForTest();
   $skill = new MagicSkill(
@@ -58,6 +120,60 @@ it('maps restorative magic to a green cast effect', function () {
   expect($color)->toBe(Color::GREEN);
 });
 
+it('maps battle actions to optional project-configured presentation sounds', function () {
+  $state = makeActionExecutionStateForTest();
+  $scope = new ItemScope();
+  $physicalSkill = new SpecialSkill(
+    'Dual Slash',
+    'Strike twice.',
+    'DSL',
+    0,
+    0,
+    $scope,
+    effects: [new HPDamageSkillEffect('10')],
+  );
+  $utilitySkill = new SpecialSkill('Observe', 'Study the field.', 'OBS', 0, 0, $scope);
+  $destructiveMagic = new MagicSkill(
+    'Fire',
+    'Deals fire damage.',
+    '*',
+    4,
+    0,
+    $scope,
+    effectType: MagicEffectType::DESTRUCTIVE,
+  );
+  $supportMagic = new MagicSkill(
+    'Barrier',
+    'Protects an ally.',
+    '*',
+    4,
+    0,
+    $scope,
+    effectType: MagicEffectType::BUFF,
+  );
+
+  expect(invokeActionPresentationSoundResolver($state, new AttackAction('Attack')))
+    ->toBe(SystemSound::BATTLE_ATTACK)
+    ->and(invokeActionPresentationSoundResolver($state, new SkillBattleAction($physicalSkill)))
+    ->toBe(SystemSound::BATTLE_SKILL)
+    ->and(invokeActionPresentationSoundResolver($state, new SkillBattleAction($destructiveMagic)))
+    ->toBe(SystemSound::BATTLE_MAGIC_DESTRUCTIVE)
+    ->and(invokeActionPresentationSoundResolver($state, new SkillBattleAction($supportMagic)))
+    ->toBe(SystemSound::BATTLE_MAGIC_SUPPORT)
+    ->and(invokeActionPresentationSoundResolver($state, new SkillBattleAction($utilitySkill)))
+    ->toBeNull();
+});
+
+it('lets authored animation and summon audio override generic battle cues', function () {
+  $state = makeActionExecutionStateForTest();
+  $action = new AttackAction('Attack');
+  $animation = new Animation(1, 'Authored Hit');
+  $animation->setCue(1, new AnimationCue(soundEffect: 'custom-hit'));
+
+  expect(invokeActionPresentationSoundResolver($state, $action, $animation))->toBeNull()
+    ->and(invokeActionPresentationSoundResolver($state, $action, isSummonAction: true))->toBeNull();
+});
+
 it('treats battle as concluded when a side has no living battlers', function () {
   $state = makeActionExecutionStateForTest();
   $party = new Party();
@@ -69,6 +185,41 @@ it('treats battle as concluded when a side has no living battlers', function () 
   $context = makeActionExecutionContextForTest($party, $troop);
 
   expect(invokeBattleConclusionChecker($state, $context))->toBeTrue();
+});
+
+it('builds typed popup lines for damaging and restorative state ticks', function () {
+  $state = (new ReflectionClass(TurnResolutionState::class))->newInstanceWithoutConstructor();
+  $battler = new Character('Kaelion', 0, new Stats(currentHp: 100, totalHp: 100));
+  $poison = Ichiloto\Engine\Entities\States\State::fromArray([
+    'id' => 'poison',
+    'name' => 'Poison',
+    'tickFormula' => '-4',
+  ]);
+  $regen = Ichiloto\Engine\Entities\States\State::fromArray([
+    'id' => 'regen',
+    'name' => 'Regen',
+    'tickFormula' => '2',
+  ]);
+  $battler->addState($poison);
+  $battler->addState($regen);
+  $events = $battler->tickStates();
+  $lines = invokeStateTickPopupBuilder($state, $events);
+
+  expect($lines)->toBe([
+    ['text' => '-4 Poison', 'color' => Color::LIGHT_RED],
+    ['text' => '+2 Regen', 'color' => Color::LIGHT_GREEN],
+  ]);
+});
+
+it('rejects malformed stat popup lines at the battlefield boundary', function () {
+  $window = (new ReflectionClass(BattleFieldWindow::class))->newInstanceWithoutConstructor();
+  $method = new ReflectionMethod(BattleFieldWindow::class, 'normalizeStatChangePopupLines');
+
+  expect($method->invoke($window, [['text' => ''], ['text' => '7', 'color' => Color::LIGHT_RED]]))->toBe([
+    ['text' => '7', 'color' => Color::LIGHT_RED],
+  ])
+    ->and(fn() => $method->invoke($window, ['-4 Poison']))
+    ->toThrow(InvalidArgumentException::class, 'must be an array containing text');
 });
 
 /**
@@ -88,18 +239,20 @@ function makeActionExecutionStateForTest(): ActionExecutionState
  * @param Character $target The target to inspect.
  * @param int $previousHp The target HP before the action.
  * @param int $previousMp The target MP before the action.
+ * @param CombatTargetResult|null $result Typed target resolution.
  * @return array<int, array{text: string, color: Color}>
  */
 function invokeActionExecutionPopupBuilder(
   ActionExecutionState $state,
   Character $target,
   int $previousHp,
-  int $previousMp
+  int $previousMp,
+  ?CombatTargetResult $result = null,
 ): array
 {
   $method = new ReflectionMethod(ActionExecutionState::class, 'buildStatChangePopupLines');
 
-  return $method->invoke($state, $target, $previousHp, $previousMp);
+  return $method->invoke($state, $target, $previousHp, $previousMp, $result);
 }
 
 /**
@@ -114,6 +267,21 @@ function invokeMagicCastEffectColorResolver(ActionExecutionState $state, SkillBa
   $method = new ReflectionMethod(ActionExecutionState::class, 'resolveMagicCastEffectColor');
 
   return $method->invoke($state, $action->skill);
+}
+
+/**
+ * Invokes the generic action-presentation sound resolver.
+ */
+function invokeActionPresentationSoundResolver(
+  ActionExecutionState $state,
+  ?BattleAction $action,
+  ?Animation $animation = null,
+  bool $isSummonAction = false,
+): ?SystemSound
+{
+  $method = new ReflectionMethod(ActionExecutionState::class, 'resolveActionPresentationSound');
+
+  return $method->invoke($state, $action, $animation, $isSummonAction);
 }
 
 /**
@@ -150,4 +318,18 @@ function invokeBattleConclusionChecker(
   $method = new ReflectionMethod(ActionExecutionState::class, 'battleHasConcluded');
 
   return $method->invoke($state, $context);
+}
+
+/**
+ * Produces the same popup payload used by turn resolution from real tick events.
+ *
+ * @param TurnResolutionState $state The turn-resolution state.
+ * @param array<int, array{state: object, hpDelta: int, expired: bool}> $events State tick events.
+ * @return array<int, array{text: string, color: Color}>
+ */
+function invokeStateTickPopupBuilder(TurnResolutionState $state, array $events): array
+{
+  $method = new ReflectionMethod(TurnResolutionState::class, 'buildStateTickPopupLines');
+
+  return $method->invoke($state, $events);
 }

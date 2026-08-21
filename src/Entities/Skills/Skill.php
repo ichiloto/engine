@@ -22,7 +22,7 @@ abstract class Skill implements SkillInterface
   /**
    * @var Weapon[] The required weapons of the skill.
    */
-  protected(set) array $requiredWeapon = [];
+  protected(set) array $requiredWeapons = [];
 
   /**
    * Skill constructor.
@@ -59,7 +59,7 @@ abstract class Skill implements SkillInterface
 
     foreach ($requiredWeapons as $requiredWeapon) {
       if ($requiredWeapon instanceof Weapon) {
-        $this->requiredWeapon[] = $requiredWeapon;
+        $this->requiredWeapons[] = $requiredWeapon;
       }
     }
   }

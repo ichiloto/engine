@@ -3,7 +3,7 @@
 namespace Ichiloto\Engine\Core\Menu\MainMenu\Windows;
 
 use Ichiloto\Engine\Core\Interfaces\CanChangeSelection;
-use Ichiloto\Engine\Core\Menu\MainMenu\MainMenuSetting;
+use Ichiloto\Engine\Settings\GameSetting;
 use Ichiloto\Engine\Core\Menu\MainMenu\MainMenuSettingsManager;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
@@ -22,7 +22,7 @@ use Ichiloto\Engine\UI\Windows\Window;
 class ConfigSelectionWindow extends Window implements CanFocus, CanChangeSelection
 {
   /**
-   * @var MainMenuSetting[] The configurable settings shown in the list.
+   * @var GameSetting[] The configurable settings shown in the list.
    */
   protected array $settings = [];
   protected int $totalSettings = 0;
@@ -55,14 +55,14 @@ class ConfigSelectionWindow extends Window implements CanFocus, CanChangeSelecti
   /**
    * Sets the settings shown in the list.
    *
-   * @param MainMenuSetting[] $settings The settings to display.
+   * @param GameSetting[] $settings The settings to display.
    * @return void
    */
   public function setSettings(array $settings): void
   {
     $this->settings = array_values(array_filter(
       $settings,
-      static fn(mixed $setting): bool => $setting instanceof MainMenuSetting
+      static fn(mixed $setting): bool => $setting instanceof GameSetting
     ));
     $this->activeIndex = empty($this->settings) ? -1 : 0;
     $this->totalSettings = count($this->settings);
@@ -72,9 +72,9 @@ class ConfigSelectionWindow extends Window implements CanFocus, CanChangeSelecti
   /**
    * Returns the currently selected setting.
    *
-   * @return MainMenuSetting|null The selected setting, if any.
+   * @return GameSetting|null The selected setting, if any.
    */
-  public function getActiveSetting(): ?MainMenuSetting
+  public function getActiveSetting(): ?GameSetting
   {
     return $this->settings[$this->activeIndex] ?? null;
   }

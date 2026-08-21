@@ -3,20 +3,31 @@
 namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States;
 
 use Ichiloto\Engine\Animations\Animation;
+use Ichiloto\Engine\Animations\AnimationCue;
 use Ichiloto\Engine\Animations\AnimationLibrary;
 use Ichiloto\Engine\Animations\AnimationPlayer;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCompiledCutscene;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutscenePlayer;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Battle\BattleAction;
+use Ichiloto\Engine\Battle\BattleCommandCatalog;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnExecutionContext;
+use Ichiloto\Engine\Battle\Resolution\CombatTargetResult;
+use Ichiloto\Engine\Battle\Resolution\CombatResolver;
+use Ichiloto\Engine\Battle\Resolution\ElementalOutcome;
 use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDamageSkillEffect;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDrainSkillEffect;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\MPDamageSkillEffect;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\MPDrainSkillEffect;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Magic\MagicEffectType;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
+use Ichiloto\Engine\Entities\Skills\Skill;
 use Ichiloto\Engine\IO\Enumerations\Color;
 
 class ActionExecutionState extends TurnState
@@ -55,6 +66,37 @@ class ActionExecutionState extends TurnState
       return;
     }
 
+    // A guard raised last round protects until this battler acts again.
+    if (method_exists($turn->battler, 'stopGuarding')) {
+      $turn->battler->stopGuarding();
+    }
+
+    // A state like sleep or paralysis consumes the turn outright.
+    if (method_exists($turn->battler, 'getActionBlockingState')
+      && ($blockingState = $turn->battler->getActionBlockingState()) !== null
+    ) {
+      $context->ui->alert(sprintf('%s is down with %s and cannot act!', $turn->battler->name, $blockingState->name));
+      $context->advanceTurn();
+      $this->transitionToResolutionIfNeeded($context);
+      return;
+    }
+
+    if ($turn->action instanceof SkillBattleAction
+      && BattleCommandCatalog::isSummonActionId($turn->action->skill->name)
+      && (! $turn->battler instanceof Character
+        || ! BattleCommandCatalog::canUseSummonAction(
+          $turn->battler,
+          $context->party,
+          $turn->action->skill->name,
+          $context->getGameState(),
+        ))
+    ) {
+      $context->ui->alert('That summon is no longer available to this character.');
+      $context->advanceTurn();
+      $this->transitionToResolutionIfNeeded($context);
+      return;
+    }
+
     $targets = array_values(array_filter(
       $turn->targets,
       fn(CharacterInterface $target) => ! $target->isKnockedOut
@@ -70,14 +112,13 @@ class ActionExecutionState extends TurnState
       return;
     }
 
-    $target = $targets[0];
-    $turn->targets = [$target];
+    $turn->targets = $targets;
 
     $actionName = $turn->action?->name ?? 'Attack';
     $this->performTurnSequence(
       $context,
       $turn->battler,
-      $target,
+      $targets,
       $turn->action,
       $actionName,
       function () use ($turn) {
@@ -135,40 +176,126 @@ class ActionExecutionState extends TurnState
   protected function performTurnSequence(
     TurnStateExecutionContext $context,
     CharacterInterface $actor,
-    CharacterInterface $target,
+    array $targets,
     ?BattleAction $action,
     string $actionName,
     callable $resolveAction
   ): void
   {
     $timings = $context->ui->getPacing()->getTurnTimings($action);
+    $focusTarget = $targets[0];
 
     $this->highlightActor($context, $actor);
-    $this->highlightTarget($context, $target);
+    $this->highlightTarget($context, $focusTarget);
     $this->stepActorForward($context, $actor);
     $this->pause($timings->stepForward);
-    $this->displayAnnouncementPhase($context, $action !== null && $this->resolveSummonCutscene($action) instanceof SummonCompiledCutscene ? $actionName : sprintf("%s uses %s!", $actor->name, $actionName), $timings->announcement);
-    $extendedAnimationHandled = $this->playActionAnimation($context, $actor, $target, $action, $timings->actionAnimation);
+    $summonCutscene = $action !== null ? $this->resolveSummonCutscene($action) : null;
+    $announcement = $summonCutscene instanceof SummonCompiledCutscene
+      ? (trim(strval($summonCutscene->defaults['moveName'] ?? '')) ?: $actionName)
+      : sprintf("%s uses %s!", $actor->name, $actionName);
+    $this->displayAnnouncementPhase($context, $announcement, $timings->announcement);
+    $actionAnimation = $summonCutscene instanceof SummonCompiledCutscene
+      ? null
+      : $this->resolveActionAnimation($action);
+    $presentationSound = $this->resolveActionPresentationSound(
+      $action,
+      $actionAnimation,
+      $summonCutscene instanceof SummonCompiledCutscene,
+    );
+
+    if ($presentationSound instanceof SystemSound) {
+      $context->game->audioManager->playSystemSound($presentationSound);
+    }
+
+    $extendedAnimationHandled = $this->playActionAnimation(
+      $context,
+      $actor,
+      $focusTarget,
+      $action,
+      $timings->actionAnimation,
+      $summonCutscene,
+      $actionAnimation,
+    );
     if (! $extendedAnimationHandled) {
       $this->pause($timings->actionAnimation);
       $this->pause($timings->effectAnimation);
     }
 
-    $previousHp = $target->stats->currentHp;
-    $previousMp = $target->stats->currentMp;
+    $previousVitals = [];
+
+    foreach ($targets as $index => $target) {
+      $previousVitals[$index] = [$target->stats->currentHp, $target->stats->currentMp];
+    }
+
     $resolveAction();
 
     $this->stepActorBack($context, $actor);
     $this->pause($timings->stepBack);
 
     $context->ui->characterStatusWindow->setCharacters($context->party->battlers->toArray());
-    $this->displayStatChanges($context, $target, $previousHp, $previousMp, $timings->statChanges);
+    $typedTargetResults = [];
+    foreach ($targets as $target) {
+      $targetId = CombatResolver::identity($target);
+      $typedTargetResults[] = array_find(
+        $action?->lastResult?->targets ?? [],
+        static fn(CombatTargetResult $result): bool => $result->targetId === $targetId,
+      );
+    }
+
+    $this->playDamageFeedbackSound(
+      $context,
+      $focusTarget,
+      $previousVitals[0][0],
+      $typedTargetResults[0] ?? null,
+    );
+    $this->displayStatChangesForTargets(
+      $context,
+      $targets,
+      $previousVitals,
+      $timings->statChanges,
+      $typedTargetResults,
+    );
     $this->displayPhase($context, 'Turn over.', $timings->turnOver, hideAfter: true);
     $context->ui->characterNameWindow->setActiveSelection(-1);
     $context->ui->fieldWindow->clearTargetIndicators();
     $context->ui->fieldWindow->clearMagicCastEffects();
     $context->ui->fieldWindow->clearStatChangePopups();
     $context->ui->refreshField();
+  }
+
+  /**
+   * Plays the system sound matching the damage the target just took.
+   *
+   * Fired alongside the damage popup so sight and sound land together. Heals
+   * and misses stay silent — their feedback is already visual, and positive
+   * outcomes have their own cues elsewhere.
+   *
+   * @param TurnStateExecutionContext $context The turn context.
+   * @param CharacterInterface $target The action target.
+   * @param int $previousHp The target's HP before the action resolved.
+   * @param CombatTargetResult|null $result The typed result for this target, when the action resolves HP.
+   * @return void
+   */
+  protected function playDamageFeedbackSound(
+    TurnStateExecutionContext $context,
+    CharacterInterface $target,
+    int $previousHp,
+    ?CombatTargetResult $result = null,
+  ): void
+  {
+    $actualHpLost = $result?->actualHpLost() ?? max(0, $previousHp - $target->stats->currentHp);
+
+    if ($actualHpLost < 1) {
+      return;
+    }
+
+    $sound = match (true) {
+      ! $target instanceof Enemy => SystemSound::ACTOR_DAMAGE,
+      $target->stats->currentHp <= 0 => SystemSound::ENEMY_COLLAPSE,
+      default => SystemSound::ENEMY_DAMAGE,
+    };
+
+    $context->game->audioManager->playSystemSound($sound);
   }
 
   /**
@@ -319,6 +446,8 @@ class ActionExecutionState extends TurnState
    * @param CharacterInterface $target The resolved action target.
    * @param BattleAction|null $action The resolved action.
    * @param float $delaySeconds The time budget for the animation phase.
+   * @param SummonCompiledCutscene|null $summonCutscene The pre-resolved summon presentation.
+   * @param Animation|null $animation The pre-resolved ordinary action animation.
    * @return bool Whether the action animation consumed the phase timing.
    */
   protected function playActionAnimation(
@@ -326,30 +455,115 @@ class ActionExecutionState extends TurnState
     CharacterInterface $actor,
     CharacterInterface $target,
     ?BattleAction $action,
-    float $delaySeconds
+    float $delaySeconds,
+    ?SummonCompiledCutscene $summonCutscene = null,
+    ?Animation $animation = null,
   ): bool
   {
-    $summonCutscene = $this->resolveSummonCutscene($action);
-
     if ($summonCutscene instanceof SummonCompiledCutscene) {
       $this->playSummonCutscene($context, $actor, $summonCutscene);
       return true;
     }
 
-    $animation = $this->resolveActionAnimation($action);
+    $animation ??= $this->resolveActionAnimation($action);
 
     if (! $animation instanceof Animation) {
       return false;
     }
 
     $player = new AnimationPlayer(max(0.01, $delaySeconds / max(1, $animation->maxFrames)));
-    $player->play($animation, function (int $frameIndex) use ($context, $target, $animation): void {
+    $player->play($animation, function (int $frameIndex, mixed $frame, ?AnimationCue $cue) use ($context, $target, $animation): void {
+      if ($cue instanceof AnimationCue && $cue->soundEffect !== '') {
+        $context->game->audioManager->playSoundEffect($cue->soundEffect);
+      }
+
       $context->ui->fieldWindow->showActionAnimationFrame($target, $animation, $frameIndex);
     });
     $context->ui->fieldWindow->clearMagicCastEffects();
     $context->ui->refreshField();
 
     return true;
+  }
+
+  /**
+   * Resolves the project-configured action cue for a battle presentation.
+   *
+   * An animation's own sound cue is more specific and therefore wins. Summon
+   * timelines also own their complete audiovisual presentation. Games that
+   * omit the returned system-sound keys retain the historical silent action
+   * phase while damage feedback continues independently at impact time.
+   *
+   * @param BattleAction|null $action The action being presented.
+   * @param Animation|null $animation The resolved ordinary action animation.
+   * @param bool $isSummonAction Whether the action uses a summon timeline.
+   * @return SystemSound|null The generic action cue, or null when presentation owns it.
+   */
+  protected function resolveActionPresentationSound(
+    ?BattleAction $action,
+    ?Animation $animation = null,
+    bool $isSummonAction = false,
+  ): ?SystemSound
+  {
+    if ($action === null || $isSummonAction || $this->animationHasSoundCue($animation)) {
+      return null;
+    }
+
+    if ($action instanceof AttackAction) {
+      return SystemSound::BATTLE_ATTACK;
+    }
+
+    if (! $action instanceof SkillBattleAction) {
+      return null;
+    }
+
+    if (strtolower(trim($action->skill->name)) === 'attack') {
+      return SystemSound::BATTLE_ATTACK;
+    }
+
+    if (! $action->skill instanceof MagicSkill) {
+      return $this->skillHasDamageEffect($action->skill)
+        ? SystemSound::BATTLE_SKILL
+        : null;
+    }
+
+    return match ($action->skill->effectType) {
+      MagicEffectType::DESTRUCTIVE,
+      MagicEffectType::DEBUFF => SystemSound::BATTLE_MAGIC_DESTRUCTIVE,
+      MagicEffectType::RESTORATIVE,
+      MagicEffectType::BUFF => SystemSound::BATTLE_MAGIC_SUPPORT,
+    };
+  }
+
+  /** Returns whether a non-magical skill applies direct HP or MP damage. */
+  protected function skillHasDamageEffect(Skill $skill): bool
+  {
+    foreach ($skill->effects as $effect) {
+      if ($effect instanceof HPDamageSkillEffect
+        || $effect instanceof HPDrainSkillEffect
+        || $effect instanceof MPDamageSkillEffect
+        || $effect instanceof MPDrainSkillEffect
+      ) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /** Returns whether an animation already authors at least one sound cue. */
+  protected function animationHasSoundCue(?Animation $animation): bool
+  {
+    if (! $animation instanceof Animation) {
+      return false;
+    }
+
+    for ($frameIndex = 1; $frameIndex <= $animation->maxFrames; $frameIndex++) {
+      if (trim($animation->getCue($frameIndex)?->soundEffect ?? '') !== '') {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /**
@@ -545,12 +759,53 @@ class ActionExecutionState extends TurnState
   }
 
   /**
+   * Shows battlefield popups for every resolved target at once.
+   *
+   * @param TurnStateExecutionContext $context The turn context.
+   * @param CharacterInterface[] $targets The resolved targets.
+   * @param array<int, array{0: int, 1: int}> $previousVitals Pre-action [HP, MP] per target index.
+   * @param float $delaySeconds The time to show the popups.
+   * @param CombatTargetResult[] $results Ordered typed results matching the targets.
+   * @return void
+   */
+  protected function displayStatChangesForTargets(
+    TurnStateExecutionContext $context,
+    array $targets,
+    array $previousVitals,
+    float $delaySeconds,
+    array $results = [],
+  ): void
+  {
+    $context->ui->hideMessage();
+
+    foreach ($targets as $index => $target) {
+      [$previousHp, $previousMp] = $previousVitals[$index] ?? [$target->stats->currentHp, $target->stats->currentMp];
+      $context->ui->fieldWindow->showStatChangePopup(
+        $target,
+        $this->buildStatChangePopupLines(
+          $target,
+          $previousHp,
+          $previousMp,
+          $results[$index] ?? null,
+        ),
+        clearExisting: $index === 0
+      );
+    }
+
+    $context->ui->refresh();
+    $this->pause($delaySeconds);
+    $context->ui->fieldWindow->clearStatChangePopups();
+    $context->ui->refreshField();
+  }
+
+  /**
    * Shows battlefield popups for the target's resolved HP and MP changes.
    *
    * @param TurnStateExecutionContext $context The turn context.
    * @param CharacterInterface $target The resolved target.
    * @param int $previousHp The target HP before the action.
    * @param int $previousMp The target MP before the action.
+   * @param CombatTargetResult|null $result The typed HP-resolution result for this target.
    * @param float $delaySeconds The time to show the popup.
    * @return void
    */
@@ -584,17 +839,21 @@ class ActionExecutionState extends TurnState
   protected function buildStatChangePopupLines(
     CharacterInterface $target,
     int $previousHp,
-    int $previousMp
+    int $previousMp,
+    ?CombatTargetResult $result = null,
   ): array
   {
-    $hpDelta = $target->stats->currentHp - $previousHp;
     $mpDelta = $target->stats->currentMp - $previousMp;
     $lines = [];
+    $hpLost = $result?->actualHpLost() ?? max(0, $previousHp - $target->stats->currentHp);
+    $hpRestored = $result?->actualHpRestored() ?? max(0, $target->stats->currentHp - $previousHp);
 
-    if ($hpDelta < 0) {
-      $lines[] = ['text' => strval(abs($hpDelta)), 'color' => Color::LIGHT_RED];
-    } elseif ($hpDelta > 0) {
-      $lines[] = ['text' => '+' . $hpDelta, 'color' => Color::LIGHT_GREEN];
+    if ($hpLost > 0) {
+      $lines[] = ['text' => strval($hpLost), 'color' => Color::LIGHT_RED];
+    }
+
+    if ($hpRestored > 0) {
+      $lines[] = ['text' => '+' . $hpRestored, 'color' => Color::LIGHT_GREEN];
     }
 
     if ($mpDelta < 0) {
@@ -603,15 +862,61 @@ class ActionExecutionState extends TurnState
       $lines[] = ['text' => '+' . $mpDelta . ' MP', 'color' => Color::LIGHT_CYAN];
     }
 
+    $critical = $result !== null
+      ? array_any($result->hits, static fn($hit): bool => $hit->critical)
+      : ($target->lastHitWasCritical ?? false);
+
+    if ($critical) {
+      array_unshift($lines, ['text' => 'CRITICAL', 'color' => Color::YELLOW]);
+      $target->lastHitWasCritical = false;
+    }
+
+    $reaction = $result !== null
+      ? $this->resolveElementalReaction($result)
+      : ($target->lastElementReaction ?? null);
+
+    if ($reaction !== null) {
+      $reactionColor = match ($reaction) {
+        'WEAK!' => Color::LIGHT_RED,
+        'ABSORB' => Color::LIGHT_GREEN,
+        default => Color::LIGHT_CYAN,
+      };
+      array_unshift($lines, ['text' => $reaction, 'color' => $reactionColor]);
+      $target->lastElementReaction = null;
+    }
+
     if ($target->isKnockedOut) {
       $lines[] = ['text' => 'KO', 'color' => Color::YELLOW];
     }
 
-    if (empty($lines)) {
+    if (empty($lines) && $result === null) {
       $lines[] = ['text' => 'MISS', 'color' => Color::WHITE];
+    } elseif (empty($lines) && array_any($result->hits, static fn($hit): bool => ! $hit->hit)) {
+      $lines[] = ['text' => 'MISS', 'color' => Color::WHITE];
+    } elseif (empty($lines) && $result->hits !== []) {
+      $lines[] = ['text' => '0', 'color' => Color::WHITE];
     }
 
     return $lines;
+  }
+
+  /**
+   * Resolves the highest-priority elemental feedback from typed hit results.
+   */
+  protected function resolveElementalReaction(CombatTargetResult $result): ?string
+  {
+    foreach ([
+      [ElementalOutcome::ABSORB, 'ABSORB'],
+      [ElementalOutcome::NULL, 'NULL'],
+      [ElementalOutcome::WEAK, 'WEAK!'],
+      [ElementalOutcome::RESIST, 'RESIST'],
+    ] as [$outcome, $label]) {
+      if (array_any($result->hits, static fn($hit): bool => $hit->elementalOutcome === $outcome)) {
+        return $label;
+      }
+    }
+
+    return null;
   }
 
   /**

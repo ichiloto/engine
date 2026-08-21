@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Core\Menu;
 
 use Assegai\Collections\ItemList;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuItemInterface;
@@ -229,6 +230,12 @@ abstract class Menu implements MenuInterface
       throw new InvalidArgumentException('Invalid index.');
     }
 
+    // Only an actual selection change is a cursor movement — this method is
+    // also called on construction and (re)focus with the current index.
+    if ($index !== $this->activeIndex) {
+      $this->scene->getGame()->audioManager->playSystemSound(SystemSound::CURSOR);
+    }
+
     $this->activeIndex = $index;
     $this->notify($this, new MenuEvent(MenuEventType::ITEM_ACTIVATED));
   }
@@ -343,7 +350,8 @@ abstract class Menu implements MenuInterface
   public function updateWindowContent(): void
   {
     $content = [];
-    $contentWidth = max(0, $this->rect->getWidth() - 4);
+    $contentWidth = $this->window?->getContentWidth()
+      ?? max(0, $this->rect->getWidth() - 4);
     /**
      * @var int $itemIndex
      * @var MenuItemInterface $item
@@ -364,11 +372,19 @@ abstract class Menu implements MenuInterface
       $content[] = $output;
     }
 
-    if ($this->totalItems < $this->rect->getHeight()) {
-      $content = array_pad($content, $this->rect->getHeight() - 2, ''); // -2 for the top and bottom borders
+    $contentHeight = $this->window?->getContentHeight()
+      ?? max(0, $this->rect->getHeight() - 2);
+
+    if (count($content) < $contentHeight) {
+      $content = array_pad($content, $contentHeight, '');
     }
 
     $this->window?->setContent($content);
+
+    if ($this->window) {
+      $this->rect->setHeight($this->window->getHeight());
+    }
+
     $this->render();
   }
 }

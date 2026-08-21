@@ -5,6 +5,11 @@ namespace Ichiloto\Engine\IO;
 use Assegai\Util\Path;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Time;
+use Ichiloto\Engine\Exceptions\CorruptSaveException;
+use Ichiloto\Engine\Exceptions\ActiveEventSaveException;
+use Ichiloto\Engine\Exceptions\SaveCompatibilityException;
+use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityManifest;
+use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityPipeline;
 use Ichiloto\Engine\IO\Saves\SavedGame;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
@@ -23,6 +28,17 @@ class SaveManager
   protected const string FILE_EXTENSION = 'iedata';
   protected const string FILE_HEADER = 'IED1';
   protected const int DEFAULT_SLOT_COUNT = 5;
+  /**
+   * The slot number recorded in quick saves (outside the player-visible range).
+   */
+  public const int QUICK_SAVE_SLOT = -1;
+  /**
+   * The slot number recorded in autosaves.
+   */
+  public const int AUTO_SAVE_SLOT = -2;
+  protected const string QUICK_SAVE_NAME = 'quick';
+  protected const string AUTO_SAVE_NAME = 'auto';
+  protected const int AUTO_SAVE_RING_SIZE = 3;
 
   /**
    * The data directory path.
@@ -38,14 +54,20 @@ class SaveManager
    */
   protected static ?SaveManager $instance = null;
 
+  /** The single compatibility pipeline shared by every save surface. */
+  protected SaveCompatibilityPipeline $compatibilityPipeline;
+
   public function __construct(
     protected Game $game,
     protected string $saveDirectory = './saves',
     protected string $quickSaveDirectory = './saves/quick',
+    ?SaveCompatibilityManifest $compatibilityManifest = null,
   )
   {
     $this->saveDirectory = Path::normalize(Path::join(Path::getCurrentWorkingDirectory(), self::DATA_DIRECTORY, $this->saveDirectory));
     $this->quickSaveDirectory = Path::normalize(Path::join(Path::getCurrentWorkingDirectory(), self::DATA_DIRECTORY, $this->quickSaveDirectory));
+    $compatibilityManifest ??= SaveCompatibilityManifest::fromProjectRoot(Path::getCurrentWorkingDirectory());
+    $this->compatibilityPipeline = new SaveCompatibilityPipeline($compatibilityManifest);
     $this->ensureDirectoriesExist();
   }
 
@@ -152,7 +174,10 @@ class SaveManager
         } catch (Throwable) {
         }
 
-        $slots[] = SaveSlot::incompatible($slot, $path, 'This save file is from an incompatible format.');
+        $message = $throwable instanceof SaveCompatibilityException
+          ? $throwable->getMessage()
+          : 'This save file is from an incompatible format.';
+        $slots[] = SaveSlot::incompatible($slot, $path, $message);
       }
     }
 
@@ -168,11 +193,79 @@ class SaveManager
    */
   public function save(GameScene $scene, int $slot): SaveSlot
   {
-    $savedGame = $this->createSavedGame($scene, $slot);
-    $serializedPayload = serialize([
-      'slot' => $savedGame->slot,
-      'config' => $savedGame->config,
-    ]);
+    return $this->writeSave($scene, $slot, $this->getSlotPath($slot));
+  }
+
+  /**
+   * Writes a quick save, overwriting the previous one.
+   *
+   * Quick saves live beside the numbered slots in their own directory and
+   * never consume a player-visible slot.
+   *
+   * @param GameScene $scene The live game scene.
+   * @return SaveSlot The saved slot summary.
+   */
+  public function quickSave(GameScene $scene): SaveSlot
+  {
+    return $this->writeSave($scene, self::QUICK_SAVE_SLOT, $this->getQuickSavePath(self::QUICK_SAVE_NAME));
+  }
+
+  /**
+   * Writes an autosave, rotating through a small ring of files so one bad
+   * autosave can never be the only copy.
+   *
+   * @param GameScene $scene The live game scene.
+   * @return SaveSlot The saved slot summary.
+   */
+  public function autoSave(GameScene $scene): SaveSlot
+  {
+    $existing = glob($this->quickSaveDirectory . '/' . self::AUTO_SAVE_NAME . '-*.' . self::FILE_EXTENSION) ?: [];
+    usort($existing, static fn(string $a, string $b): int => filemtime($a) <=> filemtime($b));
+
+    // Reuse the oldest file once the ring is full.
+    $name = count($existing) >= self::AUTO_SAVE_RING_SIZE
+      ? pathinfo($existing[0], PATHINFO_FILENAME)
+      : sprintf('%s-%02d', self::AUTO_SAVE_NAME, count($existing) + 1);
+
+    return $this->writeSave($scene, self::AUTO_SAVE_SLOT, $this->getQuickSavePath($name));
+  }
+
+  /**
+   * Returns the path for a named file in the quick-save directory.
+   *
+   * @param string $name The file name without its extension.
+   * @return string The absolute path.
+   */
+  public function getQuickSavePath(string $name): string
+  {
+    if (! is_dir($this->quickSaveDirectory)) {
+      mkdir($this->quickSaveDirectory, 0o775, true);
+    }
+
+    return Path::join($this->quickSaveDirectory, sprintf('%s.%s', $name, self::FILE_EXTENSION));
+  }
+
+  /**
+   * Serializes the live scene to the given path.
+   *
+   * @param GameScene $scene The live game scene.
+   * @param int $slot The slot number recorded in the payload.
+   * @param string $path The destination path.
+   * @return SaveSlot The saved slot summary.
+   */
+  protected function writeSave(GameScene $scene, int $slot, string $path): SaveSlot
+  {
+    if ($scene->hasUnstableEventSession()) {
+      throw new ActiveEventSaveException(
+        'Saving is unavailable while a story event is in progress. Finish the event first.'
+      );
+    }
+
+    $savedGame = $this->createSavedGame($scene, $slot, $path);
+    $serializedPayload = serialize($this->compatibilityPipeline->createEnvelope(
+      $savedGame->slot,
+      $savedGame->config
+    ));
     $encodedPayload = gzencode($serializedPayload, 9);
 
     if ($encodedPayload === false) {
@@ -182,7 +275,7 @@ class SaveManager
     $bytes = file_put_contents($savedGame->slot->path, self::FILE_HEADER . $encodedPayload);
 
     if ($bytes === false) {
-      throw new RuntimeException(sprintf('Could not write save slot %d.', $slot));
+      throw new RuntimeException(sprintf('Could not write save to %s.', $path));
     }
 
     return $savedGame->slot;
@@ -211,20 +304,7 @@ class SaveManager
       throw new RuntimeException(sprintf('Save file not found: %s', $path));
     }
 
-    $payload = unserialize($this->decodeSavePayload($path), ['allowed_classes' => true]);
-
-    if (! is_array($payload)) {
-      throw new RuntimeException(sprintf('Invalid save file payload: %s', $path));
-    }
-
-    $slot = $payload['slot'] ?? null;
-    $config = $payload['config'] ?? null;
-
-    if (! $slot instanceof SaveSlot || ! $config instanceof GameConfig) {
-      throw new RuntimeException(sprintf('Save file payload is incomplete: %s', $path));
-    }
-
-    return new SavedGame($slot, $config);
+    return $this->compatibilityPipeline->load($this->decodeSavePayload($path), $path);
   }
 
   /**
@@ -278,13 +358,13 @@ class SaveManager
    * @param int $slot The 1-based save slot.
    * @return SavedGame The created save payload.
    */
-  protected function createSavedGame(GameScene $scene, int $slot): SavedGame
+  protected function createSavedGame(GameScene $scene, int $slot, ?string $path = null): SavedGame
   {
     $config = $scene->createSnapshot((int) Time::getTime());
     $leader = $scene->party?->leader;
     $saveSlot = new SaveSlot(
       slot: $slot,
-      path: $this->getSlotPath($slot),
+      path: $path ?? $this->getSlotPath($slot),
       isEmpty: false,
       locationName: $scene->party?->location?->name ?? 'Unknown',
       leaderName: $leader?->name ?? '',
@@ -325,18 +405,18 @@ class SaveManager
     $contents = file_get_contents($path);
 
     if ($contents === false) {
-      throw new RuntimeException(sprintf('Could not read save file: %s', $path));
+      throw new CorruptSaveException(sprintf('Could not read save file: %s', $path));
     }
 
     if (! str_starts_with($contents, self::FILE_HEADER)) {
-      throw new RuntimeException(sprintf('Invalid save file header: %s', $path));
+      throw new CorruptSaveException(sprintf('Invalid save file header: %s', $path));
     }
 
     $compressedPayload = substr($contents, strlen(self::FILE_HEADER));
     $serializedPayload = gzdecode($compressedPayload);
 
     if ($serializedPayload === false) {
-      throw new RuntimeException(sprintf('Could not decode save file: %s', $path));
+      throw new CorruptSaveException(sprintf('Could not decode save file: %s', $path));
     }
 
     return $serializedPayload;

@@ -6,9 +6,14 @@ use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Core\Menu\Commands\MenuCommandExecutionContext;
 use Ichiloto\Engine\Core\Menu\Commands\OpenAbilityMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenConfigMenuCommand;
+use Ichiloto\Engine\Core\Menu\Commands\OpenControlsMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenEquipmentMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenItemsMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenMagicMenuCommand;
+use Ichiloto\Engine\Core\Menu\Commands\OpenQuestsMenuCommand;
+use Ichiloto\Engine\Core\Menu\Commands\OpenRecordsMenuCommand;
+use Ichiloto\Engine\Core\Menu\Commands\OpenSummonsMenuCommand;
+use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Core\Menu\Commands\OpenPartyOrderCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenQuitMenuCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenSaveMenuCommand;
@@ -213,10 +218,30 @@ class MainMenuState extends GameSceneState implements CanRender
             ->addItem(new OpenItemsMenuCommand($this->mainMenu))
             ->addItem(new OpenAbilityMenuCommand($this->mainMenu))
             ->addItem(new OpenEquipmentMenuCommand($this->mainMenu))
-            ->addItem(new OpenMagicMenuCommand($this->mainMenu))
+            ->addItem(new OpenMagicMenuCommand($this->mainMenu));
+
+        // Only currently available summons belong in player management.
+        if (! empty(SummonsMenuState::loadSummons($this->getGameScene()->gameState, $this->party))) {
+            $this->mainMenu->addItem(new OpenSummonsMenuCommand($this->mainMenu));
+        }
+
+        // The journal appears whenever the project authors quests, even
+        // before any are accepted, so players always know where to look.
+        if (QuestManager::projectHasQuests()) {
+            $this->mainMenu->addItem(new OpenQuestsMenuCommand($this->mainMenu));
+        }
+
+        // Records collect achievements and the bestiary; the entry appears
+        // as soon as a project authors either.
+        if (RecordsMenuState::projectHasRecords()) {
+            $this->mainMenu->addItem(new OpenRecordsMenuCommand($this->mainMenu));
+        }
+
+        $this->mainMenu
             ->addItem(new OpenStatusMenuCommand($this->mainMenu))
             ->addItem(new OpenPartyOrderCommand($this->mainMenu))
-            ->addItem(new OpenConfigMenuCommand($this->mainMenu));
+            ->addItem(new OpenConfigMenuCommand($this->mainMenu))
+            ->addItem(new OpenControlsMenuCommand($this->mainMenu));
 
         if ($this->canSave) {
             $this->mainMenu->addItem(new OpenSaveMenuCommand($this->mainMenu));

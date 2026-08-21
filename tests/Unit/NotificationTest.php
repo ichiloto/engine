@@ -2,9 +2,16 @@
 
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Events\Enumerations\EventType;
+use Ichiloto\Engine\Events\Enumerations\NotificationEventType;
 use Ichiloto\Engine\Events\EventManager;
+use Ichiloto\Engine\Events\NotificationEvent;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationSlideDirection;
+use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
 use Ichiloto\Engine\Messaging\Notifications\Notification;
+use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
@@ -68,6 +75,84 @@ it('starts fully off-screen when sliding in from the right', function () {
 
   expect(getNotificationRenderPosition($notification)->x)->toBe((float)get_screen_width())
     ->and(getNotificationRenderPosition($notification)->y)->toBe(0.0);
+});
+
+it('resumes the scene only after an animated notification is fully erased', function () {
+  $notification = makeNotificationForTest(
+    new Vector2(40, 0),
+    NotificationSlideDirection::NONE,
+    NotificationSlideDirection::UP,
+    0.2
+  );
+  $eventManager = getNotificationProperty($notification, 'eventManager');
+  $dismissedWhileFinished = [];
+  $listener = static function (NotificationEvent $event) use ($notification, &$dismissedWhileFinished): void {
+    if ($event->notificationEventType === NotificationEventType::DISMISS) {
+      $dismissedWhileFinished[] = $notification->isFinished();
+    }
+  };
+  $eventManager->addEventListener(EventType::NOTIFICATION, $listener);
+
+  try {
+    Time::setElapsedTime(0.0);
+    $notification->open();
+    $notification->dismiss();
+
+    expect($dismissedWhileFinished)->toBeEmpty();
+
+    Time::setElapsedTime(0.2);
+    $notification->update();
+  } finally {
+    $eventManager->removeEventListener(EventType::NOTIFICATION, $listener);
+  }
+
+  expect($dismissedWhileFinished)->toBe([true]);
+});
+
+it('renders and erases notifications through the canonical console buffer', function () {
+  $console = new ReflectionClass(Console::class);
+  foreach ([
+    ['width', 80],
+    ['height', 24],
+    ['buffer', array_fill(0, 24, str_repeat('.', 80))],
+    ['frameDepth', 0],
+    ['frameRows', []],
+    ['terminalHandedBack', false],
+  ] as [$property, $value]) {
+    $console->getProperty($property)->setValue(null, $value);
+  }
+
+  $game = (new ReflectionClass(Game::class))->newInstanceWithoutConstructor();
+  $notification = new Notification(
+    $game,
+    NotificationChannel::INFO,
+    'Route update',
+    'Field Post available.',
+    enterDirection: NotificationSlideDirection::NONE,
+    exitDirection: NotificationSlideDirection::NONE,
+    animationDuration: 0.0,
+  );
+  $notification->setPosition(new Vector2(10, 5));
+  $notificationReflection = new ReflectionObject($notification);
+
+  ob_start();
+  $notification->open()->render();
+  ob_end_clean();
+
+  $rendered = array_map(TerminalText::stripAnsi(...), Console::getBuffer());
+  $renderedHeight = count($notificationReflection->getMethod('getRenderableLines')->invoke($notification));
+  expect(implode("\n", array_slice($rendered, 4, $renderedHeight)))
+    ->toContain('INFO', 'Route update', 'Field Post available.');
+
+  ob_start();
+  $notification->erase();
+  ob_end_clean();
+
+  $erased = array_map(TerminalText::stripAnsi(...), Console::getBuffer());
+  foreach (range(4, 4 + $renderedHeight - 1) as $row) {
+    expect(TerminalText::sliceSymbols($erased[$row], 9, Notification::WIDTH))
+      ->toBe(str_repeat(' ', Notification::WIDTH));
+  }
 });
 
 /**

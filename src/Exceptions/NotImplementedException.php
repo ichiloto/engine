@@ -18,7 +18,7 @@ class NotImplementedException extends IchilotoException
    * @param  int $code The exception code.
    * @param Throwable|null $previous The previous exception.
    */
-  public function __construct(string $feature, int $code = 0, Throwable $previous = null)
+  public function __construct(string $feature, int $code = 0, ?Throwable $previous = null)
   {
     parent::__construct("The feature '{$feature}' is not implemented.", $code, $previous);
   }

@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core\Menu\EquipmentMenu\Modes;
 
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Menu\EquipmentMenu\Modes\EquipmentMenuMode;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
@@ -33,10 +34,13 @@ class EquipmentMenuCommandSelectionMode extends EquipmentMenuMode
   public function update(): void
   {
     if (Input::isButtonDown("back")) {
+      play_sound(SystemSound::CANCEL);
       $this->state->setState($this->state->getGameScene()->mainMenuState);
     }
 
     if (Input::isButtonDown("confirm")) {
+      play_sound(SystemSound::CONFIRM);
+
       if ($this->activeMenuItemIsEquipCommand) {
         $this->state->setMode(new EquipmentSlotSelectionMode($this->state));
       } else {
@@ -47,6 +51,8 @@ class EquipmentMenuCommandSelectionMode extends EquipmentMenuMode
     $h = Input::getAxis(AxisName::HORIZONTAL);
 
     if (abs($h) > 0) {
+      play_sound(SystemSound::CURSOR);
+
       if ($h > 0) {
         $this->selectNext();
       } else {

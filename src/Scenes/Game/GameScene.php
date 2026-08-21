@@ -3,7 +3,19 @@
 namespace Ichiloto\Engine\Scenes\Game;
 
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
+use Ichiloto\Engine\Core\GameState;
+use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicStageManager;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicController;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicLibrary;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicPresentationManager;
 use Ichiloto\Engine\Core\Time;
+use Ichiloto\Engine\Battle\BattleResult;
+use Ichiloto\Engine\Events\Interpreter\EventExecutionSession;
+use Ichiloto\Engine\Events\Interpreter\EventInterpreter;
+use Ichiloto\Engine\Events\Interpreter\EventSessionCompletionTargetInterface;
+use Ichiloto\Engine\Rendering\ScreenTransition;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Exceptions\IchilotoException;
@@ -13,9 +25,23 @@ use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Field\Player;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Scenes\AbstractScene;
+use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Scenes\Game\States\CutsceneState;
 use Ichiloto\Engine\Scenes\Game\States\DialogueState;
 use Ichiloto\Engine\Scenes\Game\States\AbilityMenuState;
+use Ichiloto\Engine\Field\EncounterManager;
+use Ichiloto\Engine\Field\NpcManager;
+use Ichiloto\Engine\Field\SkitManager;
+use Ichiloto\Engine\Progress\AchievementManager;
+use Ichiloto\Engine\Progress\Bestiary;
+use Ichiloto\Engine\Progress\Knowledge\KnowledgeCatalog;
+use Ichiloto\Engine\Progress\Knowledge\KnowledgeProgress;
+use Ichiloto\Engine\Progress\Knowledge\KnowledgeProgressService;
+use Ichiloto\Engine\Quests\QuestManager;
+use Ichiloto\Engine\Scenes\Game\States\QuestMenuState;
+use Ichiloto\Engine\Scenes\Game\States\RecordsMenuState;
+use Ichiloto\Engine\Scenes\Game\States\SummonsMenuState;
+use Ichiloto\Engine\Scenes\Game\States\ControlsMenuState;
 use Ichiloto\Engine\Scenes\Game\States\EquipmentMenuState;
 use Ichiloto\Engine\Scenes\Game\States\FieldState;
 use Ichiloto\Engine\Scenes\Game\States\GameSceneState;
@@ -29,6 +55,8 @@ use Ichiloto\Engine\Scenes\Game\States\ShopState;
 use Ichiloto\Engine\Scenes\Interfaces\SceneConfigurationInterface;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Elements\LocationHUDWindow;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Debug;
 use Override;
 
@@ -39,6 +67,16 @@ use Override;
  */
 class GameScene extends AbstractScene
 {
+    /**
+     * @inheritDoc
+     */
+    public function __construct(SceneManager $sceneManager, string $name)
+    {
+        parent::__construct($sceneManager, $name);
+        $this->gameState = new GameState();
+        $this->knowledge = new KnowledgeProgressService(KnowledgeCatalog::empty());
+    }
+
     /**
      * @var CutsceneState|null The cutscene state.
      */
@@ -67,6 +105,22 @@ class GameScene extends AbstractScene
      * @var AbilityMenuState|null The ability menu state.
      */
     protected(set) ?AbilityMenuState $abilityMenuState = null;
+    /**
+     * @var SummonsMenuState|null The summon-assignment menu state.
+     */
+    protected(set) ?SummonsMenuState $summonsMenuState = null;
+    /**
+     * @var QuestMenuState|null The quest-journal menu state.
+     */
+    protected(set) ?QuestMenuState $questMenuState = null;
+    /**
+     * @var RecordsMenuState|null The achievements/bestiary records state.
+     */
+    protected(set) ?RecordsMenuState $recordsMenuState = null;
+    /**
+     * @var ControlsMenuState|null The key-rebinding state.
+     */
+    protected(set) ?ControlsMenuState $controlsMenuState = null;
     /**
      * @var MagicMenuState|null The magic menu state.
      */
@@ -108,9 +162,60 @@ class GameScene extends AbstractScene
      */
     protected(set) ?Party $party = null;
     /**
+     * @var GameState The persistent world state (switches, variables, story
+     * events, one-shot event completion).
+     */
+    protected(set) GameState $gameState;
+    /**
+     * @var QuestManager|null The quest manager.
+     */
+    protected(set) ?QuestManager $questManager = null;
+    /**
+     * @var EncounterManager|null The random-encounter manager.
+     */
+    protected(set) ?EncounterManager $encounterManager = null;
+    /**
+     * @var NpcManager|null The field NPC manager.
+     */
+    protected(set) ?NpcManager $npcManager = null;
+    /** Temporary field participants owned by the active cinematic. */
+    protected(set) ?CinematicStageManager $cinematicStage = null;
+    /** Lifecycle host for the EventInterpreter-owned field cinematic. */
+    protected(set) ?CinematicController $cinematicController = null;
+    /** Temporary overlays and field animation frames for cinematics. */
+    protected(set) ?CinematicPresentationManager $cinematicPresentation = null;
+    /**
+     * @var EventInterpreter|null The one active story-event runtime.
+     */
+    protected(set) ?EventInterpreter $eventInterpreter = null;
+    /**
+     * @var bool Whether a transfer requested an autosave during an event.
+     */
+    protected(set) bool $hasDeferredAutoSave = false;
+    /** Whether the destination map still needs its automatic entry triggers evaluated. */
+    protected bool $hasPendingAutomaticTriggerEvaluation = false;
+    /**
+     * @var SkitManager|null The skit manager.
+     */
+    protected(set) ?SkitManager $skitManager = null;
+    /**
+     * @var AchievementManager|null The achievement manager.
+     */
+    protected(set) ?AchievementManager $achievementManager = null;
+    /**
+     * @var Bestiary The party's enemy codex.
+     */
+    protected(set) Bestiary $bestiary;
+    /** Generic player-earned field knowledge and reports. */
+    protected(set) KnowledgeProgressService $knowledge;
+    /**
      * @var string[] The currently recorded story-event flags.
      */
-    protected(set) array $storyEvents = [];
+    public array $storyEvents {
+        get {
+            return $this->gameState->storyEvents;
+        }
+    }
     /**
      * @var string The currently loaded map identifier.
      */
@@ -118,7 +223,7 @@ class GameScene extends AbstractScene
     /**
      * @var GameSceneState|null The state of the scene.
      */
-    protected ?GameSceneState $state = null;
+    protected(set) ?GameSceneState $state = null;
     /**
      * @var SceneStateContext|null The scene state context.
      */
@@ -127,6 +232,10 @@ class GameScene extends AbstractScene
      * @var GameConfig|null The configuration of the game.
      */
     protected ?GameConfig $config = null;
+    /**
+     * @var bool Whether world-state writes invalidated dynamic field layers.
+     */
+    protected bool $fieldPresentationIsDirty = false;
 
     /**
      * Configures the game scene.
@@ -155,7 +264,21 @@ class GameScene extends AbstractScene
         $this->uiManager->uiElements->add($this->locationHUDWindow);
 
         $this->config = $config;
-        $this->storyEvents = array_values(array_map('strval', array_filter($this->config->events, 'is_string')));
+        $this->gameState = GameState::fromArray($this->config->gameState);
+
+        // Flag writes feed quest objectives that watch switches and story
+        // events. Every world-state write can affect skits or achievements.
+        $this->gameState->onChange = function (string $kind, string $name): void {
+            $this->requestFieldPresentationReconciliation();
+
+            if ($kind !== 'variable') {
+                $this->questManager?->recordFlag($name);
+            }
+
+            $this->skitManager?->announceAvailableSkits();
+            $this->achievementManager?->evaluateConditionalAchievements();
+        };
+
         Time::setElapsedTime($this->config->playTimeSeconds);
 
         $this->player = new Player(
@@ -168,11 +291,38 @@ class GameScene extends AbstractScene
             $this->config->playerSprites
         );
         $this->party = $this->config->party;
+        $this->party->assertSummonAssignments((new SummonCutsceneLibrary())->load());
+
+        // The quest manager must exist before the first map load so the
+        // starting map counts toward reach-map objectives.
+        $this->questManager = new QuestManager($this->getGame(), $this);
+        $this->questManager->hydrate($this->config->questLog);
+        $this->encounterManager = new EncounterManager($this);
+        $this->npcManager = new NpcManager($this);
+        $this->cinematicStage = new CinematicStageManager($this);
+        $this->cinematicController = new CinematicController($this);
+        $this->cinematicPresentation = new CinematicPresentationManager($this);
+        $this->eventInterpreter = new EventInterpreter($this);
+        $this->hasDeferredAutoSave = false;
+        $this->hasPendingAutomaticTriggerEvaluation = false;
+        $this->skitManager = new SkitManager($this);
+        $this->achievementManager = new AchievementManager($this->getGame(), $this);
+        $this->achievementManager->hydrate($this->config->achievements);
+        $catalog = ConfigStore::get(KnowledgeCatalog::class);
+        $catalog = $catalog instanceof KnowledgeCatalog ? $catalog : KnowledgeCatalog::empty();
+        $this->knowledge = new KnowledgeProgressService(
+            $catalog,
+            KnowledgeProgress::fromArray($this->config->knowledge),
+        );
+        $this->bestiary = $this->config->bestiary === []
+            ? new Bestiary($this->knowledge)
+            : Bestiary::fromArray($this->config->bestiary, $this->knowledge);
 
         $this->loadMap($this->config->mapId, $this->player);
         $this->player->activate();
         $this->locationHUDWindow->updateDetails($this->player->position, $this->player->heading);
         $this->setState($this->fieldState);
+        $this->player->evaluateAutomaticTriggersAtCurrentPosition();
     }
 
     /**
@@ -190,11 +340,27 @@ class GameScene extends AbstractScene
         $this->equipmentMenuState = new EquipmentMenuState($this->sceneStateContext);
         $this->itemMenuState = new ItemMenuState($this->sceneStateContext);
         $this->abilityMenuState = new AbilityMenuState($this->sceneStateContext);
+        $this->summonsMenuState = new SummonsMenuState($this->sceneStateContext);
+        $this->questMenuState = new QuestMenuState($this->sceneStateContext);
+        $this->recordsMenuState = new RecordsMenuState($this->sceneStateContext);
+        $this->controlsMenuState = new ControlsMenuState($this->sceneStateContext);
         $this->magicMenuState = new MagicMenuState($this->sceneStateContext);
         $this->mapState = new MapState($this->sceneStateContext);
         $this->overworldState = new OverworldState($this->sceneStateContext);
         $this->shopState = new ShopState($this->sceneStateContext);
         $this->saveMenuState = new SaveMenuState($this->sceneStateContext);
+    }
+
+    /**
+     * @inheritDoc
+     *
+     * The field's music belongs to the current map, so returning to the game
+     * scene (e.g. after a battle) resumes whatever the map declares.
+     */
+    #[Override]
+    public function getBackgroundMusic(): ?string
+    {
+        return $this->mapManager?->backgroundMusic;
     }
 
     /**
@@ -275,10 +441,15 @@ class GameScene extends AbstractScene
             playerShape: clone $this->player->getShape(),
             playerHeading: $this->player->heading,
             playerStats: [],
-            events: $this->storyEvents,
+            events: $this->gameState->storyEvents,
             playerSprite: $this->player->sprite,
             playerSprites: $this->player->getDirectionalSprites(),
             playTimeSeconds: $playTimeSeconds,
+            gameState: $this->gameState->toArray(),
+            questLog: $this->questManager?->log->toArray() ?? [],
+            achievements: $this->achievementManager?->toArray() ?? [],
+            bestiary: [],
+            knowledge: isset($this->knowledge) ? $this->knowledge->progress->toArray() : [],
         );
     }
 
@@ -290,7 +461,7 @@ class GameScene extends AbstractScene
      */
     public function hasStoryEvent(string $eventName): bool
     {
-        return in_array($eventName, $this->storyEvents, true);
+        return $this->gameState->hasStoryEvent($eventName);
     }
 
     /**
@@ -301,26 +472,28 @@ class GameScene extends AbstractScene
      */
     public function recordStoryEvent(string $eventName): void
     {
-        $eventName = trim($eventName);
-
-        if ($eventName === '' || $this->hasStoryEvent($eventName)) {
-            return;
-        }
-
-        $this->storyEvents[] = $eventName;
+        $this->gameState->recordStoryEvent($eventName);
     }
 
     /**
      * Transfers the player to the destination map.
      *
      * @param Location $location The destination location.
+     * @param bool $useConfiguredTransition Whether to run the project's legacy blocking transfer transition.
      * @return void
      * @throws IchilotoException If the map cannot be loaded.
      * @throws NotFoundException If the map is not found.
      */
-    public function transferPlayer(Location $location): void
+    public function transferPlayer(Location $location, bool $useConfiguredTransition = true): void
     {
         Debug::info("Transferring player to $location->mapFilename... at $location->playerPosition");
+
+        // Staged actors are map-local presentation participants. A cinematic
+        // that needs cast in the destination explicitly stages them there.
+        $this->cinematicStage?->clear();
+
+        $transition = $useConfiguredTransition ? ScreenTransition::fromConfig() : null;
+        $transition?->out();
 
         $this->player->position->x = $location->playerPosition->x;
         $this->player->position->y = $location->playerPosition->y;
@@ -328,11 +501,234 @@ class GameScene extends AbstractScene
             $this->player->setFacingSprite($location->playerSprite);
         }
         $this->loadMap($location->mapFilename, $this->player);
+
+        if ($transition !== null) {
+            // The field is drawn behind the configured cover, then revealed.
+            $transition->in(function (): void {
+                $this->fieldState?->renderTheField();
+            });
+        } else {
+            // Cinematics own their transition cover. Recompose the new map
+            // under that existing cover without invoking a second blocking
+            // ScreenTransition out/in pair.
+            $this->fieldState?->renderTheField();
+        }
+
         $this->player->render();
 
         $this->locationHUDWindow->updateDetails($this->player->position, $this->player->heading);
-        $this->locationHUDWindow->render();
+        $this->getUI()->render();
+        $this->cinematicPresentation?->render();
+        $this->eventInterpreter?->renderPresentation();
         Debug::info("Player transferred to $location->mapFilename... at {$this->player->position}");
+
+        $this->finalizePlayerTransfer();
+    }
+
+    /** Completes transfer side effects once the destination map is ready. */
+    protected function finalizePlayerTransfer(): void
+    {
+        $this->hasPendingAutomaticTriggerEvaluation = true;
+
+        // The originating interpreter stays in memory while MapManager and
+        // NpcManager load the destination. It advances past transfer only
+        // after that existing path has fully completed.
+        $this->eventInterpreter?->resumeAfterTransfer();
+        $this->evaluatePendingAutomaticTriggers();
+        $this->autoSave();
+    }
+
+    /** Runs deferred destination triggers once no event session owns the interpreter. */
+    protected function evaluatePendingAutomaticTriggers(): void
+    {
+        if (! $this->hasPendingAutomaticTriggerEvaluation || $this->hasUnstableEventSession()) {
+            return;
+        }
+
+        $this->hasPendingAutomaticTriggerEvaluation = false;
+        $this->player?->evaluateAutomaticTriggersAtCurrentPosition();
+    }
+
+    /**
+     * Writes an autosave when the project enables them.
+     *
+     * Map transfers are the natural checkpoint: the player has just
+     * committed to a new area. Opt in with `save.autosave` in the project
+     * config; failures warn and never interrupt play.
+     *
+     * @return void
+     */
+    public function autoSave(): void
+    {
+        if (! config(ProjectConfig::class, 'save.autosave', false)) {
+            return;
+        }
+
+        if ($this->hasUnstableEventSession()) {
+            $this->hasDeferredAutoSave = true;
+            return;
+        }
+
+        try {
+            $this->sceneManager->saveManager->autoSave($this);
+        } catch (\Throwable $exception) {
+            Debug::warn(sprintf('Autosave failed: %s', $exception->getMessage()));
+        }
+    }
+
+    /**
+     * Starts a script on the GameScene-owned interpreter.
+     *
+     * @param array<int, array<string, mixed>> $commands The commands.
+     * @param string|null $scriptId Stable script identity when available.
+     * @param array<string, scalar|null> $origin Plain authoring origin metadata.
+     * @return EventExecutionSession|null The session, or null when one is active.
+     */
+    public function startEventScript(
+        array $commands,
+        ?string $scriptId = null,
+        ?EventSessionCompletionTargetInterface $completionTarget = null,
+        array $origin = [],
+    ): ?EventExecutionSession
+    {
+        return $this->eventInterpreter?->run($commands, $scriptId, $completionTarget, $origin);
+    }
+
+    /** Starts a first-class cinematic asset by definition or stable id. */
+    public function startCinematic(
+        CinematicDefinition|string $cinematic,
+        ?EventSessionCompletionTargetInterface $completionTarget = null,
+    ): ?EventExecutionSession
+    {
+        $definition = is_string($cinematic)
+            ? (new CinematicLibrary())->load($cinematic)
+            : $cinematic;
+
+        return $this->cinematicController?->start($definition, $completionTarget);
+    }
+
+    /** Requests the active cinematic's authored safe skip path. */
+    public function skipCinematic(): bool
+    {
+        return $this->cinematicController?->skip() ?? false;
+    }
+
+    /**
+     * Ticks the active story-event continuation.
+     */
+    public function updateEventSession(?float $deltaSeconds = null): void
+    {
+        $this->eventInterpreter?->update($deltaSeconds);
+    }
+
+    /**
+     * Returns whether saving would capture a half-completed story event.
+     */
+    public function hasUnstableEventSession(): bool
+    {
+        return $this->eventInterpreter?->hasActiveSession() ?? false;
+    }
+
+    /**
+     * Resumes a suspended scripted battle after the field has been restored.
+     */
+    public function resumeEventAfterBattle(BattleResult $result): void
+    {
+        $this->eventInterpreter?->resumeAfterBattle($result);
+    }
+
+    /**
+     * Cancels a scripted battle continuation when normal defeat goes to the
+     * game-over scene.
+     */
+    public function failEventAfterBattle(string $message): void
+    {
+        $this->eventInterpreter?->failActiveSession($message);
+    }
+
+    /**
+     * Lifecycle hook called when a new session begins.
+     */
+    public function onEventSessionStarted(EventExecutionSession $session): void
+    {
+        Debug::info(sprintf(
+            'Event session %d started (%s).',
+            $session->id,
+            $session->scriptId ?? 'inline script',
+        ));
+    }
+
+    /**
+     * Lifecycle hook called after completion or controlled failure.
+     */
+    public function onEventSessionFinished(EventExecutionSession $session, bool $completed): void
+    {
+        Debug::info(sprintf(
+            'Event session %d %s.',
+            $session->id,
+            $completed ? 'completed' : 'failed',
+        ));
+
+        // Completion targets and final immediate commands may change NPC
+        // visibility and event cues after the last dialogue overlay was
+        // erased. Rebuild the composition at this authoritative boundary.
+        $this->requestFieldPresentationReconciliation();
+        $this->reconcileFieldPresentation();
+        $this->evaluatePendingAutomaticTriggers();
+
+        if (! $completed) {
+            // Never turn a failed, potentially partial script into an
+            // automatic checkpoint.
+            $this->hasDeferredAutoSave = false;
+            return;
+        }
+
+        if ($this->hasDeferredAutoSave) {
+            $this->hasDeferredAutoSave = false;
+            $this->autoSave();
+        }
+    }
+
+    /**
+     * Re-renders the complete field composition after a transient overlay.
+     *
+     * Story dialogue is driven without leaving FieldState, so it does not get
+     * the normal state-resume redraw that blocking modals receive.
+     */
+    public function restoreFieldAfterOverlay(): void
+    {
+        if ($this->state === $this->fieldState) {
+            $this->fieldState?->renderTheField();
+            $this->fieldPresentationIsDirty = false;
+        }
+    }
+
+    /** Marks dynamic NPC and event-cue presentation stale after world state changes. */
+    public function requestFieldPresentationReconciliation(): void
+    {
+        $this->fieldPresentationIsDirty = true;
+    }
+
+    /**
+     * Rebuilds the field once after dynamic visibility changed.
+     *
+     * Writes can arrive in batches during scripts. Deferring while a session
+     * owns input prevents repainting over dialogue and collapses the batch to
+     * one canonical map/cue/NPC/player/HUD composition.
+     */
+    public function reconcileFieldPresentation(): void
+    {
+        if (
+            ! $this->fieldPresentationIsDirty
+            || $this->state !== $this->fieldState
+            || $this->hasUnstableEventSession()
+        ) {
+            return;
+        }
+
+        $this->fieldPresentationIsDirty = false;
+        $this->player?->reconcileActiveEventState();
+        $this->fieldState?->renderTheField();
     }
 
     /**

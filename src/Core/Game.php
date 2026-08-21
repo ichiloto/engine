@@ -6,6 +6,7 @@ use Assegai\Collections\ItemList;
 use Assegai\Util\Path;
 use Error;
 use Exception;
+use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\Battle\BattleEngineFactory;
 use Ichiloto\Engine\Battle\Engines\ActiveTime\ActiveTimeBattleEngine;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\TraditionalTurnBasedBattleEngine;
@@ -23,15 +24,19 @@ use Ichiloto\Engine\Events\Interfaces\EventInterface;
 use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
 use Ichiloto\Engine\Events\Interfaces\StaticObserverInterface;
 use Ichiloto\Engine\Events\Interfaces\SubjectInterface;
+use Ichiloto\Engine\Entities\Elements\ElementRegistry;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\IO\Console\TerminalCapabilities;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
+use Ichiloto\Engine\Progress\Knowledge\KnowledgeCatalog;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\GameOver\GameOverScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\Scenes\SceneManager;
+use Ichiloto\Engine\Scenes\Arena\ArenaScene;
 use Ichiloto\Engine\Scenes\Title\TitleScene;
 use Ichiloto\Engine\UI\Modal\ModalManager;
 use Ichiloto\Engine\UI\Windows\DebugWindow;
@@ -42,6 +47,7 @@ use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Stores\EnemyStore;
+use Ichiloto\Engine\Util\Stores\ActorStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 use Throwable;
 
@@ -52,6 +58,10 @@ use Throwable;
  */
 class Game implements CanRun, SubjectInterface
 {
+    /**
+     * @var AudioManager The audio manager.
+     */
+    protected(set) AudioManager $audioManager;
     /**
      * @var SceneManager The scene manager.
      */
@@ -68,6 +78,14 @@ class Game implements CanRun, SubjectInterface
      * @var NotificationManager $notificationManager The notification manager.
      */
     protected(set) NotificationManager $notificationManager;
+    /**
+     * @var bool Whether terminal-restore handlers are installed.
+     */
+    private bool $terminalRestoreHandlersRegistered = false;
+    /**
+     * @var bool Whether the terminal has already been handed back.
+     */
+    private bool $terminalCleanedUp = false;
     /**
      * @var BattleEngineInterface $engine The battle engine.
      */
@@ -118,7 +136,7 @@ class Game implements CanRun, SubjectInterface
         protected string $name,
         protected int    $width = DEFAULT_SCREEN_WIDTH,
         protected int    $height = DEFAULT_SCREEN_HEIGHT,
-        protected array  $options = []
+        protected(set) array  $options = []
     )
     {
         try {
@@ -135,9 +153,10 @@ class Game implements CanRun, SubjectInterface
                     new TitleScene($this->sceneManager, "Title Screen"),
                     new GameScene($this->sceneManager, $this->name),
                     new BattleScene($this->sceneManager, "$this->name - Battle Screen"),
-                    new GameOverScene($this->sceneManager, "$this->name - Game Over Screen")
+                    new GameOverScene($this->sceneManager, "$this->name - Game Over Screen"),
+                    new ArenaScene($this->sceneManager, "$this->name - Arena")
                 );
-        } catch (Error|Exception|Throwable $exception) {
+        } catch (Throwable $exception) {
             $this->handleException($exception);
         }
     }
@@ -179,10 +198,52 @@ class Game implements CanRun, SubjectInterface
     }
 
     /**
+     * Ensures the terminal is handed back however the game ends.
+     *
+     * A game that only restores the terminal on the tidy exit path leaves
+     * the player with a raw-mode shell and a screen full of map whenever
+     * they press Ctrl+C or something throws. The shutdown function covers
+     * fatal errors and normal exits; the signal handlers cover Ctrl+C and
+     * `kill`.
+     *
+     * @return void
+     */
+    private function registerTerminalRestoreHandlers(): void
+    {
+        if ($this->terminalRestoreHandlersRegistered) {
+            return;
+        }
+
+        $this->terminalRestoreHandlersRegistered = true;
+
+        register_shutdown_function(function (): void {
+            $this->cleanupTerminal();
+        });
+
+        if (! function_exists('pcntl_signal')) {
+            return;
+        }
+
+        pcntl_async_signals(true);
+
+        foreach ([SIGINT, SIGTERM, SIGHUP] as $signal) {
+            pcntl_signal($signal, function (int $signal): void {
+                $this->cleanupTerminal();
+
+                // Re-raise with the default handler so the exit status
+                // reports the signal, as a well-behaved program should.
+                pcntl_signal($signal, SIG_DFL);
+                posix_kill(posix_getpid(), $signal);
+            });
+        }
+    }
+
+    /**
      * Stop the game.
      */
     protected function stop(): void
     {
+        $this->shutdownAudio();
         $this->cleanupTerminal();
 
         $this->notify($this, new GameEvent(GameEventType::STOP));
@@ -208,7 +269,7 @@ class Game implements CanRun, SubjectInterface
             foreach ($this->staticObservers as $observer) {
                 $observer::onNotify($entity, $event);
             }
-        } catch (Error|Exception|Throwable $exception) {
+        } catch (Throwable $exception) {
             $this->crashed = true;
             $this->logCrash($exception);
             $this->cleanupTerminal();
@@ -264,12 +325,42 @@ class Game implements CanRun, SubjectInterface
     }
 
     /**
+     * Stops all audio playback so no player processes outlive the game.
+     *
+     * Safe to call during crash handling, before the managers have been
+     * initialized.
+     *
+     * @return void
+     */
+    private function shutdownAudio(): void
+    {
+        if (! isset($this->audioManager)) {
+            return;
+        }
+
+        try {
+            $this->audioManager->shutdown();
+        } catch (Throwable) {
+            // Never let audio cleanup mask the reason the game is stopping.
+        }
+    }
+
+    /**
      * Restores the terminal to a readable state.
      *
      * @return void
      */
     private function cleanupTerminal(): void
     {
+        // Quitting, the end of run(), and the shutdown handler all lead here,
+        // because any of them may be the last thing that happens. The work is
+        // only worth doing once.
+        if ($this->terminalCleanedUp) {
+            return;
+        }
+
+        $this->terminalCleanedUp = true;
+
         try {
             InputManager::disableNonBlockingMode();
         } catch (Throwable) {
@@ -287,6 +378,12 @@ class Game implements CanRun, SubjectInterface
 
         try {
             Console::restoreTerminalSettings();
+        } catch (Throwable) {
+        }
+
+        try {
+            // Hand back the screen the player started with.
+            Console::leaveAlternateScreen();
         } catch (Throwable) {
         }
 
@@ -359,8 +456,18 @@ class Game implements CanRun, SubjectInterface
         ConfigStore::put(PlaySettings::class, new PlaySettings($this->options));
         ConfigStore::put(AppConfig::class, new AppConfig());
         ConfigStore::put(ProjectConfig::class, new ProjectConfig());
+
+        // Detect what this terminal can render before anything draws, so the
+        // engine picks a rendering strategy that matches the host instead of
+        // assuming one.
+        TerminalCapabilities::detect();
+
         ConfigStore::put(InputConfig::class, new InputConfig());
+        $systemPayload = asset('Data/system.php', true);
+        ElementRegistry::configure(is_array($systemPayload['elements'] ?? null) ? $systemPayload['elements'] : []);
+        ConfigStore::put(ActorStore::class, new ActorStore());
         ConfigStore::put(ItemStore::class, new ItemStore());
+        ConfigStore::put(KnowledgeCatalog::class, KnowledgeCatalog::fromProject());
         ConfigStore::put(EnemyStore::class, new EnemyStore());
     }
 
@@ -396,7 +503,10 @@ class Game implements CanRun, SubjectInterface
      */
     public function configure(array $options): self
     {
-        $this->options = array_merge_recursive($this->options, $options);
+        // Replace rather than merge: the constructor configures the options
+        // with themselves, and a recursive merge turns every scalar a caller
+        // passed into a two-element array of itself.
+        $this->options = array_replace_recursive($this->options, $options);
         ['width' => $this->width, 'height' => $this->height] = $this->resolveScreenSize($this->options);
         $this->options['width'] = $this->width;
         $this->options['height'] = $this->height;
@@ -463,6 +573,7 @@ class Game implements CanRun, SubjectInterface
      */
     private function initializeManagers(): void
     {
+        $this->audioManager = AudioManager::getInstance($this);
         $this->sceneManager = SceneManager::getInstance($this);
         $this->eventManager = EventManager::getInstance($this);
         $this->modalManager = ModalManager::getInstance($this);
@@ -559,6 +670,14 @@ class Game implements CanRun, SubjectInterface
             while ($this->isRunning) {
                 $this->handleInput();
                 $this->update();
+
+                // Quitting happens inside update(), and by then the terminal
+                // has already been handed back. Painting this frame would draw
+                // the game over the user's shell.
+                if (! $this->isRunning) {
+                    break;
+                }
+
                 $this->render();
 
                 usleep($sleepTime);
@@ -572,6 +691,11 @@ class Game implements CanRun, SubjectInterface
         } catch (Throwable $exception) {
             $this->handleException($exception);
         }
+
+        // Whatever ended the loop, the terminal goes back the way it was
+        // found: quitting through a menu, running out of scenes, or an
+        // exception that was handled rather than thrown on.
+        $this->cleanupTerminal();
     }
 
     /**
@@ -582,6 +706,8 @@ class Game implements CanRun, SubjectInterface
     {
         Console::clear();
         Console::saveTerminalSettings();
+        Console::enterAlternateScreen();
+        $this->registerTerminalRestoreHandlers();
         Console::setTerminalName($this->name);
         Console::setTerminalSize($this->width, $this->height);
         Console::cursor()->hide();
@@ -592,8 +718,18 @@ class Game implements CanRun, SubjectInterface
         $this->buildItemStore();
         $this->handleGameEvents();
 
-        $this->sceneManager->loadScene(0);
+        // A project normally opens on its title screen. Tooling can start
+        // somewhere else, which is how `ichiloto battle` drops a developer
+        // straight into the arena.
+        $this->sceneManager->loadScene($this->options['starting_scene'] ?? 0);
         $this->addObserver(Time::class);
+
+        // Lets anything that has to wait hand the loop back instead of
+        // sleeping through it: music, notifications, and engine time all keep
+        // running while it waits.
+        Timers::setFrameTick(function (): void {
+            $this->tickWhileBlocked();
+        });
 
         $this->isRunning = true;
 
@@ -796,8 +932,28 @@ SPLASH_SCREEN;
         $this->syncScreenSize();
         $this->sceneManager->update();
         $this->notificationManager->update();
+        $this->audioManager->update();
+        Timers::update();
 
         $this->notify($this, new GameEvent(GameEventType::UPDATE));
+    }
+
+    /**
+     * Runs the part of a frame that must keep going while something blocks.
+     *
+     * Scene updates are deliberately left out: whatever is blocking owns the
+     * screen and the input, and re-entering the scene under it would fight for
+     * both.
+     *
+     * @return void
+     */
+    public function tickWhileBlocked(): void
+    {
+        $this->notify($this, new GameEvent(GameEventType::UPDATE));
+        Timers::update();
+        $this->notificationManager->update();
+        $this->audioManager->update();
+        $this->notificationManager->render();
     }
 
     /**
@@ -810,7 +966,7 @@ SPLASH_SCREEN;
         // Throttle expensive terminal size probes to avoid per-frame shell_exec() calls.
         // Uses static variables so the throttle state persists across calls without
         // requiring additional class properties.
-        $lastProbeTime = 0.0;
+        static $lastProbeTime = 0.0;
         $minProbeIntervalSeconds = 0.25; // adjust as needed
 
         $now = microtime(true);
@@ -855,6 +1011,10 @@ SPLASH_SCREEN;
      */
     protected function render(): void
     {
+        // Modal dismissals are committed only at the frame boundary. That
+        // lets dialogue pages and choices replace one another within a single
+        // update without exposing a lower-precedence HUD between them.
+        $this->sceneManager->currentScene?->getUI()->commitPresentationChanges();
         $this->sceneManager->render();
         $this->notificationManager->render();
 

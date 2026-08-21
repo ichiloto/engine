@@ -6,6 +6,7 @@ use Ichiloto\Engine\Battle\UI\BattleResultWindow;
 use Ichiloto\Engine\Battle\UI\BattleScreen;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\Util\Debug;
 use Override;
@@ -45,6 +46,15 @@ class BattleStartState extends BattleSceneState
   #[Override]
   public function enter(): void
   {
+    // Meeting an enemy is enough to open its bestiary entry.
+    $gameScene = $this->scene->getGame()->sceneManager->findScene(GameScene::class);
+
+    if ($gameScene instanceof GameScene && $gameScene->isStarted()) {
+      foreach ($this->scene->troop?->members?->toArray() ?? [] as $enemy) {
+        $gameScene->knowledge->discoverEnemy($enemy);
+      }
+    }
+
     $this->scene->ui = new BattleScreen($this->scene);
     $this->scene->resultWindow = new BattleResultWindow($this->scene->ui);
     $this->cleanSlate = array_fill(0, $this->scene->ui->screenDimensions->getHeight(), str_repeat(' ', $this->scene->ui->screenDimensions->getWidth()));

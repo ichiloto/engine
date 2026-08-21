@@ -233,7 +233,8 @@ class BattleScreen implements CanRender, CanUpdate
   public function erase(): void
   {
     $this->fieldWindow->erase();
-    $this->hideMessage();
+    $this->isMessageVisible = false;
+    $this->messageWindow->hide();
     $this->hideControls();
   }
 
@@ -286,8 +287,13 @@ class BattleScreen implements CanRender, CanUpdate
    */
   public function hideMessage(): void
   {
+    if (! $this->isMessageVisible) {
+      return;
+    }
+
     $this->isMessageVisible = false;
     $this->messageWindow->hide();
+    $this->recomposeField();
   }
 
   /**
@@ -339,6 +345,18 @@ class BattleScreen implements CanRender, CanUpdate
   public function refreshField(): void
   {
     $this->fieldWindow->erase();
+    $this->recomposeField();
+  }
+
+  /**
+   * Re-renders the complete battlefield composition without blanking it
+   * first. This is the canonical restoration boundary after battle overlays
+   * and selection-layer changes.
+   *
+   * @return void
+   */
+  public function recomposeField(): void
+  {
     $this->renderField();
 
     if ($this->isMessageVisible) {
@@ -396,7 +414,7 @@ class BattleScreen implements CanRender, CanUpdate
    */
   public function styleSelectionLine(string $text, bool $blink = false): string
   {
-    $prefix = $blink ? "\033[5m" : '';
+    $prefix = ($blink && \Ichiloto\Engine\UI\Accessibility::allowsBlink()) ? "\033[5m" : '';
 
     return $prefix . $this->selectionColor->value . $text . Color::RESET->value;
   }

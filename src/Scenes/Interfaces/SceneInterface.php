@@ -42,6 +42,19 @@ interface SceneInterface extends CanStart, CanResume, CanUpdate, CanRender
   }
 
   /**
+   * Returns the background music this scene wants playing, or null when the
+   * scene declares none.
+   *
+   * The scene manager applies this on every scene transition: a declared
+   * track starts playing (a no-op when it is already playing) and null stops
+   * the music. Tracks are audio references resolved by the AudioManager
+   * (absolute, relative to assets, or a bare name under assets/Audio/BGM).
+   *
+   * @return string|null The background music reference, or null for silence.
+   */
+  public function getBackgroundMusic(): ?string;
+
+  /**
    * Gets the root game objects.
    *
    * @return GameObject[] The root game objects.

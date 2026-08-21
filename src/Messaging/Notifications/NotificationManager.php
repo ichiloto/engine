@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Messaging\Notifications;
 
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
+
 use Assegai\Collections\Queue;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
@@ -25,6 +27,11 @@ use Ichiloto\Engine\Util\Debug;
  */
 class NotificationManager implements CanUpdate, CanResume, CanRender
 {
+  /**
+   * Frame deltas above this are engine-time stalls (blocking dialogue,
+   * alerts, shops), not ordinary frames.
+   */
+  protected const float STALL_COMPENSATION_THRESHOLD_SECONDS = 0.5;
   /**
    * @var NotificationManager|null The instance of the notification manager.
    */
@@ -107,6 +114,10 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
     $queueWasEmpty = ! $this->notifications->isNotEmpty();
     $this->notifications->enqueue($notification);
 
+    // A notification can arrive while the player is looking elsewhere on
+    // screen, so it says so.
+    play_sound(SystemSound::NOTIFICATION);
+
     if ($queueWasEmpty) {
       $this->openActiveNotification();
     }
@@ -159,6 +170,17 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
 
     if (! $activeNotification instanceof NotificationInterface) {
       return;
+    }
+
+    // Blocking UI (dialogue, alerts, shops) freezes engine time and then
+    // releases it in one large jump. A notification issued during the stall
+    // gets its deadline stamped with the frozen clock, so the jump would
+    // consume its whole on-screen time at once; push the deadline out by the
+    // stall instead.
+    $timeJump = Time::getDeltaTime();
+
+    if ($timeJump > self::STALL_COMPENSATION_THRESHOLD_SECONDS) {
+      $this->nextNotificationShowTime += $timeJump;
     }
 
     if (Time::getTime() >= $this->nextNotificationShowTime) {

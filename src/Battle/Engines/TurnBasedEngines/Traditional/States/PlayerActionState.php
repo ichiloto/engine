@@ -3,18 +3,27 @@
 namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States;
 
 use Assegai\Collections\Stack;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
+use Ichiloto\Engine\Battle\Actions\GuardAction;
 use Ichiloto\Engine\Battle\Actions\ItemBattleAction;
+use Ichiloto\Engine\Battle\Actions\PassAction;
 use Ichiloto\Engine\Battle\BattleAction;
+use Ichiloto\Engine\Battle\BattleResult;
+use Ichiloto\Engine\Battle\BattlerBattleView;
 use Ichiloto\Engine\Battle\BattleCommandCatalog;
+use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\Battle\BattleCommandOption;
+use Ichiloto\Engine\Battle\EscapePolicy;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\TraditionalTurnBasedBattleEngine;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
+use Ichiloto\Engine\Entities\Enumerations\ItemScopeNumber;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeStatus;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
+use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 
@@ -65,7 +74,7 @@ class PlayerActionState extends TurnState
     $context->ui->refreshField();
 
     if (empty($context->getLivingPartyBattlers())) {
-      $this->setState($this->engine->enemyActionState);
+      $this->setStateIfPresent($this->engine->enemyActionState);
       return;
     }
 
@@ -101,6 +110,8 @@ class PlayerActionState extends TurnState
       return;
     }
 
+    $context->game->audioManager->playSystemSound(SystemSound::CURSOR);
+
     if ($v > 0) {
       $context->ui->state->selectNext();
       return;
@@ -123,6 +134,8 @@ class PlayerActionState extends TurnState
       return;
     }
 
+    $context->game->audioManager->playSystemSound(SystemSound::CURSOR);
+
     if ($v > 0) {
       $context->ui->commandContextWindow->selectNext();
       return;
@@ -143,11 +156,13 @@ class PlayerActionState extends TurnState
     $v = Input::getAxis(AxisName::VERTICAL);
 
     if ($h > 0 || $v > 0) {
+      $context->game->audioManager->playSystemSound(SystemSound::CURSOR);
       $this->cycleTarget($context, 1);
       return;
     }
 
     if ($h < 0 || $v < 0) {
+      $context->game->audioManager->playSystemSound(SystemSound::CURSOR);
       $this->cycleTarget($context, -1);
     }
   }
@@ -165,6 +180,8 @@ class PlayerActionState extends TurnState
     }
 
     if (Input::isButtonDown('action')) {
+      $context->game->audioManager->playSystemSound(SystemSound::CONFIRM);
+
       match ($this->selectionMode) {
         self::MODE_COMMAND => $this->beginSubmenuSelection($context),
         self::MODE_SUBMENU => $this->selectSubmenuOption($context),
@@ -176,6 +193,8 @@ class PlayerActionState extends TurnState
     if (! Input::isAnyKeyPressed([KeyCode::C, KeyCode::c])) {
       return;
     }
+
+    $context->game->audioManager->playSystemSound(SystemSound::CANCEL);
 
     match ($this->selectionMode) {
       self::MODE_TARGET => $this->returnToSubmenuSelection($context),
@@ -227,7 +246,12 @@ class PlayerActionState extends TurnState
     $ui->characterNameWindow->setActiveSelection($this->activeCharacterIndex);
     $ui->commandWindow->commands = array_map(
       fn(BattleAction $action) => $action->name,
-      $this->activeCharacter->commandAbilities
+      BattleCommandCatalog::buildCommands(
+        $this->activeCharacter,
+        $context->party,
+        $context->getGameState(),
+        $engine->battleConfig->getEscapePolicy(),
+      ),
     );
     $ui->commandWindow->focus();
     $ui->commandContextWindow->clear();
@@ -270,7 +294,7 @@ class PlayerActionState extends TurnState
     $context->ui->commandContextWindow->clear();
     $context->ui->fieldWindow->clearTargetIndicators();
     $context->ui->refreshField();
-    $this->setState($this->engine->enemyActionState);
+    $this->setStateIfPresent($this->engine->enemyActionState);
   }
 
   /**
@@ -291,19 +315,127 @@ class PlayerActionState extends TurnState
       return;
     }
 
+    // Guard and Escape resolve at the top level — no submenu.
+    switch (BattleCommandType::fromCommandName($commandName)) {
+      case BattleCommandType::GUARD:
+        $this->queueGuardForActiveCharacter($context);
+        return;
+      case BattleCommandType::ESCAPE:
+        $this->attemptEscape($context);
+        return;
+      default:
+        break;
+    }
+
     $options = BattleCommandCatalog::buildOptions(
       $this->activeCharacter,
       $context->party,
       $commandName,
-      $this->getReservedItemCounts($context)
+      $this->getReservedItemCounts($context),
+      $context->getGameState(),
     );
 
     $this->selectionMode = self::MODE_SUBMENU;
     $this->activeTargetIndex = -1;
     $context->ui->commandWindow->setSelectionBlink(false);
+    $context->ui->commandContextWindow->setMpBudget($this->activeCharacter->stats->currentMp);
     $context->ui->commandContextWindow->setItems($options, $commandName, $this->getEmptyMenuMessage($commandName));
     $context->ui->commandContextWindow->focus();
     $this->applyTargetingVisuals($context);
+  }
+
+  /**
+   * Queues a guard for the active character and moves on.
+   *
+   * @param TurnStateExecutionContext $context The turn context.
+   * @return void
+   */
+  protected function queueGuardForActiveCharacter(TurnStateExecutionContext $context): void
+  {
+    $turn = $context->findTurnForBattler($this->activeCharacter);
+
+    if ($turn === null) {
+      return;
+    }
+
+    $turn->action = new GuardAction(BattleCommandType::GUARD->label());
+    $turn->targets = [$this->activeCharacter];
+    $this->selectionMode = self::MODE_COMMAND;
+    $this->activeTargetIndex = -1;
+    $context->ui->alert(sprintf('%s braces for impact.', $this->activeCharacter->name));
+    $this->selectNextCharacter($context);
+  }
+
+  /**
+   * Rolls an escape attempt: the party's speed against the troop's.
+   *
+   * Success ends the battle immediately with no rewards; failure consumes
+   * the active character's turn.
+   *
+   * @param TurnStateExecutionContext $context The turn context.
+   * @return void
+   */
+  protected function attemptEscape(TurnStateExecutionContext $context): void
+  {
+    if ($this->engine->battleConfig->getEscapePolicy() === EscapePolicy::FORBIDDEN) {
+      $context->ui->alert('Escape is not available in this battle.');
+      $this->selectionMode = self::MODE_COMMAND;
+      return;
+    }
+
+    $partySpeed = $this->averageSpeed($context->getLivingPartyBattlers());
+    $troopSpeed = $this->averageSpeed($context->getLivingTroopBattlers());
+    $chance = intval(clamp(50 + ($partySpeed - $troopSpeed) * 2, 5, 95));
+
+    if (rand(1, 100) <= $chance) {
+      $scene = $context->game->sceneManager->currentScene;
+
+      if ($scene instanceof BattleScene) {
+        play_sound(SystemSound::ESCAPE);
+        $scene->result = new BattleResult('Escaped', [
+          'The party slipped away!',
+          'Press enter to continue.',
+        ]);
+        $scene->shouldLoadGameOver = false;
+        $scene->setState($scene->victoryState);
+      }
+
+      return;
+    }
+
+    $turn = $context->findTurnForBattler($this->activeCharacter);
+
+    if ($turn !== null) {
+      // The failed attempt still costs the character their turn.
+      $turn->action = new PassAction(BattleCommandType::ESCAPE->label());
+      $turn->targets = [$this->activeCharacter];
+    }
+
+    $context->ui->alert('Could not escape!');
+    $this->selectionMode = self::MODE_COMMAND;
+    $this->activeTargetIndex = -1;
+    $this->selectNextCharacter($context);
+  }
+
+  /**
+   * Returns the average speed of the given battlers.
+   *
+   * @param CharacterInterface[] $battlers The battlers.
+   * @return float The average speed.
+   */
+  protected function averageSpeed(array $battlers): float
+  {
+    if (empty($battlers)) {
+      return 0.0;
+    }
+
+    $total = 0;
+
+    foreach ($battlers as $battler) {
+      $total += new BattlerBattleView($battler)->stats->speed;
+    }
+
+    return $total / count($battlers);
   }
 
   /**
@@ -320,7 +452,27 @@ class PlayerActionState extends TurnState
       return;
     }
 
+    // Insufficient MP blocks the option here, at selection time — waiting
+    // until execution would let the move fizzle after it was announced.
+    if ($this->activeCharacter && $option->mpCost > $this->activeCharacter->stats->currentMp) {
+      $context->ui->alert(sprintf(
+        'Not enough MP! %s needs %d MP, %s has %d.',
+        $option->action->name,
+        $option->mpCost,
+        $this->activeCharacter->name,
+        $this->activeCharacter->stats->currentMp
+      ));
+      return;
+    }
+
     if ($option->targetSide === ItemScopeSide::USER) {
+      $this->queueActionForActiveCharacter($context);
+      return;
+    }
+
+    // An all-target action needs no target cursor — queue it against
+    // every eligible battler on the relevant side.
+    if ($option->targetNumber === ItemScopeNumber::ALL) {
       $this->queueActionForActiveCharacter($context);
       return;
     }
@@ -416,6 +568,17 @@ class PlayerActionState extends TurnState
       return;
     }
 
+    if ($selectedOption->mpCost > $this->activeCharacter->stats->currentMp) {
+      $context->ui->alert(sprintf(
+        'Not enough MP! %s needs %d MP, %s has %d.',
+        $selectedOption->action->name,
+        $selectedOption->mpCost,
+        $this->activeCharacter->name,
+        $this->activeCharacter->stats->currentMp
+      ));
+      return;
+    }
+
     $turn->action = $selectedOption->action;
     $turn->targets = $targets;
     $this->selectionMode = self::MODE_COMMAND;
@@ -504,7 +667,11 @@ class PlayerActionState extends TurnState
       };
     }
 
-    $context->ui->fieldWindow->redrawTargetIndicators();
+    // Selection layers sit over a battlefield that can also be touched by
+    // alerts and other transient UI. Recompose every battle layer here so
+    // opening Skill, Magic, Item, Summon, or targeting never leaves only the
+    // controls visible after an overlay changed the same terminal cells.
+    $context->ui->recomposeField();
   }
 
   /**
@@ -527,14 +694,7 @@ class PlayerActionState extends TurnState
    */
   protected function resolveCommandInfo(TurnStateExecutionContext $context): ?string
   {
-    return match (strtolower((string) $this->getSelectedCommandName($context))) {
-      'attack' => 'Choose a physical attack to strike an enemy.',
-      'skill' => 'Use one of this character\'s battle abilities.',
-      'magic' => 'Cast a learned spell that can be used in battle.',
-      'summon' => 'Call a summon or esper to aid the party.',
-      'item' => 'Use a battle item from the party inventory.',
-      default => null,
-    };
+    return BattleCommandType::fromCommandName((string) $this->getSelectedCommandName($context))?->helpText();
   }
 
   /**
@@ -612,6 +772,17 @@ class PlayerActionState extends TurnState
 
     if ($selectedOption->targetSide === ItemScopeSide::USER && $this->activeCharacter) {
       return [$this->activeCharacter];
+    }
+
+    if ($selectedOption->targetNumber === ItemScopeNumber::ALL) {
+      $pool = $selectedOption->targetSide === ItemScopeSide::ALLY
+        ? $context->party->battlers->toArray()
+        : $context->troop->members->toArray();
+
+      return array_values(array_filter(
+        $pool,
+        fn(CharacterInterface $battler): bool => $this->matchesStatus($battler, $selectedOption->targetStatus)
+      ));
     }
 
     return match ($selectedOption->targetSide) {
@@ -714,7 +885,7 @@ class PlayerActionState extends TurnState
    * Counts how many copies of each item have already been queued this round.
    *
    * @param TurnStateExecutionContext $context The turn context.
-   * @return array<string, int> Reserved item counts keyed by item name.
+   * @return array<string, int> Reserved item counts keyed by stable definition id.
    */
   protected function getReservedItemCounts(TurnStateExecutionContext $context): array
   {
@@ -725,8 +896,8 @@ class PlayerActionState extends TurnState
         continue;
       }
 
-      $itemName = $turn->action->item->name;
-      $reservedCounts[$itemName] = ($reservedCounts[$itemName] ?? 0) + 1;
+      $definitionId = $turn->action->item->id;
+      $reservedCounts[$definitionId] = ($reservedCounts[$definitionId] ?? 0) + 1;
     }
 
     return $reservedCounts;
@@ -740,13 +911,6 @@ class PlayerActionState extends TurnState
    */
   protected function getEmptyMenuMessage(string $commandName): string
   {
-    return match (strtolower($commandName)) {
-      'attack' => 'No attacks.',
-      'skill' => 'No skills.',
-      'magic' => 'No magic.',
-      'summon' => 'No summons.',
-      'item' => 'No items.',
-      default => 'Nothing available.',
-    };
+    return BattleCommandType::fromCommandName($commandName)?->emptyMessage() ?? 'Nothing available.';
   }
 }

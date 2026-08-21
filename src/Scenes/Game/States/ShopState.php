@@ -137,6 +137,17 @@ class ShopState extends GameSceneState
     }
   }
   /**
+   * @var InventoryItem[] The player's items eligible for sale. Key items are excluded.
+   */
+  public array $sellableItems {
+    get {
+      return array_values(array_filter(
+        $this->inventory->all->toArray(),
+        static fn(InventoryItem $item): bool => ! $item->isKeyItem
+      ));
+    }
+  }
+  /**
    * @var int The index of the selected item.
    */
   protected int $leftMargin = 0;
@@ -184,12 +195,19 @@ class ShopState extends GameSceneState
   public function enter(): void
   {
     Console::clear();
-    $this->getGameScene()->locationHUDWindow->deactivate();
-    $this->calculateMargins();
-    $this->initializeUI();
-    $this->shopMenuContext = new MenuCommandExecutionContext([], new ConsoleOutput(), $this->shopMenu, $this->getGameScene());
-    $this->setMode(new SelectShopMenuCommandMode($this));
-    $this->shop = new Shop($this->merchandise, $this->traderBuyRate, $this->traderSellRate);
+    Console::beginFrame();
+
+    try {
+      $this->getGameScene()->locationHUDWindow->deactivate();
+      $this->calculateMargins();
+      $this->initializeUI();
+      $this->shopMenuContext = new MenuCommandExecutionContext([], new ConsoleOutput(), $this->shopMenu, $this->getGameScene());
+      $this->shop = new Shop($this->merchandise, $this->traderBuyRate, $this->traderSellRate);
+      $this->setMode(new SelectShopMenuCommandMode($this));
+      $this->renderPanels();
+    } finally {
+      Console::endFrame();
+    }
   }
 
   /**
@@ -279,7 +297,7 @@ class ShopState extends GameSceneState
 
         public function execute(?ExecutionContextInterface $context = null): int
         {
-          if ($this->state->inventory->isNotEmpty) {
+          if (! empty($this->state->sellableItems)) {
             $nextMode = new ShopInventorySelectionMode($this->state);
             $nextMode->previousMode = $this->state->mode;
             $this->state->setMode($nextMode);
@@ -338,7 +356,6 @@ class ShopState extends GameSceneState
       $this->borderPack
     );
 
-    $this->renderPanels();
   }
 
   /**
@@ -348,11 +365,17 @@ class ShopState extends GameSceneState
    */
   public function renderPanels(): void
   {
-    $this->infoPanel->setText($this->shopMenu->getActiveItem()->getDescription());
-    $this->commandPanel->focus();
-    $this->accountBalancePanel->setBalance($this->balance);
-    $this->mainPanel->render();
-    $this->detailPanel->render();
+    Console::beginFrame();
+
+    try {
+      $this->infoPanel->setText($this->shopMenu->getActiveItem()->getDescription());
+      $this->commandPanel->focus();
+      $this->accountBalancePanel->setBalance($this->balance);
+      $this->mainPanel->render();
+      $this->detailPanel->render();
+    } finally {
+      Console::endFrame();
+    }
   }
 
   /**

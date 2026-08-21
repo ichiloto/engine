@@ -3,8 +3,9 @@
 namespace Ichiloto\Engine\Scenes\Game\States;
 
 use Exception;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Vector2;
-use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\IO\Console\Console;
@@ -12,6 +13,7 @@ use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
+use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
@@ -52,10 +54,16 @@ class FieldState extends GameSceneState
      */
     public function renderTheField(): void
     {
-        Console::clear();
-        $this->getGameScene()->mapManager->render();
-        $this->getGameScene()->player->render();
-        $this->getGameScene()->locationHUDWindow->render();
+        Console::recomposeFrame(function (): void {
+            $this->getGameScene()->mapManager->render();
+            $this->getGameScene()->player->renderEventCues();
+            $this->getGameScene()->npcManager?->render();
+            $this->getGameScene()->cinematicStage?->render();
+            $this->getGameScene()->player->render();
+            $this->getGameScene()->getUI()->render();
+            $this->getGameScene()->cinematicPresentation?->render();
+            $this->getGameScene()->eventInterpreter?->renderPresentation();
+        });
     }
 
     /**
@@ -70,8 +78,47 @@ class FieldState extends GameSceneState
         $scene = $this->context->getScene();
         assert($scene instanceof GameScene);
 
+        $scene->reconcileFieldPresentation();
+
+        // A story event owns field input while it is running. Its pending
+        // dialogue, timer, route, transfer, or battle continuation advances
+        // once, then the frame returns without reopening actions or moving
+        // the player underneath it.
+        if ($scene->hasUnstableEventSession()) {
+            if ($scene->cinematicController?->active() !== null
+                && (Input::isButtonDown('cancel') || Input::isButtonDown('back'))
+            ) {
+                $scene->skipCinematic();
+            }
+
+            $scene->updateEventSession(Time::getDeltaTime());
+
+            if ($scene->cinematicController?->active() !== null) {
+                $this->renderTheField();
+            }
+            return;
+        }
+
         $this->handleActions($scene);
+
+        if ($scene->hasUnstableEventSession()) {
+            return;
+        }
+
+        // An action may have handed the screen to another state (the menu, the
+        // map). Moving the player or wandering an NPC now would draw the field
+        // over whatever that state just rendered.
+        if ($scene->state !== $this) {
+            return;
+        }
+
         $this->handleNavigation($scene);
+
+        if ($scene->hasUnstableEventSession()) {
+            return;
+        }
+
+        $scene->npcManager?->update();
     }
 
     /**
@@ -93,6 +140,7 @@ class FieldState extends GameSceneState
         }
 
         if (Input::isButtonDown("menu")) {
+            play_sound(SystemSound::CONFIRM);
             $this->setState($scene->mainMenuState);
         }
 
@@ -100,47 +148,32 @@ class FieldState extends GameSceneState
             $scene->player->interact();
         }
 
-        if (Input::isAnyKeyPressed([KeyCode::C, KeyCode::c])) {
-            Debug::log("Selected choice: " . select("Choose an option", ["Option 1", "Option 2", "Option 3"]));
-        }
-
-        if (Input::isButtonDown("notify")) {
-            notify(
-                $this->getGameScene()->getGame(),
-                NotificationChannel::ACHIEVEMENT,
-                'Achievement unlocked',
-                '100G - New Character Created'
-            );
-        }
-
-        if (Input::isAnyKeyPressed([KeyCode::G, KeyCode::g])) {
-            $scene->sceneManager->loadGameOverScene();
-        }
-
-        if (Input::isAnyKeyPressed([KeyCode::B, KeyCode::b])) {
-            $battleEvents = [];
-            $troopNames = [
-                'Rat + Bat',
-                'Bat x 2',
-                'Loch Ness',
-                'Great Wolf'
-            ];
-            $troopNameKey = array_rand($troopNames);
-            $troop = get_troop($troopNames[$troopNameKey]);
-            $this->getGameScene()->sceneManager->loadBattleScene($this->getGameScene()->party, $troop, $battleEvents);
-        }
-
         if (Input::isButtonDown("map")) {
             $this->showInGameMap();
         }
 
-        if (Input::isAnyKeyPressed([KeyCode::x, KeyCode::X])) {
-            $xp = 3000;
-            /** @var Character $member */
-            foreach ($this->party->members->toArray() as $member) {
-                $member->addExperience(intval(rand($xp * 0.5, $xp * 1.5)));
+        if (Input::isButtonDown("skit")) {
+            $scene->skitManager?->playNextAvailableSkit();
+        }
+
+        // F5 quick-saves from the field, the way a PC RPG player expects.
+        if (Input::isKeyDown(KeyCode::F5)) {
+            try {
+                $scene->sceneManager->saveManager->quickSave($scene);
+                play_sound(SystemSound::SAVE);
+                notify(
+                    $scene->getGame(),
+                    NotificationChannel::SYSTEM,
+                    'Quick saved',
+                    $scene->party?->location?->name ?? '',
+                    NotificationDuration::SHORT
+                );
+            } catch (\Throwable $exception) {
+                Debug::warn(sprintf('Quick save failed: %s', $exception->getMessage()));
+                alert($exception->getMessage(), 'Quick Save Unavailable');
             }
         }
+
     }
 
     /**
@@ -150,7 +183,11 @@ class FieldState extends GameSceneState
      */
     public function showInGameMap(): void
     {
-        // TODO: Implement the in-game map feature.
+        $scene = $this->context->getScene();
+        assert($scene instanceof GameScene);
+
+        play_sound(SystemSound::CONFIRM);
+        $this->setState($scene->mapState);
     }
 
     /**

@@ -102,6 +102,55 @@ class BattleScene extends AbstractScene
   public bool $shouldLoadGameOver = false;
 
   /**
+   * @inheritDoc
+   *
+   * A battle may override the project-wide battle theme through the
+   * `bgm` entry in its runtime settings (e.g. for boss encounters).
+   */
+  #[Override]
+  public function getBackgroundMusic(): ?string
+  {
+    $track = $this->config->settings['bgm'] ?? null;
+
+    if (is_string($track) && trim($track) !== '') {
+      return trim($track);
+    }
+
+    return $this->getConfiguredBackgroundMusic('audio.bgm.battle');
+  }
+
+  /**
+   * Returns the victory theme played while the battle results are shown.
+   *
+   * A battle may override the project-wide victory theme through the
+   * `victory_bgm` entry in its runtime settings.
+   *
+   * @return string|null The victory track, or null when none is configured.
+   */
+  public function getVictoryMusic(): ?string
+  {
+    $track = $this->config->settings['victory_bgm'] ?? null;
+
+    if (is_string($track) && trim($track) !== '') {
+      return trim($track);
+    }
+
+    return $this->getConfiguredBackgroundMusic('audio.bgm.victory');
+  }
+
+  /**
+   * Returns whether this battle explicitly returns to its caller on defeat.
+   *
+   * The default remains the existing game-over flow. Only event-authored
+   * battles that pass `event_defeat_policy => continue` opt into returning a
+   * defeat result to the suspended event session.
+   */
+  public function continuesAfterDefeat(): bool
+  {
+    return ($this->config?->settings['event_defeat_policy'] ?? 'game_over') === 'continue';
+  }
+
+  /**
    * Sets the state of the scene.
    *
    * @param BattleSceneState $state The state to set.
@@ -125,7 +174,11 @@ class BattleScene extends AbstractScene
       throw new RuntimeException('Invalid configuration type.');
     }
 
-    $this->uiManager->locationHUDWindow->deactivate();
+    // The field HUD only exists once the game scene has built it. A battle
+    // started from anywhere else (the arena) has none to hide.
+    if (isset($this->uiManager->locationHUDWindow)) {
+      $this->uiManager->locationHUDWindow->deactivate();
+    }
     $this->config = $config;
     $this->result = null;
     $this->resultWindow = null;
@@ -141,6 +194,44 @@ class BattleScene extends AbstractScene
   {
     parent::update();
     $this->state->execute($this->sceneStateContext);
+  }
+
+  /**
+   * Restores the active battle composition after a blocking overlay.
+   *
+   * Notifications and modals may cover battle cells while the scene is
+   * suspended. The field scene already redraws on resume; battles must obey
+   * the same lifecycle contract instead of depending on a later command or
+   * ATB update to repaint only part of the UI.
+   */
+  #[Override]
+  public function resume(): void
+  {
+    parent::resume();
+    $this->state?->resume();
+
+    if (! $this->ui || $this->state instanceof BattleStartState) {
+      return;
+    }
+
+    if ($this->state instanceof BattleVictoryState || $this->state instanceof BattleDefeatState) {
+      $this->ui->renderField();
+      $this->ui->hideControls();
+      $this->resultWindow?->render();
+      return;
+    }
+
+    $this->ui->refresh();
+  }
+
+  /**
+   * Forwards suspension to the active battle state.
+   */
+  #[Override]
+  public function suspend(): void
+  {
+    parent::suspend();
+    $this->state?->suspend();
   }
 
   /**

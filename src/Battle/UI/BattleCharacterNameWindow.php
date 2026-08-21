@@ -126,16 +126,4 @@ class BattleCharacterNameWindow extends Window implements CanFocus
     $this->activeIndex = $index;
   }
 
-  /**
-   * Returns the width available for content inside the window frame.
-   *
-   * @return int The inner content width.
-   */
-  protected function getContentWidth(): int
-  {
-    return max(
-      0,
-      $this->width - 2 - $this->padding->getLeftPadding() - $this->padding->getRightPadding()
-    );
-  }
 }

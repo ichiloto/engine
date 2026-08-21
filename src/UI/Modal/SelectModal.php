@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\UI\Modal;
 
 use Assegai\Collections\ItemList;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Events\Enumerations\ModalEventType;
@@ -17,9 +18,15 @@ use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\UI\Interfaces\ModalInterface;
+use Ichiloto\Engine\UI\Interfaces\LayeredPresentationInterface;
+use Ichiloto\Engine\UI\Enumerations\PresentationPriority;
+use Ichiloto\Engine\UI\UIManager;
 use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
+use Ichiloto\Engine\UI\Windows\Window;
+use Ichiloto\Engine\UI\Windows\WindowAlignment;
+use Ichiloto\Engine\UI\Windows\WindowPadding;
 use Ichiloto\Engine\Util\Debug;
 use Symfony\Component\Console\Output\ConsoleOutput;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -29,7 +36,7 @@ use Symfony\Component\Console\Output\OutputInterface;
  *
  * @package Ichiloto\Engine\UI\Modal
  */
-class SelectModal implements ModalInterface
+class SelectModal implements ModalInterface, LayeredPresentationInterface
 {
   use ObservableTrait;
 
@@ -116,6 +123,8 @@ class SelectModal implements ModalInterface
    * @var OutputInterface $output The output.
    */
   protected OutputInterface $output;
+  /** @var Window The canonical render and erase footprint. */
+  protected Window $window;
   /**
    * @var string[] $messageLines The message lines.
    */
@@ -153,8 +162,32 @@ class SelectModal implements ModalInterface
     $this->title = $title;
     $this->setHelp($help);
     $this->output = new ConsoleOutput();
-    $this->messageLines = explode("\n", $this->message);
-    $this->messageContentHeight = count($this->messageLines);
+    $this->wrapMessage();
+    $this->rebuildWindow();
+  }
+
+  /**
+   * Wraps the message to the modal's inner width.
+   *
+   * Splitting on newlines alone cuts a long prompt off mid sentence, and the
+   * box's height derives from the line count, so wrapping is also what makes
+   * it grow to fit.
+   *
+   * @return void
+   */
+  protected function wrapMessage(): void
+  {
+    $innerWidth = max(1, $this->rect->getWidth() - 2);
+    $lines = [];
+
+    foreach (explode("\n", $this->message) as $paragraph) {
+      foreach (explode("\n", wordwrap($paragraph, $innerWidth, "\n", true)) as $line) {
+        $lines[] = $line;
+      }
+    }
+
+    $this->messageLines = $lines;
+    $this->messageContentHeight = count($lines);
   }
 
   /**
@@ -182,6 +215,10 @@ class SelectModal implements ModalInterface
       $this->rect->setWidth(max($this->rect->getWidth(), TerminalText::displayWidth($option) + 6));
     }
     $this->totalOptions = $totalOptions;
+
+    if (isset($this->window)) {
+      $this->rebuildWindow();
+    }
   }
 
   /**
@@ -197,12 +234,14 @@ class SelectModal implements ModalInterface
       } else {
         $this->activeOptionIndex = wrap($this->activeOptionIndex - 1, 0, $this->totalOptions - 1);
       }
+      $this->playInteractionSound(SystemSound::CURSOR);
       $this->render();
     }
 
     if (Input::isButtonDown("confirm")) {
+      $this->playInteractionSound(SystemSound::CONFIRM);
       $this->value = $this->activeOptionIndex;
-      $this->close();
+      $this->hide();
     } else if (Input::isAnyKeyPressed([KeyCode::C, KeyCode::c])) {
       $this->cancel();
     }
@@ -227,13 +266,10 @@ class SelectModal implements ModalInterface
    */
   public function render(?int $x = null, ?int $y = null): void
   {
-    $leftMargin = $this->rect->getX() + ($x ?? 0);
-    $topMargin = $this->rect->getY() + ($y ?? 0);
-
-    $this->erase($x, $y);
-    $this->renderTopBorder($leftMargin, $topMargin);
-    $this->renderOptions($leftMargin, $topMargin + 1);
-    $this->renderBottomBorder($leftMargin, $topMargin + $this->getModalHeight() - 1);
+    $this->window->setTitle($this->title);
+    $this->window->setHelp($this->help ?? '');
+    $this->window->setContent($this->renderedOptionLines());
+    $this->window->render($x === null ? null : $x + 1, $y === null ? null : $y + 1);
   }
 
   /**
@@ -241,14 +277,7 @@ class SelectModal implements ModalInterface
    */
   public function erase(?int $x = null, ?int $y = null): void
   {
-    $leftMargin = $this->rect->getX() + ($x ?? 0);
-    $topMargin = $this->rect->getY() + ($y ?? 0);
-    $modalHeight = max($this->rect->getHeight(), $this->getModalHeight());
-
-    for ($row = 0; $row < $modalHeight; $row++) {
-      Console::cursor()->moveTo($leftMargin + 1, $topMargin + $row + 1);
-      $this->output->write(str_repeat(' ', $this->rect->getWidth()));
-    }
+    $this->window->erase($x === null ? null : $x + 1, $y === null ? null : $y + 1);
   }
 
   /**
@@ -257,6 +286,7 @@ class SelectModal implements ModalInterface
   public function show(): void
   {
     $this->isShowing = true;
+    $this->getUIManager()?->present($this);
     $this->render();
     $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::SHOW, true));
   }
@@ -266,9 +296,39 @@ class SelectModal implements ModalInterface
    */
   public function hide(): void
   {
-    $this->erase();
-    $this->isShowing = false;
-    $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::HIDE, true));
+    if ($this->isShowing) {
+      $this->erase();
+      $this->isShowing = false;
+      $this->getUIManager()?->dismiss($this);
+      $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::HIDE, true));
+    }
+  }
+
+  /** @inheritDoc */
+  public function getPresentationBounds(): Rect
+  {
+    return new Rect(
+      $this->rect->getX(),
+      $this->rect->getY(),
+      $this->rect->getWidth(),
+      $this->rect->getHeight(),
+    );
+  }
+
+  /** @inheritDoc */
+  public function getPresentationPriority(): PresentationPriority
+  {
+    return PresentationPriority::MODAL;
+  }
+
+  /** Returns the active scene's UI manager when the game is fully booted. */
+  protected function getUIManager(): ?UIManager
+  {
+    if (! isset($this->game->sceneManager)) {
+      return null;
+    }
+
+    return $this->game->sceneManager->currentScene?->getUI();
   }
 
   /**
@@ -300,6 +360,12 @@ class SelectModal implements ModalInterface
     return $this->value;
   }
 
+  /** @inheritDoc */
+  public function isShowing(): bool
+  {
+    return $this->isShowing;
+  }
+
   /**
    * Returns the length of the title.
    *
@@ -325,6 +391,8 @@ class SelectModal implements ModalInterface
   {
     $this->message = $content;
     $this->messageLength = TerminalText::displayWidth($this->message);
+    $this->wrapMessage();
+    $this->rebuildWindow();
   }
 
   public function getHelp(): string
@@ -336,6 +404,10 @@ class SelectModal implements ModalInterface
   {
     $this->help = $help;
     $this->helpLength = TerminalText::displayWidth($this->help);
+
+    if (isset($this->window)) {
+      $this->window->setHelp($help);
+    }
   }
 
   public function getHelpLength(): int
@@ -497,6 +569,45 @@ class SelectModal implements ModalInterface
     return $this->getOptionsHeight() + 2;
   }
 
+  /** Rebuilds the window after message wrapping or option sizing changes. */
+  protected function rebuildWindow(): void
+  {
+    $this->rect->setHeight($this->getModalHeight());
+    $this->window = new Window(
+      $this->title,
+      $this->help ?? '',
+      $this->rect->position,
+      $this->rect->getWidth(),
+      $this->rect->getHeight(),
+      $this->borderPack,
+      WindowAlignment::middleLeft(),
+      new WindowPadding(),
+    );
+    $this->window->setContent($this->renderedOptionLines());
+  }
+
+  /** @return string[] The prompt, options, and spacing inside the box. */
+  protected function renderedOptionLines(): array
+  {
+    $lines = [];
+
+    if ($this->message !== '') {
+      $lines = [...$this->messageLines, ''];
+    }
+
+    foreach ($this->options as $optionIndex => $option) {
+      $prefix = $optionIndex === $this->activeOptionIndex ? '>' : ' ';
+      $line = " {$prefix} {$option}";
+      $lines[] = $optionIndex === $this->activeOptionIndex
+        ? SelectionStyle::apply($line)
+        : $line;
+    }
+
+    $lines[] = '';
+
+    return $lines;
+  }
+
   /**
    * Cancel the modal.
    *
@@ -504,7 +615,19 @@ class SelectModal implements ModalInterface
    */
   protected function cancel(): void
   {
+    $this->playInteractionSound(SystemSound::CANCEL);
     $this->value = -1;
     $this->hide();
+  }
+
+  /**
+   * Plays a system sound for a modal interaction.
+   *
+   * @param SystemSound $sound The system sound to play.
+   * @return void
+   */
+  protected function playInteractionSound(SystemSound $sound): void
+  {
+    $this->game->audioManager->playSystemSound($sound);
   }
 }

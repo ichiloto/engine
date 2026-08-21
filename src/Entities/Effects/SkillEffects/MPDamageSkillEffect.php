@@ -11,6 +11,11 @@ use Ichiloto\Engine\Entities\Skills\SkillEffectContext;
  */
 class MPDamageSkillEffect extends SkillEffect
 {
+  public function repeatsWithInvocation(): bool
+  {
+    return true;
+  }
+
   /**
    * @inheritDoc
    */
@@ -20,6 +25,7 @@ class MPDamageSkillEffect extends SkillEffect
       return;
     }
 
-    $context->target->stats->currentMp -= $this->getValue($context);
+    // Damage is floored at 1 so a resistant target is never restored by an attack.
+    $context->target->stats->currentMp -= max(1, $this->getValue($context));
   }
 }

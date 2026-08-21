@@ -20,9 +20,61 @@ use Symfony\Component\Console\Terminal;
 class Console
 {
   /**
+   * @var int How many batched frames are open.
+   */
+  private static int $frameDepth = 0;
+  /**
+   * @var bool Whether the alternate screen buffer is currently in use.
+   */
+  private static bool $usingAlternateScreen = false;
+  /**
+   * @var bool Whether the terminal has been handed back to the user.
+   *
+   * Once it has, nothing may draw to it. Quitting happens partway through a
+   * frame, and whatever was midway through drawing would otherwise finish its
+   * work on the user's shell.
+   */
+  private static bool $terminalHandedBack = false;
+  /**
+   * @var array<int, array{start: int, end: int}> Changed cell spans by row.
+   *
+   * A frame stores dirtiness rather than a journal of intermediate paints.
+   * When several windows touch the same row, their spans are coalesced and
+   * only the final composed segment is emitted. Flushing the complete row for
+   * a small overlay retransmitted the densely styled field behind it; on a
+   * large colour map that payload can fill a PTY before the alert body is
+   * delivered, leaving only a partial border on screen.
+   */
+  private static array $frameRows = [];
+
+  /**
    * Placeholder marker used for continuation cells of wide terminal symbols.
    */
   private const string WIDE_SYMBOL_CONTINUATION = "\0";
+
+  /**
+   * How long to wait for the terminal to accept more output before retrying.
+   */
+  private const int WRITE_STALL_TIMEOUT_MICROSECONDS = 20000;
+
+  /**
+   * Maximum number of bytes offered to the terminal in one write.
+   *
+   * A complete styled field can be hundreds of kilobytes even though it is
+   * only a few dozen terminal rows. Some PTYs accept an initial prefix of a
+   * large fwrite() and then temporarily refuse the remainder. Keeping each
+   * request below a conservative terminal-buffer size makes back-pressure
+   * observable and portable instead of depending on one stream wrapper's
+   * handling of an oversized write.
+   */
+  private const int WRITE_CHUNK_BYTES = 4096;
+
+  /**
+   * How many consecutive stalled writes to tolerate before reporting a
+   * broken stream. At the timeout above this is roughly two seconds, far
+   * longer than a terminal needs to drain.
+   */
+  private const int WRITE_MAX_STALLED_ATTEMPTS = 100;
 
   /**
    * @var Game|null $game The game instance.
@@ -48,6 +100,18 @@ class Console
    * @var ConsoleOutput|null $output The console output.
    */
   private static ?ConsoleOutput $output = null;
+  /**
+   * Dedicated terminal output descriptor on POSIX systems.
+   *
+   * Symfony writes through php://stdout. In a PTY that wrapper can accept a
+   * complete frame into PHP while only a prefix reaches the terminal after
+   * input polling has put its descriptor into non-blocking mode. Opening the
+   * controlling terminal separately gives rendering its own blocking file
+   * description and makes fwrite() delivery observable.
+   *
+   * @var resource|null
+   */
+  private static $terminalOutputStream = null;
 
   /**
    * Console constructor.
@@ -75,6 +139,7 @@ class Console
     self::$width = intval($options['width'] ?? $availableSize['width']);
     self::$height = intval($options['height'] ?? $availableSize['height']);
     self::$output = new ConsoleOutput();
+    self::openTerminalOutputStream();
     self::clear();
   }
 
@@ -118,9 +183,13 @@ class Console
    */
   public static function reset(): void
   {
-    system('tput reset');
-    echo "\033c";
+    // Leave the borrowed screen and hand the terminal back as found. A
+    // `tput reset` here would also clear the user's scrollback and colours,
+    // which is destruction rather than restoration.
+    self::leaveAlternateScreen();
+    self::cursor()->show();
     self::cursor()->enableBlinking();
+    self::closeTerminalOutputStream();
   }
 
   /**
@@ -189,10 +258,78 @@ class Console
   public static function clear(): void
   {
     self::$buffer = self::getEmptyBuffer();
+    self::$frameRows = [];
     if (PHP_OS_FAMILY === 'Windows') {
       system('cls');
     } else {
       system('clear');
+    }
+  }
+
+  /**
+   * Rebuilds the complete screen off-screen and emits only changed rows.
+   *
+   * Full-screen scenes must occasionally replace every layer at once: map,
+   * sprites, windows, cues, and transient presentation. Physically clearing
+   * the terminal before each rebuild exposes that intermediate blank screen
+   * and produces visible flicker during camera pans and animations. Starting
+   * from an empty logical buffer also matters, though, because otherwise a
+   * layer that disappeared would remain on screen.
+   *
+   * This method provides both properties. The callback composes a fresh
+   * logical screen inside one outer frame. Once composition succeeds, only
+   * rows whose final content differs from the previous screen are flushed.
+   * If composition fails, the authoritative buffer is restored and no
+   * partial frame reaches the terminal.
+   *
+   * @param callable(): void $renderer The complete screen renderer.
+   * @return void
+   */
+  public static function recomposeFrame(callable $renderer): void
+  {
+    if (self::$frameDepth !== 0) {
+      throw new \RuntimeException('A complete screen cannot be recomposed inside an active console frame.');
+    }
+
+    $previousBuffer = self::$buffer === [] ? self::getEmptyBuffer() : self::$buffer;
+    $previousFrameRows = self::$frameRows;
+
+    self::$buffer = self::getEmptyBuffer();
+    self::$frameRows = [];
+    self::beginFrame();
+
+    try {
+      $renderer();
+
+      if (self::$frameDepth !== 1) {
+        throw new \RuntimeException('The screen renderer left an unbalanced console frame.');
+      }
+
+      // Intermediate writes merely built the new logical screen. Compare its
+      // final rows to the old authoritative screen so rows that disappeared
+      // are blanked while stable rows are not needlessly repainted.
+      self::$frameRows = [];
+      $emptyRow = str_repeat(' ', self::$width);
+
+      for ($row = 0; $row < self::$height; $row++) {
+        if ((self::$buffer[$row] ?? $emptyRow) !== ($previousBuffer[$row] ?? $emptyRow)) {
+          $span = self::changedCellSpan(
+            $previousBuffer[$row] ?? $emptyRow,
+            self::$buffer[$row] ?? $emptyRow,
+          );
+
+          if ($span !== null) {
+            self::markFrameSpan($row, $span['start'], $span['end']);
+          }
+        }
+      }
+
+      self::endFrame();
+    } catch (\Throwable $throwable) {
+      self::$buffer = $previousBuffer;
+      self::$frameRows = $previousFrameRows;
+      self::$frameDepth = 0;
+      throw $throwable;
     }
   }
 
@@ -236,6 +373,47 @@ class Console
     self::$width = max(1, $width);
     self::$height = max(1, $height);
     self::$buffer = self::getEmptyBuffer();
+    self::$frameRows = [];
+  }
+
+  /**
+   * Switches to the terminal's alternate screen buffer.
+   *
+   * The alternate buffer is how a full-screen program borrows the terminal
+   * without destroying what was there: on exit the shell's scrollback,
+   * prompt, and previous output come back exactly as the player left them.
+   * The previous approach — drawing over the primary buffer and running
+   * `tput reset` on the way out — wiped scrollback and colours instead of
+   * restoring anything.
+   *
+   * @return void
+   */
+  public static function enterAlternateScreen(): void
+  {
+    if (self::$usingAlternateScreen) {
+      return;
+    }
+
+    self::$usingAlternateScreen = true;
+    self::$terminalHandedBack = false;
+    echo "\033[?1049h";
+  }
+
+  /**
+   * Returns to the primary screen buffer, restoring the prior terminal
+   * contents. Safe to call more than once.
+   *
+   * @return void
+   */
+  public static function leaveAlternateScreen(): void
+  {
+    if (! self::$usingAlternateScreen) {
+      return;
+    }
+
+    self::$usingAlternateScreen = false;
+    self::$terminalHandedBack = true;
+    echo "\033[?1049l";
   }
 
   /**
@@ -268,6 +446,10 @@ class Console
    */
   public static function write(iterable|string $message, int|float $x, int|float $y): void
   {
+    if (self::$terminalHandedBack) {
+      return;
+    }
+
     $textRows = is_string($message) ? explode("\n", $message) : $message;
     $x = (int)floor($x);
     $y = (int)floor($y);
@@ -284,11 +466,51 @@ class Console
         self::$buffer[$currentBufferRow] = str_repeat(' ', self::$width);
       }
 
-      $rowCells = self::rowToCells(self::$buffer[$currentBufferRow]);
+      // Fast path: plain ASCII written into a plain ASCII row needs no cell
+      // bookkeeping, because every character is exactly one column. Map rows,
+      // borders, and menu text are almost always this shape, and the slow
+      // path below costs two grapheme splits per row.
+      $existingRow = self::$buffer[$currentBufferRow];
+      // Symfony formatter tags are author-facing markup, not terminal text.
+      // Convert them before choosing the ASCII fast path; otherwise a styled
+      // one-cell sprite such as `<fg=#c0392b>@</>` is copied into the buffer
+      // literally because the markup itself contains only ASCII bytes.
+      $incoming = TerminalText::formatStyles((string) $text);
+      $text = $incoming;
+
+      if (
+        ! preg_match('/[^\x20-\x7E]/', $incoming)
+        && ! preg_match('/[^\x20-\x7E]/', $existingRow)
+      ) {
+        $available = max(0, self::$width - $x);
+        $incoming = substr($incoming, 0, $available);
+
+        if ($incoming !== '') {
+          $updatedRow = substr_replace($existingRow, $incoming, $x, strlen($incoming));
+
+          // Every draw goes through this buffer — sprites included — so a row
+          // that is genuinely unchanged is also unchanged on screen and need
+          // not be re-emitted. (Skipping was unsafe while sprites bypassed
+          // the buffer: it left trails behind the player.)
+          if ($updatedRow !== $existingRow) {
+            self::$buffer[$currentBufferRow] = $updatedRow;
+            self::writeBufferRow($currentBufferRow, $x, strlen($incoming));
+          }
+        }
+
+        continue;
+      }
+
+      $rowCells = self::rowToCells($existingRow);
+      $existingCells = $rowCells;
       $text = TerminalText::truncateToWidth((string)$text, max(0, self::$width - $x));
       $cellCursor = $x;
 
       foreach (TerminalText::visibleSymbols($text) as $symbol) {
+        // Unsupported composite emoji are reduced to a stable grapheme.
+        // Explicit presentation selectors remain intact; TerminalText
+        // reserves the width requested by the complete grapheme.
+        $symbol = TerminalText::stabilizeSymbol($symbol);
         $symbolWidth = max(1, TerminalText::displayWidth($symbol));
 
         if ($cellCursor >= self::$width || $cellCursor + $symbolWidth > self::$width) {
@@ -305,8 +527,20 @@ class Console
         $cellCursor += $symbolWidth;
       }
 
-      self::$buffer[$currentBufferRow] = self::cellsToRow($rowCells);
-      self::writeBufferRow($currentBufferRow);
+      $updatedRow = self::cellsToRow($rowCells);
+
+      if ($updatedRow !== self::$buffer[$currentBufferRow]) {
+        self::$buffer[$currentBufferRow] = $updatedRow;
+        $span = self::changedCellSpanFromCells($existingCells, $rowCells);
+
+        if ($span !== null) {
+          self::writeBufferRow(
+            $currentBufferRow,
+            $span['start'],
+            $span['end'] - $span['start'] + 1,
+          );
+        }
+      }
     }
   }
 
@@ -468,6 +702,211 @@ class Console
   }
 
   /**
+   * Opens a batched frame.
+   *
+   * Row updates are collected instead of written immediately, so a frame
+   * costs one terminal write rather than one per row. Terminal writes are
+   * the expensive part on Windows consoles and over SSH, where a 45-row
+   * scroll step otherwise means 45 cursor moves and 45 writes.
+   *
+   * Calls nest: the frame flushes when the outermost one closes.
+   *
+   * @return void
+   */
+  public static function beginFrame(): void
+  {
+    self::$frameDepth++;
+  }
+
+  /**
+   * Closes a batched frame, flushing it when the outermost one closes.
+   *
+   * @return void
+   */
+  public static function endFrame(): void
+  {
+    if (self::$frameDepth > 0) {
+      self::$frameDepth--;
+    }
+
+    if (self::$frameDepth > 0 || self::$frameRows === []) {
+      return;
+    }
+
+    ksort(self::$frameRows, SORT_NUMERIC);
+    $payload = '';
+
+    foreach (self::$frameRows as $row => $span) {
+      if (! isset(self::$buffer[$row])) {
+        continue;
+      }
+
+      $payload .= sprintf(
+        "\033[%d;%dH%s",
+        $row + 1,
+        $span['start'] + 1,
+        self::getBufferSegment($row, $span['start'], $span['end']),
+      );
+    }
+
+    self::$frameRows = [];
+
+    self::writeToTerminal($payload);
+  }
+
+  /**
+   * Writes a payload to the terminal, guaranteeing every byte is delivered.
+   *
+   * A complete field frame can exceed both PHP's userspace stream buffer and
+   * the terminal's output buffer. Accepting bytes into the former is not the
+   * same as delivering them to the latter: a final non-blocking flush can
+   * leave only the first rows visible while the canonical screen already
+   * believes the whole frame was painted. The stream is therefore made
+   * unbuffered before any frame bytes are offered to it.
+   *
+   * Looping until the payload is fully written is the correct way to handle
+   * both blocking and non-blocking descriptors; even a blocking write can be
+   * cut short by a signal. The caller's blocking mode is deliberately left
+   * alone. Turning a healthy blocking terminal non-blocking for a frame merely
+   * moves delivery into PHP's buffering layer and recreates the truncation
+   * this method exists to prevent.
+   *
+   * @param string $payload The terminal-ready payload to write.
+   * @return void
+   */
+  private static function writeToTerminal(string $payload): void
+  {
+    if ($payload === '') {
+      return;
+    }
+
+    $stream = is_resource(self::$terminalOutputStream)
+      ? self::$terminalOutputStream
+      : self::$output?->getStream();
+
+    if (! is_resource($stream)) {
+      // PHP's CLI output layer loops until every byte is written, so the
+      // echo fallback is already safe (and stays capturable by output
+      // buffering, which tests rely on).
+      echo $payload;
+      return;
+    }
+
+    // php://stdout is buffered independently of the terminal descriptor.
+    // Disable that layer so fwrite()'s byte count describes terminal
+    // acceptance, not temporary userspace acceptance. This is process-local
+    // Console ownership, so keeping the stream unbuffered is intentional.
+    // Pipes and a few platform wrappers report that write buffering is not
+    // configurable because they are already direct descriptors. That is a
+    // safe fallback; php://stdout, the production path that needs this
+    // protection, accepts the unbuffered policy.
+    @stream_set_write_buffer($stream, 0);
+
+    $totalBytes = strlen($payload);
+    $bytesWritten = 0;
+    $stalledAttempts = 0;
+
+    while ($bytesWritten < $totalBytes) {
+      $chunk = substr(
+        $payload,
+        $bytesWritten,
+        min(self::WRITE_CHUNK_BYTES, $totalBytes - $bytesWritten),
+      );
+      $written = @fwrite($stream, $chunk);
+
+      if ($written !== false && $written > 0) {
+        $bytesWritten += $written;
+        $stalledAttempts = 0;
+        continue;
+      }
+
+      // Either a non-blocking terminal buffer is full or the stream is
+      // genuinely broken. Wait for writability. PHP's stdio wrapper is not
+      // selectable on every PTY, so a failed/empty select must still yield
+      // before retrying instead of burning through the retry budget.
+      if (++$stalledAttempts > self::WRITE_MAX_STALLED_ATTEMPTS) {
+        throw new RuntimeException(sprintf(
+          'Terminal output stalled after %d of %d bytes.',
+          $bytesWritten,
+          $totalBytes,
+        ));
+      }
+
+      $readStreams = [];
+      $writeStreams = [$stream];
+      $exceptStreams = [];
+
+      $ready = @stream_select(
+        $readStreams,
+        $writeStreams,
+        $exceptStreams,
+        0,
+        self::WRITE_STALL_TIMEOUT_MICROSECONDS,
+      );
+
+      if ($ready !== 1) {
+        usleep(self::WRITE_STALL_TIMEOUT_MICROSECONDS);
+      }
+    }
+
+    if (! @fflush($stream)) {
+      throw new RuntimeException(sprintf(
+        'Terminal output failed to flush after %d bytes.',
+        $totalBytes,
+      ));
+    }
+  }
+
+  /**
+   * Opens a rendering-only handle to the controlling terminal when one is
+   * available.
+   *
+   * STDIN must remain non-blocking for the game loop. A separately opened
+   * /dev/tty handle has independent descriptor flags, so output can remain
+   * blocking without changing input behaviour. Non-POSIX environments and
+   * redirected processes retain the existing ConsoleOutput fallback.
+   */
+  private static function openTerminalOutputStream(): void
+  {
+    self::closeTerminalOutputStream();
+
+    if (PHP_OS_FAMILY === 'Windows') {
+      return;
+    }
+
+    if (function_exists('stream_isatty') && ! @stream_isatty(STDOUT)) {
+      return;
+    }
+
+    try {
+      $stream = @fopen('/dev/tty', 'wb');
+    } catch (\Throwable) {
+      // Sandboxed processes and redirected automation can expose the path
+      // while forbidding access. They use the ConsoleOutput fallback below.
+      return;
+    }
+
+    if (! is_resource($stream)) {
+      return;
+    }
+
+    @stream_set_blocking($stream, true);
+    @stream_set_write_buffer($stream, 0);
+    self::$terminalOutputStream = $stream;
+  }
+
+  /** Closes the rendering-only terminal descriptor, if the console owns one. */
+  private static function closeTerminalOutputStream(): void
+  {
+    if (is_resource(self::$terminalOutputStream)) {
+      @fflush(self::$terminalOutputStream);
+      @fclose(self::$terminalOutputStream);
+    }
+
+    self::$terminalOutputStream = null;
+  }
+
+  /**
    * Flushes a single buffered row to the terminal without adding a trailing newline.
    *
    * Avoiding a final line-feed prevents full-screen renders from triggering
@@ -476,20 +915,93 @@ class Console
    * @param int $row The zero-based buffer row to flush.
    * @return void
    */
-  private static function writeBufferRow(int $row): void
+  private static function writeBufferRow(int $row, int $start = 0, ?int $width = null): void
   {
     if (!isset(self::$buffer[$row])) {
       return;
     }
 
-    self::cursor()->moveTo(1, $row + 1);
+    $start = max(0, min($start, max(0, self::$width - 1)));
+    $end = min(
+      self::$width - 1,
+      $width === null ? self::$width - 1 : $start + max(0, $width) - 1,
+    );
 
-    if (self::$output) {
-      self::$output->write(self::$buffer[$row]);
+    if ($end < $start) {
       return;
     }
 
-    echo self::$buffer[$row];
+    if (self::$frameDepth > 0) {
+      // A later draw in the same frame may update this row again. Remember
+      // the affected span and emit its final composition at outer close.
+      self::markFrameSpan($row, $start, $end);
+      return;
+    }
+
+    self::cursor()->moveTo($start + 1, $row + 1);
+
+    self::writeToTerminal(self::getBufferSegment($row, $start, $end));
+  }
+
+  /** Coalesces a changed span with any earlier writes to the same frame row. */
+  private static function markFrameSpan(int $row, int $start, int $end): void
+  {
+    $start = max(0, min($start, max(0, self::$width - 1)));
+    $end = max($start, min($end, max(0, self::$width - 1)));
+    $current = self::$frameRows[$row] ?? null;
+
+    self::$frameRows[$row] = [
+      'start' => $current === null ? $start : min($current['start'], $start),
+      'end' => $current === null ? $end : max($current['end'], $end),
+    ];
+  }
+
+  /**
+   * Finds the terminal-cell span whose rendered value or style changed.
+   *
+   * @return array{start: int, end: int}|null
+   */
+  private static function changedCellSpan(string $before, string $after): ?array
+  {
+    return self::changedCellSpanFromCells(
+      self::rowToCells($before),
+      self::rowToCells($after),
+    );
+  }
+
+  /**
+   * Finds the changed span between two already expanded cell buffers.
+   *
+   * @param string[] $before
+   * @param string[] $after
+   * @return array{start: int, end: int}|null
+   */
+  private static function changedCellSpanFromCells(array $before, array $after): ?array
+  {
+    $start = null;
+    $end = null;
+
+    for ($cell = 0; $cell < self::$width; $cell++) {
+      if (($before[$cell] ?? ' ') === ($after[$cell] ?? ' ')) {
+        continue;
+      }
+
+      $start ??= $cell;
+      $end = $cell;
+    }
+
+    return $start === null || $end === null
+      ? null
+      : ['start' => $start, 'end' => $end];
+  }
+
+  /** Returns an ANSI-safe slice of one canonical buffer row. */
+  private static function getBufferSegment(int $row, int $start, int $end): string
+  {
+    $cells = self::rowToCells(self::$buffer[$row] ?? '');
+    $segment = array_slice($cells, $start, max(0, $end - $start + 1));
+
+    return self::cellsToRow($segment);
   }
 
   /**

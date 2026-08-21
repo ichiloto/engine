@@ -14,7 +14,6 @@ use Ichiloto\Engine\Exceptions\IchilotoException;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
-use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Game\GameScene;
@@ -36,7 +35,7 @@ class MapManager implements CanRenderAt
   /**
    * @var array<int, string[]> The tile map.
    */
-  protected array $tileMap = [];
+  protected(set) array $tileMap = [];
   /**
    * The collision map.
    *
@@ -64,11 +63,11 @@ class MapManager implements CanRenderAt
   /**
    * @var int The width of the map.
    */
-  protected int $mapWidth = 0;
+  protected(set) int $mapWidth = 0;
   /**
    * @var int The height of the map.
    */
-  protected int $mapHeight = 0;
+  protected(set) int $mapHeight = 0;
   /**
    * @var Camera The camera.
    */
@@ -85,6 +84,13 @@ class MapManager implements CanRenderAt
       return $this->gameScene->party->location;
     }
   }
+  /**
+   * The background music the current map declares through the `bgm` entry in
+   * its data file, or null when the map declares none.
+   *
+   * @var string|null
+   */
+  protected(set) ?string $backgroundMusic = null;
   /**
    * @var bool Whether the player is at a save point.
    */
@@ -148,10 +154,11 @@ class MapManager implements CanRenderAt
    */
   public function loadMap(string $filename, Player $player): self
   {
-    // Load the tile map from the file
+    // Loading owns map state only. The active scene composes the complete
+    // field after the player, NPCs, cues, UI, and presentation layers are
+    // ready; drawing a partial map here caused duplicate clears and exposed
+    // intermediate frames during transfers.
     $this->loadTileMap($filename, $player);
-    Console::clear();
-    $this->render();
     return $this;
   }
 
@@ -167,6 +174,17 @@ class MapManager implements CanRenderAt
   public function canMoveTo(int $x, int $y, ?CollisionType &$collisionType = null): bool
   {
     if ($this->coordinatesAreNotDefined($x, $y)) {
+      return false;
+    }
+
+    // Live NPCs block a tile the same way authored NPC tiles do.
+    if ($this->gameScene->npcManager?->npcAt($x, $y) !== null) {
+      $collisionType = CollisionType::NPC;
+      return false;
+    }
+
+    if ($this->gameScene->cinematicStage?->actorAt($x, $y) !== null) {
+      $collisionType = CollisionType::NPC;
       return false;
     }
 
@@ -225,7 +243,10 @@ class MapManager implements CanRenderAt
    * Loads the collision dictionary from a file.
    *
    * @param string $filename The filename of the collision dictionary.
-   * @return array<string, CollisionType> The collision dictionary.
+   * PHP normalizes numeric-string array keys such as `"8"` to integers, so
+   * single decimal digit keys are valid tile glyphs alongside string keys.
+   *
+   * @return array<int|string, CollisionType> The collision dictionary.
    * @throws NotFoundException
    */
   public function loadCollisionDictionary(string $filename): array
@@ -236,7 +257,7 @@ class MapManager implements CanRenderAt
       throw new NotFoundException("File $filename not found.");
     }
 
-    $dictionary = require $filename;
+    $dictionary = $this->requirePhpFile($filename);
 
     if (! is_array($dictionary)) {
       throw new NotFoundException("File $filename does not return an array.");
@@ -244,8 +265,21 @@ class MapManager implements CanRenderAt
 
     if (!empty($dictionary)) {
       foreach ($dictionary as $key => $value) {
-        if (! is_string($key) || ! ($value instanceof CollisionType) ) {
-          throw new NotFoundException("Invalid dictionary entry: " . gettype($key) . "($key) => " . gettype($value) ."($value)");
+        $isSupportedKeyType = is_string($key) || is_int($key);
+        $isSingleGlyph = $isSupportedKeyType
+          && TerminalText::symbolCount((string) $key) === 1;
+
+        if (! $isSingleGlyph || ! ($value instanceof CollisionType)) {
+          $keyDescription = is_scalar($key) || $key === null
+            ? sprintf('%s(%s)', get_debug_type($key), var_export($key, true))
+            : get_debug_type($key);
+          $valueDescription = $value instanceof \UnitEnum
+            ? sprintf('%s::%s', $value::class, $value->name)
+            : (is_scalar($value) || $value === null
+              ? sprintf('%s(%s)', get_debug_type($value), var_export($value, true))
+              : get_debug_type($value));
+
+          throw new NotFoundException("Invalid dictionary entry: {$keyDescription} => {$valueDescription}");
         }
       }
     }
@@ -273,10 +307,45 @@ class MapManager implements CanRenderAt
 
     $this->calculateMapDimensions();
     $this->loadCollisionMap($this->tileMap);
+    $mapId = strval($map['id'] ?? '');
     $this->loadMapTriggers($map['triggers'] ?? []);
-    $this->loadMapEvents($map['events'] ?? []);
+    $this->loadMapEvents($map['events'] ?? [], $mapId);
+    $this->applyMapBackgroundMusic($map['bgm'] ?? null);
+
+    if ($mapId !== '') {
+      $this->gameScene->questManager?->recordMapEntered($mapId);
+      $this->gameScene->gameState?->markMapVisited($mapId);
+    }
+
+    $this->gameScene->encounterManager?->configure(
+      is_array($map['encounters'] ?? null) ? $map['encounters'] : null
+    );
+    $this->gameScene->npcManager?->configure(
+      is_array($map['npcs'] ?? null) ? $map['npcs'] : []
+    );
+    $this->gameScene->skitManager?->announceAvailableSkits();
 
     $this->camera->resetPosition($player);
+  }
+
+  /**
+   * Applies the map's declared background music.
+   *
+   * A map that declares a `bgm` track starts it on entry (a no-op when the
+   * track is already playing, so travelling between maps that share a theme
+   * is seamless). A map that declares none keeps whatever music is already
+   * playing, mirroring RPG Maker's autoplay semantics.
+   *
+   * @param mixed $bgm The `bgm` entry from the map data file.
+   * @return void
+   */
+  protected function applyMapBackgroundMusic(mixed $bgm): void
+  {
+    $this->backgroundMusic = is_string($bgm) && trim($bgm) !== '' ? trim($bgm) : null;
+
+    if ($this->backgroundMusic !== null) {
+      $this->game->audioManager->playBackgroundMusic($this->backgroundMusic);
+    }
   }
 
   /**
@@ -296,7 +365,7 @@ class MapManager implements CanRenderAt
    * Generates a collision map from a tile map.
    *
    * @param array<int, string[]|string> $tilemap The tile map.
-   * @param array<string, CollisionType> $dictionary The dictionary that maps tile characters to collision types.
+   * @param array<int|string, CollisionType> $dictionary The dictionary that maps tile glyphs to collision types.
    * @return int[][] The collision map.
    */
   public function generateCollisionMap(
@@ -374,13 +443,27 @@ class MapManager implements CanRenderAt
    * @throws NotFoundException If the class does not exist.
    * @throws RequiredFieldException If a required field is missing.
    */
-  protected function loadMapEvents(array $events): void
+  protected function loadMapEvents(array $events, string $mapId = ''): void
   {
     if ($player = $this->gameScene->player) {
       $player->removeEventTriggers();
+      $gameState = $this->gameScene->gameState;
 
       foreach ($events as $eventData) {
-        $eventTrigger = EventTriggerFactory::create($eventData);
+        $eventTrigger = EventTriggerFactory::create($eventData, $mapId !== '' ? $mapId : null);
+        $eventTrigger->bind($gameState, $this->gameScene->party);
+
+        // A one-shot event the world state already records as completed
+        // stays completed — a looted chest does not refill on map re-entry.
+        if (
+          ! $eventTrigger->isReusable &&
+          $eventTrigger->mapId !== null &&
+          $eventTrigger->marker !== null &&
+          $gameState->isEventComplete($eventTrigger->mapId, $eventTrigger->marker)
+        ) {
+          $eventTrigger->restoreCompleted();
+        }
+
         $player->addTrigger($eventTrigger);
       }
     }
@@ -403,7 +486,7 @@ class MapManager implements CanRenderAt
   /**
    * Gets the collision dictionary from a file.
    *
-   * @return CollisionType[] The collision dictionary.
+   * @return array<int|string, CollisionType> The collision dictionary.
    * @throws NotFoundException If the file is not found.
    */
   protected function getCollisionDictionary(): array
@@ -421,6 +504,10 @@ class MapManager implements CanRenderAt
    */
   public function scrollMap(Player $player, Vector2 $moveDirection): bool
   {
+    if (! $this->camera->followsPlayer) {
+      return false;
+    }
+
     $didScroll = false;
     $horizontalFocus = $this->camera->getHorizontalFocusPosition();
     $verticalFocus = $this->camera->getVerticalFocusPosition();
@@ -584,20 +671,41 @@ class MapManager implements CanRenderAt
       }
     }
 
-    $map = require $paths['data'];
+    $map = $this->requirePhpFile($paths['data']);
 
     if (! is_array($map)) {
       throw new NotFoundException("File {$paths['data']} does not return an array.");
     }
 
-    $this->tileMap = $this->parseMapLayer(require $paths['map'], $paths['map'], 'map');
+    $map['id'] ??= $paths['id'];
+
+    $this->tileMap = $this->parseMapLayer($this->requirePhpFile($paths['map']), $paths['map'], 'map');
     $this->camera->worldSpace = $this->tileMap;
 
-    $eventLayer = $this->parseMapLayer(require $paths['event'], $paths['event'], 'event');
+    $eventLayer = $this->parseMapLayer($this->requirePhpFile($paths['event']), $paths['event'], 'event');
     $this->assertEventLayerMatchesTileMap($eventLayer, $paths['event']);
     $map['events'] = $this->resolveEventDefinitions($map['events'] ?? [], $eventLayer, $paths['event']);
 
     return $map;
+  }
+
+  /**
+   * Requires an authored PHP asset without exposing the caller's local scope.
+   *
+   * PHP includes inherit and may mutate variables from the scope that invokes
+   * them. Map assets are executable PHP and commonly use descriptive local
+   * names such as `$map`, `$events`, or `$paths`; loading each file inside a
+   * dedicated static closure prevents those implementation details from
+   * replacing the loader's own state.
+   *
+   * @param string $filename The PHP asset to load.
+   * @return mixed The value returned by the asset.
+   */
+  protected function requirePhpFile(string $filename): mixed
+  {
+    return (static function (string $isolatedFilename): mixed {
+      return require $isolatedFilename;
+    })($filename);
   }
 
   /**
@@ -692,8 +800,9 @@ class MapManager implements CanRenderAt
       }
 
       $area = $areas[$resolvedMarker] ?? throw new InvalidArgumentException("Event marker '{$resolvedMarker}' was not found in {$filename}.");
-      unset($areas[$resolvedMarker], $eventDefinition['marker']);
+      unset($areas[$resolvedMarker]);
       $eventDefinition['area'] = $area;
+      $eventDefinition['marker'] = $resolvedMarker;
       $resolvedEvents[] = $eventDefinition;
     }
 

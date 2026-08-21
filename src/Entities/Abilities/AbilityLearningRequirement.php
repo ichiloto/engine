@@ -6,6 +6,8 @@ use Ichiloto\Engine\Core\Enumerations\ChronoUnit;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Stores\ItemStore;
 
 /**
  * Represents the requirements and costs involved in attaining an ability.
@@ -90,8 +92,8 @@ class AbilityLearningRequirement
       return false;
     }
 
-    foreach ($this->itemCosts as $itemName => $quantity) {
-      if ($party->inventory->getQuantityByName($itemName) < $quantity) {
+    foreach ($this->itemCosts as $itemReference => $quantity) {
+      if ($party->inventory->getQuantity($itemReference, 'checking an ability learning cost') < $quantity) {
         return false;
       }
     }
@@ -117,8 +119,8 @@ class AbilityLearningRequirement
       $party->debit($this->goldCost);
     }
 
-    foreach ($this->itemCosts as $itemName => $quantity) {
-      $party->inventory->consumeQuantity($itemName, $quantity);
+    foreach ($this->itemCosts as $itemReference => $quantity) {
+      $party->inventory->consumeReference($itemReference, $quantity, 'paying an ability learning cost');
     }
   }
 
@@ -151,8 +153,16 @@ class AbilityLearningRequirement
       $parts[] = sprintf('Gold %d/%d', $party->accountBalance, $this->goldCost);
     }
 
-    foreach ($this->itemCosts as $itemName => $quantity) {
-      $parts[] = sprintf('%s %d/%d', $itemName, $party->inventory->getQuantityByName($itemName), $quantity);
+    $itemStore = ConfigStore::get(ItemStore::class);
+    assert($itemStore instanceof ItemStore);
+
+    foreach ($this->itemCosts as $itemReference => $quantity) {
+      $parts[] = sprintf(
+        '%s %d/%d',
+        $itemStore->displayNameFor($itemReference, 'describing an ability learning cost'),
+        $party->inventory->getQuantity($itemReference, 'describing an ability learning cost'),
+        $quantity,
+      );
     }
 
     foreach ($this->requiredEvents as $eventName) {

@@ -2,12 +2,15 @@
 
 namespace Ichiloto\Engine\Core\Menu\ShopMenu\Modes;
 
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Exception;
+use Ichiloto\Engine\Core\Menu\QuantitySelector;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
+use Ichiloto\Engine\Scenes\Game\States\ShopState;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 
 /**
@@ -17,6 +20,9 @@ use Ichiloto\Engine\Util\Config\ProjectConfig;
  */
 class PurchaseConfirmationMode extends ShopMenuMode
 {
+  /** Shared bounded quantity state used by stack-based menu workflows. */
+  protected QuantitySelector $quantitySelector;
+
   public ?InventoryItem $item = null;
   /**
    * @var ShopMenuMode|null The previous mode.
@@ -25,13 +31,13 @@ class PurchaseConfirmationMode extends ShopMenuMode
   /**
    * @var int The quantity of the item to purchase.
    */
-  public int $quantity = 1 {
+  public int $quantity {
     get {
-      return $this->quantity;
+      return $this->quantitySelector->quantity;
     }
 
     set {
-      $this->quantity = clamp($value, 1, $this->maxQuantity);
+      $this->quantitySelector->set($value);
     }
   }
   /**
@@ -83,6 +89,12 @@ class PurchaseConfirmationMode extends ShopMenuMode
     }
   }
 
+  public function __construct(ShopState $state)
+  {
+    parent::__construct($state);
+    $this->quantitySelector = new QuantitySelector($this->maxQuantity);
+  }
+
   /**
    * @inheritDoc
    * @throws Exception
@@ -100,7 +112,7 @@ class PurchaseConfirmationMode extends ShopMenuMode
   {
     $this->state->mainPanel->setHelp('esc:Cancel, enter:Confirm');
     $this->state->infoPanel->setText('Use the arrow keys to adjust the quantity of the item to purchase.');
-    $this->quantity = 1;
+    $this->quantitySelector = new QuantitySelector($this->maxQuantity);
     $this->symbol = config(ProjectConfig::class, 'vocab.currency.symbol', 'G');
     $this->updateWindowContent();
   }
@@ -123,21 +135,18 @@ class PurchaseConfirmationMode extends ShopMenuMode
     $v = Input::getAxis(AxisName::VERTICAL);
     $h = Input::getAxis(AxisName::HORIZONTAL);
 
-    if (abs($v) > 0 || abs($h) > 0) {
-      if ($v > 0) {
-        $this->decreaseQuantity();
-      }
-      if ($v < 0) {
-        $this->increaseQuantity();
-      }
+    $adjustment = $this->quantitySelector->axisAdjustment($v, $h);
 
-      if ($h > 0) {
-        $this->increaseQuantity(10);
-      }
-      if ($h < 0) {
-        $this->decreaseQuantity(10);
-      }
+    if ($adjustment === 0) {
+      return;
+    }
 
+    $changed = $adjustment > 0
+      ? $this->increaseQuantity($adjustment)
+      : $this->decreaseQuantity(abs($adjustment));
+
+    if ($changed) {
+      play_sound(SystemSound::CURSOR);
       $this->updateWindowContent();
     }
   }
@@ -149,11 +158,13 @@ class PurchaseConfirmationMode extends ShopMenuMode
   {
     if (Input::isButtonDown("cancel")) {
       if ($this->previousMode) {
+        play_sound(SystemSound::CANCEL);
         $this->state->setMode($this->previousMode);
       }
     }
 
     if (Input::isButtonDown("confirm")) {
+      play_sound(SystemSound::SHOP);
       $this->completeCheckout();
       $this->state->setMode($this->previousMode);
     }
@@ -164,28 +175,28 @@ class PurchaseConfirmationMode extends ShopMenuMode
    *
    * @param int $amount The amount to increase the quantity by.
    */
-  protected function increaseQuantity(int $amount = 1): void
+  protected function increaseQuantity(int $amount = 1): bool
   {
     $newQuantity = $this->quantity + $amount;
     $newPriceTotal = $newQuantity * $this->item->price;
 
     if ($this->isUserPurchase) {
       if ($newPriceTotal > $this->party->accountBalance) {
-        return;
+        return false;
       }
 
       if ($newQuantity > $this->totalItemsUserCanBuy) {
-        return;
+        return false;
       }
     }
 
     if ($this->isShopPurchase) {
       if ($newQuantity > $this->state->detailPanel->possession) {
-        return;
+        return false;
       }
     }
 
-    $this->quantity += $amount;
+    return $this->quantitySelector->adjust($amount);
   }
 
   /**
@@ -193,9 +204,9 @@ class PurchaseConfirmationMode extends ShopMenuMode
    *
    * @param int $amount The amount to decrease the quantity by.
    */
-  protected function decreaseQuantity(int $amount = 1): void
+  protected function decreaseQuantity(int $amount = 1): bool
   {
-    $this->quantity -= $amount;
+    return $this->quantitySelector->adjust(-$amount);
   }
 
   /**
@@ -240,7 +251,7 @@ class PurchaseConfirmationMode extends ShopMenuMode
     if ($this->isShopPurchase) {
       $this->state->shop->buy($this->item, $this->quantity, $this->party);
       $this->state->accountBalancePanel->setBalance($this->party->accountBalance);
-      $this->state->mainPanel->setItems($this->state->inventory->all->toArray(), $this->state->traderSellRate);
+      $this->state->mainPanel->setItems($this->state->sellableItems, $this->state->traderSellRate);
       $this->previousMode->updateItemsInPossession();
     }
   }

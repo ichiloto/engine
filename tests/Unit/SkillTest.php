@@ -67,23 +67,16 @@ describe('basic skills', function() {
     $target->stats->currentHp = $targetHp;
     $target->stats->defence = $targetDefence;
 
-    $expectedDamage = $userAttack * 4 - $targetDefence * 2;
+    $rawMagnitude = $userAttack * 4;
+    $mitigationRate = $targetDefence / ($targetDefence + 240);
+    $expectedDamage = intval(round($rawMagnitude * (1 - $mitigationRate), 0, PHP_ROUND_HALF_UP));
 
-    $damageFormula = '$user->stats->attack * 4 - $target->stats->defence * 2';
-    $hpDamageEffect = new HPDamageSkillEffect($damageFormula);
+    $damageFormula = '$user->stats->attack * 4';
+    $hpDamageEffect = new HPDamageSkillEffect($damageFormula, variance: 0.0);
     $hpDamageEffect->apply($this->skillEffectContext);
 
-    $minMultiplier = 1 - $hpDamageEffect->variance;
-    $maxMultiplier = 1 + $hpDamageEffect->variance;
-    $minValue = $expectedDamage * $minMultiplier;
-    $maxValue = $expectedDamage * $maxMultiplier;
-    $minHp = $targetHp - $maxValue;
-    $maxHp = $targetHp - $minValue;
-
-    expect($hpDamageEffect->getValue($this->skillEffectContext))
-      ->toBeBetween($minValue, $maxValue)
-      ->and($target->stats->currentHp)
-      ->toBeBetween($minHp, $maxHp);
+    expect($target->stats->currentHp)
+      ->toBe($targetHp - $expectedDamage);
   });
 
   it('can deal MP damage', function() {
@@ -98,26 +91,50 @@ describe('basic skills', function() {
     $mpDamageEffect = new MPDamageSkillEffect($damageFormula);
     $mpDamageEffect->apply($this->skillEffectContext);
 
-    $minMultiplier = 1 - $mpDamageEffect->variance;
-    $maxMultiplier = 1 + $mpDamageEffect->variance;
-    $minValue = $expectedDamage * $minMultiplier;
-    $maxValue = $expectedDamage * $maxMultiplier;
-    $minMp = $targetMp - $maxValue;
-    $maxMp = $targetMp - $minValue;
+    // One apply() is one roll: the formula reads currentMp, which apply()
+    // just drained, so re-rolling getValue() would use shifted inputs.
+    // Bounds are floored to ints to match the engine's roll.
+    $minValue = intval($expectedDamage * (1 - $mpDamageEffect->variance));
+    $maxValue = intval($expectedDamage * (1 + $mpDamageEffect->variance));
 
-    $actualDamageValue = $mpDamageEffect->getValue($this->skillEffectContext);
-    $actualTargetMp = $target->stats->currentMp;
-    expect($actualDamageValue)
-      ->toBeBetween($minValue, $maxValue)
-      ->and($actualTargetMp)
-      ->toBeBetween($minMp, $maxMp);
+    expect($target->stats->currentMp)
+      ->toBeBetween($targetMp - $maxValue, $targetMp - $minValue);
+  });
+
+  it('deals at least 1 HP damage when the formula yields a negative value', function() {
+    /** @var Character $target */
+    $target = $this->target;
+    $targetHp = 544;
+    $target->stats->currentHp = $targetHp;
+
+    // A heavily-armoured target would otherwise be healed by the negative result.
+    $damageFormula = '$user->stats->attack - $target->stats->defence * 10';
+    $hpDamageEffect = new HPDamageSkillEffect($damageFormula);
+    $hpDamageEffect->apply($this->skillEffectContext);
+
+    expect($target->stats->currentHp)->toBeLessThan($targetHp);
+  });
+
+  it('drains at least 1 MP when the formula yields a negative value', function() {
+    /** @var Character $target */
+    $target = $this->target;
+    $targetMp = 50;
+    $target->stats->currentMp = $targetMp;
+
+    $damageFormula = '-25';
+    $mpDamageEffect = new MPDamageSkillEffect($damageFormula);
+    $mpDamageEffect->apply($this->skillEffectContext);
+
+    expect($target->stats->currentMp)->toBeLessThan($targetMp);
   });
 
   it('can recover HP', function() {
     $targetHp = 544;
-    $this->skillEffectContext->target->stats->currentHp = $targetHp;
     /** @var Character $target */
     $target = $this->skillEffectContext->target;
+    // The heal must have headroom below the HP ceiling, or clamping eats it.
+    $target->stats->totalHp = 2000;
+    $target->stats->currentHp = $targetHp;
 
     $expectedRecovery = 100;
 
@@ -125,19 +142,12 @@ describe('basic skills', function() {
     $hpRecoveryEffect = new HPRecoverSkillEffect($recoveryFormula);
     $hpRecoveryEffect->apply($this->skillEffectContext);
 
-    $minMultiplier = 1 - $hpRecoveryEffect->variance;
-    $maxMultiplier = 1 + $hpRecoveryEffect->variance;
-    $minValue = $expectedRecovery * $minMultiplier;
-    $maxValue = $expectedRecovery * $maxMultiplier;
-    $minHp = $targetHp + $minValue;
-    $maxHp = $targetHp + $maxValue;
+    // One apply() is one roll; bounds floored to ints to match the engine.
+    $minValue = intval($expectedRecovery * (1 - $hpRecoveryEffect->variance));
+    $maxValue = intval($expectedRecovery * (1 + $hpRecoveryEffect->variance));
 
-    $actualRecoveryValue = $hpRecoveryEffect->getValue($this->skillEffectContext);
-    $actualTargetHp = $target->stats->currentHp;
-    expect($actualRecoveryValue)
-      ->toBeBetween($minValue, $maxValue)
-      ->and($actualTargetHp)
-      ->toBeBetween($minHp, $maxHp);
+    expect($target->stats->currentHp)
+      ->toBeBetween($targetHp + $minValue, $targetHp + $maxValue);
   });
 });
 

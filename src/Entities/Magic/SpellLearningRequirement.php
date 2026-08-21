@@ -4,6 +4,8 @@ namespace Ichiloto\Engine\Entities\Magic;
 
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Stores\ItemStore;
 
 /**
  * Represents the requirements and costs involved in learning a spell.
@@ -20,12 +22,14 @@ class SpellLearningRequirement
    * @param int $trainingHoursRequired The required training-time progress.
    * @param int $goldCost The gold cost paid on learning.
    * @param array<string, int> $itemCosts The required item costs keyed by item name.
+   * @param string[] $requiredEvents The required story-event flags.
    */
   public function __construct(
     public int $experienceRequired = 0,
     public int $trainingHoursRequired = 0,
     public int $goldCost = 0,
     public array $itemCosts = [],
+    public array $requiredEvents = [],
   )
   {
   }
@@ -42,7 +46,11 @@ class SpellLearningRequirement
       intval($data['experienceRequired'] ?? 0),
       intval($data['trainingHoursRequired'] ?? 0),
       intval($data['goldCost'] ?? 0),
-      array_map('intval', $data['itemCosts'] ?? [])
+      array_map('intval', $data['itemCosts'] ?? []),
+      array_values(array_map('strval', array_filter(
+        is_array($data['requiredEvents'] ?? null) ? $data['requiredEvents'] : [],
+        'is_string'
+      )))
     );
   }
 
@@ -58,6 +66,7 @@ class SpellLearningRequirement
       'trainingHoursRequired' => $this->trainingHoursRequired,
       'goldCost' => $this->goldCost,
       'itemCosts' => $this->itemCosts,
+      'requiredEvents' => $this->requiredEvents,
     ];
   }
 
@@ -69,10 +78,18 @@ class SpellLearningRequirement
    * @param int $trainingHours The accumulated training progress.
    * @return bool True when the spell can be learned.
    */
-  public function isSatisfiedBy(Character $character, Party $party, int $trainingHours): bool
+  public function isSatisfiedBy(Character $character, Party $party, int $trainingHours, array $storyEvents = []): bool
   {
     if ($character->currentExp < $this->experienceRequired) {
       return false;
+    }
+
+    // Story-flag gating, matching AbilityLearningRequirement: a spell can
+    // wait on the plot as well as on training.
+    foreach ($this->requiredEvents as $requiredEvent) {
+      if (! in_array($requiredEvent, $storyEvents, true)) {
+        return false;
+      }
     }
 
     if ($trainingHours < $this->trainingHoursRequired) {
@@ -83,8 +100,8 @@ class SpellLearningRequirement
       return false;
     }
 
-    foreach ($this->itemCosts as $itemName => $quantity) {
-      if ($party->inventory->getQuantityByName($itemName) < $quantity) {
+    foreach ($this->itemCosts as $itemReference => $quantity) {
+      if ($party->inventory->getQuantity($itemReference, 'checking a spell learning cost') < $quantity) {
         return false;
       }
     }
@@ -104,8 +121,8 @@ class SpellLearningRequirement
       $party->debit($this->goldCost);
     }
 
-    foreach ($this->itemCosts as $itemName => $quantity) {
-      $party->inventory->consumeQuantity($itemName, $quantity);
+    foreach ($this->itemCosts as $itemReference => $quantity) {
+      $party->inventory->consumeReference($itemReference, $quantity, 'paying a spell learning cost');
     }
   }
 
@@ -133,8 +150,16 @@ class SpellLearningRequirement
       $parts[] = sprintf('Gold %d/%d', $party->accountBalance, $this->goldCost);
     }
 
-    foreach ($this->itemCosts as $itemName => $quantity) {
-      $parts[] = sprintf('%s %d/%d', $itemName, $party->inventory->getQuantityByName($itemName), $quantity);
+    $itemStore = ConfigStore::get(ItemStore::class);
+    assert($itemStore instanceof ItemStore);
+
+    foreach ($this->itemCosts as $itemReference => $quantity) {
+      $parts[] = sprintf(
+        '%s %d/%d',
+        $itemStore->displayNameFor($itemReference, 'describing a spell learning cost'),
+        $party->inventory->getQuantity($itemReference, 'describing a spell learning cost'),
+        $quantity,
+      );
     }
 
     return implode('  ', $parts);

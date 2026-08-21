@@ -12,6 +12,11 @@ use Ichiloto\Engine\Entities\Skills\SkillEffectContext;
  */
 class MPDrainSkillEffect extends SkillEffect
 {
+  public function repeatsWithInvocation(): bool
+  {
+    return true;
+  }
+
   /**
    * @inheritDoc
    */

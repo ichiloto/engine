@@ -1,0 +1,16 @@
+# Static analysis for the engine.
+#
+# Level 0 is a floor, not a ceiling. It is enough to catch the class of
+# mistake that hurts most here: a name that does not resolve. A guard reading
+# `$option instanceof GameSetting` against a class that is not imported is
+# quietly false rather than an error, so the screen renders, the keys respond,
+# and nothing happens. The analyser says so in one line.
+#
+# Raise the level when the errors it turns up are worth the time; run
+# `composer analyse -- --level=2` to see what the next one holds.
+parameters:
+    level: 0
+    paths:
+        - src
+    # The engine's asset helpers read project files that do not exist here.
+    treatPhpDocTypesAsCertain: false

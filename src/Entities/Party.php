@@ -3,10 +3,14 @@
 namespace Ichiloto\Engine\Entities;
 
 use Assegai\Collections\ItemList;
+use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneDefinition;
+use Ichiloto\Engine\Cutscenes\Summons\SummonWielderPolicy;
+use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Interfaces\InventoryItemInterface;
 use Ichiloto\Engine\Entities\Inventory\Equipment;
 use Ichiloto\Engine\Entities\Inventory\Inventory;
+use Ichiloto\Engine\Exceptions\SummonAssignmentException;
 use InvalidArgumentException;
 
 /**
@@ -104,7 +108,13 @@ class Party extends BattleGroup
       $locationData['region'] ?? PartyLocation::DEFAULT_LOCATION_REGION
     );
 
-    foreach ($data as $datum) {
+    unset($data['location']);
+
+    foreach ($data as $key => $datum) {
+      if (! is_int($key) || ! is_array($datum)) {
+        continue;
+      }
+
       $party->addMember(Character::fromArray($datum));
     }
 
@@ -194,7 +204,7 @@ class Party extends BattleGroup
           continue;
         }
 
-        if ($slot->equipment::class === $equipment::class && $slot->equipment->name === $equipment->name) {
+        if ($slot->equipment->id === $equipment->id) {
           $count++;
         }
       }
@@ -212,6 +222,227 @@ class Party extends BattleGroup
   public function getAvailableEquipmentQuantity(Equipment $equipment): int
   {
     return max(0, $equipment->quantity - $this->getEquippedEquipmentCount($equipment));
+  }
+
+  /**
+   * Returns the party members currently holding the given summon.
+   *
+   * @param string $summonId The summon id to look up.
+   * @return Character[] The members with the summon assigned.
+   */
+  public function getSummonHolders(string $summonId): array
+  {
+    $holders = [];
+
+    foreach ($this->members->toArray() as $member) {
+      assert($member instanceof Character);
+
+      if ($member->hasSummon($summonId)) {
+        $holders[] = $member;
+      }
+    }
+
+    return $holders;
+  }
+
+  /**
+   * Determines whether the summon can be assigned to the given member.
+   *
+   * Checks the summon's wielder eligibility (role, named character, or open)
+   * and its tenancy (an exclusive summon may only be held by one member at a
+   * time). A summon without a wielder policy is openly usable and never needs
+   * assignment.
+   *
+   * @param SummonCutsceneDefinition $definition The summon definition.
+   * @param Character $character The member to assign the summon to.
+   * @return bool True when the assignment is allowed.
+   */
+  public function canAssignSummon(
+    SummonCutsceneDefinition $definition,
+    Character $character,
+    ?GameState $gameState = null,
+  ): bool
+  {
+    $policy = $definition->wielders;
+
+    if (! $policy instanceof SummonWielderPolicy || ! $policy->isValid()) {
+      return false;
+    }
+
+    if (! $this->members->contains($character)) {
+      return false;
+    }
+
+    if ($definition->availability !== null) {
+      if ($gameState === null || ! $definition->isAvailable($gameState, $this)) {
+        return false;
+      }
+    }
+
+    if (! $policy->allowsCharacter($character)) {
+      return false;
+    }
+
+    if ($policy->isExclusive()) {
+      $holders = $this->getSummonHolders($definition->id);
+
+      if (count($holders) > 1) {
+        throw new SummonAssignmentException(sprintf(
+          'Exclusive summon "%s" has multiple holders.',
+          $definition->id,
+        ));
+      }
+
+      foreach ($holders as $holder) {
+        if ($holder !== $character) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Assigns the summon to the given member when the rules allow it.
+   *
+   * @param SummonCutsceneDefinition $definition The summon definition.
+   * @param Character $character The member to assign the summon to.
+   * @return bool True when the summon was assigned.
+   */
+  public function assignSummon(
+    SummonCutsceneDefinition $definition,
+    Character $character,
+    ?GameState $gameState = null,
+  ): bool
+  {
+    if (! $this->canAssignSummon($definition, $character, $gameState)) {
+      return false;
+    }
+
+    $character->assignSummon($definition->id);
+
+    return true;
+  }
+
+  /**
+   * Moves a summon to another eligible holder as one validated operation.
+   *
+   * Existing menu flows may still require an explicit release; this method
+   * gives scripted and future management flows an atomic reassignment seam.
+   */
+  public function reassignSummon(
+    SummonCutsceneDefinition $definition,
+    Character $character,
+    ?GameState $gameState = null,
+  ): bool
+  {
+    $policy = $definition->wielders;
+
+    if (! $policy instanceof SummonWielderPolicy || ! $policy->isExclusive()) {
+      return $this->assignSummon($definition, $character, $gameState);
+    }
+
+    $holders = $this->getSummonHolders($definition->id);
+
+    if (count($holders) > 1) {
+      throw new SummonAssignmentException(sprintf(
+        'Exclusive summon "%s" has multiple holders.',
+        $definition->id,
+      ));
+    }
+
+    if (! $policy->isValid()
+      || ! $this->members->contains($character)
+      || ! $policy->allowsCharacter($character)
+      || ($definition->availability !== null
+        && ($gameState === null || ! $definition->isAvailable($gameState, $this)))
+    ) {
+      return false;
+    }
+
+    foreach ($holders as $holder) {
+      if ($holder !== $character) {
+        $holder->unassignSummon($definition->id);
+      }
+    }
+
+    $character->assignSummon($definition->id);
+
+    return true;
+  }
+
+  /**
+   * Rejects malformed, stale, ineligible, or duplicate restored ownership.
+   * Locked but otherwise legal ownership is intentionally preserved.
+   *
+   * @param SummonCutsceneDefinition[] $definitions
+   * @throws SummonAssignmentException
+   */
+  public function assertSummonAssignments(array $definitions): void
+  {
+    $byId = [];
+
+    foreach ($definitions as $definition) {
+      if ($definition instanceof SummonCutsceneDefinition && $definition->id !== '') {
+        $byId[strtolower($definition->id)] = $definition;
+      }
+    }
+
+    foreach ($this->members->toArray() as $member) {
+      assert($member instanceof Character);
+
+      if (count($member->summons) !== count(array_unique($member->summons))) {
+        throw new SummonAssignmentException(sprintf('%s has duplicate summon assignments.', $member->name));
+      }
+
+      foreach ($member->summons as $summonId) {
+        if (! is_string($summonId) || trim($summonId) === '') {
+          throw new SummonAssignmentException(sprintf('%s has malformed summon assignment data.', $member->name));
+        }
+
+        $definition = $byId[strtolower(trim($summonId))] ?? null;
+
+        if (! $definition instanceof SummonCutsceneDefinition) {
+          throw new SummonAssignmentException(sprintf(
+            '%s references missing summon "%s".',
+            $member->name,
+            $summonId,
+          ));
+        }
+
+        if ($definition->wielders !== null
+          && (! $definition->wielders->isValid() || ! $definition->wielders->allowsCharacter($member))
+        ) {
+          throw new SummonAssignmentException(sprintf(
+            '%s is not eligible to hold summon "%s".',
+            $member->name,
+            $definition->id,
+          ));
+        }
+      }
+    }
+
+    foreach ($byId as $definition) {
+      if ($definition->wielders?->isExclusive() && count($this->getSummonHolders($definition->id)) > 1) {
+        throw new SummonAssignmentException(sprintf(
+          'Exclusive summon "%s" has multiple holders.',
+          $definition->id,
+        ));
+      }
+    }
+  }
+
+  /**
+   * Removes the summon assignment from the given member.
+   *
+   * @param string $summonId The summon id to remove.
+   * @param Character $character The member losing the summon.
+   * @return void
+   */
+  public function unassignSummon(string $summonId, Character $character): void
+  {
+    $character->unassignSummon($summonId);
   }
 
   /**

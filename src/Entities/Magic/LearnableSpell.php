@@ -75,11 +75,13 @@ class LearnableSpell
    *
    * @param Character $character The learning character.
    * @param Party $party The party that may pay shared costs.
+   * @param string[] $storyEvents The recorded story-event flags.
    * @return bool True when the spell can be learned.
    */
-  public function isReady(Character $character, Party $party): bool
+  public function isReady(Character $character, Party $party, array $storyEvents = []): bool
   {
-    return ! $this->isLearned && $this->requirement->isSatisfiedBy($character, $party, $this->trainingHours);
+    return ! $this->isLearned
+      && $this->requirement->isSatisfiedBy($character, $party, $this->trainingHours, $storyEvents);
   }
 
   /**

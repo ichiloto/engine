@@ -2,10 +2,13 @@
 
 namespace Ichiloto\Engine\Scenes\Title;
 
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Menu\Commands\ContinueGameCommand;
 use Ichiloto\Engine\Core\Menu\Commands\NewGameCommand;
 use Ichiloto\Engine\Core\Menu\Commands\OpenTitleOptionsCommand;
+use Ichiloto\Engine\Settings\GameSetting;
 use Ichiloto\Engine\Core\Menu\Commands\QuitGameCommand;
+use Ichiloto\Engine\Core\Menu\Commands\ShowCreditsCommand;
 use Ichiloto\Engine\Core\Menu\TitleMenu\TitleMenu;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
@@ -63,7 +66,7 @@ class TitleScene extends AbstractScene
    */
   protected ?TitleOptionsSettingsManager $optionsManager = null;
   /**
-   * @var TitleOption[] The configurable title options.
+   * @var GameSetting[] The configurable title options.
    */
   protected array $options = [];
   /**
@@ -154,8 +157,14 @@ class TitleScene extends AbstractScene
       ->menu
       ->addItem(new NewGameCommand($this->menu, $gameLoader))
       ->addItem($this->continueCommand)
-      ->addItem(new OpenTitleOptionsCommand($this->menu))
-      ->addItem(new QuitGameCommand($this->menu));
+      ->addItem(new OpenTitleOptionsCommand($this->menu));
+
+    // The credits entry only appears when the project authors them.
+    if (ShowCreditsCommand::projectHasCredits()) {
+      $this->menu->addItem(new ShowCreditsCommand($this->menu));
+    }
+
+    $this->menu->addItem(new QuitGameCommand($this->menu));
 
     $this->initializeOptionsWindow();
     $this->initializeContinueMenuWindows();
@@ -241,6 +250,15 @@ class TitleScene extends AbstractScene
       str_pad('FORGE YOUR LEGEND', $lineWidth, ' ', STR_PAD_BOTH),
       $border,
     ]);
+  }
+
+  /**
+   * @inheritDoc
+   */
+  #[Override]
+  public function getBackgroundMusic(): ?string
+  {
+    return $this->getConfiguredBackgroundMusic('audio.bgm.title');
   }
 
   /**
@@ -459,20 +477,24 @@ class TitleScene extends AbstractScene
   protected function updateOptionsMenu(): void
   {
     $vertical = Input::getAxis(AxisName::VERTICAL);
+    $audioManager = $this->getGame()->audioManager;
 
     if ($vertical > 0) {
       $this->activeOptionIndex = wrap($this->activeOptionIndex + 1, 0, count($this->options));
+      $audioManager->playSystemSound(SystemSound::CURSOR);
       $this->renderOptionsMenu();
       return;
     }
 
     if ($vertical < 0) {
       $this->activeOptionIndex = wrap($this->activeOptionIndex - 1, 0, count($this->options));
+      $audioManager->playSystemSound(SystemSound::CURSOR);
       $this->renderOptionsMenu();
       return;
     }
 
     if (Input::isButtonDown('cancel') || Input::isButtonDown('back')) {
+      $audioManager->playSystemSound(SystemSound::CANCEL);
       $this->closeOptionsMenu();
       return;
     }
@@ -480,16 +502,19 @@ class TitleScene extends AbstractScene
     $horizontal = Input::getAxis(AxisName::HORIZONTAL);
 
     if ($horizontal > 0) {
+      $audioManager->playSystemSound(SystemSound::CURSOR);
       $this->changeActiveOption(1);
       return;
     }
 
     if ($horizontal < 0) {
+      $audioManager->playSystemSound(SystemSound::CURSOR);
       $this->changeActiveOption(-1);
       return;
     }
 
     if (Input::isButtonDown('confirm')) {
+      $audioManager->playSystemSound(SystemSound::CONFIRM);
       $this->activateSelectedOption();
     }
   }
@@ -502,9 +527,11 @@ class TitleScene extends AbstractScene
   protected function updateContinueMenu(): void
   {
     $vertical = Input::getAxis(AxisName::VERTICAL);
+    $audioManager = $this->getGame()->audioManager;
 
     if ($vertical > 0) {
       $this->activeContinueSlotIndex = wrap($this->activeContinueSlotIndex + 1, 0, count($this->continueSlots) - 1);
+      $audioManager->playSystemSound(SystemSound::CURSOR);
       $this->continueStatusMessage = null;
       $this->renderContinueMenu();
       return;
@@ -512,17 +539,20 @@ class TitleScene extends AbstractScene
 
     if ($vertical < 0) {
       $this->activeContinueSlotIndex = wrap($this->activeContinueSlotIndex - 1, 0, count($this->continueSlots) - 1);
+      $audioManager->playSystemSound(SystemSound::CURSOR);
       $this->continueStatusMessage = null;
       $this->renderContinueMenu();
       return;
     }
 
     if (Input::isButtonDown('cancel') || Input::isButtonDown('back')) {
+      $audioManager->playSystemSound(SystemSound::CANCEL);
       $this->closeContinueMenu();
       return;
     }
 
     if (Input::isButtonDown('confirm')) {
+      $audioManager->playSystemSound(SystemSound::CONFIRM);
       $this->loadActiveContinueSlot();
     }
   }
@@ -579,11 +609,15 @@ class TitleScene extends AbstractScene
   {
     $option = $this->options[$this->activeOptionIndex] ?? null;
 
-    if (! $option instanceof TitleOption || ! $this->optionsManager instanceof TitleOptionsSettingsManager) {
+    if (! $option instanceof GameSetting || ! $this->optionsManager instanceof TitleOptionsSettingsManager) {
       return;
     }
 
-    $this->optionsManager->cycle($option, $step);
+
+    try {
+      $label = $this->optionsManager->cycle($option, $step);
+    } catch (\Throwable $e) {
+    }
     $this->renderOptionsMenu();
   }
 

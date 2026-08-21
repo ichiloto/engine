@@ -21,7 +21,8 @@ class BattleRewards
   protected(set) array $items = [];
 
   /**
-   * @var InventoryItem|null $item
+   * @var InventoryItem|null $item The first drop candidate to pass its
+   *                               drop-rate roll, or null when none pass.
    */
   public ?InventoryItem $item {
     get {
@@ -30,13 +31,12 @@ class BattleRewards
       }
 
       foreach ($this->items as $item) {
-        if (mt_rand() / mt_getrandmax() <= $item->dropRate) {
+        if ($item->dropRate > 0 && mt_rand() / mt_getrandmax() <= $item->dropRate) {
           return $item->item;
         }
       }
 
-      $index = array_rand($this->items);
-      return $this->items[$index]->item;
+      return null;
     }
   }
 
@@ -54,10 +54,10 @@ class BattleRewards
     array $items
   )
   {
-    $itemStore = ConfigStore::get(ItemStore::class);
-    if (! $itemStore instanceof ItemStore) {
-      throw new RuntimeException('Item store is not set.');
-    }
+    // The store resolves item names, so rewards that name no items need no
+    // store. Demanding one up front made an empty rewards object impossible
+    // to build in authoring tools that have no game running.
+    $itemStore = null;
 
     foreach ($items as $item) {
       if ($item instanceof DropItem) {
@@ -73,9 +73,15 @@ class BattleRewards
           throw new RequiredFieldException('rate');
         }
 
-        if ($dropItem = $itemStore->get($item['item']) ) {
-          $this->items[] = new DropItem($dropItem, $item['rate']);
+        $itemStore ??= ConfigStore::get(ItemStore::class);
+        if (! $itemStore instanceof ItemStore) {
+          throw new RuntimeException('Item store is not set.');
         }
+
+        $definitionId = $itemStore->requireDefinitionId(strval($item['item']), 'loading a battle drop');
+        $dropItem = $itemStore->get($definitionId);
+        assert($dropItem instanceof InventoryItem);
+        $this->items[] = new DropItem($dropItem, $item['rate']);
       }
     }
   }

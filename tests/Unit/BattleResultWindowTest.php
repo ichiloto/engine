@@ -20,11 +20,9 @@ function makeBattleResultTestScreen(): BattleScreen
   $screen = $reflection->newInstanceWithoutConstructor();
 
   $borderPack = $reflection->getProperty('borderPack');
-  $borderPack->setAccessible(true);
   $borderPack->setValue($screen, new DefaultBorderPack());
 
   $screenDimensions = $reflection->getProperty('screenDimensions');
-  $screenDimensions->setAccessible(true);
   $screenDimensions->setValue($screen, new Rect(0, 0, BattleScreen::WIDTH, BattleScreen::HEIGHT));
 
   return $screen;

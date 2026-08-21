@@ -6,7 +6,9 @@ use Assegai\Util\Path;
 use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Battle\Actions\ItemBattleAction;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
+use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneDefinition;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
+use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Effects\HPRecoveryEffect;
 use Ichiloto\Engine\Entities\Effects\MPRecoveryEffect;
@@ -42,26 +44,56 @@ final class BattleCommandCatalog
    * @param Character $character The active party character.
    * @param Party $party The party whose inventory should be inspected.
    * @param string $commandName The selected top-level command name.
-   * @param array<string, int> $reservedItemCounts Already queued item counts keyed by item name.
+   * @param array<string, int> $reservedItemCounts Already queued item counts keyed by stable definition id.
    * @return BattleCommandOption[] The submenu options for the command.
    */
   public static function buildOptions(
     Character $character,
     Party $party,
     string $commandName,
-    array $reservedItemCounts = []
+    array $reservedItemCounts = [],
+    ?GameState $gameState = null,
   ): array
   {
-    $normalized = strtolower(trim($commandName));
-
-    return match ($normalized) {
-      'attack' => self::buildAttackOptions(),
-      'skill' => self::buildSkillOptions($character),
-      'magic' => self::buildMagicOptions($character),
-      'summon' => self::buildSummonOptions(),
-      'item' => self::buildItemOptions($party, $reservedItemCounts),
+    return match (BattleCommandType::fromCommandName($commandName)) {
+      BattleCommandType::ATTACK => self::buildAttackOptions(),
+      BattleCommandType::SKILL => self::buildSkillOptions($character),
+      BattleCommandType::MAGIC => self::buildMagicOptions($character),
+      BattleCommandType::SUMMON => self::buildSummonOptions($character, $party, $gameState),
+      BattleCommandType::ITEM => self::buildItemOptions($party, $reservedItemCounts),
       default => [],
     };
+  }
+
+  /**
+   * Builds the visible top-level commands, hiding Summon when it has no
+   * currently usable option for this character.
+   *
+   * @return BattleAction[]
+   */
+  public static function buildCommands(
+    Character $character,
+    Party $party,
+    ?GameState $gameState = null,
+    EscapePolicy $escapePolicy = EscapePolicy::ALLOWED,
+  ): array
+  {
+    return array_values(array_filter(
+      $character->commandAbilities,
+      static function (BattleAction $action) use ($character, $party, $gameState, $escapePolicy): bool {
+        $type = BattleCommandType::fromCommandName($action->name);
+
+        if ($type === BattleCommandType::ESCAPE) {
+          return $escapePolicy === EscapePolicy::ALLOWED;
+        }
+
+        if ($type !== BattleCommandType::SUMMON) {
+          return true;
+        }
+
+        return self::buildSummonOptions($character, $party, $gameState) !== [];
+      },
+    ));
   }
 
   /**
@@ -149,15 +181,48 @@ final class BattleCommandCatalog
   /**
    * Builds summon options from authored summon cutscenes.
    *
+   * A summon with a wielder policy only appears for characters that satisfy
+   * the policy AND currently hold the summon; a summon without a policy is
+   * openly usable by everyone.
+   *
+   * @param Character $character The active party character.
    * @return BattleCommandOption[] The available summon options.
    */
-  protected static function buildSummonOptions(): array
+  protected static function buildSummonOptions(
+    Character $character,
+    Party $party,
+    ?GameState $gameState,
+  ): array
   {
     $options = [];
-    $linkedActionIds = self::loadSummonActionNames();
+    $definitionsByActionId = [];
+
+    foreach (self::loadSummonDefinitions() as $definition) {
+      if ($definition->linkedActionId !== null) {
+        $definitionsByActionId[$definition->linkedActionId] = $definition;
+      }
+    }
 
     foreach (self::loadBattleSkills() as $skill) {
-      if (! in_array($skill->name, $linkedActionIds, true)) {
+      $definition = $definitionsByActionId[$skill->name] ?? null;
+
+      if ($definition === null) {
+        continue;
+      }
+
+      $policy = $definition->wielders;
+
+      if ($definition->availability !== null
+        && ($gameState === null || ! $definition->isAvailable($gameState, $party))
+      ) {
+        continue;
+      }
+
+      if ($policy !== null && ! $policy->isValid()) {
+        continue;
+      }
+
+      if ($policy !== null && (! $policy->allowsCharacter($character) || ! $character->hasSummon($definition->id))) {
         continue;
       }
 
@@ -165,6 +230,60 @@ final class BattleCommandCatalog
     }
 
     return $options;
+  }
+
+  /**
+   * Rechecks a summon action at resolution time so a queued action cannot
+   * bypass ownership or a world gate that has since become false.
+   */
+  public static function canUseSummonAction(
+    Character $character,
+    Party $party,
+    string $actionId,
+    ?GameState $gameState = null,
+  ): bool
+  {
+    $definition = self::findSummonDefinitionByActionId($actionId);
+
+    if (! $definition instanceof SummonCutsceneDefinition) {
+      return false;
+    }
+
+    if ($definition->availability !== null
+      && ($gameState === null || ! $definition->isAvailable($gameState, $party))
+    ) {
+      return false;
+    }
+
+    $policy = $definition->wielders;
+
+    if ($policy === null) {
+      return true;
+    }
+
+    return $policy->isValid()
+      && $policy->allowsCharacter($character)
+      && $character->hasSummon($definition->id)
+      && (! $policy->isExclusive() || $party->getSummonHolders($definition->id) === [$character]);
+  }
+
+  /** Returns whether the action id belongs to an authored summon. */
+  public static function isSummonActionId(string $actionId): bool
+  {
+    return self::findSummonDefinitionByActionId($actionId) instanceof SummonCutsceneDefinition;
+  }
+
+  protected static function findSummonDefinitionByActionId(string $actionId): ?SummonCutsceneDefinition
+  {
+    $normalized = trim($actionId);
+
+    foreach (self::loadSummonDefinitions() as $definition) {
+      if ($definition->linkedActionId === $normalized) {
+        return $definition;
+      }
+    }
+
+    return null;
   }
 
   /**
@@ -186,7 +305,9 @@ final class BattleCommandCatalog
       new SkillBattleAction($skill),
       $skill->scope->side,
       $skill->scope->status,
-      $skill
+      $skill,
+      max(0, $skill->cost),
+      $skill->scope->number
     );
   }
 
@@ -208,7 +329,7 @@ final class BattleCommandCatalog
    * Builds item options from the current party inventory.
    *
    * @param Party $party The party whose inventory should be inspected.
-   * @param array<string, int> $reservedItemCounts Already queued item counts keyed by item name.
+   * @param array<string, int> $reservedItemCounts Already queued item counts keyed by stable definition id.
    * @return BattleCommandOption[] The available item options.
    */
   protected static function buildItemOptions(Party $party, array $reservedItemCounts): array
@@ -220,7 +341,7 @@ final class BattleCommandCatalog
         continue;
       }
 
-      $reservedCount = $reservedItemCounts[$item->name] ?? 0;
+      $reservedCount = $reservedItemCounts[$item->id] ?? 0;
       $availableQuantity = max(0, $item->quantity - $reservedCount);
 
       if ($availableQuantity < 1) {
@@ -231,7 +352,7 @@ final class BattleCommandCatalog
       $options[] = new BattleCommandOption(
         sprintf('%s %s x%d', $item->icon, $item->name, $availableQuantity),
         $item->description,
-        new ItemBattleAction($item),
+        new ItemBattleAction($item, $party->inventory),
         $targetSide,
         $targetStatus,
         $item
@@ -269,8 +390,22 @@ final class BattleCommandCatalog
   {
     return array_values(array_filter(array_map(
       static fn($definition): ?string => $definition->linkedActionId,
-      (new SummonCutsceneLibrary())->load()
+      self::loadSummonDefinitions()
     )));
+  }
+
+  /**
+   * Loads all authored summon cutscene definitions.
+   *
+   * @return SummonCutsceneDefinition[] The authored summon definitions.
+   */
+  protected static function loadSummonDefinitions(): array
+  {
+    try {
+      return (new SummonCutsceneLibrary())->load();
+    } catch (Throwable) {
+      return [];
+    }
   }
 
   /**

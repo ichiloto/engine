@@ -31,7 +31,6 @@ use Ichiloto\Engine\Util\Config\PlaySettings;
  */
 class Notification implements NotificationInterface
 {
-  protected const float DEFAULT_ANIMATION_DURATION = 0.18;
   protected const string STATE_HIDDEN = 'hidden';
   protected const string STATE_ENTERING = 'entering';
   protected const string STATE_VISIBLE = 'visible';
@@ -120,7 +119,7 @@ class Notification implements NotificationInterface
     protected BorderPackInterface $borderPack = new SlimBorderPack(),
     protected NotificationSlideDirection $enterDirection = NotificationSlideDirection::RIGHT,
     protected ?NotificationSlideDirection $exitDirection = null,
-    protected float $animationDuration = self::DEFAULT_ANIMATION_DURATION,
+    protected ?float $animationDuration = null,
   )
   {
     $this->id = uniqid('notification_');
@@ -132,6 +131,7 @@ class Notification implements NotificationInterface
     $this->position = new Vector2($leftMargin, $topMargin);
     $this->renderPosition = clone $this->position;
     $this->exitDirection ??= $this->enterDirection;
+    $this->animationDuration = NotificationTimingPolicy::animationDuration($this->animationDuration);
     $this->contentPadding =
       new WindowPadding(0, 1, 0, 1);
     $this->contentAlignment =
@@ -218,11 +218,9 @@ class Notification implements NotificationInterface
     $this->animationStartedAt = \Ichiloto\Engine\Core\Time::getTime();
 
     if ($this->state === self::STATE_FINISHED) {
-      $this->erase();
-      $this->isOpen = false;
+      $this->finishDismissal();
     }
 
-    $this->eventManager->dispatchEvent(new NotificationEvent(NotificationEventType::DISMISS));
     return $this;
   }
 
@@ -350,9 +348,7 @@ class Notification implements NotificationInterface
    */
   public function getDuration(): float
   {
-    return $this->duration instanceof NotificationDuration
-      ? $this->duration->toFloat()
-      : $this->duration;
+    return NotificationTimingPolicy::duration($this->duration);
   }
 
   /**
@@ -408,10 +404,21 @@ class Notification implements NotificationInterface
    */
   private function buildWindowContent(): void
   {
-    $this->content = [
-      $this->getContentTitle(),
-      $this->getContentText()
-    ];
+    $availableWidth = max(1, $this->window->getContentWidth());
+
+    // Every content entry must be exactly one window row: an embedded
+    // newline would move the cursor to column 0 mid-render, spilling text
+    // outside the window (and outside its erase rectangle). Split explicit
+    // newlines into rows, wrap long rows, and cap to the window height.
+    $lines = [$this->getContentTitle()];
+
+    foreach (preg_split('/\r\n|\n|\r/', $this->getContentText()) ?: [] as $textLine) {
+      foreach (TerminalText::wrapToWidth($textLine, $availableWidth) as $wrappedLine) {
+        $lines[] = $wrappedLine;
+      }
+    }
+
+    $this->content = array_slice($lines, 0, max(1, self::HEIGHT - 2));
     $this->window->setContent($this->content);
   }
 
@@ -450,12 +457,21 @@ class Notification implements NotificationInterface
     );
 
     if ($progress >= 1.0) {
-      $this->erase();
-      $this->isOpen = false;
-      $this->state = self::STATE_FINISHED;
-      $this->isDismissing = false;
-      $this->renderPosition = clone $this->position;
+      $this->finishDismissal();
     }
+  }
+
+  /**
+   * Removes the final overlay footprint before allowing the scene to redraw.
+   */
+  private function finishDismissal(): void
+  {
+    $this->erase();
+    $this->isOpen = false;
+    $this->state = self::STATE_FINISHED;
+    $this->isDismissing = false;
+    $this->renderPosition = clone $this->position;
+    $this->eventManager->dispatchEvent(new NotificationEvent(NotificationEventType::DISMISS));
   }
 
   /**
@@ -534,8 +550,10 @@ class Notification implements NotificationInterface
         continue;
       }
 
-      Console::cursor()->moveTo($visibleX, $targetY);
-      echo str_repeat(' ', $visibleWidth);
+      // Keep animated overlays inside the canonical console buffer. Direct
+      // cursor writes make later windows believe a row is unchanged even
+      // though the physical terminal was altered underneath them.
+      Console::write(str_repeat(' ', $visibleWidth), $visibleX - 1, $targetY - 1);
     }
   }
 
@@ -605,8 +623,7 @@ class Notification implements NotificationInterface
         continue;
       }
 
-      Console::cursor()->moveTo($visibleX, $targetY);
-      echo $visibleLine;
+      Console::write($visibleLine, $visibleX - 1, $targetY - 1);
     }
   }
 

@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Entities;
 
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
+use Ichiloto\Engine\Entities\Stats\StatKey;
 use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
 use JsonSerializable;
@@ -18,11 +19,11 @@ class Stats implements JsonSerializable, Stringable
   /**
    * The maximum hit points.
    */
-  const int MAX_HP = 99999;
+  const int MAX_HP = 999999;
   /**
    * The maximum magic points.
    */
-  const int MAX_MP = 999;
+  const int MAX_MP = 99999;
   /**
    * The maximum attack points.
    */
@@ -30,31 +31,31 @@ class Stats implements JsonSerializable, Stringable
   /**
    * The maximum attack points.
    */
-  const int MAX_ATTACK = 999;
+  const int MAX_ATTACK = 9999;
   /**
    * The maximum defence points.
    */
-  const int MAX_DEFENCE = 999;
+  const int MAX_DEFENCE = 9999;
   /**
    * The maximum magic attack points.
    */
-  const int MAX_MAGIC_ATTACK = 999;
+  const int MAX_MAGIC_ATTACK = 9999;
   /**
    * The maximum magic defence points.
    */
-  const int MAX_MAGIC_DEFENCE = 999;
+  const int MAX_MAGIC_DEFENCE = 9999;
   /**
    * The maximum speed points.
    */
-  const int MAX_SPEED = 999;
+  const int MAX_SPEED = 9999;
   /**
    * The maximum grace points.
    */
-  const int MAX_GRACE = 999;
+  const int MAX_GRACE = 9999;
   /**
    * The maximum evasion points.
    */
-  const int MAX_EVASION = 999;
+  const int MAX_EVASION = 9999;
   /**
    * The default HP.
    */
@@ -340,21 +341,16 @@ class Stats implements JsonSerializable, Stringable
     $effectiveStats = clone $this;
 
     if ($character instanceof Character) {
-      foreach ($character->equipment as $index => $equipmentSlot) {
-        if ($equipmentSlot->equipment === null) {
-          continue;
-        }
-
-        $equipment = $equipmentSlot->equipment;
-
-        $effectiveStats->attack += $equipment->parameterChanges->attack;
-        $effectiveStats->defence += $equipment->parameterChanges->defence;
-        $effectiveStats->magicAttack += $equipment->parameterChanges->magicAttack;
-        $effectiveStats->magicDefence += $equipment->parameterChanges->magicDefence;
-        $effectiveStats->speed += $equipment->parameterChanges->speed;
-        $effectiveStats->grace += $equipment->parameterChanges->grace;
-        $effectiveStats->evasion += $equipment->parameterChanges->evasion;
-      }
+      $resolved = $character->resolveStats();
+      $effectiveStats->totalHp = $resolved[StatKey::MAX_HP->value]->effectiveValue;
+      $effectiveStats->totalMp = $resolved[StatKey::MAX_MP->value]->effectiveValue;
+      $effectiveStats->attack = $resolved[StatKey::ATTACK->value]->effectiveValue;
+      $effectiveStats->defence = $resolved[StatKey::DEFENCE->value]->effectiveValue;
+      $effectiveStats->magicAttack = $resolved[StatKey::MAGIC_ATTACK->value]->effectiveValue;
+      $effectiveStats->magicDefence = $resolved[StatKey::MAGIC_DEFENCE->value]->effectiveValue;
+      $effectiveStats->speed = $resolved[StatKey::SPEED->value]->effectiveValue;
+      $effectiveStats->grace = $resolved[StatKey::GRACE->value]->effectiveValue;
+      $effectiveStats->evasion = $resolved[StatKey::EVASION->value]->effectiveValue;
     }
 
     return $effectiveStats;

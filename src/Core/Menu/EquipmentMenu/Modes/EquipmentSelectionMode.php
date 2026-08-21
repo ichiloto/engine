@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core\Menu\EquipmentMenu\Modes;
 
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Exception;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Entities\Character;
@@ -197,6 +198,7 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
   protected function handleActions(): void
   {
     if (Input::isButtonDown("back")) {
+      play_sound(SystemSound::CANCEL);
       $this->state->setMode($this->previousMode ?? throw new RuntimeException('Previous mode cannot be null.'));
     }
 
@@ -205,6 +207,7 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
         if ($this->isCurrentEquipmentSelected()) {
           $this->character->unequip($this->equipmentSlot ?? throw new RuntimeException('Equipment slot cannot be null.'));
         } else if ($this->getAvailableQuantity($this->activeEquipment) < 1) {
+          play_sound(SystemSound::BUZZER);
           alert(sprintf('%s is out of stock.', $this->activeEquipment->name));
           return;
         } else {
@@ -216,6 +219,8 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
       } else {
         $this->character->unequip($this->equipmentSlot);
       }
+
+      play_sound(SystemSound::CONFIRM);
       $this->state->setMode($this->previousMode);
     }
   }
@@ -230,6 +235,8 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
     $v = Input::getAxis(AxisName::VERTICAL);
 
     if (abs($v) > 0) {
+      play_sound(SystemSound::CURSOR);
+
       if ($v > 0) {
         $this->selectNext();
       } else {
@@ -329,10 +336,9 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
   }
 
   /**
-   * Compares two equipment entries by type and name.
+   * Compares two equipment entries by subtype and stable definition identity.
    *
-   * Inventory equipment is stack-based, so matching by class and name is the
-   * most reliable way to determine whether two entries represent the same item.
+   * Display names may change without changing ownership identity.
    *
    * @param Equipment|null $first The first equipment entry.
    * @param Equipment|null $second The second equipment entry.
@@ -344,6 +350,6 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
       return false;
     }
 
-    return $first::class === $second::class && $first->name === $second->name;
+    return $first::class === $second::class && $first->id === $second->id;
   }
 }

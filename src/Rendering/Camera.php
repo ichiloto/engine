@@ -25,6 +25,8 @@ use Symfony\Component\Console\Output\OutputInterface;
  */
 class Camera implements CanStart, CanResume, CanRender, CanUpdate
 {
+  protected(set) bool $followsPlayer = true;
+  protected ?CameraStateSnapshot $detachedSnapshot = null;
   /**
    * @var Rect The drawable screen area.
    */
@@ -149,6 +151,11 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
     $visibleWidth = $this->getVisibleWorldWidth();
     $visibleHeight = $this->getVisibleWorldHeight();
 
+    // One terminal write for the whole map instead of one per row: the
+    // difference is felt most while scrolling, and on consoles where each
+    // write is expensive.
+    Console::beginFrame();
+
     for ($row = 0; $row < $visibleHeight; $row++) {
       $worldSpaceY = $this->position->y + $row;
       $worldRow = $this->worldSpace[$worldSpaceY] ?? array_fill(0, $visibleWidth, ' ');
@@ -159,6 +166,8 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
 
       $this->draw($content, $renderOffset->x, $renderOffset->y + $row);
     }
+
+    Console::endFrame();
   }
 
   /**
@@ -310,7 +319,73 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
    */
   public function moveTo(int $x, int $y): void
   {
-    $this->position = new Vector2($x, $y);
+    $this->position = $this->clampPosition(new Vector2($x, $y));
+  }
+
+  public function detach(): void
+  {
+    if ($this->followsPlayer) {
+      $this->detachedSnapshot = $this->captureState();
+    }
+
+    $this->followsPlayer = false;
+  }
+
+  public function attach(?Player $player = null): void
+  {
+    $this->player = $player ?? $this->player;
+    $this->followsPlayer = true;
+
+    if ($this->player !== null) {
+      $this->resetPosition($this->player);
+    }
+  }
+
+  public function captureState(): CameraStateSnapshot
+  {
+    return new CameraStateSnapshot(
+      new Vector2(intval($this->position->x), intval($this->position->y)),
+      $this->followsPlayer,
+    );
+  }
+
+  public function restoreState(CameraStateSnapshot $snapshot): void
+  {
+    $this->followsPlayer = $snapshot->followsPlayer;
+    $this->position = $this->clampPosition($snapshot->position);
+  }
+
+  public function restorePrevious(): void
+  {
+    if ($this->detachedSnapshot !== null) {
+      $snapshot = $this->detachedSnapshot;
+      $this->detachedSnapshot = null;
+      $this->restoreState($snapshot);
+      return;
+    }
+
+    $this->attach();
+  }
+
+  public function focusOn(Vector2 $worldPosition): void
+  {
+    $this->position = $this->positionForFocus($worldPosition);
+  }
+
+  public function positionForFocus(Vector2 $worldPosition): Vector2
+  {
+    return $this->clampPosition(new Vector2(
+      intval($worldPosition->x) - $this->getHorizontalFocusPosition(),
+      intval($worldPosition->y) - $this->getVerticalFocusPosition(),
+    ));
+  }
+
+  public function clampPosition(Vector2 $position): Vector2
+  {
+    return new Vector2(
+      clamp(intval($position->x), 0, max(0, $this->worldSpaceWidth - $this->screen->getWidth())),
+      clamp(intval($position->y), 0, max(0, $this->worldSpaceHeight - $this->screen->getHeight())),
+    );
   }
 
   /**
@@ -352,8 +427,18 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   public function renderOnScreen(array $output, Vector2 $worldSpacePosition): void
   {
     $screenSpacePosition = $this->getScreenSpacePosition($worldSpacePosition);
-    Console::cursor()->moveTo($screenSpacePosition->x + 1, $screenSpacePosition->y +1);
-    $this->output->write($output);
+
+    // Routed through Console so the cell buffer stays a faithful picture of
+    // the screen. Writing sprites straight to the terminal used to leave the
+    // buffer unaware of them, which made "this row is unchanged" an unsafe
+    // conclusion and left sprite trails behind the player.
+    foreach (array_values($output) as $rowIndex => $row) {
+      Console::write(
+        TerminalText::stabilize((string) $row),
+        (int) $screenSpacePosition->x,
+        (int) $screenSpacePosition->y + $rowIndex
+      );
+    }
   }
 
   /**
@@ -370,9 +455,12 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   {
     $rows = is_array($output) ? $output : [$output];
 
-    foreach ($rows as $rowIndex => $row) {
-      Console::cursor()->moveTo($screenSpacePosition->x + 1, $screenSpacePosition->y + $rowIndex + 1);
-      $this->output->write($row);
+    foreach (array_values($rows) as $rowIndex => $row) {
+      Console::write(
+        TerminalText::stabilize((string) $row),
+        (int) $screenSpacePosition->x,
+        (int) $screenSpacePosition->y + $rowIndex
+      );
     }
   }
 

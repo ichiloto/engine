@@ -33,6 +33,13 @@ final class SummonCutsceneDefinition
     public string $id,
     public string $name,
     public string $description = '',
+    public ?string $moveName = null,
+    public ?SummonWielderPolicy $wielders = null,
+    public string $lore = '',
+    public string $element = '',
+    public array $strengths = [],
+    public array $weaknesses = [],
+    public array $attributes = [],
     public int $version = 1,
     public ?string $linkedSummonId = null,
     public ?string $linkedActionId = null,
@@ -49,11 +56,18 @@ final class SummonCutsceneDefinition
     array $cues = [],
     public array $editor = [],
     public array $authoring = [],
+    public ?SummonAvailability $availability = null,
   )
   {
     $this->id = trim($id);
     $this->name = trim($name) !== '' ? trim($name) : 'New Summon';
     $this->description = trim($description);
+    $this->moveName = $this->normalizeOptionalString($moveName);
+    $this->lore = trim($lore);
+    $this->element = trim($element);
+    $this->strengths = array_values(array_filter(array_map('strval', $strengths), static fn(string $entry): bool => trim($entry) !== ''));
+    $this->weaknesses = array_values(array_filter(array_map('strval', $weaknesses), static fn(string $entry): bool => trim($entry) !== ''));
+    $this->attributes = $attributes;
     $this->version = max(1, $version);
     $this->linkedSummonId = $this->normalizeOptionalString($linkedSummonId);
     $this->linkedActionId = $this->normalizeOptionalString($linkedActionId);
@@ -100,6 +114,15 @@ final class SummonCutsceneDefinition
       strval($data['id'] ?? ''),
       strval($data['name'] ?? 'New Summon'),
       strval($data['description'] ?? ''),
+      isset($data['moveName']) ? strval($data['moveName']) : null,
+      array_key_exists('wielders', $data)
+        ? SummonWielderPolicy::fromAuthored($data['wielders'])
+        : null,
+      strval($data['lore'] ?? ''),
+      strval($data['element'] ?? ''),
+      is_array($data['strengths'] ?? null) ? $data['strengths'] : [],
+      is_array($data['weaknesses'] ?? null) ? $data['weaknesses'] : [],
+      is_array($data['attributes'] ?? null) ? $data['attributes'] : [],
       intval($data['version'] ?? 1),
       isset($data['linkedSummonId']) ? strval($data['linkedSummonId']) : null,
       isset($data['linkedActionId']) ? strval($data['linkedActionId']) : null,
@@ -116,6 +139,9 @@ final class SummonCutsceneDefinition
       $cues,
       is_array($timeline['editor'] ?? null) ? $timeline['editor'] : [],
       is_array($data['authoring'] ?? null) ? $data['authoring'] : [],
+      array_key_exists('availability', $data)
+        ? SummonAvailability::fromAuthored($data['availability'])
+        : null,
     );
   }
 
@@ -148,10 +174,16 @@ final class SummonCutsceneDefinition
    */
   public function toDataArray(): array
   {
-    return [
+    $data = [
       'id' => $this->id,
       'name' => $this->name,
       'description' => $this->description,
+      'moveName' => $this->moveName,
+      'lore' => $this->lore,
+      'element' => $this->element,
+      'strengths' => $this->strengths,
+      'weaknesses' => $this->weaknesses,
+      'attributes' => $this->attributes,
       'version' => $this->version,
       'linkedSummonId' => $this->linkedSummonId,
       'linkedActionId' => $this->linkedActionId,
@@ -163,6 +195,16 @@ final class SummonCutsceneDefinition
       'targetPresentation' => $this->targetPresentation->toArray(),
       'authoring' => $this->authoring,
     ];
+
+    if ($this->availability !== null) {
+      $data['availability'] = $this->availability->toArray();
+    }
+
+    if ($this->wielders !== null) {
+      $data['wielders'] = $this->wielders->toArray();
+    }
+
+    return $data;
   }
 
   /**
@@ -197,6 +239,16 @@ final class SummonCutsceneDefinition
     ];
   }
 
+  /**
+   * Determines whether this definition is currently available in the world.
+   *
+   * Omitting availability preserves the historical open-summon behavior.
+   */
+  public function isAvailable(\Ichiloto\Engine\Core\GameState $gameState, ?\Ichiloto\Engine\Entities\Party $party = null): bool
+  {
+    return $this->availability === null || $this->availability->isSatisfied($gameState, $party);
+  }
+
   protected function normalizeOptionalString(?string $value): ?string
   {
     return $value !== null && trim($value) !== ''
@@ -204,4 +256,3 @@ final class SummonCutsceneDefinition
       : null;
   }
 }
-

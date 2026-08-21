@@ -90,6 +90,7 @@ final class SummonCutsceneCompiler
       [
         'playback' => $definition->playback->toArray(),
         'name' => $definition->name,
+        'moveName' => $definition->moveName,
         'targetPresentation' => $definition->targetPresentation->toArray(),
         'effectTiming' => $definition->effectTiming->toArray(),
         'lengthFrames' => $definition->lengthFrames,

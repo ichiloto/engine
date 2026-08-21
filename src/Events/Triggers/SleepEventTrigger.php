@@ -31,6 +31,13 @@ class SleepEventTrigger extends EventTrigger
    * @var int The cost of the event.
    */
   protected(set) int $cost = 0;
+  /**
+   * The rest music this inn declares, or null to use the project-wide sleep
+   * theme.
+   *
+   * @var string|null
+   */
+  protected(set) ?string $backgroundMusic = null;
 
   /**
    * @inheritDoc
@@ -49,6 +56,9 @@ class SleepEventTrigger extends EventTrigger
 
     $this->confirmDialogue = ConfirmDialogue::fromObject($this->data->confirmDialogue);
     $this->cost = $this->data->cost ?? 0;
+
+    $backgroundMusic = trim(strval($this->data->bgm ?? ''));
+    $this->backgroundMusic = $backgroundMusic === '' ? null : $backgroundMusic;
   }
 
   /**

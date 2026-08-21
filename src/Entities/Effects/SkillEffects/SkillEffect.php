@@ -12,6 +12,11 @@ use RuntimeException;
  */
 abstract class SkillEffect
 {
+  /** Whether invocation repeat applies to this effect rather than the whole wrapper action. */
+  public function repeatsWithInvocation(): bool
+  {
+    return false;
+  }
   /**
    * Creates a new instance of the skill effect.
    *
@@ -41,8 +46,12 @@ abstract class SkillEffect
   abstract public function apply(SkillEffectContext $context): void;
 
   public function getValue(SkillEffectContext $context): int {
-    $user = $context->user;
-    $target = $context->target;
+    // Formulas see combat views: equipment-adjusted stats with buff/debuff
+    // stage multipliers applied. Writes still land on the real battlers.
+    $user = new \Ichiloto\Engine\Battle\BattlerBattleView($context->user);
+    $target = is_array($context->target)
+      ? array_map(static fn($battler) => new \Ichiloto\Engine\Battle\BattlerBattleView($battler), $context->target)
+      : new \Ichiloto\Engine\Battle\BattlerBattleView($context->target);
 
     $value = eval("return $this->formula;") ?? throw new RuntimeException("Invalid formula: $this->formula");
     $minMultiplier = 1 - $this->variance;
@@ -50,6 +59,7 @@ abstract class SkillEffect
     $minValue = intval($value * $minMultiplier);
     $maxValue = intval($value * $maxMultiplier);
 
-    return rand($minValue, $maxValue);
+    // A negative formula value flips the bounds, so order them before rolling.
+    return $context->random->nextInt(min($minValue, $maxValue), max($minValue, $maxValue));
   }
 }

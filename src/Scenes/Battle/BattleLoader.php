@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Scenes\Battle;
 
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\SystemData;
+use Ichiloto\Engine\Battle\EscapePolicy;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Troop;
 
@@ -49,7 +50,8 @@ class BattleLoader
   public function newConfig(
     Party $party,
     Troop $troop,
-    array $battleEvents
+    array $battleEvents,
+    array $extraSettings = []
   ): BattleConfig
   {
     $events = [];
@@ -61,14 +63,28 @@ class BattleLoader
     $systemPayload = asset('Data/system.php', true);
     $systemData = SystemData::fromArray(is_array($systemPayload) ? $systemPayload : []);
 
+    $settings = [
+      'engine' => $systemData->getBattleEngineType()->value,
+      'activeTime' => (array) $systemData->getActiveTimeSettings(),
+    ];
+
+    // A troop that declares its own battle music (e.g. a boss theme)
+    // overrides the project-wide battle theme for this encounter.
+    if ($troop->backgroundMusic !== null) {
+      $settings['bgm'] = $troop->backgroundMusic;
+    }
+
+    $scriptPolicy = array_key_exists('escapePolicy', $extraSettings)
+      ? EscapePolicy::resolve($extraSettings['escapePolicy'])
+      : null;
+    $settings['escapePolicy'] = ($scriptPolicy ?? $troop->escapePolicy ?? EscapePolicy::ALLOWED)->value;
+    $extraSettings['escapePolicy'] = $settings['escapePolicy'];
+
     return new BattleConfig(
       $party,
       $troop,
       $events,
-      [
-        'engine' => $systemData->getBattleEngineType()->value,
-        'activeTime' => (array) $systemData->getActiveTimeSettings(),
-      ],
+      array_merge($settings, $extraSettings),
     );
   }
 }

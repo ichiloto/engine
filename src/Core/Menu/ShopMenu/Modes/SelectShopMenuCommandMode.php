@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core\Menu\ShopMenu\Modes;
 
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
 
@@ -47,6 +48,8 @@ class SelectShopMenuCommandMode extends ShopMenuMode
     $h = Input::getAxis(AxisName::HORIZONTAL);
 
     if (abs($h) > 0) {
+      play_sound(SystemSound::CURSOR);
+
       if ($h > 0) {
         $this->state->commandPanel->selectNext();
       } else {
@@ -64,10 +67,12 @@ class SelectShopMenuCommandMode extends ShopMenuMode
   protected function handleActions(): void
   {
     if (Input::isButtonDown("back")) {
+      play_sound(SystemSound::CANCEL);
       $this->state->setState($this->state->getGameScene()->fieldState);
     }
 
     if (Input::isButtonDown("confirm")) {
+      play_sound(SystemSound::CONFIRM);
       $this->state->commandPanel->startingIndex = $this->state->shopMenu->activeIndex;
       $this->state->shopMenu->getActiveItem()?->execute($this->state->shopMenuContext);
     }

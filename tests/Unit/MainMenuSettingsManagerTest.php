@@ -1,7 +1,7 @@
 <?php
 
 use Ichiloto\Engine\Core\Menu\MainMenu\MainMenuSettingsManager;
-use Ichiloto\Engine\Core\Menu\MainMenu\MainMenuSetting;
+use Ichiloto\Engine\Settings\GameSetting;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\Util\Config\AppConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
@@ -72,7 +72,7 @@ class ProjectConfigPersistProxy extends ProjectConfig
   }
 }
 
-function getMainMenuSettingByKey(MainMenuSettingsManager $manager, string $key): MainMenuSetting
+function getMainMenuSettingByKey(MainMenuSettingsManager $manager, string $key): GameSetting
 {
   foreach ($manager->getSettings() as $setting) {
     if ($setting->key === $key) {
@@ -143,4 +143,84 @@ it('updates dialogue speed on both supported config paths', function () {
     ->and($config->get('ui.dialogue.message.speed'))->toBe(50);
 
   unlink($filename);
+});
+
+it('updates notification duration without leaving the field', function () {
+  $filename = tempnam(sys_get_temp_dir(), 'ichiloto-config-');
+  $config = new ProjectConfigPersistProxy([
+    'filename' => $filename,
+    'initial' => ['accessibility' => ['notificationDurationScale' => 1.0]],
+  ]);
+  ConfigStore::put(AppConfig::class, new InlineConfigStub(['debug' => ['file' => false]]));
+  ConfigStore::put(ProjectConfig::class, $config);
+
+  $manager = new MainMenuSettingsManager();
+  $setting = getMainMenuSettingByKey($manager, 'notification_duration');
+
+  expect($manager->cycle($setting, 1))->toBe('Long')
+    ->and($config->get('accessibility.notificationDurationScale'))->toBe(2.0);
+
+  unlink($filename);
+});
+
+it('toggles music and sfx from the in-game config menu', function () {
+  $filename = tempnam(sys_get_temp_dir(), 'ichiloto-config-');
+  $config = new ProjectConfigPersistProxy([
+    'filename' => $filename,
+    'initial' => [
+      'audio' => [
+        'music' => true,
+        'sfx' => true,
+        'master_volume' => 75,
+      ],
+    ],
+  ]);
+  ConfigStore::put(AppConfig::class, new InlineConfigStub(['debug' => ['file' => false]]));
+  ConfigStore::put(ProjectConfig::class, $config);
+
+  $manager = new MainMenuSettingsManager();
+
+  expect($manager->getCurrentChoiceLabel(getMainMenuSettingByKey($manager, 'music')))->toBe('On');
+
+  $label = $manager->cycle(getMainMenuSettingByKey($manager, 'music'), 1);
+  expect($label)->toBe('Off')
+    ->and($config->get('audio.music'))->toBeFalse();
+
+  $label = $manager->cycle(getMainMenuSettingByKey($manager, 'sfx'), 1);
+  expect($label)->toBe('Off')
+    ->and($config->get('audio.sfx'))->toBeFalse();
+
+  unlink($filename);
+});
+
+it('adjusts master volume without leaving the field', function () {
+  $filename = tempnam(sys_get_temp_dir(), 'ichiloto-config-');
+  $config = new ProjectConfigPersistProxy([
+    'filename' => $filename,
+    'initial' => ['audio' => ['master_volume' => 75]],
+  ]);
+  ConfigStore::put(AppConfig::class, new InlineConfigStub(['debug' => ['file' => false]]));
+  ConfigStore::put(ProjectConfig::class, $config);
+
+  $manager = new MainMenuSettingsManager();
+  $setting = getMainMenuSettingByKey($manager, 'volume');
+
+  expect($manager->getCurrentChoiceLabel($setting))->toBe('75%');
+
+  expect($manager->cycle($setting, 1))->toBe('80%')
+    ->and($config->get('audio.master_volume'))->toBe(80);
+
+  expect($manager->cycle($setting, -1))->toBe('75%')
+    ->and($config->get('audio.master_volume'))->toBe(75);
+
+  unlink($filename);
+});
+
+it('shows the nearest step for a volume the project set off-step', function () {
+  ConfigStore::put(AppConfig::class, new InlineConfigStub(['debug' => ['file' => false]]));
+  ConfigStore::put(ProjectConfig::class, new InlineConfigStub(['audio' => ['master_volume' => 63]]));
+
+  $manager = new MainMenuSettingsManager();
+
+  expect($manager->getCurrentChoiceLabel(getMainMenuSettingByKey($manager, 'volume')))->toBe('65%');
 });

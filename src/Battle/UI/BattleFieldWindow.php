@@ -17,6 +17,7 @@ use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCompiledCutscene;
 use Ichiloto\Engine\UI\Windows\Window;
+use InvalidArgumentException;
 use RuntimeException;
 
 /**
@@ -27,6 +28,24 @@ use RuntimeException;
 class BattleFieldWindow extends Window
 {
   const int TROOP_STEP_X_OFFSET = 3;
+  /**
+   * Left-most column available to enemy battlers inside the field border.
+   */
+  const int TROOP_ZONE_LEFT = 2;
+  /**
+   * Empty columns kept between the enemy and player-party render zones.
+   */
+  const int BATTLE_SIDE_GAP = 3;
+  /**
+   * Horizontal offset applied to summon cutscene draw commands: one cell for
+   * the window border plus a one-column inset.
+   */
+  const int SUMMON_CUTSCENE_OFFSET_X = 2;
+  /**
+   * Vertical offset applied to summon cutscene draw commands: one cell for
+   * the window border plus a one-row inset.
+   */
+  const int SUMMON_CUTSCENE_OFFSET_Y = 2;
   /**
    * @var string The marker shown for the active troop focus.
    */
@@ -139,10 +158,16 @@ class BattleFieldWindow extends Window
   protected function renderTroopBattler(Enemy $battler): void
   {
     $spriteData = $battler->image;
-    $x = $this->position->x + $battler->position->x;
-    $y = $this->position->y + $battler->position->y;
+    $position = $this->getTroopIdlePosition($battler);
+    $x = $this->position->x + $position->x;
+    $y = $this->position->y + $position->y;
 
-    $this->renderBattlerSprite($spriteData, $x, $y);
+    $this->renderBattlerSprite(
+      $spriteData,
+      $x,
+      $y,
+      $this->getTroopAvailableWidth($position),
+    );
   }
 
   /**
@@ -169,10 +194,16 @@ class BattleFieldWindow extends Window
   public function eraseTroopBattler(Enemy $battler): void
   {
     $spriteData = $battler->image;
-    $x = $this->position->x + $battler->position->x;
-    $y = $this->position->y + $battler->position->y;
+    $position = $this->getTroopIdlePosition($battler);
+    $x = $this->position->x + $position->x;
+    $y = $this->position->y + $position->y;
 
-    $this->eraseBattlerSprite($spriteData, $x, $y);
+    $this->eraseBattlerSprite(
+      $spriteData,
+      $x,
+      $y,
+      $this->getTroopAvailableWidth($position),
+    );
   }
 
   /**
@@ -183,12 +214,12 @@ class BattleFieldWindow extends Window
    * @param int $y The y-coordinate.
    * @return void
    */
-  protected function eraseBattlerSprite(array $spriteData, int $x, int $y): void
+  protected function eraseBattlerSprite(array $spriteData, int $x, int $y, ?int $maxWidth = null): void
   {
     foreach ($spriteData as $rowIndex => $row) {
-      Console::cursor()->moveTo($x, $y + $rowIndex);
-      $output = str_repeat(' ', TerminalText::displayWidth($row));
-      $this->output->write($output);
+      $rowWidth = TerminalText::displayWidth($row);
+      $output = str_repeat(' ', $maxWidth === null ? $rowWidth : min($rowWidth, max(0, $maxWidth)));
+      Console::write($output, max(0, $x - 1), max(0, $y + $rowIndex - 1));
     }
   }
 
@@ -200,11 +231,23 @@ class BattleFieldWindow extends Window
    * @param float|int $y The y-coordinate.
    * @return void
    */
-  protected function renderBattlerSprite(array $spriteData, float|int $x, float|int $y): void
+  protected function renderBattlerSprite(
+    array $spriteData,
+    float|int $x,
+    float|int $y,
+    ?int $maxWidth = null,
+  ): void
   {
     foreach ($spriteData as $rowIndex => $row) {
-      Console::cursor()->moveTo($x, $y + $rowIndex);
-      $this->output->write($row);
+      $output = $maxWidth === null
+        ? $row
+        : TerminalText::truncateToWidth($row, max(0, $maxWidth));
+
+      Console::write(
+        TerminalText::stabilize($output),
+        max(0, (int)floor($x) - 1),
+        max(0, (int)floor($y) + $rowIndex - 1),
+      );
     }
   }
 
@@ -238,7 +281,90 @@ class BattleFieldWindow extends Window
    */
   protected function getTroopActivePosition(Enemy $battler): Vector2
   {
-    return new Vector2($battler->position->x + self::TROOP_STEP_X_OFFSET, $battler->position->y);
+    $position = $this->getTroopIdlePosition($battler);
+
+    return new Vector2($position->x + self::TROOP_STEP_X_OFFSET, $position->y);
+  }
+
+  /**
+   * Resolves an authored enemy position inside the troop render zone.
+   *
+   * The step-forward animation is included in the fit calculation so an
+   * acting enemy can never overwrite the player party. Authored vertical
+   * placement is preserved.
+   *
+   * @param Enemy $battler The enemy battler to position.
+   * @return Vector2 The safe idle position.
+   */
+  protected function getTroopIdlePosition(Enemy $battler): Vector2
+  {
+    $spriteWidth = max(1, $this->getSpriteWidth($battler->image));
+    $maximumX = max(
+      self::TROOP_ZONE_LEFT,
+      $this->getPartyZoneLeft()
+        - self::BATTLE_SIDE_GAP
+        - self::TROOP_STEP_X_OFFSET
+        - $spriteWidth,
+    );
+
+    return new Vector2(
+      clamp(intval($battler->position->x), self::TROOP_ZONE_LEFT, $maximumX),
+      $battler->position->y,
+    );
+  }
+
+  /**
+   * Returns the first column reserved for player-party sprites.
+   *
+   * Both idle and active positions participate because either may be on
+   * screen during an action.
+   *
+   * @return int The left edge of the player-party render zone.
+   */
+  protected function getPartyZoneLeft(): int
+  {
+    $positions = [
+      ...$this->partyBattlerPositions->idlePositions,
+      ...$this->partyBattlerPositions->activePositions,
+    ];
+    $xCoordinates = array_map(
+      static fn(Vector2 $position): int => intval($position->x),
+      $positions,
+    );
+
+    return min($xCoordinates);
+  }
+
+  /**
+   * Returns the number of columns available before the party-side gap.
+   *
+   * This is also a final safety net for exceptionally wide authored sprites:
+   * they are clipped at their side boundary instead of erasing party art.
+   *
+   * @param Vector2 $position The enemy render position.
+   * @return int The available width in terminal cells.
+   */
+  protected function getTroopAvailableWidth(Vector2 $position): int
+  {
+    return max(
+      0,
+      $this->getPartyZoneLeft() - self::BATTLE_SIDE_GAP - intval($position->x),
+    );
+  }
+
+  /**
+   * Returns the portion of an enemy sprite which is visible in its zone.
+   *
+   * @param Enemy $battler The enemy battler to measure.
+   * @param Vector2 $position Its resolved render position.
+   * @return int The visible sprite width in terminal cells.
+   */
+  protected function getTroopVisibleSpriteWidth(Enemy $battler, Vector2 $position): int
+  {
+    return min(
+      $this->getSpriteWidth($battler->image),
+      $this->getTroopAvailableWidth($position),
+    );
   }
 
   /**
@@ -372,9 +498,11 @@ class BattleFieldWindow extends Window
    * @param array<int, array{text: string, color?: Color}> $lines The popup lines to display.
    * @return void
    */
-  public function showStatChangePopup(CharacterInterface $battler, array $lines): void
+  public function showStatChangePopup(CharacterInterface $battler, array $lines, bool $clearExisting = true): void
   {
-    $this->clearStatChangePopups();
+    if ($clearExisting) {
+      $this->clearStatChangePopups();
+    }
 
     $anchor = $this->resolveStatChangePopupAnchor($battler);
 
@@ -382,10 +510,7 @@ class BattleFieldWindow extends Window
       return;
     }
 
-    $formattedLines = array_values(array_filter(
-      $lines,
-      static fn(array $line): bool => isset($line['text']) && strval($line['text']) !== ''
-    ));
+    $formattedLines = $this->normalizeStatChangePopupLines($lines);
 
     if (empty($formattedLines)) {
       return;
@@ -414,6 +539,45 @@ class BattleFieldWindow extends Window
     if (isset($anchor['troopIndex'])) {
       $this->popupTroopIndices[] = $anchor['troopIndex'];
     }
+  }
+
+  /**
+   * Validates and normalizes the single stat-popup line contract.
+   *
+   * @param array<int, mixed> $lines Raw popup line definitions.
+   * @return array<int, array{text: string, color: Color}> Normalized non-empty lines.
+   */
+  protected function normalizeStatChangePopupLines(array $lines): array
+  {
+    $normalized = [];
+
+    foreach ($lines as $index => $line) {
+      if (! is_array($line) || ! array_key_exists('text', $line)) {
+        throw new InvalidArgumentException(sprintf(
+          'Stat-change popup line %d must be an array containing text and an optional Color.',
+          $index,
+        ));
+      }
+
+      $text = strval($line['text']);
+
+      if ($text === '') {
+        continue;
+      }
+
+      $color = $line['color'] ?? Color::WHITE;
+
+      if (! $color instanceof Color) {
+        throw new InvalidArgumentException(sprintf(
+          'Stat-change popup line %d color must be a Color.',
+          $index,
+        ));
+      }
+
+      $normalized[] = ['text' => $text, 'color' => $color];
+    }
+
+    return $normalized;
   }
 
   /**
@@ -510,7 +674,8 @@ class BattleFieldWindow extends Window
     $this->renderBattlerSprite(
       $battler->image,
       $this->position->x + $activePosition->x,
-      $this->position->y + $activePosition->y
+      $this->position->y + $activePosition->y,
+      $this->getTroopAvailableWidth($activePosition),
     );
   }
 
@@ -526,7 +691,8 @@ class BattleFieldWindow extends Window
     $this->eraseBattlerSprite(
       $battler->image,
       $this->position->x + $activePosition->x,
-      $this->position->y + $activePosition->y
+      $this->position->y + $activePosition->y,
+      $this->getTroopAvailableWidth($activePosition),
     );
     $this->renderTroopBattler($battler);
   }
@@ -666,10 +832,11 @@ class BattleFieldWindow extends Window
   protected function renderTroopQueueBadge(Enemy $battler, int $count): void
   {
     $badge = $this->formatIndicator(sprintf('x%d', $count));
-    $spriteWidth = $this->getSpriteWidth($battler->image);
+    $position = $this->getTroopIdlePosition($battler);
+    $spriteWidth = $this->getTroopVisibleSpriteWidth($battler, $position);
     $badgeWidth = TerminalText::displayWidth($badge);
-    $x = $this->position->x + $battler->position->x + max(0, intdiv(max(0, $spriteWidth - $badgeWidth), 2));
-    $y = $this->position->y + $battler->position->y - 1;
+    $x = $this->position->x + $position->x + max(0, intdiv(max(0, $spriteWidth - $badgeWidth), 2));
+    $y = $this->position->y + $position->y - 1;
 
     $this->renderTrackedTargetIndicator($badge, $x, $y);
   }
@@ -704,8 +871,9 @@ class BattleFieldWindow extends Window
   protected function renderTroopFocusMarker(Enemy $battler, bool $blink): void
   {
     $marker = $this->formatIndicator(self::TROOP_FOCUS_MARKER, $blink);
-    $x = $this->position->x + $battler->position->x - 2;
-    $y = $this->position->y + $battler->position->y + intdiv(count($battler->image), 2);
+    $position = $this->getTroopIdlePosition($battler);
+    $x = $this->position->x + $position->x - 2;
+    $y = $this->position->y + $position->y + intdiv(count($battler->image), 2);
 
     $this->renderTrackedTargetIndicator($marker, $x, $y);
   }
@@ -772,8 +940,11 @@ class BattleFieldWindow extends Window
   protected function renderIndicator(string $text, int $x, int $y): void
   {
     ['x' => $renderX, 'y' => $renderY] = $this->resolveIndicatorPosition($text, $x, $y);
-    Console::cursor()->moveTo($renderX, $renderY);
-    $this->output->write($text);
+    Console::write(
+      TerminalText::stabilize($text),
+      max(0, $renderX - 1),
+      max(0, $renderY - 1),
+    );
   }
 
   /**
@@ -787,8 +958,11 @@ class BattleFieldWindow extends Window
   protected function eraseIndicator(string $text, int $x, int $y): void
   {
     ['x' => $renderX, 'y' => $renderY] = $this->resolveIndicatorPosition($text, $x, $y);
-    Console::cursor()->moveTo($renderX, $renderY);
-    $this->output->write(str_repeat(' ', TerminalText::displayWidth($text)));
+    Console::write(
+      str_repeat(' ', TerminalText::displayWidth($text)),
+      max(0, $renderX - 1),
+      max(0, $renderY - 1),
+    );
   }
 
   /**
@@ -800,7 +974,7 @@ class BattleFieldWindow extends Window
    */
   protected function formatIndicator(string $text, bool $blink = false): string
   {
-    $prefix = $blink ? "\033[5m" : '';
+    $prefix = ($blink && \Ichiloto\Engine\UI\Accessibility::allowsBlink()) ? "\033[5m" : '';
 
     return $prefix . $this->battleScreen->getSelectionColor()->value . $text . Color::RESET->value;
   }
@@ -862,11 +1036,12 @@ class BattleFieldWindow extends Window
         return null;
       }
 
-      $spriteWidth = $this->getSpriteWidth($battler->image);
+      $position = $this->getTroopIdlePosition($battler);
+      $spriteWidth = $this->getTroopVisibleSpriteWidth($battler, $position);
 
       return [
-        'x' => $this->position->x + $battler->position->x + intdiv(max(1, $spriteWidth), 2),
-        'y' => $this->position->y + $battler->position->y - 1,
+        'x' => $this->position->x + $position->x + intdiv(max(1, $spriteWidth), 2),
+        'y' => $this->position->y + $position->y - 1,
         'troopIndex' => $index,
       ];
     }
@@ -996,16 +1171,16 @@ class BattleFieldWindow extends Window
 
     $glyph = $glyphs[max(0, min(count($glyphs) - 1, $glyphIndex))];
     $color = $this->resolveNamedColor($colorName) ?? Color::DARK_GRAY;
-    $innerWidth = max(1, $this->width - 2);
-    $innerHeight = max(1, $this->height - 2);
+    $innerWidth = max(1, $this->width - 2 * self::SUMMON_CUTSCENE_OFFSET_X);
+    $innerHeight = max(1, $this->height - 2 * self::SUMMON_CUTSCENE_OFFSET_Y);
 
     $this->clearMagicCastEffects();
 
     for ($row = 0; $row < $innerHeight; $row++) {
       $this->queueSummonOverlayLine(
         $this->formatSummonDrawCommandLine(str_repeat($glyph, $innerWidth), $color),
-        $this->position->x + 1,
-        $this->position->y + 1 + $row,
+        $this->position->x + self::SUMMON_CUTSCENE_OFFSET_X,
+        $this->position->y + self::SUMMON_CUTSCENE_OFFSET_Y + $row,
       );
     }
 
@@ -1114,8 +1289,8 @@ class BattleFieldWindow extends Window
 
       $this->magicCastEffects[] = [
         'text' => $this->formatSummonDrawCommandLine($line, $color),
-        'x' => $this->position->x + 1 + $x,
-        'y' => $this->position->y + 1 + $y + $lineIndex,
+        'x' => $this->position->x + self::SUMMON_CUTSCENE_OFFSET_X + $x,
+        'y' => $this->position->y + self::SUMMON_CUTSCENE_OFFSET_Y + $y + $lineIndex,
       ];
     }
   }
@@ -1126,9 +1301,11 @@ class BattleFieldWindow extends Window
    */
   protected function resolveSummonDrawCommandLines(array $drawCommand): array
   {
-    $content = trim(strval($drawCommand['content'] ?? ''));
+    // Trim surrounding blank lines only — leading spaces are significant in
+    // multi-line ASCII art and must survive to keep the art aligned.
+    $content = trim(strval($drawCommand['content'] ?? ''), "\r\n");
 
-    if ($content === '') {
+    if (trim($content) === '') {
       $assetId = trim(strval($drawCommand['assetId'] ?? ''));
       $content = $assetId !== '' ? '[' . strtoupper($assetId) . ']' : '';
     }
@@ -1211,7 +1388,7 @@ class BattleFieldWindow extends Window
     }
 
     if ($battler instanceof Enemy) {
-      $baseY = $this->position->y + $battler->position->y;
+      $baseY = $this->position->y + $this->getTroopIdlePosition($battler)->y;
       $spriteHeight = max(1, count($battler->image));
     }
 

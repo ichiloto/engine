@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\Entities\Roles;
 
 use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Entities\Enumerations\ArmorType;
+use Ichiloto\Engine\Entities\Enumerations\WeaponType;
 
 /**
  * Class Role. Represents a character role. A role is a set of attributes that a character can have. It defines the character's stats, skills, traits, and other properties.
@@ -37,6 +39,8 @@ readonly class CharacterRole
    * @param ParameterCurveGenerator|null $totalSpeedCurveGenerator
    * @param ParameterCurveGenerator|null $totalGraceCurveGenerator
    * @param ParameterCurveGenerator|null $totalEvasionCurveGenerator
+   * @param WeaponType[] $allowedWeaponTypes The weapon types this role may equip; empty allows all.
+   * @param ArmorType[] $allowedArmorTypes The armor types this role may equip; empty allows all.
    */
   public function __construct(
     protected Character             $character,
@@ -54,6 +58,8 @@ readonly class CharacterRole
     ?ParameterCurveGenerator        $totalSpeedCurveGenerator = null,
     ?ParameterCurveGenerator        $totalGraceCurveGenerator = null,
     ?ParameterCurveGenerator        $totalEvasionCurveGenerator = null,
+    public array                    $allowedWeaponTypes = [],
+    public array                    $allowedArmorTypes = [],
   )
   {
     $this->totalHpCurveGenerator = $totalHpCurveGenerator ?? new ParameterCurveGenerator($this->character->level, $this->character->stats->totalHp, 500, 40);
@@ -65,5 +71,27 @@ readonly class CharacterRole
     $this->totalSpeedCurveGenerator = $totalSpeedCurveGenerator ?? new ParameterCurveGenerator($this->character->level, $this->character->stats->totalSpeed, 20, 1);
     $this->totalGraceCurveGenerator = $totalGraceCurveGenerator ?? new ParameterCurveGenerator($this->character->level, $this->character->stats->totalGrace, 15, 1);
     $this->totalEvasionCurveGenerator = $totalEvasionCurveGenerator ?? new ParameterCurveGenerator($this->character->level, $this->character->stats->totalEvasion, 10);
+  }
+
+  /**
+   * Determines whether this role may equip the given item type.
+   *
+   * A role that lists no types for a category allows every type in it, so
+   * projects opt into restrictions rather than inheriting them.
+   *
+   * @param WeaponType|ArmorType|null $equipmentType The item's type; null (untyped) is always allowed.
+   * @return bool True when the role may equip it.
+   */
+  public function allowsEquipmentType(WeaponType|ArmorType|null $equipmentType): bool
+  {
+    if ($equipmentType === null) {
+      return true;
+    }
+
+    $allowed = $equipmentType instanceof WeaponType
+      ? $this->allowedWeaponTypes
+      : $this->allowedArmorTypes;
+
+    return empty($allowed) || in_array($equipmentType, $allowed, true);
   }
 }

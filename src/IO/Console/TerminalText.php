@@ -18,6 +18,13 @@ use Throwable;
 final class TerminalText
 {
   /**
+   * The most symbols kept in the per-symbol metric caches. Alphabets are
+   * small in practice; the bound only guards against unbounded growth from
+   * procedurally generated content.
+   */
+  private const int SYMBOL_CACHE_LIMIT = 4096;
+
+  /**
    * Matches ANSI control sequences that should not count toward display width.
    */
   private const string ANSI_PATTERN = '/\x1B\[[0-9;?]*[ -\/]*[@-~]/';
@@ -45,7 +52,7 @@ final class TerminalText
    */
   public static function stripAnsi(string $text): string
   {
-    $text = self::normalizeStyles($text);
+    $text = self::formatStyles($text);
     return preg_replace(self::ANSI_PATTERN, '', $text) ?? $text;
   }
 
@@ -106,7 +113,14 @@ final class TerminalText
       return [];
     }
 
-    $text = self::normalizeStyles($text);
+    $text = self::formatStyles($text);
+
+    // Plain ASCII is by far the common case (map rows, borders, menu text).
+    // Splitting it bytewise skips the grapheme regex entirely, which is the
+    // single hottest operation in the render path.
+    if (! preg_match('/[^\x20-\x7E]/', $text)) {
+      return $text === '' ? [] : str_split($text);
+    }
 
     $symbols = [];
     $activeAnsi = '';
@@ -181,6 +195,61 @@ final class TerminalText
   }
 
   /**
+   * Wraps styled terminal text without counting ANSI codes as visible cells.
+   *
+   * @param string $text The text to wrap.
+   * @param int $width The maximum display width of each line.
+   * @return string[] Wrapped lines which preserve their original styling.
+   */
+  public static function wrapToWidth(string $text, int $width): array
+  {
+    if ($width <= 0 || $text === '') {
+      return [''];
+    }
+
+    $symbols = self::visibleSymbols($text);
+    $lines = [];
+    $line = [];
+    $lineWidth = 0;
+    $lastSpaceIndex = null;
+
+    while ($symbols !== []) {
+      $symbol = array_shift($symbols);
+      $symbolWidth = self::getSymbolWidth($symbol);
+
+      if ($line !== [] && $lineWidth + $symbolWidth > $width) {
+        if ($lastSpaceIndex !== null) {
+          $overflow = array_splice($line, $lastSpaceIndex + 1);
+          array_pop($line);
+          $lines[] = implode('', $line);
+          $symbols = array_merge($overflow, [$symbol], $symbols);
+        } else {
+          $lines[] = implode('', $line);
+          array_unshift($symbols, $symbol);
+        }
+
+        $line = [];
+        $lineWidth = 0;
+        $lastSpaceIndex = null;
+        continue;
+      }
+
+      $line[] = $symbol;
+      $lineWidth += $symbolWidth;
+
+      if (self::stripAnsi($symbol) === ' ') {
+        $lastSpaceIndex = count($line) - 1;
+      }
+    }
+
+    if ($line !== [] || $lines === []) {
+      $lines[] = implode('', $line);
+    }
+
+    return $lines;
+  }
+
+  /**
    * Right-pads text to the requested display width.
    *
    * @param string $text The text to pad.
@@ -252,13 +321,47 @@ final class TerminalText
    */
   private static function getSymbolWidth(string $symbol): int
   {
-    $symbol = self::stripAnsi($symbol);
+    // Rendering repeats the same handful of glyphs thousands of times per
+    // frame, and measuring one costs several regex passes. Cache by symbol.
+    static $widths = [];
+
+    if (isset($widths[$symbol])) {
+      return $widths[$symbol];
+    }
+
+    if (count($widths) > self::SYMBOL_CACHE_LIMIT) {
+      $widths = [];
+    }
+
+    return $widths[$symbol] = self::measureSymbolWidth($symbol);
+  }
+
+  /**
+   * Measures a symbol's column width.
+   *
+   * @param string $symbol The symbol to measure.
+   * @return int The width in columns.
+   */
+  private static function measureSymbolWidth(string $symbol): int
+  {
+    $symbol = self::stabilizeSymbol(self::stripAnsi($symbol));
 
     if ($symbol === '') {
       return 0;
     }
 
-    if (preg_match('/\x{200D}/u', $symbol) === 1 || preg_match('/\p{Extended_Pictographic}/u', $symbol) === 1) {
+    if (preg_match('/\x{200D}/u', $symbol) === 1) {
+      return 2;
+    }
+
+    // Both a default emoji and an explicit U+FE0F emoji-presentation request
+    // occupy two cells. The selector is part of the grapheme's authored
+    // presentation; removing it turns symbols such as 🗡️ into a different,
+    // narrow text glyph and makes the buffer disagree with the terminal.
+    if (
+      preg_match('/\p{Emoji_Presentation}/u', $symbol) === 1
+      || str_contains($symbol, "\u{FE0F}")
+    ) {
       return 2;
     }
 
@@ -272,14 +375,167 @@ final class TerminalText
   }
 
   /**
+   * Whether the project opted into composite (ZWJ) emoji.
+   *
+   * Answered by {@see TerminalCapabilities}, which detects the host
+   * terminal at start-up: composing terminals keep their glyphs intact,
+   * everything else gets the width-stable reduction.
+   *
+   * @return bool True when composite emoji are allowed.
+   */
+  protected static function allowsCompositeEmoji(): bool
+  {
+    return TerminalCapabilities::supportsCompositeEmoji();
+  }
+
+  /**
+   * Rewrites every width-unstable grapheme in the text into its stable form.
+   *
+   * Safe for text containing ANSI styling: escape sequences carry none of the
+   * rewritten code points, so they pass through untouched.
+   *
+   * @param string $text The text to stabilize.
+   * @return string The stabilized text.
+   */
+  public static function stabilize(string $text): string
+  {
+    if (
+      $text === ''
+      || preg_match('/[\x{200D}\x{FE0E}\x{FE0F}\x{1F3FB}-\x{1F3FF}\x{10000}-\x{10FFFF}]/u', $text) !== 1
+    ) {
+      return $text;
+    }
+
+    return preg_replace_callback(
+      '/\X/u',
+      static fn(array $match): string => self::stabilizeSymbol($match[0]),
+      $text
+    ) ?? $text;
+  }
+
+  /**
+   * Rewrites a width-unstable grapheme into its terminal-stable form.
+   *
+   * Terminals disagree on how far these sequences advance the cursor, which
+   * is the classic source of misaligned panel borders:
+   *
+   * - ZWJ sequences and skin-tone modifiers (e.g. "🏃🏽‍➡️") are reduced to
+   *   their base glyph, which renders one predictable cell pair everywhere.
+   * - Astral pictographs whose Unicode default is text presentation (e.g.
+   *   "🗡") receive an explicit emoji selector. Terminal emulators commonly
+   *   paint these with an emoji font even without the selector; making that
+   *   presentation explicit keeps the emitted glyph and reserved cells in
+   *   agreement.
+   * - Explicit text/emoji variation selectors are preserved. They are
+   *   semantic presentation requests, and the width calculator reserves the
+   *   corresponding one or two cells for the complete grapheme.
+   *
+   * @param string $symbol The grapheme to stabilize.
+   * @return string The stabilized grapheme.
+   */
+  public static function stabilizeSymbol(string $symbol): string
+  {
+    static $stabilized = [];
+
+    if (isset($stabilized[$symbol])) {
+      return $stabilized[$symbol];
+    }
+
+    if (count($stabilized) > self::SYMBOL_CACHE_LIMIT) {
+      $stabilized = [];
+    }
+
+    return $stabilized[$symbol] = self::computeStabilizedSymbol($symbol);
+  }
+
+  /**
+   * Computes the terminal-stable form of a grapheme.
+   *
+   * @param string $symbol The symbol to stabilize.
+   * @return string The stabilized symbol.
+   */
+  private static function computeStabilizedSymbol(string $symbol): string
+  {
+    $visible = self::stripAnsi($symbol);
+
+    if (
+      $visible === ''
+      || (
+        preg_match('/[\x{200D}\x{FE0E}\x{FE0F}\x{1F3FB}-\x{1F3FF}]/u', $visible) !== 1
+        && ! self::isAmbiguousAstralPictograph($visible)
+      )
+    ) {
+      return $symbol;
+    }
+
+    // ZWJ sequences and skin-tone modifiers: reduce to the base code point.
+    // A project that opts into composite emoji keeps them intact, since
+    // reducing them would collapse distinct sprites (the east-facing runner
+    // and the plain runner) into the same glyph.
+    if (preg_match('/[\x{200D}\x{1F3FB}-\x{1F3FF}]/u', $visible) === 1) {
+      if (self::allowsCompositeEmoji()) {
+        return $symbol;
+      }
+
+      $codepoints = preg_split('//u', $visible, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+      $base = $codepoints[0] ?? '';
+
+      if ($base === '') {
+        return $symbol;
+      }
+
+      // Preserve a directly attached presentation selector on the reduced
+      // base. It determines whether the remaining glyph is text- or
+      // emoji-width independently of the code point's plane.
+      if (in_array(($codepoints[1] ?? ''), ["\u{FE0E}", "\u{FE0F}"], true)) {
+        $base .= $codepoints[1];
+      }
+
+      return str_replace($visible, $base, $symbol);
+    }
+
+    // Unicode assigns a text default to a small set of astral pictographs,
+    // but emoji-capable terminals commonly select their two-cell emoji font
+    // anyway. Emit the presentation that the buffer reserves instead of
+    // relying on that terminal-specific fallback. An authored FE0E selector
+    // reaches this point unchanged and remains a one-cell text glyph.
+    if (self::isAmbiguousAstralPictograph($visible)) {
+      return str_replace($visible, $visible . "\u{FE0F}", $symbol);
+    }
+
+    return $symbol;
+  }
+
+  /**
+   * Whether a grapheme is an astral pictograph with an ambiguous terminal
+   * presentation.
+   *
+   * BMP symbols are deliberately excluded: authors routinely use characters
+   * such as plain hearts and crossed swords as one-cell map tiles. Default
+   * emoji-presentation characters are already predictably two cells, and an
+   * explicit FE0E/FE0F selector is always authoritative.
+   *
+   * @param string $symbol The visible grapheme to inspect.
+   * @return bool True when the renderer should make emoji presentation explicit.
+   */
+  private static function isAmbiguousAstralPictograph(string $symbol): bool
+  {
+    return ! str_contains($symbol, "\u{FE0E}")
+      && ! str_contains($symbol, "\u{FE0F}")
+      && preg_match('/[\x{10000}-\x{10FFFF}]/u', $symbol) === 1
+      && preg_match('/\p{Extended_Pictographic}/u', $symbol) === 1
+      && preg_match('/\p{Emoji_Presentation}/u', $symbol) !== 1;
+  }
+
+  /**
    * Converts supported Symfony formatter tags to ANSI codes.
    *
    * @param string $text The text to normalize.
    * @return string The normalized text.
    */
-  private static function normalizeStyles(string $text): string
+  public static function formatStyles(string $text): string
   {
-    if ($text === '' || preg_match(self::FORMATTER_TAG_PATTERN, $text) !== 1) {
+    if ($text === '' || ! str_contains($text, '<') || preg_match(self::FORMATTER_TAG_PATTERN, $text) !== 1) {
       return $text;
     }
 

@@ -4,7 +4,9 @@ namespace Ichiloto\Engine\UI\Elements;
 
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Vector2;
-use Ichiloto\Engine\UI\Interfaces\UIElementInterface;
+use Ichiloto\Engine\Core\Rect;
+use Ichiloto\Engine\UI\Enumerations\PresentationPriority;
+use Ichiloto\Engine\UI\Interfaces\LayeredUIElementInterface;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
@@ -17,7 +19,7 @@ use Override;
  *
  * @package Ichiloto\Engine\UI
  */
-class LocationHUDWindow extends Window implements UIElementInterface
+class LocationHUDWindow extends Window implements LayeredUIElementInterface
 {
   /**
    * The width of the window.
@@ -85,9 +87,15 @@ class LocationHUDWindow extends Window implements UIElementInterface
   #[Override]
   public function render(?int $x = null, ?int $y = null): void
   {
-    if (config(ProjectConfig::class, 'ui.hud.location', false) && $this->isActive) {
+    if ($this->isPresentationVisible()) {
       parent::render();
     }
+  }
+
+  /** @inheritDoc */
+  public function isPresentationVisible(): bool
+  {
+    return config(ProjectConfig::class, 'ui.hud.location', false) && $this->isActive;
   }
 
   /**
@@ -104,5 +112,17 @@ class LocationHUDWindow extends Window implements UIElementInterface
   public function deactivate(): void
   {
     $this->isActive = false;
+  }
+
+  /** @inheritDoc */
+  public function getPresentationBounds(): Rect
+  {
+    return $this->getBounds();
+  }
+
+  /** @inheritDoc */
+  public function getPresentationPriority(): PresentationPriority
+  {
+    return PresentationPriority::FIELD_HUD;
   }
 }
