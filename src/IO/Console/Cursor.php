@@ -42,7 +42,7 @@ final class Cursor
    */
   public function hide(): void
   {
-    echo "\033[?25l";
+    Console::emitControlSequence("\033[?25l");
   }
 
   /**
@@ -52,7 +52,7 @@ final class Cursor
    */
   public function show(): void
   {
-    echo "\033[?25h";
+    Console::emitControlSequence("\033[?25h");
   }
 
   /**
@@ -78,7 +78,7 @@ final class Cursor
     $x = max(1, $x);
     $y = max(1, $y);
 
-    echo "\033[{$y};{$x}H";
+    Console::emitControlSequence("\033[{$y};{$x}H");
   }
 
   /**
@@ -91,7 +91,7 @@ final class Cursor
   {
     $this->validateAmount($amount);
 
-    echo "\033[{$amount}A";
+    Console::emitControlSequence("\033[{$amount}A");
   }
 
   /**
@@ -104,7 +104,7 @@ final class Cursor
   {
     $this->validateAmount($amount);
 
-    echo "\033[{$amount}B";
+    Console::emitControlSequence("\033[{$amount}B");
   }
 
   /**
@@ -117,7 +117,7 @@ final class Cursor
   {
     $this->validateAmount($amount);
 
-    echo "\033[{$amount}D";
+    Console::emitControlSequence("\033[{$amount}D");
   }
 
   /**
@@ -130,7 +130,7 @@ final class Cursor
   {
     $this->validateAmount($amount);
 
-    echo "\033[{$amount}C";
+    Console::emitControlSequence("\033[{$amount}C");
   }
 
   /**
@@ -147,7 +147,7 @@ final class Cursor
       $this->moveTo($x, $y);
     }
 
-    echo "\033[2K";
+    Console::emitControlSequence("\033[2K");
   }
 
   /**
@@ -157,7 +157,7 @@ final class Cursor
    */
   public function clearLineFromCursor(): void
   {
-    echo "\033[1K";
+    Console::emitControlSequence("\033[1K");
   }
 
   /**
@@ -181,7 +181,7 @@ final class Cursor
    */
   public function enableBlinking(): void
   {
-    echo "\033[?12h";
+    Console::emitControlSequence("\033[?12h");
   }
 
   /**
@@ -191,6 +191,6 @@ final class Cursor
    */
   public function disableBlinking(): void
   {
-    echo "\033[?12l";
+    Console::emitControlSequence("\033[?12l");
   }
 }

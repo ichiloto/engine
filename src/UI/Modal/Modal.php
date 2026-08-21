@@ -30,8 +30,6 @@ use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\UI\Windows\WindowAlignment;
 use Ichiloto\Engine\UI\Windows\WindowPadding;
 use Ichiloto\Engine\Util\Debug;
-use Symfony\Component\Console\Output\ConsoleOutput;
-use Symfony\Component\Console\Output\OutputInterface;
 
 /**
  * Class Modal. Represents a modal.
@@ -89,10 +87,6 @@ abstract class Modal implements ModalInterface, LayeredPresentationInterface
    */
   protected int $contentHeight = 0;
   /**
-   * @var OutputInterface $output The output.
-   */
-  protected OutputInterface $output;
-  /**
    * @var string[] $content The content of the modal.
    */
   protected array $content = [];
@@ -130,7 +124,6 @@ abstract class Modal implements ModalInterface, LayeredPresentationInterface
     $this->observers = new ItemList(ObserverInterface::class);
     $this->staticObservers = new ItemList(StaticObserverInterface::class);
     $this->eventManager = EventManager::getInstance($this->game);
-    $this->output = new ConsoleOutput();
     $this->window = new Window(
       $this->title,
       $this->help ?? '',
@@ -409,7 +402,7 @@ abstract class Modal implements ModalInterface, LayeredPresentationInterface
       $this->title .
       $horizontalBorder .
       $this->borderPack->getTopRightCorner();
-    $this->output->write($output);
+    Console::write($output, $this->leftMargin, $this->topMargin);
   }
 
   /**
@@ -426,7 +419,11 @@ abstract class Modal implements ModalInterface, LayeredPresentationInterface
       $this->help .
       $horizontalBorder .
       $this->borderPack->getBottomRightCorner();
-    $this->output->write($output);
+    Console::write(
+      $output,
+      $this->leftMargin,
+      $this->topMargin + max(0, $this->rect->getHeight() - 1),
+    );
   }
 
   /**
@@ -533,11 +530,10 @@ abstract class Modal implements ModalInterface, LayeredPresentationInterface
     foreach ($this->content as $index => $line) {
       // Each line is placed explicitly. Writing them back to back leaves the
       // second one trailing off the end of the first row.
-      Console::cursor()->moveTo($this->leftMargin + 1, $this->topMargin + 2 + $index);
       $output = $this->borderPack->getVerticalBorder() .
         TerminalText::padCenter($line, $this->rect->getWidth() - 2) .
         $this->borderPack->getVerticalBorder();
-      $this->output->write($output);
+      Console::write($output, $this->leftMargin, $this->topMargin + 1 + $index);
     }
   }
 
@@ -555,7 +551,11 @@ abstract class Modal implements ModalInterface, LayeredPresentationInterface
       $this->borderPack->getVerticalBorder() .
       str_replace($this->buttons[$this->activeIndex] ?? '', Color::apply($this->buttons[$this->activeIndex] ?? '', $activeColor), $output) .
       $this->borderPack->getVerticalBorder();
-    $this->output->write($output);
+    Console::write(
+      $output,
+      $this->leftMargin,
+      $this->topMargin + $this->contentHeight + 1,
+    );
   }
 
   /**

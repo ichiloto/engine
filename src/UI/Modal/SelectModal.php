@@ -28,8 +28,6 @@ use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\UI\Windows\WindowAlignment;
 use Ichiloto\Engine\UI\Windows\WindowPadding;
 use Ichiloto\Engine\Util\Debug;
-use Symfony\Component\Console\Output\ConsoleOutput;
-use Symfony\Component\Console\Output\OutputInterface;
 
 /**
  * The SelectModal class.
@@ -119,10 +117,6 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface
       return $this->activeButton;
     }
   }
-  /**
-   * @var OutputInterface $output The output.
-   */
-  protected OutputInterface $output;
   /** @var Window The canonical render and erase footprint. */
   protected Window $window;
   /**
@@ -161,7 +155,6 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface
     $this->setOptions($options);
     $this->title = $title;
     $this->setHelp($help);
-    $this->output = new ConsoleOutput();
     $this->wrapMessage();
     $this->rebuildWindow();
   }
@@ -488,8 +481,7 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface
     $output .= str_repeat($this->borderPack->getHorizontalBorder(), $this->rect->getWidth() - 3 - $this->titleLength);
     $output .= $this->borderPack->getTopRightCorner();
 
-    Console::cursor()->moveTo($x + 1, $y + 1);
-    $this->output->write($output);
+    Console::write($output, $x, $y);
   }
 
   /**
@@ -514,12 +506,10 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface
         $output = $this->borderPack->getVerticalBorder();
         $output .= TerminalText::padRight($line, $contentWidth);
         $output .= $this->borderPack->getVerticalBorder();
-        Console::cursor()->moveTo($x + 1, $y + $lineIndex + 1);
-        $this->output->write($output);
+        Console::write($output, $x, $y + $lineIndex);
       }
       $vSpacingSize = 1;
-      Console::cursor()->moveTo($x + 1, $y + $this->messageContentHeight + 1);
-      $this->output->write($blankLine);
+      Console::write($blankLine, $x, $y + $this->messageContentHeight);
     }
 
     foreach ($this->options as $optionIndex => $option) {
@@ -532,12 +522,18 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface
       }
       $output .= $content;
       $output .= $this->borderPack->getVerticalBorder();
-      Console::cursor()->moveTo($x + 1, $y + $this->messageContentHeight + $vSpacingSize + $optionIndex + 1);
-      $this->output->write($output);
+      Console::write(
+        $output,
+        $x,
+        $y + $this->messageContentHeight + $vSpacingSize + $optionIndex,
+      );
     }
 
-    Console::cursor()->moveTo($x + 1, $y + $this->messageContentHeight + $vSpacingSize + $this->totalOptions + 1);
-    $this->output->write($blankLine);
+    Console::write(
+      $blankLine,
+      $x,
+      $y + $this->messageContentHeight + $vSpacingSize + $this->totalOptions,
+    );
   }
 
   /**
@@ -555,8 +551,7 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface
     $output .= str_repeat($this->borderPack->getHorizontalBorder(), $this->rect->getWidth() - 3 - $this->helpLength);
     $output .= $this->borderPack->getBottomRightCorner();
 
-    Console::cursor()->moveTo($x + 1, $y + 1);
-    $this->output->write($output);
+    Console::write($output, $x, $y);
   }
 
   /**

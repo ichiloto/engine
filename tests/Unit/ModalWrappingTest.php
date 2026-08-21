@@ -2,6 +2,7 @@
 
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\UI\Modal\Modal;
 use Ichiloto\Engine\UI\Modal\SelectModal;
@@ -9,7 +10,6 @@ use Ichiloto\Engine\UI\Modal\TextBoxModal;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\UI\Windows\WindowPadding;
-use Symfony\Component\Console\Output\BufferedOutput;
 
 /**
  * The blocked-door message that used to be cut off mid sentence.
@@ -18,15 +18,12 @@ const LONG_MESSAGE = 'The shop is still shuttered. Perhaps someone at home needs
 
 class WrappingModalProxy extends Modal
 {
-  private BufferedOutput $buffer;
-
   public function __construct(string $message, int $width = DEFAULT_DIALOG_WIDTH)
   {
     $this->title = '';
     $this->message = $message;
     $this->rect = new Rect(0, 0, $width, DEFAULT_DIALOG_HEIGHT);
     $this->borderPack = new DefaultBorderPack();
-    $this->output = $this->buffer = new BufferedOutput();
   }
 
   public function fit(): void
@@ -56,12 +53,29 @@ class WrappingModalProxy extends Modal
    */
   public function draw(): array
   {
+    prepareModalConsoleForTest();
     ob_start();
     $this->renderContent();
-    $cursor = ob_get_clean();
+    $terminalOutput = ob_get_clean();
 
-    return [$this->buffer->fetch(), $cursor];
+    return [implode("\n", Console::getBuffer()), $terminalOutput];
   }
+}
+
+/** Seeds the canonical terminal surface used by the modal rendering probes. */
+function prepareModalConsoleForTest(): void
+{
+  $console = new ReflectionClass(Console::class);
+  $width = 120;
+  $height = 30;
+
+  $console->getProperty('width')->setValue(null, $width);
+  $console->getProperty('height')->setValue(null, $height);
+  $console->getProperty('buffer')->setValue(null, array_fill(0, $height, str_repeat(' ', $width)));
+  $console->getProperty('frameDepth')->setValue(null, 0);
+  $console->getProperty('frameRows')->setValue(null, []);
+  $console->getProperty('terminalOutputStream')->setValue(null, null);
+  $console->getProperty('output')->setValue(null, null);
 }
 
 class WrappingSelectModalProxy extends SelectModal

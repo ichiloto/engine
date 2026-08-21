@@ -707,6 +707,11 @@ class Game implements CanRun, SubjectInterface
         Console::clear();
         Console::saveTerminalSettings();
         Console::enterAlternateScreen();
+        // Full-screen frames deliberately write through the last terminal
+        // row. Disable autowrap while Ichiloto owns the alternate screen so
+        // a write to the final column cannot scroll or partially displace a
+        // bottom-edge HUD.
+        Console::disableLineWrap();
         $this->registerTerminalRestoreHandlers();
         Console::setTerminalName($this->name);
         Console::setTerminalSize($this->width, $this->height);

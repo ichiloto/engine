@@ -4,16 +4,16 @@
     "type": "library",
     "require": {
         "php": "^8.4",
-        "symfony/console": "^7.1",
+        "symfony/console": "^8.0",
         "league/climate": "^3.9",
         "assegaiphp/collections": "^0.3.2",
-        "amasiye/figlet": "^1.2",
+        "amasiye/figlet": "^1.2.1",
         "assegaiphp/util": "^0.4.3",
         "voku/portable-ascii": "^2.0"
     },
     "require-dev": {
         "phpstan/phpstan": "^2.0",
-        "pestphp/pest": "^3.7"
+        "pestphp/pest": "^5.1"
     },
     "license": "MIT",
     "autoload": {

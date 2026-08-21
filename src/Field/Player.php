@@ -197,12 +197,17 @@ class Player extends GameObject
     }
 
     $this->handleCollision($collisionType);
-    $this->updatePlayerPosition($direction, $camera, $previousSprite);
+    $fieldWasRecomposed = $this->updatePlayerPosition($direction, $camera, $previousSprite);
     $this->handleTriggers($event);
     $this->getGameScene()->encounterManager?->registerStep($collisionType);
-    // Camera scroll can repaint over NPC sprites; refresh them per step.
-    $this->getGameScene()->npcManager?->render();
 
+    // An ordinary step can erase an NPC that occupied the player's previous
+    // footprint, so refresh NPCs after the player moves. A scrolling step has
+    // already rebuilt every field layer in canonical order and must not draw
+    // NPCs over the player a second time.
+    if (! $fieldWasRecomposed) {
+      $this->getGameScene()->npcManager?->render();
+    }
 
     if ($this->getGameScene()->mapManager->isAtSavePoint) {
       alert("Access the Menu to save your progress.", 'Save Point');
@@ -494,18 +499,34 @@ class Player extends GameObject
    * @param Vector2 $direction The direction.
    * @param Camera $camera The camera.
    * @param string[]|null $previousSprite The sprite to erase from the previous position.
-   * @return void
+   * @return bool True when camera movement invoked the complete field compositor.
    */
-  protected function updatePlayerPosition(Vector2 $direction, Camera $camera, ?array $previousSprite = null): void
+  protected function updatePlayerPosition(Vector2 $direction, Camera $camera, ?array $previousSprite = null): bool
   {
-    $mapManager = $this->getGameScene()->mapManager;
+    $scene = $this->getGameScene();
+    $mapManager = $scene->mapManager;
     $this->erasePlayer($camera, $previousSprite ?? $this->sprite);
     $this->position->add($direction);
-    if ( $mapManager->scrollMap($this, $direction) ) {
+    $didScroll = $mapManager->scrollMap($this, $direction);
+    $this->renderLocationHUDWindow();
+
+    if ($didScroll && $scene->recomposeFieldAfterCameraScroll()) {
+      return true;
+    }
+
+    if ($didScroll) {
+      // Lightweight scenes and test harnesses may not own a FieldState. Keep
+      // their fallback complete enough to preserve authored event cues.
       $mapManager->render();
     }
+
+    // Restoring the player's old tile can erase a cue underneath it even
+    // without scrolling. Repaint cues before foreground actors so their
+    // established layer order remains map -> cues -> actors.
+    $this->renderEventCues();
     $this->render();
-    $this->renderLocationHUDWindow();
+
+    return false;
   }
 
   /**

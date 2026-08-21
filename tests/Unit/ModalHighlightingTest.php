@@ -8,7 +8,6 @@ use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
-use Symfony\Component\Console\Output\BufferedOutput;
 
 class ModalArrayConfigStub implements ConfigInterface
 {
@@ -63,29 +62,22 @@ class ModalArrayConfigStub implements ConfigInterface
 
 class ModalButtonHighlightProxy extends Modal
 {
-  private BufferedOutput $buffer;
-
   public function __construct(array $buttons, int $activeIndex, int $width = 24)
   {
     $this->buttons = $buttons;
     $this->activeIndex = $activeIndex;
     $this->rect = new Rect(0, 0, $width, 4);
     $this->borderPack = new DefaultBorderPack();
-    $this->output = $this->buffer = new BufferedOutput();
   }
 
   public function captureButtons(): string
   {
-    $this->renderButtons();
-
-    return $this->buffer->fetch();
+    return $this->renderedButtonLine();
   }
 }
 
 class SelectModalHighlightProxy extends SelectModal
 {
-  private BufferedOutput $buffer;
-
   public function __construct(array $options, int $activeIndex, string $message = '')
   {
     $this->options = $options;
@@ -96,16 +88,11 @@ class SelectModalHighlightProxy extends SelectModal
     $this->messageContentHeight = count($this->messageLines);
     $this->rect = new Rect(0, 0, 24, 3);
     $this->borderPack = new DefaultBorderPack();
-    $this->output = $this->buffer = new BufferedOutput();
   }
 
   public function captureOptions(): string
   {
-    ob_start();
-    $this->renderOptions(1, 1);
-    ob_end_clean();
-
-    return $this->buffer->fetch();
+    return implode("\n", $this->renderedOptionLines());
   }
 }
 

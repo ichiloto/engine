@@ -203,6 +203,21 @@ it('composites map NPCs player and HUD on every field restoration', function () 
     ->and($hud->renderCount)->toBe(1);
 });
 
+it('recomposites every field layer after the camera scrolls', function () {
+  $map = new FieldCompositionMapProbe();
+  $npcs = new FieldCompositionNpcProbe();
+  $player = new FieldCompositionPlayerProbe();
+  $hud = new FieldCompositionHudProbe();
+  $scene = new FieldCompositionSceneProbe($map, $npcs, $player, $hud);
+
+  expect($scene->recomposeFieldAfterCameraScroll())->toBeTrue()
+    ->and($map->renderCount)->toBe(1)
+    ->and($player->cueRenderCount)->toBe(1)
+    ->and($npcs->renderCount)->toBe(1)
+    ->and($player->renderCount)->toBe(1)
+    ->and($hud->renderCount)->toBe(1);
+});
+
 it('rebuilds dynamic field layers once when world state makes them dirty', function () {
   $map = new FieldCompositionMapProbe();
   $npcs = new FieldCompositionNpcProbe();
