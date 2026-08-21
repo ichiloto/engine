@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\IO;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\KeyboardEvent;
+use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\Util\Config\ConfigStore;
@@ -474,6 +475,6 @@ class InputManager
     system('stty -cbreak echo');
 
     // Turn on cursor blinking
-    echo "\033[?12h";
+    Console::cursor()->enableBlinking();
   }
 }

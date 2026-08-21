@@ -5,7 +5,6 @@ namespace Ichiloto\Engine\Scenes\Battle\States;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Scenes\SceneStateContext;
-use Symfony\Component\Console\Output\ConsoleOutput;
 
 /**
  * Represents the battle pause state.
@@ -35,8 +34,9 @@ class BattlePauseState extends BattleSceneState
     $leftMargin = intval((get_screen_width() - $pauseTextLength) / 2);
     $topMargin = intval((get_screen_height() - 1) / 2);
 
-    Console::cursor()->moveTo($leftMargin, $topMargin);
-    $output = new ConsoleOutput();
-    $output->write(self::PAUSE_TEXT);
+    // Pause text is part of the battle frame. Keep it in the canonical
+    // buffer and on the same ordered descriptor as every other draw so a
+    // later resume can erase it deterministically.
+    Console::write(self::PAUSE_TEXT, $leftMargin, $topMargin);
   }
 }

@@ -703,6 +703,27 @@ class GameScene extends AbstractScene
         }
     }
 
+    /**
+     * Rebuilds every field layer after the camera changes its viewport.
+     *
+     * A camera scroll replaces the whole visible map background. Restoring a
+     * hand-maintained subset of foreground objects afterwards is unsafe: any
+     * omitted layer (event cues, staged actors, cinematic presentation, or a
+     * future field overlay) disappears until another full redraw happens.
+     * Keep the layer list and its ordering owned by FieldState instead.
+     *
+     * @return bool True when the canonical field compositor was available.
+     */
+    public function recomposeFieldAfterCameraScroll(): bool
+    {
+        if ($this->fieldState === null) {
+            return false;
+        }
+
+        $this->fieldState->renderTheField();
+        return true;
+    }
+
     /** Marks dynamic NPC and event-cue presentation stale after world state changes. */
     public function requestFieldPresentationReconciliation(): void
     {

@@ -233,6 +233,8 @@ class EventTestCamera extends Camera
 class EventTestMapManager extends MapManager
 {
   public array $blocked = [];
+  public bool $shouldScroll = false;
+  public int $renderCount = 0;
 
   public function __construct()
   {
@@ -250,7 +252,12 @@ class EventTestMapManager extends MapManager
 
   public function scrollMap(Player $player, Vector2 $moveDirection): bool
   {
-    return false;
+    return $this->shouldScroll;
+  }
+
+  public function render(?int $x = null, ?int $y = null): void
+  {
+    $this->renderCount++;
   }
 }
 
@@ -350,6 +357,8 @@ class EventTestGameScene extends GameScene
   public array $configuredTransferTransitions = [];
   public array $cinematicCoverAtTransfer = [];
   public bool $autoResumeTransfers = true;
+  public int $cameraScrollRecompositions = 0;
+  public bool $canRecomposeCameraScroll = false;
 
   public function __construct(public EventTestSceneManager $testSceneManager = new EventTestSceneManager())
   {
@@ -387,6 +396,12 @@ class EventTestGameScene extends GameScene
   public function installNpcManager(NpcManager $npcManager): void
   {
     $this->npcManager = $npcManager;
+  }
+
+  public function recomposeFieldAfterCameraScroll(): bool
+  {
+    $this->cameraScrollRecompositions++;
+    return $this->canRecomposeCameraScroll;
   }
 
   public function installCinematicRuntime(): void
@@ -893,6 +908,54 @@ it('renders an authored event cue only while its trigger is available and incomp
   $trigger->complete();
   $player->renderEventCues();
   expect($scene->camera->renders)->toHaveCount(1);
+});
+
+it('delegates a camera-scrolling step to the complete field compositor', function () {
+  [$scene] = makeEventRuntime();
+  $player = new EventTestPlayer(new Vector2(0, 0));
+  $scene->installPlayer($player);
+  $scene->mapManager->shouldScroll = true;
+  $scene->canRecomposeCameraScroll = true;
+
+  expect($player->tryFieldMove(Vector2::down(), $scene->camera))->toBeTrue()
+    ->and($scene->cameraScrollRecompositions)->toBe(1)
+    ->and($scene->mapManager->renderCount)->toBe(0);
+});
+
+it('restores authored event cues after an ordinary player step', function () {
+  [$scene] = makeEventRuntime();
+  $player = new EventTestPlayer(new Vector2(0, 0));
+  $scene->installPlayer($player);
+  $trigger = new ScriptEventTrigger(
+    new Rect(4, 6, 1, 1),
+    ['mode' => 'action', 'reusable' => true, 'script' => [['type' => 'wait', 'seconds' => 0.1]]],
+    cue: ['symbol' => '!', 'color' => 'bright-yellow'],
+  );
+  $trigger->bind($scene->gameState, $scene->party);
+  $player->addTrigger($trigger);
+
+  expect($player->tryFieldMove(Vector2::right(), $scene->camera))->toBeTrue()
+    ->and($scene->camera->renders)->toHaveCount(1)
+    ->and($scene->camera->renders[0][0])->toBe(['<fg=bright-yellow>!</>']);
+});
+
+it('preserves event cues in the no-FieldState camera-scroll fallback', function () {
+  [$scene] = makeEventRuntime();
+  $player = new EventTestPlayer(new Vector2(0, 0));
+  $scene->installPlayer($player);
+  $scene->mapManager->shouldScroll = true;
+  $trigger = new ScriptEventTrigger(
+    new Rect(4, 6, 1, 1),
+    ['mode' => 'action', 'reusable' => true, 'script' => [['type' => 'wait', 'seconds' => 0.1]]],
+    cue: ['symbol' => '!', 'color' => 'bright-yellow'],
+  );
+  $trigger->bind($scene->gameState, $scene->party);
+  $player->addTrigger($trigger);
+
+  expect($player->tryFieldMove(Vector2::down(), $scene->camera))->toBeTrue()
+    ->and($scene->cameraScrollRecompositions)->toBe(1)
+    ->and($scene->mapManager->renderCount)->toBe(1)
+    ->and($scene->camera->renders)->toHaveCount(1);
 });
 
 it('can gate a cue without disabling its trigger interaction', function () {

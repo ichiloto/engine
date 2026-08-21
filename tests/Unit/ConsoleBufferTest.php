@@ -3,7 +3,11 @@
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Core\Enumerations\MovementHeading;
+use Ichiloto\Engine\UI\Elements\LocationHUDWindow;
 use Ichiloto\Engine\UI\Windows\Window;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\PlaySettings;
 
 /**
  * Prepares a console of the given size with an empty buffer.
@@ -18,12 +22,110 @@ function withConsole(int $width, int $height): ReflectionClass
     ['buffer', []],
     ['frameDepth', 0],
     ['frameRows', []],
+    ['recomposeRepaintRows', []],
+    ['isRecomposing', false],
+    ['terminalHandedBack', false],
   ] as [$name, $value]) {
     $reflection->getProperty($name)->setValue(null, $value);
   }
 
   return $reflection;
 }
+
+it('uses the DEC private autowrap mode understood by terminal emulators', function () {
+  withConsole(20, 4);
+
+  ob_start();
+  Console::disableLineWrap();
+  Console::enableLineWrap();
+  $output = ob_get_clean();
+
+  expect($output)->toBe("\033[?7l\033[?7h");
+});
+
+it('restores autowrap before handing the terminal screen back', function () {
+  $console = withConsole(20, 4);
+  $console->getProperty('usingAlternateScreen')->setValue(null, true);
+
+  ob_start();
+  Console::reset();
+  $output = ob_get_clean();
+
+  expect($output)->toStartWith("\033[?7h\033[?1049l")
+    ->and($console->getProperty('terminalHandedBack')->getValue())->toBeTrue();
+});
+
+it('can repaint an unchanged canonical region without repainting the screen', function () {
+  withConsole(20, 4);
+
+  ob_start();
+  Console::write('ABCDE', 2, 1);
+  Console::write('12345', 2, 2);
+  ob_end_clean();
+
+  ob_start();
+  Console::repaintRegion(2, 1, 5, 2);
+  $output = ob_get_clean();
+
+  expect($output)->toBe("\033[2;3HABCDE\033[3;3H12345")
+    ->and($output)->not->toContain("\033[1;")
+    ->and($output)->not->toContain("\033[4;");
+});
+
+it('preserves explicit region repairs through complete screen recomposition', function () {
+  withConsole(20, 4);
+
+  ob_start();
+  Console::write('stable', 2, 1);
+  ob_end_clean();
+
+  ob_start();
+  Console::recomposeFrame(function (): void {
+    Console::write('stable', 2, 1);
+    Console::repaintRegion(2, 1, 6, 1);
+  });
+  $output = ob_get_clean();
+
+  expect($output)->toBe("\033[2;3Hstable");
+});
+
+it('repaints every locator edge when its displayed state changes', function () {
+  withConsole(230, 39);
+  $hadPlaySettings = ConfigStore::has(PlaySettings::class);
+  $previousPlaySettings = $hadPlaySettings ? ConfigStore::get(PlaySettings::class) : null;
+  ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 230, 'height' => 39]));
+
+  try {
+    $hud = new class(new Vector2(8, 4), MovementHeading::SOUTH) extends LocationHUDWindow {
+      public function isPresentationVisible(): bool
+      {
+        return true;
+      }
+    };
+    $hud->activate();
+
+    ob_start();
+    $hud->render();
+    ob_end_clean();
+
+    ob_start();
+    $hud->updateDetails(new Vector2(86, 14), MovementHeading::SOUTH);
+    $hud->render();
+    $output = ob_get_clean();
+
+    expect($output)->toContain("\033[36;2H╔")
+      ->and($output)->toContain("\033[37;2H║ Coordinates: (86, 14) ║")
+      ->and($output)->toContain("\033[38;2H║ Heading: South        ║")
+      ->and($output)->toContain("\033[39;2H╚")
+      ->and(substr_count($output, "\033["))->toBe(4);
+  } finally {
+    if ($previousPlaySettings !== null) {
+      ConfigStore::put(PlaySettings::class, $previousPlaySettings);
+    } else {
+      ConfigStore::remove(PlaySettings::class);
+    }
+  }
+});
 
 /**
  * Returns the console's buffered rows, discarding terminal output.
@@ -193,6 +295,28 @@ it('replaces a menu with every row of a dense styled field', function () {
     ->and($output)->toContain("\033[35;57H")
     ->and($output)->toContain("\033[39;3H")
     ->and(TerminalText::stripAnsi($output))->not->toContain('old load menu');
+});
+
+it('fully repaints a new screen owner even when the canonical buffer already matches', function () {
+  withConsole(20, 3);
+
+  ob_start();
+  Console::write('field', 0, 0);
+  ob_end_clean();
+
+  ob_start();
+  Console::recomposeFrame(function (): void {
+    Console::write('field', 0, 0);
+  }, forceFullRepaint: true);
+  $output = ob_get_clean();
+
+  // Every row is delivered at full width, including blank rows. A scene
+  // boundary can therefore repair physical bytes that the logical buffer
+  // never observed, without flashing through a cleared screen.
+  expect(substr_count($output, "\033["))->toBe(3)
+    ->and($output)->toContain("\033[1;1Hfield")
+    ->and($output)->toContain("\033[2;1H" . str_repeat(' ', 20))
+    ->and($output)->toContain("\033[3;1H" . str_repeat(' ', 20));
 });
 
 it('restores the authoritative screen when recomposition fails', function () {

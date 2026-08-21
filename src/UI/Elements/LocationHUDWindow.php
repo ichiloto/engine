@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\UI\Elements;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Core\Rect;
+use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\UI\Enumerations\PresentationPriority;
 use Ichiloto\Engine\UI\Interfaces\LayeredUIElementInterface;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
@@ -29,6 +30,9 @@ class LocationHUDWindow extends Window implements LayeredUIElementInterface
    * The height of the window.
    */
   protected const int HEIGHT = 4;
+
+  /** Whether the physical terminal must receive the complete HUD footprint. */
+  protected bool $requiresPhysicalRepaint = true;
 
   /**
    * @inheritDoc
@@ -65,10 +69,16 @@ class LocationHUDWindow extends Window implements LayeredUIElementInterface
     $this->coordinates = $coordinates;
     $this->heading = $heading;
 
-    $this->setContent([
+    $content = [
       "Coordinates: ({$this->coordinates->x}, {$this->coordinates->y})",
       "Heading: {$this->heading->value}"
-    ]);
+    ];
+
+    if ($content !== $this->getContent()) {
+      $this->requiresPhysicalRepaint = true;
+    }
+
+    $this->setContent($content);
   }
 
   /**
@@ -79,6 +89,7 @@ class LocationHUDWindow extends Window implements LayeredUIElementInterface
   public function refreshLayout(): void
   {
     $this->setPosition(new Vector2(1, get_screen_height() - self::HEIGHT));
+    $this->requiresPhysicalRepaint = true;
   }
 
   /**
@@ -88,7 +99,24 @@ class LocationHUDWindow extends Window implements LayeredUIElementInterface
   public function render(?int $x = null, ?int $y = null): void
   {
     if ($this->isPresentationVisible()) {
-      parent::render();
+      Console::beginFrame();
+
+      try {
+        parent::render();
+
+        if ($this->requiresPhysicalRepaint) {
+          $bounds = $this->getPresentationBounds();
+          Console::repaintRegion(
+            intval($bounds->getX()),
+            intval($bounds->getY()),
+            intval($bounds->getWidth()),
+            intval($bounds->getHeight()),
+          );
+          $this->requiresPhysicalRepaint = false;
+        }
+      } finally {
+        Console::endFrame();
+      }
     }
   }
 
@@ -104,6 +132,7 @@ class LocationHUDWindow extends Window implements LayeredUIElementInterface
   public function activate(): void
   {
     $this->isActive = true;
+    $this->requiresPhysicalRepaint = true;
   }
 
   /**

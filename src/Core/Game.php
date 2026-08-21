@@ -372,23 +372,14 @@ class Game implements CanRun, SubjectInterface
         }
 
         try {
-            Console::cursor()->show();
-        } catch (Throwable) {
-        }
-
-        try {
             Console::restoreTerminalSettings();
         } catch (Throwable) {
         }
 
         try {
-            // Hand back the screen the player started with.
-            Console::leaveAlternateScreen();
-        } catch (Throwable) {
-        }
-
-        try {
-            Console::cursor()->enableBlinking();
+            // Restore every terminal mode that Console changed, then hand
+            // back the screen the player started with.
+            Console::reset();
         } catch (Throwable) {
         }
     }
@@ -707,6 +698,11 @@ class Game implements CanRun, SubjectInterface
         Console::clear();
         Console::saveTerminalSettings();
         Console::enterAlternateScreen();
+        // Full-screen frames deliberately write through the last terminal
+        // row. Disable autowrap while Ichiloto owns the alternate screen so
+        // a write to the final column cannot scroll or partially displace a
+        // bottom-edge HUD.
+        Console::disableLineWrap();
         $this->registerTerminalRestoreHandlers();
         Console::setTerminalName($this->name);
         Console::setTerminalSize($this->width, $this->height);
@@ -896,7 +892,6 @@ SPLASH_SCREEN;
     {
         $this->notify($this, new GameEvent(GameEventType::QUIT));
         $this->stop();
-        Console::reset();
     }
 
     /**

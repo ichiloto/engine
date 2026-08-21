@@ -44,7 +44,7 @@ class FieldState extends GameSceneState
     {
         parent::enter();
         $this->getGameScene()->locationHUDWindow->activate();
-        $this->renderTheField();
+        $this->renderTheField(forceFullRepaint: true);
     }
 
     /**
@@ -52,7 +52,7 @@ class FieldState extends GameSceneState
      *
      * @return void
      */
-    public function renderTheField(): void
+    public function renderTheField(bool $forceFullRepaint = false): void
     {
         Console::recomposeFrame(function (): void {
             $this->getGameScene()->mapManager->render();
@@ -63,7 +63,7 @@ class FieldState extends GameSceneState
             $this->getGameScene()->getUI()->render();
             $this->getGameScene()->cinematicPresentation?->render();
             $this->getGameScene()->eventInterpreter?->renderPresentation();
-        });
+        }, $forceFullRepaint);
     }
 
     /**
@@ -214,6 +214,6 @@ class FieldState extends GameSceneState
     public function resume(): void
     {
         $this->getGameScene()->locationHUDWindow->activate();
-        $this->renderTheField();
+        $this->renderTheField(forceFullRepaint: true);
     }
 }

@@ -48,6 +48,21 @@ class Console
   private static array $frameRows = [];
 
   /**
+   * @var array<int, array{start: int, end: int}> Explicit repaint spans requested
+   * while a complete screen is being recomposed.
+   *
+   * Ordinary recomposition discards intermediate dirtiness and derives the
+   * final diff from the old and new buffers. An explicit repaint is different:
+   * its caller is repairing terminal state that may already disagree with the
+   * canonical buffer, so it must survive even when the logical cells compare
+   * equal.
+   */
+  private static array $recomposeRepaintRows = [];
+
+  /** Whether a complete-screen composition currently owns the outer frame. */
+  private static bool $isRecomposing = false;
+
+  /**
    * Placeholder marker used for continuation cells of wide terminal symbols.
    */
   private const string WIDE_SYMBOL_CONTINUATION = "\0";
@@ -186,6 +201,10 @@ class Console
     // Leave the borrowed screen and hand the terminal back as found. A
     // `tput reset` here would also clear the user's scrollback and colours,
     // which is destruction rather than restoration.
+    // Autowrap is disabled while the game owns the alternate screen so a
+    // full-width write to its bottom row cannot scroll the terminal. Restore
+    // the user's normal terminal mode before handing the screen back.
+    self::enableLineWrap();
     self::leaveAlternateScreen();
     self::cursor()->show();
     self::cursor()->enableBlinking();
@@ -199,7 +218,7 @@ class Console
    */
   public static function enableLineWrap(): void
   {
-    echo "\033[7h";
+    self::emitControlSequence("\033[?7h");
   }
 
   /**
@@ -209,7 +228,7 @@ class Console
    */
   public static function disableLineWrap(): void
   {
-    echo "\033[7l";
+    self::emitControlSequence("\033[?7l");
   }
 
   /**
@@ -232,12 +251,12 @@ class Console
    */
   public static function enableScrolling(?int $start = null, ?int $end = null): void
   {
-    echo match(true) {
+    self::emitControlSequence(match(true) {
       $start !== null && $end !== null => "\033[$start;{$end}r",
       $start !== null => "\033[{$start}r",
       $end !== null => "\033[;{$end}r",
       default => "\033[r",
-    };
+    });
   }
 
   /**
@@ -247,7 +266,7 @@ class Console
    */
   public static function disableScrolling(): void
   {
-    echo "\033[?7l";
+    self::emitControlSequence("\033[?7l");
   }
 
   /**
@@ -257,13 +276,20 @@ class Console
    */
   public static function clear(): void
   {
+    // Clearing is a rendered screen transition, so it must use the same
+    // descriptor and delivery guarantees as every other frame. Delegating to
+    // `clear`/`cls` writes through the process' inherited stdout instead of
+    // the dedicated terminal descriptor. If that separate write is dropped
+    // or arrives out of order, resetting the canonical buffer here makes the
+    // next frame believe the terminal is already blank and stale menu rows
+    // survive behind the field until a later redraw.
+    //
+    // Update the canonical buffer only after the physical clear succeeds. A
+    // failed write therefore cannot leave engine state ahead of the screen.
+    self::emitControlSequence("\033[0m\033[2J\033[H");
     self::$buffer = self::getEmptyBuffer();
     self::$frameRows = [];
-    if (PHP_OS_FAMILY === 'Windows') {
-      system('cls');
-    } else {
-      system('clear');
-    }
+    self::$recomposeRepaintRows = [];
   }
 
   /**
@@ -282,10 +308,18 @@ class Console
    * If composition fails, the authoritative buffer is restored and no
    * partial frame reaches the terminal.
    *
+   * A presentation-ownership boundary can request a full repaint. This is
+   * intentionally different from clearing: the complete new screen is sent
+   * without exposing an intermediate blank frame. It also repairs the
+   * physical terminal when output outside the engine, a dropped legacy
+   * write, or a scene transition left it out of sync with the canonical
+   * buffer.
+   *
    * @param callable(): void $renderer The complete screen renderer.
+   * @param bool $forceFullRepaint Whether to emit every terminal row after composition.
    * @return void
    */
-  public static function recomposeFrame(callable $renderer): void
+  public static function recomposeFrame(callable $renderer, bool $forceFullRepaint = false): void
   {
     if (self::$frameDepth !== 0) {
       throw new \RuntimeException('A complete screen cannot be recomposed inside an active console frame.');
@@ -293,9 +327,13 @@ class Console
 
     $previousBuffer = self::$buffer === [] ? self::getEmptyBuffer() : self::$buffer;
     $previousFrameRows = self::$frameRows;
+    $previousRecomposeRepaintRows = self::$recomposeRepaintRows;
+    $previousIsRecomposing = self::$isRecomposing;
 
     self::$buffer = self::getEmptyBuffer();
     self::$frameRows = [];
+    self::$recomposeRepaintRows = [];
+    self::$isRecomposing = true;
     self::beginFrame();
 
     try {
@@ -309,25 +347,44 @@ class Console
       // final rows to the old authoritative screen so rows that disappeared
       // are blanked while stable rows are not needlessly repainted.
       self::$frameRows = [];
-      $emptyRow = str_repeat(' ', self::$width);
 
-      for ($row = 0; $row < self::$height; $row++) {
-        if ((self::$buffer[$row] ?? $emptyRow) !== ($previousBuffer[$row] ?? $emptyRow)) {
-          $span = self::changedCellSpan(
-            $previousBuffer[$row] ?? $emptyRow,
-            self::$buffer[$row] ?? $emptyRow,
-          );
+      if ($forceFullRepaint) {
+        for ($row = 0; $row < self::$height; $row++) {
+          self::markFrameSpan($row, 0, self::$width - 1);
+        }
+      } else {
+        $emptyRow = str_repeat(' ', self::$width);
 
-          if ($span !== null) {
-            self::markFrameSpan($row, $span['start'], $span['end']);
+        for ($row = 0; $row < self::$height; $row++) {
+          if ((self::$buffer[$row] ?? $emptyRow) !== ($previousBuffer[$row] ?? $emptyRow)) {
+            $span = self::changedCellSpan(
+              $previousBuffer[$row] ?? $emptyRow,
+              self::$buffer[$row] ?? $emptyRow,
+            );
+
+            if ($span !== null) {
+              self::markFrameSpan($row, $span['start'], $span['end']);
+            }
           }
         }
       }
+
+      // A persistent presentation may know that the physical terminal needs
+      // repair even though its logical cells match the previous frame. Keep
+      // those explicit spans after throwing away intermediate render writes.
+      foreach (self::$recomposeRepaintRows as $row => $span) {
+        self::markFrameSpan($row, $span['start'], $span['end']);
+      }
+
+      self::$recomposeRepaintRows = [];
+      self::$isRecomposing = false;
 
       self::endFrame();
     } catch (\Throwable $throwable) {
       self::$buffer = $previousBuffer;
       self::$frameRows = $previousFrameRows;
+      self::$recomposeRepaintRows = $previousRecomposeRepaintRows;
+      self::$isRecomposing = $previousIsRecomposing;
       self::$frameDepth = 0;
       throw $throwable;
     }
@@ -341,7 +398,7 @@ class Console
    */
   public static function setTerminalName(string $name): void
   {
-    echo "\033]0;$name\007";
+    self::emitControlSequence("\033]0;$name\007");
   }
 
   /**
@@ -355,7 +412,7 @@ class Console
   {
     self::$width = $width;
     self::$height = $height;
-    echo "\033[8;$height;{$width}t";
+    self::emitControlSequence("\033[8;$height;{$width}t");
   }
 
   /**
@@ -374,6 +431,7 @@ class Console
     self::$height = max(1, $height);
     self::$buffer = self::getEmptyBuffer();
     self::$frameRows = [];
+    self::$recomposeRepaintRows = [];
   }
 
   /**
@@ -394,9 +452,9 @@ class Console
       return;
     }
 
+    self::emitControlSequence("\033[?1049h");
     self::$usingAlternateScreen = true;
     self::$terminalHandedBack = false;
-    echo "\033[?1049h";
   }
 
   /**
@@ -411,9 +469,24 @@ class Console
       return;
     }
 
+    self::emitControlSequence("\033[?1049l");
     self::$usingAlternateScreen = false;
     self::$terminalHandedBack = true;
-    echo "\033[?1049l";
+  }
+
+  /**
+   * Emits terminal control bytes through the authoritative rendering path.
+   *
+   * Cursor movement, screen clearing, and text drawing are one ordered
+   * protocol from the terminal's point of view. Sending controls through
+   * inherited stdout while frame content uses a dedicated descriptor lets
+   * those halves be dropped or reordered independently. Keeping this public
+   * lets the Cursor facade participate in the same delivery contract without
+   * exposing the lower-level stream writer itself.
+   */
+  public static function emitControlSequence(string $sequence): void
+  {
+    self::writeToTerminal($sequence);
   }
 
   /**
@@ -755,6 +828,49 @@ class Console
   }
 
   /**
+   * Re-emits a canonical screen region even when its logical cells have not
+   * changed.
+   *
+   * This is intentionally narrower than a full-screen repaint. Persistent
+   * overlays such as a locator or status HUD can repair their own footprint
+   * after a terminal-edge or external-output disturbance without forcing the
+   * dense map beneath them through the PTY again.
+   */
+  public static function repaintRegion(int $x, int $y, int $width, int $height): void
+  {
+    if ($width <= 0 || $height <= 0 || self::$width <= 0 || self::$height <= 0) {
+      return;
+    }
+
+    $startX = max(0, min($x, self::$width - 1));
+    $endX = min(self::$width - 1, $x + $width - 1);
+    $startY = max(0, min($y, self::$height - 1));
+    $endY = min(self::$height - 1, $y + $height - 1);
+
+    if ($endX < $startX || $endY < $startY) {
+      return;
+    }
+
+    self::beginFrame();
+
+    try {
+      for ($row = $startY; $row <= $endY; $row++) {
+        self::markFrameSpan($row, $startX, $endX);
+
+        if (self::$isRecomposing) {
+          $current = self::$recomposeRepaintRows[$row] ?? null;
+          self::$recomposeRepaintRows[$row] = [
+            'start' => $current === null ? $startX : min($current['start'], $startX),
+            'end' => $current === null ? $endX : max($current['end'], $endX),
+          ];
+        }
+      }
+    } finally {
+      self::endFrame();
+    }
+  }
+
+  /**
    * Writes a payload to the terminal, guaranteeing every byte is delivered.
    *
    * A complete field frame can exceed both PHP's userspace stream buffer and
@@ -938,9 +1054,15 @@ class Console
       return;
     }
 
-    self::cursor()->moveTo($start + 1, $row + 1);
-
-    self::writeToTerminal(self::getBufferSegment($row, $start, $end));
+    // Positioning and content form one indivisible terminal operation. If
+    // they travel through different descriptors, the text may arrive before
+    // its cursor move and corrupt an unrelated part of the screen.
+    self::writeToTerminal(sprintf(
+      "\033[%d;%dH%s",
+      $row + 1,
+      $start + 1,
+      self::getBufferSegment($row, $start, $end),
+    ));
   }
 
   /** Coalesces a changed span with any earlier writes to the same frame row. */

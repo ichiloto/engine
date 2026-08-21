@@ -215,6 +215,116 @@ it('prefers the dedicated terminal descriptor over the shared output wrapper', f
   expect(ConsoleWriteProbeStream::$received)->toBe($payload);
 });
 
+it('clears the physical terminal through the authoritative frame descriptor', function () {
+  $scheme = 'ichiloto-dedicated-clear-probe';
+
+  if (! in_array($scheme, stream_get_wrappers(), true)) {
+    stream_wrapper_register($scheme, ConsoleWriteProbeStream::class);
+  }
+
+  $dedicatedStream = fopen($scheme . '://terminal', 'w');
+  $sharedStream = fopen('/dev/null', 'w');
+  $outputProperty = new ReflectionProperty(Console::class, 'output');
+  $previousOutput = $outputProperty->getValue();
+  $previousDedicatedStream = replaceDedicatedTerminalStream($dedicatedStream);
+  $outputProperty->setValue(null, new TestStreamConsoleOutput($sharedStream));
+
+  $console = new ReflectionClass(Console::class);
+  $previousWidth = $console->getProperty('width')->getValue();
+  $previousHeight = $console->getProperty('height')->getValue();
+  $previousBuffer = $console->getProperty('buffer')->getValue();
+  $console->getProperty('width')->setValue(null, 20);
+  $console->getProperty('height')->setValue(null, 3);
+  $console->getProperty('buffer')->setValue(null, [
+    'old menu            ',
+    'still visible       ',
+    '                    ',
+  ]);
+
+  try {
+    Console::clear();
+    $clearedBuffer = $console->getProperty('buffer')->getValue();
+  } finally {
+    $console->getProperty('width')->setValue(null, $previousWidth);
+    $console->getProperty('height')->setValue(null, $previousHeight);
+    $console->getProperty('buffer')->setValue(null, $previousBuffer);
+    $outputProperty->setValue(null, $previousOutput);
+    replaceDedicatedTerminalStream($previousDedicatedStream);
+    fclose($dedicatedStream);
+    fclose($sharedStream);
+  }
+
+  expect(ConsoleWriteProbeStream::$received)->toBe("\033[0m\033[2J\033[H")
+    ->and($clearedBuffer)->toBe(array_fill(0, 3, str_repeat(' ', 20)));
+});
+
+it('keeps unbatched cursor positioning and content on one ordered descriptor', function () {
+  $scheme = 'ichiloto-ordered-draw-probe';
+
+  if (! in_array($scheme, stream_get_wrappers(), true)) {
+    stream_wrapper_register($scheme, ConsoleWriteProbeStream::class);
+  }
+
+  $dedicatedStream = fopen($scheme . '://terminal', 'w');
+  $sharedStream = fopen('/dev/null', 'w');
+  $outputProperty = new ReflectionProperty(Console::class, 'output');
+  $previousOutput = $outputProperty->getValue();
+  $previousDedicatedStream = replaceDedicatedTerminalStream($dedicatedStream);
+  $outputProperty->setValue(null, new TestStreamConsoleOutput($sharedStream));
+
+  $console = new ReflectionClass(Console::class);
+  $propertyValues = [];
+
+  foreach ([
+    'width' => 20,
+    'height' => 3,
+    'buffer' => [],
+    'frameDepth' => 0,
+    'frameRows' => [],
+    'terminalHandedBack' => false,
+  ] as $propertyName => $value) {
+    $property = $console->getProperty($propertyName);
+    $propertyValues[$propertyName] = $property->getValue();
+    $property->setValue(null, $value);
+  }
+
+  try {
+    Console::write('field', 2, 1);
+  } finally {
+    foreach ($propertyValues as $propertyName => $value) {
+      $console->getProperty($propertyName)->setValue(null, $value);
+    }
+
+    $outputProperty->setValue(null, $previousOutput);
+    replaceDedicatedTerminalStream($previousDedicatedStream);
+    fclose($dedicatedStream);
+    fclose($sharedStream);
+  }
+
+  expect(ConsoleWriteProbeStream::$received)->toBe("\033[2;3Hfield");
+});
+
+it('routes cursor facade controls through the authoritative descriptor', function () {
+  $scheme = 'ichiloto-cursor-control-probe';
+
+  if (! in_array($scheme, stream_get_wrappers(), true)) {
+    stream_wrapper_register($scheme, ConsoleWriteProbeStream::class);
+  }
+
+  $dedicatedStream = fopen($scheme . '://terminal', 'w');
+  $previousDedicatedStream = replaceDedicatedTerminalStream($dedicatedStream);
+
+  try {
+    Console::cursor()->moveTo(7, 4);
+    Console::cursor()->hide();
+  } finally {
+    replaceDedicatedTerminalStream($previousDedicatedStream);
+    fclose($dedicatedStream);
+  }
+
+  expect(ConsoleWriteProbeStream::$received)->toBe("\033[4;7H\033[?25l");
+});
+
 it('preserves a blocking terminal stream mode during a controlled flush', function () {
   $stream = fopen('/dev/null', 'w');
   stream_set_blocking($stream, true);
