@@ -3,6 +3,7 @@
 use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Scenes\Battle\BattleConfig;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
@@ -157,6 +158,32 @@ it('keeps the current music when a map declares no theme', function () {
 
   expect($mapManager->backgroundMusic)->toBeNull()
     ->and($audioManager->calls)->toBeEmpty();
+});
+
+it('selects a map theme from world-state variants before using its default', function () {
+  [$game, $audioManager] = makeSceneAudioGame();
+  $scene = makeBareScene(GameScene::class);
+  $state = new GameState();
+  $mapManager = makeBareScene(MapManager::class);
+  new ReflectionProperty(GameScene::class, 'gameState')->setValue($scene, $state);
+  new ReflectionProperty(GameScene::class, 'party')->setValue($scene, null);
+  new ReflectionProperty(MapManager::class, 'game')->setValue($mapManager, $game);
+  new ReflectionProperty(MapManager::class, 'gameScene')->setValue($mapManager, $scene);
+  $apply = new ReflectionMethod(MapManager::class, 'applyMapBackgroundMusic');
+  $variants = [[
+    'track' => 'quiet-town',
+    'conditions' => [['type' => 'event', 'name' => 'crisis_resolved']],
+  ]];
+
+  $apply->invoke($mapManager, 'town-in-danger', $variants);
+  $state->recordStoryEvent('crisis_resolved');
+  $apply->invoke($mapManager, 'town-in-danger', $variants);
+
+  expect($mapManager->backgroundMusic)->toBe('quiet-town')
+    ->and($audioManager->calls)->toBe([
+      ['playBackgroundMusic', 'town-in-danger'],
+      ['playBackgroundMusic', 'quiet-town'],
+    ]);
 });
 
 it('starts the incoming scene music on transition and silences scenes without one', function () {

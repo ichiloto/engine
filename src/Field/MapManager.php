@@ -7,6 +7,7 @@ use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Interfaces\CanRenderAt;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Entities\PartyLocation as MapLocation;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Events\Triggers\EventTriggerFactory;
@@ -310,7 +311,7 @@ class MapManager implements CanRenderAt
     $mapId = strval($map['id'] ?? '');
     $this->loadMapTriggers($map['triggers'] ?? []);
     $this->loadMapEvents($map['events'] ?? [], $mapId);
-    $this->applyMapBackgroundMusic($map['bgm'] ?? null);
+    $this->applyMapBackgroundMusic($map['bgm'] ?? null, $map['bgmVariants'] ?? []);
 
     if ($mapId !== '') {
       $this->gameScene->questManager?->recordMapEntered($mapId);
@@ -331,21 +332,64 @@ class MapManager implements CanRenderAt
   /**
    * Applies the map's declared background music.
    *
-   * A map that declares a `bgm` track starts it on entry (a no-op when the
-   * track is already playing, so travelling between maps that share a theme
-   * is seamless). A map that declares none keeps whatever music is already
-   * playing, mirroring RPG Maker's autoplay semantics.
+   * A map declares its default `bgm` as a string. It may additionally declare
+   * ordered `bgmVariants` for story-dependent map states:
+   *
+   * ```php
+   * 'bgm' => 'town-in-danger',
+   * 'bgmVariants' => [[
+   *   'track' => 'quiet-town',
+   *   'conditions' => [['type' => 'event', 'name' => 'crisis_resolved']],
+   * ]],
+   * ```
+   *
+   * The first matching variant wins. A map that resolves to no track keeps
+   * whatever music is already playing, mirroring RPG Maker's autoplay
+   * semantics.
    *
    * @param mixed $bgm The `bgm` entry from the map data file.
+   * @param mixed $variants The optional `bgmVariants` entries.
    * @return void
    */
-  protected function applyMapBackgroundMusic(mixed $bgm): void
+  protected function applyMapBackgroundMusic(mixed $bgm, mixed $variants = []): void
   {
-    $this->backgroundMusic = is_string($bgm) && trim($bgm) !== '' ? trim($bgm) : null;
+    $this->backgroundMusic = $this->resolveMapBackgroundMusic($bgm, $variants);
 
     if ($this->backgroundMusic !== null) {
       $this->game->audioManager->playBackgroundMusic($this->backgroundMusic);
     }
+  }
+
+  /**
+   * Resolves a map's static or world-state-dependent background music.
+   */
+  protected function resolveMapBackgroundMusic(mixed $bgm, mixed $variants = []): ?string
+  {
+    if (is_array($variants)) {
+      foreach ($variants as $variant) {
+        if (! is_array($variant)) {
+          continue;
+        }
+
+        $track = is_string($variant['track'] ?? null) ? trim($variant['track']) : '';
+        $conditions = $variant['conditions'] ?? [];
+        if ($track === '' || ! is_array($conditions)) {
+          continue;
+        }
+
+        if (WorldConditionEvaluator::allHold(
+          $conditions,
+          $this->gameScene->gameState,
+          $this->gameScene->party,
+        )) {
+          return $track;
+        }
+      }
+    }
+
+    $default = is_string($bgm) ? trim($bgm) : '';
+
+    return $default !== '' ? $default : null;
   }
 
   /**
