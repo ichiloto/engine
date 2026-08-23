@@ -22,6 +22,7 @@ final class BattleEntryRuleRunner
     }
 
     $context = $config->entryContext($worldState);
+    $eligibleRules = [];
 
     foreach ($this->catalog->rules() as $rule) {
       if ($config->hasAppliedEntryRule($rule->id)) {
@@ -42,6 +43,13 @@ final class BattleEntryRuleRunner
         continue;
       }
 
+      $eligibleRules[] = $rule;
+    }
+
+    // Resolve the complete entry-eligible set before the first rule mutates
+    // temporary or durable state. Earlier writes can therefore neither admit
+    // nor exclude a later rule in the same battle execution.
+    foreach ($eligibleRules as $rule) {
       $this->executor->apply($rule, $context, $worldState);
       $config->markEntryRuleApplied($rule->id);
     }

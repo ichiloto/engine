@@ -12,8 +12,9 @@ use InvalidArgumentException;
 /**
  * Immutable facts captured once when a battle begins.
  *
- * The world state remains private: callers can ask whether the shared
- * condition vocabulary holds but cannot use this context to write state.
+ * The entry world-state snapshot remains private: callers can ask whether the
+ * shared condition vocabulary held when the battle began but cannot use this
+ * context to write state.
  */
 final readonly class BattleEntryContext
 {
@@ -21,6 +22,7 @@ final readonly class BattleEntryContext
   private array $activeById;
   /** @var array<string, BattleEntryActor> */
   private array $reserveById;
+  private GameState $worldStateSnapshot;
 
   /**
    * @param BattleEntryActor[] $activeActors
@@ -31,11 +33,12 @@ final readonly class BattleEntryContext
     public ?string $troopId,
     public array $activeActors,
     public array $reserveActors,
-    private GameState $worldState,
+    GameState $worldState,
     private Party $party,
     public string $executionId,
   )
   {
+    $this->worldStateSnapshot = GameState::fromArray($worldState->toArray());
     $this->activeById = $this->index($activeActors, 'active');
     $this->reserveById = $this->index($reserveActors, 'reserve');
 
@@ -90,7 +93,7 @@ final readonly class BattleEntryContext
   /** @param array<int, mixed> $conditions */
   public function conditionsHold(array $conditions): bool
   {
-    return WorldConditionEvaluator::allHold($conditions, $this->worldState, $this->party);
+    return WorldConditionEvaluator::allHold($conditions, $this->worldStateSnapshot, $this->party);
   }
 
   public function hasActor(string $actorId, BattleEntryActorPresence $presence): bool

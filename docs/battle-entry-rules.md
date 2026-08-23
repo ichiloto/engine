@@ -104,6 +104,12 @@ action resolution, or player input. Random encounters and scripted
 `start_battle` encounters use the same path, as do active-time and traditional
 battles.
 
+All rule conditions in one battle are resolved from the same entry snapshot
+before any rule mutates temporary or durable state. A write from an earlier
+rule therefore cannot make a later rule newly eligible, or make a rule that was
+eligible at entry become ineligible. The next battle captures a new snapshot
+and can observe writes committed by the previous battle.
+
 Each matching rule is one transaction. The engine resolves conditions and
 entry actors, validates all effects and writes, applies temporary effects,
 then commits writes. If an effect or write fails, that rule's earlier stage

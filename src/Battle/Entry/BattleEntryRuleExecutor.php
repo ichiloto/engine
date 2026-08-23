@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Battle\Entry;
 
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\WorldStateWriter;
+use Ichiloto\Engine\Entities\Character;
 use RuntimeException;
 use Throwable;
 
@@ -16,6 +17,15 @@ final class BattleEntryRuleExecutor
     $originalStages = [];
 
     foreach ($rule->effects as $index => $effect) {
+      if (! $effect instanceof BattleEntryStatStageEffect) {
+        throw new RuntimeException(sprintf(
+          '%s field "effects[%d]" has unsupported effect type "%s".',
+          $rule->source,
+          $index,
+          get_debug_type($effect),
+        ));
+      }
+
       $actor = $context->actor($effect->actorId);
       if (! $actor instanceof BattleEntryActor) {
         throw new RuntimeException(sprintf(
@@ -23,6 +33,15 @@ final class BattleEntryRuleExecutor
           $rule->source,
           $index,
           $effect->actorId,
+        ));
+      }
+
+      if (! in_array($effect->stat->value, Character::buffableStats(), true)) {
+        throw new RuntimeException(sprintf(
+          '%s field "effects[%d].stat" references "%s", which does not support temporary battle stages.',
+          $rule->source,
+          $index,
+          $effect->stat->value,
         ));
       }
 

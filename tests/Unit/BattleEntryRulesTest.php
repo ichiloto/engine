@@ -1,12 +1,18 @@
 <?php
 
 use Ichiloto\Engine\Battle\BattleClassification;
+use Ichiloto\Engine\Battle\Entry\BattleEntryActorPredicate;
+use Ichiloto\Engine\Battle\Entry\BattleEntryActorPresence;
+use Ichiloto\Engine\Battle\Entry\BattleEntryRule;
 use Ichiloto\Engine\Battle\Entry\BattleEntryRuleCatalog;
+use Ichiloto\Engine\Battle\Entry\BattleEntryRuleExecutor;
 use Ichiloto\Engine\Battle\Entry\BattleEntryRuleRunner;
+use Ichiloto\Engine\Battle\Entry\BattleEntryStatStageEffect;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Stats;
+use Ichiloto\Engine\Entities\Stats\StatKey;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\Scenes\Battle\BattleConfig;
 use Ichiloto\Engine\Scenes\Battle\States\BattleEndState;
@@ -250,6 +256,110 @@ it('runs multiple valid rules by priority then declaration order', function () {
   );
 
   expect($actors['actor.alpha']->getStatStage('speed'))->toBe(0);
+});
+
+it('advances a two-step queue by at most one entry-snapshot-eligible rule per battle', function () {
+  $catalog = new BattleEntryRuleCatalog(['rules' => [
+    battleEntryRule(
+      id: 'rule.step-one',
+      stat: 'speed',
+      conditions: [['type' => 'variable', 'name' => 'step', 'value' => 1]],
+      writes: [['type' => 'variable', 'name' => 'step', 'value' => 2]],
+      priority: 10,
+    ),
+    battleEntryRule(
+      id: 'rule.step-two',
+      stat: 'grace',
+      delta: -1,
+      conditions: [['type' => 'variable', 'name' => 'step', 'value' => 2]],
+      writes: [['type' => 'variable', 'name' => 'step', 'value' => 'done']],
+      priority: 20,
+    ),
+  ]], 'two-step queue fixture');
+  $state = new GameState();
+  $state->setVariable('step', 1);
+  [$party, $actors] = battleEntryTestParty();
+
+  $firstConfig = new BattleConfig($party, new Troop('First'), entryExecutionId: 'execution.queue.first');
+  (new BattleEntryRuleRunner($catalog))->apply($firstConfig, $state);
+
+  expect($actors['actor.alpha']->getStatStage('speed'))->toBe(1)
+    ->and($actors['actor.alpha']->getStatStage('grace'))->toBe(0)
+    ->and($state->getVariable('step'))->toBe(2)
+    ->and($firstConfig->appliedEntryRuleIds)->toBe(['rule.step-one']);
+
+  BattleEndState::clearBattleState($party);
+
+  expect($actors['actor.alpha']->getStatStage('speed'))->toBe(0);
+
+  $secondConfig = new BattleConfig($party, new Troop('Second'), entryExecutionId: 'execution.queue.second');
+  (new BattleEntryRuleRunner($catalog))->apply($secondConfig, $state);
+
+  expect($actors['actor.alpha']->getStatStage('speed'))->toBe(0)
+    ->and($actors['actor.alpha']->getStatStage('grace'))->toBe(-1)
+    ->and($state->getVariable('step'))->toBe('done')
+    ->and($secondConfig->appliedEntryRuleIds)->toBe(['rule.step-two']);
+});
+
+it('runs every rule eligible in the original entry snapshot in deterministic order', function () {
+  [$party, $actors] = battleEntryTestParty();
+  $state = new GameState();
+  $state->setVariable('step', 1);
+  $catalog = new BattleEntryRuleCatalog(['rules' => [
+    battleEntryRule(
+      id: 'rule.first',
+      conditions: [['type' => 'variable', 'name' => 'step', 'value' => 1]],
+      writes: [['type' => 'variable', 'name' => 'step', 'value' => 2]],
+      priority: 10,
+    ),
+    battleEntryRule(
+      id: 'rule.second',
+      stat: 'grace',
+      conditions: [['type' => 'variable', 'name' => 'step', 'value' => 1]],
+      writes: [['type' => 'variable', 'name' => 'result', 'value' => 'second']],
+      priority: 20,
+    ),
+  ]], 'shared snapshot fixture');
+  $config = new BattleConfig($party, new Troop('Encounter'), entryExecutionId: 'execution.snapshot');
+
+  (new BattleEntryRuleRunner($catalog))->apply($config, $state);
+
+  expect($actors['actor.alpha']->getStatStage('speed'))->toBe(1)
+    ->and($actors['actor.alpha']->getStatStage('grace'))->toBe(1)
+    ->and($state->getVariable('step'))->toBe(2)
+    ->and($state->getVariable('result'))->toBe('second')
+    ->and($config->appliedEntryRuleIds)->toBe(['rule.first', 'rule.second']);
+});
+
+it('rejects a manually constructed non-stageable effect before any mutation', function () {
+  [$party, $actors] = battleEntryTestParty();
+  $state = new GameState();
+  $state->setVariable('step', 1);
+  $rule = new BattleEntryRule(
+    id: 'rule.manual-invalid',
+    priority: 0,
+    declarationOrder: 0,
+    classification: BattleClassification::ORDINARY,
+    actors: [new BattleEntryActorPredicate('actor.alpha', BattleEntryActorPresence::ACTIVE)],
+    conditions: [],
+    effects: [
+      new BattleEntryStatStageEffect('actor.alpha', StatKey::SPEED, 1),
+      new BattleEntryStatStageEffect('actor.alpha', StatKey::MAX_HP, 1),
+    ],
+    writes: [['type' => 'variable', 'name' => 'step', 'value' => 2]],
+    source: 'manual effect fixture rule "rule.manual-invalid"',
+  );
+  $context = (new BattleConfig(
+    $party,
+    new Troop('Encounter'),
+    entryExecutionId: 'execution.manual-invalid',
+  ))->entryContext($state);
+
+  expect(fn() => (new BattleEntryRuleExecutor())->apply($rule, $context, $state))
+    ->toThrow(RuntimeException::class, 'effects[1].stat')
+    ->and($actors['actor.alpha']->getStatStage('speed'))->toBe(0)
+    ->and($actors['actor.alpha']->getStatStage('maxHp'))->toBe(0)
+    ->and($state->getVariable('step'))->toBe(1);
 });
 
 it('reports unknown actors unknown stats and malformed deltas without mutation', function () {
