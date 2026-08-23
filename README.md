@@ -28,3 +28,7 @@ Ichiloto 2D Game Engine aims to provide an accessible platform for developers an
 - [ ] Character progression and inventory management
 
 Join us on this journey to redefine retro gaming with the power of ASCII art and PHP!
+
+## Documentation
+
+- [Battle-entry rules](docs/battle-entry-rules.md)

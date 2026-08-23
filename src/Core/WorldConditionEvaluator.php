@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Core;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Util\Debug;
+use InvalidArgumentException;
 
 /**
  * Evaluates world-state condition lists.
@@ -28,6 +29,57 @@ use Ichiloto\Engine\Util\Debug;
  */
 class WorldConditionEvaluator
 {
+  /**
+   * Validates authored conditions without evaluating or mutating runtime state.
+   *
+   * @param array<int, mixed> $conditions
+   */
+  public static function validateAll(array $conditions, string $source = 'world conditions'): void
+  {
+    foreach ($conditions as $index => $condition) {
+      $conditionSource = sprintf('%s[%d]', $source, $index);
+
+      if (! is_array($condition)) {
+        throw new InvalidArgumentException(sprintf('%s must be an array.', $conditionSource));
+      }
+
+      $typeValue = $condition['type'] ?? null;
+      $type = is_string($typeValue) ? WorldConditionType::tryFrom(trim($typeValue)) : null;
+      if (! $type instanceof WorldConditionType) {
+        throw new InvalidArgumentException(sprintf(
+          '%s field "type" has unsupported world condition "%s".',
+          $conditionSource,
+          is_scalar($typeValue) ? strval($typeValue) : get_debug_type($typeValue),
+        ));
+      }
+
+      if (! is_string($condition['name'] ?? null) || trim($condition['name']) === '') {
+        throw new InvalidArgumentException(sprintf('%s field "name" must be non-empty.', $conditionSource));
+      }
+
+      if (isset($condition['negate']) && ! is_bool($condition['negate'])) {
+        throw new InvalidArgumentException(sprintf('%s field "negate" must be boolean.', $conditionSource));
+      }
+
+      if ($type === WorldConditionType::VARIABLE) {
+        $operator = strval($condition['op'] ?? '==');
+        if (! in_array($operator, ['==', '!=', '>', '>=', '<', '<='], true)) {
+          throw new InvalidArgumentException(sprintf(
+            '%s field "op" has unsupported variable operator "%s".',
+            $conditionSource,
+            $operator,
+          ));
+        }
+      }
+
+      if ($type === WorldConditionType::ITEM
+        && isset($condition['quantity'])
+        && (! is_int($condition['quantity']) || $condition['quantity'] < 1)) {
+        throw new InvalidArgumentException(sprintf('%s field "quantity" must be a positive integer.', $conditionSource));
+      }
+    }
+  }
+
   /**
    * Determines whether every condition in the list holds.
    *

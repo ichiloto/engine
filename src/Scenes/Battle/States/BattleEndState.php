@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Scenes\Battle\States;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\SceneStateContext;
+use Ichiloto\Engine\Entities\Party;
 
 class BattleEndState extends BattleSceneState
 {
@@ -16,15 +17,7 @@ class BattleEndState extends BattleSceneState
     // Only states flagged persistent (classic poison) follow the party out
     // of battle; everything else — including buff/debuff stages — clears
     // here.
-    foreach ($this->scene->party?->battlers?->toArray() ?? [] as $battler) {
-      if (method_exists($battler, 'clearBattleStates')) {
-        $battler->clearBattleStates();
-      }
-
-      if (method_exists($battler, 'resetStatStages')) {
-        $battler->resetStatStages();
-      }
-    }
+    self::clearBattleState($this->scene->party);
 
     $this->scene->resultWindow?->erase();
     $this->scene->ui?->erase();
@@ -46,6 +39,20 @@ class BattleEndState extends BattleSceneState
     }
 
     $this->scene->getGame()->sceneManager->returnFromBattleScene();
+  }
+
+  /** Shared terminal cleanup for every victory, defeat, and retreat path. */
+  public static function clearBattleState(?Party $party): void
+  {
+    foreach ($party?->members?->toArray() ?? [] as $battler) {
+      if (method_exists($battler, 'clearBattleStates')) {
+        $battler->clearBattleStates();
+      }
+
+      if (method_exists($battler, 'resetStatStages')) {
+        $battler->resetStatStages();
+      }
+    }
   }
 
   public function execute(?SceneStateContext $context = null): void

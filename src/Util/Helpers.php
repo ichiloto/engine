@@ -639,9 +639,26 @@ if (! function_exists('get_troop') ) {
   function get_troop(string $name): ?Troop
   {
     $troops = asset('Data/troops.php', true);
-    $troopData = array_find($troops, fn(array $troop) => $troop['name'] === $name);
+    $troopData = null;
+    $troopKey = null;
 
-    return Troop::fromArray($troopData);
+    foreach ($troops as $key => $candidate) {
+      if (is_array($candidate) && ($candidate['name'] ?? null) === $name) {
+        $troopData = $candidate;
+        $troopKey = $key;
+        break;
+      }
+    }
+
+    if (! is_array($troopData)) {
+      return null;
+    }
+
+    if (! array_key_exists('id', $troopData) && is_string($troopKey) && trim($troopKey) !== '') {
+      $troopData['id'] = trim($troopKey);
+    }
+
+    return Troop::fromArray($troopData, sprintf('Data/troops.php troop "%s"', $name));
   }
 }
 

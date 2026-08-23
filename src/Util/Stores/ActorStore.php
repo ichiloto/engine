@@ -70,6 +70,14 @@ final class ActorStore implements ConfigInterface
     return $this->resolveId($path) !== null;
   }
 
+  /** Returns the canonical durable ID behind any accepted actor reference. */
+  public function canonicalId(string $reference): ?string
+  {
+    $id = $this->resolveId($reference);
+
+    return $id !== null ? $this->definitions[$id]->id : null;
+  }
+
   public function persist(): void
   {
   }

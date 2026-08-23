@@ -12,6 +12,7 @@ use Ichiloto\Engine\Battle\Engines\ActiveTime\ActiveTimeBattleEngine;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\TraditionalTurnBasedBattleEngine;
 use Ichiloto\Engine\Battle\Enumerations\BattleEngineType;
 use Ichiloto\Engine\Battle\Interfaces\BattleEngineInterface;
+use Ichiloto\Engine\Battle\Entry\BattleEntryRuleCatalog;
 use Ichiloto\Engine\Core\Enumerations\ChronoUnit;
 use Ichiloto\Engine\Core\Interfaces\CanRun;
 use Ichiloto\Engine\Events\Enumerations\EventType;
@@ -457,6 +458,13 @@ class Game implements CanRun, SubjectInterface
         $systemPayload = asset('Data/system.php', true);
         ElementRegistry::configure(is_array($systemPayload['elements'] ?? null) ? $systemPayload['elements'] : []);
         ConfigStore::put(ActorStore::class, new ActorStore());
+        $actorStore = ConfigStore::get(ActorStore::class);
+        ConfigStore::put(
+            BattleEntryRuleCatalog::class,
+            BattleEntryRuleCatalog::fromProject(
+                actorStore: $actorStore instanceof ActorStore ? $actorStore : null,
+            ),
+        );
         ConfigStore::put(ItemStore::class, new ItemStore());
         ConfigStore::put(KnowledgeCatalog::class, KnowledgeCatalog::fromProject());
         ConfigStore::put(EnemyStore::class, new EnemyStore());

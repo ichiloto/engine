@@ -56,6 +56,25 @@ trait HasStatStages
   }
 
   /**
+   * Restores one exact stage, primarily for atomic battle-rule rollback.
+   */
+  public function setStatStage(string $stat, int $stage): void
+  {
+    if (! in_array($stat, self::buffableStats(), true)) {
+      throw new \InvalidArgumentException(sprintf('Stat "%s" does not support battle stages.', $stat));
+    }
+
+    $stage = intval(clamp($stage, -4, 4));
+
+    if ($stage === 0) {
+      unset($this->statStages[$stat]);
+      return;
+    }
+
+    $this->statStages[$stat] = $stage;
+  }
+
+  /**
    * Returns the multiplier a stat's stage applies.
    *
    * @param string $stat The stat name.

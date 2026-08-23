@@ -102,6 +102,7 @@ final class ActorDefinition
   {
     $variantId = $this->resolveVariantId($savedState, $savePath);
     $data = $this->data;
+    $data['actorId'] = $this->id;
     $data['actorNaturalAdjustments'] = $this->naturalAdjustmentsFor($variantId);
     $data['naturalVariantId'] = $variantId;
 

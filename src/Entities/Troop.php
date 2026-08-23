@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Entities;
 
 use Assegai\Collections\ItemList;
+use Ichiloto\Engine\Battle\BattleClassification;
 use Ichiloto\Engine\Battle\EscapePolicy;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
@@ -26,6 +27,10 @@ class Troop extends BattleGroup
    * @var int The ID of the troop.
    */
   protected(set) int $id = 0;
+  /** Stable project-authored identity, when one exists. */
+  protected(set) ?string $definitionId = null;
+  /** Explicit typed classification; omission defaults to ordinary. */
+  protected(set) BattleClassification $classification = BattleClassification::ORDINARY;
 
   /**
    * The battle music this troop declares (e.g. a boss theme), or null to use
@@ -58,11 +63,16 @@ class Troop extends BattleGroup
     array $config = [],
     ?string $backgroundMusic = null,
     ?EscapePolicy $escapePolicy = null,
+    ?string $definitionId = null,
+    BattleClassification $classification = BattleClassification::ORDINARY,
   )
   {
     $backgroundMusic = is_string($backgroundMusic) ? trim($backgroundMusic) : '';
     $this->backgroundMusic = $backgroundMusic === '' ? null : $backgroundMusic;
     $this->escapePolicy = $escapePolicy;
+    $definitionId = is_string($definitionId) ? trim($definitionId) : '';
+    $this->definitionId = $definitionId === '' ? null : $definitionId;
+    $this->classification = $classification;
     self::$count++;
     $this->id = self::$count;
 
@@ -92,7 +102,7 @@ class Troop extends BattleGroup
    * @return self
    * @throws RequiredFieldException If a required field is missing.
    */
-  public static function fromArray(array $data): self
+  public static function fromArray(array $data, string $source = 'troop data'): self
   {
     $enemiesStore = ConfigStore::get(EnemyStore::class);
 
@@ -120,6 +130,7 @@ class Troop extends BattleGroup
     $escapePolicy = array_key_exists('escapePolicy', $data)
       ? EscapePolicy::resolve($data['escapePolicy'])
       : null;
+    $classification = BattleClassification::resolve($data['classification'] ?? null, $source);
 
     return new self(
       $name,
@@ -127,6 +138,8 @@ class Troop extends BattleGroup
       $events,
       backgroundMusic: is_string($backgroundMusic) ? $backgroundMusic : null,
       escapePolicy: $escapePolicy,
+      definitionId: is_string($data['id'] ?? null) ? $data['id'] : null,
+      classification: $classification,
     );
   }
 }
