@@ -1,6 +1,7 @@
 <?php
 
 use Ichiloto\Engine\Entities\Actors\ActorDefinition;
+use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Exceptions\UnresolvedSaveReferenceException;
 use Ichiloto\Engine\Util\Stores\ActorStore;
 
@@ -55,9 +56,28 @@ it('round trips a runtime-selected natural variant by identity without saving it
   $restored = $definition->createCharacter($saved, '/tmp/current-v4.iedata');
 
   expect($saved['naturalVariantId'])->toBe('alternate')
+    ->and($saved['stats'])->toBeArray()
     ->and($saved)->not->toHaveKey('actorNaturalAdjustments')
     ->and($restored->naturalVariantId)->toBe('alternate')
     ->and($restored->actorNaturalAdjustments)->toBe(['maxHp' => 5, 'attack' => 3]);
+});
+
+it('restores current resources from legacy Stats-object save payloads', function () {
+  $restored = foundationActorDefinition()->createCharacter([
+    'name' => 'Hero',
+    'stats' => new Stats(
+      currentHp: 37,
+      currentMp: 4,
+      currentAp: 2,
+      totalHp: 100,
+      totalMp: 10,
+      totalAp: 3,
+    ),
+  ], '/tmp/legacy-stats-object.iedata');
+
+  expect($restored->stats->currentHp)->toBe(37)
+    ->and($restored->stats->currentMp)->toBe(4)
+    ->and($restored->stats->currentAp)->toBe(2);
 });
 
 it('fails actor variant compatibility with actor variant and save context', function () {

@@ -372,7 +372,14 @@ it('resolves actor aliases before reconstructing current project definitions', f
   $config->party->members[0] = new Character(
     'Legacy Hero',
     0,
-    new Stats(currentHp: 80, totalHp: 100),
+    new Stats(
+      currentHp: 63,
+      currentMp: 7,
+      currentAp: 2,
+      totalHp: 100,
+      totalMp: 10,
+      totalAp: 3,
+    ),
   );
 
   try {
@@ -383,6 +390,9 @@ it('resolves actor aliases before reconstructing current project definitions', f
       ->and($restored->name)->toBe('Hero')
       ->and($restored->naturalVariantId)->toBe('standard')
       ->and($restored->actorNaturalAdjustments)->toBe(['maxHp' => 5])
+      ->and($restored->stats->currentHp)->toBe(63)
+      ->and($restored->stats->currentMp)->toBe(7)
+      ->and($restored->stats->currentAp)->toBe(2)
       ->and($restored->toArray())->not->toHaveKey('actorNaturalAdjustments');
   } finally {
     cleanupCompatibilityManager($manager);

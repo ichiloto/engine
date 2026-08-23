@@ -1039,7 +1039,10 @@ class Character implements CharacterInterface, CanEquip
    */
   public function restoreMutableState(array $data): void
   {
-    $savedStats = is_array($data['stats'] ?? null) ? $data['stats'] : [];
+    $rawSavedStats = $data['stats'] ?? null;
+    $savedStats = $rawSavedStats instanceof Stats
+      ? $rawSavedStats->jsonSerialize()
+      : (is_array($rawSavedStats) ? $rawSavedStats : []);
     $savedCurrentHp = isset($savedStats['currentHp']) ? intval($savedStats['currentHp']) : $this->stats->currentHp;
     $savedCurrentMp = isset($savedStats['currentMp']) ? intval($savedStats['currentMp']) : $this->stats->currentMp;
     $savedCurrentAp = isset($savedStats['currentAp']) ? intval($savedStats['currentAp']) : $this->stats->currentAp;
@@ -1262,7 +1265,7 @@ class Character implements CharacterInterface, CanEquip
       'name' => $this->name,
       'actorId' => $this->actorId,
       'currentExp' => $this->currentExp,
-      'stats' => $this->stats,
+      'stats' => $this->stats->jsonSerialize(),
       'images' => $this->images,
       'nickname' => $this->nickname,
       'maxLevel' => $this->maxLevel,
