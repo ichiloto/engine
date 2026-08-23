@@ -7,10 +7,16 @@ use Ichiloto\Engine\Core\Menu\MagicMenu\Windows\MagicListPanel;
 use Ichiloto\Engine\Core\Menu\MagicMenu\Windows\MagicTabPanel;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Entities\Enumerations\ItemScopeNumber;
+use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
 use Ichiloto\Engine\Entities\Enumerations\Occasion;
 use Ichiloto\Engine\Entities\Magic\LearnableSpell;
 use Ichiloto\Engine\Entities\Magic\SpellSortOrder;
+use Ichiloto\Engine\Entities\Skills\FieldSkillExecutionResult;
+use Ichiloto\Engine\Entities\Skills\FieldSkillExecutor;
+use Ichiloto\Engine\Entities\Skills\FieldSkillFailureReason;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
+use Ichiloto\Engine\Entities\Skills\SkillTargetPolicy;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
@@ -102,6 +108,22 @@ class MagicMenuState extends GameSceneState
      * @var string|null The latest short status message.
      */
     protected ?string $statusMessage = null;
+    /**
+     * @var MagicSkill|null The spell awaiting a one-target party selection.
+     */
+    protected ?MagicSkill $pendingUseSpell = null;
+    /**
+     * @var Character[] The eligible targets for the pending spell.
+     */
+    protected array $targetCandidates = [];
+    /**
+     * @var int The active target-candidate index.
+     */
+    protected int $activeTargetIndex = -1;
+    /**
+     * @var FieldSkillExecutor|null The shared field-skill execution boundary.
+     */
+    protected ?FieldSkillExecutor $fieldSkillExecutor = null;
 
     /**
      * @inheritDoc
@@ -261,12 +283,14 @@ class MagicMenuState extends GameSceneState
     {
         $availableLines = self::CONTENT_PANEL_HEIGHT - 2;
         $availableWidth = self::DETAIL_PANEL_WIDTH - 4;
-        $sourceLines = match ($this->tabs[$this->activeTabIndex] ?? 'Use') {
-            'Use' => $this->buildUseDetailLines(),
-            'Learn' => $this->buildLearnDetailLines(),
-            'Sort' => $this->buildSortDetailLines(),
-            default => [],
-        };
+        $sourceLines = $this->isSelectingTarget()
+            ? $this->buildTargetDetailLines()
+            : match ($this->tabs[$this->activeTabIndex] ?? 'Use') {
+                'Use' => $this->buildUseDetailLines(),
+                'Learn' => $this->buildLearnDetailLines(),
+                'Sort' => $this->buildSortDetailLines(),
+                default => [],
+            };
 
         $lines = [];
 
@@ -303,6 +327,40 @@ class MagicMenuState extends GameSceneState
             sprintf('Scope   : %s', $spell->scope->side->value),
             '',
             $spell->description,
+        ];
+    }
+
+    /**
+     * Builds target and spell details while a one-target cast is pending.
+     *
+     * @return string[] The target detail lines.
+     */
+    protected function buildTargetDetailLines(): array
+    {
+        $spell = $this->pendingUseSpell;
+        $target = $this->targetCandidates[$this->activeTargetIndex] ?? null;
+
+        if (!$spell instanceof MagicSkill || !$target instanceof Character) {
+            return ['No eligible target.'];
+        }
+
+        return [
+            sprintf('%s %s', $spell->icon, $spell->name),
+            sprintf('Caster: %s', $this->character?->name ?? 'Unknown'),
+            sprintf('Cost  : %d MP', $spell->cost),
+            '',
+            sprintf('Target: %s', $target->name),
+            sprintf('Status: %s', $target->isKnockedOut ? 'Knocked Out' : 'Ready'),
+            sprintf(
+                'HP    : %s / %s',
+                number_format($target->effectiveStats->currentHp),
+                number_format($target->effectiveStats->totalHp),
+            ),
+            sprintf(
+                'MP    : %s / %s',
+                number_format($target->effectiveStats->currentMp),
+                number_format($target->effectiveStats->totalMp),
+            ),
         ];
     }
 
@@ -399,6 +457,10 @@ class MagicMenuState extends GameSceneState
      */
     protected function getListPanelTitle(): string
     {
+        if ($this->isSelectingTarget()) {
+            return 'Choose Target';
+        }
+
         return match ($this->tabs[$this->activeTabIndex] ?? 'Use') {
             'Use' => 'Use Magic',
             'Learn' => 'Learn Magic',
@@ -414,6 +476,10 @@ class MagicMenuState extends GameSceneState
      */
     protected function buildListEntries(): array
     {
+        if ($this->isSelectingTarget()) {
+            return $this->buildTargetEntries();
+        }
+
         return match ($this->tabs[$this->activeTabIndex] ?? 'Use') {
             'Use' => $this->buildUseEntries(),
             'Learn' => $this->buildLearnEntries(),
@@ -439,6 +505,37 @@ class MagicMenuState extends GameSceneState
             $entries[] = TerminalText::padRight(
                 TerminalText::truncateToWidth(" {$label} {$occasion} {$cost}", $availableWidth),
                 $availableWidth
+            );
+        }
+
+        return $entries;
+    }
+
+    /**
+     * Builds party rows for the pending one-target cast.
+     *
+     * @return string[] The formatted target rows.
+     */
+    protected function buildTargetEntries(): array
+    {
+        $availableWidth = self::LIST_PANEL_WIDTH - 4;
+        $entries = [];
+
+        foreach ($this->targetCandidates as $target) {
+            $name = TerminalText::padRight($target->name, 24);
+            $hp = TerminalText::padLeft(sprintf(
+                'HP %s/%s',
+                number_format($target->effectiveStats->currentHp),
+                number_format($target->effectiveStats->totalHp),
+            ), 18);
+            $mp = TerminalText::padLeft(sprintf(
+                'MP %s/%s',
+                number_format($target->effectiveStats->currentMp),
+                number_format($target->effectiveStats->totalMp),
+            ), 18);
+            $entries[] = TerminalText::padRight(
+                TerminalText::truncateToWidth(sprintf(' %s %s %s', $name, $hp, $mp), $availableWidth),
+                $availableWidth,
             );
         }
 
@@ -499,6 +596,10 @@ class MagicMenuState extends GameSceneState
      */
     protected function getActiveEntryIndex(): int
     {
+        if ($this->isSelectingTarget()) {
+            return $this->activeTargetIndex;
+        }
+
         return match ($this->tabs[$this->activeTabIndex] ?? 'Use') {
             'Use' => $this->activeUseIndex,
             'Learn' => $this->activeLearnIndex,
@@ -514,6 +615,10 @@ class MagicMenuState extends GameSceneState
      */
     protected function getInfoHelpText(): string
     {
+        if ($this->isSelectingTarget()) {
+            return 'enter:Cast  c:Back';
+        }
+
         return match ($this->tabs[$this->activeTabIndex] ?? 'Use') {
             'Use' => 'enter:Cast  c:Cancel',
             'Learn' => 'enter:Learn  c:Cancel',
@@ -531,12 +636,14 @@ class MagicMenuState extends GameSceneState
     {
         $availableLines = self::INFO_PANEL_HEIGHT - 2;
         $availableWidth = self::MAGIC_MENU_WIDTH - 4;
-        $description = match ($this->tabs[$this->activeTabIndex] ?? 'Use') {
-            'Use' => $this->getActiveUseSpell()?->description ?? 'Review learned magic and cast the spells that work from the field.',
-            'Learn' => $this->getActiveLearnableSpell()?->skill->description ?? 'Review discovered spells and what each one requires to learn.',
-            'Sort' => 'Reorder learned magic to fit how you like to browse spells.',
-            default => '',
-        };
+        $description = $this->isSelectingTarget()
+            ? $this->pendingUseSpell?->description ?? 'Choose a party member.'
+            : match ($this->tabs[$this->activeTabIndex] ?? 'Use') {
+                'Use' => $this->getActiveUseSpell()?->description ?? 'Review learned magic and cast the spells that work from the field.',
+                'Learn' => $this->getActiveLearnableSpell()?->skill->description ?? 'Review discovered spells and what each one requires to learn.',
+                'Sort' => 'Reorder learned magic to fit how you like to browse spells.',
+                default => '',
+            };
 
         $lines = explode("\n", wrap_text($description, max(1, $availableWidth)));
         $lines = array_slice($lines, 0, $availableLines);
@@ -553,6 +660,11 @@ class MagicMenuState extends GameSceneState
      */
     public function execute(?SceneStateContext $context = null): void
     {
+        if ($this->isSelectingTarget()) {
+            $this->handleTargetSelection();
+            return;
+        }
+
         if ($this->handleCharacterCycling()) {
             return;
         }
@@ -752,8 +864,176 @@ class MagicMenuState extends GameSceneState
             return;
         }
 
-        $this->character->stats->currentMp -= $spell->cost;
-        $this->statusMessage = sprintf('%s channels %s. Field effects will expand later.', $this->character->name, $spell->name);
+        if (
+            $spell->scope->side === ItemScopeSide::ALLY
+            && $spell->scope->number === ItemScopeNumber::ONE
+        ) {
+            $this->beginTargetSelection($spell);
+            return;
+        }
+
+        $this->commitFieldSpell($spell);
+    }
+
+    /**
+     * Opens target selection without committing MP or effects.
+     */
+    protected function beginTargetSelection(MagicSkill $spell): void
+    {
+        /** @var Character[] $targets */
+        $targets = SkillTargetPolicy::filterByStatus(
+            $this->party->members->toArray(),
+            $spell->scope->status,
+        );
+
+        if ($targets === []) {
+            $this->statusMessage = sprintf('%s has no eligible target.', $spell->name);
+            return;
+        }
+
+        $this->pendingUseSpell = $spell;
+        $this->targetCandidates = $targets;
+        $this->activeTargetIndex = 0;
+        $this->statusMessage = null;
+    }
+
+    /**
+     * Handles target navigation, confirmation and cancellation.
+     */
+    protected function handleTargetSelection(): void
+    {
+        if (Input::isButtonDown('cancel') || Input::isButtonDown('back')) {
+            play_sound(SystemSound::CANCEL);
+            $this->cancelTargetSelection();
+            $this->refreshUI();
+            return;
+        }
+
+        $vertical = Input::getAxis(AxisName::VERTICAL);
+
+        if (abs($vertical) > 0 && $this->targetCandidates !== []) {
+            play_sound(SystemSound::CURSOR);
+            $offset = $vertical > 0 ? 1 : -1;
+            $this->activeTargetIndex = wrap(
+                $this->activeTargetIndex + $offset,
+                0,
+                count($this->targetCandidates) - 1,
+            );
+            $this->statusMessage = null;
+            $this->refreshUI();
+            return;
+        }
+
+        if (!Input::isButtonDown('confirm')) {
+            return;
+        }
+
+        $spell = $this->pendingUseSpell;
+        $target = $this->targetCandidates[$this->activeTargetIndex] ?? null;
+
+        if (!$spell instanceof MagicSkill || !$target instanceof Character) {
+            play_sound(SystemSound::BUZZER);
+            $this->statusMessage = 'No eligible target is selected.';
+            $this->refreshUI();
+            return;
+        }
+
+        play_sound(SystemSound::CONFIRM);
+        $result = $this->commitFieldSpell($spell, $target);
+
+        if ($result->succeeded) {
+            $this->cancelTargetSelection(clearStatus: false);
+        }
+
+        $this->normalizeSelectionIndexes();
+        $this->refreshUI();
+    }
+
+    /**
+     * Executes one fully resolved field cast and maps its typed outcome to UI text.
+     */
+    protected function commitFieldSpell(
+        MagicSkill $spell,
+        ?Character $selectedTarget = null,
+    ): FieldSkillExecutionResult
+    {
+        if (!$this->character instanceof Character) {
+            $result = new FieldSkillExecutionResult(
+                false,
+                failureReason: FieldSkillFailureReason::INVALID_TARGET,
+            );
+            $this->statusMessage = 'No caster is selected.';
+            return $result;
+        }
+
+        $this->fieldSkillExecutor ??= new FieldSkillExecutor();
+        $result = $this->fieldSkillExecutor->execute(
+            $spell,
+            $this->character,
+            $this->party,
+            $selectedTarget,
+        );
+        $this->statusMessage = $this->describeFieldSkillResult($spell, $result);
+
+        return $result;
+    }
+
+    /**
+     * Builds concise player-facing feedback for a field cast.
+     */
+    protected function describeFieldSkillResult(
+        MagicSkill $spell,
+        FieldSkillExecutionResult $result,
+    ): string
+    {
+        if ($result->succeeded) {
+            $targetNames = implode(', ', array_map(
+                static fn(Character $target): string => $target->name,
+                $result->targets,
+            ));
+
+            return sprintf(
+                '%s cast %s on %s.',
+                $this->character?->name ?? 'The caster',
+                $spell->name,
+                $targetNames !== '' ? $targetNames : 'the party',
+            );
+        }
+
+        return match ($result->failureReason) {
+            FieldSkillFailureReason::WRONG_OCCASION => sprintf('%s can only be used in battle.', $spell->name),
+            FieldSkillFailureReason::CASTER_KNOCKED_OUT => 'A knocked-out character cannot cast magic.',
+            FieldSkillFailureReason::INSUFFICIENT_MP => sprintf('Not enough MP for %s.', $spell->name),
+            FieldSkillFailureReason::TARGET_REQUIRED => sprintf('Choose a target for %s.', $spell->name),
+            FieldSkillFailureReason::INVALID_TARGET => sprintf('%s cannot target that character.', $spell->name),
+            FieldSkillFailureReason::NO_ELIGIBLE_TARGETS => sprintf('%s has no eligible target.', $spell->name),
+            FieldSkillFailureReason::NO_EFFECTS => sprintf('%s has no field effect configured.', $spell->name),
+            FieldSkillFailureReason::NO_EFFECT => sprintf('%s would have no effect on the selected target.', $spell->name),
+            FieldSkillFailureReason::UNSUPPORTED_SCOPE => sprintf('%s cannot target anyone from the field.', $spell->name),
+            null => sprintf('%s could not be cast.', $spell->name),
+        };
+    }
+
+    /**
+     * Returns to the spell list without committing a pending cast.
+     */
+    protected function cancelTargetSelection(bool $clearStatus = true): void
+    {
+        $this->pendingUseSpell = null;
+        $this->targetCandidates = [];
+        $this->activeTargetIndex = -1;
+
+        if ($clearStatus) {
+            $this->statusMessage = null;
+        }
+    }
+
+    /**
+     * Whether the menu is waiting for a one-target spell choice.
+     */
+    protected function isSelectingTarget(): bool
+    {
+        return $this->pendingUseSpell instanceof MagicSkill;
     }
 
     /**

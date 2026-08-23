@@ -22,6 +22,7 @@ use Ichiloto\Engine\Entities\Enumerations\ItemScopeNumber;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeStatus;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
+use Ichiloto\Engine\Entities\Skills\SkillTargetPolicy;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
@@ -874,11 +875,7 @@ class PlayerActionState extends TurnState
    */
   protected function matchesStatus(CharacterInterface $battler, ItemScopeStatus $status): bool
   {
-    return match ($status) {
-      ItemScopeStatus::DEAD => $battler->isKnockedOut,
-      ItemScopeStatus::ANY => true,
-      default => ! $battler->isKnockedOut,
-    };
+    return SkillTargetPolicy::matchesStatus($battler, $status);
   }
 
   /**
