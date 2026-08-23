@@ -235,6 +235,14 @@ Cinematics may compose existing Engine presentation systems with:
 - `clear_presentation` for temporary overlays;
 - `cinematic_music` for a non-blocking music transition.
 
+Narration overlays appear in full rather than using dialogue's progressive
+reveal. Their authored `seconds` value is therefore a minimum: the Engine
+extends it when necessary for the visible word count, using the project timing
+policy under `ui.cinematics.narration.minimum_duration`,
+`words_per_minute`, and `settle_duration`. This affects `narration` only;
+`title_card` retains its exact authored duration. A duration of zero still
+suppresses either timed overlay immediately.
+
 `cinematic_music` supports `track`, `loop`, `fadeIn`, `fadeOut`,
 `completionBehavior`, and `restorePreviousMusic`. Completion behavior is
 `continue`, `stop`, or `restore_previous`; `restorePreviousMusic` remains a

@@ -773,6 +773,26 @@ it('yields waits without blocking and retains a nested branch frame', function (
     ->and($scene->gameState->getSwitch('after_branch'))->toBeTrue();
 });
 
+it('keeps cinematic narration visible for the global reading-time floor', function () {
+  ConfigStore::remove(ProjectConfig::class);
+  [$scene, $interpreter] = makeEventRuntime();
+  $scene->installCinematicRuntime();
+
+  $session = $interpreter->run([[
+    'type' => 'narration',
+    'text' => 'Wind enters through all four restored road channels. The Stone sounds one low tone.',
+    'seconds' => 1.2,
+  ]]);
+
+  expect($session?->status)->toBe(EventExecutionStatus::YIELDED)
+    ->and($session?->pendingState['kind'])->toBe('presentation')
+    ->and(round($session?->pendingState['remainingSeconds'], 6))->toBe(5.666667);
+
+  $interpreter->update(1.2);
+
+  expect($session?->status)->toBe(EventExecutionStatus::YIELDED);
+});
+
 it('resumes dialogue and choices on later ticks', function () {
   [$scene, $interpreter, $presentation] = makeEventRuntime();
 
@@ -1723,7 +1743,7 @@ it('runs the original cinematic fixture to deterministic cleanup and save availa
       ->and($scene->cinematicPresentation?->hasTransitionCover())->toBeTrue()
       ->and($scene->cinematicStage?->all())->toHaveCount(3);
 
-    for ($tick = 0; $tick < 30 && $scene->hasUnstableEventSession(); $tick++) {
+    for ($tick = 0; $tick < 60 && $scene->hasUnstableEventSession(); $tick++) {
       $interpreter->update(0.1);
     }
 
@@ -1866,7 +1886,7 @@ it('launches a stable cinematic id from an action trigger and completes after tr
       ->and(fn() => $saveManager->save($scene, 1))->toThrow(ActiveEventSaveException::class)
       ->and(fn() => $saveManager->quickSave($scene))->toThrow(ActiveEventSaveException::class);
 
-    for ($tick = 0; $tick < 30 && $scene->hasUnstableEventSession(); $tick++) {
+    for ($tick = 0; $tick < 60 && $scene->hasUnstableEventSession(); $tick++) {
       $interpreter->update(0.1);
     }
 
