@@ -36,14 +36,14 @@ class Console
    */
   private static bool $terminalHandedBack = false;
   /**
-   * @var array<int, array{start: int, end: int}> Changed cell spans by row.
+   * @var array<int, list<array{start: int, end: int}>> Changed cell spans by row.
    *
    * A frame stores dirtiness rather than a journal of intermediate paints.
-   * When several windows touch the same row, their spans are coalesced and
-   * only the final composed segment is emitted. Flushing the complete row for
-   * a small overlay retransmitted the densely styled field behind it; on a
-   * large colour map that payload can fill a PTY before the alert body is
-   * delivered, leaving only a partial border on screen.
+   * Overlapping spans are coalesced, but separated changes remain separated.
+   * This matters for windows: an empty content row changes its two border
+   * cells, not every blank cell between them. Treating that row as one dirty
+   * envelope made a visually sparse shop frame larger than a dense map and
+   * exposed terminal-buffer limits during the first paint.
    */
   private static array $frameRows = [];
 
@@ -83,6 +83,15 @@ class Console
    * handling of an oversized write.
    */
   private const int WRITE_CHUNK_BYTES = 4096;
+
+  /**
+   * Clean cells cheaper to resend than to address with another cursor move.
+   *
+   * Keeping short gaps inside one dirty span preserves natural text runs
+   * such as "row one" while still separating the distant vertical borders
+   * of an otherwise empty window row.
+   */
+  private const int DIRTY_SPAN_MERGE_GAP = 8;
 
   /**
    * How many consecutive stalled writes to tolerate before reporting a
@@ -357,12 +366,12 @@ class Console
 
         for ($row = 0; $row < self::$height; $row++) {
           if ((self::$buffer[$row] ?? $emptyRow) !== ($previousBuffer[$row] ?? $emptyRow)) {
-            $span = self::changedCellSpan(
+            $spans = self::changedCellSpans(
               $previousBuffer[$row] ?? $emptyRow,
               self::$buffer[$row] ?? $emptyRow,
             );
 
-            if ($span !== null) {
+            foreach ($spans as $span) {
               self::markFrameSpan($row, $span['start'], $span['end']);
             }
           }
@@ -567,7 +576,19 @@ class Console
           // the buffer: it left trails behind the player.)
           if ($updatedRow !== $existingRow) {
             self::$buffer[$currentBufferRow] = $updatedRow;
-            self::writeBufferRow($currentBufferRow, $x, strlen($incoming));
+
+            foreach (self::changedAsciiSpans(
+              $existingRow,
+              $updatedRow,
+              $x,
+              $x + strlen($incoming) - 1,
+            ) as $span) {
+              self::writeBufferRow(
+                $currentBufferRow,
+                $span['start'],
+                $span['end'] - $span['start'] + 1,
+              );
+            }
           }
         }
 
@@ -604,9 +625,8 @@ class Console
 
       if ($updatedRow !== self::$buffer[$currentBufferRow]) {
         self::$buffer[$currentBufferRow] = $updatedRow;
-        $span = self::changedCellSpanFromCells($existingCells, $rowCells);
 
-        if ($span !== null) {
+        foreach (self::changedCellSpansFromCells($existingCells, $rowCells) as $span) {
           self::writeBufferRow(
             $currentBufferRow,
             $span['start'],
@@ -809,17 +829,19 @@ class Console
     ksort(self::$frameRows, SORT_NUMERIC);
     $payload = '';
 
-    foreach (self::$frameRows as $row => $span) {
+    foreach (self::$frameRows as $row => $spans) {
       if (! isset(self::$buffer[$row])) {
         continue;
       }
 
-      $payload .= sprintf(
-        "\033[%d;%dH%s",
-        $row + 1,
-        $span['start'] + 1,
-        self::getBufferSegment($row, $span['start'], $span['end']),
-      );
+      foreach ($spans as $span) {
+        $payload .= sprintf(
+          "\033[%d;%dH%s",
+          $row + 1,
+          $span['start'] + 1,
+          self::getBufferSegment($row, $span['start'], $span['end']),
+        );
+      }
     }
 
     self::$frameRows = [];
@@ -908,14 +930,15 @@ class Console
       return;
     }
 
-    // php://stdout is buffered independently of the terminal descriptor.
-    // Disable that layer so fwrite()'s byte count describes terminal
-    // acceptance, not temporary userspace acceptance. This is process-local
-    // Console ownership, so keeping the stream unbuffered is intentional.
-    // Pipes and a few platform wrappers report that write buffering is not
-    // configurable because they are already direct descriptors. That is a
-    // safe fallback; php://stdout, the production path that needs this
-    // protection, accepts the unbuffered policy.
+    // php://stdout and /dev/tty may be buffered independently of the terminal
+    // descriptor. Prefer an unbuffered stream so fwrite()'s byte count
+    // describes terminal acceptance rather than temporary userspace
+    // acceptance. macOS' /dev/tty wrapper can reject this request even though
+    // it still buffers writes, so rejection is not proof that the descriptor
+    // is direct. In that case every accepted chunk is explicitly drained
+    // before the next one is offered. This keeps all large scenes reliable,
+    // rather than relying on a final flush after PHP has already accepted the
+    // complete frame into an opaque stream buffer.
     @stream_set_write_buffer($stream, 0);
 
     $totalBytes = strlen($payload);
@@ -933,6 +956,19 @@ class Console
       if ($written !== false && $written > 0) {
         $bytesWritten += $written;
         $stalledAttempts = 0;
+
+        // PHP stream wrappers can claim to be unbuffered while an underlying
+        // PTY, multiplexer, or capture layer still stages output. Drain every
+        // accepted chunk; relying on the wrapper's advisory return value left
+        // the last shop rows invisible until the player's next key press.
+        if (! @fflush($stream)) {
+          throw new RuntimeException(sprintf(
+            'Terminal output failed to drain after %d of %d bytes.',
+            $bytesWritten,
+            $totalBytes,
+          ));
+        }
+
         continue;
       }
 
@@ -1065,56 +1101,123 @@ class Console
     ));
   }
 
-  /** Coalesces a changed span with any earlier writes to the same frame row. */
+  /** Coalesces overlapping changed spans while preserving clean gaps. */
   private static function markFrameSpan(int $row, int $start, int $end): void
   {
     $start = max(0, min($start, max(0, self::$width - 1)));
     $end = max($start, min($end, max(0, self::$width - 1)));
-    $current = self::$frameRows[$row] ?? null;
-
-    self::$frameRows[$row] = [
-      'start' => $current === null ? $start : min($current['start'], $start),
-      'end' => $current === null ? $end : max($current['end'], $end),
-    ];
+    $spans = self::$frameRows[$row] ?? [];
+    $spans[] = ['start' => $start, 'end' => $end];
+    self::$frameRows[$row] = self::coalesceChangedSpans($spans);
   }
 
   /**
-   * Finds the terminal-cell span whose rendered value or style changed.
+   * Finds the terminal-cell runs whose rendered value or style changed.
    *
-   * @return array{start: int, end: int}|null
+   * @return list<array{start: int, end: int}>
    */
-  private static function changedCellSpan(string $before, string $after): ?array
+  private static function changedCellSpans(string $before, string $after): array
   {
-    return self::changedCellSpanFromCells(
+    return self::changedCellSpansFromCells(
       self::rowToCells($before),
       self::rowToCells($after),
     );
   }
 
   /**
-   * Finds the changed span between two already expanded cell buffers.
+   * Finds changed runs between two already expanded cell buffers.
    *
    * @param string[] $before
    * @param string[] $after
-   * @return array{start: int, end: int}|null
+   * @return list<array{start: int, end: int}>
    */
-  private static function changedCellSpanFromCells(array $before, array $after): ?array
+  private static function changedCellSpansFromCells(array $before, array $after): array
   {
+    $spans = [];
     $start = null;
-    $end = null;
 
     for ($cell = 0; $cell < self::$width; $cell++) {
       if (($before[$cell] ?? ' ') === ($after[$cell] ?? ' ')) {
+        if ($start !== null) {
+          $spans[] = ['start' => $start, 'end' => $cell - 1];
+          $start = null;
+        }
+
         continue;
       }
 
       $start ??= $cell;
-      $end = $cell;
     }
 
-    return $start === null || $end === null
-      ? null
-      : ['start' => $start, 'end' => $end];
+    if ($start !== null) {
+      $spans[] = ['start' => $start, 'end' => self::$width - 1];
+    }
+
+    return self::coalesceChangedSpans($spans);
+  }
+
+  /**
+   * Finds changed byte runs within a known plain-ASCII draw.
+   *
+   * @return list<array{start: int, end: int}>
+   */
+  private static function changedAsciiSpans(string $before, string $after, int $start, int $end): array
+  {
+    $spans = [];
+    $runStart = null;
+    $start = max(0, $start);
+    $end = min(self::$width - 1, $end);
+
+    for ($cell = $start; $cell <= $end; $cell++) {
+      if (($before[$cell] ?? ' ') === ($after[$cell] ?? ' ')) {
+        if ($runStart !== null) {
+          $spans[] = ['start' => $runStart, 'end' => $cell - 1];
+          $runStart = null;
+        }
+
+        continue;
+      }
+
+      $runStart ??= $cell;
+    }
+
+    if ($runStart !== null) {
+      $spans[] = ['start' => $runStart, 'end' => $end];
+    }
+
+    return self::coalesceChangedSpans($spans);
+  }
+
+  /**
+   * Merges nearby dirty runs when another cursor address would cost more.
+   *
+   * @param list<array{start: int, end: int}> $spans
+   * @return list<array{start: int, end: int}>
+   */
+  private static function coalesceChangedSpans(array $spans): array
+  {
+    if ($spans === []) {
+      return [];
+    }
+
+    usort($spans, static fn(array $left, array $right): int => $left['start'] <=> $right['start']);
+    $merged = [];
+
+    foreach ($spans as $span) {
+      $lastIndex = count($merged) - 1;
+
+      if (
+        $lastIndex < 0
+        || $span['start'] > $merged[$lastIndex]['end'] + self::DIRTY_SPAN_MERGE_GAP + 1
+      ) {
+        $merged[] = $span;
+        continue;
+      }
+
+      $merged[$lastIndex]['end'] = max($merged[$lastIndex]['end'], $span['end']);
+    }
+
+    return $merged;
   }
 
   /** Returns an ANSI-safe slice of one canonical buffer row. */

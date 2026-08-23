@@ -399,6 +399,35 @@ it('batches a frame into a single terminal write', function () {
     ->and(substr_count($output, "\033["))->toBe(3);
 });
 
+it('emits sparse window interiors without retransmitting unchanged blanks', function () {
+  withConsole(230, 39);
+  $windows = [
+    new Window(position: new Vector2(60, 2), width: 110, height: 3),
+    new Window(position: new Vector2(60, 5), width: 80, height: 3),
+    new Window(position: new Vector2(140, 5), width: 30, height: 3),
+    new Window(position: new Vector2(60, 8), width: 55, height: 29),
+    new Window(position: new Vector2(115, 8), width: 55, height: 29),
+  ];
+
+  ob_start();
+  Console::beginFrame();
+
+  foreach ($windows as $window) {
+    $window->render();
+  }
+
+  Console::endFrame();
+  $output = ob_get_clean();
+
+  // This is the shop's complete empty-panel geometry at 230x39. Its first
+  // frame used to exceed the terminal writer's 4 KiB boundary because every
+  // blank cell between the vertical borders was marked dirty. The bottom
+  // borders must still be present, but the frame should now remain compact.
+  expect($output)->toContain("\033[37;61H")
+    ->and(TerminalText::stripAnsi($output))->toContain(str_repeat('═', 108))
+    ->and(strlen($output))->toBeLessThan(4096);
+});
+
 it('nests batched frames and flushes once at the outermost close', function () {
   withConsole(20, 2);
 
