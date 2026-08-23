@@ -116,16 +116,21 @@ final class CinematicPresentationManager
     $text = trim(strval($this->overlay['text'] ?? ''));
     $title = trim(strval($this->overlay['title'] ?? ''));
     $kind = strval($this->overlay['kind'] ?? 'narration');
+    $alignment = $kind === 'title_card' ? 'center' : 'left';
     $lines = TerminalText::wrapToWidth($text, max(1, $width - 4));
     $border = '+' . str_repeat('-', max(1, $width - 2)) . '+';
     $rows = [$border];
 
     if ($title !== '') {
-      $rows[] = '| ' . TerminalText::padRight('<options=bold>' . $title . '</>', $width - 4) . ' |';
+      $rows[] = '| ' . TerminalText::fit(
+        '<options=bold>' . $title . '</>',
+        $width - 4,
+        $alignment,
+      ) . ' |';
     }
 
     foreach ($lines as $line) {
-      $rows[] = '| ' . TerminalText::padRight($line, $width - 4) . ' |';
+      $rows[] = '| ' . TerminalText::fit($line, $width - 4, $alignment) . ' |';
     }
 
     $rows[] = $border;

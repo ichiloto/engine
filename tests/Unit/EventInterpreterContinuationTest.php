@@ -32,6 +32,8 @@ use Ichiloto\Engine\Field\Location;
 use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Field\NpcManager;
 use Ichiloto\Engine\Field\Player;
+use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\SaveManager;
 use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityManifest;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
@@ -791,6 +793,46 @@ it('keeps cinematic narration visible for the global reading-time floor', functi
   $interpreter->update(1.2);
 
   expect($session?->status)->toBe(EventExecutionStatus::YIELDED);
+});
+
+it('centres title card copy while leaving narration copy left aligned', function () {
+  [$scene] = makeEventRuntime();
+  $scene->installCinematicRuntime();
+  $console = new ReflectionClass(Console::class);
+  $previousConsoleState = [];
+
+  foreach ([
+    ['width', 20],
+    ['height', 10],
+    ['buffer', []],
+  ] as [$property, $value]) {
+    $consoleProperty = $console->getProperty($property);
+    $previousConsoleState[$property] = $consoleProperty->getValue();
+    $consoleProperty->setValue(null, $value);
+  }
+
+  try {
+    ob_start();
+    $scene->cinematicPresentation?->showOverlay('title_card', 'Dawn Route', 'SKY CARAVAN');
+    $scene->cinematicPresentation?->render();
+    ob_end_clean();
+    $titleRows = array_map(TerminalText::stripAnsi(...), Console::getBuffer());
+
+    ob_start();
+    $scene->cinematicPresentation?->showOverlay('narration', 'Dawn Route', 'SKY CARAVAN');
+    $scene->cinematicPresentation?->render();
+    ob_end_clean();
+    $narrationRows = array_map(TerminalText::stripAnsi(...), Console::getBuffer());
+  } finally {
+    foreach ($previousConsoleState as $property => $value) {
+      $console->getProperty($property)->setValue(null, $value);
+    }
+  }
+
+  expect($titleRows[4] ?? '')->toBe('|   SKY CARAVAN    |')
+    ->and($titleRows[5] ?? '')->toBe('|    Dawn Route    |')
+    ->and($narrationRows[5] ?? '')->toBe('| SKY CARAVAN      |')
+    ->and($narrationRows[6] ?? '')->toBe('| Dawn Route       |');
 });
 
 it('resumes dialogue and choices on later ticks', function () {
