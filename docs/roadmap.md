@@ -779,6 +779,23 @@ Unavailable conditional triggers remain absent unless their author supplies
 `whenBlocked`; blocked text therefore remains a deliberate spatial-gate policy,
 not a default for future story stations.
 
+## Production-hardening extension — scenario field music
+
+> Status: implemented and regression-tested on a local feature branch,
+> September 2026; live auditory acceptance and integration remain pending.
+
+The optional `assets/Data/field-music.php` catalog supplies validated,
+prioritised scenario rules with exact optional map scopes. It reuses
+`WorldConditionEvaluator` and the existing saved world/quest state. One
+`GameScene` playback boundary resolves scenario rules above live map variants
+and defaults for transfers, state changes and scene returns. Battle, rest and
+cinematic ownership remain temporary; mission completion releases the score
+without requiring movement. No additional playback backend or save schema is
+introduced. See [audio.md](audio.md#scenario-and-mission-music).
+
+Dedicated Editor authoring and CLI reference validation for this catalog are
+not implemented by this Engine change and remain an explicit tooling handoff.
+
 ## Sequencing notes
 
 - Phase 1 before everything story-shaped; Phases 2 and 3 can proceed in

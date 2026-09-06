@@ -282,11 +282,14 @@ class RecordingAudioManager extends AudioManager
   public function playBackgroundMusic(string $path, bool $loop = true): void
   {
     $this->calls[] = ['playBackgroundMusic', $path];
+    $this->bgmPath = $path;
+    $this->bgmLoops = $loop;
   }
 
   public function stopBackgroundMusic(): void
   {
     $this->calls[] = ['stopBackgroundMusic', null];
+    $this->bgmPath = null;
   }
 
   public function playSoundEffect(string $path): void
@@ -308,6 +311,23 @@ function makeSceneAudioGame(): array
   new ReflectionProperty(Game::class, 'audioManager')->setValue($game, $audioManager);
 
   return [$game, $audioManager];
+}
+
+/** Real field music boundaries with only terminal setup/playback replaced. */
+function makeFieldAudioScene(): array
+{
+  [$game, $audio] = makeSceneAudioGame();
+  $manager = makeBareScene(\Ichiloto\Engine\Scenes\SceneManager::class);
+  $scene = makeBareScene(\Ichiloto\Engine\Scenes\Game\GameScene::class);
+  $map = makeBareScene(\Ichiloto\Engine\Field\MapManager::class);
+  new ReflectionProperty($manager, 'game')->setValue($manager, $game);
+  new ReflectionProperty($manager, 'currentScene')->setValue($manager, $scene);
+  new ReflectionProperty($scene, 'sceneManager')->setValue($scene, $manager);
+  new ReflectionProperty($scene, 'mapManager')->setValue($scene, $map);
+  new ReflectionProperty($scene, 'gameState')->setValue($scene, new \Ichiloto\Engine\Core\GameState());
+  new ReflectionProperty($map, 'game')->setValue($map, $game);
+  new ReflectionProperty($map, 'gameScene')->setValue($map, $scene);
+  return [$scene, $map, $audio, $manager];
 }
 
 /**

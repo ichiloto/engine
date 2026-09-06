@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Scenes\Game;
 
+use Ichiloto\Engine\Audio\FieldMusicCatalog;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
@@ -67,6 +68,13 @@ use Override;
  */
 class GameScene extends AbstractScene
 {
+    private ?string $inheritedMapMusic = null;
+    private ?string $lastFieldMusic = null;
+    private bool $fieldMusicApplied = false;
+    private bool $fieldMusicPending = false;
+    private int $fieldMusicHolds = 0;
+    private bool $fieldMusicIsExplicitSilence = false;
+
     /**
      * @inheritDoc
      */
@@ -264,6 +272,11 @@ class GameScene extends AbstractScene
         $this->uiManager->uiElements->add($this->locationHUDWindow);
 
         $this->config = $config;
+        $this->inheritedMapMusic = null;
+        $this->lastFieldMusic = null;
+        $this->fieldMusicApplied = false;
+        $this->fieldMusicPending = false;
+        $this->fieldMusicHolds = 0;
         $this->gameState = GameState::fromArray($this->config->gameState);
 
         // Flag writes feed quest objectives that watch switches and story
@@ -354,13 +367,84 @@ class GameScene extends AbstractScene
     /**
      * @inheritDoc
      *
-     * The field's music belongs to the current map, so returning to the game
-     * scene (e.g. after a battle) resumes whatever the map declares.
+     * Scenario rules outrank map variants/defaults. Resolve from live world
+     * state, including freshly loaded saves and changes made during battle.
      */
     #[Override]
     public function getBackgroundMusic(): ?string
     {
-        return $this->mapManager?->backgroundMusic;
+        $mapMusic = $this->mapManager?->resolveCurrentBackgroundMusic();
+        if ($mapMusic !== null) {
+            $this->inheritedMapMusic = $mapMusic;
+        }
+        $catalog = ConfigStore::has(FieldMusicCatalog::class) ? ConfigStore::get(FieldMusicCatalog::class) : null;
+        $rule = $catalog instanceof FieldMusicCatalog && isset($this->gameState)
+            ? $catalog->resolve($this->currentMapId, $this->gameState, $this->party)
+            : null;
+        $this->fieldMusicIsExplicitSilence = $rule !== null && $rule->track === null;
+        return $rule !== null ? $rule->track : $this->inheritedMapMusic;
+    }
+
+    /**
+     * The one field playback boundary: entry, state changes and temporary
+     * returns all use the same policy. Never poll the audio backend's current
+     * track to enforce it: an inn or scripted cue may legitimately be playing.
+     */
+    public function refreshFieldMusic(bool $force = false, bool $keepSilence = false): void
+    {
+        $this->fieldMusicPending = $this->fieldMusicPending || $force;
+        if ($this->mapManager === null) {
+            return;
+        }
+        $track = $this->getBackgroundMusic();
+        if (! $this->fieldMusicPending && $this->fieldMusicApplied && $track === $this->lastFieldMusic) {
+            return;
+        }
+        $audio = $this->getGame()->audioManager;
+        if ($this->fieldMusicHolds > 0
+            || $audio->hasCinematicMusic()
+            || ($this->hasUnstableEventSession() && ! $force)
+            || (isset($this->sceneManager->currentScene) && $this->sceneManager->currentScene !== $this)) {
+            $this->fieldMusicPending = true;
+            return;
+        }
+        // Autoplay-off maps do not turn initial silence into a stop command.
+        // Ending a scenario, including on an unscored map, still releases it.
+        if ($track !== null) {
+            $audio->playBackgroundMusic($track);
+        } elseif (! $keepSilence || $this->lastFieldMusic !== null || $this->fieldMusicIsExplicitSilence) {
+            $audio->stopBackgroundMusic();
+        }
+        $this->lastFieldMusic = $track;
+        $this->fieldMusicApplied = true;
+        $this->fieldMusicPending = false;
+    }
+
+    /** Scene returns preserve a cinematic interruption before resolving field music. */
+    public function restoreBackgroundMusic(): void
+    {
+        $audio = $this->getGame()->audioManager;
+        if ($this->mapManager === null) {
+            $audio->stopBackgroundMusic();
+            return;
+        }
+        if ($audio->hasCinematicMusic()) {
+            $audio->resumeCinematicMusic();
+            return;
+        }
+        $this->refreshFieldMusic(force: true);
+    }
+
+    /** Paired with releaseFieldMusic in a finally block by temporary field actions. */
+    public function holdFieldMusic(): void
+    {
+        $this->fieldMusicHolds++;
+    }
+
+    public function releaseFieldMusic(): void
+    {
+        $this->fieldMusicHolds = max(0, $this->fieldMusicHolds - 1);
+        $this->refreshFieldMusic();
     }
 
     /**
@@ -399,6 +483,7 @@ class GameScene extends AbstractScene
     {
         parent::update();
         $this->state->execute($this->sceneStateContext);
+        $this->refreshFieldMusic();
     }
 
     /**
@@ -663,6 +748,7 @@ class GameScene extends AbstractScene
      */
     public function onEventSessionFinished(EventExecutionSession $session, bool $completed): void
     {
+        $this->refreshFieldMusic();
         Debug::info(sprintf(
             'Event session %d %s.',
             $session->id,

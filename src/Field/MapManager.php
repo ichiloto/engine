@@ -92,6 +92,9 @@ class MapManager implements CanRenderAt
    * @var string|null
    */
   protected(set) ?string $backgroundMusic = null;
+  private mixed $declaredBackgroundMusic = null;
+  private mixed $backgroundMusicVariants = [];
+  private bool $hasMusicDeclaration = false;
   /**
    * @var bool Whether the player is at a save point.
    */
@@ -353,11 +356,22 @@ class MapManager implements CanRenderAt
    */
   protected function applyMapBackgroundMusic(mixed $bgm, mixed $variants = []): void
   {
-    $this->backgroundMusic = $this->resolveMapBackgroundMusic($bgm, $variants);
+    $this->declaredBackgroundMusic = $bgm;
+    $this->backgroundMusicVariants = $variants;
+    $this->hasMusicDeclaration = true;
+    $this->resolveCurrentBackgroundMusic();
+    $this->gameScene->refreshFieldMusic(force: $this->backgroundMusic !== null, keepSilence: true);
+  }
 
-    if ($this->backgroundMusic !== null) {
-      $this->game->audioManager->playBackgroundMusic($this->backgroundMusic);
+  /** Re-evaluate map variants on state changes and battle returns, not just entry. */
+  public function resolveCurrentBackgroundMusic(): ?string
+  {
+    if ($this->hasMusicDeclaration) {
+      $this->backgroundMusic = $this->resolveMapBackgroundMusic(
+        $this->declaredBackgroundMusic, $this->backgroundMusicVariants,
+      );
     }
+    return $this->backgroundMusic;
   }
 
   /**
