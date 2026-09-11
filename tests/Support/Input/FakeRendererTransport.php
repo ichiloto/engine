@@ -20,6 +20,7 @@ final class FakeRendererTransport implements RendererTransportInterface
   public int $polls = 0;
   public int $shutdowns = 0;
   public ?RendererTransportException $failure = null;
+  public ?RendererTransportException $sendFailure = null;
 
   public function start(RendererSessionConfig $session): void
   {
@@ -34,6 +35,9 @@ final class FakeRendererTransport implements RendererTransportInterface
 
   public function send(RendererMessage $message): void
   {
+    if ($this->sendFailure !== null) {
+      throw $this->sendFailure;
+    }
     $this->sent[] = $message;
   }
 

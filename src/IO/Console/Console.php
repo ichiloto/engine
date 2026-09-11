@@ -659,6 +659,36 @@ class Console
     return self::$buffer;
   }
 
+  /** Captures complete logical cells without touching terminal output or dirty state. */
+  public static function snapshot(): ConsoleFrameSnapshot
+  {
+    if (self::$frameDepth !== 0 || self::$isRecomposing) {
+      throw new RuntimeException('Cannot snapshot Console while a frame or screen recomposition is active.');
+    }
+
+    $rows = [];
+    for ($y = 0; $y < self::$height; $y++) {
+      $row = self::$buffer[$y] ?? '';
+      if (! is_string($row) || preg_match('//u', $row) !== 1) {
+        throw new RuntimeException("Console row {$y} must contain valid UTF-8 text.");
+      }
+      // A literal NUL is not the internal continuation marker, which exists only
+      // after cell expansion. Sanitize it before using the canonical cell parser.
+      $cells = self::rowToCells(str_replace("\0", '?', $row));
+      foreach ($cells as &$cell) {
+        if ($cell === self::WIDE_SYMBOL_CONTINUATION) {
+          $cell = ' ';
+          continue;
+        }
+        $symbol = TerminalText::stripAnsi(TerminalText::stabilizeSymbol($cell));
+        $cell = $symbol === '' ? ' ' : (preg_match('/\A[^\p{Cc}]\z/u', $symbol) === 1 ? $symbol : '?');
+      }
+      unset($cell);
+      $rows[] = implode('', $cells);
+    }
+    return new ConsoleFrameSnapshot(self::$width, self::$height, $rows);
+  }
+
   /**
    * Returns the character at the specified position.
    *
