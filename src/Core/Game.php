@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core;
 
+use Ichiloto\Engine\Audio\FieldMusicCatalog;
 use Assegai\Collections\ItemList;
 use Assegai\Util\Path;
 use Error;
@@ -460,6 +461,7 @@ class Game implements CanRun, SubjectInterface
         ConfigStore::put(PlaySettings::class, new PlaySettings($this->options));
         ConfigStore::put(AppConfig::class, new AppConfig());
         ConfigStore::put(ProjectConfig::class, new ProjectConfig());
+        ConfigStore::put(FieldMusicCatalog::class, FieldMusicCatalog::fromProject());
 
         // Detect what this terminal can render before anything draws, so the
         // engine picks a rendering strategy that matches the host instead of

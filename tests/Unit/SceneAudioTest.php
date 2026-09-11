@@ -137,9 +137,7 @@ it('derives the game scene theme from the current map', function () {
 });
 
 it('plays a declared map theme and remembers it', function () {
-  [$game, $audioManager] = makeSceneAudioGame();
-  $mapManager = makeBareScene(MapManager::class);
-  new ReflectionProperty(MapManager::class, 'game')->setValue($mapManager, $game);
+  [, $mapManager, $audioManager] = makeFieldAudioScene();
 
   $apply = new ReflectionMethod(MapManager::class, 'applyMapBackgroundMusic');
   $apply->invoke($mapManager, 'cave-theme');
@@ -149,9 +147,7 @@ it('plays a declared map theme and remembers it', function () {
 });
 
 it('keeps the current music when a map declares no theme', function () {
-  [$game, $audioManager] = makeSceneAudioGame();
-  $mapManager = makeBareScene(MapManager::class);
-  new ReflectionProperty(MapManager::class, 'game')->setValue($mapManager, $game);
+  [, $mapManager, $audioManager] = makeFieldAudioScene();
 
   $apply = new ReflectionMethod(MapManager::class, 'applyMapBackgroundMusic');
   $apply->invoke($mapManager, null);
@@ -161,14 +157,8 @@ it('keeps the current music when a map declares no theme', function () {
 });
 
 it('selects a map theme from world-state variants before using its default', function () {
-  [$game, $audioManager] = makeSceneAudioGame();
-  $scene = makeBareScene(GameScene::class);
-  $state = new GameState();
-  $mapManager = makeBareScene(MapManager::class);
-  new ReflectionProperty(GameScene::class, 'gameState')->setValue($scene, $state);
-  new ReflectionProperty(GameScene::class, 'party')->setValue($scene, null);
-  new ReflectionProperty(MapManager::class, 'game')->setValue($mapManager, $game);
-  new ReflectionProperty(MapManager::class, 'gameScene')->setValue($mapManager, $scene);
+  [$scene, $mapManager, $audioManager] = makeFieldAudioScene();
+  $state = $scene->gameState;
   $apply = new ReflectionMethod(MapManager::class, 'applyMapBackgroundMusic');
   $variants = [[
     'track' => 'quiet-town',
@@ -195,7 +185,9 @@ it('starts the incoming scene music on transition and silences scenes without on
   $apply = new ReflectionMethod(SceneManager::class, 'applySceneBackgroundMusic');
 
   $apply->invoke($sceneManager, makeBareScene(TitleScene::class));
-  $apply->invoke($sceneManager, makeBareScene(GameScene::class));
+  $emptyField = makeBareScene(GameScene::class);
+  new ReflectionProperty($emptyField, 'sceneManager')->setValue($emptyField, $sceneManager);
+  $apply->invoke($sceneManager, $emptyField);
 
   expect($audioManager->calls)->toBe([
     ['playBackgroundMusic', 'title-theme'],

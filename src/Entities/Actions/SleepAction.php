@@ -53,28 +53,36 @@ class SleepAction extends FieldAction
       // Remember what was playing so the field picks up exactly where it
       // left off: sleeping never changes maps, so nothing else restores it.
       $previousTrack = current_music();
-      $restMusicStarted = $this->playSleepMusic();
+      $restMusicStarted = false;
+      $context->scene->holdFieldMusic();
+      try {
+        $restMusicStarted = $this->playSleepMusic();
 
-      $sleepFrames = [
-        'Z',
-        'Zz',
-        'ZzZ',
-        'ZzZz',
-        'ZzZzZ',
-      ];
-      $sleepAnimationFrameCount = count($sleepFrames);
-      $sleepTime = config(ProjectConfig::class, 'inn.sleep_time', self::SLEEP_TIME);
-      $sleepInterval = intval((clamp($sleepTime, 1, 10) * 1000000) / $sleepAnimationFrameCount);
+        $sleepFrames = [
+          'Z',
+          'Zz',
+          'ZzZ',
+          'ZzZz',
+          'ZzZzZ',
+        ];
+        $sleepAnimationFrameCount = count($sleepFrames);
+        $sleepTime = config(ProjectConfig::class, 'inn.sleep_time', self::SLEEP_TIME);
+        $sleepInterval = intval((clamp($sleepTime, 1, 10) * 1000000) / $sleepAnimationFrameCount);
 
-      $leftMargin = intdiv(get_screen_width(), 2) - 2;
-      $topMargin = intdiv(get_screen_height(), 2) - 1;
-      for ($index = 0; $index < $sleepAnimationFrameCount; $index++) {
-        Console::clear();
-        Console::write($sleepFrames[$index], $leftMargin, $topMargin);
-        Timers::wait($sleepInterval / 1_000_000);
+        $leftMargin = intdiv(get_screen_width(), 2) - 2;
+        $topMargin = intdiv(get_screen_height(), 2) - 1;
+        for ($index = 0; $index < $sleepAnimationFrameCount; $index++) {
+          Console::clear();
+          Console::write($sleepFrames[$index], $leftMargin, $topMargin);
+          Timers::wait($sleepInterval / 1_000_000);
+        }
+      } finally {
+        try {
+          $this->restoreMusic($previousTrack, $restMusicStarted);
+        } finally {
+          $context->scene->releaseFieldMusic();
+        }
       }
-
-      $this->restoreMusic($previousTrack, $restMusicStarted);
 
       /** @var Character $member */
       foreach ($context->scene->party->members as $member) {

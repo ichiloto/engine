@@ -2,6 +2,8 @@
 
 use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Audio\AudioManager;
+use Ichiloto\Engine\Audio\FieldMusicCatalog;
+use Ichiloto\Engine\Audio\CinematicMusicRequest;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Timers;
 use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
@@ -38,6 +40,7 @@ require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 final class RendererRuntimeGameProbe extends Game
 {
   public int $updates = 0;
+  public ?Closure $onUpdate = null;
   public function __construct()
   {
     $this->name = 'Runtime test';
@@ -49,7 +52,7 @@ final class RendererRuntimeGameProbe extends Game
   }
   public function __destruct() {}
   protected function start(): void { $this->startInputSession(); $this->isRunning = true; }
-  protected function update(): void { $this->updates++; $this->quit(); }
+  protected function update(): void { $this->updates++; ($this->onUpdate)?->__invoke(); $this->quit(); }
   public function startInput(): void { $this->startInputSession(); }
   public function resize(): void { $this->syncScreenSize(); }
   public function renderFrame(): void { $this->render(); }
@@ -232,4 +235,94 @@ it('presents the same field ownership from real Game renders and blocked ticks w
   $game->tickWhileBlocked();
   expect($this->transport->sent[2]->payload['sprites'])->toBe([]);
   $game->quit();
+});
+
+it('keeps scenario and temporary music ownership identical during terminal and renderer waits', function (bool $graphical) {
+  $game = new RendererRuntimeGameProbe();
+  [$scene, $map, , $manager] = makeFieldAudioScene();
+  $audio = new RecordingAudioManager($game);
+  new ReflectionProperty(SceneManager::class, 'game')->setValue($manager, $game);
+  new ReflectionProperty(Game::class, 'sceneManager')->setValue($game, $manager);
+  new ReflectionProperty(Game::class, 'audioManager')->setValue($game, $audio);
+  new ReflectionProperty(Game::class, 'notificationManager')->setValue($game, new RendererRuntimeNotifications());
+  new ReflectionProperty(GameScene::class, 'state')->setValue($scene, makeBareScene(FieldState::class));
+  ConfigStore::put(FieldMusicCatalog::class, new FieldMusicCatalog([[
+    'id' => 'mission', 'track' => 'mission-theme',
+    'conditions' => [['type' => 'switch', 'name' => 'on_mission']],
+  ]]));
+  if ($graphical) { $game->useRendererRuntime($this->runtime); $game->startInput(); }
+
+  $enter = function (string $track) use ($scene, $map): void {
+    new ReflectionMethod($map, 'applyMapBackgroundMusic')->invoke($map, $track, []);
+    $scene->refreshFieldMusic();
+  };
+  $scene->gameState->setSwitch('on_mission', true);
+  $enter('outside');
+  $game->tickWhileBlocked();
+  $enter('interior');
+  expect($audio->currentBackgroundMusic)->toBe('mission-theme');
+
+  $scene->holdFieldMusic();
+  try {
+    $audio->playBackgroundMusic('rest');
+    $scene->refreshFieldMusic(force: true);
+    $game->tickWhileBlocked();
+    expect($audio->currentBackgroundMusic)->toBe('rest');
+  } finally { $scene->releaseFieldMusic(); }
+  expect($audio->currentBackgroundMusic)->toBe('mission-theme');
+
+  $audio->beginCinematicMusic(new CinematicMusicRequest('cinematic'));
+  $enter('return-map');
+  $game->tickWhileBlocked();
+  expect($audio->currentBackgroundMusic)->toBe('cinematic');
+  $audio->finalizeCinematicMusic();
+  $game->tickWhileBlocked();
+  $scene->restoreBackgroundMusic();
+  expect($audio->currentBackgroundMusic)->toBe('mission-theme');
+  $scene->gameState->setSwitch('on_mission', false);
+  $scene->refreshFieldMusic();
+  expect($audio->currentBackgroundMusic)->toBe('return-map');
+
+  $beforeQuit = count($audio->calls);
+  $game->quit();
+  $game->quit();
+  expect($audio->currentBackgroundMusic)->toBeNull()
+    ->and(array_slice($audio->calls, $beforeQuit))->toBe([['stopBackgroundMusic', null]])
+    ->and(InputManager::getInputSource())->toBe($this->previous)
+    ->and($this->transport->shutdowns)->toBe($graphical ? 1 : 0);
+})->with(['terminal' => [false], 'renderer' => [true]]);
+
+it('cleans up scenario audio exactly once when native close interrupts a held field cue', function () {
+  $game = new RendererRuntimeGameProbe();
+  [$scene, , , $manager] = makeFieldAudioScene();
+  $audio = new RecordingAudioManager($game);
+  new ReflectionProperty(SceneManager::class, 'game')->setValue($manager, $game);
+  new ReflectionProperty(Game::class, 'audioManager')->setValue($game, $audio);
+  ConfigStore::put(FieldMusicCatalog::class, new FieldMusicCatalog([[
+    'id' => 'mission', 'track' => 'mission-theme', 'conditions' => [],
+  ]]));
+  $scene->refreshFieldMusic();
+  $transport = $this->transport;
+  $game->onUpdate = function () use ($game, $scene, $audio, $transport): void {
+    $scene->holdFieldMusic();
+    try {
+      $audio->playBackgroundMusic('rest');
+      $scene->refreshFieldMusic(force: true);
+      // The normal wait callback propagates close through the action's
+      // finally block before Game::run catches it and performs cleanup.
+      $transport->batches[] = [RendererEvent::fromJson('{"protocol":1,"type":"close_requested"}')];
+      $game->tickWhileBlocked();
+      throw new LogicException('Expected the pending native close.');
+    } finally { $scene->releaseFieldMusic(); }
+  };
+  $game->useRendererRuntime($this->runtime);
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":1,"type":"ready"}')];
+  $beforeRun = count($audio->calls);
+  $game->run();
+  expect($game->updates)->toBe(1)->and($audio->currentBackgroundMusic)->toBeNull()
+    ->and(array_slice($audio->calls, $beforeRun))->toBe([
+      ['playBackgroundMusic', 'rest'], ['playBackgroundMusic', 'mission-theme'], ['stopBackgroundMusic', null],
+    ])
+    ->and($this->transport->shutdowns)->toBe(1)
+    ->and(InputManager::getInputSource())->toBe($this->previous);
 });

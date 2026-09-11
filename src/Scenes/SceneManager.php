@@ -244,6 +244,11 @@ class SceneManager implements CanStart, CanRender, CanUpdate
       return;
     }
 
+    if ($scene instanceof GameScene) {
+      $scene->restoreBackgroundMusic();
+      return;
+    }
+
     $track = $scene->getBackgroundMusic();
 
     if ($track !== null) {
