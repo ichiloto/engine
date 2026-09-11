@@ -108,6 +108,56 @@ class Console
    * @var array<string> $buffer The buffer.
    */
   private static array $buffer = [];
+  private static bool $trackLayers = false;
+  private static ?string $activeLayer = null;
+  /** @var array<int, array<int, array{base: string, layers: array<string, string>}>> */
+  private static array $layerCells = [];
+
+  /** Optional provenance for snapshot-only layer exclusion; normal terminal drawing is unchanged. */
+  public static function setLayerTracking(bool $enabled): void
+  {
+    self::$trackLayers = $enabled;
+    self::$layerCells = [];
+  }
+
+  public static function withLayer(string $id, callable $draw): void
+  {
+    $previous = self::$activeLayer;
+    self::$activeLayer = $id;
+    try {
+      $draw();
+    } finally {
+      self::$activeLayer = $previous;
+    }
+  }
+
+  public static function isComposing(): bool
+  {
+    return self::$frameDepth !== 0 || self::$isRecomposing;
+  }
+
+  /** @param string[] $before @param string[] $after */
+  private static function recordLayerWrite(int $row, int $start, int $end, array $before, array $after): void
+  {
+    if ($end < $start) {
+      return;
+    }
+    // Writes through a wide continuation clear the entire previous glyph.
+    $start = self::resolveCellAnchor($before, $start) ?? $start;
+    $lastAnchor = self::resolveCellAnchor($before, $end) ?? $end;
+    $end = min(self::$width - 1, max($end, $lastAnchor + TerminalText::displayWidth($before[$lastAnchor] ?? ' ') - 1));
+    for ($x = $start; $x <= $end; $x++) {
+      if (self::$activeLayer === null) {
+        unset(self::$layerCells[$row][$x]);
+        continue;
+      }
+      $entry = self::$layerCells[$row][$x] ?? ['base' => $before[$x] ?? ' ', 'layers' => []];
+      // One entry per layer/cell bounds retained state even across repeated incremental redraws.
+      unset($entry['layers'][self::$activeLayer]);
+      $entry['layers'][self::$activeLayer] = $after[$x] ?? ' ';
+      self::$layerCells[$row][$x] = $entry;
+    }
+  }
   /**
    * @var string $previousTerminalSettings The previous terminal settings.
    */
@@ -297,6 +347,7 @@ class Console
     // failed write therefore cannot leave engine state ahead of the screen.
     self::emitControlSequence("\033[0m\033[2J\033[H");
     self::$buffer = self::getEmptyBuffer();
+    self::$layerCells = [];
     self::$frameRows = [];
     self::$recomposeRepaintRows = [];
   }
@@ -335,11 +386,13 @@ class Console
     }
 
     $previousBuffer = self::$buffer === [] ? self::getEmptyBuffer() : self::$buffer;
+    $previousLayerCells = self::$layerCells;
     $previousFrameRows = self::$frameRows;
     $previousRecomposeRepaintRows = self::$recomposeRepaintRows;
     $previousIsRecomposing = self::$isRecomposing;
 
     self::$buffer = self::getEmptyBuffer();
+    self::$layerCells = [];
     self::$frameRows = [];
     self::$recomposeRepaintRows = [];
     self::$isRecomposing = true;
@@ -391,6 +444,7 @@ class Console
       self::endFrame();
     } catch (\Throwable $throwable) {
       self::$buffer = $previousBuffer;
+      self::$layerCells = $previousLayerCells;
       self::$frameRows = $previousFrameRows;
       self::$recomposeRepaintRows = $previousRecomposeRepaintRows;
       self::$isRecomposing = $previousIsRecomposing;
@@ -439,6 +493,7 @@ class Console
     self::$width = max(1, $width);
     self::$height = max(1, $height);
     self::$buffer = self::getEmptyBuffer();
+    self::$layerCells = [];
     self::$frameRows = [];
     self::$recomposeRepaintRows = [];
   }
@@ -569,6 +624,9 @@ class Console
 
         if ($incoming !== '') {
           $updatedRow = substr_replace($existingRow, $incoming, $x, strlen($incoming));
+          if (self::$trackLayers) {
+            self::recordLayerWrite($currentBufferRow, $x, $x + strlen($incoming) - 1, str_split($existingRow), str_split($updatedRow));
+          }
 
           // Every draw goes through this buffer — sprites included — so a row
           // that is genuinely unchanged is also unchanged on screen and need
@@ -622,6 +680,9 @@ class Console
       }
 
       $updatedRow = self::cellsToRow($rowCells);
+      if (self::$trackLayers) {
+        self::recordLayerWrite($currentBufferRow, $x, $cellCursor - 1, $existingCells, $rowCells);
+      }
 
       if ($updatedRow !== self::$buffer[$currentBufferRow]) {
         self::$buffer[$currentBufferRow] = $updatedRow;
@@ -659,13 +720,17 @@ class Console
     return self::$buffer;
   }
 
-  /** Captures complete logical cells without touching terminal output or dirty state. */
-  public static function snapshot(): ConsoleFrameSnapshot
+  /**
+   * Captures complete logical cells without touching terminal output or dirty state.
+   * @param list<string> $excludedLayers Named terminal layers to omit from this copy only.
+   */
+  public static function snapshot(array $excludedLayers = []): ConsoleFrameSnapshot
   {
     if (self::$frameDepth !== 0 || self::$isRecomposing) {
       throw new RuntimeException('Cannot snapshot Console while a frame or screen recomposition is active.');
     }
 
+    $excluded = array_fill_keys($excludedLayers, true);
     $rows = [];
     for ($y = 0; $y < self::$height; $y++) {
       $row = self::$buffer[$y] ?? '';
@@ -675,6 +740,16 @@ class Console
       // A literal NUL is not the internal continuation marker, which exists only
       // after cell expansion. Sanitize it before using the canonical cell parser.
       $cells = self::rowToCells(str_replace("\0", '?', $row));
+      if ($excluded !== []) {
+        foreach (self::$layerCells[$y] ?? [] as $x => $entry) {
+          $cells[$x] = $entry['base'];
+          foreach ($entry['layers'] as $id => $cell) {
+            if (!isset($excluded[$id])) {
+              $cells[$x] = $cell;
+            }
+          }
+        }
+      }
       foreach ($cells as &$cell) {
         if ($cell === self::WIDE_SYMBOL_CONTINUATION) {
           $cell = ' ';

@@ -134,6 +134,12 @@ class InputManager
     self::$inputSource = $source;
   }
 
+  /** Only the terminal source needs Game to claim STDIN's interactive modes. */
+  public static function requiresTerminalInput(): bool
+  {
+    return self::getInputSource() instanceof TerminalInputSource;
+  }
+
   /**
    * Enables non-blocking mode.
    *

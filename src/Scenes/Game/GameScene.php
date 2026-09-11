@@ -23,6 +23,8 @@ use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Field\Location;
 use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Field\Player;
+use Ichiloto\Engine\Field\PlayerPresentationConfig;
+use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderHostInterface;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Scenes\AbstractScene;
 use Ichiloto\Engine\Scenes\SceneManager;
@@ -65,8 +67,17 @@ use Override;
  *
  * @package Ichiloto\Engine\Scenes\Game
  */
-class GameScene extends AbstractScene
+class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInterface
 {
+    public function getGraphicalSpriteProviders(): iterable
+    {
+        if ($this->state instanceof FieldState && $this->state === $this->fieldState
+            && $this->cinematicController?->active() === null && $this->player?->isActive) {
+            // Dialogue borrows field input; it does not replace field presentation.
+            yield $this->player;
+        }
+    }
+
     /**
      * @inheritDoc
      */
@@ -281,15 +292,7 @@ class GameScene extends AbstractScene
 
         Time::setElapsedTime($this->config->playTimeSeconds);
 
-        $this->player = new Player(
-            $this,
-            'Player',
-            $this->config->playerPosition,
-            $this->config->playerShape,
-            $this->config->playerSprite,
-            $this->config->playerHeading,
-            $this->config->playerSprites
-        );
+        $this->player = $this->createPlayer($this->config);
         $this->party = $this->config->party;
         $this->party->assertSummonAssignments((new SummonCutsceneLibrary())->load());
 
@@ -325,11 +328,15 @@ class GameScene extends AbstractScene
         $this->player->evaluateAutomaticTriggersAtCurrentPosition();
     }
 
-    /**
-     * Initializes the game scene states.
-     *
-     * @return void
-     */
+    /** Gameplay comes from the save; graphical artwork comes from the current project. */
+    protected function createPlayer(GameConfig $config): Player
+    {
+        return new Player($this, 'Player', $config->playerPosition, $config->playerShape,
+            $config->playerSprite, $config->playerHeading, $config->playerSprites,
+            PlayerPresentationConfig::load()->graphical);
+    }
+
+    /** Initializes the game scene states. */
     public function initializeGameSceneStates(): void
     {
         $this->sceneStateContext = new SceneStateContext($this);

@@ -18,6 +18,7 @@ use Ichiloto\Engine\Events\Interfaces\AutomaticEventTriggerInterface;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Rendering\Sprites\DirectionalGraphicalSpriteSet;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
@@ -767,7 +768,9 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    */
   public function render(): void
   {
-    $this->scene->camera->renderAtScreenPosition($this->sprite, $this->screenPosition);
+    Console::withLayer($this->getGraphicalSpriteId(), function (): void {
+      $this->scene->camera->renderAtScreenPosition($this->sprite, $this->screenPosition);
+    });
 
     if ($this->canAct) {
       $this->scene->camera->draw(

@@ -1,5 +1,9 @@
 # Optional graphical sprite intent (S5)
 
+This document describes the S5 capability boundary. The subsequent
+[S6 runtime](runtime.md) adds project `sprites2d` loading, Game-loop collection
+and renderer-only terminal masking without changing these sprite models.
+
 S5 adds an explicitly invoked PHP-side chain:
 
 ```text
