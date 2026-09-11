@@ -4,7 +4,9 @@ S4 adds explicitly invoked presentation through the existing renderer connection
 Ichiloto remains the PHP game engine. The normal Game runtime still does not
 launch GPUI, select a renderer, or send graphical frames. No Player/GameObject
 sprite integration, Last Legend integration, camera conversion, or gameplay
-behavior is introduced here.
+behavior is introduced here. [S5 graphical sprite intent](graphical-sprites.md)
+adds an explicit Player/provider-to-Camera adapter on top of this boundary;
+neither phase installs Game-loop presentation.
 
 ## Immutable Console boundary
 
@@ -68,8 +70,9 @@ S2 `RendererMessage` handles JSON/NDJSON encoding; no second framing code exists
 Each frame replaces all prior text and sprites, including removal via empty lists.
 
 `PresentationSprite` contains `id`, `asset`, `x`, `y`, `width`, `height`, `anchor`,
-and `layer`. It is manually supplied presentation data, not derived from an engine
-object. `PresentationSpriteAnchor::BOTTOM_CENTER` is the only supported anchor.
+and `layer`. It holds screen-space presentation data, whether manually supplied
+as in S4 or projected from an engine provider by S5. It is not gameplay state.
+`PresentationSpriteAnchor::BOTTOM_CENTER` is the only supported anchor.
 
 - IDs must be nonempty UTF-8 without NUL and unique within each frame.
 - Asset paths must be nonempty relative UTF-8 paths, use forward slashes, and

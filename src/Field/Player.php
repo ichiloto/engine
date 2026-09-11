@@ -19,6 +19,9 @@ use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Camera;
+use Ichiloto\Engine\Rendering\Sprites\DirectionalGraphicalSpriteSet;
+use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
+use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderInterface;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\UI\Elements\LocationHUDWindow;
@@ -32,7 +35,7 @@ use RuntimeException;
  *
  * @package Ichiloto\Engine\Field
  */
-class Player extends GameObject
+class Player extends GameObject implements GraphicalSpriteProviderInterface
 {
   /**
    * @var string[] $upSprite The sprite of the player when facing up.
@@ -103,6 +106,7 @@ class Player extends GameObject
    * @param string[] $sprite The active sprite of the player.
    * @param MovementHeading $heading The heading of the player.
    * @param array<string, string[]> $directionalSprites The configured directional sprite set.
+   * @param DirectionalGraphicalSpriteSet|null $graphicalSprites Optional graphical art, independent of terminal sprites.
    */
   public function __construct(
     SceneInterface $scene,
@@ -111,7 +115,8 @@ class Player extends GameObject
     Rect $shape,
     array $sprite,
     MovementHeading $heading = MovementHeading::NONE,
-    array $directionalSprites = []
+    array $directionalSprites = [],
+    private readonly ?DirectionalGraphicalSpriteSet $graphicalSprites = null,
   )
   {
     parent::__construct(
@@ -126,6 +131,24 @@ class Player extends GameObject
     $this->setFacingSprite($sprite, $heading === MovementHeading::NONE ? null : $heading);
     $this->canShowLocationHUDWindow = config(ProjectConfig::class, 'ui.hud.location', false);
     $this->events = new ItemList(EventTrigger::class);
+  }
+
+  #[Override]
+  public function getGraphicalSpriteId(): string
+  {
+    return 'player';
+  }
+
+  #[Override]
+  public function getGraphicalSpriteDefinition(): ?GraphicalSpriteDefinition
+  {
+    return $this->graphicalSprites?->getForHeading($this->heading);
+  }
+
+  #[Override]
+  public function getGraphicalSpriteWorldPosition(): Vector2
+  {
+    return clone $this->position;
   }
 
   /**

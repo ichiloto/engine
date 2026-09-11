@@ -35,3 +35,4 @@ Join us on this journey to redefine retro gaming with the power of ASCII art and
 - [Renderer process transport (S2)](docs/rendering/process-transport.md)
 - [Pluggable input sources (S3)](docs/rendering/input-sources.md)
 - [Presentation frames and Console snapshots (S4)](docs/rendering/presentation.md)
+- [Optional graphical sprite intent and Player projection (S5)](docs/rendering/graphical-sprites.md)
