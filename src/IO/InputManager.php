@@ -8,9 +8,10 @@ use Ichiloto\Engine\Events\KeyboardEvent;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
+use Ichiloto\Engine\IO\InputSources\InputSourceInterface;
+use Ichiloto\Engine\IO\InputSources\TerminalInputSource;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\InputConfig;
-use Ichiloto\Engine\Util\Debug;
 use RuntimeException;
 
 class InputManager
@@ -18,23 +19,21 @@ class InputManager
   /**
    * The previous key press.
    *
-   * @var string
+   * @var KeyCode|null
    */
-  private static string $previousKeyPress = '';
+  private static ?KeyCode $previousKeyPress = null;
 
   /**
    * The current key press.
    *
-   * @var string
+   * @var KeyCode|null
    */
-  private static string $keyPress = '';
+  private static ?KeyCode $keyPress = null;
 
   /**
-   * Buffered input bytes that were read but not yet consumed as a key sequence.
-   *
-   * @var string
+   * Terminal input remains the default unless a caller explicitly installs a source.
    */
-  private static string $pendingInput = '';
+  private static ?InputSourceInterface $inputSource = null;
   /**
    * @var EventManager|null The event manager.
    */
@@ -58,8 +57,7 @@ class InputManager
   public static function init(Game $game): void
   {
     self::$eventManager = EventManager::getInstance($game);
-    self::$previousKeyPress = self::$keyPress = '';
-    self::$pendingInput = '';
+    self::resetState();
     $inputConfig = ConfigStore::get(InputConfig::class);
     assert($inputConfig instanceof InputConfig);
     self::$config = $inputConfig->all();
@@ -122,11 +120,18 @@ class InputManager
    */
   public static function getPressedKeyCode(): ?KeyCode
   {
-    if (self::$keyPress === '' || self::$keyPress === null) {
-      return null;
-    }
+    return self::$keyPress;
+  }
 
-    return KeyCode::tryFrom(self::getKey(self::$keyPress));
+  public static function getInputSource(): InputSourceInterface
+  {
+    return self::$inputSource ??= new TerminalInputSource();
+  }
+
+  public static function setInputSource(InputSourceInterface $source): void
+  {
+    self::$previousKeyPress = self::$keyPress = null;
+    self::$inputSource = $source;
   }
 
   /**
@@ -163,10 +168,10 @@ class InputManager
   public static function handleInput(): void
   {
     self::$previousKeyPress = self::$keyPress;
-    self::$keyPress = self::readInputSequence();
+    self::$keyPress = self::getInputSource()->poll();
 
-    if (self::$keyPress) {
-      self::$eventManager?->dispatchEvent(event: new KeyboardEvent(key: self::getKey(keyPress: self::$keyPress)));
+    if (self::$keyPress !== null) {
+      self::$eventManager?->dispatchEvent(event: new KeyboardEvent(key: self::$keyPress->value));
     }
   }
 
@@ -181,17 +186,8 @@ class InputManager
    */
   public static function resetState(bool $drainBufferedInput = false): void
   {
-    if ($drainBufferedInput) {
-      while (($bufferedInput = fgets(STDIN)) !== false) {
-        if ($bufferedInput === '') {
-          break;
-        }
-      }
-    }
-
-    self::$previousKeyPress = '';
-    self::$keyPress = '';
-    self::$pendingInput = '';
+    self::$previousKeyPress = self::$keyPress = null;
+    self::getInputSource()->reset($drainBufferedInput);
   }
 
   /**
@@ -226,7 +222,7 @@ class InputManager
    */
   public static function isKeyPressed(KeyCode $keyCode): bool
   {
-    return self::$keyPress === $keyCode->value;
+    return self::$keyPress === $keyCode;
   }
 
   /**
@@ -280,10 +276,7 @@ class InputManager
    */
   public static function isKeyDown(KeyCode $keyCode): bool
   {
-    $key = self::getKey(self::$keyPress);
-    $previousKey = self::getKey(self::$previousKeyPress);
-
-    return $key === $keyCode->value && $previousKey !== $key;
+    return self::$keyPress === $keyCode && self::$previousKeyPress !== self::$keyPress;
   }
 
   /**
@@ -294,10 +287,7 @@ class InputManager
    */
   public static function isKeyUp(KeyCode $keyCode): bool
   {
-    $key = self::getKey(self::$keyPress);
-    $previousKey = self::getKey(self::$previousKeyPress);
-
-    return empty($key) && $previousKey === $keyCode->value;
+    return self::$keyPress === null && self::$previousKeyPress === $keyCode;
   }
 
   /**
@@ -310,159 +300,6 @@ class InputManager
   {
     $button = self::$config[$name] ?? [];
     return self::isAnyKeyPressed($button['keys'] ?? []);
-  }
-
-  /**
-   * Translates a key press to a string.
-   *
-   * @param string|null $keyPress The key press to translate.
-   * @return string Returns the translated key press.
-   */
-  private static function getKey(?string $keyPress): string
-  {
-    if (is_null($keyPress)) {
-      return '';
-    }
-
-    return match($keyPress) {
-      "\033[A"  => KeyCode::UP->value,
-      "\033[B"  => KeyCode::DOWN->value,
-      "\033[C"  => KeyCode::RIGHT->value,
-      "\033[D"  => KeyCode::LEFT->value,
-      "\033[Z"  => KeyCode::SHIFT_TAB->value,
-      "\r",
-      "\n"      => KeyCode::ENTER->value,
-      " "       => KeyCode::SPACE->value,
-      "\010",
-      "\177"    => KeyCode::BACKSPACE->value,
-      "\t"      => KeyCode::TAB->value,
-      "\033",
-      "\e"      => KeyCode::ESCAPE->value,
-      "\033[1~",
-      "\033[H",
-      "\033OH",
-      "\033[7~" => KeyCode::HOME->value,
-      "\033[2~" => KeyCode::INSERT->value,
-      "\033[3~" => KeyCode::DELETE->value,
-      "\033[8~",
-      "\033[F",
-      "\033OF",
-      "\033[4~" => KeyCode::END->value,
-      "\033[5~" => KeyCode::PAGE_UP->value,
-      "\033[6~" => KeyCode::PAGE_DOWN->value,
-      "\033[10~"  => KeyCode::F0->value,
-      "\033[11~"  => KeyCode::F1->value,
-      "\033[12~"  => KeyCode::F2->value,
-      "\033[13~"  => KeyCode::F3->value,
-      "\033[14~"  => KeyCode::F4->value,
-      "\033[15~"  => KeyCode::F5->value,
-      "\033[17~"  => KeyCode::F6->value,
-      "\033[18~"  => KeyCode::F7->value,
-      "\033[19~"  => KeyCode::F8->value,
-      "\033[20~"  => KeyCode::F9->value,
-      "\033[21~"  => KeyCode::F10->value,
-      "\033[23~"  => KeyCode::F11->value,
-      "\033[24~"  => KeyCode::F12->value,
-      default   => $keyPress
-    };
-  }
-
-  /**
-   * Reads one logical input sequence from stdin.
-   *
-   * Arrow keys and other special keys often arrive as multi-byte escape
-   * sequences. Buffering the sequence prevents terminals that deliver those
-   * bytes in short bursts from misreporting the initial ESC byte.
-   *
-   * @return string
-   */
-  private static function readInputSequence(mixed $stream = null): string
-  {
-    $stream ??= STDIN;
-    $input = self::$pendingInput;
-    self::$pendingInput = '';
-
-    if ($input === '') {
-      $input = fread($stream, 32);
-    }
-
-    if ($input === false || $input === '') {
-      return '';
-    }
-
-    if (! str_starts_with($input, "\033")) {
-      self::$pendingInput = substr($input, 1);
-      return $input[0];
-    }
-
-    $sequence = $input;
-    $emptyReads = 0;
-
-    for ($attempt = 0; $attempt < 4; $attempt++) {
-      if (self::isCompleteEscapeSequence($sequence)) {
-        break;
-      }
-
-      usleep(1_000);
-      $chunk = fread($stream, 32);
-
-      if ($chunk === false || $chunk === '') {
-        $emptyReads++;
-
-        if ($emptyReads >= 2) {
-          break;
-        }
-
-        continue;
-      }
-
-      $emptyReads = 0;
-      $sequence .= $chunk;
-    }
-
-    [$firstSequence, $remainingInput] = self::splitInputSequence($sequence);
-    self::$pendingInput = $remainingInput;
-
-    return $firstSequence;
-  }
-
-  /**
-   * Splits the first logical input sequence from buffered bytes.
-   *
-   * @param string $input Buffered input bytes.
-   * @return array{0: string, 1: string}
-   */
-  private static function splitInputSequence(string $input): array
-  {
-    if ($input === '') {
-      return ['', ''];
-    }
-
-    if (! str_starts_with($input, "\033")) {
-      return [$input[0], substr($input, 1)];
-    }
-
-    if (preg_match('/^\033(\[[0-9;?<]*[~A-Za-z]|\[<\d+;\d+;\d+[mM]|O[A-Za-z])/', $input, $matches) === 1) {
-      $firstSequence = $matches[0];
-      return [$firstSequence, substr($input, strlen($firstSequence))];
-    }
-
-    return [$input[0], substr($input, 1)];
-  }
-
-  /**
-   * Returns whether the current escape sequence appears complete.
-   *
-   * @param string $sequence The buffered input sequence.
-   * @return bool
-   */
-  private static function isCompleteEscapeSequence(string $sequence): bool
-  {
-    if ($sequence === "\033") {
-      return false;
-    }
-
-    return preg_match('/^\033(\[[0-9;?<]*[~A-Za-z]|\[<\d+;\d+;\d+[mM]|O[A-Za-z])$/', $sequence) === 1;
   }
 
   public static function disableEcho(): void

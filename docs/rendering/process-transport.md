@@ -7,7 +7,8 @@ scenes, camera transforms, or simulation. No background PHP thread is needed.
 
 **S2 does not connect input to `InputManager`, change terminal rendering, or render
 Last Legend through GPUI.** The transport is opt-in developer/library code; no
-game-loop hook or renderer default was added. S3 has not begun.
+game-loop hook or renderer default was added. Optional shared-client input routing
+is described separately in [Pluggable input sources (S3)](input-sources.md).
 
 The reference contract is [ichiloto/gpui-renderer at c9e87bb](https://github.com/ichiloto/gpui-renderer/tree/c9e87bb56756a7f3d4b18948949be4aa13ddbc79).
 This document describes PHP ownership, not a second graphics protocol specification.
@@ -142,7 +143,7 @@ Use the native close button to exercise `close_requested`. Lifecycle diagnostics
 to the tool's stderr. Paths are supplied explicitly; no game or renderer checkout
 path is hardcoded into the transport or smoke tool.
 
-S3 must define higher-level process ownership, event/error policy, and input-source
-integration. Later frame work must account for cadence/backpressure, scalar-cell
-versus terminal display widths, and the renderer's per-frame image cache. None of
-those decisions are implemented here.
+When sharing a connection with input, use the [S3 client](input-sources.md) rather
+than independently consuming this transport's events. Runtime ownership/selection,
+frame cadence/backpressure, scalar-cell versus terminal display widths, and the
+renderer's per-frame image cache remain later-phase work.
