@@ -10,6 +10,8 @@ use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererMessage;
 use InvalidArgumentException;
 use OverflowException;
+use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
+use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererProtocolException;
 
 /** One presentation session; borrows the shared client without polling or closing it. */
 final class RendererPresentation
@@ -29,6 +31,11 @@ final class RendererPresentation
   {
     if ($snapshot->width !== $this->grid->columns || $snapshot->height !== $this->grid->rows) {
       throw new InvalidArgumentException('Console snapshot dimensions must match the fixed renderer session grid.');
+    }
+    foreach ($sprites as $sprite) {
+      if ($sprite->sourceRect !== null && !$this->client->supports(RendererSessionConfig::SPRITE_SOURCE_RECT)) {
+        throw new RendererProtocolException('Sprite sheets require negotiated sprite_source_rect support. Request it at startup and install an updated renderer.');
+      }
     }
     $preparation = LatencyTrace::now();
     $number = $this->frameNumber < PHP_INT_MAX ? $this->frameNumber + 1 : $this->frameNumber;

@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Rendering\Launch;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
+use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use InvalidArgumentException;
 
 final class RendererRegistry
@@ -19,7 +20,8 @@ final class RendererRegistry
     $descriptors ??= [
       new RendererDescriptor('terminal', static fn(string $assetRoot): ?RendererRuntime => null),
       new RendererDescriptor('gpui', static fn(string $assetRoot): RendererRuntime => new RendererRuntime(
-        new RendererRuntimeConfig(new RendererProcessConfig([$resolver->resolve('gpui')]), $assetRoot, 10, 20),
+        new RendererRuntimeConfig(new RendererProcessConfig([$resolver->resolve('gpui')]), $assetRoot, 10, 20,
+          requiredCapabilities: [RendererSessionConfig::SPRITE_SOURCE_RECT]),
       )),
     ];
     foreach ($descriptors as $descriptor) {

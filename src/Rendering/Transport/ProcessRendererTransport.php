@@ -36,6 +36,8 @@ final class ProcessRendererTransport implements RendererTransportInterface
   private int $terminationSignal = 0;
   private float $terminationDeadline = 0.0;
   private RendererProtocolVersion $protocol = RendererProtocolVersion::V1;
+  /** @var list<string> */
+  private array $requiredCapabilities = [];
 
   public function __construct(private readonly RendererProcessConfig $config)
   {
@@ -49,6 +51,7 @@ final class ProcessRendererTransport implements RendererTransportInterface
     }
     $this->state = RendererTransportState::STARTING;
     $this->protocol = $session->protocol;
+    $this->requiredCapabilities = $session->requiredCapabilities;
     $this->stdout = $this->diagnostics = '';
     $this->events = [];
     $this->eventBytes = 0;
@@ -340,6 +343,9 @@ final class ProcessRendererTransport implements RendererTransportInterface
       if ($event->type === RendererEventType::READY
         && ($this->state !== RendererTransportState::STARTING || $this->hasReady())) {
         throw new RendererProtocolException('Renderer emitted an unexpected second ready event.');
+      }
+      if ($event->type === RendererEventType::READY) {
+        $event->requireCapabilities($this->requiredCapabilities);
       }
       if ($this->state === RendererTransportState::STARTING && ! $this->hasReady()
         && ! in_array($event->type, [RendererEventType::READY, RendererEventType::ERROR], true)) {

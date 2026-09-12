@@ -49,7 +49,8 @@ final class RendererRuntime
       throw new LogicException('A RendererRuntime owns exactly one session.');
     }
     $grid = new RendererGridConfig($columns, $rows, $this->config->cellWidth, $this->config->cellHeight);
-    $session = new RendererSessionConfig($title, $this->config->assetRoot, $grid, $this->config->protocol);
+    $session = new RendererSessionConfig($title, $this->config->assetRoot, $grid, $this->config->protocol,
+      $this->config->requiredCapabilities);
     $this->started = true;
     try {
       $this->client->start($session);
@@ -99,7 +100,8 @@ final class RendererRuntime
     LatencyTrace::end('presentation.sprites', $collection, ['count' => count($sprites)]);
     if (LatencyTrace::enabled()) {
       LatencyTrace::record('presentation.sprite.positions', ['sprites' => array_map(
-        static fn($sprite) => ['id' => $sprite->id, 'x' => $sprite->x, 'y' => $sprite->y], $sprites)]);
+        static fn($sprite) => ['id' => $sprite->id, 'x' => $sprite->x, 'y' => $sprite->y,
+          'sourceRect' => $sprite->sourceRect?->toArray()], $sprites)]);
     }
     PresentationLayerPolicy::assertWorldSprites($sprites);
     // Off-grid providers still reach GPUI for clipping, but do not mask terminal edge cells.

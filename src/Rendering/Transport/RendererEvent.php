@@ -8,11 +8,13 @@ use stdClass;
 
 final readonly class RendererEvent
 {
+  /** @param list<string> $capabilities */
   private function __construct(
     public RendererEventType $type,
     public ?string $key = null,
     public ?string $message = null,
     public RendererProtocolVersion $protocol = RendererProtocolVersion::V1,
+    public array $capabilities = [],
   )
   {
   }
@@ -43,8 +45,30 @@ final readonly class RendererEvent
     if ($type === RendererEventType::ERROR && ! is_string($message)) {
       throw new RendererProtocolException('Renderer error event requires a message string.');
     }
+    $capabilities = property_exists($object, 'capabilities') ? $object->capabilities : [];
+    if (!is_array($capabilities) || !array_is_list($capabilities) || count($capabilities) > 32) {
+      throw new RendererProtocolException('Renderer capabilities must be a bounded list of strings.');
+    }
+    foreach ($capabilities as $capability) {
+      if (!is_string($capability) || preg_match('/^[a-z][a-z0-9_]{0,63}$/D', $capability) !== 1) {
+        throw new RendererProtocolException('Malformed renderer capability name.');
+      }
+    }
+    if (count($capabilities) !== count(array_unique($capabilities))
+      || ($type !== RendererEventType::READY && property_exists($object, 'capabilities'))) {
+      throw new RendererProtocolException('Capabilities must be unique and only appear on ready.');
+    }
     return new self($type, $type === RendererEventType::KEY ? $key : null,
-      $type === RendererEventType::ERROR ? $message : null, $protocol);
+      $type === RendererEventType::ERROR ? $message : null, $protocol, $capabilities);
+  }
+
+  /** @param list<string> $required */
+  public function requireCapabilities(array $required): void
+  {
+    if (($missing = array_diff($required, $this->capabilities)) !== []) {
+      throw new RendererProtocolException('Renderer did not acknowledge required capabilities: '
+        . implode(', ', $missing) . '. Install an updated renderer.');
+    }
   }
 
   private static function excerpt(string $line): string

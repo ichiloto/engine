@@ -40,6 +40,13 @@ Its registration uses 10x20 pixel cells, the existing v2 protocol, and the
 project's canonical `assets` directory under the launch working directory.
 Logical dimensions come from the Game, not from Console or binary discovery.
 
+Since S8-A the automatic GPUI registration requires the negotiated
+`sprite_source_rect` capability. An older installed renderer fails startup clearly
+rather than displaying an entire sprite sheet. Rebuild/install the matching
+renderer when updating this spike. Explicit programmatic runtime configurations
+retain an empty requirement list by default for legacy full-image integrations;
+sheet users must request the capability as described in [sprite sheets](sprite-sheets.md).
+
 `PackagedRendererExecutableResolver` is the sole owner of the installation
 manifest layout and platform lookup. It resolves only a readable installed
 manifest entry naming an executable within that package. See the
@@ -99,6 +106,7 @@ optional `sprites2d` key uses the exact
 `DirectionalGraphicalSpriteSet::fromArray()` format documented in
 [graphical sprites](graphical-sprites.md). Missing means no graphical set;
 present but malformed data fails clearly, including explicit null.
+The alternative `mode: sheet` structure is documented in [sprite sheets](sprite-sheets.md).
 
 New-game loading uses the same project presentation loader for terminal art.
 GameScene's shared Player construction path loads current graphical definitions
@@ -220,12 +228,14 @@ resize messages or new terminal resize policies is implemented by this follow-up
 ## Spike limits
 
 - Only the field Player is graphical. NPCs, objects, maps, battles and UI remain
-  terminal presentation; placeholders are not production character art.
+  terminal presentation. S8-A's example replaces the earlier Player calibration
+  placeholders with author-supplied directional sheets.
 - Explicit protocol v1 flattens text and draws sprites afterwards. V2 fixes
   world/sprite/UI ordering and opaque UI blanks. Cinematics remain text-only.
-- The unchanged GPUI renderer centers individual glyphs in fixed cells with a
-  conservative font size. Sparse letters and disconnected box-art strokes are
-  a renderer typography limitation, distinct from an undersized logical grid.
+- GPUI fits text to measured font advance and line metrics inside fixed cells.
+  This supersedes the earlier undersized-font limitation without changing grid
+  dimensions, sprite geometry or viewport fitting. Very small viewports still
+  reduce the entire surface; fitting cannot guarantee legibility at every size.
 - V2 preserves colours, not blink, bold weight, italic, underline or other
   terminal attributes. V1 remains unstyled.
 

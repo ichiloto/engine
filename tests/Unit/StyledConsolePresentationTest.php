@@ -46,6 +46,10 @@ it('extracts authored canonical colour without ANSI in renderer text', function 
     ->and(Console::snapshot()->rows[0])->toBe('X       ');
 })->with([
   'enum standard' => [Color::RED->value, ['kind' => 'ansi16', 'index' => 1], null],
+  'standard blue identity' => [Color::BLUE->value, ['kind' => 'ansi16', 'index' => 4], null],
+  'bright blue identity' => [Color::LIGHT_BLUE->value, ['kind' => 'ansi16', 'index' => 12], null],
+  'indexed base blue identity' => ["\e[38;5;4m", ['kind' => 'ansi256', 'index' => 4], null],
+  'literal dark blue is not brightened' => ["\e[38;2;0;0;128m", ['kind' => 'rgb', 'r' => 0, 'g' => 0, 'b' => 128], null],
   'bright code' => ["\e[94m", ['kind' => 'ansi16', 'index' => 12], null],
   'legacy bright' => [Color::LIGHT_RED->value, ['kind' => 'ansi16', 'index' => 9], null],
   'background' => ["\e[44m", null, ['kind' => 'ansi16', 'index' => 4]],

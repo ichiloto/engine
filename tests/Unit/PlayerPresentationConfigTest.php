@@ -30,6 +30,7 @@ use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Tests\Support\Input\FakeRendererTransport;
 use function Tests\Support\Rendering\graphicalSpriteData;
+use function Tests\Support\Rendering\spriteSheetData;
 
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
@@ -109,6 +110,50 @@ it('loads current project art for new and restored Players without serializing g
     ->and($restored->heading)->toBe($new->heading)->and($restored->sprite)->toBe($new->sprite)
     ->and([$restored->position->x, $restored->position->y])->toBe([7.0, 4.0])
     ->and(serialize($this->config))->toBe($save);
+});
+
+it('loads sheet presentation for new and restored players without modifying terminal art or saves', function () {
+  $this->data['sprites2d'] = spriteSheetData();
+  ($this->writePlayerData)($this->data);
+  $save = serialize($this->config);
+  $player = ($this->createPlayer)($this->config);
+  expect($player->getGraphicalSpriteDefinition()->sourceRect->width)->toBe(256)
+    ->and($player->getDirectionalSprites())->toBe(['north' => ['^'], 'east' => ['>'], 'south' => ['v'], 'west' => ['<']])
+    ->and($save)->not->toContain('SpriteSheet', 'sourceRect', 'stepDuration');
+  $this->data['sprites2d']['idleFrame'] = 6;
+  ($this->writePlayerData)($this->data);
+  $restored = ($this->createPlayer)(unserialize($save));
+  expect($restored->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(256)
+    ->and($restored->getGraphicalSpriteDefinition()->sourceRect->y)->toBe(256)
+    ->and(serialize($this->config))->toBe($save);
+});
+
+it('animates only successful player steps and rests on blocked movement or facing changes', function () {
+  $this->data['sprites2d'] = spriteSheetData();
+  ($this->writePlayerData)($this->data);
+  $set = PlayerPresentationConfig::load();
+  $player = $this->getMockBuilder(Player::class)->setConstructorArgs([
+    $this->scene, 'Sheet hero', new Vector2(7, 4), new Rect(0, 0, 1, 1), ['v'],
+    MovementHeading::SOUTH, $set->terminal->toArray(), $set->graphical,
+  ])->onlyMethods(['erasePlayer', 'render', 'renderEventCues', 'renderLocationHUDWindow', 'handleTriggers', 'notify'])->getMock();
+  $map = $this->getMockBuilder(MapManager::class)->disableOriginalConstructor()
+    ->onlyMethods(['canMoveTo', 'scrollMap'])->getMock();
+  $map->method('canMoveTo')->willReturnOnConsecutiveCalls(true, false);
+  $map->method('scrollMap')->willReturn(false);
+  new ReflectionProperty(GameScene::class, 'mapManager')->setValue($this->scene, $map);
+  expect($player->tryMove(Vector2::right(), $this->camera))->toBeTrue();
+  $player->advanceGraphicalAnimation(0.08);
+  $walking = $player->getGraphicalSpriteDefinition();
+  expect($walking->asset)->toBe('Graphics/east.png')->and($walking->sourceRect->x)->toBe(256)
+    ->and($player->position->x)->toBe(8.0)->and($player->sprite)->toBe(['>']);
+  expect($player->tryMove(Vector2::up(), $this->camera))->toBeFalse();
+  $player->advanceGraphicalAnimation(0.08);
+  $idle = $player->getGraphicalSpriteDefinition();
+  expect($idle->asset)->toBe('Graphics/north.png')->and($idle->sourceRect->x)->toBe(0)
+    ->and($player->position->x)->toBe(8.0)->and($player->position->y)->toBe(4.0);
+  $player->face(Vector2::left(), $this->camera);
+  expect($player->getGraphicalSpriteDefinition()->asset)->toBe('Graphics/west.png')
+    ->and($player->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(0);
 });
 
 it('fails clearly on malformed optional project graphical configuration', function ($value) {

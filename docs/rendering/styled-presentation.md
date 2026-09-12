@@ -58,6 +58,14 @@ component or compound `0;31` is not an unconditional reset of the whole prefix;
 partial 22/39/49 resets must not discard unrelated background/foreground intent.
 Terminal output otherwise keeps its existing formatting and authoring path.
 
+ANSI base colours are palette identities, not fixed RGB values. GPUI's shared
+dark-terminal palette resolves ANSI16 and ANSI256 indices 0..15 for both
+foregrounds and backgrounds. Its readability follow-up leaves the default
+foreground/background, explicit RGB and ANSI256 indices 16..255 unchanged.
+PHP must not brighten colours to compensate for a renderer theme, and image
+pixels are not recoloured by the text palette. This same boundary applies to
+dialogue and HUD text over future graphical maps, not just ASCII world text.
+
 ## Sparse provenance and ordering
 
 Anonymous Console cells form an opaque complete `world` layer at 0. Named scopes

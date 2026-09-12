@@ -477,6 +477,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
      */
     public function setState(GameSceneState $state): void
     {
+        $this->player?->stopGraphicalAnimation();
         $this->sceneStateContext = new SceneStateContext($this, $this->sceneStateContext);
         $this->state?->exit();
         $this->state = $state;
@@ -488,6 +489,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
      */
     public function update(): void
     {
+        $this->player?->advanceGraphicalAnimation(max(0.0, Time::getDeltaTime()));
         parent::update();
         $this->state->execute($this->sceneStateContext);
         $this->refreshFieldMusic();
@@ -509,6 +511,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     #[Override]
     public function suspend(): void
     {
+        $this->player?->stopGraphicalAnimation();
         parent::suspend();
         $this->state->suspend();
     }
@@ -743,6 +746,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
      */
     public function onEventSessionStarted(EventExecutionSession $session): void
     {
+        $this->player?->stopGraphicalAnimation();
         Debug::info(sprintf(
             'Event session %d started (%s).',
             $session->id,

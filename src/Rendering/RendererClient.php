@@ -21,6 +21,10 @@ final class RendererClient
   private SplQueue $events;
   private int $queuedBytes = 0;
   private ?RendererTransportException $failure = null;
+  /** @var list<string> */
+  private array $requiredCapabilities = [];
+  /** @var list<string> */
+  private array $capabilities = [];
 
   public function __construct(
     private readonly RendererTransportInterface $transport,
@@ -42,6 +46,8 @@ final class RendererClient
     if (! $this->keys->isEmpty() || ! $this->events->isEmpty()) {
       throw new RendererTransportException('Consume pending renderer events before starting another session.');
     }
+    $this->capabilities = [];
+    $this->requiredCapabilities = $session->requiredCapabilities;
     $this->transport->start($session);
     $this->failure = null;
   }
@@ -63,6 +69,9 @@ final class RendererClient
       $events = $this->events->count();
       $bytes = $this->queuedBytes;
       foreach ($batch as $event) {
+        if ($event->type === RendererEventType::READY) {
+          $event->requireCapabilities($this->requiredCapabilities);
+        }
         if ($discardKeys && $event->type === RendererEventType::KEY) {
           continue;
         }
@@ -80,6 +89,9 @@ final class RendererClient
             LatencyTrace::keyStage($event, 'client.key.queued');
           }
         } else {
+          if ($event->type === RendererEventType::READY) {
+            $this->capabilities = array_values(array_intersect($this->requiredCapabilities, $event->capabilities));
+          }
           $this->events->enqueue($event);
         }
       }
@@ -166,6 +178,11 @@ final class RendererClient
     return $this->transport->isRunning();
   }
 
+  public function supports(string $capability): bool
+  {
+    return in_array($capability, $this->capabilities, true);
+  }
+
   public function shutdown(): ?int
   {
     $exitCode = $this->transport->shutdown();
@@ -178,6 +195,7 @@ final class RendererClient
 
   private static function eventBytes(RendererEvent $event): int
   {
-    return strlen($event->key ?? '') + strlen($event->message ?? '');
+    return strlen($event->key ?? '') + strlen($event->message ?? '')
+      + array_sum(array_map(strlen(...), $event->capabilities));
   }
 }

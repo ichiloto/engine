@@ -3,6 +3,9 @@
 This document describes the S5 capability boundary. The subsequent
 [S6 runtime](runtime.md) adds project `sprites2d` loading, Game-loop collection
 and renderer-only terminal masking without changing these sprite models.
+The later [S8-A sprite-sheet extension](sprite-sheets.md) adds optional source
+rectangles and PHP-owned Player walk animation; the static format below remains
+supported. Statements about excluded animation describe S5, not the current runtime.
 
 S5 adds an explicitly invoked PHP-side chain:
 

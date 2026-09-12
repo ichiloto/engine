@@ -64,7 +64,8 @@ if ($scenario === 'startup_timeout') {
 if ($scenario === 'stderr_flood') {
   rendererStubWrite(str_repeat('diagnostic-', 100000) . 'STARTUP-TAIL', STDERR);
 }
-$ready = rendererStubEvent('ready');
+$ready = rendererStubEvent('ready', $scenario === 'capabilities' && isset($message['requiredCapabilities'])
+  ? ['capabilities' => $message['requiredCapabilities']] : []);
 if ($scenario === 'ready_key') {
   $ready .= rendererStubEvent('key', ['key' => 'W']);
 }

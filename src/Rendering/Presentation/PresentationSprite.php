@@ -17,6 +17,7 @@ final readonly class PresentationSprite
     public int $height,
     public PresentationSpriteAnchor $anchor = PresentationSpriteAnchor::BOTTOM_CENTER,
     public int $layer = 0,
+    public ?SpriteSourceRect $sourceRect = null,
   )
   {
     if ($id === '' || str_contains($id, "\0") || preg_match('//u', $id) !== 1) {
@@ -27,10 +28,13 @@ final readonly class PresentationSprite
     SpriteValidation::validateSigned32BitRange($y);
   }
 
-  /** @return array{id: string, asset: string, x: int, y: int, width: int, height: int, anchor: string, layer: int} */
+  /** @return array{id: string, asset: string, x: int, y: int, width: int, height: int, anchor: string, layer: int, sourceRect?: array{x: int, y: int, width: int, height: int}} */
   public function toArray(): array
   {
-    return [...get_object_vars($this), 'anchor' => $this->anchor->value];
+    $data = ['id' => $this->id, 'asset' => $this->asset, 'x' => $this->x, 'y' => $this->y,
+      'width' => $this->width, 'height' => $this->height, 'anchor' => $this->anchor->value, 'layer' => $this->layer];
+    if ($this->sourceRect !== null) { $data['sourceRect'] = $this->sourceRect->toArray(); }
+    return $data;
   }
 
   /** @param list<PresentationSprite> $sprites @return list<PresentationSprite> */

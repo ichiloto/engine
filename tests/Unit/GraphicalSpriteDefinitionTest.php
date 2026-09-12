@@ -7,8 +7,10 @@ use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
 it('holds only immutable sprite intent without reading assets or storing coordinates', function () {
   $definition = new GraphicalSpriteDefinition('nonexistent/Hero.png', 32, 48, layer: 100);
   expect(get_object_vars($definition))->toBe([
+    'sourceRect' => null,
     'asset' => 'nonexistent/Hero.png', 'width' => 32, 'height' => 48,
     'anchor' => PresentationSpriteAnchor::BOTTOM_CENTER, 'layer' => 100,
+    'sheet' => null,
   ]);
   foreach (get_object_vars($definition) as $property => $value) {
     expect(function () use ($definition, $property, $value) { $definition->$property = $value; })
