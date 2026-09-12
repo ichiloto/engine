@@ -1,6 +1,7 @@
 <?php
 
 use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\IO\Console\SgrColorParser;
 use Ichiloto\Engine\IO\Enumerations\Color;
 
 it('measures colored and emoji text without counting ansi sequences', function () {
@@ -24,7 +25,8 @@ it('wraps styled text by visible width without losing the highlighted key', func
   $lines = TerminalText::wrapToWidth($text, 10);
 
   expect(array_map([TerminalText::class, 'stripAnsi'], $lines))->toBe(['Press T', 'to watch.'])
-    ->and(implode('', $lines))->toContain(Color::YELLOW->value);
+    ->and(SgrColorParser::parse(TerminalText::visibleSymbols($lines[0])[6]))
+    ->toEqual(SgrColorParser::parse(Color::YELLOW->value . 'T'));
 });
 
 it('slices visible symbols without breaking ansi styling', function () {
@@ -45,6 +47,35 @@ it('treats symfony formatter tags as zero-width styling', function () {
     ->and(TerminalText::displayWidth($text))->toBe(2)
     ->and($symbols[0] ?? '')->toContain("\033[")
     ->and($symbols[1] ?? '')->toContain("\033[");
+});
+
+it('keeps cell styles bounded across repeated selective colour resets', function () {
+  $text = str_repeat("\e[92m;\e[39m\e[90m.\e[39m ", 100);
+  $symbols = TerminalText::visibleSymbols($text);
+  expect(count($symbols))->toBe(300)
+    ->and(max(array_map(strlen(...), $symbols)))->toBe(10)
+    ->and($symbols[299])->toBe(' ')
+    ->and(TerminalText::visibleSymbols(implode('', $symbols)))->toBe($symbols);
+});
+
+it('preserves unrelated terminal attributes when resetting one group', function (string $input, string $prefix) {
+  expect(TerminalText::visibleSymbols($input . 'X')[0])->toBe($prefix . 'X' . ($prefix === '' ? '' : "\e[0m"));
+})->with([
+  'foreground reset keeps background and underline' => ["\e[31;44;4m\e[39m", "\e[44m\e[4m"],
+  'background reset keeps bold foreground' => ["\e[1;31;44m\e[49m", "\e[1m\e[31m"],
+  'normal intensity clears bold and faint only' => ["\e[1;2;3;32m\e[22m", "\e[3m\e[32m"],
+  'double underline reset' => ["\e[21;7m\e[24m", "\e[7m"],
+  'compound full reset then foreground' => ["\e[1;44m\e[0;31m", "\e[31m"],
+  'empty parameter resets then foreground' => ["\e[1;44m\e[;31m", "\e[31m"],
+  'rgb zeros are components not resets' => ["\e[4;38;2;0;0;128m", "\e[4m\e[38;2;0;0;128m"],
+  'indexed zero is not a reset' => ["\e[4;38;5;0m", "\e[4m\e[38;5;0m"],
+  'all selective resets return to plain' => ["\e[1;3;4;5;7;8;9;31;44m\e[22;23;24;25;27;28;29;39;49m", ''],
+]);
+
+it('preserves unknown and malformed controls rather than silently losing terminal semantics', function () {
+  expect(TerminalText::visibleSymbols("\e[31m\e[999m\e[39mX")[0])->toBe("\e[31m\e[999m\e[39mX\e[0m")
+    ->and(TerminalText::visibleSymbols("\e[38;2;1;;3mX")[0])->toBe("\e[38;2;1;;3mX\e[0m")
+    ->and(TerminalText::visibleSymbols("\e[999m\e[0;32mX")[0])->toBe("\e[32mX\e[0m");
 });
 
 /* Width-unstable glyph stabilization */

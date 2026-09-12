@@ -164,6 +164,8 @@ class Game implements CanRun, SubjectInterface
     {
         $this->rendererRegistry = $rendererRegistry;
         try {
+            // Output ownership is selected at start, after optional runtime attachment.
+            Console::setTerminalOutputEnabled(false);
             $this->configureErrorAndExceptionHandlers();
             $this->initializeObservers();
             $this->initializeConfigStore();
@@ -474,11 +476,6 @@ class Game implements CanRun, SubjectInterface
         ConfigStore::put(ProjectConfig::class, new ProjectConfig());
         ConfigStore::put(FieldMusicCatalog::class, FieldMusicCatalog::fromProject());
 
-        // Detect what this terminal can render before anything draws, so the
-        // engine picks a rendering strategy that matches the host instead of
-        // assuming one.
-        TerminalCapabilities::detect();
-
         ConfigStore::put(InputConfig::class, new InputConfig());
         $systemPayload = asset('Data/system.php', true);
         ElementRegistry::configure(is_array($systemPayload['elements'] ?? null) ? $systemPayload['elements'] : []);
@@ -748,6 +745,7 @@ class Game implements CanRun, SubjectInterface
         Console::disableLineWrap();
         Console::setTerminalName($this->name);
         Console::setTerminalSize($this->width, $this->height);
+        Console::cursor()->disableBlinking();
         Console::cursor()->hide();
 
         if ($this->rendererRuntime !== null) {
@@ -796,6 +794,9 @@ class Game implements CanRun, SubjectInterface
             }
             $this->rendererSelectionResolved = true;
         }
+        Console::setTerminalOutputEnabled($this->rendererRuntime === null);
+        TerminalCapabilities::reset();
+        TerminalCapabilities::detect();
         $this->rendererRuntime?->start($this->name, $this->width, $this->height);
         if (InputManager::requiresTerminalInput()) {
             Console::saveTerminalSettings();
@@ -1059,7 +1060,7 @@ SPLASH_SCREEN;
     protected function syncScreenSize(): void
     {
         if ($this->rendererRuntime !== null) {
-            return; // Renderer sessions fix the Game grid; the terminal is only a mirror.
+            return; // Renderer sessions fix the Game grid independently of the terminal.
         }
         // Throttle expensive terminal size probes to avoid per-frame shell_exec() calls.
         // Uses static variables so the throttle state persists across calls without

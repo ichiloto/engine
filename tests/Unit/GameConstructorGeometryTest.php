@@ -21,7 +21,8 @@ it('resolves real Game constructor geometry without mistaking injected defaults 
     $exitCode = proc_close($process);
     $diagnostics = file_get_contents($root . '/stderr') . (is_file($root . '/logs/error.log') ? file_get_contents($root . '/logs/error.log') : '');
     $this->assertSame(0, $exitCode, $diagnostics);
-    expect(json_decode(file_get_contents($root . '/dimensions.json'), true))->toBe($expected);
+    expect(json_decode(file_get_contents($root . '/dimensions.json'), true))->toBe($expected)
+      ->and(file_get_contents($root . '/stdout'))->toBe('');
   } finally {
     $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
     foreach ($files as $file) {

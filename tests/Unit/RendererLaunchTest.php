@@ -152,7 +152,8 @@ it('automatically attaches one runtime before deciding terminal input ownership'
   $game = new LaunchIntentGameProbe($this->registry);
   $before = stream_get_meta_data(STDIN)['blocked'];
   $game->startInput();
-  expect($this->creations)->toBe(1)->and($this->assetRoot)->toBe(getcwd() . '/assets')
+  expect(Console::isTerminalOutputEnabled())->toBeFalse()
+    ->and($this->creations)->toBe(1)->and($this->assetRoot)->toBe(getcwd() . '/assets')
     ->and($this->transport->session->grid->toArray())->toBe(['columns' => 135, 'rows' => 36, 'cellWidth' => 10, 'cellHeight' => 20])
     ->and(InputManager::getInputSource())->toBeInstanceOf(RendererInputSource::class)
     ->and(new ReflectionProperty(Game::class, 'terminalInputConfigured')->getValue($game))->toBeFalse()
@@ -167,7 +168,8 @@ it('keeps absent or terminal intent on the existing terminal input lifecycle', f
   $game = new LaunchIntentGameProbe($this->registry);
   try {
     $game->startInput();
-    expect(new ReflectionProperty(Game::class, 'rendererRuntime')->getValue($game))->toBeNull()
+    expect(Console::isTerminalOutputEnabled())->toBeTrue()
+      ->and(new ReflectionProperty(Game::class, 'rendererRuntime')->getValue($game))->toBeNull()
       ->and(new ReflectionProperty(Game::class, 'terminalInputConfigured')->getValue($game))->toBeTrue()
       ->and(InputManager::requiresTerminalInput())->toBeTrue()
       ->and(stream_get_meta_data(STDIN)['blocked'])->toBeFalse()

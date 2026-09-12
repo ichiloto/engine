@@ -94,9 +94,29 @@ inside Console before any renderer can display them. Cell dimensions change
 display size, not the number of available layout cells.
 
 The grid is fixed until the session ends. Later terminal resizing does not
-change Game, Camera or protocol geometry. The terminal is a mirror and may be
-physically smaller than the logical frame. Terminal-only sessions retain their
+change Game, Camera or protocol geometry. Terminal-only sessions retain their
 existing dynamic resize path. Neither protocol has resize negotiation or auto-fit.
+
+## Output ownership
+
+Game construction is buffer-only. At startup, after renderer selection and any
+explicit runtime attachment, Game selects physical Console output independently
+of input ownership. Native terminal sessions enable terminal output; external
+renderer sessions keep canonical cells and named layers but do not mirror frames,
+emit terminal controls, open a terminal output descriptor, or probe emoji with
+cursor-position queries. Errors still reach the existing logs and stderr notice.
+
+`Console::setTerminalOutputEnabled()` must run before a frame or alternate screen
+is active. Buffer-only mode skips terminal dirty-span comparisons and payload
+assembly, not composition, rollback, snapshots, colours, or sprite exclusion.
+This applies equally to GPUI and future external runtimes. Shutdown does not
+reenable terminal painting; a later terminal Game selects its own output normally.
+
+Styled cells retain active SGR attributes rather than a growing history of
+obsolete colour assignments. Selective resets preserve unrelated attributes;
+extended colour components remain grouped. Unknown controls retain their prior
+replay behaviour until a full reset. See [Garden validation](garden-output-validation.md)
+for the measured dense-map impact and test boundaries.
 
 ## Project artwork and saves
 

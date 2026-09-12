@@ -124,15 +124,13 @@ final class TerminalText
 
     $symbols = [];
     $activeAnsi = '';
+    $style = new SgrStyleState();
     preg_match_all('/\x1B\[[0-9;?]*[ -\/]*[@-~]|\X/u', $text, $matches);
 
     foreach ($matches[0] ?? [] as $token) {
       if (preg_match(self::ANSI_PATTERN, $token) === 1) {
-        if (self::isResetSequence($token)) {
-          $activeAnsi = '';
-        } else {
-          $activeAnsi .= $token;
-        }
+        $style->apply($token);
+        $activeAnsi = $style->prefix();
         continue;
       }
 
@@ -554,19 +552,6 @@ final class TerminalText
   private static function getFormatter(): OutputFormatter
   {
     return self::$formatter ??= new OutputFormatter(true);
-  }
-
-  /**
-   * Determines whether an ANSI sequence resets the active style state.
-   *
-   * @param string $ansi The ANSI sequence.
-   * @return bool True if the sequence resets formatting.
-   */
-  private static function isResetSequence(string $ansi): bool
-  {
-    // Only a standalone full reset discards history. Partial resets must retain
-    // the other attributes; zero inside 0;31 or RGB is not a standalone reset.
-    return preg_match('/\A\x1B\[(?:0)?m\z/', $ansi) === 1;
   }
 
   /** S4 renderer normalization; continuation markers are handled by Console. */

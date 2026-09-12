@@ -207,6 +207,29 @@ class Console
    * @var resource|null
    */
   private static $terminalOutputStream = null;
+  private static bool $terminalOutputEnabled = true;
+
+  /** Select the physical sink before borrowing a terminal screen; buffers remain active. */
+  public static function setTerminalOutputEnabled(bool $enabled): void
+  {
+    if (self::$terminalOutputEnabled === $enabled) {
+      return;
+    }
+    if (self::$usingAlternateScreen || self::isComposing()) {
+      throw new \LogicException('Select terminal output before composing a frame or entering the alternate screen.');
+    }
+    self::$terminalOutputEnabled = $enabled;
+    if (!$enabled) {
+      self::closeTerminalOutputStream();
+    } elseif (self::$output !== null) {
+      self::openTerminalOutputStream();
+    }
+  }
+
+  public static function isTerminalOutputEnabled(): bool
+  {
+    return self::$terminalOutputEnabled;
+  }
 
   /**
    * Console constructor.
@@ -230,6 +253,7 @@ class Console
     $availableSize = self::getAvailableSize();
 
     self::$game = $game;
+    self::$terminalHandedBack = false;
     Console::cursor()->disableBlinking();
     self::$width = intval($options['width'] ?? $availableSize['width']);
     self::$height = intval($options['height'] ?? $availableSize['height']);
@@ -289,6 +313,7 @@ class Console
     self::cursor()->show();
     self::cursor()->enableBlinking();
     self::closeTerminalOutputStream();
+    self::$terminalHandedBack = true;
   }
 
   /**
@@ -434,11 +459,11 @@ class Console
       // are blanked while stable rows are not needlessly repainted.
       self::$frameRows = [];
 
-      if ($forceFullRepaint) {
+      if (self::$terminalOutputEnabled && $forceFullRepaint) {
         for ($row = 0; $row < self::$height; $row++) {
           self::markFrameSpan($row, 0, self::$width - 1);
         }
-      } else {
+      } elseif (self::$terminalOutputEnabled) {
         $emptyRow = str_repeat(' ', self::$width);
 
         for ($row = 0; $row < self::$height; $row++) {
@@ -538,6 +563,10 @@ class Console
    */
   public static function enterAlternateScreen(): void
   {
+    self::$terminalHandedBack = false;
+    if (!self::$terminalOutputEnabled) {
+      return;
+    }
     if (self::$usingAlternateScreen) {
       return;
     }
@@ -661,6 +690,10 @@ class Console
           if ($updatedRow !== $existingRow) {
             self::$buffer[$currentBufferRow] = $updatedRow;
 
+            if (!self::$terminalOutputEnabled) {
+              continue;
+            }
+
             foreach (self::changedAsciiSpans(
               $existingRow,
               $updatedRow,
@@ -712,6 +745,10 @@ class Console
 
       if ($updatedRow !== self::$buffer[$currentBufferRow]) {
         self::$buffer[$currentBufferRow] = $updatedRow;
+
+        if (!self::$terminalOutputEnabled) {
+          continue;
+        }
 
         foreach (self::changedCellSpansFromCells($existingCells, $rowCells) as $span) {
           self::writeBufferRow(
@@ -1030,6 +1067,11 @@ class Console
       return;
     }
 
+    if (!self::$terminalOutputEnabled) {
+      self::$frameRows = [];
+      return;
+    }
+
     ksort(self::$frameRows, SORT_NUMERIC);
     $payload = '';
 
@@ -1064,6 +1106,9 @@ class Console
    */
   public static function repaintRegion(int $x, int $y, int $width, int $height): void
   {
+    if (!self::$terminalOutputEnabled) {
+      return;
+    }
     if ($width <= 0 || $height <= 0 || self::$width <= 0 || self::$height <= 0) {
       return;
     }
@@ -1118,7 +1163,7 @@ class Console
    */
   private static function writeToTerminal(string $payload): void
   {
-    if ($payload === '') {
+    if (!self::$terminalOutputEnabled || $payload === '') {
       return;
     }
 
@@ -1224,6 +1269,9 @@ class Console
    */
   private static function openTerminalOutputStream(): void
   {
+    if (!self::$terminalOutputEnabled) {
+      return;
+    }
     self::closeTerminalOutputStream();
 
     if (PHP_OS_FAMILY === 'Windows') {

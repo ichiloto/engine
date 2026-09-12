@@ -114,6 +114,21 @@ it('opts in exactly once and shares input and presentation on one session', func
   expect(InputManager::getInputSource())->toBe($this->previous)->and($this->transport->shutdowns)->toBe(1);
 });
 
+it('selects renderer-only game output while preserving frames and silent cleanup', function () {
+  $game = new RendererRuntimeGameProbe();
+  $game->useRendererRuntime($this->runtime);
+  $game->startInput();
+  Console::clear();
+  Console::enterAlternateScreen();
+  Console::cursor()->hide();
+  Console::write('GRAPHICAL', 0, 0);
+  $this->runtime->present(null);
+  $game->quit();
+  expect(Console::isTerminalOutputEnabled())->toBeFalse()
+    ->and($this->transport->sent[0]->payload['text'][0])->toBe('GRAPHICAL   ')
+    ->and(ob_get_contents())->toBe('');
+});
+
 it('runs a real PHP-only peer through explicit v1 and v2 runtime lifecycles', function ($protocol) {
   $capture = tempnam(sys_get_temp_dir(), 'runtime-version-');
   $process = new RendererProcessConfig([PHP_BINARY, __DIR__ . '/../Fixtures/Renderer/renderer-stub.php', 'ready_key', $capture]);
@@ -141,6 +156,18 @@ it('preserves input and shuts down once when startup fails after a child was sta
   expect(fn() => $this->runtime->start('Test', 12, 4))->toThrow(RendererTransportException::class, 'handshake fixture failure');
   expect(InputManager::getInputSource())->toBe($this->previous)->and($this->transport->shutdowns)->toBe(1)
     ->and($this->transport->running)->toBeFalse();
+});
+
+it('keeps game startup failure and cleanup from borrowing or painting the terminal', function () {
+  $this->transport->failure = new RendererTransportException('handshake fixture failure');
+  $game = new RendererRuntimeGameProbe();
+  $game->useRendererRuntime($this->runtime);
+  expect(fn() => $game->startInput())->toThrow(RendererTransportException::class);
+  $game->quit();
+  expect(Console::isTerminalOutputEnabled())->toBeFalse()
+    ->and($this->transport->shutdowns)->toBe(1)
+    ->and(InputManager::getInputSource())->toBe($this->previous)
+    ->and(ob_get_contents())->toBe('');
 });
 
 it('services changed frame bytes before returning to the game frame sleep', function () {
