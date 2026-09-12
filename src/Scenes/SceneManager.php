@@ -116,6 +116,14 @@ class SceneManager implements CanStart, CanRender, CanUpdate
     return $this;
   }
 
+  /** Updates all camera viewports without starting or redrawing inactive scenes. */
+  public function resizeViewports(int $width, int $height): void
+  {
+    foreach ($this->scenes as $scene) {
+      $scene->camera->resizeViewport($width, $height);
+    }
+  }
+
   /**
    * Remove scenes from the scene manager.
    *

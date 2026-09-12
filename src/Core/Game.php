@@ -14,6 +14,7 @@ use Ichiloto\Engine\Battle\Engines\ActiveTime\ActiveTimeBattleEngine;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\TraditionalTurnBasedBattleEngine;
 use Ichiloto\Engine\Battle\Enumerations\BattleEngineType;
 use Ichiloto\Engine\Battle\Interfaces\BattleEngineInterface;
+use Ichiloto\Engine\Battle\UI\BattleScreen;
 use Ichiloto\Engine\Battle\Entry\BattleEntryRuleCatalog;
 use Ichiloto\Engine\Core\Enumerations\ChronoUnit;
 use Ichiloto\Engine\Core\Interfaces\CanRun;
@@ -98,6 +99,8 @@ class Game implements CanRun, SubjectInterface
     private ?RendererRegistry $rendererRegistry = null;
     private ?RendererLaunchIntent $rendererLaunchIntent = null;
     private bool $rendererSelectionResolved = false;
+    /** @var array<string, mixed>|null Caller size requests, never resolved terminal dimensions. */
+    private ?array $screenRequests = null;
 
     /** Explicit attachment before run() takes precedence over launch intent. */
     public function useRendererRuntime(RendererRuntime $runtime): self
@@ -106,6 +109,9 @@ class Game implements CanRun, SubjectInterface
             throw new \LogicException('Attach one renderer runtime before starting Game.');
         }
         $this->rendererRuntime = $runtime;
+        if ($this->screenRequests !== null) {
+            $this->configure([]);
+        }
         return $this;
     }
     /**
@@ -524,11 +530,22 @@ class Game implements CanRun, SubjectInterface
      */
     public function configure(array $options): self
     {
+        $this->screenRequests ??= [
+            'width' => $this->width === DEFAULT_SCREEN_WIDTH ? null : $this->width,
+            'height' => $this->height === DEFAULT_SCREEN_HEIGHT ? null : $this->height,
+        ];
+        foreach (['width', 'height'] as $dimension) {
+            if (array_key_exists($dimension, $options)) {
+                $this->screenRequests[$dimension] = $options[$dimension];
+            } elseif (is_array($options['screen'] ?? null) && array_key_exists($dimension, $options['screen'])) {
+                $this->screenRequests[$dimension] = $options['screen'][$dimension];
+            }
+        }
         // Replace rather than merge: the constructor configures the options
         // with themselves, and a recursive merge turns every scalar a caller
         // passed into a two-element array of itself.
         $this->options = array_replace_recursive($this->options, $options);
-        ['width' => $this->width, 'height' => $this->height] = $this->resolveScreenSize($this->options);
+        ['width' => $this->width, 'height' => $this->height] = $this->resolveScreenSize($this->screenRequests);
         $this->options['width'] = $this->width;
         $this->options['height'] = $this->height;
         $this->options['screen'] = ['width' => $this->width, 'height' => $this->height];
@@ -538,23 +555,29 @@ class Game implements CanRun, SubjectInterface
         }
 
         Console::init($this, ['width' => $this->width, 'height' => $this->height]);
+        $this->sceneManager->resizeViewports($this->width, $this->height);
         return $this;
     }
 
     /**
      * Resolves the screen size that should be used for the current session.
      *
-     * Default constructor dimensions are treated as "auto", which allows the
-     * engine to adopt the full size of the user's terminal on boot.
+     * Auto dimensions follow the terminal in terminal mode. Graphical sessions
+     * default to the full battle footprint, independently of their launching TTY.
      *
      * @param array<string, mixed> $options The current game options.
      * @return array{width: int, height: int} The resolved screen size.
      */
     protected function resolveScreenSize(array $options): array
     {
-        $availableSize = Console::getAvailableSize();
-        $requestedWidth = $options['width'] ?? $options['screen']['width'] ?? $this->width;
-        $requestedHeight = $options['height'] ?? $options['screen']['height'] ?? $this->height;
+        $graphical = $this->rendererRuntime !== null
+            || (!$this->rendererSelectionResolved
+                && ($this->rendererLaunchIntent ??= RendererLaunchIntent::fromEnvironment())->id !== 'terminal');
+        $availableSize = $graphical
+            ? ['width' => BattleScreen::WIDTH, 'height' => BattleScreen::HEIGHT]
+            : Console::getAvailableSize();
+        $requestedWidth = array_key_exists('width', $options) ? $options['width'] : ($options['screen']['width'] ?? $this->width);
+        $requestedHeight = array_key_exists('height', $options) ? $options['height'] : ($options['screen']['height'] ?? $this->height);
 
         return [
             'width' => $this->resolveScreenDimension($requestedWidth, $availableSize['width'], DEFAULT_SCREEN_WIDTH,
@@ -1095,6 +1118,7 @@ SPLASH_SCREEN;
         ConfigStore::get(PlaySettings::class)->set('screen.height', $this->height);
 
         Console::syncDimensions($this->width, $this->height);
+        $this->sceneManager->resizeViewports($this->width, $this->height);
 
         $currentScene = $this->sceneManager->currentScene;
 

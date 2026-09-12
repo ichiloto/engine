@@ -8,7 +8,7 @@ No renderer is started merely because a project authors graphical sprites.
 
 Console selects a stable public renderer ID and sends it to the ordinary PHP
 game entrypoint in `ICHILOTO_RENDERER`. Current IDs are exactly `terminal` and
-`gpui`. The engine reads the value once when starting the input session, trims
+`gpui`. The engine reads the value once while resolving initial geometry, trims
 whitespace and lowercases it. An absent, empty or whitespace-only value means
 `terminal`, so direct `php game.php` launches retain existing behavior.
 
@@ -85,17 +85,32 @@ launchers that do not pin a protocol gain v2 without project source changes.
 
 ## Fixed geometry
 
-The Game's resolved logical dimensions become the session grid.
-Explicit width/height options are honored even when equal to legacy defaults;
-omitted constructor defaults retain terminal auto-sizing. Choose a grid large
-enough for the project's layouts. In particular, current battle UI requires
-135x36 and the main menu requires 110x35. An 80x30 session clips those layouts
-inside Console before any renderer can display them. Cell dimensions change
-display size, not the number of available layout cells.
+The Game's resolved logical dimensions become the session grid. Graphical
+sessions default to `BattleScreen::WIDTH` by `BattleScreen::HEIGHT`: 135x36
+cells, including the battlefield and its bottom controls. At the registered
+10x20 cell pitch, that is a 1350x720 logical-pixel canvas. The main menu's
+110x35 layout fits within the same surface. The launching terminal's dimensions
+do not change this default, and switching scenes does not resize the grid.
+
+Explicit flat or nested width/height options are honored per axis, even when
+equal to legacy constructor defaults. Non-default positional dimensions also
+remain supported. A dimension left on auto uses the battle footprint for a
+graphical session and the available terminal dimension for a terminal session.
+Caller requests are retained separately from resolved dimensions, so attaching
+a runtime after construction does not turn terminal measurements into explicit
+graphical overrides. All registered camera viewports are synchronized before
+the renderer handshake, including scenes that have not started yet.
+
+Explicit smaller grids can still clip authored layouts inside Console; an
+80x30 override cannot contain the battle UI. Cell dimensions change display
+size, not the number of available layout cells. The physical GPUI window remains
+resizable and scales/centers this fixed canvas rather than changing its grid.
+Maps larger than the viewport continue to scroll through the PHP-owned Camera.
 
 The grid is fixed until the session ends. Later terminal resizing does not
 change Game, Camera or protocol geometry. Terminal-only sessions retain their
-existing dynamic resize path. Neither protocol has resize negotiation or auto-fit.
+existing dynamic resize path. Neither protocol negotiates a new logical grid
+on resize; GPUI's existing viewport fitting is presentation-only.
 
 ## Output ownership
 
