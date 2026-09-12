@@ -18,6 +18,7 @@ use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteCollector;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
+use Ichiloto\Engine\Rendering\Transport\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
@@ -25,6 +26,7 @@ use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Ichiloto\Engine\Scenes\Game\States\FieldState;
 use Ichiloto\Engine\Scenes\Game\States\MainMenuState;
 use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Tests\Support\Input\FakeRendererTransport;
 use function Tests\Support\Rendering\graphicalSpriteData;
@@ -49,6 +51,7 @@ beforeEach(function () {
     $this->states[$class] = new ReflectionClass($class)->getStaticProperties();
   }
   ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub());
+  ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 20, 'height' => 10]));
   new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
   foreach (['frameDepth' => 0, 'isRecomposing' => false, 'terminalHandedBack' => false,
     'output' => null, 'terminalOutputStream' => null] as $name => $value) {
@@ -132,6 +135,32 @@ it('collects only the active field Player and never overlays unrelated scenes or
   expect($collector->collect($this->scene))->toBe([]);
 });
 
+it('defaults to v2 world sprite and opaque above-sprite prompt composition', function () {
+  $player = ($this->createPlayer)($this->config);
+  new ReflectionProperty(Player::class, 'isActive')->setValue($player, true);
+  $player->availableAction = $this->createStub(Ichiloto\Engine\Entities\Interfaces\ActionInterface::class);
+  new ReflectionProperty(GameScene::class, 'player')->setValue($this->scene, $player);
+  $field = makeBareScene(FieldState::class);
+  new ReflectionProperty(GameScene::class, 'fieldState')->setValue($this->scene, $field);
+  new ReflectionProperty(GameScene::class, 'state')->setValue($this->scene, $field);
+  $transport = new FakeRendererTransport();
+  $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), $this->root), $transport);
+  $this->runtime->start('Field v2', 20, 10);
+  Console::write('.', 7, 4);
+  $player->render();
+  Console::withLayer('modal', fn() => Console::write('   ', 7, 4), 1020);
+  $this->runtime->present($this->scene);
+  expect($transport->session->protocol)->toBe(RendererProtocolVersion::V2)
+    ->and($transport->sent[0]->protocol)->toBe(RendererProtocolVersion::V2)
+    ->and($transport->sent[0]->payload)->not->toHaveKey('text');
+  $frame = $transport->sent[0]->payload;
+  expect(array_column($frame['textLayers'], 'id'))->toBe(['world', 'field-prompt', 'modal'])
+    ->and(array_column($frame['textLayers'], 'layer'))->toBe([0, 1010, 1020])
+    ->and($frame['sprites'])->toHaveCount(1)
+    ->and($frame['textLayers'][0]['runs'][4]['text'][7])->toBe('.')
+    ->and($frame['textLayers'][2]['runs'][0]['text'])->toBe('   ');
+});
+
 it('composes real field Player movement facing masking and duplicate detection in the runtime', function () {
   $player = ($this->createPlayer)($this->config);
   new ReflectionProperty(Player::class, 'isActive')->setValue($player, true);
@@ -144,7 +173,7 @@ it('composes real field Player movement facing masking and duplicate detection i
   new ReflectionProperty(MapManager::class, 'collisionMap')->setValue($map, [3 => [7 => CollisionType::SOLID->value]]);
   new ReflectionProperty(GameScene::class, 'mapManager')->setValue($this->scene, $map);
   $transport = new FakeRendererTransport();
-  $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), $this->root), $transport);
+  $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), $this->root, protocol: RendererProtocolVersion::V1), $transport);
   $this->runtime->start('Field', 20, 10);
   Console::write('.', 7, 4);
   $player->render();
@@ -181,7 +210,7 @@ it('keeps the graphical Player during an ordinary dialogue event without admitti
   $interpreter->start([['type' => 'text', 'name' => 'Mother', 'text' => 'Welcome home.']]);
   expect($this->scene->hasUnstableEventSession())->toBeTrue();
   $transport = new FakeRendererTransport();
-  $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), $this->root), $transport);
+  $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), $this->root, protocol: RendererProtocolVersion::V1), $transport);
   $this->runtime->start('Dialogue', 20, 10);
   Console::write('.', 7, 4);
   $player->render();

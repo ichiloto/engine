@@ -2,17 +2,20 @@
 
 namespace Ichiloto\Engine\Rendering\Runtime;
 
+use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\IO\InputSources\InputSourceInterface;
 use Ichiloto\Engine\IO\InputSources\RendererInputSource;
 use Ichiloto\Engine\Rendering\Presentation\RendererPresentation;
+use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\RendererClient;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteCollector;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException;
 use Ichiloto\Engine\Rendering\Transport\ProcessRendererTransport;
 use Ichiloto\Engine\Rendering\Transport\RendererEventType;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
+use Ichiloto\Engine\Rendering\Transport\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererTransportInterface;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
@@ -46,7 +49,7 @@ final class RendererRuntime
       throw new LogicException('A RendererRuntime owns exactly one session.');
     }
     $grid = new RendererGridConfig($columns, $rows, $this->config->cellWidth, $this->config->cellHeight);
-    $session = new RendererSessionConfig($title, $this->config->assetRoot, $grid);
+    $session = new RendererSessionConfig($title, $this->config->assetRoot, $grid, $this->config->protocol);
     $this->started = true;
     try {
       $this->client->start($session);
@@ -70,7 +73,7 @@ final class RendererRuntime
       return;
     }
     $this->client->pump();
-    foreach ($this->client->pollEvents() as $event) {
+    foreach ($this->client->drainEvents() as $event) {
       if ($event->type === RendererEventType::CLOSE_REQUESTED) {
         $this->closeRequested = true;
       } elseif ($event->type === RendererEventType::ERROR) {
@@ -85,15 +88,36 @@ final class RendererRuntime
 
   public function present(?SceneInterface $scene): bool
   {
+    $started = LatencyTrace::now();
+    LatencyTrace::record('presentation.begin', ['scene' => $scene === null ? null : $scene::class]);
     $this->pump();
     if ($this->presentation === null || $this->closed) {
       throw new LogicException('Renderer presentation requires an active session.');
     }
+    $collection = LatencyTrace::now();
     $sprites = $this->collector->collect($scene);
+    LatencyTrace::end('presentation.sprites', $collection, ['count' => count($sprites)]);
+    if (LatencyTrace::enabled()) {
+      LatencyTrace::record('presentation.sprite.positions', ['sprites' => array_map(
+        static fn($sprite) => ['id' => $sprite->id, 'x' => $sprite->x, 'y' => $sprite->y], $sprites)]);
+    }
+    PresentationLayerPolicy::assertWorldSprites($sprites);
     // Off-grid providers still reach GPUI for clipping, but do not mask terminal edge cells.
     $visible = array_filter($sprites, static fn($sprite) => $sprite->x >= 0 && $sprite->x < Console::getWidth()
       && $sprite->y >= 0 && $sprite->y < Console::getHeight());
-    return $this->presentation->present(Console::snapshot(array_map(static fn($sprite) => $sprite->id, $visible)), $sprites);
+    $excluded = array_map(static fn($sprite) => $sprite->id, $visible);
+    $snapshotStart = LatencyTrace::now();
+    $snapshot = $this->config->protocol === RendererProtocolVersion::V2
+      ? Console::presentationSnapshot($excluded) : Console::snapshot($excluded);
+    LatencyTrace::end('presentation.snapshot', $snapshotStart);
+    $changed = $this->presentation->present($snapshot, $sprites);
+    if ($changed) {
+      // Begin delivery at the presentation boundary, not after Game/Timers sleep.
+      // This is one bounded zero-wait pass; partial writes retain their remainder.
+      $this->pump();
+    }
+    LatencyTrace::end('presentation.end', $started, ['changed' => $changed]);
+    return $changed;
   }
 
   public function shutdown(): ?int

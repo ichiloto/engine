@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Animations;
 
+use Ichiloto\Engine\Core\Timers;
+
 /**
  * Plays a stored animation frame-by-frame.
  *
@@ -38,7 +40,7 @@ final class AnimationPlayer
         $animation->getCue($frameIndex),
       );
 
-      usleep(intval(round($this->secondsPerFrame * 1000000)));
+      Timers::wait($this->secondsPerFrame);
       $session->update($this->secondsPerFrame);
     }
   }

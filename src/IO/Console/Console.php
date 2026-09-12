@@ -2,6 +2,11 @@
 
 namespace Ichiloto\Engine\IO\Console;
 
+use Ichiloto\Engine\Diagnostics\LatencyTrace;
+use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
+use Ichiloto\Engine\Rendering\Presentation\PresentationTextLayer;
+use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
+
 use Exception;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Vector2;
@@ -110,6 +115,9 @@ class Console
   private static array $buffer = [];
   private static bool $trackLayers = false;
   private static ?string $activeLayer = null;
+  private static int $activeLayerPriority = 0;
+  /** @var array<string, int> Named layer priorities in drawing order. */
+  private static array $layerPriorities = [];
   /** @var array<int, array<int, array{base: string, layers: array<string, string>}>> */
   private static array $layerCells = [];
 
@@ -118,16 +126,28 @@ class Console
   {
     self::$trackLayers = $enabled;
     self::$layerCells = [];
+    self::$layerPriorities = [];
   }
 
-  public static function withLayer(string $id, callable $draw): void
+  public static function withLayer(string $id, callable $draw, int $priority = 0): void
   {
+    if (self::$trackLayers) {
+      new PresentationTextLayer($id, $priority, []);
+      if ($id === 'world') { throw new \InvalidArgumentException('world is reserved for anonymous Console content.'); }
+    }
     $previous = self::$activeLayer;
+    $previousPriority = self::$activeLayerPriority;
     self::$activeLayer = $id;
+    self::$activeLayerPriority = $priority;
+    if (self::$trackLayers && $previous !== $id) {
+      unset(self::$layerPriorities[$id]);
+      self::$layerPriorities[$id] = $priority;
+    }
     try {
       $draw();
     } finally {
       self::$activeLayer = $previous;
+      self::$activeLayerPriority = $previousPriority;
     }
   }
 
@@ -152,6 +172,7 @@ class Console
         continue;
       }
       $entry = self::$layerCells[$row][$x] ?? ['base' => $before[$x] ?? ' ', 'layers' => []];
+      self::$layerPriorities[self::$activeLayer] = self::$activeLayerPriority;
       // One entry per layer/cell bounds retained state even across repeated incremental redraws.
       unset($entry['layers'][self::$activeLayer]);
       $entry['layers'][self::$activeLayer] = $after[$x] ?? ' ';
@@ -348,6 +369,7 @@ class Console
     self::emitControlSequence("\033[0m\033[2J\033[H");
     self::$buffer = self::getEmptyBuffer();
     self::$layerCells = [];
+    self::$layerPriorities = [];
     self::$frameRows = [];
     self::$recomposeRepaintRows = [];
   }
@@ -387,12 +409,14 @@ class Console
 
     $previousBuffer = self::$buffer === [] ? self::getEmptyBuffer() : self::$buffer;
     $previousLayerCells = self::$layerCells;
+    $previousLayerPriorities = self::$layerPriorities;
     $previousFrameRows = self::$frameRows;
     $previousRecomposeRepaintRows = self::$recomposeRepaintRows;
     $previousIsRecomposing = self::$isRecomposing;
 
     self::$buffer = self::getEmptyBuffer();
     self::$layerCells = [];
+    self::$layerPriorities = [];
     self::$frameRows = [];
     self::$recomposeRepaintRows = [];
     self::$isRecomposing = true;
@@ -445,6 +469,7 @@ class Console
     } catch (\Throwable $throwable) {
       self::$buffer = $previousBuffer;
       self::$layerCells = $previousLayerCells;
+      self::$layerPriorities = $previousLayerPriorities;
       self::$frameRows = $previousFrameRows;
       self::$recomposeRepaintRows = $previousRecomposeRepaintRows;
       self::$isRecomposing = $previousIsRecomposing;
@@ -494,6 +519,7 @@ class Console
     self::$height = max(1, $height);
     self::$buffer = self::getEmptyBuffer();
     self::$layerCells = [];
+    self::$layerPriorities = [];
     self::$frameRows = [];
     self::$recomposeRepaintRows = [];
   }
@@ -755,13 +781,86 @@ class Console
           $cell = ' ';
           continue;
         }
-        $symbol = TerminalText::stripAnsi(TerminalText::stabilizeSymbol($cell));
-        $cell = $symbol === '' ? ' ' : (preg_match('/\A[^\p{Cc}]\z/u', $symbol) === 1 ? $symbol : '?');
+        $cell = TerminalText::rendererScalar($cell);
       }
       unset($cell);
       $rows[] = implode('', $cells);
     }
     return new ConsoleFrameSnapshot(self::$width, self::$height, $rows);
+  }
+
+  /** @param list<string> $excludedLayers Renderer-only exclusions; Console stays untouched. */
+  public static function presentationSnapshot(array $excludedLayers = []): ConsolePresentationSnapshot
+  {
+    $cellsStart = LatencyTrace::now();
+    if (self::isComposing()) {
+      throw new RuntimeException('Cannot snapshot Console while a frame or screen recomposition is active.');
+    }
+    $world = $named = [];
+    $excluded = array_fill_keys($excludedLayers, true);
+    for ($y = 0; $y < self::$height; $y++) {
+      $row = self::$buffer[$y] ?? '';
+      if (!is_string($row) || preg_match('//u', $row) !== 1) {
+        throw new RuntimeException("Console row {$y} must contain valid UTF-8 text.");
+      }
+      $world[$y] = self::rowToCells(str_replace("\0", '?', $row));
+      foreach (self::$layerCells[$y] ?? [] as $x => $entry) {
+        $world[$y][$x] = $entry['base'];
+        foreach ($entry['layers'] as $id => $cell) {
+          if (!isset($excluded[$id])) { $named[$id][$y][$x] = $cell; }
+        }
+      }
+    }
+    LatencyTrace::end('console.cells', $cellsStart);
+    $layers = [new PresentationTextLayer('world', PresentationLayerPolicy::WORLD, self::presentationRuns($world))];
+    foreach (self::$layerPriorities as $id => $priority) {
+      if (isset($named[$id])) {
+        $layers[] = new PresentationTextLayer((string)$id, $priority, self::presentationRuns($named[$id]));
+      }
+    }
+    return new ConsolePresentationSnapshot(self::$width, self::$height, $layers);
+  }
+
+  /** @param array<int, array<int, string>> $rows @return list<PresentationTextRun> */
+  private static function presentationRuns(array $rows): array
+  {
+    $started = LatencyTrace::now();
+    $parsing = 0;
+    $runs = $cache = [];
+    foreach ($rows as $y => $cells) {
+      ksort($cells);
+      $text = '';
+      $start = $previous = -1;
+      $style = ['foreground' => null, 'background' => null];
+      foreach ($cells as $x => $cell) {
+        if ($cell === self::WIDE_SYMBOL_CONTINUATION) {
+          $next = $previous === $x - 1 ? $style : ['foreground' => null, 'background' => null];
+          $glyph = ' ';
+        } else {
+          if (!isset($cache[$cell])) {
+            $parseStart = LatencyTrace::now();
+            $cache[$cell] = [SgrColorParser::parse($cell), TerminalText::rendererScalar($cell)];
+            if ($parseStart !== null) { $parsing += LatencyTrace::now() - $parseStart; }
+          }
+          $parsed = $cache[$cell];
+          [$next, $glyph] = $parsed;
+        }
+        if ($text !== '' && ($x !== $previous + 1 || $next != $style)) {
+          $runs[] = new PresentationTextRun($y, $start, $text, $style['foreground'], $style['background']);
+          $text = '';
+        }
+        if ($text === '') { $start = $x; }
+        $text .= $glyph;
+        $style = $next;
+        $previous = $x;
+      }
+      if ($text !== '') {
+        $runs[] = new PresentationTextRun($y, $start, $text, $style['foreground'], $style['background']);
+      }
+    }
+    LatencyTrace::end('console.runs', $started, ['style_parse_ns' => $parsing,
+      'unique_cells' => count($cache), 'runs' => count($runs)]);
+    return $runs;
   }
 
   /**

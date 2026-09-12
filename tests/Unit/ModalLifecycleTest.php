@@ -1,6 +1,7 @@
 <?php
 
 use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Core\Timers;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Events\EventManager;
@@ -144,6 +145,8 @@ final class PositionedTextBoxModalProbe extends TextBoxModal
 }
 
 beforeEach(function () {
+  $this->timersState = new ReflectionClass(Timers::class)->getStaticProperties();
+  Timers::setFrameTick(null);
   ConfigStore::put(PlaySettings::class, new PlaySettings([
     'width' => 80,
     'height' => 24,
@@ -161,6 +164,9 @@ beforeEach(function () {
 });
 
 afterEach(function () {
+  foreach ($this->timersState as $name => $value) {
+    new ReflectionProperty(Timers::class, $name)->setValue(null, $value);
+  }
   ConfigStore::remove(PlaySettings::class);
   (new ReflectionProperty(EventManager::class, 'instance'))->setValue(null, null);
 });
@@ -232,6 +238,10 @@ it('renders every row of a wrapped alert over an existing field frame', function
 
 it('composes a blocking modal after lower live layers update', function () {
   $game = (new ReflectionClass(LowerLayerPaintingGameProbe::class))->newInstanceWithoutConstructor();
+  $presented = [];
+  Timers::setFrameTick($game->tickWhileBlocked(...), function () use (&$presented): void {
+    $presented[] = Console::getBuffer();
+  });
   $modal = new ModalPrecedenceProbe(
     $game,
     'Inspect the ROUTE CHECK enclosure west of the Field Post before checking in.',
@@ -244,9 +254,13 @@ it('composes a blocking modal after lower live layers update', function () {
 
   $composed = array_map(TerminalText::stripAnsi(...), $modal->composedBuffer);
 
-  expect($modal->renderCount)->toBe(2)
+  expect($modal->renderCount)->toBeGreaterThanOrEqual(2)
     ->and($composed[10])->toContain('Inspect the ROUTE CHECK enclosure west of the')
     ->and($composed[10])->not->toContain(str_repeat('x', 10));
+  expect($presented)->not->toBeEmpty();
+  foreach ($presented as $frame) {
+    expect(TerminalText::stripAnsi($frame[10]))->toContain('Inspect the ROUTE CHECK enclosure west of the');
+  }
 });
 
 it('does not redraw a modal after input dismisses it in the same frame', function () {

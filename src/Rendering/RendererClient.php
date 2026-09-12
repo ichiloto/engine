@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Rendering;
 
+use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException;
 use Ichiloto\Engine\Rendering\Transport\RendererEvent;
 use Ichiloto\Engine\Rendering\Transport\RendererEventType;
@@ -14,7 +15,7 @@ use SplQueue;
 /** The sole event consumer for a shared renderer connection. No input/action mapping. */
 final class RendererClient
 {
-  /** @var SplQueue<string> */
+  /** @var SplQueue<RendererEvent> */
   private SplQueue $keys;
   /** @var SplQueue<RendererEvent> */
   private SplQueue $events;
@@ -75,13 +76,15 @@ final class RendererClient
       foreach ($batch as $event) {
         if ($event->type === RendererEventType::KEY) {
           if (! $discardKeys) {
-            $this->keys->enqueue($event->key);
+            $this->keys->enqueue($event);
+            LatencyTrace::keyStage($event, 'client.key.queued');
           }
         } else {
           $this->events->enqueue($event);
         }
       }
       $this->queuedBytes = $bytes;
+      $this->traceQueue();
     } catch (RendererTransportException $error) {
       $this->failure = $error;
       throw $error;
@@ -96,9 +99,11 @@ final class RendererClient
     if ($this->keys->isEmpty()) {
       return null;
     }
-    $key = $this->keys->dequeue();
-    $this->queuedBytes -= strlen($key);
-    return $key;
+    $event = $this->keys->dequeue();
+    $this->queuedBytes -= self::eventBytes($event);
+    LatencyTrace::keyStage($event, 'client.key.dequeued', activate: true);
+    $this->traceQueue();
+    return $event->key;
   }
 
   /** @return list<RendererEvent> Non-input events only; queued keys are untouched. */
@@ -107,6 +112,12 @@ final class RendererClient
     if ($this->events->isEmpty()) {
       $this->pump();
     }
+    return $this->drainEvents();
+  }
+
+  /** @return list<RendererEvent> Consume already-pumped lifecycle events without another I/O pass. */
+  public function drainEvents(): array
+  {
     $events = [];
     while (! $this->events->isEmpty()) {
       $event = $this->events->dequeue();
@@ -132,8 +143,14 @@ final class RendererClient
   private function clearKeys(): void
   {
     while (! $this->keys->isEmpty()) {
-      $this->queuedBytes -= strlen($this->keys->dequeue());
+      $this->queuedBytes -= self::eventBytes($this->keys->dequeue());
     }
+    $this->traceQueue();
+  }
+
+  private function traceQueue(): void
+  {
+    LatencyTrace::queue($this->keys->count(), $this->keys->isEmpty() ? null : $this->keys->bottom());
   }
 
   public function send(RendererMessage $message): void

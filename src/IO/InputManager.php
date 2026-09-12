@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\IO;
 
 use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\KeyboardEvent;
 use Ichiloto\Engine\IO\Console\Console;
@@ -173,11 +174,15 @@ class InputManager
    */
   public static function handleInput(): void
   {
+    LatencyTrace::beginPoll();
     self::$previousKeyPress = self::$keyPress;
     self::$keyPress = self::getInputSource()->poll();
 
     if (self::$keyPress !== null) {
+      LatencyTrace::accepted(self::$keyPress->value, self::getInputSource()::class);
+      LatencyTrace::record('input.keyboard.dispatch');
       self::$eventManager?->dispatchEvent(event: new KeyboardEvent(key: self::$keyPress->value));
+      LatencyTrace::record('input.keyboard.dispatched');
     }
   }
 

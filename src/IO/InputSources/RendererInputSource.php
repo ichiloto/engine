@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\IO\InputSources;
 
+use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\Rendering\RendererClient;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererProtocolException;
@@ -19,8 +20,10 @@ final readonly class RendererInputSource implements InputSourceInterface
     if ($key === null) {
       return null;
     }
-    return KeyCode::tryFrom($key) ?? throw new RendererProtocolException(
+    $code = KeyCode::tryFrom($key) ?? throw new RendererProtocolException(
       'Renderer key is not an Ichiloto KeyCode: ' . json_encode(substr($key, 0, 128), JSON_INVALID_UTF8_SUBSTITUTE));
+    LatencyTrace::returned($key, self::class);
+    return $code;
   }
 
   public function reset(bool $drainBufferedInput = false): void

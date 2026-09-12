@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Core;
 
+use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\Audio\FieldMusicCatalog;
 use Assegai\Collections\ItemList;
 use Assegai\Util\Path;
@@ -31,6 +32,8 @@ use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalCapabilities;
 use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\Rendering\Launch\RendererLaunchIntent;
+use Ichiloto\Engine\Rendering\Launch\RendererRegistry;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\Rendering\Runtime\RendererWindowClosed;
 use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
@@ -92,11 +95,14 @@ class Game implements CanRun, SubjectInterface
     private bool $terminalCleanedUp = false;
     private bool $terminalInputConfigured = false;
     private ?RendererRuntime $rendererRuntime = null;
+    private ?RendererRegistry $rendererRegistry = null;
+    private ?RendererLaunchIntent $rendererLaunchIntent = null;
+    private bool $rendererSelectionResolved = false;
 
-    /** Explicit opt-in before run(); terminal-only remains the default. */
+    /** Explicit attachment before run() takes precedence over launch intent. */
     public function useRendererRuntime(RendererRuntime $runtime): self
     {
-        if ($this->isRunning || $this->terminalRestoreHandlersRegistered || $this->rendererRuntime !== null) {
+        if ($this->isRunning || $this->terminalRestoreHandlersRegistered || $this->rendererSelectionResolved || $this->rendererRuntime !== null) {
             throw new \LogicException('Attach one renderer runtime before starting Game.');
         }
         $this->rendererRuntime = $runtime;
@@ -152,9 +158,11 @@ class Game implements CanRun, SubjectInterface
         protected string $name,
         protected int    $width = DEFAULT_SCREEN_WIDTH,
         protected int    $height = DEFAULT_SCREEN_HEIGHT,
-        protected(set) array  $options = []
+        protected(set) array  $options = [],
+        ?RendererRegistry $rendererRegistry = null,
     )
     {
+        $this->rendererRegistry = $rendererRegistry;
         try {
             $this->configureErrorAndExceptionHandlers();
             $this->initializeObservers();
@@ -187,7 +195,10 @@ class Game implements CanRun, SubjectInterface
     {
         error_reporting(E_ALL);
 
-        set_error_handler(function ($errno, $errstr, $errfile, $errline) {
+        set_error_handler(function ($errno, $errstr, $errfile, $errline): bool {
+            if ((error_reporting() & $errno) === 0) {
+                return false;
+            }
             $this->handleError($errno, $errstr, $errfile, $errline);
         });
         set_exception_handler(function (Error|Exception|Throwable $exception) {
@@ -685,6 +696,7 @@ class Game implements CanRun, SubjectInterface
             $lastFrameCountSnapShot = $this->frameCount;
 
             while ($this->isRunning) {
+                LatencyTrace::beginIteration();
                 $this->rendererRuntime?->pump();
                 $this->handleInput();
                 $this->update();
@@ -697,6 +709,7 @@ class Game implements CanRun, SubjectInterface
                 }
 
                 $this->render();
+                LatencyTrace::endIteration();
 
                 usleep($sleepTime);
 
@@ -738,9 +751,7 @@ class Game implements CanRun, SubjectInterface
         Console::cursor()->hide();
 
         if ($this->rendererRuntime !== null) {
-            Timers::setFrameTick(function (): void {
-                $this->tickWhileBlocked();
-            });
+            Timers::setFrameTick($this->updateBlockedFrame(...), $this->presentBlockedFrame(...));
         }
 
         $this->showSplashScreens();
@@ -756,9 +767,7 @@ class Game implements CanRun, SubjectInterface
         // Lets anything that has to wait hand the loop back instead of
         // sleeping through it: music, notifications, and engine time all keep
         // running while it waits.
-        Timers::setFrameTick(function (): void {
-            $this->tickWhileBlocked();
-        });
+        Timers::setFrameTick($this->updateBlockedFrame(...), $this->presentBlockedFrame(...));
 
         $this->isRunning = true;
 
@@ -778,6 +787,15 @@ class Game implements CanRun, SubjectInterface
 
     protected function startInputSession(): void
     {
+        if (!$this->rendererSelectionResolved) {
+            if ($this->rendererRuntime === null) {
+                $registry = $this->rendererRegistry ??= new RendererRegistry();
+                $intent = $this->rendererLaunchIntent ??= RendererLaunchIntent::fromEnvironment();
+                $this->rendererRuntime = $registry->require($intent->id)
+                    ->createRuntime(Path::join(Path::getCurrentWorkingDirectory(), 'assets'));
+            }
+            $this->rendererSelectionResolved = true;
+        }
         $this->rendererRuntime?->start($this->name, $this->width, $this->height);
         if (InputManager::requiresTerminalInput()) {
             Console::saveTerminalSettings();
@@ -971,6 +989,8 @@ SPLASH_SCREEN;
      */
     protected function update(): void
     {
+        $started = LatencyTrace::now();
+        LatencyTrace::record('game.update.begin', $this->latencySceneState());
         $this->frameCount++;
         $this->syncScreenSize();
         $this->sceneManager->update();
@@ -979,6 +999,21 @@ SPLASH_SCREEN;
         Timers::update();
 
         $this->notify($this, new GameEvent(GameEventType::UPDATE));
+        LatencyTrace::end('game.update.end', $started, $this->latencySceneState());
+    }
+
+    /** @return array<string, mixed> Small diagnostic state, never a gameplay snapshot. */
+    private function latencySceneState(): array
+    {
+        if (!LatencyTrace::enabled()) { return []; }
+        $scene = $this->sceneManager->currentScene;
+        $state = ['scene' => $scene === null ? null : $scene::class];
+        if ($scene instanceof GameScene) {
+            $state['scene_state'] = $scene->state === null ? null : $scene->state::class;
+            $state['event_owns_input'] = $scene->hasUnstableEventSession();
+            $state['player'] = $scene->player === null ? null : [$scene->player->position->x, $scene->player->position->y];
+        }
+        return $state;
     }
 
     /**
@@ -992,15 +1027,27 @@ SPLASH_SCREEN;
      */
     public function tickWhileBlocked(): void
     {
+        $this->updateBlockedFrame();
+        $this->presentBlockedFrame();
+    }
+
+    private function updateBlockedFrame(): void
+    {
+        LatencyTrace::record('game.blocked.begin');
         $this->rendererRuntime?->pump();
         $this->notify($this, new GameEvent(GameEventType::UPDATE));
         Timers::update();
         $this->notificationManager->update();
         $this->audioManager->update();
         $this->notificationManager->render();
+    }
+
+    private function presentBlockedFrame(): void
+    {
         if ($this->rendererRuntime !== null && !Console::isComposing()) {
             // Scene presentation ownership also applies during dialogue/timer waits.
             $this->rendererRuntime->present($this->sceneManager->currentScene);
+            LatencyTrace::flush();
         }
     }
 
@@ -1012,7 +1059,7 @@ SPLASH_SCREEN;
     protected function syncScreenSize(): void
     {
         if ($this->rendererRuntime !== null) {
-            return; // Protocol v1 fixes the Game grid; the terminal is only a mirror.
+            return; // Renderer sessions fix the Game grid; the terminal is only a mirror.
         }
         // Throttle expensive terminal size probes to avoid per-frame shell_exec() calls.
         // Uses static variables so the throttle state persists across calls without
@@ -1062,6 +1109,8 @@ SPLASH_SCREEN;
      */
     protected function render(): void
     {
+        $started = LatencyTrace::now();
+        LatencyTrace::record('game.render.begin');
         // Modal dismissals are committed only at the frame boundary. That
         // lets dialogue pages and choices replace one another within a single
         // update without exposing a lower-precedence HUD between them.
@@ -1078,6 +1127,7 @@ SPLASH_SCREEN;
 
         $this->notify($this, new GameEvent(GameEventType::RENDER));
         $this->rendererRuntime?->present($this->sceneManager->currentScene);
+        LatencyTrace::end('game.render.end', $started);
     }
 
     /**

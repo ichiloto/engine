@@ -1,7 +1,8 @@
-# Renderer process transport (S2)
+# Renderer process transport
 
-`Rendering\Transport` owns a single direct child and protocol v1 NDJSON over its
-stdin/stdout pipes. Ichiloto remains the PHP game engine. An external renderer
+`Rendering\Transport` owns a single direct child and versioned NDJSON over its
+stdin/stdout pipes, with explicit v1/v2 session selection since S7-E. Ichiloto
+remains the PHP game engine. An external renderer
 owns presentation and keyboard reporting only, not gameplay, timing, bindings,
 scenes, camera transforms, or simulation. No background PHP thread is needed.
 
@@ -43,6 +44,23 @@ Native Windows anonymous-pipe selection is not supported; startup fails explicit
 No extension beyond normal PHP process/stream support is required.
 
 ## Lifecycle
+
+`RendererMessage`, `RendererEvent` and `RendererSessionConfig` retain their
+`RendererProtocolVersion`. Low-level messages and sessions default to `V1` for
+compatibility; `RendererRuntimeConfig` defaults to `V2`. Select `protocol:
+RendererProtocolVersion::V2` on a low-level session to use styled frames through
+the same transport. Encoding uses each message's version, not a global constant.
+
+Hello fixes the session version. Application sends, ready, keys, errors, close
+and shutdown must match it. Mixed outbound versions are rejected before enqueue;
+mixed inbound versions fail the connection. During v2 startup only, a v1 ERROR
+before ready is accepted as a pre-session hello rejection and fails startup with
+its diagnostic. V1 keys before ready and all v1 events after v2 ready remain
+illegal, including an error received in the same read as ready.
+
+S7 compatibility targets [renderer 52951b45](https://github.com/ichiloto/gpui-renderer/tree/52951b45d04d70180d60a0507b28b1dcd3f972b9).
+See [styled presentation](styled-presentation.md) for the strict v2 payload and
+[S7-E validation](s7-e-validation.md) for the transport matrix.
 
 `NEW -> STARTING -> RUNNING -> STOPPING -> STOPPED` is the normal path. Startup
 launches the child, configures all three pipes as nonblocking, sends one hello,

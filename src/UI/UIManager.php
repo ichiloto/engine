@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\UI;
 
 use Assegai\Collections\ItemList;
+use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Core\Interfaces\CanResume;
@@ -81,7 +82,7 @@ class UIManager implements CanRender, CanUpdate, CanResume, CanStart
       }
 
       unset($this->suppressedUiElements[$id]);
-      $uiElement->render();
+      PresentationLayerPolicy::ui($uiElement, $uiElement->render(...));
       $this->renderedUiElements[$id] = true;
     }
   }

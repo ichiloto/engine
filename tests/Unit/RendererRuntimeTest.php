@@ -19,6 +19,8 @@ use Ichiloto\Engine\Rendering\Runtime\RendererWindowClosed;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException;
 use Ichiloto\Engine\Rendering\Transport\RendererEvent;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
+use Ichiloto\Engine\Rendering\Transport\RendererProtocolVersion;
+use Ichiloto\Engine\Rendering\Transport\ProcessRendererTransport;
 use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
 use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Scenes\Game\GameScene;
@@ -80,7 +82,7 @@ beforeEach(function () {
   InputManager::setInputSource(new TerminalInputSource());
   $this->previous = InputManager::getInputSource();
   $this->transport = new FakeRendererTransport();
-  $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__), $this->transport);
+  $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__, protocol: RendererProtocolVersion::V1), $this->transport);
   ob_start();
 });
 
@@ -112,11 +114,72 @@ it('opts in exactly once and shares input and presentation on one session', func
   expect(InputManager::getInputSource())->toBe($this->previous)->and($this->transport->shutdowns)->toBe(1);
 });
 
+it('runs a real PHP-only peer through explicit v1 and v2 runtime lifecycles', function ($protocol) {
+  $capture = tempnam(sys_get_temp_dir(), 'runtime-version-');
+  $process = new RendererProcessConfig([PHP_BINARY, __DIR__ . '/../Fixtures/Renderer/renderer-stub.php', 'ready_key', $capture]);
+  $this->runtime = new RendererRuntime(new RendererRuntimeConfig($process, __DIR__, protocol: $protocol), new ProcessRendererTransport($process));
+  try {
+    $this->runtime->start('Versioned runtime', 12, 4);
+    InputManager::handleInput();
+    expect(InputManager::getPressedKeyCode())->toBe(KeyCode::W);
+    Console::write('TITLE', 0, 0);
+    $this->runtime->present(null);
+    expect($this->runtime->shutdown())->toBe(0);
+    $messages = array_map(fn($line) => json_decode($line, true), file($capture, FILE_IGNORE_NEW_LINES));
+    expect(array_column($messages, 'protocol'))->toBe(array_fill(0, 3, $protocol->value))
+      ->and(array_column($messages, 'type'))->toBe(['hello', 'frame', 'shutdown']);
+    if ($protocol === RendererProtocolVersion::V1) {
+      expect($messages[1]['text'][0])->toBe('TITLE       ')->and($messages[1])->not->toHaveKey('textLayers');
+    } else {
+      expect($messages[1]['textLayers'][0]['runs'][0]['text'])->toBe('TITLE       ')->and($messages[1])->not->toHaveKey('text');
+    }
+  } finally { unlink($capture); }
+})->with([RendererProtocolVersion::V1, RendererProtocolVersion::V2]);
+
 it('preserves input and shuts down once when startup fails after a child was started', function () {
   $this->transport->failure = new RendererTransportException('handshake fixture failure');
   expect(fn() => $this->runtime->start('Test', 12, 4))->toThrow(RendererTransportException::class, 'handshake fixture failure');
   expect(InputManager::getInputSource())->toBe($this->previous)->and($this->transport->shutdowns)->toBe(1)
     ->and($this->transport->running)->toBeFalse();
+});
+
+it('services changed frame bytes before returning to the game frame sleep', function () {
+  $process = new RendererProcessConfig([PHP_BINARY, __DIR__ . '/../Fixtures/Renderer/renderer-stub.php', 'ready_key']);
+  $transport = new ProcessRendererTransport($process);
+  $this->runtime = new RendererRuntime(new RendererRuntimeConfig($process, __DIR__), $transport);
+  $this->runtime->start('Presentation boundary', 12, 4);
+  Console::write('VISIBLE NOW', 0, 0);
+  expect($this->runtime->present(null))->toBeTrue();
+  // This small frame fits one writable-pipe budget. No next-frame poll or shutdown
+  // may be required to begin delivering a frame that PHP has already finished.
+  expect($transport->getPendingWriteBytes())->toBe(0);
+});
+
+it('keeps presentation delivery bounded when a complete frame exceeds the I/O budget', function () {
+  $process = new RendererProcessConfig([PHP_BINARY, __DIR__ . '/../Fixtures/Renderer/renderer-stub.php', 'ready_key'], ioBudgetBytes: 16);
+  $transport = new ProcessRendererTransport($process);
+  $this->runtime = new RendererRuntime(new RendererRuntimeConfig($process, __DIR__), $transport);
+  $this->runtime->start('Bounded delivery', 12, 4);
+  Console::write('VISIBLE NOW', 0, 0);
+  expect($this->runtime->present(null))->toBeTrue()
+    ->and($transport->getPendingWriteBytes())->toBeGreaterThan(0);
+  $pending = $transport->getPendingWriteBytes();
+  $this->runtime->pump();
+  expect($transport->getPendingWriteBytes())->toBe($pending - 16);
+});
+
+it('does not poll the transport twice just to drain already pumped lifecycle events', function () {
+  $this->runtime->start('Poll budget', 12, 4);
+  $before = $this->transport->polls;
+  $this->runtime->pump();
+  expect($this->transport->polls - $before)->toBe(1);
+  Console::write('TITLE', 0, 0);
+  $before = $this->transport->polls;
+  $this->runtime->present(null);
+  expect($this->transport->polls - $before)->toBe(2); // ingress and changed-frame delivery
+  $before = $this->transport->polls;
+  $this->runtime->present(null);
+  expect($this->transport->polls - $before)->toBe(1); // no second delivery/snapshot pass
 });
 
 it('propagates transport failures and diagnostic-bearing renderer errors', function ($json) {

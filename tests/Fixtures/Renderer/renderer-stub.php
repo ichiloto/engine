@@ -15,9 +15,9 @@ if (function_exists('pcntl_async_signals')) {
 }
 stream_set_timeout(STDIN, 8);
 
-function rendererStubEvent(string $type, array $payload = []): string
+function rendererStubEvent(string $type, array $payload = [], ?int $protocol = null): string
 {
-  return json_encode(['protocol' => 1, 'type' => $type, ...$payload], JSON_THROW_ON_ERROR) . "\n";
+  return json_encode(['protocol' => $protocol ?? $GLOBALS['protocol'] ?? 1, 'type' => $type, ...$payload], JSON_THROW_ON_ERROR) . "\n";
 }
 
 function rendererStubWrite(string $bytes, $stream = STDOUT): void
@@ -41,15 +41,18 @@ $hello = fgets(STDIN);
 if ($hello === false) { exit(90); }
 if ($capture !== null) { file_put_contents($capture, $hello, FILE_APPEND); }
 $message = json_decode($hello, true, 64, JSON_THROW_ON_ERROR);
-if (($message['protocol'] ?? null) !== 1 || ($message['type'] ?? null) !== 'hello'
+if (!in_array($message['protocol'] ?? null, [1, 2], true) || ($message['type'] ?? null) !== 'hello'
   || ! is_dir($message['assetRoot'] ?? '') || ! is_string($message['title'] ?? null)
   || count(array_filter($message['grid'] ?? [], static fn($value) => is_int($value) && $value > 0)) !== 4) {
   rendererStubWrite(rendererStubEvent('error', ['message' => 'invalid hello']));
   exit(91);
 }
-if ($scenario === 'startup_error') {
+$protocol = $message['protocol'];
+if (in_array($scenario, ['startup_error', 'pre_session_error', 'pre_session_key'], true)) {
   rendererStubWrite('startup diagnostic', STDERR);
-  rendererStubWrite(rendererStubEvent('error', ['message' => 'hello rejected']));
+  rendererStubWrite($scenario === 'pre_session_key'
+    ? rendererStubEvent('key', ['key' => 'c'], 1)
+    : rendererStubEvent('error', ['message' => 'hello rejected'], $scenario === 'pre_session_error' ? 1 : $protocol));
   usleep(2_000_000);
   exit(92);
 }
@@ -67,6 +70,9 @@ if ($scenario === 'ready_key') {
 }
 if ($scenario === 'ready_error') {
   $ready .= rendererStubEvent('error', ['message' => 'startup frame rejected']);
+}
+if ($scenario === 'ready_mixed') {
+  $ready .= rendererStubEvent('error', ['message' => 'wrong session'], $protocol === 1 ? 2 : 1);
 }
 if ($scenario === 'chunked') {
   foreach (str_split($ready, 7) as $chunk) {
@@ -91,6 +97,7 @@ $deadline = hrtime(true) + 7_000_000_000;
 while (hrtime(true) < $deadline && ($line = fgets(STDIN)) !== false) {
   if ($capture !== null) { file_put_contents($capture, $line, FILE_APPEND); }
   $message = json_decode($line, true, 64, JSON_THROW_ON_ERROR);
+  if ($message['protocol'] !== $protocol) { exit(89); }
   if ($message['type'] === 'shutdown') {
     if ($scenario === 'ignore_shutdown') {
       while (hrtime(true) < $deadline) { usleep(10000); }
@@ -100,6 +107,10 @@ while (hrtime(true) < $deadline && ($line = fgets(STDIN)) !== false) {
     exit($scenario === 'shutdown_nonzero' ? 17 : 0);
   }
   switch ($scenario) {
+    case 'v2_events':
+      rendererStubWrite(rendererStubEvent('key', ['key' => 'up']) . rendererStubEvent('error', ['message' => 'recoverable']));
+      break;
+    case 'mixed': rendererStubWrite(rendererStubEvent('key', ['key' => 'c'], $protocol === 1 ? 2 : 1)); break;
     case 'malformed_stubborn':
       rendererStubWrite("not JSON\n");
       while (hrtime(true) < $deadline) { usleep(10000); }

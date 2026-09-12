@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Field;
 
+use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
+
 use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\GameObject;
@@ -773,11 +775,11 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     });
 
     if ($this->canAct) {
-      $this->scene->camera->draw(
+      PresentationLayerPolicy::fieldPrompt(fn() => $this->scene->camera->draw(
         $this->actionSprite,
         $this->screenPosition->x + $this->getActionSpriteHorizontalOffset(),
         clamp($this->screenPosition->y - 1, 1, get_screen_height())
-      );
+      ));
     }
   }
 
@@ -795,7 +797,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     }
 
     if ($this->canAct) {
-      $this->scene->camera->draw($this->actionSprite, $screenPosition->x + $this->getActionSpriteHorizontalOffset(), clamp($screenPosition->y - 1, 1, get_screen_height()));
+      PresentationLayerPolicy::fieldPrompt(fn() => $this->scene->camera->draw($this->actionSprite, $screenPosition->x + $this->getActionSpriteHorizontalOffset(), clamp($screenPosition->y - 1, 1, get_screen_height())));
     }
   }
 

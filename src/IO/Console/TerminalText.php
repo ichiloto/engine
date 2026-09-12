@@ -564,20 +564,15 @@ final class TerminalText
    */
   private static function isResetSequence(string $ansi): bool
   {
-    if (!preg_match('/\x1B\[([0-9;]*)m/', $ansi, $matches)) {
-      return false;
-    }
+    // Only a standalone full reset discards history. Partial resets must retain
+    // the other attributes; zero inside 0;31 or RGB is not a standalone reset.
+    return preg_match('/\A\x1B\[(?:0)?m\z/', $ansi) === 1;
+  }
 
-    $parameters = $matches[1] === ''
-      ? ['0']
-      : array_filter(explode(';', $matches[1]), static fn(string $value): bool => $value !== '');
-
-    foreach ($parameters as $parameter) {
-      if (in_array((int)$parameter, [0, 22, 23, 24, 25, 27, 28, 29, 39, 49, 54, 55, 59], true)) {
-        return true;
-      }
-    }
-
-    return false;
+  /** S4 renderer normalization; continuation markers are handled by Console. */
+  public static function rendererScalar(string $cell): string
+  {
+    $symbol = self::stripAnsi(self::stabilizeSymbol($cell));
+    return $symbol === '' ? ' ' : (preg_match('/\A[^\p{Cc}]\z/u', $symbol) === 1 ? $symbol : '?');
   }
 }

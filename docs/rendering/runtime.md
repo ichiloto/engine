@@ -1,34 +1,84 @@
-# Optional Game renderer runtime (S6)
+# Game renderer startup
 
 Terminal-only is still the default. S6 connects the existing S2 transport,
 S3 input, S4 presentation and S5 sprite capabilities to the real PHP Game loop.
 No renderer is started merely because a project authors graphical sprites.
 
-## Explicit startup
+## Automatic startup
+
+Console selects a stable public renderer ID and sends it to the ordinary PHP
+game entrypoint in `ICHILOTO_RENDERER`. Current IDs are exactly `terminal` and
+`gpui`. The engine reads the value once when starting the input session, trims
+whitespace and lowercases it. An absent, empty or whitespace-only value means
+`terminal`, so direct `php game.php` launches retain existing behavior.
+
+```sh
+ichiloto play --renderer=terminal
+ichiloto play --renderer=gpui
+ichiloto play --gpui-renderer
+```
+
+`ichiloto play` in an interactive terminal offers Native Terminal and GPUI.
+Console communicates only the selected ID, including for new tmux sessions;
+the engine does not know which flag or prompt produced it. No renderer binary
+path is accepted by this public contract. Reattaching an existing tmux session
+does not restart that game or change its renderer.
+
+An ordinary project bootstrap is sufficient:
 
 ```php
 use Ichiloto\Engine\Core\Game;
-use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
-use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
-use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
 
-$runtime = new RendererRuntime(new RendererRuntimeConfig(
-    process: new RendererProcessConfig([$rendererExecutable]),
-    assetRoot: __DIR__ . '/assets',
-    cellWidth: 10,
-    cellHeight: 20,
-));
-
-$game = new Game('My game', options: ['width' => 135, 'height' => 36]);
-$game->useRendererRuntime($runtime)->run();
+(new Game('My game'))->run();
 ```
 
-Supply the executable from application configuration, not an engine-specific
-checkout path. Process argv, asset-root and geometry validation reuse the S2
-configuration values. Startup failure is an error, not an implicit terminal
-fallback. One runtime can be attached before `run()` and owns one session.
+`Rendering\Launch\RendererRegistry` maps IDs to immutable descriptors with
+runtime factories. Terminal returns no external runtime and does not inspect
+renderer packages. GPUI resolves an installed implementation and constructs
+`RendererProcessConfig`, `RendererRuntimeConfig` and `RendererRuntime` internally.
+Its registration uses 10x20 pixel cells, the existing v2 protocol, and the
+project's canonical `assets` directory under the launch working directory.
+Logical dimensions come from the Game, not from Console or binary discovery.
 
-The Game's resolved logical dimensions become the protocol-v1 session grid.
+`PackagedRendererExecutableResolver` is the sole owner of the installation
+manifest layout and platform lookup. It resolves only a readable installed
+manifest entry naming an executable within that package. See the
+[internal packaging boundary](../../resources/renderers/README.md) for packager
+and test details. This is not project gameplay configuration, executable search
+on PATH, a binary download, or a public renderer-path environment variable.
+
+Unknown IDs fail with the supplied ID and the valid IDs. An unavailable GPUI
+package, unsupported installation/platform, or invalid manifest raises
+`RendererUnavailableException` with a renderer-availability explanation.
+Neither case silently falls back to terminal. Normal Game startup routes these
+errors through its existing crash log and notice.
+
+## Programmatic precedence
+
+An explicitly attached `Game::useRendererRuntime()` is authoritative, even if
+the environment contains another or invalid ID. Otherwise the engine resolves
+launch intent; absent intent means terminal. Selection precedes runtime startup
+and the decision to claim STDIN raw/nonblocking modes. No second runtime is
+created for an explicitly attached session.
+
+```php
+$game->useRendererRuntime($embeddedRuntime)->run();
+```
+
+This API remains for tooling, tests, custom embedding and the unchanged temporary
+Last Legend spike launcher. One runtime can be attached before input startup and
+owns one session. Tests can inject a `RendererRegistry` into Game, descriptor
+factories into the registry, or a `RendererExecutableResolverInterface` into the
+default registry. Ordinary unit tests need no installed Rust binary.
+
+The graphical runtime defaults to protocol v2. Pass `protocol:
+RendererProtocolVersion::V1` to `RendererRuntimeConfig` for the retained v1 path;
+this does not change the default for low-level transport sessions. Existing
+launchers that do not pin a protocol gain v2 without project source changes.
+
+## Fixed geometry
+
+The Game's resolved logical dimensions become the session grid.
 Explicit width/height options are honored even when equal to legacy defaults;
 omitted constructor defaults retain terminal auto-sizing. Choose a grid large
 enough for the project's layouts. In particular, current battle UI requires
@@ -39,7 +89,7 @@ display size, not the number of available layout cells.
 The grid is fixed until the session ends. Later terminal resizing does not
 change Game, Camera or protocol geometry. The terminal is a mirror and may be
 physically smaller than the logical frame. Terminal-only sessions retain their
-existing dynamic resize path. Protocol v1 has no resize negotiation or auto-fit.
+existing dynamic resize path. Neither protocol has resize negotiation or auto-fit.
 
 ## Project artwork and saves
 
@@ -79,7 +129,8 @@ inside `Console::withLayer('player', ...)`. Optional Console layer tracking
 records the existing canonical cells below that draw. The actual field
 compositor remains the sole source of map, event-cue and NPC ordering.
 
-`Console::snapshot(['player'])` creates a separate immutable snapshot excluding
+`Console::presentationSnapshot(['player'])` in v2, or `Console::snapshot(['player'])`
+in v1, creates a separate immutable snapshot excluding
 that named layer. It restores recorded underlay, not unconditional spaces,
 using Console's existing wide-cell representation. Multi-row and wide glyphs
 retain their footprints. Later ordinary writes invalidate provenance at the
@@ -92,6 +143,15 @@ Only the optional runtime enables this tracking. Capturing a snapshot neither
 draws nor changes Console output, dirty state or gameplay. S4 still rejects
 incomplete frames and owns duplicate suppression and frame numbering.
 
+V2 additionally preserves structured foreground/background colour and sparse
+named UI layers. `PresentationLayerPolicy` reserves world text at 0, world
+sprites at 0..999, ordinary UI at 1000, existing FIELD_HUD at 1010 and MODAL at
+1020, notifications at 2000, and transition cover at 3000. Automatic runtime
+composition rejects sprites outside the world range; the generic sprite DTO
+still permits the protocol's signed i32 layer range. Explicit UI spaces paint
+opaque cells above sprites; missing UI cells are transparent. See
+[styled presentation](styled-presentation.md) for authoring and extraction rules.
+
 ## Input, waits and shutdown
 
 One RendererClient is shared by RendererInputSource and RendererPresentation.
@@ -99,12 +159,19 @@ Game pumps lifecycle, polls PHP input, updates PHP simulation, renders the norma
 terminal composition, then presents its snapshot and providers. Rust receives
 no movement, collision, event, heading, camera or save authority.
 
+After enqueueing a changed frame, Runtime performs one bounded, zero-wait I/O
+pass before returning to Game/Timers' sleep. A writable small frame begins delivery
+in the same iteration; backpressure or a frame larger than the I/O budget retains
+pending bytes for later pumps. This is not an acknowledgement or synchronous
+wait for native drawing. Unchanged frames do not trigger that extra pass.
+
 `InputManager::requiresTerminalInput()` centralizes input-mode ownership. GPUI
 input does not claim STDIN raw/no-echo/nonblocking modes. Terminal input keeps
 its existing setup. Cleanup restores only input modes the Game actually claimed
 and reinstalls the previous input source when the renderer still owns it.
 
-Blocked ticks pump lifecycle and present only completed compositions. They do
+Blocked waits update lifecycle/timers/audio/notifications, then let an optional
+caller draw, then present the completed Console frame before sleeping. They do
 not update the scene recursively. Native close is a persistent lifecycle signal
 that unwinds waits into ordinary Game quit without an input binding or prompt.
 Renderer errors and transport failures reach the existing crash log/notice path.
@@ -112,16 +179,55 @@ Explicit Game cleanup shuts down audio and the renderer on normal quit, native
 close, exceptions, PHP shutdown and supported signal paths. Cleanup is idempotent
 and reuses S2's bounded process shutdown rather than relying on destructors.
 
+## Optional latency diagnostics
+
+Set `ICHILOTO_ENGINE_TRACE=1` when launching the ordinary CLI to append NDJSON
+observations to the private project's `logs/latency.ndjson`. Leave it unset for
+normal play. Tracing uses `hrtime(true)`, not wall time, and changes no protocol
+fields. Records identify the PHP process, iteration, input identity and stage.
+Input records contain key identities, so treat the log as diagnostic data.
+
+The internal `Diagnostics\LatencyTrace` observes transport parse/queue/dequeue,
+source return, input acceptance/KeyboardEvent dispatch, update/render boundaries,
+snapshot/style/run costs, sprite collection, payload comparison, JSON encoding,
+frame enqueue and byte draining. Queue depth/oldest observed age and per-iteration
+consumption counts are diagnostic only. Ages begin at PHP's first observation,
+not physical key-down. Synthetic transports have no native parse timestamp.
+
+Records are buffered with a 4096-record cap and flushed to the log at frame/wait
+boundaries; dropped records are marked. Logging still has observer overhead and
+must be considered during native comparisons. Nothing is written to normal stdout.
+`LatencyTrace::configure()` supplies internal test sinks/clocks, not a gameplay API.
+
+Renderer-relative `Instant` timestamps cannot simply be subtracted from PHP
+`hrtime`. Native-to-PHP measurements require a matching monotonic-clock anchor
+and an explicit uncertainty bound. Current native acceptance status and exact
+evidence are in [S7-E validation](s7-e-validation.md).
+
+## Geometry boundary
+
+The logical game surface, native terminal dimensions, and graphical renderer
+viewport are different concepts. GPUI resize is presentation-only: it must not
+change Console dimensions, Camera geometry or the session grid. Terminal mode
+retains its existing size-probe policy. Larger maps still scroll through the
+PHP-owned Camera rather than becoming larger protocol grids automatically.
+
+Future configuration may select logical resolutions, preferred window size,
+resizability, scaling policy or fullscreen independently. Current renderer defaults
+are not permanent restrictions on developers/players. None of those preferences,
+resize messages or new terminal resize policies is implemented by this follow-up.
+
 ## Spike limits
 
 - Only the field Player is graphical. NPCs, objects, maps, battles and UI remain
   terminal presentation; placeholders are not production character art.
-- Protocol v1 flattens text and draws sprites afterwards. Full sprite/UI
-  occlusion and cinematic graphical parity are not implemented. Snapshot
-  masking preserves later text, but overlapping PNG pixels can still cover it.
+- Explicit protocol v1 flattens text and draws sprites afterwards. V2 fixes
+  world/sprite/UI ordering and opaque UI blanks. Cinematics remain text-only.
 - The unchanged GPUI renderer centers individual glyphs in fixed cells with a
   conservative font size. Sparse letters and disconnected box-art strokes are
   a renderer typography limitation, distinct from an undersized logical grid.
-- Terminal ANSI styling is not part of the v1 plain-text snapshot contract.
+- V2 preserves colours, not blink, bold weight, italic, underline or other
+  terminal attributes. V1 remains unstyled.
 
-See [S6 validation](s6-validation.md) for measured acceptance status.
+See [S6 validation](s6-validation.md) and [S7-E validation](s7-e-validation.md)
+for measured acceptance status.

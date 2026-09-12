@@ -1,5 +1,9 @@
 # Presentation frames (S4)
 
+This page describes the retained v1 API. The optional Game runtime now defaults
+to v2; see [styled presentation (S7-E)](styled-presentation.md). V1 continues to
+use plain text and sprites without structured colour or text-layer ordering.
+
 S4 adds explicitly invoked presentation through the existing renderer connection.
 Ichiloto remains the PHP game engine. The normal Game runtime still does not
 launch GPUI, select a renderer, or send graphical frames. No Player/GameObject

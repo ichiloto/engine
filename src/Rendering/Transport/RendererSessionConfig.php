@@ -12,6 +12,7 @@ final readonly class RendererSessionConfig
     public string $title,
     string $assetRoot,
     public RendererGridConfig $grid = new RendererGridConfig(),
+    public RendererProtocolVersion $protocol = RendererProtocolVersion::V1,
   )
   {
     if ($title === '' || strlen($title) > 4096 || preg_match('//u', $title) !== 1
@@ -34,6 +35,6 @@ final readonly class RendererSessionConfig
       'title' => $this->title,
       'assetRoot' => $this->assetRoot,
       'grid' => $this->grid->toArray(),
-    ]);
+    ], $this->protocol);
   }
 }

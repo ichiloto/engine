@@ -1,5 +1,11 @@
 # Pluggable input sources (S3)
 
+S7-E uses this same route for v2 renderer events. Expanded identities C/c, M/m,
+T/t, Tab, Shift+Tab and F5 reach existing KeyCode and binding queries without
+graphical-specific action mappings. Session-version validation belongs to the
+transport, not InputManager. See [S7-E validation](s7-e-validation.md) for
+deterministic and real-game coverage.
+
 Ichiloto owns input bindings and gameplay. Input sources supply key identities,
 never actions. Terminal input remains the default; this capability does not launch
 GPUI from a game, change project configuration, or render a graphical game frame.
@@ -82,12 +88,24 @@ It delegates `start()`, `send()`, `isRunning()`, and `shutdown()` to S2 rather t
 duplicating handshake or process control. The application owns this shared client
 and explicitly shuts it down; the input source only borrows it.
 
-`pump()` performs one zero-wait transport pass. Keys enter an ordered string FIFO;
+`pump()` performs one zero-wait transport pass. Keys enter an ordered event FIFO;
 ready, close_requested, and error enter a separate typed-event FIFO. `pollKey()`
 and `pollEvents()` pump when their respective queue is empty. Applications must
 consume non-key events as well as keys; no close/error is interpreted as a game
 action or automatic quit policy. Shutdown retains final transport events and is
 safe to repeat.
+
+`pollKey()` still returns a string; retaining the original immutable event internally
+allows opt-in trace correlation without adding wire or gameplay fields.
+`drainEvents()` consumes already-pumped lifecycle events without polling again.
+RendererRuntime uses it after its explicit pump, keeping each I/O pass bounded.
+
+Both terminal and renderer paths still consume one key per `handleInput()`.
+They cannot distinguish deliberate repeated taps from OS repeats, because neither
+contract supplies repeat identity. A burst can queue behind the frame cadence.
+Do not deduplicate identities or batch only KeyboardEvents: gameplay also reads
+current/previous key state once per update. See the latency investigation in
+[S7-E validation](s7-e-validation.md) for evidence and the unresolved batching boundary.
 
 Default bounds are **1024 keys**, **256 non-key events**, and **8 MiB combined
 key/message payload bytes**. Count limits also bound fixed event/queue overhead.

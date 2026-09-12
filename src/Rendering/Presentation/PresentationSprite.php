@@ -32,4 +32,22 @@ final readonly class PresentationSprite
   {
     return [...get_object_vars($this), 'anchor' => $this->anchor->value];
   }
+
+  /** @param list<PresentationSprite> $sprites @return list<PresentationSprite> */
+  public static function orderedList(array $sprites): array
+  {
+    if (!array_is_list($sprites) || count($sprites) > 1024) {
+      throw new InvalidArgumentException('Presentation sprites must be a list of at most 1024 sprites.');
+    }
+    $ids = $copy = [];
+    foreach ($sprites as $sprite) {
+      if (!$sprite instanceof self || isset($ids[$sprite->id])) {
+        throw new InvalidArgumentException('Presentation requires typed sprites with unique IDs.');
+      }
+      $ids[$sprite->id] = true;
+      $copy[] = $sprite;
+    }
+    usort($copy, static fn(self $a, self $b) => $a->layer <=> $b->layer);
+    return $copy;
+  }
 }

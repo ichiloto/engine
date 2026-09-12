@@ -1,5 +1,8 @@
 <?php
 
+use Ichiloto\Engine\Rendering\Transport\RendererProtocolVersion;
+use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
+
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
@@ -20,6 +23,24 @@ use Tests\Support\Input\FakeRendererTransport;
 
 require_once __DIR__ . '/../Support/Input/FakeInputSource.php';
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+
+it('carries expanded v2 identities through the client source manager and case-sensitive PHP bindings', function ($identity, $other) {
+  $code = KeyCode::from($identity);
+  $transport = new FakeRendererTransport();
+  $client = new RendererClient($transport);
+  $client->start(new RendererSessionConfig('Input', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2));
+  $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'key', 'key' => $identity]))];
+  InputManager::setInputSource(new RendererInputSource($client));
+  InputManager::setBindings(['existing-action' => ['keys' => [$code]], 'different-action' => ['keys' => [KeyCode::from($other)]]]);
+  InputManager::handleInput();
+  expect(InputManager::getPressedKeyCode())->toBe($code)
+    ->and(Input::isKeyDown($code))->toBeTrue()
+    ->and(Input::isButtonDown('existing-action'))->toBeTrue()
+    ->and(Input::isButtonDown('different-action'))->toBeFalse();
+})->with([
+  ['c', 'C'], ['C', 'c'], ['m', 'M'], ['M', 'm'], ['t', 'T'], ['T', 't'],
+  ['tab', 'shift_tab'], ['shift_tab', 'tab'], ['f5', 'f4'],
+]);
 
 beforeEach(function () {
   $this->oldSource = InputManager::getInputSource();

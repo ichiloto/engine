@@ -2,7 +2,9 @@
 
 namespace Ichiloto\Engine\Rendering\Presentation;
 
+use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\IO\Console\ConsoleFrameSnapshot;
+use Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot;
 use Ichiloto\Engine\Rendering\RendererClient;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererMessage;
@@ -23,16 +25,28 @@ final class RendererPresentation
   }
 
   /** @param list<PresentationSprite> $sprites Returns true only when a changed frame was queued. */
-  public function present(ConsoleFrameSnapshot $snapshot, array $sprites = []): bool
+  public function present(ConsoleFrameSnapshot|ConsolePresentationSnapshot $snapshot, array $sprites = []): bool
   {
     if ($snapshot->width !== $this->grid->columns || $snapshot->height !== $this->grid->rows) {
       throw new InvalidArgumentException('Console snapshot dimensions must match the fixed renderer session grid.');
     }
+    $preparation = LatencyTrace::now();
     $number = $this->frameNumber < PHP_INT_MAX ? $this->frameNumber + 1 : $this->frameNumber;
-    $message = new PresentationFrame($number, $snapshot->rows, $sprites)->toRendererMessage();
-    if ($this->lastMessage !== null
-      && $message->payload['text'] === $this->lastMessage->payload['text']
-      && $message->payload['sprites'] === $this->lastMessage->payload['sprites']) {
+    $message = $snapshot instanceof ConsolePresentationSnapshot
+      ? new StyledPresentationFrame($number, $snapshot->textLayers, $sprites)->toRendererMessage()
+      : new PresentationFrame($number, $snapshot->rows, $sprites)->toRendererMessage();
+    LatencyTrace::end('presentation.message', $preparation);
+    $comparison = LatencyTrace::now();
+    $content = $message->payload;
+    $previous = $this->lastMessage?->payload ?? [];
+    unset($content['frame'], $previous['frame']);
+    $unchanged = $this->lastMessage !== null
+      && $message->protocol === $this->lastMessage->protocol && $content === $previous;
+    LatencyTrace::end('presentation.compare', $comparison, ['unchanged' => $unchanged]);
+    if (LatencyTrace::enabled()) {
+      LatencyTrace::record('presentation.content', ['sha256' => hash('sha256', serialize($content))]);
+    }
+    if ($unchanged) {
       return false;
     }
     if ($this->frameNumber === PHP_INT_MAX) {
@@ -42,6 +56,7 @@ final class RendererPresentation
     $this->client->send($message);
     $this->frameNumber = $number;
     $this->lastMessage = $message;
+    LatencyTrace::record('presentation.frame.queued', ['frame' => $number]);
     return true;
   }
 }

@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\IO\InputSources;
 
+use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use InvalidArgumentException;
 use RuntimeException;
@@ -25,7 +26,11 @@ final class TerminalInputSource implements InputSourceInterface
 
   public function poll(): ?KeyCode
   {
-    return $this->nonBlocking(fn() => self::normalize($this->readInputSequence()));
+    LatencyTrace::beginPoll();
+    $started = LatencyTrace::now();
+    $key = $this->nonBlocking(fn() => self::normalize($this->readInputSequence()));
+    if ($key !== null) { LatencyTrace::returned($key->value, self::class, $started); }
+    return $key;
   }
 
   public function reset(bool $drainBufferedInput = false): void

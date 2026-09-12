@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\UI\Modal;
 
+use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
+
 use Override;
 
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
@@ -197,7 +199,7 @@ class TextBoxModal extends Modal
    */
   public function render(?int $x = null, ?int $y = null): void
   {
-    $this->window->render($x, $y);
+    PresentationLayerPolicy::ui($this, fn() => $this->window->render($x, $y));
   }
 
   /**

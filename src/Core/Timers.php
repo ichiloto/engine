@@ -29,6 +29,8 @@ class Timers
    * @var callable|null Pumps one frame of the world while a caller waits.
    */
   protected static mixed $frameTick = null;
+  /** @var callable|null Presents the completed frame after optional caller drawing. */
+  protected static mixed $framePresent = null;
 
   /**
    * Runs a callback once, after the given delay.
@@ -98,11 +100,13 @@ class Timers
    * sleeping, so the engine still works in tooling contexts with no loop.
    *
    * @param callable|null $frameTick The frame pump.
+   * @param callable|null $framePresent Presents after the caller's optional draw callback.
    * @return void
    */
-  public static function setFrameTick(?callable $frameTick): void
+  public static function setFrameTick(?callable $frameTick, ?callable $framePresent = null): void
   {
     self::$frameTick = $frameTick;
+    self::$framePresent = $framePresent;
   }
 
   /**
@@ -152,6 +156,7 @@ class Timers
     }
 
     $frameTick = self::$frameTick;
+    $framePresent = self::$framePresent;
     $frameLength = (int)(1_000_000 / DEFAULT_FPS);
     $startedAt = microtime(true);
     $endsAt = $startedAt + $seconds;
@@ -165,11 +170,22 @@ class Timers
         $onFrame(min(1.0, ($now - $startedAt) / $seconds));
       }
 
-      usleep($frameLength);
+      if ($framePresent !== null) {
+        $framePresent();
+      }
+
+      // Short authored holds must not be inflated to a whole engine frame.
+      $remaining = (int)(($endsAt - microtime(true)) * 1_000_000);
+      if ($remaining > 0) {
+        usleep(min($frameLength, $remaining));
+      }
     }
 
     if ($onFrame !== null) {
       $onFrame(1.0);
+      if ($framePresent !== null) {
+        $framePresent();
+      }
     }
   }
 

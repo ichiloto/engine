@@ -2,6 +2,9 @@
 
 namespace Ichiloto\Engine\UI\Modal;
 
+use Ichiloto\Engine\Core\Timers;
+use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
+
 use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Game;
@@ -262,7 +265,7 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface
     $this->window->setTitle($this->title);
     $this->window->setHelp($this->help ?? '');
     $this->window->setContent($this->renderedOptionLines());
-    $this->window->render($x === null ? null : $x + 1, $y === null ? null : $y + 1);
+    PresentationLayerPolicy::ui($this, fn() => $this->window->render($x === null ? null : $x + 1, $y === null ? null : $y + 1));
   }
 
   /**
@@ -331,13 +334,14 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface
   {
     $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::OPEN, true));
     $this->show();
-    $sleepTime = (int)(1000000 / 60);
 
     while ($this->isShowing) {
       $this->handleInput();
       $this->update();
 
-      usleep($sleepTime);
+      if ($this->isShowing) {
+        Timers::wait(1 / 60, fn() => $this->render());
+      }
     }
 
     return $this->close();

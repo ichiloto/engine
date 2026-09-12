@@ -12,6 +12,8 @@ use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererMessage;
 use Ichiloto\Engine\Rendering\Transport\RendererMessageType;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
+use Ichiloto\Engine\Rendering\Transport\RendererProtocolVersion;
+use Ichiloto\Engine\Rendering\Presentation\StyledPresentationFrame;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererTransportState;
 
@@ -44,10 +46,68 @@ function s2Session(): RendererSessionConfig
   return new RendererSessionConfig('Transport test', sys_get_temp_dir());
 }
 
-function s2ApplicationMessage(string $token = 'test', string $data = ''): RendererMessage
+it('uses v2 for hello ready frame key error and shutdown on the same transport', function () {
+  $capture = tempnam(sys_get_temp_dir(), 'renderer-v2-');
+  try {
+    $transport = makeS2Transport('v2_events', capture: $capture);
+    $transport->start(new RendererSessionConfig('V2', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2));
+    $transport->send(new StyledPresentationFrame(1)->toRendererMessage());
+    $events = s2Await($transport, fn($events) => count($events) === 3);
+    expect(array_column($events, 'type'))->toBe([RendererEventType::READY, RendererEventType::KEY,
+      RendererEventType::ERROR]);
+    foreach ($events as $event) { expect($event->protocol)->toBe(RendererProtocolVersion::V2); }
+    expect($events[1]->key)->toBe('up')->and($events[2]->message)->toBe('recoverable');
+    $transport->shutdown();
+    $messages = array_map(fn($line) => json_decode($line, true, flags: JSON_THROW_ON_ERROR), file($capture, FILE_IGNORE_NEW_LINES));
+    expect(array_column($messages, 'protocol'))->toBe([2, 2, 2])
+      ->and(array_column($messages, 'type'))->toBe(['hello', 'frame', 'shutdown'])
+      ->and($messages[1]['textLayers'])->toBe([])
+      ->and($transport->getDiagnostics())->toContain('graceful shutdown');
+  } finally { unlink($capture); }
+});
+
+it('receives v2 native close and drains the peer without an unnecessary shutdown message', function () {
+  $transport = makeS2Transport('close_wait');
+  $transport->start(new RendererSessionConfig('V2 close', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2));
+  $transport->pollEvents();
+  $transport->send(new StyledPresentationFrame(1)->toRendererMessage());
+  $events = s2Await($transport, fn($events) => count($events) === 1);
+  expect($events[0]->type)->toBe(RendererEventType::CLOSE_REQUESTED)
+    ->and($events[0]->protocol)->toBe(RendererProtocolVersion::V2)
+    ->and($transport->shutdown())->toBe(0);
+});
+
+it('rejects mixed application sends without consuming outbound capacity', function ($version) {
+  $transport = makeS2Transport();
+  $transport->start(new RendererSessionConfig('Mixed', sys_get_temp_dir(), protocol: $version));
+  $other = $version === RendererProtocolVersion::V1 ? RendererProtocolVersion::V2 : RendererProtocolVersion::V1;
+  expect(fn() => $transport->send(new RendererMessage(RendererMessageType::FRAME, [], $other)))
+    ->toThrow(RendererProtocolException::class);
+  expect($transport->getPendingWriteBytes())->toBe(0)->and($transport->isRunning())->toBeTrue();
+})->with([RendererProtocolVersion::V1, RendererProtocolVersion::V2]);
+
+it('rejects mixed events after ready in either session version', function ($version) {
+  $transport = makeS2Transport('mixed');
+  $transport->start(new RendererSessionConfig('Mixed', sys_get_temp_dir(), protocol: $version));
+  $transport->pollEvents();
+  $transport->send(new RendererMessage(RendererMessageType::FRAME, [], $version));
+  expect(fn() => s2Await($transport, fn() => false))->toThrow(RendererProtocolException::class);
+})->with([RendererProtocolVersion::V1, RendererProtocolVersion::V2]);
+
+it('accepts only the pre-session v1 error exception during v2 startup', function ($scenario, $message) {
+  $transport = makeS2Transport($scenario);
+  expect(fn() => $transport->start(new RendererSessionConfig('V2', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2)))
+    ->toThrow(RendererStartupException::class, $message);
+  expect($transport->isRunning())->toBeFalse();
+})->with([
+  ['startup_error', 'hello rejected'], ['pre_session_error', 'hello rejected'],
+  ['pre_session_key', 'protocol'], ['ready_mixed', 'protocol'],
+]);
+
+function s2ApplicationMessage(string $token = 'test', string $data = '', RendererProtocolVersion $protocol = RendererProtocolVersion::V1): RendererMessage
 {
   // Opaque test payloads exercise byte transport, not graphics/frame generation.
-  return new RendererMessage(RendererMessageType::FRAME, ['token' => $token, 'data' => $data]);
+  return new RendererMessage(RendererMessageType::FRAME, ['token' => $token, 'data' => $data], $protocol);
 }
 
 function s2Await(ProcessRendererTransport $transport, callable $done): array
@@ -206,18 +266,19 @@ it('drains heavy stderr fairly into a bounded diagnostic tail', function () {
     ->and($transport->getDiagnostics())->toEndWith('RUNTIME-TAIL');
 });
 
-it('writes large queued messages through real pipe backpressure without losing bytes or order', function () {
+it('writes large queued messages through real pipe backpressure without losing bytes or order', function ($protocol) {
   $transport = makeS2Transport('slow_reader');
-  $transport->start(s2Session()); $transport->pollEvents();
+  $transport->start(new RendererSessionConfig('Backpressure', sys_get_temp_dir(), protocol: $protocol));
+  $transport->pollEvents();
   $data = str_repeat("alpha\nbeta", 150000);
-  $transport->send(s2ApplicationMessage('first', $data));
-  $transport->send(s2ApplicationMessage('second', $data));
+  $transport->send(s2ApplicationMessage('first', $data, $protocol));
+  $transport->send(s2ApplicationMessage('second', $data, $protocol));
   $transport->pollEvents();
   expect($transport->getPendingWriteBytes())->toBeGreaterThan(0);
   $events = s2Await($transport, fn($events) => count($events) === 2);
   expect(array_column($events, 'key'))->toBe(['first:' . hash('sha256', $data), 'second:' . hash('sha256', $data)])
     ->and($transport->getPendingWriteBytes())->toBe(0);
-});
+})->with([RendererProtocolVersion::V1, RendererProtocolVersion::V2]);
 
 it('reports a full outbound queue without changing already accepted bytes', function () {
   $transport = makeS2Transport(overrides: ['maxLineBytes' => 1024, 'maxOutboundBytes' => 1024]);

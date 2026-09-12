@@ -25,8 +25,10 @@ final readonly class RendererEvent
       throw new RendererProtocolException('Malformed renderer JSON: ' . $error->getMessage()
         . '; excerpt=' . self::excerpt($line), previous: $error);
     }
-    if (! $object instanceof stdClass || ($object->protocol ?? null) !== RendererProtocolVersion::V1->value) {
-      throw new RendererProtocolException('Renderer event requires integer protocol version 1; excerpt=' . self::excerpt($line));
+    $protocol = $object instanceof stdClass && is_int($object->protocol ?? null)
+      ? RendererProtocolVersion::tryFrom($object->protocol) : null;
+    if ($protocol === null) {
+      throw new RendererProtocolException('Renderer event requires supported integer protocol version 1 or 2; excerpt=' . self::excerpt($line));
     }
     $type = is_string($object->type ?? null) ? RendererEventType::tryFrom($object->type) : null;
     if ($type === null) {
@@ -42,7 +44,7 @@ final readonly class RendererEvent
       throw new RendererProtocolException('Renderer error event requires a message string.');
     }
     return new self($type, $type === RendererEventType::KEY ? $key : null,
-      $type === RendererEventType::ERROR ? $message : null);
+      $type === RendererEventType::ERROR ? $message : null, $protocol);
   }
 
   private static function excerpt(string $line): string

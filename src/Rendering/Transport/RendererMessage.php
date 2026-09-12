@@ -12,6 +12,7 @@ final readonly class RendererMessage
   public function __construct(
     public RendererMessageType $type,
     public array $payload = [],
+    public RendererProtocolVersion $protocol = RendererProtocolVersion::V1,
   )
   {
     foreach (array_keys($payload) as $key) {
@@ -25,7 +26,7 @@ final readonly class RendererMessage
   public function encode(): string
   {
     return json_encode([
-      'protocol' => RendererProtocolVersion::V1->value,
+      'protocol' => $this->protocol->value,
       'type' => $this->type->value,
       ...$this->payload,
     ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";

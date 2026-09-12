@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Rendering\Transport;
 
+use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererProcessExitedException;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererProtocolException;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererStartupException;
@@ -34,6 +35,7 @@ final class ProcessRendererTransport implements RendererTransportInterface
   private int $eventBytes = 0;
   private int $terminationSignal = 0;
   private float $terminationDeadline = 0.0;
+  private RendererProtocolVersion $protocol = RendererProtocolVersion::V1;
 
   public function __construct(private readonly RendererProcessConfig $config)
   {
@@ -46,6 +48,7 @@ final class ProcessRendererTransport implements RendererTransportInterface
       throw new RendererTransportException('Renderer transport must be shut down before starting another session.');
     }
     $this->state = RendererTransportState::STARTING;
+    $this->protocol = $session->protocol;
     $this->stdout = $this->diagnostics = '';
     $this->events = [];
     $this->eventBytes = 0;
@@ -122,6 +125,9 @@ final class ProcessRendererTransport implements RendererTransportInterface
     if (in_array($message->type, [RendererMessageType::HELLO, RendererMessageType::SHUTDOWN], true)) {
       throw new RendererTransportException('hello and shutdown are owned by the transport lifecycle.');
     }
+    if ($message->protocol !== $this->protocol) {
+      throw new RendererProtocolException('Outbound message protocol must match the renderer session.');
+    }
     if (! $this->isRunning()) {
       $this->advance(0.0);
       throw $this->failure ?? new RendererProcessExitedException('Renderer exited before send.', $this->diagnostics, $this->exitCode);
@@ -162,7 +168,7 @@ final class ProcessRendererTransport implements RendererTransportInterface
       $this->state = RendererTransportState::STOPPING;
     }
     $deadline = self::now() + $this->config->shutdownTimeout;
-    $shutdown = (new RendererMessage(RendererMessageType::SHUTDOWN))->encode();
+    $shutdown = (new RendererMessage(RendererMessageType::SHUTDOWN, protocol: $this->protocol))->encode();
     $queued = false;
     try {
       while ($this->process !== null && self::now() < $deadline) {
@@ -217,15 +223,19 @@ final class ProcessRendererTransport implements RendererTransportInterface
 
   private function queue(RendererMessage $message): void
   {
+    $encoding = LatencyTrace::now();
     try {
       $line = $message->encode();
     } catch (JsonException $error) {
       throw new RendererProtocolException('Cannot encode renderer message: ' . $error->getMessage(), $this->diagnostics, previous: $error);
     }
+    LatencyTrace::end('transport.encode', $encoding, ['frame' => $message->payload['frame'] ?? null, 'bytes' => strlen($line)]);
     if (strlen($line) > $this->config->maxLineBytes) {
       throw new RendererTransportException('Outbound renderer line exceeds the configured byte limit; message was not queued.');
     }
     $this->outbound->append($line);
+    LatencyTrace::record('transport.queued', ['frame' => $message->payload['frame'] ?? null,
+      'bytes' => strlen($line), 'pending_bytes' => $this->outbound->pendingBytes()]);
   }
 
   private function advance(float $wait): void
@@ -270,8 +280,11 @@ final class ProcessRendererTransport implements RendererTransportInterface
     }
     if ($write !== [] && isset($this->pipes[0]) && ! $this->closeRequested) {
       $pipe = $this->pipes[0];
+      $before = $this->outbound->pendingBytes();
       $this->outbound->flush(static fn(string $bytes): int|false => self::performIo(
         static fn() => fwrite($pipe, $bytes)), $this->config->ioBudgetBytes);
+      LatencyTrace::record('transport.drain', ['written_bytes' => $before - $this->outbound->pendingBytes(),
+        'pending_bytes' => $this->outbound->pendingBytes()]);
     }
     $this->collectExit();
   }
@@ -296,6 +309,7 @@ final class ProcessRendererTransport implements RendererTransportInterface
       $budget -= strlen($bytes);
       if ($index === 2) {
         $this->diagnostics = substr($this->diagnostics . $bytes, -$this->config->diagnosticBufferBytes);
+        LatencyTrace::record('renderer.stderr', ['text' => $bytes]);
       } elseif (! $discardStdout) {
         $this->stdout .= $bytes;
         $this->parseLines();
@@ -315,6 +329,14 @@ final class ProcessRendererTransport implements RendererTransportInterface
         continue;
       }
       $event = RendererEvent::fromJson($line);
+      LatencyTrace::keyStage($event, 'transport.key.parsed');
+      // An invalid v2 hello may be rejected before the renderer has selected v2.
+      $preSessionError = $this->state === RendererTransportState::STARTING && ! $this->hasReady()
+        && $this->protocol === RendererProtocolVersion::V2 && $event->protocol === RendererProtocolVersion::V1
+        && $event->type === RendererEventType::ERROR;
+      if ($event->protocol !== $this->protocol && ! $preSessionError) {
+        throw new RendererProtocolException('Renderer event protocol does not match the session.');
+      }
       if ($event->type === RendererEventType::READY
         && ($this->state !== RendererTransportState::STARTING || $this->hasReady())) {
         throw new RendererProtocolException('Renderer emitted an unexpected second ready event.');
