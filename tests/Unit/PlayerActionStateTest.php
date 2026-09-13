@@ -6,7 +6,7 @@ use Ichiloto\Engine\Battle\Engines\ActiveTime\States\ActiveTimeFlowState;
 use Ichiloto\Engine\Battle\Actions\GuardAction;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Battle\BattleAction;
-use Ichiloto\Engine\Battle\BattleCommandOption;
+use Ichiloto\Engine\Battle\BattleCommandCatalog;
 use Ichiloto\Engine\Battle\PartyBattlerPositions;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\PlayerActionState;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnStateExecutionContext;
@@ -33,6 +33,10 @@ use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\ItemScope;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Skills\BasicSkill;
+use Ichiloto\Engine\Entities\Skills\MagicSkill;
+use Ichiloto\Engine\Entities\Magic\Spellbook;
+use Ichiloto\Engine\Entities\Inventory\Items\Item;
+use Ichiloto\Engine\Entities\Inventory\Items\ItemScope as InventoryItemScope;
 use Ichiloto\Engine\Entities\Skills\SkillInvocation;
 use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Entities\Troop;
@@ -508,14 +512,17 @@ it('queues an authored enemy action in active-time battles', function () {
     ->and($engine->capturedTargets)->toBe([$enemy]);
 });
 
-it('requires separate confirmation for all-target commands and allows cancellation', function (bool $activeTime, ItemScopeSide $side, ItemScopeStatus $status, array $indexes) {
+it('requires separate confirmation for all-target commands and allows cancellation', function (bool $activeTime, ItemScopeSide $side, ItemScopeStatus $status, array $indexes, string $source) {
   $game = (new ReflectionClass(GameTargetingTestProxy::class))->newInstanceWithoutConstructor();
   $audio = $this->createMock(AudioManager::class);
   setTestProperty($game, 'audioManager', $audio);
+  $skill = new MagicSkill('Group Command', 'Affects the selected group.', '', 5, 0, new ItemScope($side, ItemScopeNumber::ALL, $status));
+  $item = new Item('Group Item', 'Affects the selected group.', '!', 10, 2, scope: new InventoryItemScope($side, ItemScopeNumber::ALL, $status));
   $party = new Party();
   foreach (['Caster', 'Ally', 'Fallen Ally'] as $name) {
-    $party->addMember(new Character($name, 0, new Stats(currentHp: 120, currentMp: 30)));
+    $party->addMember(new Character($name, 0, new Stats(currentHp: 120, currentMp: 30), spellbook: new Spellbook([$skill])));
   }
+  $party->inventory->addItems($item);
   $members = $party->battlers->toArray();
   $members[2]->stats->currentHp = 0;
   $enemies = array_map(createTargetingTestEnemy(...), ['Enemy A', 'Enemy B', 'Fallen Enemy']);
@@ -534,10 +541,12 @@ it('requires separate confirmation for all-target commands and allows cancellati
   $state = $activeTime ? new ActiveTimeFlowState($engine) : new PlayerActionState($engine);
   setTestProperty($state, 'activeCharacterIndex', 0);
   setTestProperty($state, 'selectionMode', 'submenu');
-  $skill = new BasicSkill('Group Command', 'Affects the selected group.', '', 5, 0, new ItemScope($side, ItemScopeNumber::ALL, $status));
-  $action = new SkillBattleAction($skill);
-  $option = new BattleCommandOption('Group Command', $skill->description, $action, $side, $status, mpCost: 5, targetNumber: ItemScopeNumber::ALL);
-  $screen->commandContextWindow->setItems([$option], 'Skill');
+  $command = $source === 'item' ? 'Item' : 'Magic';
+  $options = BattleCommandCatalog::buildOptions($members[0], $party, $command);
+  expect($options)->toHaveCount(1)->and($options[0]->targetNumber)->toBe(ItemScopeNumber::ALL);
+  $option = $options[0];
+  $action = $option->action;
+  $screen->commandContextWindow->setItems($options, $command);
   $oldSource = InputManager::getInputSource();
   $oldBindings = InputManager::getBindings();
   $oldEvents = new ReflectionProperty(InputManager::class, 'eventManager')->getValue();
@@ -550,11 +559,12 @@ it('requires separate confirmation for all-target commands and allows cancellati
       InputManager::handleInput();
       new ReflectionMethod($state, 'handleActions')->invoke($state, $context);
     };
-    $assertUncommitted = function () use ($turn, $engine, $members, $enemies, $action): void {
+    $assertUncommitted = function () use ($turn, $engine, $members, $enemies, $action, $item): void {
       expect($turn->action)->toBeNull()->and($turn->targets)->toBe([])
         ->and($members[0]->stats->currentMp)->toBe(30)
         ->and($members[1]->stats->currentHp)->toBe(120)
         ->and($enemies[0]->stats->currentHp)->toBe(30)
+        ->and($item->quantity)->toBe(2)
         ->and($action->lastResult)->toBeNull();
       if ($engine instanceof ActiveTimeBattleEngineCaptureProxy) {
         expect($engine->capturedAction)->toBeNull();
@@ -592,4 +602,4 @@ it('requires separate confirmation for all-target commands and allows cancellati
   'living enemies' => [ItemScopeSide::ENEMY, ItemScopeStatus::ALIVE, [0, 1]],
   'fallen enemies' => [ItemScopeSide::ENEMY, ItemScopeStatus::DEAD, [2]],
   'any enemies' => [ItemScopeSide::ENEMY, ItemScopeStatus::ANY, [0, 1, 2]],
-]);
+])->with(['skill', 'item']);
