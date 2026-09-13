@@ -80,6 +80,10 @@ unmapped symbols retain terminal presentation.
 
 Only the current visible in-bounds map region is collected, through the same
 Camera bounds and projection as text. No duplicate map or collision grid exists.
+Collection stops at the protocol's 32,768-cell frame budget in row-major order.
+Larger custom viewports retain excess terrain as text; only emitted tile cells
+are removed from the text layers, so a valid large grid does not crash or lose
+terrain. This does not change the protocol limit or the canonical map.
 Graphical snapshots omit a replaced terrain write and its opaque underlay using
 draw provenance, not equality with the final glyph. Later text, including an
 identical glyph or a deliberate blank, remains opaque. Canonical Console output

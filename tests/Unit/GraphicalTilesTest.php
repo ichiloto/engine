@@ -105,6 +105,16 @@ it('preserves unmapped wide content and never removes its shifted text cells', f
     ->toBe([['column'=>2,'row'=>1,'source'=>0]]);
 });
 
+it('bounds collection at the tile budget even for maximum protocol geometry', function () {
+  $camera = new Camera(makeCameraTestScene(), 512, 256,
+    worldSpace: array_fill(0, 256, array_fill(0, 512, ';')));
+  $batch = new GraphicalTileCollector()->collect(GraphicalTileDefinition::fromArray(terrainData(), 'large-field'), $camera)[0];
+  expect($batch->cells)->toHaveCount(\Ichiloto\Engine\Rendering\Presentation\PresentationTileBatch::MAX_CELLS)
+    ->and($batch->cells[0])->toBe(['column' => 0, 'row' => 0, 'source' => 0])
+    ->and($batch->cells[array_key_last($batch->cells)])->toBe(['column' => 511, 'row' => 63, 'source' => 0]);
+  $batch->assertWithin(new \Ichiloto\Engine\Rendering\Transport\RendererGridConfig(512, 256));
+});
+
 it('removes only replaced terrain and its blank underlay while preserving all later content', function ($overlay) {
   Console::recomposeFrame(function () use ($overlay) {
     PresentationLayerPolicy::terrain(fn() => Console::write(';;;;~', 0, 1));

@@ -399,6 +399,38 @@ it('uses the same field eligibility for terrain and Player and clears tiles on s
   expect(end($this->transport->sent)->payload)->not->toHaveKey('tileBatches');
 });
 
+it('keeps terrain beyond the tile budget visible as text in a valid large grid', function () {
+  $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__,
+    requiredCapabilities: ['tile_batches']), $this->transport);
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["tile_batches"]}')];
+  Console::setTerminalOutputEnabled(false);
+  Console::syncDimensions(512, 65);
+  $this->runtime->start('Large grid', 512, 65);
+  $scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()
+    ->onlyMethods(['getGraphicalSpriteProviders', 'getGraphicalTileBatches'])->getMock();
+  $scene->method('getGraphicalSpriteProviders')->willReturn([]);
+  $camera = new Camera($scene, 512, 65, worldSpace: array_fill(0, 65, array_fill(0, 512, ';')));
+  $definition = GraphicalTileDefinition::fromArray([
+    'asset' => 'field.png', 'symbols' => [';' => ['x' => 0, 'y' => 0, 'width' => 16, 'height' => 32]]], 'large-field');
+  $scene->method('getGraphicalTileBatches')->willReturnCallback(
+    fn() => new \Ichiloto\Engine\Rendering\Tiles\GraphicalTileCollector()->collect($definition, $camera));
+  Console::recomposeFrame(function () {
+    \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::terrain(function () {
+      for ($row = 0; $row < 65; $row++) { Console::write(str_repeat(';', 512), 0, $row); }
+    });
+  });
+  $before = Console::snapshot();
+  expect($this->runtime->present($scene))->toBeTrue();
+  $payload = $this->transport->sent[0]->payload;
+  $budget = \Ichiloto\Engine\Rendering\Presentation\PresentationTileBatch::MAX_CELLS;
+  expect($payload['tileBatches'][0]['cells'])->toHaveCount($budget)
+    ->and($payload['tileBatches'][0]['cells'][$budget - 1])->toBe(['column' => 511, 'row' => 63, 'source' => 0]);
+  $terrain = array_values(array_filter($payload['textLayers'], fn($layer) => $layer['id'] === 'terrain'))[0];
+  expect($terrain['runs'])->toHaveCount(1)
+    ->and($terrain['runs'][0])->toMatchArray(['row' => 64, 'column' => 0, 'text' => str_repeat(';', 512)])
+    ->and(Console::snapshot())->toEqual($before);
+});
+
 it('keeps scenario and temporary music ownership identical during terminal and renderer waits', function (bool $graphical) {
   $game = new RendererRuntimeGameProbe();
   [$scene, $map, , $manager] = makeFieldAudioScene();

@@ -28,6 +28,9 @@ final class GraphicalTileCollector
           if ($screen->x >= 0 && $screen->y >= 0
             && $screen->x < $camera->screen->getWidth() && $screen->y < $camera->screen->getHeight()) {
             $cells[] = ['column' => (int)$screen->x, 'row' => (int)$screen->y, 'source' => $source];
+            // Only collected cells are masked from text, so excess terrain
+            // remains visible when a custom grid exceeds the protocol budget.
+            if (count($cells) === PresentationTileBatch::MAX_CELLS) { break 2; }
           }
         }
         $displayColumn += $width;
