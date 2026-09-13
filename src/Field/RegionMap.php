@@ -103,23 +103,45 @@ class RegionMap
     // not move because someone walked into it, and a map that rearranged
     // itself each time it was opened would be unreadable.
     $root = self::hubOf($region) ?? $currentId;
-    $placed = [$root => $region[$root]->station ?? [0, 0]];
-    $taken = [self::key($placed[$root]) => true];
+    $placed = [];
+    $taken = [];
+    $duplicates = [];
+    // Reserve every distinct authored pin before displacing duplicates or inferring doors.
+    foreach ($region as $id => $area) {
+      if ($area->station === null) { continue; }
+      if (isset($taken[self::key($area->station)])) {
+        $duplicates[$id] = $area->station;
+        continue;
+      }
+      $placed[$id] = $area->station;
+      $taken[self::key($area->station)] = true;
+    }
+    foreach ($duplicates as $id => $station) {
+      $position = self::freeCell($station, CompassDirection::EAST, $taken);
+      $placed[$id] = $position;
+      $taken[self::key($position)] = true;
+    }
+    if (!isset($placed[$root])) {
+      $placed[$root] = isset($taken['0:0']) ? self::freeCell([0, 0], null, $taken) : [0, 0];
+      $taken[self::key($placed[$root])] = true;
+    }
     $queue = [$root];
+    $queued = [$root => true];
 
     while ($queue !== []) {
       $id = array_shift($queue);
 
       foreach (($areas[$id]->links ?? []) as $link => $direction) {
-        if (isset($placed[$link]) || ! isset($region[$link])) {
+        if (isset($queued[$link]) || ! isset($region[$link])) {
           continue;
         }
 
-        $position = $region[$link]->station
-          ?? self::freeCell($placed[$id], $direction, $taken);
-
-        $placed[$link] = $position;
-        $taken[self::key($position)] = true;
+        if (!isset($placed[$link])) {
+          $position = self::freeCell($placed[$id], $direction, $taken);
+          $placed[$link] = $position;
+          $taken[self::key($position)] = true;
+        }
+        $queued[$link] = true;
         $queue[] = $link;
       }
     }
@@ -187,7 +209,7 @@ class RegionMap
   {
     [$stepX, $stepY] = ($direction ?? CompassDirection::EAST)->offset();
 
-    for ($distance = 1; $distance < 32; $distance++) {
+    for ($distance = 1; $distance <= count($taken) + 1; $distance++) {
       $candidate = [$from[0] + $stepX * $distance, $from[1] + $stepY * $distance];
 
       if (! isset($taken[self::key($candidate)])) {
@@ -195,7 +217,7 @@ class RegionMap
       }
     }
 
-    return [$from[0] + $stepX, $from[1] + $stepY];
+    throw new \LogicException('A finite occupied grid must have a free cell.');
   }
 
   /**

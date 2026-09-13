@@ -9,6 +9,7 @@ use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\NotificationEvent;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationSlideDirection;
@@ -84,10 +85,6 @@ class Notification implements NotificationInterface
    * @var Vector2 The current animated render position.
    */
   protected Vector2 $renderPosition;
-  /**
-   * @var Vector2|null The last rendered notification position.
-   */
-  protected ?Vector2 $lastRenderedPosition = null;
   /**
    * @var EventManager $eventManager The event manager.
    */
@@ -191,7 +188,6 @@ class Notification implements NotificationInterface
       ? self::STATE_ENTERING
       : self::STATE_VISIBLE;
     $this->animationStartedAt = \Ichiloto\Engine\Core\Time::getTime();
-    $this->lastRenderedPosition = null;
     $this->buildWindowContent();
     $this->renderPosition = $this->state === self::STATE_ENTERING
       ? $this->getHiddenPosition($this->enterDirection)
@@ -230,14 +226,10 @@ class Notification implements NotificationInterface
   public function render(?int $x = null, ?int $y = null): void
   {
     if ($this->isOpen) {
-      if ($this->lastRenderedPosition instanceof Vector2 && $this->hasMovedSinceLastRender()) {
-        $this->eraseAt($this->lastRenderedPosition, $x, $y);
-      }
-
-      $this->renderWindowAt($this->renderPosition, $x, $y);
-      $this->lastRenderedPosition = clone $this->renderPosition;
+      $origin = $this->resolveRenderOrigin($this->renderPosition, $x, $y);
+      Console::replaceOverlay($this->id, $this->getRenderableLines(), (int)$origin->x - 1,
+        (int)$origin->y - 1, PresentationLayerPolicy::NOTIFICATIONS);
     }
-
     $this->eventManager->dispatchEvent(new NotificationEvent(NotificationEventType::RENDER));
   }
 
@@ -246,13 +238,7 @@ class Notification implements NotificationInterface
    */
   public function erase(?int $x = null, ?int $y = null): void
   {
-    if ($this->lastRenderedPosition instanceof Vector2) {
-      $this->eraseAt($this->lastRenderedPosition, $x, $y);
-      $this->lastRenderedPosition = null;
-    } elseif ($this->isOpen) {
-      $this->window->erase($x, $y);
-    }
-
+    Console::removeOverlay($this->id);
     $this->eventManager->dispatchEvent(new NotificationEvent(NotificationEventType::ERASE));
   }
 
@@ -524,55 +510,6 @@ class Notification implements NotificationInterface
   }
 
   /**
-   * Erases the notification window at the requested position.
-   *
-   * @param Vector2 $position The position to erase.
-   * @param int|null $x The external x-offset.
-   * @param int|null $y The external y-offset.
-   * @return void
-   */
-  private function eraseAt(Vector2 $position, ?int $x = null, ?int $y = null): void
-  {
-    $origin = $this->resolveRenderOrigin($position, $x, $y);
-    $screenWidth = get_screen_width();
-    $screenHeight = get_screen_height();
-
-    foreach ($this->getRenderableLines() as $rowIndex => $line) {
-      $targetY = $origin->y + $rowIndex;
-
-      if ($targetY < 1 || $targetY > $screenHeight) {
-        continue;
-      }
-
-      [$visibleX, $visibleWidth] = $this->getVisibleHorizontalSegment($origin->x, TerminalText::displayWidth($line), $screenWidth);
-
-      if ($visibleWidth < 1) {
-        continue;
-      }
-
-      // Keep animated overlays inside the canonical console buffer. Direct
-      // cursor writes make later windows believe a row is unchanged even
-      // though the physical terminal was altered underneath them.
-      Console::write(str_repeat(' ', $visibleWidth), $visibleX - 1, $targetY - 1);
-    }
-  }
-
-  /**
-   * Returns whether the notification moved since the previous render.
-   *
-   * @return bool True when the render position changed.
-   */
-  private function hasMovedSinceLastRender(): bool
-  {
-    if (! $this->lastRenderedPosition instanceof Vector2) {
-      return true;
-    }
-
-    return $this->lastRenderedPosition->x !== $this->renderPosition->x
-      || $this->lastRenderedPosition->y !== $this->renderPosition->y;
-  }
-
-  /**
    * Returns whether the given direction should animate.
    *
    * @param NotificationSlideDirection|null $direction The direction to inspect.
@@ -583,48 +520,6 @@ class Notification implements NotificationInterface
     return $this->getAnimationDuration() > 0.0
       && $direction !== null
       && $direction !== NotificationSlideDirection::NONE;
-  }
-
-  /**
-   * Renders the notification window at the requested position with screen clipping.
-   *
-   * @param Vector2 $position The animated window position.
-   * @param int|null $x The external x-offset.
-   * @param int|null $y The external y-offset.
-   * @return void
-   */
-  private function renderWindowAt(Vector2 $position, ?int $x = null, ?int $y = null): void
-  {
-    $origin = $this->resolveRenderOrigin($position, $x, $y);
-    $screenWidth = get_screen_width();
-    $screenHeight = get_screen_height();
-
-    foreach ($this->getRenderableLines() as $rowIndex => $line) {
-      $targetY = $origin->y + $rowIndex;
-
-      if ($targetY < 1 || $targetY > $screenHeight) {
-        continue;
-      }
-
-      [$visibleX, $visibleWidth, $clipOffset] = $this->getVisibleHorizontalSegment(
-        $origin->x,
-        TerminalText::displayWidth($line),
-        $screenWidth,
-        true
-      );
-
-      if ($visibleWidth < 1) {
-        continue;
-      }
-
-      $visibleLine = $this->sliceLineByWidth($line, $clipOffset, $visibleWidth);
-
-      if ($visibleLine === '') {
-        continue;
-      }
-
-      Console::write($visibleLine, $visibleX - 1, $targetY - 1);
-    }
   }
 
   /**
@@ -679,72 +574,5 @@ class Notification implements NotificationInterface
       . $this->borderPack->getBottomRightCorner();
 
     return $lines;
-  }
-
-  /**
-   * Returns the visible horizontal segment for a partially clipped line.
-   *
-   * @param int $startX The line's starting x position.
-   * @param int $lineWidth The full line width.
-   * @param int $screenWidth The visible screen width.
-   * @param bool $includeClipOffset Whether to include the line clip offset.
-   * @return array{0: int, 1: int, 2?: int} The visible x position, width, and optional clip offset.
-   */
-  private function getVisibleHorizontalSegment(
-    int $startX,
-    int $lineWidth,
-    int $screenWidth,
-    bool $includeClipOffset = false
-  ): array
-  {
-    $visibleStartX = max(1, $startX);
-    $visibleEndX = min($screenWidth, $startX + $lineWidth - 1);
-    $visibleWidth = max(0, $visibleEndX - $visibleStartX + 1);
-    $clipOffset = max(0, $visibleStartX - $startX);
-
-    return $includeClipOffset
-      ? [$visibleStartX, $visibleWidth, $clipOffset]
-      : [$visibleStartX, $visibleWidth];
-  }
-
-  /**
-   * Returns a display-width-aware slice of the given line.
-   *
-   * @param string $line The line to slice.
-   * @param int $startWidth The width offset to skip.
-   * @param int $visibleWidth The width to keep.
-   * @return string The clipped line.
-   */
-  private function sliceLineByWidth(string $line, int $startWidth, int $visibleWidth): string
-  {
-    if ($visibleWidth < 1) {
-      return '';
-    }
-
-    $currentWidth = 0;
-    $output = [];
-    $endWidth = $startWidth + $visibleWidth;
-
-    foreach (TerminalText::visibleSymbols($line) as $symbol) {
-      $symbolWidth = TerminalText::displayWidth($symbol);
-      $nextWidth = $currentWidth + $symbolWidth;
-
-      if ($nextWidth <= $startWidth) {
-        $currentWidth = $nextWidth;
-        continue;
-      }
-
-      if ($currentWidth >= $endWidth || $nextWidth > $endWidth) {
-        break;
-      }
-
-      if ($currentWidth >= $startWidth) {
-        $output[] = $symbol;
-      }
-
-      $currentWidth = $nextWidth;
-    }
-
-    return implode('', $output);
   }
 }
