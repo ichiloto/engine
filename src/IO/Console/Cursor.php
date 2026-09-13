@@ -78,7 +78,7 @@ final class Cursor
     $x = max(1, $x);
     $y = max(1, $y);
 
-    Console::emitControlSequence("\033[{$y};{$x}H");
+    Console::emitControlSequence(Console::terminalCursorAddress($x, $y));
   }
 
   /**

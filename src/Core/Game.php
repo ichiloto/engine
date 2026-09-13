@@ -566,16 +566,17 @@ class Game implements CanRun, SubjectInterface
      * Graphical sessions default to that footprint independently of their TTY.
      *
      * @param array<string, mixed> $options The current game options.
+     * @param array{width: int, height: int}|null $terminalSize An already-probed physical terminal size.
      * @return array{width: int, height: int} The resolved screen size.
      */
-    protected function resolveScreenSize(array $options): array
+    protected function resolveScreenSize(array $options, ?array $terminalSize = null): array
     {
         $graphical = $this->rendererRuntime !== null
             || (!$this->rendererSelectionResolved
                 && ($this->rendererLaunchIntent ??= RendererLaunchIntent::fromEnvironment())->id !== 'terminal');
         $availableSize = $graphical
             ? ['width' => BattleScreen::WIDTH, 'height' => BattleScreen::HEIGHT]
-            : Console::getAvailableSize();
+            : ($terminalSize ?? Console::getAvailableSize());
         $requestedWidth = array_key_exists('width', $options) ? $options['width'] : ($options['screen']['width'] ?? $this->width);
         $requestedHeight = array_key_exists('height', $options) ? $options['height'] : ($options['screen']['height'] ?? $this->height);
 
@@ -764,13 +765,13 @@ class Game implements CanRun, SubjectInterface
     {
         $this->registerTerminalRestoreHandlers();
         $this->startInputSession();
-        Console::clear();
         Console::enterAlternateScreen();
         // Full-screen frames deliberately write through the last terminal
         // row. Disable autowrap while Ichiloto owns the alternate screen so
         // a write to the final column cannot scroll or partially displace a
         // bottom-edge HUD.
         Console::disableLineWrap();
+        Console::clear();
         Console::setTerminalName($this->name);
         Console::cursor()->disableBlinking();
         Console::cursor()->hide();
@@ -822,6 +823,10 @@ class Game implements CanRun, SubjectInterface
             $this->rendererSelectionResolved = true;
         }
         Console::setTerminalOutputEnabled($this->rendererRuntime === null);
+        if ($this->rendererRuntime === null) {
+            $physical = Console::getAvailableSize();
+            Console::syncTerminalViewport($physical['width'], $physical['height'], repaint: false);
+        }
         TerminalCapabilities::reset();
         TerminalCapabilities::detect();
         $this->rendererRuntime?->start($this->name, $this->width, $this->height);
@@ -1072,7 +1077,10 @@ SPLASH_SCREEN;
 
     private function presentBlockedFrame(): void
     {
-        if ($this->rendererRuntime !== null && !Console::isComposing()) {
+        if (Console::isComposing()) { return; }
+        // The modal owns its logical layout; only its physical margins may move.
+        $this->syncScreenSize(resizeLogicalViewport: false);
+        if ($this->rendererRuntime !== null) {
             // Scene presentation ownership also applies during dialogue/timer waits.
             $this->rendererRuntime->present($this->sceneManager->currentScene);
             LatencyTrace::flush();
@@ -1082,12 +1090,14 @@ SPLASH_SCREEN;
     /**
      * Synchronizes the engine with the current terminal size.
      *
+     * @param bool $resizeLogicalViewport False while a blocking operation owns the layout.
      * @return void
      */
-    protected function syncScreenSize(): void
+    protected function syncScreenSize(bool $resizeLogicalViewport = true): void
     {
-        if ($this->rendererRuntime !== null) {
-            return; // Renderer sessions fix the Game grid independently of the terminal.
+        if ($this->rendererRuntime !== null || Console::isComposing()) {
+            // Graphical grids are independent; terminal changes require a completed frame.
+            return;
         }
         // Throttle expensive terminal size probes to avoid per-frame shell_exec() calls.
         // Uses static variables so the throttle state persists across calls without
@@ -1104,9 +1114,15 @@ SPLASH_SCREEN;
 
         $lastProbeTime = $now;
 
-        $availableSize = $this->resolveScreenSize($this->screenRequests ?? []);
+        $physical = Console::getAvailableSize();
+        if (!$resizeLogicalViewport) {
+            Console::syncTerminalViewport($physical['width'], $physical['height']);
+            return;
+        }
+        $availableSize = $this->resolveScreenSize($this->screenRequests ?? [], $physical);
 
         if ($availableSize['width'] === $this->width && $availableSize['height'] === $this->height) {
+            Console::syncTerminalViewport($physical['width'], $physical['height']);
             return;
         }
 
@@ -1122,6 +1138,7 @@ SPLASH_SCREEN;
         ConfigStore::get(PlaySettings::class)->set('screen.height', $this->height);
 
         Console::syncDimensions($this->width, $this->height);
+        Console::syncTerminalViewport($physical['width'], $physical['height']);
         $this->sceneManager->resizeViewports($this->width, $this->height);
 
         $currentScene = $this->sceneManager->currentScene;

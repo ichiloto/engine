@@ -41,9 +41,19 @@ it('resolves real Game constructor geometry without mistaking injected defaults 
       foreach ($observation['cameras'] as $camera) { expect($camera)->toBe($size); }
     };
     $assertGeometry($observations, $expected);
+    if (isset($scenario['origin'])) {
+      expect($observations['origin'])->toBe($scenario['origin']);
+      $row = $scenario['origin']['y'] + 1;
+      $column = $scenario['origin']['x'] + 1;
+      expect($output)->toContain("\e[?1049h\e[?7l\e[0m\e[2J\e[{$row};{$column}H");
+    }
     foreach ($scenario['resizes'] ?? [] as $index => $resize) {
       $assertGeometry($observations['resizes'][$index], $resize['expected']);
       expect($observations['resizes'][$index]['preserved'])->toBe($resize['preserved']);
+      if (isset($resize['origin'])) {
+        expect($observations['resizes'][$index]['origin'])->toBe($resize['origin'])
+          ->and($observations['resizes'][$index]['probes'])->toBe(($resize['composing'] ?? false) ? 0 : 1);
+      }
     }
     if ($scenario['start'] ?? false) {
       $hello = json_decode(file($root . '/wire.ndjson')[0], true);
@@ -65,6 +75,23 @@ it('resolves real Game constructor geometry without mistaking injected defaults 
   'graphical large terminal' => [[], ['width' => 135, 'height' => 36], ['renderer' => 'gpui', 'terminal' => '60 220', 'start' => true]],
   'terminal large tty is capped' => [[], ['width' => 135, 'height' => 36], ['terminal' => '60 220']],
   'terminal startup does not resize the physical window' => [[], ['width' => 135, 'height' => 36], ['terminal' => '60 220', 'boot' => true]],
+  'terminal centered viewport follows margin-only resizes on both axes' => [[], ['width'=>135,'height'=>36], [
+    'terminal'=>'38 186','boot'=>true,'origin'=>['x'=>25,'y'=>1], 'resizes'=>[
+      ['terminal'=>'60 220','expected'=>['width'=>135,'height'=>36],'preserved'=>true,'origin'=>['x'=>42,'y'=>12]],
+      ['terminal'=>'39 187','expected'=>['width'=>135,'height'=>36],'preserved'=>true,'origin'=>['x'=>26,'y'=>1]],
+      ['terminal'=>'24 80','expected'=>['width'=>80,'height'=>24],'preserved'=>false,'origin'=>['x'=>0,'y'=>0]],
+      ['terminal'=>'38 186','expected'=>['width'=>135,'height'=>36],'preserved'=>false,'origin'=>['x'=>25,'y'=>1]],
+  ]]],
+  'terminal smaller explicit viewport centers without changing requests' => [['options'=>['width'=>100,'height'=>20]],
+    ['width'=>100,'height'=>20], ['terminal'=>'38 186','boot'=>true,'origin'=>['x'=>43,'y'=>9]]],
+  'blocked frames center without resetting modal layout or interrupting composition' => [[], ['width'=>135,'height'=>36], [
+    'terminal'=>'38 186','boot'=>true,'origin'=>['x'=>25,'y'=>1], 'resizes'=>[
+      ['terminal'=>'60 220','blocked'=>true,'composing'=>true,'expected'=>['width'=>135,'height'=>36],'preserved'=>true,'origin'=>['x'=>25,'y'=>1]],
+      ['terminal'=>'60 220','blocked'=>true,'expected'=>['width'=>135,'height'=>36],'preserved'=>true,'origin'=>['x'=>42,'y'=>12]],
+      ['terminal'=>'24 80','blocked'=>true,'expected'=>['width'=>135,'height'=>36],'preserved'=>true,'origin'=>['x'=>0,'y'=>0]],
+      ['terminal'=>'24 80','expected'=>['width'=>80,'height'=>24],'preserved'=>false,'origin'=>['x'=>0,'y'=>0]],
+      ['terminal'=>'38 186','expected'=>['width'=>135,'height'=>36],'preserved'=>false,'origin'=>['x'=>25,'y'=>1]],
+  ]]],
   'terminal small tty stays usable' => [[], ['width' => 80, 'height' => 24], ['terminal' => '24 80']],
   'terminal wide tty caps width only' => [[], ['width' => 135, 'height' => 24], ['terminal' => '24 220']],
   'terminal tall tty caps height only' => [[], ['width' => 80, 'height' => 36], ['terminal' => '60 80']],
