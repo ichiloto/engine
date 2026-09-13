@@ -9,6 +9,7 @@ use Ichiloto\Engine\IO\InputSources\InputSourceInterface;
 use Ichiloto\Engine\IO\InputSources\RendererInputSource;
 use Ichiloto\Engine\Rendering\Presentation\RendererPresentation;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
+use Ichiloto\Engine\Rendering\Presentation\PresentationTileBatch;
 use Ichiloto\Engine\Rendering\RendererClient;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteCollector;
 use Ichiloto\Engine\Rendering\Tiles\GraphicalTileProviderHostInterface;
@@ -20,6 +21,7 @@ use Ichiloto\Engine\Rendering\Transport\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererTransportInterface;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
+use InvalidArgumentException;
 use LogicException;
 use Throwable;
 
@@ -50,6 +52,12 @@ final class RendererRuntime
       throw new LogicException('A RendererRuntime owns exactly one session.');
     }
     $grid = new RendererGridConfig($columns, $rows, $this->config->cellWidth, $this->config->cellHeight);
+    if (in_array(RendererSessionConfig::TILE_BATCHES, $this->config->requiredCapabilities, true)
+      && $columns * $rows > PresentationTileBatch::MAX_CELLS) {
+      throw new InvalidArgumentException(sprintf(
+        'Tile-enabled Engine viewports require at most %d cells; reduce the configured columns or rows.',
+        PresentationTileBatch::MAX_CELLS));
+    }
     $session = new RendererSessionConfig($title, $this->config->assetRoot, $grid, $this->config->protocol,
       $this->config->requiredCapabilities);
     $this->started = true;

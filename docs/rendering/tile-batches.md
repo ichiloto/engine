@@ -80,10 +80,12 @@ unmapped symbols retain terminal presentation.
 
 Only the current visible in-bounds map region is collected, through the same
 Camera bounds and projection as text. No duplicate map or collision grid exists.
-Collection stops at the protocol's 32,768-cell frame budget in row-major order.
-Larger custom viewports retain excess terrain as text; only emitted tile cells
-are removed from the text layers, so a valid large grid does not crash or lose
-terrain. This does not change the protocol limit or the canonical map.
+An Engine runtime requiring `tile_batches` accepts at most 32,768 viewport cells
+so one fully mapped field fits the frame budget. Larger configurations fail
+before starting the renderer or changing input/Console ownership; reduce columns
+or rows rather than silently degrading terrain. This is an Engine runtime policy,
+not a change to low-level protocol grid limits. Custom overlapping batches and
+styled text still have their independently validated aggregate frame limits.
 Graphical snapshots omit a replaced terrain write and its opaque underlay using
 draw provenance, not equality with the final glyph. Later text, including an
 identical glyph or a deliberate blank, remains opaque. Canonical Console output
