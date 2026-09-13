@@ -824,8 +824,7 @@ class Game implements CanRun, SubjectInterface
         }
         Console::setTerminalOutputEnabled($this->rendererRuntime === null);
         if ($this->rendererRuntime === null) {
-            $physical = Console::getAvailableSize();
-            Console::syncTerminalViewport($physical['width'], $physical['height'], repaint: false);
+            $this->applyTerminalScreenSize(Console::getAvailableSize(), repaint: false);
         }
         TerminalCapabilities::reset();
         TerminalCapabilities::detect();
@@ -1114,15 +1113,24 @@ SPLASH_SCREEN;
 
         $lastProbeTime = $now;
 
-        $physical = Console::getAvailableSize();
+        $this->applyTerminalScreenSize(Console::getAvailableSize(), $resizeLogicalViewport);
+    }
+
+    /**
+     * Applies one physical probe to every geometry owner, including before
+     * startup's first render. Startup defers painting until the alternate screen.
+     * @param array{width: int, height: int} $physical
+     */
+    private function applyTerminalScreenSize(array $physical, bool $resizeLogicalViewport = true, bool $repaint = true): void
+    {
         if (!$resizeLogicalViewport) {
-            Console::syncTerminalViewport($physical['width'], $physical['height']);
+            Console::syncTerminalViewport($physical['width'], $physical['height'], repaint: $repaint);
             return;
         }
         $availableSize = $this->resolveScreenSize($this->screenRequests ?? [], $physical);
 
         if ($availableSize['width'] === $this->width && $availableSize['height'] === $this->height) {
-            Console::syncTerminalViewport($physical['width'], $physical['height']);
+            Console::syncTerminalViewport($physical['width'], $physical['height'], repaint: $repaint);
             return;
         }
 
@@ -1138,12 +1146,12 @@ SPLASH_SCREEN;
         ConfigStore::get(PlaySettings::class)->set('screen.height', $this->height);
 
         Console::syncDimensions($this->width, $this->height);
-        Console::syncTerminalViewport($physical['width'], $physical['height']);
+        Console::syncTerminalViewport($physical['width'], $physical['height'], repaint: $repaint);
         $this->sceneManager->resizeViewports($this->width, $this->height);
 
         $currentScene = $this->sceneManager->currentScene;
 
-        if ($currentScene && method_exists($currentScene, 'onScreenResize')) {
+        if ($repaint && $currentScene && method_exists($currentScene, 'onScreenResize')) {
             $currentScene->onScreenResize($this->width, $this->height);
         }
     }

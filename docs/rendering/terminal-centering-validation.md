@@ -25,7 +25,9 @@ decisions, using its existing quarter-second throttle.
 Completed blocked dialogue/timer frames also refresh margins without scene
 updates. Composition defers that refresh. While a blocking operation owns the
 layout, a physical shrink does not rebuild the logical buffer or Cameras;
-clipping is possible until normal gameplay resumes and applies logical sizing.
+native writes are clipped to complete glyphs inside the physical bounds until
+normal gameplay resumes and applies logical sizing. A partially visible wide
+glyph is blanked only in the output copy and returns intact on regrowth.
 Startup clears after entering the alternate screen, not on the primary shell.
 
 ## Automated validation
@@ -47,6 +49,39 @@ Startup clears after entering the alternate screen, not on the primary shell.
   These include the real blocked-frame callback and deferred logical resizing.
 - Renderer task's read-only patch review found no remaining blockers. Its four
   viewport tests and one fractional tile-edge test pass; no Rust edits were needed.
+
+## PR 88 review follow-up
+
+The physical-clipping review found that replaying a retained 135x36 modal into
+an 80x24 terminal overwrote its bottom row and right edge with off-screen cells.
+Both native row writers now use `terminalRowSpan()`, including immediate writes,
+batched spans, full/differential recomposition and explicit region repaint.
+The formatter accepts complete composed cells and never mutates the retained
+logical canvas or structured snapshots.
+
+Startup now applies its fresh physical probe through the same logical geometry
+synchronization as ordinary resizing, before the first splash or scene render.
+This updates Game, Console, settings, options and all camera viewports together,
+without drawing onto the primary shell. Logical dimension mutations recompute
+the origin immediately and invalidate presentation even after a round trip back
+to the old dimensions. Explicit terminal resize requests invalidate the old
+physical measurement and use a neutral origin until the next probe. Geometry
+mutations are rejected before any side effects during an active frame.
+
+- Full Engine suite: **1434 passed, 1 existing skip, 5923 assertions**.
+- Focused Console, real-Game geometry and launch suite: **133 passed, 1096 assertions**.
+- Serial PHPStan (`--debug --memory-limit=1G`): **no errors**.
+- Regressions cover all native drawing paths, styled CJK, combining marks,
+  emoji selectors, either half of a wide glyph, shrink/regrowth, startup
+  shrink/growth, explicit requests and direct geometry mutations.
+- Independent Pyte replay of the original 80x24 reproduction now preserves
+  `VISIBLE` on row 24, leaves the right edge blank and suppresses a CJK glyph
+  crossing column 80. The complete 135x36 logical canvas stays unchanged.
+
+For the parent's overlay merge, both native callers must supply overlay-composed
+row cells to `terminalRowSpan()`. Keep its shared physical clipping and translated
+cursor address rather than restoring the overlay branch's raw span formatter.
+Combined overlay integration and native-window acceptance remain parent gates.
 
 ## Limits
 

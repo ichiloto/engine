@@ -42,6 +42,9 @@ class ConstructorGeometryGame extends Game
 $game = new ConstructorGeometryGame('Constructor geometry', ...$arguments, rendererRegistry: $registry);
 foreach ($scenario['configure'] ?? [] as $options) { $game->configure($options); }
 if ($scenario['attach'] ?? false) { $game->useRendererRuntime($runtime); }
+if (isset($scenario['terminalBeforeStart'])) {
+  putenv('ICHILOTO_TEST_TERMINAL_SIZE=' . $scenario['terminalBeforeStart']);
+}
 if ($scenario['start'] ?? false) { $game->openInput(); }
 if ($scenario['boot'] ?? false) { $game->boot(); }
 file_put_contents('dimensions.json', json_encode([
@@ -54,6 +57,8 @@ function geometryObservations(Game $game): array
     $cameras[] = ['width' => $scene->camera->screen->getWidth(), 'height' => $scene->camera->screen->getHeight()];
   }
   return [
+    'game' => ['width' => new \ReflectionProperty(Game::class, 'width')->getValue($game),
+      'height' => new \ReflectionProperty(Game::class, 'height')->getValue($game)],
     'grid' => ['width' => Console::getWidth(), 'height' => Console::getHeight()],
     'cameras' => $cameras, 'settings' => ['width' => get_screen_width(), 'height' => get_screen_height()],
     'options' => $game->options['screen'],

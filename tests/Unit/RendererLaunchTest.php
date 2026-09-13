@@ -19,6 +19,10 @@ use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
 use Ichiloto\Engine\Rendering\Transport\ProcessRendererTransport;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererProtocolVersion;
+use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
+use Ichiloto\Engine\Scenes\SceneManager;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\PlaySettings;
 use Tests\Support\Input\FakeRendererTransport;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
@@ -32,6 +36,8 @@ final class LaunchIntentGameProbe extends Game
     $this->height = 36;
     $this->observers = new ItemList(ObserverInterface::class);
     $this->staticObservers = new ItemList(StaticObserverInterface::class);
+    $this->sceneManager = new ReflectionClass(SceneManager::class)->newInstanceWithoutConstructor();
+    new ReflectionProperty(SceneManager::class, 'scenes')->setValue($this->sceneManager, new ItemList(SceneInterface::class));
     new ReflectionProperty(Game::class, 'rendererRegistry')->setValue($this, $registry);
   }
 
@@ -44,6 +50,8 @@ beforeEach(function () {
   putenv('ICHILOTO_RENDERER');
   $this->consoleState = new ReflectionClass(Console::class)->getStaticProperties();
   $this->inputState = new ReflectionClass(InputManager::class)->getStaticProperties();
+  $this->playSettings = ConfigStore::has(PlaySettings::class) ? ConfigStore::get(PlaySettings::class) : null;
+  ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 135, 'height' => 36]));
   $this->stdinBlocked = stream_get_meta_data(STDIN)['blocked'];
   $this->temporary = sys_get_temp_dir() . '/ichiloto-renderer-manifest-' . bin2hex(random_bytes(8));
   mkdir($this->temporary);
@@ -68,6 +76,7 @@ afterEach(function () {
   ob_end_clean();
   putenv($this->environment === false ? 'ICHILOTO_RENDERER' : 'ICHILOTO_RENDERER=' . $this->environment);
   stream_set_blocking(STDIN, $this->stdinBlocked);
+  $this->playSettings === null ? ConfigStore::remove(PlaySettings::class) : ConfigStore::put(PlaySettings::class, $this->playSettings);
   foreach ([Console::class => $this->consoleState, InputManager::class => $this->inputState] as $class => $state) {
     foreach ($state as $name => $value) {
       new ReflectionProperty($class, $name)->setValue(null, $value);
