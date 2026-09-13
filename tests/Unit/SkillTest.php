@@ -58,7 +58,10 @@ describe('basic skills', function() {
 
   it('can deal HP damage', function(int $criticalRoll, float $multiplier, bool $critical) {
     $random = $this->createMock(\Ichiloto\Engine\Battle\Resolution\CombatRandomSource::class);
-    $random->expects($this->once())->method('nextInt')->with(1, 100)->willReturn($criticalRoll);
+    $random->expects($this->exactly(2))->method('nextInt')->willReturnMap([
+      [124, 124, 124],
+      [1, 100, $criticalRoll],
+    ]);
     $this->skillEffectContext->random = $random;
     $userAttack = 31;
     $this->user->stats->attack = $userAttack;
