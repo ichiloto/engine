@@ -128,6 +128,23 @@ does not trigger those operations. The engine does not resize the terminal
 window to match its logical drawing area; unused terminal space stays unused.
 Low-level physical size probes still return the actual terminal dimensions.
 
+The complete logical viewport, including empty cells, is centered on both axes.
+Its zero-based physical origin is `floor(max(0, physical - logical) / 2)` per
+axis. A 135x36 grid in a 186x38 terminal therefore starts at (25, 1), leaving
+25 columns on the left, 26 on the right and one row above and below. Only the
+terminal output boundary applies this origin; buffers, Cameras, coordinates and
+graphical snapshots stay logical. Direct writes, batched frames and legacy
+one-based absolute Cursor operations share the same translation.
+
+A physical resize clears stale margins and replays the canonical screen even
+when the capped logical dimensions or rounded origin stay unchanged. It uses
+the existing quarter-second size probe, not additional probes per draw. Blocked
+dialogue/timer frames also refresh margins once composition has finished,
+without re-entering scene updates. Logical resizing waits for normal gameplay
+to resume while a blocking operation owns the layout; shrinking the physical
+terminal below that retained layout can temporarily clip it. See
+[terminal centering validation](terminal-centering-validation.md).
+
 Maps larger than this area scroll normally. A physical terminal smaller than
 135x36 uses its available space, but cannot display the complete fixed battle
 layout; the cap does not add scaling or a small-screen layout. See the

@@ -208,6 +208,10 @@ class Console
    */
   private static $terminalOutputStream = null;
   private static bool $terminalOutputEnabled = true;
+  /** @var array{int, int, int, int}|null Physical and logical geometry last presented. */
+  private static ?array $terminalViewport = null;
+  private static int $terminalOffsetX = 0;
+  private static int $terminalOffsetY = 0;
 
   /** Select the physical sink before borrowing a terminal screen; buffers remain active. */
   public static function setTerminalOutputEnabled(bool $enabled): void
@@ -220,6 +224,8 @@ class Console
     }
     self::$terminalOutputEnabled = $enabled;
     if (!$enabled) {
+      self::$terminalViewport = null;
+      self::$terminalOffsetX = self::$terminalOffsetY = 0;
       self::closeTerminalOutputStream();
     } elseif (self::$output !== null) {
       self::openTerminalOutputStream();
@@ -257,6 +263,7 @@ class Console
     Console::cursor()->disableBlinking();
     self::$width = intval($options['width'] ?? $availableSize['width']);
     self::$height = intval($options['height'] ?? $availableSize['height']);
+    self::syncTerminalViewport($availableSize['width'], $availableSize['height'], repaint: false);
     self::$output = new ConsoleOutput();
     self::openTerminalOutputStream();
     self::clear();
@@ -314,6 +321,8 @@ class Console
     self::cursor()->enableBlinking();
     self::closeTerminalOutputStream();
     self::$terminalHandedBack = true;
+    self::$terminalViewport = null;
+    self::$terminalOffsetX = self::$terminalOffsetY = 0;
   }
 
   /**
@@ -391,7 +400,7 @@ class Console
     //
     // Update the canonical buffer only after the physical clear succeeds. A
     // failed write therefore cannot leave engine state ahead of the screen.
-    self::emitControlSequence("\033[0m\033[2J\033[H");
+    self::emitControlSequence("\033[0m\033[2J" . self::terminalHomeAddress());
     self::$buffer = self::getEmptyBuffer();
     self::$layerCells = [];
     self::$layerPriorities = [];
@@ -547,6 +556,54 @@ class Console
     self::$layerPriorities = [];
     self::$frameRows = [];
     self::$recomposeRepaintRows = [];
+  }
+
+  /**
+   * Center the complete logical surface inside the physical terminal. No TTY
+   * probes or logical buffer/Camera changes occur at this output boundary.
+   */
+  public static function syncTerminalViewport(int $width, int $height, bool $repaint = true): bool
+  {
+    if (!self::$terminalOutputEnabled) { return false; }
+    $viewport = [max(1, $width), max(1, $height), self::$width, self::$height];
+    if ($viewport === self::$terminalViewport) { return false; }
+    if (self::isComposing()) {
+      throw new \LogicException('Terminal viewport changes require a completed logical frame.');
+    }
+    $previous = [self::$terminalViewport, self::$terminalOffsetX, self::$terminalOffsetY];
+    self::$terminalViewport = $viewport;
+    self::$terminalOffsetX = intdiv(max(0, $width - self::$width), 2);
+    self::$terminalOffsetY = intdiv(max(0, $height - self::$height), 2);
+    try {
+      if ($repaint) {
+        // A physical resize may reflow old terminal rows even if the logical
+        // grid and origin are unchanged. Clear all stale margins, then replay.
+        self::emitControlSequence("\033[0m\033[2J" . self::terminalHomeAddress());
+        self::repaintRegion(0, 0, self::$width, self::$height);
+      }
+    } catch (\Throwable $error) {
+      [self::$terminalViewport, self::$terminalOffsetX, self::$terminalOffsetY] = $previous;
+      throw $error;
+    }
+    return true;
+  }
+
+  /** @return array{x: int, y: int} Zero-based physical margins, never logical coordinates. */
+  public static function getTerminalOrigin(): array
+  {
+    return ['x' => self::$terminalOffsetX, 'y' => self::$terminalOffsetY];
+  }
+
+  /** Existing one-based cursor coordinates translated exactly once at output. */
+  public static function terminalCursorAddress(int $column, int $row): string
+  {
+    return sprintf("\033[%d;%dH", $row + self::$terminalOffsetY, $column + self::$terminalOffsetX);
+  }
+
+  private static function terminalHomeAddress(): string
+  {
+    return self::$terminalOffsetX === 0 && self::$terminalOffsetY === 0
+      ? "\033[H" : self::terminalCursorAddress(1, 1);
   }
 
   /**
@@ -1081,12 +1138,8 @@ class Console
       }
 
       foreach ($spans as $span) {
-        $payload .= sprintf(
-          "\033[%d;%dH%s",
-          $row + 1,
-          $span['start'] + 1,
-          self::getBufferSegment($row, $span['start'], $span['end']),
-        );
+        $payload .= self::terminalCursorAddress($span['start'] + 1, $row + 1)
+          . self::getBufferSegment($row, $span['start'], $span['end']);
       }
     }
 
@@ -1345,12 +1398,8 @@ class Console
     // Positioning and content form one indivisible terminal operation. If
     // they travel through different descriptors, the text may arrive before
     // its cursor move and corrupt an unrelated part of the screen.
-    self::writeToTerminal(sprintf(
-      "\033[%d;%dH%s",
-      $row + 1,
-      $start + 1,
-      self::getBufferSegment($row, $start, $end),
-    ));
+    self::writeToTerminal(self::terminalCursorAddress($start + 1, $row + 1)
+      . self::getBufferSegment($row, $start, $end));
   }
 
   /** Coalesces overlapping changed spans while preserving clean gaps. */
