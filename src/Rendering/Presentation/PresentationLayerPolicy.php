@@ -10,10 +10,17 @@ use InvalidArgumentException;
 /** Automatic PHP Game composition policy, never a constraint on generic sprite DTOs. */
 final class PresentationLayerPolicy
 {
+  public const TERRAIN = -100;
+  public const TERRAIN_ID = 'terrain';
   public const WORLD = 0;
   public const UI = 1000;
   public const NOTIFICATIONS = 2000;
   public const TRANSITION = 3000;
+
+  public static function terrain(callable $draw): void
+  {
+    Console::withLayer(self::TERRAIN_ID, $draw, self::WORLD, replaceUnderlying: true);
+  }
 
   public static function ui(object $element, callable $draw): void
   {

@@ -2,6 +2,9 @@
 
 namespace Ichiloto\Engine\Scenes\Game;
 
+use Ichiloto\Engine\Rendering\Tiles\GraphicalTileCollector;
+use Ichiloto\Engine\Rendering\Tiles\GraphicalTileProviderHostInterface;
+
 use Ichiloto\Engine\Audio\FieldMusicCatalog;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\GameState;
@@ -68,7 +71,7 @@ use Override;
  *
  * @package Ichiloto\Engine\Scenes\Game
  */
-class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInterface
+class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInterface, GraphicalTileProviderHostInterface
 {
     private ?string $inheritedMapMusic = null;
     private ?string $lastFieldMusic = null;
@@ -79,11 +82,22 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
 
     public function getGraphicalSpriteProviders(): iterable
     {
-        if ($this->state instanceof FieldState && $this->state === $this->fieldState
-            && $this->cinematicController?->active() === null && $this->player?->isActive) {
+        if ($this->hasGraphicalFieldPresentation()) {
             // Dialogue borrows field input; it does not replace field presentation.
             yield $this->player;
         }
+    }
+
+    public function getGraphicalTileBatches(): array
+    {
+        return $this->hasGraphicalFieldPresentation()
+            ? new GraphicalTileCollector()->collect($this->mapManager?->tiles2d, $this->camera) : [];
+    }
+
+    private function hasGraphicalFieldPresentation(): bool
+    {
+        return $this->state instanceof FieldState && $this->state === $this->fieldState
+            && $this->cinematicController?->active() === null && (bool)$this->player?->isActive;
     }
 
     /**

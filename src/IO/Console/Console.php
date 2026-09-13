@@ -116,6 +116,7 @@ class Console
   private static bool $trackLayers = false;
   private static ?string $activeLayer = null;
   private static int $activeLayerPriority = 0;
+  private static bool $replaceUnderlyingLayer = false;
   /** @var array<string, int> Named layer priorities in drawing order. */
   private static array $layerPriorities = [];
   /** @var array<int, array<int, array{base: string, layers: array<string, string>}>> */
@@ -129,7 +130,7 @@ class Console
     self::$layerPriorities = [];
   }
 
-  public static function withLayer(string $id, callable $draw, int $priority = 0): void
+  public static function withLayer(string $id, callable $draw, int $priority = 0, bool $replaceUnderlying = false): void
   {
     if (self::$trackLayers) {
       new PresentationTextLayer($id, $priority, []);
@@ -137,8 +138,10 @@ class Console
     }
     $previous = self::$activeLayer;
     $previousPriority = self::$activeLayerPriority;
+    $previousReplaceUnderlying = self::$replaceUnderlyingLayer;
     self::$activeLayer = $id;
     self::$activeLayerPriority = $priority;
+    self::$replaceUnderlyingLayer = $replaceUnderlying;
     if (self::$trackLayers && $previous !== $id) {
       unset(self::$layerPriorities[$id]);
       self::$layerPriorities[$id] = $priority;
@@ -148,6 +151,7 @@ class Console
     } finally {
       self::$activeLayer = $previous;
       self::$activeLayerPriority = $previousPriority;
+      self::$replaceUnderlyingLayer = $previousReplaceUnderlying;
     }
   }
 
@@ -171,7 +175,8 @@ class Console
         unset(self::$layerCells[$row][$x]);
         continue;
       }
-      $entry = self::$layerCells[$row][$x] ?? ['base' => $before[$x] ?? ' ', 'layers' => []];
+      $entry = self::$replaceUnderlyingLayer ? ['base' => ' ', 'layers' => []]
+        : (self::$layerCells[$row][$x] ?? ['base' => $before[$x] ?? ' ', 'layers' => []]);
       self::$layerPriorities[self::$activeLayer] = self::$activeLayerPriority;
       // One entry per layer/cell bounds retained state even across repeated incremental redraws.
       unset($entry['layers'][self::$activeLayer]);
@@ -826,8 +831,12 @@ class Console
     return new ConsoleFrameSnapshot(self::$width, self::$height, $rows);
   }
 
-  /** @param list<string> $excludedLayers Renderer-only exclusions; Console stays untouched. */
-  public static function presentationSnapshot(array $excludedLayers = []): ConsolePresentationSnapshot
+  /**
+   * @param list<string> $excludedLayers Renderer-only exclusions; Console stays untouched.
+   * @param array<string, array<int, array<int, true>>> $replacedLayerCells Layer/row/column masks.
+   * Replacement removes the named contribution and its underlay, never later writes.
+   */
+  public static function presentationSnapshot(array $excludedLayers = [], array $replacedLayerCells = []): ConsolePresentationSnapshot
   {
     $cellsStart = LatencyTrace::now();
     if (self::isComposing()) {
@@ -844,6 +853,14 @@ class Console
       foreach (self::$layerCells[$y] ?? [] as $x => $entry) {
         $world[$y][$x] = $entry['base'];
         foreach ($entry['layers'] as $id => $cell) {
+          if (isset($replacedLayerCells[$id][$y][$x])) {
+            unset($world[$y][$x]);
+            foreach (array_keys($entry['layers']) as $underlay) {
+              if ($underlay === $id) { break; }
+              unset($named[$underlay][$y][$x]);
+            }
+            continue;
+          }
           if (!isset($excluded[$id])) { $named[$id][$y][$x] = $cell; }
         }
       }

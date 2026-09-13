@@ -1,0 +1,1 @@
+{"protocol":2,"type":"hello","title":"Tile fixture","assetRoot":"/__fixture_assets__","grid":{"columns":135,"rows":36,"cellWidth":10,"cellHeight":20},"requiredCapabilities":["sprite_source_rect","tile_batches"]}
