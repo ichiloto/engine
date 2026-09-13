@@ -562,8 +562,8 @@ class Game implements CanRun, SubjectInterface
     /**
      * Resolves the screen size that should be used for the current session.
      *
-     * Auto dimensions follow the terminal in terminal mode. Graphical sessions
-     * default to the full battle footprint, independently of their launching TTY.
+     * Terminal dimensions fit the physical terminal up to the battle footprint.
+     * Graphical sessions default to that footprint independently of their TTY.
      *
      * @param array<string, mixed> $options The current game options.
      * @return array{width: int, height: int} The resolved screen size.
@@ -579,11 +579,16 @@ class Game implements CanRun, SubjectInterface
         $requestedWidth = array_key_exists('width', $options) ? $options['width'] : ($options['screen']['width'] ?? $this->width);
         $requestedHeight = array_key_exists('height', $options) ? $options['height'] : ($options['screen']['height'] ?? $this->height);
 
-        return [
+        $size = [
             'width' => $this->resolveScreenDimension($requestedWidth, $availableSize['width'], DEFAULT_SCREEN_WIDTH,
                 isset($options['width']) || isset($options['screen']['width'])),
             'height' => $this->resolveScreenDimension($requestedHeight, $availableSize['height'], DEFAULT_SCREEN_HEIGHT,
                 isset($options['height']) || isset($options['screen']['height'])),
+        ];
+
+        return $graphical ? $size : [
+            'width' => min($size['width'], $availableSize['width'], BattleScreen::WIDTH),
+            'height' => min($size['height'], $availableSize['height'], BattleScreen::HEIGHT),
         ];
     }
 
@@ -767,7 +772,6 @@ class Game implements CanRun, SubjectInterface
         // bottom-edge HUD.
         Console::disableLineWrap();
         Console::setTerminalName($this->name);
-        Console::setTerminalSize($this->width, $this->height);
         Console::cursor()->disableBlinking();
         Console::cursor()->hide();
 
@@ -1100,7 +1104,7 @@ SPLASH_SCREEN;
 
         $lastProbeTime = $now;
 
-        $availableSize = Console::getAvailableSize();
+        $availableSize = $this->resolveScreenSize($this->screenRequests ?? []);
 
         if ($availableSize['width'] === $this->width && $availableSize['height'] === $this->height) {
             return;

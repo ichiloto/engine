@@ -269,8 +269,9 @@ it('rejects fixed-grid mismatch and never captures unfinished composition', func
   expect(fn() => $this->runtime->present(null))->toThrow(InvalidArgumentException::class, 'fixed renderer session grid');
 });
 
-it('honors explicit grid dimensions even when they equal the legacy terminal auto defaults', function ($options) {
+it('honors explicit graphical grid dimensions even when they equal the legacy terminal auto defaults', function ($options) {
   $game = new RendererRuntimeGameProbe();
+  $game->useRendererRuntime($this->runtime);
   $size = new ReflectionMethod(Game::class, 'resolveScreenSize')->invoke($game, $options);
   expect($size)->toBe(['width' => DEFAULT_SCREEN_WIDTH, 'height' => DEFAULT_SCREEN_HEIGHT]);
 })->with([
@@ -278,12 +279,15 @@ it('honors explicit grid dimensions even when they equal the legacy terminal aut
   [['screen' => ['width' => DEFAULT_SCREEN_WIDTH, 'height' => DEFAULT_SCREEN_HEIGHT]]],
 ]);
 
-it('retains legacy terminal auto sizing when dimensions were not explicitly requested', function () {
+it('caps terminal auto sizing at the battle footprint', function () {
   $game = new RendererRuntimeGameProbe();
   new ReflectionProperty(Game::class, 'width')->setValue($game, DEFAULT_SCREEN_WIDTH);
   new ReflectionProperty(Game::class, 'height')->setValue($game, DEFAULT_SCREEN_HEIGHT);
   $available = Console::getAvailableSize();
-  expect(new ReflectionMethod(Game::class, 'resolveScreenSize')->invoke($game, []))->toBe($available);
+  expect(new ReflectionMethod(Game::class, 'resolveScreenSize')->invoke($game, []))->toBe([
+    'width' => min($available['width'], \Ichiloto\Engine\Battle\UI\BattleScreen::WIDTH),
+    'height' => min($available['height'], \Ichiloto\Engine\Battle\UI\BattleScreen::HEIGHT),
+  ]);
 });
 
 it('presents the same field ownership from real Game renders and blocked ticks without capturing partial frames', function () {

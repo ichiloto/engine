@@ -95,7 +95,7 @@ do not change this default, and switching scenes does not resize the grid.
 Explicit flat or nested width/height options are honored per axis, even when
 equal to legacy constructor defaults. Non-default positional dimensions also
 remain supported. A dimension left on auto uses the battle footprint for a
-graphical session and the available terminal dimension for a terminal session.
+graphical session and the capped available dimension for a terminal session.
 Caller requests are retained separately from resolved dimensions, so attaching
 a runtime after construction does not turn terminal measurements into explicit
 graphical overrides. All registered camera viewports are synchronized before
@@ -107,10 +107,32 @@ size, not the number of available layout cells. The physical GPUI window remains
 resizable and scales/centers this fixed canvas rather than changing its grid.
 Maps larger than the viewport continue to scroll through the PHP-owned Camera.
 
-The grid is fixed until the session ends. Later terminal resizing does not
-change Game, Camera or protocol geometry. Terminal-only sessions retain their
-existing dynamic resize path. Neither protocol negotiates a new logical grid
+The graphical grid is fixed until the session ends. Later terminal resizing does
+not change Game, Camera or protocol geometry. Terminal-only sessions use the
+bounded dynamic resize path below. Neither protocol negotiates a new logical grid
 on resize; GPUI's existing viewport fitting is presentation-only.
+
+### Native terminal cap
+
+Native terminal sessions are limited to **135x36 cells**, using the same
+`BattleScreen` dimensions as the graphical default. Each axis is the minimum
+of the caller's resolved request, the physical terminal dimension and the battle
+dimension. This cap applies to explicit terminal sizes too; smaller requests
+remain effective through terminal shrink/regrow cycles. Graphical overrides
+are not capped by this terminal policy.
+
+Startup and the existing throttled resize check use the same resolution rule.
+Only changes to the effective grid reset the buffer, update all camera viewports
+and notify the current scene. Resizing between two larger physical terminals
+does not trigger those operations. The engine does not resize the terminal
+window to match its logical drawing area; unused terminal space stays unused.
+Low-level physical size probes still return the actual terminal dimensions.
+
+Maps larger than this area scroll normally. A physical terminal smaller than
+135x36 uses its available space, but cannot display the complete fixed battle
+layout; the cap does not add scaling or a small-screen layout. See the
+[terminal cap validation](terminal-viewport-validation.md) for measured
+composition costs and platform limitations.
 
 ## Output ownership
 
@@ -252,13 +274,13 @@ evidence are in [S7-E validation](s7-e-validation.md).
 The logical game surface, native terminal dimensions, and graphical renderer
 viewport are different concepts. GPUI resize is presentation-only: it must not
 change Console dimensions, Camera geometry or the session grid. Terminal mode
-retains its existing size-probe policy. Larger maps still scroll through the
+caps its existing size-probe results as described above. Larger maps still scroll through the
 PHP-owned Camera rather than becoming larger protocol grids automatically.
 
 Future configuration may select logical resolutions, preferred window size,
 resizability, scaling policy or fullscreen independently. Current renderer defaults
 are not permanent restrictions on developers/players. None of those preferences,
-resize messages or new terminal resize policies is implemented by this follow-up.
+resize messages or public window-preference APIs is implemented by this follow-up.
 
 ## Spike limits
 
