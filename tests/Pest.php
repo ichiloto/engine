@@ -148,7 +148,7 @@ function makeCameraTestScene(): SceneInterface
  * Doors are given a position on a 20x10 event layer, which is where the
  * direction of the place behind them comes from.
  *
- * @param array<string, array{name: string, region: string, to?: array<string, array{0: int, 1: int}>}> $maps The maps, keyed by id.
+ * @param array<string, array{name: string, region: string, station?: array{x: int, y: int}, to?: array<string, array{0: int, 1: int}>}> $maps The maps, keyed by id.
  * @return string The maps directory.
  */
 function writeTestMaps(array $maps): string
@@ -180,12 +180,14 @@ function writeTestMaps(array $maps): string
       PHP;
     }
 
+    $station = var_export($map['station'] ?? null, true);
     file_put_contents($directory . DIRECTORY_SEPARATOR . "{$leaf}.data.php", <<<PHP
     <?php
 
     return [
       'name' => '{$map['name']}',
       'region' => '{$map['region']}',
+      'station' => {$station},
       'events' => [
     {$events}  ],
     ];

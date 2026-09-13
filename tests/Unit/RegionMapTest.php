@@ -107,19 +107,10 @@ it('keeps the same shape wherever in the region the player stands', function () 
 });
 
 it('honours a position the project pins a place to', function () {
-  $root = writeTestMaps([
+  writeTestMaps([
     'crypt/entrance' => ['name' => 'Entrance', 'region' => 'Crypt', 'to' => ['crypt/hall' => [10, 0]]],
-    'crypt/hall' => ['name' => 'Hall', 'region' => 'Crypt', 'to' => ['crypt/entrance' => [10, 9]]],
+    'crypt/hall' => ['name' => 'Hall', 'region' => 'Crypt', 'station' => ['x' => 4, 'y' => 4], 'to' => ['crypt/entrance' => [10, 9]]],
   ]);
-
-  // A project that knows better than the doors can say so.
-  $hall = $root . '/crypt/hall/hall.data.php';
-  file_put_contents($hall, str_replace(
-    "'region' => 'Crypt',",
-    "'region' => 'Crypt',\n  'station' => ['x' => 4, 'y' => 4],",
-    file_get_contents($hall)
-  ));
-  RegionMap::loadFrom($root);
 
   expect(RegionMap::place('crypt/entrance')['crypt/hall'])->toBe([4, 4]);
 });
@@ -152,6 +143,51 @@ it('never puts two places on the same spot', function () {
   $cells = array_map(static fn(array $position): string => implode(':', $position), $placed);
 
   expect(array_unique($cells))->toHaveCount(count($placed));
+});
+
+it('resolves duplicate pins without stealing later distinct authored pins', function () {
+  writeTestMaps([
+    'town/a' => ['name' => 'A', 'region' => 'Town', 'station' => ['x' => 0, 'y' => 0]],
+    'town/b' => ['name' => 'B', 'region' => 'Town', 'station' => ['x' => 0, 'y' => 0]],
+    'town/c' => ['name' => 'C', 'region' => 'Town', 'station' => ['x' => 1, 'y' => 0]],
+  ]);
+
+  $placed = RegionMap::place('town/a');
+  expect($placed['town/a'])->toBe([0, 0])
+    ->and($placed['town/c'])->toBe([1, 0])
+    ->and($placed['town/b'])->toBe([2, 0])
+    ->and(RegionMap::place('town/b'))->toBe($placed)
+    ->and(RegionMap::areas()['town/b']->station)->toBe([0, 0]);
+});
+
+it('reserves disconnected pins and traverses pinned nodes before inferring their children', function () {
+  writeTestMaps([
+    'town/a' => ['name' => 'A', 'region' => 'Town', 'station' => ['x' => 0, 'y' => 0], 'to' => ['town/b' => [19, 5], 'town/c' => [10, 0]]],
+    'town/b' => ['name' => 'B', 'region' => 'Town', 'station' => ['x' => 1, 'y' => 0], 'to' => ['town/d' => [19, 5]]],
+    'town/c' => ['name' => 'C', 'region' => 'Town'],
+    'town/d' => ['name' => 'D', 'region' => 'Town'],
+    'town/e' => ['name' => 'E', 'region' => 'Town', 'station' => ['x' => 2, 'y' => 0]],
+  ]);
+
+  $placed = RegionMap::place('town/a');
+  expect($placed['town/b'][0])->toBe($placed['town/a'][0] + 1)
+    ->and($placed['town/e'][0])->toBe($placed['town/a'][0] + 2)
+    ->and($placed['town/d'])->toBe([$placed['town/a'][0] + 3, $placed['town/a'][1]])
+    ->and($placed['town/c'][1])->toBeLessThan($placed['town/a'][1]);
+});
+
+it('finds a free cell beyond thirty two occupied positions', function () {
+  $maps = [];
+  for ($index = 0; $index < 40; $index++) {
+    $maps[sprintf('town/room-%02d', $index)] = [
+      'name' => "Room $index", 'region' => 'Town', 'station' => ['x' => 0, 'y' => 0],
+    ];
+  }
+  writeTestMaps($maps);
+
+  $placed = RegionMap::place('town/room-00');
+  expect(array_unique(array_map(static fn(array $cell): string => implode(':', $cell), $placed)))->toHaveCount(40)
+    ->and($placed['town/room-39'])->toBe([39, 0]);
 });
 
 it('reports the regions a region leads out to, once each', function () {
