@@ -200,6 +200,47 @@ it('writes the v1 envelope through normal quick and rotating autosave surfaces',
   cleanupCompatibilityManager($manager);
 });
 
+it('binds relocated save summaries to the file actually loaded', function (bool $versioned, bool $sourceExists) {
+  $slug = 'save-compatibility-relocated-' . uniqid();
+  $manifest = makeCompatibilityManifest();
+  $manager = new SaveManager(
+    new SaveCompatibilityTestGame(),
+    "./tests/Support/Data/{$slug}",
+    "./tests/Support/Data/{$slug}/quick",
+    $manifest,
+  );
+  $source = $manager->getSlotPath(1);
+  $slot = makeCompatibilitySlot($source);
+  $payload = ['slot' => $slot, 'config' => makeCompatibilityConfig('copied-map')];
+  if ($versioned) {
+    $payload = new SaveCompatibilityPipeline($manifest)->createEnvelope($slot, $payload['config']);
+  }
+  writeCompatibilityPayload($source, $payload);
+  $copies = [$manager->getSlotPath(2), $manager->getQuickSavePath('quick'), $manager->getQuickSavePath('auto-01')];
+
+  try {
+    foreach ($copies as $path) {
+      copy($source, $path);
+    }
+    if ($sourceExists) {
+      writeCompatibilityPayload($source, ['slot' => $slot, 'config' => makeCompatibilityConfig('different-map')]);
+    } else {
+      unlink($source);
+    }
+    foreach ($copies as $path) {
+      $before = hash_file('sha256', $path);
+      $loaded = $manager->loadSaveFile($path);
+      expect($loaded->slot->__serialize())->toBe(array_replace($slot->__serialize(), ['path' => $path]))
+        ->and($manager->loadSaveFile($loaded->slot->path)->config->mapId)->toBe('copied-map')
+        ->and(hash_file('sha256', $path))->toBe($before);
+    }
+    // Continue follows the summary path, not necessarily the caller's original path.
+    expect($manager->loadSaveFile($manager->getSaveSlots(2)[1]->path)->config->mapId)->toBe('copied-map');
+  } finally {
+    cleanupCompatibilityManager($manager);
+  }
+})->with([false, true])->with([false, true]);
+
 it('runs schema migration before project content migration without rewriting the source', function () {
   $slug = 'save-compatibility-legacy-' . uniqid();
   $manager = new SaveManager(
