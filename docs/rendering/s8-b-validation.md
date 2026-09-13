@@ -2,9 +2,9 @@
 
 ## Integration follow-up: 2026-09-13
 
-**Feasibility demonstrated; final integration closeout awaiting desktop access.**
-The ordinary CLI startup failure is fixed. This does not mark the outstanding
-visual checks passed or bypass the existing develop review gates.
+**S8-B native integration passed; the graphical-renderer feasibility spike is
+closed within its agreed scope.** The ordinary CLI startup failure is fixed.
+This acceptance does not merge branches or bypass existing develop review gates.
 
 ### Installed and published
 
@@ -56,18 +56,42 @@ The ordinary terminal renderer also loaded the same Garden checkpoint at
 four-member menu and exited normally with status 0. This is a PTY regression
 check, not a terminal-emulator scrolling benchmark.
 
-### Remaining boundary
+### Final native closeout
 
 The desktop locked before the final Garden overlay observation. Its last test
 session was explicitly interrupted for cleanup; the resulting renderer exit 130
 and CLI exit 1 are recorded as test interruption, not normal-close acceptance.
 No owned test process was left running. Earlier normal closes remain distinct.
 
-The planning chat reduced closeout to one ordinary-CLI session: dismiss an
-existing menu/dialogue and verify restoration, resize smaller/larger without
-changing the logical grid, transfer away and back without stale tiles, and close
-normally. These checks remain pending. If they pass, no further general
-acceptance or optimization round is required for this proof.
+After the author unlocked the desktop, the Renderer task completed that one
+bounded ordinary-CLI pass at 2026-09-13 15:36 UTC. Tested revisions were Engine
+`379f999525366659146fff71e267c474b689ef78`, Console
+`10dc0b3eefe38cdc39ab7f1c3d7a08e0b4be6eea`, Renderer
+`4e70b7e9cc57750c094475044102287e6e128188`, and Game
+`c05a398e9273ecda10dbba8d1f80b0d43ba94f05`, with the installed hash above.
+
+- **Overlay passed:** open the four-member menu at Garden (8,3), dismiss it,
+  and observe the complete terrain/Player/HUD restored before movement.
+- **Resize passed:** drag the native window smaller and larger; the same
+  logical field stays visible and centered, with text, tiles and Player aligned.
+- **Transfer passed:** North 3 reaches Apthia (170,57); West 9 then North 8
+  enters Route Control (4,11). East 16 then North 5 reaches its desk (20,6).
+  Ordinary interaction/dialogue returns to Garden (8,3), facing South. Garden
+  tiles clear on departure and restore on return without stale dialogue/terrain.
+- **Normal close passed:** native close button, CLI exit 0, renderer no longer
+  running. An AX follow-up timed out after termination; process checks confirmed
+  clean closure. No new error-log entries appeared (size and mtime unchanged).
+
+The copied and preserved checkpoint hashes both remained
+`7ab48eb3169d75009895da3abcdf187822ab45a82a64423a846db5ab49b88fba`.
+No save, story, code or art changes were needed during this pass. Screenshots
+and direct observations are in Renderer task
+`01a08d8a-a3b6-7c30-a495-2df481d05137`; its local receipt is
+`/private/tmp/ichiloto-installed-gpui-ordinary/final-native-closeout.json`.
+All test windows/processes are closed. This satisfies the planning chat's final
+integration gate without another general acceptance or optimization round.
+
+### Deferred and handoff
 
 The broad Last Legend suite was not completed because of the unrelated
 180,000-battle simulation baseline. Linux/WSLg remains untested. The
@@ -75,8 +99,12 @@ dark-player-on-dark-field issue remains an art/background concern. Matched
 scrolling timings, richer held/repeat input and exhaustive battle/skit checks
 remain deferred, not zero or passed. This installation/save follow-up adds no
 renderer protocol or game-content changes; the original S8-B extension below
-is unchanged. Future placeholder and production artwork belongs to Last Legend
-- Art. After closeout, Game Design and Lore resume milestone oversight.
+is unchanged. Future placeholder and production artwork belongs to
+**Last Legend - Art**. **Last Legend - Game Design**, coordinating with
+**Last Legend - Lore**, resumes oversight: finish Milestone 3, reconcile
+Milestones 1 and 2 with later design decisions, and complete equipment coverage
+for party members beyond Kaelion. Those are subsequent milestone tasks, not
+additional renderer-spike gates.
 
 ## Initial review snapshot (historical)
 
