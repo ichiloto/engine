@@ -137,3 +137,20 @@ it('restores background provenance without retaining old sprites and rolls faile
   Console::recomposeFrame(fn() => Console::write('menu', 0, 0));
   expect(Console::presentationSnapshot([], $mask))->toEqual(Console::presentationSnapshot());
 });
+
+it('preserves tile replacement provenance while a retained notification covers the player', function () {
+  Console::recomposeFrame(function () {
+    PresentationLayerPolicy::terrain(fn() => Console::write(';;;;', 0, 1));
+    Console::withLayer('player', fn() => Console::write('@', 1, 1));
+  });
+  $mask = ['terrain' => [1 => array_fill(0, 4, true)]];
+  $before = Console::presentationSnapshot(['player'], $mask);
+  Console::replaceOverlay('notice', [' '], 1, 1, 2000);
+  $cells = terrainTextCells(Console::presentationSnapshot(['player'], $mask));
+  expect($cells['notice'][1][1])->toBe(' ')
+    ->and($cells['world'][1])->not->toHaveKeys([0, 1, 2, 3])
+    ->and(Console::snapshot()->rows[1])->toStartWith('; ;;');
+  Console::removeOverlay('notice');
+  expect(Console::presentationSnapshot(['player'], $mask))->toEqual($before)
+    ->and(Console::snapshot()->rows[1])->toStartWith(';@;;');
+});

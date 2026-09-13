@@ -64,6 +64,20 @@ it('keeps legacy one-based cursor semantics and clears to the translated home', 
   expect(ob_get_contents())->toBe("\e[0m\e[2J\e[2;26H");
 });
 
+it('restores a live overlay underlay at the centered terminal address', function () {
+  Console::syncDimensions(12, 4);
+  Console::syncTerminalViewport(20, 8, repaint: false);
+  Console::write('field', 2, 1);
+  Console::replaceOverlay('notice', ['toast'], 2, 1, 2000);
+  ob_clean();
+  Console::beginFrame();
+  Console::write('TRACK', 2, 1);
+  Console::removeOverlay('notice');
+  Console::endFrame();
+  expect(ob_get_contents())->toBe("\e[4;7HTRACK")
+    ->and(Console::snapshot()->rows[1])->toBe('  TRACK     ');
+});
+
 it('replays unchanged canonical styled layers after margin-only resize and removes stale physical content', function () {
   Console::syncTerminalViewport(186,38,repaint:false);
   Console::withLayer('hud',fn()=>Console::write("\e[32mX",0,0),1010);
@@ -100,11 +114,13 @@ it('refuses origin changes during composition and restores neutral origin on cle
   expect(fn()=>Console::syncTerminalViewport(220,60))->toThrow(LogicException::class);
   Console::endFrame();
   expect(Console::getTerminalOrigin())->toBe(['x'=>25,'y'=>1]);
+  Console::replaceOverlay('notice', ['toast'], 0, 0, 2000);
   Console::enterAlternateScreen();
   ob_clean();
   Console::reset();
   expect(ob_get_contents())->toStartWith("\e[?7h\e[?1049l")
-    ->and(Console::getTerminalOrigin())->toBe(['x'=>0,'y'=>0]);
+    ->and(Console::getTerminalOrigin())->toBe(['x'=>0,'y'=>0])
+    ->and(array_column(Console::presentationSnapshot()->textLayers, 'id'))->not->toContain('notice');
 });
 
 it('keeps a failed physical replay retryable without changing the logical snapshot', function () {
