@@ -2,16 +2,23 @@
 
 namespace Ichiloto\Engine\Battle\Entry;
 
+use Closure;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\WorldStateWriter;
 use Ichiloto\Engine\Entities\Character;
 use RuntimeException;
 use Throwable;
 
-/** Applies one matching battle-entry rule as an atomic transaction. */
+/** Applies reversible rule changes atomically, then delivers post-commit notifications. */
 final class BattleEntryRuleExecutor
 {
-  public function apply(BattleEntryRule $rule, BattleEntryContext $context, GameState $worldState): void
+  /** @param ?Closure(): void $onCommitted Records the commit before external observers run. */
+  public function apply(
+    BattleEntryRule $rule,
+    BattleEntryContext $context,
+    GameState $worldState,
+    ?Closure $onCommitted = null,
+  ): void
   {
     /** @var array<string, array{actor: BattleEntryActor, stat: string, stage: int}> $originalStages */
     $originalStages = [];
@@ -80,13 +87,7 @@ final class BattleEntryRuleExecutor
       }
 
       WorldStateWriter::applyAllStrict($rule->writes, $worldState, $rule->source . ' field "writes"');
-      $worldState->onChange = $observer;
-
-      foreach ($notifications as [$kind, $name]) {
-        $observer?->__invoke($kind, $name);
-      }
     } catch (Throwable $exception) {
-      $worldState->onChange = $observer;
       $worldState->restoreSnapshot($worldSnapshot);
 
       foreach ($originalStages as $original) {
@@ -95,6 +96,23 @@ final class BattleEntryRuleExecutor
 
       throw new RuntimeException(sprintf(
         '%s failed atomically; temporary effects and durable writes were rolled back: %s',
+        $rule->source,
+        $exception->getMessage(),
+      ), previous: $exception);
+    } finally {
+      $worldState->onChange = $observer;
+    }
+
+    // Observers may change quests or achievements, which this transaction cannot undo.
+    $onCommitted?->__invoke();
+
+    try {
+      foreach ($notifications as [$kind, $name]) {
+        $observer?->__invoke($kind, $name);
+      }
+    } catch (Throwable $exception) {
+      throw new RuntimeException(sprintf(
+        '%s committed, but observer notification failed; committed changes were not rolled back: %s',
         $rule->source,
         $exception->getMessage(),
       ), previous: $exception);

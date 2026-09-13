@@ -258,6 +258,32 @@ it('runs multiple valid rules by priority then declaration order', function () {
   expect($actors['actor.alpha']->getStatStage('speed'))->toBe(0);
 });
 
+it('does not replay committed rules when an observer reenters the rule runner', function () {
+  [$party, $actors] = battleEntryTestParty();
+  $state = new GameState();
+  $config = new BattleConfig($party, new Troop('Encounter'), entryExecutionId: 'execution.observer-reentry');
+  $catalog = new BattleEntryRuleCatalog(['rules' => [
+    battleEntryRule('rule.first', writes: [['type' => 'variable', 'name' => 'queue', 'op' => 'add']]),
+    battleEntryRule('rule.second', actor: 'actor.beta', priority: 1,
+      writes: [['type' => 'variable', 'name' => 'queue', 'op' => 'add']]),
+  ]], 'observer reentry fixture');
+  $runner = new BattleEntryRuleRunner($catalog);
+  $notifications = 0;
+  $state->onChange = static function () use ($runner, $config, $state, &$notifications): void {
+    ++$notifications;
+    $runner->apply($config, $state);
+  };
+
+  $runner->apply($config, $state);
+
+  expect($actors['actor.alpha']->getStatStage('speed'))->toBe(1)
+    ->and($actors['actor.beta']->getStatStage('speed'))->toBe(1)
+    ->and($state->getVariable('queue'))->toBe(2)
+    ->and($notifications)->toBe(2)
+    ->and($config->appliedEntryRuleIds)->toBe(['rule.first', 'rule.second'])
+    ->and($config->entryRulesEvaluated())->toBeTrue();
+});
+
 it('advances a two-step queue by at most one entry-snapshot-eligible rule per battle', function () {
   $catalog = new BattleEntryRuleCatalog(['rules' => [
     battleEntryRule(
@@ -448,12 +474,19 @@ it('does not reapply an earlier successful rule when a later rule interrupts ent
     ->and($config->appliedEntryRuleIds)->toBe(['rule.success']);
 });
 
-it('rolls back temporary effects and earlier writes when a durable write callback fails', function () {
+it('rolls back mutation failures without delivering buffered notifications or recording a commit', function () {
   [$party, $actors] = battleEntryTestParty();
-  $state = new GameState();
+  $state = new class extends GameState {
+    public function recordStoryEvent(string $eventName): void
+    {
+      parent::recordStoryEvent($eventName);
+      throw new RuntimeException('Synthetic write failure.');
+    }
+  };
   $state->setVariable('queue', 4);
-  $state->onChange = static function (): void {
-    throw new RuntimeException('Synthetic write failure.');
+  $notifications = [];
+  $observer = $state->onChange = static function (string $kind, string $name) use (&$notifications): void {
+    $notifications[] = [$kind, $name];
   };
   $catalog = new BattleEntryRuleCatalog(['rules' => [
     battleEntryRule(writes: [
@@ -461,15 +494,66 @@ it('rolls back temporary effects and earlier writes when a durable write callbac
       ['type' => 'event', 'name' => 'entry_consumed'],
     ]),
   ]], 'write rollback fixture');
+  $config = new BattleConfig($party, new Troop('Encounter'), entryExecutionId: 'execution.write-rollback');
 
   expect(fn() => (new BattleEntryRuleRunner($catalog))->apply(
-    new BattleConfig($party, new Troop('Encounter'), entryExecutionId: 'execution.write-rollback'),
+    $config,
     $state,
   ))->toThrow(RuntimeException::class, 'rolled back')
     ->and($actors['actor.alpha']->getStatStage('speed'))->toBe(0)
     ->and($state->getVariable('queue'))->toBe(4)
-    ->and($state->hasStoryEvent('entry_consumed'))->toBeFalse();
+    ->and($state->hasStoryEvent('entry_consumed'))->toBeFalse()
+    ->and($state->onChange)->toBe($observer)
+    ->and($notifications)->toBe([])
+    ->and($config->appliedEntryRuleIds)->toBe([]);
 });
+
+it('preserves committed changes and does not replay observers after notification failure', function (int $failAt) {
+  [$party, $actors] = battleEntryTestParty();
+  $state = new GameState();
+  $state->setVariable('queue', 4);
+  $config = new BattleConfig($party, new Troop('Encounter'), entryExecutionId: 'execution.observer-failure');
+  $notifications = [];
+  $observedCommits = [];
+  $observer = $state->onChange = static function (string $kind, string $name) use (
+    &$notifications, &$observedCommits, $config, $failAt,
+  ): void {
+    $notifications[] = [$kind, $name];
+    $observedCommits[] = $config->hasAppliedEntryRule('rule.test');
+    if (count($notifications) === $failAt) {
+      throw new RuntimeException('Synthetic observer failure after a side effect.');
+    }
+  };
+  $catalog = new BattleEntryRuleCatalog(['rules' => [
+    battleEntryRule(writes: [
+      ['type' => 'variable', 'name' => 'queue', 'op' => 'add', 'value' => 1],
+      ['type' => 'event', 'name' => 'entry_consumed'],
+    ]),
+    battleEntryRule('rule.later', actor: 'actor.beta', priority: 1),
+  ]], 'observer failure fixture');
+  $runner = new BattleEntryRuleRunner($catalog);
+
+  expect(fn() => $runner->apply($config, $state))
+    ->toThrow(RuntimeException::class, 'observer failure fixture rule "rule.test" committed, but observer notification failed')
+    ->and($actors['actor.alpha']->getStatStage('speed'))->toBe(1)
+    ->and($actors['actor.beta']->getStatStage('speed'))->toBe(0)
+    ->and($state->getVariable('queue'))->toBe(5)
+    ->and($state->hasStoryEvent('entry_consumed'))->toBeTrue()
+    ->and($state->onChange)->toBe($observer)
+    ->and($notifications)->toHaveCount($failAt)
+    ->and($observedCommits)->toBe(array_fill(0, $failAt, true))
+    ->and($config->appliedEntryRuleIds)->toBe(['rule.test'])
+    ->and($config->entryRulesEvaluated())->toBeFalse();
+
+  $runner->apply($config, $state);
+
+  expect($actors['actor.alpha']->getStatStage('speed'))->toBe(1)
+    ->and($actors['actor.beta']->getStatStage('speed'))->toBe(1)
+    ->and($state->getVariable('queue'))->toBe(5)
+    ->and($notifications)->toHaveCount($failAt)
+    ->and($config->appliedEntryRuleIds)->toBe(['rule.test', 'rule.later'])
+    ->and($config->entryRulesEvaluated())->toBeTrue();
+})->with([1, 2]);
 
 it('rejects unsupported transactional writes with rule file and field diagnostics', function () {
   expect(fn() => new BattleEntryRuleCatalog(['rules' => [

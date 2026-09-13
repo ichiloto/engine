@@ -50,8 +50,16 @@ final class BattleEntryRuleRunner
     // temporary or durable state. Earlier writes can therefore neither admit
     // nor exclude a later rule in the same battle execution.
     foreach ($eligibleRules as $rule) {
-      $this->executor->apply($rule, $context, $worldState);
-      $config->markEntryRuleApplied($rule->id);
+      if ($config->hasAppliedEntryRule($rule->id)) {
+        continue;
+      }
+
+      $this->executor->apply(
+        $rule,
+        $context,
+        $worldState,
+        static fn() => $config->markEntryRuleApplied($rule->id),
+      );
     }
 
     $config->markEntryRulesEvaluated();

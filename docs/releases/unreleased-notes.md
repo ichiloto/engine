@@ -27,6 +27,8 @@ create a release, tag, or release branch.
   ineffective casts still refund their cost.
 - All-target battle commands highlight the eligible group and wait for explicit
   confirmation in turn-based and ATB battles; cancelling returns to the submenu.
+- Battle-entry observers run after commit; notification failures cannot roll
+  back committed world state or replay the rule's effects.
 
 ## Validation limits
 

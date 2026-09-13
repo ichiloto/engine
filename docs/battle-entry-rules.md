@@ -114,8 +114,10 @@ Each matching rule is one transaction. The engine resolves conditions and
 entry actors, validates all effects and writes, applies temporary effects,
 then commits writes. If an effect or write fails, that rule's earlier stage
 changes and world writes are restored. A successful rule is recorded against
-the battle execution before later rules run, so lifecycle re-entry cannot
-apply it twice.
+the battle execution before observers or later rules run, so lifecycle re-entry
+cannot apply it twice. Buffered world-state notifications run after commit:
+observer failures are reported but do not roll back committed changes or make
+the rule eligible for replay. Observer side effects are not reversible.
 
 Stat stages use the existing character battle-stage layer. They affect the
 first action and are cleared from active and reserve members by ordinary
