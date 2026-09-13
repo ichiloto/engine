@@ -21,6 +21,12 @@ create a release, tag, or release branch.
   targeting, alongside the existing scene and resource-preservation fixes.
 - Relocated save summaries use the file actually selected instead of following
   a serialized path from an older installation.
+- Saved party members resolve by stable actor identity, with legacy name
+  fallback and project-declared identity migrations.
+- Field skills charge MP for live state and stat-stage changes, while genuinely
+  ineffective casts still refund their cost.
+- All-target battle commands highlight the eligible group and wait for explicit
+  confirmation in turn-based and ATB battles; cancelling returns to the submenu.
 
 ## Validation limits
 
