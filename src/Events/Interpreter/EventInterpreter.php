@@ -12,6 +12,7 @@ use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicScriptValidator;
 use Ichiloto\Engine\Cutscenes\Cinematics\CameraOperation;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicSubjectResolver;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicTextTimingPolicy;
 use Ichiloto\Engine\Cutscenes\Cinematics\FieldAnimationOperation;
 use Ichiloto\Engine\Cutscenes\Cinematics\TimedPresentationOperation;
 use Ichiloto\Engine\Cutscenes\Cinematics\TransitionOperation;
@@ -651,12 +652,17 @@ class EventInterpreter
       case 'narration':
         $presentation = $this->gameScene->cinematicPresentation
           ?? throw new RuntimeException('Cinematic presentation host is not configured.');
+        $text = strval($command['text'] ?? '');
         $presentation->showOverlay(
           $type,
-          strval($command['text'] ?? ''),
+          $text,
           strval($command['title'] ?? ''),
         );
         $duration = max(0.0, floatval($command['seconds'] ?? 2.5));
+
+        if ($type === 'narration' && $duration > 0.0) {
+          $duration = CinematicTextTimingPolicy::narrationDuration($text, $duration);
+        }
 
         if ($duration <= 0.0) {
           $presentation->clear();

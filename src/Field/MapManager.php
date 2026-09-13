@@ -2,11 +2,15 @@
 
 namespace Ichiloto\Engine\Field;
 
+use Ichiloto\Engine\Rendering\Tiles\GraphicalTileDefinition;
+use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
+
 use Assegai\Util\Path;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Interfaces\CanRenderAt;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Entities\PartyLocation as MapLocation;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Events\Triggers\EventTriggerFactory;
@@ -36,6 +40,7 @@ class MapManager implements CanRenderAt
    * @var array<int, string[]> The tile map.
    */
   protected(set) array $tileMap = [];
+  public private(set) ?GraphicalTileDefinition $tiles2d = null;
   /**
    * The collision map.
    *
@@ -91,6 +96,9 @@ class MapManager implements CanRenderAt
    * @var string|null
    */
   protected(set) ?string $backgroundMusic = null;
+  private mixed $declaredBackgroundMusic = null;
+  private mixed $backgroundMusicVariants = [];
+  private bool $hasMusicDeclaration = false;
   /**
    * @var bool Whether the player is at a save point.
    */
@@ -310,7 +318,7 @@ class MapManager implements CanRenderAt
     $mapId = strval($map['id'] ?? '');
     $this->loadMapTriggers($map['triggers'] ?? []);
     $this->loadMapEvents($map['events'] ?? [], $mapId);
-    $this->applyMapBackgroundMusic($map['bgm'] ?? null);
+    $this->applyMapBackgroundMusic($map['bgm'] ?? null, $map['bgmVariants'] ?? []);
 
     if ($mapId !== '') {
       $this->gameScene->questManager?->recordMapEntered($mapId);
@@ -331,21 +339,75 @@ class MapManager implements CanRenderAt
   /**
    * Applies the map's declared background music.
    *
-   * A map that declares a `bgm` track starts it on entry (a no-op when the
-   * track is already playing, so travelling between maps that share a theme
-   * is seamless). A map that declares none keeps whatever music is already
-   * playing, mirroring RPG Maker's autoplay semantics.
+   * A map declares its default `bgm` as a string. It may additionally declare
+   * ordered `bgmVariants` for story-dependent map states:
+   *
+   * ```php
+   * 'bgm' => 'town-in-danger',
+   * 'bgmVariants' => [[
+   *   'track' => 'quiet-town',
+   *   'conditions' => [['type' => 'event', 'name' => 'crisis_resolved']],
+   * ]],
+   * ```
+   *
+   * The first matching variant wins. A map that resolves to no track keeps
+   * whatever music is already playing, mirroring RPG Maker's autoplay
+   * semantics.
    *
    * @param mixed $bgm The `bgm` entry from the map data file.
+   * @param mixed $variants The optional `bgmVariants` entries.
    * @return void
    */
-  protected function applyMapBackgroundMusic(mixed $bgm): void
+  protected function applyMapBackgroundMusic(mixed $bgm, mixed $variants = []): void
   {
-    $this->backgroundMusic = is_string($bgm) && trim($bgm) !== '' ? trim($bgm) : null;
+    $this->declaredBackgroundMusic = $bgm;
+    $this->backgroundMusicVariants = $variants;
+    $this->hasMusicDeclaration = true;
+    $this->resolveCurrentBackgroundMusic();
+    $this->gameScene->refreshFieldMusic(force: $this->backgroundMusic !== null, keepSilence: true);
+  }
 
-    if ($this->backgroundMusic !== null) {
-      $this->game->audioManager->playBackgroundMusic($this->backgroundMusic);
+  /** Re-evaluate map variants on state changes and battle returns, not just entry. */
+  public function resolveCurrentBackgroundMusic(): ?string
+  {
+    if ($this->hasMusicDeclaration) {
+      $this->backgroundMusic = $this->resolveMapBackgroundMusic(
+        $this->declaredBackgroundMusic, $this->backgroundMusicVariants,
+      );
     }
+    return $this->backgroundMusic;
+  }
+
+  /**
+   * Resolves a map's static or world-state-dependent background music.
+   */
+  protected function resolveMapBackgroundMusic(mixed $bgm, mixed $variants = []): ?string
+  {
+    if (is_array($variants)) {
+      foreach ($variants as $variant) {
+        if (! is_array($variant)) {
+          continue;
+        }
+
+        $track = is_string($variant['track'] ?? null) ? trim($variant['track']) : '';
+        $conditions = $variant['conditions'] ?? [];
+        if ($track === '' || ! is_array($conditions)) {
+          continue;
+        }
+
+        if (WorldConditionEvaluator::allHold(
+          $conditions,
+          $this->gameScene->gameState,
+          $this->gameScene->party,
+        )) {
+          return $track;
+        }
+      }
+    }
+
+    $default = is_string($bgm) ? trim($bgm) : '';
+
+    return $default !== '' ? $default : null;
   }
 
   /**
@@ -402,7 +464,8 @@ class MapManager implements CanRenderAt
    */
   public function render(?int $x = null, ?int $y = null): void
   {
-    $this->camera->renderMap();
+    $this->tiles2d === null ? $this->camera->renderMap()
+      : PresentationLayerPolicy::terrain(fn() => $this->camera->renderMap());
   }
 
   /**
@@ -480,7 +543,13 @@ class MapManager implements CanRenderAt
   {
     $tile = $this->tileMap[$y][$x] ?? ' ';
     $screenSpacePosition = $this->camera->getScreenSpacePosition(new Vector2($x, $y));
-    $this->camera->draw($tile, $screenSpacePosition->x, $screenSpacePosition->y);
+    if ($screenSpacePosition->x < 0 || $screenSpacePosition->y < 0
+      || $screenSpacePosition->x >= $this->camera->screen->getWidth()
+      || $screenSpacePosition->y >= $this->camera->screen->getHeight()) {
+      return;
+    }
+    $draw = fn() => $this->camera->draw($tile, $screenSpacePosition->x, $screenSpacePosition->y);
+    $this->tiles2d === null ? $draw() : PresentationLayerPolicy::terrain($draw);
   }
 
   /**
@@ -679,12 +748,17 @@ class MapManager implements CanRenderAt
 
     $map['id'] ??= $paths['id'];
 
+    $tiles2d = array_key_exists('tiles2d', $map)
+      ? GraphicalTileDefinition::fromArray($map['tiles2d'], $paths['data']) : null;
+
     $this->tileMap = $this->parseMapLayer($this->requirePhpFile($paths['map']), $paths['map'], 'map');
     $this->camera->worldSpace = $this->tileMap;
 
     $eventLayer = $this->parseMapLayer($this->requirePhpFile($paths['event']), $paths['event'], 'event');
     $this->assertEventLayerMatchesTileMap($eventLayer, $paths['event']);
     $map['events'] = $this->resolveEventDefinitions($map['events'] ?? [], $eventLayer, $paths['event']);
+
+    $this->tiles2d = $tiles2d;
 
     return $map;
   }

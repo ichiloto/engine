@@ -4,6 +4,7 @@ use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Entities\Actors\ActorDefinition;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\PartyLocation;
@@ -12,6 +13,7 @@ use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Exceptions\InvalidSaveCompatibilityManifestException;
 use Ichiloto\Engine\Exceptions\MissingSaveMigrationException;
 use Ichiloto\Engine\Exceptions\TombstonedSaveReferenceException;
+use Ichiloto\Engine\Exceptions\UnresolvedSaveReferenceException;
 use Ichiloto\Engine\Exceptions\UnsupportedContentVersionException;
 use Ichiloto\Engine\Exceptions\UnsupportedSaveSchemaException;
 use Ichiloto\Engine\Exceptions\WrongProjectSaveException;
@@ -19,6 +21,8 @@ use Ichiloto\Engine\IO\SaveCompatibility\ContentMigrationInterface;
 use Ichiloto\Engine\IO\SaveCompatibility\PostResolutionContentMigrationInterface;
 use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityManifest;
 use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityPipeline;
+use Ichiloto\Engine\IO\SaveCompatibility\SaveContentResolver;
+use Ichiloto\Engine\IO\SaveCompatibility\SaveHydrationContext;
 use Ichiloto\Engine\IO\SaveManager;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
@@ -129,6 +133,31 @@ function makeCompatibilitySlot(string $path, int $slot = 1): SaveSlot
   );
 }
 
+/** Exercises both raw decoded saves and actors already hydrated by migrations. */
+function resolveCompatibilityActor(array $savedState, bool $deferred, SaveCompatibilityManifest $manifest): Character
+{
+  $member = new ReflectionClass(Character::class)->newInstanceWithoutConstructor();
+
+  if ($deferred) {
+    SaveHydrationContext::begin();
+  }
+
+  try {
+    $member->__unserialize($savedState);
+  } finally {
+    if ($deferred) {
+      SaveHydrationContext::end();
+    }
+  }
+
+  expect($member->getDeferredSaveData() !== null)->toBe($deferred);
+  $config = makeCompatibilityConfig();
+  $config->party->members[0] = $member;
+  $resolved = new SaveContentResolver($manifest, '/saves/actor-identity.iedata')->resolve($config);
+
+  return $resolved->party->members->toArray()[0];
+}
+
 function writeCompatibilityPayload(string $path, array $payload): void
 {
   file_put_contents($path, 'IED1' . gzencode(serialize($payload), 9));
@@ -199,6 +228,59 @@ it('writes the v1 envelope through normal quick and rotating autosave surfaces',
 
   cleanupCompatibilityManager($manager);
 });
+
+it('binds relocated save summaries to the destination file and slot', function (bool $versioned, bool $sourceExists, int $sourceSlot) {
+  $slug = 'save-compatibility-relocated-' . uniqid();
+  $manifest = makeCompatibilityManifest();
+  $manager = new SaveManager(
+    new SaveCompatibilityTestGame(),
+    "./tests/Support/Data/{$slug}",
+    "./tests/Support/Data/{$slug}/quick",
+    $manifest,
+  );
+  $source = $manager->getSlotPath(1);
+  $slot = makeCompatibilitySlot($source, $sourceSlot);
+  $payload = ['slot' => $slot, 'config' => makeCompatibilityConfig('copied-map')];
+  if ($versioned) {
+    $payload = new SaveCompatibilityPipeline($manifest)->createEnvelope($slot, $payload['config']);
+  }
+  writeCompatibilityPayload($source, $payload);
+  $copies = [
+    $manager->getSlotPath(2) => 2,
+    $manager->getQuickSavePath('quick') => SaveManager::QUICK_SAVE_SLOT,
+    $manager->getQuickSavePath('auto-01') => SaveManager::AUTO_SAVE_SLOT,
+    $manager->getQuickSavePath('backup') => $sourceSlot,
+  ];
+
+  try {
+    foreach ($copies as $path => $destinationSlot) {
+      copy($source, $path);
+    }
+    if ($sourceExists) {
+      writeCompatibilityPayload($source, ['slot' => $slot, 'config' => makeCompatibilityConfig('different-map')]);
+    } else {
+      unlink($source);
+    }
+    foreach ($copies as $path => $destinationSlot) {
+      $before = hash_file('sha256', $path);
+      $loaded = $manager->loadSaveFile($path);
+      expect($loaded->slot->__serialize())->toBe(array_replace($slot->__serialize(), ['path' => $path, 'slot' => $destinationSlot]))
+        ->and($manager->loadSaveFile($loaded->slot->path)->config->mapId)->toBe('copied-map')
+        ->and(hash_file('sha256', $path))->toBe($before);
+    }
+    // Continue follows the summary path, not necessarily the caller's original path.
+    expect($manager->loadSaveFile($manager->getSaveSlots(2)[1]->path)->config->mapId)->toBe('copied-map');
+    expect($manager->loadSlot(2)->slot->slot)->toBe(2);
+
+    // The save menu writes using the enumerated summary's slot number.
+    $sourceHash = $sourceExists ? hash_file('sha256', $source) : null;
+    $manager->save(new SaveCompatibilitySceneStub(makeCompatibilityConfig('updated-map')), $manager->getSaveSlots(2)[1]->slot);
+    expect($manager->loadSlot(2)->config->mapId)->toBe('updated-map')
+      ->and($sourceExists ? hash_file('sha256', $source) : file_exists($source))->toBe($sourceHash ?? false);
+  } finally {
+    cleanupCompatibilityManager($manager);
+  }
+})->with([false, true])->with([false, true])->with([1, SaveManager::QUICK_SAVE_SLOT, SaveManager::AUTO_SAVE_SLOT]);
 
 it('runs schema migration before project content migration without rewriting the source', function () {
   $slug = 'save-compatibility-legacy-' . uniqid();
@@ -372,7 +454,14 @@ it('resolves actor aliases before reconstructing current project definitions', f
   $config->party->members[0] = new Character(
     'Legacy Hero',
     0,
-    new Stats(currentHp: 80, totalHp: 100),
+    new Stats(
+      currentHp: 63,
+      currentMp: 7,
+      currentAp: 2,
+      totalHp: 100,
+      totalMp: 10,
+      totalAp: 3,
+    ),
   );
 
   try {
@@ -383,11 +472,172 @@ it('resolves actor aliases before reconstructing current project definitions', f
       ->and($restored->name)->toBe('Hero')
       ->and($restored->naturalVariantId)->toBe('standard')
       ->and($restored->actorNaturalAdjustments)->toBe(['maxHp' => 5])
+      ->and($restored->stats->currentHp)->toBe(63)
+      ->and($restored->stats->currentMp)->toBe(7)
+      ->and($restored->stats->currentAp)->toBe(2)
       ->and($restored->toArray())->not->toHaveKey('actorNaturalAdjustments');
   } finally {
     cleanupCompatibilityManager($manager);
     ConfigStore::remove(ActorStore::class);
   }
+});
+
+describe('saved actor identities', function () {
+  beforeEach(function () {
+    $this->previousActorStore = ConfigStore::has(ActorStore::class) ? ConfigStore::get(ActorStore::class) : null;
+    $this->actorStore = new ActorStore(dirname(__DIR__) . '/Fixtures/Actors');
+    ConfigStore::put(ActorStore::class, $this->actorStore);
+    $this->savedActor = new Character(
+      'Legacy Hero',
+      12,
+      new Stats(currentHp: 37, currentMp: 4, currentAp: 2, totalHp: 100, totalMp: 10, totalAp: 3),
+      naturalVariantId: 'alternate',
+      actorId: 'actor.hero',
+    );
+  });
+
+  afterEach(function () {
+    if ($this->previousActorStore !== null) {
+      ConfigStore::put(ActorStore::class, $this->previousActorStore);
+    } else {
+      ConfigStore::remove(ActorStore::class);
+    }
+  });
+
+  it('prefers stable IDs over renamed or reused display names after actor alias migration', function (bool $deferred, bool $collision, bool $alias) {
+    if ($collision) {
+      $data = $this->actorStore->require('actor.hero', 'building the collision fixture')->data();
+      $data['id'] = 'actor.decoy';
+      $data['name'] = 'Legacy Hero';
+      $this->actorStore->set('decoy', ActorDefinition::fromArray($data));
+    }
+
+    $saved = $this->savedActor->toArray();
+    $saved['actorId'] = $alias ? 'actor.old-hero' : $saved['actorId'];
+    $manifest = makeCompatibilityManifest([
+      'aliases' => ['actors' => [
+        ['from' => 'actor.old-hero', 'to' => 'actor.intermediate-hero'],
+        ['from' => 'actor.intermediate-hero', 'to' => 'actor.hero'],
+      ]],
+    ]);
+
+    $restored = resolveCompatibilityActor($saved, $deferred, $manifest);
+
+    expect($restored->actorId)->toBe('actor.hero')
+      ->and($restored->name)->toBe('Hero')
+      ->and($restored->currentExp)->toBe(12)
+      ->and($restored->stats->currentHp)->toBe(37)
+      ->and($restored->stats->currentMp)->toBe(4)
+      ->and($restored->stats->currentAp)->toBe(2)
+      ->and($restored->naturalVariantId)->toBe('alternate')
+      ->and($restored->actorNaturalAdjustments)->toBe(['maxHp' => 5, 'attack' => 3])
+      ->and($restored->getDeferredSaveData())->toBeNull()
+      ->and($restored->toArray()['actorId'])->toBe('actor.hero');
+  })->with(['deferred' => [true], 'hydrated' => [false]])
+    ->with(['renamed' => [false], 'name reused by another actor' => [true]])
+    ->with(['unchanged ID' => [false], 'aliased ID' => [true]]);
+
+  it('does not interpret a stable actor display name as an alias or tombstone', function (bool $deferred, array $compatibility) {
+    $restored = resolveCompatibilityActor($this->savedActor->toArray(), $deferred, makeCompatibilityManifest($compatibility));
+
+    expect($restored->actorId)->toBe('actor.hero')
+      ->and($restored->name)->toBe('Hero');
+  })->with(['deferred' => [true], 'hydrated' => [false]])->with([
+    'display-name alias' => [['aliases' => ['actors' => [['from' => 'Legacy Hero', 'to' => 'actor.missing']]]]],
+    'display-name tombstone' => [['tombstones' => ['actors' => ['Legacy Hero']]]],
+  ]);
+
+  it('falls back to legacy names only when a stable ID is absent or empty', function (bool $deferred, ?string $actorId, bool $alias) {
+    $saved = $this->savedActor->toArray();
+    $saved['name'] = $alias ? 'Legacy Hero' : 'Hero';
+    unset($saved['actorId']);
+
+    if ($actorId !== null) {
+      $saved['actorId'] = $actorId;
+    }
+
+    $restored = resolveCompatibilityActor($saved, $deferred, makeCompatibilityManifest([
+      'aliases' => ['actors' => [['from' => 'Legacy Hero', 'to' => 'actor.hero']]],
+    ]));
+
+    expect($restored->actorId)->toBe('actor.hero')
+      ->and($restored->name)->toBe('Hero')
+      ->and($restored->stats->currentHp)->toBe(37)
+      ->and($restored->toArray()['actorId'])->toBe('actor.hero');
+  })->with(['deferred' => [true], 'hydrated' => [false]])
+    ->with(['missing ID' => [null], 'empty ID' => [''], 'blank ID' => ['  ']])
+    ->with(['current name' => [false], 'legacy alias' => [true]]);
+
+  it('rejects missing stable IDs rather than falling back to a valid display name', function (bool $deferred, bool $alias) {
+    $saved = $this->savedActor->toArray();
+    $saved['name'] = 'Hero';
+    $saved['actorId'] = $alias ? 'actor.old-hero' : 'actor.removed';
+    $manifest = makeCompatibilityManifest([
+      'aliases' => ['actors' => [['from' => 'actor.old-hero', 'to' => 'actor.removed']]],
+    ]);
+
+    expect(fn() => resolveCompatibilityActor($saved, $deferred, $manifest))->toThrow(
+      UnresolvedSaveReferenceException::class,
+      'Actor definition "actor.removed" cannot be resolved while loading actor "actor.removed" with natural variant "alternate" from save /saves/actor-identity.iedata.',
+    );
+  })->with(['deferred' => [true], 'hydrated' => [false]])
+    ->with(['missing ID' => [false], 'alias to missing ID' => [true]]);
+
+  it('rejects tombstoned stable IDs even when the display name still resolves', function (bool $deferred) {
+    $saved = $this->savedActor->toArray();
+    $saved['name'] = 'Hero';
+    $manifest = makeCompatibilityManifest(['tombstones' => ['actors' => ['actor.hero']]]);
+
+    expect(fn() => resolveCompatibilityActor($saved, $deferred, $manifest))->toThrow(
+      TombstonedSaveReferenceException::class,
+      'Save /saves/actor-identity.iedata references tombstoned actors identity "actor.hero"',
+    );
+  })->with(['deferred' => [true], 'hydrated' => [false]]);
+
+  it('migrates IDs without replacing distinct display names when no actor store is configured', function (bool $deferred) {
+    ConfigStore::remove(ActorStore::class);
+    $saved = $this->savedActor->toArray();
+    $saved['actorId'] = 'actor.old-hero';
+    $restored = resolveCompatibilityActor($saved, $deferred, makeCompatibilityManifest([
+      'aliases' => ['actors' => [['from' => 'actor.old-hero', 'to' => 'actor.hero']]],
+    ]));
+
+    expect($restored->actorId)->toBe('actor.hero')
+      ->and($restored->name)->toBe('Legacy Hero')
+      ->and($restored->stats->currentHp)->toBe(37)
+      ->and($restored->toArray()['actorId'])->toBe('actor.hero');
+  })->with(['deferred' => [true], 'hydrated' => [false]]);
+
+  it('retains legacy name-alias behavior without an actor store and persists the migrated identity', function (bool $deferred) {
+    ConfigStore::remove(ActorStore::class);
+    $saved = $this->savedActor->toArray();
+    unset($saved['actorId']);
+    $restored = resolveCompatibilityActor($saved, $deferred, makeCompatibilityManifest([
+      'aliases' => ['actors' => [['from' => 'Legacy Hero', 'to' => 'Hero']]],
+    ]));
+
+    expect($restored->actorId)->toBe('Hero')
+      ->and($restored->name)->toBe('Hero')
+      ->and($restored->toArray()['actorId'])->toBe('Hero');
+  })->with(['deferred' => [true], 'hydrated' => [false]]);
+
+  it('loads a serialized stable actor after a project display-name change through the save pipeline', function () {
+    $config = makeCompatibilityConfig();
+    $config->party->members[0] = $this->savedActor;
+    $path = '/saves/renamed-actor.iedata';
+    $pipeline = new SaveCompatibilityPipeline(makeCompatibilityManifest());
+    $serialized = serialize($pipeline->createEnvelope(makeCompatibilitySlot($path), $config));
+
+    $loaded = $pipeline->load($serialized, $path);
+    $restored = $loaded->config->party->members->toArray()[0];
+    $resaved = serialize($pipeline->createEnvelope($loaded->slot, $loaded->config));
+    $reloaded = $pipeline->load($resaved, $path)->config->party->members->toArray()[0];
+
+    expect($restored->actorId)->toBe('actor.hero')
+      ->and($restored->name)->toBe('Hero')
+      ->and($restored->stats->currentHp)->toBe(37)
+      ->and($reloaded->toArray())->toEqual($restored->toArray());
+  });
 });
 
 it('rejects tombstoned saved identities and invalid alias graphs', function () {

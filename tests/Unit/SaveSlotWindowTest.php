@@ -2,6 +2,7 @@
 
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\IO\Console\SgrColorParser;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
@@ -56,20 +57,22 @@ it('highlights save metadata while keeping structural window chrome neutral', fu
   $location = TerminalText::visibleSymbols($rows[1]);
   $footer = TerminalText::visibleSymbols($rows[2]);
   $bottom = TerminalText::visibleSymbols($rows[3]);
-  $selectionColor = Color::LIGHT_BLUE->value;
+  $selectionColor = SgrColorParser::parse(Color::LIGHT_BLUE->value . 'X');
+  $timeDigit = array_find($footer, fn(string $cell) => TerminalText::stripAnsi($cell) === '0');
 
   expect(TerminalText::stripAnsi($rows[0]))->toStartWith('╔═File 5')
     ->and($top[0])->not->toContain("\033[")
     ->and($top[1])->not->toContain("\033[")
-    ->and($top[2])->toContain($selectionColor)
+    ->and(SgrColorParser::parse($top[2]))->toEqual($selectionColor)
     ->and($location[0])->not->toContain("\033[")
     ->and($location[1])->not->toContain("\033[")
-    ->and($location[2])->toContain($selectionColor)
+    ->and(SgrColorParser::parse($location[2]))->toEqual($selectionColor)
     ->and($footer[0])->not->toContain("\033[")
     ->and($footer[array_key_last($footer)])->not->toContain("\033[")
-    ->and($rows[2])->toContain($selectionColor . '0')
+    ->and($timeDigit)->not->toBeNull()
+    ->and(SgrColorParser::parse($timeDigit))->toEqual($selectionColor)
     ->and(implode('', array_map(TerminalText::stripAnsi(...), $bottom)))->toStartWith('╚')
-    ->and($rows[3])->not->toContain($selectionColor);
+    ->and($rows[3])->not->toContain("\033[");
 });
 
 it('removes every selection style when a reusable slot window loses focus', function () {

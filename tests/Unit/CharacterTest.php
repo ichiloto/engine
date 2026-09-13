@@ -106,7 +106,7 @@ it('recovers invalid zero-total vitals from legacy serialized character payloads
   $character->addExperience(PHP_INT_MAX);
 
   $payload = $character->__serialize();
-  $payload['stats'] = array_merge($payload['stats']->jsonSerialize(), [
+  $payload['stats'] = array_merge($payload['stats'], [
     'currentHp' => 0,
     'currentMp' => 0,
     'totalHp' => 0,

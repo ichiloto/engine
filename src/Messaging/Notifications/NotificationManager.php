@@ -2,6 +2,9 @@
 
 namespace Ichiloto\Engine\Messaging\Notifications;
 
+use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
+
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 
 use Assegai\Collections\Queue;
@@ -128,10 +131,10 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
    */
   public function render(?int $x = null, ?int $y = null): void
   {
-    $this->getActiveNotification()?->render(
+    Console::withLayer('notifications', fn() => $this->getActiveNotification()?->render(
       ($x ?? 0) + $this->leftMargin,
       ($y ?? 0) + $this->topMargin
-    );
+    ), PresentationLayerPolicy::NOTIFICATIONS);
   }
 
   /**

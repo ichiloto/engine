@@ -89,6 +89,16 @@ final class TerminalText
    */
   public static function displayWidth(string $text): int
   {
+    // Printable ASCII cannot form wider graphemes when ANSI controls are
+    // removed. Formatter input stays on its existing single-format path;
+    // Unicode retains grapheme measurement, including split flags/ZWJ.
+    if (!str_contains($text, '<') && preg_match('/[^\x00-\x7F]/', $text) !== 1) {
+      $plain = self::stripAnsi($text);
+      if (preg_match('/[^\x20-\x7E]/', $plain) !== 1) {
+        return strlen($plain);
+      }
+    }
+
     $width = 0;
 
     foreach (self::visibleSymbols($text) as $symbol) {
@@ -124,15 +134,13 @@ final class TerminalText
 
     $symbols = [];
     $activeAnsi = '';
+    $style = new SgrStyleState();
     preg_match_all('/\x1B\[[0-9;?]*[ -\/]*[@-~]|\X/u', $text, $matches);
 
     foreach ($matches[0] ?? [] as $token) {
       if (preg_match(self::ANSI_PATTERN, $token) === 1) {
-        if (self::isResetSequence($token)) {
-          $activeAnsi = '';
-        } else {
-          $activeAnsi .= $token;
-        }
+        $style->apply($token);
+        $activeAnsi = $style->prefix();
         continue;
       }
 
@@ -314,12 +322,13 @@ final class TerminalText
   }
 
   /**
-   * Measures the display width of a single visible symbol.
+   * Measures one already-separated visible grapheme, optionally styled.
+   * Use displayWidth() for text containing multiple symbols.
    *
    * @param string $symbol The symbol to measure.
    * @return int The display width in terminal cells.
    */
-  private static function getSymbolWidth(string $symbol): int
+  public static function getSymbolWidth(string $symbol): int
   {
     // Rendering repeats the same handful of glyphs thousands of times per
     // frame, and measuring one costs several regex passes. Cache by symbol.
@@ -556,28 +565,10 @@ final class TerminalText
     return self::$formatter ??= new OutputFormatter(true);
   }
 
-  /**
-   * Determines whether an ANSI sequence resets the active style state.
-   *
-   * @param string $ansi The ANSI sequence.
-   * @return bool True if the sequence resets formatting.
-   */
-  private static function isResetSequence(string $ansi): bool
+  /** S4 renderer normalization; continuation markers are handled by Console. */
+  public static function rendererScalar(string $cell): string
   {
-    if (!preg_match('/\x1B\[([0-9;]*)m/', $ansi, $matches)) {
-      return false;
-    }
-
-    $parameters = $matches[1] === ''
-      ? ['0']
-      : array_filter(explode(';', $matches[1]), static fn(string $value): bool => $value !== '');
-
-    foreach ($parameters as $parameter) {
-      if (in_array((int)$parameter, [0, 22, 23, 24, 25, 27, 28, 29, 39, 49, 54, 55, 59], true)) {
-        return true;
-      }
-    }
-
-    return false;
+    $symbol = self::stripAnsi(self::stabilizeSymbol($cell));
+    return $symbol === '' ? ' ' : (preg_match('/\A[^\p{Cc}]\z/u', $symbol) === 1 ? $symbol : '?');
   }
 }

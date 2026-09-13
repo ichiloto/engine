@@ -6,6 +6,7 @@ use Ichiloto\Engine\Battle\Engines\ActiveTime\States\ActiveTimeFlowState;
 use Ichiloto\Engine\Battle\Actions\GuardAction;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Battle\BattleAction;
+use Ichiloto\Engine\Battle\BattleCommandCatalog;
 use Ichiloto\Engine\Battle\PartyBattlerPositions;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\PlayerActionState;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnStateExecutionContext;
@@ -25,14 +26,26 @@ use Ichiloto\Engine\Entities\Enemies\Enemy;
 use Ichiloto\Engine\Entities\Enemies\ActionCondition;
 use Ichiloto\Engine\Entities\Enemies\ActionPattern;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
+use Ichiloto\Engine\Entities\Enumerations\ItemScopeNumber;
+use Ichiloto\Engine\Entities\Enumerations\ItemScopeStatus;
 use Ichiloto\Engine\Entities\Enumerations\Occasion;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\ItemScope;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Skills\BasicSkill;
+use Ichiloto\Engine\Entities\Skills\MagicSkill;
+use Ichiloto\Engine\Entities\Magic\Spellbook;
+use Ichiloto\Engine\Entities\Inventory\Items\Item;
+use Ichiloto\Engine\Entities\Inventory\Items\ItemScope as InventoryItemScope;
 use Ichiloto\Engine\Entities\Skills\SkillInvocation;
 use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Entities\Troop;
+use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\IO\Enumerations\KeyCode;
+use Ichiloto\Engine\Audio\AudioManager;
+use Tests\Support\Input\FakeInputSource;
+
+require_once __DIR__ . '/../Support/Input/FakeInputSource.php';
 
 class BattleCommandWindowTargetingTestProxy extends BattleCommandWindow
 {
@@ -81,6 +94,18 @@ class BattleCommandContextWindowTargetingTestProxy extends BattleCommandContextW
 
 class BattleFieldWindowTargetingTestProxy extends BattleFieldWindow
 {
+  public array $renderedFocus = [];
+
+  protected function renderTroopFocusMarker(Enemy $battler, bool $blink): void
+  {
+    $this->renderedFocus[] = $battler;
+  }
+
+  protected function renderPartyFocusMarker(Character $battler, int $index, bool $blink): void
+  {
+    $this->renderedFocus[] = $battler;
+  }
+
   public function getQueuedTroopTargets(): array
   {
     return $this->queuedTroopTargets;
@@ -88,7 +113,12 @@ class BattleFieldWindowTargetingTestProxy extends BattleFieldWindow
 
   public function getFocusedTroopIndex(): ?int
   {
-    return $this->focusedTroopIndex;
+    return $this->focusedTroopIndexes[0] ?? null;
+  }
+
+  public function getFocusedIndexes(ItemScopeSide $side): array
+  {
+    return $side === ItemScopeSide::ALLY ? $this->focusedPartyIndexes : $this->focusedTroopIndexes;
   }
 
   public function isBlinkingTroopFocus(): bool
@@ -481,3 +511,95 @@ it('queues an authored enemy action in active-time battles', function () {
     ->and($engine->capturedAction?->name)->toBe('Savage Howl')
     ->and($engine->capturedTargets)->toBe([$enemy]);
 });
+
+it('requires separate confirmation for all-target commands and allows cancellation', function (bool $activeTime, ItemScopeSide $side, ItemScopeStatus $status, array $indexes, string $source) {
+  $game = (new ReflectionClass(GameTargetingTestProxy::class))->newInstanceWithoutConstructor();
+  $audio = $this->createMock(AudioManager::class);
+  setTestProperty($game, 'audioManager', $audio);
+  $skill = new MagicSkill('Group Command', 'Affects the selected group.', '', 5, 0, new ItemScope($side, ItemScopeNumber::ALL, $status));
+  $item = new Item('Group Item', 'Affects the selected group.', '!', 10, 2, scope: new InventoryItemScope($side, ItemScopeNumber::ALL, $status));
+  $party = new Party();
+  foreach (['Caster', 'Ally', 'Fallen Ally'] as $name) {
+    $party->addMember(new Character($name, 0, new Stats(currentHp: 120, currentMp: 30), spellbook: new Spellbook([$skill])));
+  }
+  $party->inventory->addItems($item);
+  $members = $party->battlers->toArray();
+  $members[2]->stats->currentHp = 0;
+  $enemies = array_map(createTargetingTestEnemy(...), ['Enemy A', 'Enemy B', 'Fallen Enemy']);
+  $enemies[2]->stats->currentHp = 0;
+  $troop = new Troop('Targets', $enemies);
+  $screen = createTargetingTestScreen();
+  $engine = $activeTime ? new ActiveTimeBattleEngineCaptureProxy($game) : new TraditionalTurnBasedBattleEngine($game);
+  $engine->configure($activeTime ? new ActiveTimeBattleConfig($party, $troop, $screen) : new TurnBasedBattleConfig($party, $troop, $screen));
+  $scene = new ReflectionClass(\Ichiloto\Engine\Scenes\Battle\BattleScene::class)->newInstanceWithoutConstructor();
+  setTestProperty($scene, 'config', $engine->battleConfig);
+  setTestProperty($screen, 'battleScene', $scene);
+  setTestProperty($screen->fieldWindow, 'battleScreen', $screen);
+  $context = new TurnStateExecutionContext($game, $party, $troop, $screen, []);
+  $turn = new Turn($members[0]);
+  $context->setTurns([$turn, new Turn($members[1])]);
+  $state = $activeTime ? new ActiveTimeFlowState($engine) : new PlayerActionState($engine);
+  setTestProperty($state, 'activeCharacterIndex', 0);
+  setTestProperty($state, 'selectionMode', 'submenu');
+  $command = $source === 'item' ? 'Item' : 'Magic';
+  $options = BattleCommandCatalog::buildOptions($members[0], $party, $command);
+  expect($options)->toHaveCount(1)->and($options[0]->targetNumber)->toBe(ItemScopeNumber::ALL);
+  $option = $options[0];
+  $action = $option->action;
+  $screen->commandContextWindow->setItems($options, $command);
+  $oldSource = InputManager::getInputSource();
+  $oldBindings = InputManager::getBindings();
+  $oldEvents = new ReflectionProperty(InputManager::class, 'eventManager')->getValue();
+
+  try {
+    new ReflectionProperty(InputManager::class, 'eventManager')->setValue(null, null);
+    InputManager::setBindings(['action' => ['keys' => [KeyCode::ENTER]]]);
+    $press = function (KeyCode $key) use ($state, $context): void {
+      InputManager::setInputSource(new FakeInputSource($key));
+      InputManager::handleInput();
+      new ReflectionMethod($state, 'handleActions')->invoke($state, $context);
+    };
+    $assertUncommitted = function () use ($turn, $engine, $members, $enemies, $action, $item): void {
+      expect($turn->action)->toBeNull()->and($turn->targets)->toBe([])
+        ->and($members[0]->stats->currentMp)->toBe(30)
+        ->and($members[1]->stats->currentHp)->toBe(120)
+        ->and($enemies[0]->stats->currentHp)->toBe(30)
+        ->and($item->quantity)->toBe(2)
+        ->and($action->lastResult)->toBeNull();
+      if ($engine instanceof ActiveTimeBattleEngineCaptureProxy) {
+        expect($engine->capturedAction)->toBeNull();
+      }
+    };
+
+    $press(KeyCode::ENTER);
+    $assertUncommitted();
+    $pool = $side === ItemScopeSide::ALLY ? $members : $enemies;
+    $expected = array_map(fn(int $index) => $pool[$index], $indexes);
+    $screen->fieldWindow->renderTargetIndicators();
+    expect(new ReflectionProperty($state, 'selectionMode')->getValue($state))->toBe('target')
+      ->and($screen->fieldWindow->getFocusedIndexes($side))->toBe($indexes)
+      ->and($screen->fieldWindow->renderedFocus)->toBe($expected);
+    $press(KeyCode::c);
+    $assertUncommitted();
+    expect(new ReflectionProperty($state, 'selectionMode')->getValue($state))->toBe('submenu')
+      ->and($screen->commandContextWindow->getActiveItem())->toBe($option)
+      ->and($screen->fieldWindow->getFocusedIndexes($side))->toBe([]);
+
+    $press(KeyCode::ENTER);
+    $assertUncommitted();
+    $press(KeyCode::ENTER);
+    expect($activeTime ? $engine->capturedAction : $turn->action)->toBe($action)
+      ->and($activeTime ? $engine->capturedTargets : $turn->targets)->toBe($expected);
+  } finally {
+    InputManager::setInputSource($oldSource);
+    InputManager::setBindings($oldBindings);
+    new ReflectionProperty(InputManager::class, 'eventManager')->setValue(null, $oldEvents);
+  }
+})->with([false, true])->with([
+  'living allies' => [ItemScopeSide::ALLY, ItemScopeStatus::ALIVE, [0, 1]],
+  'fallen allies' => [ItemScopeSide::ALLY, ItemScopeStatus::DEAD, [2]],
+  'any allies' => [ItemScopeSide::ALLY, ItemScopeStatus::ANY, [0, 1, 2]],
+  'living enemies' => [ItemScopeSide::ENEMY, ItemScopeStatus::ALIVE, [0, 1]],
+  'fallen enemies' => [ItemScopeSide::ENEMY, ItemScopeStatus::DEAD, [2]],
+  'any enemies' => [ItemScopeSide::ENEMY, ItemScopeStatus::ANY, [0, 1, 2]],
+])->with(['skill', 'item']);

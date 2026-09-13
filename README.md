@@ -28,3 +28,13 @@ Ichiloto 2D Game Engine aims to provide an accessible platform for developers an
 - [ ] Character progression and inventory management
 
 Join us on this journey to redefine retro gaming with the power of ASCII art and PHP!
+
+## Documentation
+
+- [Continuous integration and local checks](docs/continuous-integration.md)
+- [Battle-entry rules](docs/battle-entry-rules.md)
+- [Renderer process transport (S2)](docs/rendering/process-transport.md)
+- [Pluggable input sources (S3)](docs/rendering/input-sources.md)
+- [Presentation frames and Console snapshots (S4)](docs/rendering/presentation.md)
+- [Optional graphical sprite intent and Player projection (S5)](docs/rendering/graphical-sprites.md)
+- [Optional Game renderer runtime and project artwork (S6)](docs/rendering/runtime.md)

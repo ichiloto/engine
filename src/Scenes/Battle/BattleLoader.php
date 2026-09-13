@@ -85,6 +85,7 @@ class BattleLoader
       $troop,
       $events,
       array_merge($settings, $extraSettings),
+      $troop->classification,
     );
   }
 }

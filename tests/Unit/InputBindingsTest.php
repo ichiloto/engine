@@ -6,6 +6,9 @@ use Ichiloto\Engine\IO\InputBindings;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\InputConfig;
+use Tests\Support\Input\FakeInputSource;
+
+require_once __DIR__ . '/../Support/Input/FakeInputSource.php';
 
 /**
  * An InputConfig that loads from memory and records what it wrote, so the
@@ -90,18 +93,16 @@ it('uses rebound directional actions for virtual axes', function () {
 
   expect((new InputBindings())->rebind('up', KeyCode::K))->toBeTrue();
 
-  $keyPress = new ReflectionProperty(InputManager::class, 'keyPress');
-  $previousKeyPress = new ReflectionProperty(InputManager::class, 'previousKeyPress');
-  $previousKeyPress->setValue(null, '');
-  $keyPress->setValue(null, KeyCode::K->value);
-
-  expect(InputManager::getAxis(AxisName::VERTICAL))->toBe(-1.0);
-
-  $keyPress->setValue(null, KeyCode::UP->value);
-
-  expect(InputManager::getAxis(AxisName::VERTICAL))->toBe(0.0);
-
-  InputManager::resetState();
+  $originalSource = InputManager::getInputSource();
+  try {
+    InputManager::setInputSource(new FakeInputSource(KeyCode::K, KeyCode::UP));
+    InputManager::handleInput();
+    expect(InputManager::getAxis(AxisName::VERTICAL))->toBe(-1.0);
+    InputManager::handleInput();
+    expect(InputManager::getAxis(AxisName::VERTICAL))->toBe(0.0);
+  } finally {
+    InputManager::setInputSource($originalSource);
+  }
 });
 
 it('refuses to rebind the way out of a screen', function () {

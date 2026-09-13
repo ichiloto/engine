@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Scenes\Battle\States;
 use Ichiloto\Engine\Battle\UI\BattleResultWindow;
 use Ichiloto\Engine\Battle\UI\BattleScreen;
 use Ichiloto\Engine\Core\Time;
+use Ichiloto\Engine\Core\Timers;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\SceneStateContext;
@@ -166,6 +167,6 @@ TXT;
       $this->isPlayingIntroAnimation = false;
     }
 
-    usleep($this->sleepTime);
+    Timers::wait($this->sleepTime / 1_000_000);
   }
 }

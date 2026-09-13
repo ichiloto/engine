@@ -148,7 +148,7 @@ function makeCameraTestScene(): SceneInterface
  * Doors are given a position on a 20x10 event layer, which is where the
  * direction of the place behind them comes from.
  *
- * @param array<string, array{name: string, region: string, to?: array<string, array{0: int, 1: int}>}> $maps The maps, keyed by id.
+ * @param array<string, array{name: string, region: string, station?: array{x: int, y: int}, to?: array<string, array{0: int, 1: int}>}> $maps The maps, keyed by id.
  * @return string The maps directory.
  */
 function writeTestMaps(array $maps): string
@@ -180,12 +180,14 @@ function writeTestMaps(array $maps): string
       PHP;
     }
 
+    $station = var_export($map['station'] ?? null, true);
     file_put_contents($directory . DIRECTORY_SEPARATOR . "{$leaf}.data.php", <<<PHP
     <?php
 
     return [
       'name' => '{$map['name']}',
       'region' => '{$map['region']}',
+      'station' => {$station},
       'events' => [
     {$events}  ],
     ];
@@ -282,11 +284,14 @@ class RecordingAudioManager extends AudioManager
   public function playBackgroundMusic(string $path, bool $loop = true): void
   {
     $this->calls[] = ['playBackgroundMusic', $path];
+    $this->bgmPath = $path;
+    $this->bgmLoops = $loop;
   }
 
   public function stopBackgroundMusic(): void
   {
     $this->calls[] = ['stopBackgroundMusic', null];
+    $this->bgmPath = null;
   }
 
   public function playSoundEffect(string $path): void
@@ -308,6 +313,23 @@ function makeSceneAudioGame(): array
   new ReflectionProperty(Game::class, 'audioManager')->setValue($game, $audioManager);
 
   return [$game, $audioManager];
+}
+
+/** Real field music boundaries with only terminal setup/playback replaced. */
+function makeFieldAudioScene(): array
+{
+  [$game, $audio] = makeSceneAudioGame();
+  $manager = makeBareScene(\Ichiloto\Engine\Scenes\SceneManager::class);
+  $scene = makeBareScene(\Ichiloto\Engine\Scenes\Game\GameScene::class);
+  $map = makeBareScene(\Ichiloto\Engine\Field\MapManager::class);
+  new ReflectionProperty($manager, 'game')->setValue($manager, $game);
+  new ReflectionProperty($manager, 'currentScene')->setValue($manager, $scene);
+  new ReflectionProperty($scene, 'sceneManager')->setValue($scene, $manager);
+  new ReflectionProperty($scene, 'mapManager')->setValue($scene, $map);
+  new ReflectionProperty($scene, 'gameState')->setValue($scene, new \Ichiloto\Engine\Core\GameState());
+  new ReflectionProperty($map, 'game')->setValue($map, $game);
+  new ReflectionProperty($map, 'gameScene')->setValue($map, $scene);
+  return [$scene, $map, $audio, $manager];
 }
 
 /**

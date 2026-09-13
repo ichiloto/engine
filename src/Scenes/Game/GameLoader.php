@@ -9,6 +9,7 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
 use Ichiloto\Engine\Field\PlayerSpriteSet;
+use Ichiloto\Engine\Field\PlayerPresentationConfig;
 use Ichiloto\Engine\IO\SaveManager;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Stores\ActorStore;
@@ -133,12 +134,6 @@ class GameLoader
    */
   protected function loadPlayerSprites(): PlayerSpriteSet
   {
-    $playerData = asset('Data/Entities/player.php', true);
-
-    if (! is_array($playerData)) {
-      return new PlayerSpriteSet();
-    }
-
-    return PlayerSpriteSet::fromArray($playerData);
+    return PlayerPresentationConfig::load()->terminal;
   }
 }

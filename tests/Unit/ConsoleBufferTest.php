@@ -32,6 +32,38 @@ function withConsole(int $width, int $height): ReflectionClass
   return $reflection;
 }
 
+it('clips styled writes at whole glyph boundaries', function (string $text) {
+  foreach ([1, 2, 3, 4] as $available) {
+    withConsole($available + 2, 1);
+    ob_start();
+    try {
+      Console::write($text, 2, 0);
+      $actual = Console::getBuffer();
+
+      withConsole($available + 2, 1);
+      Console::write(TerminalText::truncateToWidth($text, $available), 2, 0);
+      expect($actual)->toBe(Console::getBuffer());
+    } finally {
+      ob_end_clean();
+    }
+  }
+})->with([
+  "\e[31mA界B\e[0m", '<fg=blue>界</>AB', "e\u{0301}⚔️🗡",
+  '🏃🏽‍➡️ ABC', "\e[1;48;5;21m界\e[22;49mAB",
+]);
+
+it('preserves untouched cells when a formatting reset separates regional indicators', function () {
+  withConsole(6, 1);
+  ob_start();
+  try {
+    Console::write("\e[34m..\e[0m....", 0, 0);
+    Console::write("🇺\e[0m🇸X", 2, 0);
+    expect(TerminalText::stripAnsi(Console::getBuffer()[0]))->toBe('..🇺🇸..');
+  } finally {
+    ob_end_clean();
+  }
+});
+
 it('uses the DEC private autowrap mode understood by terminal emulators', function () {
   withConsole(20, 4);
 
@@ -397,6 +429,48 @@ it('batches a frame into a single terminal write', function () {
     ->and($output)->toContain('row two')
     ->and($output)->toContain('row three')
     ->and(substr_count($output, "\033["))->toBe(3);
+});
+
+it('emits sparse window interiors without retransmitting unchanged blanks', function () {
+  withConsole(230, 39);
+  $windows = [
+    new Window(position: new Vector2(60, 2), width: 110, height: 3),
+    new Window(position: new Vector2(60, 5), width: 80, height: 3),
+    new Window(position: new Vector2(140, 5), width: 30, height: 3),
+    new Window(position: new Vector2(60, 8), width: 55, height: 29),
+    new Window(position: new Vector2(115, 8), width: 55, height: 29),
+  ];
+
+  ob_start();
+  Console::beginFrame();
+
+  foreach ($windows as $window) {
+    $window->render();
+  }
+
+  Console::endFrame();
+  $output = ob_get_clean();
+
+  // This is the shop's complete empty-panel geometry at 230x39. Its first
+  // frame used to exceed the terminal writer's 4 KiB boundary because every
+  // blank cell between the vertical borders was marked dirty. The bottom
+  // borders must still be present, but the frame should now remain compact.
+  expect($output)->toContain("\033[37;61H")
+    ->and(TerminalText::stripAnsi($output))->toContain(str_repeat('═', 108))
+    ->and(strlen($output))->toBeLessThan(4096);
+});
+
+it('keeps separated styled and wide spans intact when expanding a batched row once', function () {
+  withConsole(60, 2);
+  $left = "\e[31mL\e[0m";
+  $right = "\e[34m界\e[0m";
+  ob_start();
+  Console::beginFrame();
+  Console::write($left, 1, 0);
+  Console::write($right, 40, 0);
+  Console::endFrame();
+  $output = ob_get_clean();
+  expect($output)->toBe("\e[1;2H" . $left . "\e[1;41H" . $right);
 });
 
 it('nests batched frames and flushes once at the outermost close', function () {

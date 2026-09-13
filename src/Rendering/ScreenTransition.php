@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\Rendering;
 
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\Core\Timers;
+use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\Enumerations\TransitionStyle;
 use Ichiloto\Engine\UI\Accessibility;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
@@ -140,13 +142,13 @@ class ScreenTransition
       return;
     }
 
-    $pause = (int)((($this->durationMs / count($frames)) * 1000));
+    $pause = $this->durationMs / count($frames) / 1000;
 
     foreach ($frames as [$fill, $columns]) {
       $this->drawFrame($fill, $columns);
 
       if ($pause > 0) {
-        usleep($pause);
+        Timers::wait($pause);
       }
     }
   }
@@ -197,9 +199,11 @@ class ScreenTransition
 
     Console::beginFrame();
 
-    for ($y = 0; $y < $height; $y++) {
-      Console::write($row, 0, $y);
-    }
+    Console::withLayer('transition', function () use ($row, $height): void {
+      for ($y = 0; $y < $height; $y++) {
+        Console::write($row, 0, $y);
+      }
+    }, PresentationLayerPolicy::TRANSITION);
 
     Console::endFrame();
   }

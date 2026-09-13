@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States;
 
 use Ichiloto\Engine\Animations\Animation;
+use Ichiloto\Engine\Core\Timers;
 use Ichiloto\Engine\Animations\AnimationCue;
 use Ichiloto\Engine\Animations\AnimationLibrary;
 use Ichiloto\Engine\Animations\AnimationPlayer;
@@ -927,6 +928,6 @@ class ActionExecutionState extends TurnState
    */
   protected function pause(float $seconds): void
   {
-    usleep(max(0, intval(round($seconds * 1000000))));
+    Timers::wait($seconds);
   }
 }

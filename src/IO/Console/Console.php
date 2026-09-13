@@ -2,6 +2,12 @@
 
 namespace Ichiloto\Engine\IO\Console;
 
+use Ichiloto\Engine\Diagnostics\LatencyTrace;
+use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
+use Ichiloto\Engine\Rendering\Presentation\PresentationTextLayer;
+use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
+use Ichiloto\Engine\Rendering\Presentation\StyledPresentationFrame;
+
 use Exception;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Vector2;
@@ -36,14 +42,14 @@ class Console
    */
   private static bool $terminalHandedBack = false;
   /**
-   * @var array<int, array{start: int, end: int}> Changed cell spans by row.
+   * @var array<int, list<array{start: int, end: int}>> Changed cell spans by row.
    *
    * A frame stores dirtiness rather than a journal of intermediate paints.
-   * When several windows touch the same row, their spans are coalesced and
-   * only the final composed segment is emitted. Flushing the complete row for
-   * a small overlay retransmitted the densely styled field behind it; on a
-   * large colour map that payload can fill a PTY before the alert body is
-   * delivered, leaving only a partial border on screen.
+   * Overlapping spans are coalesced, but separated changes remain separated.
+   * This matters for windows: an empty content row changes its two border
+   * cells, not every blank cell between them. Treating that row as one dirty
+   * envelope made a visually sparse shop frame larger than a dense map and
+   * exposed terminal-buffer limits during the first paint.
    */
   private static array $frameRows = [];
 
@@ -85,6 +91,15 @@ class Console
   private const int WRITE_CHUNK_BYTES = 4096;
 
   /**
+   * Clean cells cheaper to resend than to address with another cursor move.
+   *
+   * Keeping short gaps inside one dirty span preserves natural text runs
+   * such as "row one" while still separating the distant vertical borders
+   * of an otherwise empty window row.
+   */
+  private const int DIRTY_SPAN_MERGE_GAP = 8;
+
+  /**
    * How many consecutive stalled writes to tolerate before reporting a
    * broken stream. At the timeout above this is roughly two seconds, far
    * longer than a terminal needs to drain.
@@ -99,6 +114,199 @@ class Console
    * @var array<string> $buffer The buffer.
    */
   private static array $buffer = [];
+  private static bool $trackLayers = false;
+  private static ?string $activeLayer = null;
+  private static int $activeLayerPriority = 0;
+  private static bool $replaceUnderlyingLayer = false;
+  /** @var array<string, int> Named layer priorities in drawing order. */
+  private static array $layerPriorities = [];
+  /** @var array<int, array<int, array{base: string, layers: array<string, string>}>> */
+  private static array $layerCells = [];
+  /** Retained transient surfaces, separate from the live scene beneath them. */
+  private static array $overlays = [];
+
+  /** @param list<string> $lines Opaque rows positioned in zero-based terminal cells. */
+  public static function replaceOverlay(string $id, array $lines, int $x, int $y, int $priority): void
+  {
+    new PresentationTextLayer($id, $priority, []);
+    if ($id === 'world' || isset(self::$layerPriorities[$id])) {
+      throw new \InvalidArgumentException('An overlay requires its own presentation layer ID.');
+    }
+    if ($priority < PresentationLayerPolicy::WORLD) {
+      throw new \InvalidArgumentException('An overlay cannot be placed below the world.');
+    }
+    $rows = [];
+    foreach ($lines as $offset => $line) {
+      $row = $y + $offset;
+      if ($row < 0 || $row >= self::$height) { continue; }
+      $column = $x;
+      foreach (TerminalText::visibleSymbols($line) as $symbol) {
+        $symbol = TerminalText::stabilizeSymbol($symbol);
+        $width = max(1, TerminalText::getSymbolWidth($symbol));
+        if ($column >= self::$width) { break; }
+        for ($cell = max(0, $column); $cell < min(self::$width, $column + $width); $cell++) {
+          $rows[$row][$cell] = $column < 0 || $column + $width > self::$width
+            ? ' ' : ($cell === $column ? $symbol : self::WIDE_SYMBOL_CONTINUATION);
+        }
+        $column += $width;
+      }
+    }
+    self::updateOverlay($id, $rows === [] ? null : ['priority' => $priority, 'rows' => $rows]);
+  }
+
+  public static function removeOverlay(string $id): void
+  {
+    if (isset(self::$overlays[$id])) { self::updateOverlay($id, null); }
+  }
+
+  private static function updateOverlay(string $id, ?array $overlay): void
+  {
+    if (self::$terminalHandedBack || (self::$overlays[$id] ?? null) === $overlay) { return; }
+    if ($overlay !== null) { self::assertLayerCapacity($id); }
+    if (self::$buffer === []) { self::$buffer = self::getEmptyBuffer(); }
+    $previous = self::$overlays;
+    $before = self::getBuffer();
+    $previousRows = self::$frameRows;
+    $previousDepth = self::$frameDepth;
+    self::beginFrame();
+    try {
+      if ($overlay === null) { unset(self::$overlays[$id]); }
+      else { self::$overlays[$id] = $overlay; }
+      uasort(self::$overlays, static fn(array $a, array $b): int => $a['priority'] <=> $b['priority']);
+      if (self::$terminalOutputEnabled && !self::$isRecomposing) {
+        $after = self::getBuffer();
+        foreach (array_unique([...array_keys($previous[$id]['rows'] ?? []), ...array_keys($overlay['rows'] ?? [])]) as $row) {
+          if ($row >= self::$height) { continue; }
+          foreach (self::changedCellSpans($before[$row] ?? '', $after[$row] ?? '') as $span) {
+            self::writeBufferRow($row, $span['start'], $span['end'] - $span['start'] + 1);
+          }
+        }
+      }
+      self::endFrame();
+    } catch (\Throwable $exception) {
+      self::$overlays = $previous;
+      self::$frameRows = $previousRows;
+      self::$frameDepth = $previousDepth;
+      throw $exception;
+    }
+  }
+
+  /** @param string[] $cells @param array<string, true> $excluded @return string[] */
+  private static function compositeOverlayRow(array $cells, int $row, array $excluded = []): array
+  {
+    foreach (self::$overlays as $id => $overlay) {
+      if (isset($excluded[$id])) { continue; }
+      foreach (self::overlayRowCells($overlay, $row, $excluded) as $x => $symbol) {
+        if ($symbol === self::WIDE_SYMBOL_CONTINUATION) { continue; }
+        $width = max(1, TerminalText::getSymbolWidth($symbol));
+        self::clearCellRange($cells, $x, $width);
+        $cells[$x] = $symbol;
+        for ($cell = $x + 1; $cell < $x + $width; $cell++) { $cells[$cell] = self::WIDE_SYMBOL_CONTINUATION; }
+      }
+    }
+    return $cells;
+  }
+
+  /** Whole visible glyphs shared by native and structured composition. */
+  private static function overlayRowCells(array $overlay, int $row, array $excluded): array
+  {
+    $cells = [];
+    if ($row >= self::$height) { return $cells; }
+    foreach ($overlay['rows'][$row] ?? [] as $x => $symbol) {
+      if ($symbol === self::WIDE_SYMBOL_CONTINUATION) { continue; }
+      $width = max(1, TerminalText::getSymbolWidth($symbol));
+      if ($x + $width > self::$width) { continue; }
+      for ($column = $x; $column < $x + $width; $column++) {
+        foreach (self::$layerCells[$row][$column]['layers'] ?? [] as $layer => $_) {
+          if (!isset($excluded[$layer]) && (self::$layerPriorities[$layer] ?? 0) > $overlay['priority']) { continue 3; }
+        }
+      }
+      $cells[$x] = $symbol;
+      for ($column = $x + 1; $column < $x + $width; $column++) { $cells[$column] = self::WIDE_SYMBOL_CONTINUATION; }
+    }
+    return $cells;
+  }
+
+  private static function assertLayerCapacity(string $id): void
+  {
+    if (count(self::$layerPriorities) + count(self::$overlays) + 2 <= StyledPresentationFrame::MAX_TEXT_LAYERS) { return; }
+    $ids = ['world' => true, $id => true] + array_fill_keys(array_keys(self::$overlays), true);
+    foreach (self::$layerCells as $row) {
+      foreach ($row as $cell) {
+        foreach ($cell['layers'] as $layer => $_) { $ids[$layer] = true; }
+      }
+    }
+    if (count($ids) > StyledPresentationFrame::MAX_TEXT_LAYERS) {
+      throw new \OverflowException('Console world, named layers and overlays must fit the presentation layer limit.');
+    }
+  }
+
+  /** Select full snapshot tracking; named writes also retain precedence for native overlays. */
+  public static function setLayerTracking(bool $enabled): void
+  {
+    self::$trackLayers = $enabled;
+    self::$layerCells = [];
+    self::$layerPriorities = [];
+  }
+
+  public static function withLayer(string $id, callable $draw, int $priority = 0, bool $replaceUnderlying = false): void
+  {
+    new PresentationTextLayer($id, $priority, []);
+    if ($id === 'world' || isset(self::$overlays[$id])) {
+      throw new \InvalidArgumentException('Console layers and overlays require distinct IDs; world is reserved.');
+    }
+    if (self::$overlays !== []) { self::assertLayerCapacity($id); }
+    $previous = self::$activeLayer;
+    $previousPriority = self::$activeLayerPriority;
+    $previousReplaceUnderlying = self::$replaceUnderlyingLayer;
+    self::$activeLayer = $id;
+    self::$activeLayerPriority = $priority;
+    self::$replaceUnderlyingLayer = $replaceUnderlying;
+    if ($previous !== $id) {
+      unset(self::$layerPriorities[$id]);
+      self::$layerPriorities[$id] = $priority;
+    }
+    try {
+      $draw();
+    } finally {
+      self::$activeLayer = $previous;
+      self::$activeLayerPriority = $previousPriority;
+      self::$replaceUnderlyingLayer = $previousReplaceUnderlying;
+    }
+  }
+
+  public static function isComposing(): bool
+  {
+    return self::$frameDepth !== 0 || self::$isRecomposing;
+  }
+
+  /** @param string[] $before @param string[] $after */
+  private static function recordLayerWrite(int $row, int $start, int $end, array $before, array $after): void
+  {
+    if ($end < $start) {
+      return;
+    }
+    // Nested callbacks may consume capacity after their parent was admitted.
+    // Check before this write changes either provenance or the live buffer.
+    if (self::$activeLayer !== null && self::$overlays !== []) { self::assertLayerCapacity(self::$activeLayer); }
+    // Writes through a wide continuation clear the entire previous glyph.
+    $start = self::resolveCellAnchor($before, $start) ?? $start;
+    $lastAnchor = self::resolveCellAnchor($before, $end) ?? $end;
+    $end = min(self::$width - 1, max($end, $lastAnchor + TerminalText::getSymbolWidth($before[$lastAnchor] ?? ' ') - 1));
+    for ($x = $start; $x <= $end; $x++) {
+      if (self::$activeLayer === null) {
+        unset(self::$layerCells[$row][$x]);
+        continue;
+      }
+      $entry = self::$replaceUnderlyingLayer ? ['base' => ' ', 'layers' => []]
+        : (self::$layerCells[$row][$x] ?? ['base' => $before[$x] ?? ' ', 'layers' => []]);
+      self::$layerPriorities[self::$activeLayer] = self::$activeLayerPriority;
+      // One entry per layer/cell bounds retained state even across repeated incremental redraws.
+      unset($entry['layers'][self::$activeLayer]);
+      $entry['layers'][self::$activeLayer] = $after[$x] ?? ' ';
+      self::$layerCells[$row][$x] = $entry;
+    }
+  }
   /**
    * @var string $previousTerminalSettings The previous terminal settings.
    */
@@ -127,6 +335,37 @@ class Console
    * @var resource|null
    */
   private static $terminalOutputStream = null;
+  private static bool $terminalOutputEnabled = true;
+  /** @var array{int, int, int, int}|null Physical and logical geometry last presented. */
+  private static ?array $terminalViewport = null;
+  private static bool $terminalViewportDirty = false;
+  private static int $terminalOffsetX = 0;
+  private static int $terminalOffsetY = 0;
+
+  /** Select the physical sink before borrowing a terminal screen; buffers remain active. */
+  public static function setTerminalOutputEnabled(bool $enabled): void
+  {
+    if (self::$terminalOutputEnabled === $enabled) {
+      return;
+    }
+    if (self::$usingAlternateScreen || self::isComposing()) {
+      throw new \LogicException('Select terminal output before composing a frame or entering the alternate screen.');
+    }
+    self::$terminalOutputEnabled = $enabled;
+    if (!$enabled) {
+      self::$terminalViewport = null;
+      self::$terminalViewportDirty = false;
+      self::$terminalOffsetX = self::$terminalOffsetY = 0;
+      self::closeTerminalOutputStream();
+    } elseif (self::$output !== null) {
+      self::openTerminalOutputStream();
+    }
+  }
+
+  public static function isTerminalOutputEnabled(): bool
+  {
+    return self::$terminalOutputEnabled;
+  }
 
   /**
    * Console constructor.
@@ -150,9 +389,11 @@ class Console
     $availableSize = self::getAvailableSize();
 
     self::$game = $game;
+    self::$terminalHandedBack = false;
     Console::cursor()->disableBlinking();
     self::$width = intval($options['width'] ?? $availableSize['width']);
     self::$height = intval($options['height'] ?? $availableSize['height']);
+    self::syncTerminalViewport($availableSize['width'], $availableSize['height'], repaint: false);
     self::$output = new ConsoleOutput();
     self::openTerminalOutputStream();
     self::clear();
@@ -209,6 +450,11 @@ class Console
     self::cursor()->show();
     self::cursor()->enableBlinking();
     self::closeTerminalOutputStream();
+    self::$terminalHandedBack = true;
+    self::$terminalViewport = null;
+    self::$terminalViewportDirty = false;
+    self::$terminalOffsetX = self::$terminalOffsetY = 0;
+    self::$overlays = [];
   }
 
   /**
@@ -286,10 +532,19 @@ class Console
     //
     // Update the canonical buffer only after the physical clear succeeds. A
     // failed write therefore cannot leave engine state ahead of the screen.
-    self::emitControlSequence("\033[0m\033[2J\033[H");
+    self::emitControlSequence("\033[0m\033[2J" . self::terminalHomeAddress());
     self::$buffer = self::getEmptyBuffer();
+    self::$layerCells = [];
+    self::$layerPriorities = [];
     self::$frameRows = [];
     self::$recomposeRepaintRows = [];
+    self::beginFrame();
+    foreach (self::$overlays as $overlay) {
+      foreach (array_keys($overlay['rows']) as $row) {
+        self::repaintRegion(0, $row, self::$width, 1);
+      }
+    }
+    self::endFrame();
   }
 
   /**
@@ -326,11 +581,17 @@ class Console
     }
 
     $previousBuffer = self::$buffer === [] ? self::getEmptyBuffer() : self::$buffer;
+    $previousVisibleBuffer = self::getBuffer();
+    $previousOverlays = self::$overlays;
+    $previousLayerCells = self::$layerCells;
+    $previousLayerPriorities = self::$layerPriorities;
     $previousFrameRows = self::$frameRows;
     $previousRecomposeRepaintRows = self::$recomposeRepaintRows;
     $previousIsRecomposing = self::$isRecomposing;
 
     self::$buffer = self::getEmptyBuffer();
+    self::$layerCells = [];
+    self::$layerPriorities = [];
     self::$frameRows = [];
     self::$recomposeRepaintRows = [];
     self::$isRecomposing = true;
@@ -347,22 +608,23 @@ class Console
       // final rows to the old authoritative screen so rows that disappeared
       // are blanked while stable rows are not needlessly repainted.
       self::$frameRows = [];
+      $visibleBuffer = self::getBuffer();
 
-      if ($forceFullRepaint) {
+      if (self::$terminalOutputEnabled && $forceFullRepaint) {
         for ($row = 0; $row < self::$height; $row++) {
           self::markFrameSpan($row, 0, self::$width - 1);
         }
-      } else {
+      } elseif (self::$terminalOutputEnabled) {
         $emptyRow = str_repeat(' ', self::$width);
 
         for ($row = 0; $row < self::$height; $row++) {
-          if ((self::$buffer[$row] ?? $emptyRow) !== ($previousBuffer[$row] ?? $emptyRow)) {
-            $span = self::changedCellSpan(
-              $previousBuffer[$row] ?? $emptyRow,
-              self::$buffer[$row] ?? $emptyRow,
+          if (($visibleBuffer[$row] ?? $emptyRow) !== ($previousVisibleBuffer[$row] ?? $emptyRow)) {
+            $spans = self::changedCellSpans(
+              $previousVisibleBuffer[$row] ?? $emptyRow,
+              $visibleBuffer[$row] ?? $emptyRow,
             );
 
-            if ($span !== null) {
+            foreach ($spans as $span) {
               self::markFrameSpan($row, $span['start'], $span['end']);
             }
           }
@@ -382,6 +644,9 @@ class Console
       self::endFrame();
     } catch (\Throwable $throwable) {
       self::$buffer = $previousBuffer;
+      self::$overlays = $previousOverlays;
+      self::$layerCells = $previousLayerCells;
+      self::$layerPriorities = $previousLayerPriorities;
       self::$frameRows = $previousFrameRows;
       self::$recomposeRepaintRows = $previousRecomposeRepaintRows;
       self::$isRecomposing = $previousIsRecomposing;
@@ -410,9 +675,13 @@ class Console
    */
   public static function setTerminalSize(int $width, int $height): void
   {
-    self::$width = $width;
-    self::$height = $height;
-    self::emitControlSequence("\033[8;$height;{$width}t");
+    self::syncDimensions($width, $height);
+    self::emitControlSequence(sprintf("\033[8;%d;%dt", self::$height, self::$width));
+    // The resize request invalidates the old physical measurement. Use a
+    // neutral origin until a fresh probe establishes the new margins.
+    self::$terminalViewport = null;
+    self::$terminalViewportDirty = false;
+    self::refreshTerminalOrigin();
   }
 
   /**
@@ -427,11 +696,74 @@ class Console
    */
   public static function syncDimensions(int $width, int $height): void
   {
+    if (self::isComposing()) {
+      throw new \LogicException('Console dimension changes require a completed logical frame.');
+    }
     self::$width = max(1, $width);
     self::$height = max(1, $height);
     self::$buffer = self::getEmptyBuffer();
+    self::$layerCells = [];
+    self::$layerPriorities = [];
     self::$frameRows = [];
     self::$recomposeRepaintRows = [];
+    // Keep the last presented tuple so the next viewport sync still repaints,
+    // but make all writes use the new logical origin immediately.
+    self::$terminalViewportDirty = self::$terminalViewport !== null;
+    self::refreshTerminalOrigin();
+  }
+
+  /**
+   * Center the complete logical surface inside the physical terminal. No TTY
+   * probes or logical buffer/Camera changes occur at this output boundary.
+   */
+  public static function syncTerminalViewport(int $width, int $height, bool $repaint = true): bool
+  {
+    if (!self::$terminalOutputEnabled) { return false; }
+    $viewport = [max(1, $width), max(1, $height), self::$width, self::$height];
+    if ($viewport === self::$terminalViewport && !self::$terminalViewportDirty) { return false; }
+    if (self::isComposing()) {
+      throw new \LogicException('Terminal viewport changes require a completed logical frame.');
+    }
+    $previous = [self::$terminalViewport, self::$terminalOffsetX, self::$terminalOffsetY, self::$terminalViewportDirty];
+    self::$terminalViewport = $viewport;
+    self::$terminalViewportDirty = false;
+    self::refreshTerminalOrigin();
+    try {
+      if ($repaint) {
+        // A physical resize may reflow old terminal rows even if the logical
+        // grid and origin are unchanged. Clear all stale margins, then replay.
+        self::emitControlSequence("\033[0m\033[2J" . self::terminalHomeAddress());
+        self::repaintRegion(0, 0, self::$width, self::$height);
+      }
+    } catch (\Throwable $error) {
+      [self::$terminalViewport, self::$terminalOffsetX, self::$terminalOffsetY, self::$terminalViewportDirty] = $previous;
+      throw $error;
+    }
+    return true;
+  }
+
+  private static function refreshTerminalOrigin(): void
+  {
+    self::$terminalOffsetX = intdiv(max(0, (self::$terminalViewport[0] ?? self::$width) - self::$width), 2);
+    self::$terminalOffsetY = intdiv(max(0, (self::$terminalViewport[1] ?? self::$height) - self::$height), 2);
+  }
+
+  /** @return array{x: int, y: int} Zero-based physical margins, never logical coordinates. */
+  public static function getTerminalOrigin(): array
+  {
+    return ['x' => self::$terminalOffsetX, 'y' => self::$terminalOffsetY];
+  }
+
+  /** Existing one-based cursor coordinates translated exactly once at output. */
+  public static function terminalCursorAddress(int $column, int $row): string
+  {
+    return sprintf("\033[%d;%dH", $row + self::$terminalOffsetY, $column + self::$terminalOffsetX);
+  }
+
+  private static function terminalHomeAddress(): string
+  {
+    return self::$terminalOffsetX === 0 && self::$terminalOffsetY === 0
+      ? "\033[H" : self::terminalCursorAddress(1, 1);
   }
 
   /**
@@ -448,6 +780,10 @@ class Console
    */
   public static function enterAlternateScreen(): void
   {
+    self::$terminalHandedBack = false;
+    if (!self::$terminalOutputEnabled) {
+      return;
+    }
     if (self::$usingAlternateScreen) {
       return;
     }
@@ -544,6 +880,8 @@ class Console
       // borders, and menu text are almost always this shape, and the slow
       // path below costs two grapheme splits per row.
       $existingRow = self::$buffer[$currentBufferRow];
+      $visibleBefore = self::$overlays === [] || self::$isRecomposing || !self::$terminalOutputEnabled ? null
+        : self::compositeOverlayRow(self::rowToCells($existingRow), $currentBufferRow);
       // Symfony formatter tags are author-facing markup, not terminal text.
       // Convert them before choosing the ASCII fast path; otherwise a styled
       // one-cell sprite such as `<fg=#c0392b>@</>` is copied into the buffer
@@ -560,14 +898,35 @@ class Console
 
         if ($incoming !== '') {
           $updatedRow = substr_replace($existingRow, $incoming, $x, strlen($incoming));
+          if (self::$trackLayers || self::$activeLayer !== null || isset(self::$layerCells[$currentBufferRow])) {
+            self::recordLayerWrite($currentBufferRow, $x, $x + strlen($incoming) - 1, str_split($existingRow), str_split($updatedRow));
+          }
 
           // Every draw goes through this buffer — sprites included — so a row
           // that is genuinely unchanged is also unchanged on screen and need
           // not be re-emitted. (Skipping was unsafe while sprites bypassed
           // the buffer: it left trails behind the player.)
-          if ($updatedRow !== $existingRow) {
+          if ($updatedRow !== $existingRow || $visibleBefore !== null) {
             self::$buffer[$currentBufferRow] = $updatedRow;
-            self::writeBufferRow($currentBufferRow, $x, strlen($incoming));
+
+            if (!self::$terminalOutputEnabled || self::$isRecomposing) {
+              continue;
+            }
+
+            $spans = $visibleBefore === null ? self::changedAsciiSpans(
+              $existingRow,
+              $updatedRow,
+              $x,
+              $x + strlen($incoming) - 1,
+            ) : self::changedCellSpansFromCells($visibleBefore,
+              self::compositeOverlayRow(self::rowToCells($updatedRow), $currentBufferRow));
+            foreach ($spans as $span) {
+              self::writeBufferRow(
+                $currentBufferRow,
+                $span['start'],
+                $span['end'] - $span['start'] + 1,
+              );
+            }
           }
         }
 
@@ -584,7 +943,7 @@ class Console
         // Explicit presentation selectors remain intact; TerminalText
         // reserves the width requested by the complete grapheme.
         $symbol = TerminalText::stabilizeSymbol($symbol);
-        $symbolWidth = max(1, TerminalText::displayWidth($symbol));
+        $symbolWidth = max(1, TerminalText::getSymbolWidth($symbol));
 
         if ($cellCursor >= self::$width || $cellCursor + $symbolWidth > self::$width) {
           break;
@@ -601,12 +960,20 @@ class Console
       }
 
       $updatedRow = self::cellsToRow($rowCells);
+      if (self::$trackLayers || self::$activeLayer !== null || isset(self::$layerCells[$currentBufferRow])) {
+        self::recordLayerWrite($currentBufferRow, $x, $cellCursor - 1, $existingCells, $rowCells);
+      }
 
-      if ($updatedRow !== self::$buffer[$currentBufferRow]) {
+      if ($updatedRow !== self::$buffer[$currentBufferRow] || $visibleBefore !== null) {
         self::$buffer[$currentBufferRow] = $updatedRow;
-        $span = self::changedCellSpanFromCells($existingCells, $rowCells);
 
-        if ($span !== null) {
+        if (!self::$terminalOutputEnabled || self::$isRecomposing) {
+          continue;
+        }
+
+        $spans = $visibleBefore === null ? self::changedCellSpansFromCells($existingCells, $rowCells)
+          : self::changedCellSpansFromCells($visibleBefore, self::compositeOverlayRow($rowCells, $currentBufferRow));
+        foreach ($spans as $span) {
           self::writeBufferRow(
             $currentBufferRow,
             $span['start'],
@@ -636,7 +1003,175 @@ class Console
    */
   public static function getBuffer(): array
   {
-    return self::$buffer;
+    if (self::$overlays === []) { return self::$buffer; }
+    $rows = self::$buffer === [] ? self::getEmptyBuffer() : self::$buffer;
+    $affected = [];
+    foreach (self::$overlays as $overlay) {
+      foreach (array_keys($overlay['rows']) as $row) { $affected[$row] = true; }
+    }
+    foreach (array_keys($affected) as $row) {
+      if ($row < self::$height) {
+        $rows[$row] = self::cellsToRow(self::compositeOverlayRow(self::rowToCells($rows[$row] ?? ''), $row));
+      }
+    }
+    return $rows;
+  }
+
+  /**
+   * Captures complete logical cells without touching terminal output or dirty state.
+   * @param list<string> $excludedLayers Named terminal layers to omit from this copy only.
+   */
+  public static function snapshot(array $excludedLayers = []): ConsoleFrameSnapshot
+  {
+    if (self::$frameDepth !== 0 || self::$isRecomposing) {
+      throw new RuntimeException('Cannot snapshot Console while a frame or screen recomposition is active.');
+    }
+
+    $excluded = array_fill_keys($excludedLayers, true);
+    $rows = [];
+    for ($y = 0; $y < self::$height; $y++) {
+      $row = self::$buffer[$y] ?? '';
+      if (! is_string($row) || preg_match('//u', $row) !== 1) {
+        throw new RuntimeException("Console row {$y} must contain valid UTF-8 text.");
+      }
+      // A literal NUL is not the internal continuation marker, which exists only
+      // after cell expansion. Sanitize it before using the canonical cell parser.
+      $cells = self::rowToCells(str_replace("\0", '?', $row));
+      if ($excluded !== []) {
+        foreach (self::$layerCells[$y] ?? [] as $x => $entry) {
+          $cells[$x] = $entry['base'];
+          foreach ($entry['layers'] as $id => $cell) {
+            if (!isset($excluded[$id])) {
+              $cells[$x] = $cell;
+            }
+          }
+        }
+      }
+      $cells = self::compositeOverlayRow($cells, $y, $excluded);
+      foreach ($cells as &$cell) {
+        if ($cell === self::WIDE_SYMBOL_CONTINUATION) {
+          $cell = ' ';
+          continue;
+        }
+        $cell = TerminalText::rendererScalar($cell);
+      }
+      unset($cell);
+      $rows[] = implode('', $cells);
+    }
+    return new ConsoleFrameSnapshot(self::$width, self::$height, $rows);
+  }
+
+  /**
+   * @param list<string> $excludedLayers Renderer-only exclusions; Console stays untouched.
+   * @param array<string, array<int, array<int, true>>> $replacedLayerCells Layer/row/column masks.
+   * Replacement removes the named contribution and its underlay, never later writes.
+   */
+  public static function presentationSnapshot(array $excludedLayers = [], array $replacedLayerCells = []): ConsolePresentationSnapshot
+  {
+    $cellsStart = LatencyTrace::now();
+    if (self::isComposing()) {
+      throw new RuntimeException('Cannot snapshot Console while a frame or screen recomposition is active.');
+    }
+    $world = $named = [];
+    $excluded = array_fill_keys($excludedLayers, true);
+    for ($y = 0; $y < self::$height; $y++) {
+      $row = self::$buffer[$y] ?? '';
+      if (!is_string($row) || preg_match('//u', $row) !== 1) {
+        throw new RuntimeException("Console row {$y} must contain valid UTF-8 text.");
+      }
+      $world[$y] = self::rowToCells(str_replace("\0", '?', $row));
+      foreach (self::$layerCells[$y] ?? [] as $x => $entry) {
+        $world[$y][$x] = $entry['base'];
+        foreach ($entry['layers'] as $id => $cell) {
+          if (isset($replacedLayerCells[$id][$y][$x])) {
+            unset($world[$y][$x]);
+            foreach (array_keys($entry['layers']) as $underlay) {
+              if ($underlay === $id) { break; }
+              unset($named[$underlay][$y][$x]);
+            }
+            continue;
+          }
+          if (!isset($excluded[$id])) { $named[$id][$y][$x] = $cell; }
+        }
+      }
+    }
+    LatencyTrace::end('console.cells', $cellsStart);
+    $planes = ['world' => $world];
+    $priorities = ['world' => PresentationLayerPolicy::WORLD];
+    foreach (self::$layerPriorities as $id => $priority) {
+      if (isset($named[$id])) {
+        $planes[$id] = $named[$id];
+        $priorities[$id] = $priority;
+      }
+    }
+    foreach (self::$overlays as $id => $overlay) {
+      if (isset($excluded[$id])) { continue; }
+      $rows = [];
+      foreach (array_keys($overlay['rows']) as $row) {
+        $rows[$row] = self::overlayRowCells($overlay, $row, $excluded);
+        // A terminal cannot display half of a wide glyph. Repair snapshot copies
+        // of lower planes too, without discarding their retained underlay.
+        foreach ($planes as $lowerId => &$plane) {
+          if ($priorities[$lowerId] > $overlay['priority'] || !isset($plane[$row])) { continue; }
+          foreach (array_keys($rows[$row]) as $column) {
+            $anchor = self::resolveCellAnchor($plane[$row], $column);
+            if ($anchor !== null && TerminalText::getSymbolWidth($plane[$row][$anchor] ?? ' ') > 1) {
+              self::clearCellRange($plane[$row], $anchor, 1);
+            }
+          }
+        }
+        unset($plane);
+      }
+      $planes[$id] = $rows;
+      $priorities[$id] = $overlay['priority'];
+    }
+    $layers = [];
+    foreach ($planes as $id => $rows) {
+      $layers[] = new PresentationTextLayer((string)$id, $priorities[$id], self::presentationRuns($rows));
+    }
+    return new ConsolePresentationSnapshot(self::$width, self::$height, $layers);
+  }
+
+  /** @param array<int, array<int, string>> $rows @return list<PresentationTextRun> */
+  private static function presentationRuns(array $rows): array
+  {
+    $started = LatencyTrace::now();
+    $parsing = 0;
+    $runs = $cache = [];
+    foreach ($rows as $y => $cells) {
+      ksort($cells);
+      $text = '';
+      $start = $previous = -1;
+      $style = ['foreground' => null, 'background' => null];
+      foreach ($cells as $x => $cell) {
+        if ($cell === self::WIDE_SYMBOL_CONTINUATION) {
+          $next = $previous === $x - 1 ? $style : ['foreground' => null, 'background' => null];
+          $glyph = ' ';
+        } else {
+          if (!isset($cache[$cell])) {
+            $parseStart = LatencyTrace::now();
+            $cache[$cell] = [SgrColorParser::parse($cell), TerminalText::rendererScalar($cell)];
+            if ($parseStart !== null) { $parsing += LatencyTrace::now() - $parseStart; }
+          }
+          $parsed = $cache[$cell];
+          [$next, $glyph] = $parsed;
+        }
+        if ($text !== '' && ($x !== $previous + 1 || $next != $style)) {
+          $runs[] = new PresentationTextRun($y, $start, $text, $style['foreground'], $style['background']);
+          $text = '';
+        }
+        if ($text === '') { $start = $x; }
+        $text .= $glyph;
+        $style = $next;
+        $previous = $x;
+      }
+      if ($text !== '') {
+        $runs[] = new PresentationTextRun($y, $start, $text, $style['foreground'], $style['background']);
+      }
+    }
+    LatencyTrace::end('console.runs', $started, ['style_parse_ns' => $parsing,
+      'unique_cells' => count($cache), 'runs' => count($runs)]);
+    return $runs;
   }
 
   /**
@@ -652,7 +1187,7 @@ class Console
       return '';
     }
 
-    $cells = self::rowToCells(self::$buffer[$y] ?? '');
+    $cells = self::compositeOverlayRow(self::rowToCells(self::$buffer[$y] ?? ''), $y);
     $anchorIndex = self::resolveCellAnchor($cells, $x);
 
     if ($anchorIndex === null) {
@@ -806,20 +1341,25 @@ class Console
       return;
     }
 
+    if (!self::$terminalOutputEnabled) {
+      self::$frameRows = [];
+      return;
+    }
+
     ksort(self::$frameRows, SORT_NUMERIC);
     $payload = '';
 
-    foreach (self::$frameRows as $row => $span) {
+    foreach (self::$frameRows as $row => $spans) {
       if (! isset(self::$buffer[$row])) {
         continue;
       }
 
-      $payload .= sprintf(
-        "\033[%d;%dH%s",
-        $row + 1,
-        $span['start'] + 1,
-        self::getBufferSegment($row, $span['start'], $span['end']),
-      );
+      // A horizontally scrolled row often has many disjoint changes. Expand
+      // its styled glyphs once, rather than parsing the row for every span.
+      $cells = self::compositeOverlayRow(self::rowToCells(self::$buffer[$row]), $row);
+      foreach ($spans as $span) {
+        $payload .= self::terminalRowSpan($row, $cells, $span['start'], $span['end']);
+      }
     }
 
     self::$frameRows = [];
@@ -838,6 +1378,9 @@ class Console
    */
   public static function repaintRegion(int $x, int $y, int $width, int $height): void
   {
+    if (!self::$terminalOutputEnabled) {
+      return;
+    }
     if ($width <= 0 || $height <= 0 || self::$width <= 0 || self::$height <= 0) {
       return;
     }
@@ -892,7 +1435,7 @@ class Console
    */
   private static function writeToTerminal(string $payload): void
   {
-    if ($payload === '') {
+    if (!self::$terminalOutputEnabled || $payload === '') {
       return;
     }
 
@@ -908,14 +1451,15 @@ class Console
       return;
     }
 
-    // php://stdout is buffered independently of the terminal descriptor.
-    // Disable that layer so fwrite()'s byte count describes terminal
-    // acceptance, not temporary userspace acceptance. This is process-local
-    // Console ownership, so keeping the stream unbuffered is intentional.
-    // Pipes and a few platform wrappers report that write buffering is not
-    // configurable because they are already direct descriptors. That is a
-    // safe fallback; php://stdout, the production path that needs this
-    // protection, accepts the unbuffered policy.
+    // php://stdout and /dev/tty may be buffered independently of the terminal
+    // descriptor. Prefer an unbuffered stream so fwrite()'s byte count
+    // describes terminal acceptance rather than temporary userspace
+    // acceptance. macOS' /dev/tty wrapper can reject this request even though
+    // it still buffers writes, so rejection is not proof that the descriptor
+    // is direct. In that case every accepted chunk is explicitly drained
+    // before the next one is offered. This keeps all large scenes reliable,
+    // rather than relying on a final flush after PHP has already accepted the
+    // complete frame into an opaque stream buffer.
     @stream_set_write_buffer($stream, 0);
 
     $totalBytes = strlen($payload);
@@ -933,6 +1477,19 @@ class Console
       if ($written !== false && $written > 0) {
         $bytesWritten += $written;
         $stalledAttempts = 0;
+
+        // PHP stream wrappers can claim to be unbuffered while an underlying
+        // PTY, multiplexer, or capture layer still stages output. Drain every
+        // accepted chunk; relying on the wrapper's advisory return value left
+        // the last shop rows invisible until the player's next key press.
+        if (! @fflush($stream)) {
+          throw new RuntimeException(sprintf(
+            'Terminal output failed to drain after %d of %d bytes.',
+            $bytesWritten,
+            $totalBytes,
+          ));
+        }
+
         continue;
       }
 
@@ -984,6 +1541,9 @@ class Console
    */
   private static function openTerminalOutputStream(): void
   {
+    if (!self::$terminalOutputEnabled) {
+      return;
+    }
     self::closeTerminalOutputStream();
 
     if (PHP_OS_FAMILY === 'Windows') {
@@ -1057,73 +1617,151 @@ class Console
     // Positioning and content form one indivisible terminal operation. If
     // they travel through different descriptors, the text may arrive before
     // its cursor move and corrupt an unrelated part of the screen.
-    self::writeToTerminal(sprintf(
-      "\033[%d;%dH%s",
-      $row + 1,
-      $start + 1,
-      self::getBufferSegment($row, $start, $end),
-    ));
+    $cells = self::compositeOverlayRow(self::rowToCells(self::$buffer[$row]), $row);
+    self::writeToTerminal(self::terminalRowSpan($row, $cells, $start, $end));
   }
 
-  /** Coalesces a changed span with any earlier writes to the same frame row. */
+  /** Coalesces overlapping changed spans while preserving clean gaps. */
   private static function markFrameSpan(int $row, int $start, int $end): void
   {
     $start = max(0, min($start, max(0, self::$width - 1)));
     $end = max($start, min($end, max(0, self::$width - 1)));
-    $current = self::$frameRows[$row] ?? null;
-
-    self::$frameRows[$row] = [
-      'start' => $current === null ? $start : min($current['start'], $start),
-      'end' => $current === null ? $end : max($current['end'], $end),
-    ];
+    $spans = self::$frameRows[$row] ?? [];
+    $spans[] = ['start' => $start, 'end' => $end];
+    self::$frameRows[$row] = self::coalesceChangedSpans($spans);
   }
 
   /**
-   * Finds the terminal-cell span whose rendered value or style changed.
+   * Finds the terminal-cell runs whose rendered value or style changed.
    *
-   * @return array{start: int, end: int}|null
+   * @return list<array{start: int, end: int}>
    */
-  private static function changedCellSpan(string $before, string $after): ?array
+  private static function changedCellSpans(string $before, string $after): array
   {
-    return self::changedCellSpanFromCells(
+    return self::changedCellSpansFromCells(
       self::rowToCells($before),
       self::rowToCells($after),
     );
   }
 
   /**
-   * Finds the changed span between two already expanded cell buffers.
+   * Finds changed runs between two already expanded cell buffers.
    *
    * @param string[] $before
    * @param string[] $after
-   * @return array{start: int, end: int}|null
+   * @return list<array{start: int, end: int}>
    */
-  private static function changedCellSpanFromCells(array $before, array $after): ?array
+  private static function changedCellSpansFromCells(array $before, array $after): array
   {
+    $spans = [];
     $start = null;
-    $end = null;
 
     for ($cell = 0; $cell < self::$width; $cell++) {
       if (($before[$cell] ?? ' ') === ($after[$cell] ?? ' ')) {
+        if ($start !== null) {
+          $spans[] = ['start' => $start, 'end' => $cell - 1];
+          $start = null;
+        }
+
         continue;
       }
 
       $start ??= $cell;
-      $end = $cell;
     }
 
-    return $start === null || $end === null
-      ? null
-      : ['start' => $start, 'end' => $end];
+    if ($start !== null) {
+      $spans[] = ['start' => $start, 'end' => self::$width - 1];
+    }
+
+    return self::coalesceChangedSpans($spans);
   }
 
-  /** Returns an ANSI-safe slice of one canonical buffer row. */
-  private static function getBufferSegment(int $row, int $start, int $end): string
+  /**
+   * Finds changed byte runs within a known plain-ASCII draw.
+   *
+   * @return list<array{start: int, end: int}>
+   */
+  private static function changedAsciiSpans(string $before, string $after, int $start, int $end): array
   {
-    $cells = self::rowToCells(self::$buffer[$row] ?? '');
-    $segment = array_slice($cells, $start, max(0, $end - $start + 1));
+    $spans = [];
+    $runStart = null;
+    $start = max(0, $start);
+    $end = min(self::$width - 1, $end);
 
-    return self::cellsToRow($segment);
+    for ($cell = $start; $cell <= $end; $cell++) {
+      if (($before[$cell] ?? ' ') === ($after[$cell] ?? ' ')) {
+        if ($runStart !== null) {
+          $spans[] = ['start' => $runStart, 'end' => $cell - 1];
+          $runStart = null;
+        }
+
+        continue;
+      }
+
+      $runStart ??= $cell;
+    }
+
+    if ($runStart !== null) {
+      $spans[] = ['start' => $runStart, 'end' => $end];
+    }
+
+    return self::coalesceChangedSpans($spans);
+  }
+
+  /**
+   * Merges nearby dirty runs when another cursor address would cost more.
+   *
+   * @param list<array{start: int, end: int}> $spans
+   * @return list<array{start: int, end: int}>
+   */
+  private static function coalesceChangedSpans(array $spans): array
+  {
+    if ($spans === []) {
+      return [];
+    }
+
+    usort($spans, static fn(array $left, array $right): int => $left['start'] <=> $right['start']);
+    $merged = [];
+
+    foreach ($spans as $span) {
+      $lastIndex = count($merged) - 1;
+
+      if (
+        $lastIndex < 0
+        || $span['start'] > $merged[$lastIndex]['end'] + self::DIRTY_SPAN_MERGE_GAP + 1
+      ) {
+        $merged[] = $span;
+        continue;
+      }
+
+      $merged[$lastIndex]['end'] = max($merged[$lastIndex]['end'], $span['end']);
+    }
+
+    return $merged;
+  }
+
+  /**
+   * Formats a native write without changing its logical source cells.
+   * @param string[] $cells The complete, composed logical row.
+   */
+  private static function terminalRowSpan(int $row, array $cells, int $start, int $end): string
+  {
+    $visibleWidth = min(self::$width, (self::$terminalViewport[0] ?? self::$width) - self::$terminalOffsetX);
+    $visibleHeight = min(self::$height, (self::$terminalViewport[1] ?? self::$height) - self::$terminalOffsetY);
+    $start = max(0, $start);
+    $end = min($end, $visibleWidth - 1);
+    if ($row < 0 || $row >= $visibleHeight || $end < $start) { return ''; }
+
+    // A dirty span can touch either half of a glyph. Replay the whole glyph
+    // when it fits, but blank its visible fragment at the physical boundary.
+    $start = self::resolveCellAnchor($cells, $start) ?? $start;
+    $lastAnchor = self::resolveCellAnchor($cells, $end) ?? $end;
+    $glyphEnd = $lastAnchor + max(1, TerminalText::displayWidth($cells[$lastAnchor] ?? ' ')) - 1;
+    $end = min($visibleWidth - 1, max($end, $glyphEnd));
+    if ($glyphEnd >= $visibleWidth) { self::clearCellRange($cells, $lastAnchor, 1); }
+
+    return self::terminalCursorAddress($start + 1, $row + 1)
+      . self::cellsToRow(array_slice($cells, $start, $end - $start + 1));
   }
 
   /**
@@ -1138,7 +1776,7 @@ class Console
     $cellIndex = 0;
 
     foreach (TerminalText::visibleSymbols($row) as $symbol) {
-      $symbolWidth = max(1, TerminalText::displayWidth($symbol));
+      $symbolWidth = max(1, TerminalText::getSymbolWidth($symbol));
 
       if ($cellIndex >= self::$width) {
         break;
@@ -1204,7 +1842,7 @@ class Console
       $symbol = $cells[$anchorIndex] ?? ' ';
       $symbolWidth = $symbol === self::WIDE_SYMBOL_CONTINUATION
         ? 1
-        : max(1, TerminalText::displayWidth($symbol));
+        : max(1, TerminalText::getSymbolWidth($symbol));
 
       for ($offset = 0; $offset < $symbolWidth && $anchorIndex + $offset < self::$width; $offset++) {
         $cells[$anchorIndex + $offset] = ' ';

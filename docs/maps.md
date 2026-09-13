@@ -30,7 +30,7 @@ and the map screen draws them together.
 ## The map screen
 
 The `map` action (M by default) opens the region the player is standing in,
-drawn the way the region actually is:
+drawn from its authored stations and transfer links:
 
 ```
   [    Home     ]──┐                                    N
@@ -43,6 +43,12 @@ drawn the way the region actually is:
 Nothing about this is authored twice. `Field\RegionMap` reads every map's
 `name`, `region`, and `TransferPlayerTrigger` destinations, so a door drawn on
 a map appears on the region map by existing.
+
+The view opens on the current place. Use the directional movement bindings
+(arrow keys by default) to pan a region larger than the panel, and `Home` to
+return to the current place. `c`, back, or the map action closes it. Panning
+changes only the view, never the party position or the region layout. The
+map and info panels fit the logical screen, including an 80x24 terminal.
 
 ### Where a place is drawn
 
@@ -70,6 +76,14 @@ return [
 ];
 ```
 
+Stations are region-grid coordinates, not local field tiles or transfer
+arrival positions. Sparse coordinates retain their spacing and can be
+reached by panning; the engine does not compress them to fit the panel.
+Every distinct authored pin is reserved before unpinned places are inferred.
+For duplicate pins, the first map in stable file-scan order keeps the pin and
+the others use the next free cells east, without taking another authored pin.
+This resolves display overlap without rewriting the project's station data.
+
 What the player has seen governs what it says:
 
 - places the party has been are named,
@@ -81,7 +95,7 @@ when a map loads) and ride the save file, so a map fills in as the game is
 played. Doors leading out of the region are named under the map as exits.
 
 A region can hold a map no door reaches, one entered only by a cutscene, say.
-It is still part of the region and still drawn.
+It is still part of the region and becomes visible when visited.
 
 ## Random encounters
 

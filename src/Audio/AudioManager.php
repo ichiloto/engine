@@ -343,6 +343,21 @@ class AudioManager implements CanUpdate
     }
   }
 
+  /** Includes pending fade-out/restore work after the event has finished. */
+  public function hasCinematicMusic(): bool
+  {
+    return $this->cinematicMusicSession !== null && ! $this->cinematicMusicSession->isFinalized;
+  }
+
+  /** A battle inside a cinematic returns to its cue, not the map default. */
+  public function resumeCinematicMusic(): void
+  {
+    if ($this->hasCinematicMusic()) {
+      $request = $this->cinematicMusicSession->request;
+      $this->playBackgroundMusic($request->track, $request->loop);
+    }
+  }
+
   /**
    * Stops the current background music track, if any.
    *

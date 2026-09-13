@@ -3,6 +3,7 @@
 use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Scenes\Battle\BattleConfig;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
@@ -136,9 +137,7 @@ it('derives the game scene theme from the current map', function () {
 });
 
 it('plays a declared map theme and remembers it', function () {
-  [$game, $audioManager] = makeSceneAudioGame();
-  $mapManager = makeBareScene(MapManager::class);
-  new ReflectionProperty(MapManager::class, 'game')->setValue($mapManager, $game);
+  [, $mapManager, $audioManager] = makeFieldAudioScene();
 
   $apply = new ReflectionMethod(MapManager::class, 'applyMapBackgroundMusic');
   $apply->invoke($mapManager, 'cave-theme');
@@ -148,15 +147,33 @@ it('plays a declared map theme and remembers it', function () {
 });
 
 it('keeps the current music when a map declares no theme', function () {
-  [$game, $audioManager] = makeSceneAudioGame();
-  $mapManager = makeBareScene(MapManager::class);
-  new ReflectionProperty(MapManager::class, 'game')->setValue($mapManager, $game);
+  [, $mapManager, $audioManager] = makeFieldAudioScene();
 
   $apply = new ReflectionMethod(MapManager::class, 'applyMapBackgroundMusic');
   $apply->invoke($mapManager, null);
 
   expect($mapManager->backgroundMusic)->toBeNull()
     ->and($audioManager->calls)->toBeEmpty();
+});
+
+it('selects a map theme from world-state variants before using its default', function () {
+  [$scene, $mapManager, $audioManager] = makeFieldAudioScene();
+  $state = $scene->gameState;
+  $apply = new ReflectionMethod(MapManager::class, 'applyMapBackgroundMusic');
+  $variants = [[
+    'track' => 'quiet-town',
+    'conditions' => [['type' => 'event', 'name' => 'crisis_resolved']],
+  ]];
+
+  $apply->invoke($mapManager, 'town-in-danger', $variants);
+  $state->recordStoryEvent('crisis_resolved');
+  $apply->invoke($mapManager, 'town-in-danger', $variants);
+
+  expect($mapManager->backgroundMusic)->toBe('quiet-town')
+    ->and($audioManager->calls)->toBe([
+      ['playBackgroundMusic', 'town-in-danger'],
+      ['playBackgroundMusic', 'quiet-town'],
+    ]);
 });
 
 it('starts the incoming scene music on transition and silences scenes without one', function () {
@@ -168,7 +185,9 @@ it('starts the incoming scene music on transition and silences scenes without on
   $apply = new ReflectionMethod(SceneManager::class, 'applySceneBackgroundMusic');
 
   $apply->invoke($sceneManager, makeBareScene(TitleScene::class));
-  $apply->invoke($sceneManager, makeBareScene(GameScene::class));
+  $emptyField = makeBareScene(GameScene::class);
+  new ReflectionProperty($emptyField, 'sceneManager')->setValue($emptyField, $sceneManager);
+  $apply->invoke($sceneManager, $emptyField);
 
   expect($audioManager->calls)->toBe([
     ['playBackgroundMusic', 'title-theme'],

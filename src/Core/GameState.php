@@ -234,6 +234,24 @@ class GameState
   }
 
   /**
+   * Restores a previously captured state without emitting write callbacks.
+   *
+   * This is the rollback primitive for bounded Engine transactions. It does
+   * not replace the observer wired by the owning GameScene.
+   *
+   * @param array<string, mixed> $snapshot
+   */
+  public function restoreSnapshot(array $snapshot): void
+  {
+    $restored = self::fromArray($snapshot);
+    $this->switches = $restored->switches;
+    $this->variables = $restored->variables;
+    $this->storyEvents = $restored->storyEvents;
+    $this->completedEvents = $restored->completedEvents;
+    $this->visitedMaps = $restored->visitedMaps;
+  }
+
+  /**
    * @param array<string, mixed> $data
    * @return self
    */

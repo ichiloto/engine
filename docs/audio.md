@@ -25,7 +25,7 @@ Scene themes live in the project config:
 ],
 ```
 
-Field music belongs to maps. A map declares its theme through the `bgm` entry
+Maps supply the default field music. A map declares its theme through the `bgm` entry
 in its `.data.php` file:
 
 ```php
@@ -43,19 +43,19 @@ The rules, mirroring RPG Maker:
   music; a scene with no declared theme is silent. Scene transitions are the
   single choke point (`SceneManager`), so music can never bleed into a scene
   that did not ask for it.
-- Entering a map plays its declared theme. Moving between maps that share a
+- Entering a map resolves scenario music before its declared theme. Moving between maps that share a
   theme is seamless (replaying the current track is a no-op). A map with no
   `bgm` entry keeps whatever is playing (autoplay-off semantics).
 - Winning a battle starts the victory theme over the results screen; leaving
-  the results restores the map's theme. It plays like any other track (it
+  the results restores the current scenario or map theme. It plays like any other track (it
   loops), so a long results screen never falls silent. A project that
   configures no victory theme simply keeps the battle music playing.
 - Resting at an inn plays the sleep theme, then restores whatever was playing
-  before the rest — sleeping never changes maps, so the music resumes exactly
-  where it left off. A specific inn can declare its own track through the
+  before the rest, then applies any scenario changes made during the rest.
+  This restores the track, not its playback position. A specific inn can declare its own track through the
   `bgm` entry in its `SleepEventTrigger` data, and a project that configures
   no sleep theme keeps the field music playing.
-- After a battle, the current map's theme resumes automatically.
+- After a battle, the current scenario or map theme resumes automatically.
 - A specific battle can override the project battle theme (e.g. a boss theme)
   through `bgm` in its runtime battle settings, and its victory theme through
   `victory_bgm`. Troops declare the battle theme directly in
@@ -68,6 +68,79 @@ The rules, mirroring RPG Maker:
     'enemies' => [/* ... */],
   ],
   ```
+
+## Scenario and mission music
+
+For music that must survive map transfers, author the optional project file
+`assets/Data/field-music.php`. It returns an ordered list of rules:
+
+```php
+<?php
+return [
+  [
+    'id' => 'rescue-chamber',
+    'priority' => 200,
+    'track' => 'quiet-tension',
+    'maps' => ['fortress/chamber'],
+    'conditions' => [
+      ['type' => 'quest', 'name' => 'rescue-mission', 'status' => 'active'],
+    ],
+  ],
+  [
+    'id' => 'rescue-mission',
+    'priority' => 100,
+    'track' => 'mission-theme',
+    'conditions' => [
+      ['type' => 'quest', 'name' => 'rescue-mission', 'status' => 'active'],
+    ],
+  ],
+];
+```
+
+The highest-priority matching rule wins; equal priorities retain declaration
+order. Omit `maps` for a campaign/mission-wide rule, or supply a non-empty list
+of exact map IDs for a location treatment. All conditions must match, using
+the same `WorldConditionEvaluator` as events and NPCs: switches, story events,
+variables, items, key items and active/completed quests, including `negate`.
+Empty or omitted conditions mean an unconditional rule. `priority` defaults
+to `0`. IDs must be unique, and `track` is required: a reference selects
+looping BGM; an explicit `null` requests silence. No match falls back to the
+map's first matching `bgmVariants` entry, then its `bgm` default. Autoplay-off
+maps retain the preceding map default rather than treating a mission track
+as their permanent default.
+
+`FieldMusicCatalog` validates rule structure at project startup. A missing
+file preserves existing projects. Track resolution uses the normal BGM asset
+resolver below. There is not yet a dedicated Editor picker or CLI reference
+validator for this catalog; authors must verify its track and map references.
+
+`GameScene` resolves this policy at map entry, field updates, event completion
+and scene returns. It re-evaluates map variants too, so finishing a scenario
+does not require moving or leaving the map. Unchanged music is not restarted.
+The conditions derive from the existing saved world/quest state; no music
+stack, session object or new save field is persisted. Loading a save resolves
+its active scenario again.
+
+This policy belongs to PHP gameplay state, not a render target. Terminal-only
+and optional graphical sessions use the same catalog, map/scene boundaries and
+temporary audio ownership. Renderer waits continue audio updates without
+recursively updating field scenes; native close unwinds temporary actions into
+the Game's common, idempotent audio and renderer cleanup.
+
+Battle/results scenes, rest and cinematic cues temporarily own playback.
+Field changes wait until that owner releases it, then resolve the current
+state rather than blindly restoring a stale map track. A battle within an
+active cinematic returns to that cinematic's cue. Cinematic `continue` and
+`stop` outcomes remain effective when the underlying field policy has not
+changed. Custom temporary field actions should pair `holdFieldMusic()` with
+`releaseFieldMusic()` in `finally`, restoring their temporary cue before
+releasing the hold, as `SleepAction` does.
+
+Ordinary `play_music` commands remain one-off replacements, not persistent
+scenario declarations. Do not use them to start and manually undo a mission
+override on every map. Use the catalog for the durable state and
+`cinematic_music` for an authored interruption. Existing one-off cues can
+still continue into autoplay-off maps.
 
 ## Event-driven audio
 
@@ -82,7 +155,7 @@ For authored moments — a boss appearing, an eerie chamber — maps can place a
     'bgm' => 'boss-approach',      // optional: replaces the music
     'sfx' => 'roar',               // optional: one-shot sound effect
     'once' => true,                // optional: fire a single time
-    'restoreMapBgmOnExit' => true, // optional: restore the map theme on exit
+    'restoreMapBgmOnExit' => true, // optional: restore resolved field music on exit
   ],
 ],
 ```

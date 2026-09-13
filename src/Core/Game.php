@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Core;
 
+use Ichiloto\Engine\Diagnostics\LatencyTrace;
+use Ichiloto\Engine\Audio\FieldMusicCatalog;
 use Assegai\Collections\ItemList;
 use Assegai\Util\Path;
 use Error;
@@ -12,6 +14,8 @@ use Ichiloto\Engine\Battle\Engines\ActiveTime\ActiveTimeBattleEngine;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\TraditionalTurnBasedBattleEngine;
 use Ichiloto\Engine\Battle\Enumerations\BattleEngineType;
 use Ichiloto\Engine\Battle\Interfaces\BattleEngineInterface;
+use Ichiloto\Engine\Battle\UI\BattleScreen;
+use Ichiloto\Engine\Battle\Entry\BattleEntryRuleCatalog;
 use Ichiloto\Engine\Core\Enumerations\ChronoUnit;
 use Ichiloto\Engine\Core\Interfaces\CanRun;
 use Ichiloto\Engine\Events\Enumerations\EventType;
@@ -29,6 +33,10 @@ use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalCapabilities;
 use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\Rendering\Launch\RendererLaunchIntent;
+use Ichiloto\Engine\Rendering\Launch\RendererRegistry;
+use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
+use Ichiloto\Engine\Rendering\Runtime\RendererWindowClosed;
 use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
 use Ichiloto\Engine\Progress\Knowledge\KnowledgeCatalog;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
@@ -86,6 +94,26 @@ class Game implements CanRun, SubjectInterface
      * @var bool Whether the terminal has already been handed back.
      */
     private bool $terminalCleanedUp = false;
+    private bool $terminalInputConfigured = false;
+    private ?RendererRuntime $rendererRuntime = null;
+    private ?RendererRegistry $rendererRegistry = null;
+    private ?RendererLaunchIntent $rendererLaunchIntent = null;
+    private bool $rendererSelectionResolved = false;
+    /** @var array<string, mixed>|null Caller size requests, never resolved terminal dimensions. */
+    private ?array $screenRequests = null;
+
+    /** Explicit attachment before run() takes precedence over launch intent. */
+    public function useRendererRuntime(RendererRuntime $runtime): self
+    {
+        if ($this->isRunning || $this->terminalRestoreHandlersRegistered || $this->rendererSelectionResolved || $this->rendererRuntime !== null) {
+            throw new \LogicException('Attach one renderer runtime before starting Game.');
+        }
+        $this->rendererRuntime = $runtime;
+        if ($this->screenRequests !== null) {
+            $this->configure([]);
+        }
+        return $this;
+    }
     /**
      * @var BattleEngineInterface $engine The battle engine.
      */
@@ -136,17 +164,22 @@ class Game implements CanRun, SubjectInterface
         protected string $name,
         protected int    $width = DEFAULT_SCREEN_WIDTH,
         protected int    $height = DEFAULT_SCREEN_HEIGHT,
-        protected(set) array  $options = []
+        protected(set) array  $options = [],
+        ?RendererRegistry $rendererRegistry = null,
     )
     {
+        $this->rendererRegistry = $rendererRegistry;
         try {
+            // Output ownership is selected at start, after optional runtime attachment.
+            Console::setTerminalOutputEnabled(false);
             $this->configureErrorAndExceptionHandlers();
             $this->initializeObservers();
             $this->initializeConfigStore();
             $this->initializeDebugger();
             $this->initializeManagers();
 
-            $this->configure([...$this->options, 'name' => $name, 'screen' => ['width' => $width, 'height' => $height]]);
+            // Promoted dimensions are already the fallback; only caller options are explicit.
+            $this->configure([...$this->options, 'name' => $name]);
 
             $this->sceneManager
                 ->addScenes(
@@ -170,7 +203,10 @@ class Game implements CanRun, SubjectInterface
     {
         error_reporting(E_ALL);
 
-        set_error_handler(function ($errno, $errstr, $errfile, $errline) {
+        set_error_handler(function ($errno, $errstr, $errfile, $errline): bool {
+            if ((error_reporting() & $errno) === 0) {
+                return false;
+            }
             $this->handleError($errno, $errstr, $errfile, $errline);
         });
         set_exception_handler(function (Error|Exception|Throwable $exception) {
@@ -243,7 +279,6 @@ class Game implements CanRun, SubjectInterface
      */
     protected function stop(): void
     {
-        $this->shutdownAudio();
         $this->cleanupTerminal();
 
         $this->notify($this, new GameEvent(GameEventType::STOP));
@@ -360,20 +395,18 @@ class Game implements CanRun, SubjectInterface
         }
 
         $this->terminalCleanedUp = true;
-
+        $this->shutdownAudio();
         try {
-            InputManager::disableNonBlockingMode();
-        } catch (Throwable) {
+            $this->rendererRuntime?->shutdown();
+        } catch (Throwable $error) {
+            $this->logCrash($error);
         }
 
-        try {
-            InputManager::enableEcho();
-        } catch (Throwable) {
-        }
-
-        try {
-            Console::restoreTerminalSettings();
-        } catch (Throwable) {
+        if ($this->terminalInputConfigured) {
+            $this->terminalInputConfigured = false;
+            try { InputManager::disableNonBlockingMode(); } catch (Throwable) {}
+            try { InputManager::enableEcho(); } catch (Throwable) {}
+            try { Console::restoreTerminalSettings(); } catch (Throwable) {}
         }
 
         try {
@@ -447,16 +480,19 @@ class Game implements CanRun, SubjectInterface
         ConfigStore::put(PlaySettings::class, new PlaySettings($this->options));
         ConfigStore::put(AppConfig::class, new AppConfig());
         ConfigStore::put(ProjectConfig::class, new ProjectConfig());
-
-        // Detect what this terminal can render before anything draws, so the
-        // engine picks a rendering strategy that matches the host instead of
-        // assuming one.
-        TerminalCapabilities::detect();
+        ConfigStore::put(FieldMusicCatalog::class, FieldMusicCatalog::fromProject());
 
         ConfigStore::put(InputConfig::class, new InputConfig());
         $systemPayload = asset('Data/system.php', true);
         ElementRegistry::configure(is_array($systemPayload['elements'] ?? null) ? $systemPayload['elements'] : []);
         ConfigStore::put(ActorStore::class, new ActorStore());
+        $actorStore = ConfigStore::get(ActorStore::class);
+        ConfigStore::put(
+            BattleEntryRuleCatalog::class,
+            BattleEntryRuleCatalog::fromProject(
+                actorStore: $actorStore instanceof ActorStore ? $actorStore : null,
+            ),
+        );
         ConfigStore::put(ItemStore::class, new ItemStore());
         ConfigStore::put(KnowledgeCatalog::class, KnowledgeCatalog::fromProject());
         ConfigStore::put(EnemyStore::class, new EnemyStore());
@@ -494,11 +530,22 @@ class Game implements CanRun, SubjectInterface
      */
     public function configure(array $options): self
     {
+        $this->screenRequests ??= [
+            'width' => $this->width === DEFAULT_SCREEN_WIDTH ? null : $this->width,
+            'height' => $this->height === DEFAULT_SCREEN_HEIGHT ? null : $this->height,
+        ];
+        foreach (['width', 'height'] as $dimension) {
+            if (array_key_exists($dimension, $options)) {
+                $this->screenRequests[$dimension] = $options[$dimension];
+            } elseif (is_array($options['screen'] ?? null) && array_key_exists($dimension, $options['screen'])) {
+                $this->screenRequests[$dimension] = $options['screen'][$dimension];
+            }
+        }
         // Replace rather than merge: the constructor configures the options
         // with themselves, and a recursive merge turns every scalar a caller
         // passed into a two-element array of itself.
         $this->options = array_replace_recursive($this->options, $options);
-        ['width' => $this->width, 'height' => $this->height] = $this->resolveScreenSize($this->options);
+        ['width' => $this->width, 'height' => $this->height] = $this->resolveScreenSize($this->screenRequests);
         $this->options['width'] = $this->width;
         $this->options['height'] = $this->height;
         $this->options['screen'] = ['width' => $this->width, 'height' => $this->height];
@@ -508,27 +555,41 @@ class Game implements CanRun, SubjectInterface
         }
 
         Console::init($this, ['width' => $this->width, 'height' => $this->height]);
+        $this->sceneManager->resizeViewports($this->width, $this->height);
         return $this;
     }
 
     /**
      * Resolves the screen size that should be used for the current session.
      *
-     * Default constructor dimensions are treated as "auto", which allows the
-     * engine to adopt the full size of the user's terminal on boot.
+     * Terminal dimensions fit the physical terminal up to the battle footprint.
+     * Graphical sessions default to that footprint independently of their TTY.
      *
      * @param array<string, mixed> $options The current game options.
+     * @param array{width: int, height: int}|null $terminalSize An already-probed physical terminal size.
      * @return array{width: int, height: int} The resolved screen size.
      */
-    protected function resolveScreenSize(array $options): array
+    protected function resolveScreenSize(array $options, ?array $terminalSize = null): array
     {
-        $availableSize = Console::getAvailableSize();
-        $requestedWidth = $options['width'] ?? $options['screen']['width'] ?? $this->width;
-        $requestedHeight = $options['height'] ?? $options['screen']['height'] ?? $this->height;
+        $graphical = $this->rendererRuntime !== null
+            || (!$this->rendererSelectionResolved
+                && ($this->rendererLaunchIntent ??= RendererLaunchIntent::fromEnvironment())->id !== 'terminal');
+        $availableSize = $graphical
+            ? ['width' => BattleScreen::WIDTH, 'height' => BattleScreen::HEIGHT]
+            : ($terminalSize ?? Console::getAvailableSize());
+        $requestedWidth = array_key_exists('width', $options) ? $options['width'] : ($options['screen']['width'] ?? $this->width);
+        $requestedHeight = array_key_exists('height', $options) ? $options['height'] : ($options['screen']['height'] ?? $this->height);
 
-        return [
-            'width' => $this->resolveScreenDimension($requestedWidth, $availableSize['width'], DEFAULT_SCREEN_WIDTH),
-            'height' => $this->resolveScreenDimension($requestedHeight, $availableSize['height'], DEFAULT_SCREEN_HEIGHT),
+        $size = [
+            'width' => $this->resolveScreenDimension($requestedWidth, $availableSize['width'], DEFAULT_SCREEN_WIDTH,
+                isset($options['width']) || isset($options['screen']['width'])),
+            'height' => $this->resolveScreenDimension($requestedHeight, $availableSize['height'], DEFAULT_SCREEN_HEIGHT,
+                isset($options['height']) || isset($options['screen']['height'])),
+        ];
+
+        return $graphical ? $size : [
+            'width' => min($size['width'], $availableSize['width'], BattleScreen::WIDTH),
+            'height' => min($size['height'], $availableSize['height'], BattleScreen::HEIGHT),
         ];
     }
 
@@ -538,18 +599,20 @@ class Game implements CanRun, SubjectInterface
      * @param mixed $requestedDimension The configured dimension.
      * @param int $availableDimension The current terminal dimension.
      * @param int $defaultDimension The legacy default dimension.
+     * @param bool $explicit Whether the caller explicitly configured this dimension.
      * @return int The resolved dimension.
      */
     protected function resolveScreenDimension(
         mixed $requestedDimension,
         int   $availableDimension,
-        int   $defaultDimension
+        int   $defaultDimension,
+        bool  $explicit = false
     ): int
     {
         if (is_numeric($requestedDimension)) {
             $requestedDimension = intval($requestedDimension);
 
-            if ($requestedDimension > 0 && $requestedDimension !== $defaultDimension) {
+            if ($requestedDimension > 0 && ($explicit || $requestedDimension !== $defaultDimension)) {
                 return $requestedDimension;
             }
         }
@@ -659,6 +722,8 @@ class Game implements CanRun, SubjectInterface
             $lastFrameCountSnapShot = $this->frameCount;
 
             while ($this->isRunning) {
+                LatencyTrace::beginIteration();
+                $this->rendererRuntime?->pump();
                 $this->handleInput();
                 $this->update();
 
@@ -670,6 +735,7 @@ class Game implements CanRun, SubjectInterface
                 }
 
                 $this->render();
+                LatencyTrace::endIteration();
 
                 usleep($sleepTime);
 
@@ -679,6 +745,8 @@ class Game implements CanRun, SubjectInterface
                     $nextFrameTime = microtime(true) + 1;
                 }
             }
+        } catch (RendererWindowClosed) {
+            $this->quit();
         } catch (Throwable $exception) {
             $this->handleException($exception);
         }
@@ -695,20 +763,22 @@ class Game implements CanRun, SubjectInterface
      */
     protected function start(): void
     {
-        Console::clear();
-        Console::saveTerminalSettings();
+        $this->registerTerminalRestoreHandlers();
+        $this->startInputSession();
         Console::enterAlternateScreen();
         // Full-screen frames deliberately write through the last terminal
         // row. Disable autowrap while Ichiloto owns the alternate screen so
         // a write to the final column cannot scroll or partially displace a
         // bottom-edge HUD.
         Console::disableLineWrap();
-        $this->registerTerminalRestoreHandlers();
+        Console::clear();
         Console::setTerminalName($this->name);
-        Console::setTerminalSize($this->width, $this->height);
+        Console::cursor()->disableBlinking();
         Console::cursor()->hide();
-        InputManager::disableEcho();
-        InputManager::enableNonBlockingMode();
+
+        if ($this->rendererRuntime !== null) {
+            Timers::setFrameTick($this->updateBlockedFrame(...), $this->presentBlockedFrame(...));
+        }
 
         $this->showSplashScreens();
         $this->buildItemStore();
@@ -723,9 +793,7 @@ class Game implements CanRun, SubjectInterface
         // Lets anything that has to wait hand the loop back instead of
         // sleeping through it: music, notifications, and engine time all keep
         // running while it waits.
-        Timers::setFrameTick(function (): void {
-            $this->tickWhileBlocked();
-        });
+        Timers::setFrameTick($this->updateBlockedFrame(...), $this->presentBlockedFrame(...));
 
         $this->isRunning = true;
 
@@ -741,6 +809,32 @@ class Game implements CanRun, SubjectInterface
     {
         $this->showCustomSplashScreen();
         $this->showGameEngineSplashScreen();
+    }
+
+    protected function startInputSession(): void
+    {
+        if (!$this->rendererSelectionResolved) {
+            if ($this->rendererRuntime === null) {
+                $registry = $this->rendererRegistry ??= new RendererRegistry();
+                $intent = $this->rendererLaunchIntent ??= RendererLaunchIntent::fromEnvironment();
+                $this->rendererRuntime = $registry->require($intent->id)
+                    ->createRuntime(Path::join(Path::getCurrentWorkingDirectory(), 'assets'));
+            }
+            $this->rendererSelectionResolved = true;
+        }
+        Console::setTerminalOutputEnabled($this->rendererRuntime === null);
+        if ($this->rendererRuntime === null) {
+            $this->applyTerminalScreenSize(Console::getAvailableSize(), repaint: false);
+        }
+        TerminalCapabilities::reset();
+        TerminalCapabilities::detect();
+        $this->rendererRuntime?->start($this->name, $this->width, $this->height);
+        if (InputManager::requiresTerminalInput()) {
+            Console::saveTerminalSettings();
+            $this->terminalInputConfigured = true;
+            InputManager::disableEcho();
+            InputManager::enableNonBlockingMode();
+        }
     }
 
     /**
@@ -794,7 +888,11 @@ class Game implements CanRun, SubjectInterface
             Console::write($row, (int)$leftMargin, (int)($topMargin + $rowIndex));
         }
 
-        usleep(intval($duration * 1000000));
+        if ($this->rendererRuntime !== null) {
+            Timers::wait($duration);
+        } else {
+            usleep(intval($duration * 1000000));
+        }
         Console::clear();
     }
 
@@ -923,6 +1021,8 @@ SPLASH_SCREEN;
      */
     protected function update(): void
     {
+        $started = LatencyTrace::now();
+        LatencyTrace::record('game.update.begin', $this->latencySceneState());
         $this->frameCount++;
         $this->syncScreenSize();
         $this->sceneManager->update();
@@ -931,6 +1031,21 @@ SPLASH_SCREEN;
         Timers::update();
 
         $this->notify($this, new GameEvent(GameEventType::UPDATE));
+        LatencyTrace::end('game.update.end', $started, $this->latencySceneState());
+    }
+
+    /** @return array<string, mixed> Small diagnostic state, never a gameplay snapshot. */
+    private function latencySceneState(): array
+    {
+        if (!LatencyTrace::enabled()) { return []; }
+        $scene = $this->sceneManager->currentScene;
+        $state = ['scene' => $scene === null ? null : $scene::class];
+        if ($scene instanceof GameScene) {
+            $state['scene_state'] = $scene->state === null ? null : $scene->state::class;
+            $state['event_owns_input'] = $scene->hasUnstableEventSession();
+            $state['player'] = $scene->player === null ? null : [$scene->player->position->x, $scene->player->position->y];
+        }
+        return $state;
     }
 
     /**
@@ -944,6 +1059,14 @@ SPLASH_SCREEN;
      */
     public function tickWhileBlocked(): void
     {
+        $this->updateBlockedFrame();
+        $this->presentBlockedFrame();
+    }
+
+    private function updateBlockedFrame(): void
+    {
+        LatencyTrace::record('game.blocked.begin');
+        $this->rendererRuntime?->pump();
         $this->notify($this, new GameEvent(GameEventType::UPDATE));
         Timers::update();
         $this->notificationManager->update();
@@ -951,13 +1074,30 @@ SPLASH_SCREEN;
         $this->notificationManager->render();
     }
 
+    private function presentBlockedFrame(): void
+    {
+        if (Console::isComposing()) { return; }
+        // The modal owns its logical layout; only its physical margins may move.
+        $this->syncScreenSize(resizeLogicalViewport: false);
+        if ($this->rendererRuntime !== null) {
+            // Scene presentation ownership also applies during dialogue/timer waits.
+            $this->rendererRuntime->present($this->sceneManager->currentScene);
+            LatencyTrace::flush();
+        }
+    }
+
     /**
      * Synchronizes the engine with the current terminal size.
      *
+     * @param bool $resizeLogicalViewport False while a blocking operation owns the layout.
      * @return void
      */
-    protected function syncScreenSize(): void
+    protected function syncScreenSize(bool $resizeLogicalViewport = true): void
     {
+        if ($this->rendererRuntime !== null || Console::isComposing()) {
+            // Graphical grids are independent; terminal changes require a completed frame.
+            return;
+        }
         // Throttle expensive terminal size probes to avoid per-frame shell_exec() calls.
         // Uses static variables so the throttle state persists across calls without
         // requiring additional class properties.
@@ -973,9 +1113,24 @@ SPLASH_SCREEN;
 
         $lastProbeTime = $now;
 
-        $availableSize = Console::getAvailableSize();
+        $this->applyTerminalScreenSize(Console::getAvailableSize(), $resizeLogicalViewport);
+    }
+
+    /**
+     * Applies one physical probe to every geometry owner, including before
+     * startup's first render. Startup defers painting until the alternate screen.
+     * @param array{width: int, height: int} $physical
+     */
+    private function applyTerminalScreenSize(array $physical, bool $resizeLogicalViewport = true, bool $repaint = true): void
+    {
+        if (!$resizeLogicalViewport) {
+            Console::syncTerminalViewport($physical['width'], $physical['height'], repaint: $repaint);
+            return;
+        }
+        $availableSize = $this->resolveScreenSize($this->screenRequests ?? [], $physical);
 
         if ($availableSize['width'] === $this->width && $availableSize['height'] === $this->height) {
+            Console::syncTerminalViewport($physical['width'], $physical['height'], repaint: $repaint);
             return;
         }
 
@@ -991,10 +1146,12 @@ SPLASH_SCREEN;
         ConfigStore::get(PlaySettings::class)->set('screen.height', $this->height);
 
         Console::syncDimensions($this->width, $this->height);
+        Console::syncTerminalViewport($physical['width'], $physical['height'], repaint: $repaint);
+        $this->sceneManager->resizeViewports($this->width, $this->height);
 
         $currentScene = $this->sceneManager->currentScene;
 
-        if ($currentScene && method_exists($currentScene, 'onScreenResize')) {
+        if ($repaint && $currentScene && method_exists($currentScene, 'onScreenResize')) {
             $currentScene->onScreenResize($this->width, $this->height);
         }
     }
@@ -1006,6 +1163,8 @@ SPLASH_SCREEN;
      */
     protected function render(): void
     {
+        $started = LatencyTrace::now();
+        LatencyTrace::record('game.render.begin');
         // Modal dismissals are committed only at the frame boundary. That
         // lets dialogue pages and choices replace one another within a single
         // update without exposing a lower-precedence HUD between them.
@@ -1021,6 +1180,8 @@ SPLASH_SCREEN;
         }
 
         $this->notify($this, new GameEvent(GameEventType::RENDER));
+        $this->rendererRuntime?->present($this->sceneManager->currentScene);
+        LatencyTrace::end('game.render.end', $started);
     }
 
     /**

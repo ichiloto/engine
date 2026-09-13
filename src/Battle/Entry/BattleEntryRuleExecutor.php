@@ -1,0 +1,121 @@
+<?php
+
+namespace Ichiloto\Engine\Battle\Entry;
+
+use Closure;
+use Ichiloto\Engine\Core\GameState;
+use Ichiloto\Engine\Core\WorldStateWriter;
+use Ichiloto\Engine\Entities\Character;
+use RuntimeException;
+use Throwable;
+
+/** Applies reversible rule changes atomically, then delivers post-commit notifications. */
+final class BattleEntryRuleExecutor
+{
+  /** @param ?Closure(): void $onCommitted Records the commit before external observers run. */
+  public function apply(
+    BattleEntryRule $rule,
+    BattleEntryContext $context,
+    GameState $worldState,
+    ?Closure $onCommitted = null,
+  ): void
+  {
+    /** @var array<string, array{actor: BattleEntryActor, stat: string, stage: int}> $originalStages */
+    $originalStages = [];
+
+    foreach ($rule->effects as $index => $effect) {
+      if (! $effect instanceof BattleEntryStatStageEffect) {
+        throw new RuntimeException(sprintf(
+          '%s field "effects[%d]" has unsupported effect type "%s".',
+          $rule->source,
+          $index,
+          get_debug_type($effect),
+        ));
+      }
+
+      $actor = $context->actor($effect->actorId);
+      if (! $actor instanceof BattleEntryActor) {
+        throw new RuntimeException(sprintf(
+          '%s field "effects[%d].actor" references actor "%s", who did not begin this battle.',
+          $rule->source,
+          $index,
+          $effect->actorId,
+        ));
+      }
+
+      if (! in_array($effect->stat->value, Character::buffableStats(), true)) {
+        throw new RuntimeException(sprintf(
+          '%s field "effects[%d].stat" references "%s", which does not support temporary battle stages.',
+          $rule->source,
+          $index,
+          $effect->stat->value,
+        ));
+      }
+
+      $key = spl_object_id($actor->character) . ':' . $effect->stat->value;
+      $originalStages[$key] ??= [
+        'actor' => $actor,
+        'stat' => $effect->stat->value,
+        'stage' => $actor->character->getStatStage($effect->stat->value),
+      ];
+    }
+
+    // Validation runs again at the mutation boundary so manually-constructed
+    // rules receive the same fail-closed contract as project-loaded rules.
+    WorldStateWriter::validateAll($rule->writes, $rule->source . ' field "writes"', transactional: true);
+
+    $worldSnapshot = $worldState->toArray();
+    $observer = $worldState->onChange;
+    /** @var array<int, array{0: string, 1: string}> $notifications */
+    $notifications = [];
+    $worldState->onChange = static function (string $kind, string $name) use (&$notifications): void {
+      $notifications[] = [$kind, $name];
+    };
+
+    try {
+      foreach ($rule->effects as $effect) {
+        $actor = $context->actor($effect->actorId);
+        if (! $actor instanceof BattleEntryActor) {
+          throw new RuntimeException(sprintf(
+            '%s could not resolve actor "%s" while applying a stat-stage effect.',
+            $rule->source,
+            $effect->actorId,
+          ));
+        }
+
+        $actor->character->addStatStage($effect->stat->value, $effect->delta);
+      }
+
+      WorldStateWriter::applyAllStrict($rule->writes, $worldState, $rule->source . ' field "writes"');
+    } catch (Throwable $exception) {
+      $worldState->restoreSnapshot($worldSnapshot);
+
+      foreach ($originalStages as $original) {
+        $original['actor']->character->setStatStage($original['stat'], $original['stage']);
+      }
+
+      throw new RuntimeException(sprintf(
+        '%s failed atomically; temporary effects and durable writes were rolled back: %s',
+        $rule->source,
+        $exception->getMessage(),
+      ), previous: $exception);
+    } finally {
+      $worldState->onChange = $observer;
+    }
+
+    // Observers may change quests or achievements, which this transaction cannot undo.
+    $onCommitted?->__invoke();
+
+    try {
+      foreach ($notifications as [$kind, $name]) {
+        $observer?->__invoke($kind, $name);
+      }
+    } catch (Throwable $exception) {
+      throw new RuntimeException(sprintf(
+        '%s committed, but observer notification failed; committed changes were not rolled back: %s',
+        $rule->source,
+        $exception->getMessage(),
+      ), previous: $exception);
+    }
+  }
+}

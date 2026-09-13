@@ -2,6 +2,9 @@
 
 namespace Ichiloto\Engine\UI\Modal;
 
+use Ichiloto\Engine\Core\Timers;
+use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
+
 use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Game;
@@ -148,7 +151,7 @@ abstract class Modal implements ModalInterface, LayeredPresentationInterface
       ...$this->content,
       $this->renderedButtonLine(),
     ]);
-    $this->window->render();
+    PresentationLayerPolicy::ui($this, $this->window->render(...));
   }
 
   /**
@@ -256,7 +259,6 @@ abstract class Modal implements ModalInterface, LayeredPresentationInterface
     $this->positionForOpen();
     $this->show();
     $this->render();
-    $sleepTime = (int)(1000000 / 60);
 
     while ($this->isShowing) {
       $this->handleInput();
@@ -269,17 +271,8 @@ abstract class Modal implements ModalInterface, LayeredPresentationInterface
         break;
       }
 
-      // The game loop is not running while this modal is up, so the world is
-      // ticked from here: music keeps looping and engine time keeps advancing
-      // rather than jumping when the modal closes.
-      $this->game->tickWhileBlocked();
-
-      // A modal is the highest-precedence screen layer. Timed lower layers
-      // (notably sliding notifications) update above, then the modal owns the
-      // final composition for every row in its footprint.
-      $this->render();
-
-      usleep($sleepTime);
+      // Draw after background updates, but before the completed frame is presented.
+      Timers::wait(1 / 60, fn() => $this->render());
     }
 
     return $this->close();

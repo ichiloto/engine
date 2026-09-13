@@ -22,6 +22,7 @@ use Ichiloto\Engine\Entities\Enumerations\ItemScopeNumber;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeStatus;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
+use Ichiloto\Engine\Entities\Skills\SkillTargetPolicy;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
@@ -152,6 +153,10 @@ class PlayerActionState extends TurnState
    */
   protected function handleTargetNavigation(TurnStateExecutionContext $context): void
   {
+    if ($this->getSelectedOption()?->targetNumber === ItemScopeNumber::ALL) {
+      return;
+    }
+
     $h = Input::getAxis(AxisName::HORIZONTAL);
     $v = Input::getAxis(AxisName::VERTICAL);
 
@@ -470,13 +475,6 @@ class PlayerActionState extends TurnState
       return;
     }
 
-    // An all-target action needs no target cursor — queue it against
-    // every eligible battler on the relevant side.
-    if ($option->targetNumber === ItemScopeNumber::ALL) {
-      $this->queueActionForActiveCharacter($context);
-      return;
-    }
-
     $targetIndexes = $this->getSelectableTargetIndexes($context);
 
     if (empty($targetIndexes)) {
@@ -661,9 +659,12 @@ class PlayerActionState extends TurnState
     $context->ui->fieldWindow->clearTroopFocus();
 
     if ($this->selectionMode === self::MODE_TARGET && $this->activeTargetIndex >= 0) {
+      $indexes = $this->getSelectedOption()?->targetNumber === ItemScopeNumber::ALL
+        ? $this->getSelectableTargetIndexes($context)
+        : [$this->activeTargetIndex];
       match ($this->getSelectedOption()?->targetSide) {
-        ItemScopeSide::ALLY => $context->ui->fieldWindow->focusPartyBattler($this->activeTargetIndex, blink: true),
-        default => $context->ui->fieldWindow->focusOnTroopBattler($this->activeTargetIndex, blink: true),
+        ItemScopeSide::ALLY => $context->ui->fieldWindow->focusPartyBattlers($indexes, blink: true),
+        default => $context->ui->fieldWindow->focusTroopBattlers($indexes, blink: true),
       };
     }
 
@@ -730,7 +731,9 @@ class PlayerActionState extends TurnState
       return $description;
     }
 
-    return trim($description . ' Choose a target.');
+    return trim($description . ($selectedOption->targetNumber === ItemScopeNumber::ALL
+      ? ' Confirm all highlighted targets, or press C to return.'
+      : ' Choose a target.'));
   }
 
   /**
@@ -874,11 +877,7 @@ class PlayerActionState extends TurnState
    */
   protected function matchesStatus(CharacterInterface $battler, ItemScopeStatus $status): bool
   {
-    return match ($status) {
-      ItemScopeStatus::DEAD => $battler->isKnockedOut,
-      ItemScopeStatus::ANY => true,
-      default => ! $battler->isKnockedOut,
-    };
+    return SkillTargetPolicy::matchesStatus($battler, $status);
   }
 
   /**

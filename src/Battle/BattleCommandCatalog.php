@@ -355,7 +355,8 @@ final class BattleCommandCatalog
         new ItemBattleAction($item, $party->inventory),
         $targetSide,
         $targetStatus,
-        $item
+        $item,
+        targetNumber: $item->scope->number,
       );
     }
 

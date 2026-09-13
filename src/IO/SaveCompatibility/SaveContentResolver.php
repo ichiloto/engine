@@ -107,38 +107,40 @@ final readonly class SaveContentResolver
       }
 
       $raw = $member->getDeferredSaveData();
+      $isDeferred = is_array($raw);
+      $raw ??= $member->toArray();
+      $savedActorId = trim(strval($raw['actorId'] ?? ''));
+      $savedName = trim(strval($raw['name'] ?? ''));
 
-      if (! is_array($raw)) {
-        $identity = $this->identity(ContentReferenceCategory::ACTOR, $member->name);
+      // A present stable ID is authoritative, even when it no longer resolves.
+      $raw['actorId'] = $this->identity(
+        ContentReferenceCategory::ACTOR,
+        $savedActorId !== '' ? $savedActorId : $savedName,
+      );
 
-        if ($actorStore instanceof ActorStore) {
-          $savedState = $member->toArray();
-          $config->party->members[$index] = $actorStore->require(
-            $identity,
-            $this->actorLookupContext($identity, $savedState),
-          )->createCharacter($savedState, $this->savePath);
-        } else {
-          $member->applySaveIdentity($identity);
-        }
-        continue;
+      // Legacy hydration seeds actorId from name. Preserve its name aliases
+      // for embedders without a store, but never alias distinct display text.
+      if ($savedActorId === '' || $savedActorId === $savedName) {
+        $raw['name'] = $raw['actorId'];
       }
 
-      $raw['name'] = $this->identity(ContentReferenceCategory::ACTOR, $raw['name'] ?? '');
-      $raw['summons'] = $this->identityList(ContentReferenceCategory::SUMMON, $raw['summons'] ?? []);
-      $raw['abilities'] = $this->resolveBook($raw['abilities'] ?? $raw['abilityBook'] ?? [], false);
-      $raw['magic'] = $this->resolveBook($raw['magic'] ?? $raw['spellbook'] ?? [], true);
-      $raw['states'] = $this->resolvePersistentStates($raw['states'] ?? []);
+      if ($isDeferred) {
+        $raw['summons'] = $this->identityList(ContentReferenceCategory::SUMMON, $raw['summons'] ?? []);
+        $raw['abilities'] = $this->resolveBook($raw['abilities'] ?? $raw['abilityBook'] ?? [], false);
+        $raw['magic'] = $this->resolveBook($raw['magic'] ?? $raw['spellbook'] ?? [], true);
+        $raw['states'] = $this->resolvePersistentStates($raw['states'] ?? []);
 
-      foreach (is_array($raw['equipment'] ?? null) ? $raw['equipment'] : [] as $slot) {
-        if ($slot instanceof EquipmentSlot && $slot->equipment instanceof InventoryItem) {
-          $this->resolveInventoryItem($slot->equipment);
+        foreach (is_array($raw['equipment'] ?? null) ? $raw['equipment'] : [] as $slot) {
+          if ($slot instanceof EquipmentSlot && $slot->equipment instanceof InventoryItem) {
+            $this->resolveInventoryItem($slot->equipment);
+          }
         }
       }
 
       if ($actorStore instanceof ActorStore) {
         $config->party->members[$index] = $actorStore->require(
-          strval($raw['name']),
-          $this->actorLookupContext(strval($raw['name']), $raw),
+          $raw['actorId'],
+          $this->actorLookupContext($raw['actorId'], $raw),
         )->createCharacter($raw, $this->savePath);
       } else {
         // Compatibility for embedders without project actor assets. A running

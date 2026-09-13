@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Cutscenes\Summons;
 
+use Ichiloto\Engine\Core\Timers;
+
 /**
  * Plays compiled summon cutscenes frame-by-frame.
  *
@@ -32,7 +34,7 @@ final class SummonCutscenePlayer
         }
       }
 
-      usleep(max(0, intval(round($session->secondsPerFrame * 1000000))));
+      Timers::wait($session->secondsPerFrame);
       $session->update($session->secondsPerFrame);
     }
   }

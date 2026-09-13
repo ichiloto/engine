@@ -239,6 +239,8 @@ class Character implements CharacterInterface, CanEquip
   protected(set) PermanentGrowthLedger $permanentGrowth;
   /** Optional stable identity of a project-defined runtime-selectable natural variant. */
   protected(set) ?string $naturalVariantId = null;
+  /** Stable project actor identity; distinct from the mutable display name. */
+  protected(set) string $actorId;
 
   /**
    * Character constructor.
@@ -271,6 +273,7 @@ class Character implements CharacterInterface, CanEquip
     array $actorNaturalAdjustments = [],
     ?PermanentGrowthLedger $permanentGrowth = null,
     ?string $naturalVariantId = null,
+    ?string $actorId = null,
   )
   {
     $this->maxLevel = $maxLevel;
@@ -283,6 +286,9 @@ class Character implements CharacterInterface, CanEquip
     $this->naturalVariantId = ($naturalVariantId !== null && trim($naturalVariantId) !== '')
       ? trim($naturalVariantId)
       : null;
+    $this->actorId = ($actorId !== null && trim($actorId) !== '')
+      ? trim($actorId)
+      : trim($name);
     if (!$role) {
       $role = new CharacterRole($this, 'Hero');
     }
@@ -352,6 +358,9 @@ class Character implements CharacterInterface, CanEquip
         is_array($data['permanentGrowth'] ?? null) ? $data['permanentGrowth'] : []
       ),
       isset($data['naturalVariantId']) ? strval($data['naturalVariantId']) : null,
+      isset($data['actorId'])
+        ? strval($data['actorId'])
+        : (isset($data['id']) ? strval($data['id']) : strval($data['name'] ?? '')),
     );
 
     // Actors reference a class by name (`'class' => 'Vanguard'`); the role
@@ -1030,7 +1039,10 @@ class Character implements CharacterInterface, CanEquip
    */
   public function restoreMutableState(array $data): void
   {
-    $savedStats = is_array($data['stats'] ?? null) ? $data['stats'] : [];
+    $rawSavedStats = $data['stats'] ?? null;
+    $savedStats = $rawSavedStats instanceof Stats
+      ? $rawSavedStats->jsonSerialize()
+      : (is_array($rawSavedStats) ? $rawSavedStats : []);
     $savedCurrentHp = isset($savedStats['currentHp']) ? intval($savedStats['currentHp']) : $this->stats->currentHp;
     $savedCurrentMp = isset($savedStats['currentMp']) ? intval($savedStats['currentMp']) : $this->stats->currentMp;
     $savedCurrentAp = isset($savedStats['currentAp']) ? intval($savedStats['currentAp']) : $this->stats->currentAp;
@@ -1229,6 +1241,7 @@ class Character implements CharacterInterface, CanEquip
     $this->actorNaturalAdjustments ??= [];
     $this->permanentGrowth ??= new PermanentGrowthLedger();
     $this->naturalVariantId ??= null;
+    $this->actorId ??= trim($this->name);
 
     if (! isset($this->role) || ! $this->role instanceof CharacterRole) {
       $this->role = new CharacterRole($this, 'Hero');
@@ -1250,8 +1263,9 @@ class Character implements CharacterInterface, CanEquip
   {
     return [
       'name' => $this->name,
+      'actorId' => $this->actorId,
       'currentExp' => $this->currentExp,
-      'stats' => $this->stats,
+      'stats' => $this->stats->jsonSerialize(),
       'images' => $this->images,
       'nickname' => $this->nickname,
       'maxLevel' => $this->maxLevel,

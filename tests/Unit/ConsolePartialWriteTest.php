@@ -86,6 +86,69 @@ class ConsoleWriteProbeStream
 }
 
 /**
+ * Models a terminal stream whose userspace write buffer cannot be disabled.
+ *
+ * Some production /dev/tty wrappers accept bytes while rejecting PHP's
+ * unbuffered policy. Bytes remain pending until fflush(), so the console must
+ * drain each bounded write instead of trusting one final flush for the whole
+ * scene.
+ */
+class ConsoleBufferedWriteProbeStream
+{
+  public $context;
+  public static string $received = '';
+  public static string $pending = '';
+  public static int $largestPending = 0;
+  public static int $flushCount = 0;
+
+  public function stream_open(string $path, string $mode, int $options, ?string &$openedPath): bool
+  {
+    self::$received = '';
+    self::$pending = '';
+    self::$largestPending = 0;
+    self::$flushCount = 0;
+
+    return true;
+  }
+
+  public function stream_write(string $data): int
+  {
+    self::$pending .= $data;
+    self::$largestPending = max(self::$largestPending, strlen(self::$pending));
+
+    return strlen($data);
+  }
+
+  public function stream_eof(): bool
+  {
+    return false;
+  }
+
+  public function stream_stat(): array
+  {
+    return [];
+  }
+
+  public function stream_set_option(int $option, int $arg1, ?int $arg2): bool
+  {
+    if ($option === STREAM_OPTION_WRITE_BUFFER && $arg1 === STREAM_BUFFER_NONE) {
+      return false;
+    }
+
+    return true;
+  }
+
+  public function stream_flush(): bool
+  {
+    self::$received .= self::$pending;
+    self::$pending = '';
+    self::$flushCount++;
+
+    return true;
+  }
+}
+
+/**
  * Runs a payload through Console's terminal writer into a real non-blocking
  * OS pipe drained by a child process, and reports how many bytes arrived.
  *
@@ -186,6 +249,32 @@ it('offers complete scene payloads to the terminal in bounded chunks', function 
   expect(ConsoleWriteProbeStream::$received)->toBe($payload)
     ->and(ConsoleWriteProbeStream::$largestWrite)->toBeLessThanOrEqual(4096)
     ->and(ConsoleWriteProbeStream::$unbuffered)->toBeTrue();
+});
+
+it('drains every bounded chunk when the terminal rejects unbuffered writes', function () {
+  $scheme = 'ichiloto-buffered-write-probe';
+
+  if (! in_array($scheme, stream_get_wrappers(), true)) {
+    stream_wrapper_register($scheme, ConsoleBufferedWriteProbeStream::class);
+  }
+
+  $stream = fopen($scheme . '://terminal', 'w');
+  $outputProperty = new ReflectionProperty(Console::class, 'output');
+  $previousOutput = $outputProperty->getValue();
+  $outputProperty->setValue(null, new TestStreamConsoleOutput($stream));
+  $payload = str_repeat('shop-frame-row;', 2_000);
+
+  try {
+    new ReflectionMethod(Console::class, 'writeToTerminal')->invoke(null, $payload);
+  } finally {
+    $outputProperty->setValue(null, $previousOutput);
+    fclose($stream);
+  }
+
+  expect(ConsoleBufferedWriteProbeStream::$received)->toBe($payload)
+    ->and(ConsoleBufferedWriteProbeStream::$largestPending)->toBeLessThanOrEqual(4096)
+    ->and(ConsoleBufferedWriteProbeStream::$flushCount)
+    ->toBeGreaterThanOrEqual((int)ceil(strlen($payload) / 4096));
 });
 
 it('prefers the dedicated terminal descriptor over the shared output wrapper', function () {

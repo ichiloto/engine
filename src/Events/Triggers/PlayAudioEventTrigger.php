@@ -19,7 +19,7 @@ use Override;
  *     'bgm' => 'boss-approach',   // optional: track that replaces the music
  *     'sfx' => 'roar',            // optional: one-shot sound effect
  *     'once' => true,             // optional: fire a single time (default false)
- *     'restoreMapBgmOnExit' => true, // optional: bring the map theme back
+ *     'restoreMapBgmOnExit' => true, // optional: restore resolved field music
  *                                    // when the player leaves the area
  *   ],
  * ],
@@ -90,10 +90,6 @@ class PlayAudioEventTrigger extends EventTrigger
       return;
     }
 
-    $mapTheme = $context->scene->mapManager?->backgroundMusic;
-
-    if ($mapTheme !== null) {
-      $context->scene->getGame()->audioManager->playBackgroundMusic($mapTheme);
-    }
+    $context->scene->refreshFieldMusic(force: true);
   }
 }

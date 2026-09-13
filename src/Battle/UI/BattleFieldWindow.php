@@ -79,17 +79,17 @@ class BattleFieldWindow extends Window
    */
   protected array $queuedTroopTargets = [];
   /**
-   * @var int|null The currently focused party battler index.
+   * @var int[] The currently focused party battler indexes.
    */
-  protected ?int $focusedPartyIndex = null;
+  protected array $focusedPartyIndexes = [];
   /**
    * @var bool Whether the party focus marker should blink.
    */
   protected bool $blinkFocusedParty = false;
   /**
-   * @var int|null The currently focused troop battler index.
+   * @var int[] The currently focused troop battler indexes.
    */
-  protected ?int $focusedTroopIndex = null;
+  protected array $focusedTroopIndexes = [];
   /**
    * @var bool Whether the troop focus marker should blink.
    */
@@ -439,19 +439,19 @@ class BattleFieldWindow extends Window
       $this->renderTroopQueueBadge($battler, $count);
     }
 
-    if (is_int($this->focusedTroopIndex)) {
-      $battler = $troopMembers[$this->focusedTroopIndex] ?? null;
+    foreach ($this->focusedTroopIndexes as $index) {
+      $battler = $troopMembers[$index] ?? null;
 
-      if ($battler instanceof Enemy && ! $battler->isKnockedOut) {
+      if ($battler instanceof Enemy) {
         $this->renderTroopFocusMarker($battler, $this->blinkFocusedTroop);
       }
     }
 
-    if (is_int($this->focusedPartyIndex)) {
-      $battler = $partyBattlers[$this->focusedPartyIndex] ?? null;
+    foreach ($this->focusedPartyIndexes as $index) {
+      $battler = $partyBattlers[$index] ?? null;
 
-      if ($battler instanceof Character && ! $battler->isKnockedOut) {
-        $this->renderPartyFocusMarker($battler, $this->focusedPartyIndex, $this->blinkFocusedParty);
+      if ($battler instanceof Character) {
+        $this->renderPartyFocusMarker($battler, $index, $this->blinkFocusedParty);
       }
     }
   }
@@ -717,7 +717,13 @@ class BattleFieldWindow extends Window
    */
   public function focusPartyBattler(int $index, bool $blink = false): void
   {
-    $this->focusedPartyIndex = $index >= 0 ? $index : null;
+    $this->focusPartyBattlers([$index], $blink);
+  }
+
+  /** @param int[] $indexes The party battlers to highlight together. */
+  public function focusPartyBattlers(array $indexes, bool $blink = false): void
+  {
+    $this->focusedPartyIndexes = array_values(array_unique(array_filter($indexes, static fn(int $index): bool => $index >= 0)));
     $this->blinkFocusedParty = $blink;
   }
 
@@ -729,7 +735,8 @@ class BattleFieldWindow extends Window
    */
   public function blurPartyBattler(int $index): void
   {
-    if ($this->focusedPartyIndex === $index) {
+    $this->focusedPartyIndexes = array_values(array_filter($this->focusedPartyIndexes, static fn(int $focused): bool => $focused !== $index));
+    if ($this->focusedPartyIndexes === []) {
       $this->clearPartyFocus();
     }
   }
@@ -754,7 +761,13 @@ class BattleFieldWindow extends Window
    */
   public function focusOnTroopBattler(int $index, bool $blink = false): void
   {
-    $this->focusedTroopIndex = $index >= 0 ? $index : null;
+    $this->focusTroopBattlers([$index], $blink);
+  }
+
+  /** @param int[] $indexes The troop battlers to highlight together. */
+  public function focusTroopBattlers(array $indexes, bool $blink = false): void
+  {
+    $this->focusedTroopIndexes = array_values(array_unique(array_filter($indexes, static fn(int $index): bool => $index >= 0)));
     $this->blinkFocusedTroop = $blink;
   }
 
@@ -807,7 +820,7 @@ class BattleFieldWindow extends Window
    */
   public function clearTroopFocus(): void
   {
-    $this->focusedTroopIndex = null;
+    $this->focusedTroopIndexes = [];
     $this->blinkFocusedTroop = false;
   }
 
@@ -818,7 +831,7 @@ class BattleFieldWindow extends Window
    */
   public function clearPartyFocus(): void
   {
-    $this->focusedPartyIndex = null;
+    $this->focusedPartyIndexes = [];
     $this->blinkFocusedParty = false;
   }
 

@@ -8,9 +8,12 @@ use Ichiloto\Engine\Field\RegionMap;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Input;
+use Ichiloto\Engine\IO\Enumerations\AxisName;
+use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
+use Ichiloto\Engine\UI\Windows\Enumerations\WindowHeightPolicy;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
 
@@ -44,6 +47,13 @@ class MapState extends GameSceneState
   protected ?BorderPackInterface $borderPack = null;
   protected ?Window $mapPanel = null;
   protected ?Window $infoPanel = null;
+  protected int $viewX = 0;
+  protected int $viewY = 0;
+  protected int $maxViewX = 0;
+  protected int $maxViewY = 0;
+  protected int $panStepX = 1;
+  protected int $panStepY = 1;
+  protected bool $focusCurrent = true;
   /**
    * @var array<string, true> The cells the places occupy, which no door may be
    * drawn through: a line crossing a name makes it unreadable.
@@ -55,6 +65,8 @@ class MapState extends GameSceneState
    */
   public function enter(): void
   {
+    $this->focusCurrent = true;
+    $this->viewX = $this->viewY = $this->maxViewX = $this->maxViewY = 0;
     Console::clear();
     $this->getGameScene()->locationHUDWindow->deactivate();
     $this->calculateMargins();
@@ -73,7 +85,25 @@ class MapState extends GameSceneState
       || Input::isButtonDown('map')
     ) {
       $this->setState($this->getGameScene()->fieldState);
+      return;
     }
+
+    if (Input::isKeyDown(KeyCode::HOME)) {
+      $this->focusCurrent = true;
+      $this->refreshUI();
+    } elseif ($this->pan((int)Input::getAxis(AxisName::HORIZONTAL), (int)Input::getAxis(AxisName::VERTICAL))) {
+      $this->refreshUI();
+    }
+  }
+
+  /** Moves only the map view, never authored region or gameplay coordinates. */
+  protected function pan(int $horizontal, int $vertical): bool
+  {
+    $x = max(0, min($this->maxViewX, $this->viewX + $horizontal * $this->panStepX));
+    $y = max(0, min($this->maxViewY, $this->viewY + $vertical * $this->panStepY));
+    if ($x === $this->viewX && $y === $this->viewY) { return false; }
+    [$this->viewX, $this->viewY] = [$x, $y];
+    return true;
   }
 
   /**
@@ -92,7 +122,7 @@ class MapState extends GameSceneState
    */
   protected function calculateMargins(): void
   {
-    $totalHeight = self::MAP_PANEL_HEIGHT + self::INFO_PANEL_HEIGHT;
+    $totalHeight = min(get_screen_height(), self::MAP_PANEL_HEIGHT + self::INFO_PANEL_HEIGHT);
     $this->leftMargin = max(0, intdiv(get_screen_width() - self::MENU_WIDTH, 2));
     $this->topMargin = max(0, intdiv(get_screen_height() - $totalHeight, 2));
   }
@@ -106,23 +136,27 @@ class MapState extends GameSceneState
   {
     $this->borderPack = new DefaultBorderPack();
     $region = $this->getGameScene()->party->location->region;
+    $width = min(self::MENU_WIDTH, get_screen_width());
+    $height = min(self::MAP_PANEL_HEIGHT, max(2, get_screen_height() - self::INFO_PANEL_HEIGHT));
 
     $this->mapPanel = new Window(
       $region !== '' ? $region : 'Map',
       'c:Cancel',
       new Vector2($this->leftMargin, $this->topMargin),
-      self::MENU_WIDTH,
-      self::MAP_PANEL_HEIGHT,
-      $this->borderPack
+      $width,
+      $height,
+      $this->borderPack,
+      heightPolicy: WindowHeightPolicy::FIXED,
     );
 
     $this->infoPanel = new Window(
       'Info',
       '',
-      new Vector2($this->leftMargin, $this->topMargin + self::MAP_PANEL_HEIGHT),
-      self::MENU_WIDTH,
+      new Vector2($this->leftMargin, $this->topMargin + $height),
+      $width,
       self::INFO_PANEL_HEIGHT,
-      $this->borderPack
+      $this->borderPack,
+      heightPolicy: WindowHeightPolicy::FIXED,
     );
   }
 
@@ -133,8 +167,10 @@ class MapState extends GameSceneState
    */
   protected function refreshUI(): void
   {
-    $this->mapPanel?->setContent($this->buildMapContent(self::MENU_WIDTH - 2, self::MAP_PANEL_HEIGHT - 2));
-    $this->mapPanel?->render();
+    if ($this->mapPanel === null) { return; }
+    $this->mapPanel->setContent($this->buildMapContent($this->mapPanel->getContentWidth(), $this->mapPanel->getContentHeight()));
+    $this->mapPanel->setHelp($this->maxViewX > 0 || $this->maxViewY > 0 ? 'Arrows:Pan Home:Here c:Cancel' : 'c:Cancel');
+    $this->mapPanel->render();
     $this->infoPanel?->setContent($this->buildInfoContent());
     $this->infoPanel?->render();
   }
@@ -148,6 +184,10 @@ class MapState extends GameSceneState
    */
   protected function buildMapContent(int $width, int $height): array
   {
+    $this->maxViewX = $this->maxViewY = 0;
+    if ($width < 8 || $height < 1) {
+      return array_fill(0, max(0, $height), TerminalText::truncateToWidth('Map too small', max(0, $width)));
+    }
     $currentId = $this->currentMapId();
     $placed = $this->visiblePlaces($currentId);
 
@@ -156,35 +196,45 @@ class MapState extends GameSceneState
     }
 
     $areas = RegionMap::areas();
-    $cellWidth = $this->cellWidth(array_keys($placed), $areas);
+    $cellWidth = min($width - 2, $this->cellWidth(array_keys($placed), $areas));
     $step = $cellWidth + self::GUTTER;
-    $canvas = array_fill(0, $height, array_fill(0, $width, ' '));
+    $headerRows = $height >= 4 ? 3 : 0;
+    $bodyHeight = $height - $headerRows;
+    $this->maxViewX = max(0, max(array_column($placed, 0)) * $step + $cellWidth + 2 - $width);
+    $this->maxViewY = max(0, max(array_column($placed, 1)) * self::ROW_SPACING + 2 - $bodyHeight);
+    $this->panStepX = max(1, min($width - $cellWidth, intdiv($width, 2)));
+    $this->panStepY = max(1, intdiv($bodyHeight, 2));
+    if ($this->focusCurrent && isset($placed[$currentId])) {
+      $this->viewX = $placed[$currentId][0] * $step + 1 - intdiv($width - $cellWidth, 2);
+      $this->viewY = $placed[$currentId][1] * self::ROW_SPACING + 1 - intdiv($bodyHeight, 2);
+      $this->focusCurrent = false;
+    }
+    $this->viewX = max(0, min($this->maxViewX, $this->viewX));
+    $this->viewY = max(0, min($this->maxViewY, $this->viewY));
+    $canvas = array_fill(0, $bodyHeight, array_fill(0, $width, ' '));
     $cells = [];
     $here = null;
     $this->blocked = [];
 
     foreach ($placed as $id => [$gridX, $gridY]) {
-      $x = $gridX * $step + 1;
-      $y = $gridY * self::ROW_SPACING + 1;
-
-      if ($x + $cellWidth >= $width || $y >= $height) {
-        continue;
-      }
-
+      $x = $gridX * $step + 1 - $this->viewX;
+      $y = $gridY * self::ROW_SPACING + 1 - $this->viewY;
       $cells[$id] = ['x' => $x, 'y' => $y];
-      $this->paint($canvas, $x, $y, $this->cellFor($id, $areas, $cellWidth));
-
       for ($column = $x; $column < $x + $cellWidth; $column++) {
         $this->blocked["{$y}:{$column}"] = true;
       }
 
+      if ($x < 0 || $x + $cellWidth > $width || $y < 0 || $y >= $bodyHeight) { continue; }
+      $this->paint($canvas, $x, $y, $this->cellFor($id, $areas, $cellWidth));
+
       if ($id === $currentId) {
-        $here = ['x' => $x, 'y' => $y];
+        $here = ['x' => $x, 'y' => $y + $headerRows];
       }
     }
 
     $this->paintLinks($canvas, $cells, $areas, $cellWidth);
-    $this->paintCompass($canvas, $width);
+    $canvas = [...array_fill(0, $headerRows, array_fill(0, $width, ' ')), ...$canvas];
+    if ($headerRows > 0) { $this->paintCompass($canvas, $width); }
 
     $rows = [];
 
@@ -489,7 +539,8 @@ class MapState extends GameSceneState
    */
   protected function paintHorizontal(array &$canvas, int $fromX, int $toX, int $y): void
   {
-    for ($x = min($fromX, $toX); $x <= max($fromX, $toX); $x++) {
+    if (!isset($canvas[$y])) { return; }
+    for ($x = max(0, min($fromX, $toX)); $x <= min(count($canvas[$y]) - 1, max($fromX, $toX)); $x++) {
       $existing = $canvas[$y][$x] ?? null;
 
       if ($existing === null || $existing === '│' || isset($this->blocked["{$y}:{$x}"])) {
@@ -515,7 +566,8 @@ class MapState extends GameSceneState
    */
   protected function paintVertical(array &$canvas, int $x, int $fromY, int $toY): void
   {
-    for ($y = min($fromY, $toY); $y <= max($fromY, $toY); $y++) {
+    if ($x < 0 || $x >= count($canvas[0] ?? [])) { return; }
+    for ($y = max(0, min($fromY, $toY)); $y <= min(count($canvas) - 1, max($fromY, $toY)); $y++) {
       if (! isset($canvas[$y][$x]) || isset($this->blocked["{$y}:{$x}"])) {
         continue;
       }

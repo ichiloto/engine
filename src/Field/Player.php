@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Field;
 
+use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
+
 use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\GameObject;
@@ -18,7 +20,12 @@ use Ichiloto\Engine\Events\Interfaces\AutomaticEventTriggerInterface;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Rendering\Camera;
+use Ichiloto\Engine\Rendering\Sprites\DirectionalGraphicalSpriteSet;
+use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
+use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderInterface;
+use Ichiloto\Engine\Rendering\Sprites\SpriteWalkAnimation;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\UI\Elements\LocationHUDWindow;
@@ -32,8 +39,9 @@ use RuntimeException;
  *
  * @package Ichiloto\Engine\Field
  */
-class Player extends GameObject
+class Player extends GameObject implements GraphicalSpriteProviderInterface
 {
+  private ?SpriteWalkAnimation $walkAnimation = null;
   /**
    * @var string[] $upSprite The sprite of the player when facing up.
    */
@@ -103,6 +111,7 @@ class Player extends GameObject
    * @param string[] $sprite The active sprite of the player.
    * @param MovementHeading $heading The heading of the player.
    * @param array<string, string[]> $directionalSprites The configured directional sprite set.
+   * @param DirectionalGraphicalSpriteSet|null $graphicalSprites Optional graphical art, independent of terminal sprites.
    */
   public function __construct(
     SceneInterface $scene,
@@ -111,7 +120,8 @@ class Player extends GameObject
     Rect $shape,
     array $sprite,
     MovementHeading $heading = MovementHeading::NONE,
-    array $directionalSprites = []
+    array $directionalSprites = [],
+    private readonly ?DirectionalGraphicalSpriteSet $graphicalSprites = null,
   )
   {
     parent::__construct(
@@ -122,10 +132,42 @@ class Player extends GameObject
       $sprite
     );
 
+    if ($graphicalSprites !== null) {
+      $this->walkAnimation = new SpriteWalkAnimation();
+    }
     $this->configureDirectionalSprites($directionalSprites);
     $this->setFacingSprite($sprite, $heading === MovementHeading::NONE ? null : $heading);
     $this->canShowLocationHUDWindow = config(ProjectConfig::class, 'ui.hud.location', false);
     $this->events = new ItemList(EventTrigger::class);
+  }
+
+  #[Override]
+  public function getGraphicalSpriteId(): string
+  {
+    return 'player';
+  }
+
+  #[Override]
+  public function getGraphicalSpriteDefinition(): ?GraphicalSpriteDefinition
+  {
+    $definition = $this->graphicalSprites?->getForHeading($this->heading);
+    return $definition === null ? null : ($this->walkAnimation?->present($definition) ?? $definition);
+  }
+
+  public function advanceGraphicalAnimation(float $seconds): void
+  {
+    $this->walkAnimation?->advance($seconds);
+  }
+
+  public function stopGraphicalAnimation(): void
+  {
+    $this->walkAnimation?->stop();
+  }
+
+  #[Override]
+  public function getGraphicalSpriteWorldPosition(): Vector2
+  {
+    return clone $this->position;
   }
 
   /**
@@ -182,6 +224,7 @@ class Player extends GameObject
     $this->updatePlayerSprite($direction);
 
     if (! $this->getGameScene()->mapManager->canMoveTo(intval($destination->x), intval($destination->y), $collisionType) ) {
+      $this->stopGraphicalAnimation();
       $this->render();
       return false;
     }
@@ -192,12 +235,17 @@ class Player extends GameObject
     // not merely an advisory notification. Reject entry before mutating the
     // player position, advancing encounters, or notifying movement observers.
     if ($this->isMovementBlockedByUnavailableEvent($event)) {
+      $this->stopGraphicalAnimation();
       $this->render();
       return false;
     }
 
     $this->handleCollision($collisionType);
     $fieldWasRecomposed = $this->updatePlayerPosition($direction, $camera, $previousSprite);
+    if ($this->walkAnimation !== null
+      && ($origin->x !== $this->position->x || $origin->y !== $this->position->y)) {
+      $this->walkAnimation->step($this->graphicalSprites->getForHeading($this->heading));
+    }
     $this->handleTriggers($event);
     $this->getGameScene()->encounterManager?->registerStep($collisionType);
 
@@ -226,6 +274,7 @@ class Player extends GameObject
    */
   public function face(Vector2 $direction, Camera $camera): void
   {
+    $this->stopGraphicalAnimation();
     $previousSprite = $this->sprite;
     $this->updatePlayerSprite($direction);
     $this->erasePlayer($camera, $previousSprite);
@@ -321,6 +370,7 @@ class Player extends GameObject
    */
   protected function announceBlockedEvent(string $message): void
   {
+    $this->stopGraphicalAnimation();
     alert($message);
   }
 
@@ -551,6 +601,7 @@ class Player extends GameObject
    */
   public function setFacingSprite(array $sprite, ?MovementHeading $heading = null): void
   {
+    $this->stopGraphicalAnimation();
     // Spawn data may name a heading rather than spell out the art, so a map
     // never has to repeat the project's sprites.
     if (($named = PlayerSpriteSet::headingFromName($sprite)) !== null) {
@@ -744,14 +795,16 @@ class Player extends GameObject
    */
   public function render(): void
   {
-    $this->scene->camera->renderAtScreenPosition($this->sprite, $this->screenPosition);
+    Console::withLayer($this->getGraphicalSpriteId(), function (): void {
+      $this->scene->camera->renderAtScreenPosition($this->sprite, $this->screenPosition);
+    });
 
     if ($this->canAct) {
-      $this->scene->camera->draw(
+      PresentationLayerPolicy::fieldPrompt(fn() => $this->scene->camera->draw(
         $this->actionSprite,
         $this->screenPosition->x + $this->getActionSpriteHorizontalOffset(),
         clamp($this->screenPosition->y - 1, 1, get_screen_height())
-      );
+      ));
     }
   }
 
@@ -769,7 +822,7 @@ class Player extends GameObject
     }
 
     if ($this->canAct) {
-      $this->scene->camera->draw($this->actionSprite, $screenPosition->x + $this->getActionSpriteHorizontalOffset(), clamp($screenPosition->y - 1, 1, get_screen_height()));
+      PresentationLayerPolicy::fieldPrompt(fn() => $this->scene->camera->draw($this->actionSprite, $screenPosition->x + $this->getActionSpriteHorizontalOffset(), clamp($screenPosition->y - 1, 1, get_screen_height())));
     }
   }
 
@@ -910,6 +963,7 @@ class Player extends GameObject
    */
   public function interact(): void
   {
+    $this->stopGraphicalAnimation();
     if ($this->availableAction === null && $this->talkToFacingNpc()) {
       return;
     }

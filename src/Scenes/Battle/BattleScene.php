@@ -3,6 +3,9 @@
 namespace Ichiloto\Engine\Scenes\Battle;
 
 use Ichiloto\Engine\Battle\BattleResult;
+use Ichiloto\Engine\Battle\Entry\BattleEntryRuleCatalog;
+use Ichiloto\Engine\Battle\Entry\BattleEntryRuleRunner;
+use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Battle\UI\BattleScreen;
 use Ichiloto\Engine\Battle\UI\BattleResultWindow;
 use Ichiloto\Engine\IO\Console\Console;
@@ -20,6 +23,8 @@ use Ichiloto\Engine\Scenes\Interfaces\SceneConfigurationInterface;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Override;
 use RuntimeException;
+use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Util\Config\ConfigStore;
 
 /**
  * Represents a battle scene.
@@ -183,6 +188,17 @@ class BattleScene extends AbstractScene
     $this->result = null;
     $this->resultWindow = null;
     $this->shouldLoadGameOver = false;
+    $gameScene = $this->getGame()->sceneManager->findScene(GameScene::class);
+    $worldState = $gameScene instanceof GameScene ? $gameScene->gameState : new GameState();
+    $catalog = ConfigStore::has(BattleEntryRuleCatalog::class)
+      ? ConfigStore::get(BattleEntryRuleCatalog::class)
+      : BattleEntryRuleCatalog::empty();
+
+    if (! $catalog instanceof BattleEntryRuleCatalog) {
+      throw new RuntimeException('The configured battle-entry rule catalog is invalid.');
+    }
+
+    (new BattleEntryRuleRunner($catalog))->apply($config, $worldState);
     $this->initializeBattleSceneStates();
     $this->setState($this->startState);
   }

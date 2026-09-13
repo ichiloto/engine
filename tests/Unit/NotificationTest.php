@@ -77,7 +77,7 @@ it('starts fully off-screen when sliding in from the right', function () {
     ->and(getNotificationRenderPosition($notification)->y)->toBe(0.0);
 });
 
-it('resumes the scene only after an animated notification is fully erased', function () {
+it('dispatches dismissal only after an animated notification is fully erased', function () {
   $notification = makeNotificationForTest(
     new Vector2(40, 0),
     NotificationSlideDirection::NONE,
@@ -109,7 +109,7 @@ it('resumes the scene only after an animated notification is fully erased', func
   expect($dismissedWhileFinished)->toBe([true]);
 });
 
-it('renders and erases notifications through the canonical console buffer', function () {
+it('restores the underlying console content when a notification is erased', function () {
   $console = new ReflectionClass(Console::class);
   foreach ([
     ['width', 80],
@@ -151,7 +151,7 @@ it('renders and erases notifications through the canonical console buffer', func
   $erased = array_map(TerminalText::stripAnsi(...), Console::getBuffer());
   foreach (range(4, 4 + $renderedHeight - 1) as $row) {
     expect(TerminalText::sliceSymbols($erased[$row], 9, Notification::WIDTH))
-      ->toBe(str_repeat(' ', Notification::WIDTH));
+      ->toBe(str_repeat('.', Notification::WIDTH));
   }
 });
 

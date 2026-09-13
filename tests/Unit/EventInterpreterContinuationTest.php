@@ -32,6 +32,8 @@ use Ichiloto\Engine\Field\Location;
 use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Field\NpcManager;
 use Ichiloto\Engine\Field\Player;
+use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\SaveManager;
 use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityManifest;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
@@ -771,6 +773,66 @@ it('yields waits without blocking and retains a nested branch frame', function (
   expect($session?->status)->toBe(EventExecutionStatus::COMPLETED)
     ->and($scene->gameState->getVariable('after_wait'))->toBe(7)
     ->and($scene->gameState->getSwitch('after_branch'))->toBeTrue();
+});
+
+it('keeps cinematic narration visible for the global reading-time floor', function () {
+  ConfigStore::remove(ProjectConfig::class);
+  [$scene, $interpreter] = makeEventRuntime();
+  $scene->installCinematicRuntime();
+
+  $session = $interpreter->run([[
+    'type' => 'narration',
+    'text' => 'Wind enters through all four restored road channels. The Stone sounds one low tone.',
+    'seconds' => 1.2,
+  ]]);
+
+  expect($session?->status)->toBe(EventExecutionStatus::YIELDED)
+    ->and($session?->pendingState['kind'])->toBe('presentation')
+    ->and(round($session?->pendingState['remainingSeconds'], 6))->toBe(5.666667);
+
+  $interpreter->update(1.2);
+
+  expect($session?->status)->toBe(EventExecutionStatus::YIELDED);
+});
+
+it('centres title card copy while leaving narration copy left aligned', function () {
+  [$scene] = makeEventRuntime();
+  $scene->installCinematicRuntime();
+  $console = new ReflectionClass(Console::class);
+  $previousConsoleState = [];
+
+  foreach ([
+    ['width', 20],
+    ['height', 10],
+    ['buffer', []],
+  ] as [$property, $value]) {
+    $consoleProperty = $console->getProperty($property);
+    $previousConsoleState[$property] = $consoleProperty->getValue();
+    $consoleProperty->setValue(null, $value);
+  }
+
+  try {
+    ob_start();
+    $scene->cinematicPresentation?->showOverlay('title_card', 'Dawn Route', 'SKY CARAVAN');
+    $scene->cinematicPresentation?->render();
+    ob_end_clean();
+    $titleRows = array_map(TerminalText::stripAnsi(...), Console::getBuffer());
+
+    ob_start();
+    $scene->cinematicPresentation?->showOverlay('narration', 'Dawn Route', 'SKY CARAVAN');
+    $scene->cinematicPresentation?->render();
+    ob_end_clean();
+    $narrationRows = array_map(TerminalText::stripAnsi(...), Console::getBuffer());
+  } finally {
+    foreach ($previousConsoleState as $property => $value) {
+      $console->getProperty($property)->setValue(null, $value);
+    }
+  }
+
+  expect($titleRows[4] ?? '')->toBe('|   SKY CARAVAN    |')
+    ->and($titleRows[5] ?? '')->toBe('|    Dawn Route    |')
+    ->and($narrationRows[5] ?? '')->toBe('| SKY CARAVAN      |')
+    ->and($narrationRows[6] ?? '')->toBe('| Dawn Route       |');
 });
 
 it('resumes dialogue and choices on later ticks', function () {
@@ -1723,7 +1785,7 @@ it('runs the original cinematic fixture to deterministic cleanup and save availa
       ->and($scene->cinematicPresentation?->hasTransitionCover())->toBeTrue()
       ->and($scene->cinematicStage?->all())->toHaveCount(3);
 
-    for ($tick = 0; $tick < 30 && $scene->hasUnstableEventSession(); $tick++) {
+    for ($tick = 0; $tick < 60 && $scene->hasUnstableEventSession(); $tick++) {
       $interpreter->update(0.1);
     }
 
@@ -1866,7 +1928,7 @@ it('launches a stable cinematic id from an action trigger and completes after tr
       ->and(fn() => $saveManager->save($scene, 1))->toThrow(ActiveEventSaveException::class)
       ->and(fn() => $saveManager->quickSave($scene))->toThrow(ActiveEventSaveException::class);
 
-    for ($tick = 0; $tick < 30 && $scene->hasUnstableEventSession(); $tick++) {
+    for ($tick = 0; $tick < 60 && $scene->hasUnstableEventSession(); $tick++) {
       $interpreter->update(0.1);
     }
 
