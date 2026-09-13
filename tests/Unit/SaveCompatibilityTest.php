@@ -200,7 +200,7 @@ it('writes the v1 envelope through normal quick and rotating autosave surfaces',
   cleanupCompatibilityManager($manager);
 });
 
-it('binds relocated save summaries to the file actually loaded', function (bool $versioned, bool $sourceExists) {
+it('binds relocated save summaries to the destination file and slot', function (bool $versioned, bool $sourceExists, int $sourceSlot) {
   $slug = 'save-compatibility-relocated-' . uniqid();
   $manifest = makeCompatibilityManifest();
   $manager = new SaveManager(
@@ -210,16 +210,21 @@ it('binds relocated save summaries to the file actually loaded', function (bool 
     $manifest,
   );
   $source = $manager->getSlotPath(1);
-  $slot = makeCompatibilitySlot($source);
+  $slot = makeCompatibilitySlot($source, $sourceSlot);
   $payload = ['slot' => $slot, 'config' => makeCompatibilityConfig('copied-map')];
   if ($versioned) {
     $payload = new SaveCompatibilityPipeline($manifest)->createEnvelope($slot, $payload['config']);
   }
   writeCompatibilityPayload($source, $payload);
-  $copies = [$manager->getSlotPath(2), $manager->getQuickSavePath('quick'), $manager->getQuickSavePath('auto-01')];
+  $copies = [
+    $manager->getSlotPath(2) => 2,
+    $manager->getQuickSavePath('quick') => SaveManager::QUICK_SAVE_SLOT,
+    $manager->getQuickSavePath('auto-01') => SaveManager::AUTO_SAVE_SLOT,
+    $manager->getQuickSavePath('backup') => $sourceSlot,
+  ];
 
   try {
-    foreach ($copies as $path) {
+    foreach ($copies as $path => $destinationSlot) {
       copy($source, $path);
     }
     if ($sourceExists) {
@@ -227,19 +232,26 @@ it('binds relocated save summaries to the file actually loaded', function (bool 
     } else {
       unlink($source);
     }
-    foreach ($copies as $path) {
+    foreach ($copies as $path => $destinationSlot) {
       $before = hash_file('sha256', $path);
       $loaded = $manager->loadSaveFile($path);
-      expect($loaded->slot->__serialize())->toBe(array_replace($slot->__serialize(), ['path' => $path]))
+      expect($loaded->slot->__serialize())->toBe(array_replace($slot->__serialize(), ['path' => $path, 'slot' => $destinationSlot]))
         ->and($manager->loadSaveFile($loaded->slot->path)->config->mapId)->toBe('copied-map')
         ->and(hash_file('sha256', $path))->toBe($before);
     }
     // Continue follows the summary path, not necessarily the caller's original path.
     expect($manager->loadSaveFile($manager->getSaveSlots(2)[1]->path)->config->mapId)->toBe('copied-map');
+    expect($manager->loadSlot(2)->slot->slot)->toBe(2);
+
+    // The save menu writes using the enumerated summary's slot number.
+    $sourceHash = $sourceExists ? hash_file('sha256', $source) : null;
+    $manager->save(new SaveCompatibilitySceneStub(makeCompatibilityConfig('updated-map')), $manager->getSaveSlots(2)[1]->slot);
+    expect($manager->loadSlot(2)->config->mapId)->toBe('updated-map')
+      ->and($sourceExists ? hash_file('sha256', $source) : file_exists($source))->toBe($sourceHash ?? false);
   } finally {
     cleanupCompatibilityManager($manager);
   }
-})->with([false, true])->with([false, true]);
+})->with([false, true])->with([false, true])->with([1, SaveManager::QUICK_SAVE_SLOT, SaveManager::AUTO_SAVE_SLOT]);
 
 it('runs schema migration before project content migration without rewriting the source', function () {
   $slug = 'save-compatibility-legacy-' . uniqid();

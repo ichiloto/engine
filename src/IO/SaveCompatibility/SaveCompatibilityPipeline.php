@@ -56,7 +56,7 @@ final readonly class SaveCompatibilityPipeline
     ];
   }
 
-  public function load(string $serializedPayload, string $savePath): SavedGame
+  public function load(string $serializedPayload, string $savePath, ?int $destinationSlot = null): SavedGame
   {
     $decoded = $this->unserializePayload($serializedPayload, $savePath);
     $envelope = $this->detectEnvelope($decoded, $savePath);
@@ -201,9 +201,9 @@ final readonly class SaveCompatibilityPipeline
       }
     }
 
-    // A serialized path belongs to the old installation, not the selected file.
+    // Storage identity belongs to the selected file, not its serialized origin.
     $slot = new SaveSlot(
-      slot: $slot->slot,
+      slot: $destinationSlot ?? $slot->slot,
       path: $savePath,
       isEmpty: $slot->isEmpty,
       locationName: $slot->locationName,
