@@ -210,6 +210,7 @@ class Console
   private static bool $terminalOutputEnabled = true;
   /** @var array{int, int, int, int}|null Physical and logical geometry last presented. */
   private static ?array $terminalViewport = null;
+  private static bool $terminalViewportDirty = false;
   private static int $terminalOffsetX = 0;
   private static int $terminalOffsetY = 0;
 
@@ -225,6 +226,7 @@ class Console
     self::$terminalOutputEnabled = $enabled;
     if (!$enabled) {
       self::$terminalViewport = null;
+      self::$terminalViewportDirty = false;
       self::$terminalOffsetX = self::$terminalOffsetY = 0;
       self::closeTerminalOutputStream();
     } elseif (self::$output !== null) {
@@ -322,6 +324,7 @@ class Console
     self::closeTerminalOutputStream();
     self::$terminalHandedBack = true;
     self::$terminalViewport = null;
+    self::$terminalViewportDirty = false;
     self::$terminalOffsetX = self::$terminalOffsetY = 0;
   }
 
@@ -532,9 +535,13 @@ class Console
    */
   public static function setTerminalSize(int $width, int $height): void
   {
-    self::$width = $width;
-    self::$height = $height;
-    self::emitControlSequence("\033[8;$height;{$width}t");
+    self::syncDimensions($width, $height);
+    self::emitControlSequence(sprintf("\033[8;%d;%dt", self::$height, self::$width));
+    // The resize request invalidates the old physical measurement. Use a
+    // neutral origin until a fresh probe establishes the new margins.
+    self::$terminalViewport = null;
+    self::$terminalViewportDirty = false;
+    self::refreshTerminalOrigin();
   }
 
   /**
@@ -549,6 +556,9 @@ class Console
    */
   public static function syncDimensions(int $width, int $height): void
   {
+    if (self::isComposing()) {
+      throw new \LogicException('Console dimension changes require a completed logical frame.');
+    }
     self::$width = max(1, $width);
     self::$height = max(1, $height);
     self::$buffer = self::getEmptyBuffer();
@@ -556,6 +566,10 @@ class Console
     self::$layerPriorities = [];
     self::$frameRows = [];
     self::$recomposeRepaintRows = [];
+    // Keep the last presented tuple so the next viewport sync still repaints,
+    // but make all writes use the new logical origin immediately.
+    self::$terminalViewportDirty = self::$terminalViewport !== null;
+    self::refreshTerminalOrigin();
   }
 
   /**
@@ -566,14 +580,14 @@ class Console
   {
     if (!self::$terminalOutputEnabled) { return false; }
     $viewport = [max(1, $width), max(1, $height), self::$width, self::$height];
-    if ($viewport === self::$terminalViewport) { return false; }
+    if ($viewport === self::$terminalViewport && !self::$terminalViewportDirty) { return false; }
     if (self::isComposing()) {
       throw new \LogicException('Terminal viewport changes require a completed logical frame.');
     }
-    $previous = [self::$terminalViewport, self::$terminalOffsetX, self::$terminalOffsetY];
+    $previous = [self::$terminalViewport, self::$terminalOffsetX, self::$terminalOffsetY, self::$terminalViewportDirty];
     self::$terminalViewport = $viewport;
-    self::$terminalOffsetX = intdiv(max(0, $width - self::$width), 2);
-    self::$terminalOffsetY = intdiv(max(0, $height - self::$height), 2);
+    self::$terminalViewportDirty = false;
+    self::refreshTerminalOrigin();
     try {
       if ($repaint) {
         // A physical resize may reflow old terminal rows even if the logical
@@ -582,10 +596,16 @@ class Console
         self::repaintRegion(0, 0, self::$width, self::$height);
       }
     } catch (\Throwable $error) {
-      [self::$terminalViewport, self::$terminalOffsetX, self::$terminalOffsetY] = $previous;
+      [self::$terminalViewport, self::$terminalOffsetX, self::$terminalOffsetY, self::$terminalViewportDirty] = $previous;
       throw $error;
     }
     return true;
+  }
+
+  private static function refreshTerminalOrigin(): void
+  {
+    self::$terminalOffsetX = intdiv(max(0, (self::$terminalViewport[0] ?? self::$width) - self::$width), 2);
+    self::$terminalOffsetY = intdiv(max(0, (self::$terminalViewport[1] ?? self::$height) - self::$height), 2);
   }
 
   /** @return array{x: int, y: int} Zero-based physical margins, never logical coordinates. */
@@ -1137,9 +1157,9 @@ class Console
         continue;
       }
 
+      $cells = self::rowToCells(self::$buffer[$row]);
       foreach ($spans as $span) {
-        $payload .= self::terminalCursorAddress($span['start'] + 1, $row + 1)
-          . self::getBufferSegment($row, $span['start'], $span['end']);
+        $payload .= self::terminalRowSpan($row, $cells, $span['start'], $span['end']);
       }
     }
 
@@ -1398,8 +1418,7 @@ class Console
     // Positioning and content form one indivisible terminal operation. If
     // they travel through different descriptors, the text may arrive before
     // its cursor move and corrupt an unrelated part of the screen.
-    self::writeToTerminal(self::terminalCursorAddress($start + 1, $row + 1)
-      . self::getBufferSegment($row, $start, $end));
+    self::writeToTerminal(self::terminalRowSpan($row, self::rowToCells(self::$buffer[$row]), $start, $end));
   }
 
   /** Coalesces overlapping changed spans while preserving clean gaps. */
@@ -1521,13 +1540,28 @@ class Console
     return $merged;
   }
 
-  /** Returns an ANSI-safe slice of one canonical buffer row. */
-  private static function getBufferSegment(int $row, int $start, int $end): string
+  /**
+   * Formats a native write without changing its logical source cells.
+   * @param string[] $cells The complete, composed logical row.
+   */
+  private static function terminalRowSpan(int $row, array $cells, int $start, int $end): string
   {
-    $cells = self::rowToCells(self::$buffer[$row] ?? '');
-    $segment = array_slice($cells, $start, max(0, $end - $start + 1));
+    $visibleWidth = min(self::$width, (self::$terminalViewport[0] ?? self::$width) - self::$terminalOffsetX);
+    $visibleHeight = min(self::$height, (self::$terminalViewport[1] ?? self::$height) - self::$terminalOffsetY);
+    $start = max(0, $start);
+    $end = min($end, $visibleWidth - 1);
+    if ($row < 0 || $row >= $visibleHeight || $end < $start) { return ''; }
 
-    return self::cellsToRow($segment);
+    // A dirty span can touch either half of a glyph. Replay the whole glyph
+    // when it fits, but blank its visible fragment at the physical boundary.
+    $start = self::resolveCellAnchor($cells, $start) ?? $start;
+    $lastAnchor = self::resolveCellAnchor($cells, $end) ?? $end;
+    $glyphEnd = $lastAnchor + max(1, TerminalText::displayWidth($cells[$lastAnchor] ?? ' ')) - 1;
+    $end = min($visibleWidth - 1, max($end, $glyphEnd));
+    if ($glyphEnd >= $visibleWidth) { self::clearCellRange($cells, $lastAnchor, 1); }
+
+    return self::terminalCursorAddress($start + 1, $row + 1)
+      . self::cellsToRow(array_slice($cells, $start, $end - $start + 1));
   }
 
   /**

@@ -35,6 +35,7 @@ it('resolves real Game constructor geometry without mistaking injected defaults 
     $observations = json_decode(file_get_contents($root . '/observations.json'), true);
     $assertGeometry = function (array $observation, array $size): void {
       expect($observation['grid'])->toBe($size)
+        ->and($observation['game'])->toBe($size)
         ->and($observation['settings'])->toBe($size)
         ->and($observation['options'])->toBe($size)
         ->and($observation['cameras'])->toHaveCount(5);
@@ -75,6 +76,15 @@ it('resolves real Game constructor geometry without mistaking injected defaults 
   'graphical large terminal' => [[], ['width' => 135, 'height' => 36], ['renderer' => 'gpui', 'terminal' => '60 220', 'start' => true]],
   'terminal large tty is capped' => [[], ['width' => 135, 'height' => 36], ['terminal' => '60 220']],
   'terminal startup does not resize the physical window' => [[], ['width' => 135, 'height' => 36], ['terminal' => '60 220', 'boot' => true]],
+  'terminal startup resolves a shrink since construction' => [[], ['width' => 80, 'height' => 24],
+    ['terminal' => '38 186', 'terminalBeforeStart' => '24 80', 'boot' => true]],
+  'terminal startup resolves growth since construction' => [[], ['width' => 135, 'height' => 36],
+    ['terminal' => '24 80', 'terminalBeforeStart' => '38 186', 'boot' => true, 'origin' => ['x' => 25, 'y' => 1]]],
+  'terminal startup preserves explicit requests after growth' => [['options' => ['width' => 100, 'height' => 20]],
+    ['width' => 100, 'height' => 20], ['terminal' => '24 80', 'terminalBeforeStart' => '38 186',
+      'boot' => true, 'origin' => ['x' => 43, 'y' => 9]]],
+  'graphical startup ignores a resized terminal' => [[], ['width' => 135, 'height' => 36],
+    ['renderer' => 'gpui', 'terminal' => '38 186', 'terminalBeforeStart' => '24 80', 'start' => true]],
   'terminal centered viewport follows margin-only resizes on both axes' => [[], ['width'=>135,'height'=>36], [
     'terminal'=>'38 186','boot'=>true,'origin'=>['x'=>25,'y'=>1], 'resizes'=>[
       ['terminal'=>'60 220','expected'=>['width'=>135,'height'=>36],'preserved'=>true,'origin'=>['x'=>42,'y'=>12]],
