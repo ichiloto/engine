@@ -10,6 +10,7 @@ use Ichiloto\Engine\Entities\Enumerations\ItemScopeNumber;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
 use Ichiloto\Engine\Entities\Enumerations\Occasion;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Entities\States\StateInstance;
 use Throwable;
 
 /**
@@ -185,9 +186,9 @@ final class FieldSkillExecutor
   /**
    * Captures values rather than retaining references to mutable nested objects.
    *
-   * Character::toArray() intentionally contains objects such as Stats. Keeping
-   * that array directly would make the "before" snapshot change alongside the
-   * live character and every successful effect would appear ineffective.
+   * Persistence omits battle-only states and stat stages, but field effects
+   * can change both. Normalize stages so absent and explicit zero are equal,
+   * and serialize immediately to detach any nested mutable objects.
    *
    * @param Character[] $characters
    * @return array<int, string>
@@ -197,7 +198,17 @@ final class FieldSkillExecutor
     $snapshot = [];
 
     foreach ($characters as $character) {
-      $snapshot[spl_object_id($character)] = serialize($character->toArray());
+      $snapshot[spl_object_id($character)] = serialize([
+        ...$character->toArray(),
+        'statStages' => array_map($character->getStatStage(...), $character::buffableStats()),
+        'states' => array_map(
+          static fn(StateInstance $instance): array => [
+            'id' => $instance->state->id,
+            'remainingTurns' => $instance->remainingTurns,
+          ],
+          $character->states,
+        ),
+      ]);
     }
 
     return $snapshot;

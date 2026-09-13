@@ -1,9 +1,14 @@
 <?php
 
+use Ichiloto\Engine\Battle\Resolution\CombatRandomSource;
 use Ichiloto\Engine\Battle\Resolution\SeededCombatRandomSource;
 use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\AddStateSkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\HPRecoverSkillEffect;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\ModifyStatStageSkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\MPRecoverySkillEffect;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\RemoveStateSkillEffect;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\SkillEffect;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeNumber;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeStatus;
@@ -13,7 +18,17 @@ use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Skills\FieldSkillExecutor;
 use Ichiloto\Engine\Entities\Skills\FieldSkillFailureReason;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
+use Ichiloto\Engine\Entities\States\State;
+use Ichiloto\Engine\Entities\States\StateRegistry;
 use Ichiloto\Engine\Entities\Stats;
+
+beforeEach(function () {
+  $this->stateRegistry = new ReflectionProperty(StateRegistry::class, 'states')->getValue();
+});
+
+afterEach(function () {
+  new ReflectionProperty(StateRegistry::class, 'states')->setValue(null, $this->stateRegistry);
+});
 
 it('requires an explicit target for one-ally field magic without spending MP', function () {
   [$party, $caster, $ally] = makeFieldSkillParty();
@@ -177,6 +192,113 @@ it('supports authored random ally counts without selecting the same target twice
     ->and(array_unique(array_map('spl_object_id', $result->targets)))->toHaveCount(2)
     ->and($caster->stats->currentMp)->toBe(15);
 });
+
+it('charges for real stat-stage changes on either the target or caster', function (bool $affectsUser, int $initial, int $delta) {
+  [$party, $caster, $ally] = makeFieldSkillParty();
+  $recipient = $affectsUser ? $caster : $ally;
+  $recipient->setStatStage('attack', $initial);
+  $skill = makeFieldEffectSkill(new ModifyStatStageSkillEffect('attack', $delta, $affectsUser));
+
+  $result = new FieldSkillExecutor()->execute($skill, $caster, $party, $ally);
+
+  expect($recipient->getStatStage('attack'))->toBe($initial + $delta)
+    ->and($result->succeeded)->toBeTrue()
+    ->and($result->failureReason)->toBeNull()
+    ->and($caster->stats->currentMp)->toBe(17)
+    ->and(($affectsUser ? $ally : $caster)->getStatStage('attack'))->toBe(0);
+})->with([
+  'target buff' => [false, 0, 1],
+  'caster buff' => [true, 0, 1],
+  'target debuff' => [false, 0, -1],
+  'caster debuff' => [true, 0, -1],
+  'remove a debuff' => [false, -1, 1],
+]);
+
+it('refunds MP for stat-stage requests with no net effect', function (string $stat, int $initial, array $deltas) {
+  [$party, $caster, $ally] = makeFieldSkillParty();
+  if (in_array($stat, Character::buffableStats(), true)) { $ally->setStatStage($stat, $initial); }
+  $skill = makeFieldEffectSkill(...array_map(
+    static fn(int $delta): SkillEffect => new ModifyStatStageSkillEffect($stat, $delta),
+    $deltas,
+  ));
+
+  $result = new FieldSkillExecutor()->execute($skill, $caster, $party, $ally);
+
+  expect($ally->getStatStage($stat))->toBe($initial)
+    ->and($result->succeeded)->toBeFalse()
+    ->and($result->failureReason)->toBe(FieldSkillFailureReason::NO_EFFECT)
+    ->and($caster->stats->currentMp)->toBe(20);
+})->with([
+  'upper cap' => ['attack', 4, [1]],
+  'lower cap' => ['attack', -4, [-1]],
+  'zero delta' => ['attack', 0, [0]],
+  'unsupported stat' => ['unknown', 0, [1]],
+  'cancelled changes' => ['attack', 0, [1, -1]],
+]);
+
+it('accounts for state infliction and removal regardless of persistence and refunds repeated no-ops', function (bool $persistent) {
+  [$party, $caster, $ally] = makeFieldSkillParty();
+  $state = new State('field-focus', 'Field Focus', durationTurns: 2, persistsAfterBattle: $persistent);
+  new ReflectionProperty(StateRegistry::class, 'states')->setValue(null, [$state->id => $state]);
+  $executor = new FieldSkillExecutor(random: new SeededCombatRandomSource(12));
+  $inflict = makeFieldEffectSkill(new AddStateSkillEffect($state->id));
+  $cure = makeFieldEffectSkill(new RemoveStateSkillEffect([$state->id]));
+
+  $added = $executor->execute($inflict, $caster, $party, $ally);
+  expect($ally->hasState($state->id))->toBeTrue()
+    ->and($ally->states[0]->remainingTurns)->toBe(2)
+    ->and($added->succeeded)->toBeTrue()
+    ->and($caster->stats->currentMp)->toBe(17);
+
+  $duplicate = $executor->execute($inflict, $caster, $party, $ally);
+  expect($duplicate->failureReason)->toBe(FieldSkillFailureReason::NO_EFFECT)
+    ->and($ally->states)->toHaveCount(1)
+    ->and($caster->stats->currentMp)->toBe(17);
+
+  $removed = $executor->execute($cure, $caster, $party, $ally);
+  expect($ally->hasState($state->id))->toBeFalse()
+    ->and($removed->succeeded)->toBeTrue()
+    ->and($caster->stats->currentMp)->toBe(14);
+
+  $absent = $executor->execute($cure, $caster, $party, $ally);
+  expect($absent->failureReason)->toBe(FieldSkillFailureReason::NO_EFFECT)
+    ->and($caster->stats->currentMp)->toBe(14);
+})->with([false, true]);
+
+it('refunds MP when a state effect is resisted or misses', function (float $resistance, int $chance) {
+  [$party, $caster, $ally] = makeFieldSkillParty();
+  $state = new State('field-focus', 'Field Focus', durationTurns: 2);
+  new ReflectionProperty(StateRegistry::class, 'states')->setValue(null, [$state->id => $state]);
+  $ally->setStateResistances([$state->id => $resistance]);
+  $random = $this->createMock(CombatRandomSource::class);
+  $random->method('nextInt')->willReturn(100);
+  $skill = makeFieldEffectSkill(new AddStateSkillEffect($state->id, $chance));
+
+  $result = new FieldSkillExecutor(random: $random)->execute($skill, $caster, $party, $ally);
+
+  expect($ally->hasState($state->id))->toBeFalse()
+    ->and($result->succeeded)->toBeFalse()
+    ->and($result->failureReason)->toBe(FieldSkillFailureReason::NO_EFFECT)
+    ->and($caster->stats->currentMp)->toBe(20);
+})->with([
+  'immune' => [0.0, 100],
+  'zero chance' => [1.0, 0],
+  'failed roll' => [1.0, 50],
+]);
+
+function makeFieldEffectSkill(SkillEffect ...$effects): MagicSkill
+{
+  return new MagicSkill(
+    'Field Effect',
+    'Applies an effect to one ally.',
+    '*',
+    3,
+    0,
+    new ItemScope(ItemScopeSide::ALLY, ItemScopeNumber::ONE),
+    Occasion::MENU_SCREEN,
+    effects: $effects,
+  );
+}
 
 /** @return array{Party, Character, Character} */
 function makeFieldSkillParty(): array
