@@ -89,6 +89,16 @@ final class TerminalText
    */
   public static function displayWidth(string $text): int
   {
+    // Printable ASCII cannot form wider graphemes when ANSI controls are
+    // removed. Formatter input stays on its existing single-format path;
+    // Unicode retains grapheme measurement, including split flags/ZWJ.
+    if (!str_contains($text, '<') && preg_match('/[^\x00-\x7F]/', $text) !== 1) {
+      $plain = self::stripAnsi($text);
+      if (preg_match('/[^\x20-\x7E]/', $plain) !== 1) {
+        return strlen($plain);
+      }
+    }
+
     $width = 0;
 
     foreach (self::visibleSymbols($text) as $symbol) {
@@ -312,12 +322,13 @@ final class TerminalText
   }
 
   /**
-   * Measures the display width of a single visible symbol.
+   * Measures one already-separated visible grapheme, optionally styled.
+   * Use displayWidth() for text containing multiple symbols.
    *
    * @param string $symbol The symbol to measure.
    * @return int The display width in terminal cells.
    */
-  private static function getSymbolWidth(string $symbol): int
+  public static function getSymbolWidth(string $symbol): int
   {
     // Rendering repeats the same handful of glyphs thousands of times per
     // frame, and measuring one costs several regex passes. Cache by symbol.

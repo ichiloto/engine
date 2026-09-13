@@ -9,6 +9,7 @@ use InvalidArgumentException;
 
 final readonly class StyledPresentationFrame
 {
+  public const int MAX_TEXT_LAYERS = 64;
   /** @var list<PresentationTextLayer> */
   public array $textLayers;
   /** @var list<PresentationSprite> */
@@ -17,7 +18,7 @@ final readonly class StyledPresentationFrame
   /** @param list<PresentationTextLayer> $textLayers @param list<PresentationSprite> $sprites */
   public function __construct(public int $number, array $textLayers = [], array $sprites = [])
   {
-    if ($number < 0 || !array_is_list($textLayers) || count($textLayers) > 64) {
+    if ($number < 0 || !array_is_list($textLayers) || count($textLayers) > self::MAX_TEXT_LAYERS) {
       throw new InvalidArgumentException('Styled frame requires a nonnegative number and at most 64 text layers.');
     }
     $ids = $copy = [];
