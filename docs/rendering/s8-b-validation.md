@@ -1,6 +1,90 @@
 # S8-B: Graphical field tiles and Garden scrolling
 
-## Status and publication gate
+## Integration follow-up: 2026-09-13
+
+**Feasibility demonstrated; final integration closeout awaiting desktop access.**
+The ordinary CLI startup failure is fixed. This does not mark the outstanding
+visual checks passed or bypass the existing develop review gates.
+
+### Installed and published
+
+The installed optimized GPUI executable now matches the S8-B build:
+`f3b4f56f289ac1bb60a03c25db1e143f3425617d35b6b3f59e42a8a6ca38e8d7`.
+It uses the normal Engine installation manifest; no executable-path override,
+capability stripping, protocol downgrade or fallback was introduced. The previous
+bundle and manifest were backed up before replacement. Renderer commit `4e70b7e`
+adds the installation record and a reusable native tile smoke test, not a new
+production rendering implementation.
+
+The installed native fixture acknowledged both v2 `sprite_source_rect` and
+`tile_batches`, submitted four frames with 2, 4860, 0 and 2 tiles, and exited 0
+with no protocol errors. CPU paint submission is not GPU completion or FPS.
+
+Reviewed publication was verified against the approved remotes: Engine S8-B
+`bef20a2`, followed by shared save fix `6008220`; Engine notification/output
+branch `ffd2aa2`; Renderer `4e70b7e`; Console `10dc0b3`; Website develop
+`cc72e22`; Game develop `c05a398`; private Game documentation main `512369c`.
+Game feature branches remain local. Author configuration edits were preserved,
+not included in publication. This verification does not claim the independent
+Engine branches have already been merged together or approved.
+
+### Observed and tested
+
+Ordinary `ichiloto play --no-tmux` renderer selection and explicit
+`ichiloto play --renderer=gpui --no-tmux` both started the installed renderer.
+A private, muted runtime used copied assets and byte-identical legitimate saves;
+only its window title distinguished it from the author's game. No save payload,
+story state or public game bootstrap was changed to manufacture acceptance.
+
+Native observations: readable title, Town field/player PNG, complete four-member
+main menu, return to title, and two normal window closes with CLI exit 0. Garden
+then loaded its mapped terrain, directional/animated Player and text cues.
+Walking from (8,3) to (16,29) exercised vertical camera scrolling. Movement from
+(14,29) into the actual solid water cell (13,29) was blocked correctly.
+
+That real checkpoint test exposed a shared save-loading defect: a deserialized
+SaveSlot retained its old installation's absolute path, so selecting the copied
+save could load a different original file. `6008220` binds the loaded summary to
+the selected source file without rewriting it. Four failing-first cases cover
+legacy/versioned saves and an existing/missing original, across normal, quick
+and autosave paths. Full Engine validation: **1401 passed, 1 skipped, 5534
+assertions**; PHPStan: **no errors**. Bounded Last Legend validation: **255
+passed, 548418 assertions**.
+
+The ordinary terminal renderer also loaded the same Garden checkpoint at
+135x36, retained canonical styled text, accepted Down/Right movement, opened the
+four-member menu and exited normally with status 0. This is a PTY regression
+check, not a terminal-emulator scrolling benchmark.
+
+### Remaining boundary
+
+The desktop locked before the final Garden overlay observation. Its last test
+session was explicitly interrupted for cleanup; the resulting renderer exit 130
+and CLI exit 1 are recorded as test interruption, not normal-close acceptance.
+No owned test process was left running. Earlier normal closes remain distinct.
+
+The planning chat reduced closeout to one ordinary-CLI session: dismiss an
+existing menu/dialogue and verify restoration, resize smaller/larger without
+changing the logical grid, transfer away and back without stale tiles, and close
+normally. These checks remain pending. If they pass, no further general
+acceptance or optimization round is required for this proof.
+
+The broad Last Legend suite was not completed because of the unrelated
+180,000-battle simulation baseline. Linux/WSLg remains untested. The
+dark-player-on-dark-field issue remains an art/background concern. Matched
+scrolling timings, richer held/repeat input and exhaustive battle/skit checks
+remain deferred, not zero or passed. This installation/save follow-up adds no
+renderer protocol or game-content changes; the original S8-B extension below
+is unchanged. Future placeholder and production artwork belongs to Last Legend
+- Art. After closeout, Game Design and Lore resume milestone oversight.
+
+## Initial review snapshot (historical)
+
+The sections below preserve the original review evidence and pending-state
+wording. The integration follow-up above supersedes their installation,
+publication and closeout status; it does not retroactively change test results.
+
+### Status and publication gate
 
 Implementation and automated validation are ready for review. **S8-B is not
 accepted as an integrated graphical slice yet.** Native acceptance and the
