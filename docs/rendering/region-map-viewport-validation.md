@@ -47,8 +47,8 @@ An independent private PTY capture used unchanged Engine
 `bef20a24754df1358c8825b4fc9f4d0b0a658f64` with that CLI fix and a copied
 legitimate Garden checkpoint. Field -> map -> field -> eight idle frames kept
 the player at `(8,3)`. All 36 restored rows matched the original field and the
-idle canonical frame. The capture was taken while the child was alive, 500ms
-before exit: 83,664 bytes, zero differing rows; SHA-256
+idle canonical frame. The capture was sampled at 500ms while the child remained
+alive: 83,664 bytes, zero differing rows; SHA-256
 `a24149c73755ecefcffee440aedc99593b0fff146641ba535a23fc1acb358677`.
 
 Local capture result:
