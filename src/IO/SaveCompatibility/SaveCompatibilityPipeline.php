@@ -201,6 +201,20 @@ final readonly class SaveCompatibilityPipeline
       }
     }
 
+    // A serialized path belongs to the old installation, not the selected file.
+    $slot = new SaveSlot(
+      slot: $slot->slot,
+      path: $savePath,
+      isEmpty: $slot->isEmpty,
+      locationName: $slot->locationName,
+      leaderName: $slot->leaderName,
+      leaderLevel: $slot->leaderLevel,
+      playTimeSeconds: $slot->playTimeSeconds,
+      savedAt: $slot->savedAt,
+      isLoadable: $slot->isLoadable,
+      statusMessage: $slot->statusMessage,
+    );
+
     return new SavedGame($slot, $config);
   }
 

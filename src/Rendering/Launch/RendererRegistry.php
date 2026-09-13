@@ -21,7 +21,7 @@ final class RendererRegistry
       new RendererDescriptor('terminal', static fn(string $assetRoot): ?RendererRuntime => null),
       new RendererDescriptor('gpui', static fn(string $assetRoot): RendererRuntime => new RendererRuntime(
         new RendererRuntimeConfig(new RendererProcessConfig([$resolver->resolve('gpui')]), $assetRoot, 10, 20,
-          requiredCapabilities: [RendererSessionConfig::SPRITE_SOURCE_RECT]),
+          requiredCapabilities: [RendererSessionConfig::SPRITE_SOURCE_RECT, RendererSessionConfig::TILE_BATCHES]),
       )),
     ];
     foreach ($descriptors as $descriptor) {

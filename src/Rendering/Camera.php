@@ -149,25 +149,33 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   {
     $renderOffset = $this->getRenderOffset();
     $visibleWidth = $this->getVisibleWorldWidth();
-    $visibleHeight = $this->getVisibleWorldHeight();
 
     // One terminal write for the whole map instead of one per row: the
     // difference is felt most while scrolling, and on consoles where each
     // write is expensive.
     Console::beginFrame();
 
-    for ($row = 0; $row < $visibleHeight; $row++) {
-      $worldSpaceY = $this->position->y + $row;
-      $worldRow = $this->worldSpace[$worldSpaceY] ?? array_fill(0, $visibleWidth, ' ');
-      $content = is_array($worldRow)
-        ? implode('', array_slice($worldRow, $this->position->x, $visibleWidth))
-        : TerminalText::sliceSymbols((string)$worldRow, $this->position->x, $visibleWidth);
-      $content = TerminalText::padRight($content, $visibleWidth);
+    foreach ($this->visibleMapRows() as $worldSpaceY => $symbols) {
+      $row = $worldSpaceY - $this->position->y;
+      $content = TerminalText::padRight(implode('', $symbols), $visibleWidth);
 
       $this->draw($content, $renderOffset->x, $renderOffset->y + $row);
     }
 
     Console::endFrame();
+  }
+
+  /** @return iterable<int, list<string>> Visible authored symbols, without synthetic padding. */
+  public function visibleMapRows(): iterable
+  {
+    $width = $this->getVisibleWorldWidth();
+    $height = $this->getVisibleWorldHeight();
+    for ($row = 0; $row < $height; $row++) {
+      $y = (int)$this->position->y + $row;
+      $symbols = $this->worldSpace[$y] ?? [];
+      if (!is_array($symbols)) { $symbols = TerminalText::visibleSymbols((string)$symbols); }
+      yield $y => array_values(array_slice($symbols, (int)$this->position->x, $width));
+    }
   }
 
   /**

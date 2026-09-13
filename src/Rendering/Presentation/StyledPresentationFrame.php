@@ -13,9 +13,15 @@ final readonly class StyledPresentationFrame
   public array $textLayers;
   /** @var list<PresentationSprite> */
   public array $sprites;
+  /** @var list<PresentationTileBatch> */
+  public array $tileBatches;
 
-  /** @param list<PresentationTextLayer> $textLayers @param list<PresentationSprite> $sprites */
-  public function __construct(public int $number, array $textLayers = [], array $sprites = [])
+  /**
+   * @param list<PresentationTextLayer> $textLayers
+   * @param list<PresentationSprite> $sprites
+   * @param list<PresentationTileBatch> $tileBatches
+   */
+  public function __construct(public int $number, array $textLayers = [], array $sprites = [], array $tileBatches = [])
   {
     if ($number < 0 || !array_is_list($textLayers) || count($textLayers) > 64) {
       throw new InvalidArgumentException('Styled frame requires a nonnegative number and at most 64 text layers.');
@@ -38,6 +44,7 @@ final readonly class StyledPresentationFrame
     usort($copy, static fn(PresentationTextLayer $a, PresentationTextLayer $b) => $a->layer <=> $b->layer);
     $this->textLayers = $copy;
     $this->sprites = PresentationSprite::orderedList($sprites);
+    $this->tileBatches = PresentationTileBatch::orderedList($tileBatches);
   }
 
   public function toRendererMessage(): RendererMessage
@@ -46,6 +53,8 @@ final readonly class StyledPresentationFrame
       'frame' => $this->number,
       'textLayers' => array_map(static fn(PresentationTextLayer $layer) => $layer->toArray(), $this->textLayers),
       'sprites' => array_map(static fn(PresentationSprite $sprite) => $sprite->toArray(), $this->sprites),
+      ...($this->tileBatches === [] ? [] : ['tileBatches' => array_map(
+        static fn(PresentationTileBatch $batch) => $batch->toArray(), $this->tileBatches)]),
     ], RendererProtocolVersion::V2);
   }
 }

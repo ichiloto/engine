@@ -7,6 +7,7 @@ use InvalidArgumentException;
 final readonly class RendererSessionConfig
 {
   public const string SPRITE_SOURCE_RECT = 'sprite_source_rect';
+  public const string TILE_BATCHES = 'tile_batches';
   public string $assetRoot;
 
   /** @param list<string> $requiredCapabilities */
@@ -18,7 +19,14 @@ final readonly class RendererSessionConfig
     public array $requiredCapabilities = [],
   )
   {
-    if ($requiredCapabilities !== [] && $requiredCapabilities !== [self::SPRITE_SOURCE_RECT]) {
+    $allowed = $protocol === RendererProtocolVersion::V2
+      ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES] : [self::SPRITE_SOURCE_RECT];
+    foreach ($requiredCapabilities as $capability) {
+      if (!in_array($capability, $allowed, true)) {
+        throw new InvalidArgumentException('Unsupported renderer capability for this protocol.');
+      }
+    }
+    if (!array_is_list($requiredCapabilities) || count(array_unique($requiredCapabilities)) !== count($requiredCapabilities)) {
       throw new InvalidArgumentException('Renderer required capabilities must be a unique list of supported capability names.');
     }
     if ($title === '' || strlen($title) > 4096 || preg_match('//u', $title) !== 1

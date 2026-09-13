@@ -47,6 +47,12 @@ renderer when updating this spike. Explicit programmatic runtime configurations
 retain an empty requirement list by default for legacy full-image integrations;
 sheet users must request the capability as described in [sprite sheets](sprite-sheets.md).
 
+S8-B additionally requires v2 `tile_batches` for automatic GPUI startup, even
+when the initial map has no graphical terrain. This permits later transfers
+without renegotiation. An older binary must fail clearly before frames are sent.
+See [optional map terrain and the wire contract](tile-batches.md) and the
+[S8-B validation/publication gate](s8-b-validation.md) before installing this slice.
+
 `PackagedRendererExecutableResolver` is the sole owner of the installation
 manifest layout and platform lookup. It resolves only a readable installed
 manifest entry naming an executable within that package. See the

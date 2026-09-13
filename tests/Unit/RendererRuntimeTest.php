@@ -26,6 +26,8 @@ use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Game\States\FieldState;
 use Ichiloto\Engine\Field\Player;
+use Ichiloto\Engine\Field\MapManager;
+use Ichiloto\Engine\Rendering\Tiles\GraphicalTileDefinition;
 use Ichiloto\Engine\Rendering\Sprites\DirectionalGraphicalSpriteSet;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Core\Vector2;
@@ -329,6 +331,72 @@ it('presents the same field ownership from real Game renders and blocked ticks w
   $game->tickWhileBlocked();
   expect($this->transport->sent[2]->payload['sprites'])->toBe([]);
   $game->quit();
+});
+
+it('uses the same field eligibility for terrain and Player and clears tiles on scene replacement', function () {
+  $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__,
+    requiredCapabilities:['tile_batches']), $this->transport);
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["tile_batches"]}')];
+  $this->runtime->start('Tiles',12,4);
+  $scene = makeBareScene(GameScene::class);
+  $camera = new Camera($scene,12,4,worldSpace:array_fill(0,4,array_fill(0,12,';')));
+  new ReflectionProperty(GameScene::class,'camera')->setValue($scene,$camera);
+  $map = makeBareScene(MapManager::class);
+  new ReflectionProperty(MapManager::class,'gameScene')->setValue($map,$scene);
+  new ReflectionProperty(MapManager::class,'tileMap')->setValue($map,$camera->worldSpace);
+  new ReflectionProperty(MapManager::class,'tiles2d')->setValue($map,GraphicalTileDefinition::fromArray([
+    'asset'=>'field.png','symbols'=>[';'=>['x'=>0,'y'=>0,'width'=>16,'height'=>32]]], 'field'));
+  new ReflectionProperty(GameScene::class,'mapManager')->setValue($scene,$map);
+  $player = $this->getMockBuilder(Player::class)->disableOriginalConstructor()
+    ->onlyMethods(['getGraphicalSpriteDefinition'])->getMock();
+  $player->method('getGraphicalSpriteDefinition')->willReturn(null);
+  new ReflectionProperty(Player::class,'isActive')->setValue($player,true);
+  new ReflectionProperty(GameScene::class,'player')->setValue($scene,$player);
+  $field = makeBareScene(FieldState::class);
+  new ReflectionProperty(GameScene::class,'fieldState')->setValue($scene,$field);
+  new ReflectionProperty(GameScene::class,'state')->setValue($scene,$field);
+  Console::recomposeFrame(fn()=>$map->render());
+  $terminal = Console::snapshot();
+  expect($this->runtime->present($scene))->toBeTrue()
+    ->and($this->transport->sent[0]->payload['tileBatches'][0]['cells'])->toHaveCount(48)
+    ->and($this->transport->sent[0]->payload['textLayers'][0]['runs'])->toBe([])
+    ->and(Console::snapshot())->toEqual($terminal);
+  Console::withLayer('dialogue',fn()=>Console::write('Talk',0,3),1020);
+  expect($this->runtime->present($scene))->toBeTrue()
+    ->and($this->transport->sent[1]->payload['tileBatches'])->toBe($this->transport->sent[0]->payload['tileBatches']);
+  $cinematic = new \Ichiloto\Engine\Cutscenes\Cinematics\CinematicController($scene);
+  new ReflectionProperty(GameScene::class,'cinematicController')->setValue($scene,$cinematic);
+  new ReflectionProperty($cinematic,'active')->setValue($cinematic,
+    makeBareScene(\Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition::class));
+  $this->runtime->present($scene);
+  expect(end($this->transport->sent)->payload)->not->toHaveKey('tileBatches');
+  expect(iterator_to_array($scene->getGraphicalSpriteProviders()))->toBe([]);
+  new ReflectionProperty($cinematic,'active')->setValue($cinematic,null);
+  $this->runtime->present($scene);
+  expect(end($this->transport->sent)->payload['tileBatches'][0]['cells'])->toHaveCount(48);
+  // Actual background restoration removes old named Player history.
+  Console::withLayer('player',fn()=>Console::write('@',1,1));
+  $map->renderBackgroundTile(1,1);
+  $this->runtime->present($scene);
+  expect(Console::charAt(1,1))->toBe(';');
+  $before = Console::getBuffer();
+  $map->renderBackgroundTile(-1,0);
+  expect(Console::getBuffer())->toBe($before);
+  new ReflectionProperty(Player::class,'isActive')->setValue($player,false);
+  expect($scene->getGraphicalTileBatches())->toBe([])->and(iterator_to_array($scene->getGraphicalSpriteProviders()))->toBe([]);
+  new ReflectionProperty(Player::class,'isActive')->setValue($player,true);
+  Console::recomposeFrame(fn()=>Console::write('Menu',0,0));
+  new ReflectionProperty(GameScene::class,'state')->setValue($scene,makeBareScene(\Ichiloto\Engine\Scenes\Game\States\MainMenuState::class));
+  $this->runtime->present($scene);
+  expect(end($this->transport->sent)->payload)->not->toHaveKey('tileBatches');
+  new ReflectionProperty(GameScene::class,'state')->setValue($scene,$field);
+  Console::recomposeFrame(fn()=>$map->render());
+  $this->runtime->present($scene);
+  expect(end($this->transport->sent)->payload['tileBatches'][0]['cells'])->toHaveCount(48);
+  new ReflectionProperty(MapManager::class,'tiles2d')->setValue($map,null);
+  Console::recomposeFrame(fn()=>$map->render());
+  $this->runtime->present($scene);
+  expect(end($this->transport->sent)->payload)->not->toHaveKey('tileBatches');
 });
 
 it('keeps scenario and temporary music ownership identical during terminal and renderer waits', function (bool $graphical) {
