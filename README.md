@@ -31,6 +31,7 @@ Join us on this journey to redefine retro gaming with the power of ASCII art and
 
 ## Documentation
 
+- [Continuous integration and local checks](docs/continuous-integration.md)
 - [Battle-entry rules](docs/battle-entry-rules.md)
 - [Renderer process transport (S2)](docs/rendering/process-transport.md)
 - [Pluggable input sources (S3)](docs/rendering/input-sources.md)
