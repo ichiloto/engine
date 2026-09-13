@@ -4,6 +4,9 @@ namespace Ichiloto\Engine\IO\Console {
   // Isolate only the physical terminal probe; Game construction stays real.
   function shell_exec(string $command): ?string
   {
+    if (str_starts_with($command, 'stty size')) {
+      $GLOBALS['terminalProbeCount'] = ($GLOBALS['terminalProbeCount'] ?? 0) + 1;
+    }
     return str_starts_with($command, 'stty size')
       ? (getenv('ICHILOTO_TEST_TERMINAL_SIZE') ?: '31 117') . "\n" : \shell_exec($command);
   }
@@ -33,21 +36,49 @@ $registry = new RendererRegistry(descriptors: [
 class ConstructorGeometryGame extends Game
 {
   public function openInput(): void { $this->startInputSession(); }
+  public function resize(): void { $this->syncScreenSize(); }
+  public function boot(): void { $this->start(); }
 }
 $game = new ConstructorGeometryGame('Constructor geometry', ...$arguments, rendererRegistry: $registry);
 foreach ($scenario['configure'] ?? [] as $options) { $game->configure($options); }
 if ($scenario['attach'] ?? false) { $game->useRendererRuntime($runtime); }
+if (isset($scenario['terminalBeforeStart'])) {
+  putenv('ICHILOTO_TEST_TERMINAL_SIZE=' . $scenario['terminalBeforeStart']);
+}
 if ($scenario['start'] ?? false) { $game->openInput(); }
+if ($scenario['boot'] ?? false) { $game->boot(); }
 file_put_contents('dimensions.json', json_encode([
   'width' => Console::getWidth(), 'height' => Console::getHeight(),
 ], JSON_THROW_ON_ERROR));
-$cameras = [];
-foreach (new \ReflectionProperty(SceneManager::class, 'scenes')->getValue($game->sceneManager) as $scene) {
-  $cameras[] = ['width' => $scene->camera->screen->getWidth(), 'height' => $scene->camera->screen->getHeight()];
+function geometryObservations(Game $game): array
+{
+  $cameras = [];
+  foreach (new \ReflectionProperty(SceneManager::class, 'scenes')->getValue($game->sceneManager) as $scene) {
+    $cameras[] = ['width' => $scene->camera->screen->getWidth(), 'height' => $scene->camera->screen->getHeight()];
+  }
+  return [
+    'game' => ['width' => new \ReflectionProperty(Game::class, 'width')->getValue($game),
+      'height' => new \ReflectionProperty(Game::class, 'height')->getValue($game)],
+    'grid' => ['width' => Console::getWidth(), 'height' => Console::getHeight()],
+    'cameras' => $cameras, 'settings' => ['width' => get_screen_width(), 'height' => get_screen_height()],
+    'options' => $game->options['screen'],
+    'origin' => Console::getTerminalOrigin(),
+  ];
 }
-file_put_contents('observations.json', json_encode([
-  'cameras' => $cameras, 'settings' => ['width' => get_screen_width(), 'height' => get_screen_height()],
-  'options' => $game->options['screen'],
-], JSON_THROW_ON_ERROR));
+$observations = geometryObservations($game);
+foreach ($scenario['resizes'] ?? [] as $resize) {
+  Console::write('X', 0, 0);
+  putenv('ICHILOTO_TEST_TERMINAL_SIZE=' . $resize['terminal']);
+  usleep(275000); // Exercise the real throttled resize path, not a replacement probe.
+  $probes = $GLOBALS['terminalProbeCount'] ?? 0;
+  if ($resize['composing'] ?? false) { Console::beginFrame(); }
+  ($resize['blocked'] ?? false) ? $game->tickWhileBlocked() : $game->resize();
+  if ($resize['composing'] ?? false) { Console::endFrame(); }
+  $observations['resizes'][] = geometryObservations($game) + [
+    'preserved' => Console::snapshot()->rows[0][0] === 'X',
+    'probes' => ($GLOBALS['terminalProbeCount'] ?? 0) - $probes,
+  ];
+}
+file_put_contents('observations.json', json_encode($observations, JSON_THROW_ON_ERROR));
 $game->quit();
 }

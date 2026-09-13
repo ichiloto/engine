@@ -26,8 +26,12 @@ final class RendererPresentation
   {
   }
 
-  /** @param list<PresentationSprite> $sprites Returns true only when a changed frame was queued. */
-  public function present(ConsoleFrameSnapshot|ConsolePresentationSnapshot $snapshot, array $sprites = []): bool
+  /**
+   * @param list<PresentationSprite> $sprites
+   * @param list<PresentationTileBatch> $tileBatches
+   * Returns true only when a changed frame was queued.
+   */
+  public function present(ConsoleFrameSnapshot|ConsolePresentationSnapshot $snapshot, array $sprites = [], array $tileBatches = []): bool
   {
     if ($snapshot->width !== $this->grid->columns || $snapshot->height !== $this->grid->rows) {
       throw new InvalidArgumentException('Console snapshot dimensions must match the fixed renderer session grid.');
@@ -37,10 +41,15 @@ final class RendererPresentation
         throw new RendererProtocolException('Sprite sheets require negotiated sprite_source_rect support. Request it at startup and install an updated renderer.');
       }
     }
+    if ($tileBatches !== [] && (!$snapshot instanceof ConsolePresentationSnapshot
+      || !$this->client->supports(RendererSessionConfig::TILE_BATCHES))) {
+      throw new RendererProtocolException('Graphical terrain requires protocol v2 and negotiated tile_batches support. Request it at startup and install an updated renderer.');
+    }
+    foreach ($tileBatches as $batch) { $batch->assertWithin($this->grid); }
     $preparation = LatencyTrace::now();
     $number = $this->frameNumber < PHP_INT_MAX ? $this->frameNumber + 1 : $this->frameNumber;
     $message = $snapshot instanceof ConsolePresentationSnapshot
-      ? new StyledPresentationFrame($number, $snapshot->textLayers, $sprites)->toRendererMessage()
+      ? new StyledPresentationFrame($number, $snapshot->textLayers, $sprites, $tileBatches)->toRendererMessage()
       : new PresentationFrame($number, $snapshot->rows, $sprites)->toRendererMessage();
     LatencyTrace::end('presentation.message', $preparation);
     $comparison = LatencyTrace::now();

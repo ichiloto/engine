@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  php:
+    name: PHP ${{ matrix.php }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-24.04, php: '8.4'}
+          - {os: ubuntu-24.04, php: '8.5'}
+          - {os: macos-15, php: '8.4'}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring, intl, dom, xml, xmlwriter, pcntl, posix, zlib
+          coverage: none
+          tools: composer:v2
+          ini-values: memory_limit=1G
+      - name: Locate Composer cache
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ runner.os }}-${{ runner.arch }}-${{ matrix.php }}-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-${{ runner.os }}-${{ runner.arch }}-${{ matrix.php }}-
+      - name: Validate dependencies
+        run: composer validate --strict
+      - name: Install locked dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+      - name: Check runtime requirements
+        run: composer check-platform-reqs
+      - name: Static analysis
+        if: matrix.os == 'ubuntu-24.04' && matrix.php == '8.4'
+        run: composer analyse -- --no-progress
+      - name: Dependency security audit
+        if: matrix.os == 'ubuntu-24.04' && matrix.php == '8.4'
+        run: composer audit --locked --no-interaction
+      - name: Tests
+        run: composer test -- --compact --log-junit test-results.xml
+      - name: Preserve failure report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: test-results-${{ matrix.os }}-php-${{ matrix.php }}
+          path: test-results.xml
+          if-no-files-found: ignore
+          retention-days: 7

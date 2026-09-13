@@ -56,7 +56,13 @@ describe('basic skills', function() {
     $this->skillEffectContext = new SkillEffectContext($this->user, $this->target);
   });
 
-  it('can deal HP damage', function() {
+  it('can deal HP damage', function(int $criticalRoll, float $multiplier, bool $critical) {
+    $random = $this->createMock(\Ichiloto\Engine\Battle\Resolution\CombatRandomSource::class);
+    $random->expects($this->exactly(2))->method('nextInt')->willReturnMap([
+      [124, 124, 124],
+      [1, 100, $criticalRoll],
+    ]);
+    $this->skillEffectContext->random = $random;
     $userAttack = 31;
     $this->user->stats->attack = $userAttack;
 
@@ -69,15 +75,16 @@ describe('basic skills', function() {
 
     $rawMagnitude = $userAttack * 4;
     $mitigationRate = $targetDefence / ($targetDefence + 240);
-    $expectedDamage = intval(round($rawMagnitude * (1 - $mitigationRate), 0, PHP_ROUND_HALF_UP));
+    $expectedDamage = intval(round($rawMagnitude * (1 - $mitigationRate) * $multiplier, 0, PHP_ROUND_HALF_UP));
 
     $damageFormula = '$user->stats->attack * 4';
     $hpDamageEffect = new HPDamageSkillEffect($damageFormula, variance: 0.0);
     $hpDamageEffect->apply($this->skillEffectContext);
 
     expect($target->stats->currentHp)
-      ->toBe($targetHp - $expectedDamage);
-  });
+      ->toBe($targetHp - $expectedDamage)
+      ->and($this->skillEffectContext->criticalHit)->toBe($critical);
+  })->with(['ordinary hit' => [100, 1.0, false], 'critical hit' => [1, 1.5, true]]);
 
   it('can deal MP damage', function() {
     $targetMp = 50;

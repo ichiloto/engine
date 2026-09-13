@@ -6,10 +6,8 @@ use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameObject;
 use Ichiloto\Engine\Events\Enumerations\EventType;
 use Ichiloto\Engine\Events\Enumerations\ModalEventType;
-use Ichiloto\Engine\Events\Enumerations\NotificationEventType;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\ModalEvent;
-use Ichiloto\Engine\Events\NotificationEvent;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Interfaces\SceneConfigurationInterface;
@@ -48,10 +46,6 @@ abstract class AbstractScene implements SceneInterface
    * @var mixed $modalEventHandler The modal event handler.
    */
   protected mixed $modalEventHandler = null;
-  /**
-   * @var mixed $notificationEventHandler The notification event handler.
-   */
-  protected mixed $notificationEventHandler = null;
 
   /**
    * AbstractScene constructor.
@@ -282,33 +276,10 @@ abstract class AbstractScene implements SceneInterface
       }
     };
     $this->eventManager->addEventListener(EventType::MODAL, $this->modalEventHandler);
-
-    $this->notificationEventHandler = function (NotificationEvent $event) {
-      switch ($event->notificationEventType) {
-        case NotificationEventType::OPEN:
-        case NotificationEventType::RESUME:
-          $this->suspend();
-          break;
-
-        case NotificationEventType::DISMISS:
-          $this->resume();
-          break;
-
-        case NotificationEventType::UPDATE:
-        case NotificationEventType::RENDER:
-        case NotificationEventType::SUSPEND:
-        case NotificationEventType::ERASE:
-          // Do nothing
-          break;
-      }
-    };
-
-    $this->eventManager->addEventListener(EventType::NOTIFICATION, $this->notificationEventHandler);
   }
 
   protected function deregisterEventHandlers(): void
   {
     $this->eventManager->removeEventListener(EventType::MODAL, $this->modalEventHandler);
-    $this->eventManager->removeEventListener(EventType::NOTIFICATION, $this->notificationEventHandler);
   }
 }

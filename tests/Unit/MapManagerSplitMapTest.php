@@ -16,6 +16,35 @@ final class SplitMapManagerProbe extends MapManager
   }
 }
 
+it('loads current optional terrain metadata afresh and rejects malformed presence without changing the map', function () {
+  $directory = sys_get_temp_dir() . DIRECTORY_SEPARATOR . uniqid('ichiloto-terrain-map-', true);
+  mkdir($directory);
+  $paths = ['id'=>'test/terrain','data'=>"$directory/map.data.php",'map'=>"$directory/map.map.php",'event'=>"$directory/map.event.php"];
+  file_put_contents($paths['map'], '<?php return ";~";');
+  file_put_contents($paths['event'], '<?php return "  ";');
+  $manager = new ReflectionClass(SplitMapManagerProbe::class)->newInstanceWithoutConstructor();
+  $scene = new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();
+  $camera = new Camera(makeCameraTestScene(),8,4);
+  new ReflectionProperty(GameScene::class,'camera')->setValue($scene,$camera);
+  new ReflectionProperty(MapManager::class,'gameScene')->setValue($manager,$scene);
+  try {
+    foreach ([null, 'one.png', 'two.png', null] as $asset) {
+      $data = ['name'=>'Test'];
+      if ($asset !== null) { $data['tiles2d'] = ['asset'=>$asset,'symbols'=>[';'=>['x'=>0,'y'=>0,'width'=>16,'height'=>32]]]; }
+      file_put_contents($paths['data'], '<?php return ' . var_export($data,true) . ';');
+      $manager->readSplitMap($paths);
+      expect($manager->tiles2d?->asset)->toBe($asset)->and($manager->tileMap)->toBe([[';','~']])
+        ->and($camera->worldSpace)->toBe($manager->tileMap);
+    }
+    file_put_contents($paths['data'], '<?php return ["tiles2d"=>null];');
+    expect(fn()=>$manager->readSplitMap($paths))->toThrow(InvalidArgumentException::class, 'map.data.php tiles2d:')
+      ->and($manager->tiles2d)->toBeNull()->and($manager->tileMap)->toBe([[';','~']]);
+  } finally {
+    foreach (['data','map','event'] as $key) { unlink($paths[$key]); }
+    rmdir($directory);
+  }
+});
+
 it('isolates authored map variables from split-map loader state', function () {
   $directory = sys_get_temp_dir() . DIRECTORY_SEPARATOR . uniqid('ichiloto-split-map-', true);
   mkdir($directory, 0777, true);

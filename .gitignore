@@ -13,3 +13,4 @@ tmp_*
 *.swp
 *.swo
 /resources/renderers/installed/
+/test-results.xml

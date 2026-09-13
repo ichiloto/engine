@@ -26,6 +26,8 @@ use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Game\States\FieldState;
 use Ichiloto\Engine\Field\Player;
+use Ichiloto\Engine\Field\MapManager;
+use Ichiloto\Engine\Rendering\Tiles\GraphicalTileDefinition;
 use Ichiloto\Engine\Rendering\Sprites\DirectionalGraphicalSpriteSet;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Core\Vector2;
@@ -269,8 +271,9 @@ it('rejects fixed-grid mismatch and never captures unfinished composition', func
   expect(fn() => $this->runtime->present(null))->toThrow(InvalidArgumentException::class, 'fixed renderer session grid');
 });
 
-it('honors explicit grid dimensions even when they equal the legacy terminal auto defaults', function ($options) {
+it('honors explicit graphical grid dimensions even when they equal the legacy terminal auto defaults', function ($options) {
   $game = new RendererRuntimeGameProbe();
+  $game->useRendererRuntime($this->runtime);
   $size = new ReflectionMethod(Game::class, 'resolveScreenSize')->invoke($game, $options);
   expect($size)->toBe(['width' => DEFAULT_SCREEN_WIDTH, 'height' => DEFAULT_SCREEN_HEIGHT]);
 })->with([
@@ -278,12 +281,15 @@ it('honors explicit grid dimensions even when they equal the legacy terminal aut
   [['screen' => ['width' => DEFAULT_SCREEN_WIDTH, 'height' => DEFAULT_SCREEN_HEIGHT]]],
 ]);
 
-it('retains legacy terminal auto sizing when dimensions were not explicitly requested', function () {
+it('caps terminal auto sizing at the battle footprint', function () {
   $game = new RendererRuntimeGameProbe();
   new ReflectionProperty(Game::class, 'width')->setValue($game, DEFAULT_SCREEN_WIDTH);
   new ReflectionProperty(Game::class, 'height')->setValue($game, DEFAULT_SCREEN_HEIGHT);
   $available = Console::getAvailableSize();
-  expect(new ReflectionMethod(Game::class, 'resolveScreenSize')->invoke($game, []))->toBe($available);
+  expect(new ReflectionMethod(Game::class, 'resolveScreenSize')->invoke($game, []))->toBe([
+    'width' => min($available['width'], \Ichiloto\Engine\Battle\UI\BattleScreen::WIDTH),
+    'height' => min($available['height'], \Ichiloto\Engine\Battle\UI\BattleScreen::HEIGHT),
+  ]);
 });
 
 it('presents the same field ownership from real Game renders and blocked ticks without capturing partial frames', function () {
@@ -325,6 +331,93 @@ it('presents the same field ownership from real Game renders and blocked ticks w
   $game->tickWhileBlocked();
   expect($this->transport->sent[2]->payload['sprites'])->toBe([]);
   $game->quit();
+});
+
+it('uses the same field eligibility for terrain and Player and clears tiles on scene replacement', function () {
+  $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__,
+    requiredCapabilities:['tile_batches']), $this->transport);
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["tile_batches"]}')];
+  $this->runtime->start('Tiles',12,4);
+  $scene = makeBareScene(GameScene::class);
+  $camera = new Camera($scene,12,4,worldSpace:array_fill(0,4,array_fill(0,12,';')));
+  new ReflectionProperty(GameScene::class,'camera')->setValue($scene,$camera);
+  $map = makeBareScene(MapManager::class);
+  new ReflectionProperty(MapManager::class,'gameScene')->setValue($map,$scene);
+  new ReflectionProperty(MapManager::class,'tileMap')->setValue($map,$camera->worldSpace);
+  new ReflectionProperty(MapManager::class,'tiles2d')->setValue($map,GraphicalTileDefinition::fromArray([
+    'asset'=>'field.png','symbols'=>[';'=>['x'=>0,'y'=>0,'width'=>16,'height'=>32]]], 'field'));
+  new ReflectionProperty(GameScene::class,'mapManager')->setValue($scene,$map);
+  $player = $this->getMockBuilder(Player::class)->disableOriginalConstructor()
+    ->onlyMethods(['getGraphicalSpriteDefinition'])->getMock();
+  $player->method('getGraphicalSpriteDefinition')->willReturn(null);
+  new ReflectionProperty(Player::class,'isActive')->setValue($player,true);
+  new ReflectionProperty(GameScene::class,'player')->setValue($scene,$player);
+  $field = makeBareScene(FieldState::class);
+  new ReflectionProperty(GameScene::class,'fieldState')->setValue($scene,$field);
+  new ReflectionProperty(GameScene::class,'state')->setValue($scene,$field);
+  Console::recomposeFrame(fn()=>$map->render());
+  $terminal = Console::snapshot();
+  expect($this->runtime->present($scene))->toBeTrue()
+    ->and($this->transport->sent[0]->payload['tileBatches'][0]['cells'])->toHaveCount(48)
+    ->and($this->transport->sent[0]->payload['textLayers'][0]['runs'])->toBe([])
+    ->and(Console::snapshot())->toEqual($terminal);
+  Console::withLayer('dialogue',fn()=>Console::write('Talk',0,3),1020);
+  expect($this->runtime->present($scene))->toBeTrue()
+    ->and($this->transport->sent[1]->payload['tileBatches'])->toBe($this->transport->sent[0]->payload['tileBatches']);
+  $cinematic = new \Ichiloto\Engine\Cutscenes\Cinematics\CinematicController($scene);
+  new ReflectionProperty(GameScene::class,'cinematicController')->setValue($scene,$cinematic);
+  new ReflectionProperty($cinematic,'active')->setValue($cinematic,
+    makeBareScene(\Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition::class));
+  $this->runtime->present($scene);
+  expect(end($this->transport->sent)->payload)->not->toHaveKey('tileBatches');
+  expect(iterator_to_array($scene->getGraphicalSpriteProviders()))->toBe([]);
+  new ReflectionProperty($cinematic,'active')->setValue($cinematic,null);
+  $this->runtime->present($scene);
+  expect(end($this->transport->sent)->payload['tileBatches'][0]['cells'])->toHaveCount(48);
+  // Actual background restoration removes old named Player history.
+  Console::withLayer('player',fn()=>Console::write('@',1,1));
+  $map->renderBackgroundTile(1,1);
+  $this->runtime->present($scene);
+  expect(Console::charAt(1,1))->toBe(';');
+  $before = Console::getBuffer();
+  $map->renderBackgroundTile(-1,0);
+  expect(Console::getBuffer())->toBe($before);
+  new ReflectionProperty(Player::class,'isActive')->setValue($player,false);
+  expect($scene->getGraphicalTileBatches())->toBe([])->and(iterator_to_array($scene->getGraphicalSpriteProviders()))->toBe([]);
+  new ReflectionProperty(Player::class,'isActive')->setValue($player,true);
+  Console::recomposeFrame(fn()=>Console::write('Menu',0,0));
+  new ReflectionProperty(GameScene::class,'state')->setValue($scene,makeBareScene(\Ichiloto\Engine\Scenes\Game\States\MainMenuState::class));
+  $this->runtime->present($scene);
+  expect(end($this->transport->sent)->payload)->not->toHaveKey('tileBatches');
+  new ReflectionProperty(GameScene::class,'state')->setValue($scene,$field);
+  Console::recomposeFrame(fn()=>$map->render());
+  $this->runtime->present($scene);
+  expect(end($this->transport->sent)->payload['tileBatches'][0]['cells'])->toHaveCount(48);
+  new ReflectionProperty(MapManager::class,'tiles2d')->setValue($map,null);
+  Console::recomposeFrame(fn()=>$map->render());
+  $this->runtime->present($scene);
+  expect(end($this->transport->sent)->payload)->not->toHaveKey('tileBatches');
+});
+
+it('rejects oversized tile viewports before acquiring session ownership and permits a valid retry', function (int $columns, int $rows) {
+  $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__,
+    requiredCapabilities: ['tile_batches']), $this->transport);
+  $console = new ReflectionClass(Console::class)->getStaticProperties();
+  expect(fn() => $this->runtime->start('Large grid', $columns, $rows))
+    ->toThrow(InvalidArgumentException::class, '32768 cells')
+    ->and($this->transport->session)->toBeNull()
+    ->and(InputManager::getInputSource())->toBe($this->previous)
+    ->and(new ReflectionClass(Console::class)->getStaticProperties())->toBe($console);
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["tile_batches"]}')];
+  $this->runtime->start('Bounded tiles', 512, 64);
+  expect($this->transport->session->grid->columns)->toBe(512)
+    ->and($this->transport->session->grid->rows)->toBe(64);
+})->with([[512, 65], [129, 256], [512, 256]]);
+
+it('preserves the maximum protocol grid for runtimes without tile capability requirements', function () {
+  $this->runtime->start('Text grid', 512, 256);
+  expect($this->transport->session->grid->columns)->toBe(512)
+    ->and($this->transport->session->grid->rows)->toBe(256);
 });
 
 it('keeps scenario and temporary music ownership identical during terminal and renderer waits', function (bool $graphical) {

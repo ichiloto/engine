@@ -9,8 +9,10 @@ use Ichiloto\Engine\IO\InputSources\InputSourceInterface;
 use Ichiloto\Engine\IO\InputSources\RendererInputSource;
 use Ichiloto\Engine\Rendering\Presentation\RendererPresentation;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
+use Ichiloto\Engine\Rendering\Presentation\PresentationTileBatch;
 use Ichiloto\Engine\Rendering\RendererClient;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteCollector;
+use Ichiloto\Engine\Rendering\Tiles\GraphicalTileProviderHostInterface;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException;
 use Ichiloto\Engine\Rendering\Transport\ProcessRendererTransport;
 use Ichiloto\Engine\Rendering\Transport\RendererEventType;
@@ -19,6 +21,7 @@ use Ichiloto\Engine\Rendering\Transport\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererTransportInterface;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
+use InvalidArgumentException;
 use LogicException;
 use Throwable;
 
@@ -49,6 +52,12 @@ final class RendererRuntime
       throw new LogicException('A RendererRuntime owns exactly one session.');
     }
     $grid = new RendererGridConfig($columns, $rows, $this->config->cellWidth, $this->config->cellHeight);
+    if (in_array(RendererSessionConfig::TILE_BATCHES, $this->config->requiredCapabilities, true)
+      && $columns * $rows > PresentationTileBatch::MAX_CELLS) {
+      throw new InvalidArgumentException(sprintf(
+        'Tile-enabled Engine viewports require at most %d cells; reduce the configured columns or rows.',
+        PresentationTileBatch::MAX_CELLS));
+    }
     $session = new RendererSessionConfig($title, $this->config->assetRoot, $grid, $this->config->protocol,
       $this->config->requiredCapabilities);
     $this->started = true;
@@ -108,11 +117,23 @@ final class RendererRuntime
     $visible = array_filter($sprites, static fn($sprite) => $sprite->x >= 0 && $sprite->x < Console::getWidth()
       && $sprite->y >= 0 && $sprite->y < Console::getHeight());
     $excluded = array_map(static fn($sprite) => $sprite->id, $visible);
+    $tilesStart = LatencyTrace::now();
+    $tiles = $this->config->protocol === RendererProtocolVersion::V2 && $scene instanceof GraphicalTileProviderHostInterface
+      ? $scene->getGraphicalTileBatches() : [];
+    $replaced = [];
+    $tileCount = 0;
+    foreach ($tiles as $batch) {
+      foreach ($batch->cells as $cell) {
+        $replaced[$batch->id][$cell['row']][$cell['column']] = true;
+        $tileCount++;
+      }
+    }
+    LatencyTrace::end('presentation.tiles', $tilesStart, ['batches' => count($tiles), 'cells' => $tileCount]);
     $snapshotStart = LatencyTrace::now();
     $snapshot = $this->config->protocol === RendererProtocolVersion::V2
-      ? Console::presentationSnapshot($excluded) : Console::snapshot($excluded);
+      ? Console::presentationSnapshot($excluded, $replaced) : Console::snapshot($excluded);
     LatencyTrace::end('presentation.snapshot', $snapshotStart);
-    $changed = $this->presentation->present($snapshot, $sprites);
+    $changed = $this->presentation->present($snapshot, $sprites, $tiles);
     if ($changed) {
       // Begin delivery at the presentation boundary, not after Game/Timers sleep.
       // This is one bounded zero-wait pass; partial writes retain their remainder.

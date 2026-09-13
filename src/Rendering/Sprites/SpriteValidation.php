@@ -9,16 +9,21 @@ final class SpriteValidation
 {
   public static function validateDefinition(string $asset, int $width, int $height, int $layer): void
   {
+    self::validateAssetPath($asset);
+    if ($width < 1 || $height < 1 || $width > 4096 || $height > 4096) {
+      throw new InvalidArgumentException('Sprite dimensions must be between 1 and 4096 logical pixels.');
+    }
+    self::validateSigned32BitRange($layer);
+  }
+
+  public static function validateAssetPath(string $asset): void
+  {
     if ($asset === '' || preg_match('//u', $asset) !== 1 || str_contains($asset, "\0")
       || str_starts_with($asset, '/') || str_contains($asset, '\\')
       || preg_match('/^[A-Za-z][A-Za-z0-9+.-]*:/', $asset) === 1
       || in_array('..', explode('/', $asset), true)) {
       throw new InvalidArgumentException('Sprite asset must be a relative UTF-8 path using forward slashes, without NUL or parent traversal.');
     }
-    if ($width < 1 || $height < 1 || $width > 4096 || $height > 4096) {
-      throw new InvalidArgumentException('Sprite dimensions must be between 1 and 4096 logical pixels.');
-    }
-    self::validateSigned32BitRange($layer);
   }
 
   /** Accept Camera floats before casting, so nonfinite/overflowing values cannot wrap into valid cells. */
