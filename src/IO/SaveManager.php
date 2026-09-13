@@ -304,7 +304,28 @@ class SaveManager
       throw new RuntimeException(sprintf('Save file not found: %s', $path));
     }
 
-    return $this->compatibilityPipeline->load($this->decodeSavePayload($path), $path);
+    return $this->compatibilityPipeline->load($this->decodeSavePayload($path), $path, $this->getDestinationSlot($path));
+  }
+
+  private function getDestinationSlot(string $path): ?int
+  {
+    $name = pathinfo($path, PATHINFO_FILENAME);
+
+    if ($name === self::QUICK_SAVE_NAME) {
+      return self::QUICK_SAVE_SLOT;
+    }
+
+    if ($name === self::AUTO_SAVE_NAME || preg_match('/^' . self::AUTO_SAVE_NAME . '-[0-9]+$/D', $name)) {
+      return self::AUTO_SAVE_SLOT;
+    }
+
+    if (preg_match('/^file-([0-9]+)$/D', $name, $matches)) {
+      $slot = filter_var(ltrim($matches[1], '0'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+
+      return $slot === false ? null : $slot;
+    }
+
+    return null;
   }
 
   /**
