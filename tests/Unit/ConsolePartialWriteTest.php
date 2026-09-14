@@ -325,14 +325,14 @@ it('clears the physical terminal through the authoritative frame descriptor', fu
   $console->getProperty('width')->setValue(null, 20);
   $console->getProperty('height')->setValue(null, 3);
   $console->getProperty('buffer')->setValue(null, [
-    'old menu            ',
-    'still visible       ',
-    '                    ',
+    str_split('old menu            '),
+    str_split('still visible       '),
+    str_split('                    '),
   ]);
 
   try {
     Console::clear();
-    $clearedBuffer = $console->getProperty('buffer')->getValue();
+    $clearedBuffer = Console::getBuffer();
   } finally {
     $console->getProperty('width')->setValue(null, $previousWidth);
     $console->getProperty('height')->setValue(null, $previousHeight);

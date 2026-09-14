@@ -105,6 +105,18 @@ it('preserves unmapped wide content and never removes its shifted text cells', f
     ->toBe([['column'=>2,'row'=>1,'source'=>0]]);
 });
 
+it('does not let reset-separated combining cells shift a terrain replacement onto a wide continuation', function () {
+  Console::syncDimensions(6, 1);
+  $camera = new Camera(makeCameraTestScene(), 6, 1,
+    worldSpace: [TerminalText::visibleSymbols(";e\e[0m\u{0301}界;a")]);
+  PresentationLayerPolicy::terrain($camera->renderMap(...));
+  $batch = new GraphicalTileCollector()->collect(GraphicalTileDefinition::fromArray(terrainData(), 'field'), $camera)[0];
+  expect($batch->cells)->toBe([['column' => 0, 'row' => 0, 'source' => 0]])
+    ->and(Console::charAt(5, 0))->toBe(';');
+  $snapshot = terrainTextCells(Console::presentationSnapshot([], ['terrain' => [0 => [0 => true]]]));
+  expect($snapshot['terrain'][0][5])->toBe(';')->and($snapshot['terrain'][0][3])->toBe('界');
+});
+
 it('collects a complete field at the tile-enabled runtime geometry limit', function () {
   $camera = new Camera(makeCameraTestScene(), 512, 64,
     worldSpace: array_fill(0, 64, array_fill(0, 512, ';')));

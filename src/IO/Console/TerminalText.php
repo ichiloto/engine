@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\IO\Console;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Symfony\Component\Console\Formatter\OutputFormatter;
 use Throwable;
+use Ichiloto\Engine\Diagnostics\LatencyTrace;
 
 /**
  * Utility helpers for terminal-safe text measurement and formatting.
@@ -119,6 +120,7 @@ final class TerminalText
    */
   public static function visibleSymbols(string $text): array
   {
+    LatencyTrace::record('terminal.tokenize');
     if ($text === '') {
       return [];
     }
@@ -334,15 +336,17 @@ final class TerminalText
     // frame, and measuring one costs several regex passes. Cache by symbol.
     static $widths = [];
 
-    if (isset($widths[$symbol])) {
-      return $widths[$symbol];
+    $key = str_contains($symbol, "\u{200D}")
+      ? (self::allowsCompositeEmoji() ? '1:' : '0:') . $symbol : $symbol;
+    if (isset($widths[$key])) {
+      return $widths[$key];
     }
 
     if (count($widths) > self::SYMBOL_CACHE_LIMIT) {
       $widths = [];
     }
 
-    return $widths[$symbol] = self::measureSymbolWidth($symbol);
+    return $widths[$key] = self::measureSymbolWidth($symbol);
   }
 
   /**
@@ -446,15 +450,17 @@ final class TerminalText
   {
     static $stabilized = [];
 
-    if (isset($stabilized[$symbol])) {
-      return $stabilized[$symbol];
+    $key = str_contains($symbol, "\u{200D}") || preg_match('/[\x{1F3FB}-\x{1F3FF}]/u', $symbol) === 1
+      ? (self::allowsCompositeEmoji() ? '1:' : '0:') . $symbol : $symbol;
+    if (isset($stabilized[$key])) {
+      return $stabilized[$key];
     }
 
     if (count($stabilized) > self::SYMBOL_CACHE_LIMIT) {
       $stabilized = [];
     }
 
-    return $stabilized[$symbol] = self::computeStabilizedSymbol($symbol);
+    return $stabilized[$key] = self::computeStabilizedSymbol($symbol);
   }
 
   /**
@@ -549,6 +555,7 @@ final class TerminalText
     }
 
     try {
+      LatencyTrace::record('terminal.format');
       return self::getFormatter()->format($text);
     } catch (Throwable) {
       return $text;

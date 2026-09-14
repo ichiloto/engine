@@ -281,7 +281,7 @@ it('keeps real map windows inside the screen and handles pan and Home through in
     $probe = new RegionMapDrawingProbe('roads/garden', array_keys(RegionMap::areas()));
     [$map, $info] = $probe->showPanels();
     $initial = $map->getContent();
-    $buffer = new ReflectionProperty(Console::class, 'buffer')->getValue();
+    $buffer = Console::getBuffer();
     expect(findOnMap($initial, 'Garden'))->not->toBeNull()
       ->and(findOnMap($buffer, 'Garden'))->not->toBeNull()
       ->and($map->getContent())->toHaveCount($map->getContentHeight())

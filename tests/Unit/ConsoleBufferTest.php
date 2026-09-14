@@ -169,7 +169,7 @@ function bufferAfter(callable $writes, int $width = 20, int $height = 3): array
   $writes();
   ob_end_clean();
 
-  return $reflection->getProperty('buffer')->getValue();
+  return Console::getBuffer();
 }
 
 it('writes plain ascii rows exactly', function () {
@@ -246,7 +246,7 @@ it('skips re-emitting a row whose content is genuinely unchanged', function () {
   // skipping unsafe when sprites bypassed it.
   expect($firstPass)->not->toBe('')
     ->and($secondPass)->toBe('')
-    ->and($reflection->getProperty('buffer')->getValue()[0])->toBe('| hello  |          ');
+    ->and(Console::getBuffer()[0])->toBe('| hello  |          ');
 });
 
 it('atomically recomposes a complete screen and clears vanished rows', function () {
@@ -263,7 +263,7 @@ it('atomically recomposes a complete screen and clears vanished rows', function 
   });
   $output = ob_get_clean();
 
-  $buffer = $reflection->getProperty('buffer')->getValue();
+  $buffer = Console::getBuffer();
 
   expect($buffer[0])->toBe('new map             ')
     ->and($buffer[1])->toBe(str_repeat(' ', 20))
@@ -319,7 +319,7 @@ it('replaces a menu with every row of a dense styled field', function () {
     Console::write('HUD COMPLETE', 2, 38);
   });
   $output = ob_get_clean();
-  $buffer = $reflection->getProperty('buffer')->getValue();
+  $buffer = Console::getBuffer();
 
   expect(TerminalText::stripAnsi($buffer[20]))->not->toContain('old load menu')
     ->and(TerminalText::stripAnsi($buffer[34]))->toContain(str_repeat(';', 118))
@@ -357,7 +357,7 @@ it('restores the authoritative screen when recomposition fails', function () {
   ob_start();
   Console::write('authoritative', 0, 0);
   ob_end_clean();
-  $before = $reflection->getProperty('buffer')->getValue();
+  $before = Console::getBuffer();
 
   ob_start();
   try {
@@ -371,7 +371,7 @@ it('restores the authoritative screen when recomposition fails', function () {
   $output = ob_get_clean();
 
   expect($output)->toBe('')
-    ->and($reflection->getProperty('buffer')->getValue())->toBe($before)
+    ->and(Console::getBuffer())->toBe($before)
     ->and($reflection->getProperty('frameDepth')->getValue())->toBe(0);
 });
 
@@ -399,12 +399,12 @@ it('erases a wide sprite from the row it covered', function () {
 
   ob_start();
   Console::write(TerminalText::stabilize('🚶'), 4, 0);
-  $withSprite = $reflection->getProperty('buffer')->getValue()[0];
+  $withSprite = Console::getBuffer()[0];
   Console::write('.', 4, 0);
   Console::write('.', 5, 0);
   $eraseOutput = ob_get_clean();
 
-  $afterErase = $reflection->getProperty('buffer')->getValue()[0];
+  $afterErase = Console::getBuffer()[0];
 
   expect($withSprite)->toContain('🚶')
     ->and($afterErase)->toBe(str_repeat('.', 24))
@@ -518,7 +518,7 @@ it('tracks window borders and content in the canonical console buffer', function
   $window->render();
   ob_end_clean();
 
-  $buffer = $reflection->getProperty('buffer')->getValue();
+  $buffer = Console::getBuffer();
   $renderedRows = array_map(TerminalText::stripAnsi(...), $buffer);
 
   expect(substr($renderedRows[1], 2, 12))->toContain('Info')
@@ -529,7 +529,7 @@ it('tracks window borders and content in the canonical console buffer', function
   $window->erase();
   ob_end_clean();
 
-  $erasedRows = $reflection->getProperty('buffer')->getValue();
+  $erasedRows = Console::getBuffer();
 
   expect(substr(TerminalText::stripAnsi($erasedRows[1]), 2, 12))->toBe(str_repeat(' ', 12))
     ->and(substr(TerminalText::stripAnsi($erasedRows[2]), 2, 12))->toBe(str_repeat(' ', 12))

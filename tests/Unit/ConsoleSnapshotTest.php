@@ -69,14 +69,14 @@ it('uses a one-cell fallback for multi-scalar graphemes without collapsing reser
 })->with([["e\u{301}", 1], ["\u{2764}\u{FE0F}", 2], ["\u{1F5E1}", 2], ["\u{2764}\u{FE0E}", 1]]);
 
 it('sanitizes control cells without leaking protocol controls or moving subsequent columns', function ($control) {
-  new ReflectionProperty(Console::class, 'buffer')->setValue(null, ['A' . $control . 'B']);
+  Console::writeNormalizedRow(\Ichiloto\Engine\IO\Console\NormalizedRow::fromText('A' . $control . 'B'), 0, 0);
   $snapshot = Console::snapshot();
   expect($snapshot->rows[0])->toBe('A?B' . str_repeat(' ', 21))
     ->and(preg_match('/\p{Cc}/u', $snapshot->rows[0]))->toBe(0);
 })->with(["\0", "\033", "\t", "\r", "\n", "\x7F", "\u{85}"]);
 
 it('rejects corrupt rows instead of silently coercing or blanking them', function ($row) {
-  new ReflectionProperty(Console::class, 'buffer')->setValue(null, [$row]);
+  new ReflectionProperty(Console::class, 'buffer')->setValue(null, [array_pad([$row], 24, ' ')]);
   expect(fn() => Console::snapshot())->toThrow(RuntimeException::class, 'Console row 0 must contain valid UTF-8 text.');
 })->with(["A\xFFB", 123, false]);
 
