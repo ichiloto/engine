@@ -214,8 +214,9 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
     $position = $this->getScreenSpacePosition(new Vector2($x, $y));
     if ($position->x < 0 || $position->y < 0
       || $position->x >= $this->screen->getWidth() || $position->y >= $this->screen->getHeight()) { return; }
-    $row = $this->normalizedMapRow($y)->select($x, 1, $this->screen->getWidth(), pad: false);
-    if ($row->cells === []) { $row = NormalizedRow::fromText(' '); }
+    $row = $x >= 0 && $x < $this->worldSpaceWidth && $y >= 0 && $y < $this->worldSpaceHeight
+      ? $this->normalizedMapRow($y)->select($x, 1, $this->screen->getWidth(), pad: false) : null;
+    if ($row === null || $row->cells === []) { $row = NormalizedRow::fromText(' '); }
     Console::writeNormalizedRow($row, $position->x, $position->y);
   }
 

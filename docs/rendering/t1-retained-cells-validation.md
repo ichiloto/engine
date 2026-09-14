@@ -134,8 +134,8 @@ census. Later runs reuse the Camera and must not be called process-cold runs.
 
 ## Correctness And Integration
 
-- Full Engine on PHP 8.5: **1,667 passed, one existing skip, 8,208 assertions**.
-- Full Engine on PHP 8.4: **1,667 passed, one existing skip, 8,206 assertions**.
+- Final full Engine on PHP 8.5: **1,668 passed, one existing skip, 8,212 assertions**.
+- Final full Engine on PHP 8.4: **1,668 passed, one existing skip, 8,214 assertions**.
 - PHP 8.4 syntax checks pass for every changed/new PHP file; `git diff --check`
   reports no errors.
 - PHP 8.4 PHPStan: **no errors** (`--debug --memory-limit=1G --no-progress`).
@@ -159,6 +159,13 @@ source replacement, geometry and width-policy changes. Existing Unicode/control,
 formatter, SGR, opaque-blank, layer, transaction and partial-write regressions
 remain intact. Tests now seed private framebuffer fixtures with cells; public
 string-buffer expectations are preserved rather than weakened.
+
+The first automated PR review found one additional centered-map margin case:
+negative world coordinates could select the first retained tile. A failing
+regression reproduced it. Background restoration now checks authored bounds
+before selection and restores a blank outside them, covering all four margins
+without caching nonexistent rows. The full suites and PHPStan above were rerun
+after this correction. No repeat automated-review request was sent.
 
 ## Ordinary Native Terminal Pass
 
@@ -186,8 +193,16 @@ remain a manual validation gap. Movement speed, focus and pacing were unchanged.
 
 ## Evidence Identity
 
-The candidate source snapshot used for measurement matches the implementation
-in this change. Source tree SHA-256 (ordered relative-path/file-hash manifest):
+The matched measurement and ordinary PTY pass used implementation commit
+`9f18b3b62dfbe6f4fbdca63e1e58794e2268a9d5`. The subsequent review correction
+only adds world-bound checks to incremental background restoration; the timed
+`renderMap()` path is unchanged. A post-correction 216-frame replay also matches
+all canonical/styled/payload hashes and bytes. That extra run overlapped test
+processes (H medians 0.647-1.063 ms; V 0.585-0.856 ms), so it is a correctness
+confirmation, not a replacement matched timing comparison. Final Camera hash:
+`8439ccb75c1607a7dbd07fd59aca16a284024078071db46dfdafd39086e98ad1`.
+
+Matched source tree SHA-256 (ordered relative-path/file-hash manifest):
 baseline `45645360475aa3cec41bcbb2a70f2dd083df0d742d00f1be1825fbd92aba2b60`;
 candidate `7234306b2607247c8276cb73d0661d21019b3ecfeb3d14b38c0d2efef9ac542e`.
 Both dependency manifests hash to
@@ -208,6 +223,7 @@ the durable record. No private map/checkpoint payload is included in this repo.
 | `candidate-current.json` | `d959dcfdb37f75da2aad3fa06dba84e9207e9109d1f28703584d1e86137909c7` |
 | `baseline-current-trace.json` | `0151ec341db4d99565e861d27a9513116425d16bf1fc46093b9583cae8e28b75` |
 | `candidate-current-trace.json` | `e541cd8081e7cbc798e7d87a9b33be4907c92f6ba939f580427fd0bbf68e016a` |
+| `candidate-reviewed.json` (post-review output confirmation) | `96f72a1ae75fc67ea74fc58f090baaf0f88310a1c81ab6742f5fdb20150ea55d` |
 
 ## Boundaries
 

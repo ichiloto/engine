@@ -94,6 +94,18 @@ it('keeps live retained scenery under moved and dismissed notifications in both 
   expect(ob_get_contents())->not->toBe('');
 })->with([true, false]);
 
+it('restores blank margins outside a centered map without copying an edge tile', function () {
+  $camera = new Camera(makeCameraTestScene(), 12, 4, worldSpace: [['a', 'b']]);
+  $camera->renderMap();
+  foreach ([[-1, 0], [2, 0], [0, -1], [0, 1]] as [$x, $y]) {
+    $position = $camera->getScreenSpacePosition(new \Ichiloto\Engine\Core\Vector2($x, $y));
+    Console::write('@', $position->x, $position->y);
+    $camera->renderBackgroundTile($x, $y);
+    expect(Console::charAt($position->x, $position->y))->toBe(' ');
+  }
+  expect(Console::snapshot()->rows[1])->toBe('     ab     ');
+});
+
 it('refreshes changed rows, map reloads and width policy while geometry selects fresh bounds', function () {
   $camera = retainedCamera();
   $camera->renderMap();
