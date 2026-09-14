@@ -120,7 +120,7 @@ function setConsoleDimensionsForTest(int $width, int $height): void
   $heightProperty->setValue(null, $height);
 
   $bufferProperty = $console->getProperty('buffer');
-  $bufferProperty->setValue(null, array_fill(0, $height, str_repeat(' ', $width)));
+  $bufferProperty->setValue(null, array_fill(0, $height, array_fill(0, $width, ' ')));
 
   $outputProperty = $console->getProperty('output');
   $outputProperty->setValue(null, null);

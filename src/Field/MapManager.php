@@ -541,14 +541,7 @@ class MapManager implements CanRenderAt
    */
   public function renderBackgroundTile(int $x, int $y): void
   {
-    $tile = $this->tileMap[$y][$x] ?? ' ';
-    $screenSpacePosition = $this->camera->getScreenSpacePosition(new Vector2($x, $y));
-    if ($screenSpacePosition->x < 0 || $screenSpacePosition->y < 0
-      || $screenSpacePosition->x >= $this->camera->screen->getWidth()
-      || $screenSpacePosition->y >= $this->camera->screen->getHeight()) {
-      return;
-    }
-    $draw = fn() => $this->camera->draw($tile, $screenSpacePosition->x, $screenSpacePosition->y);
+    $draw = fn() => $this->camera->renderBackgroundTile($x, $y);
     $this->tiles2d === null ? $draw() : PresentationLayerPolicy::terrain($draw);
   }
 

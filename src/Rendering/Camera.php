@@ -12,7 +12,10 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Exceptions\NotImplementedException;
 use Ichiloto\Engine\Field\Player;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\IO\Console\NormalizedRow;
+use Ichiloto\Engine\IO\Console\TerminalCapabilities;
 use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\Util\Debug;
 use Symfony\Component\Console\Output\ConsoleOutput;
@@ -27,6 +30,11 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
 {
   protected(set) bool $followsPlayer = true;
   protected ?CameraStateSnapshot $detachedSnapshot = null;
+  /** @var array<int, NormalizedRow> Current map only; discarded on source/policy changes. */
+  private array $normalizedRows = [];
+  /** @var array<int, list<string>> String-authored rows are formatted once, before width policy. */
+  private array $stringRowSymbols = [];
+  private ?bool $normalizationPolicy = null;
   /**
    * @var Rect The drawable screen area.
    */
@@ -75,15 +83,24 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
     }
 
     set {
-      $this->worldSpace = $value;
+      // Own the authored value: PHP array references must not mutate the map
+      // behind its setter and leave the retained rows stale.
+      $this->worldSpace = array_map(static fn($row) => is_array($row)
+        ? array_map(static fn($symbol) => $symbol, $row) : $row, $value);
+      $this->normalizedRows = [];
+      $this->stringRowSymbols = [];
+      $this->normalizationPolicy = null;
       $this->worldSpaceHeight = count($value);
-      $this->worldSpaceWidth = array_reduce($value, function ($carry, $item) {
-        if (is_array($item)) {
-          return max($carry, count($item));
+      $this->worldSpaceWidth = 0;
+      foreach ($this->worldSpace as $y => $source) {
+        if (is_array($source)) {
+          $this->worldSpaceWidth = max($this->worldSpaceWidth, count($source));
+        } else {
+          $symbols = TerminalText::visibleSymbols((string)$source);
+          $this->worldSpaceWidth = max($this->worldSpaceWidth, count($symbols));
+          $this->stringRowSymbols[$y] = $symbols;
         }
-
-        return max($carry, TerminalText::symbolCount((string)$item));
-      }, 0);
+      }
     }
   }
   /**
@@ -155,11 +172,12 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
     // write is expensive.
     Console::beginFrame();
 
-    foreach ($this->visibleMapRows() as $worldSpaceY => $symbols) {
-      $row = $worldSpaceY - $this->position->y;
-      $content = TerminalText::padRight(implode('', $symbols), $visibleWidth);
-
-      $this->draw($content, $renderOffset->x, $renderOffset->y + $row);
+    for ($row = 0, $height = $this->getVisibleWorldHeight(); $row < $height; $row++) {
+      $started = LatencyTrace::now();
+      $content = $this->normalizedMapRow((int)$this->position->y + $row)
+        ->select((int)$this->position->x, $visibleWidth, $visibleWidth);
+      LatencyTrace::end('terminal.select', $started);
+      Console::writeNormalizedRow($content, $renderOffset->x, $renderOffset->y + $row);
     }
 
     Console::endFrame();
@@ -173,9 +191,33 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
     for ($row = 0; $row < $height; $row++) {
       $y = (int)$this->position->y + $row;
       $symbols = $this->worldSpace[$y] ?? [];
-      if (!is_array($symbols)) { $symbols = TerminalText::visibleSymbols((string)$symbols); }
+      if (!is_array($symbols)) { $symbols = $this->stringRowSymbols[$y]; }
       yield $y => array_values(array_slice($symbols, (int)$this->position->x, $width));
     }
+  }
+
+  private function normalizedMapRow(int $y): NormalizedRow
+  {
+    $policy = TerminalCapabilities::supportsCompositeEmoji();
+    if ($this->normalizationPolicy !== $policy) {
+      $this->normalizedRows = [];
+      $this->normalizationPolicy = $policy;
+    }
+    return $this->normalizedRows[$y] ??= NormalizedRow::fromSymbols(
+      array_values($this->stringRowSymbols[$y] ?? $this->worldSpace[$y] ?? [])
+    );
+  }
+
+  /** Restore one logical tile through the same normalized write path as a pan. */
+  public function renderBackgroundTile(int $x, int $y): void
+  {
+    $position = $this->getScreenSpacePosition(new Vector2($x, $y));
+    if ($position->x < 0 || $position->y < 0
+      || $position->x >= $this->screen->getWidth() || $position->y >= $this->screen->getHeight()) { return; }
+    $row = $x >= 0 && $x < $this->worldSpaceWidth && $y >= 0 && $y < $this->worldSpaceHeight
+      ? $this->normalizedMapRow($y)->select($x, 1, $this->screen->getWidth(), pad: false) : null;
+    if ($row === null || $row->cells === []) { $row = NormalizedRow::fromText(' '); }
+    Console::writeNormalizedRow($row, $position->x, $position->y);
   }
 
   /**

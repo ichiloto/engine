@@ -155,7 +155,7 @@ beforeEach(function () {
   $console = new ReflectionClass(Console::class);
   $console->getProperty('width')->setValue(null, 80);
   $console->getProperty('height')->setValue(null, 24);
-  $console->getProperty('buffer')->setValue(null, array_fill(0, 24, str_repeat('.', 80)));
+  $console->getProperty('buffer')->setValue(null, array_fill(0, 24, array_fill(0, 80, '.')));
   $console->getProperty('frameDepth')->setValue(null, 0);
   $console->getProperty('frameRows')->setValue(null, []);
   $console->getProperty('terminalHandedBack')->setValue(null, false);
@@ -206,7 +206,7 @@ it('renders every row of a wrapped alert over an existing field frame', function
   $console = new ReflectionClass(Console::class);
   $console->getProperty('width')->setValue(null, 230);
   $console->getProperty('height')->setValue(null, 39);
-  $console->getProperty('buffer')->setValue(null, array_fill(0, 39, str_repeat('.', 230)));
+  $console->getProperty('buffer')->setValue(null, array_fill(0, 39, array_fill(0, 230, '.')));
 
   $game = (new ReflectionClass(Game::class))->newInstanceWithoutConstructor();
   $modal = new PositionedAlertModalProbe(

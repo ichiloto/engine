@@ -114,7 +114,7 @@ it('restores the underlying console content when a notification is erased', func
   foreach ([
     ['width', 80],
     ['height', 24],
-    ['buffer', array_fill(0, 24, str_repeat('.', 80))],
+    ['buffer', array_fill(0, 24, array_fill(0, 80, '.'))],
     ['frameDepth', 0],
     ['frameRows', []],
     ['terminalHandedBack', false],

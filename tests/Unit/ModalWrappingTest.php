@@ -71,7 +71,7 @@ function prepareModalConsoleForTest(): void
 
   $console->getProperty('width')->setValue(null, $width);
   $console->getProperty('height')->setValue(null, $height);
-  $console->getProperty('buffer')->setValue(null, array_fill(0, $height, str_repeat(' ', $width)));
+  $console->getProperty('buffer')->setValue(null, array_fill(0, $height, array_fill(0, $width, ' ')));
   $console->getProperty('frameDepth')->setValue(null, 0);
   $console->getProperty('frameRows')->setValue(null, []);
   $console->getProperty('terminalOutputStream')->setValue(null, null);

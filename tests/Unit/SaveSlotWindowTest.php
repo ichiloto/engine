@@ -52,7 +52,7 @@ it('highlights save metadata while keeping structural window chrome neutral', fu
   $window->render();
   ob_end_clean();
 
-  $rows = $console->getProperty('buffer')->getValue();
+  $rows = Console::getBuffer();
   $top = TerminalText::visibleSymbols($rows[0]);
   $location = TerminalText::visibleSymbols($rows[1]);
   $footer = TerminalText::visibleSymbols($rows[2]);
@@ -87,7 +87,7 @@ it('removes every selection style when a reusable slot window loses focus', func
   $window->render();
   ob_end_clean();
 
-  $rows = array_slice($console->getProperty('buffer')->getValue(), 0, SaveSlotWindow::HEIGHT);
+  $rows = array_slice(Console::getBuffer(), 0, SaveSlotWindow::HEIGHT);
 
   expect(implode('', $rows))->not->toContain("\033[")
     ->and(array_map(TerminalText::stripAnsi(...), $rows))->toBe([

@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Rendering\Tiles;
 
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\IO\Console\NormalizedRow;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
@@ -18,7 +19,7 @@ final class GraphicalTileCollector
     foreach ($camera->visibleMapRows() as $y => $symbols) {
       $displayColumn = 0;
       foreach ($symbols as $column => $symbol) {
-        $metrics[$symbol] ??= [TerminalText::stripAnsi($symbol), TerminalText::displayWidth($symbol)];
+        $metrics[$symbol] ??= [TerminalText::stripAnsi($symbol), NormalizedRow::symbolWidth($symbol)];
         [$normalized, $width] = $metrics[$symbol];
         $source = $definition->symbols[$normalized] ?? null;
         // Wide unmapped art retains its existing text path. Never cut a hole
