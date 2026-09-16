@@ -20,8 +20,11 @@ final readonly class BattlePresentationCatalog
   /** @var array<string, BattlerArtwork> Existing EnemyStore catalog keys. */
   public array $enemies;
 
-  public function __construct(array $arenas, array $actors, array $enemies)
+  public function __construct(array $arenas, array $actors, array $enemies, public ?BattleCanvasLayout $ui = null)
   {
+    if ($ui !== null && $ui->skin === null) {
+      throw new InvalidArgumentException('Project-wide battle UI requires a skin.');
+    }
     $this->arenas = self::catalog($arenas, BattleArenaDefinition::class);
     $this->actors = self::catalog($actors, BattlerArtwork::class);
     $this->enemies = self::catalog($enemies, BattlerArtwork::class);
@@ -37,7 +40,7 @@ final readonly class BattlePresentationCatalog
   public function requiredCapabilities(): array
   {
     return [RendererSessionConfig::GRAPHICAL_CANVAS,
-      ...(array_any($this->arenas, static fn($arena) => $arena->skin !== null)
+      ...($this->ui !== null || array_any($this->arenas, static fn($arena) => $arena->skin !== null)
         ? [RendererSessionConfig::CANVAS_CLIP_OPACITY, RendererSessionConfig::CANVAS_GLYPH_EFFECTS] : [])];
   }
 

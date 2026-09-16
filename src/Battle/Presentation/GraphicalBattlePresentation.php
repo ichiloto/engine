@@ -45,6 +45,7 @@ final class GraphicalBattlePresentation
   {
     $arena = $catalog->arenas[$battle->troop->definitionId ?? $battle->troop->name] ?? null;
     if ($arena === null) { return null; }
+    if ($catalog->ui !== null) { $arena = $arena->withDefaultUi($catalog->ui); }
     $presentation = new self($arena, $battle);
     $assets = [];
     $images = [$arena->background];
@@ -85,11 +86,7 @@ final class GraphicalBattlePresentation
       $size = PngAssetPreflight::inspect($assetRoot, $image->asset);
       $assets[$image->asset] = $size['width'] * $size['height'] * 4;
     }
-    foreach ([...($arena->skin?->textures ?? []), ...($arena->skin?->targetCursor?->textures ?? [])] as $texture) {
-      PngAssetPreflight::inspect($assetRoot, $texture->asset, $texture->source);
-      $size = PngAssetPreflight::inspect($assetRoot, $texture->asset);
-      $assets[$texture->asset] = $size['width'] * $size['height'] * 4;
-    }
+    $assets += GraphicalBattleHud::preflight($arena, $assetRoot);
     if (array_sum($assets) > 67108864) {
       throw new RuntimeException('Graphical battle PNG sources exceed the native 64 MiB decoded-image budget.');
     }

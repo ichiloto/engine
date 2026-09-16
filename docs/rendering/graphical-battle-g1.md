@@ -146,8 +146,12 @@ from current project configuration when a graphical battle is configured, not
 stored in `BattleConfig`, actor data or save payloads. Native Terminal never
 loads this file or inspects the PNGs. Ordinary GPUI selection requires
 `graphical_canvas` in addition to its existing capabilities only when the catalog
-exists. A missing catalog or missing arena entry keeps the entire battle on the
-legacy path, including in GPUI. A malformed declared catalog fails explicitly.
+exists. Its optional `ui: BattleCanvasLayout` supplies the shared skin and canvas
+geometry for every battle, independently of arena or combatant artwork. Without
+an arena entry, the existing owned battlefield is drawn below the native HUD;
+missing artwork does not revert the controls to terminal windows. Only a missing
+catalog, or an encounter with neither an arena nor a shared UI, keeps the entire
+battle on the legacy path. A malformed declared catalog fails explicitly.
 
 Example structure (generic geometry and placeholder paths, not game artwork):
 
@@ -155,7 +159,7 @@ Example structure (generic geometry and placeholder paths, not game artwork):
 <?php
 declare(strict_types=1);
 
-use Ichiloto\Engine\Battle\Presentation\{BattleArenaDefinition, BattlePresentationCatalog, BattlerArtwork, BattlerSlot};
+use Ichiloto\Engine\Battle\Presentation\{BattleArenaDefinition, BattleCanvasLayout, BattlePresentationCatalog, BattlerArtwork, BattlerSlot};
 use Ichiloto\Engine\Rendering\Presentation\Canvas\{CanvasImage, CanvasRectangle};
 use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 
@@ -178,8 +182,18 @@ return new BattlePresentationCatalog(
       new SpriteSourceRect(5, 7, 197, 119),
     ),
   ],
+  ui: new BattleCanvasLayout(1350, 720,
+    skin: require __DIR__ . '/battle-ui.php',
+    feedbackArea: new CanvasRectangle(0, 80, 1350, 452)),
 );
 ```
+
+The shared UI requires an explicit skin and feedback safe area. An authored arena
+inherits that skin and safe area unless it supplies its own; inherited geometry
+is validated against the arena, never silently resized. `BattleArenaDefinition`
+extends the shared layout while retaining its existing constructor API. Shared
+skin PNGs and negotiated capabilities are checked before battle-entry effects,
+including encounters without graphical arena metadata.
 
 Arena lookup uses `Troop::definitionId`, falling back to its historical catalog
 name only when no authored ID exists. Actor lookup uses `Character::actorId`.
@@ -201,7 +215,7 @@ troop's actual member order. The existing Party reserve fallback remains live:
 all roster images and their possible party-slot placements are preflighted, but
 only the actual frontline is drawn. Enemy removal never renumbers a surviving
 instance's authored slot. All configured participants must have art; individual
-ASCII fallback is prohibited. Missing files, escaping symlinks, non-PNG headers,
+ASCII fallback within an explicitly graphical arena is prohibited. Missing files, escaping symlinks, non-PNG headers,
 oversized PNGs, mismatched dimensions/crops, invalid placement and source budgets
 fail before battle-entry effects. This PHP preflight reads headers without PNG
 decoding. Native full decoding and atomic image preparation remain asynchronous;
@@ -251,7 +265,11 @@ An optional project-owned `BattleUiSkin` uses read-only snapshots of existing
 command, context, name, status and message windows. It projects current values,
 affordability, paging and selection without choosing commands or calculating
 combat. Hidden windows disappear in the next complete canvas. Terminal windows
-and unskinned G1 retain their existing paths.
+and unskinned G1 retain their existing paths. For a UI-only battle, the existing
+field window has its own canvas text layer at layer 0; skinned controls remain
+above it and explicit modals/results above those. Legacy footer cells are not
+readmitted over the native controls. Fully illustrated battles still suppress
+terminal battler drawing before it reaches Console.
 
 Nine-slice panels preserve corners. Gauges clip their full-width fill rather
 than squeezing it. Party names and resource rows share baselines; ATB remains
@@ -306,6 +324,12 @@ playtest runtime. Its production `assets/Data/battle-presentation.php` reference
 Use the existing `ichiloto play --renderer=gpui` entry point from the normal
 Game checkout. Native Terminal remains available through the same command with
 `--renderer=terminal`. No temporary game copy or renderer path override is needed.
+The shared native controls apply to every authored encounter. Approved PNG
+arena/combatant coverage remains separate; other fields retain their existing
+ASCII artwork until their art and placement metadata are ready. Recurring troops
+can appear in different locations, so future arena expansion must use encounter
+context rather than assuming one background per troop. Art production runs in
+parallel with Engine and story work, not after them.
 
 The canonical macOS package contains the already validated optimized executable
 SHA-256 `8f946ccac39d1f6aa50e1edb4712300197ad6bfcea361b221dac060f3a52bbc5`.
@@ -335,15 +359,19 @@ negotiation failures; strict inbound JSON/filesystem rejection remains the
 Renderer boundary, not a duplicate Engine decoder. Change frozen corpora only
 through coordinated re-freezing.
 
-Latest full Engine verification on the accepted source: PHP 8.5 passed 2079 tests
-/ 10728 assertions; the prior PHP 8.4 run passed 2079 tests / 10729 assertions, each with one
-existing skip. The focused correction suite passed 67 / 1351 and full-source
-PHPStan passed. Renderer recorded 106 optimized tests and 32 separate
+Latest full Engine verification of the all-battle shared-UI change: PHP 8.5 passed
+2088 tests / 10797 assertions and PHP 8.4 passed 2088 / 10798, each with one existing skip. The focused presentation/HUD
+suite passed 43 / 302, including consecutive encounters without arena art,
+skin inheritance, layer ownership, pre-entry asset/capability failures and
+terminal isolation. Full-source PHPStan passed. Renderer recorded 106 optimized tests and 32 separate
 actual-size/density admission cases; those are not gameplay FPS measurements.
 
 Game's bounded suite passed 293 tests / 561205 assertions, excluding battle
 simulations. Production-binding checks passed 11 / 392 after integration, plus
-3 / 41 for the accepted bedside correction. Earlier isolated-runtime execution
+3 / 41 for the accepted bedside correction. The all-battle shared-UI change
+passes 22 Game presentation tests / 599 assertions, including all 11 authored
+troops, preserved PNGs for the illustrated encounter and the existing field art
+below native controls elsewhere. Earlier isolated-runtime execution
 initially failed two source-unskinned catalogue assertions (9 passed); the
 appropriate runtime filter passed 5 / 231. Those historical failures were not
 presented as successful full-suite coverage.
@@ -372,5 +400,7 @@ do not invent a gameplay delay. G2/G3 and distribution remain separate backlog.
 The earlier output-only slice made no renderer protocol or game-content changes.
 This UI slice adds the explicit optional capabilities above but no gameplay
 content; the result-placement/cursor correction adds neither another protocol
-extension nor gameplay changes. Automated native launches must verify music and
+extension nor gameplay changes. Making that UI project-wide adds no renderer
+protocol, native binary or gameplay-content changes; its new coverage is automated,
+not a fresh interactive playthrough of every encounter. Automated native launches must verify music and
 SFX are muted; Andrew's applied mute must be preserved.

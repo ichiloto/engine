@@ -4,47 +4,44 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Battle\Presentation;
 
-use Ichiloto\Engine\Battle\UI\BattleScreen;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
-use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use InvalidArgumentException;
 
-final readonly class BattleArenaDefinition
+final readonly class BattleArenaDefinition extends BattleCanvasLayout
 {
   /** @var list<BattlerSlot> */
   public array $partySlots;
   /** @var list<BattlerSlot> */
   public array $enemySlots;
-  public RendererGridConfig $uiGrid;
 
   /** @param list<BattlerSlot> $partySlots @param list<BattlerSlot> $enemySlots */
   public function __construct(
-    public int $width,
-    public int $height,
+    int $width,
+    int $height,
     public CanvasImage $background,
     array $partySlots,
     array $enemySlots,
     int $uiCellWidth = 10,
     int $uiCellHeight = 20,
-    public ?BattleUiSkin $skin = null,
-    public ?CanvasRectangle $feedbackArea = null,
+    ?BattleUiSkin $skin = null,
+    ?CanvasRectangle $feedbackArea = null,
   ) {
+    parent::__construct($width, $height, $uiCellWidth, $uiCellHeight, $skin, $feedbackArea);
     new PresentationCanvas($width, $height, [$background]);
-    $feedbackArea?->assertWithin($width, $height);
-    if ($skin !== null && $feedbackArea === null) {
-      throw new InvalidArgumentException('A skinned battle requires an explicit feedback safe area.');
-    }
     if ($background->layer >= 100) {
       throw new InvalidArgumentException('Arena background must be below battler layer 100.');
     }
     $this->partySlots = self::slots($partySlots);
     $this->enemySlots = self::slots($enemySlots);
-    $this->uiGrid = new RendererGridConfig(BattleScreen::WIDTH, BattleScreen::HEIGHT, $uiCellWidth, $uiCellHeight);
-    if ($this->uiGrid->columns * $uiCellWidth > $width || $this->uiGrid->rows * $uiCellHeight > $height) {
-      throw new InvalidArgumentException('The temporary battle UI grid must fit inside the graphical canvas.');
-    }
+  }
+
+  public function withDefaultUi(BattleCanvasLayout $ui): self
+  {
+    return $this->skin !== null ? $this : new self($this->width, $this->height, $this->background,
+      $this->partySlots, $this->enemySlots, $this->uiGrid->cellWidth, $this->uiGrid->cellHeight,
+      $ui->skin, $this->feedbackArea ?? $ui->feedbackArea);
   }
 
   /** @return list<BattlerSlot> */
