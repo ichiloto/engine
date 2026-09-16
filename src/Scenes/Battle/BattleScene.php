@@ -219,6 +219,9 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
     // Terminal play never loads the optional catalog or inspects any PNG.
     if ($runtime !== null) {
       $catalog = BattlePresentationCatalog::load($runtime->getAssetRoot());
+      if ($catalog === null && isset($config->settings['battleArena'])) {
+        throw new RuntimeException('An explicit battleArena requires a battle presentation catalog.');
+      }
       if ($catalog !== null) {
         $presentation = GraphicalBattlePresentation::prepare($config, $catalog, $runtime->getAssetRoot());
         $layout = $presentation?->arena ?? $catalog->ui;

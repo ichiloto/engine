@@ -195,8 +195,18 @@ extends the shared layout while retaining its existing constructor API. Shared
 skin PNGs and negotiated capabilities are checked before battle-entry effects,
 including encounters without graphical arena metadata.
 
-Arena lookup uses `Troop::definitionId`, falling back to its historical catalog
-name only when no authored ID exists. Actor lookup uses `Character::actorId`.
+An optional `battleArena` key in a map's `encounters` block or a scripted
+`start_battle` command selects an entry in the catalog's `arenas`. Direct callers
+can pass the same key through `SceneManager::loadBattleScene`'s `extraSettings`.
+Use this for location-specific backgrounds: the same troop can appear in several
+settings. Arena entries may reuse one background PNG with different formations.
+The binding belongs to this encounter, not global or inferred map state; map
+encounter reconfiguration clears any previous binding. An explicit invalid or
+missing arena/catalog fails before native battle-entry effects, never silently
+falling back. Terminal play ignores this optional presentation metadata.
+
+Without a binding, arena lookup uses `Troop::definitionId`, falling back to its
+historical catalog name only when no authored ID exists. Actor lookup uses `Character::actorId`.
 Enemy lookup uses the current `EnemyStore` name key. These are definition lookup
 keys, not presentation instance identities. Repeated enemy objects have separate
 `combatant-<spl_object_id>` IDs held for this battle's lifetime; no RNG or save
@@ -327,8 +337,8 @@ Game checkout. Native Terminal remains available through the same command with
 The shared native controls apply to every authored encounter. Approved PNG
 arena/combatant coverage remains separate; other fields retain their existing
 ASCII artwork until their art and placement metadata are ready. Recurring troops
-can appear in different locations, so future arena expansion must use encounter
-context rather than assuming one background per troop. Art production runs in
+can appear in different locations, so authored `battleArena` bindings select
+their setting rather than assuming one background per troop. Art production runs in
 parallel with Engine and story work, not after them.
 
 The canonical macOS package contains the already validated optimized executable
@@ -359,11 +369,13 @@ negotiation failures; strict inbound JSON/filesystem rejection remains the
 Renderer boundary, not a duplicate Engine decoder. Change frozen corpora only
 through coordinated re-freezing.
 
-Latest full Engine verification of the all-battle shared-UI change: PHP 8.5 passed
-2088 tests / 10797 assertions and PHP 8.4 passed 2088 / 10798, each with one existing skip. The focused presentation/HUD
-suite passed 43 / 302, including consecutive encounters without arena art,
-skin inheritance, layer ownership, pre-entry asset/capability failures and
-terminal isolation. Full-source PHPStan passed. Renderer recorded 106 optimized tests and 32 separate
+Latest full Engine verification, including encounter-specific arena selection:
+PHP 8.4 and 8.5 each passed 2097 tests / 10827 assertions, with one existing skip.
+Focused presentation/event-continuation checks passed 103 / 756, including arena
+selection and reset between maps, invalid-key rejection, configuration round trips,
+and terminal isolation. The earlier shared-UI presentation/HUD checks passed
+43 / 302 for skin inheritance, layer ownership and pre-entry failures.
+Full-source PHPStan passed. Renderer recorded 106 optimized tests and 32 separate
 actual-size/density admission cases; those are not gameplay FPS measurements.
 
 Game's bounded suite passed 293 tests / 561205 assertions, excluding battle

@@ -16,6 +16,7 @@ use Throwable;
  * 'encounters' => [
  *   'troops' => ['Bat x 2' => 5, 'Rat + Bat' => 3],  // name => weight
  *   'rate' => 12,          // average steps between encounters
+ *   'battleArena' => 'arena.forest', // optional graphical arena catalog key
  *   'tiles' => 'encounter' // 'encounter' (default): only danger tiles count; 'any': every step counts
  * ],
  * ```
@@ -37,6 +38,8 @@ class EncounterManager
    * @var array<string, int> Troop weights, keyed by troop name.
    */
   protected array $troopWeights = [];
+  /** @var array<string, mixed> Optional presentation selection, validated only by the graphical renderer path. */
+  private array $presentationSettings = [];
   /**
    * @var int Average steps between encounters; 0 disables the map.
    */
@@ -72,6 +75,7 @@ class EncounterManager
   public function configure(?array $encounters): void
   {
     $this->troopWeights = [];
+    $this->presentationSettings = array_intersect_key($encounters ?? [], ['battleArena' => true]);
     $this->averageStepsBetween = 0;
     $this->countsEveryTile = strval($encounters['tiles'] ?? 'encounter') === 'any';
 
@@ -153,7 +157,7 @@ class EncounterManager
     $this->gameScene->sceneManager->loadBattleScene(
       $this->gameScene->party,
       $troop,
-      extraSettings: $firstStrike !== null ? ['firstStrike' => $firstStrike] : []
+      extraSettings: $this->presentationSettings + ($firstStrike !== null ? ['firstStrike' => $firstStrike] : [])
     );
   }
 

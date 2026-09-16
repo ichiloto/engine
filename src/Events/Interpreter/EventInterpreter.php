@@ -533,7 +533,8 @@ class EventInterpreter
           'resultVariable' => trim(strval($command['resultVariable'] ?? '')),
           'defeatPolicy' => $defeatPolicy,
         ]);
-        $extraSettings = ['event_defeat_policy' => $defeatPolicy];
+        $extraSettings = ['event_defeat_policy' => $defeatPolicy]
+          + array_intersect_key($command, ['battleArena' => true]);
 
         if ($escapePolicy !== null) {
           $extraSettings['escapePolicy'] = $escapePolicy;

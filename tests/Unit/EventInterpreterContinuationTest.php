@@ -1406,6 +1406,7 @@ it('suspends for battle and resumes later commands with an optional result varia
         'troop' => 'Technical Troop',
         'resultVariable' => 'last_battle_result',
         'defeatPolicy' => 'continue',
+        'battleArena' => 'arena.training-yard',
       ],
       ['type' => 'set_switch', 'name' => 'after_battle', 'value' => true],
     ]);
@@ -1415,6 +1416,7 @@ it('suspends for battle and resumes later commands with an optional result varia
       ->and($scene->testSceneManager->battleCount)->toBe(1)
       ->and($scene->testSceneManager->lastTroop?->name)->toBe('Technical Troop')
       ->and($scene->testSceneManager->lastBattleSettings['event_defeat_policy'])->toBe('continue')
+      ->and($scene->testSceneManager->lastBattleSettings['battleArena'])->toBe('arena.training-yard')
       ->and($scene->gameState->getSwitch('after_battle'))->toBeFalse();
 
     $scene->resumeEventAfterBattle(new BattleResult('Victory', []));
@@ -1440,11 +1442,45 @@ it('suspends for battle and resumes later commands with an optional result varia
     $defeatInterpreter->update(0.016);
 
     expect($defeatSession?->status)->toBe(EventExecutionStatus::COMPLETED)
+      ->and($defeatScene->testSceneManager->lastBattleSettings)->not->toHaveKey('battleArena')
       ->and($defeatScene->gameState->getVariable('scripted_defeat_result'))->toBe('defeat')
       ->and($defeatScene->gameState->getSwitch('continued_after_defeat'))->toBeTrue();
   } finally {
     ConfigStore::remove(EnemyStore::class);
     chdir($previousDirectory);
+  }
+});
+
+it('forwards map encounter arenas and clears their binding when maps change', function () {
+  $root = sys_get_temp_dir() . '/encounter-arena-' . uniqid();
+  mkdir($root . '/assets/Data', 0777, true);
+  file_put_contents($root . '/assets/Data/troops.php', '<?php return [["name" => "Technical Troop", "enemies" => []]];');
+  $previousDirectory = getcwd();
+  chdir($root);
+  ConfigStore::put(EnemyStore::class, (new ReflectionClass(EnemyStore::class))->newInstanceWithoutConstructor());
+  try {
+    [$scene] = makeEventRuntime();
+    $manager = new class($scene) extends Ichiloto\Engine\Field\EncounterManager {
+      public function trigger(): void { $this->startEncounter(); }
+    };
+    $map = ['troops' => ['Technical Troop' => 1], 'rate' => 12];
+    $manager->configure($map + ['battleArena' => 'arena.road']);
+    $manager->trigger();
+    expect($scene->testSceneManager->lastBattleSettings['battleArena'])->toBe('arena.road');
+    $manager->configure($map + ['battleArena' => 'arena.yard']);
+    $manager->trigger();
+    expect($scene->testSceneManager->lastBattleSettings['battleArena'])->toBe('arena.yard');
+    $manager->configure(null);
+    $manager->trigger();
+    expect($scene->testSceneManager->battleCount)->toBe(2);
+    $manager->configure($map);
+    $manager->trigger();
+    expect($scene->testSceneManager->lastBattleSettings)->not->toHaveKey('battleArena')
+      ->and($scene->testSceneManager->battleCount)->toBe(3);
+  } finally {
+    ConfigStore::remove(EnemyStore::class);
+    chdir($previousDirectory);
+    unlink($root . '/assets/Data/troops.php'); rmdir($root . '/assets/Data'); rmdir($root . '/assets'); rmdir($root);
   }
 });
 

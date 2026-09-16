@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasValidation;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
+use Ichiloto\Engine\Scenes\Battle\BattleConfig;
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -13,7 +14,7 @@ use RuntimeException;
 final readonly class BattlePresentationCatalog
 {
   public const string FILE = 'Data/battle-presentation.php';
-  /** @var array<string, BattleArenaDefinition> Troop definition ID, or historical catalog name when no ID exists. */
+  /** @var array<string, BattleArenaDefinition> Authored arena keys; legacy entries use troop IDs/names. */
   public array $arenas;
   /** @var array<string, BattlerArtwork> Actor IDs. */
   public array $actors;
@@ -28,6 +29,19 @@ final readonly class BattlePresentationCatalog
     $this->arenas = self::catalog($arenas, BattleArenaDefinition::class);
     $this->actors = self::catalog($actors, BattlerArtwork::class);
     $this->enemies = self::catalog($enemies, BattlerArtwork::class);
+  }
+
+  public function arenaFor(BattleConfig $battle): ?BattleArenaDefinition
+  {
+    $key = $battle->settings['battleArena'] ?? null;
+    if ($key === null) {
+      return $this->arenas[$battle->troop->definitionId ?? $battle->troop->name] ?? null;
+    }
+    if (!is_string($key)) {
+      throw new InvalidArgumentException('battleArena must be a string arena key.');
+    }
+    CanvasValidation::id($key);
+    return $this->arenas[$key] ?? throw new RuntimeException("Unknown graphical battle arena: {$key}");
   }
 
   public static function exists(string $assetRoot): bool

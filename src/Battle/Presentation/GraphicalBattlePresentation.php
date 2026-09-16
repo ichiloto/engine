@@ -43,7 +43,7 @@ final class GraphicalBattlePresentation
 
   public static function prepare(BattleConfig $battle, BattlePresentationCatalog $catalog, string $assetRoot): ?self
   {
-    $arena = $catalog->arenas[$battle->troop->definitionId ?? $battle->troop->name] ?? null;
+    $arena = $catalog->arenaFor($battle);
     if ($arena === null) { return null; }
     if ($catalog->ui !== null) { $arena = $arena->withDefaultUi($catalog->ui); }
     $presentation = new self($arena, $battle);

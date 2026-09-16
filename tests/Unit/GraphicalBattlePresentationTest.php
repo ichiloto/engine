@@ -135,6 +135,53 @@ it('resolves pivots and contain sizes in independent fractional canvas units', f
   expect($presentation->frame()->toArray())->toBe($canvas->toArray());
 });
 
+it('selects an explicit encounter arena without leaking it into the next battle', function () {
+  [$fixture, $catalog] = graphicalBattleFixture();
+  $legacy = $catalog->arenas['Twins'];
+  $yard = new BattleArenaDefinition(1350, 720,
+    new CanvasImage('yard', $legacy->background->asset, $legacy->background->destination),
+    $legacy->partySlots, $legacy->enemySlots);
+  $catalog = new BattlePresentationCatalog(['Twins' => $legacy, 'arena.yard' => $yard], $catalog->actors, $catalog->enemies);
+  $battle = new BattleConfig($fixture->party, $fixture->troop, settings: ['battleArena' => 'arena.yard']);
+
+  expect(GraphicalBattlePresentation::prepare($battle, $catalog, $this->root)->arena)->toBe($yard)
+    ->and(GraphicalBattlePresentation::prepare($fixture, $catalog, $this->root)->arena)->toBe($legacy)
+    ->and($battle->entryRulesEvaluated())->toBeFalse();
+  $restored = unserialize(serialize(new BattleConfig($fixture->party, new Troop('Twins'), settings: $battle->settings)));
+  expect($catalog->arenaFor($restored))->toBe($yard);
+  $unconfigured = new BattleConfig($fixture->party, new Troop('Deferred area'));
+  expect($catalog->arenaFor($unconfigured))->toBeNull();
+});
+
+it('rejects explicit invalid or absent arena keys instead of falling back to troop art', function (mixed $key, string $error) {
+  [$fixture, $catalog] = graphicalBattleFixture();
+  $battle = new BattleConfig($fixture->party, $fixture->troop, settings: ['battleArena' => $key]);
+  expect(fn() => GraphicalBattlePresentation::prepare($battle, $catalog, $this->root))->toThrow($error)
+    ->and($battle->entryRulesEvaluated())->toBeFalse();
+})->with([
+  'unknown' => ['arena.missing', RuntimeException::class],
+  'empty' => ['', InvalidArgumentException::class],
+  'controls' => ["arena\nyard", InvalidArgumentException::class],
+  'array' => [[], InvalidArgumentException::class],
+  'integer' => [42, InvalidArgumentException::class],
+]);
+
+it('requires a catalog for explicit native arenas but does not load it for terminal play', function (bool $native) {
+  [$fixture] = graphicalBattleFixture();
+  $battle = new BattleConfig($fixture->party, $fixture->troop, settings: ['battleArena' => 'arena.yard']);
+  $runtime = $native ? new RendererRuntime(
+    new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), $this->root), new FakeRendererTransport()) : null;
+  $scene = graphicalBattleConfigurationScene($runtime);
+  if ($native) {
+    expect(fn() => $scene->configure($battle))->toThrow(RuntimeException::class, 'requires a battle presentation catalog')
+      ->and($battle->entryRulesEvaluated())->toBeFalse()->and($scene->config)->toBeNull();
+  } else {
+    $scene->configure($battle);
+    expect($scene->config)->toBe($battle)->and($battle->entryRulesEvaluated())->toBeTrue()
+      ->and($scene->graphicalPresentation)->toBeNull();
+  }
+})->with([true, false]);
+
 it('keeps repeated enemy instance IDs through target reorder feedback and removal', function () {
   [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
   $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
