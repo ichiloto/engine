@@ -108,11 +108,18 @@ the representative rescue, without displacing independent Game milestones.
 
 ## Approved Pause upgrade
 
+**Next after the first playable rescue.** On 17 September Andrew directed,
+"Then after that the Pause menu." Engine owns this next bounded runtime slot,
+before the remaining representative cinematics and controller-input work.
+Independent Game M3 work continues alongside it. Reuse the already-approved
+delivery below; do not reopen design approval or commission another Art batch.
+
 The existing Art producer has delivered the root overlay, both confirmations
 and interactive browser preview in `output/pause-ui-v1-20260916/package` under
 the Art workspace. The corrected delivery passes 23 browser checks, including
-72 button-centering samples. The producer is idle pending scoped feedback;
-there is no missing Art dispatch or new design approval. Browser checks are not
+72 button-centering samples. The Pause delivery is complete; the producer's
+current rescue-registration work retains priority. No new Pause Art dispatch
+or design approval is needed. Browser checks are not
 native/runtime acceptance.
 
 The compact centered root overlay uses Resume, Config, To Title and Exit from
@@ -142,8 +149,8 @@ Current local-source findings to address before runtime acceptance:
 - Resize currently calls Pause `enter()` to repaint. Keep repaint separate from
   entry/focus initialization so resize cannot reset a confirmation or selection.
 
-Preserve Results integration and the active cinematic/Game milestone work. Art
-can finish independently; runtime/native/terminal acceptance remains Engine-owned
+Preserve Results integration and the active cinematic/Game milestone work.
+Runtime/native/terminal acceptance remains Engine-owned
 within the bounded upgrade, not blanket G5 scope or publishing permission.
 
 ## Controller-ready input and normalized movement
@@ -156,7 +163,7 @@ not another planning package.
 
 Use the next coordinated Engine/Renderer field-input slot after the current
 cinematic movement/subject-ownership changes have passed acceptance, respecting
-already-scheduled Results commitments. Complete before G5's whole-game input/UI
+already-scheduled Results and next-slot Pause commitments. Complete before G5's whole-game input/UI
 acceptance and G6 platform/package acceptance. G2/G3 and independent Game
 milestones continue in parallel; this is not a prerequisite for their unrelated
 work or a reason to pause the programme. No calendar deadline is invented.
@@ -229,6 +236,7 @@ records the current limitations separately from this planned work.
 | 1: Engine seam implemented | Engine preserves graphical field continuity, adds optional staged graphical providers and scoped presentation takeover for existing subjects. Renderer owns regression coverage against actual emitted frames. | Field continuity, staged sprites/sheets, real-subject leases, paired suppression, transform recovery, pre-finalizer restoration, captured-entry walking/return and handled application teardown pass local regression tests. Temporary battles suspend/resume the caller; inactive fields cannot repaint over battle. Game content integration and representative native acceptance remain. No production art dependency for ownership tests. |
 | Parallel Art slot | Art prepares only the first rescue's required figures, support pose and visible prop, using existing approved references. | Freeze participants, route-visible facings, dimensions, pivots and crop layout first. Preview/admission of new art remains explicit; prior batch exceptions do not transfer. Full cast animation sets are not prerequisites. |
 | 2: Game integration active | Game binds the stable Engine seam and admitted art to the existing scene and all its callers. Engine coordinates acceptance. | Engine seam ready; Game validates every legal entry using actual map/NPC collision before root-wrapper wiring. Art completes existing pose registration/admission handoff in parallel. Visible approach/withdrawal, one representation per subject, intact graphical field, identical terminal story outcomes and correct continuation remain acceptance gates. Use the normal Game checkout, not another build. |
+| Next: Pause menu | Engine upgrades the existing pause state/input path using the delivered approved kit; Game provides normal-checkout integration. | After the first playable rescue, as Andrew directed on 17 September. Preserve suspended gameplay, Config return focus, safe confirmations and input consumption; verify native/terminal behavior. No replacement pause manager, new build or design round. Independent M3 work continues. |
 | 3: remaining representative scenes | Game and Art reuse the rescue foundation for the distant sighting and environmental response/evacuation. Engine adds only demonstrated missing graphical effect adapters. | Rescue gate passed and each scene's staging/art scope settled. Content may proceed in parallel; native tests remain serialized under one window/input owner. |
 | 4: integrated acceptance | Engine consolidates Game state checks, Renderer native observations and Art review. | One normal pass per representative scene, terminal counterparts and applicable legal-skip/reduced-motion checks. Present one consolidated acceptance request, not questions scattered across tasks. |
 
