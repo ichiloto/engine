@@ -395,6 +395,17 @@ class Game implements CanRun, SubjectInterface
         }
 
         $this->terminalCleanedUp = true;
+        $this->isRunning = false;
+        Timers::setFrameTick(null);
+        // Release scene-owned work while its audio and rendering services
+        // still exist. A broken scene must not prevent platform cleanup.
+        try {
+            if (isset($this->sceneManager)) {
+                $this->sceneManager->stop();
+            }
+        } catch (Throwable $error) {
+            $this->logCrash($error);
+        }
         $this->shutdownAudio();
         try {
             $this->rendererRuntime?->shutdown();
@@ -1026,11 +1037,19 @@ SPLASH_SCREEN;
      */
     protected function update(): void
     {
+        if ($this->terminalCleanedUp) {
+            return;
+        }
+
         $started = LatencyTrace::now();
         LatencyTrace::record('game.update.begin', $this->latencySceneState());
         $this->frameCount++;
         $this->syncScreenSize();
         $this->sceneManager->update();
+        if ($this->terminalCleanedUp) {
+            return;
+        }
+
         $this->notificationManager->update();
         $this->audioManager->update();
         Timers::update();
@@ -1070,6 +1089,10 @@ SPLASH_SCREEN;
 
     private function updateBlockedFrame(): void
     {
+        if ($this->terminalCleanedUp) {
+            return;
+        }
+
         LatencyTrace::record('game.blocked.begin');
         $this->rendererRuntime?->pump();
         $this->notify($this, new GameEvent(GameEventType::UPDATE));
@@ -1081,7 +1104,7 @@ SPLASH_SCREEN;
 
     private function presentBlockedFrame(): void
     {
-        if (Console::isComposing()) { return; }
+        if ($this->terminalCleanedUp || Console::isComposing()) { return; }
         // The modal owns its logical layout; only its physical margins may move.
         $this->syncScreenSize(resizeLogicalViewport: false);
         if ($this->rendererRuntime !== null) {

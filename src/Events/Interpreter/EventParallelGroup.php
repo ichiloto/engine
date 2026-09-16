@@ -76,8 +76,18 @@ final class EventParallelGroup
 
   public function cancel(): void
   {
+    $failures = [];
     foreach ($this->lanes as $lane) {
-      $lane->cancel();
+      try {
+        $lane->cancel();
+      } catch (\Throwable $failure) {
+        $failures[] = $failure;
+      }
+    }
+    if ($failures !== []) {
+      throw new \RuntimeException('Parallel cancellation failed: '
+        . implode('; ', array_map(static fn(\Throwable $failure): string => $failure->getMessage(), $failures)),
+        previous: $failures[0]);
     }
   }
 }

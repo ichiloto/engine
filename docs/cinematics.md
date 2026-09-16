@@ -234,6 +234,43 @@ successful finalizer `move_player` commits are not undone by a later failure.
 Stage `commitSubjectTransforms()` provides the explicit transform boundary.
 Re-entry and same-ID NPCs on other maps do not inherit stale suppression.
 
+### Captured-entry walking and return
+
+The existing `move_route` command accepts exactly one of `steps`, `waypoints`,
+or `retrace`. Relative `steps` remain unchanged. Real Player/NPC waypoints are
+a non-empty list of integral map coordinates; an omitted axis retains that
+subject's coordinate when the leg begins. Each authored waypoint leg uses a
+deterministic cardinal search (up, down, left, right), limited to the map and
+65,536 visited cells. Add closer waypoints if that budget is insufficient.
+Terrain, NPCs and collidable staged actors block planning; the player also
+blocks NPC routes. Each executed unit still uses ordinary movement collision
+and field gates. A newly blocked unit fails with context, never silently
+reroutes, bypasses a gate or teleports. Staged actors retain relative routes;
+bound visuals follow their real subject rather than owning another route.
+
+```php
+['type' => 'move_route', 'subject' => 'player', 'remember' => 'approach',
+ 'waypoints' => [['y' => 5], ['x' => 12, 'y' => 5]], 'secondsPerStep' => 0.15],
+// Perform the scene, returning to the approach endpoint before retracing.
+['type' => 'move_route', 'subject' => 'player', 'retrace' => 'approach',
+ 'secondsPerStep' => 0.15],
+```
+
+`remember` is a unique identifier within one cinematic event session, not a
+save variable. It records successful units and the actual entry facing/idle
+sprite. `retrace` consumes that completed history once, walks the exact inverse
+units with collision checks, then restores facing without changing the reached
+position. It requires the same real subject object, map, stage generation and
+recorded endpoint. Missing, incomplete, duplicate, consumed or stale histories
+fail closed. Transfers, failure, skip and completion cannot leak history into
+another session. Replacing a visual does not replace the movement subject.
+
+Only one route may move a subject at a time, including parallel lanes. Normal
+motion advances at most one visible unit per update; reduced motion executes
+the same collision-checked units without their display delays. Cinematic routes
+capture real-subject rollback leases even when no replacement artwork exists.
+Rollback is failure recovery, not the successful walking-return presentation.
+
 ## Camera operations
 
 The `camera` command delegates movement and clamping to `Rendering\Camera`.
@@ -262,11 +299,16 @@ effects, narration and opaque covers have explicit precedence above world
 sprites; an initially hidden field is covered before the first yield. Normal
 scene eligibility still excludes menu/battle presentation. This is not complete
 graphical cinematic parity. Scoped real-subject visual takeover and transform
-recovery are implemented and covered by 33 ownership tests; bound staged
+recovery are implemented and regression-tested; bound staged
 hide/show keeps the underlying ordinary art suppressed without rewriting map
-eligibility. Captured-entry walking/return remains to be implemented. Scene-stop
-cleanup is tested, but application quit/crash does not yet call scene-manager
-teardown, so process-level lifecycle coverage is not claimed.
+eligibility. Captured-entry waypoint walking and recorded inverse returns are
+implemented on the shared movement runner. Application quit and caught-crash
+cleanup stop owned scenes before audio/renderer teardown; cancellation attempts
+every parallel lane even if an operation or presentation reset fails. A temporary
+battle suspends the calling scene instead of destroying its continuation;
+return resumes it, while abandonment disposes it. These are Engine lifecycle
+guarantees for handled shutdown, not recovery from an OS kill or power loss.
+Representative Game rescue staging and native acceptance remain separate gates.
 
 The existing renderer field contract supports multiple sheet-backed sprites,
 explicit layers, terrain and opaque text overlays in one complete snapshot.

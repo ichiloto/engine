@@ -232,6 +232,8 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     protected(set) bool $hasDeferredAutoSave = false;
     /** Whether the destination map still needs its automatic entry triggers evaluated. */
     protected bool $hasPendingAutomaticTriggerEvaluation = false;
+    /** Prevent teardown callbacks from starting fresh field work. */
+    private bool $isStopping = false;
     /**
      * @var SkitManager|null The skit manager.
      */
@@ -522,6 +524,10 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     #[Override]
     public function resume(): void
     {
+        if ($this->isStopping) {
+            return;
+        }
+
         parent::resume();
         $this->state->resume();
     }
@@ -538,11 +544,41 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     }
 
     #[Override]
+    public function start(): void
+    {
+        $this->isStopping = false;
+        parent::start();
+    }
+
+    #[Override]
     public function stop(): void
     {
-        $this->cinematicController?->shutdown();
-        $this->cinematicStage?->clear();
-        parent::stop();
+        if ($this->isStopping) {
+            return;
+        }
+
+        $this->isStopping = true;
+        $this->hasDeferredAutoSave = false;
+        $this->hasPendingAutomaticTriggerEvaluation = false;
+        $failure = null;
+        foreach ([
+            fn() => $this->cinematicController?->shutdown(),
+            fn() => $this->eventInterpreter?->failActiveSession('Event interrupted by field shutdown.'),
+            fn() => $this->cinematicStage?->clear(),
+            fn() => $this->cinematicPresentation?->clear(),
+            fn() => parent::stop(),
+        ] as $cleanup) {
+            try {
+                $cleanup();
+            } catch (\Throwable $error) {
+                $failure ??= $error;
+            }
+        }
+        $this->started = false;
+
+        if ($failure !== null) {
+            throw $failure;
+        }
     }
 
     /**
@@ -665,7 +701,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     /** Runs deferred destination triggers once no event session owns the interpreter. */
     protected function evaluatePendingAutomaticTriggers(): void
     {
-        if (! $this->hasPendingAutomaticTriggerEvaluation || $this->hasUnstableEventSession()) {
+        if ($this->isStopping || ! $this->hasPendingAutomaticTriggerEvaluation || $this->hasUnstableEventSession()) {
             return;
         }
 
@@ -684,7 +720,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
      */
     public function autoSave(): void
     {
-        if (! config(ProjectConfig::class, 'save.autosave', false)) {
+        if ($this->isStopping || ! config(ProjectConfig::class, 'save.autosave', false)) {
             return;
         }
 
@@ -715,6 +751,10 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         array $origin = [],
     ): ?EventExecutionSession
     {
+        if ($this->isStopping) {
+            return null;
+        }
+
         return $this->eventInterpreter?->run($commands, $scriptId, $completionTarget, $origin);
     }
 
@@ -724,6 +764,10 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         ?EventSessionCompletionTargetInterface $completionTarget = null,
     ): ?EventExecutionSession
     {
+        if ($this->isStopping) {
+            return null;
+        }
+
         $definition = is_string($cinematic)
             ? (new CinematicLibrary())->load($cinematic)
             : $cinematic;
@@ -788,6 +832,13 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
      */
     public function onEventSessionFinished(EventExecutionSession $session, bool $completed): void
     {
+        if ($this->isStopping || (isset($this->sceneManager) && $this->sceneManager->currentScene !== $this)) {
+            if (! $completed) {
+                $this->hasDeferredAutoSave = false;
+            }
+            return;
+        }
+
         $this->refreshFieldMusic();
         Debug::info(sprintf(
             'Event session %d %s.',
@@ -823,7 +874,8 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
      */
     public function restoreFieldAfterOverlay(): void
     {
-        if ($this->state === $this->fieldState) {
+        if (! $this->isStopping && $this->state === $this->fieldState
+            && (! isset($this->sceneManager) || $this->sceneManager->currentScene === $this)) {
             $this->fieldState?->renderTheField();
             $this->fieldPresentationIsDirty = false;
         }

@@ -63,7 +63,7 @@ final class CinematicController implements EventSessionCompletionTargetInterface
 
     if ($session === null) {
       $this->cleanup();
-    } elseif ($this->active !== null) {
+    } elseif ($this->active !== null && $this->gameScene->sceneManager->currentScene === $this->gameScene) {
       // Apply an initial cover before yielding, but never paint a failed setup.
       $this->gameScene->restoreFieldAfterOverlay();
       $this->gameScene->cinematicPresentation?->render();

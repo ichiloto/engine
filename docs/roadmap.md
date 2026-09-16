@@ -724,7 +724,15 @@ transitions, field animations, authored safe skipping/finalizers, and a
 non-blocking summon preview/runtime session while retaining this same
 interpreter. See [cinematics.md](cinematics.md) and [summons.md](summons.md).
 
-Still deferred: active-session save serialization, pathfinding, party
+Authored cinematic waypoint routes now use bounded cardinal planning through
+the existing collision model. Session-local approach histories support exact
+walking returns and entry-facing restoration; they are not saved story state.
+Battle interruption suspends the caller, while true unload, quit and handled
+crash paths release its transient ownership. See the current contract and
+validation in [cinematics.md](cinematics.md#captured-entry-walking-and-return)
+and the [integration roadmap](rendering/integration-roadmap.md#cinematic-gap-schedule).
+
+Still deferred: active-session save serialization, autonomous pathfinding, party
 followers, NPC patrol routes, the first-class Editor cinematic authoring
 surface, boss phases, and scheduled/delayed battle actions.
 

@@ -255,6 +255,10 @@ abstract class AbstractScene implements SceneInterface
   protected function initializeEventHandlers(): void
   {
     $this->modalEventHandler = function (ModalEvent $event) {
+      if ($this->sceneManager->currentScene !== $this) {
+        return;
+      }
+
       switch ($event->modalEventType) {
         case ModalEventType::OPEN:
           $this->suspend();

@@ -225,10 +225,10 @@ records the current limitations separately from this planned work.
 
 | Slot | Owner and deliverable | Start condition and completion gate |
 | --- | --- | --- |
-| 0: immediate preparation | Engine coordinates Game, Renderer and Art. Freeze one existing rescue segment, subject identities, entry/continuation, visual takeover, route/facings and minimum poses. | Game supplied source-checked routes, subject/facing and root-trigger entry proposals with outcome constraints; this is not runtime acceptance. Engine must settle captured-entry walking/return and temporary real-subject transform recovery, separately from visual suppression. No nested cinematic inside an active common event. Already-approved narrative corrections continue independently. |
-| 1: Engine implementation in progress | Engine preserves graphical field continuity, adds optional staged graphical providers and scoped presentation takeover for existing subjects. Renderer owns regression coverage against actual emitted frames. | Field continuity, staged sprites/sheets, real-subject leases, paired suppression, visual replacement, transform recovery and pre-finalizer skip restoration are implemented locally and tested. Captured-entry walking/return, application quit/crash scene teardown and representative native acceptance remain. The battle-opening slice is checkpointed separately from cinematic work. No production art dependency for ownership tests. |
+| 0: preparation complete | Engine coordinates Game, Renderer and Art. Freeze one existing rescue segment, subject identities, entry/continuation, visual takeover, route/facings and minimum poses. | Game supplied source-checked routes, subject/facing and root-trigger entry proposals with outcome constraints. Engine's captured-entry walking/return and real-subject transform recovery are implemented and headless-tested, separately from visual suppression. No nested cinematic inside an active common event. Already-approved narrative corrections continue independently. |
+| 1: Engine seam implemented | Engine preserves graphical field continuity, adds optional staged graphical providers and scoped presentation takeover for existing subjects. Renderer owns regression coverage against actual emitted frames. | Field continuity, staged sprites/sheets, real-subject leases, paired suppression, transform recovery, pre-finalizer restoration, captured-entry walking/return and handled application teardown pass local regression tests. Temporary battles suspend/resume the caller; inactive fields cannot repaint over battle. Game content integration and representative native acceptance remain. No production art dependency for ownership tests. |
 | Parallel Art slot | Art prepares only the first rescue's required figures, support pose and visible prop, using existing approved references. | Freeze participants, route-visible facings, dimensions, pivots and crop layout first. Preview/admission of new art remains explicit; prior batch exceptions do not transfer. Full cast animation sets are not prerequisites. |
-| 2: first playable rescue | Game binds the stable Engine seam and admitted art to the existing scene and all its callers. Engine coordinates acceptance. | Slot 1 and required art ready. Visible approach/withdrawal, one representation per subject, intact graphical field, identical terminal story outcomes and correct continuation. Use the normal Game checkout, not another build. |
+| 2: Game integration active | Game binds the stable Engine seam and admitted art to the existing scene and all its callers. Engine coordinates acceptance. | Engine seam ready; Game validates every legal entry using actual map/NPC collision before root-wrapper wiring. Art completes existing pose registration/admission handoff in parallel. Visible approach/withdrawal, one representation per subject, intact graphical field, identical terminal story outcomes and correct continuation remain acceptance gates. Use the normal Game checkout, not another build. |
 | 3: remaining representative scenes | Game and Art reuse the rescue foundation for the distant sighting and environmental response/evacuation. Engine adds only demonstrated missing graphical effect adapters. | Rescue gate passed and each scene's staging/art scope settled. Content may proceed in parallel; native tests remain serialized under one window/input owner. |
 | 4: integrated acceptance | Engine consolidates Game state checks, Renderer native observations and Art review. | One normal pass per representative scene, terminal counterparts and applicable legal-skip/reduced-motion checks. Present one consolidated acceptance request, not questions scattered across tasks. |
 
@@ -330,3 +330,23 @@ passes 2,205 tests (13,058 assertions, one existing skip) on PHP 8.5.10 and full
 PHPStan analysis. Battle openings, cinematic foundations and Results are separate
 local commits. This does not close the remaining cinematic or native acceptance
 gates, run the broad Last Legend simulation suite, or authorize publication.
+
+Closure validation on 17 September 2026: the complete Engine suite passes
+**2,272 tests / 13,418 assertions, one existing skip**, on each of PHP 8.4 and
+8.5, with full PHPStan clean. These full-suite runs used a test-process-only
+1 GiB memory allowance; the default 128 MiB runner exhausted memory in the
+large combined suite. Product configuration and planner bounds are unchanged.
+Coverage includes actual inverse walking/facing, stale/duplicate history,
+blocked routes, reduced motion, subject exclusivity, real-subject rollback,
+throwing/reentrant cleanup, caught startup/loop errors, battle suspension,
+return, abandonment and inactive-field presentation isolation. Handled crashes
+are covered; OS termination and power loss are not recoverable guarantees.
+Renderer reran four existing full-replacement tests using its unchanged local
+test executable; that is headless regression evidence, not fresh compilation
+or native rescue acceptance. No renderer protocol change or new build was
+needed. Game's regular non-simulation suite separately passes 468 tests after
+integrating its accepted narrative, presentation and passage-reveal checkpoints
+into local `develop`. The broad Last Legend suite was not completed because of
+the unrelated 180,000-battle simulation baseline. Linux/WSLg remains untested;
+no native/game/audio window was launched by this closure pass. Game rescue
+content, art admission and representative native/terminal play remain open.

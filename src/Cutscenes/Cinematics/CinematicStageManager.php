@@ -23,6 +23,7 @@ final class CinematicStageManager
   /** @var array<int, CinematicSubjectLease> Transform ownership outlives a visual replacement/removal. */
   private array $subjects = [];
   protected(set) ?string $lastMoveFailure = null;
+  public private(set) int $generation = 0;
 
   public function __construct(protected GameScene $gameScene)
   {
@@ -202,6 +203,13 @@ final class CinematicStageManager
     $this->gameScene->requestFieldPresentationReconciliation();
   }
 
+  /** Route ownership does not require replacing a subject's normal artwork. */
+  public function captureSubject(Player|Npc $subject): void
+  {
+    $key = spl_object_id($subject);
+    $this->subjects[$key] ??= new CinematicSubjectLease($this->gameScene, $subject);
+  }
+
   public function commitSubjectTransforms(Player|Npc|null $subject = null): void
   {
     foreach ($this->subjects as $lease) {
@@ -263,6 +271,7 @@ final class CinematicStageManager
 
   public function clear(bool $restoreTransforms = true): void
   {
+    $this->generation++;
     foreach ($this->subjects as $lease) {
       $lease->release($restoreTransforms);
     }

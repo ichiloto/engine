@@ -93,7 +93,7 @@ class FieldState extends GameSceneState
 
             $scene->updateEventSession(Time::getDeltaTime());
 
-            if ($scene->cinematicController?->active() !== null) {
+            if ($scene->cinematicController?->active() !== null && $scene->sceneManager->currentScene === $scene) {
                 $this->renderTheField();
             }
             return;

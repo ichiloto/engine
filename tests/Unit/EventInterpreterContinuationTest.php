@@ -365,6 +365,7 @@ class EventTestGameScene extends GameScene
   public function __construct(public EventTestSceneManager $testSceneManager = new EventTestSceneManager())
   {
     $this->sceneManager = $testSceneManager;
+    $this->sceneManager->currentScene = $this;
     $this->gameState = new GameState();
     $this->hasDeferredAutoSave = false;
     $this->currentMapId = 'map-a';

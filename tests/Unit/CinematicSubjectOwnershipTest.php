@@ -18,6 +18,9 @@ use Ichiloto\Engine\Events\Interpreter\EventCommandResult;
 use Ichiloto\Engine\Events\Interpreter\EventExecutionStatus;
 use Ichiloto\Engine\Events\Interpreter\EventInterpreter;
 use Ichiloto\Engine\Events\Interpreter\EventPresentationInterface;
+use Ichiloto\Engine\Events\Interpreter\MovementRouteRunner;
+use Ichiloto\Engine\Events\Interpreter\MovementRoutePlanner;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicScriptValidator;
 use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Field\Location;
 use Ichiloto\Engine\Field\NpcManager;
@@ -41,6 +44,7 @@ final class SubjectOwnershipMap extends MapManager
 {
   public bool $blocked = false;
   public ?\Closure $onLoad = null;
+  public ?\Closure $passable = null;
   public function __construct() {}
   public function loadMap(string $filename, Player $player): self
   {
@@ -52,7 +56,7 @@ final class SubjectOwnershipMap extends MapManager
     if ($this->blocked) {
       $collisionType = CollisionType::SOLID;
     }
-    return !$this->blocked;
+    return !$this->blocked && ($this->passable === null || ($this->passable)($x, $y));
   }
   public function scrollMap(Player $player, Vector2 $moveDirection): bool { return false; }
 }
@@ -85,6 +89,8 @@ final class SubjectOwnershipScene extends GameScene
   public function __construct()
   {
     [$this->testGame] = makeSceneAudioGame();
+    $this->sceneManager = makeBareScene(\Ichiloto\Engine\Scenes\SceneManager::class);
+    $this->sceneManager->currentScene = $this;
     $this->gameState = new GameState();
     $this->party = new Party();
     $this->uiManager = new class extends UIManager {
@@ -470,6 +476,184 @@ it('routes the same real subject under reduced motion without an independent vis
   $this->scene->eventInterpreter->failActiveSession('restore route');
   expect($this->npc->position->x)->toBe(7.0);
 })->with([false, true]);
+
+it('walks authored waypoints and retraces the actual entry with its original facing', function (bool $reduced) {
+  putSceneAudioConfig(['accessibility' => ['reducedMotion' => $reduced]]);
+  $this->scene->mapManager->passable = static fn(int $x, int $y): bool => $x !== 4 || $y !== 4;
+  $session = $this->scene->startCinematic(subjectOwnershipDefinition([
+    ['type' => 'move_route', 'remember' => 'approach', 'secondsPerStep' => 0.1,
+      'waypoints' => [['x' => 5, 'y' => 4], ['y' => 6]]],
+    ['type' => 'move_route', 'retrace' => 'approach', 'secondsPerStep' => 0.1],
+  ], ['cast' => []]));
+  $positions = [[3, 4]];
+  for ($tick = 0; $tick < 50 && $this->scene->hasUnstableEventSession(); $tick++) {
+    $this->scene->eventInterpreter->update(0.1);
+    $position = [intval($this->player->position->x), intval($this->player->position->y)];
+    if ($position !== $positions[array_key_last($positions)]) {
+      $positions[] = $position;
+    }
+  }
+  expect($session->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and($this->player->position->x)->toBe(3.0)->and($this->player->position->y)->toBe(4.0)
+    ->and($this->player->heading)->toBe(MovementHeading::SOUTH);
+  if (!$reduced) {
+    $outbound = [[3, 4], [3, 3], [4, 3], [5, 3], [5, 4], [5, 5], [5, 6]];
+    expect($positions)->toBe([...$outbound, ...array_slice(array_reverse($outbound), 1)]);
+  }
+})->with([false, true]);
+
+it('records a zero-length approach and returns without inventing a movement unit', function () {
+  $session = $this->scene->startCinematic(subjectOwnershipDefinition([
+    ['type' => 'move_route', 'remember' => 'here', 'waypoints' => [['x' => 3, 'y' => 4]]],
+    ['type' => 'move_route', 'retrace' => 'here'],
+  ], ['cast' => []]));
+  for ($tick = 0; $tick < 4; $tick++) {
+    $this->scene->eventInterpreter->update(1);
+  }
+  expect($session->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and($this->player->position->x)->toBe(3.0)->and($this->player->position->y)->toBe(4.0);
+});
+
+it('fails a newly blocked step and restores a real subject even without replacement art', function (bool $reduced) {
+  putSceneAudioConfig(['accessibility' => ['reducedMotion' => $reduced]]);
+  $session = $this->scene->startCinematic(subjectOwnershipDefinition([
+    ['type' => 'move_route', 'remember' => 'approach', 'waypoints' => [['x' => 6]], 'secondsPerStep' => 0.1],
+  ], ['cast' => []]));
+  if (!$reduced) {
+    $this->scene->eventInterpreter->update(0.1);
+    expect($this->player->position->x)->toBe(4.0);
+  }
+  $this->scene->mapManager->blocked = true;
+  $this->scene->eventInterpreter->update(0.1);
+  expect($session->status)->toBe(EventExecutionStatus::FAILED)
+    ->and($session->failureMessage)->toContain('was blocked')
+    ->and($this->player->position->x)->toBe(3.0)->and($this->player->heading)->toBe(MovementHeading::SOUTH)
+    ->and($this->scene->hasUnstableEventSession())->toBeFalse();
+})->with([false, true]);
+
+it('rejects two simultaneous movement owners of one real subject', function () {
+  $route = ['type' => 'move_route', 'secondsPerStep' => 1, 'steps' => [['direction' => 'right', 'count' => 3]]];
+  $session = $this->scene->startCinematic(subjectOwnershipDefinition([
+    ['type' => 'parallel', 'lanes' => [['id' => 'first', 'commands' => [$route]],
+      ['id' => 'second', 'commands' => [$route]]]],
+  ], ['cast' => []]));
+  $this->scene->eventInterpreter->update(0.1);
+  expect($session->status)->toBe(EventExecutionStatus::FAILED)
+    ->and($session->failureMessage)->toContain('Only one movement route')
+    ->and($this->player->position->x)->toBe(3.0);
+});
+
+it('rejects missing duplicate and incomplete remembered routes', function (string $case) {
+  $this->scene->startCinematic(subjectOwnershipDefinition(data: ['cast' => []]));
+  $session = $this->scene->eventInterpreter->activeSession();
+  if ($case !== 'missing') {
+    $route = new MovementRouteRunner($this->scene, ['remember' => 'entry',
+      'steps' => [['direction' => 'right']]], $session);
+  }
+  $command = $case === 'duplicate'
+    ? ['remember' => 'entry', 'steps' => [['direction' => 'right']]] : ['retrace' => 'entry'];
+  expect(fn() => new MovementRouteRunner($this->scene, $command, $session))->toThrow(RuntimeException::class);
+})->with(['missing', 'duplicate', 'incomplete']);
+
+it('refuses stale displaced wrong-subject and consumed return paths', function (string $case) {
+  $this->scene->startCinematic(subjectOwnershipDefinition(data: ['cast' => []]));
+  $session = $this->scene->eventInterpreter->activeSession();
+  $route = new MovementRouteRunner($this->scene, ['remember' => 'entry',
+    'steps' => [['direction' => 'right']]], $session);
+  $route->update(0.1);
+  $command = ['retrace' => 'entry'];
+  match ($case) {
+    'map' => $this->scene->changeMapIdentity('map-b'),
+    'generation' => $this->stage->clear(false),
+    'displaced' => $this->player->position->x = 9,
+    'subject' => $command += ['subject' => 'npc', 'npcId' => 'guide'],
+    'consumed' => (new MovementRouteRunner($this->scene, $command, $session))->cancel(),
+  };
+  expect(fn() => new MovementRouteRunner($this->scene, $command, $session))->toThrow(RuntimeException::class);
+})->with(['map', 'generation', 'displaced', 'subject', 'consumed']);
+
+it('pins an in-flight NPC route to its original object rather than reusing a stable id', function () {
+  $session = $this->scene->startCinematic(subjectOwnershipDefinition([
+    ['type' => 'move_route', 'subject' => 'npc', 'npcId' => 'guide', 'waypoints' => [['x' => 10]]],
+  ], ['cast' => []]));
+  $this->scene->npcManager->configure([['id' => 'guide', 'name' => 'Replacement', 'sprite' => 'R', 'x' => 20, 'y' => 4]]);
+  $this->scene->eventInterpreter->update(1);
+  expect($session->status)->toBe(EventExecutionStatus::FAILED)
+    ->and($this->scene->npcManager->findById('guide')->position->x)->toBe(20.0);
+});
+
+it('treats the player as an occupied tile when planning an NPC waypoint leg', function () {
+  $this->player->position->x = 8;
+  $steps = MovementRoutePlanner::plan($this->scene, $this->npc->position, new Vector2(9, 4), true);
+  expect($steps)->toBe([['direction' => 'up'], ['direction' => 'right'], ['direction' => 'right'], ['direction' => 'down']]);
+});
+
+it('does not let repeated cancellation release a later movement owner', function () {
+  $this->scene->startCinematic(subjectOwnershipDefinition(data: ['cast' => []]));
+  $session = $this->scene->eventInterpreter->activeSession();
+  $command = ['steps' => [['direction' => 'right']]];
+  $first = new MovementRouteRunner($this->scene, $command, $session);
+  $first->update(1);
+  $second = new MovementRouteRunner($this->scene, $command, $session);
+  $first->cancel();
+  expect(fn() => new MovementRouteRunner($this->scene, $command, $session))->toThrow(RuntimeException::class);
+  $second->cancel();
+});
+
+it('restores a directionless entry pose after walking home', function () {
+  $this->player->restoreFieldTransform(clone $this->player->position, MovementHeading::NONE, ['@']);
+  $session = $this->scene->startCinematic(subjectOwnershipDefinition([
+    ['type' => 'move_route', 'remember' => 'approach', 'steps' => [['direction' => 'right']]],
+    ['type' => 'move_route', 'retrace' => 'approach'],
+  ], ['cast' => []]));
+  for ($tick = 0; $tick < 4; $tick++) {
+    $this->scene->eventInterpreter->update(1);
+  }
+  expect($session->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and($this->player->heading)->toBe(MovementHeading::NONE)->and($this->player->sprite)->toBe(['@']);
+});
+
+it('validates both waypoint endpoints before flattening map coordinates', function (float $x, float $y) {
+  $origin = new Vector2();
+  $origin->x = $x;
+  $origin->y = $y;
+  expect(fn() => MovementRoutePlanner::plan($this->scene, $origin, new Vector2(0, 1), false))
+    ->toThrow(RuntimeException::class);
+})->with([[60.0, 0.0], [-1.0, 1.0], [1.5, 1.0], [INF, 1.0], [1.0, NAN]]);
+
+it('bounds waypoint search work on a large unreachable map', function () {
+  $this->scene->camera->worldSpaceWidth = 260;
+  $this->scene->camera->worldSpaceHeight = 260;
+  $this->scene->mapManager->passable = static fn(int $x, int $y): bool => $x !== 259 || $y !== 259;
+  expect(fn() => MovementRoutePlanner::plan($this->scene, new Vector2(0, 0), new Vector2(259, 259), false))
+    ->toThrow(RuntimeException::class, 'cell budget');
+});
+
+it('does not reuse route history in a fresh cinematic session', function () {
+  $this->scene->startCinematic(subjectOwnershipDefinition([
+    ['type' => 'move_route', 'remember' => 'approach', 'steps' => [['direction' => 'right']]],
+  ], ['cast' => []]));
+  $this->scene->eventInterpreter->update(1);
+  $session = $this->scene->startCinematic(subjectOwnershipDefinition([
+    ['type' => 'move_route', 'retrace' => 'approach'],
+  ], ['cast' => []]));
+  expect($session->status)->toBe(EventExecutionStatus::FAILED)
+    ->and($session->failureMessage)->toContain('was not recorded in this session');
+});
+
+it('rejects malformed route extensions in both authoring and runtime', function (array $command) {
+  $command = ['type' => 'move_route', ...$command];
+  expect(fn() => CinematicScriptValidator::validate([$command]))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => new MovementRouteRunner($this->scene, $command))->toThrow(RuntimeException::class);
+})->with([
+  [['waypoints' => []]], [['waypoints' => [['x' => 2.5]]]], [['waypoints' => [['x' => -1]]]],
+  [['waypoints' => [['z' => 3]]]], [['waypoints' => [['x' => 3]], 'steps' => [['direction' => 'up']]]],
+  [['retrace' => 'entry', 'remember' => 'other']], [['retrace' => '../entry']],
+  [['subject' => 'staged_actor', 'actorId' => 'pose', 'waypoints' => [['x' => 1]]]],
+  [['waypoints' => [['x' => 3]], 'secondsPerStep' => INF]],
+  [['waypoints' => [['x' => 3]], 'speed' => NAN]],
+  [['steps' => [['direction' => 'up', 'seconds' => INF]]]],
+]);
 
 it('restores transforms and camera and releases event input at scene shutdown', function () {
   $this->scene->finishSceneStopSetup();
