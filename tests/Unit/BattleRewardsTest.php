@@ -1,36 +1,31 @@
 <?php
 
-use Ichiloto\Engine\Battle\BattleRewards;
-use Ichiloto\Engine\Battle\DropItem;
+use Ichiloto\Engine\Battle\BattleResult;
+use Ichiloto\Engine\Battle\Presentation\BattleRewards;
+use Ichiloto\Engine\Battle\Presentation\BattleProgression;
+use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
-use Ichiloto\Engine\Util\Config\ConfigStore;
-use Ichiloto\Engine\Util\Stores\ItemStore;
+use Ichiloto\Engine\Entities\Stats;
+use Ichiloto\Engine\Progression\ExperienceAwarder;
 
-beforeEach(function () {
-  $store = (new ReflectionClass(ItemStore::class))->newInstanceWithoutConstructor();
-  ConfigStore::put(ItemStore::class, $store);
+it('detaches battle progression from live gameplay objects while preserving the legacy outcome API', function () {
+  $character = new Character('Snapshot', 0, new Stats(currentHp: 100));
+  $award = ExperienceAwarder::award($character, 10);
+  $rewards = new BattleRewards(10, 3, [$award]);
+  $result = new BattleResult('Victory', rewards: $rewards);
+  $character->addExperience(10000);
+  expect($result->outcome())->toBe('victory')
+    ->and($rewards->progression[0])->toBeInstanceOf(BattleProgression::class)
+    ->and(property_exists($rewards->progression[0], 'character'))->toBeFalse()
+    ->and($rewards->progression[0]->before->experience)->toBe(0)
+    ->and($rewards->progression[0]->after->experience)->toBe(10);
 });
 
-afterEach(function () {
-  ConfigStore::remove(ItemStore::class);
-});
-
-it('drops nothing when no candidate passes its drop-rate roll', function () {
-  $herb = new Item('Herb', 'A fragrant healing herb.', '🌿', 10);
-  $rewards = new BattleRewards(10, 5, [new DropItem($herb, 0.0)]);
-
-  expect($rewards->item)->toBeNull();
-});
-
-it('drops the item when its drop rate always passes', function () {
-  $herb = new Item('Herb', 'A fragrant healing herb.', '🌿', 10);
-  $rewards = new BattleRewards(10, 5, [new DropItem($herb, 1.0)]);
-
-  expect($rewards->item)->toBe($herb);
-});
-
-it('drops nothing when there are no drop candidates', function () {
-  $rewards = new BattleRewards(10, 5, []);
-
-  expect($rewards->item)->toBeNull();
+it('coalesces rewards by stable definition rather than display name without retaining mutable items', function () {
+  $first = new Item('Same Name', 'One', '', 0, quantity: 2, id: 'one');
+  $second = new Item('Same Name', 'Two', '', 0, quantity: 3, id: 'two');
+  $rows = BattleRewards::snapshotItems([$first, clone $first, $second]);
+  $first->quantity = 99;
+  expect($rows)->toHaveCount(2)
+    ->and(array_column($rows, 'quantity', 'id'))->toBe(['one' => 4, 'two' => 3]);
 });

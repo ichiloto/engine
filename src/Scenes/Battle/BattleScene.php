@@ -9,6 +9,10 @@ use Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog;
 use Ichiloto\Engine\Battle\Presentation\GraphicalBattlePresentation;
 use Ichiloto\Engine\Battle\Presentation\GraphicalBattleHud;
 use Ichiloto\Engine\Battle\Presentation\BattleHudSnapshot;
+use Ichiloto\Engine\Battle\Presentation\BattleResultsSkin;
+use Ichiloto\Engine\Battle\Presentation\BattleResultsPlayback;
+use Ichiloto\Engine\Battle\Presentation\GraphicalBattleResults;
+use Ichiloto\Engine\UI\Accessibility;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnBasedEngine;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\PlayerActionState;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
@@ -21,6 +25,7 @@ use Ichiloto\Engine\Battle\UI\BattleScreen;
 use Ichiloto\Engine\Battle\UI\BattleResultWindow;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\Scenes\AbstractScene;
 use Ichiloto\Engine\Scenes\Battle\States\BattleEndState;
@@ -46,9 +51,47 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
 {
   public private(set) ?GraphicalBattlePresentation $graphicalPresentation = null;
   public private(set) ?BattleCanvasLayout $battleUiLayout = null;
+  public private(set) ?BattleResultsSkin $resultsSkin = null;
+  public private(set) ?BattleResultsPlayback $resultsPlayback = null;
+  private ?PresentationCanvas $resultsBattlefield = null;
+
+  public function beginResults(): void
+  {
+    $rewards = $this->result?->rewards;
+    if ($rewards === null) { return; }
+    $this->resultsPlayback = new BattleResultsPlayback($rewards, Accessibility::prefersReducedMotion());
+    $layout = $this->graphicalPresentation?->arena ?? $this->battleUiLayout;
+    if ($this->resultsSkin !== null && $layout !== null) {
+      $field = array_values(array_filter(BattleCanvasUiAdapter::collect($this, $layout, true),
+        static fn($layer) => $layer->id === 'battle-field'));
+      $this->resultsBattlefield = $this->graphicalPresentation?->frame()
+        ?? new PresentationCanvas($layout->width, $layout->height, textLayers: $field);
+    }
+  }
+
+  public function endResults(): void
+  {
+    $this->resultsPlayback = null;
+    $this->resultsBattlefield = null;
+  }
+
+  #[Override]
+  public function stop(): void
+  {
+    $this->endResults();
+    parent::stop();
+  }
+
+  public function hasGraphicalResults(): bool
+  {
+    return $this->resultsPlayback !== null && $this->resultsSkin !== null && $this->resultsBattlefield !== null;
+  }
 
   public function getPresentationCanvas(): ?PresentationCanvas
   {
+    if ($this->hasGraphicalResults()) {
+      return GraphicalBattleResults::frame($this->resultsBattlefield, $this->resultsSkin, $this->resultsPlayback);
+    }
     $layout = $this->graphicalPresentation?->arena ?? $this->battleUiLayout;
     if ($layout === null || $this->state instanceof BattleStartState) { return null; }
     $focus = null;
@@ -215,6 +258,7 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
 
     $presentation = null;
     $layout = null;
+    $resultsSkin = null;
     $runtime = $this->getGame()->getRendererRuntime();
     // Terminal play never loads the optional catalog or inspects any PNG.
     if ($runtime !== null) {
@@ -225,11 +269,22 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
       if ($catalog !== null) {
         $presentation = GraphicalBattlePresentation::prepare($config, $catalog, $runtime->getAssetRoot());
         $layout = $presentation?->arena ?? $catalog->ui;
+        $resultsSkin = $catalog->results;
+        if ($resultsSkin !== null && ($layout === null || $layout->width !== 1350 || $layout->height !== 720)) {
+          throw new RuntimeException('The Results skin requires a 1350 by 720 battle canvas.');
+        }
         if ($presentation === null && $layout !== null) {
           GraphicalBattleHud::preflight($layout, $runtime->getAssetRoot());
+          if ($resultsSkin !== null) {
+            GraphicalBattleResults::preflight($resultsSkin, $runtime->getAssetRoot(), [],
+              array_map(static fn(Character $member): string => $member->actorId, $config->party->members->toArray()));
+          }
         }
         $capabilities = $presentation?->requiredCapabilities()
           ?? ($layout === null ? [] : [RendererSessionConfig::SPRITE_SOURCE_RECT, ...$catalog->requiredCapabilities()]);
+        $capabilities = array_unique([...$capabilities, ...($resultsSkin === null ? [] :
+          [RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::SPRITE_SOURCE_RECT,
+            RendererSessionConfig::CANVAS_CLIP_OPACITY, RendererSessionConfig::CANVAS_GLYPH_EFFECTS])]);
         foreach ($capabilities as $capability) {
           if (!$runtime->supports($capability)) {
             throw new RuntimeException("Configured graphical battles require the negotiated {$capability} capability.");
@@ -239,6 +294,8 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
     }
     $this->graphicalPresentation = $presentation;
     $this->battleUiLayout = $layout;
+    $this->resultsSkin = $resultsSkin;
+    $this->endResults();
 
     // The field HUD only exists once the game scene has built it. A battle
     // started from anywhere else (the arena) has none to hide.

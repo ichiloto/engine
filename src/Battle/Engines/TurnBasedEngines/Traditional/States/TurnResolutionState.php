@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States;
 
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Battle\BattleResult;
+use Ichiloto\Engine\Battle\Presentation\BattleRewards;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
@@ -59,11 +60,23 @@ class TurnResolutionState extends TurnState
         static fn($result): bool => $result->levelledUp(),
       ));
 
+      // Inventory insertion can coalesce quantities; snapshot the actual drop batch first.
+      $rewardItems = BattleRewards::snapshotItems($items);
+      $heldBefore = array_column($context->party->inventory->all->toArray(), 'quantity', 'id');
+      $goldBefore = $context->party->accountBalance;
       $context->party->credit($gold);
 
       if (! empty($items)) {
         $context->party->addItems(...$items);
       }
+      $heldAfter = array_column($context->party->inventory->all->toArray(), 'quantity', 'id');
+      foreach ($rewardItems as &$rewardItem) {
+        $rewardItem['received'] = max(0, ($heldAfter[$rewardItem['id']] ?? 0) - ($heldBefore[$rewardItem['id']] ?? 0));
+      }
+      unset($rewardItem);
+      $rewardSummary = ['Enemies defeated' => (string)count($context->troop->members->toArray())];
+      $goldReceived = $context->party->accountBalance - $goldBefore;
+      if ($goldReceived !== $gold) { $rewardSummary['Gold at capacity'] = (string)($gold - $goldReceived); }
 
       $questManager = QuestManager::current();
       $gameScene = $context->game->sceneManager->findScene(GameScene::class);
@@ -111,7 +124,8 @@ class TurnResolutionState extends TurnState
         }
       }
 
-      $scene->result = new BattleResult('Victory', $lines, $items, $entries);
+      $scene->result = new BattleResult('Victory', $lines, $items, $entries,
+        new BattleRewards($experience, $goldReceived, $progressionResults, $rewardItems, $rewardSummary));
       $scene->setState($scene->victoryState);
       return;
     }

@@ -10,6 +10,7 @@ use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\IO\Console\SgrColorParser;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasIndicator;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasIndicatorKind;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
@@ -47,7 +48,6 @@ final class GraphicalBattlePresentation
     if ($arena === null) { return null; }
     if ($catalog->ui !== null) { $arena = $arena->withDefaultUi($catalog->ui); }
     $presentation = new self($arena, $battle);
-    $assets = [];
     $images = [$arena->background];
     foreach ([[$battle->party->members->toArray(), $arena->partySlots, true],
       [$battle->troop->members->toArray(), $arena->enemySlots, false]] as [$members, $slots, $party]) {
@@ -81,14 +81,13 @@ final class GraphicalBattlePresentation
         $images[] = $image;
       }
     }
-    foreach ($images as $image) {
-      PngAssetPreflight::inspect($assetRoot, $image->asset, $image->sourceRect);
-      $size = PngAssetPreflight::inspect($assetRoot, $image->asset);
-      $assets[$image->asset] = $size['width'] * $size['height'] * 4;
-    }
-    $assets += GraphicalBattleHud::preflight($arena, $assetRoot);
-    if (array_sum($assets) > 67108864) {
-      throw new RuntimeException('Graphical battle PNG sources exceed the native 64 MiB decoded-image budget.');
+    $hud = CanvasImagePreflight::textures(array_values([
+      ...($arena->skin?->textures ?? []), ...($arena->skin?->targetCursor?->textures ?? []),
+    ]));
+    CanvasImagePreflight::inspect([...$images, ...$hud], $assetRoot);
+    if ($catalog->results !== null) {
+      GraphicalBattleResults::preflight($catalog->results, $assetRoot, $images,
+        array_map(static fn(Character $member): string => $member->actorId, $battle->party->members->toArray()));
     }
     if (count($battle->party->battlers) > count($arena->partySlots)) {
       throw new RuntimeException('Graphical battle requires a slot for every active party member.');

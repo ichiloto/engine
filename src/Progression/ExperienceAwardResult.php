@@ -20,6 +20,10 @@ final readonly class ExperienceAwardResult
     public int $newLevel,
     public array $learnedAbilities = [],
     public array $learnedMagic = [],
+    public ?ProgressionSnapshot $before = null,
+    public ?ProgressionSnapshot $after = null,
+    /** @var list<array{name: string, description: string, kind: string, cost: int}> */
+    public array $learnedDetails = [],
   )
   {
   }

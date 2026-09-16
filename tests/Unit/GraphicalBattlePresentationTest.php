@@ -11,6 +11,10 @@ use Ichiloto\Engine\Battle\Presentation\GraphicalBattlePresentation;
 use Ichiloto\Engine\Battle\Presentation\BattleHudSnapshot;
 use Ichiloto\Engine\Battle\Presentation\BattleUiSkin;
 use Ichiloto\Engine\Battle\Presentation\BattleTargetCursor;
+use Ichiloto\Engine\Battle\BattleResult;
+use Ichiloto\Engine\Battle\Presentation\BattleRewards;
+use Ichiloto\Engine\Battle\Presentation\BattleResultsSkin;
+use Ichiloto\Engine\Progression\ExperienceAwarder;
 use Ichiloto\Engine\Battle\Resolution\CombatRandomSource;
 use Ichiloto\Engine\Battle\Resolution\CombatResolver;
 use Ichiloto\Engine\Battle\Resolution\SeededCombatRandomSource;
@@ -90,6 +94,13 @@ function graphicalBattleScene(BattleConfig $battle, ?GraphicalBattlePresentation
   return $scene;
 }
 
+function graphicalResultsFixtureSkin(): BattleResultsSkin
+{
+  return new BattleResultsSkin(array_fill_keys(['panel', 'quiet', 'track', 'selector', 'portrait', 'exp', 'divider', 'button'],
+    new CanvasNineSlice('test-sprite.png', new SpriteSourceRect(0, 0, 32, 48))),
+    array_fill_keys(['text', 'muted', 'accent', 'positive', 'negative', 'ink'], PresentationColor::rgb(220, 220, 220)));
+}
+
 function graphicalBattleConfigurationScene(?RendererRuntime $runtime): BattleScene
 {
   $game = new class extends Ichiloto\Engine\Core\Game {
@@ -123,6 +134,79 @@ beforeEach(function () {
 afterEach(function () {
   foreach ($this->statics as $class => $properties) {
     foreach ($properties as $name => $value) { new ReflectionProperty($class, $name)->setValue(null, $value); }
+  }
+});
+
+it('composes Results over the frozen real battlefield without changing awarded gameplay facts', function () {
+  [$battle, $catalog, $hero] = graphicalBattleFixture(true);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $scene = graphicalBattleScene($battle, $presentation);
+  new ReflectionProperty(BattleScene::class, 'resultsSkin')->setValue($scene, graphicalResultsFixtureSkin());
+  $scene->result = new BattleResult('Victory', rewards: new BattleRewards(10000, 42,
+    [ExperienceAwarder::award($hero, 10000)]));
+  $awardedExperience = $hero->currentExp;
+  $scene->beginResults();
+  $scene->resultsPlayback->update(3);
+  $frame = $scene->getPresentationCanvas();
+  expect($scene->hasGraphicalResults())->toBeTrue()
+    ->and($frame->images[0])->toEqual($presentation->frame()->images[0])
+    ->and(array_column($frame->textLayers, 'id'))->toContain('results-heading')
+    ->and(array_column($frame->textLayers, 'id'))->not->toContain('battle-ui-0', 'battle-pause');
+  expect($scene->getPresentationCanvas()->toArray())->toBe($frame->toArray());
+  $scene->endResults();
+  expect($scene->hasGraphicalResults())->toBeFalse()
+    ->and($scene->resultsPlayback)->toBeNull()
+    ->and($hero->currentExp)->toBe($awardedExperience);
+  $scene->beginResults();
+  expect($scene->resultsPlayback->currentStage()['kind'])->toBe('primary')
+    ->and($hero->currentExp)->toBe($awardedExperience);
+});
+
+it('keeps victory input presentation-only and finishes the exit without an extra confirmation', function () {
+  [$battle, $catalog, $hero] = graphicalBattleFixture(true);
+  $scene = graphicalBattleScene($battle, GraphicalBattlePresentation::prepare($battle, $catalog, $this->root));
+  new ReflectionProperty(BattleScene::class, 'resultsSkin')->setValue($scene, graphicalResultsFixtureSkin());
+  $scene->result = new BattleResult('Victory', rewards: new BattleRewards(1, 0, [ExperienceAwarder::award($hero, 1)]));
+  $context = new Ichiloto\Engine\Scenes\SceneStateContext($scene);
+  $victory = new class($context) extends Ichiloto\Engine\Scenes\Battle\States\BattleVictoryState {
+    protected function playVictoryMusic(): void {}
+  };
+  $end = new class($context) extends Ichiloto\Engine\Scenes\Battle\States\BattleEndState {
+    public bool $entered = false;
+    public function enter(): void { $this->entered = true; }
+  };
+  new ReflectionProperty(BattleScene::class, 'endState')->setValue($scene, $end);
+  $delta = new ReflectionProperty(Ichiloto\Engine\Core\Time::class, 'deltaTime');
+  $oldDelta = $delta->getValue();
+  new ReflectionProperty(InputManager::class, 'config')->setValue(null,
+    ['action' => ['keys' => [Ichiloto\Engine\IO\Enumerations\KeyCode::ENTER]]]);
+  try {
+    $scene->setState($victory);
+    $delta->setValue(null, 0.01);
+    $victory->execute();
+    new ReflectionProperty(InputManager::class, 'keyPress')->setValue(null, Ichiloto\Engine\IO\Enumerations\KeyCode::ENTER);
+    new ReflectionProperty(InputManager::class, 'previousKeyPress')->setValue(null, null);
+    $victory->execute();
+    expect($scene->resultsPlayback->isComplete())->toBeTrue()->and($end->entered)->toBeFalse();
+    $victory->execute();
+    expect($end->entered)->toBeFalse();
+    new ReflectionProperty(InputManager::class, 'keyPress')->setValue(null, null);
+    $delta->setValue(null, 0.2);
+    $victory->execute();
+    new ReflectionProperty(InputManager::class, 'keyPress')->setValue(null, Ichiloto\Engine\IO\Enumerations\KeyCode::ENTER);
+    $victory->execute();
+    expect($scene->resultsPlayback->isExiting())->toBeTrue()->and($end->entered)->toBeFalse();
+    new ReflectionProperty(InputManager::class, 'keyPress')->setValue(null, null);
+    $delta->setValue(null, 30.0);
+    $victory->resume();
+    $victory->execute();
+    expect($end->entered)->toBeFalse();
+    $delta->setValue(null, 0.5);
+    $victory->execute();
+    expect($end->entered)->toBeTrue()->and($scene->resultsPlayback)->toBeNull()
+      ->and($hero->currentExp)->toBe(2);
+  } finally {
+    $delta->setValue(null, $oldDelta);
   }
 });
 
@@ -501,10 +585,35 @@ it('rejects missing negotiated battle capabilities before scene configuration or
   }
 });
 
-it('configures shared UI for consecutive encounters while terminal ignores optional assets', function (bool $native) {
+it('configures shared UI for consecutive encounters while terminal ignores optional assets', function (bool $native, bool $results) {
   $root = sys_get_temp_dir() . '/ichiloto-shared-ui-' . bin2hex(random_bytes(5));
   mkdir($root . '/Data', 0777, true);
   copy(__DIR__ . '/../Fixtures/BattlePresentation/shared-ui.php', $root . '/Data/battle-presentation.php');
+  if ($results) {
+    $code = <<<'PHP'
+<?php
+use Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog;
+use Ichiloto\Engine\Battle\Presentation\BattleResultsSkin;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasNineSlice;
+use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
+$catalog = require __FIXTURE__;
+$portraits = [];
+foreach (['Hero', 'Second', 'Third', 'Fourth'] as $id) {
+  $portraits[$id] = ['bust' => new CanvasNineSlice($id . '.png', new SpriteSourceRect(0, 0, 2048, 2048))];
+}
+return new BattlePresentationCatalog([], [], [], ui: $catalog->ui, results: new BattleResultsSkin(
+  array_fill_keys(['panel', 'quiet', 'track', 'selector', 'portrait', 'exp', 'divider', 'button'], $catalog->ui->skin->textures['panel']),
+  array_fill_keys(['text', 'muted', 'accent', 'positive', 'negative', 'ink'], $catalog->ui->skin->colors['text']), $portraits));
+PHP;
+    file_put_contents($root . '/Data/battle-presentation.php', str_replace('__FIXTURE__',
+      var_export(__DIR__ . '/../Fixtures/BattlePresentation/shared-ui.php', true), $code));
+    if ($native) {
+      // The catalog exceeds 64 MiB, but each event displays only one bust. Header checks only.
+      foreach (['Hero', 'Second', 'Third', 'Fourth'] as $id) {
+        file_put_contents($root . '/' . $id . '.png', "\x89PNG\r\n\x1a\n\0\0\0\rIHDR" . pack('NN', 2048, 2048));
+      }
+    }
+  }
   if ($native) { copy($this->root . '/test-sprite.png', $root . '/skin.png'); }
   $runtime = null;
   try {
@@ -524,14 +633,18 @@ it('configures shared UI for consecutive encounters while terminal ignores optio
         ->and($battle->entryRulesEvaluated())->toBeTrue()
         ->and($scene->graphicalPresentation)->toBeNull()
         ->and($scene->battleUiLayout !== null)->toBe($native)
+        ->and($scene->resultsSkin !== null)->toBe($native && $results)
         ->and($scene->getPresentationCanvas())->toBeNull(); // Start transition still owns its frame.
     }
   } finally {
     $runtime?->shutdown();
     if ($native) { unlink($root . '/skin.png'); }
+    if ($native && $results) {
+      foreach (['Hero', 'Second', 'Third', 'Fourth'] as $id) { unlink($root . '/' . $id . '.png'); }
+    }
     unlink($root . '/Data/battle-presentation.php'); rmdir($root . '/Data'); rmdir($root);
   }
-})->with([true, false]);
+})->with([true, false])->with([true, false]);
 
 it('preflights shared UI assets and every negotiated capability before entry effects', function (?string $missing) {
   $root = sys_get_temp_dir() . '/ichiloto-shared-ui-invalid-' . bin2hex(random_bytes(5));

@@ -439,3 +439,152 @@ SFX are muted; Andrew's applied mute must be preserved.
 The approved-art expansion changes graphical assets and encounter bindings, not
 combat rules, rewards, encounter weights or save schemas. Its arena selection
 uses existing battle settings and adds no renderer protocol or binary changes.
+
+## Battle Results integration
+
+Bounded integration was approved on 16 September 2026 for the normal Game, with
+no publishing or new build. `BattleResult::rewards` now carries detached award
+facts through `BattleRewards`/`BattleProgression`. The shared EXP award path
+captures before/after levels, thresholds, stats and actual newly learned skills.
+Battle resolution captures rolled drops and inventory retention separately;
+presentation cannot grant rewards. The existing full per-member EXP policy,
+including reserves, is unchanged.
+
+`BattleResultsPlayback` owns a delta-driven Primary -> per-character Level Up ->
+Learned Ability -> explicitly supplied Special Reward sequence. Confirm finishes
+the current reveal; a later input advances. Overflow is manually paged, never
+silently truncated. Reduced motion keeps facts and order. Terminal uses the same
+snapshot/stage model; graphical Results retain the final real battlefield and
+omit battle command/target/feedback overlays. Resume does not catch up elapsed
+presentation time from a blocked scene. A new battle discards the prior Results
+session. All configured PNGs receive pre-entry path/crop validation; resource
+budgets apply to concurrently displayed families, not the whole catalog.
+
+The existing `BattlePresentationCatalog` has optional `results` skin metadata,
+separate menu/bust portrait families and category icons. The normal Game reuses
+its admitted panel/track/selector, adds the eleven explicitly approved unchanged
+UI images, and now uses separately approved menu/bust pairs for all four
+starting-party actors, as recorded below. Actors without configured art retain
+neutral initials. No rarity or
+demo outcomes are inserted into Game content. Reserved hover/pressed/disabled
+and unknown-state artwork is not active input behavior.
+
+Current native treatment uses existing integer text grids and per-child alpha,
+not browser font families, proportional shaping, CSS filters or isolated group
+blending. Page transitions are a short input-locked hold then incoming reveal,
+not a claim of browser crossfade equivalence. Event-only input has an 80 ms repeat
+guard but cannot prove physical release when repeats are slower; the queued
+controller-ready input slice owns that missing native transition contract.
+
+Before the button refinements below, Engine full-suite checks passed on PHP 8.4 and 8.5: 2,188 tests and one
+existing skip each (12,816 and 12,823 assertions respectively), using the same
+1 GiB test-memory setting as CI. PHPStan and whitespace checks pass. The Game's
+Results/graphical-battle integration checks pass 64 tests / 4,953 assertions on
+each PHP version, including asset hashes, ordinary/heavy/capped progression,
+replay, reduced motion and unchanged award outcomes. Renderer
+headless composition/resource regressions pass nine canvas tests using the
+existing protocol; these synthetic fixtures are not Game resource measurements.
+Before portrait admission, the tested Service Road battle/HUD/Results source
+union was 26 unique PNGs / 48,421,880 decoded bytes, below the unchanged 64 MiB
+budget. The expanded all-encounter residency check is recorded below.
+
+Silent macOS checks with the existing installed renderer inspected settled
+ordinary/heavy Primary, Level Up and Learned Ability frames made by the normal
+Game integration tests. They exposed and corrected low-contrast exterior hints
+and an unnecessary second stat page. All nine ordinary stats now fit together;
+unbounded content still pages. Confirmation text is centered independently of
+its selector, and level/stat changes use an arrow glyph; both were rechecked
+natively along with the final overlay-free battlefield. The silent test process
+closed successfully. These are composed-frame
+visual checks, not a completed real-battle playthrough or native input/animation
+acceptance. Browser Art approval does not establish those runtime gates.
+Andrew's subsequent gameplay recording exposed an unwanted `Returning` label
+swap at exit. The action now retains `Continue` throughout its locked fade;
+`Complete` remains the reveal action. Regression samples cover exit from all
+four Results stage types, unchanged label geometry, repeated-input rejection
+and overlay removal. The focused Results/terminal checks pass 27 tests / 359
+assertions on PHP 8.4 and 8.5.
+
+Andrew then requested a visual handover for `Complete` -> `Continue`. Shared
+playback now fades the entire button assembly out over 120 ms, leaves a 60 ms
+empty beat, and fades the incoming assembly in over 140 ms. Natural completion
+and explicit fast-completion use the same timeline. Confirm is ignored until
+the incoming action is fully visible; the old press cannot advance it. Captured
+reward facts and the surrounding panels are unchanged. Reduced motion switches
+directly to the stable label; terminal hides the action hint while input is
+locked rather than pretending to render alpha fades. The focused native action
+uses the already-admitted selected fill/border and separate cursor, stationary
+in reduced motion. The browser kit's additional FocusRing asset and other button
+states are not newly imported or wired by this correction.
+
+Updated Results/terminal checks pass 33 tests / 439 assertions on PHP 8.4 and 8.5,
+and normal Game Results/battle integration remains 64 tests / 4,953 assertions
+on both. PHPStan and whitespace checks pass. An isolated silent native check
+using the existing renderer and demonstration reward values inspected outgoing,
+empty and incoming button phases over the captured Game battlefield. It closed
+successfully; this is not a full real-battle/input acceptance playthrough.
+The full Engine suite was then rerun on PHP 8.5: 2,198 passed, one existing skip,
+13,011 assertions. Art completed the matching Results preview/spec in place
+(`output/results-ui-v1-20260916/package/Results-Review.html` in the Art workspace).
+Its 37 browser checks cover the handover, focus appearances, input locks and
+callback cleanup; the focus comparison was inspected by the coordinator.
+No new package variant or asset admission was needed, and all existing PNGs
+remain unchanged. Browser evidence does not replace the native boundaries above.
+
+Andrew approved the kit's focus distinction and explicitly answered "Approve the
+two-file integration" for Kaelion's Menu.png (512x512) and Dialogue/Neutral.png
+(768x960). After the whole-party scope was reconciled with Art, he answered
+"Approve six-file integration" for the same two families for Liora, Drazek and
+Seraphis. These separate approvals accept the unavailable packaging tool and
+absent explicit licence field only for their respective unchanged PNGs. The
+closed Art rosters passed 34/34 and 35/35 hash checks. Exact approvals, source
+hashes, provenance and import exceptions remain in Game's existing
+`tests/Fixtures/Rendering/battle-results-ui-v1.json`, separate from the eleven
+UI-image admission. All eight portraits are imported and mapped in the normal
+Game checkout. Primary uses menu art; Level Up/Learned Ability use the distinct
+neutral bust. Full-source contain preserves proportions and transparency; no
+extra resizing, mirroring, battle-sprite substitution or new build was used.
+
+Shared `CanvasImagePreflight` validates full decoded sources and prepared crops,
+including the native two-pixel guard on each edge. Canonical paths deduplicate
+sources, crop identity deduplicates regions, and opacity/clipping do not exclude
+referenced images. All catalog assets are still checked for invalid paths/crops;
+pre-entry budget checks distinguish battle/HUD, up to four consecutive Primary
+menu portraits, and one event bust. Both graphical fields and shared native UI
+over text fields use this boundary. Regression cases cover oversized catalogs
+that fit per page, invalid unused art, sliding Primary page windows, oversized
+concurrent sources, guarded-region overflow, and terminal asset independence.
+Current stage replacement has no portrait-family overlap; future crossfades
+must account for both stages. Per-snapshot source and region limits remain
+64 MiB independently, with 1024 sources and 4096 regions. Cache eviction drops
+cache ownership, not queued/displayed snapshot references: these are not
+total-live CPU/GPU memory ceilings or immediate page-boundary release guarantees.
+
+The whole catalog union is 77,690,200 decoded bytes and is deliberately not used
+as a concurrent-frame budget. Game checked 2,296 actual scene snapshots across
+all fourteen encounter contexts, normal/reduced motion, reserve formations,
+entry/hold/reveal/page/exit/return. Independent maxima were 54,887,260 source
+bytes, 47,568,300 guarded-region bytes, 16 sources and 50 regions. Game's scoped
+Results/battle suites pass 69 tests / 27,888 assertions on PHP 8.4 and 8.5,
+including identity after reordering, unknown/no-art fallback and unchanged
+outcomes. Engine's full PHP 8.5 suite passes 2,205 tests with one existing skip
+(13,055 assertions), using CI's 1 GiB test-memory setting; PHP 8.4 focused checks
+pass 93 tests / 828 assertions. Five changed runtime files pass scoped PHPStan;
+lint and whitespace checks pass. All nine Game saves, user configuration,
+narrative work and refs were preserved. No commits or publishing were performed.
+
+Silent native macOS inspection covered all eleven freshly exported normal-Game
+frames: ordinary/heavy Primary, each actor's Level Up and Learned Ability, and
+overlay-free return. All four menu portraits and four busts display with the
+correct identity and fit without clipping/stretching. Export SHA-256 was
+`cf7f63be19a697d6363fbe83be8308a027beb613e0113c2fddc2093740d36aa5`;
+the installed renderer remained unchanged. The isolated inspector initialized
+no game audio, save manager or user configuration. Both inspection processes
+closed with status 0, the final one explicitly after checking overlay removal;
+no test window remains open. This is native composed-frame evidence, not a new
+real-battle/input/motion acceptance playthrough.
+
+The broad Last Legend suite was not completed because of the unrelated
+180,000-battle simulation baseline. Linux/WSLg remains untested. The
+dark-player-on-dark-field issue is an art/background concern. This Results slice
+does not change the renderer protocol or binary, combat policy or save schema.

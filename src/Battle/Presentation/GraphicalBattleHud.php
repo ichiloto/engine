@@ -5,13 +5,13 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
-use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\UI\Accessibility;
 
 /** Composes owned, live battle windows. It never selects or evaluates commands. */
@@ -20,16 +20,9 @@ final class GraphicalBattleHud
   /** @return array<string, int> Decoded source costs, shared with arena preflight. */
   public static function preflight(BattleCanvasLayout $layout, string $assetRoot): array
   {
-    $assets = [];
-    foreach ([...($layout->skin?->textures ?? []), ...($layout->skin?->targetCursor?->textures ?? [])] as $texture) {
-      PngAssetPreflight::inspect($assetRoot, $texture->asset, $texture->source);
-      $size = PngAssetPreflight::inspect($assetRoot, $texture->asset);
-      $assets[$texture->asset] = $size['width'] * $size['height'] * 4;
-    }
-    if (array_sum($assets) > 67108864) {
-      throw new \RuntimeException('Battle UI PNG sources exceed the native 64 MiB decoded-image budget.');
-    }
-    return $assets;
+    return CanvasImagePreflight::inspect(CanvasImagePreflight::textures(array_values([
+      ...($layout->skin?->textures ?? []), ...($layout->skin?->targetCursor?->textures ?? []),
+    ])), $assetRoot)['sources'];
   }
 
   public static function compose(BattleCanvasLayout $arena, BattleHudSnapshot $hud, ?string $focus, float $now): PresentationCanvas
