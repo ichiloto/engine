@@ -188,6 +188,7 @@ path:
   'resultVariable' => 'training_result', // optional
   'defeatPolicy' => 'game_over',         // default; or continue
   'escapePolicy' => 'forbidden',         // optional; allowed or forbidden
+  'firstStrike' => 'normal',             // optional; normal, party, or troop
 ],
 ```
 
@@ -201,6 +202,26 @@ writes nothing.
 Victory rewards, quest tracking, achievements, bestiary recording, audio
 restoration, party cleanup, and persistent-state handling stay on the existing
 battle paths.
+
+`firstStrike` pins the opening for a scripted encounter: `normal` (or explicit
+`null`) disables advantage rolls, `party` forces a pre-emptive strike, and
+`troop` forces an ambush. Omission uses the project's opening chances. Both
+battle modes honor the same decision; the field does not make an additional
+roll. Traditional battles skip the surprised side's first round; ATB starts
+the favored side ready and the surprised side empty.
+
+In `Data/system.php`, configure these mode-independent chances under
+`battle.opening.preemptiveChancePercent` and `battle.opening.ambushChancePercent`
+(defaults 8 and 6; their sum must not exceed 100). Existing
+`battle.activeTime.surpriseAttackChancePercent` / `backAttackChancePercent`
+remain fallbacks for older projects; the shared settings take precedence.
+
+Normal ATB openings use a random gauge contribution (`openingVariance`, default
+70) plus a speed bonus (`openingSpeedFactorPercent`, default 50). The bonus is
+capped at 20 gauge points and the starting total at 90, preserving variation
+at high levels. Thereafter gauges reset to zero and refill at the existing
+speed-based rate. Ready battlers act in threshold-crossing order, with random
+ties, rather than being reordered by gauge overflow or a delayed frame.
 
 `escapePolicy` overrides the troop's optional policy for this launch. If both
 are omitted, escape remains allowed for backward compatibility. A forbidden

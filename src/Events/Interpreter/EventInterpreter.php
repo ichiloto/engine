@@ -528,6 +528,10 @@ class EventInterpreter
           }
         }
 
+        $firstStrike = array_key_exists('firstStrike', $command)
+          ? \Ichiloto\Engine\Battle\EncounterAdvantage::fromSetting($command['firstStrike'])->value
+          : null;
+
         $session->suspendLane($lane, $command, [
           'kind' => 'battle',
           'resultVariable' => trim(strval($command['resultVariable'] ?? '')),
@@ -538,6 +542,9 @@ class EventInterpreter
 
         if ($escapePolicy !== null) {
           $extraSettings['escapePolicy'] = $escapePolicy;
+        }
+        if ($firstStrike !== null) {
+          $extraSettings['firstStrike'] = $firstStrike;
         }
 
         $this->gameScene->sceneManager->loadBattleScene(

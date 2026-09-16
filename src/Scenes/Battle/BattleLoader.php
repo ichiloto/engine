@@ -66,7 +66,16 @@ class BattleLoader
     $settings = [
       'engine' => $systemData->getBattleEngineType()->value,
       'activeTime' => (array) $systemData->getActiveTimeSettings(),
+      'opening' => (array) $systemData->getOpeningSettings(),
     ];
+
+    // Per-encounter overrides outrank project defaults, including legacy ATB keys.
+    foreach (['surpriseAttackChancePercent' => 'preemptiveChancePercent', 'backAttackChancePercent' => 'ambushChancePercent'] as $legacy => $shared) {
+      if (array_key_exists($legacy, $extraSettings['activeTime'] ?? [])) {
+        $settings['opening'][$shared] = $extraSettings['activeTime'][$legacy];
+      }
+    }
+    $extraSettings['opening'] = array_replace($settings['opening'], $extraSettings['opening'] ?? []);
 
     // A troop that declares its own battle music (e.g. a boss theme)
     // overrides the project-wide battle theme for this encounter.

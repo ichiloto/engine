@@ -31,9 +31,6 @@ use Throwable;
  */
 class EncounterManager
 {
-  protected const int PREEMPTIVE_CHANCE_PERCENT = 5;
-  protected const int AMBUSH_CHANCE_PERCENT = 5;
-
   /**
    * @var array<string, int> Troop weights, keyed by troop name.
    */
@@ -148,16 +145,10 @@ class EncounterManager
       return;
     }
 
-    $firstStrike = match (true) {
-      rand(1, 100) <= self::PREEMPTIVE_CHANCE_PERCENT => 'party',
-      rand(1, 100) <= self::AMBUSH_CHANCE_PERCENT => 'troop',
-      default => null,
-    };
-
     $this->gameScene->sceneManager->loadBattleScene(
       $this->gameScene->party,
       $troop,
-      extraSettings: $this->presentationSettings + ($firstStrike !== null ? ['firstStrike' => $firstStrike] : [])
+      extraSettings: $this->presentationSettings
     );
   }
 

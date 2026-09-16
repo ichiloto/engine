@@ -65,6 +65,11 @@ class BattleCharacterNameWindowTargetingTestProxy extends BattleCharacterNameWin
 
 class BattleCharacterStatusWindowTargetingTestProxy extends BattleCharacterStatusWindow
 {
+  public function updateContent(): void
+  {
+    // These tests exercise state transitions, not terminal painting.
+  }
+
   public function setAtbPercentages(array $atbPercentages): void
   {
     // Skip terminal rendering for active-time flow tests.
@@ -273,6 +278,33 @@ function createTargetingTestScreen(): BattleScreenTargetingTestProxy
 
   return $screen;
 }
+
+it('applies shared opening advantages only to the traditional first round', function (string $opening) {
+  $game = (new ReflectionClass(GameTargetingTestProxy::class))->newInstanceWithoutConstructor();
+  $screen = createTargetingTestScreen();
+  $party = new Party();
+  $hero = new Character('Hero', 1, new Stats(currentHp: 100, speed: 7));
+  $party->addMember($hero);
+  $enemy = createTargetingTestEnemy('Enemy');
+  $troop = new Troop('Test', [$enemy]);
+  $engine = new class($game) extends TraditionalTurnBasedBattleEngine {
+    public function setState(\Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnState $state): void
+    {
+      $this->state = $state;
+    }
+  };
+  $engine->configure(new TurnBasedBattleConfig($party, $troop, $screen, settings: ['opening' => [
+    'preemptiveChancePercent' => $opening === 'party' ? 100 : 0,
+    'ambushChancePercent' => $opening === 'troop' ? 100 : 0,
+  ]]));
+  $context = new TurnStateExecutionContext($game, $party, $troop, $screen, []);
+  $state = $engine->turnInitState;
+  $state->update($context);
+  $turnActors = fn() => array_map(fn($turn) => $turn->battler, $context->getTurns());
+  expect($turnActors())->toBe($opening === 'party' ? [$hero] : [$enemy]);
+  $state->update($context);
+  expect($turnActors())->toHaveCount(2)->toContain($hero, $enemy);
+})->with(['party', 'troop']);
 
 it('keeps authored enemy formations out of the player-party render zone', function () {
   $fieldWindow = (new ReflectionClass(BattleFieldWindowTargetingTestProxy::class))->newInstanceWithoutConstructor();

@@ -194,8 +194,10 @@ A pure consumer of Phase 1:
 > Howl). **Random encounters**: maps opt in with an `encounters` block
 > (weighted troop table + step rate); `EncounterManager` burns a
 > randomized step counter on ENCOUNTER tiles (or every tile via
-> `'tiles' => 'any'`), with 5% preemptive-strike and 5% ambush rolls that
-> drop the surprised side's opening-round turns, and
+> `'tiles' => 'any'`). Battle opening now uses one shared, configurable
+> pre-emptive/ambush decision (defaults 8%/6%); see
+> [battle opening settings](story-events.md). Traditional battles drop the
+> surprised side's opening-round turns. The
 > `encounterRateMultiplier` as the repel/lure hook (demo: the overworld's
 > grass). **Level-up beat**: victory now reports each member's new level
 > and any `CharacterRole::$skillsToLearn` grants crossed this battle

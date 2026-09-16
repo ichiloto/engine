@@ -55,10 +55,10 @@ class BattleRunState extends BattleSceneState
         strval($activeTimeSettings['mode'] ?? 'wait'),
         max(1.0, floatval($activeTimeSettings['baseFillRate'] ?? 35)),
         max(0.0, floatval($activeTimeSettings['speedFactorPercent'] ?? 100)) / 100,
-        max(0.0, floatval($activeTimeSettings['openingVariance'] ?? 24)),
-        max(0.0, floatval($activeTimeSettings['openingSpeedFactorPercent'] ?? 250)) / 100,
-        min(100, max(0, intval($activeTimeSettings['surpriseAttackChancePercent'] ?? 8))),
-        min(100, max(0, intval($activeTimeSettings['backAttackChancePercent'] ?? 6))),
+        max(0.0, floatval($activeTimeSettings['openingVariance'] ?? ActiveTimeBattleConfig::DEFAULT_OPENING_VARIANCE)),
+        max(0.0, floatval($activeTimeSettings['openingSpeedFactorPercent'] ?? ActiveTimeBattleConfig::DEFAULT_OPENING_SPEED_FACTOR * 100)) / 100,
+        min(100, max(0, intval($settings['opening']['preemptiveChancePercent'] ?? $activeTimeSettings['surpriseAttackChancePercent'] ?? 8))),
+        min(100, max(0, intval($settings['opening']['ambushChancePercent'] ?? $activeTimeSettings['backAttackChancePercent'] ?? 6))),
         $settings,
       ));
     } else {

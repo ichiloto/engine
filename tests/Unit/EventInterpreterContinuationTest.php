@@ -1407,6 +1407,7 @@ it('suspends for battle and resumes later commands with an optional result varia
         'resultVariable' => 'last_battle_result',
         'defeatPolicy' => 'continue',
         'battleArena' => 'arena.training-yard',
+        'firstStrike' => 'party',
       ],
       ['type' => 'set_switch', 'name' => 'after_battle', 'value' => true],
     ]);
@@ -1417,6 +1418,7 @@ it('suspends for battle and resumes later commands with an optional result varia
       ->and($scene->testSceneManager->lastTroop?->name)->toBe('Technical Troop')
       ->and($scene->testSceneManager->lastBattleSettings['event_defeat_policy'])->toBe('continue')
       ->and($scene->testSceneManager->lastBattleSettings['battleArena'])->toBe('arena.training-yard')
+      ->and($scene->testSceneManager->lastBattleSettings['firstStrike'])->toBe('party')
       ->and($scene->gameState->getSwitch('after_battle'))->toBeFalse();
 
     $scene->resumeEventAfterBattle(new BattleResult('Victory', []));
@@ -1435,6 +1437,7 @@ it('suspends for battle and resumes later commands with an optional result varia
         'troop' => 'Technical Troop',
         'resultVariable' => 'scripted_defeat_result',
         'defeatPolicy' => 'continue',
+        'firstStrike' => null,
       ],
       ['type' => 'set_switch', 'name' => 'continued_after_defeat', 'value' => true],
     ]);
@@ -1443,12 +1446,21 @@ it('suspends for battle and resumes later commands with an optional result varia
 
     expect($defeatSession?->status)->toBe(EventExecutionStatus::COMPLETED)
       ->and($defeatScene->testSceneManager->lastBattleSettings)->not->toHaveKey('battleArena')
+      ->and($defeatScene->testSceneManager->lastBattleSettings['firstStrike'])->toBe('normal')
       ->and($defeatScene->gameState->getVariable('scripted_defeat_result'))->toBe('defeat')
       ->and($defeatScene->gameState->getSwitch('continued_after_defeat'))->toBeTrue();
   } finally {
     ConfigStore::remove(EnemyStore::class);
     chdir($previousDirectory);
   }
+});
+
+it('rejects an invalid scripted opening before launching a battle', function () {
+  [$scene, $interpreter] = makeEventRuntime();
+  $session = $interpreter->run([['type' => 'start_battle', 'troop' => 'Technical Troop', 'firstStrike' => 'typo']]);
+  expect($session?->status)->toBe(EventExecutionStatus::FAILED)
+    ->and($session?->failureMessage)->toContain('firstStrike must be')
+    ->and($scene->testSceneManager->battleCount)->toBe(0);
 });
 
 it('forwards map encounter arenas and clears their binding when maps change', function () {
@@ -1466,7 +1478,7 @@ it('forwards map encounter arenas and clears their binding when maps change', fu
     $map = ['troops' => ['Technical Troop' => 1], 'rate' => 12];
     $manager->configure($map + ['battleArena' => 'arena.road']);
     $manager->trigger();
-    expect($scene->testSceneManager->lastBattleSettings['battleArena'])->toBe('arena.road');
+    expect($scene->testSceneManager->lastBattleSettings)->toBe(['battleArena' => 'arena.road']);
     $manager->configure($map + ['battleArena' => 'arena.yard']);
     $manager->trigger();
     expect($scene->testSceneManager->lastBattleSettings['battleArena'])->toBe('arena.yard');
