@@ -16,6 +16,7 @@ use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Battle\BattleAction;
 use Ichiloto\Engine\Battle\BattleCommandCatalog;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnExecutionContext;
+use Ichiloto\Engine\Battle\Presentation\BattleFeedbackRole;
 use Ichiloto\Engine\Battle\Resolution\CombatTargetResult;
 use Ichiloto\Engine\Battle\Resolution\CombatResolver;
 use Ichiloto\Engine\Battle\Resolution\ElementalOutcome;
@@ -789,7 +790,8 @@ class ActionExecutionState extends TurnState
           $previousMp,
           $results[$index] ?? null,
         ),
-        clearExisting: $index === 0
+        clearExisting: $index === 0,
+        durationSeconds: $delaySeconds,
       );
     }
 
@@ -821,7 +823,8 @@ class ActionExecutionState extends TurnState
     $context->ui->hideMessage();
     $context->ui->fieldWindow->showStatChangePopup(
       $target,
-      $this->buildStatChangePopupLines($target, $previousHp, $previousMp)
+      $this->buildStatChangePopupLines($target, $previousHp, $previousMp),
+      durationSeconds: $delaySeconds,
     );
     $context->ui->refresh();
     $this->pause($delaySeconds);
@@ -835,7 +838,7 @@ class ActionExecutionState extends TurnState
    * @param CharacterInterface $target The action target.
    * @param int $previousHp The target HP before the action.
    * @param int $previousMp The target MP before the action.
-   * @return array<int, array{text: string, color: Color}> The popup lines to render.
+   * @return list<array{text: string, color: Color, role?: BattleFeedbackRole}> The popup lines to render.
    */
   protected function buildStatChangePopupLines(
     CharacterInterface $target,
@@ -850,17 +853,17 @@ class ActionExecutionState extends TurnState
     $hpRestored = $result?->actualHpRestored() ?? max(0, $target->stats->currentHp - $previousHp);
 
     if ($hpLost > 0) {
-      $lines[] = ['text' => strval($hpLost), 'color' => Color::LIGHT_RED];
+      $lines[] = ['text' => strval($hpLost), 'color' => Color::LIGHT_RED, 'role' => BattleFeedbackRole::DAMAGE];
     }
 
     if ($hpRestored > 0) {
-      $lines[] = ['text' => '+' . $hpRestored, 'color' => Color::LIGHT_GREEN];
+      $lines[] = ['text' => '+' . $hpRestored, 'color' => Color::LIGHT_GREEN, 'role' => BattleFeedbackRole::HEAL];
     }
 
     if ($mpDelta < 0) {
-      $lines[] = ['text' => '-' . abs($mpDelta) . ' MP', 'color' => Color::LIGHT_CYAN];
+      $lines[] = ['text' => '-' . abs($mpDelta) . ' MP', 'color' => Color::LIGHT_CYAN, 'role' => BattleFeedbackRole::MP_LOSS];
     } elseif ($mpDelta > 0) {
-      $lines[] = ['text' => '+' . $mpDelta . ' MP', 'color' => Color::LIGHT_CYAN];
+      $lines[] = ['text' => '+' . $mpDelta . ' MP', 'color' => Color::LIGHT_CYAN, 'role' => BattleFeedbackRole::MP_GAIN];
     }
 
     $critical = $result !== null
@@ -868,12 +871,28 @@ class ActionExecutionState extends TurnState
       : ($target->lastHitWasCritical ?? false);
 
     if ($critical) {
-      array_unshift($lines, ['text' => 'CRITICAL', 'color' => Color::YELLOW]);
+      array_unshift($lines, ['text' => 'CRITICAL', 'color' => Color::YELLOW, 'role' => BattleFeedbackRole::CRITICAL]);
       $target->lastHitWasCritical = false;
     }
 
-    $reaction = $result !== null
+    // The legacy path stores semantic outcome flags as strings; adapt them here only.
+    $reactionOutcome = $result !== null
       ? $this->resolveElementalReaction($result)
+      : match ($target->lastElementReaction ?? null) {
+        'WEAK!' => ElementalOutcome::WEAK,
+        'RESIST' => ElementalOutcome::RESIST,
+        'NULL' => ElementalOutcome::NULL,
+        'ABSORB' => ElementalOutcome::ABSORB,
+        default => null,
+      };
+    $reaction = $result !== null
+      ? match ($reactionOutcome) {
+        ElementalOutcome::WEAK => 'WEAK!',
+        ElementalOutcome::RESIST => 'RESIST',
+        ElementalOutcome::NULL => 'NULL',
+        ElementalOutcome::ABSORB => 'ABSORB',
+        default => null,
+      }
       : ($target->lastElementReaction ?? null);
 
     if ($reaction !== null) {
@@ -882,20 +901,31 @@ class ActionExecutionState extends TurnState
         'ABSORB' => Color::LIGHT_GREEN,
         default => Color::LIGHT_CYAN,
       };
-      array_unshift($lines, ['text' => $reaction, 'color' => $reactionColor]);
+      $reactionRole = match ($reactionOutcome) {
+        ElementalOutcome::WEAK => BattleFeedbackRole::WEAK,
+        ElementalOutcome::RESIST => BattleFeedbackRole::RESIST,
+        ElementalOutcome::NULL => BattleFeedbackRole::NULL,
+        ElementalOutcome::ABSORB => BattleFeedbackRole::ABSORB,
+        default => null,
+      };
+      $reactionLine = ['text' => $reaction, 'color' => $reactionColor];
+      if ($reactionRole !== null) {
+        $reactionLine['role'] = $reactionRole;
+      }
+      array_unshift($lines, $reactionLine);
       $target->lastElementReaction = null;
     }
 
     if ($target->isKnockedOut) {
-      $lines[] = ['text' => 'KO', 'color' => Color::YELLOW];
+      $lines[] = ['text' => 'KO', 'color' => Color::YELLOW, 'role' => BattleFeedbackRole::KO];
     }
 
     if (empty($lines) && $result === null) {
-      $lines[] = ['text' => 'MISS', 'color' => Color::WHITE];
+      $lines[] = ['text' => 'MISS', 'color' => Color::WHITE, 'role' => BattleFeedbackRole::MISS];
     } elseif (empty($lines) && array_any($result->hits, static fn($hit): bool => ! $hit->hit)) {
-      $lines[] = ['text' => 'MISS', 'color' => Color::WHITE];
+      $lines[] = ['text' => 'MISS', 'color' => Color::WHITE, 'role' => BattleFeedbackRole::MISS];
     } elseif (empty($lines) && $result->hits !== []) {
-      $lines[] = ['text' => '0', 'color' => Color::WHITE];
+      $lines[] = ['text' => '0', 'color' => Color::WHITE, 'role' => BattleFeedbackRole::ZERO];
     }
 
     return $lines;
@@ -904,16 +934,16 @@ class ActionExecutionState extends TurnState
   /**
    * Resolves the highest-priority elemental feedback from typed hit results.
    */
-  protected function resolveElementalReaction(CombatTargetResult $result): ?string
+  protected function resolveElementalReaction(CombatTargetResult $result): ?ElementalOutcome
   {
     foreach ([
-      [ElementalOutcome::ABSORB, 'ABSORB'],
-      [ElementalOutcome::NULL, 'NULL'],
-      [ElementalOutcome::WEAK, 'WEAK!'],
-      [ElementalOutcome::RESIST, 'RESIST'],
-    ] as [$outcome, $label]) {
+      ElementalOutcome::ABSORB,
+      ElementalOutcome::NULL,
+      ElementalOutcome::WEAK,
+      ElementalOutcome::RESIST,
+    ] as $outcome) {
       if (array_any($result->hits, static fn($hit): bool => $hit->elementalOutcome === $outcome)) {
-        return $label;
+        return $outcome;
       }
     }
 

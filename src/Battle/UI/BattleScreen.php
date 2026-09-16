@@ -126,6 +126,7 @@ class BattleScreen implements CanRender, CanUpdate
    * @var bool Whether the info panel is visible.
    */
   protected bool $isMessageVisible = false;
+  private bool $controlsVisible = false;
   /**
    * @var Camera The camera.
    */
@@ -186,6 +187,7 @@ class BattleScreen implements CanRender, CanUpdate
    */
   public function hideControls(): void
   {
+    $this->controlsVisible = false;
     $this->commandWindow->erase();
     $this->commandContextWindow->erase();
     $this->characterNameWindow->erase();
@@ -199,6 +201,7 @@ class BattleScreen implements CanRender, CanUpdate
    */
   public function showControls(): void
   {
+    $this->controlsVisible = true;
     $this->commandWindow->render();
     $this->commandContextWindow->render();
     $this->characterNameWindow->render();
@@ -304,6 +307,23 @@ class BattleScreen implements CanRender, CanUpdate
   public function getPacing(): BattlePacing
   {
     return $this->pacing;
+  }
+
+  public function usesGraphicalField(): bool
+  {
+    return isset($this->battleScene) && $this->battleScene->graphicalPresentation !== null;
+  }
+
+  /** Only these owned windows may supply the temporary graphical UI. */
+  public function presentationWindows(): array
+  {
+    $windows = $this->controlsVisible
+      ? [$this->commandWindow, $this->commandContextWindow, $this->characterNameWindow, $this->characterStatusWindow] : [];
+    if ($this->isMessageVisible) { $windows[] = $this->messageWindow; }
+    if ($this->battleScene->result !== null && $this->battleScene->resultWindow !== null) {
+      $windows[] = $this->battleScene->resultWindow;
+    }
+    return $windows;
   }
 
   /**

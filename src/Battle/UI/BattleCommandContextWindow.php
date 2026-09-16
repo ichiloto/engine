@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\Battle\UI;
 
 use Ichiloto\Engine\Battle\BattleCommandOption;
+use Ichiloto\Engine\Battle\Presentation\BattleHudListSnapshot;
+use Ichiloto\Engine\Battle\Presentation\BattleHudRow;
 use Ichiloto\Engine\Core\Interfaces\CanChangeSelection;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\Console\TerminalText;
@@ -133,6 +135,26 @@ class BattleCommandContextWindow extends Window implements CanFocus, CanChangeSe
   public function getEmptyMessage(): string
   {
     return $this->emptyMessage;
+  }
+
+  /** Copies authored labels (including costs) and the existing affordability decision. */
+  public function presentationSnapshot(): BattleHudListSnapshot
+  {
+    $visibleRowCount = $this->getVisibleRowCount();
+    $rows = [];
+    foreach (array_slice($this->items, $this->scrollOffset, $visibleRowCount, true) as $index => $item) {
+      $rows[] = new BattleHudRow(
+        $index, $item->label, $this->activeIndex === $index, $this->isAffordable($item),
+        $item->description, $item->mpCost,
+      );
+    }
+    [$currentPage, $totalPages] = $this->getPagination();
+
+    return new BattleHudListSnapshot(
+      $this->title, $this->help, $rows, $this->activeIndex, $this->scrollOffset,
+      $visibleRowCount, count($this->items), $currentPage, $totalPages,
+      $this->hasItems() ? '' : $this->emptyMessage,
+    );
   }
 
   /**
@@ -302,16 +324,24 @@ class BattleCommandContextWindow extends Window implements CanFocus, CanChangeSe
    */
   protected function updateTitle(): void
   {
-    $visibleRowCount = max(1, $this->getVisibleRowCount());
-    $totalPages = max(1, (int)ceil(count($this->items) / $visibleRowCount));
-    $currentPage = $this->activeIndex < 0
-      ? 1
-      : max(1, (int)floor($this->activeIndex / $visibleRowCount) + 1);
+    [$currentPage, $totalPages] = $this->getPagination();
 
     $this->setTitle(
       $totalPages > 1 && $this->titleBase !== ''
         ? sprintf('%s %d/%d', $this->titleBase, $currentPage, $totalPages)
         : $this->titleBase
     );
+  }
+
+  /** @return array{int, int} Current page and page count used by the window title. */
+  protected function getPagination(): array
+  {
+    $visibleRowCount = max(1, $this->getVisibleRowCount());
+    $totalPages = max(1, (int)ceil(count($this->items) / $visibleRowCount));
+    $currentPage = $this->activeIndex < 0
+      ? 1
+      : max(1, (int)floor($this->activeIndex / $visibleRowCount) + 1);
+
+    return [$currentPage, $totalPages];
   }
 }

@@ -8,6 +8,9 @@ final readonly class RendererSessionConfig
 {
   public const string SPRITE_SOURCE_RECT = 'sprite_source_rect';
   public const string TILE_BATCHES = 'tile_batches';
+  public const string GRAPHICAL_CANVAS = 'graphical_canvas';
+  public const string CANVAS_CLIP_OPACITY = 'canvas_clip_opacity';
+  public const string CANVAS_GLYPH_EFFECTS = 'canvas_glyph_effects';
   public string $assetRoot;
 
   /** @param list<string> $requiredCapabilities */
@@ -20,11 +23,15 @@ final readonly class RendererSessionConfig
   )
   {
     $allowed = $protocol === RendererProtocolVersion::V2
-      ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES] : [self::SPRITE_SOURCE_RECT];
+      ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_CLIP_OPACITY, self::CANVAS_GLYPH_EFFECTS] : [self::SPRITE_SOURCE_RECT];
     foreach ($requiredCapabilities as $capability) {
       if (!in_array($capability, $allowed, true)) {
         throw new InvalidArgumentException('Unsupported renderer capability for this protocol.');
       }
+    }
+    if ((in_array(self::CANVAS_CLIP_OPACITY, $requiredCapabilities, true) || in_array(self::CANVAS_GLYPH_EFFECTS, $requiredCapabilities, true))
+      && !in_array(self::GRAPHICAL_CANVAS, $requiredCapabilities, true)) {
+      throw new InvalidArgumentException('Canvas compositing capabilities require graphical_canvas.');
     }
     if (!array_is_list($requiredCapabilities) || count(array_unique($requiredCapabilities)) !== count($requiredCapabilities)) {
       throw new InvalidArgumentException('Renderer required capabilities must be a unique list of supported capability names.');

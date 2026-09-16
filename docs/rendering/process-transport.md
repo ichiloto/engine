@@ -43,6 +43,15 @@ The transport deliberately supports POSIX process pipes (Linux/WSL and macOS).
 Native Windows anonymous-pipe selection is not supported; startup fails explicitly.
 No extension beyond normal PHP process/stream support is required.
 
+This is a PHP transport limitation, not a GPUI window-platform restriction:
+PHP documents that [`stream_select()` fails on `proc_open()` descriptors on
+Windows](https://www.php.net/manual/en/function.stream-select.php#refsect1-function.stream-select-notes).
+Removing the startup guard would leave a broken I/O loop. Native Windows needs
+a transport that preserves bounded, nonblocking reads/writes and cleanup on that
+platform. WSL/WSLg runs the POSIX path with Linux PHP and a Linux renderer; it does
+not require the native Windows pipe implementation. Actual Linux/WSLg execution
+remains untested in the macOS G1 validation.
+
 ## Lifecycle
 
 `RendererMessage`, `RendererEvent` and `RendererSessionConfig` retain their

@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Battle\UI;
 
+use Ichiloto\Engine\Battle\Presentation\BattleHudStatusRow;
+use Ichiloto\Engine\Battle\Presentation\BattleHudStatusSnapshot;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\IO\Console\TerminalText;
@@ -108,6 +110,18 @@ class BattleCharacterStatusWindow extends Window
     $this->updateContent();
   }
 
+  /** Reads current effective vitals, not the last rendered progress-bar strings. */
+  public function presentationSnapshot(): BattleHudStatusSnapshot
+  {
+    $rows = [];
+    $showAtb = $this->usesAtbLayout();
+    foreach ($this->characters as $index => $character) {
+      $rows[] = $this->snapshotRow($index, $character, $showAtb ? ($this->atbPercentages[$index] ?? 0.0) : null);
+    }
+
+    return new BattleHudStatusSnapshot($this->title, $this->help, $rows, self::MAX_VISIBLE_CHARACTERS);
+  }
+
   /**
    * Updates the content of the window.
    *
@@ -141,18 +155,17 @@ class BattleCharacterStatusWindow extends Window
    */
   public function formatCharacterStats(Character $character, ?float $atbPercentage = null): string
   {
-    $hpTotal = max(1, $character->effectiveStats->totalHp);
-    $mpTotal = max(1, $character->effectiveStats->totalMp);
-    $hpPercentage = $character->effectiveStats->currentHp / $hpTotal;
-    $mpPercentage = $character->effectiveStats->currentMp / $mpTotal;
+    $row = $this->snapshotRow(0, $character, $atbPercentage);
+    $hpPercentage = $row->hpRatio;
+    $mpPercentage = $row->mpRatio;
 
     if ($atbPercentage !== null) {
       return TerminalText::padRight(implode('', [
-        TerminalText::padLeft(strval($character->effectiveStats->currentHp), self::HP_VALUE_WIDTH),
+        TerminalText::padLeft(strval($row->currentHp), self::HP_VALUE_WIDTH),
         str_repeat(' ', self::COLUMN_GAP),
         $this->createProgressBar(self::COMPACT_HP_BAR_UNITS, $hpPercentage)->getRender(),
         str_repeat(' ', self::COLUMN_GAP),
-        TerminalText::padLeft(strval($character->effectiveStats->currentMp), self::MP_VALUE_WIDTH),
+        TerminalText::padLeft(strval($row->currentMp), self::MP_VALUE_WIDTH),
         str_repeat(' ', self::COLUMN_GAP),
         $this->createProgressBar(self::COMPACT_BAR_UNITS, $mpPercentage)->getRender(),
         str_repeat(' ', self::COLUMN_GAP),
@@ -161,14 +174,23 @@ class BattleCharacterStatusWindow extends Window
     }
 
     return TerminalText::padRight(implode('', [
-      TerminalText::padLeft(strval($character->effectiveStats->currentHp), self::HP_VALUE_WIDTH),
+      TerminalText::padLeft(strval($row->currentHp), self::HP_VALUE_WIDTH),
       str_repeat(' ', self::COLUMN_GAP),
       $this->createProgressBar(self::HP_BAR_UNITS, $hpPercentage)->getRender(),
       str_repeat(' ', self::INTER_STAT_GAP),
-      TerminalText::padLeft(strval($character->effectiveStats->currentMp), self::MP_VALUE_WIDTH),
+      TerminalText::padLeft(strval($row->currentMp), self::MP_VALUE_WIDTH),
       str_repeat(' ', self::COLUMN_GAP),
       $this->createProgressBar(self::MP_BAR_UNITS, $mpPercentage)->getRender(),
     ]), self::CONTENT_WIDTH);
+  }
+
+  private function snapshotRow(int $index, Character $character, ?float $atbPercentage): BattleHudStatusRow
+  {
+    $stats = $character->effectiveStats;
+
+    return new BattleHudStatusRow(
+      $index, $stats->currentHp, $stats->totalHp, $stats->currentMp, $stats->totalMp, $atbPercentage,
+    );
   }
 
   /**

@@ -1,0 +1,1 @@
+{"protocol":2,"type":"hello","title":"Canvas clipping and opacity (silent)","assetRoot":"/replace-with-fixtures-root","grid":{"columns":40,"rows":20,"cellWidth":8,"cellHeight":16},"requiredCapabilities":["canvas_clip_opacity"]}

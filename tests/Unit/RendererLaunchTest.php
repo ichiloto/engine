@@ -120,16 +120,24 @@ it('rejects unknown and duplicate renderer identities', function () {
     ]))->toThrow(InvalidArgumentException::class, 'Duplicate renderer ID');
 });
 
-it('resolves only an executable packaged for the requested platform', function () {
-  $executable = $this->temporary . '/renderer with spaces';
-  file_put_contents($executable, '#!/bin/sh');
-  chmod($executable, 0755);
+it('selects the matching installed platform without falling back to another binary', function (string $platform) {
+  // These are manifest-lookup fixtures, not runnable cross-platform binaries.
+  $platforms = [];
+  foreach (['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'windows-arm64', 'windows-x64'] as $id) {
+    $platforms[$id] = 'renderer with spaces-' . $id . '.exe';
+    file_put_contents($this->temporary . '/' . $platforms[$id], '#!/bin/sh');
+    chmod($this->temporary . '/' . $platforms[$id], 0755);
+  }
   $manifest = $this->temporary . '/manifest.json';
-  file_put_contents($manifest, json_encode(['version' => 1, 'renderers' => ['gpui' => ['darwin-arm64' => basename($executable)]]]));
-  expect((new PackagedRendererExecutableResolver($manifest, 'darwin-arm64'))->resolve('gpui'))->toBe(realpath($executable))
-    ->and(fn() => (new PackagedRendererExecutableResolver($manifest, 'linux-x64'))->resolve('gpui'))
-    ->toThrow(RendererUnavailableException::class, 'GPUI renderer is not available for this installation/platform (linux-x64)');
-});
+  file_put_contents($manifest, json_encode(['version' => 1, 'renderers' => ['gpui' => $platforms]]));
+  $resolver = new PackagedRendererExecutableResolver($manifest, $platform);
+  expect($resolver->resolve('gpui'))->toBe(realpath($this->temporary . '/' . $platforms[$platform]));
+
+  unset($platforms[$platform]);
+  file_put_contents($manifest, json_encode(['version' => 1, 'renderers' => ['gpui' => $platforms]]));
+  expect(fn() => $resolver->resolve('gpui'))->toThrow(RendererUnavailableException::class,
+    'GPUI renderer is not available for this installation/platform (' . $platform . ')');
+})->with(['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'windows-arm64', 'windows-x64']);
 
 it('fails clearly for missing malformed or unusable installed manifests', function (?string $contents) {
   $manifest = $this->temporary . '/manifest.json';

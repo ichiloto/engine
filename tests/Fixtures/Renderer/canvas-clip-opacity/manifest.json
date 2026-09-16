@@ -1,0 +1,346 @@
+{
+  "description": "Independent canvas_clip_opacity contract. Patch hello assetRoot to the parent fixtures directory. Default capabilities are listed below; cases may override. Original graphical-canvas corpus is unchanged.",
+  "capabilities": [
+    "graphical_canvas",
+    "sprite_source_rect",
+    "canvas_clip_opacity"
+  ],
+  "cases": [
+    {
+      "file": "hello.json",
+      "stage": "accept"
+    },
+    {
+      "file": "invalid-hello-v1.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-hello-missing-base.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-hello-duplicate.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-hello-unknown.json",
+      "stage": "schema"
+    },
+    {
+      "file": "valid-omitted.json",
+      "stage": "accept",
+      "capabilities": [
+        "graphical_canvas",
+        "sprite_source_rect"
+      ]
+    },
+    {
+      "file": "valid-image-partial.json",
+      "stage": "accept"
+    },
+    {
+      "file": "valid-image-full.json",
+      "stage": "accept"
+    },
+    {
+      "file": "valid-image-disjoint.json",
+      "stage": "accept"
+    },
+    {
+      "file": "valid-image-touching.json",
+      "stage": "accept"
+    },
+    {
+      "file": "unnegotiated-image-clip.json",
+      "stage": "session",
+      "capabilities": [
+        "graphical_canvas",
+        "sprite_source_rect"
+      ]
+    },
+    {
+      "file": "invalid-image-clip-null.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-image-clip-array.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-image-clip-string.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-image-clip-bool.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-image-clip-empty.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-image-clip-unknown-member.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-image-clip-negative-x.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-image-clip-negative-y.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-image-clip-zero-width.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-image-clip-zero-height.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-image-clip-negative-width.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-image-clip-outside-right.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-image-clip-outside-bottom.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-image-clip-string-width.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-image-clip-null-x.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-image-clip-missing-height.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-image-withdrawn-clip-name.json",
+      "stage": "schema"
+    },
+    {
+      "file": "valid-text-partial.json",
+      "stage": "accept"
+    },
+    {
+      "file": "valid-text-full.json",
+      "stage": "accept"
+    },
+    {
+      "file": "valid-text-disjoint.json",
+      "stage": "accept"
+    },
+    {
+      "file": "valid-text-touching.json",
+      "stage": "accept"
+    },
+    {
+      "file": "unnegotiated-text-clip.json",
+      "stage": "session",
+      "capabilities": [
+        "graphical_canvas",
+        "sprite_source_rect"
+      ]
+    },
+    {
+      "file": "invalid-text-clip-null.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-text-clip-array.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-text-clip-string.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-text-clip-bool.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-text-clip-empty.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-text-clip-unknown-member.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-text-clip-negative-x.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-text-clip-negative-y.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-text-clip-zero-width.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-text-clip-zero-height.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-text-clip-negative-width.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-text-clip-outside-right.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-text-clip-outside-bottom.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-text-clip-string-width.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-text-clip-null-x.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-text-clip-missing-height.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-text-withdrawn-clip-name.json",
+      "stage": "schema"
+    },
+    {
+      "file": "valid-text-opacity-0.json",
+      "stage": "accept"
+    },
+    {
+      "file": "unnegotiated-text-opacity-0.json",
+      "stage": "session",
+      "capabilities": [
+        "graphical_canvas",
+        "sprite_source_rect"
+      ]
+    },
+    {
+      "file": "valid-existing-image-opacity-0.json",
+      "stage": "accept",
+      "capabilities": [
+        "graphical_canvas",
+        "sprite_source_rect"
+      ]
+    },
+    {
+      "file": "valid-text-opacity-0-5.json",
+      "stage": "accept"
+    },
+    {
+      "file": "unnegotiated-text-opacity-0-5.json",
+      "stage": "session",
+      "capabilities": [
+        "graphical_canvas",
+        "sprite_source_rect"
+      ]
+    },
+    {
+      "file": "valid-existing-image-opacity-0-5.json",
+      "stage": "accept",
+      "capabilities": [
+        "graphical_canvas",
+        "sprite_source_rect"
+      ]
+    },
+    {
+      "file": "valid-text-opacity-1.json",
+      "stage": "accept"
+    },
+    {
+      "file": "unnegotiated-text-opacity-1.json",
+      "stage": "session",
+      "capabilities": [
+        "graphical_canvas",
+        "sprite_source_rect"
+      ]
+    },
+    {
+      "file": "valid-existing-image-opacity-1.json",
+      "stage": "accept",
+      "capabilities": [
+        "graphical_canvas",
+        "sprite_source_rect"
+      ]
+    },
+    {
+      "file": "invalid-text-opacity-null.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-text-opacity-negative.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-text-opacity-above-one.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-text-opacity-bool.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-text-opacity-string.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-text-opacity-array.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-text-opacity-object.json",
+      "stage": "schema"
+    },
+    {
+      "file": "valid-combined.json",
+      "stage": "accept"
+    },
+    {
+      "file": "invalid-clip-does-not-relax-destination.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-clip-does-not-relax-text-grid.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-clip-does-not-relax-text-run.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-hidden-source-still-validated.json",
+      "stage": "preparation"
+    },
+    {
+      "file": "invalid-hidden-asset-still-validated.json",
+      "stage": "preparation"
+    },
+    {
+      "file": "valid-clear-empty.json",
+      "stage": "accept"
+    },
+    {
+      "file": "valid-clear-omitted.json",
+      "stage": "accept"
+    },
+    {
+      "file": "invalid-legacy-opacity.json",
+      "stage": "schema"
+    }
+  ]
+}

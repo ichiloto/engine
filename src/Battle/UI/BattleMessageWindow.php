@@ -43,6 +43,12 @@ class BattleMessageWindow extends Window
     $this->erase();
   }
 
+  /** The stored content is the authored text split into lines, not a terminal render. */
+  public function presentationSnapshot(): string
+  {
+    return implode("\n", $this->content);
+  }
+
   /**
    * Sets the text of the window.
    *

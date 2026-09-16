@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Rendering\Presentation;
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\IO\Console\ConsoleFrameSnapshot;
 use Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\RendererClient;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererMessage;
@@ -52,6 +53,35 @@ final class RendererPresentation
       ? new StyledPresentationFrame($number, $snapshot->textLayers, $sprites, $tileBatches)->toRendererMessage()
       : new PresentationFrame($number, $snapshot->rows, $sprites)->toRendererMessage();
     LatencyTrace::end('presentation.message', $preparation);
+    return $this->queue($message);
+  }
+
+  /** Graphical frames do not require a Console snapshot or use its cell dimensions. */
+  public function presentCanvas(PresentationCanvas $canvas): bool
+  {
+    if (!$this->client->supports(RendererSessionConfig::GRAPHICAL_CANVAS)) {
+      throw new RendererProtocolException('Canvas presentation requires negotiated graphical_canvas support.');
+    }
+    foreach ($canvas->images as $image) {
+      if ($image->sourceRect !== null && !$this->client->supports(RendererSessionConfig::SPRITE_SOURCE_RECT)) {
+        throw new RendererProtocolException('Canvas image crops require negotiated sprite_source_rect support.');
+      }
+    }
+    $compositing = array_any($canvas->images, static fn($image) => $image->clipRect !== null)
+      || array_any($canvas->textLayers, static fn($text) => $text->clipRect !== null || $text->opacity !== 1.0);
+    if ($compositing && !$this->client->supports(RendererSessionConfig::CANVAS_CLIP_OPACITY)) {
+      throw new RendererProtocolException('Canvas clipping and text opacity require negotiated canvas_clip_opacity support.');
+    }
+    if (array_any($canvas->textLayers, static fn($text) => $text->glyphEffects !== null)
+      && !$this->client->supports(RendererSessionConfig::CANVAS_GLYPH_EFFECTS)) {
+      throw new RendererProtocolException('Canvas glyph contours require negotiated canvas_glyph_effects support.');
+    }
+    $number = $this->frameNumber < PHP_INT_MAX ? $this->frameNumber + 1 : $this->frameNumber;
+    return $this->queue(new StyledPresentationFrame($number, canvas: $canvas)->toRendererMessage());
+  }
+
+  private function queue(RendererMessage $message): bool
+  {
     $comparison = LatencyTrace::now();
     $content = $message->payload;
     $previous = $this->lastMessage?->payload ?? [];
@@ -70,9 +100,9 @@ final class RendererPresentation
     }
     // A failed enqueue must not suppress a retry or consume a sequence number.
     $this->client->send($message);
-    $this->frameNumber = $number;
+    $this->frameNumber++;
     $this->lastMessage = $message;
-    LatencyTrace::record('presentation.frame.queued', ['frame' => $number]);
+    LatencyTrace::record('presentation.frame.queued', ['frame' => $this->frameNumber]);
     return true;
   }
 }

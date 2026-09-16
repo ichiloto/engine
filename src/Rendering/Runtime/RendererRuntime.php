@@ -8,6 +8,7 @@ use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\IO\InputSources\InputSourceInterface;
 use Ichiloto\Engine\IO\InputSources\RendererInputSource;
 use Ichiloto\Engine\Rendering\Presentation\RendererPresentation;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTileBatch;
 use Ichiloto\Engine\Rendering\RendererClient;
@@ -104,6 +105,13 @@ final class RendererRuntime
     if ($this->presentation === null || $this->closed) {
       throw new LogicException('Renderer presentation requires an active session.');
     }
+    $canvas = $scene instanceof CanvasProviderInterface ? $scene->getPresentationCanvas() : null;
+    if ($canvas !== null) {
+      $changed = $this->presentation->presentCanvas($canvas);
+      if ($changed) { $this->pump(); }
+      LatencyTrace::end('presentation.end', $started, ['changed' => $changed]);
+      return $changed;
+    }
     $collection = LatencyTrace::now();
     $sprites = $this->collector->collect($scene);
     LatencyTrace::end('presentation.sprites', $collection, ['count' => count($sprites)]);
@@ -160,4 +168,8 @@ final class RendererRuntime
     }
     return $this->client->shutdown();
   }
+
+  public function getAssetRoot(): string { return $this->config->assetRoot; }
+
+  public function supports(string $capability): bool { return $this->client->supports($capability); }
 }

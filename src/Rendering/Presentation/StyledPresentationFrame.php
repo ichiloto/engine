@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Rendering\Presentation;
 
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Transport\RendererMessage;
 use Ichiloto\Engine\Rendering\Transport\RendererMessageType;
 use Ichiloto\Engine\Rendering\Transport\RendererProtocolVersion;
@@ -22,10 +23,14 @@ final readonly class StyledPresentationFrame
    * @param list<PresentationSprite> $sprites
    * @param list<PresentationTileBatch> $tileBatches
    */
-  public function __construct(public int $number, array $textLayers = [], array $sprites = [], array $tileBatches = [])
+  public function __construct(public int $number, array $textLayers = [], array $sprites = [], array $tileBatches = [],
+    public ?PresentationCanvas $canvas = null)
   {
     if ($number < 0 || !array_is_list($textLayers) || count($textLayers) > self::MAX_TEXT_LAYERS) {
       throw new InvalidArgumentException('Styled frame requires a nonnegative number and at most 64 text layers.');
+    }
+    if ($canvas !== null && ($textLayers !== [] || $sprites !== [] || $tileBatches !== [])) {
+      throw new InvalidArgumentException('Canvas frames cannot mix legacy text, sprites or tiles.');
     }
     $ids = $copy = [];
     $runs = $scalars = 0;
@@ -54,6 +59,7 @@ final readonly class StyledPresentationFrame
       'frame' => $this->number,
       'textLayers' => array_map(static fn(PresentationTextLayer $layer) => $layer->toArray(), $this->textLayers),
       'sprites' => array_map(static fn(PresentationSprite $sprite) => $sprite->toArray(), $this->sprites),
+      ...($this->canvas === null ? [] : ['canvas' => $this->canvas->toArray()]),
       ...($this->tileBatches === [] ? [] : ['tileBatches' => array_map(
         static fn(PresentationTileBatch $batch) => $batch->toArray(), $this->tileBatches)]),
     ], RendererProtocolVersion::V2);

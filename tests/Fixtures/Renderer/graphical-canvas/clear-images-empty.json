@@ -1,0 +1,1 @@
+{"protocol":2,"type":"frame","frame":42,"textLayers":[],"sprites":[],"canvas":{"width":1350,"height":720,"images":[],"indicators":[],"textLayers":[{"id":"ui","origin":{"x":0,"y":540},"grid":{"columns":135,"rows":9,"cellWidth":10,"cellHeight":20},"runs":[{"row":0,"column":1,"text":"> Attack","foreground":null,"background":{"kind":"rgb","r":17,"g":24,"b":32}}],"layer":30}]}}

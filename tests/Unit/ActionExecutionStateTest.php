@@ -6,6 +6,7 @@ use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Battle\BattleAction;
+use Ichiloto\Engine\Battle\Presentation\BattleFeedbackRole;
 use Ichiloto\Engine\Battle\Resolution\CombatHitResult;
 use Ichiloto\Engine\Battle\Resolution\CombatTargetResult;
 use Ichiloto\Engine\Battle\Resolution\ElementalOutcome;
@@ -34,8 +35,8 @@ it('builds floating damage and knockout popup lines for defeated targets', funct
   $lines = invokeActionExecutionPopupBuilder($state, $target, 48, 12);
 
   expect($lines)->toBe([
-    ['text' => '48', 'color' => Color::LIGHT_RED],
-    ['text' => 'KO', 'color' => Color::YELLOW],
+    ['text' => '48', 'color' => Color::LIGHT_RED, 'role' => BattleFeedbackRole::DAMAGE],
+    ['text' => 'KO', 'color' => Color::YELLOW, 'role' => BattleFeedbackRole::KO],
   ]);
 });
 
@@ -46,7 +47,7 @@ it('builds a miss popup when no visible stat changes occur', function () {
   $lines = invokeActionExecutionPopupBuilder($state, $target, 75, 18);
 
   expect($lines)->toBe([
-    ['text' => 'MISS', 'color' => Color::WHITE],
+    ['text' => 'MISS', 'color' => Color::WHITE, 'role' => BattleFeedbackRole::MISS],
   ]);
 });
 
@@ -93,9 +94,9 @@ it('builds damage Critical and elemental feedback from typed results', function 
   );
 
   expect($lines)->toBe([
-    ['text' => 'WEAK!', 'color' => Color::LIGHT_RED],
-    ['text' => 'CRITICAL', 'color' => Color::YELLOW],
-    ['text' => '30', 'color' => Color::LIGHT_RED],
+    ['text' => 'WEAK!', 'color' => Color::LIGHT_RED, 'role' => BattleFeedbackRole::WEAK],
+    ['text' => 'CRITICAL', 'color' => Color::YELLOW, 'role' => BattleFeedbackRole::CRITICAL],
+    ['text' => '30', 'color' => Color::LIGHT_RED, 'role' => BattleFeedbackRole::DAMAGE],
   ]);
 });
 

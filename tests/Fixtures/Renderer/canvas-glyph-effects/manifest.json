@@ -1,0 +1,388 @@
+{
+  "description": "Independent canvas_glyph_effects frozen wire contract. Patch hello assetRoot to parent fixtures directory. Stages cover schema/session; accepted frames still require native font/raster preparation.",
+  "capabilities": [
+    "graphical_canvas",
+    "canvas_glyph_effects",
+    "canvas_clip_opacity"
+  ],
+  "cases": [
+    {
+      "file": "hello.json",
+      "stage": "accept"
+    },
+    {
+      "file": "valid-default.json",
+      "stage": "accept"
+    },
+    {
+      "file": "invalid-hello-missing-base.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-hello-v1.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-hello-duplicate.json",
+      "stage": "schema"
+    },
+    {
+      "file": "unnegotiated-effects.json",
+      "stage": "session",
+      "capabilities": [
+        "graphical_canvas"
+      ]
+    },
+    {
+      "file": "invalid-missing-outline.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-outline-null.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-outline-array.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-outline-string.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-outline-bool.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-outline-empty.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-missing-shadow.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-shadow-null.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-shadow-array.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-shadow-string.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-shadow-bool.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-shadow-empty.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-effects-null.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-effects-array.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-effects-string.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-effects-bool.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-effects-empty.json",
+      "stage": "schema"
+    },
+    {
+      "file": "valid-width-lower.json",
+      "stage": "accept"
+    },
+    {
+      "file": "valid-width-upper.json",
+      "stage": "accept"
+    },
+    {
+      "file": "invalid-width-below.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-width-above.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-width-null.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-width-bool.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-width-string.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-width-missing.json",
+      "stage": "schema"
+    },
+    {
+      "file": "valid-offsetX-lower.json",
+      "stage": "accept"
+    },
+    {
+      "file": "valid-offsetX-upper.json",
+      "stage": "accept"
+    },
+    {
+      "file": "invalid-offsetX-below.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-offsetX-above.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-offsetX-null.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-offsetX-bool.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-offsetX-string.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-offsetX-missing.json",
+      "stage": "schema"
+    },
+    {
+      "file": "valid-offsetY-lower.json",
+      "stage": "accept"
+    },
+    {
+      "file": "valid-offsetY-upper.json",
+      "stage": "accept"
+    },
+    {
+      "file": "invalid-offsetY-below.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-offsetY-above.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-offsetY-null.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-offsetY-bool.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-offsetY-string.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-offsetY-missing.json",
+      "stage": "schema"
+    },
+    {
+      "file": "valid-sigma-lower.json",
+      "stage": "accept"
+    },
+    {
+      "file": "valid-sigma-upper.json",
+      "stage": "accept"
+    },
+    {
+      "file": "invalid-sigma-below.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-sigma-above.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-sigma-null.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-sigma-bool.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-sigma-string.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-sigma-missing.json",
+      "stage": "schema"
+    },
+    {
+      "file": "valid-opacity-lower.json",
+      "stage": "accept"
+    },
+    {
+      "file": "valid-opacity-upper.json",
+      "stage": "accept"
+    },
+    {
+      "file": "invalid-opacity-below.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-opacity-above.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-opacity-null.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-opacity-bool.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-opacity-string.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-opacity-missing.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-outline-color-null.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-outline-color-string.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-outline-color-index.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-outline-color-unknown.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-outline-unknown.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-shadow-color-null.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-shadow-color-string.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-shadow-color-index.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-shadow-color-unknown.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-shadow-unknown.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-effects-fontSize.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-effects-fontFamily.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-effects-animation.json",
+      "stage": "schema"
+    },
+    {
+      "file": "valid-fractional.json",
+      "stage": "accept"
+    },
+    {
+      "file": "valid-expanded-clip-opacity-0.json",
+      "stage": "accept"
+    },
+    {
+      "file": "unnegotiated-clip-opacity-0.json",
+      "stage": "session",
+      "capabilities": [
+        "graphical_canvas",
+        "canvas_glyph_effects"
+      ]
+    },
+    {
+      "file": "valid-expanded-clip-opacity-0-5.json",
+      "stage": "accept"
+    },
+    {
+      "file": "unnegotiated-clip-opacity-0-5.json",
+      "stage": "session",
+      "capabilities": [
+        "graphical_canvas",
+        "canvas_glyph_effects"
+      ]
+    },
+    {
+      "file": "valid-expanded-clip-opacity-1.json",
+      "stage": "accept"
+    },
+    {
+      "file": "unnegotiated-clip-opacity-1.json",
+      "stage": "session",
+      "capabilities": [
+        "graphical_canvas",
+        "canvas_glyph_effects"
+      ]
+    },
+    {
+      "file": "invalid-expanded-bounds-4-70.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-expanded-bounds-40-4.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-expanded-bounds-348-70.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-expanded-bounds-40-274.json",
+      "stage": "schema"
+    },
+    {
+      "file": "valid-omitted.json",
+      "stage": "accept",
+      "capabilities": [
+        "graphical_canvas"
+      ]
+    },
+    {
+      "file": "valid-empty.json",
+      "stage": "accept"
+    },
+    {
+      "file": "valid-clear.json",
+      "stage": "accept"
+    }
+  ]
+}

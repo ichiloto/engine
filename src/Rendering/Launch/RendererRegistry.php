@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Rendering\Launch;
 
+use Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
@@ -21,7 +22,8 @@ final class RendererRegistry
       new RendererDescriptor('terminal', static fn(string $assetRoot): ?RendererRuntime => null),
       new RendererDescriptor('gpui', static fn(string $assetRoot): RendererRuntime => new RendererRuntime(
         new RendererRuntimeConfig(new RendererProcessConfig([$resolver->resolve('gpui')]), $assetRoot, 10, 20,
-          requiredCapabilities: [RendererSessionConfig::SPRITE_SOURCE_RECT, RendererSessionConfig::TILE_BATCHES]),
+          requiredCapabilities: [RendererSessionConfig::SPRITE_SOURCE_RECT, RendererSessionConfig::TILE_BATCHES,
+            ...(BattlePresentationCatalog::load($assetRoot)?->requiredCapabilities() ?? [])]),
       )),
     ];
     foreach ($descriptors as $descriptor) {

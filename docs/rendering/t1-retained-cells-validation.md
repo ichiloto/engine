@@ -210,9 +210,10 @@ Both dependency manifests hash to
 The frozen map hashes to
 `18ed87001f004285c892b48ea6570f58fe00b0580155d5e37604ebb8d490b543`.
 
-Local raw evidence is under `/private/tmp/ichiloto-t1/`; these temporary files
-are not a permanent public artifact store. The workload and results above are
-the durable record. No private map/checkpoint payload is included in this repo.
+The obsolete `/private/tmp/ichiloto-t1/` runtime copies have been removed after
+acceptance. Small raw measurement evidence and save files were archived locally;
+the workload and results above are the durable record. No private map/checkpoint
+payload is included in this repo.
 
 | Evidence file | SHA-256 |
 | --- | --- |

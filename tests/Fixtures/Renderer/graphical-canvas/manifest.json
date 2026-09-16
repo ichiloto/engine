@@ -1,0 +1,576 @@
+{
+  "hello": "hello.json",
+  "assetRoot": "..",
+  "notes": "Exact G1 wire corpus. Substitute only hello.assetRoot. json = malformed JSON/numeric overflow; schema = typed decoding or structural/value bounds; session = unnegotiated capability; preparation = filesystem/PNG/crop validation. accept replaces the complete prior display; every rejection preserves it. Synthetic images are geometry fixtures, not game artwork. Filesystem symlink, encoded/decode budgets and viewport painting are covered by native runtime tests.",
+  "cases": [
+    {
+      "file": "valid-arbitrary-geometry.json",
+      "stage": "accept"
+    },
+    {
+      "file": "valid-fractional-crop.json",
+      "stage": "accept"
+    },
+    {
+      "file": "valid-full-canvas.json",
+      "stage": "accept"
+    },
+    {
+      "file": "valid-selected-acting.json",
+      "stage": "accept"
+    },
+    {
+      "file": "valid-transparent-feedback.json",
+      "stage": "accept"
+    },
+    {
+      "file": "valid-equal-layer-order.json",
+      "stage": "accept"
+    },
+    {
+      "file": "valid-repeated-instance.json",
+      "stage": "accept"
+    },
+    {
+      "file": "valid-reordered-survivor.json",
+      "stage": "accept"
+    },
+    {
+      "file": "clear-images-empty.json",
+      "stage": "accept"
+    },
+    {
+      "file": "clear-images-omitted.json",
+      "stage": "accept"
+    },
+    {
+      "file": "clear-indicators-empty.json",
+      "stage": "accept"
+    },
+    {
+      "file": "clear-indicators-omitted.json",
+      "stage": "accept"
+    },
+    {
+      "file": "clear-textLayers-empty.json",
+      "stage": "accept"
+    },
+    {
+      "file": "clear-textLayers-omitted.json",
+      "stage": "accept"
+    },
+    {
+      "file": "clear-canvas-omitted.json",
+      "stage": "accept"
+    },
+    {
+      "file": "clear-canvas-blank.json",
+      "stage": "accept"
+    },
+    {
+      "file": "valid-opacity-zero.json",
+      "stage": "accept"
+    },
+    {
+      "file": "valid-opacity-omitted.json",
+      "stage": "accept"
+    },
+    {
+      "file": "unnegotiated-canvas.json",
+      "stage": "session",
+      "capabilities": [
+        "sprite_source_rect"
+      ]
+    },
+    {
+      "file": "unnegotiated-blank.json",
+      "stage": "session",
+      "capabilities": []
+    },
+    {
+      "file": "unnegotiated-crop.json",
+      "stage": "session",
+      "capabilities": [
+        "graphical_canvas"
+      ]
+    },
+    {
+      "file": "invalid-images-null.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-images-object.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-images-string.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-indicators-null.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-indicators-object.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-indicators-string.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-textLayers-null.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-textLayers-object.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-textLayers-string.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-canvas-null.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-canvas-array.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-canvas-empty.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-width-zero.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-width-negative.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-width-fractional.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-width-boolean.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-width-string.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-width-null.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-width-maximum.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-height-zero.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-height-negative.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-height-fractional.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-height-boolean.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-height-string.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-height-null.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-height-maximum.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-missing-width.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-images-extra.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-images-duplicate.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-images-id-empty.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-images-id-long.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-images-id-control.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-images-missing-layer.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-images-layer-float.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-images-layer-overflow.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-indicators-extra.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-indicators-duplicate.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-indicators-id-empty.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-indicators-id-long.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-indicators-id-control.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-indicators-missing-layer.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-indicators-layer-float.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-indicators-layer-overflow.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-textLayers-extra.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-textLayers-duplicate.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-textLayers-id-empty.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-textLayers-id-long.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-textLayers-id-control.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-textLayers-missing-layer.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-textLayers-layer-float.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-textLayers-layer-overflow.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-destination-x-negative.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-destination-x-outside.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-destination-x-string.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-destination-x-boolean.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-destination-x-null.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-destination-y-negative.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-destination-y-outside.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-destination-y-string.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-destination-y-boolean.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-destination-y-null.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-destination-width-negative.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-destination-width-outside.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-destination-width-string.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-destination-width-boolean.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-destination-width-null.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-destination-height-negative.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-destination-height-outside.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-destination-height-string.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-destination-height-boolean.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-destination-height-null.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-destination-width-zero.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-destination-height-zero.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-image-destination-missing.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-opacity-null.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-opacity-negative.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-opacity-high.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-opacity-boolean.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-opacity-string.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-indicator-reference.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-indicator-kind.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-stroke-zero.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-stroke-high.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-stroke-float.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-stroke-boolean.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-stroke-bounds.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-color-null.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-color-component.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-color-extra.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-ui-grid-outside.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-ui-grid-size.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-ui-run-outside.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-ui-control.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-ui-style-missing.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-crop-null.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-crop-zero.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-crop-float.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-crop-overflow.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-crop-image-bounds.json",
+      "stage": "preparation"
+    },
+    {
+      "file": "invalid-asset-empty.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-asset-absolute.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-asset-long.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-asset-missing.json",
+      "stage": "preparation"
+    },
+    {
+      "file": "invalid-asset-escape.json",
+      "stage": "preparation"
+    },
+    {
+      "file": "invalid-asset-non-png.json",
+      "stage": "preparation"
+    },
+    {
+      "file": "invalid-mixed-text.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-mixed-sprites.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-mixed-tiles.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-v1-canvas.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-v1-capability.json",
+      "stage": "schema",
+      "message": "hello"
+    },
+    {
+      "file": "invalid-image-limit.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-indicator-limit.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-text-layer-limit.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-text-run-limit.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-text-scalar-limit.json",
+      "stage": "schema"
+    },
+    {
+      "file": "invalid-json.json",
+      "stage": "json"
+    },
+    {
+      "file": "invalid-nonfinite.json",
+      "stage": "json"
+    },
+    {
+      "file": "invalid-duplicate-field.json",
+      "stage": "schema"
+    }
+  ],
+  "assets": [
+    "synthetic-143x181.png",
+    "synthetic-320x180.png",
+    "../test-sprite.png"
+  ]
+}

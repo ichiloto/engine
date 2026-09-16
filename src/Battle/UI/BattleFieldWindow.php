@@ -6,6 +6,8 @@ use Ichiloto\Engine\Animations\Animation;
 use Ichiloto\Engine\Animations\AnimationCell;
 use Ichiloto\Engine\Animations\AnimationTargetPosition;
 use Ichiloto\Engine\Battle\PartyBattlerPositions;
+use Ichiloto\Engine\Battle\Presentation\BattleFeedbackRole;
+use Ichiloto\Engine\Battle\Presentation\BattleFeedbackTiming;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
@@ -27,6 +29,74 @@ use RuntimeException;
  */
 class BattleFieldWindow extends Window
 {
+  private ?CharacterInterface $actingBattler = null;
+  /** @var list<array{sequence: int, battler: CharacterInterface, lines: array, shownAt: float, durationSeconds: float}> */
+  private array $feedback = [];
+  private int $feedbackSequence = 0;
+  private ?BattleFeedbackTiming $feedbackTiming = null;
+
+  public function render(?int $x = null, ?int $y = null): void
+  {
+    if (!$this->battleScreen->usesGraphicalField()) { parent::render($x, $y); }
+  }
+
+  public function erase(?int $x = null, ?int $y = null): void
+  {
+    if (!$this->battleScreen->usesGraphicalField()) { parent::erase($x, $y); }
+  }
+
+  public function getActingBattler(): ?CharacterInterface { return $this->actingBattler; }
+
+  /**
+   * Feedback observes the existing result formatter and explicit clear lifetime.
+   * shownAt uses monotonic presentation seconds; reads and redraws never restart it.
+   * @return list<array{sequence: int, battler: CharacterInterface, lines: list<array{text: string, color: Color, role?: BattleFeedbackRole}>, shownAt: float, durationSeconds: float}>
+   */
+  public function getFeedback(): array { return $this->feedback; }
+
+  /** @return list<CharacterInterface> Current focus, including focused knocked-out targets. */
+  public function getFocusedBattlers(): array
+  {
+    return $this->getBattlersAtIndexes($this->focusedPartyIndexes, $this->focusedTroopIndexes, true);
+  }
+
+  /** @return list<CharacterInterface> Living queued targets, independent of focus and acting. */
+  public function getQueuedBattlers(): array
+  {
+    return $this->getBattlersAtIndexes(array_keys($this->queuedPartyTargets), array_keys($this->queuedTroopTargets), false);
+  }
+
+  /** @return list<CharacterInterface> */
+  private function getBattlersAtIndexes(array $partyIndexes, array $troopIndexes, bool $includeKnockedOut): array
+  {
+    $battlers = [];
+    foreach ([[$this->battleScreen->party->battlers->toArray(), $partyIndexes],
+      [$this->battleScreen->troop->members->toArray(), $troopIndexes]] as [$members, $indexes]) {
+      foreach ($indexes as $index) {
+        $member = $members[$index] ?? null;
+        if ($member instanceof CharacterInterface && ($includeKnockedOut || ! $member->isKnockedOut)) {
+          $battlers[] = $member;
+        }
+      }
+    }
+    return $battlers;
+  }
+
+  /** @return list<CharacterInterface> Actual instances, not display names or glyph positions. */
+  public function getSelectedBattlers(): array
+  {
+    $selected = [];
+    foreach ([[$this->battleScreen->party->battlers->toArray(), $this->focusedPartyIndexes, $this->queuedPartyTargets],
+      [$this->battleScreen->troop->members->toArray(), $this->focusedTroopIndexes, $this->queuedTroopTargets]] as [$members, $focus, $queue]) {
+      foreach (array_unique([...$focus, ...array_keys($queue)]) as $index) {
+        $member = $members[$index] ?? null;
+        if ($member instanceof CharacterInterface && (in_array($index, $focus, true) || !$member->isKnockedOut)) {
+          $selected[] = $member;
+        }
+      }
+    }
+    return $selected;
+  }
   const int TROOP_STEP_X_OFFSET = 3;
   /**
    * Left-most column available to enemy battlers inside the field border.
@@ -115,9 +185,11 @@ class BattleFieldWindow extends Window
    * Creates a new instance of the battlefield window.
    *
    * @param BattleScreen $battleScreen The battle screen.
+   * @param BattleFeedbackTiming|null $feedbackTiming Optional presentation-only clock policy.
    */
-  public function __construct(protected BattleScreen $battleScreen)
+  public function __construct(protected BattleScreen $battleScreen, ?BattleFeedbackTiming $feedbackTiming = null)
   {
+    $this->feedbackTiming = $feedbackTiming;
     $leftMargin = $this->battleScreen->screenDimensions->getLeft();
     $topMargin = $this->battleScreen->screenDimensions->getTop();
 
@@ -142,6 +214,7 @@ class BattleFieldWindow extends Window
    */
   protected function renderPartyBattler(Character $battler, Vector2 $position): void
   {
+    if ($this->battleScreen->usesGraphicalField()) { return; }
     $spriteData = $battler->images->battle;
     $x = $this->position->x + $position->x;
     $y = $this->position->y + $position->y;
@@ -157,6 +230,7 @@ class BattleFieldWindow extends Window
    */
   protected function renderTroopBattler(Enemy $battler): void
   {
+    if ($this->battleScreen->usesGraphicalField()) { return; }
     $spriteData = $battler->image;
     $position = $this->getTroopIdlePosition($battler);
     $x = $this->position->x + $position->x;
@@ -178,6 +252,7 @@ class BattleFieldWindow extends Window
    */
   public function erasePartyBattler(Character $battler, Vector2 $position): void
   {
+    if ($this->battleScreen->usesGraphicalField()) { return; }
     $spriteData = $battler->images->battle;
     $x = $this->position->x + $position->x;
     $y = $this->position->y + $position->y;
@@ -193,6 +268,7 @@ class BattleFieldWindow extends Window
    */
   public function eraseTroopBattler(Enemy $battler): void
   {
+    if ($this->battleScreen->usesGraphicalField()) { return; }
     $spriteData = $battler->image;
     $position = $this->getTroopIdlePosition($battler);
     $x = $this->position->x + $position->x;
@@ -375,6 +451,7 @@ class BattleFieldWindow extends Window
    */
   public function renderParty(Party $party): void
   {
+    if ($this->battleScreen->usesGraphicalField()) { return; }
     foreach ($party->battlers->toArray() as $index => $battler) {
       if ($battler->isKnockedOut && ! in_array($index, $this->popupPartyIndices, true)) {
         continue;
@@ -395,6 +472,7 @@ class BattleFieldWindow extends Window
    */
   public function renderTroop(Troop $troop): void
   {
+    if ($this->battleScreen->usesGraphicalField()) { return; }
     foreach ($troop->members->toArray() as $index => $battler) {
       if ($battler->isKnockedOut && ! in_array($index, $this->popupTroopIndices, true)) {
         continue;
@@ -414,6 +492,7 @@ class BattleFieldWindow extends Window
     if (! isset($this->battleScreen)) {
       return;
     }
+    if ($this->battleScreen->usesGraphicalField()) { return; }
 
     $this->renderedTargetIndicators = [];
     $partyBattlers = $this->battleScreen->party->battlers->toArray();
@@ -495,26 +574,39 @@ class BattleFieldWindow extends Window
    * Displays floating stat-change text beside the provided battler.
    *
    * @param CharacterInterface $battler The battler receiving the popup.
-   * @param array<int, array{text: string, color?: Color}> $lines The popup lines to display.
+   * @param array<int, array{text: string, color?: Color, role?: BattleFeedbackRole}> $lines The popup lines to display.
+   * @param bool $clearExisting Whether to replace the existing popups.
+   * @param float $durationSeconds Existing popup hold duration; omission adds no animation interval.
    * @return void
    */
-  public function showStatChangePopup(CharacterInterface $battler, array $lines, bool $clearExisting = true): void
+  public function showStatChangePopup(
+    CharacterInterface $battler,
+    array $lines,
+    bool $clearExisting = true,
+    float $durationSeconds = 0.0,
+  ): void
   {
     if ($clearExisting) {
       $this->clearStatChangePopups();
     }
 
-    $anchor = $this->resolveStatChangePopupAnchor($battler);
-
-    if ($anchor === null) {
-      return;
-    }
-
+    $graphical = isset($this->battleScreen) && $this->battleScreen->usesGraphicalField();
+    $anchor = $graphical ? null : $this->resolveStatChangePopupAnchor($battler);
+    if (!$graphical && $anchor === null) { return; }
     $formattedLines = $this->normalizeStatChangePopupLines($lines);
 
     if (empty($formattedLines)) {
       return;
     }
+
+    $this->feedback[] = [
+      'sequence' => ++$this->feedbackSequence,
+      'battler' => $battler,
+      'lines' => $formattedLines,
+      'shownAt' => ($this->feedbackTiming ??= new BattleFeedbackTiming())->now(),
+      'durationSeconds' => BattleFeedbackTiming::duration($durationSeconds),
+    ];
+    if ($graphical) { return; }
 
     $startY = $anchor['y'] - max(0, count($formattedLines) - 1);
 
@@ -545,7 +637,7 @@ class BattleFieldWindow extends Window
    * Validates and normalizes the single stat-popup line contract.
    *
    * @param array<int, mixed> $lines Raw popup line definitions.
-   * @return array<int, array{text: string, color: Color}> Normalized non-empty lines.
+   * @return list<array{text: string, color: Color, role?: BattleFeedbackRole}> Normalized non-empty lines.
    */
   protected function normalizeStatChangePopupLines(array $lines): array
   {
@@ -574,7 +666,17 @@ class BattleFieldWindow extends Window
         ));
       }
 
-      $normalized[] = ['text' => $text, 'color' => $color];
+      $normalizedLine = ['text' => $text, 'color' => $color];
+      if (array_key_exists('role', $line)) {
+        if (! $line['role'] instanceof BattleFeedbackRole) {
+          throw new InvalidArgumentException(sprintf(
+            'Stat-change popup line %d role must be a BattleFeedbackRole.',
+            $index,
+          ));
+        }
+        $normalizedLine['role'] = $line['role'];
+      }
+      $normalized[] = $normalizedLine;
     }
 
     return $normalized;
@@ -587,6 +689,7 @@ class BattleFieldWindow extends Window
    */
   public function clearStatChangePopups(): void
   {
+    $this->feedback = [];
     $this->statChangePopups = [];
     $this->popupPartyIndices = [];
     $this->popupTroopIndices = [];
@@ -603,6 +706,7 @@ class BattleFieldWindow extends Window
    */
   public function showPartyMagicCastEffect(Character $battler, int $index, Color $color, int $sequenceStep): void
   {
+    if ($this->battleScreen->usesGraphicalField()) { return; }
     $positions = $this->resolvePartyMagicCastEffectPositions($battler, $index);
     $frame = $positions[$sequenceStep] ?? null;
 
@@ -644,6 +748,8 @@ class BattleFieldWindow extends Window
    */
   public function stepPartyBattlerForward(Character $battler, int $index): void
   {
+    $this->actingBattler = $battler;
+    if ($this->battleScreen->usesGraphicalField()) { return; }
     $this->erasePartyBattler($battler, $this->getPartyIdlePosition($index));
     $this->renderPartyBattler($battler, $this->getPartyActivePosition($index));
   }
@@ -657,6 +763,8 @@ class BattleFieldWindow extends Window
    */
   public function stepPartyBattlerBack(Character $battler, int $index): void
   {
+    if ($this->actingBattler === $battler) { $this->actingBattler = null; }
+    if ($this->battleScreen->usesGraphicalField()) { return; }
     $this->erasePartyBattler($battler, $this->getPartyActivePosition($index));
     $this->renderPartyBattler($battler, $this->getPartyIdlePosition($index));
   }
@@ -669,6 +777,8 @@ class BattleFieldWindow extends Window
    */
   public function stepTroopBattlerForward(Enemy $battler): void
   {
+    $this->actingBattler = $battler;
+    if ($this->battleScreen->usesGraphicalField()) { return; }
     $this->eraseTroopBattler($battler);
     $activePosition = $this->getTroopActivePosition($battler);
     $this->renderBattlerSprite(
@@ -687,6 +797,8 @@ class BattleFieldWindow extends Window
    */
   public function stepTroopBattlerBack(Enemy $battler): void
   {
+    if ($this->actingBattler === $battler) { $this->actingBattler = null; }
+    if ($this->battleScreen->usesGraphicalField()) { return; }
     $activePosition = $this->getTroopActivePosition($battler);
     $this->eraseBattlerSprite(
       $battler->image,
@@ -1119,6 +1231,7 @@ class BattleFieldWindow extends Window
    */
   public function showActionAnimationFrame(CharacterInterface $battler, Animation $animation, int $frameIndex): void
   {
+    if ($this->battleScreen->usesGraphicalField()) { return; }
     $this->clearMagicCastEffects();
     $origin = $this->resolveActionAnimationOrigin($battler, $animation->position);
 
@@ -1146,6 +1259,7 @@ class BattleFieldWindow extends Window
    */
   public function showSummonCutsceneFrame(SummonCompiledCutscene $cutscene, int $frameIndex): void
   {
+    if ($this->battleScreen->usesGraphicalField()) { return; }
     $this->clearMagicCastEffects();
 
     foreach ($cutscene->playbackSegments as $segment) {
@@ -1174,6 +1288,7 @@ class BattleFieldWindow extends Window
    */
   public function showSummonTransitionFrame(float $progress, string $direction = "in", ?string $colorName = null): void
   {
+    if ($this->battleScreen->usesGraphicalField()) { return; }
     $glyphs = [".", ":", "*", "#"];
     $normalizedProgress = max(0.0, min(1.0, $progress));
     $glyphIndex = intval(floor($normalizedProgress * max(1, count($glyphs) - 1)));
@@ -1209,6 +1324,7 @@ class BattleFieldWindow extends Window
    */
   public function showSummonTitleCard(string $summonName, ?string $casterName = null): void
   {
+    if ($this->battleScreen->usesGraphicalField()) { return; }
     $title = "[ " . strtoupper(trim($summonName)) . " ]";
 
     if (trim($summonName) === "") {

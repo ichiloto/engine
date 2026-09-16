@@ -811,6 +811,11 @@ class Game implements CanRun, SubjectInterface
         $this->showGameEngineSplashScreen();
     }
 
+    public function getRendererRuntime(): ?RendererRuntime
+    {
+        return $this->rendererRuntime;
+    }
+
     protected function startInputSession(): void
     {
         if (!$this->rendererSelectionResolved) {

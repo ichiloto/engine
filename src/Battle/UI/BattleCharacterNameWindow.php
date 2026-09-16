@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Battle\UI;
 
+use Ichiloto\Engine\Battle\Presentation\BattleHudListSnapshot;
+use Ichiloto\Engine\Battle\Presentation\BattleHudRow;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\UI\Interfaces\CanFocus;
@@ -69,6 +71,21 @@ class BattleCharacterNameWindow extends Window implements CanFocus
   {
     $this->names = $names;
     $this->updateContent();
+  }
+
+  /** Copies the four battle roster rows without terminal prefixes or padding. */
+  public function presentationSnapshot(): BattleHudListSnapshot
+  {
+    $visibleRowCount = self::HEIGHT - 2;
+    $rows = [];
+    foreach (array_slice($this->names, 0, $visibleRowCount, true) as $index => $name) {
+      $rows[] = new BattleHudRow($index, $name, $this->activeIndex === $index);
+    }
+
+    return new BattleHudListSnapshot(
+      $this->title, $this->help, $rows, $this->activeIndex, 0,
+      $visibleRowCount, count($this->names), 1, 1,
+    );
   }
 
   /**

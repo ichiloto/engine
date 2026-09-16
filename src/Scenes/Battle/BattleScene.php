@@ -3,6 +3,14 @@
 namespace Ichiloto\Engine\Scenes\Battle;
 
 use Ichiloto\Engine\Battle\BattleResult;
+use Ichiloto\Engine\Battle\Presentation\BattleCanvasUiAdapter;
+use Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog;
+use Ichiloto\Engine\Battle\Presentation\GraphicalBattlePresentation;
+use Ichiloto\Engine\Battle\Presentation\BattleHudSnapshot;
+use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnBasedEngine;
+use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\PlayerActionState;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Battle\Entry\BattleEntryRuleCatalog;
 use Ichiloto\Engine\Battle\Entry\BattleEntryRuleRunner;
 use Ichiloto\Engine\Core\GameState;
@@ -31,8 +39,24 @@ use Ichiloto\Engine\Util\Config\ConfigStore;
  *
  * @package Ichiloto\Engine\Scenes\Battle
  */
-class BattleScene extends AbstractScene
+class BattleScene extends AbstractScene implements CanvasProviderInterface
 {
+  public private(set) ?GraphicalBattlePresentation $graphicalPresentation = null;
+
+  public function getPresentationCanvas(): ?PresentationCanvas
+  {
+    if ($this->graphicalPresentation === null || $this->state instanceof BattleStartState) { return null; }
+    $focus = null;
+    if ($this->graphicalPresentation->arena->skin !== null && $this->state instanceof BattleRunState) {
+      $engine = $this->getGame()->engine;
+      if ($engine instanceof TurnBasedEngine && $engine->state instanceof PlayerActionState) {
+        $focus = $engine->state->getSelectionMode();
+      }
+    }
+    return $this->graphicalPresentation->frame($this->ui?->fieldWindow,
+      BattleCanvasUiAdapter::collect($this, $this->graphicalPresentation->arena),
+      $this->ui === null ? null : BattleHudSnapshot::fromScreen($this->ui), $focus);
+  }
   /**
    * @var BattleConfig|null The configuration of the scene.
    */
@@ -178,6 +202,22 @@ class BattleScene extends AbstractScene
     if (! $config instanceof BattleConfig) {
       throw new RuntimeException('Invalid configuration type.');
     }
+
+    $presentation = null;
+    $runtime = $this->getGame()->getRendererRuntime();
+    // Terminal play never loads the optional catalog or inspects any PNG.
+    if ($runtime !== null) {
+      $catalog = BattlePresentationCatalog::load($runtime->getAssetRoot());
+      if ($catalog !== null) {
+        $presentation = GraphicalBattlePresentation::prepare($config, $catalog, $runtime->getAssetRoot());
+        foreach ($presentation?->requiredCapabilities() ?? [] as $capability) {
+          if (!$runtime->supports($capability)) {
+            throw new RuntimeException("Configured graphical battles require the negotiated {$capability} capability.");
+          }
+        }
+      }
+    }
+    $this->graphicalPresentation = $presentation;
 
     // The field HUD only exists once the game scene has built it. A battle
     // started from anywhere else (the arena) has none to hide.

@@ -46,6 +46,12 @@ class PlayerActionState extends TurnState
    * @var string The current selection layer.
    */
   protected string $selectionMode = self::MODE_COMMAND;
+
+  /** Read-only ownership for graphical cursors; ATB waiting has no active selector. */
+  public function getSelectionMode(): ?string
+  {
+    return $this->activeCharacterIndex < 0 ? null : $this->selectionMode;
+  }
   /**
    * @var int The selected target index within the active target pool.
    */

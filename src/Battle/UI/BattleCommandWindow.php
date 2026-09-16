@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Battle\UI;
 
+use Ichiloto\Engine\Battle\Presentation\BattleHudListSnapshot;
+use Ichiloto\Engine\Battle\Presentation\BattleHudRow;
 use Ichiloto\Engine\Core\Interfaces\CanChangeSelection;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\Console\TerminalText;
@@ -120,6 +122,22 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
     $this->updateContent();
   }
 
+  /** Reads the owned viewport without scrolling, styling, or rendering it. */
+  public function presentationSnapshot(): BattleHudListSnapshot
+  {
+    $visibleRowCount = min(self::HEIGHT - 2, $this->getVisibleRowCount());
+    $rows = [];
+    foreach (array_slice($this->commands, $this->scrollOffset, $visibleRowCount, true) as $index => $command) {
+      $rows[] = new BattleHudRow($index, $command, $this->activeCommandIndex === $index);
+    }
+    [$currentPage, $totalPages] = $this->getPagination();
+
+    return new BattleHudListSnapshot(
+      $this->title, $this->help, $rows, $this->activeCommandIndex, $this->scrollOffset,
+      $visibleRowCount, $this->totalCommands, $currentPage, $totalPages,
+    );
+  }
+
   /**
    * Updates the content of the window.
    *
@@ -223,16 +241,24 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
    */
   protected function updateTitle(): void
   {
-    $visibleRowCount = max(1, $this->getVisibleRowCount());
-    $totalPages = max(1, (int)ceil($this->totalCommands / $visibleRowCount));
-    $currentPage = $this->activeCommandIndex < 0
-      ? 1
-      : max(1, (int)floor($this->activeCommandIndex / $visibleRowCount) + 1);
+    [$currentPage, $totalPages] = $this->getPagination();
 
     $this->setTitle(
       $totalPages > 1
         ? sprintf('%s %d/%d', $this->titleBase, $currentPage, $totalPages)
         : $this->titleBase
     );
+  }
+
+  /** @return array{int, int} Current page and page count used by the window title. */
+  protected function getPagination(): array
+  {
+    $visibleRowCount = max(1, $this->getVisibleRowCount());
+    $totalPages = max(1, (int)ceil($this->totalCommands / $visibleRowCount));
+    $currentPage = $this->activeCommandIndex < 0
+      ? 1
+      : max(1, (int)floor($this->activeCommandIndex / $visibleRowCount) + 1);
+
+    return [$currentPage, $totalPages];
   }
 }
