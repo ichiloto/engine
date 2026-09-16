@@ -15,6 +15,7 @@ final class CinematicController implements EventSessionCompletionTargetInterface
   protected ?CameraStateSnapshot $cameraBefore = null;
   protected ?EventSessionCompletionTargetInterface $downstreamCompletionTarget = null;
   protected bool $terminalOutcomeHandled = false;
+  private ?string $cameraMapBefore = null;
 
   public function __construct(protected GameScene $gameScene)
   {
@@ -36,6 +37,7 @@ final class CinematicController implements EventSessionCompletionTargetInterface
 
     $this->active = $cinematic;
     $this->cameraBefore = $this->gameScene->camera->captureState();
+    $this->cameraMapBefore = $this->gameScene->currentMapId;
     $this->downstreamCompletionTarget = $downstreamCompletionTarget;
     $this->terminalOutcomeHandled = false;
 
@@ -61,6 +63,10 @@ final class CinematicController implements EventSessionCompletionTargetInterface
 
     if ($session === null) {
       $this->cleanup();
+    } elseif ($this->active !== null) {
+      // Apply an initial cover before yielding, but never paint a failed setup.
+      $this->gameScene->restoreFieldAfterOverlay();
+      $this->gameScene->cinematicPresentation?->render();
     }
 
     return $session;
@@ -73,7 +79,8 @@ final class CinematicController implements EventSessionCompletionTargetInterface
 
   public function onEventSessionCompleted(GameScene $gameScene, EventExecutionSession $session): void
   {
-    if ($this->active === null || $session->scriptId !== $this->active->id) {
+    if ($this->active === null || $session->scriptId !== $this->active->id
+      || $gameScene->eventInterpreter?->activeSession() !== $session) {
       throw new RuntimeException('Cinematic completion identity did not match the active asset.');
     }
 
@@ -85,30 +92,47 @@ final class CinematicController implements EventSessionCompletionTargetInterface
     $downstreamCompletionTarget = $this->downstreamCompletionTarget;
 
     $gameScene->gameState->recordStoryEvent('cinematic:' . $this->active->id . ':completed');
-    $gameScene->getGame()->audioManager->finalizeCinematicMusic('complete');
-    $this->cleanup();
+    try {
+      $gameScene->getGame()->audioManager->finalizeCinematicMusic('complete');
+    } finally {
+      $this->cleanup(restoreTransforms: false);
+    }
     $downstreamCompletionTarget?->onEventSessionCompleted($gameScene, $session);
   }
 
   public function onEventSessionFailed(GameScene $gameScene, EventExecutionSession $session): void
   {
-    if ($this->terminalOutcomeHandled) {
+    if ($this->terminalOutcomeHandled || $this->active === null
+      || $gameScene->eventInterpreter?->activeSession() !== $session) {
       return;
     }
 
     $this->terminalOutcomeHandled = true;
     $downstreamCompletionTarget = $this->downstreamCompletionTarget;
-    $gameScene->getGame()->audioManager->finalizeCinematicMusic('failure');
-    $this->cleanup();
+    try {
+      $gameScene->getGame()->audioManager->finalizeCinematicMusic('failure');
+    } finally {
+      $this->cleanup();
+    }
     $downstreamCompletionTarget?->onEventSessionFailed($gameScene, $session);
   }
 
-  protected function cleanup(): void
+  public function shutdown(): void
   {
-    $this->gameScene->cinematicStage?->clear();
+    if ($this->active !== null) {
+      $this->gameScene->eventInterpreter?->failActiveSession('Cinematic interrupted by field shutdown.');
+      if ($this->active !== null) {
+        $this->cleanup();
+      }
+    }
+  }
+
+  protected function cleanup(bool $restoreTransforms = true): void
+  {
+    $this->gameScene->cinematicStage?->clear($restoreTransforms);
     $this->gameScene->cinematicPresentation?->clear();
 
-    if ($this->cameraBefore?->followsPlayer ?? true) {
+    if (($this->cameraBefore?->followsPlayer ?? true) || $this->cameraMapBefore !== $this->gameScene->currentMapId) {
       $this->gameScene->camera->attach($this->gameScene->player);
     } elseif ($this->cameraBefore !== null) {
       $this->gameScene->camera->restoreState($this->cameraBefore);
@@ -116,6 +140,7 @@ final class CinematicController implements EventSessionCompletionTargetInterface
 
     $this->active = null;
     $this->cameraBefore = null;
+    $this->cameraMapBefore = null;
     $this->downstreamCompletionTarget = null;
   }
 }

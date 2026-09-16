@@ -309,6 +309,7 @@ class EventInterpreter
     }
 
     try {
+      $this->gameScene->cinematicStage?->restoreSubjectTransforms();
       $this->tickLane($session, $session->rootLane(), 0.0);
 
       if ($session->rootLane()->status === EventExecutionStatus::COMPLETED) {
@@ -457,6 +458,9 @@ class EventInterpreter
           $player->erase();
           $player->position->x = intval($command['x']);
           $player->position->y = intval($command['y']);
+          if ($session->isFinalizing) {
+            $this->gameScene->cinematicStage?->commitSubjectTransforms($player);
+          }
           $player->render();
         }
         return EventCommandResult::COMPLETED;

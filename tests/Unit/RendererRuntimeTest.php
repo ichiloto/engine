@@ -335,8 +335,8 @@ it('presents the same field ownership from real Game renders and blocked ticks w
 
 it('uses the same field eligibility for terrain and Player and clears tiles on scene replacement', function () {
   $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__,
-    requiredCapabilities:['tile_batches']), $this->transport);
-  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["tile_batches"]}')];
+    requiredCapabilities:['tile_batches', 'sprite_source_rect']), $this->transport);
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["tile_batches","sprite_source_rect"]}')];
   $this->runtime->start('Tiles',12,4);
   $scene = makeBareScene(GameScene::class);
   $camera = new Camera($scene,12,4,worldSpace:array_fill(0,4,array_fill(0,12,';')));
@@ -355,11 +355,18 @@ it('uses the same field eligibility for terrain and Player and clears tiles on s
   $field = makeBareScene(FieldState::class);
   new ReflectionProperty(GameScene::class,'fieldState')->setValue($scene,$field);
   new ReflectionProperty(GameScene::class,'state')->setValue($scene,$field);
+  $stage = new \Ichiloto\Engine\Cutscenes\Cinematics\CinematicStageManager($scene);
+  new ReflectionProperty(GameScene::class,'cinematicStage')->setValue($scene,$stage);
+  $cast = $stage->add(['id' => 'runner', 'sprite' => '@', 'x' => 3, 'y' => 2,
+    'sprites2d' => ['asset' => 'runner.png', 'width' => 56, 'height' => 56, 'layer' => 100,
+      'sourceRect' => ['x' => 256, 'y' => 0, 'width' => 256, 'height' => 256]]]);
   Console::recomposeFrame(fn()=>$map->render());
   $terminal = Console::snapshot();
   expect($this->runtime->present($scene))->toBeTrue()
     ->and($this->transport->sent[0]->payload['tileBatches'][0]['cells'])->toHaveCount(48)
     ->and($this->transport->sent[0]->payload['textLayers'][0]['runs'])->toBe([])
+    ->and($this->transport->sent[0]->payload['sprites'][0]['id'])->toBe('staged:runner')
+    ->and($this->transport->sent[0]->payload['sprites'][0]['sourceRect']['x'])->toBe(256)
     ->and(Console::snapshot())->toEqual($terminal);
   Console::withLayer('dialogue',fn()=>Console::write('Talk',0,3),1020);
   expect($this->runtime->present($scene))->toBeTrue()
@@ -369,8 +376,8 @@ it('uses the same field eligibility for terrain and Player and clears tiles on s
   new ReflectionProperty($cinematic,'active')->setValue($cinematic,
     makeBareScene(\Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition::class));
   $this->runtime->present($scene);
-  expect(end($this->transport->sent)->payload)->not->toHaveKey('tileBatches');
-  expect(iterator_to_array($scene->getGraphicalSpriteProviders()))->toBe([]);
+  expect(end($this->transport->sent)->payload['tileBatches'][0]['cells'])->toHaveCount(48);
+  expect(iterator_to_array($scene->getGraphicalSpriteProviders()))->toBe([$player, $cast]);
   new ReflectionProperty($cinematic,'active')->setValue($cinematic,null);
   $this->runtime->present($scene);
   expect(end($this->transport->sent)->payload['tileBatches'][0]['cells'])->toHaveCount(48);

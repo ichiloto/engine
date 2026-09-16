@@ -84,7 +84,12 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     {
         if ($this->hasGraphicalFieldPresentation()) {
             // Dialogue borrows field input; it does not replace field presentation.
-            yield $this->player;
+            if (!($this->cinematicStage?->suppresses($this->player) ?? false)) {
+                yield $this->player;
+            }
+            foreach ($this->cinematicStage?->all() ?? [] as $actor) {
+                yield $actor;
+            }
         }
     }
 
@@ -97,7 +102,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     private function hasGraphicalFieldPresentation(): bool
     {
         return $this->state instanceof FieldState && $this->state === $this->fieldState
-            && $this->cinematicController?->active() === null && (bool)$this->player?->isActive;
+            && (bool)$this->player?->isActive;
     }
 
     /**
@@ -479,6 +484,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
      */
     public function loadMap(string $mapFilename, Player $player): void
     {
+        $this->cinematicStage?->clear();
         $this->currentMapId = preg_replace('/(\.(data|map|event))?\.php$/', '', $mapFilename) ?: $mapFilename;
         $this->mapManager->loadMap($mapFilename, $player);
     }
@@ -504,6 +510,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     public function update(): void
     {
         $this->player?->advanceGraphicalAnimation(max(0.0, Time::getDeltaTime()));
+        $this->cinematicStage?->advanceGraphicalAnimation(max(0.0, Time::getDeltaTime()));
         parent::update();
         $this->state->execute($this->sceneStateContext);
         $this->refreshFieldMusic();
@@ -528,6 +535,14 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         $this->player?->stopGraphicalAnimation();
         parent::suspend();
         $this->state->suspend();
+    }
+
+    #[Override]
+    public function stop(): void
+    {
+        $this->cinematicController?->shutdown();
+        $this->cinematicStage?->clear();
+        parent::stop();
     }
 
     /**
@@ -884,7 +899,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     {
         parent::onScreenResize($width, $height);
 
-        if ($this->player) {
+        if ($this->player && $this->camera->followsPlayer) {
             $this->camera->resetPosition($this->player);
         }
 

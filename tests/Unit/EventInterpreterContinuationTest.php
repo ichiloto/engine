@@ -2336,6 +2336,36 @@ it('restores camera input and staged cast after controlled cinematic failure', f
     ->and($scene->hasUnstableEventSession())->toBeFalse();
 });
 
+it('releases graphical cast on cinematic completion failure and legal skip before same-id re-entry', function (string $outcome) {
+  [$scene, $interpreter] = makeEventRuntime();
+  $scene->installPlayer(new EventTestPlayer(new Vector2(1, 1)));
+  $scene->installCinematicRuntime();
+  $data = ['id' => 'graphical-lifecycle', 'name' => 'Graphical Lifecycle',
+    'cast' => [['id' => 'runner', 'sprite' => '@', 'x' => 2, 'y' => 2,
+      'sprites2d' => ['asset' => 'runner.png', 'width' => 56, 'height' => 56, 'layer' => 100]]],
+    'skip' => ['policy' => 'authored'], 'finalizer' => [['type' => 'clear_presentation']]];
+  $cinematic = CinematicDefinition::fromArrays($data, [
+    ['type' => 'wait', 'seconds' => 0.1],
+    ...($outcome === 'failure' ? [['type' => 'camera', 'operation' => 'focus',
+      'target' => ['kind' => 'staged_actor', 'id' => 'missing']]] : []),
+  ]);
+  $session = $scene->cinematicController->start($cinematic);
+  $first = $scene->cinematicStage->require('runner');
+  expect($first->getGraphicalSpriteDefinition()->asset)->toBe('runner.png');
+  if ($outcome === 'skip') {
+    expect($scene->cinematicController->skip())->toBeTrue();
+  } else {
+    $interpreter->update(0.1);
+  }
+  expect($session->status)->toBe($outcome === 'failure' ? EventExecutionStatus::FAILED : EventExecutionStatus::COMPLETED)
+    ->and($scene->cinematicStage->all())->toBe([])
+    ->and($scene->cinematicController->active())->toBeNull();
+  $scene->cinematicController->start($cinematic);
+  expect($scene->cinematicStage->require('runner'))->not->toBe($first)
+    ->and($scene->cinematicStage->require('runner')->getGraphicalSpriteId())->toBe('staged:runner');
+  $scene->cinematicController->skip();
+})->with(['complete', 'failure', 'skip']);
+
 it('composes common events inside a cinematic lane and propagates nested failure context', function () {
   $root = sys_get_temp_dir() . '/cinematic-common-event-' . uniqid();
   mkdir($root . '/assets/Events', 0o777, true);

@@ -191,7 +191,7 @@ cutscene-local ID and are not party members, enemies, persistent NPC records,
 or saved world entities.
 
 The declared staged-actor fields are `id`, `sprite`, `asset`, `x`, `y`,
-`facing`, `visible`, `collision`, and directional `sprites`. Collision
+`facing`, `visible`, `collision`, directional `sprites`, and optional `sprites2d`. Collision
 defaults to `false`. `stage_actor`, `show_actor`, `hide_actor`, and
 `remove_actor` alter the temporary cast. `move_route` accepts
 `subject => staged_actor` with `actorId`; its timing and cardinal step shape
@@ -206,6 +206,33 @@ does not affect field collision.
 
 Staged actors render through the field camera. Map transfer, normal
 completion, authored skip, and controlled failure remove temporary cast state.
+
+`sprites2d` accepts the Player's existing four-direction configuration, including
+`mode => sheet`, or a single pose with `asset`, `width`, `height`, optional
+`anchor` (only `bottom_center`), `layer` (0..999), and optional integer
+`sourceRect => ['x' => ..., 'y' => ..., 'width' => ..., 'height' => ...]`.
+The terminal `sprite` or `asset` remains required. Successful staged movement
+advances the existing PHP walk animation; facing-only, blocked movement, hiding
+and idle stop it. Definitions do not infer movement from input.
+Graphical identity is `staged:<id>`; only that actor's terminal contribution is
+excluded when its graphical representation is emitted. Unconfigured cast keeps
+its terminal representation. New metadata is runtime-validatable; dedicated
+Editor graphical-asset controls have not yet been added.
+
+An optional `subject => ['kind' => 'player']` or
+`subject => ['kind' => 'npc', 'id' => '...']` binds a staged visual to the real
+subject's transform. Bound cast cannot supply another position/facing or route:
+move the real subject, retaining one motion authority. Optional `suppress`
+subject references support paired visuals without changing collision, authored
+visibility, NPC lookup or wandering eligibility. `replace => true` explicitly
+changes an existing staged visual while preserving the subject lease.
+
+Leases are scoped to object, map and session identity. Normal completion keeps
+intentional transforms; failure, transfer and scene stop restore temporary ones
+and release visual suppression. Legal skip restores before finalizer writes;
+successful finalizer `move_player` commits are not undone by a later failure.
+Stage `commitSubjectTransforms()` provides the explicit transform boundary.
+Re-entry and same-ID NPCs on other maps do not inherit stale suppression.
 
 ## Camera operations
 
@@ -226,6 +253,59 @@ the same final camera state. Completion, skip, transfer, and failure cannot
 leave ordinary play with a stranded detached camera.
 
 ## Presentation and audio
+
+### Current graphical boundary
+
+The first graphical foundation is implemented locally: cinematic field ownership
+retains terrain and Player graphics and includes optional staged sprites. Field
+effects, narration and opaque covers have explicit precedence above world
+sprites; an initially hidden field is covered before the first yield. Normal
+scene eligibility still excludes menu/battle presentation. This is not complete
+graphical cinematic parity. Scoped real-subject visual takeover and transform
+recovery are implemented and covered by 33 ownership tests; bound staged
+hide/show keeps the underlying ordinary art suppressed without rewriting map
+eligibility. Captured-entry walking/return remains to be implemented. Scene-stop
+cleanup is tested, but application quit/crash does not yet call scene-manager
+teardown, so process-level lifecycle coverage is not claimed.
+
+The existing renderer field contract supports multiple sheet-backed sprites,
+explicit layers, terrain and opaque text overlays in one complete snapshot.
+Engine must continue emitting the world in each snapshot; omitted collections
+are cleared. This path uses integral cell positions and bottom-centre anchors,
+not smooth pixel movement or per-instance opacity. The separate graphical
+battle canvas cannot be mixed with field sprites, tiles or text.
+
+The [integration roadmap](rendering/integration-roadmap.md) owns the graphical
+cinematic work queue. Extend the existing interpreter, provider and lifecycle
+boundaries rather than introducing another scripting runtime, changing quest
+flags to hide a visual, or retaining omitted actors secretly in the renderer.
+
+### Production extension boundaries
+
+The first scene is a bounded delivery, not the final cinematic model. Keep real
+subject identity and movement independent of the displayed pose: changing from
+an idle image to a sheet animation, paired pose or effect must not require
+recreating a gameplay entity or duplicating its movement authority. Walking
+animation is one playback policy, not the universal model for character actions.
+
+Extend the existing event session and cancellable operations for presentation
+timing and cleanup, rather than adding separate scene controllers. Effects need
+independent ownership so one parallel operation cannot overwrite or clear
+another. Voice playback will need per-line identity and playback control,
+completion/skip behavior, subtitles and a valid silent or unavailable-audio path;
+dialogue progression must not assume a fixed recording length. Suspension,
+cancellation, transfer and shutdown must also govern external audio playback,
+not merely stop advancing the interpreter's clock.
+
+These are implementation constraints, not delivered capabilities. Currently the
+field presentation manager has one animation slot, staged graphics support
+explicit replacement and optional walk playback, and sound effects are fire-and-forget
+without a caller-owned playback handle. Resolve those boundaries as their
+consumers are implemented; do not encode scene-specific workarounds or introduce
+an unused animation/voice framework. Keep PHP responsible for scene semantics
+and renderer-independent state; renderers consume presentation, not story logic.
+
+### Existing presentation commands
 
 Cinematics may compose existing Engine presentation systems with:
 

@@ -215,6 +215,21 @@ final class CinematicScriptValidator
   /** @param array<string, mixed> $entry */
   public static function validateStagedActor(array $entry, string $cinematicId, string $path): void
   {
+    try {
+      CinematicStageManager::validateBinding($entry);
+    } catch (InvalidArgumentException $error) {
+      throw self::failure($cinematicId, "$path/subject", $error->getMessage());
+    }
+    if (array_key_exists('sprites2d', $entry)) {
+      if (!is_array($entry['sprites2d'])) {
+        throw self::failure($cinematicId, $path, 'staged actor sprites2d must be an array.');
+      }
+      try {
+        CinematicStageManager::graphicalSprites($entry['sprites2d']);
+      } catch (InvalidArgumentException $error) {
+        throw self::failure($cinematicId, "$path/sprites2d", $error->getMessage());
+      }
+    }
     $id = trim(strval($entry['id'] ?? ''));
 
     if ($id === '') {
