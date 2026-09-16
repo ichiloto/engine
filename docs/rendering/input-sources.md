@@ -151,3 +151,95 @@ Lifecycle diagnostics go to stderr. The tool generates no frames or game actions
 See the [S3 validation and handoff record](s3-validation.md) for tested boundaries
 and the approved compatibility correction. Runtime selection, presentation,
 and Last Legend integration remain out of scope.
+
+## Planned controller-ready input and normalized movement
+
+**Not implemented.** The sections above describe the current event-only source
+contract. This extension is queued in the [integration roadmap](integration-roadmap.md#controller-ready-input-and-normalized-movement)
+for G4 field readiness after the current cinematic ownership work; capture does
+not change current APIs or authorize an immediate implementation.
+
+### Ownership and compatibility
+
+Gameplay and UI consume semantic actions, navigation/focus and input values.
+Control hints remain separate from action identity and artwork, preserving
+keyboard bindings while permitting controller glyphs and remapping. Shared
+contracts must accommodate device/control identity, press/release/held state,
+simultaneous controls, analog magnitude, focus/connection changes and coexistence.
+Future gamepads must not be permanently modeled as synthetic keyboard presses.
+PHP owns bindings, action contexts, movement and timing; native sources report
+normalized controls. No render callback may drive gameplay.
+
+Renderer must inspect the pinned GPUI key-down/up and focus APIs before Engine
+and Renderer agree the smallest negotiated transition/reset extension. Preserve
+legacy event semantics; do not reinterpret them silently or assume an upgrade.
+Track stable control identity separately from text/case so modifier changes do
+not strand held keys. Repeated down events create neither new physical edges nor
+extra movement. GPUI's previously unreliable `is_held` repeat flag is not enough.
+Clear held state on focus loss, connection failure and shutdown; elapsed silence
+is not release evidence. Preserve platform shortcuts and text-entry separation.
+
+Replace single-current-key state for stateful sources with bounded event/held
+processing before the normal gameplay update. Preserve taps that press and
+release between updates, multiple bindings for one action and event ordering.
+Do not run gameplay once per input event or drain unboundedly. Keep held actions,
+pressed/released edges and UI navigation repeat distinct; do not redefine every
+existing `isButtonDown()` consumer as held. Terminal keeps an explicit event-only
+adapter and cannot claim reliable physical key release.
+
+### Movement and world semantics
+
+- Derive one intent from all held movement actions. Opposing directions cancel
+  per axis; Down plus Right produces a diagonal without alternating key presses.
+- Use elapsed time and explicit travel distance, not OS repeat rate or painted
+  frames. The stable PHP field metric must account for rectangular horizontal and
+  vertical step dimensions; equal cell frequency is not equal apparent speed.
+  Native scaling, DPI and resize must not alter gameplay speed. Avoid scattered
+  axis-specific speed corrections. Future analog input retains partial magnitude.
+- Keep integer cell commits initially, using a distance/time accumulator or
+  scheduled step duration rather than truncating a normalized fractional vector.
+  Direction changes grant no free step; blocked movement banks no burst; catch-up
+  after stalls is bounded. Leave presentation-position interpolation separate:
+  this does not deliver smooth subcell FIELD rendering.
+- Commit a diagonal through one validated operation, not two cardinal moves.
+  The destination and both orthogonal clearances must be valid against walls,
+  map edges, NPCs and authored gates. Clearance probes have no movement events,
+  triggers or encounter RNG. Only the occupied destination receives existing
+  movement/event effects, exactly once.
+- Document how a committed diagonal counts for step-based systems before
+  implementation. Do not silently rebalance encounter frequency; unresolved
+  gameplay policy goes through the Engine coordinator, not Renderer.
+- Follow both camera axes using the existing policy and only the necessary
+  completed field recomposition, retaining T1's gains. Use existing four-direction
+  art with a documented deterministic facing rule, independent of movement vector;
+  a new eight-direction art batch is not a prerequisite.
+- Preserve authored route `secondsPerStep`, completion and ownership. Reuse the
+  validated movement boundary without replacing route timing with the new free-
+  movement clock. Dialogue, menus, cinematics and battles cancel pending walking;
+  returning cannot replay stale presses or confirm twice. Coordinate Player,
+  input, Camera and session edits with real-subject cinematic takeover.
+
+### Acceptance and exclusions
+
+Deterministic tests must cover held Down/add Right/release Right/release Down;
+all diagonals and opposing pairs; multiple bindings; repeat-down; quick taps and
+modifier changes; focus/reset/disconnect/failure/context changes. Compare equal
+travel over equal simulated time, with a documented one-step quantization bound,
+under different update subdivisions and both rectangular and square metrics.
+Verify resize independence, blocked/stalled timing, corner/NPC/gate/map-edge
+collision, both-axis camera tracking and exactly-once destination effects.
+Retain keyboard menu, terminal, cinematic route, T1 composition and graphical
+exclusion regression coverage.
+
+Native acceptance uses one bounded ordinary-Game GPUI pass: simultaneous keys,
+partial/all release, unobstructed horizontal/vertical/diagonal travel, corners,
+scrolling, focus loss and dialogue/menu/cinematic entry and return. Measure
+travel relative to the field, not only a camera-followed on-screen Player.
+Verify silence before launch without changing Andrew's normal configuration;
+no scratch-runtime family or user-data changes. State tested platforms honestly.
+
+Physical controllers, controller libraries, enhanced terminal key reporting,
+continuous subcell animation, renderer upgrades, broad platform ports, new art
+admission and publishing are not part of this queued first delivery. Before
+implementation, read the original canonical and workspace policies and establish
+shared-file ownership; preserve existing work, author files, saves and settings.

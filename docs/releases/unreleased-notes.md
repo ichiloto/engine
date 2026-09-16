@@ -14,9 +14,21 @@ create a release, tag, or release branch.
 - Reduced repeated styled-row parsing during scrolling while preserving Unicode
   width semantics and sparse terminal output.
 - Region-map locations remain visible and reachable in bounded viewports.
+- Cinematic field presentation retains graphical terrain and Player sprites.
+  Temporary actors support optional static or sheet-backed graphics, with
+  terminal fallbacks and explicit narration/cover precedence.
+- Real-subject cinematic visual leases support paired suppression, pose replacement
+  and temporary transform recovery without changing NPC gameplay eligibility.
+- Optional graphical battle Results show real party progression and rewards over
+  the final battlefield, with shared terminal paging and presentation-only timing.
+  Result snapshots cannot replay EXP, loot or other committed gameplay outcomes.
 
 ## Gameplay and persistence
 
+- Battle openings share one pre-emptive/ambush decision across battle modes and
+  honor scripted overrides. ATB starting gauges have meaningful bounded variation;
+  readiness order survives high speeds and delayed frames without losing the
+  existing speed-based refill behavior.
 - Scenario-aware field music, structured battle-entry rules and field-skill
   targeting, alongside the existing scene and resource-preservation fixes.
 - Relocated save summaries use the file actually selected instead of following
