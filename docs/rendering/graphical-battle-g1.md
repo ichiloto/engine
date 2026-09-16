@@ -341,6 +341,16 @@ can appear in different locations, so authored `battleArena` bindings select
 their setting rather than assuming one background per troop. Art production runs in
 parallel with Engine and story work, not after them.
 
+The approved 16 September art expansion adds four creature images and six
+location backgrounds to the normal Game. Fourteen authored random/scripted
+encounter contexts select the appropriate arena and formation; Great Wolf and
+Practicum Great Wolf share one approved image. Existing G1 artwork is unchanged.
+Cryptic Ruins and Loch Ness remain deferred, using the existing ASCII field
+under the shared native controls. No additional runtime copy or native rebuild
+is needed. This batch's unavailable-packaging-tool and missing-separate-license
+exceptions were explicitly approved; source and admitted-byte hashes are retained
+in Game's asset receipts, without inventing a license grant or formal tool result.
+
 The canonical macOS package contains the already validated optimized executable
 SHA-256 `8f946ccac39d1f6aa50e1edb4712300197ad6bfcea361b221dac060f3a52bbc5`.
 Its normal application identity and Engine installation manifest are preserved.
@@ -378,7 +388,16 @@ and terminal isolation. The earlier shared-UI presentation/HUD checks passed
 Full-source PHPStan passed. Renderer recorded 106 optimized tests and 32 separate
 actual-size/density admission cases; those are not gameplay FPS measurements.
 
-Game's bounded suite passed 293 tests / 561205 assertions, excluding battle
+The approved-art Game presentation checks pass 54 tests / 2884 assertions on
+both PHP 8.4 and 8.5. These verify all fourteen encounter contexts, unchanged
+terminal frames, source hashes, crop-relative pivots, formation/reserve/cursor
+bounds and pre-entry rejection. The largest covered unique-source set is
+61,625,432 bytes, below the 64 MiB limit; only the active background is counted.
+This is static and automated scene coverage, not a new native/GPU playthrough.
+The bounded Game presentation and affected story regression set passes 146 tests /
+42713 assertions on both PHP versions, excluding the broad battle-simulation baseline.
+
+Earlier Game bounded verification passed 293 tests / 561205 assertions, excluding battle
 simulations. Production-binding checks passed 11 / 392 after integration, plus
 3 / 41 for the accepted bedside correction. The all-battle shared-UI change
 passes 22 Game presentation tests / 599 assertions, including all 11 authored
@@ -416,3 +435,7 @@ extension nor gameplay changes. Making that UI project-wide adds no renderer
 protocol, native binary or gameplay-content changes; its new coverage is automated,
 not a fresh interactive playthrough of every encounter. Automated native launches must verify music and
 SFX are muted; Andrew's applied mute must be preserved.
+
+The approved-art expansion changes graphical assets and encounter bindings, not
+combat rules, rewards, encounter weights or save schemas. Its arena selection
+uses existing battle settings and adds no renderer protocol or binary changes.
