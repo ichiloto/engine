@@ -9,7 +9,6 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
-use Ichiloto\Engine\Scenes\Battle\States\BattlePauseState;
 
 /** Transitional adapter: explicit window footprints, never battlefield glyph inference. */
 final class BattleCanvasUiAdapter
@@ -50,13 +49,18 @@ final class BattleCanvasUiAdapter
         $layers[] = new CanvasTextLayer('battle-ui-' . count($layers), ($arena->skin === null ? 1000 : 1500) + count($layers), $originX, $originY, $grid, $runs);
       }
     }
-    if ($scene->state instanceof BattlePauseState) {
-      $layers[] = new CanvasTextLayer('battle-pause', 2000, $originX, $originY, $grid, [
-        new PresentationTextRun(intdiv($grid->rows - 1, 2), intdiv($grid->columns - strlen(BattlePauseState::PAUSE_TEXT), 2),
-          BattlePauseState::PAUSE_TEXT, background: PresentationColor::rgb(15, 23, 30)),
-      ]);
-    }
     return $layers;
+  }
+
+  /**
+   * Console-owned cells cover their underlay, unlike transparent canvas defaults.
+   * @param list<PresentationTextRun> $source
+   * @return list<PresentationTextRun>
+   */
+  public static function opaqueRuns(array $source): array
+  {
+    return array_map(static fn(PresentationTextRun $run): PresentationTextRun => $run->background !== null ? $run
+      : new PresentationTextRun($run->row, $run->column, $run->text, $run->foreground, PresentationColor::rgb(15, 23, 30)), $source);
   }
 
   /**
@@ -76,9 +80,9 @@ final class BattleCanvasUiAdapter
         if ($end <= $start) { continue; }
         $runs[] = new PresentationTextRun($run->row - $top, $start - $left,
           mb_substr($run->text, $start - $run->column, $end - $start, 'UTF-8'),
-          $run->foreground, $run->background ?? PresentationColor::rgb(15, 23, 30));
+          $run->foreground, $run->background);
       }
     }
-    return $runs;
+    return self::opaqueRuns($runs);
   }
 }

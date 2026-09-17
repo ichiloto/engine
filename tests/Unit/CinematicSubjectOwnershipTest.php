@@ -588,6 +588,17 @@ it('treats the player as an occupied tile when planning an NPC waypoint leg', fu
   expect($steps)->toBe([['direction' => 'up'], ['direction' => 'right'], ['direction' => 'right'], ['direction' => 'down']]);
 });
 
+it('identifies unavailable movement subjects and their map', function (array $subject, string $label) {
+  expect(fn() => new MovementRouteRunner($this->scene, [
+    ...$subject, 'steps' => [['direction' => 'right']],
+  ]))->toThrow(RuntimeException::class, sprintf(
+    'Movement-route %s is not available on map "map-a".', $label,
+  ));
+})->with([
+  'missing NPC' => [['subject' => 'npc', 'npcId' => 'missing-npc'], 'NPC "missing-npc"'],
+  'missing staged actor' => [['subject' => 'staged_actor', 'actorId' => 'missing-stage'], 'staged actor "missing-stage"'],
+]);
+
 it('does not let repeated cancellation release a later movement owner', function () {
   $this->scene->startCinematic(subjectOwnershipDefinition(data: ['cast' => []]));
   $session = $this->scene->eventInterpreter->activeSession();

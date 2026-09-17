@@ -280,6 +280,67 @@ class Console
     return self::$frameDepth !== 0 || self::$isRecomposing;
   }
 
+  /** Release live writes without erasing later scene writes or another owner's cells. */
+  public static function removeLayer(string $id, bool $repaint = true): void
+  {
+    if (!isset(self::$layerPriorities[$id])) { return; }
+    $before = self::visibleCellRows();
+    $saved = [self::$buffer, self::$layerCells, self::$layerPriorities, self::$frameRows,
+      self::$frameDepth, self::$recomposeRepaintRows];
+    $emit = $repaint && self::$terminalOutputEnabled && !self::$terminalHandedBack && !self::$isRecomposing;
+    if ($emit) { self::beginFrame(); }
+    try {
+      unset(self::$layerPriorities[$id]);
+      foreach (self::$layerCells as $row => &$entries) {
+        $affected = false;
+        foreach ($entries as &$entry) {
+          if (array_key_exists($id, $entry['layers'])) { unset($entry['layers'][$id]); $affected = true; }
+        }
+        unset($entry);
+        if (!$affected || !isset(self::$buffer[$row])) { continue; }
+        $cells = self::$buffer[$row];
+        foreach ($entries as $x => $entry) {
+          $cells[$x] = $entry['base'];
+          foreach ($entry['layers'] as $cell) { $cells[$x] = $cell; }
+        }
+        // A newer write can cover only one half of a retained wide underlay.
+        // Drop visible fragments, retaining provenance so removing that owner restores it.
+        self::$buffer[$row] = self::wholeGlyphCells($cells);
+      }
+      unset($entries);
+      if ($emit) {
+        $after = self::visibleCellRows();
+        foreach ($after as $row => $cells) {
+          foreach (self::changedCellSpansFromCells($before[$row] ?? [], $cells) as $span) {
+            self::writeBufferRow($row, $span['start'], $span['end'] - $span['start'] + 1);
+          }
+        }
+        self::endFrame();
+      }
+    } catch (\Throwable $exception) {
+      [self::$buffer, self::$layerCells, self::$layerPriorities, self::$frameRows,
+        self::$frameDepth, self::$recomposeRepaintRows] = $saved;
+      throw $exception;
+    }
+  }
+
+  /** Retained underlays may be partly occluded by a newer owner. Never display fragments. */
+  private static function wholeGlyphCells(array $cells): array
+  {
+    foreach ($cells as $x => $cell) {
+      if ($cell === self::WIDE_SYMBOL_CONTINUATION) {
+        $anchor = self::resolveCellAnchor($cells, $x);
+        if ($anchor === null || $anchor + TerminalText::getSymbolWidth($cells[$anchor]) <= $x) { $cells[$x] = ' '; }
+        continue;
+      }
+      $width = TerminalText::getSymbolWidth($cell);
+      for ($offset = 1; $offset < $width; $offset++) {
+        if (($cells[$x + $offset] ?? null) !== self::WIDE_SYMBOL_CONTINUATION) { $cells[$x] = ' '; break; }
+      }
+    }
+    return $cells;
+  }
+
   /** @param string[] $before @param string[] $after */
   private static function recordLayerWrite(int $row, int $start, int $end, array $before, array $after): void
   {
@@ -971,6 +1032,7 @@ class Console
           }
         }
       }
+      $cells = self::wholeGlyphCells($cells);
       $cells = self::compositeOverlayRow($cells, $y, $excluded);
       foreach ($cells as &$cell) {
         if ($cell === self::WIDE_SYMBOL_CONTINUATION) {
@@ -1022,6 +1084,26 @@ class Console
       if (isset($named[$id])) {
         $planes[$id] = $named[$id];
         $priorities[$id] = $priority;
+      }
+    }
+    // Live layers also cover whole glyphs, including when a removed layer exposes
+    // a wide underlay beside a newer scene write. Only the snapshot copy is masked.
+    foreach ($planes as $id => $rows) {
+      foreach ($rows as $row => $cells) { $planes[$id][$row] = self::wholeGlyphCells($cells); }
+    }
+    foreach ($named as $id => $rows) {
+      foreach ($rows as $row => $cells) {
+        foreach ($planes as $lowerId => &$plane) {
+          if ($lowerId === $id) { break; }
+          if (!isset($plane[$row])) { continue; }
+          foreach (array_keys($cells) as $column) {
+            $anchor = self::resolveCellAnchor($plane[$row], $column);
+            if ($anchor !== null && TerminalText::getSymbolWidth($plane[$row][$anchor] ?? ' ') > 1) {
+              self::clearCellRange($plane[$row], $anchor, 1);
+            }
+          }
+        }
+        unset($plane);
       }
     }
     foreach (self::$overlays as $id => $overlay) {

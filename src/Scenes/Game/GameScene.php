@@ -233,7 +233,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     /** Whether the destination map still needs its automatic entry triggers evaluated. */
     protected bool $hasPendingAutomaticTriggerEvaluation = false;
     /** Prevent teardown callbacks from starting fresh field work. */
-    private bool $isStopping = false;
+    public private(set) bool $isStopping = false;
     /**
      * @var SkitManager|null The skit manager.
      */
@@ -420,6 +420,9 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
      */
     public function refreshFieldMusic(bool $force = false, bool $keepSilence = false): void
     {
+        if ($this->isStopping) {
+            return;
+        }
         $this->fieldMusicPending = $this->fieldMusicPending || $force;
         if ($this->mapManager === null) {
             return;
@@ -511,10 +514,19 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
      */
     public function update(): void
     {
+        if ($this->isStopping) {
+            return;
+        }
         $this->player?->advanceGraphicalAnimation(max(0.0, Time::getDeltaTime()));
         $this->cinematicStage?->advanceGraphicalAnimation(max(0.0, Time::getDeltaTime()));
         parent::update();
+        if ($this->isStopping || $this->sceneManager->currentScene !== $this) {
+            return;
+        }
         $this->state->execute($this->sceneStateContext);
+        if ($this->isStopping || $this->sceneManager->currentScene !== $this) {
+            return;
+        }
         $this->refreshFieldMusic();
     }
 
@@ -918,7 +930,8 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     public function reconcileFieldPresentation(): void
     {
         if (
-            ! $this->fieldPresentationIsDirty
+            $this->isStopping
+            || ! $this->fieldPresentationIsDirty
             || $this->state !== $this->fieldState
             || $this->hasUnstableEventSession()
         ) {

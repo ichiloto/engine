@@ -78,6 +78,9 @@ class FieldState extends GameSceneState
         $scene = $this->context->getScene();
         assert($scene instanceof GameScene);
 
+        if ($scene->isStopping) {
+            return;
+        }
         $scene->reconcileFieldPresentation();
 
         // A story event owns field input while it is running. Its pending
@@ -93,7 +96,8 @@ class FieldState extends GameSceneState
 
             $scene->updateEventSession(Time::getDeltaTime());
 
-            if ($scene->cinematicController?->active() !== null && $scene->sceneManager->currentScene === $scene) {
+            if (! $scene->isStopping && $scene->cinematicController?->active() !== null
+                && $scene->sceneManager->currentScene === $scene) {
                 $this->renderTheField();
             }
             return;
@@ -101,7 +105,7 @@ class FieldState extends GameSceneState
 
         $this->handleActions($scene);
 
-        if ($scene->hasUnstableEventSession()) {
+        if ($scene->isStopping || $scene->hasUnstableEventSession()) {
             return;
         }
 
@@ -114,7 +118,7 @@ class FieldState extends GameSceneState
 
         $this->handleNavigation($scene);
 
-        if ($scene->hasUnstableEventSession()) {
+        if ($scene->isStopping || $scene->hasUnstableEventSession()) {
             return;
         }
 
@@ -137,6 +141,7 @@ class FieldState extends GameSceneState
                 get_message("confirm.quit", "Are you sure you want to quit?"),
                 config(ProjectConfig::class, 'vocab.game.shutdown', 'Exit Game'))) {
             $scene->getGame()->quit();
+            return;
         }
 
         if (Input::isButtonDown("menu")) {
@@ -148,12 +153,20 @@ class FieldState extends GameSceneState
             $scene->player->interact();
         }
 
+        if ($scene->isStopping) {
+            return;
+        }
+
         if (Input::isButtonDown("map")) {
             $this->showInGameMap();
         }
 
         if (Input::isButtonDown("skit")) {
             $scene->skitManager?->playNextAvailableSkit();
+        }
+
+        if ($scene->isStopping) {
+            return;
         }
 
         // F5 quick-saves from the field, the way a PC RPG player expects.

@@ -130,10 +130,6 @@ class Inventory
   public function addItems(InventoryItemInterface ...$items): void
   {
     foreach ($items as $index => $item) {
-      if ($this->inventoryItems->count() >= $this->capacity) {
-        break;
-      }
-
       if (! $item instanceof InventoryItemInterface) {
         throw new InvalidArgumentException('The item must be an instance of ' . InventoryItemInterface::class);
       }
@@ -141,6 +137,10 @@ class Inventory
       /** @var InventoryItem $foundItem */
       if ($foundItem = array_find($this->inventoryItems->toArray(), fn(InventoryItem $entry) => $entry->id === $item->id)) {
         $foundItem->quantity += 1;
+        continue;
+      }
+
+      if ($this->inventoryItems->count() >= $this->capacity) {
         continue;
       }
 

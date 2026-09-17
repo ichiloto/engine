@@ -203,6 +203,9 @@ abstract class Modal implements ModalInterface, LayeredPresentationInterface
    */
   public function show(): void
   {
+    if ($this->game->hasStopped()) {
+      return;
+    }
     $this->isShowing = true;
     $this->getUIManager()?->present($this);
     $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::SHOW, true));
@@ -214,10 +217,14 @@ abstract class Modal implements ModalInterface, LayeredPresentationInterface
   public function hide(): void
   {
     if ($this->isShowing) {
-      $this->erase();
+      if (! $this->game->hasStopped()) {
+        $this->erase();
+      }
       $this->isShowing = false;
       $this->getUIManager()?->dismiss($this);
-      $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::HIDE, false));
+      if (! $this->game->hasStopped()) {
+        $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::HIDE, false));
+      }
     }
   }
 
@@ -253,29 +260,48 @@ abstract class Modal implements ModalInterface, LayeredPresentationInterface
    */
   public function open(): mixed
   {
-    $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::OPEN, true));
-    // Fit before centring, so the box is measured at its final height.
-    $this->fitContentToWidth();
-    $this->positionForOpen();
-    $this->show();
-    $this->render();
-
-    while ($this->isShowing) {
-      $this->handleInput();
-      $this->update();
-
-      // submit() and cancel() hide and erase the modal. Drawing again in the
-      // same iteration resurrects the overlay after dismissal, and close()
-      // will not erase it a second time because it is already hidden.
-      if (! $this->isShowing) {
-        break;
-      }
-
-      // Draw after background updates, but before the completed frame is presented.
-      Timers::wait(1 / 60, fn() => $this->render());
+    if ($this->game->hasStopped()) {
+      return null;
     }
 
-    return $this->close();
+    try {
+      $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::OPEN, true));
+      if ($this->game->hasStopped()) {
+        return null;
+      }
+      // Fit before centring, so the box is measured at its final height.
+      $this->fitContentToWidth();
+      $this->positionForOpen();
+      $this->show();
+      if ($this->game->hasStopped()) {
+        return null;
+      }
+      $this->render();
+
+      while ($this->isShowing && ! $this->game->hasStopped()) {
+        $this->handleInput();
+        if ($this->game->hasStopped()) {
+          break;
+        }
+        $this->update();
+
+        // A dismissed modal or stopped game cannot own another input/render frame.
+        if (! $this->isShowing || $this->game->hasStopped()) {
+          break;
+        }
+
+        // A blocked-frame callback may quit after wait begins but before it paints.
+        Timers::wait(1 / 60, function (): void {
+          if (! $this->game->hasStopped()) {
+            $this->render();
+          }
+        });
+      }
+    } finally {
+      $result = $this->close();
+    }
+
+    return $result;
   }
 
   /**
@@ -283,10 +309,12 @@ abstract class Modal implements ModalInterface, LayeredPresentationInterface
    */
   public function close(): mixed
   {
-    // Remove the overlay before the scene resumes. FieldState::resume()
-    // redraws the world in response to CLOSE; erasing after that redraw would
-    // blank the modal footprint and leave dynamic field objects missing.
+    // Remove the overlay before the scene resumes. A stopped game only releases ownership.
     $this->hide();
+    if ($this->game->hasStopped()) {
+      $this->value = null;
+      return null;
+    }
     $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::CLOSE, $this->value));
     return $this->value;
   }

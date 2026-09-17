@@ -114,9 +114,36 @@ transaction. The transaction resolves the owned stack by stable ID before
 checking flags, quantity and price, so supplied offer metadata cannot bypass
 an unsellable definition. Shop rates and transaction rounding remain unchanged.
 
-Engine validation: the full suite passes on PHP 8.4 and 8.5 with 2,322 tests,
-13,626 assertions and one existing skip on each; full PHPStan is clean. These
+The subsequent terminal equipment walkthrough found a separate catalogue/owned
+stack alias in purchases: selling the last copy also depleted shop merchandise,
+so buying it again admitted a zero-quantity stack. Purchases now create owned
+unit copies, independent of merchandise quantity, and preflight all inventory
+categories and capacity before charging. Full inventories may still top up
+existing stacks; rejected new entries do not block later existing-stack inputs.
+The sale quantity prompt now names the sale action rather than a purchase.
+
+Engine validation, including purchase ownership and the subsequent shutdown fix:
+the full suite passes on PHP 8.4 and 8.5 with 2,370 tests, 13,985 assertions and
+one existing skip on each; full PHPStan is clean. These
 headless checks do not establish native gameplay or Linux/WSLg acceptance.
+
+Game's muted 110x35 terminal retest also passes purchase, sale of the last copy,
+and repurchase: 10,000G becomes 8,100G after the three approved weapons, 8,425G
+after selling the staff, then 7,775G with one owned staff after repurchasing.
+Manual equip and role-aware Optimize retain the expected weapons; the sale
+prompt says "sell". Configuration and all nine current save hashes match before
+and after that retest. Exit confirmation exposed a separate shared shutdown
+defect: terminal modes restore, but the process needs interruption to finish.
+That run is not evidence of clean shutdown. The shared fix clears cached
+confirmation input and stops field/frame continuation when shutdown begins;
+both blocking modal implementations unwind without repainting or resuming a
+stopped scene. Startup modals remain supported before the main loop begins.
+Headless regressions cover terminal and renderer input sources, repeated quit,
+failed source reset and quit from callbacks. Game's one subsequent muted 110x35
+terminal retest at the same Waymeet interaction passes: Q opens Exit, Enter
+invokes normal quit, restores the terminal and returns from Game::run with exit
+code 0, without further input or forced interruption. Configuration and all nine
+current saves remain unchanged, and no owned game/renderer process remains.
 
 Remaining boundaries, not claims of completion: Editor diagnostics still need
 parity for malformed top-level policy data and failed file loads. Shops retain
@@ -124,6 +151,9 @@ their existing total-held-quantity behavior; protecting copies currently equippe
 needs coordinated quantity-picker and transaction handling. Item-level sale-rate
 metadata and shop-rate precedence also remain distinct and must not be combined
 into an invented double-discount or silently different rounding policy.
+The quantity UI also still truncates some fractional totals and checks purchase
+affordability against the base price rather than custom shop rates; a shared
+quote calculation is follow-up work, not a claim of this ownership fix.
 
 ### Phase 1 — The persistence spine (switches, variables, world state) ✅ *shipped 2026-08*
 > Status: `Core\GameState` ships switches, variables, story events, and

@@ -12,6 +12,9 @@ use Ichiloto\Engine\Battle\Presentation\BattleHudSnapshot;
 use Ichiloto\Engine\Battle\Presentation\BattleResultsSkin;
 use Ichiloto\Engine\Battle\Presentation\BattleResultsPlayback;
 use Ichiloto\Engine\Battle\Presentation\GraphicalBattleResults;
+use Ichiloto\Engine\Battle\Presentation\BattlePauseSkin;
+use Ichiloto\Engine\Battle\Presentation\GraphicalBattlePause;
+use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\UI\Accessibility;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnBasedEngine;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\PlayerActionState;
@@ -53,6 +56,7 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
   public private(set) ?BattleCanvasLayout $battleUiLayout = null;
   public private(set) ?BattleResultsSkin $resultsSkin = null;
   public private(set) ?BattleResultsPlayback $resultsPlayback = null;
+  public private(set) ?BattlePauseSkin $pauseSkin = null;
   private ?PresentationCanvas $resultsBattlefield = null;
 
   public function beginResults(): void
@@ -78,8 +82,13 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
   #[Override]
   public function stop(): void
   {
-    $this->endResults();
-    parent::stop();
+    try {
+      $this->ui?->resumeTiming(discard: true);
+      if ($this->pauseState?->hasOwnedResources()) { $this->pauseState->exit(); }
+      $this->endResults();
+    } finally {
+      parent::stop();
+    }
   }
 
   public function hasGraphicalResults(): bool
@@ -89,6 +98,7 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
 
   public function getPresentationCanvas(): ?PresentationCanvas
   {
+    if ($this->state instanceof BattlePauseState) { return $this->state->canvas(); }
     if ($this->hasGraphicalResults()) {
       return GraphicalBattleResults::frame($this->resultsBattlefield, $this->resultsSkin, $this->resultsPlayback);
     }
@@ -246,6 +256,34 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
     $this->state->enter();
   }
 
+  /** Pause retains the running state and its engine context; it is not a new battle entry. */
+  public function pauseBattle(): void
+  {
+    if (!$this->state instanceof BattleRunState || $this->pauseState === null
+      || $this->getGame()->hasStopped() || $this->getGame()->sceneManager->currentScene !== $this) { return; }
+    $frame = $this->getPresentationCanvas();
+    $runtime = $this->getGame()->getRendererRuntime();
+    if ($frame !== null && $this->pauseSkin !== null && $runtime !== null) {
+      GraphicalBattlePause::preflight($this->pauseSkin, $runtime->getAssetRoot(), $frame->images);
+    }
+    $this->pauseState->retainFrame($frame);
+    $this->state->suspend();
+    $this->state = $this->pauseState;
+    $this->state->enter();
+  }
+
+  public function resumeBattle(): void
+  {
+    if (!$this->state instanceof BattlePauseState || $this->runState === null
+      || $this->state->menu === null
+      || $this->getGame()->hasStopped() || $this->getGame()->sceneManager->currentScene !== $this) { return; }
+    $this->state->exit();
+    InputManager::resetState(true);
+    $this->state = $this->runState;
+    $this->state->resume();
+    Console::recomposeFrame(fn() => $this->ui?->refresh());
+  }
+
   /**
    * @inheritDoc
    */
@@ -259,6 +297,7 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
     $presentation = null;
     $layout = null;
     $resultsSkin = null;
+    $pauseSkin = null;
     $runtime = $this->getGame()->getRendererRuntime();
     // Terminal play never loads the optional catalog or inspects any PNG.
     if ($runtime !== null) {
@@ -270,6 +309,13 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
         $presentation = GraphicalBattlePresentation::prepare($config, $catalog, $runtime->getAssetRoot());
         $layout = $presentation?->arena ?? $catalog->ui;
         $resultsSkin = $catalog->results;
+        $pauseSkin = $catalog->pause;
+        if ($pauseSkin !== null) {
+          if ($layout === null || $layout->width < 520 || $layout->height < 320) {
+            throw new RuntimeException('The Pause skin requires a battle canvas of at least 520 by 320.');
+          }
+          GraphicalBattlePause::preflight($pauseSkin, $runtime->getAssetRoot(), $presentation?->frame()->images ?? []);
+        }
         if ($resultsSkin !== null && ($layout === null || $layout->width !== 1350 || $layout->height !== 720)) {
           throw new RuntimeException('The Results skin requires a 1350 by 720 battle canvas.');
         }
@@ -295,6 +341,8 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
     $this->graphicalPresentation = $presentation;
     $this->battleUiLayout = $layout;
     $this->resultsSkin = $resultsSkin;
+    $this->pauseSkin = $pauseSkin;
+    if ($this->pauseState?->hasOwnedResources()) { $this->pauseState->exit(); }
     $this->endResults();
 
     // The field HUD only exists once the game scene has built it. A battle
@@ -326,7 +374,13 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
    */
   public function update(): void
   {
+    if ($this->getGame()->hasStopped() || $this->getGame()->sceneManager->currentScene !== $this) { return; }
+    if ($this->state instanceof BattlePauseState) {
+      $this->state->execute($this->sceneStateContext);
+      return;
+    }
     parent::update();
+    if ($this->getGame()->hasStopped() || $this->getGame()->sceneManager->currentScene !== $this) { return; }
     $this->state->execute($this->sceneStateContext);
   }
 
@@ -341,7 +395,15 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
   #[Override]
   public function resume(): void
   {
+    if ($this->getGame()->hasStopped() || $this->getGame()->sceneManager->currentScene !== $this) { return; }
     parent::resume();
+
+    if ($this->state instanceof BattlePauseState) {
+      if ($this->state->menu === null) { return; }
+      Console::recomposeFrame(fn() => $this->ui?->refresh());
+      $this->state->resume();
+      return;
+    }
     $this->state?->resume();
 
     if (! $this->ui || $this->state instanceof BattleStartState) {
@@ -401,7 +463,7 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
     $this->ui->refresh();
 
     if ($this->state instanceof BattlePauseState) {
-      $this->state->enter();
+      $this->state->render();
     }
   }
 

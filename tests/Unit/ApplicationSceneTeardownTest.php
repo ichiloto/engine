@@ -562,3 +562,67 @@ it('disposes retained battle callers on quit or abandonment without completion o
     ->and($this->game->sceneManager->saveManager->writes)->toBe(0)
     ->and(new ReflectionProperty(SceneManager::class, 'sceneBeforeBattle')->getValue($this->game->sceneManager))->toBeNull();
 })->with([false, true])->with(['quit', 'defeat', 'title']);
+
+it('abandons real retained callers through Pause confirmation once even if a failure callback throws', function (bool $cinematic, string $destination, bool $throw) {
+  [$scene, $battle, $session, $outcome] = startTeardownBattle($this->game, $this->logDirectory, $cinematic);
+  if ($throw) { $outcome->onFailure = fn() => throw new RuntimeException('pause abandonment failure'); }
+  ConfigStore::put(\Ichiloto\Engine\Util\Config\PlaySettings::class,
+    new \Ichiloto\Engine\Util\Config\PlaySettings(['width' => 135, 'height' => 36]));
+  Console::syncDimensions(135, 36);
+  InputManager::setInputSource(new class implements \Ichiloto\Engine\IO\InputSources\InputSourceInterface {
+    public function poll(): ?\Ichiloto\Engine\IO\Enumerations\KeyCode { return null; }
+    public function reset(bool $drainBufferedInput = false): void {}
+  });
+  InputManager::setBindings(['confirm' => ['keys' => [\Ichiloto\Engine\IO\Enumerations\KeyCode::ENTER]]]);
+  $pause = new class(new SceneStateContext($battle)) extends \Ichiloto\Engine\Scenes\Battle\States\BattlePauseState {
+    public float $now = 0;
+    protected function createMenu(): \Ichiloto\Engine\Battle\Presentation\BattlePauseMenu
+    {
+      return new \Ichiloto\Engine\Battle\Presentation\BattlePauseMenu(clock: fn(): float => $this->now);
+    }
+  };
+  new ReflectionProperty(BattleScene::class, 'pauseState')->setValue($battle, $pause);
+  $battle->setState($pause);
+  $pause->now = 0.2; $pause->execute();
+  $pause->menu->navigate($destination === 'title' ? 2 : 3);
+  new ReflectionProperty(InputManager::class, 'keyPress')->setValue(null, \Ichiloto\Engine\IO\Enumerations\KeyCode::ENTER);
+  $pause->execute();
+  $pause->now += 0.08; $pause->execute(); $pause->now += 0.08; $pause->execute();
+  expect($pause->menu->selection)->toBe(0)->and($session->status)->toBe(EventExecutionStatus::SUSPENDED);
+  $pause->menu->navigate(1);
+  new ReflectionProperty(InputManager::class, 'keyPress')->setValue(null, \Ichiloto\Engine\IO\Enumerations\KeyCode::ENTER);
+  $pause->execute();
+  $oldMenu = $pause->menu;
+  $renders = $scene->fieldState->renders;
+  $pause->now += 0.13; $pause->execute();
+  $pause->now += 1; $pause->execute();
+  expect($session->status)->toBe(EventExecutionStatus::FAILED)
+    ->and([$outcome->completed, $outcome->failed])->toBe([0, 1])
+    ->and($scene->cinematicStage->all())->toBe([])
+    ->and($scene->npcManager->findById('guide')->position->x)->toBe($cinematic ? 7.0 : 8.0)
+    ->and($scene->fieldState->renders)->toBe($renders)
+    ->and($this->game->sceneManager->saveManager->writes)->toBe(0)
+    ->and($pause->menu)->toBeNull()->and($oldMenu->tick())->toBeNull()
+    ->and(new ReflectionProperty(SceneManager::class, 'sceneBeforeBattle')->getValue($this->game->sceneManager))->toBeNull();
+  if ($destination === 'title') { expect($this->game->sceneManager->currentScene)->toBeInstanceOf(TitleScene::class); }
+  else { expect($this->game->hasStopped())->toBeTrue(); }
+})->with([false, true])->with(['title', 'quit'])->with([false, true]);
+
+it('completes an ordinary battle through the real end state without invoking an unused Pause cleanup', function () {
+  [$scene, $battle, $session, $outcome] = startTeardownBattle($this->game, $this->logDirectory, false);
+  $engine = $this->createMock(\Ichiloto\Engine\Battle\Interfaces\BattleEngineInterface::class);
+  $engine->expects($this->once())->method('stop');
+  new ReflectionProperty(Game::class, 'engine')->setValue($this->game, $engine);
+  $pause = new class(new SceneStateContext($battle)) extends \Ichiloto\Engine\Scenes\Battle\States\BattlePauseState {
+    public function exit(): void { throw new RuntimeException('Unused Pause cleanup must not run.'); }
+  };
+  new ReflectionProperty(BattleScene::class, 'pauseState')->setValue($battle, $pause);
+  $battle->result = new BattleResult('Victory');
+  $battle->setState(new \Ichiloto\Engine\Scenes\Battle\States\BattleEndState(new SceneStateContext($battle)));
+  $scene->eventInterpreter->update(1);
+  expect($pause->hasOwnedResources())->toBeFalse()
+    ->and($this->game->sceneManager->currentScene)->toBe($scene)
+    ->and($scene->gameState->getVariable('battle-result'))->toBe('victory')
+    ->and([$outcome->completed, $outcome->failed])->toBe([1, 0])
+    ->and($session->status)->toBe(EventExecutionStatus::COMPLETED);
+});

@@ -56,3 +56,12 @@ it('ignores removals of items that are not in the inventory', function () {
   expect($inventory->getQuantityByName('Potion'))->toBe(2)
     ->and($inventory->all->count())->toBe(1);
 });
+
+it('admits existing-stack units at slot capacity without replacing owned objects', function () {
+  $inventory = new Inventory(capacity: 1);
+  $owned = makeInventoryTestItem('Potion', 2);
+  $inventory->addItems($owned);
+  $inventory->addItems(makeInventoryTestItem('Ether'), makeInventoryTestItem('Potion'));
+  expect($inventory->isFull)->toBeTrue()->and($inventory->all->toArray())->toBe([$owned])
+    ->and($owned->quantity)->toBe(3);
+});

@@ -398,6 +398,12 @@ class Game implements CanRun, SubjectInterface
         $this->terminalCleanedUp = true;
         $this->isRunning = false;
         Timers::setFrameTick(null);
+        // Confirmation input must not become a field action while this frame unwinds.
+        try {
+            InputManager::resetState();
+        } catch (Throwable $error) {
+            $this->logCrash($error);
+        }
         // Release scene-owned work while its audio and rendering services
         // still exist. A broken scene must not prevent platform cleanup.
         try {
@@ -737,7 +743,13 @@ class Game implements CanRun, SubjectInterface
             while ($this->isRunning) {
                 LatencyTrace::beginIteration();
                 $this->rendererRuntime?->pump();
+                if ($this->terminalCleanedUp) {
+                    break;
+                }
                 $this->handleInput();
+                if ($this->terminalCleanedUp) {
+                    break;
+                }
                 $this->update();
 
                 // Quitting happens inside update(), and by then the terminal
@@ -1006,8 +1018,17 @@ SPLASH_SCREEN;
      */
     public function quit(): void
     {
+        if ($this->terminalCleanedUp) {
+            return;
+        }
         $this->notify($this, new GameEvent(GameEventType::QUIT));
         $this->stop();
+    }
+
+    /** True once shutdown begins; startup modals are live before the main loop runs. */
+    public function hasStopped(): bool
+    {
+        return $this->terminalCleanedUp;
     }
 
     /**
@@ -1029,6 +1050,9 @@ SPLASH_SCREEN;
      */
     protected function handleInput(): void
     {
+        if ($this->terminalCleanedUp) {
+            return;
+        }
         InputManager::handleInput();
     }
 
@@ -1053,8 +1077,14 @@ SPLASH_SCREEN;
         }
 
         $this->notificationManager->update();
+        if ($this->terminalCleanedUp) {
+            return;
+        }
         $this->audioManager->update();
         Timers::update();
+        if ($this->terminalCleanedUp) {
+            return;
+        }
 
         $this->notify($this, new GameEvent(GameEventType::UPDATE));
         LatencyTrace::end('game.update.end', $started, $this->latencySceneState());
@@ -1097,9 +1127,21 @@ SPLASH_SCREEN;
 
         LatencyTrace::record('game.blocked.begin');
         $this->rendererRuntime?->pump();
+        if ($this->terminalCleanedUp) {
+            return;
+        }
         $this->notify($this, new GameEvent(GameEventType::UPDATE));
+        if ($this->terminalCleanedUp) {
+            return;
+        }
         Timers::update();
+        if ($this->terminalCleanedUp) {
+            return;
+        }
         $this->notificationManager->update();
+        if ($this->terminalCleanedUp) {
+            return;
+        }
         $this->audioManager->update();
         $this->notificationManager->render();
     }

@@ -18,13 +18,20 @@ use Ichiloto\Engine\UI\UIManager;
 use Assegai\Collections\ItemList;
 use Ichiloto\Engine\UI\Interfaces\UIElementInterface;
 
+final class FieldRestorationGameProbe extends Game
+{
+  public function __construct() {}
+  public function __destruct() {}
+}
+
 final class FieldRestorationModalProbe extends Modal
 {
   /** @var string[] */
   public array $timeline = [];
 
-  public function __construct(EventManager $eventManager)
+  public function __construct(Game $game, EventManager $eventManager)
   {
+    $this->game = $game;
     $this->eventManager = $eventManager;
   }
 
@@ -153,9 +160,9 @@ final class FieldCompositionSceneProbe extends GameScene
 }
 
 it('erases a blocking modal before resuming and redrawing the scene', function () {
-  $game = (new ReflectionClass(Game::class))->newInstanceWithoutConstructor();
+  $game = new FieldRestorationGameProbe();
   $eventManager = EventManager::getInstance($game);
-  $modal = new FieldRestorationModalProbe($eventManager);
+  $modal = new FieldRestorationModalProbe($game, $eventManager);
   $listener = static function (ModalEvent $event) use ($modal): void {
     if ($event->modalEventType === ModalEventType::CLOSE) {
       $modal->recordSceneResume();
@@ -173,8 +180,8 @@ it('erases a blocking modal before resuming and redrawing the scene', function (
 });
 
 it('restores the field after non-blocking story dialogue is dismissed', function () {
-  $game = (new ReflectionClass(Game::class))->newInstanceWithoutConstructor();
-  $modal = new FieldRestorationModalProbe(EventManager::getInstance($game));
+  $game = new FieldRestorationGameProbe();
+  $modal = new FieldRestorationModalProbe($game, EventManager::getInstance($game));
   $scene = new FieldRestorationGameSceneProbe();
   $presentation = new ModalEventPresentation($scene);
   $modalProperty = (new ReflectionClass(ModalEventPresentation::class))->getProperty('modal');

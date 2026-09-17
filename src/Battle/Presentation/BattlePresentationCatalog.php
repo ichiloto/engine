@@ -22,7 +22,7 @@ final readonly class BattlePresentationCatalog
   public array $enemies;
 
   public function __construct(array $arenas, array $actors, array $enemies, public ?BattleCanvasLayout $ui = null,
-    public ?BattleResultsSkin $results = null)
+    public ?BattleResultsSkin $results = null, public ?BattlePauseSkin $pause = null)
   {
     if ($ui !== null && $ui->skin === null) {
       throw new InvalidArgumentException('Project-wide battle UI requires a skin.');
@@ -55,7 +55,7 @@ final readonly class BattlePresentationCatalog
   public function requiredCapabilities(): array
   {
     return [RendererSessionConfig::GRAPHICAL_CANVAS,
-      ...($this->results !== null || $this->ui !== null || array_any($this->arenas, static fn($arena) => $arena->skin !== null)
+      ...($this->pause !== null || $this->results !== null || $this->ui !== null || array_any($this->arenas, static fn($arena) => $arena->skin !== null)
         ? [RendererSessionConfig::CANVAS_CLIP_OPACITY, RendererSessionConfig::CANVAS_GLYPH_EFFECTS] : [])];
   }
 

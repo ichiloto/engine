@@ -44,7 +44,11 @@ final class MovementRouteRunner implements EventPendingOperationInterface
     $this->steps = array_values(array_filter((array) ($command['steps'] ?? []), is_array(...)));
     $this->validate();
     $this->routeSubject = $this->resolveSubject()
-      ?? throw new MovementRouteException('Movement-route subject is not available on the current map.');
+      ?? throw new MovementRouteException(sprintf(
+        'Movement-route %s is not available on map "%s".',
+        $this->subjectLabel(),
+        $gameScene->currentMapId,
+      ));
     $this->expectedPosition = clone $this->routeSubject->position;
     $this->mapId = $gameScene->currentMapId;
     $this->generation = $gameScene->cinematicStage?->generation ?? 0;
@@ -202,6 +206,15 @@ final class MovementRouteRunner implements EventPendingOperationInterface
       'npc' => $this->gameScene->npcManager?->findById(strval($this->command['npcId'] ?? '')),
       'staged_actor' => $this->gameScene->cinematicStage?->find(strval($this->command['actorId'] ?? '')),
       default => $this->gameScene->player,
+    };
+  }
+
+  private function subjectLabel(): string
+  {
+    return match (strtolower(trim(strval($this->command['subject'] ?? 'player')))) {
+      'npc' => sprintf('NPC "%s"', strval($this->command['npcId'] ?? '')),
+      'staged_actor' => sprintf('staged actor "%s"', strval($this->command['actorId'] ?? '')),
+      default => 'player',
     };
   }
 
@@ -379,11 +392,6 @@ final class MovementRouteRunner implements EventPendingOperationInterface
     };
     $attemptedX = intval($position?->x ?? 0) + intval($direction->x);
     $attemptedY = intval($position?->y ?? 0) + intval($direction->y);
-    $subjectLabel = match ($subject) {
-      'npc' => sprintf('NPC "%s"', strval($this->command['npcId'] ?? '')),
-      'staged_actor' => sprintf('staged actor "%s"', strval($this->command['actorId'] ?? '')),
-      default => 'player',
-    };
     $blockerDetail = $subject === 'staged_actor'
       ? $this->gameScene->cinematicStage?->lastMoveFailure
       : null;
@@ -391,7 +399,7 @@ final class MovementRouteRunner implements EventPendingOperationInterface
     throw new MovementRouteException(sprintf(
       'Movement route failed on map "%s": %s step %d (%s) was blocked at (%d, %d).%s',
       $this->gameScene->currentMapId,
-      $subjectLabel,
+      $this->subjectLabel(),
       $this->stepIndex + 1,
       $directionName,
       $attemptedX,

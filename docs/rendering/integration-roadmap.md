@@ -114,11 +114,91 @@ before the remaining representative cinematics and controller-input work.
 Independent Game M3 work continues alongside it. Reuse the already-approved
 delivery below; do not reopen design approval or commission another Art batch.
 
+The first rescue technical gate closed on 17 September after the corrected
+ordinary native recheck below. Pascal, the existing Engine subagent, completed
+the Pause implementation and focused checks; the coordinator reviewed it and
+ran the full Engine suites. Four-option focus, confirmations, shared Config
+interaction, retained-frame composition and scoped Run suspend/resume are
+implemented. Runtime edits and Game's serialized muted live checks use separate
+windows. The bounded terminal and macOS native technical checks below are now
+complete; this is not a claim of Andrew's personal playtest acceptance.
+
+Validation checkpoint after the Config opacity correction: 2,411 Engine tests
+pass on each of PHP 8.4.21 and 8.5.10, with one existing skip (16,466 and 16,465
+assertions respectively). Full PHPStan on both versions and the whitespace check
+pass. Full suites use the established process-local 1 GiB memory budget; an
+initial default-128 MiB run exhausted memory, not an assertion. No persistent
+configuration was changed. These include real ATB retention, Config lifecycle,
+ordinary battle completion, partial-entry disposal, title/quit abandonment and
+failing cleanup callbacks. Linux/WSLg remains untested.
+
+Sibling compatibility checks on both PHP versions also pass: Console ran all
+eight unchanged scripts (six pass, two Game-dependent skips); Editor reports
+919 passed / 50 skipped / 4,664 assertions. These headless checks used the
+current sibling Engine classes/helpers through a temporary test bootstrap,
+without vendor edits or pinning normal Game data. Game-dependent optional paths
+are not covered by this compatibility run.
+
+The isolated 135x36 terminal check has completed with normal exit 0. An authored
+Service Road Vermin battle played through Victory/Results and returned to the
+field without Pause or forced outcomes. A second battle verified Resume, the
+pause shortcut, Config return focus, Cancel-default confirmations and return to
+Title. Live paused combat state remained unchanged; the longer deterministic
+freeze/remaining-duration cases are covered by the headless suite.
+
+The first native pass also completed an ordinary victory and field return,
+Resume/button shortcut, Config return focus, both Cancel-default confirmations
+and confirmed Exit with normal exit 0. Root Pause/confirmations were centered
+and opaque without a full-screen dimmer. It exposed one visual defect: Config's
+owned Console runs retained null backgrounds when projected into the canvas,
+where null means transparent. The fix reuses the existing battle adapter's
+opaque-owned-cell conversion, preserving explicit selection colors and the
+uncovered battlefield. Both live sessions closed before corrective edits;
+normal config plus all nine saves matched their pretest hashes.
+
+The corrected native recheck passed in reduced-motion mode using the same normal
+checkout and existing renderer. Config's main and description panels were fully
+opaque, with no battlefield/HUD bleed-through. Selection and description updates
+worked; Back restored Pause with Config focused. Root Pause retained centered
+labels and visible selection without a full-screen dimmer. The Title confirmation
+defaulted to Cancel; deliberate confirmation returned to a clean Title screen,
+then normal Exit closed the process with exit 0. Combat context/gauges remained
+unchanged through the pause; all ten normal config/save hashes still matched.
+No test window remains open. Captures were inspected inline, not saved as native
+PNG evidence. These checks are macOS only and do not complete the broad Game
+suite or the pending graphical Config redesign.
+
+Game owns the normal-checkout kit import and catalog wiring. Andrew approved
+the two remaining unchanged images, `Controls/ButtonNormal.png` and
+`Controls/FocusRing.png`, with "Game can go ahead and import the approved kit."
+This answered the exact two-file unavailable-packaging-tool/missing-licence-field
+exception; it is not a blanket exception for other assets. The approval and
+typed catalog contract have been relayed to the existing Game owner. Game has
+completed the two-image import and typed `BattlePauseSkin` catalog wiring. Both
+copied hashes match the approved package; all 21 previously admitted UI images
+are unchanged. Six focused asset/catalog/Results tests pass with 271 assertions
+on each of PHP 8.4.21 and 8.5.10. The existing Game UI receipt records the exact
+exception and provenance; this is not formal packaging-tool admission or native
+acceptance. No new build, publishing, substitute assets or further design
+approval is authorized.
+
+At 06:15:45 Africa/Lusaka on 17 September, Andrew's running game crashed on
+ordinary post-victory cleanup at `BattlePauseState::exit()`: its loaded Console
+class lacked the newly added `removeLayer()` method. Shared Engine edits during
+his playtest exposed mixed loaded/new source. Fresh Engine and Game processes
+now resolve the same Console class with that method present. Composer autoload
+regeneration does not reload classes in an existing process. The coordinator
+accepted responsibility; Andrew then explicitly lifted the incident hold and
+waited for implementation/validation. Coordinate shared runtime edits with
+playtest windows instead of adding missing-method or hot-reload workarounds.
+Cleanup must release only resources actually owned by an entered Pause state;
+ordinary battle completion and repeated disposal have dedicated regressions.
+
 The existing Art producer has delivered the root overlay, both confirmations
 and interactive browser preview in `output/pause-ui-v1-20260916/package` under
 the Art workspace. The corrected delivery passes 23 browser checks, including
 72 button-centering samples. The Pause delivery is complete; the producer's
-current rescue-registration work retains priority. No new Pause Art dispatch
+next menu delivery is the Config extension below. No new Pause Art dispatch
 or design approval is needed. Browser checks are not
 native/runtime acceptance.
 
@@ -128,30 +208,90 @@ restrained 140-180 ms opening fade/scale and reduced motion. Keep the suspended
 scene visible without a new full-screen dimmer. No new character/background art
 or replacement Config design. Return previews through the Engine coordinator.
 
-Runtime wiring is not delivered by Art or this source inspection. Extend the
+Runtime wiring is Engine-owned, separate from Art's browser proof. Extend the
 existing pause state/input path, never a parallel pause manager. Pause at the
 root resumes; Config returns to Pause with Config focused. Back cancels a
 confirmation, and Cancel is initially focused for both To Title and Exit. Use
 the approved unsaved-progress warning, existing title-return/normal shutdown
 paths and no autosave. Consume opening/closing input; pause-menu input and UI
 motion continue while ATB, actions and scene progression remain suspended.
+Andrew subsequently rejected the redundant "Confirm / Back" footer. Omit it
+from both terminal and graphical Pause/confirmation presentation and the Art
+preview; do not replace it with another hint strip. Existing controls and the
+actual menu/confirmation choices remain unchanged.
+This footer-only follow-up passes 26 Pause presentation/lifecycle tests with
+2,359 assertions on each of PHP 8.4 and 8.5. No additional native window was
+launched for the text removal; the earlier live validation above predates it.
 
-Current local-source findings to address before runtime acceptance:
-- `BattlePauseState::execute()` calls `setState(runState)`, which calls
-  `BattleRunState::enter()` and `engine->start()`. Active-time startup resets
-  battle state. Resume must restore the existing running state, not restart it.
-- `BattleRunState::execute()` currently continues to run the engine after its
-  input handler switches to Pause; the opening input must not reach gameplay.
-- Config currently lives in `MainMenuConfigMode`, coupled to `MainMenuState`,
-  and Back returns to main-menu commands. Reuse its settings interface with an
-  explicit return context; do not build a separate Config implementation or
-  resume field gameplay to access it.
-- Resize currently calls Pause `enter()` to repaint. Keep repaint separate from
-  entry/focus initialization so resize cannot reset a confirmation or selection.
+Implementation acceptance checks from the original source review:
+- Resume restores the existing running state rather than calling battle entry
+  and `engine->start()` again, preserving active-time context and queued actions.
+- Opening Pause stops the current Run execution before it advances gameplay.
+- Config reuses the settings interaction with an explicit return context, not
+  a duplicate implementation or a detour through live field gameplay.
+- Resize repaints without re-entering Pause or resetting focus/confirmation.
+- Paused alert/feedback deadlines preserve their remaining duration, and Config
+  removes only its owned cells on return, resize or abandonment.
 
 Preserve Results integration and the active cinematic/Game milestone work.
 Runtime/native/terminal acceptance remains Engine-owned
 within the bounded upgrade, not blanket G5 scope or publishing permission.
+
+### Config and shared menu Art
+
+On 17 September Andrew asked Art to provide Config assets and assets for the
+menu system generally. The existing `Create Last Legend UI art kit` producer
+accepted the Config-first extension: inspect actual settings/controls, reuse
+the approved kit, and deliver composable assets, state/sizing specifications
+and an interactive preview through the Engine coordinator. Shared main-menu
+list/detail components follow, then secondary-screen adaptations based on the
+existing menu inventory. Preserve the separately active title-screen proposals.
+Update the existing Art specification rather than creating competing plans or
+flattened screen images. This production scope does not authorize runtime
+integration, new imports/licence exceptions, paid providers or publication.
+The current Config readability correction does not wait on Art or replace its
+design work; settings behavior and presentation remain separate.
+
+Art's source inspection confirmed eleven settings in one ordered list, with
+descriptions below and immediate persistence. Preserve that interaction rather
+than inventing categories, Apply/Reset actions or settings. Existing frames,
+selectors, focus states, slider and scrollbar assets cover the first delivery;
+the Config composition extends the existing kit without changing its sealed
+base or the accepted Pause/Results assets. Text, values and control hints remain
+independently composable.
+
+The first Config Art delivery is complete in the existing Art workspace at
+`output/ui-art-v1-20260915/config/Config-Review.html`. Its adjacent `spec.json`,
+component reference and asset-reuse inventory describe the native adaptation;
+the existing `HANDOFF-NOTES.md` holds the wider menu sequence. No new raster
+assets were generated: eighteen existing identities are reused. Sixty silent
+headless-browser checks pass, including complete visible-row counts at three
+canvas sizes, opacity, focus, reduced motion and centered labels. This is a
+browser/spec delivery, not native integration or Andrew's design acceptance.
+The shared Main Menu/list-detail Art foundation is also delivered at
+`output/ui-art-v1-20260915/menus/Main-Menu-Review.html`, with the same adjacent
+specification/component/source-inventory structure. It preserves the established
+Main Menu arrangement, all source fields and approved portrait apertures, while
+distinguishing Order's source mark from current input focus. Fifty-seven silent
+browser checks pass; the coordinator inspected the Main Menu and scrolling
+specimens and verified all 23 extension checksums. The list/detail specimen is
+component demonstration data, not a completed inventory/shop runtime. Existing
+sealed packages remain unchanged; no new raster assets or runtime changes were
+part of this delivery. Source-specific Items, Equipment and Status compositions
+are the next Art slot under the existing inventory, not a new visual direction.
+
+Source inspection during those adapters found an existing Items paging gap:
+`ItemSelectionPanel` advertises page controls and exposes counts, but writes the
+entire item array without a page slice, counts rows using outer window height,
+and refreshes its page title only when items are assigned. The Use, Discard and
+Key Items modes only handle vertical item navigation, not page actions. Runtime
+adoption must resolve visible capacity, selection/page ownership and input
+together for all consumers, with terminal and graphical regressions for empty,
+overflowing and changing inventories. Art may show supplied page metadata, not
+claim working gameplay pagination. Effective character/equipment example values
+must come from the existing isolated Game actor setup, not raw authored base
+arrays or an Art-side reimplementation of stat curves. This records integration
+work; no runtime paging fix was made in the Art delivery.
 
 ## Controller-ready input and normalized movement
 
@@ -233,10 +373,10 @@ records the current limitations separately from this planned work.
 | Slot | Owner and deliverable | Start condition and completion gate |
 | --- | --- | --- |
 | 0: preparation complete | Engine coordinates Game, Renderer and Art. Freeze one existing rescue segment, subject identities, entry/continuation, visual takeover, route/facings and minimum poses. | Game supplied source-checked routes, subject/facing and root-trigger entry proposals with outcome constraints. Engine's captured-entry walking/return and real-subject transform recovery are implemented and headless-tested, separately from visual suppression. No nested cinematic inside an active common event. Already-approved narrative corrections continue independently. |
-| 1: Engine seam implemented | Engine preserves graphical field continuity, adds optional staged graphical providers and scoped presentation takeover for existing subjects. Renderer owns regression coverage against actual emitted frames. | Field continuity, staged sprites/sheets, real-subject leases, paired suppression, transform recovery, pre-finalizer restoration, captured-entry walking/return and handled application teardown pass local regression tests. Temporary battles suspend/resume the caller; inactive fields cannot repaint over battle. Game content integration and representative native acceptance remain. No production art dependency for ownership tests. |
-| Parallel Art slot | Art prepares only the first rescue's required figures, support pose and visible prop, using existing approved references. | Freeze participants, route-visible facings, dimensions, pivots and crop layout first. Preview/admission of new art remains explicit; prior batch exceptions do not transfer. Full cast animation sets are not prerequisites. |
-| 2: Game integration active | Game binds the stable Engine seam and admitted art to the existing scene and all its callers. Engine coordinates acceptance. | Engine seam ready; Game validates every legal entry using actual map/NPC collision before root-wrapper wiring. Art completes existing pose registration/admission handoff in parallel. Visible approach/withdrawal, one representation per subject, intact graphical field, identical terminal story outcomes and correct continuation remain acceptance gates. Use the normal Game checkout, not another build. |
-| Next: Pause menu | Engine upgrades the existing pause state/input path using the delivered approved kit; Game provides normal-checkout integration. | After the first playable rescue, as Andrew directed on 17 September. Preserve suspended gameplay, Config return focus, safe confirmations and input consumption; verify native/terminal behavior. No replacement pause manager, new build or design round. Independent M3 work continues. |
+| 1: Engine seam implemented | Engine preserves graphical field continuity, adds optional staged graphical providers and scoped presentation takeover for existing subjects. Renderer owns regression coverage against actual emitted frames. | Field continuity, staged sprites/sheets, real-subject leases, paired suppression, transform recovery, pre-finalizer restoration, captured-entry walking/return and handled application teardown pass local regression tests. Temporary battles suspend/resume the caller; inactive fields cannot repaint over battle. The first rescue acceptance is recorded below; later scene integrations are not implied. No production art dependency for ownership tests. |
+| Parallel Art slot: complete | Art prepared and registered only the first rescue's required figures, support pose and visible prop using existing approved references. | Andrew approved integration of the exact corrected 13-image batch on 17 September, including its scoped technical admission exceptions. Game rechecks hashes and records provenance when copying; this is not blanket approval for later batches. Full cast animation sets are not prerequisites. |
+| 2: First rescue technically accepted | Game imported the approved art and wired the existing scene through its three root callers; Engine reviewed actual native captures. | All 21 legal entries pass normal/reduced-motion live-script checks, plus expanded interruption/retry cases. Ordinary terminal and ordinary/reduced native functional walkthroughs passed. Corrected companion spacing passes the ordinary native recheck, with exact return/cleanup and untouched author files. No fresh reduced native run after that spacing correction or Andrew aesthetic acceptance is claimed. Use the normal Game checkout, not another build. |
+| Complete: Pause menu technical gate | Pascal completed the existing pause state/input upgrade; the Engine coordinator reviewed it and passed full dual-PHP/static checks. Game completed the approved two-image import/catalog wiring and serialized muted terminal/native checks, including the corrected opaque Config surface. | Ordinary battle completion, suspended gameplay, Config return focus, safe confirmations, reduced motion, Title and normal exit verified on macOS. All test windows closed; normal saves/config unchanged. Andrew's personal playtest remains separate. Graphical Config/shared-menu Art proceeds in parallel with independent M3 work; coordinate any further runtime edits with playtesting. No new build or publishing. |
 | 3: remaining representative scenes | Game and Art reuse the rescue foundation for the distant sighting and environmental response/evacuation. Engine adds only demonstrated missing graphical effect adapters. | Rescue gate passed and each scene's staging/art scope settled. Content may proceed in parallel; native tests remain serialized under one window/input owner. |
 | 4: integrated acceptance | Engine consolidates Game state checks, Renderer native observations and Art review. | One normal pass per representative scene, terminal counterparts and applicable legal-skip/reduced-motion checks. Present one consolidated acceptance request, not questions scattered across tasks. |
 
@@ -291,12 +431,19 @@ Andrew subsequently accepted the missing character-appearance proposal with
 "Love it. Approved." The existing Art producer owns the approved reference;
 runtime pose/crop validation and production admission are separate from that
 appearance acceptance. Exact character/staging details stay in private docs.
-The first bounded rescue-art batch has delivered local candidate frames and
-previews; runtime registration and admission remain pending. The existing Art
+The first bounded rescue-art batch has delivered registered frames and previews.
+On 17 September Andrew answered "Approve this 13-image integration", accepting
+the unavailable packaging/formal-validation tool and missing explicit licence
+field for this exact corrected batch only, with verified hashes and local image
+checks. The Game and Art owners received the approval. Game must recheck the
+current manifest and preserve the scoped exception/provenance at import. No new
+build or publishing is authorized, and static registration is not native rescue
+acceptance. The existing Art
 producer subsequently delivered the approved Battle Results and Pause Menu
 packages; the current Pause delivery is recorded in [Approved Pause upgrade](#approved-pause-upgrade).
-There is no preceding active Art batch. This is Art-only work, not Pause runtime
-integration or permission to redesign Config/mechanics. Previews return through
+Those Art deliveries are complete; the separately authorized Config/shared-menu
+extension is recorded above. Art delivery is not runtime integration or
+permission to change mechanics. Previews return through
 the coordinator; no further design decision is pending. Andrew
 approved the rescue batch's local resize, stray-transparency trimming and
 sprite-cell alignment, then added
@@ -319,9 +466,10 @@ and recovery are not delivered by these
 tests. Game separately reports its retry fix passing 66 targeted cases / 5,334
 assertions, with combined narrative checks 157 / 7,788 on both PHP versions;
 these are interpreter/state checks, not staged rescue or native acceptance.
-The first rescue art has local preview cells; paired contact/release registration
-still needs technical validation before admission. Do not alter world coordinates
-or renderer semantics to conceal a visual alignment mismatch.
+At that earlier validation point, the rescue art had only preview cells.
+Paired contact/release registration and the batch-specific approval have since
+been completed as recorded above. Do not alter world coordinates or renderer
+semantics to conceal a visual alignment mismatch.
 
 The original planning pass inspected source and received owner reports; it did not run
 new runtime tests, generate assets or open a game window. Preserve current
@@ -356,5 +504,81 @@ needed. Game's regular non-simulation suite separately passes 468 tests after
 integrating its accepted narrative, presentation and passage-reveal checkpoints
 into local `develop`. The broad Last Legend suite was not completed because of
 the unrelated 180,000-battle simulation baseline. Linux/WSLg remains untested;
-no native/game/audio window was launched by this closure pass. Game rescue
-content, art admission and representative native/terminal play remain open.
+no native/game/audio window was launched by this closure pass.
+
+Subsequent Game integration on 17 September imported and rehashed the exact 13
+approved images, added the three real cinematic root callers and shared rescue
+choreography, and updated the persistent clear-position endpoint. The candidate
+passes 112 route/production tests with 5,941 assertions, including all 21 legal
+entries in normal/reduced-motion modes, pre-outcome interruption/retry,
+post-outcome failure convergence for all three callers and task-order hydration.
+These are headless checks, not native acceptance. Shared Editor/Console
+validation now follows common events in their actual cinematic or legacy
+context, retaining malformed-route, missing-reference and cycle failures. Strict
+Last Legend validation passes on PHP 8.4 and 8.5. A route-constructor diagnostic
+regression was corrected in Engine to retain the missing subject identity and
+map; the original Editor preview assertion was preserved. Full Editor suites
+pass 915 tests / 4,564 assertions with 54 skips on each PHP version; full Engine
+suites, including the subsequent shared shop ownership and shutdown fixes, pass
+2,370 tests / 13,985 assertions with one existing skip on each; full PHPStan is
+clean.
+
+Game completed the muted ordinary-timing terminal walkthrough at 135x36,
+including visible contact/withdrawal, captured position/facing restoration,
+correct caller completion, resumed movement and menu/field reconstruction.
+Its owned PTY exited normally with no staged actors left. Game's before/after
+hashes matched for configuration and all nine normal saves. Native graphical
+verification was initially deferred after a locked-Mac result. Andrew subsequently
+confirmed the Mac was unlocked on 17 September; fresh coordinator and Game
+computer-use inventories succeeded. The stale lock status is no longer a blocker.
+Game owns the resumed muted native ordinary/reduced-motion validation; native
+registration remains separate from functional acceptance. Both native runs have
+now completed with ordinary and reduced-motion timing: exact entry position and
+facing restored, camera following, no staged actors left, correct one-time
+outcomes, resumed movement/menu use and normal Quit with exit code 0. The
+ordinary run also confirmed that re-interaction does not replay the rescue.
+Configuration and all nine current saves matched before/after each run; all
+owned windows closed. Native captures revealed crowded companion blocking:
+one companion obscures the brace holder, and the approach crowds the paired
+rescue subjects. Art verified the approved hashes, crops and anchors; overlapping
+opaque-content bounds and same-layer author order explain the obstruction.
+Game corrected actual staged positions and collision-checked routes, preserving
+the brace relationship, rescue outcomes and captured return. Expanded route and
+retry checks pass 413 tests / 16,198 assertions on each PHP 8.4 and 8.5; the
+coordinator independently reran that suite on PHP 8.5. One corrected ordinary
+native recheck passed: the coordinator viewed the waiting, withdrawal and
+release captures and confirmed both diagnosed occlusions were resolved. Exact
+entry position/facing, camera follow, zero staged actors, correct one-time
+outcomes, resumed movement/menu use and normal Quit with exit code 0 also pass.
+Configuration plus all nine current saves match the immediate prelaunch baseline,
+and the owned window/process closed. No image, crop, scale, opacity, layer,
+renderer offset, collision bypass or protocol change was needed. This closes
+the bounded first-rescue technical gate, not Andrew's aesthetic acceptance.
+There was no fresh reduced native run after the spacing correction; distinguish
+the earlier reduced native functional pass from current both-mode route tests.
+Game's legacy retry fixtures now
+use the actual production roots and a shared tests/Support fixture, preserving
+all 66 cross-caller/write-count cases without test-file order dependence. The
+combined route/retry run passes 178 tests / 12,913 assertions on PHP 8.5; the
+full non-simulation Game suite passes 601 tests / 602,720 assertions. The
+combined rescue/retry/equipment selection passes 200 tests / 13,417 assertions
+on PHP 8.4, including the exact 13-image hashes and presentation bounds. This is
+not a full Game PHP 8.4 suite or completion of the 180,000-battle simulation
+baseline. The exact 13-image approval and verified copy are no longer pending
+user decisions.
+
+The independent M3 terminal equipment retest now passes purchase/sale/repurchase
+and role-aware equipment selection, with its configuration and all nine current
+saves unchanged. Unlike the earlier rescue walkthrough, that later run did not
+exit cleanly: confirmed Quit restored terminal modes but left the process alive
+until interrupted. Engine reproduced cached confirmation input triggering a
+post-quit field interaction and corrected the shared shutdown/input continuation
+boundary, including both blocking modal implementations. The full Engine checks
+above include this fix. Editor's full suites and Console's eight-script suites
+and strict Last Legend validation were rerun successfully on PHP 8.4 and 8.5
+against it. Game's one subsequent muted 110x35 terminal exit retest at the same
+Waymeet interaction also passes: Q then Enter returns from normal Game::run with
+exit code 0, without another input or forced interruption. Configuration and all
+nine current saves match before/after, and no owned game/renderer process remains.
+This closes the observed terminal exit defect. The first rescue's native
+functional and corrected-spacing checks also pass as recorded above.

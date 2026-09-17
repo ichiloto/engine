@@ -24,6 +24,9 @@ class BattleRunState extends BattleSceneState
    */
   protected ?BattleEngineContextInterface $battleEngineContext = null;
 
+  public function suspend(): void { $this->ui->pauseTiming(); }
+  public function resume(): void { $this->ui->resumeTiming(); }
+
   /**
    * @inheritDoc
    */
@@ -81,9 +84,12 @@ class BattleRunState extends BattleSceneState
   public function execute(?SceneStateContext $context = null): void
   {
     $this->handleActions();
+    if ($this->scene->getGame()->hasStopped() || $this->scene->state !== $this
+      || $this->scene->getGame()->sceneManager->currentScene !== $this->scene) { return; }
     $this->engine->run($this->battleEngineContext ?? throw new RuntimeException('Battle engine context is not set.'));
 
-    if ($this->scene->getGame()->sceneManager->currentScene !== $this->scene) {
+    if ($this->scene->getGame()->hasStopped() || $this->scene->state !== $this
+      || $this->scene->getGame()->sceneManager->currentScene !== $this->scene) {
       return;
     }
 
@@ -98,10 +104,11 @@ class BattleRunState extends BattleSceneState
   {
     if (Input::isButtonDown('quit')) {
       $this->scene->getGame()->quit();
+      return;
     }
 
     if (Input::isButtonDown('pause')) {
-      $this->setState($this->scene->pauseState);
+      $this->scene->pauseBattle();
     }
   }
 }
