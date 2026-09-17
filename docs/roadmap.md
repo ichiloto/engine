@@ -92,6 +92,39 @@ story feature depends on persistent game state existing.
 > `TurnBasedEngine::$turnQueue`, `Skill::execute()` stubs) is quarantined for
 > Phase 3's battle work.
 
+#### Equipment and shop integration follow-through (2026-09-17)
+
+Game bootstrap loads the existing `assets/Data/equipment-optimization.php`
+contract rather than introducing a second policy declaration in `system.php`.
+Its flat array accepts `statWeights`, `roleStatWeights`, `slotStatWeights`,
+`roleSlotStatWeights`, `elementOutcomeWeights`, `specialPropertyWeights`,
+`excludedDefinitionIds`, `excludedAvailabilities` and
+`excludedAcquisitionPolicies`. Weights are integers; exclusion fields are lists
+of non-empty strings. Stat precedence remains base, role, slot, then role-slot,
+with later weights replacing matching earlier keys. Compatibility and available
+equipment checks still precede scoring.
+
+An absent file resets to legacy equal-weight scoring; an explicit empty array
+declares zero weights. A present invalid file rejects startup with its path and
+cause, never silently retaining another project's policy. Headless regression
+tests exercise actual Game configuration and ordinary Character Optimize calls.
+
+Sale eligibility is shared by inventory values, the sell menu and the shop
+transaction. The transaction resolves the owned stack by stable ID before
+checking flags, quantity and price, so supplied offer metadata cannot bypass
+an unsellable definition. Shop rates and transaction rounding remain unchanged.
+
+Engine validation: the full suite passes on PHP 8.4 and 8.5 with 2,322 tests,
+13,626 assertions and one existing skip on each; full PHPStan is clean. These
+headless checks do not establish native gameplay or Linux/WSLg acceptance.
+
+Remaining boundaries, not claims of completion: Editor diagnostics still need
+parity for malformed top-level policy data and failed file loads. Shops retain
+their existing total-held-quantity behavior; protecting copies currently equipped
+needs coordinated quantity-picker and transaction handling. Item-level sale-rate
+metadata and shop-rate precedence also remain distinct and must not be combined
+into an invented double-discount or silently different rounding policy.
+
 ### Phase 1 — The persistence spine (switches, variables, world state) ✅ *shipped 2026-08*
 > Status: `Core\GameState` ships switches, variables, story events, and
 > per-map/per-marker completion, serialized through `GameConfig::$gameState`

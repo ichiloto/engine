@@ -25,6 +25,13 @@ create a release, tag, or release branch.
 
 ## Gameplay and persistence
 
+- Game bootstrap now loads the existing Editor-authored
+  `assets/Data/equipment-optimization.php` policy for ordinary Optimize actions.
+  Omitted declarations retain legacy scoring; invalid declarations stop startup
+  with a file-specific error instead of silently using different weights.
+- Shops and their sell menus now enforce item sale eligibility from the owned
+  inventory definition, including `sellable: false`. Existing shop rates and
+  once-per-transaction rounding are unchanged.
 - Battle openings share one pre-emptive/ambush decision across battle modes and
   honor scripted overrides. ATB starting gauges have meaningful bounded variation;
   readiness order survives high speeds and delayed frames without losing the

@@ -81,18 +81,19 @@ class Shop
       return;
     }
 
-    if ($item->isKeyItem) {
+    // The offer identifies a stack; only the owned definition controls the sale.
+    $ownedItem = array_find(
+      $trader->inventory->all->toArray(),
+      static fn(InventoryItem $entry): bool => $entry->id === $item->id,
+    );
+    if (! $ownedItem instanceof InventoryItem || ! $ownedItem->isSellable || $ownedItem->quantity < $quantity) {
       return;
     }
 
-    if ($trader->inventory->getQuantity($item->id, 'selling an inventory item') < $quantity) {
-      return;
-    }
-
-    $totalPayout = (int) round($item->price * $quantity * $this->traderSellRate);
+    $totalPayout = (int) round($ownedItem->price * $quantity * $this->traderSellRate);
 
     for($count = 0; $count < $quantity; $count++) {
-      $trader->inventory->removeItems($item);
+      $trader->inventory->removeItems($ownedItem);
     }
 
     $trader->credit($totalPayout);

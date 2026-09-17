@@ -137,13 +137,13 @@ class ShopState extends GameSceneState
     }
   }
   /**
-   * @var InventoryItem[] The player's items eligible for sale. Key items are excluded.
+   * @var InventoryItem[] The player's held items whose definitions permit sale.
    */
   public array $sellableItems {
     get {
       return array_values(array_filter(
         $this->inventory->all->toArray(),
-        static fn(InventoryItem $item): bool => ! $item->isKeyItem
+        static fn(InventoryItem $item): bool => $item->isSellable && $item->quantity > 0
       ));
     }
   }
