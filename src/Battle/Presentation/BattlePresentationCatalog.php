@@ -13,7 +13,7 @@ use RuntimeException;
 /** Current project configuration, deliberately outside all save payloads. */
 final readonly class BattlePresentationCatalog
 {
-  public const string FILE = 'Data/battle-presentation.php';
+  public const string FILE = 'Data/Presentation/battle.php';
   /** @var array<string, BattleArenaDefinition> Authored arena keys; legacy entries use troop IDs/names. */
   public array $arenas;
   /** @var array<string, BattlerArtwork> Actor IDs. */

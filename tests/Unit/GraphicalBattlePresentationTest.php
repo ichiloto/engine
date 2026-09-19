@@ -533,7 +533,7 @@ it('replaces a real battle canvas with the normal scene frame through the shared
 it('loads current optional metadata without persisting it in battle state', function () {
   $root = sys_get_temp_dir() . '/ichiloto-battle-catalog-' . bin2hex(random_bytes(5));
   mkdir($root . '/Data', 0777, true);
-  $file = $root . '/Data/battle-presentation.php';
+  $file = $root . '/Data/battle.php';
   try {
     expect(BattlePresentationCatalog::load($root))->toBeNull();
     copy(__DIR__ . '/../Fixtures/BattlePresentation/catalog.php', $file);
@@ -562,7 +562,7 @@ it('rejects malformed typed artwork and independent placement geometry', functio
 it('rejects missing negotiated battle capabilities before scene configuration or entry effects', function () {
   $root = sys_get_temp_dir() . '/ichiloto-battle-startup-' . bin2hex(random_bytes(5));
   mkdir($root . '/Data', 0777, true);
-  copy(__DIR__ . '/../Fixtures/BattlePresentation/catalog.php', $root . '/Data/battle-presentation.php');
+  copy(__DIR__ . '/../Fixtures/BattlePresentation/catalog.php', $root . '/Data/battle.php');
   foreach (['hero', 'twin'] as $name) { copy($this->root . '/graphical-canvas/synthetic-143x181.png', $root . '/' . $name . '.png'); }
   copy($this->root . '/graphical-canvas/synthetic-320x180.png', $root . '/arena.png');
   $game = new class extends Ichiloto\Engine\Core\Game {
@@ -580,7 +580,7 @@ it('rejects missing negotiated battle capabilities before scene configuration or
     expect($battle->entryRulesEvaluated())->toBeFalse()
       ->and($scene->config)->toBeNull()->and($scene->graphicalPresentation)->toBeNull();
   } finally {
-    foreach (['hero.png', 'twin.png', 'arena.png', 'Data/battle-presentation.php'] as $file) { unlink($root . '/' . $file); }
+    foreach (['hero.png', 'twin.png', 'arena.png', 'Data/battle.php'] as $file) { unlink($root . '/' . $file); }
     rmdir($root . '/Data'); rmdir($root);
   }
 });
@@ -588,7 +588,7 @@ it('rejects missing negotiated battle capabilities before scene configuration or
 it('configures shared UI for consecutive encounters while terminal ignores optional assets', function (bool $native, bool $results) {
   $root = sys_get_temp_dir() . '/ichiloto-shared-ui-' . bin2hex(random_bytes(5));
   mkdir($root . '/Data', 0777, true);
-  copy(__DIR__ . '/../Fixtures/BattlePresentation/shared-ui.php', $root . '/Data/battle-presentation.php');
+  copy(__DIR__ . '/../Fixtures/BattlePresentation/shared-ui.php', $root . '/Data/battle.php');
   if ($results) {
     $code = <<<'PHP'
 <?php
@@ -605,7 +605,7 @@ return new BattlePresentationCatalog([], [], [], ui: $catalog->ui, results: new 
   array_fill_keys(['panel', 'quiet', 'track', 'selector', 'portrait', 'exp', 'divider', 'button'], $catalog->ui->skin->textures['panel']),
   array_fill_keys(['text', 'muted', 'accent', 'positive', 'negative', 'ink'], $catalog->ui->skin->colors['text']), $portraits));
 PHP;
-    file_put_contents($root . '/Data/battle-presentation.php', str_replace('__FIXTURE__',
+    file_put_contents($root . '/Data/battle.php', str_replace('__FIXTURE__',
       var_export(__DIR__ . '/../Fixtures/BattlePresentation/shared-ui.php', true), $code));
     if ($native) {
       // The catalog exceeds 64 MiB, but each event displays only one bust. Header checks only.
@@ -642,14 +642,14 @@ PHP;
     if ($native && $results) {
       foreach (['Hero', 'Second', 'Third', 'Fourth'] as $id) { unlink($root . '/' . $id . '.png'); }
     }
-    unlink($root . '/Data/battle-presentation.php'); rmdir($root . '/Data'); rmdir($root);
+    unlink($root . '/Data/battle.php'); rmdir($root . '/Data'); rmdir($root);
   }
 })->with([true, false])->with([true, false]);
 
 it('preflights shared UI assets and every negotiated capability before entry effects', function (?string $missing) {
   $root = sys_get_temp_dir() . '/ichiloto-shared-ui-invalid-' . bin2hex(random_bytes(5));
   mkdir($root . '/Data', 0777, true);
-  copy(__DIR__ . '/../Fixtures/BattlePresentation/shared-ui.php', $root . '/Data/battle-presentation.php');
+  copy(__DIR__ . '/../Fixtures/BattlePresentation/shared-ui.php', $root . '/Data/battle.php');
   if ($missing !== null) { copy($this->root . '/test-sprite.png', $root . '/skin.png'); }
   $capabilities = array_values(array_diff(['graphical_canvas', 'sprite_source_rect', 'canvas_clip_opacity', 'canvas_glyph_effects'], [$missing]));
   if ($missing === 'graphical_canvas') { $capabilities = ['sprite_source_rect']; }
@@ -668,7 +668,7 @@ it('preflights shared UI assets and every negotiated capability before entry eff
   } finally {
     $runtime->shutdown();
     if ($missing !== null) { unlink($root . '/skin.png'); }
-    unlink($root . '/Data/battle-presentation.php'); rmdir($root . '/Data'); rmdir($root);
+    unlink($root . '/Data/battle.php'); rmdir($root . '/Data'); rmdir($root);
   }
 })->with([null, 'graphical_canvas', 'sprite_source_rect', 'canvas_clip_opacity', 'canvas_glyph_effects']);
 

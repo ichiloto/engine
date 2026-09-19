@@ -140,7 +140,7 @@ use the canvas. Returning to another scene sends an ordinary replacement frame.
 
 ## Project Metadata API
 
-The optional `assets/Data/battle-presentation.php` returns a typed
+The optional `assets/Data/Presentation/battle.php` returns a typed
 `Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog`. It is loaded
 from current project configuration when a graphical battle is configured, not
 stored in `BattleConfig`, actor data or save payloads. Native Terminal never
@@ -329,7 +329,7 @@ and screenshots are not assets to copy into the game.
 ## Current Integration
 
 The accepted build is integrated into the normal local Game, not a separate
-playtest runtime. Its production `assets/Data/battle-presentation.php` references
+playtest runtime. Its production `assets/Data/Presentation/battle.php` references
 `assets/Data/battle-ui.php`; production must never load test-fixture metadata.
 Use the existing `ichiloto play --renderer=gpui` entry point from the normal
 Game checkout. Native Terminal remains available through the same command with
