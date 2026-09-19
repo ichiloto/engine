@@ -4,25 +4,32 @@ This directory is an Engine packaging boundary, not project configuration or
 an end-user installation interface. `PackagedRendererExecutableResolver` alone
 owns its layout. Console and game scripts pass renderer identities, never paths.
 
-A packager stages implementations under `installed/` and writes
-`installed/manifest.json`. That generated installation directory is ignored by
-Git; binaries and machine-specific manifests must not enter source commits.
-There is no default download, checkout-relative search or PATH fallback.
+The Console's `ichiloto renderer:install` command provisions this boundary
+from a verified renderer package: it checks every payload file's SHA-256
+against the package's `renderer-package.json`, backs up any existing
+installation, stages the payload under `installed/` and writes
+`installed/manifest.json`. Each renderer implementation's own repository
+produces those packages (the GPUI renderer's `scripts/package.py` is the
+first); the package format carries its renderer and platform identities, so
+additional renderer implementations install through the same command. That
+generated installation directory is ignored by Git; binaries and
+machine-specific manifests must not enter source commits. There is no default
+download, checkout-relative search or PATH fallback.
 
 A clean Engine checkout therefore contains this README, not a native renderer
 or a Rust project. Cargo commands belong in the separate `ichiloto/gpui-renderer`
 source repository and are developer instructions, not a player setup workflow.
-As audited on 14 September 2026, there is no published renderer release or
-Console installation command to provision this boundary. Player delivery remains
-unfinished: it must supply a compatible, verified platform package without
-requiring players to install Rust or build tools. See the
+There is no published renderer release yet: players must eventually receive a
+compatible, verified platform package without installing Rust or build tools,
+and publishing those packages remains unfinished. See the
 [integration roadmap](../../docs/rendering/integration-roadmap.md).
 
 GPUI gameplay, packaging and performance validation must use the optimized
 release renderer built with `cargo build --release --locked` in its own
 repository. Debug builds are for development and diagnostics, not representative
-gameplay performance. Stage the release executable with its required platform
-bundle resources; this boundary does not build or download it automatically.
+gameplay performance. Packages stage the release executable with its required
+platform bundle resources; this boundary does not build or download anything
+automatically.
 
 Manifest version 1 maps renderer IDs and platform IDs to executable paths
 relative to the manifest. For the currently validated Apple Silicon build:
