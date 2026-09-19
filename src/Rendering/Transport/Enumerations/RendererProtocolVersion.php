@@ -1,6 +1,6 @@
 <?php
 
-namespace Ichiloto\Engine\Rendering\Transport;
+namespace Ichiloto\Engine\Rendering\Transport\Enumerations;
 
 enum RendererProtocolVersion: int
 {

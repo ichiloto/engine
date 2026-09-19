@@ -10,10 +10,10 @@ use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Presentation\RendererPresentation;
 use Ichiloto\Engine\Rendering\RendererClient;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererProtocolException;
 use Ichiloto\Engine\Rendering\Transport\RendererEvent;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
-use Ichiloto\Engine\Rendering\Transport\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Tests\Support\Input\FakeRendererTransport;
 

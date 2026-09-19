@@ -3,12 +3,12 @@
 namespace Ichiloto\Engine\Rendering;
 
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererEventType;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException;
+use Ichiloto\Engine\Rendering\Transport\Interfaces\RendererTransportInterface;
 use Ichiloto\Engine\Rendering\Transport\RendererEvent;
-use Ichiloto\Engine\Rendering\Transport\RendererEventType;
 use Ichiloto\Engine\Rendering\Transport\RendererMessage;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
-use Ichiloto\Engine\Rendering\Transport\RendererTransportInterface;
 use InvalidArgumentException;
 use SplQueue;
 

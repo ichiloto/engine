@@ -1,8 +1,5 @@
 <?php
 
-use Ichiloto\Engine\Rendering\Transport\RendererProtocolVersion;
-use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
-
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
@@ -14,8 +11,10 @@ use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\IO\InputSources\RendererInputSource;
 use Ichiloto\Engine\IO\InputSources\TerminalInputSource;
 use Ichiloto\Engine\Rendering\RendererClient;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererEventType;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\RendererEvent;
-use Ichiloto\Engine\Rendering\Transport\RendererEventType;
+use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\InputConfig;
 use Tests\Support\Input\FakeInputSource;

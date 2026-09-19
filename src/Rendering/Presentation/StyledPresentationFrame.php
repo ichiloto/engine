@@ -3,9 +3,9 @@
 namespace Ichiloto\Engine\Rendering\Presentation;
 
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererMessageType;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\RendererMessage;
-use Ichiloto\Engine\Rendering\Transport\RendererMessageType;
-use Ichiloto\Engine\Rendering\Transport\RendererProtocolVersion;
 use InvalidArgumentException;
 
 final readonly class StyledPresentationFrame

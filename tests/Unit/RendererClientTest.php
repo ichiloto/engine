@@ -3,12 +3,12 @@
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\InputSources\RendererInputSource;
 use Ichiloto\Engine\Rendering\RendererClient;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererEventType;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererMessageType;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererProtocolException;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException;
 use Ichiloto\Engine\Rendering\Transport\RendererEvent;
-use Ichiloto\Engine\Rendering\Transport\RendererEventType;
 use Ichiloto\Engine\Rendering\Transport\RendererMessage;
-use Ichiloto\Engine\Rendering\Transport\RendererMessageType;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Tests\Support\Input\FakeRendererTransport;
 

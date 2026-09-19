@@ -1,9 +1,9 @@
 #!/usr/bin/env php
 <?php
 
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererEventType;
 use Ichiloto\Engine\Rendering\Transport\ProcessRendererTransport;
 use Ichiloto\Engine\Rendering\Transport\RendererEvent;
-use Ichiloto\Engine\Rendering\Transport\RendererEventType;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 

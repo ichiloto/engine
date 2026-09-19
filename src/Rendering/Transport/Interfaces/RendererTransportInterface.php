@@ -1,6 +1,11 @@
 <?php
 
-namespace Ichiloto\Engine\Rendering\Transport;
+namespace Ichiloto\Engine\Rendering\Transport\Interfaces;
+
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererTransportState;
+use Ichiloto\Engine\Rendering\Transport\RendererEvent;
+use Ichiloto\Engine\Rendering\Transport\RendererMessage;
+use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 
 interface RendererTransportInterface
 {

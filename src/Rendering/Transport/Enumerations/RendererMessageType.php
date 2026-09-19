@@ -1,6 +1,6 @@
 <?php
 
-namespace Ichiloto\Engine\Rendering\Transport;
+namespace Ichiloto\Engine\Rendering\Transport\Enumerations;
 
 /** Wire vocabulary only; no frame generation or graphics models. */
 enum RendererMessageType: string

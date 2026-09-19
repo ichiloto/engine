@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Rendering\Transport;
 
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererMessageType;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
 use InvalidArgumentException;
 
 final readonly class RendererSessionConfig

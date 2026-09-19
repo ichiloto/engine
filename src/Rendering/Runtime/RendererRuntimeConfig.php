@@ -2,9 +2,9 @@
 
 namespace Ichiloto\Engine\Rendering\Runtime;
 
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
-use Ichiloto\Engine\Rendering\Transport\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 
 final readonly class RendererRuntimeConfig

@@ -2,8 +2,8 @@
 
 namespace Ichiloto\Engine\Rendering\Presentation;
 
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererMessageType;
 use Ichiloto\Engine\Rendering\Transport\RendererMessage;
-use Ichiloto\Engine\Rendering\Transport\RendererMessageType;
 use InvalidArgumentException;
 
 /** An atomic full replacement. Frame numbers are labels, never simulation clocks. */

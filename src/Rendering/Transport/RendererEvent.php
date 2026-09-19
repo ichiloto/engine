@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Rendering\Transport;
 
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererEventType;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererProtocolException;
 use JsonException;
 use stdClass;
