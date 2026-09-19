@@ -9,7 +9,7 @@ from a verified renderer package: it checks every payload file's SHA-256
 against the package's `renderer-package.json`, backs up any existing
 installation, stages the payload under `installed/` and writes
 `installed/manifest.json`. Each renderer implementation's own repository
-produces those packages (the GPUI renderer's `scripts/package.py` is the
+produces those packages (the GPUI renderer's `scripts/package.php` is the
 first); the package format carries its renderer and platform identities, so
 additional renderer implementations install through the same command. That
 generated installation directory is ignored by Git; binaries and
