@@ -1067,7 +1067,7 @@ SPLASH_SCREEN;
             return;
         }
 
-        $started = LatencyTrace::now();
+        $started = LatencyTrace::getTimeNow();
         LatencyTrace::record('game.update.begin', $this->latencySceneState());
         $this->frameCount++;
         $this->syncScreenSize();
@@ -1235,7 +1235,7 @@ SPLASH_SCREEN;
      */
     protected function render(): void
     {
-        $started = LatencyTrace::now();
+        $started = LatencyTrace::getTimeNow();
         LatencyTrace::record('game.render.begin');
         // Modal dismissals are committed only at the frame boundary. That
         // lets dialogue pages and choices replace one another within a single

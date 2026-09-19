@@ -141,6 +141,6 @@ it('does not read a diagnostic clock when disabled', function () {
   LatencyTrace::configure(null, fn() => throw new LogicException('disabled clock'));
   LatencyTrace::beginIteration();
   LatencyTrace::record('ignored');
-  expect(LatencyTrace::now())->toBeNull();
+  expect(LatencyTrace::getTimeNow())->toBeNull();
   LatencyTrace::endIteration();
 });

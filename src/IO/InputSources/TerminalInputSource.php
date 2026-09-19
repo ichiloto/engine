@@ -27,7 +27,7 @@ final class TerminalInputSource implements InputSourceInterface
   public function poll(): ?KeyCode
   {
     LatencyTrace::beginPoll();
-    $started = LatencyTrace::now();
+    $started = LatencyTrace::getTimeNow();
     $key = $this->nonBlocking(fn() => self::normalize($this->readInputSequence()));
     if ($key !== null) { LatencyTrace::returned($key->value, self::class, $started); }
     return $key;

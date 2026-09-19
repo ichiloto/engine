@@ -670,7 +670,7 @@ class Console
       // are blanked while stable rows are not needlessly repainted.
       self::$frameRows = [];
       $visibleBuffer = self::visibleCellRows();
-      $diffStart = LatencyTrace::now();
+      $diffStart = LatencyTrace::getTimeNow();
 
       if (self::$terminalOutputEnabled && $forceFullRepaint) {
         for ($row = 0; $row < self::$height; $row++) {
@@ -942,7 +942,7 @@ class Console
     $length = count($incoming);
     if ($length === 0) { return; }
 
-    $started = LatencyTrace::now();
+    $started = LatencyTrace::getTimeNow();
     $before = self::$buffer[$y] ?? array_fill(0, self::$width, ' ');
     $visibleBefore = self::$overlays === [] || self::$isRecomposing || !self::$terminalOutputEnabled
       ? null : self::compositeOverlayRow($before, $y);
@@ -959,7 +959,7 @@ class Console
     LatencyTrace::end('terminal.compose', $started);
     if (!self::$terminalOutputEnabled || self::$isRecomposing) { return; }
 
-    $diffStart = LatencyTrace::now();
+    $diffStart = LatencyTrace::getTimeNow();
     $spans = self::changedCellSpansFromCells($visibleBefore ?? $before,
       $visibleBefore === null ? $after : self::compositeOverlayRow($after, $y));
     LatencyTrace::end('terminal.diff', $diffStart);
@@ -1054,7 +1054,7 @@ class Console
    */
   public static function presentationSnapshot(array $excludedLayers = [], array $replacedLayerCells = []): ConsolePresentationSnapshot
   {
-    $cellsStart = LatencyTrace::now();
+    $cellsStart = LatencyTrace::getTimeNow();
     if (self::isComposing()) {
       throw new RuntimeException('Cannot snapshot Console while a frame or screen recomposition is active.');
     }
@@ -1137,7 +1137,7 @@ class Console
   /** @param array<int, array<int, string>> $rows @return list<PresentationTextRun> */
   private static function presentationRuns(array $rows): array
   {
-    $started = LatencyTrace::now();
+    $started = LatencyTrace::getTimeNow();
     $parsing = 0;
     $runs = $cache = [];
     foreach ($rows as $y => $cells) {
@@ -1151,9 +1151,9 @@ class Console
           $glyph = ' ';
         } else {
           if (!isset($cache[$cell])) {
-            $parseStart = LatencyTrace::now();
+            $parseStart = LatencyTrace::getTimeNow();
             $cache[$cell] = [SgrColorParser::parse($cell), TerminalText::rendererScalar($cell)];
-            if ($parseStart !== null) { $parsing += LatencyTrace::now() - $parseStart; }
+            if ($parseStart !== null) { $parsing += LatencyTrace::getTimeNow() - $parseStart; }
           }
           $parsed = $cache[$cell];
           [$next, $glyph] = $parsed;
@@ -1363,7 +1363,7 @@ class Console
       return;
     }
 
-    $started = LatencyTrace::now();
+    $started = LatencyTrace::getTimeNow();
     ksort(self::$frameRows, SORT_NUMERIC);
     $payload = '';
 

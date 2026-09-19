@@ -30,7 +30,7 @@ final readonly class NormalizedRow
   /** @param list<string> $symbols Already separated authoring symbols, not a row string. */
   public static function fromSymbols(array $symbols): self
   {
-    $started = LatencyTrace::now();
+    $started = LatencyTrace::getTimeNow();
     $cells = $offsets = [];
     foreach ($symbols as $symbol) {
       $offsets[] = count($cells);

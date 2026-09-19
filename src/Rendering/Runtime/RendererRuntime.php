@@ -99,7 +99,7 @@ final class RendererRuntime
 
   public function present(?SceneInterface $scene): bool
   {
-    $started = LatencyTrace::now();
+    $started = LatencyTrace::getTimeNow();
     LatencyTrace::record('presentation.begin', ['scene' => $scene === null ? null : $scene::class]);
     $this->pump();
     if ($this->presentation === null || $this->closed) {
@@ -112,7 +112,7 @@ final class RendererRuntime
       LatencyTrace::end('presentation.end', $started, ['changed' => $changed]);
       return $changed;
     }
-    $collection = LatencyTrace::now();
+    $collection = LatencyTrace::getTimeNow();
     $sprites = $this->collector->collect($scene);
     LatencyTrace::end('presentation.sprites', $collection, ['count' => count($sprites)]);
     if (LatencyTrace::enabled()) {
@@ -125,7 +125,7 @@ final class RendererRuntime
     $visible = array_filter($sprites, static fn($sprite) => $sprite->x >= 0 && $sprite->x < Console::getWidth()
       && $sprite->y >= 0 && $sprite->y < Console::getHeight());
     $excluded = array_map(static fn($sprite) => $sprite->id, $visible);
-    $tilesStart = LatencyTrace::now();
+    $tilesStart = LatencyTrace::getTimeNow();
     $tiles = $this->config->protocol === RendererProtocolVersion::V2 && $scene instanceof GraphicalTileProviderHostInterface
       ? $scene->getGraphicalTileBatches() : [];
     $replaced = [];
@@ -137,7 +137,7 @@ final class RendererRuntime
       }
     }
     LatencyTrace::end('presentation.tiles', $tilesStart, ['batches' => count($tiles), 'cells' => $tileCount]);
-    $snapshotStart = LatencyTrace::now();
+    $snapshotStart = LatencyTrace::getTimeNow();
     $snapshot = $this->config->protocol === RendererProtocolVersion::V2
       ? Console::presentationSnapshot($excluded, $replaced) : Console::snapshot($excluded);
     LatencyTrace::end('presentation.snapshot', $snapshotStart);

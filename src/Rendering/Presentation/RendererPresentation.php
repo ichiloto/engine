@@ -47,7 +47,7 @@ final class RendererPresentation
       throw new RendererProtocolException('Graphical terrain requires protocol v2 and negotiated tile_batches support. Request it at startup and install an updated renderer.');
     }
     foreach ($tileBatches as $batch) { $batch->assertWithin($this->grid); }
-    $preparation = LatencyTrace::now();
+    $preparation = LatencyTrace::getTimeNow();
     $number = $this->frameNumber < PHP_INT_MAX ? $this->frameNumber + 1 : $this->frameNumber;
     $message = $snapshot instanceof ConsolePresentationSnapshot
       ? new StyledPresentationFrame($number, $snapshot->textLayers, $sprites, $tileBatches)->toRendererMessage()
@@ -82,7 +82,7 @@ final class RendererPresentation
 
   private function queue(RendererMessage $message): bool
   {
-    $comparison = LatencyTrace::now();
+    $comparison = LatencyTrace::getTimeNow();
     $content = $message->payload;
     $previous = $this->lastMessage?->payload ?? [];
     unset($content['frame'], $previous['frame']);
