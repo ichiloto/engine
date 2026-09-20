@@ -19,6 +19,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
+use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Scenes\Battle\BattleConfig;
@@ -58,9 +59,20 @@ final class GraphicalBattlePresentation
         if ($art === null || $slot === null) {
           throw new RuntimeException("Graphical battle requires artwork and a formation slot for every participant: {$key}");
         }
-        $source = PngAssetPreflight::inspect($assetRoot, $art->asset, $art->sourceRect);
-        if ($source !== ['width' => $art->width, 'height' => $art->height]) {
-          throw new RuntimeException("Graphical battler dimensions do not match the PNG/crop: {$key}");
+        // Artwork changes throughout development; the image on disk is this
+        // moment's truth. Authored metadata reconciles to it and the battle
+        // renders best-effort, with the mismatch logged for the author
+        // rather than blocking play. Assets only fail here when missing,
+        // not PNGs, or corrupt.
+        $probe = PngAssetPreflight::inspect($assetRoot, $art->asset);
+        $reconciled = $art->clampedTo($probe['width'], $probe['height']);
+        if ($reconciled !== $art) {
+          Debug::warn(sprintf(
+            'Battler artwork changed under its authored metadata; rendering a best-effort clamped crop: %s (%s)',
+            $key,
+            $art->asset,
+          ));
+          $art = $reconciled;
         }
         $identity = spl_object_id($member);
         if (isset($presentation->participants[$identity])) {

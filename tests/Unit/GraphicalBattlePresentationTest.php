@@ -250,20 +250,19 @@ it('rejects explicit invalid or absent arena keys instead of falling back to tro
   'integer' => [42, InvalidArgumentException::class],
 ]);
 
-it('requires a catalog for explicit native arenas but does not load it for terminal play', function (bool $native) {
+it('degrades an explicit arena without a catalog to the terminal presentation and never blocks combat', function (bool $native) {
   [$fixture] = graphicalBattleFixture();
   $battle = new BattleConfig($fixture->party, $fixture->troop, settings: ['battleArena' => 'arena.yard']);
   $runtime = $native ? new RendererRuntime(
     new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), $this->root), new FakeRendererTransport()) : null;
   $scene = graphicalBattleConfigurationScene($runtime);
-  if ($native) {
-    expect(fn() => $scene->configure($battle))->toThrow(RuntimeException::class, 'requires a battle presentation catalog')
-      ->and($battle->entryRulesEvaluated())->toBeFalse()->and($scene->config)->toBeNull();
-  } else {
-    $scene->configure($battle);
-    expect($scene->config)->toBe($battle)->and($battle->entryRulesEvaluated())->toBeTrue()
-      ->and($scene->graphicalPresentation)->toBeNull();
-  }
+  // Presentation must never change whether combat happens: a missing
+  // catalog under an explicit arena logs and degrades, and terminal play
+  // never loads the catalog at all.
+  $scene->configure($battle);
+  expect($scene->config)->toBe($battle)->and($battle->entryRulesEvaluated())->toBeTrue()
+    ->and($scene->graphicalPresentation)->toBeNull()
+    ->and($scene->battleUiLayout)->toBeNull();
 })->with([true, false]);
 
 it('keeps repeated enemy instance IDs through target reorder feedback and removal', function () {
@@ -715,3 +714,52 @@ it('places selected ally damage and healing feedback together clear of a visible
   $scene->ui->fieldWindow->clearStatChangePopups();
   expect(array_map(fn($run) => $run->text, $presentation->frame($scene->ui->fieldWindow, $ui)->textLayers[0]->runs))->toBe(['Hero']);
 })->with([['50', Color::LIGHT_RED], ['+50', Color::LIGHT_GREEN]]);
+
+it('reconciles authored battler metadata with the artwork on disk', function () {
+  // Fits: the authored instance passes through untouched.
+  $fits = new BattlerArtwork('a.png', 100, 120, 50, 120, new SpriteSourceRect(10, 10, 100, 120));
+  expect($fits->clampedTo(200, 200))->toBe($fits);
+
+  // The image shrank under the crop: crop and pivot clamp to what exists
+  // now, because artwork changes throughout development and the image on
+  // disk is this moment's truth.
+  $clamped = $fits->clampedTo(60, 70);
+  expect($clamped->sourceRect->toArray())->toBe(['x' => 10, 'y' => 10, 'width' => 50, 'height' => 60])
+    ->and([$clamped->width, $clamped->height])->toBe([50, 60])
+    ->and([$clamped->pivotX, $clamped->pivotY])->toBe([50.0, 60.0]);
+
+  // The crop no longer exists at all: fall back to the whole image, so
+  // the developer always sees their art.
+  $fallback = $fits->clampedTo(10, 10);
+  expect($fallback->sourceRect->toArray())->toBe(['x' => 0, 'y' => 0, 'width' => 10, 'height' => 10])
+    ->and([$fallback->pivotX, $fallback->pivotY])->toBe([10.0, 10.0]);
+
+  // Whole-image artwork (no authored crop) reconciles the same way.
+  $whole = new BattlerArtwork('a.png', 100, 120, 50, 100);
+  $shrunk = $whole->clampedTo(80, 90);
+  expect($shrunk->sourceRect->toArray())->toBe(['x' => 0, 'y' => 0, 'width' => 80, 'height' => 90])
+    ->and([$shrunk->pivotX, $shrunk->pivotY])->toBe([50.0, 90.0]);
+});
+
+it('prepares a best-effort graphical battle when artwork changed under its authored crop', function () {
+  [$battle, $catalog] = graphicalBattleFixture();
+  // The catalog still describes a 200x260 crop, but the PNG on disk is
+  // 143x181: the battle must prepare and render with the clamped crop.
+  $stale = new BattlerArtwork('graphical-canvas/synthetic-143x181.png', 200, 260, 100.0, 260.0,
+    new SpriteSourceRect(0, 0, 200, 260));
+  $catalog = new BattlePresentationCatalog($catalog->arenas, ['Hero' => $stale], $catalog->enemies);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $hero = $presentation->frame()->images[1];
+  expect(str_starts_with($hero->id, 'combatant-'))->toBeTrue()
+    ->and($hero->sourceRect->toArray())->toBe(['x' => 0, 'y' => 0, 'width' => 143, 'height' => 181]);
+});
+
+it('renders the whole image when the authored crop no longer exists in it', function () {
+  [$battle, $catalog] = graphicalBattleFixture();
+  $gone = new BattlerArtwork('graphical-canvas/synthetic-143x181.png', 50, 50, 25, 50,
+    new SpriteSourceRect(150, 0, 50, 50));
+  $catalog = new BattlePresentationCatalog($catalog->arenas, ['Hero' => $gone], $catalog->enemies);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $hero = $presentation->frame()->images[1];
+  expect($hero->sourceRect->toArray())->toBe(['x' => 0, 'y' => 0, 'width' => 143, 'height' => 181]);
+});

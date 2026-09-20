@@ -41,7 +41,9 @@ use Ichiloto\Engine\Scenes\Battle\States\BattleVictoryState;
 use Ichiloto\Engine\Scenes\Interfaces\SceneConfigurationInterface;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Override;
+use Ichiloto\Engine\Util\Debug;
 use RuntimeException;
+use Throwable;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 
@@ -300,8 +302,14 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
     $pauseSkin = null;
     $runtime = $this->getGame()->getRendererRuntime();
     // Terminal play never loads the optional catalog or inspects any PNG.
+    // Graphical presentation is optional by contract: any failure while
+    // assembling it - a stale crop, a missing texture, an undersized skin,
+    // a missing capability - is logged loudly and the battle degrades to
+    // the terminal presentation instead of failing to start. Presentation
+    // must never change whether combat happens.
     if ($runtime !== null) {
-      $catalog = BattlePresentationCatalog::load($runtime->getAssetRoot());
+      try {
+        $catalog = BattlePresentationCatalog::load($runtime->getAssetRoot());
       if ($catalog === null && isset($config->settings['battleArena'])) {
         throw new RuntimeException('An explicit battleArena requires a battle presentation catalog.');
       }
@@ -336,6 +344,16 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
             throw new RuntimeException("Configured graphical battles require the negotiated {$capability} capability.");
           }
         }
+      }
+      } catch (Throwable $presentationFailure) {
+        Debug::error(sprintf(
+          'Graphical battle presentation degraded to the terminal presentation: %s',
+          $presentationFailure->getMessage(),
+        ));
+        $presentation = null;
+        $layout = null;
+        $resultsSkin = null;
+        $pauseSkin = null;
       }
     }
     $this->graphicalPresentation = $presentation;
@@ -381,6 +399,9 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
     }
     parent::update();
     if ($this->getGame()->hasStopped() || $this->getGame()->sceneManager->currentScene !== $this) { return; }
+    if (!$this->state) {
+        throw new RuntimeException('Battle scene state is not initialized.');
+    }
     $this->state->execute($this->sceneStateContext);
   }
 

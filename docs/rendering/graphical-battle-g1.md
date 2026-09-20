@@ -153,6 +153,17 @@ missing artwork does not revert the controls to terminal windows. Only a missing
 catalog, or an encounter with neither an arena nor a shared UI, keeps the entire
 battle on the legacy path. A malformed declared catalog fails explicitly.
 
+Artwork changes throughout development, and the engine treats the image on
+disk as the moment's truth. An asset fails only when it is missing, not a
+PNG, or corrupt; supplying the right asset is the developer's job. Authored
+battler crops and pivots reconcile to the current image at battle start: a
+crop that still overlaps the image clamps to it, and a crop the image no
+longer contains falls back to the whole image, in both cases rendering
+best-effort with the mismatch logged for the author. Any other failure while
+assembling the graphical presentation, a missing catalog under an explicit
+arena included, logs loudly and degrades that battle to the terminal
+presentation. Presentation never decides whether combat happens.
+
 Example structure (generic geometry and placeholder paths, not game artwork):
 
 ```php
