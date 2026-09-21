@@ -27,7 +27,8 @@ final class MenuModalPresentation
     $naturalWidth = max(36 * $m->cellWidth, $longest($modal->title) * $m->cellWidth,
       $longest($modal->message) * $m->cellWidth, $choicesWidth);
     if ($modal->quantity !== null) {
-      $naturalWidth = max($naturalWidth, (2 * strlen((string)$modal->quantity->maximum) + 3) * $m->cellWidth);
+      $naturalWidth = max($naturalWidth, (2 * strlen((string)$modal->quantity->maximum) + 3) * $m->cellWidth
+        + 2 * ($m->cellHeight + $gap));
     }
     $width = (int)floor(min($base->width * 2 / 3 - 2 * $p, $naturalWidth) / $m->cellWidth) * $m->cellWidth;
     $x = ($base->width - $width) / 2;
@@ -35,7 +36,7 @@ final class MenuModalPresentation
     $titleHeight = $modal->title === '' ? 0 : count(MenuCanvas::wrap($modal->title, $cells)) * $m->cellHeight;
     $messageHeight = $modal->message === '' ? 0 : count(MenuCanvas::wrap($modal->message, $cells)) * $m->cellHeight;
     $bodyHeight = $modal->singleConfirmation ? max($messageHeight, 3 * $m->cellHeight) : $messageHeight;
-    $quantityHeight = $modal->quantity === null ? 0 : $m->cellHeight + $gap;
+    $quantityHeight = $modal->quantity === null ? 0 : 2 * $m->cellHeight + $gap;
     $hints = [ActionHints::resolve('confirm', 'Confirm'), ActionHints::resolve('cancel', 'Cancel')];
     $hintHeight = MenuActionHints::height($hints, $theme, $width);
     $hintGap = $hintHeight > 0 ? $gap : 0;
@@ -79,13 +80,19 @@ final class MenuModalPresentation
           ? HorizontalAlignment::CENTER : HorizontalAlignment::LEFT);
     }
     $y += $bodyHeight + $gap;
+    $controls = new MenuControls($theme);
     if ($modal->quantity !== null) {
       $quantity = $modal->quantity;
       $center = $base->width / 2;
       $valueWidth = (2 * strlen((string)$quantity->maximum) + 3) * $m->cellWidth;
       $left = $center - $valueWidth / 2;
       $view->prose('menu-modal-quantity', $quantity->value . ' / ' . $quantity->maximum,
-        new CanvasRectangle($left, $y, $valueWidth, $m->cellHeight), alignment: HorizontalAlignment::CENTER);
+        new CanvasRectangle($left, $y + $m->cellHeight / 2, $valueWidth, $m->cellHeight), alignment: HorizontalAlignment::CENTER);
+      $arrowX = $left + $valueWidth + $gap;
+      $controls->renderArrow('menu-modal-quantity-up', MenuDirection::UP->value,
+        new CanvasRectangle($arrowX, $y, $m->cellHeight, $m->cellHeight), $quantity->value < $quantity->maximum);
+      $controls->renderArrow('menu-modal-quantity-down', MenuDirection::DOWN->value,
+        new CanvasRectangle($arrowX, $y + $m->cellHeight, $m->cellHeight, $m->cellHeight), $quantity->value > $quantity->minimum);
       $y += $quantityHeight;
     }
     if ($modal->vertical) {
@@ -102,6 +109,7 @@ final class MenuModalPresentation
     if ($hintHeight > 0) {
       $view->hints('menu-modal-hints', $hints, new CanvasRectangle($x, $y + $choiceHeight + $hintGap, $width, $hintHeight));
     }
-    return MenuCanvas::overlay($base, $view->finish(), $theme);
+    $dialog = MenuCanvas::overlay($view->finish(), $controls->finish($base->width, $base->height), $theme);
+    return MenuCanvas::overlay($base, $dialog, $theme);
   }
 }

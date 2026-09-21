@@ -506,7 +506,7 @@ it('batches only fully visible nonoverlapping text without changing paint positi
   expect(MenuCanvasTextBatch::compact($overlapping))->toBe($overlapping);
 });
 
-it('centers quantity and Continue without directional decorations or reserved arrow space', function (bool $art, int $amount) {
+it('stacks quantity arrows to the right while independently centering the value and Continue', function (bool $art, int $amount) {
   $data = [...modalMenuTheme(false), 'showInputHints' => false];
   if ($art) {
     $data['icons'] = array_fill_keys(['navigation.previous', 'navigation.next', 'navigation.up', 'navigation.down'], 'art.png');
@@ -522,10 +522,27 @@ it('centers quantity and Continue without directional decorations or reserved ar
   expect($button->clipRect->x + $button->clipRect->width / 2)->toBe(675.0)
     ->and($button->clipRect->width)->toBe(140.0)
     ->and($quantity->clipRect->x + $quantity->clipRect->width / 2)->toBe(675.0)
-    ->and($button->clipRect->y - ($quantity->clipRect->y + $quantity->clipRect->height))->toBe((float)$theme->metrics->sectionGap)
+    ->and($button->clipRect->y - ($quantity->clipRect->y + $quantity->clipRect->height))
+      ->toBe((float)($theme->metrics->sectionGap + $theme->metrics->cellHeight / 2))
     ->and(array_filter($frame->images, fn($image) => str_contains($image->id, 'cursor')))->toBeEmpty();
-  expect(array_filter([...$frame->images, ...$frame->textLayers],
-    fn($layer) => str_starts_with($layer->id, 'menu-modal-quantity-')))->toBeEmpty();
+  $arrows = [];
+  foreach ([\Ichiloto\Engine\UI\Presentation\MenuDirection::UP, \Ichiloto\Engine\UI\Presentation\MenuDirection::DOWN] as $direction) {
+    $id = 'menu-modal-quantity-' . $direction->value;
+    $pieces = $art ? array_values(array_filter($frame->images, fn($image) => str_starts_with($image->id, $id))) : [$layers[$id]];
+    expect($pieces)->toHaveCount(1);
+    $piece = $pieces[0];
+    $enabled = $direction === \Ichiloto\Engine\UI\Presentation\MenuDirection::UP ? $amount < 99 : $amount > 1;
+    expect($piece->opacity)->toBe($enabled ? 1.0 : 0.35);
+    $arrows[$direction->value] = $art ? $piece->destination : $piece->clipRect;
+    if (!$art) { expect($piece->runs[0]->text)->toBe($direction->getGlyph()); }
+  }
+  expect($arrows['up']->x + $arrows['up']->width / 2)->toBe($arrows['down']->x + $arrows['down']->width / 2)
+    ->and($arrows['up']->x)->toBeGreaterThan($quantity->clipRect->x + $quantity->clipRect->width)
+    ->and($arrows['up']->y + $arrows['up']->height)->toBeLessThanOrEqual($arrows['down']->y)
+    ->and(($arrows['up']->y + $arrows['down']->y + $arrows['down']->height) / 2)
+      ->toBe($quantity->clipRect->y + $quantity->clipRect->height / 2);
+  expect(array_filter([...$frame->images, ...$frame->textLayers], fn($layer) =>
+    str_starts_with($layer->id, 'menu-modal-quantity-previous') || str_starts_with($layer->id, 'menu-modal-quantity-next')))->toBeEmpty();
 })->with([false, true])->with([1, 50, 99]);
 
 it('fits the complete largest integer quantity without widening beyond the modal viewport', function () {

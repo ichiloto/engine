@@ -348,7 +348,8 @@ follows a clamped selection; horizontal navigation changes pages in Use, Discard
 and Key Items. Use and Discard share the existing bounded quantity selector in a
 modal, followed by the same Confirm dialog; a singleton skips only the amount
 picker, never confirmation. The graphical quantity modal centers the amount and
-Continue button without decorative directional arrows. Cancelling either step
+Continue button independently of a vertically aligned up/down pair immediately
+right of the number. There are no left/right quantity arrows. Cancelling either step
 leaves inventory untouched.
 Fine/coarse axes remain shared with Shop, and the owner revalidates the current
 stack and target before applying the confirmed amount exactly once.
@@ -407,12 +408,13 @@ and painting without discarding text.
 
 The latest consistency regression selection passes 609 Engine tests / 13,917
 assertions and 504 Game tests / 46,904 assertions on each of PHP 8.4 and 8.5.
-After removing quantity arrows, the affected Engine selection passes 94 tests /
-2,106 assertions and Game Main Menu passes 69 tests / 7,839 assertions on both
+After the stacked quantity-arrow correction, the affected Engine selection passes
+94 tests / 2,174 assertions and Game Main Menu passes 69 tests / 7,840 assertions on both
 versions. Scoped static analysis and diff checks pass. Tests cover item use and
 discard quantity/cancel/confirmation, complete Info paging and binding defaults,
 all actor books, learning charges, story gates and retained menu behavior.
-Silent macOS exported-frame inspection verified arrow-free quantity, the shared
+Silent macOS exported-frame inspection verified quantity with an aligned up/down
+pair to its right, the shared
 Confirm dialog, centered alert OK, Equipment comparison arrows, Magic without
 Source, and full-size Config both standalone and over the paused battlefield.
 Every replay closed with exit 0; no Game audio/config/save changes or new build
