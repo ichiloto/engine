@@ -396,12 +396,53 @@ Magic target selection and retained graphical alerts. No full native gameplay,
 Linux/WSLg, general oversized-prose scrolling or Editor-authoring acceptance is
 implied; the earlier broad-suite limitation remains unchanged.
 
-Quests and Records implementation is active next, including reachable long
-journal/report content in terminal and graphical views; Controls follows.
-These three adapters are not yet accepted as implemented. Their approval is not
-a blocker and does not need another design round. Controls must use semantic device glyphs
-without losing access to all bindings. Current keyboard hints and replaceable
-hint providers do not constitute physical gamepad detection or support.
+Quests, Records and Controls now have shared graphical adapters over their
+existing state/input owners. Andrew's 21 September correction supersedes the
+graphical Quest list-or-journal layout: navigation remains visible on the left,
+with independently styled identity, Description, Objectives and Rewards on the
+right. Semantic sections supply text and icon roles together; the painter does
+not infer meaning by parsing formatted strings. The game reuses its admitted
+book and inventory art through theme bindings, with neutral objective ring/check
+fallbacks rather than Unknown artwork. The detail viewport uses a scrollbar and
+steady reading focus without a redundant text footer. Records keeps the existing
+Info panel with dedicated reading focus. Both use a PHP-owned source-text
+position and measured pages for complete terminal/native scrolling,
+including long objectives, rewards and earned reports. List previews explicitly
+indicate shortening and retain complete text in the detail view. Back restores
+the same list selection; tab changes retain the existing owner semantics.
+Secret achievements and undiscovered/unearned knowledge remain filtered before
+presentation. Structured quest-item rewards now use existing reference/name
+resolution and quantity semantics without instantiating reward objects merely
+to display them; granting and progression are unchanged.
+
+Terminal Quests and Records reuse the existing horizontal tab component and
+retain their established navigation. Pagination belongs in the corresponding
+Window help/border field, never in its content rows. The current Window supports
+bottom-left help, so that approved fallback is used without fake right-padding.
+Quest list/detail ranges and Records list/reading ranges use this path; content
+now uses the freed rows. Native composition batches document text and objective
+markers, and measures wrapped tab headers rather than assuming one text line.
+
+Controls is the dedicated binding lookup even when a theme hides inline hints.
+It shows the primary owner-supplied control and every selected keyboard alias,
+supports existing rebinding/defaults/cancellation, and distinguishes a failed
+save from a successful session-only rebind. Consumed action edges cannot also
+navigate or bind themselves. Control glyph roles remain replaceable through
+the existing theme registry; absent art uses readable labels, not Unknown icons.
+Current keyboard controls and replaceable display providers do not constitute
+physical gamepad detection or support. No new controller mapping is installed.
+
+Final combined Engine regressions pass 450 tests / 12,683 assertions on each of
+PHP 8.4 and 8.5, including horizontal tabs, border pagination, dense/wrapped
+themes and complete journal text. Scoped static analysis is clean. Game's
+focused menu checks pass 68 cases / 6,079 assertions; its six scoped suites pass
+503 cases / 45,149 assertions on each PHP version. Silent native frame inspection
+checked Controls lookup/listening and an explicitly supplied Xbox-family display
+example, plus the corrected real Quest layout and Records/Field Index. These are
+renderer-frame checks, not a full native gameplay or physical-controller test.
+Normal configuration and saves were untouched; no renderer protocol or game
+content/progression changes are part of this UI slice. Linux/WSLg remains
+untested, and the earlier broad-suite limitation remains unchanged.
 Main Menu Quit currently routes its chooser directly to title/exit; confirmation
 parity with Pause is an existing behavior gap, not part of this presentation fix.
 Editor TUI authoring of the theme and shared artwork-role bindings remains

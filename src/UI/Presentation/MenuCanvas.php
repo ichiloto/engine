@@ -42,6 +42,37 @@ final class MenuCanvas
     $this->fill($id, $bounds, 'panel', 9);
   }
 
+  /** Theme-owned flat surfaces also serve section headers and scroll indicators. */
+  public function surface(string $id, CanvasRectangle $bounds, string $color, int $layer = 20): void
+  {
+    $this->fill($id, $bounds, $color, $layer);
+  }
+
+  /** Decorative semantic roles are optional; a missing role is not an unknown item. */
+  public function icon(string $id, string $role, CanvasRectangle $bounds): bool
+  {
+    $asset = $this->theme->icons?->icons[$role] ?? null;
+    if ($asset === null) { return false; }
+    array_push($this->images, ...MenuIconRegistry::containAsset($this->theme->assetRoot, $id, $asset, $bounds, 31, $bounds));
+    return true;
+  }
+
+  /** Already measured lines retain per-line color in one bounded text layer.
+   * @param list<array{text: string, color: string}> $lines
+   */
+  public function textLines(string $id, array $lines, CanvasRectangle $bounds): void
+  {
+    if ($lines === []) { return; }
+    $m = $this->theme->metrics;
+    if (count($lines) * $m->cellHeight > $bounds->height) { throw new RuntimeException('Menu text lines exceed their measured viewport.'); }
+    $runs = [];
+    foreach ($lines as $row => $line) {
+      if ($line['text'] !== '') { $runs[] = new PresentationTextRun($row, 0, $line['text'], $this->theme->colors[$line['color']]); }
+    }
+    $this->text[] = new CanvasTextLayer($id, 30, $bounds->x, $bounds->y,
+      new RendererGridConfig((int)floor($bounds->width / $m->cellWidth), count($lines), $m->cellWidth, $m->cellHeight), $runs, $bounds);
+  }
+
   /** Reuse the same bounded batching when placing a local menu overlay above an existing canvas. */
   public static function overlay(PresentationCanvas $base, PresentationCanvas $overlay, MenuPresentationCatalog $theme): PresentationCanvas
   {

@@ -5,12 +5,19 @@ namespace Ichiloto\Engine\Scenes\Game\States;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputBindings;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Scenes\SceneStateContext;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\UI\Presentation\ControlsMenuContent;
+use Ichiloto\Engine\UI\Presentation\ControlsMenuPresentation;
+use Ichiloto\Engine\UI\Presentation\MenuCanvasState;
+use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
@@ -24,8 +31,25 @@ use Ichiloto\Engine\UI\Windows\Window;
  *
  * @package Ichiloto\Engine\Scenes\Game\States
  */
-class ControlsMenuState extends GameSceneState
+class ControlsMenuState extends GameSceneState implements CanvasProviderInterface
 {
+  use MenuCanvasState;
+
+  protected function composeMenuCanvas(MenuPresentationCatalog $theme, float $time): ?PresentationCanvas
+  {
+    return ControlsMenuPresentation::compose($this->getPresentationContent(), $theme, $time);
+  }
+
+  public function getPresentationContent(): ControlsMenuContent
+  {
+    $rows = [];
+    foreach ($this->rows as $row) {
+      $rows[] = ['action' => $row['action'], 'description' => $row['description'],
+        'keys' => $this->bindings->describeKeys($row['action']),
+        'control' => ActionHints::resolve($row['action'], $row['description'])->control];
+    }
+    return new ControlsMenuContent($rows, $this->activeIndex, $this->listening, $this->status);
+  }
   protected const int MENU_WIDTH = 110;
   protected const int LIST_PANEL_HEIGHT = 24;
   protected const int INFO_PANEL_HEIGHT = 4;
@@ -62,13 +86,14 @@ class ControlsMenuState extends GameSceneState
    */
   public function enter(): void
   {
+    $this->resetMenuPresentation();
     Console::clear();
     $this->getGameScene()->locationHUDWindow->deactivate();
     $this->bindings = new InputBindings();
     $this->activeIndex = 0;
     $this->scrollOffset = 0;
     $this->listening = false;
-    $this->status = 'Select an action and press enter to rebind it.';
+    $this->status = 'Select an action to rebind. R restores defaults.';
     $this->reloadRows();
     $this->calculateMargins();
     $this->initializeUI();
@@ -86,9 +111,14 @@ class ControlsMenuState extends GameSceneState
       return;
     }
 
-    $this->handleNavigation();
+    if (Input::isButtonDown('back') || Input::isButtonDown('cancel')) {
+      InputManager::resetState(true);
+      $this->setState($this->getGameScene()->mainMenuState);
 
-    if (Input::isButtonDown('confirm')) {
+      return;
+    }
+
+    if (Input::isButtonDown('confirm') && $this->activeRow() !== null) {
       $this->listening = true;
       $this->status = sprintf('Press a key for "%s". Escape cancels.', $this->activeRow()['action'] ?? '');
       // The confirm key is still down; ignore it so it does not bind itself.
@@ -103,14 +133,13 @@ class ControlsMenuState extends GameSceneState
         ? 'Controls restored to the defaults.'
         : 'Controls restored for this session; the file could not be written.';
       $this->reloadRows();
+      InputManager::resetState(true);
       $this->refreshUI();
 
       return;
     }
 
-    if (Input::isButtonDown('back') || Input::isButtonDown('cancel')) {
-      $this->setState($this->getGameScene()->mainMenuState);
-    }
+    $this->handleNavigation();
   }
 
   /**
@@ -130,6 +159,7 @@ class ControlsMenuState extends GameSceneState
 
     if ($key === KeyCode::ESCAPE) {
       $this->status = 'Rebinding cancelled.';
+      InputManager::resetState(true);
       $this->refreshUI();
 
       return;
@@ -137,9 +167,13 @@ class ControlsMenuState extends GameSceneState
 
     $action = $this->activeRow()['action'] ?? '';
 
-    $this->status = $this->bindings->rebind($action, $key)
+    $persisted = $this->bindings->rebind($action, $key);
+    $applied = (InputManager::getBindings()[$action]['keys'] ?? null) === [$key];
+    $this->status = $persisted
       ? sprintf('%s is now bound to %s.', ucfirst(str_replace('_', ' ', $action)), $key->name)
-      : sprintf('%s could not be rebound.', ucfirst(str_replace('_', ' ', $action)));
+      : ($applied ? sprintf('%s is bound to %s for this session; the file could not be written.',
+        ucfirst(str_replace('_', ' ', $action)), $key->name)
+        : sprintf('%s could not be rebound.', ucfirst(str_replace('_', ' ', $action))));
 
     $this->reloadRows();
     InputManager::resetState(true);

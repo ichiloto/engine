@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Quests;
 
+use Ichiloto\Engine\Exceptions\RequiredFieldException;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 use InvalidArgumentException;
@@ -22,7 +23,7 @@ class Quest
    * @param string $description The journal description.
    * @param string $giver The quest giver's name.
    * @param QuestObjective[] $objectives The objectives, in order.
-   * @param array{gold?: int, experience?: int, items?: string[]} $rewards The completion rewards.
+   * @param array{gold?: int, experience?: int, items?: array<int, string|array{item: string, quantity?: int, price?: int}>} $rewards The completion rewards.
    * @param array<int, array<string, mixed>> $prerequisites Conditions that must hold before the quest can be accepted (same shapes as event-trigger conditions, plus `['type' => 'quest', 'name' => ..., 'status' => 'completed'|'active']`).
    * @param bool $isOptional True for a side quest, which is offered to the
    * player and only entered in the journal if they accept it.
@@ -82,6 +83,19 @@ class Quest
     $itemStore = ConfigStore::has(ItemStore::class) ? ConfigStore::get(ItemStore::class) : null;
 
     foreach ((array) ($this->rewards['items'] ?? []) as $itemReference) {
+      if (is_array($itemReference)) {
+        if (!$itemStore instanceof ItemStore) {
+          throw new InvalidArgumentException(sprintf('Describing structured rewards for quest "%s" requires the project ItemStore.', $this->id));
+        }
+        $reference = strval($itemReference['item'] ?? throw new RequiredFieldException('item'));
+        $quantity = max(0, intval($itemReference['quantity'] ?? 1));
+        // Granting validates identity even for zero copies; display never creates those copies.
+        $name = $itemStore->displayNameFor($reference, sprintf('describing rewards for quest "%s"', $this->id));
+        if ($quantity > 0) {
+          $parts[] = $name . ($quantity > 1 ? ' x' . $quantity : '');
+        }
+        continue;
+      }
       if (! is_string($itemReference)) {
         continue;
       }
