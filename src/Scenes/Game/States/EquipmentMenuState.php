@@ -21,14 +21,25 @@ use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\UI\Presentation\CharacterMenuPresentation;
+use Ichiloto\Engine\UI\Presentation\MenuCanvasState;
+use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 
 /**
  * Represents the equipment menu state.
  *
  * @package Ichiloto\Engine\Scenes\Game\States
  */
-class EquipmentMenuState extends GameSceneState
+class EquipmentMenuState extends GameSceneState implements CanvasProviderInterface
 {
+  use MenuCanvasState;
+
+  protected function composeMenuCanvas(MenuPresentationCatalog $theme, float $time): ?PresentationCanvas
+  {
+    return CharacterMenuPresentation::equipment($this, $this->mode, $theme, $time);
+  }
   /**
    * The width and height of the equipment menu.
    */
@@ -140,6 +151,7 @@ class EquipmentMenuState extends GameSceneState
    */
   public function enter(): void
   {
+    $this->resetMenuPresentation();
     Console::clear();
     $this->getGameScene()->locationHUDWindow->deactivate();
     $this->character ??= $this->getGameScene()->party->leader;

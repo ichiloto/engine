@@ -38,6 +38,19 @@ final class GraphicalBattleResults
    */
   public static function preflight(BattleResultsSkin $skin, string $root, array $battlefield = [], ?array $actorIds = null): array
   {
+    return self::preflightPrepared($skin->withCurrentImages($root), $root, $battlefield, $actorIds);
+  }
+
+  /** Resolve replaceable whole images once for the disposable Results presentation. */
+  public static function prepare(BattleResultsSkin $skin, string $root, array $battlefield = [], ?array $actorIds = null): BattleResultsSkin
+  {
+    $skin = $skin->withCurrentImages($root);
+    self::preflightPrepared($skin, $root, $battlefield, $actorIds);
+    return $skin;
+  }
+
+  private static function preflightPrepared(BattleResultsSkin $skin, string $root, array $battlefield, ?array $actorIds): array
+  {
     foreach (['panel' => [754, 502], 'quiet' => [470, 164], 'track' => [582, 12],
       'selector' => [16, 16], 'portrait' => [96, 96], 'exp' => [578, 8],
       'divider' => [440, 16], 'button' => [230, 46]] as $role => [$width, $height]) {
@@ -52,14 +65,6 @@ final class GraphicalBattleResults
       PngAssetPreflight::inspect($root, $texture->asset, $texture->source);
       $size = PngAssetPreflight::inspect($root, $texture->asset);
       $assets[$texture->asset] = $size['width'] * $size['height'] * 4;
-    }
-    foreach ([...array_values($skin->icons), ...array_merge(...array_map(
-      static fn(array $families): array => array_values(array_filter($families)), array_values($skin->portraits)))] as $texture) {
-      $size = PngAssetPreflight::inspect($root, $texture->asset);
-      if ($texture->source->x !== 0 || $texture->source->y !== 0
-        || $texture->source->width !== $size['width'] || $texture->source->height !== $size['height']) {
-        throw new RuntimeException('Results portrait and icon families use full-source contain, not arbitrary crops.');
-      }
     }
     $base = [...$battlefield, ...CanvasImagePreflight::textures([
       ...array_values($skin->textures), ...array_values($skin->icons),
@@ -207,13 +212,10 @@ final class GraphicalBattleResults
 
   private function controls(): void
   {
-    $locked = $this->playback->isExiting();
     $prompt = $this->playback->confirmation();
     if ($prompt['opacity'] > 0) {
       $this->image('confirm', 'button', new CanvasRectangle(560, 662, 230, 46), alpha: $prompt['opacity']);
       $this->line('confirm', $prompt['label'], 560, 671, 230, 14, 28, 'text', 'center', $prompt['opacity']);
-      $offset = GraphicalBattleHud::cursorOffset($this->playback->time(), $this->playback->reducedMotion || $locked);
-      $this->image('selector', 'selector', new CanvasRectangle(579 + $offset, 677, 16, 16), alpha: $prompt['opacity']);
     }
     if ($this->playback->pageCount() > 1) {
       $this->line('pages', 'Page ' . ($this->playback->scrollOffset + 1) . '/' . $this->playback->pageCount()

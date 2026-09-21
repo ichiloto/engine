@@ -23,6 +23,7 @@ use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\UI\Interfaces\ModalInterface;
+use Ichiloto\Engine\UI\Interfaces\ModalPresentationProviderInterface;
 use Ichiloto\Engine\UI\Interfaces\LayeredPresentationInterface;
 use Ichiloto\Engine\UI\Enumerations\PresentationPriority;
 use Ichiloto\Engine\UI\UIManager;
@@ -39,7 +40,7 @@ use Ichiloto\Engine\Util\Debug;
  *
  * @package Ichiloto\Engine\UI\Modal
  */
-abstract class Modal implements ModalInterface, LayeredPresentationInterface
+abstract class Modal implements ModalInterface, LayeredPresentationInterface, ModalPresentationProviderInterface
 {
   /**
    * @var Window $window The window of the modal.
@@ -154,6 +155,11 @@ abstract class Modal implements ModalInterface, LayeredPresentationInterface
     PresentationLayerPolicy::ui($this, $this->window->render(...));
   }
 
+  public function getModalPresentation(): ?ModalPresentation
+  {
+    return null;
+  }
+
   /**
    * @inheritDoc
    */
@@ -193,7 +199,7 @@ abstract class Modal implements ModalInterface, LayeredPresentationInterface
       $this->submit();
     }
 
-    if (Input::isButtonDown("cancel")) {
+    elseif (Input::isButtonDown("cancel")) {
       $this->cancel();
     }
   }

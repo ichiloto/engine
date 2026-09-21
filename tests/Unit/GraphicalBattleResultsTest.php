@@ -10,6 +10,7 @@ use Ichiloto\Engine\Battle\Presentation\BattleRewards;
 use Ichiloto\Engine\Battle\Presentation\GraphicalBattleResults;
 use Ichiloto\Engine\Progression\ProgressionSnapshot;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasNineSlice;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
@@ -59,7 +60,7 @@ function resultsFrameText(PresentationCanvas $frame): string
   return implode("\n", array_merge(...array_map(fn($layer) => array_column($layer->runs, 'text'), $frame->textLayers)));
 }
 
-it('centers each confirmation label on the button independently of its selector', function () {
+it('centers each confirmation label on its button without a list cursor', function () {
   $p = new BattleResultsPlayback(new BattleRewards(0, 0, []));
   $p->update(0.5);
   foreach (['Complete', 'Continue'] as $label) {
@@ -68,7 +69,8 @@ it('centers each confirmation label on the button independently of its selector'
     $text = array_column($frame->textLayers, null, 'id')['results-confirm'];
     expect($text->runs[0]->text)->toBe($label)
       ->and($text->bounds->x + $text->bounds->width / 2)->toBe(675.0)
-      ->and($text->bounds->y + $text->bounds->height / 2)->toBe(685.0);
+      ->and($text->bounds->y + $text->bounds->height / 2)->toBe(685.0)
+      ->and(array_filter($frame->images, fn($image) => str_starts_with($image->id, 'results-selector-')))->toBe([]);
     $p->confirm();
   }
 });
@@ -80,8 +82,8 @@ it('fades the complete button assembly with an empty beat and a centered incomin
   foreach ([[0.06, 'Complete', 0.5], [0.09, null, 0.0], [0.10, 'Continue', 0.5], [0.08, 'Continue', 1.0]] as [$delta, $label, $alpha]) {
     $p->update($delta);
     $frame = GraphicalBattleResults::frame(resultsBattlefield(), resultsSkinFixture(), $p);
-    $images = array_filter($frame->images, fn($image) => str_starts_with($image->id, 'results-confirm-')
-      || str_starts_with($image->id, 'results-selector-'));
+    $images = array_filter($frame->images, fn($image) => str_starts_with($image->id, 'results-confirm-'));
+    expect(array_filter($frame->images, fn($image) => str_starts_with($image->id, 'results-selector-')))->toBe([]);
     $text = array_column($frame->textLayers, null, 'id')['results-confirm'] ?? null;
     if ($label === null) {
       expect($images)->toBe([])->and($text)->toBeNull();
@@ -96,8 +98,9 @@ it('fades the complete button assembly with an empty beat and a centered incomin
   }
 });
 
-it('keeps the focus cursor visible but stationary with reduced motion', function () {
-  $p = new BattleResultsPlayback(new BattleRewards(0, 0, []), true);
+it('keeps completed confirmation artwork steady without a cursor in either motion mode', function (bool $reducedMotion) {
+  $p = new BattleResultsPlayback(new BattleRewards(0, 0, []), $reducedMotion);
+  $p->update(10);
   $field = resultsBattlefield();
   $skin = resultsSkinFixture();
   $first = GraphicalBattleResults::frame($field, $skin, $p);
@@ -105,9 +108,13 @@ it('keeps the focus cursor visible but stationary with reduced motion', function
   $next = GraphicalBattleResults::frame($field, $skin, $p);
   $selector = fn($frame) => array_values(array_filter($frame->images,
     fn($image) => str_starts_with($image->id, 'results-selector-')));
-  expect($selector($first))->not->toBeEmpty()->toEqual($selector($next))
+  $button = fn($frame) => array_values(array_filter($frame->images,
+    fn($image) => str_starts_with($image->id, 'results-confirm-')));
+  expect($selector($first))->toBe([])->and($selector($next))->toBe([])
+    ->and($button($first))->not->toBeEmpty()->toEqual($button($next))
+    ->and($first->toArray())->toBe($next->toArray())
     ->and($p->confirmation())->toBe(['label' => 'Continue', 'opacity' => 1.0, 'enabled' => true]);
-});
+})->with([false, true]);
 
 it('keeps the completed action label unchanged throughout the locked exit fade', function (string $kind) {
   $award = resultsGraphicalFacts(1)->progression[0];
@@ -136,7 +143,8 @@ it('keeps the completed action label unchanged throughout the locked exit fade',
       ->and($label->opacity)->toBe($p->opacity())
       ->and($p->confirm())->toBeFalse()
       ->and($p->currentStage()['kind'])->toBe($kind)
-      ->and($p->rewards)->toBe($facts);
+      ->and($p->rewards)->toBe($facts)
+      ->and(array_filter($frame->images, fn($image) => str_starts_with($image->id, 'results-selector-')))->toBe([]);
   }
   $p->update(0.02);
   expect($p->isFinished())->toBeTrue()
@@ -263,13 +271,47 @@ it('validates asset presence, source bounds, unique decoded costs and one-densit
       file_put_contents($root . '/' . $texture->asset, "\x89PNG\r\n\x1a\n\0\0\0\rIHDR" . pack('NN', 8, 8));
     }
     $portrait = new CanvasNineSlice('panel.png', new SpriteSourceRect(1, 0, 7, 8));
-    expect(fn() => GraphicalBattleResults::preflight(resultsSkinFixture(['actor-1' => ['menu' => $portrait]]), $root))
-      ->toThrow(RuntimeException::class, 'full-source contain');
+    $prepared = GraphicalBattleResults::prepare(resultsSkinFixture(['actor-1' => ['menu' => $portrait]]), $root);
+    expect($prepared->portraits['actor-1']['menu']->source->toArray())
+      ->toBe(['x' => 0, 'y' => 0, 'width' => 8, 'height' => 8]);
     unlink($root . '/exp.png');
     expect(fn() => GraphicalBattleResults::preflight($skin, $root))->toThrow(RuntimeException::class);
     $textures = $skin->textures;
     $textures['exp'] = new CanvasNineSlice('exp.png', new SpriteSourceRect(0, 0, 8, 8), density: 2);
     expect(fn() => new BattleResultsSkin($textures, $skin->colors))->toThrow(InvalidArgumentException::class);
+  } finally {
+    foreach (glob($root . '/*') ?: [] as $path) { unlink($path); }
+    rmdir($root);
+  }
+});
+
+it('contains current portrait and icon images after same-path replacements without changing rewards', function () {
+  $root = sys_get_temp_dir() . '/ichiloto-results-replacement-' . bin2hex(random_bytes(4));
+  mkdir($root);
+  $legacy = new CanvasNineSlice('actor.png', new SpriteSourceRect(0, 0, 100, 120));
+  $skin = resultsSkinFixture(['actor-1' => ['menu' => $legacy, 'bust' => $legacy]], ['inventory' => $legacy]);
+  $facts = resultsGraphicalFacts(1);
+  $before = serialize($facts);
+  try {
+    foreach ($skin->textures as $texture) {
+      file_put_contents($root . '/' . $texture->asset, "\x89PNG\r\n\x1a\n\0\0\0\rIHDR" . pack('NN', 8, 8));
+    }
+    foreach ([[40, 80], [200, 60], [100, 120]] as [$width, $height]) {
+      file_put_contents($root . '/actor.png', "\x89PNG\r\n\x1a\n\0\0\0\rIHDR" . pack('NN', $width, $height));
+      $prepared = GraphicalBattleResults::prepare($skin, $root);
+      expect($prepared->icons['inventory']->source->toArray())
+        ->toBe(['x' => 0, 'y' => 0, 'width' => $width, 'height' => $height]);
+      $playback = new BattleResultsPlayback($facts, true);
+      foreach (['menu', 'bust'] as $family) {
+        $frame = GraphicalBattleResults::frame(new PresentationCanvas(1350, 720), $prepared, $playback);
+        CanvasImagePreflight::inspect($frame->images, $root);
+        $image = array_values(array_filter($frame->images, fn($image) => $image->asset === 'actor.png'))[0];
+        expect($image->sourceRect)->toEqual($prepared->portraits['actor-1'][$family]->source)
+          ->and($image->destination->width / $image->destination->height)->toEqualWithDelta($width / $height, 0.000001);
+        $playback->confirm();
+      }
+      expect(serialize($facts))->toBe($before)->and($skin->portraits['actor-1']['menu'])->toBe($legacy);
+    }
   } finally {
     foreach (glob($root . '/*') ?: [] as $path) { unlink($path); }
     rmdir($root);

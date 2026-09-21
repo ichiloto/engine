@@ -69,8 +69,10 @@ final class GraphicalBattlePause
       $view->image('row-' . $index, $selected ? ($menu->isPressed() ? 'pressed' : 'selected') : 'normal', $x, $y, $rowWidth, $rowHeight);
       if ($selected) {
         $view->image('focus', 'focus', $x, $y, $rowWidth, $rowHeight);
-        $offset = GraphicalBattleHud::cursorOffset($menu->time(), $menu->reducedMotion || !$menu->isReady());
-        $view->image('cursor', 'selector', $x + 17 + $offset, $y + ($rowHeight - 16) / 2, 16, 16);
+        if (!$confirm) {
+          $offset = GraphicalBattleHud::cursorOffset($menu->time(), $menu->reducedMotion || !$menu->isReady());
+          $view->image('cursor', 'selector', $x + 17 + $offset, $y + ($rowHeight - 16) / 2, 16, 16);
+        }
       }
       $view->line('label-' . $index, $label, $x, $y + ($rowHeight - 28) / 2, $rowWidth, 10, 28);
     }

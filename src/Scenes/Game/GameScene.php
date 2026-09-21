@@ -65,14 +65,21 @@ use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Debug;
 use Override;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 
 /**
  * Class GameScene. Represents the game scene.
  *
  * @package Ichiloto\Engine\Scenes\Game
  */
-class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInterface, GraphicalTileProviderHostInterface
+class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInterface, GraphicalTileProviderHostInterface, CanvasProviderInterface
 {
+    public function getPresentationCanvas(): ?PresentationCanvas
+    {
+        return $this->state instanceof CanvasProviderInterface ? $this->state->getPresentationCanvas() : null;
+    }
+
     private ?string $inheritedMapMusic = null;
     private ?string $lastFieldMusic = null;
     private bool $fieldMusicApplied = false;

@@ -30,6 +30,11 @@ class CharacterDetailPanel extends Window
    */
   protected ?Stats $previewStats = null;
 
+  public function getPresentationPreview(): ?Stats
+  {
+    return $this->previewStats === null ? null : clone $this->previewStats;
+  }
+
   /**
    * Create a new instance of the character detail panel.
    *

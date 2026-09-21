@@ -139,3 +139,30 @@ it('describes an action with nothing bound to it', function () {
 
   expect(new InputBindings()->describeKeys('dance'))->toBe('Unbound');
 });
+
+it('selects one currently bound primary control while Controls retains every alias', function () {
+  installBindings([
+    'confirm' => ['keys' => [KeyCode::SPACE, KeyCode::ENTER]],
+    'cancel' => ['keys' => [KeyCode::C, KeyCode::c, KeyCode::ESCAPE]],
+    'back' => ['keys' => [KeyCode::END, KeyCode::ESCAPE]],
+  ]);
+  $bindings = new InputBindings();
+  expect($bindings->primaryKey('confirm'))->toBe(KeyCode::ENTER)
+    ->and($bindings->primaryKey('cancel'))->toBe(KeyCode::ESCAPE)
+    ->and($bindings->primaryKey('back'))->toBe(KeyCode::ESCAPE)
+    ->and($bindings->describeKeys('cancel'))->toBe('C, c, ESCAPE')
+    ->and($bindings->describeKeys('confirm'))->toBe('SPACE, ENTER')
+    ->and($bindings->controlForAction('cancel')->label)->toBe('Escape');
+  $bindings->rebind('cancel', KeyCode::Q);
+  expect($bindings->primaryKey('cancel'))->toBe(KeyCode::Q)
+    ->and($bindings->controlForAction('cancel')->control)->toBe('Q')
+    ->and($bindings->describeKeys('cancel'))->toBe('Q');
+});
+
+it('does not invent preferred controls for empty missing or differently bound actions', function () {
+  installBindings(['confirm' => ['keys' => [KeyCode::F2, KeyCode::SPACE]], 'cancel' => ['keys' => []]]);
+  $bindings = new InputBindings();
+  expect($bindings->primaryKey('confirm'))->toBe(KeyCode::F2)
+    ->and($bindings->primaryKey('cancel'))->toBeNull()->and($bindings->primaryKey('back'))->toBeNull()
+    ->and($bindings->controlForAction('cancel'))->toBeNull()->and($bindings->describeKeys('cancel'))->toBe('Unbound');
+});

@@ -72,6 +72,16 @@ class CharacterSelectionMenu extends Menu
     return $this->activePanelIndex;
   }
 
+  public function getMarkedPanelIndex(): ?int
+  {
+    return $this->markedPanelIndex;
+  }
+
+  public function getHelpText(): string
+  {
+    return $this->helpText;
+  }
+
   /**
    * @inheritDoc
    */

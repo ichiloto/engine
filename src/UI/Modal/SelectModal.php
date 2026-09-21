@@ -17,10 +17,10 @@ use Ichiloto\Engine\Events\ObservableTrait;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
-use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\UI\Interfaces\ModalInterface;
+use Ichiloto\Engine\UI\Interfaces\ModalPresentationProviderInterface;
 use Ichiloto\Engine\UI\Interfaces\LayeredPresentationInterface;
 use Ichiloto\Engine\UI\Enumerations\PresentationPriority;
 use Ichiloto\Engine\UI\UIManager;
@@ -37,7 +37,7 @@ use Ichiloto\Engine\Util\Debug;
  *
  * @package Ichiloto\Engine\UI\Modal
  */
-class SelectModal implements ModalInterface, LayeredPresentationInterface
+class SelectModal implements ModalInterface, LayeredPresentationInterface, ModalPresentationProviderInterface
 {
   use ObservableTrait;
 
@@ -156,6 +156,7 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface
     $this->observers = new ItemList(ObserverInterface::class);
     $this->eventManager = EventManager::getInstance($game);
     $this->setOptions($options);
+    $this->activeOptionIndex = max(0, min($this->totalOptions - 1, $this->default));
     $this->title = $title;
     $this->setHelp($help);
     $this->wrapMessage();
@@ -238,9 +239,14 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface
       $this->playInteractionSound(SystemSound::CONFIRM);
       $this->value = $this->activeOptionIndex;
       $this->hide();
-    } else if (Input::isAnyKeyPressed([KeyCode::C, KeyCode::c])) {
+    } else if (Input::isButtonDown('cancel')) {
       $this->cancel();
     }
+  }
+
+  public function getModalPresentation(): ?ModalPresentation
+  {
+    return new ModalPresentation($this->title, $this->message, array_values($this->options), $this->activeOptionIndex, true);
   }
 
   /**

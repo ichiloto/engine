@@ -7,6 +7,7 @@ use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
+use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use InvalidArgumentException;
 
 final class RendererRegistry
@@ -22,8 +23,9 @@ final class RendererRegistry
       new RendererDescriptor('terminal', static fn(string $assetRoot): ?RendererRuntime => null),
       new RendererDescriptor('gpui', static fn(string $assetRoot): RendererRuntime => new RendererRuntime(
         new RendererRuntimeConfig(new RendererProcessConfig([$resolver->resolve('gpui')]), $assetRoot, 10, 20,
-          requiredCapabilities: [RendererSessionConfig::SPRITE_SOURCE_RECT, RendererSessionConfig::TILE_BATCHES,
-            ...(BattlePresentationCatalog::load($assetRoot)?->requiredCapabilities() ?? [])]),
+          requiredCapabilities: array_values(array_unique([RendererSessionConfig::SPRITE_SOURCE_RECT, RendererSessionConfig::TILE_BATCHES,
+            ...(BattlePresentationCatalog::load($assetRoot)?->requiredCapabilities() ?? []),
+            ...MenuPresentationCatalog::requestedCapabilities($assetRoot)]))),
       )),
     ];
     foreach ($descriptors as $descriptor) {

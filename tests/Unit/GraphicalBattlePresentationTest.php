@@ -29,6 +29,7 @@ use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasNineSlice;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
@@ -39,6 +40,7 @@ use Ichiloto\Engine\Scenes\Battle\BattleConfig;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
+use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
@@ -122,7 +124,9 @@ function graphicalBattleConfigurationScene(?RendererRuntime $runtime): BattleSce
 
 beforeEach(function () {
   $this->statics = [];
-  foreach ([Console::class, ConfigStore::class, InputManager::class] as $class) { $this->statics[$class] = new ReflectionClass($class)->getStaticProperties(); }
+  foreach ([Console::class, ConfigStore::class, InputManager::class, Debug::class] as $class) { $this->statics[$class] = new ReflectionClass($class)->getStaticProperties(); }
+  $this->logRoot = sys_get_temp_dir() . '/ichiloto-battle-logs-' . bin2hex(random_bytes(5));
+  Debug::configure(['log_directory' => $this->logRoot]);
   Console::setTerminalOutputEnabled(false);
   Console::syncDimensions(135, 36);
   Console::setLayerTracking(true);
@@ -132,6 +136,8 @@ beforeEach(function () {
 });
 
 afterEach(function () {
+  foreach (glob($this->logRoot . '/*') ?: [] as $file) { unlink($file); }
+  if (is_dir($this->logRoot)) { rmdir($this->logRoot); }
   foreach ($this->statics as $class => $properties) {
     foreach ($properties as $name => $value) { new ReflectionProperty($class, $name)->setValue(null, $value); }
   }
@@ -531,8 +537,8 @@ it('replaces a real battle canvas with the normal scene frame through the shared
 
 it('loads current optional metadata without persisting it in battle state', function () {
   $root = sys_get_temp_dir() . '/ichiloto-battle-catalog-' . bin2hex(random_bytes(5));
-  mkdir($root . '/Data', 0777, true);
-  $file = $root . '/Data/battle.php';
+  $file = $root . '/' . BattlePresentationCatalog::FILE;
+  mkdir(dirname($file), 0777, true);
   try {
     expect(BattlePresentationCatalog::load($root))->toBeNull();
     copy(__DIR__ . '/../Fixtures/BattlePresentation/catalog.php', $file);
@@ -544,7 +550,7 @@ it('loads current optional metadata without persisting it in battle state', func
     expect($battle->__serialize())->not->toHaveKey('graphicalPresentation')->not->toHaveKey('canvas');
     expect(fn() => GraphicalBattlePresentation::prepare($battle, $first, $root))->toThrow(RuntimeException::class, 'readable PNG');
     expect($battle->entryRulesEvaluated())->toBeFalse();
-  } finally { unlink($file); rmdir($root . '/Data'); rmdir($root); }
+  } finally { unlink($file); rmdir(dirname($file)); rmdir($root . '/Data'); rmdir($root); }
 });
 
 it('rejects malformed typed artwork and independent placement geometry', function (Closure $invalid) {
@@ -558,36 +564,34 @@ it('rejects malformed typed artwork and independent placement geometry', functio
   'untyped catalog' => fn() => new BattlePresentationCatalog(['encounter' => []], [], []),
 ]);
 
-it('rejects missing negotiated battle capabilities before scene configuration or entry effects', function () {
+it('keeps battle configuration playable when graphical capabilities are unavailable', function () {
   $root = sys_get_temp_dir() . '/ichiloto-battle-startup-' . bin2hex(random_bytes(5));
-  mkdir($root . '/Data', 0777, true);
-  copy(__DIR__ . '/../Fixtures/BattlePresentation/catalog.php', $root . '/Data/battle.php');
+  $file = $root . '/' . BattlePresentationCatalog::FILE;
+  mkdir(dirname($file), 0777, true);
+  copy(__DIR__ . '/../Fixtures/BattlePresentation/catalog.php', $file);
   foreach (['hero', 'twin'] as $name) { copy($this->root . '/graphical-canvas/synthetic-143x181.png', $root . '/' . $name . '.png'); }
   copy($this->root . '/graphical-canvas/synthetic-320x180.png', $root . '/arena.png');
-  $game = new class extends Ichiloto\Engine\Core\Game {
-    public function __construct() {}
-    public function __destruct() {}
-  };
-  $game->useRendererRuntime(new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), $root), new FakeRendererTransport()));
-  $scene = new class($game) extends BattleScene {
-    public function __construct(private Ichiloto\Engine\Core\Game $testGame) {}
-    public function getGame(): Ichiloto\Engine\Core\Game { return $this->testGame; }
-  };
+  $runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), $root), new FakeRendererTransport());
+  $scene = graphicalBattleConfigurationScene($runtime);
   try {
     [$battle] = graphicalBattleFixture();
-    expect(fn() => $scene->configure($battle))->toThrow(RuntimeException::class, 'negotiated graphical_canvas');
-    expect($battle->entryRulesEvaluated())->toBeFalse()
-      ->and($scene->config)->toBeNull()->and($scene->graphicalPresentation)->toBeNull();
+    $scene->configure($battle);
+    expect($battle->entryRulesEvaluated())->toBeTrue()
+      ->and($scene->config)->toBe($battle)->and($scene->graphicalPresentation)->toBeNull()
+      ->and($scene->battleUiLayout)->toBeNull()
+      ->and(file_get_contents($this->logRoot . '/error.log'))->toContain('negotiated graphical_canvas');
   } finally {
-    foreach (['hero.png', 'twin.png', 'arena.png', 'Data/battle.php'] as $file) { unlink($root . '/' . $file); }
-    rmdir($root . '/Data'); rmdir($root);
+    $runtime->shutdown();
+    foreach (['hero.png', 'twin.png', 'arena.png', BattlePresentationCatalog::FILE] as $asset) { unlink($root . '/' . $asset); }
+    rmdir(dirname($file)); rmdir($root . '/Data'); rmdir($root);
   }
 });
 
 it('configures shared UI for consecutive encounters while terminal ignores optional assets', function (bool $native, bool $results) {
   $root = sys_get_temp_dir() . '/ichiloto-shared-ui-' . bin2hex(random_bytes(5));
-  mkdir($root . '/Data', 0777, true);
-  copy(__DIR__ . '/../Fixtures/BattlePresentation/shared-ui.php', $root . '/Data/battle.php');
+  $file = $root . '/' . BattlePresentationCatalog::FILE;
+  mkdir(dirname($file), 0777, true);
+  copy(__DIR__ . '/../Fixtures/BattlePresentation/shared-ui.php', $file);
   if ($results) {
     $code = <<<'PHP'
 <?php
@@ -604,7 +608,7 @@ return new BattlePresentationCatalog([], [], [], ui: $catalog->ui, results: new 
   array_fill_keys(['panel', 'quiet', 'track', 'selector', 'portrait', 'exp', 'divider', 'button'], $catalog->ui->skin->textures['panel']),
   array_fill_keys(['text', 'muted', 'accent', 'positive', 'negative', 'ink'], $catalog->ui->skin->colors['text']), $portraits));
 PHP;
-    file_put_contents($root . '/Data/battle.php', str_replace('__FIXTURE__',
+    file_put_contents($file, str_replace('__FIXTURE__',
       var_export(__DIR__ . '/../Fixtures/BattlePresentation/shared-ui.php', true), $code));
     if ($native) {
       // The catalog exceeds 64 MiB, but each event displays only one bust. Header checks only.
@@ -641,14 +645,15 @@ PHP;
     if ($native && $results) {
       foreach (['Hero', 'Second', 'Third', 'Fourth'] as $id) { unlink($root . '/' . $id . '.png'); }
     }
-    unlink($root . '/Data/battle.php'); rmdir($root . '/Data'); rmdir($root);
+    unlink($file); rmdir(dirname($file)); rmdir($root . '/Data'); rmdir($root);
   }
 })->with([true, false])->with([true, false]);
 
-it('preflights shared UI assets and every negotiated capability before entry effects', function (?string $missing) {
+it('logs unusable shared UI assets or capabilities and still starts combat', function (?string $missing) {
   $root = sys_get_temp_dir() . '/ichiloto-shared-ui-invalid-' . bin2hex(random_bytes(5));
-  mkdir($root . '/Data', 0777, true);
-  copy(__DIR__ . '/../Fixtures/BattlePresentation/shared-ui.php', $root . '/Data/battle.php');
+  $file = $root . '/' . BattlePresentationCatalog::FILE;
+  mkdir(dirname($file), 0777, true);
+  copy(__DIR__ . '/../Fixtures/BattlePresentation/shared-ui.php', $file);
   if ($missing !== null) { copy($this->root . '/test-sprite.png', $root . '/skin.png'); }
   $capabilities = array_values(array_diff(['graphical_canvas', 'sprite_source_rect', 'canvas_clip_opacity', 'canvas_glyph_effects'], [$missing]));
   if ($missing === 'graphical_canvas') { $capabilities = ['sprite_source_rect']; }
@@ -660,14 +665,15 @@ it('preflights shared UI assets and every negotiated capability before entry eff
     $runtime->start('Invalid shared UI', 135, 36);
     $scene = graphicalBattleConfigurationScene($runtime);
     [$battle] = graphicalBattleFixture();
-    expect(fn() => $scene->configure($battle))->toThrow(RuntimeException::class,
-      $missing === null ? 'readable PNG' : 'negotiated ' . $missing);
-    expect($scene->config)->toBeNull()->and($scene->battleUiLayout)->toBeNull()
-      ->and($scene->graphicalPresentation)->toBeNull()->and($battle->entryRulesEvaluated())->toBeFalse();
+    $scene->configure($battle);
+    expect($scene->config)->toBe($battle)->and($scene->battleUiLayout)->toBeNull()
+      ->and($scene->graphicalPresentation)->toBeNull()->and($battle->entryRulesEvaluated())->toBeTrue()
+      ->and(file_get_contents($this->logRoot . '/error.log'))->toContain(
+        'Graphical battle presentation degraded', $missing === null ? 'readable PNG' : 'negotiated ' . $missing);
   } finally {
     $runtime->shutdown();
     if ($missing !== null) { unlink($root . '/skin.png'); }
-    unlink($root . '/Data/battle.php'); rmdir($root . '/Data'); rmdir($root);
+    unlink($file); rmdir(dirname($file)); rmdir($root . '/Data'); rmdir($root);
   }
 })->with([null, 'graphical_canvas', 'sprite_source_rect', 'canvas_clip_opacity', 'canvas_glyph_effects']);
 
@@ -762,4 +768,34 @@ it('renders the whole image when the authored crop no longer exists in it', func
   $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
   $hero = $presentation->frame()->images[1];
   expect($hero->sourceRect->toArray())->toBe(['x' => 0, 'y' => 0, 'width' => 143, 'height' => 181]);
+});
+
+it('accepts replacement images at the same asset path without changing character identity or catalog', function () {
+  $root = sys_get_temp_dir() . '/ichiloto-replaceable-battler-' . bin2hex(random_bytes(5));
+  mkdir($root);
+  copy($this->root . '/graphical-canvas/synthetic-320x180.png', $root . '/arena.png');
+  copy($this->root . '/graphical-canvas/synthetic-143x181.png', $root . '/twin.png');
+  [$battle, , $hero] = graphicalBattleFixture();
+  $catalog = require __DIR__ . '/../Fixtures/BattlePresentation/catalog.php';
+  $authored = $catalog->actors['Hero'];
+  $health = $hero->stats->currentHp;
+  try {
+    foreach (['graphical-canvas/synthetic-143x181.png', 'test-sprite.png',
+      'graphical-canvas/synthetic-320x180.png'] as $replacement) {
+      copy($this->root . '/' . $replacement, $root . '/hero.png');
+      $frame = GraphicalBattlePresentation::prepare($battle, $catalog, $root)->frame();
+      CanvasImagePreflight::inspect($frame->images, $root);
+      $image = $frame->images[1];
+      $image->destination->assertWithin($frame->width, $frame->height);
+      expect($image->asset)->toBe('hero.png')
+        ->and($image->id)->toBe('combatant-' . spl_object_id($hero))
+        ->and($catalog->actors['Hero'])->toBe($authored)
+        ->and($hero->actorId)->toBe('Hero')
+        ->and($hero->stats->currentHp)->toBe($health)
+        ->and($battle->entryRulesEvaluated())->toBeFalse();
+    }
+  } finally {
+    foreach (['hero.png', 'twin.png', 'arena.png'] as $asset) { unlink($root . '/' . $asset); }
+    rmdir($root);
+  }
 });

@@ -13,14 +13,25 @@ use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\UI\Presentation\CharacterMenuPresentation;
+use Ichiloto\Engine\UI\Presentation\MenuCanvasState;
+use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 
 /**
  * Displays one party member's full profile and allows cycling between members.
  *
  * @package Ichiloto\Engine\Scenes\Game\States
  */
-class StatusViewState extends GameSceneState
+class StatusViewState extends GameSceneState implements CanvasProviderInterface
 {
+  use MenuCanvasState;
+
+  protected function composeMenuCanvas(MenuPresentationCatalog $theme, float $time): ?PresentationCanvas
+  {
+    return $this->character === null ? null : CharacterMenuPresentation::status($this->character, $theme, $time);
+  }
   protected const int PROFILE_SUMMARY_PANEL_WIDTH = 110;
   protected const int PROFILE_SUMMARY_PANEL_HEIGHT = 9;
   protected const int STATS_SUMMARY_PANEL_WIDTH = 40;
@@ -76,6 +87,7 @@ class StatusViewState extends GameSceneState
 
   public function enter(): void
   {
+    $this->resetMenuPresentation();
     Console::clear();
     $this->getGameScene()->locationHUDWindow->deactivate();
     $this->character ??= $this->getGameScene()->party->leader;

@@ -83,6 +83,9 @@ it('composes centered independent labels over the unchanged scene at every appro
     $frame = GraphicalBattlePause::frame($field, pauseSkinFixture(), $menu);
     expect($frame->images[0])->toBe($image)
       ->and(array_column($frame->textLayers, 'id'))->not->toContain('pause-hints');
+    $cursor = array_filter($frame->images, fn($part) => str_starts_with($part->id, 'pause-cursor-'));
+    expect($cursor)->toHaveCount($confirm ? 0 : 1)
+      ->and(array_filter($frame->images, fn($part) => str_starts_with($part->id, 'pause-focus-')))->not->toBeEmpty();
     $layers = array_column($frame->textLayers, null, 'id');
     foreach ($menu->labels() as $index => $label) {
       $text = $layers['pause-label-' . $index];
@@ -98,6 +101,43 @@ it('composes centered independent labels over the unchanged scene at every appro
   }
   expect($menu->confirmation !== null)->toBe($confirm);
 })->with([[1350, 720], [960, 540], [736, 414]])->with([false, true]);
+
+it('reserves cursor motion for the root list while confirmation focus stays steady and returns intact', function (bool $reducedMotion, int $index) {
+  $now = 0.0;
+  $menu = new BattlePauseMenu($reducedMotion, function () use (&$now): float { return $now; });
+  $menu->open($index); $now = 0.2; $menu->tick();
+  $field = new PresentationCanvas(1350, 720);
+  $skin = pauseSkinFixture();
+  $cursor = fn($frame) => array_values(array_filter($frame->images, fn($part) => str_starts_with($part->id, 'pause-cursor-')));
+  $focus = fn($frame) => array_values(array_filter($frame->images, fn($part) => str_starts_with($part->id, 'pause-focus-')));
+  $first = GraphicalBattlePause::frame($field, $skin, $menu);
+  $now += 0.3;
+  $next = GraphicalBattlePause::frame($field, $skin, $menu);
+  expect($cursor($first))->toHaveCount(1)->and($focus($first))->not->toBeEmpty()->toEqual($focus($next));
+  if ($reducedMotion) { expect($cursor($first))->toEqual($cursor($next)); }
+  else { expect($cursor($first)[0]->destination->x)->not->toBe($cursor($next)[0]->destination->x); }
+  $menu->confirm(); $now += 0.08; $menu->tick(); $now += 0.08; $menu->tick();
+  expect($menu->confirmation)->not->toBeNull()->and($menu->selection)->toBe(0);
+  foreach ([0, 1] as $selection) {
+    $menu->navigate($selection);
+    $first = GraphicalBattlePause::frame($field, $skin, $menu);
+    $now += 0.3;
+    $next = GraphicalBattlePause::frame($field, $skin, $menu);
+    $selected = array_filter($first->images, fn($part) => str_starts_with($part->id, 'pause-row-' . $selection . '-'));
+    expect($cursor($first))->toBe([])->and($cursor($next))->toBe([])
+      ->and($focus($first))->not->toBeEmpty()->toEqual($focus($next))
+      ->and(array_unique(array_column($selected, 'asset')))->toBe(['selected.png'])
+      ->and($first->toArray())->toBe($next->toArray());
+  }
+  $menu->navigate(-1); $menu->confirm();
+  $pressed = GraphicalBattlePause::frame($field, $skin, $menu);
+  expect($cursor($pressed))->toBe([])->and($focus($pressed))->not->toBeEmpty()
+    ->and(array_column($pressed->images, 'asset'))->toContain('pressed.png');
+  $now += 0.08; $menu->tick(); $now += 0.08; $menu->tick();
+  $restored = GraphicalBattlePause::frame($field, $skin, $menu);
+  expect($menu->confirmation)->toBeNull()->and($menu->selection)->toBe($index)
+    ->and($cursor($restored))->toHaveCount(1)->and($focus($restored))->not->toBeEmpty();
+})->with([false, true])->with([2, 3]);
 
 it('uses short owned fades but no scale or moving cursor in reduced motion', function () {
   $now = 0.0;

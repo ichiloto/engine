@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasNineSlice;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
+use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
 
 /** Project-owned visual slots, independent of rewards and playback. */
@@ -51,6 +52,25 @@ final readonly class BattleResultsSkin
     }
     $this->portraits = $copy;
     $this->icons = $icons;
+  }
+
+  /** Portraits and icons are whole images; their source sizes belong to the files, not the catalog. */
+  public function withCurrentImages(string $root): self
+  {
+    $resolve = static function (CanvasNineSlice $art) use ($root): CanvasNineSlice {
+      $current = CanvasNineSlice::fromPng($root, $art->asset);
+      if ($current->source != $art->source) {
+        Debug::warn("Results whole-image metadata reconciled to the current PNG: {$art->asset}");
+      }
+      return $current;
+    };
+    $portraits = [];
+    foreach ($this->portraits as $id => $families) {
+      foreach ($families as $family => $art) {
+        $portraits[$id][$family] = $art === null ? null : $resolve($art);
+      }
+    }
+    return new self($this->textures, $this->colors, $portraits, array_map($resolve, $this->icons));
   }
 
   private static function plainImage(mixed $art): void

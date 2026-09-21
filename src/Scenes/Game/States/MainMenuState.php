@@ -33,11 +33,16 @@ use Ichiloto\Engine\Core\Menu\MainMenu\Windows\PlayTimePanel;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
+use Ichiloto\Engine\UI\Presentation\MainMenuPresentation;
+use Ichiloto\Engine\UI\Presentation\MenuCanvasState;
+use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Symfony\Component\Console\Output\ConsoleOutput;
 
 /**
@@ -51,8 +56,39 @@ use Symfony\Component\Console\Output\ConsoleOutput;
  *
  * @package Ichiloto\Engine\Scenes\Game\States
  */
-class MainMenuState extends GameSceneState implements CanRender
+class MainMenuState extends GameSceneState implements CanRender, CanvasProviderInterface
 {
+    use MenuCanvasState { getPresentationCanvas as private getActiveMenuCanvas; }
+
+    public function getPresentationCanvas(): ?PresentationCanvas
+    {
+        return $this->mode === null || !$this->supplementalPanelsVisible ? null : $this->getActiveMenuCanvas();
+    }
+
+    public function getPresentationMode(): ?MainMenuModeInterface
+    {
+        return $this->mode;
+    }
+
+    /** The existing windows own formatting and refresh timing. */
+    public function getPresentationSummaries(): array
+    {
+        $summaries = [];
+        foreach (['time' => $this->playTimePanel, 'money' => $this->accountBalancePanel,
+            'location' => $this->locationDetailPanel] as $id => $window) {
+            if ($window !== null) {
+                $summaries[$id] = ['title' => $window->getTitle(),
+                    'lines' => array_map(trim(...), $window->getContent())];
+            }
+        }
+        return $summaries;
+    }
+
+    protected function composeMenuCanvas(MenuPresentationCatalog $theme, float $time): ?PresentationCanvas
+    {
+        return $this->supplementalPanelsVisible ? MainMenuPresentation::compose($this, $theme, $time) : null;
+    }
+
     /**
      * The width of the main menu.
      */
@@ -167,6 +203,7 @@ class MainMenuState extends GameSceneState implements CanRender
      */
     public function enter(): void
     {
+        $this->resetMenuPresentation();
         Console::clear();
         $this->getGameScene()->locationHUDWindow->deactivate();
         $this->calculateMargins();

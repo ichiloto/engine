@@ -59,6 +59,23 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
    */
   protected int $totalEquipment = 0;
 
+  /** Read the owner's cached availability and identity decision without recomputing inventory.
+   * @return list<array{equipment: Equipment, available: int, current: bool}>
+   */
+  public function getPresentationCandidates(): array
+  {
+    return array_values(array_map(fn(Equipment $equipment) => [
+      'equipment' => $equipment,
+      'available' => $this->getAvailableQuantity($equipment),
+      'current' => $this->equipmentMatches($equipment, $this->equipmentSlot?->equipment),
+    ], $this->compatibleEquipment));
+  }
+
+  public function getPresentationIndex(): int
+  {
+    return $this->activeIndex;
+  }
+
   /**
    * @inheritDoc
    * @throws Exception If an error occurs while alerting the player.

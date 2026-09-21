@@ -327,12 +327,13 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
         if ($resultsSkin !== null && ($layout === null || $layout->width !== 1350 || $layout->height !== 720)) {
           throw new RuntimeException('The Results skin requires a 1350 by 720 battle canvas.');
         }
+        if ($resultsSkin !== null) {
+          $resultsSkin = GraphicalBattleResults::prepare($resultsSkin, $runtime->getAssetRoot(),
+            $presentation?->frame()->images ?? [],
+            array_map(static fn(Character $member): string => $member->actorId, $config->party->members->toArray()));
+        }
         if ($presentation === null && $layout !== null) {
           GraphicalBattleHud::preflight($layout, $runtime->getAssetRoot());
-          if ($resultsSkin !== null) {
-            GraphicalBattleResults::preflight($resultsSkin, $runtime->getAssetRoot(), [],
-              array_map(static fn(Character $member): string => $member->actorId, $config->party->members->toArray()));
-          }
         }
         $capabilities = $presentation?->requiredCapabilities()
           ?? ($layout === null ? [] : [RendererSessionConfig::SPRITE_SOURCE_RECT, ...$catalog->requiredCapabilities()]);
