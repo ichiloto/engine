@@ -4,8 +4,6 @@ namespace Ichiloto\Engine\Core\Menu\ItemMenu\Modes;
 
 use Exception;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
-use Ichiloto\Engine\Core\Menu\ItemMenu\Modes\ItemMenuMode;
-use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
 
 class DiscardItemMode extends ItemMenuMode
@@ -20,28 +18,16 @@ class DiscardItemMode extends ItemMenuMode
     if (Input::isButtonDown("back")) {
       play_sound(SystemSound::CANCEL);
       $this->state->setMode(new SelectIemMenuCommandMode($this->state));
+      return;
     }
 
-    $v = Input::getAxis(AxisName::VERTICAL);
-
-    if (abs($v) > 0) {
-      play_sound(SystemSound::CURSOR);
-
-      if ($v > 0) {
-        $this->state->selectionPanel->selectNext();
-      } else {
-        $this->state->selectionPanel->selectPrevious();
-      }
-    }
+    $this->navigateItems();
 
     if (Input::isButtonDown("confirm")) {
+      if ($this->state->selectionPanel->activeItem === null) { return; }
       if (confirm("Are you sure you want to discard this item?")) {
         $this->state->getGameScene()->party->inventory->removeItems($this->state->selectionPanel->activeItem);
-        $this->state->selectionPanel->setItems($this->state->getGameScene()->party->inventory->all->toArray());
-
-        if ($this->state->selectionPanel->activeIndex > $this->state->selectionPanel->totalItems - 1) {
-          $this->state->selectionPanel->selectPrevious();
-        }
+        $this->state->selectionPanel->setItems($this->state->itemMenu->getRegularItems());
 
         if ($this->state->selectionPanel->totalItems === 0) {
           alert("You have no items left.");

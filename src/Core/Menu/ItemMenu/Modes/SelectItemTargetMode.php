@@ -27,6 +27,16 @@ class SelectItemTargetMode extends ItemMenuMode
   protected ?InventoryItem $pendingItem = null;
   protected ?Character $pendingTarget = null;
 
+  public bool $selectingQuantity { get => $this->quantitySelector !== null; }
+
+  /** Presentation copy without keyboard bindings; the existing selector still owns quantity. */
+  public function quantityPrompt(): ?string
+  {
+    if ($this->quantitySelector === null || $this->pendingItem === null || $this->pendingTarget === null) { return null; }
+    return sprintf('Use %s x %02d on %s?', $this->pendingItem->name,
+      $this->quantitySelector->quantity, $this->pendingTarget->name);
+  }
+
   /**
    * @inheritDoc
    * @throws Exception If an error occurs while alerting the player.
@@ -172,6 +182,9 @@ class SelectItemTargetMode extends ItemMenuMode
     $target = $this->pendingTarget;
     $quantity = $this->quantitySelector?->quantity ?? 1;
     $this->clearQuantitySelection();
+    // Item use may open a synchronous result modal. Its underlay must not retain
+    // the now-inactive quantity prompt and keyboard-only helper line.
+    $this->state->infoPanel->setText($item?->description ?? '');
 
     if ($item instanceof InventoryItem && $target instanceof Character) {
       play_sound(SystemSound::CONFIRM);
@@ -226,7 +239,7 @@ class SelectItemTargetMode extends ItemMenuMode
 
     if ($item->quantity === 0) {
       $this->inventory->removeItems($item);
-      $this->state->selectionPanel->setItems($this->inventory->items->toArray());
+      $this->state->selectionPanel->setItems($this->state->itemMenu->getRegularItems());
     }
 
     $this->state->statusPanel->updateContent();

@@ -22,6 +22,12 @@ use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\Scenes\Title\TitleScene;
 use Ichiloto\Engine\UI\Accessibility;
+use Ichiloto\Engine\UI\Presentation\ConfigMenuPresentation;
+use Ichiloto\Engine\UI\Presentation\MenuCanvas;
+use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
+use Ichiloto\Engine\Util\Debug;
+use RuntimeException;
+use Throwable;
 
 /**
  * Represents the battle pause state.
@@ -37,6 +43,10 @@ class BattlePauseState extends BattleSceneState
   private bool $configReturned = false;
   private bool $ownsOverlay = false;
   private bool $ownsConfigLayer = false;
+  private ?MenuPresentationCatalog $configTheme = null;
+  private bool $configThemeLoaded = false;
+  private ?string $configPresentationError = null;
+  private float $configPresentationStart = 0;
 
   public function retainFrame(?PresentationCanvas $frame): void { $this->battlefield = $frame; }
 
@@ -105,6 +115,9 @@ class BattlePauseState extends BattleSceneState
     $this->menu?->close();
     $this->menu = null;
     $this->configMenu = null;
+    $this->configTheme = null;
+    $this->configThemeLoaded = false;
+    $this->configPresentationError = null;
     $this->configReturned = false;
     $this->battlefield = null;
     try {
@@ -165,6 +178,10 @@ class BattlePauseState extends BattleSceneState
   {
     $field = $this->battlefield;
     if ($field === null || $this->menu === null) { return null; }
+    if ($this->configMenu !== null) {
+      $config = $this->configCanvas($field);
+      if ($config !== null) { return $config; }
+    }
     if ($this->configMenu === null && $this->scene->pauseSkin !== null) {
       return GraphicalBattlePause::frame($field, $this->scene->pauseSkin, $this->menu);
     }
@@ -183,6 +200,10 @@ class BattlePauseState extends BattleSceneState
   private function openConfig(): void
   {
     $this->releaseOverlay();
+    $this->configTheme = null;
+    $this->configThemeLoaded = false;
+    $this->configPresentationError = null;
+    $this->configPresentationStart = hrtime(true) / 1e9;
     $manager = new MainMenuSettingsManager();
     $width = min(110, get_screen_width());
     $height = min(32, get_screen_height());
@@ -193,10 +214,40 @@ class BattlePauseState extends BattleSceneState
     $this->drawConfig(fn() => $this->configMenu?->enter());
   }
 
+  /** Optional menu artwork is independent of the battle skin; retain the existing Console fallback. */
+  private function configCanvas(PresentationCanvas $field): ?PresentationCanvas
+  {
+    $runtime = $this->scene->getGame()->getRendererRuntime();
+    if ($runtime === null || $this->configMenu === null) { return null; }
+    try {
+      if (!$this->configThemeLoaded) {
+        $this->configThemeLoaded = true;
+        $theme = MenuPresentationCatalog::load($runtime->getAssetRoot());
+        if ($theme !== null) {
+          foreach (MenuPresentationCatalog::CAPABILITIES as $capability) {
+            if (!$runtime->supports($capability)) { throw new RuntimeException("Config renderer lacks {$capability}."); }
+          }
+        }
+        $this->configTheme = $theme;
+      }
+      if ($this->configTheme === null) { return null; }
+      $config = ConfigMenuPresentation::compose($this->configMenu, $this->configTheme,
+        max(0, hrtime(true) / 1e9 - $this->configPresentationStart), $field->width, $field->height);
+      return MenuCanvas::overlay($field, $config, $this->configTheme);
+    } catch (Throwable $error) {
+      if ($this->configPresentationError !== $error->getMessage()) {
+        Debug::error('Config presentation degraded to terminal: ' . $error->getMessage());
+        $this->configPresentationError = $error->getMessage();
+      }
+      return null;
+    }
+  }
+
   private function returnFromConfig(): void
   {
     $this->configReturned = false;
     $this->configMenu = null;
+    $this->configTheme = null;
     InputManager::resetState(true);
     if (!$this->ownsInput()) { return; }
     $this->releaseConfigLayer();

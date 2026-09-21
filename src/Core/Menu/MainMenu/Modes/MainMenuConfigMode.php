@@ -13,6 +13,8 @@ class MainMenuConfigMode extends MainMenuMode
 {
   private ?ConfigMenu $config = null;
 
+  public function getConfigMenu(): ?ConfigMenu { return $this->config; }
+
   /**
    * @inheritDoc
    */

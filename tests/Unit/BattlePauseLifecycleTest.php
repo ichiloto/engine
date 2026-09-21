@@ -34,6 +34,15 @@ use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
+use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
+use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
+use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
+use Ichiloto\Engine\Rendering\Transport\RendererEvent;
+use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
+use Ichiloto\Engine\Util\Debug;
+use Tests\Support\Input\FakeRendererTransport;
+
+require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
 
 final class PauseInputFixture implements InputSourceInterface
 {
@@ -425,3 +434,74 @@ it('makes only owned Config and unskinned Pause cells opaque over the retained b
   $this->scene->stop();
   expect($this->scene->getPresentationCanvas())->toBeNull()->and($field->toArray())->toBe($before);
 });
+
+it('uses shared menu-only Config over the frozen battle with honest optional fallback and original back focus', function (string $themeState) {
+  $root = sys_get_temp_dir() . '/ichiloto-pause-config-' . bin2hex(random_bytes(5));
+  mkdir($root . '/Data/Presentation', 0777, true);
+  $debug = new ReflectionClass(Debug::class)->getStaticProperties();
+  Debug::configure(['log_directory' => $root . '/logs']);
+  $caps = $themeState === 'unsupported' ? ['graphical_canvas'] : MenuPresentationCatalog::CAPABILITIES;
+  $transport = new FakeRendererTransport();
+  $transport->batches = [[RendererEvent::fromJson(json_encode(['type' => 'ready', 'protocol' => 2, 'capabilities' => $caps]))]];
+  $runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['not-launched']), $root,
+    requiredCapabilities: $caps), $transport);
+  try {
+    if ($themeState !== 'absent') {
+      $data = ['schema' => 'ichiloto.menu/1', 'showInputHints' => false];
+      if ($themeState === 'invalid') { $data['frames']['slider.track'] = ['asset' => 'missing.png']; }
+      file_put_contents($root . '/' . MenuPresentationCatalog::FILE, '<?php return ' . var_export($data, true) . ';');
+    }
+    $runtime->start('Config fixture', 135, 36);
+    $this->game->useRendererRuntime($runtime);
+    InputManager::setInputSource($this->source);
+    $field = $this->scene->graphicalFrame = new PresentationCanvas(1350, 720, textLayers: [
+      new CanvasTextLayer('retained-field', 50, 0, 0, new RendererGridConfig(10, 1, 10, 20),
+        [new PresentationTextRun(0, 0, 'Battle', PresentationColor::rgb(250, 250, 250))]),
+    ]);
+    $this->scene->graphical = true;
+    $engine = $this->game->engine->snapshot();
+    pauseKey($this->scene, $this->source, KeyCode::P);
+    pauseKey($this->scene, $this->source, null, 0.2);
+    pauseKey($this->scene, $this->source, KeyCode::DOWN);
+    pauseKey($this->scene, $this->source, KeyCode::ENTER);
+    pauseKey($this->scene, $this->source, null, 0.2);
+    $config = $this->scene->pauseState->configMenu;
+    expect($config)->not->toBeNull()->and($this->scene->pauseSkin)->toBeNull();
+    $frame = $this->scene->getPresentationCanvas();
+    $this->scene->getPresentationCanvas();
+    $layers = array_column($frame->textLayers, null, 'id');
+    expect($layers['retained-field'])->toBe($field->textLayers[0]);
+    if ($themeState === 'valid') {
+      expect($layers)->toHaveKey('config-title')->not->toHaveKey('pause-config')->not->toHaveKey('menu-background');
+      $backing = $layers['config-backing']->clipRect;
+      expect($backing->x)->toBeGreaterThan(0)->and($backing->y)->toBeGreaterThan(0)
+        ->and($layers['config-backing']->layer)->toBeGreaterThan($layers['retained-field']->layer);
+      $runtime->present($this->scene);
+      $wire = $transport->sent[array_key_last($transport->sent)]->payload;
+      expect(array_column($wire['canvas']['textLayers'], 'id'))->toContain('config-title', 'retained-field')
+        ->and(is_file($root . '/logs/error.log'))->toBeFalse();
+    } else {
+      expect($layers)->toHaveKey('pause-config')->not->toHaveKey('config-title');
+      $text = implode('', array_column($layers['pause-config']->runs, 'text'));
+      expect($text)->toContain('Volume', '75%', 'Description', 'Sets the master volume');
+      if ($themeState !== 'absent') {
+        $log = file_get_contents($root . '/logs/error.log');
+        expect(substr_count($log, 'Config presentation degraded to terminal'))->toBe(1);
+      } else { expect(is_file($root . '/logs/error.log'))->toBeFalse(); }
+    }
+    pauseKey($this->scene, $this->source, KeyCode::DOWN);
+    $this->scene->onScreenResize(135, 36);
+    expect($config->selection->getActiveIndex())->toBe(1)
+      ->and($this->game->engine->snapshot())->toBe($engine)->and($this->game->engine->runs)->toBe(0);
+    pauseKey($this->scene, $this->source, KeyCode::C);
+    expect($this->scene->pauseState->configMenu)->toBeNull()->and($this->scene->pauseState->menu->selection)->toBe(1)
+      ->and(Input::isButtonDown('cancel'))->toBeFalse()->and($this->scene->baseFrames)->toBe(1);
+    expect(array_column($this->scene->getPresentationCanvas()->textLayers, 'id'))->not->toContain('config-title', 'pause-config');
+  } finally {
+    $runtime->shutdown();
+    foreach ($debug as $name => $value) { new ReflectionProperty(Debug::class, $name)->setValue(null, $value); }
+    $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
+    foreach ($files as $file) { $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname()); }
+    rmdir($root);
+  }
+})->with(['valid', 'absent', 'unsupported', 'invalid']);

@@ -56,7 +56,7 @@ final class MenuCanvas
     $view->text = $base->textLayers;
     foreach ($overlay->textLayers as $text) {
       // The local builder's whole-screen background is not part of an overlay.
-      if ($text->id === 'menu-background') { continue; }
+      if ($text->id === 'menu-background' || str_starts_with($text->id, 'menu-background-part-')) { continue; }
       $view->text[] = new CanvasTextLayer($text->id, $offset + $text->layer, $text->x, $text->y,
         $text->grid, $text->runs, $text->clipRect, $text->opacity, $text->glyphEffects);
     }
@@ -152,7 +152,8 @@ final class MenuCanvas
    * @param non-empty-list<int> $heights
    * @return array{int, int} Inclusive first/last indexes.
    */
-  public function visibleRange(string $id, array $heights, CanvasRectangle $viewport, ?int $activeIndex): array
+  public function visibleRange(string $id, array $heights, CanvasRectangle $viewport, ?int $activeIndex,
+    ?CanvasRectangle $rangeBounds = null): array
   {
     $first = 0;
     $last = count($heights) - 1;
@@ -166,8 +167,9 @@ final class MenuCanvas
       while ($first > 0 && $height + $heights[$first - 1] <= $available) { $height += $heights[--$first]; }
       while ($last < count($heights) - 1 && $height + $heights[$last + 1] <= $available) { $height += $heights[++$last]; }
       $this->prose($id . '-range', sprintf('%d-%d / %d', $first + 1, $last + 1, count($heights)),
-        new CanvasRectangle($viewport->x, $viewport->y + $available,
-          $viewport->width, $this->theme->metrics->cellHeight), 'disabled');
+        $rangeBounds ?? new CanvasRectangle($viewport->x, $viewport->y + $available,
+          $viewport->width, $this->theme->metrics->cellHeight), 'disabled',
+        $rangeBounds === null ? HorizontalAlignment::LEFT : HorizontalAlignment::RIGHT);
     }
     return [$first, $last];
   }
@@ -203,17 +205,43 @@ final class MenuCanvas
 
   private function fill(string $id, CanvasRectangle $bounds, string $color, int $layer): void
   {
-    $this->fills[$id] = [$bounds, $color, $layer];
+    $bounds->assertWithin($this->width, $this->height);
     $columns = (int)ceil($bounds->width / 256);
     $rows = (int)ceil($bounds->height / 256);
     $cw = (int)ceil($bounds->width / $columns);
     $ch = (int)ceil($bounds->height / $rows);
-    $runs = [];
-    for ($row = 0; $row < $rows; $row++) {
-      $runs[] = new PresentationTextRun($row, 0, str_repeat(' ', $columns), background: $this->theme->colors[$color]);
+    $xs = $this->fillAxis($bounds->width, $this->width, $columns, $cw);
+    $ys = $this->fillAxis($bounds->height, $this->height, $rows, $ch);
+    $x = min($bounds->x, $this->width - (count($xs) === 1 ? $columns * $cw : ceil($bounds->width)));
+    $y = min($bounds->y, $this->height - (count($ys) === 1 ? $rows * $ch : ceil($bounds->height)));
+    // Split fragments cannot be merge candidates: joining them would recreate the overflow.
+    if (count($xs) === 1 && count($ys) === 1) { $this->fills[$id] = [$bounds, $color, $layer]; }
+    foreach ($ys as $yi => [$dy, $nr, $ch]) {
+      foreach ($xs as $xi => [$dx, $nc, $cw]) {
+        $left = max($bounds->x, $x + $dx);
+        $top = max($bounds->y, $y + $dy);
+        $right = min($bounds->x + $bounds->width, $x + $dx + $nc * $cw);
+        $bottom = min($bounds->y + $bounds->height, $y + $dy + $nr * $ch);
+        if ($right <= $left || $bottom <= $top) { continue; }
+        $runs = [];
+        for ($row = 0; $row < $nr; $row++) {
+          $runs[] = new PresentationTextRun($row, 0, str_repeat(' ', $nc), background: $this->theme->colors[$color]);
+        }
+        $this->text[] = new CanvasTextLayer($id . ($xi + $yi === 0 ? '' : "-part-{$yi}-{$xi}"), $layer,
+          $x + $dx, $y + $dy, new RendererGridConfig($nc, $nr, $cw, $ch), $runs,
+          new CanvasRectangle($left, $top, $right - $left, $bottom - $top));
+      }
     }
-    $this->text[] = new CanvasTextLayer($id, $layer, min($bounds->x, $this->width - $columns * $cw),
-      min($bounds->y, $this->height - $rows * $ch), new RendererGridConfig($columns, $rows, $cw, $ch), $runs, $bounds);
+  }
+
+  /** Preserve valid grids; only rounded overflow needs one exact remainder strip per axis.
+   * @return list<array{int, int, int}> Offset, cells, cell size.
+   */
+  private function fillAxis(float $extent, int $limit, int $cells, int $size): array
+  {
+    if ($cells * $size <= $limit) { return [[0, $cells, $size]]; }
+    $main = ($cells - 1) * $size;
+    return [[0, $cells - 1, $size], [$main, 1, (int)ceil($extent) - $main]];
   }
 
   /** Join only identical opaque rectangular backings, never text, selection or artwork.

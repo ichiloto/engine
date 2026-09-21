@@ -518,7 +518,7 @@ it('contains replacement portraits using current PNG facts and preserves valid u
   }
 });
 
-it('retains optional terminal config and overlays alerts without changing the active menu or consuming input', function () {
+it('uses shared Config when themed and overlays alerts without changing the active menu or consuming input', function () {
   expect($this->scene->getPresentationCanvas())->toBeNull();
   $this->runtime = mainMenuPresentationRuntime($this->root, MenuPresentationCatalog::CAPABILITIES);
   $this->game->useRendererRuntime($this->runtime);
@@ -527,11 +527,21 @@ it('retains optional terminal config and overlays alerts without changing the ac
   $this->state->enter();
   $this->state->mainMenu->setActiveItemByLabel('Config');
   mainMenuPresentationKey(KeyCode::ENTER, $this->state);
+  $configFrame = $this->scene->getPresentationCanvas();
+  $configRuns = array_merge(...array_map(fn($layer) => array_column($layer->runs, 'text'), $configFrame->textLayers));
   expect($this->state->getPresentationMode())->toBeInstanceOf(MainMenuConfigMode::class)
-    ->and($this->scene->getPresentationCanvas())->toBeNull();
+    ->and($configRuns)->toContain('Config', 'Volume', '75%', 'Sets the master volume for music and sound effects.', 'Cancel');
+  $config = $this->state->getPresentationMode()->getConfigMenu();
+  InputManager::setBindings([...InputManager::getBindings(), 'down' => ['keys' => [KeyCode::DOWN]]]);
+  mainMenuPresentationKey(KeyCode::DOWN, $this->state);
+  expect($config->selection->getActiveIndex())->toBe(1);
+  $this->state->render();
+  expect($this->state->getPresentationMode()->getConfigMenu())->toBe($config)
+    ->and($config->selection->getActiveIndex())->toBe(1);
   mainMenuPresentationKey(KeyCode::C, $this->state);
   expect($this->state->mainMenu->getActiveItem()->getLabel())->toBe('Config')
-    ->and($this->scene->getPresentationCanvas())->toBeInstanceOf(PresentationCanvas::class);
+    ->and($this->scene->getPresentationCanvas())->toBeInstanceOf(PresentationCanvas::class)
+    ->and(mainMenuPresentationText($this->scene->getPresentationCanvas()))->not->toHaveKey('config-title');
   $this->state->setMode(new MainMenuPartyOrderMode($this->state));
   mainMenuPresentationKey(KeyCode::ENTER, $this->state);
   $this->state->characterSelectionMenu->selectNext();

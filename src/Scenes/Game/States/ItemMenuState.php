@@ -24,6 +24,11 @@ use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\CommandPanel;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Symfony\Component\Console\Output\ConsoleOutput;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\UI\Presentation\ItemMenuPresentation;
+use Ichiloto\Engine\UI\Presentation\MenuCanvasState;
+use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 
 /**
  * The ItemMenu state allows the player to manage items in their inventory.
@@ -36,8 +41,14 @@ use Symfony\Component\Console\Output\ConsoleOutput;
  *
  * @package Ichiloto\Engine\Scenes\Game\States
  */
-class ItemMenuState extends GameSceneState implements CanRender
+class ItemMenuState extends GameSceneState implements CanRender, CanvasProviderInterface
 {
+  use MenuCanvasState;
+
+  protected function composeMenuCanvas(MenuPresentationCatalog $theme, float $time): ?PresentationCanvas
+  {
+    return ItemMenuPresentation::compose($this, $theme, $time);
+  }
   /**
    * The width of the item menu.
    */
@@ -128,6 +139,7 @@ class ItemMenuState extends GameSceneState implements CanRender
    */
   public function enter(): void
   {
+    $this->resetMenuPresentation();
     Console::clear();
     $this->getGameScene()->locationHUDWindow->deactivate();
     $this->calculateMargins();

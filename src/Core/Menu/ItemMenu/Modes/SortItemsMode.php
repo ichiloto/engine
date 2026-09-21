@@ -23,7 +23,7 @@ class SortItemsMode extends ItemMenuMode
     }
 
     $this->state->getGameScene()->party->inventory->sort();
-    $this->state->selectionPanel->setItems($this->state->getGameScene()->party->inventory->items->toArray());
+    $this->state->selectionPanel->setItems($this->state->itemMenu->getRegularItems());
   }
 
   /**

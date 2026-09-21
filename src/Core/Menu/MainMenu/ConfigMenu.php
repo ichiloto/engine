@@ -17,6 +17,7 @@ use Throwable;
 final class ConfigMenu
 {
   private ?string $statusMessage = null;
+  private bool $statusError = false;
 
   public function __construct(
     private MainMenuSettingsManager $settingsManager,
@@ -25,9 +26,14 @@ final class ConfigMenu
     private Closure $onBack,
   ) {}
 
+  public function getStatusMessage(): ?string { return $this->statusMessage; }
+  public function hasStatusError(): bool { return $this->statusError; }
+  public function getChoiceIndex(GameSetting $setting): int { return $this->settingsManager->getCurrentChoiceIndex($setting); }
+
   public function enter(): void
   {
     $this->statusMessage = null;
+    $this->statusError = false;
     $this->selection->setSettings($this->settingsManager->getSettings());
     $this->selection->focus();
     $this->render();
@@ -55,6 +61,7 @@ final class ConfigMenu
     if ($vertical !== 0.0) {
       play_sound(SystemSound::CURSOR);
       $this->statusMessage = null;
+      $this->statusError = false;
       if ($vertical > 0) { $this->selection->selectNext(); }
       else { $this->selection->selectPrevious(); }
       $this->render();
@@ -68,8 +75,10 @@ final class ConfigMenu
       try {
         $label = $this->settingsManager->cycle($setting, $horizontal < 0 ? -1 : 1);
         $this->statusMessage = sprintf('%s set to %s.', $setting->label, $label);
+        $this->statusError = false;
       } catch (Throwable $exception) {
         $this->statusMessage = sprintf('Could not save settings: %s', $exception->getMessage());
+        $this->statusError = true;
       }
       $this->selection->updateContent();
       $this->render();

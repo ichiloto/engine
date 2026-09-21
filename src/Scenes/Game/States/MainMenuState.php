@@ -24,6 +24,7 @@ use Ichiloto\Engine\Core\Menu\MainMenu\CharacterSelectionMenu;
 use Ichiloto\Engine\Core\Menu\MainMenu\MainMenu;
 use Ichiloto\Engine\Core\Menu\MainMenu\MainMenuSettingsManager;
 use Ichiloto\Engine\Core\Menu\MainMenu\Modes\MainMenuCommandSelectionMode;
+use Ichiloto\Engine\Core\Menu\MainMenu\Modes\MainMenuConfigMode;
 use Ichiloto\Engine\Core\Menu\MainMenu\Windows\AccountBalancePanel;
 use Ichiloto\Engine\Core\Menu\MainMenu\Windows\ConfigDetailPanel;
 use Ichiloto\Engine\Core\Menu\MainMenu\Windows\ConfigSelectionWindow;
@@ -41,6 +42,7 @@ use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\UI\Presentation\MainMenuPresentation;
+use Ichiloto\Engine\UI\Presentation\ConfigMenuPresentation;
 use Ichiloto\Engine\UI\Presentation\MenuCanvasState;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Symfony\Component\Console\Output\ConsoleOutput;
@@ -62,7 +64,8 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
 
     public function getPresentationCanvas(): ?PresentationCanvas
     {
-        return $this->mode === null || !$this->supplementalPanelsVisible ? null : $this->getActiveMenuCanvas();
+        return $this->mode === null || (!$this->supplementalPanelsVisible && !$this->mode instanceof MainMenuConfigMode)
+            ? null : $this->getActiveMenuCanvas();
     }
 
     public function getPresentationMode(): ?MainMenuModeInterface
@@ -86,6 +89,10 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
 
     protected function composeMenuCanvas(MenuPresentationCatalog $theme, float $time): ?PresentationCanvas
     {
+        if ($this->mode instanceof MainMenuConfigMode) {
+            $config = $this->mode->getConfigMenu();
+            return $config === null ? null : ConfigMenuPresentation::compose($config, $theme, $time);
+        }
         return $this->supplementalPanelsVisible ? MainMenuPresentation::compose($this, $theme, $time) : null;
     }
 

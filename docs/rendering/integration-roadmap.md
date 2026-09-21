@@ -341,12 +341,44 @@ exact approval and current specifications are in the existing Art
 `output/ui-art-v1-20260915/HANDOFF-NOTES.md`. No repeat visual approval is pending.
 Engine owns shared adapters and native acceptance; Game owns theme admission and
 source-bound validation. This does not grant publication or waive admission gates.
-Items and Config designs already exist. Next runtime work is Items with the
-paging correction above, then one Config presentation reused by Main Menu and
-Battle Pause. Pause currently hosts the original Config interface, not the
-delivered graphical Config design. Abilities, Magic, Quests, Records and Controls
-specimens are delivered in the existing adapter preview; native adapters follow the same
-shared components and live source data. Controls must use semantic device glyphs
+Items now has a shared graphical adapter over its existing command, inventory,
+target and quantity modes. Terminal paging slices actual inner capacity and
+follows a clamped selection; horizontal navigation changes pages in Use, Discard
+and Key Items, while quantity selection retains its separate fine/coarse axes.
+The graphical list follows that same selected item without hiding later records.
+The regular-item view consistently excludes equipment and quest-critical key
+items, including after sorting, discarding and stack depletion. Empty Key Items
+remains a reachable read-only view. Descriptions retain the complete source text;
+oversized native content is diagnosed rather than silently omitted. Focused
+Items/quantity/consumption checks pass on PHP 8.4 and 8.5. Silent macOS native
+frame replay checked commands, late inventory, quantity and the item-use alert;
+the alert restores the item description instead of retaining the inactive
+quantity prompt. No new Game artwork or separate build is required.
+
+Config now uses the existing shared `ConfigMenu` owner with one graphical
+composition for Main Menu and Battle Pause. Engine checks cover lifecycle,
+capability fallback, bounded canvas geometry and complete setting values;
+Game checks cover all 11 settings, isolated persistence, Main return focus and
+Pause -> Config -> Pause without resetting the suspended battle. Silent macOS
+native replay checked first/last settings and the retained battlefield. This is
+not a full native gameplay playtest. Config currently uses theme-neutral slider,
+scrollbar and arrow fallbacks: admission of eight optional approved-art images
+is awaiting Andrew's separately presented technical import decision. The already
+admitted Divider is bound through the shared theme. No protocol changes, new
+builds or normal-game configuration/save changes were part of this slice.
+
+The combined Engine regression selection passes 274 tests on each of PHP 8.4
+and 8.5. Game's focused Main/Items/Config selection passes 30 tests on each,
+and its six presentation/rescue suites pass 465 on each. The broad Last Legend
+suite was not completed because of the unrelated 180,000-battle simulation
+baseline. Linux/WSLg remains untested. Oversized descriptions/status still
+diagnose a terminal fallback; general detail scrolling and Editor presentation
+authoring remain explicit follow-on work, not completed runtime features.
+
+Abilities and Magic implementation has started next, followed by Quests, Records
+and Controls, reusing the same components and live source data. These five
+adapters are not yet accepted as implemented; their approval is not a blocker
+and does not need another design round. Controls must use semantic device glyphs
 without losing access to all bindings. Current keyboard hints and replaceable
 hint providers do not constitute physical gamepad detection or support.
 Main Menu Quit currently routes its chooser directly to title/exit; confirmation

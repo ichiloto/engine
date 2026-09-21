@@ -3,14 +3,12 @@
 namespace Ichiloto\Engine\Core\Menu\ItemMenu\Windows;
 
 use Ichiloto\Engine\Core\Interfaces\CanFocus;
-use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Scenes\Game\States\ItemMenuState;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
-use Ichiloto\Engine\Util\Debug;
 
 /**
  * The window that displays the commands that can be executed on an item.
@@ -23,11 +21,8 @@ class ItemSelectionPanel extends Window implements CanFocus
    * The minimum number of pages.
    */
   public const int MIN_PAGE_COUNT = 1;
-  /**
-   * The maximum number of pages.
-   */
+  /** Legacy display bound, retained for compatibility; pages are no longer truncated. */
   public const int MAX_PAGE_COUNT = 99;
-
   /**
    * @var int The index of the active item.
    */
@@ -37,7 +32,7 @@ class ItemSelectionPanel extends Window implements CanFocus
     }
 
     set {
-      $this->activeIndex = $value;
+      $this->activeIndex = max(-1, min($value, $this->totalItems - 1));
       $this->updateContent();
     }
   }
@@ -54,7 +49,7 @@ class ItemSelectionPanel extends Window implements CanFocus
   /**
    * @var InventoryItem[] The items to display.
    */
-  protected array $items = [];
+  protected(set) array $items = [];
   /**
    * @var int The total number of items.
    */
@@ -64,7 +59,7 @@ class ItemSelectionPanel extends Window implements CanFocus
    */
   public int $page {
     get {
-      return clamp(($this->activeIndex / $this->height) + 1, 1, $this->totalPages);
+      return intdiv(max(0, $this->activeIndex), $this->pageSize) + 1;
     }
   }
   /**
@@ -72,9 +67,11 @@ class ItemSelectionPanel extends Window implements CanFocus
    */
   public int $totalPages {
     get {
-      return clamp(ceil($this->totalItems / $this->height), self::MIN_PAGE_COUNT, self::MAX_PAGE_COUNT);
+      return max(self::MIN_PAGE_COUNT, (int)ceil($this->totalItems / $this->pageSize));
     }
   }
+
+  public int $pageSize { get => max(1, $this->height - 2); }
 
   /**
    * ItemMenuCommandsPanel constructor.
@@ -91,7 +88,7 @@ class ItemSelectionPanel extends Window implements CanFocus
   {
     parent::__construct(
       "Page 1/1",
-      '<,>: Change page',
+      'Left/Right: Change page',
       $area->position,
       $area->size->width,
       $area->size->height,
@@ -106,7 +103,7 @@ class ItemSelectionPanel extends Window implements CanFocus
    */
   public function focus(): void
   {
-    $this->activeIndex = 0;
+    $this->activeIndex = max(0, $this->activeIndex);
     $this->updateInfoPanel();
   }
 
@@ -125,6 +122,7 @@ class ItemSelectionPanel extends Window implements CanFocus
    */
   public function selectPrevious(): void
   {
+    if ($this->totalItems === 0) { return; }
     $nextIndex = wrap($this->activeIndex - 1, 0, $this->totalItems - 1);
     $this->activeIndex = $nextIndex;
     $this->updateInfoPanel();
@@ -137,8 +135,18 @@ class ItemSelectionPanel extends Window implements CanFocus
    */
   public function selectNext(): void
   {
+    if ($this->totalItems === 0) { return; }
     $nextIndex = wrap($this->activeIndex + 1, 0, $this->totalItems - 1);
     $this->activeIndex = $nextIndex;
+    $this->updateInfoPanel();
+  }
+
+  public function changePage(int $direction): void
+  {
+    if ($this->totalItems === 0 || $direction === 0) { return; }
+    $page = wrap($this->page - 1 + ($direction <=> 0), 0, $this->totalPages - 1);
+    $offset = max(0, $this->activeIndex) % $this->pageSize;
+    $this->activeIndex = min($this->totalItems - 1, $page * $this->pageSize + $offset);
     $this->updateInfoPanel();
   }
 
@@ -150,10 +158,10 @@ class ItemSelectionPanel extends Window implements CanFocus
    */
   public function setItems(array $items): void
   {
-    $this->items = $items;
+    $this->items = array_values($items);
     $this->totalItems = count($items);
-    $this->title = sprintf("Page %02d/%02d", $this->page, $this->totalPages);
-    $this->updateContent();
+    // Reapply the owner index through its clamp after filtering or stack depletion.
+    $this->activeIndex = $this->activeIndex;
   }
 
   /**
@@ -163,13 +171,16 @@ class ItemSelectionPanel extends Window implements CanFocus
    */
   public function updateContent(): void
   {
-    $content = array_fill(0, $this->height - 2, '');
+    $content = array_fill(0, $this->pageSize, '');
+    $first = ($this->page - 1) * $this->pageSize;
+    $this->title = sprintf("Page %02d/%02d", $this->page, $this->totalPages);
 
-    foreach ($this->items as $index => $item) {
+    foreach (array_slice($this->items, $first, $this->pageSize) as $row => $item) {
+      $index = $first + $row;
       $prefix = $index === $this->activeIndex ? '>' : ' ';
       $itemName = TerminalText::padRight($item->name, 60);
       $quantity = TerminalText::padLeft((string)$item->quantity, 2);
-      $content[$index] = " {$prefix} {$itemName} {$quantity}";
+      $content[$row] = " {$prefix} {$itemName} {$quantity}";
     }
 
     $this->setContent($content);
@@ -182,7 +193,7 @@ class ItemSelectionPanel extends Window implements CanFocus
   protected function updateInfoPanel(): void
   {
     if ($this->activeItem) {
-      $this->state->infoPanel->setText($this->activeItem->description);
+      $this->state->infoPanel?->setText($this->activeItem->description);
     }
   }
 }
