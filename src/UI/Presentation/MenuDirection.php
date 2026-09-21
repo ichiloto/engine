@@ -14,8 +14,14 @@ enum MenuDirection: string
   case UP = 'up';
   case DOWN = 'down';
 
-  public function getGlyph(): string
+  public function getGlyph(bool $chevron = false): string
   {
+    if ($chevron) {
+      return match ($this) {
+        self::LEFT => "\u{2039}", self::RIGHT => "\u{203A}",
+        self::UP => "\u{2227}", self::DOWN => "\u{2228}",
+      };
+    }
     return match ($this) {
       self::LEFT => "\u{2190}", self::RIGHT => "\u{2192}",
       self::UP => "\u{2191}", self::DOWN => "\u{2193}",

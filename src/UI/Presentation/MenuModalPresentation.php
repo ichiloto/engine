@@ -90,9 +90,9 @@ final class MenuModalPresentation
         new CanvasRectangle($left, $y + $m->cellHeight / 2, $valueWidth, $m->cellHeight), alignment: HorizontalAlignment::CENTER);
       $arrowX = $left + $valueWidth + $gap;
       $controls->renderArrow('menu-modal-quantity-up', MenuDirection::UP->value,
-        new CanvasRectangle($arrowX, $y, $m->cellHeight, $m->cellHeight), $quantity->value < $quantity->maximum);
+        new CanvasRectangle($arrowX, $y, $m->cellHeight, $m->cellHeight), $quantity->value < $quantity->maximum, chevron: true);
       $controls->renderArrow('menu-modal-quantity-down', MenuDirection::DOWN->value,
-        new CanvasRectangle($arrowX, $y + $m->cellHeight, $m->cellHeight, $m->cellHeight), $quantity->value > $quantity->minimum);
+        new CanvasRectangle($arrowX, $y + $m->cellHeight, $m->cellHeight, $m->cellHeight), $quantity->value > $quantity->minimum, chevron: true);
       $y += $quantityHeight;
     }
     if ($modal->vertical) {

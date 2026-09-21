@@ -20,7 +20,7 @@ final class MenuControls
 
   public function __construct(private MenuPresentationCatalog $theme) {}
 
-  public function renderArrow(string $id, string $direction, CanvasRectangle $box, bool $enabled): void
+  public function renderArrow(string $id, string $direction, CanvasRectangle $box, bool $enabled, bool $chevron = false): void
   {
     $symbol = MenuDirection::from($direction);
     $images = $symbol->getImages($this->theme->icons, $id, $box, 40);
@@ -32,7 +32,7 @@ final class MenuControls
       }
       return;
     }
-    $glyph = $symbol->getGlyph();
+    $glyph = $symbol->getGlyph($chevron);
     $m = $this->theme->metrics;
     $this->text[] = new CanvasTextLayer($id, 40, $box->x + ($box->width - $m->cellWidth) / 2,
       $box->y + ($box->height - $m->cellHeight) / 2, new RendererGridConfig(1, 1, $m->cellWidth, $m->cellHeight),

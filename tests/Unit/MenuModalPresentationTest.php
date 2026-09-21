@@ -506,7 +506,7 @@ it('batches only fully visible nonoverlapping text without changing paint positi
   expect(MenuCanvasTextBatch::compact($overlapping))->toBe($overlapping);
 });
 
-it('stacks quantity arrows to the right while independently centering the value and Continue', function (bool $art, int $amount) {
+it('stacks quantity chevrons to the right while independently centering the value and Continue', function (bool $art, int $amount) {
   $data = [...modalMenuTheme(false), 'showInputHints' => false];
   if ($art) {
     $data['icons'] = array_fill_keys(['navigation.previous', 'navigation.next', 'navigation.up', 'navigation.down'], 'art.png');
@@ -534,7 +534,7 @@ it('stacks quantity arrows to the right while independently centering the value 
     $enabled = $direction === \Ichiloto\Engine\UI\Presentation\MenuDirection::UP ? $amount < 99 : $amount > 1;
     expect($piece->opacity)->toBe($enabled ? 1.0 : 0.35);
     $arrows[$direction->value] = $art ? $piece->destination : $piece->clipRect;
-    if (!$art) { expect($piece->runs[0]->text)->toBe($direction->getGlyph()); }
+    if (!$art) { expect($piece->runs[0]->text)->toBe($direction->getGlyph(chevron: true)); }
   }
   expect($arrows['up']->x + $arrows['up']->width / 2)->toBe($arrows['down']->x + $arrows['down']->width / 2)
     ->and($arrows['up']->x)->toBeGreaterThan($quantity->clipRect->x + $quantity->clipRect->width)
