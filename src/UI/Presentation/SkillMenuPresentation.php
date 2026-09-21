@@ -19,8 +19,7 @@ final class SkillMenuPresentation
     $m = $theme->metrics;
     $p = $m->panelPadding;
     $gap = $m->sectionGap;
-    $host = new CanvasRectangle(($width - min(1100, $width - 20)) / 2, ($height - min(700, $height - 20)) / 2,
-      min(1100, $width - 20), min(700, $height - 20));
+    $host = MenuLayout::getBounds($width, $height);
     $innerWidth = $host->width - 2 * $p;
     $actor = $content->character;
     $portrait = isset($theme->portraits[$actor->actorId]) ? $m->portraitSize : 0;
@@ -45,10 +44,7 @@ final class SkillMenuPresentation
       $hints[] = ActionHints::resolve('character_previous', 'Prev', KeyCode::SHIFT_TAB);
     }
     $hintHeight = MenuActionHints::height($hints, $theme, $innerWidth);
-    $descriptionHeight = self::textHeight($content->description, $innerWidth, $theme);
-    $statusHeight = self::textHeight($content->status ?? '', $innerWidth, $theme);
-    $infoHeight = max(80, 2 * $p + $descriptionHeight + $statusHeight + $hintHeight
-      + ($statusHeight > 0 ? $gap : 0) + ($hintHeight > 0 ? $gap : 0));
+    $infoHeight = MenuInfoPanel::getHeight($theme, $hints, $host->width);
     $bodyHeight = $host->height - $summaryHeight - $tabHeight - $infoHeight;
     if ($bodyHeight < 2 * $p + $m->cellHeight + $gap + $m->rowHeight + $m->cellHeight) {
       throw new RuntimeException('Skill menu summary/description leaves no complete row in its finite viewport; terminal presentation retained.');
@@ -118,15 +114,11 @@ final class SkillMenuPresentation
     $info = new CanvasRectangle($host->x, $host->y + $host->height - $infoHeight, $host->width, $infoHeight);
     self::panel($view, 'skill-info', $info, 'quiet');
     $infoY = $info->y + $p;
-    if ($descriptionHeight > 0) {
-      $view->prose('skill-description', $content->description, new CanvasRectangle($x, $infoY, $innerWidth, $descriptionHeight));
-      $infoY += $descriptionHeight;
-    }
-    if ($statusHeight > 0) {
-      $view->prose('skill-status', $content->status, new CanvasRectangle($x, $infoY + $gap, $innerWidth, $statusHeight), 'accent');
-      $infoY += $gap + $statusHeight;
-    }
-    if ($hintHeight > 0) { $view->hints('skill-hints', $hints, new CanvasRectangle($x, $infoY + $gap, $innerWidth, $hintHeight)); }
+    MenuInfoPanel::renderContent($view, 'skill', new CanvasRectangle($x, $infoY, $innerWidth, 2 * $m->cellHeight),
+      $content->description, $content->status, infoModel: $content->infoModel,
+      rangeBounds: new CanvasRectangle($x, $info->y + $info->height - $p, $innerWidth, $p));
+    if ($hintHeight > 0) { $view->hints('skill-hints', $hints,
+      new CanvasRectangle($x, $infoY + 2 * $m->cellHeight + $gap, $innerWidth, $hintHeight)); }
     return $view->finish();
   }
 

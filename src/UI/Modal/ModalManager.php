@@ -129,6 +129,19 @@ class ModalManager implements CanUpdate, CanRender
     return (bool)$result;
   }
 
+  /** Selects a bounded amount without performing the caller's action. */
+  public function selectQuantity(string $message, int $maximum, string $title = '', int $initial = 1,
+    int $width = DEFAULT_DIALOG_WIDTH): ?int
+  {
+    $modal = new QuantityModal($this->game, $message, $maximum, $title, $initial, $width);
+    $this->modals->push($modal);
+    try {
+      return $modal->open();
+    } finally {
+      $this->modals->pop();
+    }
+  }
+
   /**
    * Displays a dialog box that prompts the user for input with specified message and an OK and Cancel button.
    *

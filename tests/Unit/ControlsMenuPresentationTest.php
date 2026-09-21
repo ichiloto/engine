@@ -88,7 +88,8 @@ beforeEach(function () {
     'down' => ['keys' => [KeyCode::DOWN], 'description' => 'Navigate down.']];
   for ($i = 0; $i < 10; $i++) { $this->bindings['command_' . $i] = ['keys' => [], 'description' => 'Complete command description ' . $i]; }
   InputManager::setBindings($this->bindings);
-  new ReflectionProperty(InputManager::class, 'defaultConfig')->setValue(null, $this->bindings);
+  $this->effectiveBindings = InputManager::getBindings();
+  new ReflectionProperty(InputManager::class, 'defaultConfig')->setValue(null, $this->effectiveBindings);
   $this->config = new ControlsPresentationConfig(['initial' => $this->bindings]);
   ConfigStore::put(InputConfig::class, $this->config);
   $this->owner = new ControlsPresentationOwner(new SceneStateContext(makeBareScene(GameScene::class)));
@@ -160,7 +161,7 @@ it('consumes the opening and cancel edges without changing a binding', function 
   controlsPresentationKey($this->owner, KeyCode::ESCAPE);
   expect($this->owner->getPresentationContent()->listening)->toBeFalse()
     ->and($this->owner->getPresentationContent()->status)->toBe('Rebinding cancelled.')
-    ->and(InputManager::getPressedKeyCode())->toBeNull()->and(InputManager::getBindings())->toBe($this->bindings)
+    ->and(InputManager::getPressedKeyCode())->toBeNull()->and(InputManager::getBindings())->toBe($this->effectiveBindings)
     ->and($this->config->written)->toBeEmpty();
 });
 
@@ -194,20 +195,22 @@ it('reports a session-only rebind honestly when persistence fails', function () 
 it('restores defaults using the retained shortcut and consumes the edge', function (bool $fail) {
   $this->config->fail = $fail;
   InputManager::setBinding('confirm', [KeyCode::K]);
+  InputManager::setBinding('info', [KeyCode::F2]);
   controlsPresentationKey($this->owner, KeyCode::R);
-  expect(InputManager::getBindings())->toBe($this->bindings)->and(InputManager::getPressedKeyCode())->toBeNull()
+  expect(InputManager::getBindings())->toBe($this->effectiveBindings)->and(InputManager::getPressedKeyCode())->toBeNull()
     ->and($this->owner->getPresentationContent()->status)->toBe($fail
       ? 'Controls restored for this session; the file could not be written.' : 'Controls restored to the defaults.');
 })->with([false, true]);
 
-it('does not begin listening with an empty lookup', function () {
+it('discovers fallback Info without inventing a confirmation binding for an empty project lookup', function () {
   InputManager::setBindings([]);
   $this->owner->boot();
   controlsPresentationKey($this->owner, KeyCode::ENTER);
   $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1']);
   $frame = ControlsMenuPresentation::compose($this->owner->getPresentationContent(), $theme);
-  expect(controlsPresentationText($frame))->toContain('No rebindable actions.')
-    ->and($this->owner->getPresentationContent()->listening)->toBeFalse();
+  expect(controlsPresentationText($frame))->toContain('Info', 'Read the next Info page; wrap to the first.', 'Keyboard bindings: i, I')
+    ->and($this->owner->getPresentationContent()->listening)->toBeFalse()
+    ->and(array_column($this->owner->getPresentationContent()->rows, 'action'))->toBe(['info']);
 });
 
 it('scrolls the full owner list in terminal and native without losing the active action', function () {
@@ -220,10 +223,38 @@ it('scrolls the full owner list in terminal and native without losing the active
   expect($this->owner->getPresentationContent()->index)->toBe(53)
     ->and(implode('', $this->owner->terminalRows()))->toContain('Command 49');
   $frame = ControlsMenuPresentation::compose($this->owner->getPresentationContent(), $theme);
-  expect(controlsPresentationText($frame))->toContain('Command 49', '/ 54');
+  expect(controlsPresentationText($frame))->toContain('Command 49', '/ 55');
+  controlsPresentationKey($this->owner, KeyCode::DOWN);
+  expect($this->owner->getPresentationContent()->index)->toBe(54)
+    ->and($this->owner->getPresentationContent()->rows[54]['action'])->toBe('info');
   controlsPresentationKey($this->owner, KeyCode::DOWN);
   expect($this->owner->getPresentationContent()->index)->toBe(0);
 });
+
+it('exposes the missing Info action in both Controls views and rebinds it through the current owner', function (bool $conflict) {
+  if ($conflict) {
+    $bindings = $this->bindings;
+    $bindings['command_0']['keys'] = [KeyCode::i, KeyCode::I];
+    InputManager::setBindings($bindings);
+    $this->owner->boot();
+  }
+  $content = $this->owner->getPresentationContent();
+  $index = array_search('info', array_column($content->rows, 'action'), true);
+  expect($index)->toBeInt();
+  $this->owner->select($index);
+  $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1', 'showInputHints' => false]);
+  $frame = ControlsMenuPresentation::compose($this->owner->getPresentationContent(), $theme);
+  expect(controlsPresentationText($frame))->toContain('Info', 'Read the next Info page; wrap to the first.',
+    'Keyboard bindings: ' . ($conflict ? 'Unbound' : 'i, I'))
+    ->and(implode('', $this->owner->terminalRows()))->toContain('Info', $conflict ? 'Unbound' : 'i, I')
+    ->and($this->config->written)->toBeEmpty()->and($this->config->all())->not->toHaveKey('info');
+  controlsPresentationKey($this->owner, KeyCode::ENTER);
+  controlsPresentationKey($this->owner, KeyCode::F2);
+  expect($this->owner->getPresentationContent()->rows[$index]['keys'])->toBe('F2')
+    ->and(implode('', $this->owner->terminalRows()))->toContain('F2')
+    ->and($this->config->written)->toHaveCount(1)
+    ->and(InputManager::getBindings()['command_0']['keys'])->toBe($conflict ? [KeyCode::i, KeyCode::I] : []);
+})->with([false, true]);
 
 it('keeps the list cursor decorative and respects reduced motion', function () {
   $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1', 'cursor' => 'glyph.png']);

@@ -133,6 +133,7 @@ class ItemMenuState extends GameSceneState implements CanRender, CanvasProviderI
    * @var ItemMenuMode|null The mode.
    */
   protected(set) ?ItemMenuMode $mode = null;
+  private array $infoSelection = [];
 
   /**
    * @inheritDoc
@@ -158,7 +159,31 @@ class ItemMenuState extends GameSceneState implements CanRender, CanvasProviderI
    */
   public function execute(?SceneStateContext $context = null): void
   {
+    $this->syncInfoSelection();
+    if ($this->handleMenuInfoInput($this->infoPanel?->text ?? '', columns: max(1, ($this->infoPanel?->getContentWidth() ?? 3) - 2))) {
+      $this->refreshInfoText();
+      return;
+    }
     $this->mode->update();
+    $this->refreshInfoText();
+  }
+
+  private function syncInfoSelection(): void
+  {
+    $selection = [$this->mode, $this->itemMenu?->activeIndex, $this->selectionPanel?->activeItem,
+      $this->targetSelectionPanel?->activeCharacter];
+    if ($selection !== $this->infoSelection) { $this->menuInfoText->reset(); }
+    $this->infoSelection = $selection;
+  }
+
+  private function refreshInfoText(): void
+  {
+    if ($this->infoPanel === null) { return; }
+    $this->syncInfoSelection();
+    $page = $this->menuInfoText->getPage($this->infoPanel->text, null, max(1, $this->infoPanel->getContentWidth() - 2));
+    $this->infoPanel->setContent(array_pad($page->lines, 2, ''));
+    $this->infoPanel->setHelp($page->total > 2 ? $page->range() : '');
+    $this->infoPanel->render();
   }
 
   /**
@@ -346,6 +371,7 @@ class ItemMenuState extends GameSceneState implements CanRender, CanvasProviderI
     $this->mode?->exit();
     $this->mode = $mode;
     $this->mode->enter();
+    $this->refreshInfoText();
   }
 
   /**

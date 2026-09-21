@@ -103,7 +103,6 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
                 }
             } elseif ($learnable !== null) {
                 $fields['Status'] = $learnable->getStatusLabel($actor, $this->party, $events);
-                $fields['Source'] = $learnable->note !== '' ? $learnable->note : 'Unrecorded';
                 $detail = $learnable->requirement->describeProgress($actor, $this->party, $learnable->trainingHours, $events);
                 if ($detail === '') { $detail = 'No additional requirements.'; }
             }
@@ -120,7 +119,8 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
                 'Current Order' => $book->getSortOrder()->value],
             $skill?->name ?? ($tab === 'Sort' ? 'Spell Order' : $empty), $fields, $detail, $rows,
             $this->getListPanelTitle(), $index, $empty, $this->getPresentationDescription(), $this->statusMessage,
-            $targeting ? 'Cast' : match ($tab) { 'Learn' => 'Learn', 'Sort' => 'Apply', default => 'Cast' }, $targeting);
+            $targeting ? 'Cast' : match ($tab) { 'Learn' => 'Learn', 'Sort' => 'Apply', default => 'Cast' }, $targeting,
+            infoModel: $this->menuInfoText);
     }
 
     protected const int MAGIC_MENU_WIDTH = 110;
@@ -198,6 +198,7 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
      * @var string|null The latest short status message.
      */
     protected ?string $statusMessage = null;
+    private array $infoSelection = [];
     /**
      * @var MagicSkill|null The spell awaiting a one-target party selection.
      */
@@ -319,6 +320,7 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
      */
     protected function refreshUI(): void
     {
+        $this->syncInfoSelection();
         $this->summaryPanel?->setContent($this->buildSummaryLines());
         $this->summaryPanel?->render();
 
@@ -330,7 +332,6 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
         $this->listPanel?->setTitle($this->getListPanelTitle());
         $this->listPanel?->setEntries($this->buildListEntries(), $this->getActiveEntryIndex());
 
-        $this->infoPanel?->setHelp($this->getInfoHelpText());
         $this->infoPanel?->setContent($this->buildInfoLines());
         $this->infoPanel?->render();
     }
@@ -725,18 +726,18 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
      */
     protected function buildInfoLines(): array
     {
-        $availableLines = self::INFO_PANEL_HEIGHT - 2;
-        $availableWidth = self::MAGIC_MENU_WIDTH - 4;
-        $description = $this->getPresentationDescription();
+        $page = $this->menuInfoText->getPage($this->getPresentationDescription(), $this->statusMessage,
+            max(1, ($this->infoPanel?->getContentWidth() ?? self::MAGIC_MENU_WIDTH - 2) - 2));
+        $this->infoPanel?->setHelp($page->total > 2 ? $page->range() : $this->getInfoHelpText());
+        return array_pad($page->lines, 2, '');
+    }
 
-        $lines = explode("\n", wrap_text($description, max(1, $availableWidth)));
-        $lines = array_slice($lines, 0, $availableLines);
-
-        if ($this->statusMessage !== null) {
-            $lines[$availableLines - 1] = TerminalText::truncateToWidth($this->statusMessage, $availableWidth);
-        }
-
-        return array_slice(array_pad($lines, $availableLines, ''), 0, $availableLines);
+    private function syncInfoSelection(): void
+    {
+        $selection = [$this->character, $this->activeTabIndex, $this->getActiveEntryIndex(),
+            $this->pendingUseSpell, $this->activeTargetIndex];
+        if ($selection !== $this->infoSelection) { $this->menuInfoText->reset(); }
+        $this->infoSelection = $selection;
     }
 
     private function getPresentationDescription(): string
@@ -756,6 +757,13 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
      */
     public function execute(?SceneStateContext $context = null): void
     {
+        $this->syncInfoSelection();
+        if ($this->handleMenuInfoInput($this->getPresentationDescription(), $this->statusMessage,
+            max(1, ($this->infoPanel?->getContentWidth() ?? self::MAGIC_MENU_WIDTH - 2) - 2))) {
+            $this->infoPanel?->setContent($this->buildInfoLines());
+            $this->infoPanel?->render();
+            return;
+        }
         if ($this->isSelectingTarget()) {
             $this->handleTargetSelection();
             return;

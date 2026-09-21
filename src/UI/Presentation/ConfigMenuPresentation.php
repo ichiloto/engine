@@ -22,18 +22,14 @@ final class ConfigMenuPresentation
     $m = $theme->metrics;
     $p = $m->panelPadding;
     $gap = $m->sectionGap;
-    $box = new CanvasRectangle(($width - min(900, $width - 64)) / 2, ($height - min(648, $height - 48)) / 2,
-      min(900, $width - 64), min(648, $height - 48));
+    $box = MenuLayout::getBounds($width, $height);
     $x = $box->x + $p;
     $innerWidth = $box->width - 2 * $p;
-    $cells = (int)floor($innerWidth / $m->cellWidth);
     $setting = $menu->selection->getActiveSetting();
     $description = $setting?->description ?? 'No settings available.';
     $status = $menu->getStatusMessage() ?? '';
-    $descriptionHeight = count(MenuCanvas::wrap($description, $cells)) * $m->cellHeight;
-    $statusHeight = $status === '' ? 0 : count(MenuCanvas::wrap($status, $cells)) * $m->cellHeight;
-    $detailHeight = max(4 * $m->cellHeight, $m->cellHeight + $gap + $descriptionHeight + $statusHeight + ($statusHeight > 0 ? $gap : 0));
-    $cancelWidth = min($innerWidth, max(16 * $m->cellWidth, 6 * $m->cellWidth + 2 * $theme->rows->metrics->padding));
+    $detailHeight = 3 * $m->cellHeight + $gap;
+    $cancelWidth = MenuLayout::getButtonWidth($theme, 'Cancel', $innerWidth);
     $hints = [ActionHints::resolve('confirm', 'Next'), ActionHints::resolve('cancel', 'Cancel')];
     $hintWidth = $innerWidth - $cancelWidth - $gap;
     $hintHeight = MenuActionHints::height($hints, $theme, $hintWidth);
@@ -46,12 +42,12 @@ final class ConfigMenuPresentation
     }
     $view = new MenuCanvas($theme, $width, $height, $time);
     $valuesView = new MenuCanvas($theme, $width, $height, $time);
-    $controls = new ConfigMenuControls($theme);
+    $controls = new MenuControls($theme);
     $view->backing('config-backing', $box);
     $view->frame('config-frame', $box);
     $view->prose('config-title', 'Config', new CanvasRectangle($x, $box->y + $p, $innerWidth, $m->rowHeight),
       alignment: HorizontalAlignment::CENTER);
-    $controls->divider('config-divider', new CanvasRectangle($x, $listTop - 2 * $gap, $innerWidth, max(1, $gap)));
+    $controls->renderDivider('config-divider', new CanvasRectangle($x, $listTop - 2 * $gap, $innerWidth, max(1, $gap)));
     $settings = $menu->selection->getSettings();
     $rail = $m->cellHeight;
     $listBox = new CanvasRectangle($x, $listTop, $innerWidth - $rail - $gap, $listHeight);
@@ -91,9 +87,9 @@ final class ConfigMenuPresentation
       $entry = $settings[$i];
       $valueX = $bounds->x + $bounds->width - $theme->rows->metrics->padding - $valueCells * $m->cellWidth;
       $arrowY = $y + ($heights[$i] - $rail) / 2;
-      $controls->arrow('config-previous-' . $i, 'previous', new CanvasRectangle($valueX, $arrowY, $rail, $rail),
+      $controls->renderArrow('config-previous-' . $i, 'previous', new CanvasRectangle($valueX, $arrowY, $rail, $rail),
         count($entry->choices) > 1 && ($entry->wraps || $choiceIndex > 0));
-      $controls->arrow('config-next-' . $i, 'next', new CanvasRectangle($valueX + $valueCells * $m->cellWidth - $rail, $arrowY, $rail, $rail),
+      $controls->renderArrow('config-next-' . $i, 'next', new CanvasRectangle($valueX + $valueCells * $m->cellWidth - $rail, $arrowY, $rail, $rail),
         count($entry->choices) > 1 && ($entry->wraps || $choiceIndex < count($entry->choices) - 1));
       $valueBox = new CanvasRectangle($valueX + $rail + $gap, $y + ($heights[$i] - $valueHeight) / 2,
         $valueCells * $m->cellWidth - 2 * ($rail + $gap), $valueHeight);
@@ -101,7 +97,7 @@ final class ConfigMenuPresentation
         && array_all($entry->choices, static fn($choice) => is_int($choice) || is_float($choice));
       $numericWidth = mb_strlen($value) * $m->cellWidth;
       if ($numeric && $valueBox->width - $numericWidth - $gap > 2 * $rail) {
-        $controls->level('config-level-' . $i, new CanvasRectangle($valueBox->x, $arrowY,
+        $controls->renderLevel('config-level-' . $i, new CanvasRectangle($valueBox->x, $arrowY,
           $valueBox->width - $numericWidth - $gap, $rail), $choiceIndex / (count($entry->choices) - 1), $accent);
         $valueBox = new CanvasRectangle($valueBox->x + $valueBox->width - $numericWidth, $valueBox->y, $numericWidth, $valueHeight);
       }
@@ -115,22 +111,21 @@ final class ConfigMenuPresentation
     }
     if ($last + 1 < count($rows) || $first > 0) {
       $railX = $x + $innerWidth - $rail;
-      $controls->arrow('config-scroll-up', 'up', new CanvasRectangle($railX, $listTop, $rail, $rail), $first > 0);
-      $controls->arrow('config-scroll-down', 'down', new CanvasRectangle($railX, $listTop + $listHeight - $rail, $rail, $rail), $last + 1 < count($rows));
+      $controls->renderArrow('config-scroll-up', 'up', new CanvasRectangle($railX, $listTop, $rail, $rail), $first > 0);
+      $controls->renderArrow('config-scroll-down', 'down', new CanvasRectangle($railX, $listTop + $listHeight - $rail, $rail, $rail), $last + 1 < count($rows));
       $track = new CanvasRectangle($railX + $rail / 4, $listTop + $rail, $rail / 2, $listHeight - 2 * $rail);
-      $controls->surface('config-scroll-track', 'scroll.track', $track, $theme->colors['edge']);
+      $controls->renderSurface('config-scroll-track', 'scroll.track', $track, $theme->colors['edge']);
       $thumbHeight = min($track->height, max($rail, $track->height * ($y - $listTop) / array_sum($heights)));
       $ratio = array_sum(array_slice($heights, 0, $first)) / max(1, array_sum($heights) - ($y - $listTop));
-      $controls->surface('config-scroll-thumb', 'scroll.thumb',
+      $controls->renderSurface('config-scroll-thumb', 'scroll.thumb',
         new CanvasRectangle($track->x, $track->y + ($track->height - $thumbHeight) * $ratio, $track->width, $thumbHeight), $theme->colors['accent']);
     }
-    $controls->divider('config-description-divider', new CanvasRectangle($x, $detailTop - $gap, $innerWidth, max(1, $gap / 2)));
+    $controls->renderDivider('config-description-divider', new CanvasRectangle($x, $detailTop - $gap, $innerWidth, max(1, $gap / 2)));
     $view->prose('config-description-title', 'Description', new CanvasRectangle($x, $detailTop, $innerWidth, $m->cellHeight), 'accent');
-    $view->prose('config-description', $description, new CanvasRectangle($x, $detailTop + $m->cellHeight + $gap, $innerWidth, $descriptionHeight));
-    if ($statusHeight > 0) {
-      $view->prose('config-status', $status, new CanvasRectangle($x, $detailTop + $m->cellHeight + 2 * $gap + $descriptionHeight,
-        $innerWidth, $statusHeight), $menu->hasStatusError() ? 'decrease' : 'disabled');
-    }
+    MenuInfoPanel::renderContent($view, 'config',
+      new CanvasRectangle($x, $detailTop + $m->cellHeight + $gap, $innerWidth, 2 * $m->cellHeight),
+      $description, $status, $menu->hasStatusError() ? 'decrease' : 'disabled', $menu->menuInfoText,
+      new CanvasRectangle($x + $innerWidth / 2, $detailTop, $innerWidth / 2, $m->cellHeight));
     $footerY = $box->y + $box->height - $p - $footerHeight;
     if ($hintHeight > 0) {
       $view->hints('config-hints', $hints, new CanvasRectangle($x, $footerY, $hintWidth, $hintHeight));

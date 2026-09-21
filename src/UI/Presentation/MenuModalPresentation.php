@@ -26,16 +26,20 @@ final class MenuModalPresentation
       : ($modal->vertical ? max($buttonWidths) : array_sum($buttonWidths) + (count($buttonWidths) - 1) * $gap);
     $naturalWidth = max(36 * $m->cellWidth, $longest($modal->title) * $m->cellWidth,
       $longest($modal->message) * $m->cellWidth, $choicesWidth);
+    if ($modal->quantity !== null) {
+      $naturalWidth = max($naturalWidth, (2 * strlen((string)$modal->quantity->maximum) + 3) * $m->cellWidth);
+    }
     $width = (int)floor(min($base->width * 2 / 3 - 2 * $p, $naturalWidth) / $m->cellWidth) * $m->cellWidth;
     $x = ($base->width - $width) / 2;
     $cells = (int)floor($width / $m->cellWidth);
     $titleHeight = $modal->title === '' ? 0 : count(MenuCanvas::wrap($modal->title, $cells)) * $m->cellHeight;
     $messageHeight = $modal->message === '' ? 0 : count(MenuCanvas::wrap($modal->message, $cells)) * $m->cellHeight;
     $bodyHeight = $modal->singleConfirmation ? max($messageHeight, 3 * $m->cellHeight) : $messageHeight;
+    $quantityHeight = $modal->quantity === null ? 0 : $m->cellHeight + $gap;
     $hints = [ActionHints::resolve('confirm', 'Confirm'), ActionHints::resolve('cancel', 'Cancel')];
     $hintHeight = MenuActionHints::height($hints, $theme, $width);
     $hintGap = $hintHeight > 0 ? $gap : 0;
-    $available = $base->height - 4 * $p - $titleHeight - $bodyHeight - $hintHeight - 2 * $gap - $hintGap;
+    $available = $base->height - 4 * $p - $titleHeight - $bodyHeight - $quantityHeight - $hintHeight - 2 * $gap - $hintGap;
     if ($available < $m->rowHeight + $m->cellHeight) {
       throw new RuntimeException('Modal content exceeds its finite menu viewport; terminal presentation retained.');
     }
@@ -46,7 +50,8 @@ final class MenuModalPresentation
         kind: $modal->vertical ? MenuRowKind::COMMAND : MenuRowKind::BUTTON,
         selected: $index === $modal->activeIndex, focused: $index === $modal->activeIndex);
     }
-    $buttonWidth = $modal->singleConfirmation ? $width / 2
+    $singleButton = !$modal->vertical && count($rows) === 1;
+    $buttonWidth = $singleButton ? MenuLayout::getButtonWidth($theme, $modal->choices[0], $width)
       : ($modal->vertical ? $width : ($width - (count($rows) - 1) * $gap) / count($rows));
     if ($buttonWidth <= 2 * $theme->rows->metrics->padding) {
       throw new RuntimeException('Modal buttons require a wider menu viewport.');
@@ -56,7 +61,7 @@ final class MenuModalPresentation
     $heights = array_map(fn(MenuRow $row) => $layout->heightFor($row, $theme->rows->metrics, false), $rows);
     $choiceHeight = $modal->vertical ? min($available, array_sum($heights)) : max($heights);
     if ($choiceHeight > $available) { throw new RuntimeException('Modal button text exceeds its finite menu viewport.'); }
-    $height = 2 * $p + $titleHeight + $bodyHeight + $choiceHeight + $hintHeight + 2 * $gap + $hintGap;
+    $height = 2 * $p + $titleHeight + $bodyHeight + $quantityHeight + $choiceHeight + $hintHeight + 2 * $gap + $hintGap;
     $top = ($base->height - $height) / 2;
     $box = new CanvasRectangle($x - $p, $top, $width + 2 * $p, $height);
     $view->backing('menu-modal-backing', $box);
@@ -74,13 +79,22 @@ final class MenuModalPresentation
           ? HorizontalAlignment::CENTER : HorizontalAlignment::LEFT);
     }
     $y += $bodyHeight + $gap;
+    if ($modal->quantity !== null) {
+      $quantity = $modal->quantity;
+      $center = $base->width / 2;
+      $valueWidth = (2 * strlen((string)$quantity->maximum) + 3) * $m->cellWidth;
+      $left = $center - $valueWidth / 2;
+      $view->prose('menu-modal-quantity', $quantity->value . ' / ' . $quantity->maximum,
+        new CanvasRectangle($left, $y, $valueWidth, $m->cellHeight), alignment: HorizontalAlignment::CENTER);
+      $y += $quantityHeight;
+    }
     if ($modal->vertical) {
       $view->rows('menu-modal-choice', $rows, new MenuRowLayout(new CanvasRectangle($x, $y, $width, $choiceHeight),
         rowHeight: $m->rowHeight, cellWidth: $m->cellWidth, cellHeight: $m->cellHeight, wrapText: true), $modal->activeIndex);
     } else {
       foreach ($rows as $index => $row) {
         $view->rows('menu-modal-choice', [$row], new MenuRowLayout(
-          new CanvasRectangle($x + ($modal->singleConfirmation ? $width / 2 : $index * ($buttonWidth + $gap)),
+          new CanvasRectangle($x + ($singleButton ? ($width - $buttonWidth) / 2 : $index * ($buttonWidth + $gap)),
             $y, $buttonWidth, $choiceHeight),
           rowHeight: $m->rowHeight, cellWidth: $m->cellWidth, cellHeight: $m->cellHeight, wrapText: true));
       }

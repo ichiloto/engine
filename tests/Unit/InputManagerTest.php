@@ -52,7 +52,7 @@ beforeEach(function () {
 
 afterEach(function () {
   InputManager::setInputSource($this->oldSource);
-  InputManager::setBindings($this->oldBindings);
+  new ReflectionProperty(InputManager::class, 'config')->setValue(null, $this->oldBindings);
   new ReflectionProperty(InputManager::class, 'defaultConfig')->setValue(null, $this->oldDefaults);
   new ReflectionProperty(InputManager::class, 'eventManager')->setValue(null, $this->oldEventManager);
 });
@@ -127,7 +127,9 @@ it('defaults to terminal input and preserves explicit source installation across
   $oldConfig = ConfigStore::has(InputConfig::class) ? ConfigStore::get(InputConfig::class) : null;
   $oldEventSingleton = new ReflectionProperty(EventManager::class, 'instance')->getValue();
   $config = new class extends InputConfig {
+    public int $writes = 0;
     protected function load(): array { return ['up' => ['keys' => [KeyCode::W]]]; }
+    public function persist(): void { $this->writes++; }
   };
   try {
     ConfigStore::put(InputConfig::class, $config);
@@ -135,15 +137,70 @@ it('defaults to terminal input and preserves explicit source installation across
       public function __construct() {}
       public function __destruct() {}
     });
+    $effective = InputManager::getBindings();
     expect(InputManager::getInputSource())->toBe($source)
-      ->and(InputManager::getBindings())->toBe($config->all())
-      ->and(InputManager::getDefaultBindings())->toBe($config->all());
+      ->and($effective['up'])->toBe($config->all()['up'])
+      ->and($effective['info']['keys'])->toBe([KeyCode::i, KeyCode::I])
+      ->and(InputManager::getDefaultBindings())->toBe($effective)
+      ->and($config->all())->not->toHaveKey('info')->and($config->writes)->toBe(0);
+    InputManager::setBindings($config->all());
+    expect(InputManager::getBindings())->toBe($effective);
+    InputManager::setBinding('info', [KeyCode::F2]);
+    expect(InputManager::getDefaultBindings())->toBe($effective);
+    InputManager::setBindings(InputManager::getDefaultBindings());
+    expect(InputManager::getBindings())->toBe($effective)->and($config->writes)->toBe(0);
     InputManager::handleInput();
     expect(InputManager::getPressedKeyCode())->toBe(KeyCode::W);
   } finally {
     $oldConfig === null ? ConfigStore::remove(InputConfig::class) : ConfigStore::put(InputConfig::class, $oldConfig);
     new ReflectionProperty(EventManager::class, 'instance')->setValue(null, $oldEventSingleton);
   }
+});
+
+it('adds a missing Info action using only unclaimed default keys', function (array $occupied, array $available) {
+  $authored = ['custom' => ['description' => 'Authored action.', 'keys' => $occupied]];
+  InputManager::setBindings($authored);
+  expect(InputManager::getBindings()['custom'])->toBe($authored['custom'])
+    ->and(InputManager::getBindings()['info'])->toBe([
+      'description' => 'Read the next Info page; wrap to the first.', 'keys' => $available,
+    ])->and($authored)->not->toHaveKey('info');
+  foreach ([KeyCode::i, KeyCode::I] as $key) {
+    InputManager::setInputSource(new FakeInputSource($key, $key));
+    InputManager::handleInput();
+    expect(Input::isButtonDown('info'))->toBe(in_array($key, $available, true))
+      ->and(Input::isButtonDown('custom'))->toBe(in_array($key, $occupied, true));
+    InputManager::handleInput();
+    expect(Input::isButtonDown('info'))->toBeFalse();
+  }
+})->with([
+  'unused' => [[], [KeyCode::i, KeyCode::I]],
+  'lowercase occupied' => [[KeyCode::i], [KeyCode::I]],
+  'uppercase occupied' => [[KeyCode::I], [KeyCode::i]],
+  'both occupied' => [[KeyCode::i, KeyCode::I], []],
+]);
+
+it('preserves an explicit Info entry including deliberate unbinding', function (array $entry) {
+  $authored = ['info' => $entry, 'custom' => ['keys' => [KeyCode::F2]]];
+  InputManager::setBindings($authored);
+  expect(InputManager::getBindings())->toBe($authored);
+  InputManager::setInputSource(new FakeInputSource(KeyCode::i));
+  InputManager::handleInput();
+  expect(Input::isButtonDown('info'))->toBeFalse();
+})->with([
+  'rebound' => [['description' => 'Custom Info.', 'keys' => [KeyCode::F2]]],
+  'empty keys' => [['description' => 'Disabled Info.', 'keys' => []]],
+  'empty entry' => [[]],
+]);
+
+it('does not reapply defaults after an explicit live rebind or unbind', function () {
+  InputManager::setBindings([]);
+  expect(InputManager::setBinding('info', [KeyCode::F2]))->toBeTrue();
+  $rebound = InputManager::getBindings();
+  InputManager::setBindings($rebound);
+  expect(InputManager::getBindings())->toBe($rebound);
+  expect(InputManager::setBinding('info', []))->toBeTrue();
+  InputManager::setBindings(InputManager::getBindings());
+  expect(InputManager::getBindings()['info']['keys'])->toBeEmpty();
 });
 
 it('keeps pressed, down, repeat, release, and any-key semantics source independent', function () {

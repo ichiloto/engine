@@ -10,6 +10,19 @@ use Tests\Support\Input\FakeInputSource;
 
 require_once __DIR__ . '/../Support/Input/FakeInputSource.php';
 
+beforeEach(function () {
+  $this->saved = [];
+  foreach ([InputManager::class, ConfigStore::class] as $class) {
+    $this->saved[$class] = new ReflectionClass($class)->getStaticProperties();
+  }
+});
+
+afterEach(function () {
+  foreach ($this->saved as $class => $properties) {
+    foreach ($properties as $name => $value) { new ReflectionProperty($class, $name)->setValue(null, $value); }
+  }
+});
+
 /**
  * An InputConfig that loads from memory and records what it wrote, so the
  * rebinding path can be exercised without touching a project.
@@ -66,9 +79,10 @@ it('lists the rebindable actions with their keys', function () {
 
   // Back is deliberately absent: escape is how every screen is left,
   // including the rebinding screen.
-  expect($actions)->toBe(['action', 'up'])
+  expect($actions)->toBe(['action', 'up', 'info'])
     ->and($bindings->describeKeys('action'))->toBe('SPACE, ENTER')
-    ->and($bindings->describeKeys('up'))->toBe('UP, W');
+    ->and($bindings->describeKeys('up'))->toBe('UP, W')
+    ->and($bindings->describeKeys('info'))->toBe('i, I');
 });
 
 it('rebinds an action immediately and writes it back', function () {
@@ -165,4 +179,18 @@ it('does not invent preferred controls for empty missing or differently bound ac
   expect($bindings->primaryKey('confirm'))->toBe(KeyCode::F2)
     ->and($bindings->primaryKey('cancel'))->toBeNull()->and($bindings->primaryKey('back'))->toBeNull()
     ->and($bindings->controlForAction('cancel'))->toBeNull()->and($bindings->describeKeys('cancel'))->toBe('Unbound');
+});
+
+it('discovers a fully conflicted Info default as unbound and permits an explicit rebind', function () {
+  $authored = ['custom' => ['description' => 'Custom action.', 'keys' => [KeyCode::i, KeyCode::I]]];
+  $config = installBindings($authored);
+  $bindings = new InputBindings();
+  expect(array_column($bindings->all(), 'action'))->toBe(['custom', 'info'])
+    ->and($bindings->describeKeys('info'))->toBe('Unbound')
+    ->and($bindings->controlForAction('info'))->toBeNull()
+    ->and($config->all())->toBe($authored)->and($config->written)->toBeEmpty();
+  expect($bindings->rebind('info', KeyCode::F2))->toBeTrue()
+    ->and($bindings->describeKeys('info'))->toBe('F2')
+    ->and(InputManager::getBindings()['custom'])->toBe($authored['custom'])
+    ->and($config->written['info']['keys'])->toBe([KeyCode::F2]);
 });

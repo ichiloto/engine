@@ -386,7 +386,7 @@ it('marks only single-confirmation Alert snapshots for the acknowledgement layou
     ->toThrow(InvalidArgumentException::class);
 });
 
-it('centers the Alert message on stage and its acknowledgement label in the bottom-right half', function (bool $art, bool $showInputHints, string $message) {
+it('centers the Alert message and its modest acknowledgement button', function (bool $art, bool $showInputHints, string $message) {
   $theme = new MenuPresentationCatalog($this->root, [...modalMenuTheme($art), 'showInputHints' => $showInputHints]);
   $snapshot = new AlertModal($this->game, $message, 'Alert')->getModalPresentation();
   $frame = MenuModalPresentation::compose(new PresentationCanvas(1350, 720), $snapshot, $theme);
@@ -401,8 +401,9 @@ it('centers the Alert message on stage and its acknowledgement label in the bott
   $bodyBottom = $button->clipRect->y - $m->sectionGap;
   $hints = $layer('menu-modal-hints');
   $footer = $showInputHints ? $hints->bounds->height + $m->sectionGap : 0;
-  expect($button->clipRect->x)->toBe($box->x + $box->width / 2)
-    ->and($button->clipRect->width)->toBe($contentWidth / 2)
+  expect($button->clipRect->x + $button->clipRect->width / 2)->toBe($box->x + $box->width / 2)
+    ->and($button->clipRect->width)->toBe((float)(12 * $m->cellWidth))
+    ->and($button->clipRect->width)->toBeLessThan($contentWidth)
     ->and($button->clipRect->y + $button->clipRect->height + $footer)->toBe($box->y + $box->height - $m->panelPadding)
     ->and($button->x + $button->bounds->width / 2)->toBe($button->clipRect->x + $button->clipRect->width / 2)
     ->and($text->y + $text->bounds->height / 2)->toBe(($bodyTop + $bodyBottom) / 2)
@@ -420,7 +421,7 @@ it('centers the Alert message on stage and its acknowledgement label in the bott
   }
 })->with([false, true])->with([false, true])->with(['Equipment optimized!', str_repeat('A complete longer message. ', 8)]);
 
-it('keeps a long acknowledgement label complete and centered inside the bounded half-width button', function (bool $art) {
+it('keeps a long acknowledgement label complete and centered inside its bounded button', function (bool $art) {
   $theme = new MenuPresentationCatalog($this->root, [...modalMenuTheme($art), 'showInputHints' => false]);
   $label = str_repeat('Acknowledge current result ', 4);
   $frame = MenuModalPresentation::compose(new PresentationCanvas(1350, 720),
@@ -429,7 +430,7 @@ it('keeps a long acknowledgement label complete and centered inside the bounded 
   $button = array_find($frame->textLayers, fn($text) => $text->id === 'menu-modal-choice-0-text');
   expect(implode('', array_column($button->runs, 'text')))->toBe($label)
     ->and($box->width)->toBeLessThanOrEqual(900)->and($box->height)->toBeLessThan(720)
-    ->and($button->clipRect->width)->toBe(($box->width - 2 * $theme->metrics->panelPadding) / 2)
+    ->and($button->clipRect->width)->toBe($box->width - 2 * $theme->metrics->panelPadding)
     ->and($button->y)->toBeGreaterThanOrEqual($button->clipRect->y)
     ->and($button->y + $button->bounds->height)->toBeLessThanOrEqual($button->clipRect->y + $button->clipRect->height);
   foreach ($button->runs as $run) {
@@ -503,6 +504,42 @@ it('batches only fully visible nonoverlapping text without changing paint positi
   expect(MenuCanvasTextBatch::compact($clipped))->toBe($clipped);
   $overlapping = array_map(fn($text) => new CanvasTextLayer($text->id, $text->layer, 0, 0, $text->grid, $text->runs), $layers);
   expect(MenuCanvasTextBatch::compact($overlapping))->toBe($overlapping);
+});
+
+it('centers quantity and Continue without directional decorations or reserved arrow space', function (bool $art, int $amount) {
+  $data = [...modalMenuTheme(false), 'showInputHints' => false];
+  if ($art) {
+    $data['icons'] = array_fill_keys(['navigation.previous', 'navigation.next', 'navigation.up', 'navigation.down'], 'art.png');
+  }
+  $theme = new MenuPresentationCatalog($this->root, $data);
+  $snapshot = new ModalPresentation('Discard item', 'Potion', ['Continue'], 0,
+    quantity: new \Ichiloto\Engine\UI\Modal\QuantityPresentation(1, 99, $amount));
+  $frame = MenuModalPresentation::compose(new PresentationCanvas(1350, 720), $snapshot, $theme);
+  $layers = array_column($frame->textLayers, null, 'id');
+  $quantity = $layers['menu-modal-quantity'];
+  expect(implode('', array_column($quantity->runs, 'text')))->toBe($amount . ' / 99');
+  $button = $layers['menu-modal-choice-0-text'];
+  expect($button->clipRect->x + $button->clipRect->width / 2)->toBe(675.0)
+    ->and($button->clipRect->width)->toBe(140.0)
+    ->and($quantity->clipRect->x + $quantity->clipRect->width / 2)->toBe(675.0)
+    ->and($button->clipRect->y - ($quantity->clipRect->y + $quantity->clipRect->height))->toBe((float)$theme->metrics->sectionGap)
+    ->and(array_filter($frame->images, fn($image) => str_contains($image->id, 'cursor')))->toBeEmpty();
+  expect(array_filter([...$frame->images, ...$frame->textLayers],
+    fn($layer) => str_starts_with($layer->id, 'menu-modal-quantity-')))->toBeEmpty();
+})->with([false, true])->with([1, 50, 99]);
+
+it('fits the complete largest integer quantity without widening beyond the modal viewport', function () {
+  $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1', 'showInputHints' => false]);
+  $frame = MenuModalPresentation::compose(new PresentationCanvas(1350, 720),
+    new ModalPresentation('Quantity', 'Stack', ['Continue'], 0,
+      quantity: new \Ichiloto\Engine\UI\Modal\QuantityPresentation(1, PHP_INT_MAX, PHP_INT_MAX)), $theme);
+  $layers = array_column($frame->textLayers, null, 'id');
+  $box = $layers['menu-modal-backing']->clipRect;
+  foreach ($frame->textLayers as $layer) {
+    if (!str_starts_with($layer->id, 'menu-modal-quantity')) { continue; }
+    expect($layer->bounds->x)->toBeGreaterThanOrEqual($box->x)
+      ->and($layer->bounds->x + $layer->bounds->width)->toBeLessThanOrEqual($box->x + $box->width);
+  }
 });
 
 it('batches default focus edges without changing any filled pixel or the centered command label', function () {

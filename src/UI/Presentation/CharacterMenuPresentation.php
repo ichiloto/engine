@@ -37,11 +37,8 @@ final class CharacterMenuPresentation
     $p = $m->panelPadding;
     $info = $state->equipmentInfoPanel?->getPresentationText() ?? '';
     $hints = self::characterHints();
-    $footerCells = (int)floor((self::WIDTH - 2 * $p) / $m->cellWidth);
     $hintHeight = MenuActionHints::height($hints, $theme, self::WIDTH - 2 * $p);
-    $hintGap = $hintHeight > 0 ? $m->sectionGap : 0;
-    $infoHeight = max(80, 2 * $p + $hintHeight
-      + ($info === '' ? 0 : $hintGap + count(MenuCanvas::wrap($info, $footerCells)) * $m->cellHeight));
+    $infoHeight = MenuInfoPanel::getHeight($theme, $hints, self::WIDTH);
     $bodyHeight = self::HEIGHT - $infoHeight;
     if ($bodyHeight < 300) { throw new RuntimeException('Equipment footer leaves insufficient menu viewport.'); }
     $profile = self::box(0, 0, self::PROFILE_WIDTH, $bodyHeight);
@@ -98,10 +95,9 @@ final class CharacterMenuPresentation
     }
     $infoBox = self::box(0, $bodyHeight, self::WIDTH, $infoHeight);
     $view->frame('equipment-info', $infoBox, 'quiet');
-    if ($info !== '') {
-      $view->prose('equipment-description', $info, new CanvasRectangle($infoBox->x + $p, $infoBox->y + $p,
-        $infoBox->width - 2 * $p, $infoHeight - 2 * $p - $hintHeight - $hintGap));
-    }
+    MenuInfoPanel::renderContent($view, 'equipment', self::inset($infoBox, $p), $info,
+      infoModel: $state->menuInfoText, rangeBounds: new CanvasRectangle($infoBox->x + $p,
+        $infoBox->y + $infoBox->height - $p, $infoBox->width - 2 * $p, $p));
     if ($hintHeight > 0) {
       $view->hints('equipment-hints', $hints, new CanvasRectangle($infoBox->x + $p,
         $infoBox->y + $infoHeight - $p - $hintHeight, $infoBox->width - 2 * $p, $hintHeight));
@@ -171,7 +167,8 @@ final class CharacterMenuPresentation
 
   private static function box(float $x, float $y, float $width, float $height): CanvasRectangle
   {
-    return new CanvasRectangle(self::LEFT + $x, self::TOP + $y, $width, $height);
+    $host = MenuLayout::getBounds();
+    return new CanvasRectangle($host->x + $x, $host->y + $y, $width, $height);
   }
 
   private static function inset(CanvasRectangle $box, int $padding): CanvasRectangle

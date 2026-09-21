@@ -78,6 +78,22 @@ function configPresentationKey(ConfigMenu $menu, KeyCode $key): void
   $menu->update();
 }
 
+/** Text batching may combine IDs; verify the painted run and its actual coordinates. */
+function getConfigTextPosition(PresentationCanvas $frame, string $text, ?float $y = null): array
+{
+  foreach ($frame->textLayers as $layer) {
+    foreach ($layer->runs as $run) {
+      $top = $layer->y + $run->row * $layer->grid->cellHeight;
+      if ($run->text === $text && $run->foreground !== null && ($y === null || abs($top - $y) <= 1)) {
+        return ['x' => $layer->x + $run->column * $layer->grid->cellWidth, 'y' => $top,
+          'width' => mb_strlen($text) * $layer->grid->cellWidth, 'height' => $layer->grid->cellHeight,
+          'layer' => $layer->layer, 'color' => $run->foreground];
+      }
+    }
+  }
+  throw new RuntimeException('Expected visible Config text: ' . $text);
+}
+
 beforeEach(function () {
   $this->statics = [];
   foreach ([Console::class, InputManager::class, ConfigStore::class, AudioManager::class, ActionHints::class] as $class) {
@@ -120,22 +136,26 @@ it('projects every live setting value and full description through both themes a
     $frame = ConfigMenuPresentation::compose($this->menu, $theme, width: $width, height: $height);
     $text = configPresentationText($frame);
     $layers = array_column($frame->textLayers, null, 'id');
-    expect($text['config-setting-' . $index . '-text'])->toBe($setting->label)
-      ->and($text['config-value-' . $index])->toBe($this->manager->getCurrentChoiceLabel($setting))
-      ->and($text['config-description'])->toBe($setting->description)
-      ->and($text['config-cancel-text'])->toBe('Cancel')
+    $label = getConfigTextPosition($frame, $setting->label);
+    $value = getConfigTextPosition($frame, $this->manager->getCurrentChoiceLabel($setting), $label['y']);
+    $page = $this->menu->menuInfoText->lastPage;
+    $description = getConfigTextPosition($frame, $page->lines[0]);
+    foreach ($page->lines as $line) { getConfigTextPosition($frame, $line); }
+    expect(implode('', $page->lines))->toBe($setting->description);
+    $cancel = getConfigTextPosition($frame, 'Cancel');
+    expect($this->menu->menuInfoText->lastPage->source)->toBe($setting->description)
       ->and(count($frame->textLayers))->toBeLessThanOrEqual(64)
       ->and(implode(' ', array_keys($layers)))->not->toContain('config-hints', 'cancel-cursor', 'cancel-separator');
     $ids = [...array_column($frame->textLayers, 'id'), ...array_column($frame->images, 'id')];
     expect(count($ids))->toBe(count(array_unique($ids)));
     foreach ($frame->images as $image) { $image->destination->assertWithin($width, $height); }
-    $cancel = $layers['config-cancel-text'];
-    expect($cancel->x + $cancel->bounds->width / 2)->toBe($cancel->clipRect->x + $cancel->clipRect->width / 2);
-    $value = $layers['config-value-' . $index];
+    $host = \Ichiloto\Engine\UI\Presentation\MenuLayout::getBounds($width, $height);
+    $buttonWidth = \Ichiloto\Engine\UI\Presentation\MenuLayout::getButtonWidth($theme, 'Cancel', $host->width - 2 * $theme->metrics->panelPadding);
+    expect($cancel['x'] + $cancel['width'] / 2)->toBe($host->x + $host->width - $theme->metrics->panelPadding - $buttonWidth / 2);
     $treatments = array_filter([...$frame->textLayers, ...$frame->images],
       fn($piece) => str_contains($piece->id, 'config-setting-' . $index . '-selected'));
-    foreach ($treatments as $piece) { expect($value->layer)->toBeGreaterThan($piece->layer); }
-    expect($value->clipRect->y + $value->clipRect->height)->toBeLessThanOrEqual($layers['config-description-title']->y);
+    foreach ($treatments as $piece) { expect($value['layer'])->toBeGreaterThan($piece->layer); }
+    expect($value['y'] + $value['height'])->toBeLessThanOrEqual($description['y']);
     $this->menu->selection->selectNext();
   }
   expect($this->config->writes)->toBe(0);
@@ -154,7 +174,8 @@ it('keeps adjustment clamping wrapping persistence and semantic cancel in the ex
   expect($this->config->get('audio.master_volume'))->toBe(0);
   configPresentationKey($this->menu, KeyCode::RIGHT);
   expect($this->config->get('audio.master_volume'))->toBe(5)
-    ->and(configPresentationText(ConfigMenuPresentation::compose($this->menu, $theme))['config-status'])->toBe('Volume set to 5%.');
+    ->and(getConfigTextPosition(ConfigMenuPresentation::compose($this->menu, $theme), 'Volume set to 5%.')['color'])
+    ->toBe($theme->colors['disabled']);
   configPresentationKey($this->menu, KeyCode::DOWN);
   expect($this->menu->getStatusMessage())->toBeNull();
   configPresentationKey($this->menu, KeyCode::LEFT);
@@ -165,20 +186,36 @@ it('keeps adjustment clamping wrapping persistence and semantic cancel in the ex
   expect($this->backs)->toBe(1)->and($this->config->writes)->toBe(5);
 });
 
-it('measures the entire live persistence failure without inventing rollback or overlapping the footer', function () {
+it('pages the entire live persistence failure without resizing or inventing rollback', function () {
   $this->config->failure = str_repeat('A complete persistence detail. ', 6);
   configPresentationKey($this->menu, KeyCode::RIGHT);
   $theme = new MenuPresentationCatalog($this->root, configPresentationTheme());
-  $frame = ConfigMenuPresentation::compose($this->menu, $theme);
-  $layers = array_column($frame->textLayers, null, 'id');
-  expect(configPresentationText($frame)['config-status'])->toBe('Could not save settings: ' . $this->config->failure)
-    ->and($this->config->get('audio.master_volume'))->toBe(80)
-    ->and($this->menu->hasStatusError())->toBeTrue()
-    ->and($layers['config-status']->runs[0]->foreground)->toBe($theme->colors['decrease'])
-    ->and($layers['config-status']->bounds->y + $layers['config-status']->bounds->height)->toBeLessThanOrEqual($layers['config-cancel-text']->clipRect->y);
-  $this->config->failure = str_repeat('Impossible full error ', 150);
-  configPresentationKey($this->menu, KeyCode::RIGHT);
-  expect(fn() => ConfigMenuPresentation::compose($this->menu, $theme))->toThrow(RuntimeException::class, 'finite viewport');
+  foreach ([$this->config->failure, str_repeat('Long full error ', 150)] as $failure) {
+    if ($failure !== $this->config->failure) {
+      $this->config->failure = $failure;
+      configPresentationKey($this->menu, KeyCode::RIGHT);
+    }
+    $seen = '';
+    $footer = null;
+    do {
+      $frame = ConfigMenuPresentation::compose($this->menu, $theme);
+      $page = $this->menu->menuInfoText->lastPage;
+      $cancel = getConfigTextPosition($frame, 'Cancel');
+      $footer ??= $cancel;
+      expect($cancel)->toEqual($footer)->and($page->rows)->toBe(2);
+      foreach ($page->lines as $line) {
+        $position = getConfigTextPosition($frame, $line);
+        expect($position['y'] + $position['height'])->toBeLessThanOrEqual($cancel['y']);
+        if ($line !== $this->menu->selection->getActiveSetting()->description) {
+          expect($position['color'])->toBe($theme->colors['decrease']);
+        }
+        $seen .= $line;
+      }
+      $this->menu->menuInfoText->advance();
+    } while ($page->nextOffset !== 0);
+    expect($seen)->toBe($this->menu->selection->getActiveSetting()->description . 'Could not save settings: ' . $failure);
+  }
+  expect($this->config->get('audio.master_volume'))->toBe(85)->and($this->menu->hasStatusError())->toBeTrue();
 });
 
 it('wraps long live labels values and descriptions without cropping any selected record', function () {
@@ -223,8 +260,8 @@ it('keeps arrows semantic and does not substitute unrelated unknown item art', f
   $data['icons'] = ['unknown' => 'arrow.png'];
   $frame = ConfigMenuPresentation::compose($this->menu, new MenuPresentationCatalog($this->root, $data));
   expect($frame->images)->toBeEmpty()
-    ->and(configPresentationText($frame)['config-previous-0'])->toBe("\u{2039}")
-    ->and(configPresentationText($frame)['config-next-0'])->toBe("\u{203A}");
+    ->and(configPresentationText($frame)['config-previous-0'])->toBe("\u{2190}")
+    ->and(configPresentationText($frame)['config-next-0'])->toBe("\u{2192}");
 });
 
 it('shows remapped optional hints without changing current actions or adding a button cursor', function () {

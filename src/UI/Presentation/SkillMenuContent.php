@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\UI\Presentation;
 
 use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\UI\Text\MenuInfoText;
 
 /** Fresh read-only display projection of an existing Abilities/Magic owner, never saved state. */
 final readonly class SkillMenuContent
@@ -31,5 +32,6 @@ final readonly class SkillMenuContent
     public ?string $status,
     public string $confirmLabel,
     public bool $targeting = false,
+    public ?MenuInfoText $infoModel = null,
   ) {}
 }

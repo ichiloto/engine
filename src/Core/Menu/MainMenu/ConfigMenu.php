@@ -11,6 +11,7 @@ use Ichiloto\Engine\Core\Menu\MainMenu\Windows\ConfigSelectionWindow;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Settings\GameSetting;
+use Ichiloto\Engine\UI\Text\MenuInfoText;
 use Throwable;
 
 /** The existing settings interaction, hosted by either Main Menu or Pause. */
@@ -18,6 +19,10 @@ final class ConfigMenu
 {
   private ?string $statusMessage = null;
   private bool $statusError = false;
+  private ?MenuInfoText $infoText = null;
+  private ?GameSetting $infoSelection = null;
+
+  public MenuInfoText $menuInfoText { get => $this->infoText ??= new MenuInfoText(); }
 
   public function __construct(
     private MainMenuSettingsManager $settingsManager,
@@ -34,6 +39,7 @@ final class ConfigMenu
   {
     $this->statusMessage = null;
     $this->statusError = false;
+    $this->menuInfoText->reset();
     $this->selection->setSettings($this->settingsManager->getSettings());
     $this->selection->focus();
     $this->render();
@@ -43,15 +49,32 @@ final class ConfigMenu
   {
     $this->selection->render();
     $setting = $this->selection->getActiveSetting();
+    $this->syncInfoSelection($setting);
     if ($setting instanceof GameSetting) {
-      $this->detail->showSetting($setting, $this->statusMessage);
+      $page = $this->menuInfoText->getPage($setting->description, $this->statusMessage,
+        max(1, $this->detail->getContentWidth() - 2));
+      $this->detail->setContent(array_pad($page->lines, 2, ''));
+      $this->detail->setHelp($page->total > 2 ? $page->range() : '');
+      $this->detail->render();
     } else {
+      $this->detail->setContent(['', '']);
+      $this->detail->setHelp('');
       $this->detail->render();
     }
   }
 
   public function update(): void
   {
+    $setting = $this->selection->getActiveSetting();
+    $this->syncInfoSelection($setting);
+    if (Input::isButtonDown('info')) {
+      $info = $this->menuInfoText;
+      $info->getPage($setting?->description ?? '', $this->statusMessage,
+        $info->lastPage?->columns ?? max(1, $this->detail->getContentWidth() - 2));
+      $info->advance();
+      $this->render();
+      return;
+    }
     if (Input::isButtonDown('cancel')) {
       play_sound(SystemSound::CANCEL);
       ($this->onBack)();
@@ -83,5 +106,11 @@ final class ConfigMenu
       $this->selection->updateContent();
       $this->render();
     }
+  }
+
+  private function syncInfoSelection(?GameSetting $setting): void
+  {
+    if ($setting !== $this->infoSelection) { $this->menuInfoText->reset(); }
+    $this->infoSelection = $setting;
   }
 }

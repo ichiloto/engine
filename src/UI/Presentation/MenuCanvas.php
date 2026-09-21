@@ -73,6 +73,21 @@ final class MenuCanvas
       new RendererGridConfig((int)floor($bounds->width / $m->cellWidth), count($lines), $m->cellWidth, $m->cellHeight), $runs, $bounds);
   }
 
+  /** Compact reading metadata occupies frame padding, not the prose viewport. */
+  public function renderBorderCaption(string $id, string $text, CanvasRectangle $bounds): void
+  {
+    $m = $this->theme->metrics;
+    $height = min($m->cellHeight, (int)floor($bounds->height));
+    $width = max(1, (int)floor($m->cellWidth * $height / $m->cellHeight));
+    $columns = mb_strlen($text);
+    if ($height < 1 || $columns < 1 || $columns * $width > $bounds->width) {
+      throw new RuntimeException('Menu border caption exceeds its finite viewport.');
+    }
+    $this->text[] = new CanvasTextLayer($id, 30, $bounds->x + $bounds->width - $columns * $width, $bounds->y,
+      new RendererGridConfig($columns, 1, $width, $height),
+      [new PresentationTextRun(0, 0, $text, $this->theme->colors['disabled'])], $bounds);
+  }
+
   /** Reuse the same bounded batching when placing a local menu overlay above an existing canvas. */
   public static function overlay(PresentationCanvas $base, PresentationCanvas $overlay, MenuPresentationCatalog $theme): PresentationCanvas
   {

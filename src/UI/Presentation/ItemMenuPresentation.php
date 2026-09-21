@@ -25,16 +25,10 @@ final class ItemMenuPresentation
     $m = $theme->metrics;
     $p = $m->panelPadding;
     $mode = $state->mode;
-    $quantity = $mode instanceof SelectItemTargetMode && $mode->selectingQuantity;
-    $info = $quantity ? $mode->quantityPrompt() : ($state->infoPanel?->text ?? '');
-    $hints = $quantity
-      ? [ActionHints::resolve('up', '+1'), ActionHints::resolve('down', '-1'),
-        ActionHints::resolve('right', '+10'), ActionHints::resolve('left', '-10'),
-        ActionHints::resolve('confirm', 'Confirm'), ActionHints::resolve('cancel', 'Cancel')]
-      : [ActionHints::resolve('confirm', 'Confirm'), ActionHints::resolve('back', 'Back')];
+    $info = $state->infoPanel?->text ?? '';
+    $hints = [ActionHints::resolve('confirm', 'Confirm'), ActionHints::resolve('back', 'Back')];
     $hintHeight = MenuActionHints::height($hints, $theme, 1100 - 2 * $p);
-    $infoHeight = max(80, 2 * $p + count(MenuCanvas::wrap($info ?? '', (int)floor((1100 - 2 * $p) / $m->cellWidth)))
-      * $m->cellHeight + $hintHeight + ($hintHeight > 0 ? $m->sectionGap : 0));
+    $infoHeight = MenuInfoPanel::getHeight($theme, $hints);
     $bodyBottom = 700 - $infoHeight;
     $commandHeight = max(60, $m->rowHeight + 2 * min($p, 10));
     $statusHeight = max(80, 2 * ($m->cellHeight + 2) + 2 * $p);
@@ -71,7 +65,7 @@ final class ItemMenuPresentation
     foreach ($state->targetSelectionPanel?->targets ?? [] as $index => $target) {
       $selected = $state->targetSelectionPanel->activeIndex === $index;
       $rows[] = new MenuRow('target-' . $index, $target->name, selected: $selected,
-        focused: $selected && $mode instanceof SelectItemTargetMode && !$quantity);
+        focused: $selected && $mode instanceof SelectItemTargetMode);
     }
     $view->rows('items-targets', $rows, self::layout($theme, self::inset($targetBox, $p)),
       $state->targetSelectionPanel?->activeIndex ?? -1);
@@ -90,7 +84,9 @@ final class ItemMenuPresentation
 
     $infoBox = self::box(0, $bodyBottom, 1100, $infoHeight);
     $view->frame('items-info', $infoBox, 'quiet');
-    $view->prose('items-description', $info ?? '', self::inset($infoBox, $p));
+    MenuInfoPanel::renderContent($view, 'items', self::inset($infoBox, $p), $info,
+      infoModel: $state->menuInfoText, rangeBounds: new CanvasRectangle($infoBox->x + $p,
+        $infoBox->y + $infoBox->height - $p, $infoBox->width - 2 * $p, $p));
     if ($hintHeight > 0) {
       $view->hints('items-hints', $hints, self::box($p, 700 - $p - $hintHeight, 1100 - 2 * $p, $hintHeight));
     }
@@ -99,7 +95,8 @@ final class ItemMenuPresentation
 
   private static function box(float $x, float $y, float $w, float $h): CanvasRectangle
   {
-    return new CanvasRectangle(125 + $x, 10 + $y, $w, $h);
+    $host = MenuLayout::getBounds();
+    return new CanvasRectangle($host->x + $x, $host->y + $y, $w, $h);
   }
 
   private static function inset(CanvasRectangle $box, int $padding): CanvasRectangle

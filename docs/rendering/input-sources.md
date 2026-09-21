@@ -25,6 +25,15 @@ bounded reads and do not call gameplay, change bindings, or own game-loop timing
 `KeyboardEvent` with the key's value, including recognized repeated keys.
 The gameplay-facing `Input` facade is unchanged.
 
+`InputManager::init()` and `setBindings()` supply a missing `info` action for
+older projects: `i` and `I` are offered only when not already bound elsewhere.
+An explicit `info` entry, including empty keys, is preserved unchanged. If both
+aliases conflict, Info remains discoverable as Unbound in Controls for explicit
+rebinding. Info cycles two-line menu descriptions and wraps to the first page;
+it does not change selection. Boot captures these effective bindings for Restore
+Defaults. Loading never writes configuration; the existing explicit Controls
+rebind/restore workflow retains persistence ownership.
+
 ### Approved compatibility correction
 
 S3 uses canonical comparison for `isKeyPressed()` with maintainer approval.

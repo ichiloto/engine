@@ -50,6 +50,7 @@ class ItemMenuAlerts extends ModalManager
 {
   public array $messages = [];
   public bool $confirmation = false;
+  public ?int $amount = null;
   public ?Closure $onAlert = null;
   public function __construct() { $this->modals = new \Assegai\Collections\Stack(\Ichiloto\Engine\UI\Interfaces\ModalInterface::class); }
   public function alert(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH): void
@@ -58,6 +59,7 @@ class ItemMenuAlerts extends ModalManager
     ($this->onAlert ?? static fn() => null)();
   }
   public function confirm(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH): bool { return $this->confirmation; }
+  public function selectQuantity(string $message, int $maximum, string $title = '', int $initial = 1, int $width = DEFAULT_DIALOG_WIDTH): ?int { return $this->amount; }
 }
 
 function itemMenuPress(ItemMenuState $state, KeyCode $key): void
@@ -218,7 +220,7 @@ it('opens the read-only empty key view while rejecting empty regular inventory a
     ->and(itemMenuText(ItemMenuPresentation::compose($this->state, $this->theme)))->toContain('No key items yet.');
 });
 
-it('keeps quantity focus separate from targets and cancellation does not use stock', function () {
+it('leaves the Info panel as description while shared quantity and confirmation owners decide use', function () {
   $item = new Item('Potion', 'Restore HP', '/', 10, quantity: 3,
     effects: [new HPRecoveryEffect('Heal', 'Heal', 50, 100, ValueBasis::ACTUAL)]);
   $this->party->inventory->addItems($item);
@@ -229,19 +231,16 @@ it('keeps quantity focus separate from targets and cancellation does not use sto
   $before = ItemMenuPresentation::compose($this->state, $this->theme);
   expect(itemMenuText($before))->toContain('First Actor', '100 / 500', '100 / 100');
   itemMenuPress($this->state, KeyCode::ENTER);
-  expect($this->state->mode->selectingQuantity)->toBeTrue();
   $quantity = ItemMenuPresentation::compose($this->state, $this->theme);
-  expect(itemMenuText($quantity))->toContain('Use Potion x 01 on First Actor?')->not->toContain('Up/Down', 'C/Esc');
-  expect(array_filter($quantity->textLayers, fn($layer) => str_contains($layer->id, '-cursor')))->toBeEmpty();
-  itemMenuPress($this->state, KeyCode::C);
+  expect(itemMenuText($quantity))->toContain('Restore HP')->not->toContain('Use Potion x', 'Up/Down', 'C/Esc');
   expect($item->quantity)->toBe(3)->and($this->actor->stats->currentHp)->toBe(100);
+  $this->alerts->amount = 2;
   itemMenuPress($this->state, KeyCode::ENTER);
-  itemMenuPress($this->state, KeyCode::UP);
-  expect($this->state->mode->quantityPrompt())->toBe('Use Potion x 02 on First Actor?');
+  expect($item->quantity)->toBe(3)->and($this->actor->stats->currentHp)->toBe(100);
+  $this->alerts->confirmation = true;
   $alertSeen = false;
   $this->alerts->onAlert = function () use (&$alertSeen) {
     $alertSeen = true;
-    expect($this->state->mode->selectingQuantity)->toBeFalse();
     expect(itemMenuText(ItemMenuPresentation::compose($this->state, $this->theme)))
       ->toContain('Restore HP')->not->toContain('Use Potion x', 'Up/Down', 'C/Esc');
   };
@@ -251,12 +250,19 @@ it('keeps quantity focus separate from targets and cancellation does not use sto
   expect(itemMenuText(ItemMenuPresentation::compose($this->state, $this->theme)))->toContain('200 / 500');
 });
 
-it('retains complete descriptions instead of reading the truncated terminal lines', function () {
+it('pages complete descriptions inside one fixed two-line Info panel', function () {
   itemMenuInventory($this->state, 1);
   $description = implode("\n", ['First source line', 'Second source line', 'Third source line', 'Fourth source line']);
   $this->state->infoPanel->setText($description);
   $canvas = ItemMenuPresentation::compose($this->state, $this->theme);
-  expect(itemMenuText($canvas))->toContain('Third source line', 'Fourth source line');
+  expect(itemMenuText($canvas))->toContain('First source line', 'Second source line', 'Lines 1-2 / 4')
+    ->not->toContain('Third source line');
+  $bounds = array_column($canvas->textLayers, null, 'id')['items-description']->clipRect;
+  $this->state->menuInfoText->advance();
+  $next = ItemMenuPresentation::compose($this->state, $this->theme);
+  expect(itemMenuText($next))->toContain('Third source line', 'Fourth source line', 'Lines 3-4 / 4')
+    ->and(array_column($next->textLayers, null, 'id')['items-description']->clipRect)->toEqual($bounds)
+    ->and($this->state->menuInfoText->lastPage->source)->toBe($description);
 });
 
 it('uses the ordinary terminal path when no renderer is selected', function () {

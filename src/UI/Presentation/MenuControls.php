@@ -12,33 +12,34 @@ use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 
-/** Config's display-only value/scroll pieces, using the shared theme and Canvas primitives. */
-final class ConfigMenuControls
+/** Shared display-only value/scroll pieces, using the theme and Canvas primitives. */
+final class MenuControls
 {
   private array $images = [];
   private array $text = [];
 
   public function __construct(private MenuPresentationCatalog $theme) {}
 
-  public function arrow(string $id, string $direction, CanvasRectangle $box, bool $enabled): void
+  public function renderArrow(string $id, string $direction, CanvasRectangle $box, bool $enabled): void
   {
-    $asset = $this->theme->icons?->icons['navigation.' . $direction] ?? null;
+    $symbol = MenuDirection::from($direction);
+    $images = $symbol->getImages($this->theme->icons, $id, $box, 40);
     $opacity = $enabled ? 1.0 : 0.35;
-    if ($asset !== null) {
-      foreach (MenuIconRegistry::containAsset($this->theme->assetRoot, $id, $asset, $box, 40, $box) as $image) {
+    if ($images !== []) {
+      foreach ($images as $image) {
         $this->images[] = new CanvasImage($image->id, $image->asset, $image->destination, $image->layer,
           $image->sourceRect, $opacity, $image->clipRect);
       }
       return;
     }
-    $glyph = match ($direction) { 'previous' => "\u{2039}", 'next' => "\u{203A}", 'up' => "\u{2303}", 'down' => "\u{2304}" };
+    $glyph = $symbol->getGlyph();
     $m = $this->theme->metrics;
     $this->text[] = new CanvasTextLayer($id, 40, $box->x + ($box->width - $m->cellWidth) / 2,
       $box->y + ($box->height - $m->cellHeight) / 2, new RendererGridConfig(1, 1, $m->cellWidth, $m->cellHeight),
       [new PresentationTextRun(0, 0, $glyph, $this->theme->colors['accent'])], $box, $opacity);
   }
 
-  public function surface(string $id, string $role, CanvasRectangle $box, PresentationColor $fallback, bool $contain = false): void
+  public function renderSurface(string $id, string $role, CanvasRectangle $box, PresentationColor $fallback, bool $contain = false): void
   {
     $art = $this->theme->frames[$role] ?? null;
     if ($art === null) { $this->fill($id, $box, $fallback); return; }
@@ -47,21 +48,21 @@ final class ConfigMenuControls
       : $art->images($this->theme->assetRoot, $id, $box, 40)));
   }
 
-  public function level(string $id, CanvasRectangle $box, float $ratio, PresentationColor $color): void
+  public function renderLevel(string $id, CanvasRectangle $box, float $ratio, PresentationColor $color): void
   {
     $thumb = min($this->theme->metrics->cellHeight, $box->width, $box->height);
     $track = new CanvasRectangle($box->x + $thumb / 2, $box->y + ($box->height - max(2, $thumb / 3)) / 2,
       $box->width - $thumb, max(2, $thumb / 3));
-    $this->surface($id . '-track', 'slider.track', $track, $this->theme->colors['edge']);
+    $this->renderSurface($id . '-track', 'slider.track', $track, $this->theme->colors['edge']);
     if ($ratio > 0) {
       $this->fill($id . '-fill', new CanvasRectangle($track->x, $track->y, $track->width * $ratio, $track->height), $color);
     }
-    $this->surface($id . '-thumb', 'slider.thumb',
+    $this->renderSurface($id . '-thumb', 'slider.thumb',
       new CanvasRectangle($box->x + ($box->width - $thumb) * $ratio, $box->y + ($box->height - $thumb) / 2, $thumb, $thumb),
       $color, true);
   }
 
-  public function divider(string $id, CanvasRectangle $box): void
+  public function renderDivider(string $id, CanvasRectangle $box): void
   {
     $this->fill($id . '-line', new CanvasRectangle($box->x, $box->y + $box->height / 2, $box->width, 1), $this->theme->colors['edge']);
     $asset = $this->theme->icons?->icons['decoration.divider'] ?? null;

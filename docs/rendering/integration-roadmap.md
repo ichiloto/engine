@@ -308,8 +308,9 @@ Select modal presentation keeps supported graphical menus underneath instead
 of replacing the whole screen with terminal cells. Existing modal controllers
 retain input and outcomes; unsupported text-entry/dialogue or oversized content
 still uses diagnosed terminal fallback. This is not complete menu coverage.
-Single-confirmation alerts center their message and place a half-content-width
-button at bottom right; button labels remain centered independently of cursors.
+Single-confirmation alerts center their message and a modest-width confirmation
+button below it; labels remain centered independently of cursors. Andrew's later
+21 September correction supersedes the earlier bottom-right half-width placement.
 Choice dialogs retain their separate layout. Last Legend sets `showInputHints`
 to false: keep useful descriptions, remove persistent helper strips and use the
 existing Controls entry for full binding lookup. The shared hint mechanism stays
@@ -328,8 +329,8 @@ refinements, the four shared menu suites pass 135 tests / 3,931 assertions and
 the actual Game Main Menu suite passes 18 tests / 476 assertions on both PHP
 versions. Shared presentation static analysis passes. A fresh silent macOS GPUI
 replay visually confirms aligned bottom panels in command/character focus,
-full-card highlighting, absent helpers, and the centered alert with its
-half-width bottom-right cursor-free button. This is exported-frame visual
+full-card highlighting, absent helpers, and the prior alert placement (superseded
+above). This was exported-frame visual
 validation, not a fresh interactive Game playthrough. The replay shut down
 cleanly; no Game audio/config/save changes or new build were used.
 Linux/WSLg remains untested. The broad Last
@@ -344,19 +345,32 @@ source-bound validation. This does not grant publication or waive admission gate
 Items now has a shared graphical adapter over its existing command, inventory,
 target and quantity modes. Terminal paging slices actual inner capacity and
 follows a clamped selection; horizontal navigation changes pages in Use, Discard
-and Key Items, while quantity selection retains its separate fine/coarse axes.
+and Key Items. Use and Discard share the existing bounded quantity selector in a
+modal, followed by the same Confirm dialog; a singleton skips only the amount
+picker, never confirmation. The graphical quantity modal centers the amount and
+Continue button without decorative directional arrows. Cancelling either step
+leaves inventory untouched.
+Fine/coarse axes remain shared with Shop, and the owner revalidates the current
+stack and target before applying the confirmed amount exactly once.
 The graphical list follows that same selected item without hiding later records.
 The regular-item view consistently excludes equipment and quest-critical key
 items, including after sorting, discarding and stack depletion. Empty Key Items
-remains a reachable read-only view. Descriptions retain the complete source text;
-oversized native content is diagnosed rather than silently omitted. Focused
+remains a reachable read-only view. Descriptions retain the complete source text.
+Items, Equipment, Abilities, Magic and Config now use a shared PHP-owned two-line
+Info reading model. The panel height is fixed; the semantic Info action advances
+whole pages and wraps after the final partial page. Selection/source changes
+reset reading, rendering never advances it, and descriptions plus status remain
+reachable. Terminal ranges belong in Window help; graphical ranges occupy frame
+padding (or Config's Description heading), not extra prose rows. Focused
 Items/quantity/consumption checks pass on PHP 8.4 and 8.5. Silent macOS native
 frame replay checked commands, late inventory, quantity and the item-use alert;
 the alert restores the item description instead of retaining the inactive
 quantity prompt. No new Game artwork or separate build is required.
 
 Config now uses the existing shared `ConfigMenu` owner with one graphical
-composition for Main Menu and Battle Pause. Engine checks cover lifecycle,
+composition for Main Menu and Battle Pause, using the same centered 1100x700
+menu envelope in the 1350x720 logical canvas as the other full menu screens.
+Engine checks cover lifecycle,
 capability fallback, bounded canvas geometry and complete setting values;
 Game checks cover all 11 settings, isolated persistence, Main return focus and
 Pause -> Config -> Pause without resetting the suspended battle. Silent macOS
@@ -371,30 +385,39 @@ The combined Engine regression selection passes 274 tests on each of PHP 8.4
 and 8.5. Game's focused Main/Items/Config selection passes 30 tests on each,
 and its six presentation/rescue suites pass 465 on each. The broad Last Legend
 suite was not completed because of the unrelated 180,000-battle simulation
-baseline. Linux/WSLg remains untested. Oversized descriptions/status still
-diagnose a terminal fallback; general detail scrolling and Editor presentation
-authoring remain explicit follow-on work, not completed runtime features.
+baseline. Linux/WSLg remains untested. Oversized non-Info structures can still
+diagnose a terminal fallback; the shared Info paging described above replaces
+that limitation for descriptions/status. Editor presentation authoring remains
+explicit follow-on work, not a completed runtime feature.
 
 Abilities and Magic now share a graphical composition over their existing
-owners, with all tabs, learned/ready counts, source notes, learning requirements,
+owners, with all tabs, learned/ready counts, learning requirements,
 sorting and field-spell target selection. Actor portraits retain stable role
 bindings; optional skill icons reuse the game's already-admitted book icon.
 Magic's displayed requirement progress/status now receives the same story flags
 as learning. The shared terminal ability/magic list no longer double-offsets
 scrolled rows. Learning rules, casting outcomes and field target ownership are
-unchanged. Shared word-aware wrapping keeps source notes and hyphenated item
+unchanged. Magic's graphical detail panel no longer displays Source; authored
+source notes and learning data remain intact. Equipment comparisons and Config
+navigation share semantic right/up/down/left icon roles with Unicode arrow
+fallbacks, rather than separate ASCII substitutes. Shared word-aware wrapping
+keeps authored notes and hyphenated item
 names intact where they fit, using the same Canvas cell budget for measurement
 and painting without discarding text.
 
-Final focused Engine regressions pass 361 tests / 10,291 assertions on each of
-PHP 8.4 and 8.5. Game checks cover all four real actor books, learning charges
-once, story gates, all tabs, sorting, Cure target/cancel/confirm, no-effect and
-insufficient-MP feedback, modals and terminal fallback: 47 focused cases and
-482 cases / 43,319 assertions across its six scoped suites on each PHP version.
-Silent native frame inspection checked Abilities, learning/source wrapping,
-Magic target selection and retained graphical alerts. No full native gameplay,
-Linux/WSLg, general oversized-prose scrolling or Editor-authoring acceptance is
-implied; the earlier broad-suite limitation remains unchanged.
+The latest consistency regression selection passes 609 Engine tests / 13,917
+assertions and 504 Game tests / 46,904 assertions on each of PHP 8.4 and 8.5.
+After removing quantity arrows, the affected Engine selection passes 94 tests /
+2,106 assertions and Game Main Menu passes 69 tests / 7,839 assertions on both
+versions. Scoped static analysis and diff checks pass. Tests cover item use and
+discard quantity/cancel/confirmation, complete Info paging and binding defaults,
+all actor books, learning charges, story gates and retained menu behavior.
+Silent macOS exported-frame inspection verified arrow-free quantity, the shared
+Confirm dialog, centered alert OK, Equipment comparison arrows, Magic without
+Source, and full-size Config both standalone and over the paused battlefield.
+Every replay closed with exit 0; no Game audio/config/save changes or new build
+were used. This is not a full native gameplay, Linux/WSLg, physical-controller or
+Editor-authoring acceptance; the earlier broad-suite limitation remains unchanged.
 
 Quests, Records and Controls now have shared graphical adapters over their
 existing state/input owners. Andrew's 21 September correction supersedes the

@@ -234,7 +234,7 @@ it('keeps equipped selection separate from candidate focus quantity zero and own
     $text = characterMenuText($frame);
     expect($text['equipment-candidates-candidate-0-text'])->toBe(['Owner Staff', '0'])
       ->and($text['equipment-candidates-candidate-1-text'])->toBe(['Other Staff', '1'])
-      ->and($text['equipment-stats-attack-text'])->toBe(['Attack', (string)$before, '>', (string)($before + 6), '+']);
+      ->and($text['equipment-stats-attack-text'])->toBe(['Attack', (string)$before, "\u{2192}", (string)($before + 6), "\u{2191}"]);
     $ids = [...array_column($frame->textLayers, 'id'), ...array_column($frame->images, 'id')];
     expect(array_filter($ids, fn($id) => str_starts_with($id, 'equipment-candidates-candidate-0-selected')))->not->toBeEmpty()
       ->and(array_filter($ids, fn($id) => str_starts_with($id, 'equipment-candidates-candidate-0-focus')))->toBeEmpty()
@@ -243,6 +243,34 @@ it('keeps equipped selection separate from candidate focus quantity zero and own
   }
   expect($this->actor->effectiveStats->attack)->toBe($before)->and($mode->getPresentationIndex())->toBe(1)
     ->and($this->actor->equipment[0]->equipment)->toBe($this->equipped);
+});
+
+it('reuses semantic arrow artwork without moving equipment values or changing previews', function () {
+  $mode = characterMenuCandidates($this->state);
+  $data = characterMenuTheme(false);
+  $fallback = new MenuPresentationCatalog($this->root, $data);
+  $data['icons'] += ['navigation.next' => 'head.png', 'navigation.up' => 'staff.png', 'navigation.down' => 'cursor.png'];
+  $art = new MenuPresentationCatalog($this->root, $data);
+  foreach (['cursor.png', 'staff.png'] as $directionAsset) {
+    $neutral = $this->state->canvas($fallback);
+    $frame = $this->state->canvas($art);
+    $images = array_column($frame->images, null, 'id');
+    $id = 'equipment-stats-attack';
+    expect($images[$id . '-value-1-1-1']->asset)->toBe('head.png')
+      ->and($images[$id . '-value-3-1-1']->asset)->toBe($directionAsset);
+    $before = array_column($neutral->textLayers, null, 'id')[$id . '-text'];
+    $after = array_column($frame->textLayers, null, 'id')[$id . '-text'];
+    expect($after->bounds)->toEqual($before->bounds);
+    foreach ([1, 2] as $index) {
+      $previous = $before->runs[$index === 1 ? 1 : 3];
+      expect($after->runs[$index]->text)->toBe($previous->text)
+        ->and($after->runs[$index]->column)->toBe($previous->column)
+        ->and($after->runs[$index]->foreground)->toEqual($previous->foreground);
+    }
+    $mode->selectNext();
+    new ReflectionMethod($mode, 'updateCharacterDetailPanel')->invoke($mode);
+  }
+  expect($this->actor->equipment[0]->equipment)->toBe($this->equipped);
 });
 
 it('wraps complete long labels and follows the actual candidate index in a finite viewport', function () {
@@ -338,7 +366,9 @@ it('retains terminal source data and full description while native overflow diag
   $this->state->equipmentInfoPanel->setText($description);
   expect($this->state->equipmentInfoPanel->getPresentationText())->toBe($description)
     ->and($this->state->equipmentInfoPanel->getContent())->toBe(['First', 'Second'])
-    ->and($this->scene->getPresentationCanvas())->toBeNull();
+    ->and($this->scene->getPresentationCanvas())->toBeInstanceOf(PresentationCanvas::class)
+    ->and($this->state->menuInfoText->lastPage->source)->toBe($description)
+    ->and($this->state->menuInfoText->lastPage->lines)->toBe(['First', 'Second']);
   $this->state->equipmentInfoPanel->setText('Fits again');
   expect($this->scene->getPresentationCanvas())->toBeInstanceOf(PresentationCanvas::class);
   $status = new StatusViewState(new SceneStateContext($this->scene));
@@ -458,12 +488,13 @@ it('refreshes both menu footers from live semantic rebindings without consuming 
     $bindings = ['character_next' => ['keys' => [$next]],
       'character_previous' => ['keys' => [KeyCode::PAGE_UP, KeyCode::HOME]], 'back' => ['keys' => [KeyCode::END]]];
     InputManager::setBindings($bindings);
+    $effective = InputManager::getBindings();
     foreach (['equipment' => $this->state->canvas($theme),
       'status' => CharacterMenuPresentation::status($this->actor, $theme)] as $id => $canvas) {
       $hint = array_column($canvas->textLayers, null, 'id')[$id . '-hints'];
       expect(implode('', array_column($hint->runs, 'text')))->toBe(' ' . ControlHint::keyboard($next)->label . ' : Next   Page Up : Prev   End : Back');
     }
-    expect(InputManager::getBindings())->toBe($bindings)->and($source->keys)->toBe([KeyCode::TAB])
+    expect(InputManager::getBindings())->toBe($effective)->and($source->keys)->toBe([KeyCode::TAB])
       ->and($this->state->currentMode())->toBe($mode)->and($this->state->character)->toBe($this->actor);
   }
 })->with([false, true]);

@@ -114,7 +114,7 @@ final class MenuRowPainter
         new CanvasRectangle($bounds->x + $metrics->padding, $bounds->y + ($bounds->height - $metrics->iconHeight) / 2,
           $metrics->iconWidth, $metrics->iconHeight), $this->contentLayer, $bounds));
     }
-    $this->label($id, $row, $bounds, $layout, $skin, $asset !== null);
+    $this->renderLabel($id, $row, $bounds, $layout, $skin, $asset !== null, $icons);
     if ($row->focused && $row->showCursor && $row->kind !== MenuRowKind::BUTTON
       && !$row->disabled && $icons?->cursor !== null) {
       if ($metrics->cursorHeight > $bounds->height
@@ -137,8 +137,8 @@ final class MenuRowPainter
     return true;
   }
 
-  private function label(string $id, MenuRow $row, CanvasRectangle $bounds, MenuRowLayout $layout,
-    MenuRowSkin $skin, bool $hasIcon): void
+  private function renderLabel(string $id, MenuRow $row, CanvasRectangle $bounds, MenuRowLayout $layout,
+    MenuRowSkin $skin, bool $hasIcon, ?MenuIconRegistry $icons): void
   {
     $color = $skin->colors[$row->disabled ? 'disabled' : 'text'];
     $metrics = $skin->metrics;
@@ -173,6 +173,17 @@ final class MenuRowPainter
     foreach ($layout->columns as $index => $definition) {
       $column += $metrics->gapCells;
       $value = $row->values[$index];
+      if ($value->direction !== null) {
+        $left = $bounds->x + $bounds->width - $metrics->padding - $cells * $layout->cellWidth;
+        $arrow = $value->direction->getImages($icons, $id . '-value-' . $index,
+          new CanvasRectangle($left + $column * $layout->cellWidth, $y,
+            $definition->cells * $layout->cellWidth, $layout->cellHeight), $this->contentLayer);
+        if ($arrow !== []) {
+          array_push($this->images, ...$arrow);
+          $column += $definition->cells;
+          continue;
+        }
+      }
       $lines = $layout->lines($value->text, $definition->cells);
       $lineCount = max($lineCount, count($lines));
       foreach ($lines as $line => $text) {

@@ -44,7 +44,7 @@ class InputManager
    */
   protected static array $config = [];
   /**
-   * @var array The bindings as the project authored them, captured at boot so
+   * @var array The effective project and Engine defaults, captured at boot so
    * a player who rebinds their way into a corner can get back out.
    */
   protected static array $defaultConfig = [];
@@ -61,7 +61,7 @@ class InputManager
     self::resetState();
     $inputConfig = ConfigStore::get(InputConfig::class);
     assert($inputConfig instanceof InputConfig);
-    self::$config = $inputConfig->all();
+    self::setBindings($inputConfig->all());
     self::$defaultConfig = self::$config;
   }
 
@@ -76,7 +76,7 @@ class InputManager
   }
 
   /**
-   * Returns the bindings the project shipped with.
+   * Returns the project bindings with missing Engine actions supplied at boot.
    *
    * @return array<string, array{description?: string, keys?: KeyCode[]}> The default bindings.
    */
@@ -111,7 +111,26 @@ class InputManager
    */
   public static function setBindings(array $bindings): void
   {
-    self::$config = $bindings;
+    self::$config = self::getBindingsWithDefaults($bindings);
+  }
+
+  /**
+   * Adds the menu Info action for older projects without claiming authored controls.
+   *
+   * @param array<string, array{description?: string, keys?: KeyCode[]}> $bindings
+   * @return array<string, array{description?: string, keys?: KeyCode[]}>
+   */
+  private static function getBindingsWithDefaults(array $bindings): array
+  {
+    if (array_key_exists('info', $bindings)) {
+      return $bindings;
+    }
+
+    $keys = array_values(array_filter([KeyCode::i, KeyCode::I], static fn(KeyCode $key): bool =>
+      !array_any($bindings, static fn(array $binding): bool => in_array($key, $binding['keys'] ?? [], true))));
+    $bindings['info'] = ['description' => 'Read the next Info page; wrap to the first.', 'keys' => $keys];
+
+    return $bindings;
   }
 
   /**

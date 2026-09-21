@@ -4,11 +4,13 @@ namespace Ichiloto\Engine\Core\Menu\ItemMenu\Modes;
 
 use Exception;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
-use Ichiloto\Engine\Core\Menu\QuantitySelector;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
+use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\Quests\QuestManager;
+use Ichiloto\Engine\UI\Modal\ModalManager;
 
 /**
  * Class SelectItemTargetMode. Represents the target selection mode of the item menu.
@@ -22,32 +24,12 @@ class SelectItemTargetMode extends ItemMenuMode
    */
   public ?ItemMenuMode $previousMode = null;
 
-  /** Active Shop-style quantity selection, when the chosen stack has multiple copies. */
-  protected ?QuantitySelector $quantitySelector = null;
-  protected ?InventoryItem $pendingItem = null;
-  protected ?Character $pendingTarget = null;
-
-  public bool $selectingQuantity { get => $this->quantitySelector !== null; }
-
-  /** Presentation copy without keyboard bindings; the existing selector still owns quantity. */
-  public function quantityPrompt(): ?string
-  {
-    if ($this->quantitySelector === null || $this->pendingItem === null || $this->pendingTarget === null) { return null; }
-    return sprintf('Use %s x %02d on %s?', $this->pendingItem->name,
-      $this->quantitySelector->quantity, $this->pendingTarget->name);
-  }
-
   /**
    * @inheritDoc
    * @throws Exception If an error occurs while alerting the player.
    */
   public function update(): void
   {
-    if ($this->quantitySelector instanceof QuantitySelector) {
-      $this->updateQuantitySelection();
-      return;
-    }
-
     if (Input::isButtonDown("back")) {
       play_sound(SystemSound::CANCEL);
       $this->goBackToThePreviousMode();
@@ -57,11 +39,7 @@ class SelectItemTargetMode extends ItemMenuMode
     if (Input::isButtonDown("confirm")) {
       if (($item = $this->state->selectionPanel->activeItem) && ($target = $this->state->targetSelectionPanel->activeCharacter)) {
         play_sound(SystemSound::CONFIRM);
-        if ($item->quantity > 1) {
-          $this->beginQuantitySelection($item, $target);
-        } else {
-          $this->useItem($item, $target, 1);
-        }
+        $this->confirmUse($item, $target);
       } else {
         play_sound(SystemSound::BUZZER);
       }
@@ -97,7 +75,6 @@ class SelectItemTargetMode extends ItemMenuMode
    */
   public function exit(): void
   {
-    $this->cancelQuantitySelection();
     $this->state->targetSelectionPanel->setTargets([]);
     $this->state->targetSelectionPanel->blur();
     $this->state->statusPanel->setTarget(null);
@@ -142,94 +119,38 @@ class SelectItemTargetMode extends ItemMenuMode
     $this->state->setMode($previousMode);
   }
 
-  /** Starts the same bounded fine/coarse quantity workflow used by shops. */
-  protected function beginQuantitySelection(InventoryItem $item, Character $target): void
+  /** Blocking modals own their input; only this mode applies the confirmed amount. */
+  protected function confirmUse(InventoryItem $item, Character $target): void
   {
-    $this->pendingItem = $item;
-    $this->pendingTarget = $target;
-    $this->quantitySelector = new QuantitySelector(maximum: $item->quantity);
-    $this->updateQuantitySelectionContent();
-  }
-
-  /** Handles Shop-style quantity adjustment, confirmation, and cancellation. */
-  protected function updateQuantitySelection(): void
-  {
-    if (
-      Input::isButtonDown('cancel')
-      || Input::isButtonDown('back')
-    ) {
-      play_sound(SystemSound::CANCEL);
-      $this->cancelQuantitySelection();
-      return;
-    }
-
-    $vertical = Input::getAxis(AxisName::VERTICAL);
-    $horizontal = Input::getAxis(AxisName::HORIZONTAL);
-
-    if (abs($vertical) > 0 || abs($horizontal) > 0) {
-      if ($this->quantitySelector?->adjustForAxes($vertical, $horizontal)) {
-        play_sound(SystemSound::CURSOR);
-        $this->updateQuantitySelectionContent();
+    try {
+      if (!$this->canUseCurrentStack($item, $target, 1)) { return; }
+      $quantity = $item->quantity > 1
+        ? ModalManager::getInstance($this->state->getGameScene()->getGame())->selectQuantity(
+          sprintf('Use %s on %s', $item->name, $target->name), $item->quantity, 'Use item')
+        : 1;
+      if ($quantity === null || !$this->canUseCurrentStack($item, $target, $quantity)) { return; }
+      if (confirm(sprintf('Use %s x %d on %s?', $item->name, $quantity, $target->name))
+        && $this->canUseCurrentStack($item, $target, $quantity)) {
+        $this->useItem($item, $target, $quantity);
       }
-      return;
-    }
-
-    if (! Input::isButtonDown('confirm')) {
-      return;
-    }
-
-    $item = $this->pendingItem;
-    $target = $this->pendingTarget;
-    $quantity = $this->quantitySelector?->quantity ?? 1;
-    $this->clearQuantitySelection();
-    // Item use may open a synchronous result modal. Its underlay must not retain
-    // the now-inactive quantity prompt and keyboard-only helper line.
-    $this->state->infoPanel->setText($item?->description ?? '');
-
-    if ($item instanceof InventoryItem && $target instanceof Character) {
-      play_sound(SystemSound::CONFIRM);
-      $this->useItem($item, $target, $quantity);
+    } finally {
+      InputManager::resetState();
+      if ($this->state->mode === $this && !$this->state->getGameScene()->getGame()->hasStopped()) {
+        $this->state->selectionPanel->setItems($this->state->itemMenu->getRegularItems());
+        $this->state->infoPanel->setText($this->state->selectionPanel->activeItem?->description ?? '');
+      }
     }
   }
 
-  /** Renders the selected quantity in the existing item-menu information panel. */
-  protected function updateQuantitySelectionContent(): void
+  private function canUseCurrentStack(InventoryItem $item, Character $target, int $quantity): bool
   {
-    if (
-      ! $this->quantitySelector instanceof QuantitySelector
-      || ! $this->pendingItem instanceof InventoryItem
-      || ! $this->pendingTarget instanceof Character
-    ) {
-      return;
+    if ($quantity < 1 || $item->quantity < $quantity
+      || !in_array($item, $this->state->itemMenu->getRegularItems(), true)
+      || !in_array($target, $this->party->members->toArray(), true)) {
+      alert('The selected item quantity or target is no longer available.');
+      return false;
     }
-
-    $this->state->infoPanel->setText(sprintf(
-      "Use %s x %02d on %s?\nUp/Down: +1/-1  Right/Left: +10/-10  Enter: Confirm  C/Esc: Cancel",
-      $this->pendingItem->name,
-      $this->quantitySelector->quantity,
-      $this->pendingTarget->name,
-    ));
-  }
-
-  /** Cancels quantity selection without consuming the item. */
-  protected function cancelQuantitySelection(): void
-  {
-    if (! $this->quantitySelector instanceof QuantitySelector) {
-      return;
-    }
-
-    $this->clearQuantitySelection();
-    $this->state->infoPanel->setText(
-      $this->state->selectionPanel->activeItem?->description ?? ''
-    );
-  }
-
-  /** Clears transient quantity state. */
-  protected function clearQuantitySelection(): void
-  {
-    $this->quantitySelector = null;
-    $this->pendingItem = null;
-    $this->pendingTarget = null;
+    return true;
   }
 
   /** Applies the selected quantity and refreshes the existing item panels. */
@@ -238,14 +159,11 @@ class SelectItemTargetMode extends ItemMenuMode
     $target->use($item, $quantity);
 
     if ($item->quantity === 0) {
-      $this->inventory->removeItems($item);
-      $this->state->selectionPanel->setItems($this->state->itemMenu->getRegularItems());
+      $this->inventory->all->remove($item);
     }
+    QuestManager::current()?->syncCollectObjectives();
 
+    if ($this->state->getGameScene()->getGame()->hasStopped()) { return; }
     $this->state->statusPanel->updateContent();
-    $this->state->selectionPanel->updateContent();
-    $this->state->infoPanel->setText(
-      $this->state->selectionPanel->activeItem?->description ?? ''
-    );
   }
 }

@@ -14,7 +14,8 @@ final readonly class ModalPresentation
 
   /** @param non-empty-list<string> $choices */
   public function __construct(public string $title, public string $message, array $choices,
-    public int $activeIndex, public bool $vertical = false, public bool $singleConfirmation = false)
+    public int $activeIndex, public bool $vertical = false, public bool $singleConfirmation = false,
+    public ?QuantityPresentation $quantity = null)
   {
     if (!array_is_list($choices) || $choices === [] || !isset($choices[$activeIndex])) {
       throw new InvalidArgumentException('Modal presentation requires choices and a valid owner-selected index.');

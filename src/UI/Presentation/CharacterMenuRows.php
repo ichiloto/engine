@@ -32,8 +32,12 @@ final class CharacterMenuRows
         $next = $preview === null ? $current->$field : $preview->$field;
         $direction = $next <=> $current->$field;
         $color = $theme->colors[match ($direction) { 1 => 'increase', -1 => 'decrease', default => 'text' }];
-        array_push($values, new MenuRowValue('>'), new MenuRowValue(number_format($next), $color),
-          new MenuRowValue(match ($direction) { 1 => '+', -1 => '-', default => '' }, $color));
+        array_push($values, MenuRowValue::getArrow(MenuDirection::RIGHT), new MenuRowValue(number_format($next), $color),
+          match ($direction) {
+            1 => MenuRowValue::getArrow(MenuDirection::UP, $color),
+            -1 => MenuRowValue::getArrow(MenuDirection::DOWN, $color),
+            default => new MenuRowValue(''),
+          });
       }
       $rows[] = new MenuRow($field, $label, $values);
     }

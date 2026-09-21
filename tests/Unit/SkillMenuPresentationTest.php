@@ -456,7 +456,7 @@ it('uses stable portrait identity and decodes replacement artwork proportions on
   $after->destination->assertWithin($second->width, $second->height);
 });
 
-it('measures complete description status and rebound hints without overlapping the body', function (bool $magic) {
+it('pages complete description and status with fixed Info bounds and separate rebound hints', function (bool $magic) {
   $state = skillMenuOwner($this, $magic);
   $data = skillMenuTheme();
   $data['showInputHints'] = true;
@@ -465,19 +465,33 @@ it('measures complete description status and rebound hints without overlapping t
   $skill = $magic ? $this->spell : $this->ability;
   new ReflectionProperty($skill, 'description')->setValue($skill, str_repeat('Wrapped detail. ', 15));
   new ReflectionProperty($state, 'statusMessage')->setValue($state, str_repeat('Owner status. ', 8));
-  $frame = SkillMenuPresentation::compose($state->getPresentationContent(), new MenuPresentationCatalog($this->root, $data));
-  $text = skillMenuText($frame);
-  expect($text['skill-description'])->toBe($skill->description)->and(implode('', $text))->toContain('F10')->toContain('X');
-  $layers = array_column($frame->textLayers, null, 'id');
-  $description = $layers['skill-description'];
-  $status = $layers['skill-status'];
-  expect($status->y)->toBeGreaterThanOrEqual($description->y + $description->bounds->height);
-  foreach ($frame->textLayers as $layer) {
-    if (str_starts_with($layer->id, 'skill-hints-')) { expect($layer->y)->toBeGreaterThanOrEqual($status->y + $status->bounds->height); }
-  }
+  $theme = new MenuPresentationCatalog($this->root, $data);
+  $seen = '';
+  $infoBounds = null;
+  do {
+    $frame = SkillMenuPresentation::compose($state->getPresentationContent(), $theme);
+    $text = skillMenuText($frame);
+    $layers = array_column($frame->textLayers, null, 'id');
+    $bounds = $layers['skill-info-backing']->clipRect;
+    $infoBounds ??= $bounds;
+    expect($bounds)->toEqual($infoBounds)->and(implode('', $text))->toContain('F10', 'X');
+    foreach (['skill-description', 'skill-status'] as $id) {
+      $seen .= $text[$id] ?? '';
+      if (!isset($layers[$id])) { continue; }
+      foreach ($frame->textLayers as $layer) {
+        if (str_starts_with($layer->id, 'skill-hints-')) {
+          expect($layer->y)->toBeGreaterThanOrEqual($layers[$id]->y + $layers[$id]->bounds->height);
+        }
+      }
+    }
+    $page = $state->menuInfoText->lastPage;
+    expect($page->rows)->toBe(2);
+    $state->menuInfoText->advance();
+  } while ($page->nextOffset !== 0);
+  expect($seen)->toBe($skill->description . $state->getPresentationContent()->status);
 })->with([false, true]);
 
-it('diagnoses impossible complete prose instead of truncating data or crashing the menu owner', function (string $field) {
+it('keeps long Info readable and removes only graphical Magic source metadata', function (string $field) {
   skillMenuRuntime($this, skillMenuTheme());
   $state = skillMenuOwner($this, true);
   if ($field === 'description') { new ReflectionProperty($this->spell, 'description')->setValue($this->spell, str_repeat('Complete prose ', 500)); }
@@ -486,10 +500,12 @@ it('diagnoses impossible complete prose instead of truncating data or crashing t
     skillMenuKey($state, KeyCode::RIGHT);
   }
   $content = $state->getPresentationContent();
-  expect($this->scene->getPresentationCanvas())->toBeNull()->and($this->scene->state)->toBe($state);
-  expect(file_get_contents($this->root . '/logs/error.log'))->toContain('finite viewport');
-  expect($field === 'description' ? $content->description : $content->fields['Source'])
-    ->toBe($field === 'description' ? $this->spell->description : $this->learnSpell->note);
+  expect($this->scene->getPresentationCanvas())->toBeInstanceOf(PresentationCanvas::class)
+    ->and($this->scene->state)->toBe($state)->and($content->fields)->not->toHaveKey('Source');
+  if ($field === 'description') {
+    expect($content->description)->toBe($this->spell->description)
+      ->and($state->menuInfoText->lastPage->source)->toBe($this->spell->description);
+  } else { expect($this->learnSpell->note)->toBe(str_repeat('Source requirement ', 500)); }
 })->with(['description', 'source']);
 
 it('retains the neutral canvas without optional artwork and semantic hints remain live', function (bool $magic) {
