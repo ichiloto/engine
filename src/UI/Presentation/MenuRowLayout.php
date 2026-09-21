@@ -46,7 +46,7 @@ final readonly class MenuRowLayout
     if ($cells < 1 || (!$this->wrapText && mb_strlen($text, 'UTF-8') > $cells)) {
       throw new InvalidArgumentException('Menu text requires wider columns or wrapping; complete text must not be silently truncated.');
     }
-    return $text === '' ? [''] : mb_str_split($text, $cells, 'UTF-8');
+    return MenuTextWrap::lines($text, $cells);
   }
 
   public function heightFor(MenuRow $row, MenuRowMetrics $metrics, bool $hasIcon): int

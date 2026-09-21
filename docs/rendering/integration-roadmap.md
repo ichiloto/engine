@@ -375,10 +375,31 @@ baseline. Linux/WSLg remains untested. Oversized descriptions/status still
 diagnose a terminal fallback; general detail scrolling and Editor presentation
 authoring remain explicit follow-on work, not completed runtime features.
 
-Abilities and Magic implementation has started next, followed by Quests, Records
-and Controls, reusing the same components and live source data. These five
-adapters are not yet accepted as implemented; their approval is not a blocker
-and does not need another design round. Controls must use semantic device glyphs
+Abilities and Magic now share a graphical composition over their existing
+owners, with all tabs, learned/ready counts, source notes, learning requirements,
+sorting and field-spell target selection. Actor portraits retain stable role
+bindings; optional skill icons reuse the game's already-admitted book icon.
+Magic's displayed requirement progress/status now receives the same story flags
+as learning. The shared terminal ability/magic list no longer double-offsets
+scrolled rows. Learning rules, casting outcomes and field target ownership are
+unchanged. Shared word-aware wrapping keeps source notes and hyphenated item
+names intact where they fit, using the same Canvas cell budget for measurement
+and painting without discarding text.
+
+Final focused Engine regressions pass 361 tests / 10,291 assertions on each of
+PHP 8.4 and 8.5. Game checks cover all four real actor books, learning charges
+once, story gates, all tabs, sorting, Cure target/cancel/confirm, no-effect and
+insufficient-MP feedback, modals and terminal fallback: 47 focused cases and
+482 cases / 43,319 assertions across its six scoped suites on each PHP version.
+Silent native frame inspection checked Abilities, learning/source wrapping,
+Magic target selection and retained graphical alerts. No full native gameplay,
+Linux/WSLg, general oversized-prose scrolling or Editor-authoring acceptance is
+implied; the earlier broad-suite limitation remains unchanged.
+
+Quests and Records implementation is active next, including reachable long
+journal/report content in terminal and graphical views; Controls follows.
+These three adapters are not yet accepted as implemented. Their approval is not
+a blocker and does not need another design round. Controls must use semantic device glyphs
 without losing access to all bindings. Current keyboard hints and replaceable
 hint providers do not constitute physical gamepad detection or support.
 Main Menu Quit currently routes its chooser directly to title/exit; confirmation

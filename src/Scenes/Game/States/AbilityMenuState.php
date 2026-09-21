@@ -20,14 +20,86 @@ use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\UI\Presentation\MenuCanvasState;
+use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
+use Ichiloto\Engine\UI\Presentation\MenuRow;
+use Ichiloto\Engine\UI\Presentation\MenuRowKind;
+use Ichiloto\Engine\UI\Presentation\MenuRowValue;
+use Ichiloto\Engine\UI\Presentation\SkillMenuContent;
+use Ichiloto\Engine\UI\Presentation\SkillMenuPresentation;
 
 /**
  * Displays the field ability-management screen for a single party member.
  *
  * @package Ichiloto\Engine\Scenes\Game\States
  */
-class AbilityMenuState extends GameSceneState
+class AbilityMenuState extends GameSceneState implements CanvasProviderInterface
 {
+    use MenuCanvasState;
+
+    protected function composeMenuCanvas(MenuPresentationCatalog $theme, float $time): ?PresentationCanvas
+    {
+        $content = $this->getPresentationContent();
+        return $content === null ? null : SkillMenuPresentation::compose($content, $theme, $time);
+    }
+
+    public function getPresentationContent(): ?SkillMenuContent
+    {
+        $actor = $this->character;
+        if ($actor === null) { return null; }
+        $tab = $this->tabs[$this->activeTabIndex] ?? 'Ready';
+        $index = $this->getActiveEntryIndex();
+        $book = $actor->abilityBook;
+        $events = $this->getGameScene()->storyEvents;
+        $time = $this->getElapsedPlayTime();
+        $rows = [];
+        if ($tab === 'Sort') {
+            foreach ($this->sortOptions as $i => $label) {
+                $rows[] = new MenuRow((string)$i, $label, kind: MenuRowKind::COMMAND,
+                    selected: $label === $book->getSortOrder()->value, focused: $i === $index);
+            }
+        } else {
+            foreach ($tab === 'Learn' ? $book->getLearnableAbilities() : $book->getLearnedAbilities() as $i => $entry) {
+                $skill = $entry instanceof LearnableAbility ? $entry->skill : $entry;
+                $values = $entry instanceof LearnableAbility
+                    ? [new MenuRowValue($entry->getStatusLabel($actor, $this->party, $events, $time))]
+                    : [new MenuRowValue($this->formatOccasionLabel($skill->occasion)), new MenuRowValue($skill->cost . ' MP')];
+                $rows[] = new MenuRow((string)$i, $skill->name, $values, icon: 'skill.ability',
+                    selected: $i === $index, focused: $i === $index);
+            }
+        }
+        $learnable = $tab === 'Learn' ? $this->getActiveLearnableAbility() : null;
+        $skill = $tab === 'Learn' ? $learnable?->skill : ($tab === 'Ready' ? $this->getActiveReadyAbility() : null);
+        $fields = [];
+        $detail = '';
+        $empty = $tab === 'Learn' ? 'No discovered abilities.' : 'No learned abilities.';
+        if ($skill !== null) {
+            $fields = ['MP Cost' => (string)$skill->cost, 'Occasion' => $this->formatOccasionLabel($skill->occasion),
+                'Scope' => $skill->scope->side->value];
+            if ($learnable !== null) {
+                $fields['Status'] = $learnable->getStatusLabel($actor, $this->party, $events, $time);
+                $fields['Source'] = $learnable->note !== '' ? $learnable->note : 'Unrecorded';
+                $detail = $learnable->requirement->describeProgress($actor, $this->party, $events, $time);
+                if ($detail === '') { $detail = 'No additional requirements.'; }
+            }
+        } elseif ($tab === 'Sort') {
+            $fields = ['Current' => $book->getSortOrder()->value];
+            $detail = "A-Z keeps learned abilities alphabetical.\nZ-A reverses the learned ability list.\nApply a sort order to reorganize the Ready tab.";
+        } else {
+            $detail = $tab === 'Learn' ? 'Discovered abilities and their unlock requirements will appear here.'
+                : 'Battle abilities will appear here once this character has unlocked or learned them.';
+        }
+        return new SkillMenuContent($actor, 'Abilities', $this->tabs, $this->activeTabIndex,
+            ['Learned Abilities' => (string)count($book->getLearnedAbilities()),
+                'Ready to Learn' => (string)$book->getReadyToLearnCount($actor, $this->party, $events, $time),
+                'Current Order' => $book->getSortOrder()->value],
+            $skill?->name ?? ($tab === 'Sort' ? 'Ability Order' : $empty), $fields, $detail, $rows,
+            $this->getListPanelTitle(), $index, $empty, $this->getPresentationDescription(), $this->statusMessage,
+            match ($tab) { 'Learn' => 'Learn', 'Sort' => 'Apply', default => 'View' });
+    }
+
     protected const int ABILITY_MENU_WIDTH = 110;
     protected const int ABILITY_MENU_HEIGHT = 35;
     protected const int SUMMARY_PANEL_HEIGHT = 7;
@@ -109,6 +181,7 @@ class AbilityMenuState extends GameSceneState
      */
     public function enter(): void
     {
+        $this->resetMenuPresentation();
         Console::clear();
         $this->getGameScene()->locationHUDWindow->deactivate();
         $this->character ??= $this->getGameScene()->party->leader;
@@ -555,12 +628,7 @@ class AbilityMenuState extends GameSceneState
     {
         $availableLines = self::INFO_PANEL_HEIGHT - 2;
         $availableWidth = self::ABILITY_MENU_WIDTH - 4;
-        $description = match ($this->tabs[$this->activeTabIndex] ?? 'Ready') {
-            'Ready' => $this->getActiveReadyAbility()?->description ?? 'Review the abilities this character can use in battle.',
-            'Learn' => $this->getActiveLearnableAbility()?->skill->description ?? 'Review discovered abilities and what each one requires to learn.',
-            'Sort' => 'Reorder learned abilities to fit how you like to browse battle commands.',
-            default => '',
-        };
+        $description = $this->getPresentationDescription();
 
         $lines = explode("\n", wrap_text($description, max(1, $availableWidth)));
         $lines = array_slice($lines, 0, $availableLines);
@@ -570,6 +638,16 @@ class AbilityMenuState extends GameSceneState
         }
 
         return array_slice(array_pad($lines, $availableLines, ''), 0, $availableLines);
+    }
+
+    private function getPresentationDescription(): string
+    {
+        return match ($this->tabs[$this->activeTabIndex] ?? 'Ready') {
+            'Ready' => $this->getActiveReadyAbility()?->description ?? 'Review the abilities this character can use in battle.',
+            'Learn' => $this->getActiveLearnableAbility()?->skill->description ?? 'Review discovered abilities and what each one requires to learn.',
+            'Sort' => 'Reorder learned abilities to fit how you like to browse battle commands.',
+            default => '',
+        };
     }
 
     /**

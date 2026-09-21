@@ -126,11 +126,7 @@ final class MenuCanvas
   public static function wrap(string $text, int $cells): array
   {
     if ($cells < 1) { throw new RuntimeException('Menu text has no available width.'); }
-    $lines = [];
-    foreach (explode("\n", str_replace(["\r\n", "\r", "\t"], ["\n", "\n", '    '], $text)) as $line) {
-      array_push($lines, ...($line === '' ? [''] : mb_str_split($line, $cells, 'UTF-8')));
-    }
-    return $lines;
+    return MenuTextWrap::lines($text, $cells);
   }
 
   /** A finite view follows the owner's existing index, without taking ownership of navigation.
