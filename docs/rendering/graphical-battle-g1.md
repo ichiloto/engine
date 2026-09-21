@@ -151,11 +151,15 @@ geometry for every battle, independently of arena or combatant artwork. Without
 an arena entry, the existing owned battlefield is drawn below the native HUD;
 missing artwork does not revert the controls to terminal windows. Only a missing
 catalog, or an encounter with neither an arena nor a shared UI, keeps the entire
-battle on the legacy path. A malformed declared catalog fails explicitly.
+battle on the legacy path. A malformed declared catalog is diagnosed and the
+battle uses the terminal presentation.
 
 Artwork changes throughout development, and the engine treats the image on
-disk as the moment's truth. An asset fails only when it is missing, not a
-PNG, or corrupt; supplying the right asset is the developer's job. Authored
+disk as the moment's truth. Character identity never depends on an image's
+contents, checksum or a previous revision's dimensions. Supported format,
+decoding, path safety and the generic resource limits above remain enforced;
+recommended authoring sizes are not exact-image acceptance gates. Supplying
+appropriately composed artwork is the developer's responsibility. Authored
 battler crops and pivots reconcile to the current image at battle start: a
 crop that still overlaps the image clamps to it, and a crop the image no
 longer contains falls back to the whole image, in both cases rendering
@@ -163,6 +167,14 @@ best-effort with the mismatch logged for the author. Any other failure while
 assembling the graphical presentation, a missing catalog under an explicit
 arena included, logs loudly and degrades that battle to the terminal
 presentation. Presentation never decides whether combat happens.
+
+For whole-file UI textures, use `CanvasNineSlice::fromPng($assetRoot, $path, ...)`
+with any intended border cuts, density and destination minimums. It reads the
+current source dimensions instead of repeating them in the catalog. Explicit
+atlas regions continue to use the constructor with a `SpriteSourceRect`.
+Results preparation resolves portrait/icon families as current whole images,
+then contains them in their existing display slots; old source dimensions do
+not reject replacements. Frame budgets still apply to the actual decoded files.
 
 Example structure (generic geometry and placeholder paths, not game artwork):
 
@@ -213,8 +225,9 @@ Use this for location-specific backgrounds: the same troop can appear in several
 settings. Arena entries may reuse one background PNG with different formations.
 The binding belongs to this encounter, not global or inferred map state; map
 encounter reconfiguration clears any previous binding. An explicit invalid or
-missing arena/catalog fails before native battle-entry effects, never silently
-falling back. Terminal play ignores this optional presentation metadata.
+missing arena/catalog is diagnosed before battle-entry effects, and combat
+continues with the terminal presentation. Terminal play ignores this optional
+presentation metadata.
 
 Without a binding, arena lookup uses `Troop::definitionId`, falling back to its
 historical catalog name only when no authored ID exists. Actor lookup uses `Character::actorId`.
@@ -224,8 +237,10 @@ keys, not presentation instance identities. Repeated enemy objects have separate
 identity is added. Targets and feedback refer to the actual PHP object.
 
 `BattlerArtwork` width/height and pivot are source pixels relative to its crop,
-or the whole PNG when no crop is supplied. Dimensions must match that selected
-source exactly. `BattlerSlot(x, y, width, height)` gives the graphical pivot
+or its authored whole-image bounds when no crop is supplied. The metadata must
+be internally consistent; it does not lock the dimensions of the file on disk.
+Preparation reconciles stale bounds and pivots with the current image as described
+above. `BattlerSlot(x, y, width, height)` gives the graphical pivot
 destination and maximum contain dimensions. PHP uniformly scales the selected
 source to those limits, then subtracts the scaled pivot to resolve the destination
 rectangle. No snapping to terminal cells occurs. Art-supplied shadows belong to
@@ -235,10 +250,13 @@ Supply party slots for the configured active formation and enemy slots in the
 troop's actual member order. The existing Party reserve fallback remains live:
 all roster images and their possible party-slot placements are preflighted, but
 only the actual frontline is drawn. Enemy removal never renumbers a surviving
-instance's authored slot. All configured participants must have art; individual
-ASCII fallback within an explicitly graphical arena is prohibited. Missing files, escaping symlinks, non-PNG headers,
-oversized PNGs, mismatched dimensions/crops, invalid placement and source budgets
-fail before battle-entry effects. This PHP preflight reads headers without PNG
+instance's authored slot. All configured participants must have usable art for
+that graphical arena; individual ASCII battlers are not mixed into it. Missing
+files, escaping symlinks, non-PNG headers, oversized PNGs, invalid placement and
+exceeded source budgets reject graphical preparation before battle-entry effects.
+The scene diagnoses that failure and retains playable terminal combat instead of
+aborting the battle. Stale battler crop bounds alone are reconciled, not rejected.
+This PHP preflight reads headers without PNG
 decoding. Native full decoding and atomic image preparation remain asynchronous;
 header preflight does not claim to validate compressed pixel data or await paint.
 
@@ -524,8 +542,10 @@ the incoming action is fully visible; the old press cannot advance it. Captured
 reward facts and the surrounding panels are unchanged. Reduced motion switches
 directly to the stable label; terminal hides the action hint while input is
 locked rather than pretending to render alpha fades. The focused native action
-uses the already-admitted selected fill/border and separate cursor, stationary
-in reduced motion. The browser kit's additional FocusRing asset and other button
+uses the already-admitted selected fill/border. Andrew's 21 September list-only
+cursor refinement removes the button cursor in both motion modes; the existing
+button handover fades and centered label remain unchanged. The browser kit's
+additional FocusRing asset and other button
 states are not newly imported or wired by this correction.
 
 Updated Results/terminal checks pass 33 tests / 439 assertions on PHP 8.4 and 8.5,

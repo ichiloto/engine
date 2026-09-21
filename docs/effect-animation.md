@@ -3,10 +3,9 @@
 This plan unifies the engine's animation systems into one timeline model for
 magic, skill, item and field effects, gives that model a graphical (GPUI)
 presentation alongside its terminal one, and builds the authoring tooling in
-the editor, in the direction of RPG Maker's animation editor. It feeds the
-integration roadmap's G2 (battler animation and combat feedback) and G3
-(graphical summon presentation) gates rather than replacing them. Related
-plans: [layered-tilemaps.md](layered-tilemaps.md); related contracts:
+the editor. It feeds the integration roadmap's G2 (battler animation and 
+combat feedback) and G3 (graphical summon presentation) gates rather than 
+replacing them. Related plans: [layered-tilemaps.md](layered-tilemaps.md); related contracts:
 [summons.md](summons.md), [cinematics.md](cinematics.md),
 [rendering/sprite-sheets.md](rendering/sprite-sheets.md).
 
@@ -137,6 +136,9 @@ says.
    the schema-driven record path the summons already use.
 4. Fold the battle-entry frame file into a timeline played by the same
    session.
+5. Migrate `assets/Data/Animations/explosion01/` (currently orphaned): each
+   of its text files is one frame, becoming one glyph-track keyframe of a
+   timeline.
 
 ### Phase 2 - GPUI parity (feeds gates G2/G3)
 
@@ -153,7 +155,7 @@ says.
 3. Summons render graphically through the identical path - G3 is then a
    content and acceptance gate, not new machinery.
 
-### Phase 3 - Authoring in the editor (the RPG Maker analogue)
+### Phase 3 - Authoring in the editor
 
 The summon timeline surface generalizes into the animation editor:
 
@@ -189,21 +191,11 @@ presentation. The staged route that reuses what exists:
    (which remains the always-available surface) are decided when Phase 4 is
    scoped, not preempted here.
 
-## The following items need a decision from you
+## Sequencing (decided 2026-09-20)
 
-1. **Unification**: retire the cell-frame animation format after migration
-   (recommended), or keep both formats authored indefinitely?
-2. **Flash semantics**: is the Phase 0 terminal flash (brief recolour pulse
-   of the target or screen) the behavior you intend for the authored
-   `flashColor`/`flashDurationFrames`, or do you want flash defined
-   differently before it is implemented?
-3. **Sequencing**: this plan versus the layered-tilemaps implementation -
-   which starts first, or do Phase 0 (small, corrective) and tilemap Phase 0
-   run together?
-4. **Gate alignment**: Phases 2-3 constitute the work behind G2/G3. Should
-   those roadmap gates be updated to point at this plan as their brief?
-5. **The orphan** `assets/Data/Animations/explosion01/`: delete, or is it
-   art you intend to wire once timelines land?
+This plan's Phase 0 and the layered-tilemaps Phase 0 run simultaneously.
+After both Phase 0s, the layered-tilemaps implementation proceeds first;
+this plan's Phases 1-4 follow it.
 
 ## Decisions already made (do not relitigate)
 
@@ -218,3 +210,10 @@ presentation. The staged route that reuses what exists:
   a structural property, not a testing goal.
 - Reduced motion, skip, and no-render paths always apply the gameplay
   result; presentation never changes combat identity or outcomes.
+- The cell-frame animation format retires after migration; the timeline is
+  the only authored format.
+- Flash is a brief recolour pulse of the target or screen in the terminal,
+  and a translucent canvas fill in GPUI, for the authored duration.
+- The G2 and G3 roadmap gates take this plan as their scoped brief.
+- `explosion01` migrates into the timeline library: each text file is one
+  frame.

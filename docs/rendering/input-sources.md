@@ -41,6 +41,48 @@ axes, `isButtonDown()`, and `isAnyKeyPressed()` remain edge-triggered. Repeating
 the same key is pressed but not a new down edge. Changing A directly to B is not
 an A release; `isKeyUp()` still requires a following no-input sample.
 
+## Action hint presentation
+
+`ActionHints` resolves semantic actions to display-only `ActionHint` and
+`ControlHint` values. By default it reads the live `InputBindings` on every
+redraw. Compact hints show one bound control: Enter for confirm and Escape for
+cancel/back when those keys are actually bound, otherwise the first bound key.
+This does not remove aliases or change input handling. The Controls screen keeps
+the complete binding list through `describeKeys()`.
+
+The shared menu hint painter uses optional theme icon roles such as
+`input.keyboard.ENTER`, with readable keycap labels when no matching image is
+supplied. Action labels, control identity and artwork remain separate. Main Menu,
+Equipment and Status consume the same mechanism; legacy window help strings
+elsewhere have not all been migrated.
+
+Themes may set `showInputHints` to false to omit persistent graphical helper
+strips and their reserved layout space without changing actions or bindings.
+The default remains true for compatibility. Last Legend uses the dedicated
+Controls lookup instead, retaining useful action descriptions in menus and
+dialogs. Controls still exposes all aliases, not only the compact primary key.
+
+A PHP input context can supply an `ActionHintProvider` and replace its display
+profile without changing menu composition or dispatching input. That is a
+presentation boundary, **not implemented gamepad detection or controller input**.
+The current native and terminal sources still report keyboard identities only.
+The approved PC/Desktop Controls Art example uses Xbox glyphs (`gamepad.xbox`):
+A/B/X/Y, shoulders/triggers, D-pad, Menu and View. PlayStation and Nintendo
+families are later variants. This is a manually selected preview family, not
+approved shipping mappings, device detection or authorization to implement a
+controller backend; semantic actions and keyboard bindings remain unchanged.
+Physical-controller work must drive the profile from meaningful active-device
+input, handle focus/disconnection and keyboard/controller coexistence, and keep
+device glyph changes independent of actions, focus and selection. Merely having
+a controller connected must not make hints unusable for a keyboard player.
+
+Remaining rollout belongs with semantic input migration: audit each legacy help
+owner against the keys/actions its controller actually accepts, then reuse these
+descriptors for terminal text and native glyphs. Do not globally replace strings
+with misleading remappable hints for a controller that still reads fixed keys.
+Editor authoring of icon-role paths must use the same project asset selection and
+safe round-trip contract as other presentation artwork.
+
 ## TerminalInputSource
 
 The terminal source contains the former manager's pending-byte buffer, escape

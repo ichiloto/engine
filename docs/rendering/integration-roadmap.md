@@ -18,8 +18,8 @@ and acceptance stay in the private game-docs repository, not this document.
 | --- | --- | --- | --- |
 | T1 | Retained-cell native terminal composition and scrolling. Engine coordinator. | Accepted overlay/Unicode/output fixes; matched Garden fixture. | Merged at `d0c4f0c`. Matched medians H 0.575-0.580 ms / V 0.491-0.565 ms, exact payload/style equality on 216 frames, full Engine and bounded integrations pass; about 2.1 MiB additional retained process memory. Andrew subsequently playtested and confirmed it was "absolutely brilliant and fast"; [author acceptance receipt](https://github.com/ichiloto/engine/pull/94#issuecomment-5662733694). This is observed responsiveness, not measured end-to-end latency or Linux/WSLg acceptance. See [validation](t1-retained-cells-validation.md). |
 | G1 | Independent graphical battle layout, static arena and graphical combatants. Engine integration with Renderer; Game Design and Art. | Agreed canvas contract and matching fixtures; native implementation; approved graphical layout/assets. | Accepted in the normal local Game, including right-aligned resources, recipient-side feedback and target cursors. Shared native controls apply to all 11 authored troops. The approved four-creature/six-background expansion covers 14 authored encounter contexts with explicit location bindings; Cryptic Ruins/Loch Ness remain deferred. [Current contract and validation](graphical-battle-g1.md) is authoritative; superseded temporary runtimes are removed. Engine passes 2097 tests on PHP 8.4/8.5 with one existing skip each; Game artwork/presentation checks pass 54 / 2884 on both. Prior native macOS acceptance covers one illustrated encounter and corrected Cure placement, not a new all-encounter playthrough. Platform/outcome limits and actor-cursor polish remain explicit. Local integration is not remote publication. |
-| G2 | Battler animation and combat feedback. Engine/Renderer with Game Design and Art. | G1. | Backlog, not authorized. Needs scoped brief and animation/feedback acceptance evidence. |
-| G3 | Graphical summon presentation. Engine/Renderer with Game Design and Art. | G1/G2. | Backlog, not authorized. Needs scoped summon presentation and terminal parity gates. |
+| G2 | Battler animation and combat feedback. Engine/Renderer with Game Design and Art. | G1. | Backlog, not authorized. Scoped brief: the [effect animation plan](../effect-animation.md) (Phases 0-2). Still needs animation/feedback acceptance evidence. |
+| G3 | Graphical summon presentation. Engine/Renderer with Game Design and Art. | G1/G2. | Backlog, not authorized. Scoped brief: the [effect animation plan](../effect-animation.md) (Phase 2 renders summons through the unified session, making this a content and acceptance gate). Still needs terminal parity gates. |
 | G4 | Complete graphical field actors, objects and environment. Engine/Renderer with Game Design and Art. | Shared field presentation contract and asset coverage. | Backlog, not authorized. Needs coverage inventory and field acceptance. Includes the queued [controller-ready input and normalized movement](#controller-ready-input-and-normalized-movement) work, not started. |
 | G5 | Graphical interface and game-wide presentation coverage. Engine/Renderer with Game Design and Art. | G1-G4. | Backlog, not authorized. Needs interface coverage and complete presentation audit. |
 | G6 | Packaging and supported-platform readiness. Engine/Console/Renderer owners. | Accepted presentation coverage. | Full delivery remains backlog. Shared GPUI maximize/restore corrects the blanket non-macOS rejection; the accepted optimized build is installed locally through the existing Engine manifest. This is macOS validation only. Players should receive a verified platform package, not compile Rust; published artifacts, a Console installer, runtime dependencies and Linux/WSLg validation remain undelivered. Native Windows also needs a correct process transport. No release or distribution publication is authorized. |
@@ -95,9 +95,11 @@ falsely represented as active input or unknown-progression features.
 
 Andrew has approved the Art kit's focused/unfocused/disabled distinction:
 "The art kit's focus distinction is approved." Preserve steady focused fill,
-bright edge and separate cursor, quiet unfocused appearance without a cursor,
+bright edge, quiet unfocused appearance without a cursor,
 and muted disabled appearance without a cursor. This is design acceptance,
 not a claim that every kit state or additional asset is already wired natively.
+Andrew's 21 September refinement reserves cursors for list items, not buttons;
+the Results confirmation retains its steady fill/border without a cursor.
 
 Engine/Game tests, Renderer headless checks and silent native frame inspections
 are recorded in the
@@ -293,6 +295,65 @@ must come from the existing isolated Game actor setup, not raw authored base
 arrays or an Art-side reimplementation of stat curves. This records integration
 work; no runtime paging fix was made in the Art delivery.
 
+**Current menu integration checkpoint (21 September):** shared, theme-driven
+Main Menu, Equipment and Status presentation is implemented locally. Character
+focus uses the same selected background as commands across the card interior,
+including padding, with no per-name cursor. Party-order source marking remains
+distinct from destination focus. Optional frame `borderWidths` (left/top/right/
+bottom source pixels, separate from corner `cuts`) partition opaque straight-edge
+backing below selection and decorative edges above it; corners are painted once.
+Widths reconcile against current artwork and density, not historical image bytes.
+Shared Alert, Confirm and
+Select modal presentation keeps supported graphical menus underneath instead
+of replacing the whole screen with terminal cells. Existing modal controllers
+retain input and outcomes; unsupported text-entry/dialogue or oversized content
+still uses diagnosed terminal fallback. This is not complete menu coverage.
+Single-confirmation alerts center their message and place a half-content-width
+button at bottom right; button labels remain centered independently of cursors.
+Choice dialogs retain their separate layout. Last Legend sets `showInputHints`
+to false: keep useful descriptions, remove persistent helper strips and use the
+existing Controls entry for full binding lookup. The shared hint mechanism stays
+available to other themes (default true); this does not change input bindings.
+Location and the bottom help panel share a measured row height. Removing hints
+must not shrink help below Location or leave a gap beneath the fourth party card;
+longer content in either bottom panel grows both together.
+Oscillating cursors belong to list items, not buttons. Shared row composition
+distinguishes command-list entries from buttons while reusing centered labels
+and theme treatments. Equipment actions, alert/confirmation buttons, Results
+confirmation and Pause confirmation buttons use steady focus without a cursor;
+Main Menu, vertical choice lists and Pause root navigation retain list cursors.
+Earlier focused validation on PHP 8.4 and 8.5 passed Engine 276 tests / 6,776
+assertions and Game 474 tests / 39,897 assertions. After the footer/list-button
+refinements, the four shared menu suites pass 135 tests / 3,931 assertions and
+the actual Game Main Menu suite passes 18 tests / 476 assertions on both PHP
+versions. Shared presentation static analysis passes. A fresh silent macOS GPUI
+replay visually confirms aligned bottom panels in command/character focus,
+full-card highlighting, absent helpers, and the centered alert with its
+half-width bottom-right cursor-free button. This is exported-frame visual
+validation, not a fresh interactive Game playthrough. The replay shut down
+cleanly; no Game audio/config/save changes or new build were used.
+Linux/WSLg remains untested. The broad Last
+Legend suite was not completed because of the unrelated 180,000-battle
+simulation baseline.
+
+Andrew approved the current UI kit for local integration on 21 September; the
+exact approval and current specifications are in the existing Art
+`output/ui-art-v1-20260915/HANDOFF-NOTES.md`. No repeat visual approval is pending.
+Engine owns shared adapters and native acceptance; Game owns theme admission and
+source-bound validation. This does not grant publication or waive admission gates.
+Items and Config designs already exist. Next runtime work is Items with the
+paging correction above, then one Config presentation reused by Main Menu and
+Battle Pause. Pause currently hosts the original Config interface, not the
+delivered graphical Config design. Abilities, Magic, Quests, Records and Controls
+specimens are delivered in the existing adapter preview; native adapters follow the same
+shared components and live source data. Controls must use semantic device glyphs
+without losing access to all bindings. Current keyboard hints and replaceable
+hint providers do not constitute physical gamepad detection or support.
+Main Menu Quit currently routes its chooser directly to title/exit; confirmation
+parity with Pause is an existing behavior gap, not part of this presentation fix.
+Editor TUI authoring of the theme and shared artwork-role bindings remains
+planned in the Editor roadmap, not implemented by runtime composition.
+
 ## Controller-ready input and normalized movement
 
 **Queued for G4 field readiness; scheduling only, not started.** Andrew requested
@@ -333,6 +394,35 @@ pieces. Begin with intentional, presentable simpler treatments and enrich them
 incrementally. Static G1 artwork is the current delivery, not the final ceiling.
 This direction informs G2/G3 and shared foundations; it does not release their
 entire backlog for implementation.
+
+**Art acceptance, 21 September:** Andrew approved the revised Kaelion v3 idle
+and eight Victory poses (Kaelion, Liora, Drazek, Seraphis, Nivira, Aeryn, Orwin,
+Thalric). Drazek's subsequent crossed-arm/no-visible-knife choice supersedes his
+knife-in-hand Victory only; use Art's updated export/receipt, not the original
+batch entry. The existing Art workspace's `output/cowork-art-review-20260921/
+receipts.json` records the exact approval and provenance. Separate ready-pose
+and portrait corrections are outside this approval. Game owns the bounded
+admission/readiness assessment; visual acceptance is not a new import exception
+or a claim of native playback. The approximately 85.5 MiB, 144-frame APNG is a
+review master, not a runtime asset to import wholesale. Establish game-ready
+packing, stable registration, shared playback and reduced-motion behavior under
+the existing effect-animation/G2 sequence. Do not start a duplicate animation
+system or treat approval as authorization for the entire G2 backlog.
+
+The bounded Game assessment is complete: all eight current Victory PNGs pass
+Engine limits and local decoding; no images were imported. Aeryn's existing
+Victory is the source of the approved artistic correction, not a byte-identical
+or resize-only replacement. Shared actor pose-role selection and Results' final
+battlefield capture lifecycle must be implemented before Victory can be wired;
+Editor role selection/round trips are also absent. Adding art must not add party
+members. The idle APNG exceeds the 16 MiB encoded limit; its 144 full-size frames
+would consume 546.75 MiB decoded. It needs bounded atlas preparation against the
+whole-scene resource budget, stable anchors and PHP-owned playback with pause,
+cleanup and reduced-motion semantics, not an APNG or walk-animation shortcut.
+Package/licence admission remains unresolved: `game-dev` is unavailable and the
+Art directory has no sealed admission package or licence declaration. No limit
+bypass, unknown-licence exception, asset overwrite or full G2 work is authorized
+by this assessment. Keep this behind current UI and audited Phase 0 sequencing.
 
 - Separate combatant identity, targeting and combat state from the current pose,
   animation frame and any weapon/effect attachments. Maintain stable registration
