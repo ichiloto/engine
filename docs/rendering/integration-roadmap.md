@@ -376,10 +376,13 @@ capability fallback, bounded canvas geometry and complete setting values;
 Game checks cover all 11 settings, isolated persistence, Main return focus and
 Pause -> Config -> Pause without resetting the suspended battle. Silent macOS
 native replay checked first/last settings and the retained battlefield. This is
-not a full native gameplay playtest. Config currently uses theme-neutral slider,
-scrollbar and arrow fallbacks: admission of eight optional approved-art images
-is awaiting Andrew's separately presented technical import decision. The already
-admitted Divider is bound through the shared theme. No protocol changes, new
+not a full native gameplay playtest. Config uses theme-neutral slider,
+scrollbar and left/right arrow fallbacks: admission of those six optional
+approved-art images still awaits Andrew's technical import decision. Andrew
+approved the unchanged up/down chevron PNG pair on 22 September; Game binds
+them through the existing shared navigation roles alongside the admitted Divider.
+The existing Game receipt retains the pair-only tooling/licence exception and
+historical import evidence, not runtime byte locks. No protocol changes, new
 builds or normal-game configuration/save changes were part of this slice.
 
 The combined Engine regression selection passes 274 tests on each of PHP 8.4
@@ -409,12 +412,16 @@ and painting without discarding text.
 The latest consistency regression selection passes 609 Engine tests / 13,917
 assertions and 504 Game tests / 46,904 assertions on each of PHP 8.4 and 8.5.
 After the stacked quantity-chevron correction, the affected Engine selection passes
-139 tests / 4,505 assertions and Game Main Menu passes 69 tests / 7,841 assertions on both
-versions. Scoped static analysis and diff checks pass. Tests cover item use and
+139 tests / 4,505 assertions. With the approved image pair bound, Game Main Menu
+passes 69 tests / 7,857 assertions and the focused Engine quantity geometry/opacity
+selection passes 6 tests / 102 assertions on both versions. Scoped static analysis
+and diff checks pass. Tests cover item use and
 discard quantity/cancel/confirmation, complete Info paging and binding defaults,
 all actor books, learning charges, story gates and retained menu behavior.
 Silent macOS exported-frame inspection verified quantity with aligned open up/down
-chevrons to its right, the shared
+chevrons to its right; the 22 September image-backed replay confirmed wider shapes
+replacing the narrow font fallback without moving the value or Continue button.
+Earlier inspection verified the shared
 Confirm dialog, centered alert OK, Equipment comparison arrows, Magic without
 Source, and full-size Config both standalone and over the paused battlefield.
 Every replay closed with exit 0; no Game audio/config/save changes or new build
