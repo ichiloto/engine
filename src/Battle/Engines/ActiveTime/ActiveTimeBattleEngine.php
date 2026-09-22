@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\Battle\Engines\ActiveTime;
 
 use Ichiloto\Engine\Battle\BattleAction;
+use Ichiloto\Engine\Battle\EncounterAdvantage;
+use Ichiloto\Engine\Battle\BattlerBattleView;
 use Ichiloto\Engine\Battle\Engines\ActiveTime\States\ActiveTimeFlowState;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\ActionExecutionState;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnResolutionState;
@@ -26,9 +28,12 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
 {
   protected const READY_GAUGE = 100.0;
   protected const GAUGE_CAP = 150.0;
-  protected const ADVANTAGE_NORMAL = 'normal';
-  protected const ADVANTAGE_SURPRISE = 'surprise_attack';
-  protected const ADVANTAGE_BACK_ATTACK = 'back_attack';
+  protected const MAX_OPENING_GAUGE = 90.0;
+  protected const MAX_OPENING_SPEED_BONUS = 20.0;
+
+  /** @var array<int, float> Simulated time each battler crossed the ready threshold. */
+  protected array $readyTimes = [];
+  protected float $gaugeTime = 0.0;
 
   /**
    * @var CharacterInterface[] Battlers whose gauges have filled and are ready to act.
@@ -46,9 +51,9 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
   protected array $initiativeSeeds = [];
 
   /**
-   * @var string The resolved encounter advantage state.
+   * @var EncounterAdvantage The resolved encounter advantage state.
    */
-  protected string $encounterAdvantage = self::ADVANTAGE_NORMAL;
+  protected EncounterAdvantage $encounterAdvantage = EncounterAdvantage::NORMAL;
 
   /**
    * @var string|null Pending encounter alert text.
@@ -115,7 +120,9 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
     $this->readyBattlers = [];
     $this->gaugeValues = [];
     $this->initiativeSeeds = [];
-    $this->encounterAdvantage = self::ADVANTAGE_NORMAL;
+    $this->readyTimes = [];
+    $this->gaugeTime = 0.0;
+    $this->encounterAdvantage = EncounterAdvantage::NORMAL;
     $this->openingAlertPending = null;
   }
 
@@ -158,6 +165,9 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
       $deltaTime = 1 / 60;
     }
 
+    $frameStart = $this->gaugeTime;
+    $this->gaugeTime += $deltaTime;
+
     foreach ($this->getBattleParticipants($context) as $battler) {
       $id = spl_object_id($battler);
 
@@ -175,13 +185,15 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
         continue;
       }
 
+      $previousGauge = $this->gaugeValues[$id] ?? 0.0;
+      $fillRate = $this->getFillRate($battler);
       $this->gaugeValues[$id] = min(
         self::GAUGE_CAP,
-        ($this->gaugeValues[$id] ?? 0.0) + ($this->getFillRate($battler) * $deltaTime),
+        $previousGauge + ($fillRate * $deltaTime),
       );
 
       if ($this->gaugeValues[$id] >= self::READY_GAUGE) {
-        $this->enqueueReadyBattler($battler);
+        $this->enqueueReadyBattler($battler, $frameStart + (self::READY_GAUGE - $previousGauge) / $fillRate);
       }
     }
   }
@@ -302,10 +314,12 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
     $this->readyBattlers = [];
     $this->gaugeValues = [];
     $this->initiativeSeeds = [];
+    $this->readyTimes = [];
+    $this->gaugeTime = 0.0;
     $this->encounterAdvantage = $this->determineEncounterAdvantage();
     $this->openingAlertPending = match ($this->encounterAdvantage) {
-      self::ADVANTAGE_SURPRISE => 'Surprise Attack!',
-      self::ADVANTAGE_BACK_ATTACK => 'Back Attack!',
+      EncounterAdvantage::PARTY => 'Preemptive strike! The party moves first.',
+      EncounterAdvantage::TROOP => 'Ambushed! The enemy strikes first.',
       default => null,
     };
 
@@ -332,13 +346,14 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
    * @param CharacterInterface $battler The battler to enqueue.
    * @return void
    */
-  protected function enqueueReadyBattler(CharacterInterface $battler): void
+  protected function enqueueReadyBattler(CharacterInterface $battler, float $readyAt = 0.0): void
   {
     if ($this->isBattlerReady($battler)) {
       return;
     }
 
     $this->readyBattlers[] = $battler;
+    $this->readyTimes[spl_object_id($battler)] = $readyAt;
   }
 
   /**
@@ -349,6 +364,7 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
    */
   protected function removeReadyBattler(CharacterInterface $battler): void
   {
+    unset($this->readyTimes[spl_object_id($battler)]);
     $this->readyBattlers = array_values(array_filter(
       $this->readyBattlers,
       fn(CharacterInterface $readyBattler): bool => $readyBattler !== $battler,
@@ -399,57 +415,37 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
       return 0.0;
     }
 
-    $variance = $this->battleConfig->openingVariance > 0
-      ? $this->randomFloat(0.0, $this->battleConfig->openingVariance)
-      : 0.0;
+    if ($this->encounterAdvantage !== EncounterAdvantage::NORMAL) {
+      $favored = $this->isPartyBattler($context, $battler)
+        === ($this->encounterAdvantage === EncounterAdvantage::PARTY);
+      return $favored ? self::READY_GAUGE : 0.0;
+    }
 
-    $startingValue = $variance
-      + ($this->getBattlerSpeed($battler) * $this->battleConfig->openingSpeedFactor)
-      + $this->resolveAdvantageBias($context, $battler);
+    // Leave room for variation even at maximum speed; normal openings never start ready.
+    $speedBonus = min(self::MAX_OPENING_SPEED_BONUS,
+      max(0.0, $this->getBattlerSpeed($battler) * $this->battleConfig->openingSpeedFactor));
+    $variance = min(self::MAX_OPENING_GAUGE - $speedBonus, max(0.0, $this->battleConfig->openingVariance));
 
-    return clamp($startingValue, 0.0, self::GAUGE_CAP);
-  }
-
-  /**
-   * Resolves the opening bias introduced by the encounter advantage state.
-   *
-   * @param TurnStateExecutionContext $context The turn context.
-   * @param CharacterInterface $battler The battler to inspect.
-   * @return float
-   */
-  protected function resolveAdvantageBias(TurnStateExecutionContext $context, CharacterInterface $battler): float
-  {
-    $isPartyBattler = $this->isPartyBattler($context, $battler);
-
-    return match ($this->encounterAdvantage) {
-      self::ADVANTAGE_SURPRISE => $isPartyBattler ? 55.0 : -15.0,
-      self::ADVANTAGE_BACK_ATTACK => $isPartyBattler ? -15.0 : 55.0,
-      default => 0.0,
-    };
+    return $speedBonus + $this->randomFloat(0.0, $variance);
   }
 
   /**
    * Determines the encounter advantage state for the battle.
    *
-   * @return string
+   * @return EncounterAdvantage
    */
-  protected function determineEncounterAdvantage(): string
+  protected function determineEncounterAdvantage(): EncounterAdvantage
   {
     if (! $this->battleConfig instanceof ActiveTimeBattleConfig) {
-      return self::ADVANTAGE_NORMAL;
+      return EncounterAdvantage::NORMAL;
     }
 
-    $roll = $this->randomFloat(0.0, 100.0);
-
-    if ($roll < $this->battleConfig->surpriseAttackChancePercent) {
-      return self::ADVANTAGE_SURPRISE;
-    }
-
-    if ($roll < ($this->battleConfig->surpriseAttackChancePercent + $this->battleConfig->backAttackChancePercent)) {
-      return self::ADVANTAGE_BACK_ATTACK;
-    }
-
-    return self::ADVANTAGE_NORMAL;
+    return EncounterAdvantage::forBattle(
+      $this->battleConfig->settings,
+      $this->random,
+      $this->battleConfig->surpriseAttackChancePercent,
+      $this->battleConfig->backAttackChancePercent,
+    );
   }
 
   /**
@@ -472,9 +468,7 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
    */
   protected function getBattlerSpeed(CharacterInterface $battler): int
   {
-    return $battler instanceof Character
-      ? $battler->effectiveStats->speed
-      : $battler->stats->speed;
+    return new BattlerBattleView($battler)->stats->speed;
   }
 
   /**
@@ -486,18 +480,11 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
    */
   protected function compareReadyBattlers(CharacterInterface $left, CharacterInterface $right): int
   {
-    $leftGauge = $this->getReadyOrderingValue($left);
-    $rightGauge = $this->getReadyOrderingValue($right);
+    $leftTime = $this->readyTimes[spl_object_id($left)];
+    $rightTime = $this->readyTimes[spl_object_id($right)];
 
-    if ($leftGauge !== $rightGauge) {
-      return $rightGauge <=> $leftGauge;
-    }
-
-    $leftSpeed = $this->getBattlerSpeed($left);
-    $rightSpeed = $this->getBattlerSpeed($right);
-
-    if ($leftSpeed !== $rightSpeed) {
-      return $rightSpeed <=> $leftSpeed;
+    if ($leftTime !== $rightTime) {
+      return $leftTime <=> $rightTime;
     }
 
     $leftSeed = $this->initiativeSeeds[spl_object_id($left)] ?? 0.0;
@@ -508,17 +495,6 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
     }
 
     return spl_object_id($right) <=> spl_object_id($left);
-  }
-
-  /**
-   * Returns the numeric ready-ordering value for one battler.
-   *
-   * @param CharacterInterface $battler The battler to inspect.
-   * @return float
-   */
-  protected function getReadyOrderingValue(CharacterInterface $battler): float
-  {
-    return $this->gaugeValues[spl_object_id($battler)] ?? 0.0;
   }
 
   /**
@@ -534,6 +510,6 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
       return $minimum;
     }
 
-    return $minimum + ((mt_rand() / mt_getrandmax()) * ($maximum - $minimum));
+    return $minimum + (($this->random->nextInt(0, 1_000_000) / 1_000_000) * ($maximum - $minimum));
   }
 }

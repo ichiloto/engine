@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\Core;
 
 use Ichiloto\Engine\Battle\Enumerations\BattleEngineType;
+use Ichiloto\Engine\Battle\EncounterAdvantage;
+use Ichiloto\Engine\Battle\Engines\ActiveTime\ActiveTimeBattleConfig;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
 
 readonly class SystemData
@@ -42,21 +44,35 @@ readonly class SystemData
     return $this->battle->activeTime;
   }
 
+  public function getOpeningSettings(): object
+  {
+    return $this->battle->opening;
+  }
+
   private static function normalizeBattleSettings(mixed $battleData): object
   {
     $battleArray = is_array($battleData) ? $battleData : [];
     $activeTime = is_array($battleArray['activeTime'] ?? null) ? $battleArray['activeTime'] : [];
+    $opening = is_array($battleArray['opening'] ?? null) ? $battleArray['opening'] : [];
+    $preemptive = min(100, max(0, intval($opening['preemptiveChancePercent'] ?? $activeTime['surpriseAttackChancePercent'] ?? 8)));
+    $ambush = min(100, max(0, intval($opening['ambushChancePercent'] ?? $activeTime['backAttackChancePercent'] ?? 6)));
+    EncounterAdvantage::validateChances($preemptive, $ambush);
 
     return json_decode(json_encode([
       'engine' => BattleEngineType::fromValue($battleArray['engine'] ?? null)->value,
+      'opening' => [
+        'preemptiveChancePercent' => $preemptive,
+        'ambushChancePercent' => $ambush,
+      ],
       'activeTime' => [
         'mode' => 'wait',
         'baseFillRate' => max(1, intval($activeTime['baseFillRate'] ?? 35)),
         'speedFactorPercent' => max(0, intval($activeTime['speedFactorPercent'] ?? 100)),
-        'openingVariance' => max(0, intval($activeTime['openingVariance'] ?? 24)),
-        'openingSpeedFactorPercent' => max(0, intval($activeTime['openingSpeedFactorPercent'] ?? 250)),
-        'surpriseAttackChancePercent' => min(100, max(0, intval($activeTime['surpriseAttackChancePercent'] ?? 8))),
-        'backAttackChancePercent' => min(100, max(0, intval($activeTime['backAttackChancePercent'] ?? 6))),
+        'openingVariance' => max(0, intval($activeTime['openingVariance'] ?? ActiveTimeBattleConfig::DEFAULT_OPENING_VARIANCE)),
+        'openingSpeedFactorPercent' => max(0, intval($activeTime['openingSpeedFactorPercent'] ?? ActiveTimeBattleConfig::DEFAULT_OPENING_SPEED_FACTOR * 100)),
+        // Retain the legacy accessor values; battle.opening is authoritative.
+        'surpriseAttackChancePercent' => $preemptive,
+        'backAttackChancePercent' => $ambush,
       ],
     ]));
   }

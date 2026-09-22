@@ -18,6 +18,7 @@ use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Scenes\AbstractScene;
 use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Ichiloto\Engine\UI\SelectionStyle;
@@ -34,8 +35,10 @@ use Throwable;
  *
  * @package Ichiloto\Engine\Scenes\Title
  */
-class TitleScene extends AbstractScene
+class TitleScene extends AbstractScene implements CanvasProviderInterface
 {
+  use TitleCanvasPresentation;
+  use TitleCredits;
   protected const int TITLE_MENU_WIDTH = 16;
   protected const int TITLE_OPTIONS_MIN_WIDTH = 34;
   protected const int TITLE_OPTIONS_HORIZONTAL_PADDING = 4;
@@ -170,6 +173,7 @@ class TitleScene extends AbstractScene
     $this->initializeContinueMenuWindows();
     $this->resetTitleInteractionState();
     $this->syncContinueAvailability();
+    $this->resetTitlePresentation();
 
     $this->renderHeader();
     usleep(300);
@@ -183,6 +187,17 @@ class TitleScene extends AbstractScene
   public function update(): void
   {
     parent::update();
+    $this->advanceTitlePresentation();
+
+    if ($this->creditsPlayback !== null) {
+      $this->updateCredits();
+      return;
+    }
+
+    if (Input::isButtonDown('info') && ($this->showingOptions || $this->showingContinueMenu)) {
+      $this->titleInfoText?->advance();
+      return;
+    }
 
     if ($this->showingOptions) {
       $this->updateOptionsMenu();
@@ -267,8 +282,10 @@ class TitleScene extends AbstractScene
   public function resume(): void
   {
     Console::clear();
-    $this->resetTitleInteractionState();
+    $this->setTitlePresentationSuspended(false);
     $this->syncContinueAvailability();
+
+    if ($this->creditsPlayback !== null) { return; }
 
     if ($this->showingContinueMenu) {
       $this->renderContinueMenu();
@@ -291,7 +308,16 @@ class TitleScene extends AbstractScene
    */
   public function suspend(): void
   {
+    $this->setTitlePresentationSuspended(true);
     Console::clear();
+  }
+
+  #[Override]
+  public function stop(): void
+  {
+    $this->resetCredits();
+    $this->stopTitlePresentation();
+    parent::stop();
   }
 
   /**
@@ -315,6 +341,8 @@ class TitleScene extends AbstractScene
     $this->initializeContinueMenuWindows();
 
     Console::clear();
+
+    if ($this->creditsPlayback !== null) { return; }
 
     if ($this->showingContinueMenu) {
       $this->renderContinueMenu();
@@ -344,6 +372,8 @@ class TitleScene extends AbstractScene
     Console::clear();
     $this->initializeOptionsWindow();
     $this->showingOptions = true;
+    $this->optionStatusMessage = null;
+    $this->advanceTitlePresentation();
     $this->renderOptionsMenu();
   }
 
@@ -360,6 +390,7 @@ class TitleScene extends AbstractScene
     Console::clear();
     $this->initializeContinueMenuWindows();
     $this->showingContinueMenu = true;
+    $this->advanceTitlePresentation();
     $this->renderContinueMenu();
   }
 
@@ -371,6 +402,7 @@ class TitleScene extends AbstractScene
   public function closeContinueMenu(): void
   {
     $this->showingContinueMenu = false;
+    $this->advanceTitlePresentation();
     $this->continueStatusMessage = null;
     Console::clear();
     $this->renderHeader();
@@ -565,6 +597,7 @@ class TitleScene extends AbstractScene
   protected function closeOptionsMenu(): void
   {
     $this->showingOptions = false;
+    $this->advanceTitlePresentation();
     Console::clear();
     $this->renderHeader();
     $this->menu->render();
@@ -615,8 +648,11 @@ class TitleScene extends AbstractScene
 
 
     try {
-      $label = $this->optionsManager->cycle($option, $step);
-    } catch (\Throwable $e) {
+      $this->optionsManager->cycle($option, $step);
+      $this->optionStatusMessage = null;
+    } catch (Throwable $error) {
+      $this->optionStatusMessage = 'Could not save settings: ' . $error->getMessage();
+      Debug::error($this->optionStatusMessage);
     }
     $this->renderOptionsMenu();
   }
@@ -783,6 +819,7 @@ class TitleScene extends AbstractScene
    */
   protected function resetTitleInteractionState(): void
   {
+    $this->resetCredits();
     $this->showingOptions = false;
     $this->showingContinueMenu = false;
     $this->activeOptionIndex = 0;

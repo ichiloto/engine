@@ -9,9 +9,9 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
-use Ichiloto\Engine\Rendering\Transport\RendererProtocolVersion;
 
 it('keeps logical nine-slice corners and shared edges identical at both densities', function () {
   $destination = new CanvasRectangle(0.25, 0.5, 140.5, 120.25);

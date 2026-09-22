@@ -87,3 +87,32 @@ it('awards the full travelling roster and reconciles idempotently', function () 
       $party->members->toArray(),
     ))->each->toBeTrue();
 });
+
+it('captures immutable progression facts before and after the award', function () {
+  $character = progressionTestCharacter('Snapshot');
+  $thresholds = $character->getLevelExperienceThresholds();
+  $result = ExperienceAwarder::award($character, $thresholds[4]);
+  $before = $result->before;
+  $after = $result->after;
+  $originalStats = $after->stats;
+  $character->addExperience($thresholds[5]);
+  $character->stats->attack = 999;
+
+  expect($before->experience)->toBe(0)
+    ->and($before->level)->toBe(1)
+    ->and($after->experience)->toBe($thresholds[4])
+    ->and($after->level)->toBe(4)
+    ->and($after->stats)->toBe($originalStats)
+    ->and($after->progressAt($thresholds[3]))->toMatchArray(['level' => 3, 'current' => 0, 'maximum' => false])
+    ->and($after->progressAt($thresholds[4] - 1)['level'])->toBe(3)
+    ->and(array_column($result->learnedDetails, 'kind'))->toBe(['Ability', 'Magic']);
+});
+
+it('reports capped progression without a fictional next-level threshold', function () {
+  $character = progressionTestCharacter('Capped');
+  $thresholds = $character->getLevelExperienceThresholds();
+  $result = ExperienceAwarder::award($character, $thresholds[$character->maxLevel]);
+  expect($result->after->progressAt($result->after->experience))->toMatchArray([
+    'level' => $character->maxLevel, 'maximum' => true, 'needed' => 0, 'ratio' => 1.0,
+  ]);
+});

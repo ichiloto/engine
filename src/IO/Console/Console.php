@@ -280,6 +280,67 @@ class Console
     return self::$frameDepth !== 0 || self::$isRecomposing;
   }
 
+  /** Release live writes without erasing later scene writes or another owner's cells. */
+  public static function removeLayer(string $id, bool $repaint = true): void
+  {
+    if (!isset(self::$layerPriorities[$id])) { return; }
+    $before = self::visibleCellRows();
+    $saved = [self::$buffer, self::$layerCells, self::$layerPriorities, self::$frameRows,
+      self::$frameDepth, self::$recomposeRepaintRows];
+    $emit = $repaint && self::$terminalOutputEnabled && !self::$terminalHandedBack && !self::$isRecomposing;
+    if ($emit) { self::beginFrame(); }
+    try {
+      unset(self::$layerPriorities[$id]);
+      foreach (self::$layerCells as $row => &$entries) {
+        $affected = false;
+        foreach ($entries as &$entry) {
+          if (array_key_exists($id, $entry['layers'])) { unset($entry['layers'][$id]); $affected = true; }
+        }
+        unset($entry);
+        if (!$affected || !isset(self::$buffer[$row])) { continue; }
+        $cells = self::$buffer[$row];
+        foreach ($entries as $x => $entry) {
+          $cells[$x] = $entry['base'];
+          foreach ($entry['layers'] as $cell) { $cells[$x] = $cell; }
+        }
+        // A newer write can cover only one half of a retained wide underlay.
+        // Drop visible fragments, retaining provenance so removing that owner restores it.
+        self::$buffer[$row] = self::wholeGlyphCells($cells);
+      }
+      unset($entries);
+      if ($emit) {
+        $after = self::visibleCellRows();
+        foreach ($after as $row => $cells) {
+          foreach (self::changedCellSpansFromCells($before[$row] ?? [], $cells) as $span) {
+            self::writeBufferRow($row, $span['start'], $span['end'] - $span['start'] + 1);
+          }
+        }
+        self::endFrame();
+      }
+    } catch (\Throwable $exception) {
+      [self::$buffer, self::$layerCells, self::$layerPriorities, self::$frameRows,
+        self::$frameDepth, self::$recomposeRepaintRows] = $saved;
+      throw $exception;
+    }
+  }
+
+  /** Retained underlays may be partly occluded by a newer owner. Never display fragments. */
+  private static function wholeGlyphCells(array $cells): array
+  {
+    foreach ($cells as $x => $cell) {
+      if ($cell === self::WIDE_SYMBOL_CONTINUATION) {
+        $anchor = self::resolveCellAnchor($cells, $x);
+        if ($anchor === null || $anchor + TerminalText::getSymbolWidth($cells[$anchor]) <= $x) { $cells[$x] = ' '; }
+        continue;
+      }
+      $width = TerminalText::getSymbolWidth($cell);
+      for ($offset = 1; $offset < $width; $offset++) {
+        if (($cells[$x + $offset] ?? null) !== self::WIDE_SYMBOL_CONTINUATION) { $cells[$x] = ' '; break; }
+      }
+    }
+    return $cells;
+  }
+
   /** @param string[] $before @param string[] $after */
   private static function recordLayerWrite(int $row, int $start, int $end, array $before, array $after): void
   {
@@ -609,7 +670,7 @@ class Console
       // are blanked while stable rows are not needlessly repainted.
       self::$frameRows = [];
       $visibleBuffer = self::visibleCellRows();
-      $diffStart = LatencyTrace::now();
+      $diffStart = LatencyTrace::getTimeNow();
 
       if (self::$terminalOutputEnabled && $forceFullRepaint) {
         for ($row = 0; $row < self::$height; $row++) {
@@ -881,7 +942,7 @@ class Console
     $length = count($incoming);
     if ($length === 0) { return; }
 
-    $started = LatencyTrace::now();
+    $started = LatencyTrace::getTimeNow();
     $before = self::$buffer[$y] ?? array_fill(0, self::$width, ' ');
     $visibleBefore = self::$overlays === [] || self::$isRecomposing || !self::$terminalOutputEnabled
       ? null : self::compositeOverlayRow($before, $y);
@@ -898,7 +959,7 @@ class Console
     LatencyTrace::end('terminal.compose', $started);
     if (!self::$terminalOutputEnabled || self::$isRecomposing) { return; }
 
-    $diffStart = LatencyTrace::now();
+    $diffStart = LatencyTrace::getTimeNow();
     $spans = self::changedCellSpansFromCells($visibleBefore ?? $before,
       $visibleBefore === null ? $after : self::compositeOverlayRow($after, $y));
     LatencyTrace::end('terminal.diff', $diffStart);
@@ -971,6 +1032,7 @@ class Console
           }
         }
       }
+      $cells = self::wholeGlyphCells($cells);
       $cells = self::compositeOverlayRow($cells, $y, $excluded);
       foreach ($cells as &$cell) {
         if ($cell === self::WIDE_SYMBOL_CONTINUATION) {
@@ -992,7 +1054,7 @@ class Console
    */
   public static function presentationSnapshot(array $excludedLayers = [], array $replacedLayerCells = []): ConsolePresentationSnapshot
   {
-    $cellsStart = LatencyTrace::now();
+    $cellsStart = LatencyTrace::getTimeNow();
     if (self::isComposing()) {
       throw new RuntimeException('Cannot snapshot Console while a frame or screen recomposition is active.');
     }
@@ -1022,6 +1084,26 @@ class Console
       if (isset($named[$id])) {
         $planes[$id] = $named[$id];
         $priorities[$id] = $priority;
+      }
+    }
+    // Live layers also cover whole glyphs, including when a removed layer exposes
+    // a wide underlay beside a newer scene write. Only the snapshot copy is masked.
+    foreach ($planes as $id => $rows) {
+      foreach ($rows as $row => $cells) { $planes[$id][$row] = self::wholeGlyphCells($cells); }
+    }
+    foreach ($named as $id => $rows) {
+      foreach ($rows as $row => $cells) {
+        foreach ($planes as $lowerId => &$plane) {
+          if ($lowerId === $id) { break; }
+          if (!isset($plane[$row])) { continue; }
+          foreach (array_keys($cells) as $column) {
+            $anchor = self::resolveCellAnchor($plane[$row], $column);
+            if ($anchor !== null && TerminalText::getSymbolWidth($plane[$row][$anchor] ?? ' ') > 1) {
+              self::clearCellRange($plane[$row], $anchor, 1);
+            }
+          }
+        }
+        unset($plane);
       }
     }
     foreach (self::$overlays as $id => $overlay) {
@@ -1055,7 +1137,7 @@ class Console
   /** @param array<int, array<int, string>> $rows @return list<PresentationTextRun> */
   private static function presentationRuns(array $rows): array
   {
-    $started = LatencyTrace::now();
+    $started = LatencyTrace::getTimeNow();
     $parsing = 0;
     $runs = $cache = [];
     foreach ($rows as $y => $cells) {
@@ -1069,9 +1151,9 @@ class Console
           $glyph = ' ';
         } else {
           if (!isset($cache[$cell])) {
-            $parseStart = LatencyTrace::now();
+            $parseStart = LatencyTrace::getTimeNow();
             $cache[$cell] = [SgrColorParser::parse($cell), TerminalText::rendererScalar($cell)];
-            if ($parseStart !== null) { $parsing += LatencyTrace::now() - $parseStart; }
+            if ($parseStart !== null) { $parsing += LatencyTrace::getTimeNow() - $parseStart; }
           }
           $parsed = $cache[$cell];
           [$next, $glyph] = $parsed;
@@ -1281,7 +1363,7 @@ class Console
       return;
     }
 
-    $started = LatencyTrace::now();
+    $started = LatencyTrace::getTimeNow();
     ksort(self::$frameRows, SORT_NUMERIC);
     $payload = '';
 
@@ -1815,7 +1897,7 @@ class Console
    * @param string $message The message to show.
    * @param string $title The title of the dialog. Defaults to "".
    * @param string $help The help text to show. Defaults to "".
-   * @param WindowPosition $position The position of the dialog. Defaults to BOTTOM (i.e. the bottom of the screen).
+   * @param WindowPosition|null $position Explicit position, or top for narration and bottom for speech.
    * @param float $charactersPerSecond The number of characters to display per second.
    * @return void
    */
@@ -1823,7 +1905,7 @@ class Console
     string         $message,
     string         $title = '',
     string         $help = '',
-    WindowPosition $position = WindowPosition::BOTTOM,
+    ?WindowPosition $position = null,
     float          $charactersPerSecond = 1
   ): void
   {

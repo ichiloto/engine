@@ -24,6 +24,9 @@ class BattleRunState extends BattleSceneState
    */
   protected ?BattleEngineContextInterface $battleEngineContext = null;
 
+  public function suspend(): void { $this->ui->pauseTiming(); }
+  public function resume(): void { $this->ui->resumeTiming(); }
+
   /**
    * @inheritDoc
    */
@@ -55,10 +58,10 @@ class BattleRunState extends BattleSceneState
         strval($activeTimeSettings['mode'] ?? 'wait'),
         max(1.0, floatval($activeTimeSettings['baseFillRate'] ?? 35)),
         max(0.0, floatval($activeTimeSettings['speedFactorPercent'] ?? 100)) / 100,
-        max(0.0, floatval($activeTimeSettings['openingVariance'] ?? 24)),
-        max(0.0, floatval($activeTimeSettings['openingSpeedFactorPercent'] ?? 250)) / 100,
-        min(100, max(0, intval($activeTimeSettings['surpriseAttackChancePercent'] ?? 8))),
-        min(100, max(0, intval($activeTimeSettings['backAttackChancePercent'] ?? 6))),
+        max(0.0, floatval($activeTimeSettings['openingVariance'] ?? ActiveTimeBattleConfig::DEFAULT_OPENING_VARIANCE)),
+        max(0.0, floatval($activeTimeSettings['openingSpeedFactorPercent'] ?? ActiveTimeBattleConfig::DEFAULT_OPENING_SPEED_FACTOR * 100)) / 100,
+        min(100, max(0, intval($settings['opening']['preemptiveChancePercent'] ?? $activeTimeSettings['surpriseAttackChancePercent'] ?? 8))),
+        min(100, max(0, intval($settings['opening']['ambushChancePercent'] ?? $activeTimeSettings['backAttackChancePercent'] ?? 6))),
         $settings,
       ));
     } else {
@@ -81,9 +84,12 @@ class BattleRunState extends BattleSceneState
   public function execute(?SceneStateContext $context = null): void
   {
     $this->handleActions();
+    if ($this->scene->getGame()->hasStopped() || $this->scene->state !== $this
+      || $this->scene->getGame()->sceneManager->currentScene !== $this->scene) { return; }
     $this->engine->run($this->battleEngineContext ?? throw new RuntimeException('Battle engine context is not set.'));
 
-    if ($this->scene->getGame()->sceneManager->currentScene !== $this->scene) {
+    if ($this->scene->getGame()->hasStopped() || $this->scene->state !== $this
+      || $this->scene->getGame()->sceneManager->currentScene !== $this->scene) {
       return;
     }
 
@@ -98,10 +104,11 @@ class BattleRunState extends BattleSceneState
   {
     if (Input::isButtonDown('quit')) {
       $this->scene->getGame()->quit();
+      return;
     }
 
     if (Input::isButtonDown('pause')) {
-      $this->setState($this->scene->pauseState);
+      $this->scene->pauseBattle();
     }
   }
 }

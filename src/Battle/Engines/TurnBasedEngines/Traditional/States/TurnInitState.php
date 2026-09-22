@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States;
 
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Turn;
+use Ichiloto\Engine\Battle\EncounterAdvantage;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 
@@ -28,24 +29,30 @@ class TurnInitState extends TurnState
 
     // A preemptive strike or ambush drops the surprised side's turns for
     // the opening round only.
+    $settings = $this->engine->battleConfig->settings;
     $firstStrike = $context->roundNumber === 1
-      ? strval($this->engine->battleConfig->settings['firstStrike'] ?? '')
-      : '';
+      ? EncounterAdvantage::forBattle(
+        $settings,
+        $this->engine->random,
+        intval($settings['activeTime']['surpriseAttackChancePercent'] ?? 8),
+        intval($settings['activeTime']['backAttackChancePercent'] ?? 6),
+      )
+      : EncounterAdvantage::NORMAL;
 
     $this->determineTurnOrder($context, match ($firstStrike) {
-      'party' => 'troop',
-      'troop' => 'party',
+      EncounterAdvantage::PARTY => 'troop',
+      EncounterAdvantage::TROOP => 'party',
       default => null,
     });
 
-    if ($firstStrike === 'party') {
+    if ($firstStrike === EncounterAdvantage::PARTY) {
       $context->ui->alert('Preemptive strike! The party moves first.');
-    } elseif ($firstStrike === 'troop') {
+    } elseif ($firstStrike === EncounterAdvantage::TROOP) {
       $context->ui->alert('Ambushed! The enemy strikes first.');
     }
 
     $this->updateUI($context);
-    $this->setState($firstStrike === 'troop' ? $this->engine->enemyActionState : $this->engine->playerActionState);
+    $this->setState($firstStrike === EncounterAdvantage::TROOP ? $this->engine->enemyActionState : $this->engine->playerActionState);
   }
 
   /**

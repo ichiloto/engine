@@ -79,6 +79,10 @@ class ConfigSelectionWindow extends Window implements CanFocus, CanChangeSelecti
     return $this->settings[$this->activeIndex] ?? null;
   }
 
+  /** @return list<GameSetting> Live source order, including project-filtered catalogs. */
+  public function getSettings(): array { return $this->settings; }
+  public function getActiveIndex(): int { return $this->activeIndex; }
+
   /**
    * @inheritdoc
    */

@@ -173,7 +173,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
     Console::beginFrame();
 
     for ($row = 0, $height = $this->getVisibleWorldHeight(); $row < $height; $row++) {
-      $started = LatencyTrace::now();
+      $started = LatencyTrace::getTimeNow();
       $content = $this->normalizedMapRow((int)$this->position->y + $row)
         ->select((int)$this->position->x, $visibleWidth, $visibleWidth);
       LatencyTrace::end('terminal.select', $started);

@@ -132,9 +132,10 @@ class SpellLearningRequirement
    * @param Character $character The character learning the spell.
    * @param Party $party The party that may pay shared costs.
    * @param int $trainingHours The current training-time progress.
+   * @param string[] $storyEvents The recorded story-event flags used by learning.
    * @return string The requirement summary.
    */
-  public function describeProgress(Character $character, Party $party, int $trainingHours): string
+  public function describeProgress(Character $character, Party $party, int $trainingHours, array $storyEvents = []): string
   {
     $parts = [];
 
@@ -160,6 +161,10 @@ class SpellLearningRequirement
         $party->inventory->getQuantity($itemReference, 'describing a spell learning cost'),
         $quantity,
       );
+    }
+
+    foreach ($this->requiredEvents as $eventName) {
+      $parts[] = sprintf('%s %s', $eventName, in_array($eventName, $storyEvents, true) ? '[Done]' : '[Needed]');
     }
 
     return implode('  ', $parts);

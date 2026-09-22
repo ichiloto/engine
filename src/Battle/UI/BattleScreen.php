@@ -122,6 +122,23 @@ class BattleScreen implements CanRender, CanUpdate
    * @var float The time to hide the message.
    */
   protected float $alertHideTime = 0;
+  private ?float $pausedAt = null;
+
+  public function pauseTiming(): void
+  {
+    $this->pausedAt ??= Time::getTime();
+    $this->fieldWindow->pauseTiming();
+  }
+
+  /** Shift only this owner's live deadline; disposal just drops the pause marker. */
+  public function resumeTiming(bool $discard = false): void
+  {
+    if ($this->pausedAt !== null && !$discard && $this->isAlerting) {
+      $this->alertHideTime += max(0, Time::getTime() - $this->pausedAt);
+    }
+    $this->pausedAt = null;
+    if (isset($this->fieldWindow)) { $this->fieldWindow->resumeTiming($discard); }
+  }
   /**
    * @var bool Whether the info panel is visible.
    */
@@ -399,18 +416,18 @@ class BattleScreen implements CanRender, CanUpdate
     $this->screenDimensions = $this->resolveScreenDimensions();
     $this->fieldWindow->setPosition($this->getWindowPosition(0, 0));
     $this->messageWindow->setPosition($this->getWindowPosition(2, 1));
-    $this->commandWindow->setPosition($this->getWindowPosition(0, $this->fieldWindow->height));
-    $this->commandContextWindow->setPosition($this->getWindowPosition($this->commandWindow->width, $this->fieldWindow->height));
+    $this->commandWindow->setPosition($this->getWindowPosition(0, $this->fieldWindow->getHeight()));
+    $this->commandContextWindow->setPosition($this->getWindowPosition($this->commandWindow->getWidth(), $this->fieldWindow->getHeight()));
     $this->characterNameWindow->setPosition(
       $this->getWindowPosition(
-        $this->commandWindow->width + $this->commandContextWindow->width,
-        $this->fieldWindow->height
+        $this->commandWindow->getWidth() + $this->commandContextWindow->getWidth(),
+        $this->fieldWindow->getHeight()
       )
     );
     $this->characterStatusWindow->setPosition(
       $this->getWindowPosition(
-        $this->commandWindow->width + $this->commandContextWindow->width + $this->characterNameWindow->width,
-        $this->fieldWindow->height
+        $this->commandWindow->getWidth() + $this->commandContextWindow->getWidth() + $this->characterNameWindow->getWidth(),
+        $this->fieldWindow->getHeight()
       )
     );
   }

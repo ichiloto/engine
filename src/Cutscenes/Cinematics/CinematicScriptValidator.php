@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Cutscenes\Cinematics;
 
 use InvalidArgumentException;
+use Ichiloto\Engine\Events\Interpreter\MovementRouteRunner;
 
 /**
  * Validates cinematic command trees without booting a game runtime.
@@ -215,6 +216,21 @@ final class CinematicScriptValidator
   /** @param array<string, mixed> $entry */
   public static function validateStagedActor(array $entry, string $cinematicId, string $path): void
   {
+    try {
+      CinematicStageManager::validateBinding($entry);
+    } catch (InvalidArgumentException $error) {
+      throw self::failure($cinematicId, "$path/subject", $error->getMessage());
+    }
+    if (array_key_exists('sprites2d', $entry)) {
+      if (!is_array($entry['sprites2d'])) {
+        throw self::failure($cinematicId, $path, 'staged actor sprites2d must be an array.');
+      }
+      try {
+        CinematicStageManager::graphicalSprites($entry['sprites2d']);
+      } catch (InvalidArgumentException $error) {
+        throw self::failure($cinematicId, "$path/sprites2d", $error->getMessage());
+      }
+    }
     $id = trim(strval($entry['id'] ?? ''));
 
     if ($id === '') {
@@ -315,6 +331,11 @@ final class CinematicScriptValidator
   /** @param array<string, mixed> $command */
   protected static function validateMoveRoute(array $command, string $cinematicId, string $path): void
   {
+    try {
+      MovementRouteRunner::validatePathOptions($command);
+    } catch (\Throwable $error) {
+      throw self::failure($cinematicId, $path, $error->getMessage());
+    }
     $subject = strtolower(trim(strval($command['subject'] ?? 'player')));
 
     if (! in_array($subject, ['player', 'npc', 'staged_actor'], true)) {
@@ -336,11 +357,14 @@ final class CinematicScriptValidator
     self::validateOptionalDuration($command, ['secondsPerStep'], $cinematicId, $path);
 
     if (array_key_exists('speed', $command)
-      && (! is_numeric($command['speed']) || floatval($command['speed']) <= 0.0)
+      && (! is_numeric($command['speed']) || ! is_finite(floatval($command['speed'])) || floatval($command['speed']) <= 0.0)
     ) {
-      throw self::failure($cinematicId, $path, 'movement-route speed must be greater than zero.');
+      throw self::failure($cinematicId, $path, 'movement-route speed must be finite and greater than zero.');
     }
 
+    if (!array_key_exists('steps', $command)) {
+      return;
+    }
     $steps = $command['steps'] ?? null;
 
     if (! is_array($steps) || ! array_is_list($steps) || $steps === []) {
@@ -435,9 +459,9 @@ final class CinematicScriptValidator
 
       $value = $command[$field];
 
-      if (! is_numeric($value) || ($positive ? floatval($value) <= 0.0 : floatval($value) < 0.0)) {
+      if (! is_numeric($value) || ! is_finite(floatval($value)) || ($positive ? floatval($value) <= 0.0 : floatval($value) < 0.0)) {
         $expectation = $positive ? 'greater than zero' : 'zero or greater';
-        throw self::failure($cinematicId, $path, sprintf('%s must be numeric and %s.', $field, $expectation));
+        throw self::failure($cinematicId, $path, sprintf('%s must be finite, numeric and %s.', $field, $expectation));
       }
     }
   }

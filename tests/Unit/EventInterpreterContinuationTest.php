@@ -365,6 +365,7 @@ class EventTestGameScene extends GameScene
   public function __construct(public EventTestSceneManager $testSceneManager = new EventTestSceneManager())
   {
     $this->sceneManager = $testSceneManager;
+    $this->sceneManager->currentScene = $this;
     $this->gameState = new GameState();
     $this->hasDeferredAutoSave = false;
     $this->currentMapId = 'map-a';
@@ -795,7 +796,7 @@ it('keeps cinematic narration visible for the global reading-time floor', functi
   expect($session?->status)->toBe(EventExecutionStatus::YIELDED);
 });
 
-it('centres title card copy while leaving narration copy left aligned', function () {
+it('centres title cards while left aligning narration inside its top centred box', function () {
   [$scene] = makeEventRuntime();
   $scene->installCinematicRuntime();
   $console = new ReflectionClass(Console::class);
@@ -805,6 +806,9 @@ it('centres title card copy while leaving narration copy left aligned', function
     ['width', 20],
     ['height', 10],
     ['buffer', []],
+    ['frameDepth', 0],
+    ['frameRows', []],
+    ['terminalHandedBack', false],
   ] as [$property, $value]) {
     $consoleProperty = $console->getProperty($property);
     $previousConsoleState[$property] = $consoleProperty->getValue();
@@ -819,7 +823,7 @@ it('centres title card copy while leaving narration copy left aligned', function
     $titleRows = array_map(TerminalText::stripAnsi(...), Console::getBuffer());
 
     ob_start();
-    $scene->cinematicPresentation?->showOverlay('narration', 'Dawn Route', 'SKY CARAVAN');
+    $scene->cinematicPresentation?->showOverlay('narration', 'Dawn Route continues', 'SKY CARAVAN');
     $scene->cinematicPresentation?->render();
     ob_end_clean();
     $narrationRows = array_map(TerminalText::stripAnsi(...), Console::getBuffer());
@@ -831,8 +835,9 @@ it('centres title card copy while leaving narration copy left aligned', function
 
   expect($titleRows[4] ?? '')->toBe('|   SKY CARAVAN    |')
     ->and($titleRows[5] ?? '')->toBe('|    Dawn Route    |')
-    ->and($narrationRows[5] ?? '')->toBe('| SKY CARAVAN      |')
-    ->and($narrationRows[6] ?? '')->toBe('| Dawn Route       |');
+    ->and($narrationRows[1] ?? '')->toBe('| ' . str_pad('SKY CARAVAN', 16) . ' |')
+    ->and($narrationRows[2] ?? '')->toBe('| ' . str_pad('Dawn Route', 16) . ' |')
+    ->and($narrationRows[3] ?? '')->toBe('| ' . str_pad('continues', 16) . ' |');
 });
 
 it('resumes dialogue and choices on later ticks', function () {
@@ -1406,6 +1411,8 @@ it('suspends for battle and resumes later commands with an optional result varia
         'troop' => 'Technical Troop',
         'resultVariable' => 'last_battle_result',
         'defeatPolicy' => 'continue',
+        'battleArena' => 'arena.training-yard',
+        'firstStrike' => 'party',
       ],
       ['type' => 'set_switch', 'name' => 'after_battle', 'value' => true],
     ]);
@@ -1415,6 +1422,8 @@ it('suspends for battle and resumes later commands with an optional result varia
       ->and($scene->testSceneManager->battleCount)->toBe(1)
       ->and($scene->testSceneManager->lastTroop?->name)->toBe('Technical Troop')
       ->and($scene->testSceneManager->lastBattleSettings['event_defeat_policy'])->toBe('continue')
+      ->and($scene->testSceneManager->lastBattleSettings['battleArena'])->toBe('arena.training-yard')
+      ->and($scene->testSceneManager->lastBattleSettings['firstStrike'])->toBe('party')
       ->and($scene->gameState->getSwitch('after_battle'))->toBeFalse();
 
     $scene->resumeEventAfterBattle(new BattleResult('Victory', []));
@@ -1433,6 +1442,7 @@ it('suspends for battle and resumes later commands with an optional result varia
         'troop' => 'Technical Troop',
         'resultVariable' => 'scripted_defeat_result',
         'defeatPolicy' => 'continue',
+        'firstStrike' => null,
       ],
       ['type' => 'set_switch', 'name' => 'continued_after_defeat', 'value' => true],
     ]);
@@ -1440,11 +1450,54 @@ it('suspends for battle and resumes later commands with an optional result varia
     $defeatInterpreter->update(0.016);
 
     expect($defeatSession?->status)->toBe(EventExecutionStatus::COMPLETED)
+      ->and($defeatScene->testSceneManager->lastBattleSettings)->not->toHaveKey('battleArena')
+      ->and($defeatScene->testSceneManager->lastBattleSettings['firstStrike'])->toBe('normal')
       ->and($defeatScene->gameState->getVariable('scripted_defeat_result'))->toBe('defeat')
       ->and($defeatScene->gameState->getSwitch('continued_after_defeat'))->toBeTrue();
   } finally {
     ConfigStore::remove(EnemyStore::class);
     chdir($previousDirectory);
+  }
+});
+
+it('rejects an invalid scripted opening before launching a battle', function () {
+  [$scene, $interpreter] = makeEventRuntime();
+  $session = $interpreter->run([['type' => 'start_battle', 'troop' => 'Technical Troop', 'firstStrike' => 'typo']]);
+  expect($session?->status)->toBe(EventExecutionStatus::FAILED)
+    ->and($session?->failureMessage)->toContain('firstStrike must be')
+    ->and($scene->testSceneManager->battleCount)->toBe(0);
+});
+
+it('forwards map encounter arenas and clears their binding when maps change', function () {
+  $root = sys_get_temp_dir() . '/encounter-arena-' . uniqid();
+  mkdir($root . '/assets/Data', 0777, true);
+  file_put_contents($root . '/assets/Data/troops.php', '<?php return [["name" => "Technical Troop", "enemies" => []]];');
+  $previousDirectory = getcwd();
+  chdir($root);
+  ConfigStore::put(EnemyStore::class, (new ReflectionClass(EnemyStore::class))->newInstanceWithoutConstructor());
+  try {
+    [$scene] = makeEventRuntime();
+    $manager = new class($scene) extends Ichiloto\Engine\Field\EncounterManager {
+      public function trigger(): void { $this->startEncounter(); }
+    };
+    $map = ['troops' => ['Technical Troop' => 1], 'rate' => 12];
+    $manager->configure($map + ['battleArena' => 'arena.road']);
+    $manager->trigger();
+    expect($scene->testSceneManager->lastBattleSettings)->toBe(['battleArena' => 'arena.road']);
+    $manager->configure($map + ['battleArena' => 'arena.yard']);
+    $manager->trigger();
+    expect($scene->testSceneManager->lastBattleSettings['battleArena'])->toBe('arena.yard');
+    $manager->configure(null);
+    $manager->trigger();
+    expect($scene->testSceneManager->battleCount)->toBe(2);
+    $manager->configure($map);
+    $manager->trigger();
+    expect($scene->testSceneManager->lastBattleSettings)->not->toHaveKey('battleArena')
+      ->and($scene->testSceneManager->battleCount)->toBe(3);
+  } finally {
+    ConfigStore::remove(EnemyStore::class);
+    chdir($previousDirectory);
+    unlink($root . '/assets/Data/troops.php'); rmdir($root . '/assets/Data'); rmdir($root . '/assets'); rmdir($root);
   }
 });
 
@@ -2287,6 +2340,36 @@ it('restores camera input and staged cast after controlled cinematic failure', f
     ->and($scene->cinematicController?->active())->toBeNull()
     ->and($scene->hasUnstableEventSession())->toBeFalse();
 });
+
+it('releases graphical cast on cinematic completion failure and legal skip before same-id re-entry', function (string $outcome) {
+  [$scene, $interpreter] = makeEventRuntime();
+  $scene->installPlayer(new EventTestPlayer(new Vector2(1, 1)));
+  $scene->installCinematicRuntime();
+  $data = ['id' => 'graphical-lifecycle', 'name' => 'Graphical Lifecycle',
+    'cast' => [['id' => 'runner', 'sprite' => '@', 'x' => 2, 'y' => 2,
+      'sprites2d' => ['asset' => 'runner.png', 'width' => 56, 'height' => 56, 'layer' => 100]]],
+    'skip' => ['policy' => 'authored'], 'finalizer' => [['type' => 'clear_presentation']]];
+  $cinematic = CinematicDefinition::fromArrays($data, [
+    ['type' => 'wait', 'seconds' => 0.1],
+    ...($outcome === 'failure' ? [['type' => 'camera', 'operation' => 'focus',
+      'target' => ['kind' => 'staged_actor', 'id' => 'missing']]] : []),
+  ]);
+  $session = $scene->cinematicController->start($cinematic);
+  $first = $scene->cinematicStage->require('runner');
+  expect($first->getGraphicalSpriteDefinition()->asset)->toBe('runner.png');
+  if ($outcome === 'skip') {
+    expect($scene->cinematicController->skip())->toBeTrue();
+  } else {
+    $interpreter->update(0.1);
+  }
+  expect($session->status)->toBe($outcome === 'failure' ? EventExecutionStatus::FAILED : EventExecutionStatus::COMPLETED)
+    ->and($scene->cinematicStage->all())->toBe([])
+    ->and($scene->cinematicController->active())->toBeNull();
+  $scene->cinematicController->start($cinematic);
+  expect($scene->cinematicStage->require('runner'))->not->toBe($first)
+    ->and($scene->cinematicStage->require('runner')->getGraphicalSpriteId())->toBe('staged:runner');
+  $scene->cinematicController->skip();
+})->with(['complete', 'failure', 'skip']);
 
 it('composes common events inside a cinematic lane and propagates nested failure context', function () {
   $root = sys_get_temp_dir() . '/cinematic-common-event-' . uniqid();

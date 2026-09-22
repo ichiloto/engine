@@ -6,25 +6,45 @@ namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasValidation;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
+use Ichiloto\Engine\Scenes\Battle\BattleConfig;
 use InvalidArgumentException;
 use RuntimeException;
 
 /** Current project configuration, deliberately outside all save payloads. */
 final readonly class BattlePresentationCatalog
 {
-  public const string FILE = 'Data/battle-presentation.php';
-  /** @var array<string, BattleArenaDefinition> Troop definition ID, or historical catalog name when no ID exists. */
+  public const string FILE = 'Data/Presentation/battle.php';
+  /** @var array<string, BattleArenaDefinition> Authored arena keys; legacy entries use troop IDs/names. */
   public array $arenas;
   /** @var array<string, BattlerArtwork> Actor IDs. */
   public array $actors;
   /** @var array<string, BattlerArtwork> Existing EnemyStore catalog keys. */
   public array $enemies;
 
-  public function __construct(array $arenas, array $actors, array $enemies)
+  public function __construct(array $arenas, array $actors, array $enemies, public ?BattleCanvasLayout $ui = null,
+    public ?BattleResultsSkin $results = null, public ?BattlePauseSkin $pause = null)
   {
+    if ($ui !== null && $ui->skin === null) {
+      throw new InvalidArgumentException('Project-wide battle UI requires a skin.');
+    }
     $this->arenas = self::catalog($arenas, BattleArenaDefinition::class);
     $this->actors = self::catalog($actors, BattlerArtwork::class);
     $this->enemies = self::catalog($enemies, BattlerArtwork::class);
+  }
+
+  public function arenaFor(BattleConfig $battle): ?BattleArenaDefinition
+  {
+    $key = $battle->settings['battleArena'] ?? null;
+    $troopId = $battle->troop->definitionId ?? $battle->troop->name;
+    if ($key === null) {
+      return ($this->arenas[$troopId] ?? null)?->getForTroop($troopId);
+    }
+    if (!is_string($key)) {
+      throw new InvalidArgumentException('battleArena must be a string arena key.');
+    }
+    CanvasValidation::id($key);
+    $arena = $this->arenas[$key] ?? throw new RuntimeException("Unknown graphical battle arena: {$key}");
+    return $arena->getForTroop($troopId);
   }
 
   public static function exists(string $assetRoot): bool
@@ -37,7 +57,7 @@ final readonly class BattlePresentationCatalog
   public function requiredCapabilities(): array
   {
     return [RendererSessionConfig::GRAPHICAL_CANVAS,
-      ...(array_any($this->arenas, static fn($arena) => $arena->skin !== null)
+      ...($this->pause !== null || $this->results !== null || $this->ui !== null || array_any($this->arenas, static fn($arena) => $arena->skin !== null)
         ? [RendererSessionConfig::CANVAS_CLIP_OPACITY, RendererSessionConfig::CANVAS_GLYPH_EFFECTS] : [])];
   }
 

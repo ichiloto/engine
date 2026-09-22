@@ -54,7 +54,7 @@ class MagicListPanel extends Window
     $visibleRows = max(1, $this->height - 2);
     $availableWidth = max(0, $this->width - 4);
     $content = array_fill(0, $visibleRows, '');
-    $visibleEntries = array_slice($this->entries, $this->scrollOffset, $visibleRows, true);
+    $visibleEntries = array_slice($this->entries, $this->scrollOffset, $visibleRows);
 
     foreach ($visibleEntries as $row => $entry) {
       $actualIndex = $this->scrollOffset + $row;

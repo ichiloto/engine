@@ -22,7 +22,8 @@ final class ExperienceAwarder
       throw new InvalidArgumentException('Experience awards cannot be negative.');
     }
 
-    $oldLevel = $character->level;
+    $before = ProgressionSnapshot::capture($character);
+    $oldLevel = $before->level;
     $character->addExperience($experience);
     $newLevel = $character->level;
 
@@ -33,7 +34,7 @@ final class ExperienceAwarder
       $character->restoreVitals();
     }
 
-    return self::grantAutomaticRoleSkills($character, $oldLevel, $newLevel, $experience);
+    return self::grantAutomaticRoleSkills($character, $oldLevel, $newLevel, $experience, $before);
   }
 
   /**
@@ -63,10 +64,12 @@ final class ExperienceAwarder
     int $minimumExclusiveLevel,
     int $maximumInclusiveLevel,
     int $experience,
+    ?ProgressionSnapshot $before = null,
   ): ExperienceAwardResult
   {
     $abilities = [];
     $magic = [];
+    $details = [];
 
     foreach ($character->role->skillsToLearn as $grant) {
       if ($grant->level <= $minimumExclusiveLevel || $grant->level > $maximumInclusiveLevel) {
@@ -82,6 +85,8 @@ final class ExperienceAwarder
       } else {
         $abilities[] = $grant->skill->name;
       }
+      $details[] = ['name' => $grant->skill->name, 'description' => $grant->skill->description,
+        'kind' => $grant->skill instanceof MagicSkill ? 'Magic' : 'Ability', 'cost' => $grant->skill->cost];
     }
 
     return new ExperienceAwardResult(
@@ -91,6 +96,9 @@ final class ExperienceAwarder
       $maximumInclusiveLevel,
       $abilities,
       $magic,
+      $before,
+      ProgressionSnapshot::capture($character),
+      $details,
     );
   }
 }

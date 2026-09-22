@@ -4,9 +4,11 @@ namespace Ichiloto\Engine\Core\Menu\ItemMenu\Modes;
 
 use Exception;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
-use Ichiloto\Engine\Core\Menu\ItemMenu\Modes\ItemMenuMode;
-use Ichiloto\Engine\IO\Enumerations\AxisName;
+use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\IO\Input;
+use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\Quests\QuestManager;
+use Ichiloto\Engine\UI\Modal\ModalManager;
 
 class DiscardItemMode extends ItemMenuMode
 {
@@ -20,35 +22,52 @@ class DiscardItemMode extends ItemMenuMode
     if (Input::isButtonDown("back")) {
       play_sound(SystemSound::CANCEL);
       $this->state->setMode(new SelectIemMenuCommandMode($this->state));
+      return;
     }
 
-    $v = Input::getAxis(AxisName::VERTICAL);
-
-    if (abs($v) > 0) {
-      play_sound(SystemSound::CURSOR);
-
-      if ($v > 0) {
-        $this->state->selectionPanel->selectNext();
-      } else {
-        $this->state->selectionPanel->selectPrevious();
-      }
-    }
+    $this->navigateItems();
 
     if (Input::isButtonDown("confirm")) {
-      if (confirm("Are you sure you want to discard this item?")) {
-        $this->state->getGameScene()->party->inventory->removeItems($this->state->selectionPanel->activeItem);
-        $this->state->selectionPanel->setItems($this->state->getGameScene()->party->inventory->all->toArray());
+      if (($item = $this->state->selectionPanel->activeItem) !== null) { $this->confirmDiscard($item); }
+      return;
+    }
+  }
 
-        if ($this->state->selectionPanel->activeIndex > $this->state->selectionPanel->totalItems - 1) {
-          $this->state->selectionPanel->selectPrevious();
-        }
-
-        if ($this->state->selectionPanel->totalItems === 0) {
-          alert("You have no items left.");
-          $this->state->setMode(new SelectIemMenuCommandMode($this->state));
-        }
+  private function confirmDiscard(InventoryItem $item): void
+  {
+    try {
+      if (!$this->hasCurrentStack($item, 1)) { return; }
+      $quantity = $item->quantity > 1
+        ? ModalManager::getInstance($this->state->getGameScene()->getGame())->selectQuantity(
+          'Discard ' . $item->name, $item->quantity, 'Discard item')
+        : 1;
+      if ($quantity === null || !$this->hasCurrentStack($item, $quantity)) { return; }
+      if (!confirm(sprintf('Discard %s x %d?', $item->name, $quantity))
+        || !$this->hasCurrentStack($item, $quantity)) { return; }
+      if (!$this->inventory->consumeQuantityById($item->id, $quantity)) { return; }
+      QuestManager::current()?->syncCollectObjectives();
+      $this->state->selectionPanel->setItems($this->state->itemMenu->getRegularItems());
+      if ($this->state->selectionPanel->totalItems === 0) {
+        alert('You have no items left.');
+        $this->state->setMode(new SelectIemMenuCommandMode($this->state));
+      }
+    } finally {
+      InputManager::resetState();
+      if ($this->state->mode === $this && !$this->state->getGameScene()->getGame()->hasStopped()) {
+        $this->state->selectionPanel->setItems($this->state->itemMenu->getRegularItems());
+        $this->state->infoPanel->setText($this->state->selectionPanel->activeItem?->description ?? '');
       }
     }
+  }
+
+  private function hasCurrentStack(InventoryItem $item, int $quantity): bool
+  {
+    if ($quantity < 1 || $item->quantity < $quantity
+      || !in_array($item, $this->state->itemMenu->getRegularItems(), true)) {
+      alert('The selected item quantity is no longer available.');
+      return false;
+    }
+    return true;
   }
 
   /**

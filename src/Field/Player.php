@@ -150,6 +150,9 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   #[Override]
   public function getGraphicalSpriteDefinition(): ?GraphicalSpriteDefinition
   {
+    if ($this->isPresentationSuppressed()) {
+      return null;
+    }
     $definition = $this->graphicalSprites?->getForHeading($this->heading);
     return $definition === null ? null : ($this->walkAnimation?->present($definition) ?? $definition);
   }
@@ -162,6 +165,24 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   public function stopGraphicalAnimation(): void
   {
     $this->walkAnimation?->stop();
+    if (($this->scene ?? null) instanceof GameScene) {
+      $this->scene->cinematicStage?->subjectStopped($this);
+    }
+  }
+
+  private function isPresentationSuppressed(): bool
+  {
+    return ($this->scene ?? null) instanceof GameScene && ($this->scene->cinematicStage?->suppresses($this) ?? false);
+  }
+
+  /** Restore owned temporary staging without movement triggers or outcome writes. */
+  public function restoreFieldTransform(Vector2 $position, MovementHeading $heading, array $sprite): void
+  {
+    $this->position->x = $position->x;
+    $this->position->y = $position->y;
+    $this->sprite = $sprite;
+    $this->heading = $heading;
+    $this->stopGraphicalAnimation();
   }
 
   #[Override]
@@ -245,6 +266,9 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     if ($this->walkAnimation !== null
       && ($origin->x !== $this->position->x || $origin->y !== $this->position->y)) {
       $this->walkAnimation->step($this->graphicalSprites->getForHeading($this->heading));
+    }
+    if ($origin->x !== $this->position->x || $origin->y !== $this->position->y) {
+      $this->getGameScene()->cinematicStage?->subjectMoved($this);
     }
     $this->handleTriggers($event);
     $this->getGameScene()->encounterManager?->registerStep($collisionType);
@@ -795,6 +819,9 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    */
   public function render(): void
   {
+    if ($this->isPresentationSuppressed()) {
+      return;
+    }
     Console::withLayer($this->getGraphicalSpriteId(), function (): void {
       $this->scene->camera->renderAtScreenPosition($this->sprite, $this->screenPosition);
     });
@@ -810,6 +837,9 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
 
   public function renderPlayer(?Vector2 $offset = null): void
   {
+    if ($this->isPresentationSuppressed()) {
+      return;
+    }
     $worldPosition = new Vector2(
       $this->position->x - ($offset?->x ?? 0),
       $this->position->y - ($offset?->y ?? 0)
@@ -831,6 +861,9 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    */
   public function erase(): void
   {
+    if ($this->isPresentationSuppressed()) {
+      return;
+    }
     $this->eraseSpriteFootprint($this->position, $this->sprite);
 
     if ($this->canAct) {
@@ -847,6 +880,9 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    */
   public function erasePlayer(Camera $camera, ?array $sprite = null): void
   {
+    if ($this->isPresentationSuppressed()) {
+      return;
+    }
     $sprite ??= $this->sprite;
     $this->eraseSpriteFootprint($this->position, $sprite);
 

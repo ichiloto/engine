@@ -12,6 +12,12 @@ use Ichiloto\Engine\Core\Rect;
  */
 class AlertModal extends Modal
 {
+  public function getModalPresentation(): ?ModalPresentation
+  {
+    return new ModalPresentation($this->title, $this->message, $this->buttons, $this->activeIndex,
+      singleConfirmation: count($this->buttons) === 1);
+  }
+
   /**
    * Constructs a new AlertModal instance.
    *

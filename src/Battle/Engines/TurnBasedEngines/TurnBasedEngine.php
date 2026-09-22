@@ -11,6 +11,8 @@ use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnResol
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnState;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnStateExecutionContext;
 use Ichiloto\Engine\Battle\Interfaces\BattleEngineInterface;
+use Ichiloto\Engine\Battle\Resolution\CombatRandomSource;
+use Ichiloto\Engine\Battle\Resolution\NativeCombatRandomSource;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Scenes\Battle\BattleConfig;
 
@@ -21,6 +23,7 @@ use Ichiloto\Engine\Scenes\Battle\BattleConfig;
  */
 abstract class TurnBasedEngine implements BattleEngineInterface
 {
+  protected(set) CombatRandomSource $random;
   /**
    * @var BattleConfig|null The battle configuration.
    */
@@ -64,9 +67,11 @@ abstract class TurnBasedEngine implements BattleEngineInterface
    * @param Game $game
    */
   public function __construct(
-    protected Game $game
+    protected Game $game,
+    ?CombatRandomSource $random = null,
   )
   {
+    $this->random = $random ?? new NativeCombatRandomSource();
     $this->turnQueue = new Queue(Turn::class);
     $this->initializeTurnStates();
   }

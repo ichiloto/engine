@@ -346,6 +346,37 @@ it('retains authored dialogue placement while sharing buffered erasure', functio
   }
 });
 
+it('left aligns prose and speech inside their independently positioned boxes', function (string $speaker, ?WindowPosition $position, WindowPosition $expected) {
+  $game = new ReflectionClass(Game::class)->newInstanceWithoutConstructor();
+  $message = 'A practice blade and worn guard rest against the wall.';
+  $modal = new PositionedTextBoxModalProbe($game, $message, $speaker, position: $position);
+  ob_start();
+  $modal->prepareAndRender();
+  ob_end_clean();
+  [$rect, $window] = $modal->positions();
+  [$width, $height] = $modal->size();
+  expect($rect)->toEqual($expected->getCoordinates($width, $height))->and($window)->toEqual($rect);
+  $row = TerminalText::stripAnsi(Console::getBuffer()[(int)$rect->y + 1]);
+  expect(mb_strpos($row, 'A'))->toBe((int)$rect->x + 2);
+
+  ob_start();
+  $modal->renderCompletePage();
+  ob_end_clean();
+  $rows = array_map(TerminalText::stripAnsi(...), Console::getBuffer());
+  $lines = explode("\n", wordwrap($message, $width - 4, "\n", true));
+  expect(count($lines))->toBeGreaterThan(1);
+
+  foreach ($lines as $index => $line) {
+    expect(mb_strpos($rows[(int)$rect->y + 1 + $index], $line))->toBe((int)$rect->x + 2);
+  }
+})->with([
+  ['', null, WindowPosition::TOP],
+  ['  ', null, WindowPosition::TOP],
+  ['Kaelion', null, WindowPosition::BOTTOM],
+  ['', WindowPosition::MIDDLE, WindowPosition::MIDDLE],
+  ['Kaelion', WindowPosition::TOP, WindowPosition::TOP],
+]);
+
 it('measures wrapped dialogue before bottom anchoring it inside the screen', function () {
   $game = (new ReflectionClass(Game::class))->newInstanceWithoutConstructor();
   $modal = new PositionedTextBoxModalProbe(

@@ -34,6 +34,22 @@ class BattleFieldWindow extends Window
   private array $feedback = [];
   private int $feedbackSequence = 0;
   private ?BattleFeedbackTiming $feedbackTiming = null;
+  private ?float $pausedAt = null;
+
+  public function pauseTiming(): void
+  {
+    $this->pausedAt ??= ($this->feedbackTiming ??= new BattleFeedbackTiming())->now();
+  }
+
+  public function resumeTiming(bool $discard = false): void
+  {
+    if ($this->pausedAt !== null && !$discard) {
+      $elapsed = max(0, ($this->feedbackTiming ??= new BattleFeedbackTiming())->now() - $this->pausedAt);
+      foreach ($this->feedback as &$feedback) { $feedback['shownAt'] += $elapsed; }
+      unset($feedback);
+    }
+    $this->pausedAt = null;
+  }
 
   public function render(?int $x = null, ?int $y = null): void
   {

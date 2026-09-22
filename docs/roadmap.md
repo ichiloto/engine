@@ -92,6 +92,69 @@ story feature depends on persistent game state existing.
 > `TurnBasedEngine::$turnQueue`, `Skill::execute()` stubs) is quarantined for
 > Phase 3's battle work.
 
+#### Equipment and shop integration follow-through (2026-09-17)
+
+Game bootstrap loads the existing `assets/Data/equipment-optimization.php`
+contract rather than introducing a second policy declaration in `system.php`.
+Its flat array accepts `statWeights`, `roleStatWeights`, `slotStatWeights`,
+`roleSlotStatWeights`, `elementOutcomeWeights`, `specialPropertyWeights`,
+`excludedDefinitionIds`, `excludedAvailabilities` and
+`excludedAcquisitionPolicies`. Weights are integers; exclusion fields are lists
+of non-empty strings. Stat precedence remains base, role, slot, then role-slot,
+with later weights replacing matching earlier keys. Compatibility and available
+equipment checks still precede scoring.
+
+An absent file resets to legacy equal-weight scoring; an explicit empty array
+declares zero weights. A present invalid file rejects startup with its path and
+cause, never silently retaining another project's policy. Headless regression
+tests exercise actual Game configuration and ordinary Character Optimize calls.
+
+Sale eligibility is shared by inventory values, the sell menu and the shop
+transaction. The transaction resolves the owned stack by stable ID before
+checking flags, quantity and price, so supplied offer metadata cannot bypass
+an unsellable definition. Shop rates and transaction rounding remain unchanged.
+
+The subsequent terminal equipment walkthrough found a separate catalogue/owned
+stack alias in purchases: selling the last copy also depleted shop merchandise,
+so buying it again admitted a zero-quantity stack. Purchases now create owned
+unit copies, independent of merchandise quantity, and preflight all inventory
+categories and capacity before charging. Full inventories may still top up
+existing stacks; rejected new entries do not block later existing-stack inputs.
+The sale quantity prompt now names the sale action rather than a purchase.
+
+Engine validation, including purchase ownership and the subsequent shutdown fix:
+the full suite passes on PHP 8.4 and 8.5 with 2,370 tests, 13,985 assertions and
+one existing skip on each; full PHPStan is clean. These
+headless checks do not establish native gameplay or Linux/WSLg acceptance.
+
+Game's muted 110x35 terminal retest also passes purchase, sale of the last copy,
+and repurchase: 10,000G becomes 8,100G after the three approved weapons, 8,425G
+after selling the staff, then 7,775G with one owned staff after repurchasing.
+Manual equip and role-aware Optimize retain the expected weapons; the sale
+prompt says "sell". Configuration and all nine current save hashes match before
+and after that retest. Exit confirmation exposed a separate shared shutdown
+defect: terminal modes restore, but the process needs interruption to finish.
+That run is not evidence of clean shutdown. The shared fix clears cached
+confirmation input and stops field/frame continuation when shutdown begins;
+both blocking modal implementations unwind without repainting or resuming a
+stopped scene. Startup modals remain supported before the main loop begins.
+Headless regressions cover terminal and renderer input sources, repeated quit,
+failed source reset and quit from callbacks. Game's one subsequent muted 110x35
+terminal retest at the same Waymeet interaction passes: Q opens Exit, Enter
+invokes normal quit, restores the terminal and returns from Game::run with exit
+code 0, without further input or forced interruption. Configuration and all nine
+current saves remain unchanged, and no owned game/renderer process remains.
+
+Remaining boundaries, not claims of completion: Editor diagnostics still need
+parity for malformed top-level policy data and failed file loads. Shops retain
+their existing total-held-quantity behavior; protecting copies currently equipped
+needs coordinated quantity-picker and transaction handling. Item-level sale-rate
+metadata and shop-rate precedence also remain distinct and must not be combined
+into an invented double-discount or silently different rounding policy.
+The quantity UI also still truncates some fractional totals and checks purchase
+affordability against the base price rather than custom shop rates; a shared
+quote calculation is follow-up work, not a claim of this ownership fix.
+
 ### Phase 1 — The persistence spine (switches, variables, world state) ✅ *shipped 2026-08*
 > Status: `Core\GameState` ships switches, variables, story events, and
 > per-map/per-marker completion, serialized through `GameConfig::$gameState`
@@ -194,8 +257,10 @@ A pure consumer of Phase 1:
 > Howl). **Random encounters**: maps opt in with an `encounters` block
 > (weighted troop table + step rate); `EncounterManager` burns a
 > randomized step counter on ENCOUNTER tiles (or every tile via
-> `'tiles' => 'any'`), with 5% preemptive-strike and 5% ambush rolls that
-> drop the surprised side's opening-round turns, and
+> `'tiles' => 'any'`). Battle opening now uses one shared, configurable
+> pre-emptive/ambush decision (defaults 8%/6%); see
+> [battle opening settings](story-events.md). Traditional battles drop the
+> surprised side's opening-round turns. The
 > `encounterRateMultiplier` as the repel/lure hook (demo: the overworld's
 > grass). **Level-up beat**: victory now reports each member's new level
 > and any `CharacterRole::$skillsToLearn` grants crossed this battle
@@ -722,7 +787,15 @@ transitions, field animations, authored safe skipping/finalizers, and a
 non-blocking summon preview/runtime session while retaining this same
 interpreter. See [cinematics.md](cinematics.md) and [summons.md](summons.md).
 
-Still deferred: active-session save serialization, pathfinding, party
+Authored cinematic waypoint routes now use bounded cardinal planning through
+the existing collision model. Session-local approach histories support exact
+walking returns and entry-facing restoration; they are not saved story state.
+Battle interruption suspends the caller, while true unload, quit and handled
+crash paths release its transient ownership. See the current contract and
+validation in [cinematics.md](cinematics.md#captured-entry-walking-and-return)
+and the [integration roadmap](rendering/integration-roadmap.md#cinematic-gap-schedule).
+
+Still deferred: active-session save serialization, autonomous pathfinding, party
 followers, NPC patrol routes, the first-class Editor cinematic authoring
 surface, boss phases, and scheduled/delayed battle actions.
 

@@ -2,12 +2,12 @@
 
 namespace Tests\Support\Input;
 
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererTransportState;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException;
+use Ichiloto\Engine\Rendering\Transport\Interfaces\RendererTransportInterface;
 use Ichiloto\Engine\Rendering\Transport\RendererEvent;
 use Ichiloto\Engine\Rendering\Transport\RendererMessage;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
-use Ichiloto\Engine\Rendering\Transport\RendererTransportInterface;
-use Ichiloto\Engine\Rendering\Transport\RendererTransportState;
 
 final class FakeRendererTransport implements RendererTransportInterface
 {

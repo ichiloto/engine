@@ -450,7 +450,7 @@ class PlayerActionState extends TurnState
   }
 
   /**
-   * Confirms the active submenu option and either moves to targeting or queues it directly.
+   * Moves the active submenu option to target confirmation, including self-only actions.
    *
    * @param TurnStateExecutionContext $context The turn context.
    * @return void
@@ -473,11 +473,6 @@ class PlayerActionState extends TurnState
         $this->activeCharacter->name,
         $this->activeCharacter->stats->currentMp
       ));
-      return;
-    }
-
-    if ($option->targetSide === ItemScopeSide::USER) {
-      $this->queueActionForActiveCharacter($context);
       return;
     }
 
@@ -669,7 +664,7 @@ class PlayerActionState extends TurnState
         ? $this->getSelectableTargetIndexes($context)
         : [$this->activeTargetIndex];
       match ($this->getSelectedOption()?->targetSide) {
-        ItemScopeSide::ALLY => $context->ui->fieldWindow->focusPartyBattlers($indexes, blink: true),
+        ItemScopeSide::ALLY, ItemScopeSide::USER => $context->ui->fieldWindow->focusPartyBattlers($indexes, blink: true),
         default => $context->ui->fieldWindow->focusTroopBattlers($indexes, blink: true),
       };
     }

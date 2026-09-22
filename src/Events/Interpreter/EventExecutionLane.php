@@ -125,16 +125,24 @@ final class EventExecutionLane
 
   public function fail(string $message): void
   {
+    if ($this->status === EventExecutionStatus::FAILED) {
+      return;
+    }
     $this->failureMessage = $message;
-    $this->cancelPending();
     $this->status = EventExecutionStatus::FAILED;
+    $this->cancelPending();
   }
 
   public function cancel(): void
   {
-    $this->cancelPending();
-    $this->frames = [];
-    $this->status = EventExecutionStatus::COMPLETED;
+    try {
+      $this->cancelPending();
+    } finally {
+      $this->frames = [];
+      if ($this->status !== EventExecutionStatus::FAILED) {
+        $this->status = EventExecutionStatus::COMPLETED;
+      }
+    }
   }
 
   public function hasFinishedFrames(): bool
@@ -145,13 +153,27 @@ final class EventExecutionLane
 
   protected function cancelPending(): void
   {
-    $this->pendingOperation?->cancel();
-    $this->parallelGroup?->cancel();
+    $operation = $this->pendingOperation;
+    $group = $this->parallelGroup;
+    // Detach first so throwing or reentrant cancellation cannot run an operation twice.
     $this->pendingOperation = null;
     $this->parallelGroup = null;
     $this->pendingCommand = null;
     $this->pendingState = [];
     $this->frameToPush = null;
+    $failures = [];
+    foreach ([$operation, $group] as $pending) {
+      try {
+        $pending?->cancel();
+      } catch (\Throwable $failure) {
+        $failures[] = $failure;
+      }
+    }
+    if ($failures !== []) {
+      throw new \RuntimeException(sprintf('Lane "%s" cancellation failed: %s', $this->path,
+        implode('; ', array_map(static fn(\Throwable $failure): string => $failure->getMessage(), $failures))),
+        previous: $failures[0]);
+    }
   }
 
   protected function discardCompletedFrames(): void

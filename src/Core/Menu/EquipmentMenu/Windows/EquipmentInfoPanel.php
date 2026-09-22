@@ -14,6 +14,12 @@ use Ichiloto\Engine\UI\Windows\Window;
  */
 class EquipmentInfoPanel extends Window
 {
+  private string $presentationText = '';
+
+  public function getPresentationText(): string
+  {
+    return $this->presentationText;
+  }
   /**
    * Creates a new instance of the equipment info panel.
    *
@@ -44,6 +50,7 @@ class EquipmentInfoPanel extends Window
    */
   public function setText(string $text): void
   {
+    $this->presentationText = $text;
     $lines = explode("\n", $text);
     $lineCount = count($lines);
 

@@ -14,6 +14,8 @@ use Ichiloto\Engine\Scenes\Battle\BattleConfig;
  */
 class ActiveTimeBattleConfig extends BattleConfig
 {
+  public const float DEFAULT_OPENING_VARIANCE = 70.0;
+  public const float DEFAULT_OPENING_SPEED_FACTOR = 0.5;
   /**
    * Creates a new active-time battle configuration.
    *
@@ -38,8 +40,8 @@ class ActiveTimeBattleConfig extends BattleConfig
     protected(set) string $mode = 'wait',
     protected(set) float $baseFillRate = 35.0,
     protected(set) float $speedFactor = 1.0,
-    protected(set) float $openingVariance = 24.0,
-    protected(set) float $openingSpeedFactor = 2.5,
+    protected(set) float $openingVariance = self::DEFAULT_OPENING_VARIANCE,
+    protected(set) float $openingSpeedFactor = self::DEFAULT_OPENING_SPEED_FACTOR,
     protected(set) int $surpriseAttackChancePercent = 8,
     protected(set) int $backAttackChancePercent = 6,
     array $settings = [],

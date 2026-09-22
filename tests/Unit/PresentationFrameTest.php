@@ -3,7 +3,7 @@
 use Ichiloto\Engine\Rendering\Presentation\PresentationFrame;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSprite;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteAnchor;
-use Ichiloto\Engine\Rendering\Transport\RendererMessageType;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererMessageType;
 
 it('encodes typed text and sprites using the existing FRAME envelope', function () {
   $sprite = new PresentationSprite('test', 'Graphics/test.png', 8, 4, 32, 48, layer: 100);

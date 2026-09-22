@@ -45,21 +45,8 @@ final readonly class DirectionalGraphicalSpriteSet
       if (!is_array($entry)) {
         throw new InvalidArgumentException("Graphical sprite direction '$direction' must contain a definition array.");
       }
-      $entry += ['anchor' => PresentationSpriteAnchor::BOTTOM_CENTER->value, 'layer' => 0];
-      if (array_diff_key($entry, array_flip(['asset', 'width', 'height', 'anchor', 'layer'])) !== []
-        || !is_string($entry['asset'] ?? null)
-        || !is_int($entry['width'] ?? null) || !is_int($entry['height'] ?? null)
-        || !is_string($entry['anchor']) || !is_int($entry['layer'])) {
-        throw new InvalidArgumentException("Graphical sprite direction '$direction' requires a string asset/anchor and integer width/height/layer, with no unknown fields.");
-      }
-      $anchor = PresentationSpriteAnchor::tryFrom($entry['anchor']);
-      if ($anchor === null) {
-        throw new InvalidArgumentException("Graphical sprite direction '$direction' has an unsupported anchor.");
-      }
       try {
-        $definitions[$direction] = new GraphicalSpriteDefinition(
-          $entry['asset'], $entry['width'], $entry['height'], $anchor, $entry['layer'],
-        );
+        $definitions[$direction] = GraphicalSpriteDefinition::fromArray($entry);
       } catch (InvalidArgumentException $exception) {
         throw new InvalidArgumentException("Graphical sprite direction '$direction': " . $exception->getMessage(), 0, $exception);
       }

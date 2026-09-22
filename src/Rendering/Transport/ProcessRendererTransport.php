@@ -3,10 +3,15 @@
 namespace Ichiloto\Engine\Rendering\Transport;
 
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererEventType;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererMessageType;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererTransportState;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererProcessExitedException;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererProtocolException;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererStartupException;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException;
+use Ichiloto\Engine\Rendering\Transport\Interfaces\RendererTransportInterface;
 use Ichiloto\Engine\Rendering\Transport\Internal\RendererWriteBuffer;
 use InvalidArgumentException;
 use JsonException;
@@ -39,6 +44,12 @@ final class ProcessRendererTransport implements RendererTransportInterface
   /** @var list<string> */
   private array $requiredCapabilities = [];
 
+  private float|int $now {
+      get {
+          return hrtime(true) / 1_000_000_000;
+      }
+  }
+
   public function __construct(private readonly RendererProcessConfig $config)
   {
     $this->outbound = new RendererWriteBuffer($config->maxOutboundBytes);
@@ -60,7 +71,7 @@ final class ProcessRendererTransport implements RendererTransportInterface
     $this->closeRequested = false;
     $this->terminationSignal = 0;
     $this->outbound = new RendererWriteBuffer($this->config->maxOutboundBytes);
-    $deadline = self::now() + $this->config->startupTimeout;
+    $deadline = $this->now + $this->config->startupTimeout;
 
     try {
       if (PHP_OS_FAMILY === 'Windows') {
@@ -85,8 +96,8 @@ final class ProcessRendererTransport implements RendererTransportInterface
       // proc_open uses file-descriptor pipes, not buffered stdio FILE streams.
       // Their writes already go directly to the nonblocking descriptor.
       $this->queue($session->hello());
-      while (self::now() < $deadline) {
-        $this->serviceIo(min(self::STATUS_INTERVAL, max(0.0, $deadline - self::now())));
+      while ($this->now < $deadline) {
+        $this->serviceIo(min(self::STATUS_INTERVAL, max(0.0, $deadline - $this->now)));
         foreach ($this->events as $event) {
           if ($event->type === RendererEventType::ERROR) {
             throw new RendererStartupException('Renderer rejected startup: ' . substr($event->message ?? '', 0, 1024));
@@ -170,17 +181,17 @@ final class ProcessRendererTransport implements RendererTransportInterface
     if ($this->isRunning()) {
       $this->state = RendererTransportState::STOPPING;
     }
-    $deadline = self::now() + $this->config->shutdownTimeout;
+    $deadline = $this->now + $this->config->shutdownTimeout;
     $shutdown = (new RendererMessage(RendererMessageType::SHUTDOWN, protocol: $this->protocol))->encode();
     $queued = false;
     try {
-      while ($this->process !== null && self::now() < $deadline) {
+      while ($this->process !== null && $this->now < $deadline) {
         if (! $queued && ! $this->closeRequested && $this->isRunning()
           && $this->outbound->pendingBytes() + strlen($shutdown) <= $this->config->maxOutboundBytes) {
           $this->outbound->append($shutdown);
           $queued = true;
         }
-        $this->serviceIo(min(self::STATUS_INTERVAL, max(0.0, $deadline - self::now())));
+        $this->serviceIo(min(self::STATUS_INTERVAL, max(0.0, $deadline - $this->now)));
         if (($queued || $this->closeRequested) && $this->outbound->pendingBytes() === 0) {
           $this->closePipe(0);
         }
@@ -226,7 +237,7 @@ final class ProcessRendererTransport implements RendererTransportInterface
 
   private function queue(RendererMessage $message): void
   {
-    $encoding = LatencyTrace::now();
+    $encoding = LatencyTrace::getTimeNow();
     try {
       $line = $message->encode();
     } catch (JsonException $error) {
@@ -423,7 +434,7 @@ final class ProcessRendererTransport implements RendererTransportInterface
   private function signalTermination(int $signal): void
   {
     $this->terminationSignal = $signal;
-    $this->terminationDeadline = self::now() + $this->config->terminationTimeout;
+    $this->terminationDeadline = $this->now + $this->config->terminationTimeout;
     if ($this->isRunning()) {
       @proc_terminate($this->process, $signal);
     }
@@ -434,7 +445,7 @@ final class ProcessRendererTransport implements RendererTransportInterface
   {
     $read = array_values(array_intersect_key($this->pipes, [1 => true, 2 => true]));
     $write = $except = [];
-    $micros = (int) (min($wait, self::STATUS_INTERVAL, max(0.0, $this->terminationDeadline - self::now())) * 1_000_000);
+    $micros = (int) (min($wait, self::STATUS_INTERVAL, max(0.0, $this->terminationDeadline - $this->now)) * 1_000_000);
     if ($read !== []) {
       @stream_select($read, $write, $except, 0, $micros);
     } elseif ($micros > 0) {
@@ -452,7 +463,7 @@ final class ProcessRendererTransport implements RendererTransportInterface
     if (! $this->isRunning() && ! isset($this->pipes[1]) && ! isset($this->pipes[2])) {
       $this->releaseProcess();
       $this->terminationSignal = 0;
-    } elseif (self::now() >= $this->terminationDeadline) {
+    } elseif ($this->now >= $this->terminationDeadline) {
       if ($this->terminationSignal === self::TERMINATE_SIGNAL) {
         $this->signalTermination(self::KILL_SIGNAL);
       } else {
@@ -503,11 +514,6 @@ final class ProcessRendererTransport implements RendererTransportInterface
       }
       $this->process = null;
     }
-  }
-
-  private static function now(): float
-  {
-    return hrtime(true) / 1_000_000_000;
   }
 
   /** Return codes are converted to transport exceptions, not leaked to host error handlers. */

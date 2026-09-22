@@ -24,6 +24,11 @@ use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\CommandPanel;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Symfony\Component\Console\Output\ConsoleOutput;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\UI\Presentation\ItemMenuPresentation;
+use Ichiloto\Engine\UI\Presentation\MenuCanvasState;
+use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 
 /**
  * The ItemMenu state allows the player to manage items in their inventory.
@@ -36,8 +41,14 @@ use Symfony\Component\Console\Output\ConsoleOutput;
  *
  * @package Ichiloto\Engine\Scenes\Game\States
  */
-class ItemMenuState extends GameSceneState implements CanRender
+class ItemMenuState extends GameSceneState implements CanRender, CanvasProviderInterface
 {
+  use MenuCanvasState;
+
+  protected function composeMenuCanvas(MenuPresentationCatalog $theme, float $time): ?PresentationCanvas
+  {
+    return ItemMenuPresentation::compose($this, $theme, $time);
+  }
   /**
    * The width of the item menu.
    */
@@ -122,12 +133,14 @@ class ItemMenuState extends GameSceneState implements CanRender
    * @var ItemMenuMode|null The mode.
    */
   protected(set) ?ItemMenuMode $mode = null;
+  private array $infoSelection = [];
 
   /**
    * @inheritDoc
    */
   public function enter(): void
   {
+    $this->resetMenuPresentation();
     Console::clear();
     $this->getGameScene()->locationHUDWindow->deactivate();
     $this->calculateMargins();
@@ -146,7 +159,31 @@ class ItemMenuState extends GameSceneState implements CanRender
    */
   public function execute(?SceneStateContext $context = null): void
   {
+    $this->syncInfoSelection();
+    if ($this->handleMenuInfoInput($this->infoPanel?->text ?? '', columns: max(1, ($this->infoPanel?->getContentWidth() ?? 3) - 2))) {
+      $this->refreshInfoText();
+      return;
+    }
     $this->mode->update();
+    $this->refreshInfoText();
+  }
+
+  private function syncInfoSelection(): void
+  {
+    $selection = [$this->mode, $this->itemMenu?->activeIndex, $this->selectionPanel?->activeItem,
+      $this->targetSelectionPanel?->activeCharacter];
+    if ($selection !== $this->infoSelection) { $this->menuInfoText->reset(); }
+    $this->infoSelection = $selection;
+  }
+
+  private function refreshInfoText(): void
+  {
+    if ($this->infoPanel === null) { return; }
+    $this->syncInfoSelection();
+    $page = $this->menuInfoText->getPage($this->infoPanel->text, null, max(1, $this->infoPanel->getContentWidth() - 2));
+    $this->infoPanel->setContent(array_pad($page->lines, 2, ''));
+    $this->infoPanel->setHelp($page->total > 2 ? $page->range() : '');
+    $this->infoPanel->render();
   }
 
   /**
@@ -334,6 +371,7 @@ class ItemMenuState extends GameSceneState implements CanRender
     $this->mode?->exit();
     $this->mode = $mode;
     $this->mode->enter();
+    $this->refreshInfoText();
   }
 
   /**

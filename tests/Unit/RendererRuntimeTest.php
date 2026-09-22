@@ -2,40 +2,40 @@
 
 use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Audio\AudioManager;
-use Ichiloto\Engine\Audio\FieldMusicCatalog;
 use Ichiloto\Engine\Audio\CinematicMusicRequest;
+use Ichiloto\Engine\Audio\FieldMusicCatalog;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Timers;
+use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
 use Ichiloto\Engine\Events\Interfaces\StaticObserverInterface;
+use Ichiloto\Engine\Field\MapManager;
+use Ichiloto\Engine\Field\Player;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\IO\InputSources\RendererInputSource;
 use Ichiloto\Engine\IO\InputSources\TerminalInputSource;
-use Ichiloto\Engine\IO\Enumerations\KeyCode;
+use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
+use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
 use Ichiloto\Engine\Rendering\Runtime\RendererWindowClosed;
+use Ichiloto\Engine\Rendering\Sprites\DirectionalGraphicalSpriteSet;
+use Ichiloto\Engine\Rendering\Tiles\GraphicalTileDefinition;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException;
+use Ichiloto\Engine\Rendering\Transport\ProcessRendererTransport;
 use Ichiloto\Engine\Rendering\Transport\RendererEvent;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
-use Ichiloto\Engine\Rendering\Transport\RendererProtocolVersion;
-use Ichiloto\Engine\Rendering\Transport\ProcessRendererTransport;
-use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
-use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Game\States\FieldState;
-use Ichiloto\Engine\Field\Player;
-use Ichiloto\Engine\Field\MapManager;
-use Ichiloto\Engine\Rendering\Tiles\GraphicalTileDefinition;
-use Ichiloto\Engine\Rendering\Sprites\DirectionalGraphicalSpriteSet;
-use Ichiloto\Engine\Rendering\Camera;
-use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\UI\UIManager;
-use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\AppConfig;
-use function Tests\Support\Rendering\graphicalSpriteData;
+use Ichiloto\Engine\Util\Config\ConfigStore;
 use Tests\Support\Input\FakeRendererTransport;
+use function Tests\Support\Rendering\graphicalSpriteData;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
@@ -129,6 +129,19 @@ it('selects renderer-only game output while preserving frames and silent cleanup
   expect(Console::isTerminalOutputEnabled())->toBeFalse()
     ->and($this->transport->sent[0]->payload['text'][0])->toBe('GRAPHICAL   ')
     ->and(ob_get_contents())->toBe('');
+});
+
+it('updates native activation state without consuming semantic input', function () {
+  $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__,
+    protocol: RendererProtocolVersion::V2, requiredCapabilities: ['window_activation']), $this->transport);
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["window_activation"]}'),
+    RendererEvent::fromJson('{"protocol":2,"type":"window_activation","active":false}')];
+  $this->runtime->start('Focus', 12, 4);
+  expect($this->runtime->windowActive)->toBeFalse();
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"window_activation","active":true}'),
+    RendererEvent::fromJson('{"protocol":2,"type":"key","key":"up"}')];
+  $this->runtime->pump();
+  expect($this->runtime->windowActive)->toBeTrue()->and(InputManager::getInputSource()->poll())->toBe(KeyCode::UP);
 });
 
 it('runs a real PHP-only peer through explicit v1 and v2 runtime lifecycles', function ($protocol) {
@@ -335,8 +348,8 @@ it('presents the same field ownership from real Game renders and blocked ticks w
 
 it('uses the same field eligibility for terrain and Player and clears tiles on scene replacement', function () {
   $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__,
-    requiredCapabilities:['tile_batches']), $this->transport);
-  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["tile_batches"]}')];
+    requiredCapabilities:['tile_batches', 'sprite_source_rect']), $this->transport);
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["tile_batches","sprite_source_rect"]}')];
   $this->runtime->start('Tiles',12,4);
   $scene = makeBareScene(GameScene::class);
   $camera = new Camera($scene,12,4,worldSpace:array_fill(0,4,array_fill(0,12,';')));
@@ -355,11 +368,18 @@ it('uses the same field eligibility for terrain and Player and clears tiles on s
   $field = makeBareScene(FieldState::class);
   new ReflectionProperty(GameScene::class,'fieldState')->setValue($scene,$field);
   new ReflectionProperty(GameScene::class,'state')->setValue($scene,$field);
+  $stage = new \Ichiloto\Engine\Cutscenes\Cinematics\CinematicStageManager($scene);
+  new ReflectionProperty(GameScene::class,'cinematicStage')->setValue($scene,$stage);
+  $cast = $stage->add(['id' => 'runner', 'sprite' => '@', 'x' => 3, 'y' => 2,
+    'sprites2d' => ['asset' => 'runner.png', 'width' => 56, 'height' => 56, 'layer' => 100,
+      'sourceRect' => ['x' => 256, 'y' => 0, 'width' => 256, 'height' => 256]]]);
   Console::recomposeFrame(fn()=>$map->render());
   $terminal = Console::snapshot();
   expect($this->runtime->present($scene))->toBeTrue()
     ->and($this->transport->sent[0]->payload['tileBatches'][0]['cells'])->toHaveCount(48)
     ->and($this->transport->sent[0]->payload['textLayers'][0]['runs'])->toBe([])
+    ->and($this->transport->sent[0]->payload['sprites'][0]['id'])->toBe('staged:runner')
+    ->and($this->transport->sent[0]->payload['sprites'][0]['sourceRect']['x'])->toBe(256)
     ->and(Console::snapshot())->toEqual($terminal);
   Console::withLayer('dialogue',fn()=>Console::write('Talk',0,3),1020);
   expect($this->runtime->present($scene))->toBeTrue()
@@ -369,8 +389,8 @@ it('uses the same field eligibility for terrain and Player and clears tiles on s
   new ReflectionProperty($cinematic,'active')->setValue($cinematic,
     makeBareScene(\Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition::class));
   $this->runtime->present($scene);
-  expect(end($this->transport->sent)->payload)->not->toHaveKey('tileBatches');
-  expect(iterator_to_array($scene->getGraphicalSpriteProviders()))->toBe([]);
+  expect(end($this->transport->sent)->payload['tileBatches'][0]['cells'])->toHaveCount(48);
+  expect(iterator_to_array($scene->getGraphicalSpriteProviders()))->toBe([$player, $cast]);
   new ReflectionProperty($cinematic,'active')->setValue($cinematic,null);
   $this->runtime->present($scene);
   expect(end($this->transport->sent)->payload['tileBatches'][0]['cells'])->toHaveCount(48);

@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\Battle\UI;
 
 use Ichiloto\Engine\Battle\BattleResult;
+use Ichiloto\Engine\Battle\Presentation\BattleResultsPlayback;
+use Ichiloto\Engine\Battle\Presentation\BattleResultsText;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\UI\Windows\Window;
@@ -37,6 +39,29 @@ class BattleResultWindow extends Window
    * @var float The delay between reward reveals in seconds.
    */
   protected float $revealDelay = 0.75;
+
+  /** Projects all structured facts through explicit pages rather than truncating rewards. */
+  public function displayPlayback(BattleResultsPlayback $playback): void
+  {
+    $wrapped = [];
+    foreach (BattleResultsText::lines($playback) as $line) {
+      array_push($wrapped, ...explode("\n", wrap_text($line, self::WIDTH - 4)));
+    }
+    $height = self::HEIGHT - 2;
+    $pages = max(1, (int)ceil(count($wrapped) / $height));
+    $playback->setScrollLimit($pages - 1);
+    $page = min($pages - 1, $playback->scrollOffset);
+    $content = array_pad(array_slice($wrapped, $page * $height, $height), $height, '');
+    $title = 'Victory - ' . ucfirst($playback->currentStage()['kind']);
+    $prompt = $playback->confirmation();
+    $help = ($prompt['enabled'] ? 'enter:' . $prompt['label'] : '')
+      . ($pages > 1 ? sprintf(' up/down:Page %d/%d', $page + 1, $pages) : '');
+    if ($this->getContent() === $content && $this->getHelp() === $help && $this->getTitle() === $title) { return; }
+    $this->setTitle($title);
+    $this->setHelp($help);
+    $this->setContent($content);
+    $this->render();
+  }
 
   public function __construct(protected BattleScreen $battleScreen)
   {

@@ -89,14 +89,15 @@ class LearnableSpell
    *
    * @param Character $character The learning character.
    * @param Party $party The party that may pay shared costs.
+   * @param string[] $storyEvents The recorded story-event flags used by learning.
    * @return string The status label.
    */
-  public function getStatusLabel(Character $character, Party $party): string
+  public function getStatusLabel(Character $character, Party $party, array $storyEvents = []): string
   {
     if ($this->isLearned) {
       return 'Learned';
     }
 
-    return $this->isReady($character, $party) ? 'Ready' : 'In Progress';
+    return $this->isReady($character, $party, $storyEvents) ? 'Ready' : 'In Progress';
   }
 }

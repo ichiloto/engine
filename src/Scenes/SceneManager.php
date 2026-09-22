@@ -25,6 +25,7 @@ use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\GameOver\GameOverScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
+use Throwable;
 
 /**
  * SceneManager is a class that manages scenes.
@@ -153,8 +154,21 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    */
   public function stop(): void
   {
+    $failure = null;
     foreach ($this->scenes as $scene) {
-      $scene->stop();
+      try {
+        // Include the current scene even if startup failed partway through.
+        if ($scene === $this->currentScene || $scene->isStarted()) {
+          $scene->stop();
+        }
+      } catch (Throwable $error) {
+        $failure ??= $error;
+      }
+    }
+    $this->sceneBeforeBattle = null;
+
+    if ($failure !== null) {
+      throw $failure;
     }
   }
 
@@ -200,15 +214,22 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    * Load a scene.
    *
    * @param string|int $index The index of the scene to load.
+   * @param bool $suspendCurrent Retain the battle caller recorded by loadBattleScene().
    * @return SceneManager The scene manager.
    * @throws NotFoundException
    */
-  public function loadScene(string|int $index): self
+  public function loadScene(string|int $index, bool $suspendCurrent = false): self
   {
     $sceneToLoad = match(true) {
       is_int($index) => $this->scenes->toArray()[$index] ?? throw new NotFoundException($index),
-      default => $this->scenes->find(fn(SceneInterface $scene) => $scene::class === $index) ?? throw new NotFoundException($index),
+      default => $this->findScene($index) ?? throw new NotFoundException($index),
     };
+
+    if ($suspendCurrent && (! $sceneToLoad instanceof BattleScene
+      || $this->currentScene instanceof BattleScene
+      || ($this->currentScene !== null && $this->sceneBeforeBattle !== $this->currentScene::class))) {
+      throw new \LogicException('Only a recorded battle caller can be suspended for a battle.');
+    }
 
     if ($this->currentScene === $sceneToLoad) {
       return $this;
@@ -216,10 +237,33 @@ class SceneManager implements CanStart, CanRender, CanUpdate
 
     $this->eventManager->dispatchEvent(new SceneEvent(SceneEventType::LOAD_START, $this->currentScene));
 
-    $this->unloadScene($this->currentScene);
+    if ($suspendCurrent) {
+      $this->currentScene?->suspend();
+      $this->eventManager->dispatchEvent(new SceneEvent(SceneEventType::SUSPEND, $this->currentScene));
+    } else {
+      $suspended = $this->sceneBeforeBattle === null ? null : $this->findScene($this->sceneBeforeBattle);
+      $this->sceneBeforeBattle = null;
+      $outgoing = [$this->currentScene];
+      // Going somewhere other than the battle's caller abandons that caller.
+      if ($suspended !== null && $suspended !== $sceneToLoad && $suspended !== $this->currentScene) {
+        $outgoing[] = $suspended;
+      }
+      $failure = null;
+      foreach ($outgoing as $scene) {
+        try {
+          $this->unloadScene($scene);
+        } catch (Throwable $error) {
+          $failure ??= $error;
+        }
+      }
+      if ($failure !== null) {
+        throw $failure;
+      }
+    }
     $this->currentScene = $sceneToLoad;
     if ($this->currentScene?->isStarted()) {
       $this->currentScene?->resume();
+      $this->eventManager->dispatchEvent(new SceneEvent(SceneEventType::RESUME, $this->currentScene));
     } else {
       $this->currentScene?->start();
     }
@@ -278,9 +322,10 @@ class SceneManager implements CanStart, CanRender, CanUpdate
       return $this;
     }
 
-    if ($this->scenes->contains($scene)) {
+    if ($this->scenes->contains($scene)
+      && ($scene->isStarted() || ($scene instanceof GameScene && $scene->hasUnstableEventSession()))) {
       $scene->stop();
-      $this->eventManager->dispatchEvent(new SceneEvent(SceneEventType::UNLOAD, $this->currentScene));
+      $this->eventManager->dispatchEvent(new SceneEvent(SceneEventType::UNLOAD, $scene));
     }
 
     return $this;
@@ -327,12 +372,9 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    */
   public function loadBattleScene(Party $party, Troop $troop, array $events = [], array $extraSettings = []): void
   {
-    // Remembered so the battle goes back where it came from. A fight started
-    // from the field returns to the field; one started from the arena returns
-    // to the arena.
-    $this->sceneBeforeBattle = $this->currentScene instanceof BattleScene
-      ? $this->sceneBeforeBattle
-      : $this->currentScene::class;
+    if ($this->currentScene instanceof BattleScene || $this->sceneBeforeBattle !== null) {
+      throw new \LogicException('A battle already owns the scene transition.');
+    }
 
     if ($party->isDefeated()) {
       $this->loadGameOverScene();
@@ -343,7 +385,9 @@ class SceneManager implements CanStart, CanRender, CanUpdate
 
     $config = $this->battleLoader->newConfig($party, $troop, $events, $extraSettings);
     $this->game->useBattleEngineType(BattleEngineType::fromValue($config->settings['engine'] ?? null));
-    $currentScene = $this->loadScene(BattleScene::class)->currentScene;
+    // Only acquire the return owner after configuration preparation succeeds.
+    $this->sceneBeforeBattle = $this->currentScene === null ? null : $this->currentScene::class;
+    $currentScene = $this->loadScene(BattleScene::class, suspendCurrent: true)->currentScene;
 
     if (! $currentScene instanceof BattleScene) {
       throw new NotFoundException('The current scene is not a battle scene.');
@@ -365,19 +409,16 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    */
   public function returnFromBattleScene(): void
   {
-    $battleResult = $this->currentScene instanceof BattleScene
-      ? $this->currentScene->result
-      : null;
+    if (! $this->currentScene instanceof BattleScene) {
+      return;
+    }
+
+    $battleResult = $this->currentScene->result;
 
     $this->loadScene($this->sceneToReturnTo());
-    $this->sceneBeforeBattle = null;
 
-    if ($this->currentScene instanceof GameScene) {
-      $this->currentScene->fieldState?->resume();
-
-      if ($battleResult !== null) {
-        $this->currentScene->resumeEventAfterBattle($battleResult);
-      }
+    if ($this->currentScene instanceof GameScene && $battleResult !== null) {
+      $this->currentScene->resumeEventAfterBattle($battleResult);
     }
   }
 

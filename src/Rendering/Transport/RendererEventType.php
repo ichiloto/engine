@@ -2,10 +2,5 @@
 
 namespace Ichiloto\Engine\Rendering\Transport;
 
-enum RendererEventType: string
-{
-  case READY = 'ready';
-  case KEY = 'key';
-  case CLOSE_REQUESTED = 'close_requested';
-  case ERROR = 'error';
-}
+/** @deprecated Use Enumerations\RendererEventType; retained for existing transport integrations. */
+class_alias(Enumerations\RendererEventType::class, __NAMESPACE__ . '\\RendererEventType');

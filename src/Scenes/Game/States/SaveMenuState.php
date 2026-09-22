@@ -10,7 +10,12 @@ use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Scenes\SceneStateContext;
+use Ichiloto\Engine\UI\Presentation\MenuCanvasState;
+use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
+use Ichiloto\Engine\UI\Presentation\SaveLoadMenuPresentation;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\SaveSlotWindow;
 use Ichiloto\Engine\UI\Windows\Window;
@@ -21,8 +26,17 @@ use Ichiloto\Engine\Util\Debug;
  *
  * @package Ichiloto\Engine\Scenes\Game\States
  */
-class SaveMenuState extends GameSceneState implements CanRender
+class SaveMenuState extends GameSceneState implements CanRender, CanvasProviderInterface
 {
+  use MenuCanvasState;
+
+  protected function composeMenuCanvas(MenuPresentationCatalog $theme, float $time): ?PresentationCanvas
+  {
+    return SaveLoadMenuPresentation::compose($this->slots, $this->activeSlotIndex, $theme,
+      $this->menuInfoText, $this->statusMessage, $time, title: 'Save',
+      prompt: 'Which file would you like to save to?', statusColor: $this->statusColor);
+  }
+
   protected const int SAVE_MENU_WIDTH = 110;
   protected const int SAVE_INFO_HEIGHT = 3;
   protected const int SAVE_HELP_HEIGHT = 4;
@@ -60,12 +74,16 @@ class SaveMenuState extends GameSceneState implements CanRender
    * @var string|null The latest short status message.
    */
   protected ?string $statusMessage = null;
+  protected string $statusColor = 'accent';
 
   /**
    * @inheritDoc
    */
   public function enter(): void
   {
+    $this->resetMenuPresentation();
+    $this->statusMessage = null;
+    $this->statusColor = 'accent';
     Console::clear();
     $this->getGameScene()->locationHUDWindow->deactivate();
     $this->calculateMargins();
@@ -230,6 +248,7 @@ class SaveMenuState extends GameSceneState implements CanRender
       $savedSlot = $this->getGameScene()->sceneManager->saveManager->save($this->getGameScene(), $slot->slot);
     } catch (ActiveEventSaveException $exception) {
       $this->statusMessage = $exception->getMessage();
+      $this->statusColor = 'decrease';
       Debug::warn($this->statusMessage);
       $this->render();
       alert($this->statusMessage, 'Save Unavailable');
@@ -239,6 +258,7 @@ class SaveMenuState extends GameSceneState implements CanRender
     $this->getGameScene()->getGame()->audioManager->playSystemSound(SystemSound::SAVE);
     $this->refreshSlots();
     $this->statusMessage = sprintf('Saved to File %d.', $savedSlot->slot);
+    $this->statusColor = 'increase';
     $this->render();
     alert($this->statusMessage, 'Save Complete');
   }

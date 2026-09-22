@@ -5,6 +5,15 @@ create a release, tag, or release branch.
 
 ## Rendering and input
 
+- Shutdown consumes cached confirmation input and stops remaining field/frame
+  work. Blocking modals unwind without repainting or resuming stopped scenes,
+  preventing an Exit confirmation from opening a new interaction after quit.
+- Battle Pause reuses the existing state with Resume, Config, To Title and Exit,
+  optional project-owned graphical art and terminal controls. Resume preserves
+  active-time gauges, actions and feedback timing; destructive confirmations
+  default to Cancel. Config shares the main menu's settings interaction and
+  restores Pause focus without resuming gameplay. Live visual acceptance is
+  tracked in the [integration roadmap](../rendering/integration-roadmap.md#approved-pause-upgrade).
 - Optional supervised graphical rendering with structured colour, text layers,
   PNG sprites, PHP-owned directional sheet animation and negotiated field tiles.
 - Native terminal viewports capped at 135x36 and centered within larger windows,
@@ -14,9 +23,31 @@ create a release, tag, or release branch.
 - Reduced repeated styled-row parsing during scrolling while preserving Unicode
   width semantics and sparse terminal output.
 - Region-map locations remain visible and reachable in bounded viewports.
+- Cinematic field presentation retains graphical terrain and Player sprites.
+  Temporary actors support optional static or sheet-backed graphics, with
+  terminal fallbacks and explicit narration/cover precedence.
+- Real-subject cinematic visual leases support paired suppression, pose replacement
+  and temporary transform recovery without changing NPC gameplay eligibility.
+- Optional graphical battle Results show real party progression and rewards over
+  the final battlefield, with shared terminal paging and presentation-only timing.
+  Result snapshots cannot replay EXP, loot or other committed gameplay outcomes.
 
 ## Gameplay and persistence
 
+- Game bootstrap now loads the existing Editor-authored
+  `assets/Data/equipment-optimization.php` policy for ordinary Optimize actions.
+  Omitted declarations retain legacy scoring; invalid declarations stop startup
+  with a file-specific error instead of silently using different weights.
+- Shops and their sell menus now enforce item sale eligibility from the owned
+  inventory definition, including `sellable: false`. Existing shop rates and
+  once-per-transaction rounding are unchanged.
+- Purchases create party-owned stacks rather than sharing the shop's catalogue
+  object. Selling the last copy no longer empties subsequent purchases, and
+  quantity/capacity checks cover equipment as well as consumables before payment.
+- Battle openings share one pre-emptive/ambush decision across battle modes and
+  honor scripted overrides. ATB starting gauges have meaningful bounded variation;
+  readiness order survives high speeds and delayed frames without losing the
+  existing speed-based refill behavior.
 - Scenario-aware field music, structured battle-entry rules and field-skill
   targeting, alongside the existing scene and resource-preservation fixes.
 - Relocated save summaries use the file actually selected instead of following

@@ -111,7 +111,10 @@ class PurchaseConfirmationMode extends ShopMenuMode
   public function enter(): void
   {
     $this->state->mainPanel->setHelp('esc:Cancel, enter:Confirm');
-    $this->state->infoPanel->setText('Use the arrow keys to adjust the quantity of the item to purchase.');
+    $this->state->infoPanel->setText(sprintf(
+      'Use the arrow keys to adjust the quantity of the item to %s.',
+      $this->isShopPurchase ? 'sell' : 'purchase',
+    ));
     $this->quantitySelector = new QuantitySelector($this->maxQuantity);
     $this->symbol = config(ProjectConfig::class, 'vocab.currency.symbol', 'G');
     $this->updateWindowContent();

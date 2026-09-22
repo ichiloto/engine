@@ -2,10 +2,5 @@
 
 namespace Ichiloto\Engine\Rendering\Transport;
 
-/** Wire vocabulary only; no frame generation or graphics models. */
-enum RendererMessageType: string
-{
-  case HELLO = 'hello';
-  case FRAME = 'frame';
-  case SHUTDOWN = 'shutdown';
-}
+/** @deprecated Use Enumerations\RendererMessageType; retained for existing transport integrations. */
+class_alias(Enumerations\RendererMessageType::class, __NAMESPACE__ . '\\RendererMessageType');

@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Core\Menu\ItemMenu;
 
 use Ichiloto\Engine\Core\Menu\Menu;
 use Ichiloto\Engine\Entities\Inventory\Inventory;
+use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use InvalidArgumentException;
 
@@ -14,6 +15,15 @@ use InvalidArgumentException;
  */
 class ItemMenu extends Menu
 {
+  /** The Use/Sort/Discard list never admits equipment or quest-critical key items.
+   * @return list<InventoryItem>
+   */
+  public function getRegularItems(): array
+  {
+    return array_values(array_filter($this->inventory->items->toArray(),
+      static fn(InventoryItem $item) => !$item->isKeyItem));
+  }
+
   /**
    * @var Inventory The inventory of the party.
    */

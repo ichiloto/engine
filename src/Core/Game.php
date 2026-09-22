@@ -29,6 +29,7 @@ use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
 use Ichiloto\Engine\Events\Interfaces\StaticObserverInterface;
 use Ichiloto\Engine\Events\Interfaces\SubjectInterface;
 use Ichiloto\Engine\Entities\Elements\ElementRegistry;
+use Ichiloto\Engine\Entities\EquipmentOptimization\EquipmentOptimizationPolicyRegistry;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalCapabilities;
@@ -395,6 +396,23 @@ class Game implements CanRun, SubjectInterface
         }
 
         $this->terminalCleanedUp = true;
+        $this->isRunning = false;
+        Timers::setFrameTick(null);
+        // Confirmation input must not become a field action while this frame unwinds.
+        try {
+            InputManager::resetState();
+        } catch (Throwable $error) {
+            $this->logCrash($error);
+        }
+        // Release scene-owned work while its audio and rendering services
+        // still exist. A broken scene must not prevent platform cleanup.
+        try {
+            if (isset($this->sceneManager)) {
+                $this->sceneManager->stop();
+            }
+        } catch (Throwable $error) {
+            $this->logCrash($error);
+        }
         $this->shutdownAudio();
         try {
             $this->rendererRuntime?->shutdown();
@@ -477,6 +495,7 @@ class Game implements CanRun, SubjectInterface
      */
     private function initializeConfigStore(): void
     {
+        EquipmentOptimizationPolicyRegistry::configureFromProject();
         ConfigStore::put(PlaySettings::class, new PlaySettings($this->options));
         ConfigStore::put(AppConfig::class, new AppConfig());
         ConfigStore::put(ProjectConfig::class, new ProjectConfig());
@@ -724,7 +743,13 @@ class Game implements CanRun, SubjectInterface
             while ($this->isRunning) {
                 LatencyTrace::beginIteration();
                 $this->rendererRuntime?->pump();
+                if ($this->terminalCleanedUp) {
+                    break;
+                }
                 $this->handleInput();
+                if ($this->terminalCleanedUp) {
+                    break;
+                }
                 $this->update();
 
                 // Quitting happens inside update(), and by then the terminal
@@ -993,8 +1018,17 @@ SPLASH_SCREEN;
      */
     public function quit(): void
     {
+        if ($this->terminalCleanedUp) {
+            return;
+        }
         $this->notify($this, new GameEvent(GameEventType::QUIT));
         $this->stop();
+    }
+
+    /** True once shutdown begins; startup modals are live before the main loop runs. */
+    public function hasStopped(): bool
+    {
+        return $this->terminalCleanedUp;
     }
 
     /**
@@ -1016,6 +1050,9 @@ SPLASH_SCREEN;
      */
     protected function handleInput(): void
     {
+        if ($this->terminalCleanedUp) {
+            return;
+        }
         InputManager::handleInput();
     }
 
@@ -1026,14 +1063,28 @@ SPLASH_SCREEN;
      */
     protected function update(): void
     {
-        $started = LatencyTrace::now();
+        if ($this->terminalCleanedUp) {
+            return;
+        }
+
+        $started = LatencyTrace::getTimeNow();
         LatencyTrace::record('game.update.begin', $this->latencySceneState());
         $this->frameCount++;
         $this->syncScreenSize();
         $this->sceneManager->update();
+        if ($this->terminalCleanedUp) {
+            return;
+        }
+
         $this->notificationManager->update();
+        if ($this->terminalCleanedUp) {
+            return;
+        }
         $this->audioManager->update();
         Timers::update();
+        if ($this->terminalCleanedUp) {
+            return;
+        }
 
         $this->notify($this, new GameEvent(GameEventType::UPDATE));
         LatencyTrace::end('game.update.end', $started, $this->latencySceneState());
@@ -1070,18 +1121,34 @@ SPLASH_SCREEN;
 
     private function updateBlockedFrame(): void
     {
+        if ($this->terminalCleanedUp) {
+            return;
+        }
+
         LatencyTrace::record('game.blocked.begin');
         $this->rendererRuntime?->pump();
+        if ($this->terminalCleanedUp) {
+            return;
+        }
         $this->notify($this, new GameEvent(GameEventType::UPDATE));
+        if ($this->terminalCleanedUp) {
+            return;
+        }
         Timers::update();
+        if ($this->terminalCleanedUp) {
+            return;
+        }
         $this->notificationManager->update();
+        if ($this->terminalCleanedUp) {
+            return;
+        }
         $this->audioManager->update();
         $this->notificationManager->render();
     }
 
     private function presentBlockedFrame(): void
     {
-        if (Console::isComposing()) { return; }
+        if ($this->terminalCleanedUp || Console::isComposing()) { return; }
         // The modal owns its logical layout; only its physical margins may move.
         $this->syncScreenSize(resizeLogicalViewport: false);
         if ($this->rendererRuntime !== null) {
@@ -1168,7 +1235,7 @@ SPLASH_SCREEN;
      */
     protected function render(): void
     {
-        $started = LatencyTrace::now();
+        $started = LatencyTrace::getTimeNow();
         LatencyTrace::record('game.render.begin');
         // Modal dismissals are committed only at the frame boundary. That
         // lets dialogue pages and choices replace one another within a single

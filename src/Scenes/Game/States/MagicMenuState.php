@@ -25,14 +25,104 @@ use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\UI\Presentation\MenuCanvasState;
+use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
+use Ichiloto\Engine\UI\Presentation\MenuRow;
+use Ichiloto\Engine\UI\Presentation\MenuRowKind;
+use Ichiloto\Engine\UI\Presentation\MenuRowValue;
+use Ichiloto\Engine\UI\Presentation\SkillMenuContent;
+use Ichiloto\Engine\UI\Presentation\SkillMenuPresentation;
 
 /**
  * Displays the field magic-management screen for a single party member.
  *
  * @package Ichiloto\Engine\Scenes\Game\States
  */
-class MagicMenuState extends GameSceneState
+class MagicMenuState extends GameSceneState implements CanvasProviderInterface
 {
+    use MenuCanvasState;
+
+    protected function composeMenuCanvas(MenuPresentationCatalog $theme, float $time): ?PresentationCanvas
+    {
+        $content = $this->getPresentationContent();
+        return $content === null ? null : SkillMenuPresentation::compose($content, $theme, $time);
+    }
+
+    public function getPresentationContent(): ?SkillMenuContent
+    {
+        $actor = $this->character;
+        if ($actor === null) { return null; }
+        $tab = $this->tabs[$this->activeTabIndex] ?? 'Use';
+        $index = $this->getActiveEntryIndex();
+        $book = $actor->spellbook;
+        $events = $this->getGameScene()->storyEvents;
+        $targeting = $this->isSelectingTarget();
+        $rows = [];
+        if ($targeting) {
+            foreach ($this->targetCandidates as $i => $target) {
+                $stats = $target->effectiveStats;
+                $rows[] = new MenuRow((string)$i, $target->name,
+                    [new MenuRowValue('HP ' . number_format($stats->currentHp) . '/' . number_format($stats->totalHp)),
+                        new MenuRowValue('MP ' . number_format($stats->currentMp) . '/' . number_format($stats->totalMp))],
+                    selected: $i === $index, focused: $i === $index);
+            }
+        } elseif ($tab === 'Sort') {
+            foreach ($this->sortOptions as $i => $label) {
+                $rows[] = new MenuRow((string)$i, $label, kind: MenuRowKind::COMMAND,
+                    selected: $label === $book->getSortOrder()->value, focused: $i === $index);
+            }
+        } else {
+            foreach ($tab === 'Learn' ? $book->getLearnableSpells() : $book->getLearnedSpells() as $i => $entry) {
+                $skill = $entry instanceof LearnableSpell ? $entry->skill : $entry;
+                $values = $entry instanceof LearnableSpell
+                    ? [new MenuRowValue($entry->getStatusLabel($actor, $this->party, $events))]
+                    : [new MenuRowValue($this->formatOccasionLabel($skill->occasion)), new MenuRowValue($skill->cost . ' MP')];
+                $rows[] = new MenuRow((string)$i, $skill->name, $values, icon: 'skill.magic',
+                    selected: $i === $index, focused: $i === $index);
+            }
+        }
+        $learnable = !$targeting && $tab === 'Learn' ? $this->getActiveLearnableSpell() : null;
+        $skill = $targeting ? $this->pendingUseSpell
+            : ($tab === 'Learn' ? $learnable?->skill : ($tab === 'Use' ? $this->getActiveUseSpell() : null));
+        $fields = [];
+        $detail = '';
+        $empty = $targeting ? 'No eligible target.' : ($tab === 'Learn' ? 'No discovered magic.' : 'No learned magic.');
+        if ($skill !== null) {
+            $fields = ['MP Cost' => (string)$skill->cost, 'Occasion' => $this->formatOccasionLabel($skill->occasion),
+                'Scope' => $skill->scope->side->value];
+            if ($targeting) {
+                $target = $this->targetCandidates[$index] ?? null;
+                $fields['Caster'] = $actor->name;
+                if ($target !== null) {
+                    $fields['Target'] = $target->name;
+                    $fields['Status'] = $target->isKnockedOut ? 'Knocked Out' : 'Ready';
+                    $fields['HP'] = number_format($target->effectiveStats->currentHp) . ' / ' . number_format($target->effectiveStats->totalHp);
+                    $fields['MP'] = number_format($target->effectiveStats->currentMp) . ' / ' . number_format($target->effectiveStats->totalMp);
+                }
+            } elseif ($learnable !== null) {
+                $fields['Status'] = $learnable->getStatusLabel($actor, $this->party, $events);
+                $detail = $learnable->requirement->describeProgress($actor, $this->party, $learnable->trainingHours, $events);
+                if ($detail === '') { $detail = 'No additional requirements.'; }
+            }
+        } elseif ($tab === 'Sort') {
+            $fields = ['Current' => $book->getSortOrder()->value];
+            $detail = "A-Z keeps learned magic alphabetical.\nZ-A reverses the learned magic list.\nApply a sort order to reorganize the Use tab.";
+        } else {
+            $detail = $tab === 'Learn' ? 'Discovered spells and their learning requirements will appear here.'
+                : 'Use magic will appear here once this character has learned or acquired spells.';
+        }
+        return new SkillMenuContent($actor, 'Magic', $this->tabs, $this->activeTabIndex,
+            ['Learned Magic' => (string)count($book->getLearnedSpells()),
+                'Ready to Learn' => (string)$book->getReadyToLearnCount($actor, $this->party, $events),
+                'Current Order' => $book->getSortOrder()->value],
+            $skill?->name ?? ($tab === 'Sort' ? 'Spell Order' : $empty), $fields, $detail, $rows,
+            $this->getListPanelTitle(), $index, $empty, $this->getPresentationDescription(), $this->statusMessage,
+            $targeting ? 'Cast' : match ($tab) { 'Learn' => 'Learn', 'Sort' => 'Apply', default => 'Cast' }, $targeting,
+            infoModel: $this->menuInfoText);
+    }
+
     protected const int MAGIC_MENU_WIDTH = 110;
     protected const int MAGIC_MENU_HEIGHT = 35;
     protected const int SUMMARY_PANEL_HEIGHT = 7;
@@ -108,6 +198,7 @@ class MagicMenuState extends GameSceneState
      * @var string|null The latest short status message.
      */
     protected ?string $statusMessage = null;
+    private array $infoSelection = [];
     /**
      * @var MagicSkill|null The spell awaiting a one-target party selection.
      */
@@ -130,6 +221,7 @@ class MagicMenuState extends GameSceneState
      */
     public function enter(): void
     {
+        $this->resetMenuPresentation();
         Console::clear();
         $this->getGameScene()->locationHUDWindow->deactivate();
         $this->character ??= $this->getGameScene()->party->leader;
@@ -228,6 +320,7 @@ class MagicMenuState extends GameSceneState
      */
     protected function refreshUI(): void
     {
+        $this->syncInfoSelection();
         $this->summaryPanel?->setContent($this->buildSummaryLines());
         $this->summaryPanel?->render();
 
@@ -239,7 +332,6 @@ class MagicMenuState extends GameSceneState
         $this->listPanel?->setTitle($this->getListPanelTitle());
         $this->listPanel?->setEntries($this->buildListEntries(), $this->getActiveEntryIndex());
 
-        $this->infoPanel?->setHelp($this->getInfoHelpText());
         $this->infoPanel?->setContent($this->buildInfoLines());
         $this->infoPanel?->render();
     }
@@ -407,11 +499,11 @@ class MagicMenuState extends GameSceneState
             ];
         }
 
-        $progress = $learnableSpell->requirement->describeProgress($this->character, $this->party, $learnableSpell->trainingHours);
+        $progress = $learnableSpell->requirement->describeProgress($this->character, $this->party, $learnableSpell->trainingHours, $this->getGameScene()->storyEvents);
 
         return [
             sprintf('%s %s', $learnableSpell->skill->icon, $learnableSpell->skill->name),
-            sprintf('Status  : %s', $learnableSpell->getStatusLabel($this->character, $this->party)),
+            sprintf('Status  : %s', $learnableSpell->getStatusLabel($this->character, $this->party, $this->getGameScene()->storyEvents)),
             sprintf('Occasion: %s', $this->formatOccasionLabel($learnableSpell->skill->occasion)),
             $learnableSpell->note !== '' ? sprintf('Source  : %s', $learnableSpell->note) : 'Source  : Unrecorded',
             '',
@@ -554,7 +646,7 @@ class MagicMenuState extends GameSceneState
 
         foreach ($this->character?->spellbook->getLearnableSpells() ?? [] as $learnableSpell) {
             $status = $this->character instanceof Character
-                ? $learnableSpell->getStatusLabel($this->character, $this->party)
+                ? $learnableSpell->getStatusLabel($this->character, $this->party, $this->getGameScene()->storyEvents)
                 : 'Unknown';
             $label = TerminalText::padRight(sprintf('%s %s', $learnableSpell->skill->icon, $learnableSpell->skill->name), 44);
             $statusText = TerminalText::padLeft($status, 12);
@@ -634,9 +726,23 @@ class MagicMenuState extends GameSceneState
      */
     protected function buildInfoLines(): array
     {
-        $availableLines = self::INFO_PANEL_HEIGHT - 2;
-        $availableWidth = self::MAGIC_MENU_WIDTH - 4;
-        $description = $this->isSelectingTarget()
+        $page = $this->menuInfoText->getPage($this->getPresentationDescription(), $this->statusMessage,
+            max(1, ($this->infoPanel?->getContentWidth() ?? self::MAGIC_MENU_WIDTH - 2) - 2));
+        $this->infoPanel?->setHelp($page->total > 2 ? $page->range() : $this->getInfoHelpText());
+        return array_pad($page->lines, 2, '');
+    }
+
+    private function syncInfoSelection(): void
+    {
+        $selection = [$this->character, $this->activeTabIndex, $this->getActiveEntryIndex(),
+            $this->pendingUseSpell, $this->activeTargetIndex];
+        if ($selection !== $this->infoSelection) { $this->menuInfoText->reset(); }
+        $this->infoSelection = $selection;
+    }
+
+    private function getPresentationDescription(): string
+    {
+        return $this->isSelectingTarget()
             ? $this->pendingUseSpell?->description ?? 'Choose a party member.'
             : match ($this->tabs[$this->activeTabIndex] ?? 'Use') {
                 'Use' => $this->getActiveUseSpell()?->description ?? 'Review learned magic and cast the spells that work from the field.',
@@ -644,15 +750,6 @@ class MagicMenuState extends GameSceneState
                 'Sort' => 'Reorder learned magic to fit how you like to browse spells.',
                 default => '',
             };
-
-        $lines = explode("\n", wrap_text($description, max(1, $availableWidth)));
-        $lines = array_slice($lines, 0, $availableLines);
-
-        if ($this->statusMessage !== null) {
-            $lines[$availableLines - 1] = TerminalText::truncateToWidth($this->statusMessage, $availableWidth);
-        }
-
-        return array_slice(array_pad($lines, $availableLines, ''), 0, $availableLines);
     }
 
     /**
@@ -660,6 +757,13 @@ class MagicMenuState extends GameSceneState
      */
     public function execute(?SceneStateContext $context = null): void
     {
+        $this->syncInfoSelection();
+        if ($this->handleMenuInfoInput($this->getPresentationDescription(), $this->statusMessage,
+            max(1, ($this->infoPanel?->getContentWidth() ?? self::MAGIC_MENU_WIDTH - 2) - 2))) {
+            $this->infoPanel?->setContent($this->buildInfoLines());
+            $this->infoPanel?->render();
+            return;
+        }
         if ($this->isSelectingTarget()) {
             $this->handleTargetSelection();
             return;
@@ -1060,7 +1164,7 @@ class MagicMenuState extends GameSceneState
             return;
         }
 
-        $progress = $learnableSpell->requirement->describeProgress($this->character, $this->party, $learnableSpell->trainingHours);
+        $progress = $learnableSpell->requirement->describeProgress($this->character, $this->party, $learnableSpell->trainingHours, $this->getGameScene()->storyEvents);
         $this->statusMessage = $progress !== ''
             ? $progress
             : sprintf('%s still needs more progress.', $learnableSpell->skill->name);

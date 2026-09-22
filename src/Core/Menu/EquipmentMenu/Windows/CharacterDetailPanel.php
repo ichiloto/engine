@@ -6,6 +6,7 @@ use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Stats;
+use Ichiloto\Engine\UI\Presentation\MenuDirection;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
 
@@ -29,6 +30,11 @@ class CharacterDetailPanel extends Window
    * @var Stats|null The stats of the character.
    */
   protected ?Stats $previewStats = null;
+
+  public function getPresentationPreview(): ?Stats
+  {
+    return $this->previewStats === null ? null : clone $this->previewStats;
+  }
 
   /**
    * Create a new instance of the character detail panel.
@@ -130,9 +136,10 @@ class CharacterDetailPanel extends Window
   private function formatStatLine(string $label, ?int $currentStat, ?int $previewStat): string
   {
     return sprintf(
-      "  %-10s %6s  ->  %6s %1s",
+      "  %-10s %6s  %s  %6s %1s",
       $label,
       $this->formatStatValue($currentStat),
+      MenuDirection::RIGHT->getGlyph(),
       $this->formatStatValue($previewStat ?? $currentStat),
       $this->getStatIndicator($currentStat, $previewStat)
     );
@@ -164,8 +171,8 @@ class CharacterDetailPanel extends Window
   {
     if (isset($currentStat)  && isset($previewStat)) {
       return match(true) {
-        $currentStat < $previewStat => '↑',
-        $currentStat > $previewStat => '↓',
+        $currentStat < $previewStat => MenuDirection::UP->getGlyph(),
+        $currentStat > $previewStat => MenuDirection::DOWN->getGlyph(),
         default => '',
       };
     }

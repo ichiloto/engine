@@ -2,8 +2,5 @@
 
 namespace Ichiloto\Engine\Rendering\Transport;
 
-enum RendererProtocolVersion: int
-{
-  case V1 = 1;
-  case V2 = 2;
-}
+/** @deprecated Use Enumerations\RendererProtocolVersion; retained for existing transport integrations. */
+class_alias(Enumerations\RendererProtocolVersion::class, __NAMESPACE__ . '\\RendererProtocolVersion');

@@ -190,7 +190,7 @@ if (! function_exists('show_text') ) {
    * @param string $message The message to show.
    * @param string $title The title of the dialog. Defaults to "".
    * @param string $help The help text to show. Defaults to "".
-   * @param WindowPosition $position The position of the dialog. Defaults to BOTTOM (i.e. the bottom of the screen).
+   * @param WindowPosition|null $position Explicit position, or top for narration and bottom for speech.
    * @param float $charactersPerSecond The number of characters to display per second.
    * @return void
    * @throws Exception
@@ -199,7 +199,7 @@ if (! function_exists('show_text') ) {
     string         $message,
     string         $title = '',
     string         $help = '',
-    WindowPosition $position = WindowPosition::BOTTOM,
+    ?WindowPosition $position = null,
     float          $charactersPerSecond = 1
   ): void
   {
@@ -529,24 +529,7 @@ if (! function_exists('get_local_timezone') ) {
    */
   function get_local_timezone(): string
   {
-    $timezoneCommand = 'timedatectl';
-
-    if (os_program_exists($timezoneCommand)) {
-      $output = shell_exec($timezoneCommand) ?? '';
-      $lines = explode("\n", $output);
-
-      foreach ($lines as $line) {
-        if (str_contains($line, 'Local time')) {
-          preg_match('/Local time: (.*)\s([A-Z]{1,5})$/', $line, $matches);
-
-          if (! empty($matches[2])) {
-            return $matches[2];
-          }
-        }
-      }
-    }
-
-    return date_default_timezone_get();
+    return \Ichiloto\Engine\Util\LocalClock::getTimezone()->getName();
   }
 }
 

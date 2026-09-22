@@ -17,7 +17,7 @@ use Throwable;
  *
  * @package Ichiloto\Engine\IO
  */
-class InputBindings
+class InputBindings implements ActionHintProvider
 {
   /**
    * Actions the player must not rebind.
@@ -63,6 +63,24 @@ class InputBindings
     $names = array_map(static fn(KeyCode $key): string => $key->name, $this->keysOf($binding));
 
     return $names === [] ? 'Unbound' : implode(', ', $names);
+  }
+
+  /** Compact hints prefer familiar controls only when they are currently bound. */
+  public function primaryKey(string $action): ?KeyCode
+  {
+    $keys = $this->keysOf(InputManager::getBindings()[$action] ?? []);
+    $preferred = match ($action) {
+      'confirm' => KeyCode::ENTER,
+      'cancel', 'back' => KeyCode::ESCAPE,
+      default => null,
+    };
+    return $preferred !== null && in_array($preferred, $keys, true) ? $preferred : ($keys[0] ?? null);
+  }
+
+  public function controlForAction(string $action): ?ControlHint
+  {
+    $key = $this->primaryKey($action);
+    return $key === null ? null : ControlHint::keyboard($key);
   }
 
   /**

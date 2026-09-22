@@ -1,6 +1,8 @@
 <?php
 
 use Ichiloto\Engine\Battle\BattleResult;
+use Ichiloto\Engine\Battle\Presentation\BattleRewards;
+use Ichiloto\Engine\Battle\Presentation\BattleResultsPlayback;
 use Ichiloto\Engine\Battle\UI\BattleResultWindow;
 use Ichiloto\Engine\Battle\UI\BattleScreen;
 use Ichiloto\Engine\Core\Rect;
@@ -64,4 +66,48 @@ it('reveals battle rewards sequentially', function () {
   expect(implode("\n", $window->getContent()))->toContain('Item drops: Potion')
     ->and($window->isComplete())->toBeTrue()
     ->and($window->getHelp())->toBe('enter:Continue');
+});
+
+it('keeps every structured loot row reachable instead of truncating the result', function () {
+  $items = [];
+  for ($i = 1; $i <= 23; $i++) {
+    $items[] = ['id' => 'loot-' . $i, 'name' => 'Unique Reward ' . $i, 'description' => '', 'quantity' => $i];
+  }
+  $playback = new BattleResultsPlayback(new BattleRewards(0, 0, [], $items), reducedMotion: true);
+  $window = new BattleResultWindowTestProxy(makeBattleResultTestScreen());
+  $window->displayPlayback($playback);
+  $all = implode("\n", $window->getContent());
+  for ($i = 1; $i < $playback->pageCount(); $i++) {
+    $playback->navigate(1);
+    $window->displayPlayback($playback);
+    $all .= "\n" . implode("\n", $window->getContent());
+  }
+  foreach ($items as $item) { expect($all)->toContain($item['name'] . ' x' . $item['quantity']); }
+  expect($playback->isFinished())->toBeFalse();
+  $playback->navigate(1);
+  expect($playback->scrollOffset)->toBe($playback->pageCount() - 1);
+  $playback->navigate(-1);
+  expect($playback->scrollOffset)->toBe($playback->pageCount() - 2);
+});
+
+it('shows retained quantities rather than claiming capped inventory received every drop', function () {
+  $playback = new BattleResultsPlayback(new BattleRewards(0, 2, [], [
+    ['id' => 'potion', 'name' => 'Potion', 'description' => '', 'quantity' => 4, 'received' => 1],
+  ]), reducedMotion: true);
+  $window = new BattleResultWindowTestProxy(makeBattleResultTestScreen());
+  $window->displayPlayback($playback);
+  expect(implode("\n", $window->getContent()))->toContain('Potion x4 (retained 1)');
+});
+
+it('hides the terminal action hint while its replacement is input locked', function () {
+  $playback = new BattleResultsPlayback(new BattleRewards(0, 0, []));
+  $window = new BattleResultWindowTestProxy(makeBattleResultTestScreen());
+  $window->displayPlayback($playback);
+  expect($window->getHelp())->toBe('enter:Complete');
+  $playback->confirm();
+  $window->displayPlayback($playback);
+  expect($window->getHelp())->toBe('');
+  $playback->update(0.33);
+  $window->displayPlayback($playback);
+  expect($window->getHelp())->toBe('enter:Continue');
 });

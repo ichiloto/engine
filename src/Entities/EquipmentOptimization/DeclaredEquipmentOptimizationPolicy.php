@@ -69,7 +69,7 @@ final class DeclaredEquipmentOptimizationPolicy implements EquipmentOptimization
         throw new InvalidArgumentException('Role-slot equipment optimization weights must be arrays.');
       }
 
-      $this->roleSlotStatWeights[self::normalize($role)] = self::normalizeScopedWeights(
+      $this->roleSlotStatWeights[self::requireName($role, 'role')] = self::normalizeScopedWeights(
         $slots,
         sprintf('role %s slot', $role),
       );
@@ -77,9 +77,9 @@ final class DeclaredEquipmentOptimizationPolicy implements EquipmentOptimization
 
     $this->elementOutcomeWeights = self::normalizeNamedWeights($elementOutcomeWeights, 'element outcome');
     $this->specialPropertyWeights = self::normalizeNamedWeights($specialPropertyWeights, 'special property');
-    $this->excludedDefinitionIds = self::normalizeSet($excludedDefinitionIds);
-    $this->excludedAvailabilities = self::normalizeSet($excludedAvailabilities);
-    $this->excludedAcquisitionPolicies = self::normalizeSet($excludedAcquisitionPolicies);
+    $this->excludedDefinitionIds = self::normalizeSet($excludedDefinitionIds, 'definition ID');
+    $this->excludedAvailabilities = self::normalizeSet($excludedAvailabilities, 'availability');
+    $this->excludedAcquisitionPolicies = self::normalizeSet($excludedAcquisitionPolicies, 'acquisition policy');
   }
 
   public function score(
@@ -179,7 +179,7 @@ final class DeclaredEquipmentOptimizationPolicy implements EquipmentOptimization
     $normalized = [];
 
     foreach ($weights as $key => $weight) {
-      $lookup = self::normalize($key);
+      $lookup = self::requireName($key, $scope);
       $stat = array_find(
         StatKey::cases(),
         static fn(StatKey $candidate): bool => strtolower($candidate->value) === $lookup,
@@ -210,7 +210,7 @@ final class DeclaredEquipmentOptimizationPolicy implements EquipmentOptimization
         throw new InvalidArgumentException(sprintf('%s equipment optimization weights must be arrays.', ucfirst($scopeType)));
       }
 
-      $normalized[self::normalize($scope)] = self::normalizeWeights($weights, sprintf('%s %s', $scopeType, $scope));
+      $normalized[self::requireName($scope, $scopeType)] = self::normalizeWeights($weights, sprintf('%s %s', $scopeType, $scope));
     }
 
     return $normalized;
@@ -222,9 +222,9 @@ final class DeclaredEquipmentOptimizationPolicy implements EquipmentOptimization
     $normalized = [];
 
     foreach ($weights as $name => $weight) {
-      $name = self::normalize($name);
+      $name = self::requireName($name, $kind);
 
-      if ($name === '' || ! is_int($weight)) {
+      if (! is_int($weight)) {
         throw new InvalidArgumentException(sprintf('%s equipment optimization weights require names and integer values.', ucfirst($kind)));
       }
 
@@ -235,17 +235,28 @@ final class DeclaredEquipmentOptimizationPolicy implements EquipmentOptimization
   }
 
   /** @param string[] $values @return array<string, true> */
-  private static function normalizeSet(array $values): array
+  private static function normalizeSet(array $values, string $kind): array
   {
+    if (! array_is_list($values)) {
+      throw new InvalidArgumentException(sprintf('Equipment optimization %s exclusions must be a list.', $kind));
+    }
+
     $normalized = [];
 
     foreach ($values as $value) {
-      if (is_string($value) && self::normalize($value) !== '') {
-        $normalized[self::normalize($value)] = true;
-      }
+      $normalized[self::requireName($value, $kind . ' exclusion')] = true;
     }
 
     return $normalized;
+  }
+
+  private static function requireName(mixed $value, string $kind): string
+  {
+    if (! is_string($value) || trim($value) === '') {
+      throw new InvalidArgumentException(sprintf('Equipment optimization %s names must be non-empty strings.', $kind));
+    }
+
+    return self::normalize($value);
   }
 
   private static function normalize(string $value): string

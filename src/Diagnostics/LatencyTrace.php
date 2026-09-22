@@ -59,7 +59,7 @@ final class LatencyTrace
     return self::$sink !== null;
   }
 
-  public static function now(): ?int
+  public static function getTimeNow(): ?int
   {
     return self::enabled() ? (self::$clock !== null ? (self::$clock)() : hrtime(true)) : null;
   }
@@ -67,7 +67,7 @@ final class LatencyTrace
   /** @param array<string, mixed> $data */
   public static function record(string $stage, array $data = []): void
   {
-    if (($now = self::now()) !== null) {
+    if (($now = self::getTimeNow()) !== null) {
       (self::$sink)([
         'stage' => $stage, 'at_ns' => $now, 'pid' => getmypid(),
         'iteration' => self::$iteration, 'input_id' => self::$input['id'] ?? null,
@@ -79,7 +79,7 @@ final class LatencyTrace
   /** @param array<string, mixed> $data */
   public static function end(string $stage, ?int $start, array $data = []): void
   {
-    if ($start !== null) { self::record($stage, ['duration_ns' => self::now() - $start, ...$data]); }
+    if ($start !== null) { self::record($stage, ['duration_ns' => self::getTimeNow() - $start, ...$data]); }
   }
 
   public static function beginIteration(): void
@@ -106,10 +106,10 @@ final class LatencyTrace
   {
     if (!self::enabled() || $event->key === null) { return; }
     self::$keys ??= new WeakMap();
-    $key = self::$keys[$event] ??= ['id' => ++self::$nextKey, 'key' => $event->key, 'received_ns' => self::now()];
+    $key = self::$keys[$event] ??= ['id' => ++self::$nextKey, 'key' => $event->key, 'received_ns' => self::getTimeNow()];
     if ($activate) { self::$input = $key; }
     self::record($stage, ['input_id' => $key['id'], 'key' => $key['key'],
-      'observed_age_ns' => self::now() - $key['received_ns']]);
+      'observed_age_ns' => self::getTimeNow() - $key['received_ns']]);
   }
 
   public static function queue(int $count, ?RendererEvent $oldest): void
@@ -117,13 +117,13 @@ final class LatencyTrace
     if (!self::enabled()) { return; }
     $received = $oldest === null ? null : (self::$keys[$oldest]['received_ns'] ?? null);
     self::record('input.queue', ['queued_keys' => $count,
-      'oldest_age_ns' => $received === null ? null : self::now() - $received]);
+      'oldest_age_ns' => $received === null ? null : self::getTimeNow() - $received]);
   }
 
   public static function accepted(string $key, string $source): void
   {
     if (!self::enabled()) { return; }
-    self::$input ??= ['id' => ++self::$nextKey, 'key' => $key, 'received_ns' => self::now()];
+    self::$input ??= ['id' => ++self::$nextKey, 'key' => $key, 'received_ns' => self::getTimeNow()];
     self::$consumed++;
     self::record('input.accepted', ['key' => $key, 'source' => $source]);
   }
@@ -131,9 +131,9 @@ final class LatencyTrace
   public static function returned(string $key, string $source, ?int $started = null): void
   {
     if (!self::enabled()) { return; }
-    self::$input ??= ['id' => ++self::$nextKey, 'key' => $key, 'received_ns' => self::now()];
+    self::$input ??= ['id' => ++self::$nextKey, 'key' => $key, 'received_ns' => self::getTimeNow()];
     self::record('input.source.returned', ['key' => $key, 'source' => $source,
-      'poll_ns' => $started === null ? null : self::now() - $started]);
+      'poll_ns' => $started === null ? null : self::getTimeNow() - $started]);
   }
 
   /** Flush outside measured frame work; bounded records prevent diagnostic backlogs. */

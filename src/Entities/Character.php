@@ -99,6 +99,12 @@ class Character implements CharacterInterface, CanEquip
    */
   protected array $levelExpThresholds = [];
 
+  /** @return array<int, int> The current role's cumulative level thresholds. */
+  public function getLevelExperienceThresholds(): array
+  {
+    return $this->levelExpThresholds;
+  }
+
   /**
    * Raw character data retained while save aliases and tombstones are being
    * resolved. It is never included in a newly written save.

@@ -57,7 +57,8 @@ final class CinematicCommandSchema
     'failure' => 'retryable_without_completion_writes',
   ];
   public const array STAGED_ACTOR_FIELDS = [
-    'id', 'sprite', 'asset', 'x', 'y', 'facing', 'visible', 'collision', 'sprites',
+    'id', 'sprite', 'asset', 'x', 'y', 'facing', 'visible', 'collision', 'sprites', 'sprites2d',
+    'subject', 'suppress', 'replace',
   ];
   public const array SKIP_POLICIES = ['forbidden', 'authored'];
   public const array FINALIZER_COMMAND_TYPES = [
@@ -121,6 +122,20 @@ final class CinematicCommandSchema
         'completion' => self::CINEMATIC_TRIGGER_COMPLETION,
       ],
       'stagedActorFields' => self::STAGED_ACTOR_FIELDS,
+      'movementRoute' => [
+        'modes' => ['steps', 'waypoints', 'retrace'],
+        'waypoints' => 'non-empty list of non-negative integer x and/or y; omitted axis retains current coordinate',
+        'planning' => 'deterministic cardinal path per authored waypoint, bounded by current map; no replan after a blocked step',
+        'remember' => 'unique session-local id; cinematic real player or NPC only',
+        'retrace' => 'consume completed recorded path once from the original endpoint, then restore entry facing',
+        'ownership' => 'one route per subject; current object, map and presentation generation',
+      ],
+      'stagedActorBinding' => [
+        'subject' => ['kind' => 'player|npc', 'id' => 'required for npc'],
+        'suppress' => 'additional real subject references sharing this visual',
+        'replace' => 'explicitly replace an existing visual without resetting captured transforms',
+        'movement' => 'route the real subject; a bound visual has no independent transform or collision',
+      ],
       'skipPolicies' => self::SKIP_POLICIES,
       'finalizerCommandTypes' => self::FINALIZER_COMMAND_TYPES,
       'finalizerCommandShapes' => self::FINALIZER_COMMAND_SHAPES,

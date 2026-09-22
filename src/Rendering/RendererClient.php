@@ -3,12 +3,13 @@
 namespace Ichiloto\Engine\Rendering;
 
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererEventType;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException;
+use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererProtocolException;
+use Ichiloto\Engine\Rendering\Transport\Interfaces\RendererTransportInterface;
 use Ichiloto\Engine\Rendering\Transport\RendererEvent;
-use Ichiloto\Engine\Rendering\Transport\RendererEventType;
 use Ichiloto\Engine\Rendering\Transport\RendererMessage;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
-use Ichiloto\Engine\Rendering\Transport\RendererTransportInterface;
 use InvalidArgumentException;
 use SplQueue;
 
@@ -68,9 +69,15 @@ final class RendererClient
       $keys = $this->keys->count();
       $events = $this->events->count();
       $bytes = $this->queuedBytes;
+      $capabilities = $this->capabilities;
       foreach ($batch as $event) {
         if ($event->type === RendererEventType::READY) {
           $event->requireCapabilities($this->requiredCapabilities);
+          $capabilities = array_values(array_intersect($this->requiredCapabilities, $event->capabilities));
+        }
+        if ($event->type === RendererEventType::WINDOW_ACTIVATION
+          && !in_array(RendererSessionConfig::WINDOW_ACTIVATION, $capabilities, true)) {
+          throw new RendererProtocolException('Window activation requires negotiated window_activation support.');
         }
         if ($discardKeys && $event->type === RendererEventType::KEY) {
           continue;
@@ -196,6 +203,6 @@ final class RendererClient
   private static function eventBytes(RendererEvent $event): int
   {
     return strlen($event->key ?? '') + strlen($event->message ?? '')
-      + array_sum(array_map(strlen(...), $event->capabilities));
+      + array_sum(array_map(strlen(...), $event->capabilities)) + ($event->active === null ? 0 : 1);
   }
 }

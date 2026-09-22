@@ -284,6 +284,10 @@ class EventInterpreter
       return false;
     }
 
+    if (in_array($session->status, [EventExecutionStatus::COMPLETED, EventExecutionStatus::FAILED], true)) {
+      return false;
+    }
+
     if ($session->cinematic->skipPolicy !== 'authored' || $session->cinematic->finalizer === []) {
       Debug::warn(sprintf('Cinematic "%s" does not declare an authored safe finalizer.', $session->cinematic->id));
       return false;
@@ -301,14 +305,15 @@ class EventInterpreter
       return false;
     }
 
-    $this->presentation->reset();
-
-    if (! $session->startFinalizerIfNeeded()) {
-      Debug::warn(sprintf('Cinematic "%s" finalizer could not be started.', $session->cinematic->id));
-      return false;
-    }
-
     try {
+      $this->presentation->reset();
+
+      if (! $session->startFinalizerIfNeeded()) {
+        Debug::warn(sprintf('Cinematic "%s" finalizer could not be started.', $session->cinematic->id));
+        return false;
+      }
+
+      $this->gameScene->cinematicStage?->restoreSubjectTransforms();
       $this->tickLane($session, $session->rootLane(), 0.0);
 
       if ($session->rootLane()->status === EventExecutionStatus::COMPLETED) {
@@ -457,12 +462,15 @@ class EventInterpreter
           $player->erase();
           $player->position->x = intval($command['x']);
           $player->position->y = intval($command['y']);
+          if ($session->isFinalizing) {
+            $this->gameScene->cinematicStage?->commitSubjectTransforms($player);
+          }
           $player->render();
         }
         return EventCommandResult::COMPLETED;
 
       case 'move_route':
-        $route = new MovementRouteRunner($this->gameScene, $command);
+        $route = new MovementRouteRunner($this->gameScene, $command, $session);
         $lane->yieldFor($command, ['kind' => 'movement_route'], $route);
         return EventCommandResult::YIELDED;
 
@@ -528,15 +536,23 @@ class EventInterpreter
           }
         }
 
+        $firstStrike = array_key_exists('firstStrike', $command)
+          ? \Ichiloto\Engine\Battle\EncounterAdvantage::fromSetting($command['firstStrike'])->value
+          : null;
+
         $session->suspendLane($lane, $command, [
           'kind' => 'battle',
           'resultVariable' => trim(strval($command['resultVariable'] ?? '')),
           'defeatPolicy' => $defeatPolicy,
         ]);
-        $extraSettings = ['event_defeat_policy' => $defeatPolicy];
+        $extraSettings = ['event_defeat_policy' => $defeatPolicy]
+          + array_intersect_key($command, ['battleArena' => true]);
 
         if ($escapePolicy !== null) {
           $extraSettings['escapePolicy'] = $escapePolicy;
+        }
+        if ($firstStrike !== null) {
+          $extraSettings['firstStrike'] = $firstStrike;
         }
 
         $this->gameScene->sceneManager->loadBattleScene(
@@ -980,25 +996,49 @@ class EventInterpreter
   {
     $session = $this->activeSession;
 
-    if ($session === null) {
+    if ($session === null || $session->status === EventExecutionStatus::FAILED) {
       return;
     }
 
-    $this->presentation->reset();
-    $this->gameScene->cinematicPresentation?->clear();
-    $session->cancelLanes();
-    $session->fail($message);
-    Debug::error($message);
-
-    try {
-      $session->completionTarget?->onEventSessionFailed($this->gameScene, $session);
-    } catch (Throwable $completionFailure) {
-      Debug::error(sprintf('Event failure cleanup failed: %s', $completionFailure->getMessage()));
+    $diagnostics = [$message];
+    // Mark failure before invoking user-owned cancellation; preserve identity until the
+    // completion target has released its cinematic ownership, even when cleanup throws.
+    foreach ([
+      'cancel operations' => fn() => $session->fail($message),
+      'release lanes' => fn() => $session->cancelLanes(),
+      'reset presentation' => fn() => $this->presentation->reset(),
+      'clear cinematic presentation' => fn() => $this->gameScene->cinematicPresentation?->clear(),
+      'notify failure target' => fn() => $session->completionTarget?->onEventSessionFailed($this->gameScene, $session),
+    ] as $step => $cleanup) {
+      try {
+        $cleanup();
+      } catch (Throwable $failure) {
+        $diagnostics[] = sprintf('Event session %d failure cleanup (%s): %s', $session->id, $step, $failure->getMessage());
+      }
     }
 
     $this->lastSession = $session;
     $this->activeSession = null;
-    $this->gameScene->onEventSessionFinished($session, false);
+    try {
+      $this->gameScene->onEventSessionFinished($session, false);
+    } catch (Throwable $failure) {
+      $diagnostics[] = sprintf('Event session %d failure cleanup (finish scene): %s', $session->id, $failure->getMessage());
+    }
+
+    foreach ($diagnostics as $diagnostic) {
+      try {
+        Debug::error($diagnostic);
+      } catch (Throwable $logFailure) {
+        // A failed project log must neither interrupt cleanup nor conceal its errors.
+        try {
+          if (!error_log($diagnostic . ' [Project logger failed: ' . $logFailure->getMessage() . ']')) {
+            throw new RuntimeException('The fallback error log was unavailable.');
+          }
+        } catch (Throwable $fallbackFailure) {
+          throw $throwable ?? new RuntimeException($message, previous: $fallbackFailure);
+        }
+      }
+    }
   }
 
   /** @param array<int, array<string, mixed>> $conditions The condition entries. */

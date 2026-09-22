@@ -1,5 +1,10 @@
 <?php
 
+use Ichiloto\Engine\Rendering\Presentation\StyledPresentationFrame;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererEventType;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererMessageType;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererTransportState;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererProcessExitedException;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererProtocolException;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererStartupException;
@@ -7,15 +12,10 @@ use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException;
 use Ichiloto\Engine\Rendering\Transport\Internal\RendererWriteBuffer;
 use Ichiloto\Engine\Rendering\Transport\ProcessRendererTransport;
 use Ichiloto\Engine\Rendering\Transport\RendererEvent;
-use Ichiloto\Engine\Rendering\Transport\RendererEventType;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererMessage;
-use Ichiloto\Engine\Rendering\Transport\RendererMessageType;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
-use Ichiloto\Engine\Rendering\Transport\RendererProtocolVersion;
-use Ichiloto\Engine\Rendering\Presentation\StyledPresentationFrame;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
-use Ichiloto\Engine\Rendering\Transport\RendererTransportState;
 
 /** Test-owned handles are explicitly cleaned even if an assertion fails. */
 final class RendererTransportTestHandles

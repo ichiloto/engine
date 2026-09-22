@@ -3,7 +3,6 @@
 namespace Ichiloto\Engine\Core\Menu\ItemMenu\Windows;
 
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
-use Ichiloto\Engine\Core\Menu\ItemMenu\ItemMenu;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
@@ -15,6 +14,8 @@ use Ichiloto\Engine\UI\Windows\Window;
  */
 class InfoPanel extends Window
 {
+  protected(set) string $text = '';
+
   public function __construct(
     protected MenuInterface $menu,
     Rect                    $area,
@@ -39,6 +40,7 @@ class InfoPanel extends Window
    */
   public function setText(string $text): void
   {
+    $this->text = $text;
     $lines = explode("\n", $text);
     $lineCount = count($lines);
 

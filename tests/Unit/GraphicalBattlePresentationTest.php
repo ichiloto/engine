@@ -2,6 +2,7 @@
 
 use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Battle\Presentation\BattleArenaDefinition;
+use Ichiloto\Engine\Battle\Presentation\BattleCanvasLayout;
 use Ichiloto\Engine\Battle\Presentation\BattleCanvasUiAdapter;
 use Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog;
 use Ichiloto\Engine\Battle\Presentation\BattlerArtwork;
@@ -10,6 +11,10 @@ use Ichiloto\Engine\Battle\Presentation\GraphicalBattlePresentation;
 use Ichiloto\Engine\Battle\Presentation\BattleHudSnapshot;
 use Ichiloto\Engine\Battle\Presentation\BattleUiSkin;
 use Ichiloto\Engine\Battle\Presentation\BattleTargetCursor;
+use Ichiloto\Engine\Battle\BattleResult;
+use Ichiloto\Engine\Battle\Presentation\BattleRewards;
+use Ichiloto\Engine\Battle\Presentation\BattleResultsSkin;
+use Ichiloto\Engine\Progression\ExperienceAwarder;
 use Ichiloto\Engine\Battle\Resolution\CombatRandomSource;
 use Ichiloto\Engine\Battle\Resolution\CombatResolver;
 use Ichiloto\Engine\Battle\Resolution\SeededCombatRandomSource;
@@ -24,6 +29,7 @@ use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasNineSlice;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
@@ -34,6 +40,7 @@ use Ichiloto\Engine\Scenes\Battle\BattleConfig;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
+use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
@@ -78,19 +85,48 @@ function graphicalBattleFixture(bool $skinned = false, bool $directionalCursor =
   return [$battle, new BattlePresentationCatalog(['Twins' => $arena], ['Hero' => $art], ['Twin' => $art]), $hero, $enemies];
 }
 
-function graphicalBattleScene(BattleConfig $battle, ?GraphicalBattlePresentation $presentation): BattleScene
+function graphicalBattleScene(BattleConfig $battle, ?GraphicalBattlePresentation $presentation, ?BattleCanvasLayout $ui = null): BattleScene
 {
   $scene = new ReflectionClass(BattleScene::class)->newInstanceWithoutConstructor();
   new ReflectionProperty(BattleScene::class, 'config')->setValue($scene, $battle);
   new ReflectionProperty(BattleScene::class, 'graphicalPresentation')->setValue($scene, $presentation);
+  new ReflectionProperty(BattleScene::class, 'battleUiLayout')->setValue($scene, $ui);
   new ReflectionProperty(AbstractScene::class, 'camera')->setValue($scene, new Camera($scene, 135, 36));
   $scene->ui = new BattleScreen($scene);
   return $scene;
 }
 
+function graphicalResultsFixtureSkin(): BattleResultsSkin
+{
+  return new BattleResultsSkin(array_fill_keys(['panel', 'quiet', 'track', 'selector', 'portrait', 'exp', 'divider', 'button'],
+    new CanvasNineSlice('test-sprite.png', new SpriteSourceRect(0, 0, 32, 48))),
+    array_fill_keys(['text', 'muted', 'accent', 'positive', 'negative', 'ink'], PresentationColor::rgb(220, 220, 220)));
+}
+
+function graphicalBattleConfigurationScene(?RendererRuntime $runtime): BattleScene
+{
+  $game = new class extends Ichiloto\Engine\Core\Game {
+    public function __construct() {
+      $this->sceneManager = new class extends Ichiloto\Engine\Scenes\SceneManager {
+        public function __construct() { $this->scenes = new Assegai\Collections\ItemList(Ichiloto\Engine\Scenes\Interfaces\SceneInterface::class); }
+      };
+    }
+    public function __destruct() {}
+  };
+  if ($runtime !== null) { $game->useRendererRuntime($runtime); }
+  return new class($game) extends BattleScene {
+    public function __construct(private Ichiloto\Engine\Core\Game $testGame) {}
+    public function getGame(): Ichiloto\Engine\Core\Game { return $this->testGame; }
+    // Configuration is under test, not the timed/input-driven transition.
+    public function setState(Ichiloto\Engine\Scenes\Battle\States\BattleSceneState $state): void { $this->state = $state; }
+  };
+}
+
 beforeEach(function () {
   $this->statics = [];
-  foreach ([Console::class, ConfigStore::class, InputManager::class] as $class) { $this->statics[$class] = new ReflectionClass($class)->getStaticProperties(); }
+  foreach ([Console::class, ConfigStore::class, InputManager::class, Debug::class] as $class) { $this->statics[$class] = new ReflectionClass($class)->getStaticProperties(); }
+  $this->logRoot = sys_get_temp_dir() . '/ichiloto-battle-logs-' . bin2hex(random_bytes(5));
+  Debug::configure(['log_directory' => $this->logRoot]);
   Console::setTerminalOutputEnabled(false);
   Console::syncDimensions(135, 36);
   Console::setLayerTracking(true);
@@ -100,8 +136,83 @@ beforeEach(function () {
 });
 
 afterEach(function () {
+  foreach (glob($this->logRoot . '/*') ?: [] as $file) { unlink($file); }
+  if (is_dir($this->logRoot)) { rmdir($this->logRoot); }
   foreach ($this->statics as $class => $properties) {
     foreach ($properties as $name => $value) { new ReflectionProperty($class, $name)->setValue(null, $value); }
+  }
+});
+
+it('composes Results over the frozen real battlefield without changing awarded gameplay facts', function () {
+  [$battle, $catalog, $hero] = graphicalBattleFixture(true);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $scene = graphicalBattleScene($battle, $presentation);
+  new ReflectionProperty(BattleScene::class, 'resultsSkin')->setValue($scene, graphicalResultsFixtureSkin());
+  $scene->result = new BattleResult('Victory', rewards: new BattleRewards(10000, 42,
+    [ExperienceAwarder::award($hero, 10000)]));
+  $awardedExperience = $hero->currentExp;
+  $scene->beginResults();
+  $scene->resultsPlayback->update(3);
+  $frame = $scene->getPresentationCanvas();
+  expect($scene->hasGraphicalResults())->toBeTrue()
+    ->and($frame->images[0])->toEqual($presentation->frame()->images[0])
+    ->and(array_column($frame->textLayers, 'id'))->toContain('results-heading')
+    ->and(array_column($frame->textLayers, 'id'))->not->toContain('battle-ui-0', 'battle-pause');
+  expect($scene->getPresentationCanvas()->toArray())->toBe($frame->toArray());
+  $scene->endResults();
+  expect($scene->hasGraphicalResults())->toBeFalse()
+    ->and($scene->resultsPlayback)->toBeNull()
+    ->and($hero->currentExp)->toBe($awardedExperience);
+  $scene->beginResults();
+  expect($scene->resultsPlayback->currentStage()['kind'])->toBe('primary')
+    ->and($hero->currentExp)->toBe($awardedExperience);
+});
+
+it('keeps victory input presentation-only and finishes the exit without an extra confirmation', function () {
+  [$battle, $catalog, $hero] = graphicalBattleFixture(true);
+  $scene = graphicalBattleScene($battle, GraphicalBattlePresentation::prepare($battle, $catalog, $this->root));
+  new ReflectionProperty(BattleScene::class, 'resultsSkin')->setValue($scene, graphicalResultsFixtureSkin());
+  $scene->result = new BattleResult('Victory', rewards: new BattleRewards(1, 0, [ExperienceAwarder::award($hero, 1)]));
+  $context = new Ichiloto\Engine\Scenes\SceneStateContext($scene);
+  $victory = new class($context) extends Ichiloto\Engine\Scenes\Battle\States\BattleVictoryState {
+    protected function playVictoryMusic(): void {}
+  };
+  $end = new class($context) extends Ichiloto\Engine\Scenes\Battle\States\BattleEndState {
+    public bool $entered = false;
+    public function enter(): void { $this->entered = true; }
+  };
+  new ReflectionProperty(BattleScene::class, 'endState')->setValue($scene, $end);
+  $delta = new ReflectionProperty(Ichiloto\Engine\Core\Time::class, 'deltaTime');
+  $oldDelta = $delta->getValue();
+  new ReflectionProperty(InputManager::class, 'config')->setValue(null,
+    ['action' => ['keys' => [Ichiloto\Engine\IO\Enumerations\KeyCode::ENTER]]]);
+  try {
+    $scene->setState($victory);
+    $delta->setValue(null, 0.01);
+    $victory->execute();
+    new ReflectionProperty(InputManager::class, 'keyPress')->setValue(null, Ichiloto\Engine\IO\Enumerations\KeyCode::ENTER);
+    new ReflectionProperty(InputManager::class, 'previousKeyPress')->setValue(null, null);
+    $victory->execute();
+    expect($scene->resultsPlayback->isComplete())->toBeTrue()->and($end->entered)->toBeFalse();
+    $victory->execute();
+    expect($end->entered)->toBeFalse();
+    new ReflectionProperty(InputManager::class, 'keyPress')->setValue(null, null);
+    $delta->setValue(null, 0.2);
+    $victory->execute();
+    new ReflectionProperty(InputManager::class, 'keyPress')->setValue(null, Ichiloto\Engine\IO\Enumerations\KeyCode::ENTER);
+    $victory->execute();
+    expect($scene->resultsPlayback->isExiting())->toBeTrue()->and($end->entered)->toBeFalse();
+    new ReflectionProperty(InputManager::class, 'keyPress')->setValue(null, null);
+    $delta->setValue(null, 30.0);
+    $victory->resume();
+    $victory->execute();
+    expect($end->entered)->toBeFalse();
+    $delta->setValue(null, 0.5);
+    $victory->execute();
+    expect($end->entered)->toBeTrue()->and($scene->resultsPlayback)->toBeNull()
+      ->and($hero->currentExp)->toBe(2);
+  } finally {
+    $delta->setValue(null, $oldDelta);
   }
 });
 
@@ -114,8 +225,167 @@ it('resolves pivots and contain sizes in independent fractional canvas units', f
   expect($presentation->frame()->toArray())->toBe($canvas->toArray());
 });
 
-it('keeps repeated enemy instance IDs through target reorder feedback and removal', function () {
+it('selects an explicit encounter arena without leaking it into the next battle', function () {
+  [$fixture, $catalog] = graphicalBattleFixture();
+  $legacy = $catalog->arenas['Twins'];
+  $yard = new BattleArenaDefinition(1350, 720,
+    new CanvasImage('yard', $legacy->background->asset, $legacy->background->destination),
+    $legacy->partySlots, $legacy->enemySlots);
+  $catalog = new BattlePresentationCatalog(['Twins' => $legacy, 'arena.yard' => $yard], $catalog->actors, $catalog->enemies);
+  $battle = new BattleConfig($fixture->party, $fixture->troop, settings: ['battleArena' => 'arena.yard']);
+
+  expect(GraphicalBattlePresentation::prepare($battle, $catalog, $this->root)->arena)->toBe($yard)
+    ->and(GraphicalBattlePresentation::prepare($fixture, $catalog, $this->root)->arena)->toBe($legacy)
+    ->and($battle->entryRulesEvaluated())->toBeFalse();
+  $restored = unserialize(serialize(new BattleConfig($fixture->party, new Troop('Twins'), settings: $battle->settings)));
+  expect($catalog->arenaFor($restored))->toBe($yard);
+  $unconfigured = new BattleConfig($fixture->party, new Troop('Deferred area'));
+  expect($catalog->arenaFor($unconfigured))->toBeNull();
+});
+
+it('rejects explicit invalid or absent arena keys instead of falling back to troop art', function (mixed $key, string $error) {
+  [$fixture, $catalog] = graphicalBattleFixture();
+  $battle = new BattleConfig($fixture->party, $fixture->troop, settings: ['battleArena' => $key]);
+  expect(fn() => GraphicalBattlePresentation::prepare($battle, $catalog, $this->root))->toThrow($error)
+    ->and($battle->entryRulesEvaluated())->toBeFalse();
+})->with([
+  'unknown' => ['arena.missing', RuntimeException::class],
+  'empty' => ['', InvalidArgumentException::class],
+  'controls' => ["arena\nyard", InvalidArgumentException::class],
+  'array' => [[], InvalidArgumentException::class],
+  'integer' => [42, InvalidArgumentException::class],
+]);
+
+it('resolves troop formations inside the selected arena without changing location or shared state', function () {
+  [$fixture, $catalog] = graphicalBattleFixture();
+  $base = $catalog->arenas['Twins'];
+  $slots = [new BattlerSlot(350, 400, 160, 230), new BattlerSlot(530, 470, 120, 100)];
+  $road = new BattleArenaDefinition(1350, 720, $base->background, $base->partySlots, $base->enemySlots,
+    enemySlotsByTroop: ['troop.mixed' => $slots, 'Localized name' => array_reverse($slots)]);
+  $catalog = new BattlePresentationCatalog(['Twins' => $base, 'arena.road' => $road], $catalog->actors, $catalog->enemies);
+  $troop = new Troop('Localized name', $fixture->troop->members->toArray(), definitionId: 'troop.mixed');
+  $battle = new BattleConfig($fixture->party, $troop, settings: ['battleArena' => 'arena.road']);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+
+  expect($presentation->arena->enemySlots)->toBe($slots)
+    ->and($presentation->arena->background)->toBe($base->background)
+    ->and($presentation->arena->partySlots)->toBe($base->partySlots)
+    ->and($road->enemySlots)->toBe($base->enemySlots)
+    ->and($road->enemySlotsByTroop['troop.mixed'])->toBe($slots)
+    ->and($battle->entryRulesEvaluated())->toBeFalse();
+  $images = $presentation->frame()->images;
+  foreach ($slots as $index => $slot) {
+    expect($images[$index + 2]->destination)->toEqual($slot->place($catalog->enemies['Twin']));
+  }
+  expect($presentation->frame()->toArray())->toBe($presentation->frame()->toArray());
+  $unchanged = new BattleConfig($fixture->party, $fixture->troop, settings: ['battleArena' => 'arena.road']);
+  expect($catalog->arenaFor($unchanged))->toBe($road)
+    ->and($catalog->arenaFor($fixture))->toBe($base)
+    ->and($catalog->arenaFor(new BattleConfig($fixture->party, $troop)))->toBeNull();
+
+  // Current catalog data, not a serialized arena, resolves a restored encounter.
+  $restored = unserialize(serialize(new BattleConfig($fixture->party,
+    new Troop('Renamed troop', definitionId: 'troop.mixed'), settings: $battle->settings)));
+  expect($catalog->arenaFor($restored)->enemySlots)->toBe($slots);
+});
+
+it('uses historical formation names only when the troop has no authored identity', function () {
+  [$fixture, $catalog] = graphicalBattleFixture();
+  $base = $catalog->arenas['Twins'];
+  $slots = array_reverse($base->enemySlots);
+  $arena = new BattleArenaDefinition(1350, 720, $base->background, $base->partySlots, $base->enemySlots,
+    enemySlotsByTroop: ['Twins' => $slots]);
+  $catalog = new BattlePresentationCatalog(['Twins' => $arena, 'arena.road' => $arena], $catalog->actors, $catalog->enemies);
+  expect($catalog->arenaFor($fixture)->enemySlots)->toBe($slots);
+  $identified = new BattleConfig($fixture->party, new Troop('Twins', definitionId: 'troop.other'),
+    settings: ['battleArena' => 'arena.road']);
+  expect($catalog->arenaFor($identified))->toBe($arena);
+});
+
+it('preserves arena and inherited UI geometry when applying a troop formation', function (bool $ownSkin) {
+  [$fixture, $catalog] = graphicalBattleFixture(true);
+  $base = $catalog->arenas['Twins'];
+  $slots = array_reverse($base->enemySlots);
+  $ui = new BattleCanvasLayout(1350, 720, skin: $base->skin, feedbackArea: $base->feedbackArea);
+  $arena = new BattleArenaDefinition(1350, 720, $base->background, $base->partySlots, $base->enemySlots,
+    uiCellWidth: 9, uiCellHeight: 18, skin: $ownSkin ? $base->skin : null,
+    feedbackArea: $ownSkin ? $base->feedbackArea : null, enemySlotsByTroop: ['Twins' => $slots]);
+  $catalog = new BattlePresentationCatalog(['Twins' => $arena], $catalog->actors, $catalog->enemies, ui: $ui);
+  $resolved = GraphicalBattlePresentation::prepare($fixture, $catalog, $this->root)->arena;
+  expect($resolved->skin)->toBe($base->skin)
+    ->and($resolved->feedbackArea)->toBe($base->feedbackArea)
+    ->and($resolved->uiGrid)->toEqual($arena->uiGrid)
+    ->and($resolved->enemySlots)->toBe($slots)
+    ->and($resolved->background)->toBe($base->background)
+    ->and($arena->withDefaultUi($ui)->getForTroop('Twins')->enemySlots)->toBe($slots);
+})->with([true, false]);
+
+it('rejects invalid troop formation metadata', function (array $formations) {
+  [$fixture, $catalog] = graphicalBattleFixture();
+  $base = $catalog->arenas['Twins'];
+  expect(fn() => new BattleArenaDefinition(1350, 720, $base->background, $base->partySlots, $base->enemySlots,
+    enemySlotsByTroop: $formations))->toThrow(InvalidArgumentException::class);
+})->with([
+  'numeric identity' => [[0 => []]],
+  'empty identity' => [['' => []]],
+  'control in identity' => [["troop\ninvalid" => []]],
+  'not a slot list' => [['Twins' => 'invalid']],
+  'sparse slot list' => [['Twins' => [1 => new BattlerSlot(350, 400, 100, 100)]]],
+  'untyped slot' => [['Twins' => [['x' => 350, 'y' => 400]]]],
+  'too many slots' => [['Twins' => array_fill(0, 65, new BattlerSlot(350, 400, 100, 100))]],
+]);
+
+it('preflights the selected formation instead of silently reverting to default slots', function (array $slots, string $error) {
+  [$fixture, $catalog] = graphicalBattleFixture();
+  $base = $catalog->arenas['Twins'];
+  $arena = new BattleArenaDefinition(1350, 720, $base->background, $base->partySlots, $base->enemySlots,
+    enemySlotsByTroop: ['Twins' => $slots]);
+  $catalog = new BattlePresentationCatalog(['Twins' => $arena], $catalog->actors, $catalog->enemies);
+  expect(fn() => GraphicalBattlePresentation::prepare($fixture, $catalog, $this->root))->toThrow($error)
+    ->and($fixture->entryRulesEvaluated())->toBeFalse();
+})->with([
+  'empty authored formation' => [[], RuntimeException::class],
+  'missing member slot' => [[new BattlerSlot(350, 400, 100, 100)], RuntimeException::class],
+  'out of canvas' => [[new BattlerSlot(1400, 400, 100, 100), new BattlerSlot(530, 470, 120, 100)], InvalidArgumentException::class],
+]);
+
+it('detaches references in authored formation mappings', function () {
+  [$fixture, $catalog] = graphicalBattleFixture();
+  $base = $catalog->arenas['Twins'];
+  $slot = new BattlerSlot(350, 400, 100, 100);
+  $slots = [&$slot];
+  $formations = ['Twins' => &$slots];
+  $arena = new BattleArenaDefinition(1350, 720, $base->background, $base->partySlots, $base->enemySlots,
+    enemySlotsByTroop: $formations);
+  $slot = new BattlerSlot(530, 470, 120, 100);
+  $slots = [];
+  expect($arena->getForTroop('Twins')->enemySlots)->toHaveCount(1)
+    ->and($arena->getForTroop('Twins')->enemySlots[0]->x)->toBe(350.0);
+});
+
+it('degrades an explicit arena without a catalog to the terminal presentation and never blocks combat', function (bool $native) {
+  [$fixture] = graphicalBattleFixture();
+  $battle = new BattleConfig($fixture->party, $fixture->troop, settings: ['battleArena' => 'arena.yard']);
+  $runtime = $native ? new RendererRuntime(
+    new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), $this->root), new FakeRendererTransport()) : null;
+  $scene = graphicalBattleConfigurationScene($runtime);
+  // Presentation must never change whether combat happens: a missing
+  // catalog under an explicit arena logs and degrades, and terminal play
+  // never loads the catalog at all.
+  $scene->configure($battle);
+  expect($scene->config)->toBe($battle)->and($battle->entryRulesEvaluated())->toBeTrue()
+    ->and($scene->graphicalPresentation)->toBeNull()
+    ->and($scene->battleUiLayout)->toBeNull();
+})->with([true, false]);
+
+it('keeps repeated enemy instance IDs through target reorder feedback and removal', function (bool $override) {
   [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  if ($override) {
+    $base = $catalog->arenas['Twins'];
+    $arena = new BattleArenaDefinition(1350, 720, $base->background, $base->partySlots, $base->enemySlots,
+      enemySlotsByTroop: ['Twins' => array_reverse($base->enemySlots)]);
+    $catalog = new BattlePresentationCatalog(['Twins' => $arena], $catalog->actors, $catalog->enemies);
+  }
   $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
   $scene = graphicalBattleScene($battle, $presentation);
   $field = $scene->ui->fieldWindow;
@@ -138,7 +408,7 @@ it('keeps repeated enemy instance IDs through target reorder feedback and remova
   expect(array_map(fn($image) => $image->id, $after->images))->toBe([$ids[0], $ids[1], $ids[3]])
     ->and($after->images[2]->destination)->toEqual($first->images[3]->destination)
     ->and($after->indicators)->toHaveCount(1);
-});
+})->with([false, true]);
 
 it('selects the graphical field before constructing terminal battler output and clips UI to owned windows', function () {
   [$battle, $catalog] = graphicalBattleFixture();
@@ -167,6 +437,52 @@ it('keeps terminal battlefield output when optional graphical metadata is absent
   $scene->ui->renderField();
   expect(implode('', Console::snapshot()->rows))->toContain('ASCII MUST NOT DRAW')
     ->and($scene->getPresentationCanvas())->toBeNull();
+});
+
+it('uses shared native controls without requiring encounter artwork and keeps the field below them', function () {
+  [$battle, $catalog] = graphicalBattleFixture(skinned: true);
+  $arena = $catalog->arenas['Twins'];
+  $layout = new BattleCanvasLayout(1350, 720, skin: $arena->skin, feedbackArea: $arena->feedbackArea);
+  $catalog = new BattlePresentationCatalog([], [], [], ui: $layout);
+  expect(GraphicalBattlePresentation::prepare($battle, $catalog, '/no-artwork-required'))->toBeNull()
+    ->and($catalog->requiredCapabilities())->toBe(['graphical_canvas', 'canvas_clip_opacity', 'canvas_glyph_effects']);
+  $scene = graphicalBattleScene($battle, null, $layout);
+  Console::clear();
+  $scene->ui->renderField();
+  $scene->ui->showControls();
+  $scene->ui->showMessage('Shared action banner');
+  Console::write('OLD FOOTER MUST NOT DRAW', 2, 32);
+  Console::withLayer('modal', fn() => Console::write('MODAL ABOVE HUD', 3, 33), 2000);
+  $frame = $scene->getPresentationCanvas();
+  $layers = array_column($frame->textLayers, null, 'id');
+  $field = $layers['battle-field'];
+  expect($scene->ui->usesGraphicalField())->toBeFalse()
+    ->and(implode('', array_column($field->runs, 'text')))->toContain('ASCII MUST NOT DRAW')->not->toContain('OLD FOOTER')
+    ->and($field->layer)->toBe(0)
+    ->and(array_all($frame->images, fn($image) => $image->layer > $field->layer))->toBeTrue()
+    ->and(array_any($frame->images, fn($image) => str_starts_with($image->id, 'hud-stats-')))->toBeTrue()
+    ->and(array_any($frame->textLayers, fn($layer) => $layer->layer >= 1500
+      && str_contains(implode('', array_column($layer->runs, 'text')), 'MODAL ABOVE HUD')))->toBeTrue()
+    ->and(implode('', array_map(fn($layer) => implode('', array_column($layer->runs, 'text')), $frame->textLayers)))
+      ->not->toContain('OLD FOOTER MUST NOT DRAW')->toContain('Shared action banner');
+  $scene->ui->hideMessage();
+  $scene->ui->hideControls();
+  expect($scene->getPresentationCanvas()->images)->toBe([]);
+});
+
+it('applies the project UI to an authored arena without replacing its art or explicit skin', function () {
+  [$battle, $plain] = graphicalBattleFixture();
+  [, $skinned] = graphicalBattleFixture(skinned: true);
+  $arena = $skinned->arenas['Twins'];
+  $layout = new BattleCanvasLayout(1350, 720, skin: $arena->skin, feedbackArea: $arena->feedbackArea);
+  $inherited = new BattlePresentationCatalog($plain->arenas, $plain->actors, $plain->enemies, ui: $layout);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $inherited, $this->root);
+  expect($presentation->arena->skin)->toBe($layout->skin)
+    ->and($presentation->arena->feedbackArea)->toBe($layout->feedbackArea)
+    ->and($presentation->frame()->images[0])->toBe($plain->arenas['Twins']->background)
+    ->and($arena->withDefaultUi($layout))->toBe($arena);
+  expect(fn() => new BattlePresentationCatalog([], [], [], ui: new BattleCanvasLayout(1350, 720)))
+    ->toThrow(InvalidArgumentException::class, 'requires a skin');
 });
 
 it('uses live skin controls without readmitting terminal cells and keeps markers independently owned', function () {
@@ -334,8 +650,8 @@ it('replaces a real battle canvas with the normal scene frame through the shared
 
 it('loads current optional metadata without persisting it in battle state', function () {
   $root = sys_get_temp_dir() . '/ichiloto-battle-catalog-' . bin2hex(random_bytes(5));
-  mkdir($root . '/Data', 0777, true);
-  $file = $root . '/Data/battle-presentation.php';
+  $file = $root . '/' . BattlePresentationCatalog::FILE;
+  mkdir(dirname($file), 0777, true);
   try {
     expect(BattlePresentationCatalog::load($root))->toBeNull();
     copy(__DIR__ . '/../Fixtures/BattlePresentation/catalog.php', $file);
@@ -347,7 +663,7 @@ it('loads current optional metadata without persisting it in battle state', func
     expect($battle->__serialize())->not->toHaveKey('graphicalPresentation')->not->toHaveKey('canvas');
     expect(fn() => GraphicalBattlePresentation::prepare($battle, $first, $root))->toThrow(RuntimeException::class, 'readable PNG');
     expect($battle->entryRulesEvaluated())->toBeFalse();
-  } finally { unlink($file); rmdir($root . '/Data'); rmdir($root); }
+  } finally { unlink($file); rmdir(dirname($file)); rmdir($root . '/Data'); rmdir($root); }
 });
 
 it('rejects malformed typed artwork and independent placement geometry', function (Closure $invalid) {
@@ -361,31 +677,118 @@ it('rejects malformed typed artwork and independent placement geometry', functio
   'untyped catalog' => fn() => new BattlePresentationCatalog(['encounter' => []], [], []),
 ]);
 
-it('rejects missing negotiated battle capabilities before scene configuration or entry effects', function () {
+it('keeps battle configuration playable when graphical capabilities are unavailable', function () {
   $root = sys_get_temp_dir() . '/ichiloto-battle-startup-' . bin2hex(random_bytes(5));
-  mkdir($root . '/Data', 0777, true);
-  copy(__DIR__ . '/../Fixtures/BattlePresentation/catalog.php', $root . '/Data/battle-presentation.php');
+  $file = $root . '/' . BattlePresentationCatalog::FILE;
+  mkdir(dirname($file), 0777, true);
+  copy(__DIR__ . '/../Fixtures/BattlePresentation/catalog.php', $file);
   foreach (['hero', 'twin'] as $name) { copy($this->root . '/graphical-canvas/synthetic-143x181.png', $root . '/' . $name . '.png'); }
   copy($this->root . '/graphical-canvas/synthetic-320x180.png', $root . '/arena.png');
-  $game = new class extends Ichiloto\Engine\Core\Game {
-    public function __construct() {}
-    public function __destruct() {}
-  };
-  $game->useRendererRuntime(new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), $root), new FakeRendererTransport()));
-  $scene = new class($game) extends BattleScene {
-    public function __construct(private Ichiloto\Engine\Core\Game $testGame) {}
-    public function getGame(): Ichiloto\Engine\Core\Game { return $this->testGame; }
-  };
+  $runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), $root), new FakeRendererTransport());
+  $scene = graphicalBattleConfigurationScene($runtime);
   try {
     [$battle] = graphicalBattleFixture();
-    expect(fn() => $scene->configure($battle))->toThrow(RuntimeException::class, 'negotiated graphical_canvas');
-    expect($battle->entryRulesEvaluated())->toBeFalse()
-      ->and($scene->config)->toBeNull()->and($scene->graphicalPresentation)->toBeNull();
+    $scene->configure($battle);
+    expect($battle->entryRulesEvaluated())->toBeTrue()
+      ->and($scene->config)->toBe($battle)->and($scene->graphicalPresentation)->toBeNull()
+      ->and($scene->battleUiLayout)->toBeNull()
+      ->and(file_get_contents($this->logRoot . '/error.log'))->toContain('negotiated graphical_canvas');
   } finally {
-    foreach (['hero.png', 'twin.png', 'arena.png', 'Data/battle-presentation.php'] as $file) { unlink($root . '/' . $file); }
-    rmdir($root . '/Data'); rmdir($root);
+    $runtime->shutdown();
+    foreach (['hero.png', 'twin.png', 'arena.png', BattlePresentationCatalog::FILE] as $asset) { unlink($root . '/' . $asset); }
+    rmdir(dirname($file)); rmdir($root . '/Data'); rmdir($root);
   }
 });
+
+it('configures shared UI for consecutive encounters while terminal ignores optional assets', function (bool $native, bool $results) {
+  $root = sys_get_temp_dir() . '/ichiloto-shared-ui-' . bin2hex(random_bytes(5));
+  $file = $root . '/' . BattlePresentationCatalog::FILE;
+  mkdir(dirname($file), 0777, true);
+  copy(__DIR__ . '/../Fixtures/BattlePresentation/shared-ui.php', $file);
+  if ($results) {
+    $code = <<<'PHP'
+<?php
+use Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog;
+use Ichiloto\Engine\Battle\Presentation\BattleResultsSkin;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasNineSlice;
+use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
+$catalog = require __FIXTURE__;
+$portraits = [];
+foreach (['Hero', 'Second', 'Third', 'Fourth'] as $id) {
+  $portraits[$id] = ['bust' => new CanvasNineSlice($id . '.png', new SpriteSourceRect(0, 0, 2048, 2048))];
+}
+return new BattlePresentationCatalog([], [], [], ui: $catalog->ui, results: new BattleResultsSkin(
+  array_fill_keys(['panel', 'quiet', 'track', 'selector', 'portrait', 'exp', 'divider', 'button'], $catalog->ui->skin->textures['panel']),
+  array_fill_keys(['text', 'muted', 'accent', 'positive', 'negative', 'ink'], $catalog->ui->skin->colors['text']), $portraits));
+PHP;
+    file_put_contents($file, str_replace('__FIXTURE__',
+      var_export(__DIR__ . '/../Fixtures/BattlePresentation/shared-ui.php', true), $code));
+    if ($native) {
+      // The catalog exceeds 64 MiB, but each event displays only one bust. Header checks only.
+      foreach (['Hero', 'Second', 'Third', 'Fourth'] as $id) {
+        file_put_contents($root . '/' . $id . '.png', "\x89PNG\r\n\x1a\n\0\0\0\rIHDR" . pack('NN', 2048, 2048));
+      }
+    }
+  }
+  if ($native) { copy($this->root . '/test-sprite.png', $root . '/skin.png'); }
+  $runtime = null;
+  try {
+    if ($native) {
+      $transport = new FakeRendererTransport();
+      $transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["graphical_canvas","sprite_source_rect","canvas_clip_opacity","canvas_glyph_effects"]}')];
+      $runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), $root,
+        requiredCapabilities: ['graphical_canvas', 'sprite_source_rect', 'canvas_clip_opacity', 'canvas_glyph_effects']), $transport);
+      $runtime->start('Shared UI', 135, 36);
+    }
+    $scene = graphicalBattleConfigurationScene($runtime);
+    foreach (['Twins', 'Another encounter'] as $name) {
+      [$fixture] = graphicalBattleFixture();
+      $battle = new BattleConfig($fixture->party, new Troop($name, $fixture->troop->members->toArray()));
+      $scene->configure($battle);
+      expect($scene->config)->toBe($battle)
+        ->and($battle->entryRulesEvaluated())->toBeTrue()
+        ->and($scene->graphicalPresentation)->toBeNull()
+        ->and($scene->battleUiLayout !== null)->toBe($native)
+        ->and($scene->resultsSkin !== null)->toBe($native && $results)
+        ->and($scene->getPresentationCanvas())->toBeNull(); // Start transition still owns its frame.
+    }
+  } finally {
+    $runtime?->shutdown();
+    if ($native) { unlink($root . '/skin.png'); }
+    if ($native && $results) {
+      foreach (['Hero', 'Second', 'Third', 'Fourth'] as $id) { unlink($root . '/' . $id . '.png'); }
+    }
+    unlink($file); rmdir(dirname($file)); rmdir($root . '/Data'); rmdir($root);
+  }
+})->with([true, false])->with([true, false]);
+
+it('logs unusable shared UI assets or capabilities and still starts combat', function (?string $missing) {
+  $root = sys_get_temp_dir() . '/ichiloto-shared-ui-invalid-' . bin2hex(random_bytes(5));
+  $file = $root . '/' . BattlePresentationCatalog::FILE;
+  mkdir(dirname($file), 0777, true);
+  copy(__DIR__ . '/../Fixtures/BattlePresentation/shared-ui.php', $file);
+  if ($missing !== null) { copy($this->root . '/test-sprite.png', $root . '/skin.png'); }
+  $capabilities = array_values(array_diff(['graphical_canvas', 'sprite_source_rect', 'canvas_clip_opacity', 'canvas_glyph_effects'], [$missing]));
+  if ($missing === 'graphical_canvas') { $capabilities = ['sprite_source_rect']; }
+  $transport = new FakeRendererTransport();
+  $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready', 'capabilities' => $capabilities]))];
+  $runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), $root,
+    requiredCapabilities: $capabilities), $transport);
+  try {
+    $runtime->start('Invalid shared UI', 135, 36);
+    $scene = graphicalBattleConfigurationScene($runtime);
+    [$battle] = graphicalBattleFixture();
+    $scene->configure($battle);
+    expect($scene->config)->toBe($battle)->and($scene->battleUiLayout)->toBeNull()
+      ->and($scene->graphicalPresentation)->toBeNull()->and($battle->entryRulesEvaluated())->toBeTrue()
+      ->and(file_get_contents($this->logRoot . '/error.log'))->toContain(
+        'Graphical battle presentation degraded', $missing === null ? 'readable PNG' : 'negotiated ' . $missing);
+  } finally {
+    $runtime->shutdown();
+    if ($missing !== null) { unlink($root . '/skin.png'); }
+    unlink($file); rmdir(dirname($file)); rmdir($root . '/Data'); rmdir($root);
+  }
+})->with([null, 'graphical_canvas', 'sprite_source_rect', 'canvas_clip_opacity', 'canvas_glyph_effects']);
 
 it('requires crop capability and retains party KO feedback without changing health', function () {
   [$battle, $catalog, $hero] = graphicalBattleFixture();
@@ -430,3 +833,82 @@ it('places selected ally damage and healing feedback together clear of a visible
   $scene->ui->fieldWindow->clearStatChangePopups();
   expect(array_map(fn($run) => $run->text, $presentation->frame($scene->ui->fieldWindow, $ui)->textLayers[0]->runs))->toBe(['Hero']);
 })->with([['50', Color::LIGHT_RED], ['+50', Color::LIGHT_GREEN]]);
+
+it('reconciles authored battler metadata with the artwork on disk', function () {
+  // Fits: the authored instance passes through untouched.
+  $fits = new BattlerArtwork('a.png', 100, 120, 50, 120, new SpriteSourceRect(10, 10, 100, 120));
+  expect($fits->clampedTo(200, 200))->toBe($fits);
+
+  // The image shrank under the crop: crop and pivot clamp to what exists
+  // now, because artwork changes throughout development and the image on
+  // disk is this moment's truth.
+  $clamped = $fits->clampedTo(60, 70);
+  expect($clamped->sourceRect->toArray())->toBe(['x' => 10, 'y' => 10, 'width' => 50, 'height' => 60])
+    ->and([$clamped->width, $clamped->height])->toBe([50, 60])
+    ->and([$clamped->pivotX, $clamped->pivotY])->toBe([50.0, 60.0]);
+
+  // The crop no longer exists at all: fall back to the whole image, so
+  // the developer always sees their art.
+  $fallback = $fits->clampedTo(10, 10);
+  expect($fallback->sourceRect->toArray())->toBe(['x' => 0, 'y' => 0, 'width' => 10, 'height' => 10])
+    ->and([$fallback->pivotX, $fallback->pivotY])->toBe([10.0, 10.0]);
+
+  // Whole-image artwork (no authored crop) reconciles the same way.
+  $whole = new BattlerArtwork('a.png', 100, 120, 50, 100);
+  $shrunk = $whole->clampedTo(80, 90);
+  expect($shrunk->sourceRect->toArray())->toBe(['x' => 0, 'y' => 0, 'width' => 80, 'height' => 90])
+    ->and([$shrunk->pivotX, $shrunk->pivotY])->toBe([50.0, 90.0]);
+});
+
+it('prepares a best-effort graphical battle when artwork changed under its authored crop', function () {
+  [$battle, $catalog] = graphicalBattleFixture();
+  // The catalog still describes a 200x260 crop, but the PNG on disk is
+  // 143x181: the battle must prepare and render with the clamped crop.
+  $stale = new BattlerArtwork('graphical-canvas/synthetic-143x181.png', 200, 260, 100.0, 260.0,
+    new SpriteSourceRect(0, 0, 200, 260));
+  $catalog = new BattlePresentationCatalog($catalog->arenas, ['Hero' => $stale], $catalog->enemies);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $hero = $presentation->frame()->images[1];
+  expect(str_starts_with($hero->id, 'combatant-'))->toBeTrue()
+    ->and($hero->sourceRect->toArray())->toBe(['x' => 0, 'y' => 0, 'width' => 143, 'height' => 181]);
+});
+
+it('renders the whole image when the authored crop no longer exists in it', function () {
+  [$battle, $catalog] = graphicalBattleFixture();
+  $gone = new BattlerArtwork('graphical-canvas/synthetic-143x181.png', 50, 50, 25, 50,
+    new SpriteSourceRect(150, 0, 50, 50));
+  $catalog = new BattlePresentationCatalog($catalog->arenas, ['Hero' => $gone], $catalog->enemies);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+  $hero = $presentation->frame()->images[1];
+  expect($hero->sourceRect->toArray())->toBe(['x' => 0, 'y' => 0, 'width' => 143, 'height' => 181]);
+});
+
+it('accepts replacement images at the same asset path without changing character identity or catalog', function () {
+  $root = sys_get_temp_dir() . '/ichiloto-replaceable-battler-' . bin2hex(random_bytes(5));
+  mkdir($root);
+  copy($this->root . '/graphical-canvas/synthetic-320x180.png', $root . '/arena.png');
+  copy($this->root . '/graphical-canvas/synthetic-143x181.png', $root . '/twin.png');
+  [$battle, , $hero] = graphicalBattleFixture();
+  $catalog = require __DIR__ . '/../Fixtures/BattlePresentation/catalog.php';
+  $authored = $catalog->actors['Hero'];
+  $health = $hero->stats->currentHp;
+  try {
+    foreach (['graphical-canvas/synthetic-143x181.png', 'test-sprite.png',
+      'graphical-canvas/synthetic-320x180.png'] as $replacement) {
+      copy($this->root . '/' . $replacement, $root . '/hero.png');
+      $frame = GraphicalBattlePresentation::prepare($battle, $catalog, $root)->frame();
+      CanvasImagePreflight::inspect($frame->images, $root);
+      $image = $frame->images[1];
+      $image->destination->assertWithin($frame->width, $frame->height);
+      expect($image->asset)->toBe('hero.png')
+        ->and($image->id)->toBe('combatant-' . spl_object_id($hero))
+        ->and($catalog->actors['Hero'])->toBe($authored)
+        ->and($hero->actorId)->toBe('Hero')
+        ->and($hero->stats->currentHp)->toBe($health)
+        ->and($battle->entryRulesEvaluated())->toBeFalse();
+    }
+  } finally {
+    foreach (['hero.png', 'twin.png', 'arena.png'] as $asset) { unlink($root . '/' . $asset); }
+    rmdir($root);
+  }
+});

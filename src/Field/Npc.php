@@ -43,7 +43,7 @@ class Npc implements EventSessionCompletionTargetInterface
    */
   public float $nextWanderTime = 0.0;
 
-  protected MovementHeading $heading = MovementHeading::SOUTH;
+  protected(set) MovementHeading $heading = MovementHeading::SOUTH;
 
   /** @var array<int, array<string, mixed>> Variant writes awaiting script completion. */
   protected array $pendingConversationSets = [];
@@ -142,6 +142,15 @@ class Npc implements EventSessionCompletionTargetInterface
     if (is_string($authored) && $authored !== '') {
       $this->sprite = $authored;
     }
+  }
+
+  /** Restore staging only; eligibility and conversation/story state remain live. */
+  public function restoreFieldTransform(Vector2 $position, MovementHeading $heading, string $sprite): void
+  {
+    $this->position->x = $position->x;
+    $this->position->y = $position->y;
+    $this->heading = $heading;
+    $this->sprite = $sprite;
   }
 
   /**

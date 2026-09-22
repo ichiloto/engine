@@ -11,6 +11,38 @@ final class EventExecutionSession
   protected EventExecutionLane $rootLane;
   protected ?EventExecutionLane $suspendedLane = null;
   protected ?string $presentationOwner = null;
+  /** @var array<string, MovementRouteRecord> */
+  private array $movementRoutes = [];
+  /** @var array<int, true> */
+  private array $movingSubjects = [];
+
+  public function claimMovementSubject(object $subject): void
+  {
+    $key = spl_object_id($subject);
+    if (isset($this->movingSubjects[$key])) {
+      throw new \RuntimeException('Only one movement route may own a subject at a time.');
+    }
+    $this->movingSubjects[$key] = true;
+  }
+
+  public function releaseMovementSubject(object $subject): void
+  {
+    unset($this->movingSubjects[spl_object_id($subject)]);
+  }
+
+  public function rememberMovementRoute(string $id, MovementRouteRecord $route): void
+  {
+    if (isset($this->movementRoutes[$id])) {
+      throw new \RuntimeException(sprintf('Movement route "%s" is already recorded in this session.', $id));
+    }
+    $this->movementRoutes[$id] = $route;
+  }
+
+  public function movementRoute(string $id): MovementRouteRecord
+  {
+    return $this->movementRoutes[$id]
+      ?? throw new \RuntimeException(sprintf('Movement route "%s" was not recorded in this session.', $id));
+  }
 
   protected(set) EventExecutionStatus $status = EventExecutionStatus::RUNNING;
   protected(set) ?string $failureMessage = null;
@@ -119,21 +151,31 @@ final class EventExecutionSession
   public function complete(): void
   {
     $this->rootLane->complete();
+    $this->movementRoutes = [];
+    $this->movingSubjects = [];
     $this->status = EventExecutionStatus::COMPLETED;
   }
 
   public function fail(string $message): void
   {
+    if ($this->status === EventExecutionStatus::FAILED) {
+      return;
+    }
     $this->failureMessage = $message;
-    $this->rootLane->fail($message);
     $this->status = EventExecutionStatus::FAILED;
+    $this->rootLane->fail($message);
   }
 
   public function cancelLanes(): void
   {
-    $this->rootLane->cancel();
-    $this->suspendedLane = null;
-    $this->presentationOwner = null;
+    try {
+      $this->rootLane->cancel();
+    } finally {
+      $this->suspendedLane = null;
+      $this->presentationOwner = null;
+      $this->movementRoutes = [];
+      $this->movingSubjects = [];
+    }
   }
 
   public function hasFinishedFrames(): bool

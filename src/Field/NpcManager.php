@@ -129,6 +129,13 @@ class NpcManager
   public function render(): void
   {
     foreach ($this->visibleNpcs() as $npc) {
+      $this->renderNpc($npc);
+    }
+  }
+
+  protected function renderNpc(Npc $npc): void
+  {
+    if ($this->conditionsHold($npc->conditions) && !($this->gameScene->cinematicStage?->suppresses($npc) ?? false)) {
       $this->gameScene->camera->renderOnScreen([$npc->sprite], $npc->position);
     }
   }
@@ -196,6 +203,7 @@ class NpcManager
         && intval($player->position->x) === $destinationX
         && intval($player->position->y) === $destinationY)
     ) {
+      $this->gameScene->cinematicStage?->subjectStopped($npc);
       return false;
     }
 
@@ -203,7 +211,8 @@ class NpcManager
     $npc->face($direction);
     $npc->position->x = $destinationX;
     $npc->position->y = $destinationY;
-    $this->gameScene->camera->renderOnScreen([$npc->sprite], $npc->position);
+    $this->gameScene->cinematicStage?->subjectMoved($npc);
+    $this->renderNpc($npc);
 
     return true;
   }
@@ -225,7 +234,8 @@ class NpcManager
 
     $this->eraseNpc($npc);
     $npc->face($direction);
-    $this->gameScene->camera->renderOnScreen([$npc->sprite], $npc->position);
+    $this->gameScene->cinematicStage?->subjectStopped($npc);
+    $this->renderNpc($npc);
 
     return true;
   }
@@ -272,7 +282,8 @@ class NpcManager
     $npc->face(new Vector2($dx, $dy));
     $npc->position->x = $destinationX;
     $npc->position->y = $destinationY;
-    $this->gameScene->camera->renderOnScreen([$npc->sprite], $npc->position);
+    $this->gameScene->cinematicStage?->subjectMoved($npc);
+    $this->renderNpc($npc);
   }
 
   /**
@@ -287,6 +298,9 @@ class NpcManager
    */
   protected function eraseNpc(Npc $npc): void
   {
+    if ($this->gameScene->cinematicStage?->suppresses($npc) ?? false) {
+      return;
+    }
     $columns = max(1, TerminalText::displayWidth($npc->sprite));
 
     for ($column = 0; $column < $columns; $column++) {

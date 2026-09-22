@@ -2,423 +2,229 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use Ichiloto\Engine\Core\Menu\MagicMenu\Windows\MagicTabPanel;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\Console\Console;
-use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Quests\Quest;
-use Ichiloto\Engine\Quests\QuestManager;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Scenes\SceneStateContext;
+use Ichiloto\Engine\UI\Presentation\JournalMenuContent;
+use Ichiloto\Engine\UI\Presentation\JournalDocument;
+use Ichiloto\Engine\UI\Presentation\JournalSection;
+use Ichiloto\Engine\UI\Presentation\JournalMenuPresentation;
+use Ichiloto\Engine\UI\Presentation\MenuCanvasState;
+use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
+use Ichiloto\Engine\UI\SelectionStyle;
+use Ichiloto\Engine\UI\Text\TextPage;
+use Ichiloto\Engine\UI\Text\TextViewport;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
-use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
+use Ichiloto\Engine\UI\Windows\Enumerations\WindowHeightPolicy;
 use Ichiloto\Engine\UI\Windows\Window;
 
-/**
- * Displays the party's quest journal.
- *
- * Two tabs — active and completed — list the party's quests; opening an
- * entry shows the full journal page with the giver, description, each
- * objective's progress, and the rewards.
- *
- * @package Ichiloto\Engine\Scenes\Game\States
- */
-class QuestMenuState extends GameSceneState
+/** Active/completed lists and a same-panel, fully readable quest journal. */
+class QuestMenuState extends GameSceneState implements CanvasProviderInterface
 {
+  use MenuCanvasState;
+
   protected const int MENU_WIDTH = 110;
   protected const int SUMMARY_PANEL_HEIGHT = 4;
   protected const int LIST_PANEL_HEIGHT = 27;
   protected const int INFO_PANEL_HEIGHT = 4;
-
-  /**
-   * @var bool True when the completed tab is shown.
-   */
   protected bool $showingCompleted = false;
-  /**
-   * @var Quest[] The quests on the visible tab.
-   */
+  /** @var list<Quest> */
   protected array $quests = [];
-  /**
-   * @var int The active list index.
-   */
   protected int $activeIndex = 0;
-  /**
-   * @var bool Whether the journal detail view is open for the active quest.
-   */
   protected bool $viewingDetail = false;
-  /**
-   * @var int The centered left margin.
-   */
-  protected int $leftMargin = 0;
-  /**
-   * @var int The centered top margin.
-   */
-  protected int $topMargin = 0;
-  /**
-   * @var BorderPackInterface|null The border pack for the screen.
-   */
-  protected ?BorderPackInterface $borderPack = null;
-  /**
-   * @var Window|null The tab summary panel.
-   */
   protected ?Window $summaryPanel = null;
-  /**
-   * @var Window|null The quest list panel.
-   */
   protected ?Window $listPanel = null;
-  /**
-   * @var Window|null The bottom description panel.
-   */
   protected ?Window $infoPanel = null;
+  private TextViewport $reading;
+  private string $readingKey = '';
+  private ?TextPage $displayedPage = null;
 
-  /**
-   * @inheritDoc
-   */
   public function enter(): void
   {
     Console::clear();
     $this->getGameScene()->locationHUDWindow->deactivate();
+    $this->resetMenuPresentation();
+    $this->reading = new TextViewport();
+    $this->readingKey = '';
+    $this->displayedPage = null;
     $this->showingCompleted = false;
     $this->activeIndex = 0;
     $this->viewingDetail = false;
     $this->reloadQuests();
-    $this->calculateMargins();
     $this->initializeUI();
     $this->refreshUI();
   }
 
-  /**
-   * @inheritDoc
-   */
   public function execute(?SceneStateContext $context = null): void
   {
-    if ($this->handleTabSwitching()) {
-      return;
-    }
-
-    $this->handleNavigation();
-    $this->handleActions();
-  }
-
-  /**
-   * Reloads the visible tab's quests.
-   *
-   * @return void
-   */
-  protected function reloadQuests(): void
-  {
-    $questManager = $this->getGameScene()->questManager;
-
-    $this->quests = $this->showingCompleted
-      ? ($questManager?->completedQuests() ?? [])
-      : ($questManager?->activeQuests() ?? []);
-    $this->activeIndex = min($this->activeIndex, max(0, count($this->quests) - 1));
-  }
-
-  /**
-   * Centers the screen inside the terminal.
-   *
-   * @return void
-   */
-  protected function calculateMargins(): void
-  {
-    $totalHeight = self::SUMMARY_PANEL_HEIGHT + self::LIST_PANEL_HEIGHT + self::INFO_PANEL_HEIGHT;
-    $this->leftMargin = max(0, intdiv(get_screen_width() - self::MENU_WIDTH, 2));
-    $this->topMargin = max(0, intdiv(get_screen_height() - $totalHeight, 2));
-  }
-
-  /**
-   * Builds the screen's windows.
-   *
-   * @return void
-   */
-  protected function initializeUI(): void
-  {
-    $this->borderPack = new DefaultBorderPack();
-
-    $this->summaryPanel = new Window(
-      'Quests',
-      '',
-      new Vector2($this->leftMargin, $this->topMargin),
-      self::MENU_WIDTH,
-      self::SUMMARY_PANEL_HEIGHT,
-      $this->borderPack
-    );
-
-    $this->listPanel = new Window(
-      '',
-      '',
-      new Vector2($this->leftMargin, $this->topMargin + self::SUMMARY_PANEL_HEIGHT),
-      self::MENU_WIDTH,
-      self::LIST_PANEL_HEIGHT,
-      $this->borderPack
-    );
-
-    $this->infoPanel = new Window(
-      'Info',
-      'enter:Details  tab:Tab  c:Cancel',
-      new Vector2($this->leftMargin, $this->topMargin + self::SUMMARY_PANEL_HEIGHT + self::LIST_PANEL_HEIGHT),
-      self::MENU_WIDTH,
-      self::INFO_PANEL_HEIGHT,
-      $this->borderPack
-    );
-  }
-
-  /**
-   * Redraws every panel from the current state.
-   *
-   * @return void
-   */
-  protected function refreshUI(): void
-  {
-    $this->refreshSummaryPanel();
-
-    if ($this->viewingDetail) {
-      $this->refreshDetailPanel();
-    } else {
-      $this->refreshListPanel();
-    }
-
-    $this->refreshInfoPanel();
-  }
-
-  /**
-   * Redraws the tab summary panel.
-   *
-   * @return void
-   */
-  protected function refreshSummaryPanel(): void
-  {
-    $questManager = $this->getGameScene()->questManager;
-    $activeCount = count($questManager?->activeQuests() ?? []);
-    $completedCount = count($questManager?->completedQuests() ?? []);
-
-    $activeTab = sprintf('%s Active (%d)', $this->showingCompleted ? ' ' : '▶', $activeCount);
-    $completedTab = sprintf('%s Completed (%d)', $this->showingCompleted ? '▶' : ' ', $completedCount);
-
-    $this->summaryPanel->setContent([
-      sprintf(' %s    %s', $activeTab, $completedTab),
-      ' Use the arrow keys to select a quest.',
-    ]);
-    $this->summaryPanel->render();
-  }
-
-  /**
-   * Redraws the quest list panel.
-   *
-   * @return void
-   */
-  protected function refreshListPanel(): void
-  {
-    $content = [];
-
-    if (empty($this->quests)) {
-      $content[] = $this->showingCompleted
-        ? ' No completed quests.'
-        : ' No active quests.';
-    }
-
-    foreach ($this->quests as $index => $quest) {
-      $prefix = $index === $this->activeIndex ? '>' : ' ';
-      $name = TerminalText::padRight($quest->name, 40);
-      $giver = TerminalText::padRight($quest->giver !== '' ? $quest->giver : '-', 24);
-      $content[] = sprintf(' %s %s %s %s', $prefix, $name, $giver, $this->describeOverallProgress($quest));
-    }
-
-    $content = array_pad($content, self::LIST_PANEL_HEIGHT - 2, '');
-    $this->listPanel->setContent($content);
-    $this->listPanel->render();
-  }
-
-  /**
-   * Redraws the journal page for the active quest.
-   *
-   * @return void
-   */
-  protected function refreshDetailPanel(): void
-  {
-    $quest = $this->quests[$this->activeIndex] ?? null;
-
-    if ($quest === null) {
-      return;
-    }
-
-    $questManager = $this->getGameScene()->questManager;
-    $innerWidth = self::MENU_WIDTH - 6;
-    $content = [];
-
-    $header = sprintf(' %s', $quest->name);
-
-    if ($quest->giver !== '') {
-      $header .= sprintf('  |  from %s', $quest->giver);
-    }
-
-    if ($quest->isOptional) {
-      $header .= '  |  Side Quest';
-    }
-
-    $content[] = $header;
-    $content[] = ' ' . str_repeat('─', $innerWidth);
-    $content[] = '';
-
-    foreach (explode("\n", wordwrap($quest->description, $innerWidth, "\n", true)) as $line) {
-      $content[] = ' ' . $line;
-    }
-
-    $content[] = '';
-    $content[] = ' Objectives';
-
-    foreach ($quest->objectives as $index => $objective) {
-      $progress = $questManager?->getObjectiveProgress($quest, $index) ?? 0;
-      $mark = $progress >= $objective->quantity ? '✓' : '·';
-      $count = $objective->quantity > 1 ? sprintf(' (%d/%d)', $progress, $objective->quantity) : '';
-      $content[] = sprintf(
-        '   %s %s%s',
-        $mark,
-        $questManager?->describeObjective($objective) ?? $objective->description,
-        $count,
-      );
-    }
-
-    if (($rewards = $quest->describeRewards()) !== '') {
-      $content[] = '';
-      $content[] = sprintf(' Reward: %s', $rewards);
-    }
-
-    $content = array_pad($content, self::LIST_PANEL_HEIGHT - 2, '');
-    $this->listPanel->setContent(array_slice($content, 0, self::LIST_PANEL_HEIGHT - 2));
-    $this->listPanel->render();
-  }
-
-  /**
-   * Redraws the bottom description panel.
-   *
-   * @return void
-   */
-  protected function refreshInfoPanel(): void
-  {
-    $quest = $this->quests[$this->activeIndex] ?? null;
-
-    if ($this->viewingDetail) {
-      $this->infoPanel->setHelp('c:Back');
-      $this->infoPanel->setContent([
-        ' ' . ($quest?->name ?? ''),
-        '',
-      ]);
-    } else {
-      $this->infoPanel->setHelp('enter:Details  tab:Tab  c:Cancel');
-      $firstLine = strtok($quest?->description ?? '', "\n");
-      $this->infoPanel->setContent([
-        ' ' . trim($firstLine !== false ? $firstLine : ''),
-        '',
-      ]);
-    }
-
-    $this->infoPanel->render();
-  }
-
-  /**
-   * Summarizes a quest's overall objective progress.
-   *
-   * @param Quest $quest The quest.
-   * @return string The progress label.
-   */
-  protected function describeOverallProgress(Quest $quest): string
-  {
-    if ($this->showingCompleted) {
-      return '[Complete]';
-    }
-
-    $questManager = $this->getGameScene()->questManager;
-    $satisfied = 0;
-
-    foreach ($quest->objectives as $index => $objective) {
-      if (($questManager?->getObjectiveProgress($quest, $index) ?? 0) >= $objective->quantity) {
-        $satisfied++;
-      }
-    }
-
-    return sprintf('[%d/%d]', $satisfied, count($quest->objectives));
-  }
-
-  /**
-   * Handles switching between the active and completed tabs.
-   *
-   * @return bool True when the tab changed.
-   */
-  protected function handleTabSwitching(): bool
-  {
-    if ($this->viewingDetail) {
-      return false;
-    }
-
-    if (! $this->isNextCharacterRequested() && ! $this->isPreviousCharacterRequested()) {
-      return false;
-    }
-
-    $this->showingCompleted = ! $this->showingCompleted;
-    $this->activeIndex = 0;
-    $this->reloadQuests();
-    $this->refreshUI();
-
-    return true;
-  }
-
-  /**
-   * Handles list navigation.
-   *
-   * @return void
-   */
-  protected function handleNavigation(): void
-  {
-    if ($this->viewingDetail) {
-      return;
-    }
-
-    $v = Input::getAxis(AxisName::VERTICAL);
-
-    if (abs($v) > 0 && count($this->quests) > 0) {
-      $this->activeIndex = wrap(
-        $this->activeIndex + ($v > 0 ? 1 : -1),
-        0,
-        count($this->quests) - 1
-      );
-      $this->refreshListPanel();
-      $this->refreshInfoPanel();
-    }
-  }
-
-  /**
-   * Handles opening the journal page and leaving the screen.
-   *
-   * @return void
-   */
-  protected function handleActions(): void
-  {
+    $this->syncReading($this->getPresentationContent());
+    // One semantic edge owns this tick, including bindings shared with navigation.
     if (Input::isButtonDown('back') || Input::isButtonDown('cancel')) {
       if ($this->viewingDetail) {
         $this->viewingDetail = false;
+        $this->reading->reset();
         $this->refreshUI();
-        return;
-      }
-
-      $this->setState($this->getGameScene()->mainMenuState);
+      } else { $this->setState($this->getGameScene()->mainMenuState); }
       return;
     }
-
-    if (! Input::isButtonDown('confirm')) {
-      return;
-    }
-
-    if (! $this->viewingDetail && isset($this->quests[$this->activeIndex])) {
-      $this->viewingDetail = true;
+    if (!$this->viewingDetail && ($this->isNextCharacterRequested() || $this->isPreviousCharacterRequested())) {
+      $this->showingCompleted = !$this->showingCompleted;
+      $this->quests = [];
+      $this->activeIndex = 0;
+      $this->reloadQuests();
       $this->refreshUI();
+      return;
     }
+    if (Input::isButtonDown('confirm')) {
+      if (!$this->viewingDetail && isset($this->quests[$this->activeIndex])) {
+        $this->viewingDetail = true;
+        $this->reading->reset();
+        $this->refreshUI();
+      }
+      return;
+    }
+    $vertical = Input::getAxis(AxisName::VERTICAL);
+    if (abs($vertical) === 0.0 || $this->quests === []) { return; }
+    if ($this->viewingDetail && $this->displayedPage !== null) {
+      $this->reading->scroll($vertical > 0 ? 1 : -1, $this->displayedPage);
+    } else { $this->activeIndex = wrap($this->activeIndex + ($vertical > 0 ? 1 : -1), 0, count($this->quests) - 1); }
+    $this->refreshUI();
   }
 
-  /**
-   * @inheritDoc
-   */
+  protected function reloadQuests(): void
+  {
+    $oldId = $this->quests[$this->activeIndex]->id ?? null;
+    $manager = $this->getGameScene()->questManager;
+    $this->quests = $this->showingCompleted ? ($manager?->completedQuests() ?? []) : ($manager?->activeQuests() ?? []);
+    $index = array_find_key($this->quests, fn($quest) => $quest->id === $oldId);
+    $this->activeIndex = $index ?? min($this->activeIndex, max(0, count($this->quests) - 1));
+    if ($this->quests === []) { $this->viewingDetail = false; }
+  }
+
+  public function getPresentationContent(): JournalMenuContent
+  {
+    $manager = $this->getGameScene()->questManager;
+    $rows = [];
+    foreach ($this->quests as $quest) {
+      $rows[] = ['label' => $quest->name !== '' ? $quest->name : $quest->id,
+        'values' => [$quest->giver !== '' ? $quest->giver : '-', $this->describeOverallProgress($quest)],
+        'icon' => $this->showingCompleted ? 'quest.complete' : ($quest->isOptional ? 'quest.optional' : 'quest.entry')];
+    }
+    $quest = $this->quests[$this->activeIndex] ?? null;
+    $sections = [];
+    if ($quest !== null) {
+      $identity = [['text' => 'Giver: ' . ($quest->giver !== '' ? $quest->giver : '-')],
+        ['text' => $this->describeOverallProgress($quest)]];
+      if ($quest->isOptional) { $identity[] = ['text' => 'Side Quest']; }
+      $sections[] = new JournalSection($quest->name !== '' ? $quest->name : $quest->id, $identity, $rows[$this->activeIndex]['icon']);
+      $sections[] = new JournalSection('Description', [['text' => $quest->description]], 'journal.description');
+      $objectives = [];
+      foreach ($quest->objectives as $index => $objective) {
+        $progress = $manager?->getObjectiveProgress($quest, $index) ?? 0;
+        $complete = $progress >= $objective->quantity;
+        $objectives[] = ['text' => sprintf('%s %s (%d/%d)', $complete ? '[Complete]' : '[Open]',
+          $manager?->describeObjective($objective) ?? $objective->description, $progress, $objective->quantity),
+          'icon' => $complete ? 'objective.complete' : 'objective.open', 'color' => $complete ? 'increase' : 'text'];
+      }
+      $sections[] = new JournalSection('Objectives', $objectives, 'journal.objectives');
+      if (($rewards = $quest->describeRewards()) !== '') {
+        $sections[] = new JournalSection('Rewards', [['text' => 'Reward: ' . $rewards]], 'journal.rewards');
+      }
+    }
+    $document = new JournalDocument($sections);
+    return new JournalMenuContent('Quests', ['Active (' . count($manager?->activeQuests() ?? []) . ')',
+      'Completed (' . count($manager?->completedQuests() ?? []) . ')'], $this->showingCompleted ? 1 : 0, '', $rows,
+      $this->activeIndex, $this->showingCompleted ? 'No completed quests.' : 'No active quests.',
+      $quest?->id ?? '', $document->text, $quest?->description ?? '', $this->viewingDetail, true, $document);
+  }
+
+  /** Reading a different renderer's geometry cannot navigate or reset the owner. */
+  public function getPresentationPage(int $columns, int $rows): TextPage
+  {
+    $content = $this->getPresentationContent();
+    $reading = clone $this->reading;
+    if ($content->entryKey !== $this->readingKey) { $reading->reset(); }
+    $reading->setText($content->detailText);
+    return $reading->page($columns, $rows);
+  }
+
+  protected function composeMenuCanvas(MenuPresentationCatalog $theme, float $time): ?PresentationCanvas
+  {
+    $content = $this->getPresentationContent();
+    $page = $this->getPresentationPage(...JournalMenuPresentation::pageSize($content, $theme));
+    $canvas = JournalMenuPresentation::compose($content, $theme, $page, $time);
+    $this->displayedPage = $page;
+    return $canvas;
+  }
+
+  private function syncReading(JournalMenuContent $content): void
+  {
+    if ($content->entryKey !== $this->readingKey) { $this->reading->reset(); }
+    $this->readingKey = $content->entryKey;
+    $this->reading->setText($content->detailText);
+  }
+
+  protected function initializeUI(): void
+  {
+    $width = min(self::MENU_WIDTH, max(20, get_screen_width()));
+    $left = max(0, intdiv(get_screen_width() - $width, 2));
+    $top = max(0, intdiv(get_screen_height() - 35, 2));
+    $border = new DefaultBorderPack();
+    $this->summaryPanel = new MagicTabPanel('Quests', '', new Vector2($left, $top), $width, self::SUMMARY_PANEL_HEIGHT, $border, heightPolicy: WindowHeightPolicy::FIXED);
+    $this->listPanel = new Window('', '', new Vector2($left, $top + self::SUMMARY_PANEL_HEIGHT), $width, self::LIST_PANEL_HEIGHT, $border, heightPolicy: WindowHeightPolicy::FIXED);
+    $this->infoPanel = new Window('Info', '', new Vector2($left, $top + self::SUMMARY_PANEL_HEIGHT + self::LIST_PANEL_HEIGHT), $width, self::INFO_PANEL_HEIGHT, $border, heightPolicy: WindowHeightPolicy::FIXED);
+  }
+
+  protected function refreshUI(): void
+  {
+    $content = $this->getPresentationContent();
+    $this->syncReading($content);
+    $width = $this->listPanel->getContentWidth() - 2;
+    $capacity = $this->listPanel->getContentHeight();
+    assert($this->summaryPanel instanceof MagicTabPanel);
+    $this->summaryPanel->setTabs($content->tabs, $content->tabIndex);
+    $this->summaryPanel->setContent([...$this->summaryPanel->getContent(), $content->summary]);
+    $page = $this->reading->page($width, $capacity);
+    $this->displayedPage = $page;
+    if ($this->viewingDetail) {
+      $lines = $page->lines;
+      $this->listPanel->setHelp($page->range());
+    }
+    else {
+      $first = max(0, min($this->activeIndex - $capacity + 1, count($content->rows) - $capacity));
+      $lines = [];
+      foreach (array_slice($content->rows, $first, $capacity, true) as $i => $row) {
+        $line = ($i === $this->activeIndex ? '> ' : '  ') . TextViewport::preview(implode(' | ', [$row['label'], ...$row['values']]), $width);
+        $lines[] = $i === $this->activeIndex ? SelectionStyle::apply($line) : $line;
+      }
+      $this->listPanel->setHelp($content->rows === [] ? '' : sprintf('%d-%d / %d', $first + 1, $first + count($lines), count($content->rows)));
+      if ($content->rows === []) { $lines[] = $content->emptyText; }
+    }
+    $this->listPanel->setContent(array_pad($lines, $capacity, ''));
+    $this->infoPanel->setContent([$content->rows === [] || $this->viewingDetail ? '' : 'View details',
+      $this->viewingDetail ? '' : TextViewport::preview($content->previewText, $width)]);
+    $this->summaryPanel->render();
+    $this->listPanel->render();
+    $this->infoPanel->render();
+  }
+
+  protected function describeOverallProgress(Quest $quest): string
+  {
+    if ($this->showingCompleted) { return '[Complete]'; }
+    $manager = $this->getGameScene()->questManager;
+    $satisfied = 0;
+    foreach ($quest->objectives as $index => $objective) {
+      if (($manager?->getObjectiveProgress($quest, $index) ?? 0) >= $objective->quantity) { $satisfied++; }
+    }
+    return sprintf('[%d/%d]', $satisfied, count($quest->objectives));
+  }
+
   public function resume(): void
   {
     $this->reloadQuests();

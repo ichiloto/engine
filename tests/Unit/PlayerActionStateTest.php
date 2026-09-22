@@ -34,6 +34,8 @@ use Ichiloto\Engine\Entities\ItemScope;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Skills\BasicSkill;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
+use Ichiloto\Engine\Entities\Skills\SpecialSkill;
+use Ichiloto\Engine\Entities\Abilities\AbilityBook;
 use Ichiloto\Engine\Entities\Magic\Spellbook;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\Inventory\Items\ItemScope as InventoryItemScope;
@@ -65,6 +67,11 @@ class BattleCharacterNameWindowTargetingTestProxy extends BattleCharacterNameWin
 
 class BattleCharacterStatusWindowTargetingTestProxy extends BattleCharacterStatusWindow
 {
+  public function updateContent(): void
+  {
+    // These tests exercise state transitions, not terminal painting.
+  }
+
   public function setAtbPercentages(array $atbPercentages): void
   {
     // Skip terminal rendering for active-time flow tests.
@@ -273,6 +280,33 @@ function createTargetingTestScreen(): BattleScreenTargetingTestProxy
 
   return $screen;
 }
+
+it('applies shared opening advantages only to the traditional first round', function (string $opening) {
+  $game = (new ReflectionClass(GameTargetingTestProxy::class))->newInstanceWithoutConstructor();
+  $screen = createTargetingTestScreen();
+  $party = new Party();
+  $hero = new Character('Hero', 1, new Stats(currentHp: 100, speed: 7));
+  $party->addMember($hero);
+  $enemy = createTargetingTestEnemy('Enemy');
+  $troop = new Troop('Test', [$enemy]);
+  $engine = new class($game) extends TraditionalTurnBasedBattleEngine {
+    public function setState(\Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnState $state): void
+    {
+      $this->state = $state;
+    }
+  };
+  $engine->configure(new TurnBasedBattleConfig($party, $troop, $screen, settings: ['opening' => [
+    'preemptiveChancePercent' => $opening === 'party' ? 100 : 0,
+    'ambushChancePercent' => $opening === 'troop' ? 100 : 0,
+  ]]));
+  $context = new TurnStateExecutionContext($game, $party, $troop, $screen, []);
+  $state = $engine->turnInitState;
+  $state->update($context);
+  $turnActors = fn() => array_map(fn($turn) => $turn->battler, $context->getTurns());
+  expect($turnActors())->toBe($opening === 'party' ? [$hero] : [$enemy]);
+  $state->update($context);
+  expect($turnActors())->toHaveCount(2)->toContain($hero, $enemy);
+})->with(['party', 'troop']);
 
 it('keeps authored enemy formations out of the player-party render zone', function () {
   $fieldWindow = (new ReflectionClass(BattleFieldWindowTargetingTestProxy::class))->newInstanceWithoutConstructor();
@@ -512,15 +546,17 @@ it('queues an authored enemy action in active-time battles', function () {
     ->and($engine->capturedTargets)->toBe([$enemy]);
 });
 
-it('requires separate confirmation for all-target commands and allows cancellation', function (bool $activeTime, ItemScopeSide $side, ItemScopeStatus $status, array $indexes, string $source) {
+it('requires separate target confirmation for submenu commands and allows cancellation', function (bool $activeTime, ItemScopeSide $side, ItemScopeNumber $number, ItemScopeStatus $status, array $indexes, string $source) {
   $game = (new ReflectionClass(GameTargetingTestProxy::class))->newInstanceWithoutConstructor();
   $audio = $this->createMock(AudioManager::class);
   setTestProperty($game, 'audioManager', $audio);
-  $skill = new MagicSkill('Group Command', 'Affects the selected group.', '', 5, 0, new ItemScope($side, ItemScopeNumber::ALL, $status));
-  $item = new Item('Group Item', 'Affects the selected group.', '!', 10, 2, scope: new InventoryItemScope($side, ItemScopeNumber::ALL, $status));
+  $skill = new MagicSkill('Targeted Magic', 'Affects the confirmed targets.', '', 5, 0, new ItemScope($side, $number, $status));
+  $ability = new SpecialSkill('Targeted Skill', 'Affects the confirmed targets.', '', 5, 0, new ItemScope($side, $number, $status));
+  $item = new Item('Targeted Item', 'Affects the confirmed targets.', '!', 10, 2, scope: new InventoryItemScope($side, $number, $status));
   $party = new Party();
   foreach (['Caster', 'Ally', 'Fallen Ally'] as $name) {
-    $party->addMember(new Character($name, 0, new Stats(currentHp: 120, currentMp: 30), spellbook: new Spellbook([$skill])));
+    $party->addMember(new Character($name, 0, new Stats(currentHp: 120, currentMp: 30),
+      spellbook: new Spellbook([$skill]), abilityBook: new AbilityBook([$ability])));
   }
   $party->inventory->addItems($item);
   $members = $party->battlers->toArray();
@@ -536,14 +572,16 @@ it('requires separate confirmation for all-target commands and allows cancellati
   setTestProperty($screen, 'battleScene', $scene);
   setTestProperty($screen->fieldWindow, 'battleScreen', $screen);
   $context = new TurnStateExecutionContext($game, $party, $troop, $screen, []);
-  $turn = new Turn($members[0]);
-  $context->setTurns([$turn, new Turn($members[1])]);
+  setTestProperty($engine, 'turnStateExecutionContext', $context);
+  $actorIndex = $side === ItemScopeSide::USER ? 1 : 0;
+  $turn = new Turn($members[$actorIndex]);
+  $context->setTurns([$turn, new Turn($members[1 - $actorIndex])]);
   $state = $activeTime ? new ActiveTimeFlowState($engine) : new PlayerActionState($engine);
-  setTestProperty($state, 'activeCharacterIndex', 0);
+  setTestProperty($state, 'activeCharacterIndex', $actorIndex);
   setTestProperty($state, 'selectionMode', 'submenu');
-  $command = $source === 'item' ? 'Item' : 'Magic';
-  $options = BattleCommandCatalog::buildOptions($members[0], $party, $command);
-  expect($options)->toHaveCount(1)->and($options[0]->targetNumber)->toBe(ItemScopeNumber::ALL);
+  $command = match ($source) { 'item' => 'Item', 'skill' => 'Skill', default => 'Magic' };
+  $options = BattleCommandCatalog::buildOptions($members[$actorIndex], $party, $command);
+  expect($options)->toHaveCount(1)->and($options[0]->targetNumber)->toBe($number);
   $option = $options[0];
   $action = $option->action;
   $screen->commandContextWindow->setItems($options, $command);
@@ -559,9 +597,9 @@ it('requires separate confirmation for all-target commands and allows cancellati
       InputManager::handleInput();
       new ReflectionMethod($state, 'handleActions')->invoke($state, $context);
     };
-    $assertUncommitted = function () use ($turn, $engine, $members, $enemies, $action, $item): void {
+    $assertUncommitted = function () use ($turn, $engine, $members, $enemies, $action, $item, $actorIndex): void {
       expect($turn->action)->toBeNull()->and($turn->targets)->toBe([])
-        ->and($members[0]->stats->currentMp)->toBe(30)
+        ->and($members[$actorIndex]->stats->currentMp)->toBe(30)
         ->and($members[1]->stats->currentHp)->toBe(120)
         ->and($enemies[0]->stats->currentHp)->toBe(30)
         ->and($item->quantity)->toBe(2)
@@ -573,17 +611,26 @@ it('requires separate confirmation for all-target commands and allows cancellati
 
     $press(KeyCode::ENTER);
     $assertUncommitted();
-    $pool = $side === ItemScopeSide::ALLY ? $members : $enemies;
+    $focusSide = $side === ItemScopeSide::USER ? ItemScopeSide::ALLY : $side;
+    $pool = $focusSide === ItemScopeSide::ALLY ? $members : $enemies;
     $expected = array_map(fn(int $index) => $pool[$index], $indexes);
     $screen->fieldWindow->renderTargetIndicators();
     expect(new ReflectionProperty($state, 'selectionMode')->getValue($state))->toBe('target')
-      ->and($screen->fieldWindow->getFocusedIndexes($side))->toBe($indexes)
+      ->and($screen->fieldWindow->getFocusedIndexes($focusSide))->toBe($indexes)
       ->and($screen->fieldWindow->renderedFocus)->toBe($expected);
+    if ($side === ItemScopeSide::USER) {
+      foreach ([-1, 1] as $step) {
+        new ReflectionMethod($state, 'cycleTarget')->invoke($state, $context, $step);
+        expect($screen->fieldWindow->getFocusedIndexes(ItemScopeSide::ALLY))->toBe([$actorIndex])
+          ->and($screen->fieldWindow->getFocusedIndexes(ItemScopeSide::ENEMY))->toBe([]);
+        $assertUncommitted();
+      }
+    }
     $press(KeyCode::c);
     $assertUncommitted();
     expect(new ReflectionProperty($state, 'selectionMode')->getValue($state))->toBe('submenu')
       ->and($screen->commandContextWindow->getActiveItem())->toBe($option)
-      ->and($screen->fieldWindow->getFocusedIndexes($side))->toBe([]);
+      ->and($screen->fieldWindow->getFocusedIndexes($focusSide))->toBe([]);
 
     $press(KeyCode::ENTER);
     $assertUncommitted();
@@ -596,10 +643,13 @@ it('requires separate confirmation for all-target commands and allows cancellati
     new ReflectionProperty(InputManager::class, 'eventManager')->setValue(null, $oldEvents);
   }
 })->with([false, true])->with([
-  'living allies' => [ItemScopeSide::ALLY, ItemScopeStatus::ALIVE, [0, 1]],
-  'fallen allies' => [ItemScopeSide::ALLY, ItemScopeStatus::DEAD, [2]],
-  'any allies' => [ItemScopeSide::ALLY, ItemScopeStatus::ANY, [0, 1, 2]],
-  'living enemies' => [ItemScopeSide::ENEMY, ItemScopeStatus::ALIVE, [0, 1]],
-  'fallen enemies' => [ItemScopeSide::ENEMY, ItemScopeStatus::DEAD, [2]],
-  'any enemies' => [ItemScopeSide::ENEMY, ItemScopeStatus::ANY, [0, 1, 2]],
-])->with(['skill', 'item']);
+  'living allies' => [ItemScopeSide::ALLY, ItemScopeNumber::ALL, ItemScopeStatus::ALIVE, [0, 1]],
+  'fallen allies' => [ItemScopeSide::ALLY, ItemScopeNumber::ALL, ItemScopeStatus::DEAD, [2]],
+  'any allies' => [ItemScopeSide::ALLY, ItemScopeNumber::ALL, ItemScopeStatus::ANY, [0, 1, 2]],
+  'living enemies' => [ItemScopeSide::ENEMY, ItemScopeNumber::ALL, ItemScopeStatus::ALIVE, [0, 1]],
+  'fallen enemies' => [ItemScopeSide::ENEMY, ItemScopeNumber::ALL, ItemScopeStatus::DEAD, [2]],
+  'any enemies' => [ItemScopeSide::ENEMY, ItemScopeNumber::ALL, ItemScopeStatus::ANY, [0, 1, 2]],
+  'one ally' => [ItemScopeSide::ALLY, ItemScopeNumber::ONE, ItemScopeStatus::ALIVE, [0]],
+  'one enemy' => [ItemScopeSide::ENEMY, ItemScopeNumber::ONE, ItemScopeStatus::ALIVE, [0]],
+  'caster only' => [ItemScopeSide::USER, ItemScopeNumber::ONE, ItemScopeStatus::ALIVE, [1]],
+])->with(['magic', 'skill', 'item']);

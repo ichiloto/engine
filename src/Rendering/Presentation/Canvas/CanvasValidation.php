@@ -17,7 +17,7 @@ final class CanvasValidation
     }
   }
 
-  /** @template T of CanvasImage|CanvasIndicator|CanvasTextLayer
+  /** @template T of CanvasImage|CanvasIndicator|CanvasTextLayer|CanvasComposite
    * @param list<T> $items
    * @param class-string<T> $type
    * @return list<T>

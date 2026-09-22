@@ -57,6 +57,13 @@ final class QuantitySelector
   /** Adjusts the selected quantity and reports whether it changed. */
   public function adjust(int $amount): bool
   {
+    // Saturate before adding: valid integer bounds can otherwise overflow to float.
+    if ($amount > 0 && $amount >= $this->maximum - $this->quantity) {
+      return $this->set($this->maximum);
+    }
+    if ($amount < 0 && $amount <= $this->minimum - $this->quantity) {
+      return $this->set($this->minimum);
+    }
     return $this->set($this->quantity + $amount);
   }
 

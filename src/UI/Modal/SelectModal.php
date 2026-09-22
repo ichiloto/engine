@@ -17,10 +17,10 @@ use Ichiloto\Engine\Events\ObservableTrait;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
-use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\UI\Interfaces\ModalInterface;
+use Ichiloto\Engine\UI\Interfaces\ModalPresentationProviderInterface;
 use Ichiloto\Engine\UI\Interfaces\LayeredPresentationInterface;
 use Ichiloto\Engine\UI\Enumerations\PresentationPriority;
 use Ichiloto\Engine\UI\UIManager;
@@ -37,7 +37,7 @@ use Ichiloto\Engine\Util\Debug;
  *
  * @package Ichiloto\Engine\UI\Modal
  */
-class SelectModal implements ModalInterface, LayeredPresentationInterface
+class SelectModal implements ModalInterface, LayeredPresentationInterface, ModalPresentationProviderInterface
 {
   use ObservableTrait;
 
@@ -156,6 +156,7 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface
     $this->observers = new ItemList(ObserverInterface::class);
     $this->eventManager = EventManager::getInstance($game);
     $this->setOptions($options);
+    $this->activeOptionIndex = max(0, min($this->totalOptions - 1, $this->default));
     $this->title = $title;
     $this->setHelp($help);
     $this->wrapMessage();
@@ -238,9 +239,14 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface
       $this->playInteractionSound(SystemSound::CONFIRM);
       $this->value = $this->activeOptionIndex;
       $this->hide();
-    } else if (Input::isAnyKeyPressed([KeyCode::C, KeyCode::c])) {
+    } else if (Input::isButtonDown('cancel')) {
       $this->cancel();
     }
+  }
+
+  public function getModalPresentation(): ?ModalPresentation
+  {
+    return new ModalPresentation($this->title, $this->message, array_values($this->options), $this->activeOptionIndex, true);
   }
 
   /**
@@ -281,6 +287,9 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface
    */
   public function show(): void
   {
+    if ($this->game->hasStopped()) {
+      return;
+    }
     $this->isShowing = true;
     $this->getUIManager()?->present($this);
     $this->render();
@@ -293,10 +302,14 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface
   public function hide(): void
   {
     if ($this->isShowing) {
-      $this->erase();
+      if (! $this->game->hasStopped()) {
+        $this->erase();
+      }
       $this->isShowing = false;
       $this->getUIManager()?->dismiss($this);
-      $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::HIDE, true));
+      if (! $this->game->hasStopped()) {
+        $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::HIDE, true));
+      }
     }
   }
 
@@ -332,19 +345,39 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface
    */
   public function open(): int
   {
-    $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::OPEN, true));
-    $this->show();
-
-    while ($this->isShowing) {
-      $this->handleInput();
-      $this->update();
-
-      if ($this->isShowing) {
-        Timers::wait(1 / 60, fn() => $this->render());
-      }
+    if ($this->game->hasStopped()) {
+      return -1;
     }
 
-    return $this->close();
+    try {
+      $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::OPEN, true));
+      if ($this->game->hasStopped()) {
+        return -1;
+      }
+      $this->show();
+
+      while ($this->isShowing && ! $this->game->hasStopped()) {
+        $this->handleInput();
+        if ($this->game->hasStopped()) {
+          break;
+        }
+        $this->update();
+
+        if (! $this->isShowing || $this->game->hasStopped()) {
+          break;
+        }
+
+        Timers::wait(1 / 60, function (): void {
+          if (! $this->game->hasStopped()) {
+            $this->render();
+          }
+        });
+      }
+    } finally {
+      $result = $this->close();
+    }
+
+    return $result;
   }
 
   /**
@@ -353,6 +386,10 @@ class SelectModal implements ModalInterface, LayeredPresentationInterface
   public function close(): int
   {
     $this->hide();
+    if ($this->game->hasStopped()) {
+      $this->value = -1;
+      return -1;
+    }
     $this->eventManager->dispatchEvent(new ModalEvent(ModalEventType::CLOSE, true));
     return $this->value;
   }

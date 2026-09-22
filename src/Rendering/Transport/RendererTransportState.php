@@ -2,12 +2,5 @@
 
 namespace Ichiloto\Engine\Rendering\Transport;
 
-enum RendererTransportState
-{
-  case NEW;
-  case STARTING;
-  case RUNNING;
-  case STOPPING;
-  case STOPPED;
-  case FAILED;
-}
+/** @deprecated Use Enumerations\RendererTransportState; retained for existing transport integrations. */
+class_alias(Enumerations\RendererTransportState::class, __NAMESPACE__ . '\\RendererTransportState');

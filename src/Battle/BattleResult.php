@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Battle;
 
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
+use Ichiloto\Engine\Battle\Presentation\BattleRewards;
 
 /**
  * Represents the outcome of a battle.
@@ -24,6 +25,7 @@ class BattleResult
     protected(set) array $lines = [],
     protected(set) array $items = [],
     protected(set) array $entries = [],
+    protected(set) ?BattleRewards $rewards = null,
   )
   {
   }

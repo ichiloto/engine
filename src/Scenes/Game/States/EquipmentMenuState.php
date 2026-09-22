@@ -8,6 +8,7 @@ use Ichiloto\Engine\Core\Menu\Commands\MenuCommandExecutionContext;
 use Ichiloto\Engine\Core\Menu\EquipmentMenu\EquipmentMenu;
 use Ichiloto\Engine\Core\Menu\EquipmentMenu\Modes\EquipmentMenuMode;
 use Ichiloto\Engine\Core\Menu\EquipmentMenu\Modes\EquipmentMenuCommandSelectionMode;
+use Ichiloto\Engine\Core\Menu\EquipmentMenu\Modes\EquipmentSelectionMode;
 use Ichiloto\Engine\Core\Menu\EquipmentMenu\Windows\CharacterDetailPanel;
 use Ichiloto\Engine\Core\Menu\EquipmentMenu\Windows\EquipmentAssignmentPanel;
 use Ichiloto\Engine\Core\Menu\EquipmentMenu\Windows\EquipmentCommandPanel;
@@ -21,14 +22,25 @@ use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\UI\Presentation\CharacterMenuPresentation;
+use Ichiloto\Engine\UI\Presentation\MenuCanvasState;
+use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 
 /**
  * Represents the equipment menu state.
  *
  * @package Ichiloto\Engine\Scenes\Game\States
  */
-class EquipmentMenuState extends GameSceneState
+class EquipmentMenuState extends GameSceneState implements CanvasProviderInterface
 {
+  use MenuCanvasState;
+
+  protected function composeMenuCanvas(MenuPresentationCatalog $theme, float $time): ?PresentationCanvas
+  {
+    return CharacterMenuPresentation::equipment($this, $this->mode, $theme, $time);
+  }
   /**
    * The width and height of the equipment menu.
    */
@@ -122,17 +134,46 @@ class EquipmentMenuState extends GameSceneState
    * @var EquipmentMenuMode|null The equipment menu mode.
    */
   protected ?EquipmentMenuMode $mode = null;
+  private array $infoSelection = [];
 
   /**
    * @inheritDoc
    */
   public function execute(?SceneStateContext $context = null): void
   {
+    $this->syncInfoSelection();
+    if ($this->handleMenuInfoInput($this->equipmentInfoPanel?->getPresentationText() ?? '',
+      columns: max(1, ($this->equipmentInfoPanel?->getContentWidth() ?? 3) - 2))) {
+      $this->refreshInfoText();
+      return;
+    }
     if ($this->handleCharacterCycling()) {
+      $this->refreshInfoText();
       return;
     }
 
     $this->mode->update();
+    $this->refreshInfoText();
+  }
+
+  private function syncInfoSelection(): void
+  {
+    $selection = [$this->character, $this->mode, $this->equipmentMenu?->activeIndex,
+      $this->equipmentAssignmentPanel?->activeSlotIndex,
+      $this->mode instanceof EquipmentSelectionMode ? $this->mode->getPresentationIndex() : null];
+    if ($selection !== $this->infoSelection) { $this->menuInfoText->reset(); }
+    $this->infoSelection = $selection;
+  }
+
+  private function refreshInfoText(): void
+  {
+    if ($this->equipmentInfoPanel === null) { return; }
+    $this->syncInfoSelection();
+    $page = $this->menuInfoText->getPage($this->equipmentInfoPanel->getPresentationText(), null,
+      max(1, $this->equipmentInfoPanel->getContentWidth() - 2));
+    $this->equipmentInfoPanel->setContent(array_pad($page->lines, 2, ''));
+    $this->equipmentInfoPanel->setHelp($page->total > 2 ? $page->range() : '');
+    $this->equipmentInfoPanel->render();
   }
 
   /**
@@ -140,6 +181,7 @@ class EquipmentMenuState extends GameSceneState
    */
   public function enter(): void
   {
+    $this->resetMenuPresentation();
     Console::clear();
     $this->getGameScene()->locationHUDWindow->deactivate();
     $this->character ??= $this->getGameScene()->party->leader;
@@ -307,6 +349,7 @@ class EquipmentMenuState extends GameSceneState
     $this->mode?->exit();
     $this->mode = $mode;
     $this->mode->enter();
+    $this->refreshInfoText();
   }
 
   /**

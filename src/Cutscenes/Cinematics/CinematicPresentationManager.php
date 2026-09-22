@@ -5,8 +5,11 @@ namespace Ichiloto\Engine\Cutscenes\Cinematics;
 use Ichiloto\Engine\Animations\AnimationFrame;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\ScreenTransitionSession;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\UI\Enumerations\PresentationPriority;
 
 /** Renders temporary cinematic overlays and reusable field animation frames. */
 final class CinematicPresentationManager
@@ -81,9 +84,10 @@ final class CinematicPresentationManager
 
   public function render(): void
   {
-    $this->renderAnimation();
-    $this->renderOverlay();
-    $this->renderTransition();
+    Console::withLayer('cinematic-animation', fn() => $this->renderAnimation(), PresentationLayerPolicy::UI);
+    Console::withLayer('cinematic-overlay', fn() => $this->renderOverlay(),
+      PresentationLayerPolicy::UI + PresentationPriority::MODAL->value);
+    Console::withLayer('cinematic-cover', fn() => $this->renderTransition(), PresentationLayerPolicy::TRANSITION);
   }
 
   protected function renderAnimation(): void
@@ -137,7 +141,7 @@ final class CinematicPresentationManager
     $x = max(0, intdiv($screenWidth - $width, 2));
     $y = $kind === 'title_card'
       ? max(0, intdiv($screenHeight - count($rows), 2))
-      : max(0, $screenHeight - count($rows) - 2);
+      : 0;
     $this->gameScene->camera->draw($rows, $x, $y);
   }
 

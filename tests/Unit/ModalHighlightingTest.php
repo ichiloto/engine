@@ -9,6 +9,20 @@ use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
 
+beforeEach(function (): void {
+  $this->savedProjectConfig = ConfigStore::has(ProjectConfig::class)
+    ? ConfigStore::get(ProjectConfig::class)
+    : null;
+});
+
+afterEach(function (): void {
+  if ($this->savedProjectConfig !== null) {
+    ConfigStore::put(ProjectConfig::class, $this->savedProjectConfig);
+  } else {
+    ConfigStore::remove(ProjectConfig::class);
+  }
+});
+
 class ModalArrayConfigStub implements ConfigInterface
 {
   public function __construct(private array $values = [])

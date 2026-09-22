@@ -7,20 +7,20 @@ use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\IO\InputSources\InputSourceInterface;
 use Ichiloto\Engine\IO\InputSources\RendererInputSource;
-use Ichiloto\Engine\Rendering\Presentation\RendererPresentation;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTileBatch;
+use Ichiloto\Engine\Rendering\Presentation\RendererPresentation;
 use Ichiloto\Engine\Rendering\RendererClient;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteCollector;
 use Ichiloto\Engine\Rendering\Tiles\GraphicalTileProviderHostInterface;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererEventType;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException;
+use Ichiloto\Engine\Rendering\Transport\Interfaces\RendererTransportInterface;
 use Ichiloto\Engine\Rendering\Transport\ProcessRendererTransport;
-use Ichiloto\Engine\Rendering\Transport\RendererEventType;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
-use Ichiloto\Engine\Rendering\Transport\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
-use Ichiloto\Engine\Rendering\Transport\RendererTransportInterface;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use InvalidArgumentException;
 use LogicException;
@@ -38,6 +38,7 @@ final class RendererRuntime
   private bool $started = false;
   private bool $closed = false;
   private bool $closeRequested = false;
+  public private(set) bool $windowActive = true;
 
   public function __construct(private readonly RendererRuntimeConfig $config, ?RendererTransportInterface $transport = null)
   {
@@ -87,6 +88,8 @@ final class RendererRuntime
     foreach ($this->client->drainEvents() as $event) {
       if ($event->type === RendererEventType::CLOSE_REQUESTED) {
         $this->closeRequested = true;
+      } elseif ($event->type === RendererEventType::WINDOW_ACTIVATION) {
+        $this->windowActive = $event->active ?? throw new LogicException('Window activation lacks its validated state.');
       } elseif ($event->type === RendererEventType::ERROR) {
         throw new RendererTransportException('Renderer error: ' . $event->message,
           $this->transport->getDiagnostics(), $this->transport->getExitCode());
@@ -99,7 +102,7 @@ final class RendererRuntime
 
   public function present(?SceneInterface $scene): bool
   {
-    $started = LatencyTrace::now();
+    $started = LatencyTrace::getTimeNow();
     LatencyTrace::record('presentation.begin', ['scene' => $scene === null ? null : $scene::class]);
     $this->pump();
     if ($this->presentation === null || $this->closed) {
@@ -112,7 +115,7 @@ final class RendererRuntime
       LatencyTrace::end('presentation.end', $started, ['changed' => $changed]);
       return $changed;
     }
-    $collection = LatencyTrace::now();
+    $collection = LatencyTrace::getTimeNow();
     $sprites = $this->collector->collect($scene);
     LatencyTrace::end('presentation.sprites', $collection, ['count' => count($sprites)]);
     if (LatencyTrace::enabled()) {
@@ -125,7 +128,7 @@ final class RendererRuntime
     $visible = array_filter($sprites, static fn($sprite) => $sprite->x >= 0 && $sprite->x < Console::getWidth()
       && $sprite->y >= 0 && $sprite->y < Console::getHeight());
     $excluded = array_map(static fn($sprite) => $sprite->id, $visible);
-    $tilesStart = LatencyTrace::now();
+    $tilesStart = LatencyTrace::getTimeNow();
     $tiles = $this->config->protocol === RendererProtocolVersion::V2 && $scene instanceof GraphicalTileProviderHostInterface
       ? $scene->getGraphicalTileBatches() : [];
     $replaced = [];
@@ -137,7 +140,7 @@ final class RendererRuntime
       }
     }
     LatencyTrace::end('presentation.tiles', $tilesStart, ['batches' => count($tiles), 'cells' => $tileCount]);
-    $snapshotStart = LatencyTrace::now();
+    $snapshotStart = LatencyTrace::getTimeNow();
     $snapshot = $this->config->protocol === RendererProtocolVersion::V2
       ? Console::presentationSnapshot($excluded, $replaced) : Console::snapshot($excluded);
     LatencyTrace::end('presentation.snapshot', $snapshotStart);

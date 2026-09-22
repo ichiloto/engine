@@ -72,7 +72,7 @@ controlled FPS benchmark or a guarantee for all Garden gameplay.
 
 Full frame-stage traces, analysis, receipts and the distinct control/foreground
 workloads are retained by the renderer task in
-`website/gpui-renderer/docs/garden-performance.md` and its adjacent
+`gpui-renderer/docs/garden-performance.md` and its adjacent
 `docs/evidence/garden-output` directory. Timing samples are sequential single
 runs, subject to system load; neither CPU paint completion nor these elapsed
 totals establish visible frame rate.

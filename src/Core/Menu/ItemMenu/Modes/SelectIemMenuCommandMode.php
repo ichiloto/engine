@@ -58,7 +58,8 @@ class SelectIemMenuCommandMode extends ItemMenuMode
     }
 
     if (Input::isButtonDown("confirm")) {
-      if ($this->inventory->isNotEmpty) {
+      if ($this->state->itemMenu->activeIndex === self::VIEW_KEY_ITEMS_INDEX
+        || $this->state->selectionPanel->totalItems > 0) {
         play_sound(SystemSound::CONFIRM);
         $this->state->itemMenu->getActiveItem()?->execute($this->state->itemMenuContext);
         $mode = match ($this->state->itemMenu->activeIndex) {
@@ -132,7 +133,7 @@ class SelectIemMenuCommandMode extends ItemMenuMode
     $scene = $this->state->context->getScene();
 
     if ($scene instanceof GameScene) {
-      $items = $scene->party->inventory->items->toArray();
+      $items = $this->state->itemMenu->getRegularItems();
       if ($this->state->itemMenu->activeIndex === self::VIEW_KEY_ITEMS_INDEX) {
         $items = $scene->party->inventory->keyItems->toArray();
       }

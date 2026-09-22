@@ -4,7 +4,6 @@ namespace Ichiloto\Engine\Core\Menu\ItemMenu\Modes;
 
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Entities\Interfaces\InventoryItemInterface;
-use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
 
 /**
@@ -29,19 +28,7 @@ class ViewKeyItemsMode extends ItemMenuMode
       return;
     }
 
-    $v = Input::getAxis(AxisName::VERTICAL);
-
-    if (abs($v) > 0) {
-      play_sound(SystemSound::CURSOR);
-
-      if ($v > 0) {
-        $this->state->selectionPanel->selectNext();
-      } else {
-        $this->state->selectionPanel->selectPrevious();
-      }
-
-      $this->describeActiveItem();
-    }
+    $this->navigateItems();
   }
 
   /**
@@ -69,8 +56,7 @@ class ViewKeyItemsMode extends ItemMenuMode
    */
   public function exit(): void
   {
-    // Restore the full inventory for the modes that expect it.
-    $this->state->selectionPanel->setItems($this->inventory->items->toArray());
+    $this->state->selectionPanel->setItems($this->state->itemMenu->getRegularItems());
     $this->state->selectionPanel->blur();
   }
 

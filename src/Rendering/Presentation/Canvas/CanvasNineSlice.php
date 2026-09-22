@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Rendering\Presentation\Canvas;
 
 use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
+use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
 
 /** Source-pixel cuts with shared destination edges; zero cuts also describe a plain image. */
@@ -30,6 +32,29 @@ final readonly class CanvasNineSlice
       || min($minimumWidth, $minimumHeight) < 0) {
       throw new InvalidArgumentException('Invalid image density, cuts or minimum dimensions.');
     }
+  }
+
+  /** Whole-file artwork needs a path and authored border intent, not duplicate image dimensions. */
+  public static function fromPng(string $root, string $asset, int $left = 0, int $top = 0,
+    int $right = 0, int $bottom = 0, int $density = 1, float $minimumWidth = 0, float $minimumHeight = 0): self
+  {
+    if (min($left, $top, $right, $bottom) < 0) {
+      throw new InvalidArgumentException('Image border cuts must be nonnegative.');
+    }
+    $size = PngAssetPreflight::inspect($root, $asset);
+    $fit = static function (int $first, int $last, int $available): array {
+      if ($first + $last <= $available) { return [$first, $last]; }
+      $start = (int)floor($available * ($first / ((float)$first + $last)));
+      return [$start, $available - $start];
+    };
+    // Keep a center pixel even when replacement artwork is smaller than the authored borders.
+    [$l, $r] = $fit($left, $right, $size['width'] - 1);
+    [$t, $b] = $fit($top, $bottom, $size['height'] - 1);
+    if ([$l, $t, $r, $b] !== [$left, $top, $right, $bottom]) {
+      Debug::warn("Image border cuts reconciled to the current PNG: {$asset}");
+    }
+    return new self($asset, new SpriteSourceRect(0, 0, $size['width'], $size['height']),
+      $l, $t, $r, $b, $density, $minimumWidth, $minimumHeight);
   }
 
   /** @return list<CanvasImage> */

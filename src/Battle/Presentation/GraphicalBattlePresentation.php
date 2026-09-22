@@ -10,6 +10,7 @@ use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\IO\Console\SgrColorParser;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasIndicator;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasIndicatorKind;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
@@ -18,6 +19,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
+use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Scenes\Battle\BattleConfig;
@@ -43,10 +45,10 @@ final class GraphicalBattlePresentation
 
   public static function prepare(BattleConfig $battle, BattlePresentationCatalog $catalog, string $assetRoot): ?self
   {
-    $arena = $catalog->arenas[$battle->troop->definitionId ?? $battle->troop->name] ?? null;
+    $arena = $catalog->arenaFor($battle);
     if ($arena === null) { return null; }
+    if ($catalog->ui !== null) { $arena = $arena->withDefaultUi($catalog->ui); }
     $presentation = new self($arena, $battle);
-    $assets = [];
     $images = [$arena->background];
     foreach ([[$battle->party->members->toArray(), $arena->partySlots, true],
       [$battle->troop->members->toArray(), $arena->enemySlots, false]] as [$members, $slots, $party]) {
@@ -57,9 +59,20 @@ final class GraphicalBattlePresentation
         if ($art === null || $slot === null) {
           throw new RuntimeException("Graphical battle requires artwork and a formation slot for every participant: {$key}");
         }
-        $source = PngAssetPreflight::inspect($assetRoot, $art->asset, $art->sourceRect);
-        if ($source !== ['width' => $art->width, 'height' => $art->height]) {
-          throw new RuntimeException("Graphical battler dimensions do not match the PNG/crop: {$key}");
+        // Artwork changes throughout development; the image on disk is this
+        // moment's truth. Authored metadata reconciles to it and the battle
+        // renders best-effort, with the mismatch logged for the author
+        // rather than blocking play. Assets only fail here when missing,
+        // not PNGs, or corrupt.
+        $probe = PngAssetPreflight::inspect($assetRoot, $art->asset);
+        $reconciled = $art->clampedTo($probe['width'], $probe['height']);
+        if ($reconciled !== $art) {
+          Debug::warn(sprintf(
+            'Battler artwork changed under its authored metadata; rendering a best-effort clamped crop: %s (%s)',
+            $key,
+            $art->asset,
+          ));
+          $art = $reconciled;
         }
         $identity = spl_object_id($member);
         if (isset($presentation->participants[$identity])) {
@@ -80,18 +93,13 @@ final class GraphicalBattlePresentation
         $images[] = $image;
       }
     }
-    foreach ($images as $image) {
-      PngAssetPreflight::inspect($assetRoot, $image->asset, $image->sourceRect);
-      $size = PngAssetPreflight::inspect($assetRoot, $image->asset);
-      $assets[$image->asset] = $size['width'] * $size['height'] * 4;
-    }
-    foreach ([...($arena->skin?->textures ?? []), ...($arena->skin?->targetCursor?->textures ?? [])] as $texture) {
-      PngAssetPreflight::inspect($assetRoot, $texture->asset, $texture->source);
-      $size = PngAssetPreflight::inspect($assetRoot, $texture->asset);
-      $assets[$texture->asset] = $size['width'] * $size['height'] * 4;
-    }
-    if (array_sum($assets) > 67108864) {
-      throw new RuntimeException('Graphical battle PNG sources exceed the native 64 MiB decoded-image budget.');
+    $hud = CanvasImagePreflight::textures(array_values([
+      ...($arena->skin?->textures ?? []), ...($arena->skin?->targetCursor?->textures ?? []),
+    ]));
+    CanvasImagePreflight::inspect([...$images, ...$hud], $assetRoot);
+    if ($catalog->results !== null) {
+      GraphicalBattleResults::preflight($catalog->results, $assetRoot, $images,
+        array_map(static fn(Character $member): string => $member->actorId, $battle->party->members->toArray()));
     }
     if (count($battle->party->battlers) > count($arena->partySlots)) {
       throw new RuntimeException('Graphical battle requires a slot for every active party member.');

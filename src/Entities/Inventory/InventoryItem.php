@@ -83,10 +83,15 @@ abstract class InventoryItem implements InventoryItemInterface
     }
   }
 
+  /** Whether the definition permits sale, independently of price or held quantity. */
+  public bool $isSellable {
+    get => $this->sellable && ! $this->isKeyItem;
+  }
+
   /** Deterministic integral sale value; half-up rounding occurs exactly once. */
   public int $sellValue {
     get {
-      if (! $this->sellable || $this->isKeyItem) {
+      if (! $this->isSellable) {
         return 0;
       }
 

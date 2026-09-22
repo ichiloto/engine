@@ -13,6 +13,11 @@ use Override;
  */
 class ConfirmModal extends Modal
 {
+  public function getModalPresentation(): ?ModalPresentation
+  {
+    return new ModalPresentation($this->title, $this->message, $this->buttons, $this->activeIndex);
+  }
+
   /**
    * Constructs a new AlertModal instance.
    *
