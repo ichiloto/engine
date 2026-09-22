@@ -110,6 +110,26 @@ it('normalizes shared opening settings with legacy project compatibility', funct
     ->toBe(EncounterAdvantage::PARTY);
 });
 
+it('rejects combined invalid opening chances when loading project settings', function (array $battle) {
+  $data = ['title' => 'Test', 'currency' => [], 'startingPositions' => ['player' => []], 'battle' => $battle];
+  expect(fn() => SystemData::fromArray($data))->toThrow(InvalidArgumentException::class,
+    'Opening advantage chances must be non-negative and total at most 100.');
+})->with([
+  [['opening' => ['preemptiveChancePercent' => 60, 'ambushChancePercent' => 60]]],
+  [['activeTime' => ['surpriseAttackChancePercent' => 60, 'backAttackChancePercent' => 60]]],
+  [['opening' => ['preemptiveChancePercent' => 95], 'activeTime' => ['backAttackChancePercent' => 10]]],
+]);
+
+it('accepts a complete opening distribution and explicit overrides of legacy values', function () {
+  $data = ['title' => 'Test', 'currency' => [], 'startingPositions' => ['player' => []], 'battle' => [
+    'opening' => ['preemptiveChancePercent' => 60, 'ambushChancePercent' => 40],
+    'activeTime' => ['surpriseAttackChancePercent' => 60, 'backAttackChancePercent' => 60],
+  ]];
+  $system = SystemData::fromArray($data);
+  expect((array)$system->getOpeningSettings())->toBe(['preemptiveChancePercent' => 60, 'ambushChancePercent' => 40])
+    ->and($system->getActiveTimeSettings()->backAttackChancePercent)->toBe(40);
+});
+
 it('uses the shared configured chances in the actual ATB opening', function (array $chances, string $message) {
   [$engine] = openingTestBattle(settings: ['opening' => $chances]);
   expect($engine->consumeEncounterAlert())->toBe($message);

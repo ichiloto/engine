@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Core;
 
 use Ichiloto\Engine\Battle\Enumerations\BattleEngineType;
+use Ichiloto\Engine\Battle\EncounterAdvantage;
 use Ichiloto\Engine\Battle\Engines\ActiveTime\ActiveTimeBattleConfig;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
 
@@ -55,6 +56,7 @@ readonly class SystemData
     $opening = is_array($battleArray['opening'] ?? null) ? $battleArray['opening'] : [];
     $preemptive = min(100, max(0, intval($opening['preemptiveChancePercent'] ?? $activeTime['surpriseAttackChancePercent'] ?? 8)));
     $ambush = min(100, max(0, intval($opening['ambushChancePercent'] ?? $activeTime['backAttackChancePercent'] ?? 6)));
+    EncounterAdvantage::validateChances($preemptive, $ambush);
 
     return json_decode(json_encode([
       'engine' => BattleEngineType::fromValue($battleArray['engine'] ?? null)->value,

@@ -37,9 +37,7 @@ enum EncounterAdvantage: string
     $preemptiveChance = intval($settings['opening']['preemptiveChancePercent'] ?? $preemptiveChance);
     $ambushChance = intval($settings['opening']['ambushChancePercent'] ?? $ambushChance);
 
-    if ($preemptiveChance < 0 || $ambushChance < 0 || $preemptiveChance + $ambushChance > 100) {
-      throw new InvalidArgumentException('Opening advantage chances must be non-negative and total at most 100.');
-    }
+    self::validateChances($preemptiveChance, $ambushChance);
 
     $roll = $random->nextInt(1, 100);
 
@@ -48,5 +46,12 @@ enum EncounterAdvantage: string
       $roll <= $preemptiveChance + $ambushChance => self::TROOP,
       default => self::NORMAL,
     };
+  }
+
+  public static function validateChances(int $preemptiveChance, int $ambushChance): void
+  {
+    if ($preemptiveChance < 0 || $ambushChance < 0 || $preemptiveChance + $ambushChance > 100) {
+      throw new InvalidArgumentException('Opening advantage chances must be non-negative and total at most 100.');
+    }
   }
 }
