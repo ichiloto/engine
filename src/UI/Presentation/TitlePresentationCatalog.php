@@ -19,8 +19,7 @@ final readonly class TitlePresentationCatalog
   public const array DEFAULT_LOGO_PLACEMENT = [409, 16, 532];
   public const array DEFAULT_MENU = [507, 374, 336, 292];
   public const array DEFAULT_BUTTONS = [24, 20, 288, 44, 8];
-  public const array CAPABILITIES = [...MenuPresentationCatalog::CAPABILITIES, RendererSessionConfig::CANVAS_COMPOSITING,
-    RendererSessionConfig::WINDOW_ACTIVATION];
+  public const array CAPABILITIES = [...MenuPresentationCatalog::CAPABILITIES, RendererSessionConfig::CANVAS_COMPOSITING];
   public MenuPresentationCatalog $theme;
   public array $scenes;
   public string $logo;

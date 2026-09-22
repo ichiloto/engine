@@ -24,6 +24,8 @@ final class RendererClient
   private ?RendererTransportException $failure = null;
   /** @var list<string> */
   private array $requiredCapabilities = [];
+  /** @var list<string> Drawing features plus explicitly subscribed event extensions. */
+  private array $negotiableCapabilities = [];
   /** @var list<string> */
   private array $capabilities = [];
 
@@ -49,6 +51,7 @@ final class RendererClient
     }
     $this->capabilities = [];
     $this->requiredCapabilities = $session->requiredCapabilities;
+    $this->negotiableCapabilities = $session->getNegotiableCapabilities();
     $this->transport->start($session);
     $this->failure = null;
   }
@@ -73,7 +76,7 @@ final class RendererClient
       foreach ($batch as $event) {
         if ($event->type === RendererEventType::READY) {
           $event->requireCapabilities($this->requiredCapabilities);
-          $capabilities = array_values(array_intersect($this->requiredCapabilities, $event->capabilities));
+          $capabilities = array_values(array_intersect($this->negotiableCapabilities, $event->capabilities));
         }
         if ($event->type === RendererEventType::WINDOW_ACTIVATION
           && !in_array(RendererSessionConfig::WINDOW_ACTIVATION, $capabilities, true)) {
@@ -97,7 +100,7 @@ final class RendererClient
           }
         } else {
           if ($event->type === RendererEventType::READY) {
-            $this->capabilities = array_values(array_intersect($this->requiredCapabilities, $event->capabilities));
+            $this->capabilities = array_values(array_intersect($this->negotiableCapabilities, $event->capabilities));
           }
           $this->events->enqueue($event);
         }

@@ -178,13 +178,19 @@ it('requires both protocol v2 and graphical canvas for glyph effects capability'
     ->and($session->hello()->payload['requiredCapabilities'])->toBe([$canvas, $effects]);
 });
 
-it('rejects unnegotiated glyph effects before enqueue without consuming frame state', function (bool $advertised) {
+it('uses advertised optional glyph effects and rejects unavailable effects before enqueue', function (bool $advertised) {
   $requested = [RendererSessionConfig::GRAPHICAL_CANVAS];
   $acknowledged = [...$requested, ...($advertised ? [RendererSessionConfig::CANVAS_GLYPH_EFFECTS] : [])];
   [$presenter, $transport, $client] = glyphEffectsTestPresenter($requested, $acknowledged);
   $plain = glyphEffectsTestCanvas(null);
   $effects = glyphEffectsTestCanvas(new CanvasGlyphEffects(...glyphEffectsTestArguments()));
   $polls = $transport->polls;
+  if ($advertised) {
+    expect($client->supports(RendererSessionConfig::CANVAS_GLYPH_EFFECTS))->toBeTrue()
+      ->and($presenter->presentCanvas($effects))->toBeTrue()
+      ->and($transport->sent)->toHaveCount(1);
+    return;
+  }
   expect($client->supports(RendererSessionConfig::CANVAS_GLYPH_EFFECTS))->toBeFalse();
   expect(fn() => $presenter->presentCanvas($effects))->toThrow(RendererProtocolException::class, 'canvas_glyph_effects');
   expect($transport->sent)->toBe([])->and($presenter->presentCanvas($plain))->toBeTrue();

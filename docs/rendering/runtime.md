@@ -53,6 +53,21 @@ without renegotiation. An older binary must fail clearly before frames are sent.
 See [optional map terrain and the wire contract](tile-batches.md) and the
 [S8-B validation/publication gate](s8-b-validation.md) before installing this slice.
 
+## Optional graphical surfaces
+
+`hello.requiredCapabilities` is the startup minimum, not a feature allowlist.
+The V2 renderer advertises its supported drawing capabilities in `ready` and
+accepts frames using those capabilities. The Engine retains recognized advertised
+features even when they were not required. Installing a menu or title theme does
+not add startup requirements. Older renderers that acknowledge only the baseline
+remain usable; unsupported surfaces use their terminal presentation.
+
+`window_activation` changes the incoming event stream and remains explicitly
+opt-in through the existing requirement list. It is not a prerequisite for title
+art or rolling credits. Without that subscription, scene/modal pausing still
+works, but native window-focus pausing is unavailable. The Hello wire shape and
+V1 opt-in behavior are unchanged.
+
 `PackagedRendererExecutableResolver` is the sole owner of the installation
 manifest layout and platform lookup. It resolves only a readable installed
 manifest entry naming an executable within that package. See the

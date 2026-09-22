@@ -15,7 +15,7 @@ use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
 /** A clipped, centered roll using the same panel, typography and button theme as other menus. */
 final class CreditsMenuPresentation
 {
-  public const array CAPABILITIES = [...MenuPresentationCatalog::CAPABILITIES, RendererSessionConfig::WINDOW_ACTIVATION];
+  public const array CAPABILITIES = MenuPresentationCatalog::CAPABILITIES;
 
   public static function getViewport(MenuPresentationCatalog $theme): CanvasRectangle
   {

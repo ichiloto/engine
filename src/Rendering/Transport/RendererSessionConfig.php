@@ -17,6 +17,16 @@ final readonly class RendererSessionConfig
   public const string WINDOW_ACTIVATION = 'window_activation';
   public string $assetRoot;
 
+  /** Drawing features may be advertised without making them mandatory at startup. */
+  public function getNegotiableCapabilities(): array
+  {
+    return $this->protocol === RendererProtocolVersion::V2
+      ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_CLIP_OPACITY,
+        self::CANVAS_GLYPH_EFFECTS, self::CANVAS_COMPOSITING,
+        ...(in_array(self::WINDOW_ACTIVATION, $this->requiredCapabilities, true) ? [self::WINDOW_ACTIVATION] : [])]
+      : $this->requiredCapabilities;
+  }
+
   /** @param list<string> $requiredCapabilities */
   public function __construct(
     public string $title,
