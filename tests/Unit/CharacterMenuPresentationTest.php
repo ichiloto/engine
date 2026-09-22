@@ -338,6 +338,7 @@ it('loads menu-only capabilities without a battle theme and keeps absent and ter
   $configured = $registry->require('gpui')->createRuntime($this->root);
   $config = new ReflectionProperty($configured, 'config')->getValue($configured);
   expect($config->requiredCapabilities)->toContain(...MenuPresentationCatalog::CAPABILITIES)
+    ->toContain(RendererSessionConfig::WINDOW_ACTIVATION)
     ->and(is_file($this->root . '/Data/Presentation/battle.php'))->toBeFalse();
   $this->runtime = characterMenuRuntime($this->root, $config->requiredCapabilities);
   $this->game->useRendererRuntime($this->runtime);

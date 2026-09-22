@@ -30,7 +30,7 @@ trait TitleCredits
     $runtime = $this->getGame()->getRendererRuntime();
     if ($runtime !== null && !Accessibility::prefersReducedMotion()) {
       try {
-        if (array_all(MenuPresentationCatalog::CAPABILITIES, $runtime->supports(...))) {
+        if (array_all(CreditsMenuPresentation::CAPABILITIES, $runtime->supports(...))) {
           // Initialize the optional title backdrop without advancing any presentation clock.
           $this->getPresentationCanvas();
           $theme = $this->titleCatalog?->theme ?? MenuPresentationCatalog::load($runtime->getAssetRoot())

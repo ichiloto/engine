@@ -9,11 +9,14 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
+use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
 
 /** A clipped, centered roll using the same panel, typography and button theme as other menus. */
 final class CreditsMenuPresentation
 {
+  public const array CAPABILITIES = [...MenuPresentationCatalog::CAPABILITIES, RendererSessionConfig::WINDOW_ACTIVATION];
+
   public static function getViewport(MenuPresentationCatalog $theme): CanvasRectangle
   {
     $bounds = MenuLayout::getBounds();

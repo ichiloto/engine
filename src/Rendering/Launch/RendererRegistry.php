@@ -8,6 +8,7 @@ use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
+use Ichiloto\Engine\UI\Presentation\CreditsMenuPresentation;
 use Ichiloto\Engine\UI\Presentation\TitlePresentationCatalog;
 use InvalidArgumentException;
 
@@ -27,6 +28,7 @@ final class RendererRegistry
           requiredCapabilities: array_values(array_unique([RendererSessionConfig::SPRITE_SOURCE_RECT, RendererSessionConfig::TILE_BATCHES,
             ...(BattlePresentationCatalog::load($assetRoot)?->requiredCapabilities() ?? []),
             ...MenuPresentationCatalog::requestedCapabilities($assetRoot),
+            ...(MenuPresentationCatalog::exists($assetRoot) ? CreditsMenuPresentation::CAPABILITIES : []),
             ...TitlePresentationCatalog::getRequestedCapabilities($assetRoot)]))),
       )),
     ];

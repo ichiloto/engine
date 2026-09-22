@@ -20,6 +20,7 @@ use Ichiloto\Engine\UI\Interfaces\ModalInterface;
 use Ichiloto\Engine\UI\Modal\ModalManager;
 use Ichiloto\Engine\UI\Presentation\CreditsContent;
 use Ichiloto\Engine\UI\Presentation\CreditsPlayback;
+use Ichiloto\Engine\UI\Presentation\CreditsMenuPresentation;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
@@ -61,6 +62,7 @@ final class CreditsLifecycleScene extends TitleScene
   public function syncContinueAvailability(): void {}
   public function renderHeader(): void {}
   public function tickCredits(): void { $this->updateCredits(); }
+  public function advancePresentation(): void { $this->advanceTitlePresentation(); }
   public function getSelectedIndex(): int { return $this->menu->activeIndex; }
   public function getMenu(): TitleMenu { return $this->menu; }
 }
@@ -101,10 +103,10 @@ afterEach(function () {
   }
 });
 
-function startCreditsTestRenderer(string $root, Game $game): RendererRuntime
+function startCreditsTestRenderer(string $root, Game $game, ?FakeRendererTransport $transport = null,
+  array $caps = CreditsMenuPresentation::CAPABILITIES): RendererRuntime
 {
-  $caps = MenuPresentationCatalog::CAPABILITIES;
-  $transport = new FakeRendererTransport();
+  $transport ??= new FakeRendererTransport();
   $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready', 'capabilities' => $caps]))];
   $runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['never-launched']), $root,
     requiredCapabilities: $caps), $transport);
@@ -153,6 +155,31 @@ it('returns automatically after the last line leaves the viewport', function () 
   for ($tick = 1; !$clock->finished; $tick++) { $clock->advance($now + $tick / 10); }
   $this->scene->tickCredits();
   expect($property->getValue($this->scene))->toBeNull()->and($this->scene->getSelectedIndex())->toBe(3);
+});
+
+it('falls back when a menu-only renderer cannot report window activation', function () {
+  $this->runtime = startCreditsTestRenderer($this->root, $this->game, caps: MenuPresentationCatalog::CAPABILITIES);
+  $this->scene->openCredits($this->sections);
+  expect($this->game->modalManager->shown?->sections)->toBe($this->sections)
+    ->and(new ReflectionProperty(TitleScene::class, 'creditsPlayback')->getValue($this->scene))->toBeNull();
+});
+
+it('pauses standalone credits on native focus loss and resumes without catching up', function () {
+  $transport = new FakeRendererTransport();
+  $this->runtime = startCreditsTestRenderer($this->root, $this->game, $transport);
+  $this->scene->openCredits($this->sections);
+  $clock = new ReflectionProperty(TitleScene::class, 'creditsPlayback')->getValue($this->scene);
+  $transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"window_activation","active":false}')];
+  $this->runtime->pump();
+  $this->scene->advancePresentation();
+  $offset = $clock->offset;
+  $this->scene->advancePresentation();
+  expect($this->runtime->windowActive)->toBeFalse()->and($clock->offset)->toBe($offset);
+  $transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"window_activation","active":true}')];
+  $this->runtime->pump();
+  $this->scene->advancePresentation();
+  expect($this->runtime->windowActive)->toBeTrue()->and($clock->offset)->toBe($offset)
+    ->and($this->game->modalManager->shown)->toBeNull();
 });
 
 it('executes the real credits command and preserves fallback metadata for invalid authoring', function (string $source, array $expected) {
