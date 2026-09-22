@@ -23,10 +23,13 @@ use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\IO\SaveManager;
+use Ichiloto\Engine\IO\Saves\SaveSlot;
 use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\ActionHintProvider;
 use Ichiloto\Engine\IO\ControlHint;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
@@ -35,6 +38,7 @@ use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Game\States\EquipmentMenuState;
 use Ichiloto\Engine\Scenes\Game\States\MainMenuState;
+use Ichiloto\Engine\Scenes\Game\States\SaveMenuState;
 use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Elements\LocationHUDWindow;
@@ -568,6 +572,61 @@ it('uses shared Config when themed and overlays alerts without changing the acti
     ->and($this->state->characterSelectionMenu->getMarkedPanelIndex())->toBe(0)
     ->and($this->state->characterSelectionMenu->getActivePanelIndex())->toBe(1);
 });
+
+it('connects in-game Save to the shared themed canvas and modal lifecycle without writing saves', function (bool $alternative) {
+  $slots = [new SaveSlot(1, '', false, 'Rest Point', 'Actor 0', 6, 3600),
+    ...array_map(static fn($index) => SaveSlot::empty($index, ''), range(2, 5))];
+  $manager = $this->createMock(SaveManager::class);
+  $manager->expects($this->atLeastOnce())->method('getSaveSlots')->with(5)->willReturn($slots);
+  $manager->expects($this->never())->method('save');
+  new ReflectionProperty($this->scene->sceneManager, 'saveManager')->setValue($this->scene->sceneManager, $manager);
+  $state = new SaveMenuState(new SceneStateContext($this->scene));
+  new ReflectionProperty($this->scene, 'state')->setValue($this->scene, $state);
+  expect($state)->toBeInstanceOf(CanvasProviderInterface::class);
+  $state->enter();
+  expect($this->scene->getPresentationCanvas())->toBeNull();
+  $terminal = new ReflectionProperty($state, 'helpWindow')->getValue($state);
+  expect(implode(' ', $terminal->getContent()))->toContain('Choose a file.', 'Enter saves. Esc returns.');
+
+  $themeData = mainMenuPresentationTheme($alternative);
+  file_put_contents($this->root . '/' . MenuPresentationCatalog::FILE, '<?php return ' . var_export($themeData, true) . ';');
+  $this->runtime = mainMenuPresentationRuntime($this->root, MenuPresentationCatalog::CAPABILITIES);
+  $this->game->useRendererRuntime($this->runtime);
+  $state->enter();
+  $frame = $this->scene->getPresentationCanvas();
+  expect($frame)->not->toBeNull(new ReflectionProperty($state, 'menuPresentationError')->getValue($state) ?? '');
+  $text = mainMenuPresentationText($frame);
+  expect($text['save-title'])->toBe('Save')
+    ->and($text['save-prompt-text'])->toBe('Which file would you like to save to?')
+    ->and($text['save-slot-1-location-text'])->toBe('Rest Point')
+    ->and($text['save-slot-1-duration'])->toBe('01:00:00');
+  $ids = [...array_column($frame->textLayers, 'id'), ...array_column($frame->images, 'id')];
+  expect(array_filter($ids, static fn($id) => str_starts_with($id, 'save-slot-1-location-selected')))->not->toBeEmpty();
+  $theme = new MenuPresentationCatalog($this->root, $themeData);
+  foreach (['increase' => 'Saved to File 1.', 'decrease' => 'Save unavailable.'] as $role => $status) {
+    new ReflectionProperty($state, 'statusMessage')->setValue($state, $status);
+    new ReflectionProperty($state, 'statusColor')->setValue($state, $role);
+    $frame = $this->scene->getPresentationCanvas();
+    $layer = array_find($frame->textLayers, static fn($layer) => $layer->id === 'save-info-status');
+    expect(mainMenuPresentationText($frame)['save-info-status'])->toBe($status)
+      ->and($layer->runs[0]->foreground)->toEqual($theme->colors[$role]);
+  }
+
+  $modals = makeBareScene(ModalManager::class);
+  $stack = new Stack(ModalInterface::class);
+  new ReflectionProperty($modals, 'modals')->setValue($modals, $stack);
+  new ReflectionProperty($this->game, 'modalManager')->setValue($this->game, $modals);
+  $alert = new AlertModal($this->game, 'Saved to File 1.', 'Save Complete');
+  new ReflectionProperty($alert, 'isShowing')->setValue($alert, true);
+  $stack->push($alert);
+  $overlay = implode(' ', mainMenuPresentationText($this->scene->getPresentationCanvas()));
+  expect($overlay)->toContain('Save Complete', 'Saved to File 1.', 'OK', 'Rest Point');
+  $stack->pop();
+  $state->resume();
+  expect(mainMenuPresentationText($this->scene->getPresentationCanvas())['save-info-status'])->toBe('Save unavailable.');
+  $state->enter();
+  expect(mainMenuPresentationText($this->scene->getPresentationCanvas())['save-info-description'])->toBe('Choose a file.');
+})->with([false, true]);
 
 it('diagnoses unrenderable content or invalid art and recovers without mutating the owner', function () {
   file_put_contents($this->root . '/' . MenuPresentationCatalog::FILE, '<?php return ' . var_export(mainMenuPresentationTheme(false), true) . ';');

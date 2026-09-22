@@ -516,11 +516,6 @@ final class ProcessRendererTransport implements RendererTransportInterface
     }
   }
 
-  private static function now(): float
-  {
-    
-  }
-
   /** Return codes are converted to transport exceptions, not leaked to host error handlers. */
   private static function performIo(callable $operation, ?string &$diagnostic = null): mixed
   {

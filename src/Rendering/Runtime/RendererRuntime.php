@@ -38,6 +38,7 @@ final class RendererRuntime
   private bool $started = false;
   private bool $closed = false;
   private bool $closeRequested = false;
+  public private(set) bool $windowActive = true;
 
   public function __construct(private readonly RendererRuntimeConfig $config, ?RendererTransportInterface $transport = null)
   {
@@ -87,6 +88,8 @@ final class RendererRuntime
     foreach ($this->client->drainEvents() as $event) {
       if ($event->type === RendererEventType::CLOSE_REQUESTED) {
         $this->closeRequested = true;
+      } elseif ($event->type === RendererEventType::WINDOW_ACTIVATION) {
+        $this->windowActive = $event->active ?? throw new LogicException('Window activation lacks its validated state.');
       } elseif ($event->type === RendererEventType::ERROR) {
         throw new RendererTransportException('Renderer error: ' . $event->message,
           $this->transport->getDiagnostics(), $this->transport->getExitCode());

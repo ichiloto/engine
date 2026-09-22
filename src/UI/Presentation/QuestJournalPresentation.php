@@ -17,23 +17,23 @@ final class QuestJournalPresentation
   /** @return array{int, int} */
   public static function pageSize(JournalMenuContent $content, MenuPresentationCatalog $theme, int $width = 1350, int $height = 720): array
   {
-    $text = self::geometry($content, $theme, $width, $height)['text'];
+    $text = self::getGeometry($content, $theme, $width, $height)['text'];
     return [(int)floor($text->width / $theme->metrics->cellWidth), (int)floor($text->height / $theme->metrics->cellHeight)];
   }
 
   public static function compose(JournalMenuContent $content, MenuPresentationCatalog $theme, TextPage $page,
     float $time = 0, int $width = 1350, int $height = 720): PresentationCanvas
   {
-    $g = self::geometry($content, $theme, $width, $height);
+    $g = self::getGeometry($content, $theme, $width, $height);
     [$columns, $rows] = self::pageSize($content, $theme, $width, $height);
     if ($page->columns !== $columns || $page->rows !== $rows || $page->source !== $content->document?->text) {
       throw new RuntimeException('Journal text page must match the measured document viewport.');
     }
     $view = new MenuCanvas($theme, $width, $height, $time);
+    $controls = new MenuControls($theme);
     $m = $theme->metrics;
     $p = $m->panelPadding;
     foreach (['header', 'list', 'detail'] as $role) {
-      $view->backing('journal-' . $role . '-backing', $g[$role]);
       $view->frame('journal-' . $role, $g[$role], $role === 'header' ? 'quiet' : 'panel');
     }
     if ($content->detailsOpen) {
@@ -75,17 +75,12 @@ final class QuestJournalPresentation
     }
     self::document($view, $content->document, $page, $g);
     if ($page->total > $page->rows) {
-      $track = $g['scroll'];
-      $view->surface('journal-scroll-track', $track, 'edge');
-      $thumbHeight = max(16, $track->height * $page->rows / $page->total);
-      $offset = ($track->height - $thumbHeight) * $page->first / ($page->total - $page->rows);
-      $view->surface('journal-scroll-thumb', new CanvasRectangle($track->x, $track->y + $offset,
-        $track->width, $thumbHeight), $content->detailsOpen ? 'focus' : 'accent', 21);
+      $controls->renderScrollbar('journal-scroll', $g['scroll'], $page->first, $page->rows, $page->total);
     }
     if ($theme->showInputHints) {
       $view->hints('journal-hints', [ActionHints::resolve('confirm', 'Read'), ActionHints::resolve('cancel', 'Back')], $g['hints']);
     }
-    return $view->finish();
+    return MenuCanvas::overlay($view->finish(), $controls->finish($width, $height), $theme);
   }
 
   private static function document(MenuCanvas $view, JournalDocument $document, TextPage $page, array $g): void
@@ -124,7 +119,7 @@ final class QuestJournalPresentation
       $g['gutter'] - 6, $g['text']->height));
   }
 
-  private static function geometry(JournalMenuContent $content, MenuPresentationCatalog $theme, int $width, int $height): array
+  private static function getGeometry(JournalMenuContent $content, MenuPresentationCatalog $theme, int $width, int $height): array
   {
     $m = $theme->metrics;
     $p = $m->panelPadding;
@@ -150,7 +145,8 @@ final class QuestJournalPresentation
     $hintHeight = $theme->showInputHints ? MenuActionHints::height([ActionHints::resolve('confirm', 'Read'),
       ActionHints::resolve('cancel', 'Back')], $theme, $rightWidth - 2 * $p) + $gap : 0;
     $textHeight = floor(($h - $headerHeight - 2 * $p - $hintHeight) / $m->cellHeight) * $m->cellHeight;
-    $textWidth = $rightWidth - 2 * $p - $gutter - 12;
+    $scrollSpace = $m->scrollbarWidth + $gap;
+    $textWidth = $rightWidth - 2 * $p - $gutter - $scrollSpace;
     if ($textHeight < 3 * $m->cellHeight || $textWidth < 8 * $m->cellWidth || $leftWidth < 2 * $p + 120) {
       throw new RuntimeException('Journal theme leaves no readable list and detail viewport; terminal presentation retained.');
     }
@@ -159,10 +155,11 @@ final class QuestJournalPresentation
       'list' => new CanvasRectangle($x, $y + $headerHeight, $leftWidth, $h - $headerHeight),
       'detail' => new CanvasRectangle($rightX, $y + $headerHeight, $rightWidth, $h - $headerHeight),
       'text' => new CanvasRectangle($rightX + $p + $gutter, $textY, $textWidth, $textHeight),
-      'scroll' => new CanvasRectangle($rightX + $rightWidth - $p - 4, $textY, 4, $textHeight),
+      'scroll' => new CanvasRectangle($rightX + $rightWidth - $p - $m->scrollbarWidth,
+        $textY, $m->scrollbarWidth, $textHeight),
       'hints' => new CanvasRectangle($rightX + $p, $y + $h - $p - max(1, $hintHeight - $gap),
         $rightWidth - 2 * $p, max(1, $hintHeight - $gap)),
-      'sectionX' => $rightX + $p, 'sectionWidth' => $rightWidth - 2 * $p - 12, 'gutter' => $gutter];
+      'sectionX' => $rightX + $p, 'sectionWidth' => $rightWidth - 2 * $p - $scrollSpace, 'gutter' => $gutter];
   }
 
   private static function inset(CanvasRectangle $box, int $p): CanvasRectangle

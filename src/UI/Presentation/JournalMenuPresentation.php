@@ -33,7 +33,6 @@ final class JournalMenuPresentation
     $p = $m->panelPadding;
     $view = new MenuCanvas($theme, $width, $height, $time);
     foreach (['summary', 'list', 'info'] as $id) {
-      $view->backing('journal-' . $id . '-backing', $g[$id]);
       $view->frame('journal-' . $id, $g[$id], $id === 'info' ? 'quiet' : 'panel');
     }
     $view->prose('journal-title', $content->title . ($content->summary !== '' ? "\n" . $content->summary : ''), $g['title'], 'accent');

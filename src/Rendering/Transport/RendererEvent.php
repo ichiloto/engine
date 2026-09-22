@@ -17,6 +17,7 @@ final readonly class RendererEvent
     public ?string $message = null,
     public RendererProtocolVersion $protocol = RendererProtocolVersion::V1,
     public array $capabilities = [],
+    public ?bool $active = null,
   )
   {
   }
@@ -47,6 +48,14 @@ final readonly class RendererEvent
     if ($type === RendererEventType::ERROR && ! is_string($message)) {
       throw new RendererProtocolException('Renderer error event requires a message string.');
     }
+    $active = $object->active ?? null;
+    if ($type === RendererEventType::WINDOW_ACTIVATION
+      && ($protocol !== RendererProtocolVersion::V2 || !is_bool($active))) {
+      throw new RendererProtocolException('Window activation requires protocol 2 and a boolean active state.');
+    }
+    if ($type !== RendererEventType::WINDOW_ACTIVATION && property_exists($object, 'active')) {
+      throw new RendererProtocolException('Only window activation events carry active state.');
+    }
     $capabilities = property_exists($object, 'capabilities') ? $object->capabilities : [];
     if (!is_array($capabilities) || !array_is_list($capabilities) || count($capabilities) > 32) {
       throw new RendererProtocolException('Renderer capabilities must be a bounded list of strings.');
@@ -61,7 +70,7 @@ final readonly class RendererEvent
       throw new RendererProtocolException('Capabilities must be unique and only appear on ready.');
     }
     return new self($type, $type === RendererEventType::KEY ? $key : null,
-      $type === RendererEventType::ERROR ? $message : null, $protocol, $capabilities);
+      $type === RendererEventType::ERROR ? $message : null, $protocol, $capabilities, $active);
   }
 
   /** @param list<string> $required */

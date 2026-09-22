@@ -141,7 +141,7 @@ final class CinematicPresentationManager
     $x = max(0, intdiv($screenWidth - $width, 2));
     $y = $kind === 'title_card'
       ? max(0, intdiv($screenHeight - count($rows), 2))
-      : max(0, $screenHeight - count($rows) - 2);
+      : 0;
     $this->gameScene->camera->draw($rows, $x, $y);
   }
 

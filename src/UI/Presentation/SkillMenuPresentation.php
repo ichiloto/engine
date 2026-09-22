@@ -51,7 +51,7 @@ final class SkillMenuPresentation
     }
     $view = new MenuCanvas($theme, $width, $height, $time);
     $summary = new CanvasRectangle($host->x, $host->y, $host->width, $summaryHeight);
-    self::panel($view, 'skill-summary', $summary);
+    $view->frame('skill-summary', $summary);
     $x = $host->x + $p;
     $y = $host->y + $p;
     if ($portrait > 0) { $view->portrait($actor->actorId, new CanvasRectangle($x, $y, $portrait, $portrait), 'skill-portrait'); }
@@ -61,7 +61,7 @@ final class SkillMenuPresentation
       new CanvasRectangle($x + $identityWidth + $resourcesWidth + 2 * $gap, $y, $countsWidth, $countHeight));
 
     $tabs = new CanvasRectangle($host->x, $host->y + $summaryHeight, $host->width, $tabHeight);
-    self::panel($view, 'skill-tabs', $tabs, 'quiet');
+    $view->frame('skill-tabs', $tabs, 'quiet');
     $tabWidth = ($innerWidth - (count($content->tabs) - 1) * $gap) / max(1, count($content->tabs));
     foreach ($content->tabs as $index => $label) {
       $bounds = new CanvasRectangle($x + $index * ($tabWidth + $gap), $tabs->y + $tabPadding, $tabWidth, $m->rowHeight);
@@ -71,8 +71,8 @@ final class SkillMenuPresentation
     $detailWidth = $host->width * 380 / 1100;
     $details = new CanvasRectangle($host->x, $tabs->y + $tabHeight, $detailWidth, $bodyHeight);
     $list = new CanvasRectangle($details->x + $details->width, $details->y, $host->width - $detailWidth, $bodyHeight);
-    self::panel($view, 'skill-details', $details);
-    self::panel($view, 'skill-list', $list);
+    $view->frame('skill-details', $details);
+    $view->frame('skill-list', $list);
     $detailY = $details->y + $p;
     $detailInner = $details->width - 2 * $p;
     $headingHeight = self::textHeight($content->detailTitle, $detailInner, $theme);
@@ -112,7 +112,7 @@ final class SkillMenuPresentation
         $m->rowHeight, $m->cellWidth, $m->cellHeight, true), $content->index);
     }
     $info = new CanvasRectangle($host->x, $host->y + $host->height - $infoHeight, $host->width, $infoHeight);
-    self::panel($view, 'skill-info', $info, 'quiet');
+    $view->frame('skill-info', $info, 'quiet');
     $infoY = $info->y + $p;
     MenuInfoPanel::renderContent($view, 'skill', new CanvasRectangle($x, $infoY, $innerWidth, 2 * $m->cellHeight),
       $content->description, $content->status, infoModel: $content->infoModel,
@@ -125,12 +125,6 @@ final class SkillMenuPresentation
   private static function textHeight(string $text, float $width, MenuPresentationCatalog $theme): int
   {
     return $text === '' ? 0 : count(MenuCanvas::wrap($text, (int)floor($width / $theme->metrics->cellWidth))) * $theme->metrics->cellHeight;
-  }
-
-  private static function panel(MenuCanvas $view, string $id, CanvasRectangle $box, string $role = 'panel'): void
-  {
-    $view->backing($id . '-backing', $box);
-    $view->frame($id, $box, $role);
   }
 
   private static function fieldLayout(array $fields, CanvasRectangle $bounds, MenuPresentationCatalog $theme): MenuRowLayout

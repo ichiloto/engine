@@ -8,4 +8,5 @@ enum RendererEventType: string
   case KEY = 'key';
   case CLOSE_REQUESTED = 'close_requested';
   case ERROR = 'error';
+  case WINDOW_ACTIVATION = 'window_activation';
 }

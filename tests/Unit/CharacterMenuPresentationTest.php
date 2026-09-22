@@ -249,7 +249,8 @@ it('reuses semantic arrow artwork without moving equipment values or changing pr
   $mode = characterMenuCandidates($this->state);
   $data = characterMenuTheme(false);
   $fallback = new MenuPresentationCatalog($this->root, $data);
-  $data['icons'] += ['navigation.next' => 'head.png', 'navigation.up' => 'staff.png', 'navigation.down' => 'cursor.png'];
+  $data['icons'] += ['comparison.next' => 'head.png', 'comparison.up' => 'staff.png', 'comparison.down' => 'cursor.png',
+    'navigation.next' => 'cursor.png', 'navigation.up' => 'head.png', 'navigation.down' => 'staff.png'];
   $art = new MenuPresentationCatalog($this->root, $data);
   foreach (['cursor.png', 'staff.png'] as $directionAsset) {
     $neutral = $this->state->canvas($fallback);

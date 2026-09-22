@@ -6,6 +6,8 @@ use Assegai\Util\Path;
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\MenuItem;
+use Ichiloto\Engine\Scenes\Title\TitleScene;
+use Ichiloto\Engine\UI\Presentation\CreditsContent;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
 use Throwable;
@@ -22,7 +24,7 @@ use Throwable;
  * ];
  * ```
  *
- * Each section is shown as a page; the project name and version are used
+ * Credits roll graphically or use centered alert pages; the project name is used
  * when no file is authored, so the entry is never empty.
  *
  * @package Ichiloto\Engine\Core\Menu\Commands
@@ -58,16 +60,10 @@ class ShowCreditsCommand extends MenuItem
    */
   public function execute(?ExecutionContextInterface $context = null): int
   {
-    foreach ($this->loadSections() as $section) {
-      $lines = array_values(array_filter((array) ($section['lines'] ?? []), 'is_string'));
-
-      if (empty($lines)) {
-        continue;
-      }
-
-      show_text(implode("\n", $lines), strval($section['title'] ?? ''), charactersPerSecond: dialogue_speed());
+    if (!$context instanceof MenuCommandExecutionContext || !$context->scene instanceof TitleScene) {
+      return self::FAILURE;
     }
-
+    $context->scene->openCredits($this->loadSections());
     return self::SUCCESS;
   }
 
@@ -95,7 +91,8 @@ class ShowCreditsCommand extends MenuItem
         $sections = require $filename;
 
         if (is_array($sections) && ! empty($sections)) {
-          return array_values(array_filter($sections, 'is_array'));
+          $content = new CreditsContent($sections);
+          if ($content->sections !== []) { return $content->sections; }
         }
       } catch (Throwable $exception) {
         Debug::warn(sprintf('Could not read credits: %s', $exception->getMessage()));

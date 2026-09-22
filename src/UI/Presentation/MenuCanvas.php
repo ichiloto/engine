@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\UI\Presentation;
 
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasComposite;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
@@ -27,6 +28,7 @@ final class MenuCanvas
     $this->fill('menu-background', new CanvasRectangle(0, 0, $width, $height), 'background', 0);
   }
 
+  /** Frame artwork owns both the interior and silhouette; only unskinned panels use a rectangular fill. */
   public function frame(string $id, CanvasRectangle $bounds, string $role = 'panel', int $layer = 10, ?int $borderLayer = null): void
   {
     $art = $this->theme->frames[$role] ?? $this->theme->frames['panel'] ?? null;
@@ -34,12 +36,6 @@ final class MenuCanvas
       array_push($this->images, ...$art->images($this->theme->assetRoot, $id, $bounds, $layer, $borderLayer));
     }
     else { $this->fill($id, $bounds, 'panel', $layer); }
-  }
-
-  /** Opaque backing keeps transparent frame art from exposing unrelated content underneath. */
-  public function backing(string $id, CanvasRectangle $bounds): void
-  {
-    $this->fill($id, $bounds, 'panel', 9);
   }
 
   /** Theme-owned flat surfaces also serve section headers and scroll indicators. */
@@ -93,7 +89,7 @@ final class MenuCanvas
   {
     $view = new self($theme, $base->width, $base->height);
     $offset = 1 + max([0, ...array_column($base->images, 'layer'), ...array_column($base->textLayers, 'layer'),
-      ...array_column($base->indicators, 'layer')]);
+      ...array_column($base->indicators, 'layer'), ...array_column($base->composites, 'layer')]);
     $view->images = $base->images;
     foreach ($overlay->images as $image) {
       $view->images[] = new CanvasImage($image->id, $image->asset, $image->destination, $offset + $image->layer,
@@ -127,7 +123,13 @@ final class MenuCanvas
     $view->compactRules();
     $view->text = MenuCanvasTextBatch::compact($view->text);
     $result = $view->finish();
-    return new PresentationCanvas($base->width, $base->height, $result->images, $base->indicators, $result->textLayers);
+    $composites = [...$base->composites];
+    foreach ($overlay->composites as $composite) {
+      $composites[] = new CanvasComposite($composite->id, $composite->width, $composite->height,
+        $composite->destination, $composite->operations, $offset + $composite->layer, $composite->opacity, $composite->clipRect);
+    }
+    CanvasImagePreflight::inspect($result->images, $theme->assetRoot, $composites);
+    return new PresentationCanvas($base->width, $base->height, $result->images, $base->indicators, $result->textLayers, $composites);
   }
 
   public function portrait(string $actorId, CanvasRectangle $bounds, string $id = 'portrait'): void

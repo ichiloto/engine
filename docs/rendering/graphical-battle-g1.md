@@ -236,6 +236,49 @@ keys, not presentation instance identities. Repeated enemy objects have separate
 `combatant-<spl_object_id>` IDs held for this battle's lifetime; no RNG or save
 identity is added. Targets and feedback refer to the actual PHP object.
 
+### Troop Formations Within An Arena
+
+`BattleArenaDefinition` optionally accepts `enemySlotsByTroop`, mapping troop
+definition IDs to complete ordered lists of `BattlerSlot`. This keeps location
+selection separate from enemy formation: the map/event still selects its arena,
+then that arena resolves an override for the current troop. Historical troop
+names are used only when the troop has no authored definition ID. For example,
+an arena can retain its existing `enemySlots` and add:
+
+```php
+enemySlotsByTroop: [
+  'troop.mixed-patrol' => [
+    new BattlerSlot(350, 400, 160, 230),
+    new BattlerSlot(530, 470, 120, 100),
+  ],
+],
+```
+
+Unmatched troops retain the arena's default slots. An override changes neither
+the background, party slots, UI geometry nor feedback safe area. Resolution is
+immutable and encounter-local; the same troop can use another arena's formation
+elsewhere, and an encounter without an arena remains without one. Slot limits,
+image bounds and participant coverage are checked by the existing graphical
+preflight. An empty or incomplete selected override is not silently replaced
+with the default formation. No save schema, encounter weights, combat identity
+or renderer protocol changes are involved.
+
+This is runtime metadata support. Editor TUI selection/editing of battle arenas
+and these troop-slot mappings is not implemented. Future authoring must use
+existing troop selectors and source-preserving transactions/round trips; it must
+not flatten the authored PHP catalog. No Editor capability is claimed here.
+
+Verification, 22 September 2026: focused graphical tests pass 65 cases / 386
+assertions; the full Engine suite passes 2,905 tests with one existing skip on
+PHP 8.4 (44,010 assertions) and PHP 8.5 (44,009 assertions). Scoped PHPStan and
+whitespace checks pass. Synthetic fixtures cover stable/legacy identities,
+location and UI preservation, invalid/incomplete formations, detached authoring
+references, restored encounters, and survivor placement after target reordering
+and removal. These are headless checks, not native visual or cross-platform
+acceptance. The change remains local and uncommitted.
+
+### Battler Placement
+
 `BattlerArtwork` width/height and pivot are source pixels relative to its crop,
 or its authored whole-image bounds when no crop is supplied. The metadata must
 be internally consistent; it does not lock the dimensions of the file on disk.
@@ -350,6 +393,12 @@ formations still fail preflight. Old skins keep their appearance. Cursor images
 add no protocol extension or extra text layers.
 
 Active-actor, selected-target and queued-target ownership remain distinct.
+Every submenu action enters target confirmation before it is queued, including
+self-only skills, magic and items. Self-only actions highlight only the caster;
+group actions highlight the eligible group. Cancel returns to the same submenu
+option without spending resources or applying effects. Traditional and active-time
+battles share this PHP selection flow in both graphical and terminal renderers.
+Direct top-level Guard and Escape commands retain their existing behavior.
 Andrew accepted the active actor underline for this testing slice only. The
 finished presentation must use an above-head actor cursor and animated target
 cursors; additional bounce/spin polish is future scoped work. Reference videos

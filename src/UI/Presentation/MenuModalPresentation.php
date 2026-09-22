@@ -65,7 +65,6 @@ final class MenuModalPresentation
     $height = 2 * $p + $titleHeight + $bodyHeight + $quantityHeight + $choiceHeight + $hintHeight + 2 * $gap + $hintGap;
     $top = ($base->height - $height) / 2;
     $box = new CanvasRectangle($x - $p, $top, $width + 2 * $p, $height);
-    $view->backing('menu-modal-backing', $box);
     $view->frame('menu-modal-frame', $box);
     $y = $top + $p;
     if ($titleHeight > 0) {
@@ -89,10 +88,10 @@ final class MenuModalPresentation
       $view->prose('menu-modal-quantity', $quantity->value . ' / ' . $quantity->maximum,
         new CanvasRectangle($left, $y + $m->cellHeight / 2, $valueWidth, $m->cellHeight), alignment: HorizontalAlignment::CENTER);
       $arrowX = $left + $valueWidth + $gap;
-      $controls->renderArrow('menu-modal-quantity-up', MenuDirection::UP->value,
-        new CanvasRectangle($arrowX, $y, $m->cellHeight, $m->cellHeight), $quantity->value < $quantity->maximum, chevron: true);
-      $controls->renderArrow('menu-modal-quantity-down', MenuDirection::DOWN->value,
-        new CanvasRectangle($arrowX, $y + $m->cellHeight, $m->cellHeight, $m->cellHeight), $quantity->value > $quantity->minimum, chevron: true);
+      $controls->renderChevron('menu-modal-quantity-up', MenuDirection::UP->value,
+        new CanvasRectangle($arrowX, $y, $m->cellHeight, $m->cellHeight), $quantity->value < $quantity->maximum);
+      $controls->renderChevron('menu-modal-quantity-down', MenuDirection::DOWN->value,
+        new CanvasRectangle($arrowX, $y + $m->cellHeight, $m->cellHeight, $m->cellHeight), $quantity->value > $quantity->minimum);
       $y += $quantityHeight;
     }
     if ($modal->vertical) {

@@ -796,7 +796,7 @@ it('keeps cinematic narration visible for the global reading-time floor', functi
   expect($session?->status)->toBe(EventExecutionStatus::YIELDED);
 });
 
-it('centres title card copy while leaving narration copy left aligned', function () {
+it('centres title cards while left aligning narration inside its top centred box', function () {
   [$scene] = makeEventRuntime();
   $scene->installCinematicRuntime();
   $console = new ReflectionClass(Console::class);
@@ -806,6 +806,9 @@ it('centres title card copy while leaving narration copy left aligned', function
     ['width', 20],
     ['height', 10],
     ['buffer', []],
+    ['frameDepth', 0],
+    ['frameRows', []],
+    ['terminalHandedBack', false],
   ] as [$property, $value]) {
     $consoleProperty = $console->getProperty($property);
     $previousConsoleState[$property] = $consoleProperty->getValue();
@@ -820,7 +823,7 @@ it('centres title card copy while leaving narration copy left aligned', function
     $titleRows = array_map(TerminalText::stripAnsi(...), Console::getBuffer());
 
     ob_start();
-    $scene->cinematicPresentation?->showOverlay('narration', 'Dawn Route', 'SKY CARAVAN');
+    $scene->cinematicPresentation?->showOverlay('narration', 'Dawn Route continues', 'SKY CARAVAN');
     $scene->cinematicPresentation?->render();
     ob_end_clean();
     $narrationRows = array_map(TerminalText::stripAnsi(...), Console::getBuffer());
@@ -832,8 +835,9 @@ it('centres title card copy while leaving narration copy left aligned', function
 
   expect($titleRows[4] ?? '')->toBe('|   SKY CARAVAN    |')
     ->and($titleRows[5] ?? '')->toBe('|    Dawn Route    |')
-    ->and($narrationRows[5] ?? '')->toBe('| SKY CARAVAN      |')
-    ->and($narrationRows[6] ?? '')->toBe('| Dawn Route       |');
+    ->and($narrationRows[1] ?? '')->toBe('| ' . str_pad('SKY CARAVAN', 16) . ' |')
+    ->and($narrationRows[2] ?? '')->toBe('| ' . str_pad('Dawn Route', 16) . ' |')
+    ->and($narrationRows[3] ?? '')->toBe('| ' . str_pad('continues', 16) . ' |');
 });
 
 it('resumes dialogue and choices on later ticks', function () {

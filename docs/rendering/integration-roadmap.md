@@ -377,8 +377,8 @@ Game checks cover all 11 settings, isolated persistence, Main return focus and
 Pause -> Config -> Pause without resetting the suspended battle. Silent macOS
 native replay checked first/last settings and the retained battlefield. This is
 not a full native gameplay playtest. Config uses theme-neutral slider,
-scrollbar and left/right arrow fallbacks: admission of those six optional
-approved-art images still awaits Andrew's technical import decision. Andrew
+scrollbar and left/right chevron fallbacks. Andrew's later six-file technical
+import approval is recorded with the shared-controls correction below. Andrew
 approved the unchanged up/down chevron PNG pair on 22 September; Game binds
 them through the existing shared navigation roles alongside the admitted Divider.
 The existing Game receipt retains the pair-only tooling/licence exception and
@@ -402,9 +402,52 @@ Magic's displayed requirement progress/status now receives the same story flags
 as learning. The shared terminal ability/magic list no longer double-offsets
 scrolled rows. Learning rules, casting outcomes and field target ownership are
 unchanged. Magic's graphical detail panel no longer displays Source; authored
-source notes and learning data remain intact. Equipment comparisons and Config
-navigation share semantic right/up/down/left icon roles with Unicode arrow
-fallbacks, rather than separate ASCII substitutes. Shared word-aware wrapping
+source notes and learning data remain intact. Andrew's 22 September correction
+separates directional controls from numeric comparisons: `navigation.previous`,
+`navigation.next`, `navigation.up` and `navigation.down` supply chevrons for
+Config values, scrolling and quantity controls; `comparison.*` supplies stemmed
+arrows for current-to-preview and stat-change indicators. Neither role borrows
+the other's artwork or the Unknown item icon. Themes that previously bound
+comparison art under `navigation.*` should move those bindings to `comparison.*`.
+Shared slider metrics (`sliderTrackHeight`, `sliderFillHeight`, `sliderThumbSize`)
+keep the thin level fill inside the track and the thumb centered on its endpoint;
+track and thumb artwork remain separately replaceable, with the thumb painted
+above the fill. Config and quest detail now use one shared themed scrollbar,
+replacing the journal's separate flat strip. Theme metrics (`scrollbarWidth`,
+`scrollbarTrackWidth`, `scrollbarMinThumbHeight`, `scrollbarArrowGap`) provide a
+24-pixel rail, 12-pixel artwork strip, 28-pixel minimum thumb and 4-pixel chevron
+gaps by default. Extents come from the existing PHP row/reading owner; the
+display-only control neither scrolls nor changes selection, and terminal
+pagination is unchanged. Andrew subsequently replied "Yes import them" after
+the exact six Config assets and missing packaging-tool/explicit-licence-record
+limitations were explained. That approval covers unchanged SliderTrack,
+SliderThumb, ScrollTrack, ScrollThumb, ArrowLeft and ArrowRight PNG imports with
+verified hashes and local image checks; it does not broaden the earlier
+up/down-pair exception or authorize other assets. Game now binds these through
+the existing shared frame and navigation roles. Import integrity and native
+artwork verification remain separate checks. The shared-controls correction passes
+234 Engine tests / 10,209 assertions and 69 Game Main Menu tests / 7,858 assertions
+on each of PHP 8.4 and 8.5, with scoped static analysis clean. Silent macOS
+renderer-only replay checked Config and quest detail at the first and last
+positions in a 960x540 canvas; chevrons, text clearance and thumb endpoints were
+visually inspected. This used the existing admitted up/down icons and fallback
+track/thumb surfaces, not the pending artwork. Both preview windows closed;
+normal audio configuration and saves were untouched. Linux/WSLg was not tested.
+The subsequent approved six-file import passed the closed source roster,
+destination SHA-256 and local decode checks. Game's image-backed integration
+selection passes 71 tests / 7,977 assertions on each of PHP 8.4 and 8.5;
+the focused 150 Engine tests / 5,844 assertions also pass on both versions.
+Silent macOS renderer-only inspection then verified the actual imported slider
+at 0% and left/right chevrons in the normal 1350x720 canvas, plus the rounded
+brass scrollbar at both ends in a 960x540 overflow canvas. The additional Quest
+image-backed screenshot timed out; the Mac locked before the 75%/100% slider
+screenshots, so those checks remain PHP composition/geometry evidence only.
+The isolated filled-slider capture checks pass 1 test / 27 assertions per PHP
+version. All preview processes exited cleanly and closed their windows; normal
+audio/input configuration, saves and unrelated credits work were preserved.
+No six-file import permission remains pending. This bounded verification is not
+whole-screen pixel parity, Linux/WSLg validation or final artistic acceptance.
+Shared word-aware wrapping
 keeps authored notes and hyphenated item
 names intact where they fit, using the same Canvas cell budget for measurement
 and painting without discarding text.
@@ -479,6 +522,173 @@ Main Menu Quit currently routes its chooser directly to title/exit; confirmation
 parity with Pause is an existing behavior gap, not part of this presentation fix.
 Editor TUI authoring of the theme and shared artwork-role bindings remains
 planned in the Editor roadmap, not implemented by runtime composition.
+
+## Title presentation
+
+**22 September 2026: local implementation and measured motion trial; acceptance pending.**
+The approved reference is Art's current `title-ui-v1-20260917/package/HANDOFF.md`,
+`Title-Review.html`, `title.js` and `motion.js`, approved on 21 September with
+"This will do for now. Lock it in." The older ZIP and superseded cloud/water
+atlases are not the implementation reference. The list-only cursor refinement
+applies to all five title buttons.
+
+Engine now has an optional `Data/Presentation/title.php` catalog with schema
+`ichiloto.title/1`: shared menu theme, day/night backgrounds and finite atlas
+subjects, plain effect registrations, logo/gleam, menu bounds and button layout. No Game drawing
+callbacks or runtime image-hash locks are introduced. PNG dimensions come from
+the current assets. The PHP-owned title clock selects local day from 06:00
+inclusive to 18:00 exclusive, checks the next boundary with at most one ordinary
+clock check per second, crossfades with smoothstep over 1 second (0.16 seconds
+for reduced motion), and retains its initial 0.28-second entry across destination
+returns. Suspension pauses decorative elapsed time without later catch-up;
+stop releases presentation ownership. Reduced motion retains original scenery
+and atlas frame zero while omitting travelling birds.
+
+The graphical adapter projects the existing TitleMenu command labels,
+availability and selection. Buttons remain centered without oscillating cursors.
+Title Options and Config share `SettingsMenuPresentation` over their existing
+settings owners; title still exposes seven options and Back. In-game Save and
+title Load share `SaveLoadMenuPresentation`, using existing save-slot metadata
+with full-card selection, empty/incompatible states and complete wrapped
+descriptions. Save now participates in `GameScene` canvas delegation and the
+shared themed-modal lifecycle; its earlier terminal-only state was not covered
+by the title Load integration. Success and failure use the theme's distinct
+status colors, and re-entry clears stale status without changing persistence.
+Existing commands continue to own New Game,
+load validation, authored Credits, Exit, music and persistence. Resuming after
+Credits no longer resets the selected title command. No normal Game settings
+or saves were modified during these Engine checks.
+
+Credits now has its own title destination rather than reusing typed character
+dialogue. `CreditsContent` retains the authored `Data/credits.php` sections and
+wording. GPUI uses a centered, clipped upward roll over the title backdrop and
+a steady, centered Back button; a capable renderer without title artwork uses
+the shared default menu theme. `CreditsPlayback` advances only in PHP updates,
+pauses on suspension/native focus loss or an obscuring modal without catch-up,
+and returns to the same title selection after completion or semantic
+confirm/cancel/back. Reentry creates a fresh roll. Terminal and reduced-motion
+playback reuse centered alert pages, including bounded wrapping and cancellation
+of the entire sequence; no new artwork or renderer rebuild is required.
+
+Unnamed text-box prose defaults to top-center box placement with left-aligned
+text, like named dialogue. Box placement and text alignment are independent;
+callers' explicit positions remain authoritative. Map dialogue retains configured
+positions. Timed cinematic narration likewise uses left-aligned text in a
+top-center box; title cards retain middle-center placement and centered text.
+Neither change alters authored text, typing/advance behavior or cinematic timing.
+After the prose-alignment correction, the full Engine suite passes 2,905 tests
+with one skipped on each of PHP 8.4 and 8.5. Regression checks cover left-aligned
+typing and wrapped lines independently of box placement, with centered title
+cards unchanged. Targeted PHPStan checks cover the presenters, modal/title owners and
+text forwarding APIs. Coverage includes authored credit order, alternate themes,
+long-list clipping, semantic dismissal, focus preservation, reentry, completion,
+pause timing, terminal alert geometry and narration/speech placement. These are
+headless composition and behavioral checks, not native visual acceptance.
+Game's Title/Main Menu/Narrative integration selection passes 95 tests / 10,255
+assertions per PHP version, plus the focused authored Pokete acknowledgement
+check (one test / six assertions). Actual event prose, map dialogue, five timed
+narration cues and the Garden arrival title card are covered. Normal Game
+configuration and save hashes are unchanged; this slice remains local and
+uncommitted with no native launch or publishing action.
+
+Andrew confirmed proceeding with the five approved title PNGs after the
+missing explicit licence field and unavailable `game-dev` packaging tool were
+restated: "I approved the artwork I'm the one who asked you to implement the
+background." The coordinator acknowledged that repeating the import question
+was unnecessary. Game imported the five unchanged PNGs with closed-roster, hash
+and local-decode evidence in its existing admission receipt; no approval is pending for these files or the
+previously completed six-file Config import. Andrew also approved shared bounded
+compositing for masked cloud movement, water refraction, screen-blended lantern
+light and the logo-alpha gleam: "Recommendation Approved. Lets see how it goes...
+if it doesn't work well we pivot to prepared animation assets". This authorizes
+implementation and performance checks, not a claim that motion parity or
+performance acceptance has already been achieved. Game's current registration
+contains the approved cloud, waterfall, flame and gleam values. Shared V2
+`canvas_compositing` carries bounded offscreen image/fill/stroke operations,
+source-over/screen blending, gradients, polygon/ellipse/current-image-alpha masks
+and displacement grids. PHP owns time and emits resolved drawing data; Rust has
+no Game paths, effect recipes or gameplay clocks. Replacing current PNGs remains
+supported. Generic cold-work, source, raster and cache limits are enforced at
+the shared boundaries, not relaxed for this title. Renderer README is the exact
+wire/resource contract.
+
+Negotiated V2 `window_activation` now reports initial and changed native focus
+after ready. Runtime retains that state and Title pauses behind focus loss,
+showing modals, destinations and scene suspension without catching up hidden
+time. Native focus observer verification remains pending. Activation is not
+visibility/occlusion and must not be presented as such; actual OS-hide/occlusion
+suspension remains incomplete. Native hover/pressed button
+states, end-to-end title input/visual acceptance and Editor TUI authoring of the
+new catalog also remain incomplete.
+
+Engine full suites pass 2,864 tests with one existing skip on each PHP 8.4 and
+8.5 (28,207 / 28,206 assertions). PHP 8.5 needed a 512 MiB test-process limit:
+its default 128 MiB exhausted memory in the existing full-field tile-limit test.
+Scoped static analysis passes. The additional shared checks exercise operation
+validation, finite values, resource/work caps, reference detachment, overlay
+ordering, negotiated focus events and runtime input preservation. Existing title
+checks cover local-clock boundaries, suspension/reconciliation, replaceable
+atlases, distinct themes, centered buttons, shared Options, save cards and focus.
+Game reports 87 title/main-menu tests / 8,701 assertions on each PHP version;
+Renderer reports 119 tests plus separately executed actual-packet replay.
+
+All 240 real PHP packets (60 each Day, Night, transition and reduced motion)
+passed native CPU preparation. Warm Day mean/p95 were 21.46/23.98 ms and Night
+20.82/24.64 ms, excluding PHP, wire parsing and GPU presentation. The corrected
+transition had 40.26 ms first-Night-image and 138.06 ms first-Night-composite
+stalls; initial scene preparation was about 223-227 ms. Compositor peak during
+transition was 42,340,486 bytes; decoded sources were 34,871,296 bytes in their
+separate pool. These results do not meet smooth 60 Hz acceptance. No hidden
+cadence reduction or renderer installation was made to disguise that result.
+
+Andrew's conditional prepared-animation fallback has a bounded Art technical
+proof using current paintings/motion, not superseded atlases or a redesign.
+Its four atlas pages total 21.153 MiB decoded and cover Day cloud poses/water,
+Night lantern and gleam. Night sky/water are not included; full-title fit within
+the 23 MiB additional-source target is not established. The proof is not admitted
+or integrated. Intermediate cloud/gleam softness and weaker gleam are explicit
+quality differences, not accepted equivalents.
+Finite loops and interpolated cloud poses are visual tradeoffs requiring actual
+time-separated/seam inspection, not claimed procedural equivalence. The source
+masters remain unchanged. No new import question is pending; candidate quality,
+native input/visual verification and Linux/WSLg testing remain unaccepted.
+Current implementation is local and uncommitted. Silent title runtime harnesses
+ran with audio backends disabled and save writes blocked, then closed at their
+safety timeout. Protected settings/save hashes were unchanged. The raw executable
+could not be bound by native UI automation; the later uniquely named candidate
+bundle also timed out in native inspection. Neither run is visual/input acceptance.
+
+Andrew reported a vertical logo nudge at shimmer entry and exit. The authored
+logo destination is unchanged, but native layout reproduction found that guarded
+static images and composites round differently at their different texture sizes.
+Renderer now uses the existing destination-device-pixel sampler and exact content
+mask for images, composites and effected text, not a title offset. The corrected
+release build has SHA-256
+`781046dfb2c57b0b472e75a0d625bd65606ff7dfaf30224d8914abc08d20d6a8`;
+the existing package builder and Console installer verified and installed it at
+the normal ignored local Engine boundary for development playtesting. The previous
+installation was retained under `.backups/gpui-darwin-arm64-20260922T065300Z`;
+no release was published. Its 121-test suite passes with three
+existing ignored tests; regression coverage compares both texture resolutions
+at five viewport fits and five display scales, clipping and cache lifetime.
+This device-raster work is additional to the earlier CPU-preparation timings;
+native performance and visual acceptance remain pending. Engine's 240-test
+targeted suite passes on both PHP versions (1,048 assertions), including unchanged
+registration over two shimmer cycles and three replaceable logo aspect ratios.
+
+The 22 September chamfer correction removes the shared rectangular panel backing
+that obscured transparent frame corners. Artwork now owns both the opaque interior
+and alpha silhouette across Title, save cards, prompt/Info panels, Config, Controls,
+journals, skills and dialogs; only themes without frame artwork use a solid fallback.
+Existing nine-slice corner/edge partitioning and selected-card insets are preserved.
+No artwork edits or renderer rebuild are required. Synthetic cutout coverage checks
+all four corners, selected/unselected saves, quiet panels, stacked dialogs, alternate
+palettes and replaced image dimensions. The affected Engine selection passes 273
+tests / 8,247 assertions on PHP 8.4 and 8.5; the full suite passes 2,870 tests with
+one skipped on each version, and UI PHPStan passes. Game's Title/Main Menu selection
+passes 87 tests / 8,785 assertions per version, including real theme consumers.
+These are composition/geometry checks, not a new native visual acceptance run.
+Changes remain local and uncommitted.
 
 ## Controller-ready input and normalized movement
 

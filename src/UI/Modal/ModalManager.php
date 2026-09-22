@@ -9,6 +9,7 @@ use Ichiloto\Engine\Core\Interfaces\CanUpdate;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\UI\Interfaces\ModalInterface;
+use Ichiloto\Engine\UI\Presentation\CreditsContent;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
 
 /**
@@ -112,6 +113,18 @@ class ModalManager implements CanUpdate, CanRender
     $this->modals->pop();
   }
 
+  /** Keeps long credits bounded without turning them into character dialogue. */
+  public function showCredits(CreditsContent $content): void
+  {
+    $modal = new CreditsModal($this->game, $content);
+    $this->modals->push($modal);
+    try {
+      $modal->open();
+    } finally {
+      $this->modals->pop();
+    }
+  }
+
   /**
    * Displays a confirmation box with the specified message and an OK and Cancel button.
    *
@@ -209,7 +222,7 @@ class ModalManager implements CanUpdate, CanRender
    * @param string $message The message to display.
    * @param string $title The title of the dialog box.
    * @param string $help The help text to display.
-   * @param WindowPosition $position The position of the dialog box.
+   * @param WindowPosition|null $position Explicit position, or the narration/speech default.
    * @param float $charactersPerSecond The number of characters to display per second.
    * @return void
    */
@@ -217,7 +230,7 @@ class ModalManager implements CanUpdate, CanRender
     string $message,
     string $title = '',
     string $help = '',
-    WindowPosition $position = WindowPosition::BOTTOM,
+    ?WindowPosition $position = null,
     float $charactersPerSecond = 1
   ): void
   {

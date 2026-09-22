@@ -28,10 +28,11 @@ enum MenuDirection: string
     };
   }
 
-  /** Exact semantic lookup, never unrelated Unknown artwork. */
-  public function getImages(?MenuIconRegistry $icons, string $id, CanvasRectangle $bounds, int $layer): array
+  /** Comparison arrows and navigation chevrons never borrow each other's artwork. */
+  public function getImages(?MenuIconRegistry $icons, string $id, CanvasRectangle $bounds, int $layer,
+    bool $chevron = false): array
   {
-    $asset = $icons?->icons['navigation.' . $this->value] ?? null;
+    $asset = $icons?->icons[($chevron ? 'navigation.' : 'comparison.') . $this->value] ?? null;
     return $asset === null ? [] : $icons->contain($id, $asset, $bounds, $layer, $bounds);
   }
 }

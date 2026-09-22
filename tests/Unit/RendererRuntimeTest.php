@@ -131,6 +131,19 @@ it('selects renderer-only game output while preserving frames and silent cleanup
     ->and(ob_get_contents())->toBe('');
 });
 
+it('updates native activation state without consuming semantic input', function () {
+  $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__,
+    protocol: RendererProtocolVersion::V2, requiredCapabilities: ['window_activation']), $this->transport);
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["window_activation"]}'),
+    RendererEvent::fromJson('{"protocol":2,"type":"window_activation","active":false}')];
+  $this->runtime->start('Focus', 12, 4);
+  expect($this->runtime->windowActive)->toBeFalse();
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"window_activation","active":true}'),
+    RendererEvent::fromJson('{"protocol":2,"type":"key","key":"up"}')];
+  $this->runtime->pump();
+  expect($this->runtime->windowActive)->toBeTrue()->and(InputManager::getInputSource()->poll())->toBe(KeyCode::UP);
+});
+
 it('runs a real PHP-only peer through explicit v1 and v2 runtime lifecycles', function ($protocol) {
   $capture = tempnam(sys_get_temp_dir(), 'runtime-version-');
   $process = new RendererProcessConfig([PHP_BINARY, __DIR__ . '/../Fixtures/Renderer/renderer-stub.php', 'ready_key', $capture]);

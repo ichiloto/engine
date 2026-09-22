@@ -256,6 +256,113 @@ it('rejects explicit invalid or absent arena keys instead of falling back to tro
   'integer' => [42, InvalidArgumentException::class],
 ]);
 
+it('resolves troop formations inside the selected arena without changing location or shared state', function () {
+  [$fixture, $catalog] = graphicalBattleFixture();
+  $base = $catalog->arenas['Twins'];
+  $slots = [new BattlerSlot(350, 400, 160, 230), new BattlerSlot(530, 470, 120, 100)];
+  $road = new BattleArenaDefinition(1350, 720, $base->background, $base->partySlots, $base->enemySlots,
+    enemySlotsByTroop: ['troop.mixed' => $slots, 'Localized name' => array_reverse($slots)]);
+  $catalog = new BattlePresentationCatalog(['Twins' => $base, 'arena.road' => $road], $catalog->actors, $catalog->enemies);
+  $troop = new Troop('Localized name', $fixture->troop->members->toArray(), definitionId: 'troop.mixed');
+  $battle = new BattleConfig($fixture->party, $troop, settings: ['battleArena' => 'arena.road']);
+  $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
+
+  expect($presentation->arena->enemySlots)->toBe($slots)
+    ->and($presentation->arena->background)->toBe($base->background)
+    ->and($presentation->arena->partySlots)->toBe($base->partySlots)
+    ->and($road->enemySlots)->toBe($base->enemySlots)
+    ->and($road->enemySlotsByTroop['troop.mixed'])->toBe($slots)
+    ->and($battle->entryRulesEvaluated())->toBeFalse();
+  $images = $presentation->frame()->images;
+  foreach ($slots as $index => $slot) {
+    expect($images[$index + 2]->destination)->toEqual($slot->place($catalog->enemies['Twin']));
+  }
+  expect($presentation->frame()->toArray())->toBe($presentation->frame()->toArray());
+  $unchanged = new BattleConfig($fixture->party, $fixture->troop, settings: ['battleArena' => 'arena.road']);
+  expect($catalog->arenaFor($unchanged))->toBe($road)
+    ->and($catalog->arenaFor($fixture))->toBe($base)
+    ->and($catalog->arenaFor(new BattleConfig($fixture->party, $troop)))->toBeNull();
+
+  // Current catalog data, not a serialized arena, resolves a restored encounter.
+  $restored = unserialize(serialize(new BattleConfig($fixture->party,
+    new Troop('Renamed troop', definitionId: 'troop.mixed'), settings: $battle->settings)));
+  expect($catalog->arenaFor($restored)->enemySlots)->toBe($slots);
+});
+
+it('uses historical formation names only when the troop has no authored identity', function () {
+  [$fixture, $catalog] = graphicalBattleFixture();
+  $base = $catalog->arenas['Twins'];
+  $slots = array_reverse($base->enemySlots);
+  $arena = new BattleArenaDefinition(1350, 720, $base->background, $base->partySlots, $base->enemySlots,
+    enemySlotsByTroop: ['Twins' => $slots]);
+  $catalog = new BattlePresentationCatalog(['Twins' => $arena, 'arena.road' => $arena], $catalog->actors, $catalog->enemies);
+  expect($catalog->arenaFor($fixture)->enemySlots)->toBe($slots);
+  $identified = new BattleConfig($fixture->party, new Troop('Twins', definitionId: 'troop.other'),
+    settings: ['battleArena' => 'arena.road']);
+  expect($catalog->arenaFor($identified))->toBe($arena);
+});
+
+it('preserves arena and inherited UI geometry when applying a troop formation', function (bool $ownSkin) {
+  [$fixture, $catalog] = graphicalBattleFixture(true);
+  $base = $catalog->arenas['Twins'];
+  $slots = array_reverse($base->enemySlots);
+  $ui = new BattleCanvasLayout(1350, 720, skin: $base->skin, feedbackArea: $base->feedbackArea);
+  $arena = new BattleArenaDefinition(1350, 720, $base->background, $base->partySlots, $base->enemySlots,
+    uiCellWidth: 9, uiCellHeight: 18, skin: $ownSkin ? $base->skin : null,
+    feedbackArea: $ownSkin ? $base->feedbackArea : null, enemySlotsByTroop: ['Twins' => $slots]);
+  $catalog = new BattlePresentationCatalog(['Twins' => $arena], $catalog->actors, $catalog->enemies, ui: $ui);
+  $resolved = GraphicalBattlePresentation::prepare($fixture, $catalog, $this->root)->arena;
+  expect($resolved->skin)->toBe($base->skin)
+    ->and($resolved->feedbackArea)->toBe($base->feedbackArea)
+    ->and($resolved->uiGrid)->toEqual($arena->uiGrid)
+    ->and($resolved->enemySlots)->toBe($slots)
+    ->and($resolved->background)->toBe($base->background)
+    ->and($arena->withDefaultUi($ui)->getForTroop('Twins')->enemySlots)->toBe($slots);
+})->with([true, false]);
+
+it('rejects invalid troop formation metadata', function (array $formations) {
+  [$fixture, $catalog] = graphicalBattleFixture();
+  $base = $catalog->arenas['Twins'];
+  expect(fn() => new BattleArenaDefinition(1350, 720, $base->background, $base->partySlots, $base->enemySlots,
+    enemySlotsByTroop: $formations))->toThrow(InvalidArgumentException::class);
+})->with([
+  'numeric identity' => [[0 => []]],
+  'empty identity' => [['' => []]],
+  'control in identity' => [["troop\ninvalid" => []]],
+  'not a slot list' => [['Twins' => 'invalid']],
+  'sparse slot list' => [['Twins' => [1 => new BattlerSlot(350, 400, 100, 100)]]],
+  'untyped slot' => [['Twins' => [['x' => 350, 'y' => 400]]]],
+  'too many slots' => [['Twins' => array_fill(0, 65, new BattlerSlot(350, 400, 100, 100))]],
+]);
+
+it('preflights the selected formation instead of silently reverting to default slots', function (array $slots, string $error) {
+  [$fixture, $catalog] = graphicalBattleFixture();
+  $base = $catalog->arenas['Twins'];
+  $arena = new BattleArenaDefinition(1350, 720, $base->background, $base->partySlots, $base->enemySlots,
+    enemySlotsByTroop: ['Twins' => $slots]);
+  $catalog = new BattlePresentationCatalog(['Twins' => $arena], $catalog->actors, $catalog->enemies);
+  expect(fn() => GraphicalBattlePresentation::prepare($fixture, $catalog, $this->root))->toThrow($error)
+    ->and($fixture->entryRulesEvaluated())->toBeFalse();
+})->with([
+  'empty authored formation' => [[], RuntimeException::class],
+  'missing member slot' => [[new BattlerSlot(350, 400, 100, 100)], RuntimeException::class],
+  'out of canvas' => [[new BattlerSlot(1400, 400, 100, 100), new BattlerSlot(530, 470, 120, 100)], InvalidArgumentException::class],
+]);
+
+it('detaches references in authored formation mappings', function () {
+  [$fixture, $catalog] = graphicalBattleFixture();
+  $base = $catalog->arenas['Twins'];
+  $slot = new BattlerSlot(350, 400, 100, 100);
+  $slots = [&$slot];
+  $formations = ['Twins' => &$slots];
+  $arena = new BattleArenaDefinition(1350, 720, $base->background, $base->partySlots, $base->enemySlots,
+    enemySlotsByTroop: $formations);
+  $slot = new BattlerSlot(530, 470, 120, 100);
+  $slots = [];
+  expect($arena->getForTroop('Twins')->enemySlots)->toHaveCount(1)
+    ->and($arena->getForTroop('Twins')->enemySlots[0]->x)->toBe(350.0);
+});
+
 it('degrades an explicit arena without a catalog to the terminal presentation and never blocks combat', function (bool $native) {
   [$fixture] = graphicalBattleFixture();
   $battle = new BattleConfig($fixture->party, $fixture->troop, settings: ['battleArena' => 'arena.yard']);
@@ -271,8 +378,14 @@ it('degrades an explicit arena without a catalog to the terminal presentation an
     ->and($scene->battleUiLayout)->toBeNull();
 })->with([true, false]);
 
-it('keeps repeated enemy instance IDs through target reorder feedback and removal', function () {
+it('keeps repeated enemy instance IDs through target reorder feedback and removal', function (bool $override) {
   [$battle, $catalog, $hero, $enemies] = graphicalBattleFixture();
+  if ($override) {
+    $base = $catalog->arenas['Twins'];
+    $arena = new BattleArenaDefinition(1350, 720, $base->background, $base->partySlots, $base->enemySlots,
+      enemySlotsByTroop: ['Twins' => array_reverse($base->enemySlots)]);
+    $catalog = new BattlePresentationCatalog(['Twins' => $arena], $catalog->actors, $catalog->enemies);
+  }
   $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root);
   $scene = graphicalBattleScene($battle, $presentation);
   $field = $scene->ui->fieldWindow;
@@ -295,7 +408,7 @@ it('keeps repeated enemy instance IDs through target reorder feedback and remova
   expect(array_map(fn($image) => $image->id, $after->images))->toBe([$ids[0], $ids[1], $ids[3]])
     ->and($after->images[2]->destination)->toEqual($first->images[3]->destination)
     ->and($after->indicators)->toHaveCount(1);
-});
+})->with([false, true]);
 
 it('selects the graphical field before constructing terminal battler output and clips UI to owned windows', function () {
   [$battle, $catalog] = graphicalBattleFixture();

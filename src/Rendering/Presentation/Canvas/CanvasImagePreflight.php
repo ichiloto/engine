@@ -15,7 +15,7 @@ final class CanvasImagePreflight
   /** @param list<CanvasImage> $images
    * @return array{sources: array<string, int>, regions: array<string, int>}
    */
-  public static function inspect(array $images, string $root): array
+  public static function inspect(array $images, string $root, array $composites = []): array
   {
     $sources = $regions = $names = [];
     foreach ($images as $image) {
@@ -27,6 +27,16 @@ final class CanvasImagePreflight
       $rect = [$image->sourceRect?->x ?? 0, $image->sourceRect?->y ?? 0, $crop['width'], $crop['height']];
       // Native canvas sampling adds a two-pixel guard on each edge, even for whole images.
       $regions[$name . ':' . implode(',', $rect)] = ($crop['width'] + 4) * ($crop['height'] + 4) * 4;
+    }
+    foreach ($composites as $composite) {
+      foreach ($composite->operations as $operation) {
+        foreach ($operation->getAssets() as $asset) {
+          $size = PngAssetPreflight::inspect($root, $asset);
+          $path = realpath($root . DIRECTORY_SEPARATOR . $asset);
+          $name = $names[$path] ??= $asset;
+          $sources[$name] = $size['width'] * $size['height'] * 4;
+        }
+      }
     }
     if (count($sources) > 1024 || array_sum($sources) > self::MAX_BYTES) {
       throw new RuntimeException('Canvas PNG sources exceed the native 64 MiB / 1024-image limit.');

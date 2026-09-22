@@ -473,9 +473,9 @@ it('uses shared menu-only Config over the frozen battle with honest optional fal
     expect($layers['retained-field'])->toBe($field->textLayers[0]);
     if ($themeState === 'valid') {
       expect($layers)->toHaveKey('config-title')->not->toHaveKey('pause-config')->not->toHaveKey('menu-background');
-      $backing = $layers['config-backing']->clipRect;
+      $backing = $layers['config-frame']->clipRect;
       expect($backing->x)->toBeGreaterThan(0)->and($backing->y)->toBeGreaterThan(0)
-        ->and($layers['config-backing']->layer)->toBeGreaterThan($layers['retained-field']->layer);
+        ->and($layers['config-frame']->layer)->toBeGreaterThan($layers['retained-field']->layer);
       $runtime->present($this->scene);
       $wire = $transport->sent[array_key_last($transport->sent)]->payload;
       expect(array_column($wire['canvas']['textLayers'], 'id'))->toContain('config-title', 'retained-field')

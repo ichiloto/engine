@@ -255,13 +255,63 @@ it('loads the four optional surfaces and exact control roles using current repla
   expect(fn() => new MenuPresentationCatalog($this->root, $data))->toThrow(RuntimeException::class);
 });
 
-it('keeps arrows semantic and does not substitute unrelated unknown item art', function () {
+it('uses chevrons for controllable values without borrowing comparison or unknown art', function () {
   $data = configPresentationTheme();
-  $data['icons'] = ['unknown' => 'arrow.png'];
+  $data['icons'] = ['unknown' => 'arrow.png', 'comparison.previous' => 'arrow.png', 'comparison.next' => 'arrow.png'];
   $frame = ConfigMenuPresentation::compose($this->menu, new MenuPresentationCatalog($this->root, $data));
   expect($frame->images)->toBeEmpty()
-    ->and(configPresentationText($frame)['config-previous-0'])->toBe("\u{2190}")
-    ->and(configPresentationText($frame)['config-next-0'])->toBe("\u{2192}");
+    ->and(configPresentationText($frame)['config-previous-0'])->toBe("\u{2039}")
+    ->and(configPresentationText($frame)['config-next-0'])->toBe("\u{203A}");
+  $small = ConfigMenuPresentation::compose($this->menu, new MenuPresentationCatalog($this->root, $data), width: 960, height: 540);
+  expect(configPresentationText($small)['config-scroll-up'])->toBe("\u{2227}")
+    ->and(configPresentationText($small)['config-scroll-down'])->toBe("\u{2228}");
+});
+
+it('keeps slider fill inside the track and centers the independent thumb at every limit', function (float $ratio, bool $art) {
+  $data = configPresentationTheme($art);
+  $data['metrics'] = [...($data['metrics'] ?? []), 'sliderTrackHeight' => 10, 'sliderFillHeight' => 2, 'sliderThumbSize' => 22];
+  if ($art) { configPresentationPng($this->root . '/thumb.png', 24, 24); }
+  $theme = new MenuPresentationCatalog($this->root, $data);
+  $controls = new \Ichiloto\Engine\UI\Presentation\MenuControls($theme);
+  $box = new CanvasRectangle(50, 50, 240, 30);
+  $controls->renderLevel('level', $box, $ratio, $theme->colors['increase']);
+  $frame = $controls->finish(400, 200);
+  $text = array_column($frame->textLayers, null, 'id');
+  $track = new CanvasRectangle(61, 60, 218, 10);
+  if ($art) {
+    $images = array_column($frame->images, null, 'id');
+    $thumb = $images['level-thumb-1-1']->destination;
+    foreach (array_filter($frame->images, fn($image) => str_starts_with($image->id, 'level-track-')) as $image) {
+      expect($image->clipRect)->toEqual($track);
+    }
+  } else {
+    $thumb = $text['level-thumb']->clipRect;
+    expect($text['level-track']->clipRect)->toEqual($track);
+  }
+  expect($thumb)->toEqual(new CanvasRectangle(50 + 218 * $ratio, 54, 22, 22));
+  if ($ratio === 0.0) { expect($text)->not->toHaveKey('level-fill'); }
+  else {
+    $fill = $text['level-fill']->clipRect;
+    expect($fill)->toEqual(new CanvasRectangle(61, 64, 218 * $ratio, 2))
+      ->and($fill->x + $fill->width)->toEqualWithDelta($thumb->x + $thumb->width / 2, 0.0001);
+    $thumbLayer = $art ? $images['level-thumb-1-1']->layer : $text['level-thumb']->layer;
+    expect($thumbLayer)->toBeGreaterThan($text['level-fill']->layer);
+  }
+  $frame->toArray();
+})->with([0.0, 0.5, 1.0])->with([false, true]);
+
+it('rejects invalid slider geometry without changing settings', function () {
+  foreach ([['sliderFillHeight' => 0], ['sliderTrackHeight' => 1], ['sliderThumbSize' => 7], ['sliderThumbSize' => 65]] as $metrics) {
+    expect(fn() => new MenuPresentationCatalog($this->root, [...configPresentationTheme(), 'metrics' => $metrics]))
+      ->toThrow(InvalidArgumentException::class);
+  }
+  $theme = new MenuPresentationCatalog($this->root, configPresentationTheme());
+  foreach ([-0.1, 1.1, NAN, INF] as $ratio) {
+    $controls = new \Ichiloto\Engine\UI\Presentation\MenuControls($theme);
+    expect(fn() => $controls->renderLevel('level', new CanvasRectangle(0, 0, 100, 24), $ratio, $theme->colors['accent']))
+      ->toThrow(InvalidArgumentException::class);
+  }
+  expect($this->config->writes)->toBe(0);
 });
 
 it('shows remapped optional hints without changing current actions or adding a button cursor', function () {
@@ -315,7 +365,7 @@ it('serializes nondivisible and prime canvas fills with exact disjoint clipped c
   $theme = new MenuPresentationCatalog($this->root, configPresentationTheme());
   $view = new MenuCanvas($theme, $width, $height);
   $panel = new CanvasRectangle(23.5, 19.5, $width - 33, $height - 25);
-  $view->backing('fractional-panel', $panel);
+  $view->surface('fractional-panel', $panel, 'panel', 9);
   $frame = $view->finish();
   $wire = json_decode(json_encode($frame->toArray(), JSON_THROW_ON_ERROR), true, flags: JSON_THROW_ON_ERROR);
   expect($wire['width'])->toBe($width)->and($wire['height'])->toBe($height)

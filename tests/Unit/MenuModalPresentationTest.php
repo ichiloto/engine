@@ -104,6 +104,13 @@ function modalMenuText(PresentationCanvas $canvas): array
   return $text;
 }
 
+function getModalMenuFrameBounds(PresentationCanvas $canvas): CanvasRectangle
+{
+  $frame = array_find($canvas->images, fn($image) => $image->id === 'menu-modal-frame-0-0')
+    ?? array_find($canvas->textLayers, fn($layer) => $layer->id === 'menu-modal-frame');
+  return $frame->clipRect;
+}
+
 function modalMenuForeground(array $layers): array
 {
   $paint = [];
@@ -368,8 +375,8 @@ it('sizes compact dialogs from current text and wraps long content at the same b
   $small = MenuModalPresentation::compose($base, new ModalPresentation('Alert', 'Equipment optimized!', ['OK'], 0), $theme);
   $message = str_repeat('A complete longer message. ', 8);
   $large = MenuModalPresentation::compose($base, new ModalPresentation('Long', $message, ['OK'], 0), $theme);
-  $smallBox = array_find($small->textLayers, fn($layer) => $layer->id === 'menu-modal-backing')->clipRect;
-  $largeBox = array_find($large->textLayers, fn($layer) => $layer->id === 'menu-modal-backing')->clipRect;
+  $smallBox = getModalMenuFrameBounds($small);
+  $largeBox = getModalMenuFrameBounds($large);
   expect($smallBox->width)->toBeLessThan($largeBox->width)->toBeLessThan(500)
     ->and($largeBox->width)->toBeLessThanOrEqual($base->width * 2 / 3)
     ->and($smallBox->x + $smallBox->width / 2)->toBe($base->width / 2.0);
@@ -391,7 +398,7 @@ it('centers the Alert message and its modest acknowledgement button', function (
   $snapshot = new AlertModal($this->game, $message, 'Alert')->getModalPresentation();
   $frame = MenuModalPresentation::compose(new PresentationCanvas(1350, 720), $snapshot, $theme);
   $layer = fn(string $id) => array_find($frame->textLayers, fn($text) => $text->id === $id);
-  $box = $layer('menu-modal-backing')->clipRect;
+  $box = getModalMenuFrameBounds($frame);
   $title = $layer('menu-modal-title');
   $text = $layer('menu-modal-message');
   $button = $layer('menu-modal-choice-0-text');
@@ -426,7 +433,7 @@ it('keeps a long acknowledgement label complete and centered inside its bounded 
   $label = str_repeat('Acknowledge current result ', 4);
   $frame = MenuModalPresentation::compose(new PresentationCanvas(1350, 720),
     new ModalPresentation('Alert', 'Complete', [$label], 0, singleConfirmation: true), $theme);
-  $box = array_find($frame->textLayers, fn($text) => $text->id === 'menu-modal-backing')->clipRect;
+  $box = getModalMenuFrameBounds($frame);
   $button = array_find($frame->textLayers, fn($text) => $text->id === 'menu-modal-choice-0-text');
   expect(implode('', array_column($button->runs, 'text')))->toBe($label)
     ->and($box->width)->toBeLessThanOrEqual(900)->and($box->height)->toBeLessThan(720)
@@ -451,8 +458,8 @@ it('collapses only the hidden hint footer without changing Confirm or Select con
   $shown = MenuModalPresentation::compose($base, $snapshot, $shownTheme);
   $hidden = MenuModalPresentation::compose($base, $snapshot, $hiddenTheme);
   $layer = fn(PresentationCanvas $frame, string $id) => array_find($frame->textLayers, fn($text) => $text->id === $id);
-  $shownBox = $layer($shown, 'menu-modal-backing')->clipRect;
-  $hiddenBox = $layer($hidden, 'menu-modal-backing')->clipRect;
+  $shownBox = getModalMenuFrameBounds($shown);
+  $hiddenBox = getModalMenuFrameBounds($hidden);
   $hints = $layer($shown, 'menu-modal-hints');
   expect($shownBox->height - $hiddenBox->height)->toBe($hints->bounds->height + $shownTheme->metrics->sectionGap)
     ->and($layer($hidden, 'menu-modal-hints'))->toBeNull();
@@ -551,7 +558,7 @@ it('fits the complete largest integer quantity without widening beyond the modal
     new ModalPresentation('Quantity', 'Stack', ['Continue'], 0,
       quantity: new \Ichiloto\Engine\UI\Modal\QuantityPresentation(1, PHP_INT_MAX, PHP_INT_MAX)), $theme);
   $layers = array_column($frame->textLayers, null, 'id');
-  $box = $layers['menu-modal-backing']->clipRect;
+  $box = getModalMenuFrameBounds($frame);
   foreach ($frame->textLayers as $layer) {
     if (!str_starts_with($layer->id, 'menu-modal-quantity')) { continue; }
     expect($layer->bounds->x)->toBeGreaterThanOrEqual($box->x)

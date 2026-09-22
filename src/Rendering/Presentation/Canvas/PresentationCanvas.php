@@ -13,6 +13,8 @@ final readonly class PresentationCanvas
   public array $indicators;
   /** @var list<CanvasTextLayer> */
   public array $textLayers;
+  /** @var list<CanvasComposite> */
+  public array $composites;
 
   /** @param list<CanvasImage> $images
    * @param list<CanvasIndicator> $indicators
@@ -24,6 +26,7 @@ final readonly class PresentationCanvas
     array $images = [],
     array $indicators = [],
     array $textLayers = [],
+    array $composites = [],
   )
   {
     if ($width < 1 || $height < 1 || $width > CanvasValidation::MAX_EXTENT || $height > CanvasValidation::MAX_EXTENT) {
@@ -32,6 +35,19 @@ final readonly class PresentationCanvas
     $this->images = CanvasValidation::orderedList($images, CanvasImage::class, 1024);
     $this->indicators = CanvasValidation::orderedList($indicators, CanvasIndicator::class, 2048);
     $this->textLayers = CanvasValidation::orderedList($textLayers, CanvasTextLayer::class, 64);
+    $this->composites = CanvasValidation::orderedList($composites, CanvasComposite::class, 8);
+    $pixels = $operations = $nodes = 0;
+    foreach ($this->composites as $composite) {
+      $composite->destination->assertWithin($width, $height);
+      $composite->clipRect?->assertWithin($width, $height);
+      $pixels += $composite->width * $composite->height;
+      $operations += count($composite->operations);
+      foreach ($composite->operations as $operation) { $nodes += count($operation->data['displacement']['offsets'] ?? []); }
+    }
+    if ($pixels > 8388608 || $operations > 256 || $nodes > 16384) {
+      throw new InvalidArgumentException('Canvas composites exceed their combined raster, operation or displacement budget.');
+    }
+    CanvasCompositeBudget::getWork($this->composites);
     $imageIds = [];
     foreach ($this->images as $image) {
       $image->destination->assertWithin($width, $height);
@@ -63,6 +79,7 @@ final readonly class PresentationCanvas
     return ['width' => $this->width, 'height' => $this->height,
       'images' => array_map(static fn(CanvasImage $image) => $image->toArray(), $this->images),
       'indicators' => array_map(static fn(CanvasIndicator $indicator) => $indicator->toArray(), $this->indicators),
-      'textLayers' => array_map(static fn(CanvasTextLayer $text) => $text->toArray(), $this->textLayers)];
+      'textLayers' => array_map(static fn(CanvasTextLayer $text) => $text->toArray(), $this->textLayers),
+      ...($this->composites === [] ? [] : ['composites' => array_map(static fn($item) => $item->toArray(), $this->composites)])];
   }
 }

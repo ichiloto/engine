@@ -62,6 +62,9 @@ final class RendererPresentation
     if (!$this->client->supports(RendererSessionConfig::GRAPHICAL_CANVAS)) {
       throw new RendererProtocolException('Canvas presentation requires negotiated graphical_canvas support.');
     }
+    if ($canvas->composites !== [] && !$this->client->supports(RendererSessionConfig::CANVAS_COMPOSITING)) {
+      throw new RendererProtocolException('Canvas raster operations require negotiated canvas_compositing support.');
+    }
     foreach ($canvas->images as $image) {
       if ($image->sourceRect !== null && !$this->client->supports(RendererSessionConfig::SPRITE_SOURCE_RECT)) {
         throw new RendererProtocolException('Canvas image crops require negotiated sprite_source_rect support.');

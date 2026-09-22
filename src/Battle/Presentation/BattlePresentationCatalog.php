@@ -35,14 +35,16 @@ final readonly class BattlePresentationCatalog
   public function arenaFor(BattleConfig $battle): ?BattleArenaDefinition
   {
     $key = $battle->settings['battleArena'] ?? null;
+    $troopId = $battle->troop->definitionId ?? $battle->troop->name;
     if ($key === null) {
-      return $this->arenas[$battle->troop->definitionId ?? $battle->troop->name] ?? null;
+      return ($this->arenas[$troopId] ?? null)?->getForTroop($troopId);
     }
     if (!is_string($key)) {
       throw new InvalidArgumentException('battleArena must be a string arena key.');
     }
     CanvasValidation::id($key);
-    return $this->arenas[$key] ?? throw new RuntimeException("Unknown graphical battle arena: {$key}");
+    $arena = $this->arenas[$key] ?? throw new RuntimeException("Unknown graphical battle arena: {$key}");
+    return $arena->getForTroop($troopId);
   }
 
   public static function exists(string $assetRoot): bool

@@ -15,6 +15,7 @@ use Ichiloto\Engine\UI\Windows\Enumerations\WindowHeightPolicy;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
+use Ichiloto\Engine\UI\Windows\WindowAlignment;
 
 /**
  * This class represents a modal that displays a message in a text box.
@@ -76,7 +77,7 @@ class TextBoxModal extends Modal
    * @param string $message The message to display.
    * @param string $title The title of the modal.
    * @param string $help The help text to display.
-   * @param WindowPosition $position The position of the modal.
+   * @param WindowPosition|null $position Explicit position, or top for narration and bottom for speech.
    * @param BorderPackInterface $borderPack The border pack to use.
    * @param float $charactersPerSecond The number of characters to print per second.
    */
@@ -85,7 +86,7 @@ class TextBoxModal extends Modal
     string $message,
     string $title = '',
     string $help = '',
-    WindowPosition $position = WindowPosition::BOTTOM,
+    ?WindowPosition $position = null,
     BorderPackInterface $borderPack = new DefaultBorderPack(),
     protected float $charactersPerSecond = 60
   )
@@ -105,6 +106,7 @@ class TextBoxModal extends Modal
       max(self::DEFAULT_CONTENT_LINES, min(count($wrappedLines), $linesPerPage)),
     );
     $height = $contentLines + 2;
+    $position ??= trim($title) === '' ? WindowPosition::TOP : WindowPosition::BOTTOM;
     $positionCoordinates = $position->getCoordinates($width, $height);
     $this->messageLength = mb_strlen($this->currentPageMessage());
     $this->authoredHelp = $help;
@@ -263,7 +265,7 @@ class TextBoxModal extends Modal
     $this->setPosition($this->rect->getX(), $this->rect->getY());
   }
 
-  /** Dialogue windows retain their ordinary left-aligned text layout. */
+  /** Prose and speech share left-aligned text, independent of the box's position. */
   #[Override]
   protected function rebuildWindow(): void
   {
@@ -274,6 +276,7 @@ class TextBoxModal extends Modal
       $this->rect->getWidth(),
       $this->rect->getHeight(),
       $this->borderPack,
+      alignment: WindowAlignment::topLeft(),
       heightPolicy: WindowHeightPolicy::FIXED,
     );
   }

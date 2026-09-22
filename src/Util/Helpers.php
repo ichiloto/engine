@@ -190,7 +190,7 @@ if (! function_exists('show_text') ) {
    * @param string $message The message to show.
    * @param string $title The title of the dialog. Defaults to "".
    * @param string $help The help text to show. Defaults to "".
-   * @param WindowPosition $position The position of the dialog. Defaults to BOTTOM (i.e. the bottom of the screen).
+   * @param WindowPosition|null $position Explicit position, or top for narration and bottom for speech.
    * @param float $charactersPerSecond The number of characters to display per second.
    * @return void
    * @throws Exception
@@ -199,7 +199,7 @@ if (! function_exists('show_text') ) {
     string         $message,
     string         $title = '',
     string         $help = '',
-    WindowPosition $position = WindowPosition::BOTTOM,
+    ?WindowPosition $position = null,
     float          $charactersPerSecond = 1
   ): void
   {

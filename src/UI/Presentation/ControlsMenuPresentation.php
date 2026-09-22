@@ -34,7 +34,6 @@ final class ControlsMenuPresentation
     $list = new CanvasRectangle($host->x, $host->y, $host->width, $listHeight);
     $footer = new CanvasRectangle($host->x, $host->y + $listHeight, $host->width, $infoHeight);
     foreach (['controls-list' => $list, 'controls-info' => $footer] as $id => $box) {
-      $view->backing($id . '-backing', $box);
       $view->frame($id, $box, $id === 'controls-info' ? 'quiet' : 'panel');
     }
     $view->prose('controls-title', $content->listening ? 'Controls: Rebinding' : 'Controls',

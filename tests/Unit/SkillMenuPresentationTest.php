@@ -472,7 +472,7 @@ it('pages complete description and status with fixed Info bounds and separate re
     $frame = SkillMenuPresentation::compose($state->getPresentationContent(), $theme);
     $text = skillMenuText($frame);
     $layers = array_column($frame->textLayers, null, 'id');
-    $bounds = $layers['skill-info-backing']->clipRect;
+    $bounds = $layers['skill-info']->clipRect;
     $infoBounds ??= $bounds;
     expect($bounds)->toEqual($infoBounds)->and(implode('', $text))->toContain('F10', 'X');
     foreach (['skill-description', 'skill-status'] as $id) {
