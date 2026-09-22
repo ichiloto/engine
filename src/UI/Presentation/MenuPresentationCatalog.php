@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\UI\Presentation;
 
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
-use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use InvalidArgumentException;
@@ -72,11 +71,6 @@ final readonly class MenuPresentationCatalog
       SpriteValidation::validateAssetPath($asset);
     }
     $this->portraits = $portraits;
-    // Diagnose every configured asset, including artwork for an actor not currently on screen.
-    $assets = [...array_values($bindings), ...array_values($portraits)];
-    if ($cursor !== null) { $assets[] = $cursor; }
-    foreach ([...array_values($art), ...array_values($this->frames)] as $image) { $assets[] = $image->asset; }
-    foreach (array_unique($assets) as $asset) { PngAssetPreflight::inspect($assetRoot, $asset); }
   }
 
   public static function exists(string $assetRoot): bool

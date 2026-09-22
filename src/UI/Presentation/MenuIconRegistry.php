@@ -11,6 +11,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasNineSlice;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasValidation;
 use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use InvalidArgumentException;
 
 /** Optional project bindings. No authored source sizes and no display-name/glyph inference. */
@@ -43,7 +44,10 @@ final readonly class MenuIconRegistry
       $metadata instanceof EquipmentSlotType => 'slot.' . $metadata->value,
       default => $metadata,
     };
-    return $this->icons[$semantic] ?? $this->icons['unknown'] ?? null;
+    foreach (array_unique(array_filter([$this->icons[$semantic] ?? null, $this->icons['unknown'] ?? null])) as $asset) {
+      if (PngAssetPreflight::getAvailableSize($this->assetRoot, $asset) !== null) { return $asset; }
+    }
+    return null;
   }
 
   /** Full-source contain uses a zero-cut CanvasNineSlice, never stretches or slices an icon.
@@ -57,6 +61,7 @@ final readonly class MenuIconRegistry
   /** @return list<CanvasImage> */
   public static function containAsset(string $root, string $id, string $asset, CanvasRectangle $box, int $layer, CanvasRectangle $clip): array
   {
+    if (PngAssetPreflight::getAvailableSize($root, $asset) === null) { return []; }
     $art = CanvasNineSlice::fromPng($root, $asset);
     $scale = min($box->width / $art->source->width, $box->height / $art->source->height);
     $width = $art->source->width * $scale;

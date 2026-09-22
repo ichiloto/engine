@@ -47,6 +47,7 @@ use Ichiloto\Engine\UI\Modal\AlertModal;
 use Ichiloto\Engine\UI\Modal\ModalManager;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\Presentation\MenuCanvas;
+use Ichiloto\Engine\UI\Presentation\MenuLayout;
 use Ichiloto\Engine\UI\Presentation\MenuRow;
 use Ichiloto\Engine\UI\Presentation\MenuRowLayout;
 use Ichiloto\Engine\UI\Presentation\MenuRowPainter;
@@ -224,6 +225,21 @@ it('projects all current fields and commands through two themes with independent
   expect(mainMenuPresentationText($frames[0]))->toBe(mainMenuPresentationText($frames[1]));
 });
 
+it('centers the main menu on both axes in the same envelope as other menus', function (bool $alternative) {
+  $data = mainMenuPresentationTheme($alternative);
+  $data['frames'] ??= array_fill_keys(['panel', 'quiet'], ['asset' => 'surface.png', 'cuts' => [3, 4, 3, 4]]);
+  $frame = $this->state->canvas(new MenuPresentationCatalog($this->root, $data));
+  $header = mainMenuPresentationFrameBounds($frame, 'main-info');
+  $location = mainMenuPresentationFrameBounds($frame, 'main-location');
+  $help = mainMenuPresentationFrameBounds($frame, 'main-help');
+  $host = MenuLayout::getBounds($frame->width, $frame->height);
+  expect($header->x)->toBe($host->x)->toBe(($frame->width - $header->width) / 2)
+    ->and($header->y)->toBe($host->y)
+    ->and($location->x)->toBe($header->x)
+    ->and($help->x + $help->width)->toBe($header->x + $header->width)
+    ->and($help->y + $help->height)->toBe($frame->height - $header->y);
+})->with([false, true]);
+
 it('preserves unoccupied frames and supports absent portrait mappings', function (int $count) {
   $members = array_slice($this->party->members->toArray(), 0, $count);
   new ReflectionProperty($this->party, 'members')->setValue($this->party, new ItemList(\Ichiloto\Engine\Entities\Interfaces\CharacterInterface::class, $members));
@@ -253,7 +269,7 @@ it('shares the bottom row with Location and meets the fourth character card with
     $lastCard = mainMenuPresentationFrameBounds($frame, 'main-party-3-frame');
     expect($help->y)->toBe($location->y)->toBe($lastCard->y + $lastCard->height)
       ->and($help->height)->toBe($location->height)
-      ->and($help->y + $help->height)->toBe(700.0);
+      ->and($help->y + $help->height)->toBe($frame->height - MenuLayout::getBounds()->y);
   }
 })->with([false, true])->with([false, true]);
 
@@ -272,7 +288,7 @@ it('grows both bottom panels together when either contains wrapped content', fun
   $help = mainMenuPresentationFrameBounds($frame, 'main-help');
   expect($help->y)->toBe($location->y)
     ->and($help->height)->toBe($location->height)->toBeGreaterThan(80)
-    ->and($help->y + $help->height)->toBe(700.0);
+    ->and($help->y + $help->height)->toBe($frame->height - MenuLayout::getBounds()->y);
   $layers = array_column($frame->textLayers, null, 'id');
   foreach (['main-location-value' => $location, 'main-help-text' => $help] as $id => $box) {
     $text = $layers[$id];
@@ -334,7 +350,9 @@ it('fills the complete padded card interior without a name cursor or persistent 
   $images = array_column($frame->images, null, 'id');
   $fill = $text['main-party-0-identity-selected'];
   $name = $text['main-party-0-identity-text'];
-  expect($fill->clipRect->toArray())->toBe(['x' => 428.0, 'y' => 68.0, 'width' => 784.0, 'height' => 124.0])
+  $card = mainMenuPresentationFrameBounds($frame, 'main-party-0-frame');
+  expect($fill->clipRect->toArray())->toBe(['x' => $card->x + 8, 'y' => $card->y + 8,
+    'width' => $card->width - 16, 'height' => $card->height - 16])
     ->and($fill->clipRect->y)->toBeLessThanOrEqual($name->y)
     ->and($images['main-party-0-frame-0-1-backing']->layer)->toBeLessThan($fill->layer)
     ->and($images['main-party-0-frame-0-1-border']->layer)->toBeGreaterThan($fill->layer)
@@ -628,7 +646,7 @@ it('connects in-game Save to the shared themed canvas and modal lifecycle withou
   expect(mainMenuPresentationText($this->scene->getPresentationCanvas())['save-info-description'])->toBe('Choose a file.');
 })->with([false, true]);
 
-it('diagnoses unrenderable content or invalid art and recovers without mutating the owner', function () {
+it('diagnoses unrenderable content and recovers without mutating the owner', function () {
   file_put_contents($this->root . '/' . MenuPresentationCatalog::FILE, '<?php return ' . var_export(mainMenuPresentationTheme(false), true) . ';');
   $this->runtime = mainMenuPresentationRuntime($this->root, MenuPresentationCatalog::CAPABILITIES);
   $this->game->useRendererRuntime($this->runtime);
@@ -637,11 +655,7 @@ it('diagnoses unrenderable content or invalid art and recovers without mutating 
   expect($this->scene->getPresentationCanvas())->toBeNull()->and($this->state->getPresentationMode())->toBe($mode);
   $this->state->infoPanel->setText('Recovered description');
   expect($this->scene->getPresentationCanvas())->toBeInstanceOf(PresentationCanvas::class);
-  file_put_contents($this->root . '/portrait.png', 'invalid PNG');
-  clearstatcache();
-  expect($this->scene->getPresentationCanvas())->toBeNull()->and($this->state->getPresentationMode())->toBe($mode);
-  $logs = implode('', array_map(file_get_contents(...), glob($this->root . '/logs/*')));
-  expect($logs)->toContain('Menu presentation degraded to terminal');
+  expect(file_get_contents($this->root . '/logs/error.log'))->toContain('Menu presentation degraded to terminal');
 });
 
 it('keeps default row output identical while separate record treatments retain the same name cursor geometry', function (bool $alternative) {
@@ -738,4 +752,24 @@ it('fits four actors and thirteen commands with framed art and neutral row treat
       ->and(mainMenuPresentationText($frame))->toHaveKeys(['main-party-0-identity-text', 'main-party-1-identity-text',
         'main-party-2-identity-text', 'main-party-3-identity-text', 'main-command-12-text']);
   }
+});
+
+
+it('replaces only the unavailable main menu portrait and retains other cards and frames', function () {
+  $theme = mainMenuPresentationTheme(true);
+  $theme['portraits']['actor.0'] = 'broken.png';
+  file_put_contents($this->root . '/broken.png', 'invalid PNG');
+  file_put_contents($this->root . '/' . MenuPresentationCatalog::FILE, '<?php return ' . var_export($theme, true) . ';');
+  $this->runtime = mainMenuPresentationRuntime($this->root, MenuPresentationCatalog::CAPABILITIES);
+  $this->game->useRendererRuntime($this->runtime);
+  $mode = $this->state->getPresentationMode();
+  $frame = $this->scene->getPresentationCanvas();
+  expect($frame)->toBeInstanceOf(PresentationCanvas::class)
+    ->and(array_column($frame->images, 'asset'))->toContain('portrait.png', 'surface.png')->not->toContain('broken.png')
+    ->and(array_filter($frame->images, fn($image) => $image->asset === 'portrait.png'))->toHaveCount(3)
+    ->and(implode('', mainMenuPresentationText($frame)))->toContain('Items')
+    ->and($this->state->getPresentationMode())->toBe($mode)
+    ->and(file_get_contents($this->root . '/logs/warning.log'))->toContain('broken.png');
+  mainMenuPresentationPng($this->root . '/broken.png', 33, 55);
+  expect(array_column($this->scene->getPresentationCanvas()->images, 'asset'))->toContain('broken.png');
 });

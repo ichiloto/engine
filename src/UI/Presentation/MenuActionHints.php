@@ -12,6 +12,7 @@ use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use InvalidArgumentException;
 use RuntimeException;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 
 /** Inline semantic hints, shared by menus. Glyphs replace controls, never actions or input behavior. */
 final class MenuActionHints
@@ -72,6 +73,7 @@ final class MenuActionHints
       $control = $hint->control;
       // Unknown/missing glyph roles use readable labels, not an unrelated semantic Unknown icon.
       $asset = $control === null ? null : ($theme->icons?->icons[$control->iconRole()] ?? null);
+      if ($asset !== null && PngAssetPreflight::getAvailableSize($theme->assetRoot, $asset) === null) { $asset = null; }
       $glyphCells = (int)ceil($theme->rows->metrics->iconWidth / $theme->metrics->cellWidth);
       if ($glyphCells > $cells) { $asset = null; }
       $label = $control === null ? 'Unbound' : ' ' . $control->label . ' ';

@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\UI\Presentation;
 
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasValidation;
 use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
+use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
 use InvalidArgumentException;
 
 /** Finite atlas playback over current image dimensions, with optional timed travel. */
@@ -22,14 +24,13 @@ final class TitleSpritePresentation
         'phaseSeconds', 'frameOffset', 'opacity', 'fadeFraction']) !== []) {
       throw new InvalidArgumentException('Invalid title sprite descriptor.');
     }
-    $size = PngAssetPreflight::inspect($root, $sprite['asset'] ?? '');
+    SpriteValidation::validateAssetPath($sprite['asset'] ?? '');
     [$columns, $rows] = TitlePresentationCatalog::getNumbers($sprite['grid'] ?? [1, 1], 2);
     $frames = $sprite['frames'] ?? 1;
     $duration = $sprite['frameSeconds'] ?? 1;
     if (!is_int($columns) || !is_int($rows) || min($columns, $rows) < 1 || max($columns, $rows) > 128
       || !is_int($frames) || $frames < 1 || $frames > $columns * $rows
-      || (!is_int($duration) && !is_float($duration)) || !is_finite((float)$duration) || $duration <= 0
-      || $size['width'] < $columns || $size['height'] < $rows) {
+      || (!is_int($duration) && !is_float($duration)) || !is_finite((float)$duration) || $duration <= 0) {
       throw new InvalidArgumentException('Title sprite needs a valid atlas grid and frame duration.');
     }
     new CanvasRectangle(...TitlePresentationCatalog::getNumbers($sprite['destination'] ?? null, 4));
@@ -49,8 +50,10 @@ final class TitleSpritePresentation
     bool $reduced): ?CanvasImage
   {
     if ($opacity <= 0 || ($reduced && !($sprite['reducedVisible'] ?? true))) { return null; }
-    $size = PngAssetPreflight::inspect($root, $sprite['asset']);
+    $size = PngAssetPreflight::getAvailableSize($root, $sprite['asset']);
+    if ($size === null) { return null; }
     [$columns, $rows] = $sprite['grid'] ?? [1, 1];
+    if ($size['width'] < $columns || $size['height'] < $rows) { return null; }
     $frame = $reduced ? 0 : ((int)floor($elapsed / ($sprite['frameSeconds'] ?? 1))
       + ($sprite['frameOffset'] ?? 0)) % ($sprite['frames'] ?? 1);
     $opacity *= $sprite['opacity'] ?? 1;
@@ -69,7 +72,7 @@ final class TitleSpritePresentation
       $x += $sprite['travel'][0] * $phase / $sprite['visibleSeconds'];
       $y += $sprite['travel'][1] * $phase / $sprite['visibleSeconds'];
     }
-    $x1 = max(0, $x); $y1 = max(0, $y); $x2 = min(1350, $x + $w); $y2 = min(720, $y + $h);
+    $x1 = max(0, $x); $y1 = max(0, $y); $x2 = min(PresentationCanvas::DEFAULT_WIDTH, $x + $w); $y2 = min(PresentationCanvas::DEFAULT_HEIGHT, $y + $h);
     if ($x2 <= $x1 || $y2 <= $y1) { return null; }
     $sx1 = (int)floor(($x1 - $x) / $w * $sw); $sy1 = (int)floor(($y1 - $y) / $h * $sh);
     $sx2 = min($sw, (int)ceil(($x2 - $x) / $w * $sw)); $sy2 = min($sh, (int)ceil(($y2 - $y) / $h * $sh));

@@ -88,6 +88,9 @@ function graphicalBattleFixture(bool $skinned = false, bool $directionalCursor =
 function graphicalBattleScene(BattleConfig $battle, ?GraphicalBattlePresentation $presentation, ?BattleCanvasLayout $ui = null): BattleScene
 {
   $scene = new ReflectionClass(BattleScene::class)->newInstanceWithoutConstructor();
+  $game = graphicalBattleConfigurationScene(null)->getGame();
+  new ReflectionProperty(Ichiloto\Engine\Scenes\SceneManager::class, 'game')->setValue($game->sceneManager, $game);
+  new ReflectionProperty(AbstractScene::class, 'sceneManager')->setValue($scene, $game->sceneManager);
   new ReflectionProperty(BattleScene::class, 'config')->setValue($scene, $battle);
   new ReflectionProperty(BattleScene::class, 'graphicalPresentation')->setValue($scene, $presentation);
   new ReflectionProperty(BattleScene::class, 'battleUiLayout')->setValue($scene, $ui);
@@ -555,10 +558,13 @@ it('keeps directional cursors attached to focused and queued targets without add
     fn($image) => preg_match('/^(target-cursor-|queued-|acting-)/', $image->id)))->toBe([]);
 })->with([false, true]);
 
-it('rejects missing configured art or slots rather than mixing terminal battlers', function () {
+it('retains graphical battlers and named targetable fallbacks when another artwork binding is absent', function () {
   [$battle, $catalog] = graphicalBattleFixture();
   $missing = new BattlePresentationCatalog($catalog->arenas, $catalog->actors, []);
-  expect(fn() => GraphicalBattlePresentation::prepare($battle, $missing, $this->root))->toThrow(RuntimeException::class, 'every participant');
+  $frame = GraphicalBattlePresentation::prepare($battle, $missing, $this->root)->frame();
+  expect($frame->images)->toHaveCount(2)
+    ->and(implode(' ', array_merge(...array_map(fn($layer) => array_column($layer->runs, 'text'), $frame->textLayers))))
+    ->toContain($battle->troop->members->toArray()[0]->name);
   expect($battle->entryRulesEvaluated())->toBeFalse()
     ->and($battle->troop->members->toArray()[0]->stats->currentHp)->toBe(100);
 });
@@ -661,8 +667,11 @@ it('loads current optional metadata without persisting it in battle state', func
       ->and($first->actors['Hero']->pivotX)->toBe(71.5);
     [$battle] = graphicalBattleFixture();
     expect($battle->__serialize())->not->toHaveKey('graphicalPresentation')->not->toHaveKey('canvas');
-    expect(fn() => GraphicalBattlePresentation::prepare($battle, $first, $root))->toThrow(RuntimeException::class, 'readable PNG');
-    expect($battle->entryRulesEvaluated())->toBeFalse();
+    $frame = GraphicalBattlePresentation::prepare($battle, $first, $root)->frame();
+    expect($frame->images)->toBeEmpty()
+      ->and($frame->textLayers)->not->toBeEmpty()
+      ->and($battle->entryRulesEvaluated())->toBeFalse()
+      ->and(file_get_contents($this->logRoot . '/warning.log'))->toContain('readable PNG');
   } finally { unlink($file); rmdir(dirname($file)); rmdir($root . '/Data'); rmdir($root); }
 });
 
@@ -779,10 +788,16 @@ it('logs unusable shared UI assets or capabilities and still starts combat', fun
     $scene = graphicalBattleConfigurationScene($runtime);
     [$battle] = graphicalBattleFixture();
     $scene->configure($battle);
-    expect($scene->config)->toBe($battle)->and($scene->battleUiLayout)->toBeNull()
-      ->and($scene->graphicalPresentation)->toBeNull()->and($battle->entryRulesEvaluated())->toBeTrue()
-      ->and(file_get_contents($this->logRoot . '/error.log'))->toContain(
-        'Graphical battle presentation degraded', $missing === null ? 'readable PNG' : 'negotiated ' . $missing);
+    expect($scene->config)->toBe($battle)
+      ->and($scene->graphicalPresentation)->toBeNull()->and($battle->entryRulesEvaluated())->toBeTrue();
+    if ($missing === null) {
+      expect($scene->battleUiLayout)->not->toBeNull()
+        ->and(file_get_contents($this->logRoot . '/warning.log'))->toContain('skin.png')
+        ->and(is_file($this->logRoot . '/error.log'))->toBeFalse();
+    } else {
+      expect($scene->battleUiLayout)->toBeNull()
+        ->and(file_get_contents($this->logRoot . '/error.log'))->toContain('Graphical battle presentation degraded', 'negotiated ' . $missing);
+    }
   } finally {
     $runtime->shutdown();
     if ($missing !== null) { unlink($root . '/skin.png'); }
@@ -856,8 +871,8 @@ it('reconciles authored battler metadata with the artwork on disk', function () 
   // Whole-image artwork (no authored crop) reconciles the same way.
   $whole = new BattlerArtwork('a.png', 100, 120, 50, 100);
   $shrunk = $whole->clampedTo(80, 90);
-  expect($shrunk->sourceRect->toArray())->toBe(['x' => 0, 'y' => 0, 'width' => 80, 'height' => 90])
-    ->and([$shrunk->pivotX, $shrunk->pivotY])->toBe([50.0, 90.0]);
+  expect($shrunk->sourceRect)->toBeNull()->and([$shrunk->width, $shrunk->height])->toBe([80, 90])
+    ->and([$shrunk->pivotX, $shrunk->pivotY])->toBe([40.0, 75.0]);
 });
 
 it('prepares a best-effort graphical battle when artwork changed under its authored crop', function () {
@@ -909,6 +924,62 @@ it('accepts replacement images at the same asset path without changing character
     }
   } finally {
     foreach (['hero.png', 'twin.png', 'arena.png'] as $asset) { unlink($root . '/' . $asset); }
+    rmdir($root);
+  }
+});
+
+it('derives whole battler dimensions and preserves normalized pivots across replacements', function () {
+  $root = sys_get_temp_dir() . '/ichiloto-whole-battler-' . bin2hex(random_bytes(5));
+  mkdir($root);
+  try {
+    copy($this->root . '/graphical-canvas/synthetic-143x181.png', $root . '/hero.png');
+    $art = BattlerArtwork::getFromPng($root, 'hero.png', 0.25, 0.9);
+    expect([$art->width, $art->height])->toBe([143, 181])
+      ->and($art->sourceRect)->toBeNull()
+      ->and($art->pivotX)->toBe(35.75)
+      ->and($art->pivotY)->toBe(162.9);
+    foreach ([[80, 240], [300, 100], [20, 30]] as [$width, $height]) {
+      $current = $art->clampedTo($width, $height);
+      expect([$current->width, $current->height])->toBe([$width, $height])
+        ->and($current->sourceRect)->toBeNull()
+        ->and($current->pivotX)->toBe($width * 0.25)
+        ->and($current->pivotY)->toEqualWithDelta($height * 0.9, 0.000001);
+    }
+    foreach ([-0.1, 1.1, INF, NAN] as $pivot) {
+      expect(fn() => BattlerArtwork::getFromPng($root, 'hero.png', $pivot))->toThrow(InvalidArgumentException::class);
+    }
+  } finally {
+    unlink($root . '/hero.png');
+    rmdir($root);
+  }
+});
+
+it('keeps a prepared battle usable as individual background battler and target assets disappear', function () {
+  $root = sys_get_temp_dir() . '/ichiloto-live-battle-assets-' . bin2hex(random_bytes(5));
+  mkdir($root . '/graphical-canvas', 0777, true);
+  $assets = ['test-sprite.png', 'graphical-canvas/synthetic-320x180.png', 'graphical-canvas/synthetic-143x181.png'];
+  foreach ($assets as $asset) { copy($this->root . '/' . $asset, $root . '/' . $asset); }
+  try {
+    [$battle, $catalog, $hero] = graphicalBattleFixture(true);
+    $presentation = GraphicalBattlePresentation::prepare($battle, $catalog, $root);
+    $scene = graphicalBattleScene($battle, $presentation);
+    $scene->ui->fieldWindow->focusPartyBattlers([0]);
+    unlink($root . '/test-sprite.png');
+    $frame = $presentation->frame($scene->ui->fieldWindow, focus: 'target');
+    expect($frame->images)->toHaveCount(4)
+      ->and($frame->indicators)->toHaveCount(1)
+      ->and($frame->indicators[0]->kind)->toBe(Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasIndicatorKind::OUTLINE);
+    unlink($root . '/graphical-canvas/synthetic-320x180.png');
+    expect($presentation->frame($scene->ui->fieldWindow)->images)->toHaveCount(3);
+    unlink($root . '/graphical-canvas/synthetic-143x181.png');
+    $frame = $presentation->frame($scene->ui->fieldWindow);
+    expect($frame->images)->toBeEmpty()->and($frame->textLayers)->not->toBeEmpty()
+      ->and($hero->stats->currentHp)->toBe(100)->and($battle->entryRulesEvaluated())->toBeFalse();
+    copy($this->root . '/graphical-canvas/synthetic-143x181.png', $root . '/graphical-canvas/synthetic-143x181.png');
+    expect($presentation->frame()->images)->toHaveCount(3);
+  } finally {
+    foreach ($assets as $asset) { if (is_file($root . '/' . $asset)) { unlink($root . '/' . $asset); } }
+    rmdir($root . '/graphical-canvas');
     rmdir($root);
   }
 });

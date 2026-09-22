@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\UI\Presentation;
 
+use Ichiloto\Engine\Rendering\Presentation\StyledPresentationFrame;
+
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
@@ -16,10 +18,10 @@ final class MenuCanvasTextBatch
   public static function compact(array $layers): array
   {
     foreach ($layers as $index => $a) {
-      if (count($layers) <= 64) { break; }
+      if (count($layers) <= StyledPresentationFrame::MAX_TEXT_LAYERS) { break; }
       if (!isset($layers[$index]) || !self::eligible($a)) { continue; }
       foreach ($layers as $other => $b) {
-        if (count($layers) <= 64) { break 2; }
+        if (count($layers) <= StyledPresentationFrame::MAX_TEXT_LAYERS) { break 2; }
         if ($other <= $index || !self::eligible($b) || $a->layer !== $b->layer || $a->opacity !== $b->opacity
           || $a->grid->cellWidth !== $b->grid->cellWidth || $a->grid->cellHeight !== $b->grid->cellHeight) { continue; }
         // Moving this run group must not change the order of any overlapping same-layer text.
@@ -35,7 +37,7 @@ final class MenuCanvasTextBatch
         }
         $columns = (int)((max($a->bounds->x + $a->bounds->width, $b->bounds->x + $b->bounds->width) - $x) / $cw);
         $rows = (int)((max($a->bounds->y + $a->bounds->height, $b->bounds->y + $b->bounds->height) - $y) / $ch);
-        if ($columns > 512 || $rows > 256) { continue; }
+        if ($columns > RendererGridConfig::MAX_COLUMNS || $rows > RendererGridConfig::MAX_ROWS) { continue; }
         $runs = [];
         foreach ([$a, $b] as $text) {
           foreach ($text->runs as $run) {

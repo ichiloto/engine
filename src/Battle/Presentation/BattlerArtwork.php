@@ -6,11 +6,23 @@ namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use InvalidArgumentException;
 
 /** Dimensions and pivot are pixels relative to the selected crop (or whole PNG). */
 final readonly class BattlerArtwork
 {
+  /** Whole-image pivots are normalized authoring intent, never duplicate PNG dimensions. */
+  public static function getFromPng(string $assetRoot, string $asset, float $pivotX = 0.5, float $pivotY = 1.0): self
+  {
+    if (!is_finite($pivotX) || !is_finite($pivotY) || min($pivotX, $pivotY) < 0 || max($pivotX, $pivotY) > 1) {
+      throw new InvalidArgumentException('Whole-image pivots must be finite normalized coordinates.');
+    }
+    // An unavailable optional image keeps its identity and pivot intent for its per-battler fallback.
+    $size = PngAssetPreflight::getAvailableSize($assetRoot, $asset) ?? ['width' => 1, 'height' => 1];
+    return new self($asset, $size['width'], $size['height'], $pivotX * $size['width'], $pivotY * $size['height']);
+  }
+
   public function __construct(
     public string $asset,
     public int $width,
@@ -35,8 +47,9 @@ final readonly class BattlerArtwork
    * the engine renders best-effort against any revision of it. A crop that
    * still overlaps the image clamps to it; a crop that no longer exists at
    * all falls back to the whole image, so the developer always sees their
-   * art. The pivot clamps into whatever renders. Metadata that already fits
-   * passes through as this same instance.
+   * art. Cropped pivots clamp into whatever renders. Whole-image pivots
+   * retain their normalized position as the complete image changes size.
+   * Metadata that already fits passes through as this same instance.
    *
    * @param int $imageWidth The image's current width in pixels.
    * @param int $imageHeight The image's current height in pixels.
@@ -44,7 +57,13 @@ final readonly class BattlerArtwork
    */
   public function clampedTo(int $imageWidth, int $imageHeight): self
   {
-    $authored = $this->sourceRect ?? new SpriteSourceRect(0, 0, $this->width, $this->height);
+    if ($this->sourceRect === null) {
+      return $imageWidth === $this->width && $imageHeight === $this->height ? $this : new self(
+        $this->asset, $imageWidth, $imageHeight,
+        $this->pivotX / $this->width * $imageWidth, $this->pivotY / $this->height * $imageHeight,
+      );
+    }
+    $authored = $this->sourceRect;
 
     if ($authored->x >= $imageWidth || $authored->y >= $imageHeight) {
       return new self(

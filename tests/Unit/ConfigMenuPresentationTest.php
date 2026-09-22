@@ -23,6 +23,7 @@ use Ichiloto\Engine\UI\Presentation\MenuRowLayout;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Util\Debug;
 use Tests\Support\Input\FakeInputSource;
 
 require_once __DIR__ . '/../Support/Input/FakeInputSource.php';
@@ -96,11 +97,12 @@ function getConfigTextPosition(PresentationCanvas $frame, string $text, ?float $
 
 beforeEach(function () {
   $this->statics = [];
-  foreach ([Console::class, InputManager::class, ConfigStore::class, AudioManager::class, ActionHints::class] as $class) {
+  foreach ([Console::class, InputManager::class, ConfigStore::class, AudioManager::class, ActionHints::class, Debug::class] as $class) {
     $this->statics[$class] = new ReflectionClass($class)->getStaticProperties();
   }
   $this->root = sys_get_temp_dir() . '/ichiloto-config-menu-' . bin2hex(random_bytes(5));
   mkdir($this->root);
+  Debug::configure(['log_directory' => $this->root]);
   foreach (['surface', 'arrow', 'thumb'] as $file) { configPresentationPng($this->root . '/' . $file . '.png', 71, 39); }
   $this->config = new ConfigPresentationMemoryConfig(['audio' => ['master_volume' => 75, 'music' => false, 'sfx' => false]]);
   ConfigStore::put(ProjectConfig::class, $this->config);
@@ -250,9 +252,17 @@ it('loads the four optional surfaces and exact control roles using current repla
   $sliced['frames']['slider.thumb']['cuts'] = [2, 2, 2, 2];
   $frame = ConfigMenuPresentation::compose($this->menu, new MenuPresentationCatalog($this->root, $sliced));
   expect(array_filter($frame->images, fn($image) => str_starts_with($image->id, 'config-level-0-thumb-')))->toHaveCount(9);
-  $data = configPresentationTheme();
+  $data = configPresentationTheme(true);
   $data['frames']['slider.thumb'] = ['asset' => 'absent.png'];
-  expect(fn() => new MenuPresentationCatalog($this->root, $data))->toThrow(RuntimeException::class);
+  $theme = new MenuPresentationCatalog($this->root, $data);
+  expect(file_exists($this->root . '/warning.log'))->toBeFalse();
+  $writes = $this->config->writes;
+  $frame = ConfigMenuPresentation::compose($this->menu, $theme, width: 960, height: 540);
+  expect(array_column($frame->textLayers, 'id'))->toContain('config-level-0-thumb')
+    ->and(array_column($frame->images, 'asset'))->toContain('surface.png', 'arrow.png')->not->toContain('absent.png')
+    ->and(configPresentationText($frame)['config-setting-0-text'])->not->toBe('')
+    ->and($this->config->writes)->toBe($writes)
+    ->and(file_get_contents($this->root . '/warning.log'))->toContain('absent.png');
 });
 
 it('uses chevrons for controllable values without borrowing comparison or unknown art', function () {

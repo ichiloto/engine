@@ -34,7 +34,13 @@ final class Debug
 
   public static function warn(mixed $message): void
   {
-    self::write(self::WARNING, "WARN", $message, "debug.log");
+    // Recoverable runtime diagnostics remain available in production, without becoming failures themselves.
+    try {
+      @self::writeLine("WARN", $message, "warning.log");
+      @self::write(self::WARNING, "WARN", $message, "debug.log");
+    } catch (RuntimeException) {
+      error_log(self::getFormattedMessage($message, "WARN"));
+    }
   }
 
   public static function error(mixed $message): void

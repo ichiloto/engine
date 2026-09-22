@@ -8,6 +8,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextureFallback;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
@@ -24,7 +25,7 @@ final class GraphicalBattlePause
   private float $opacity;
 
   private function __construct(private BattlePauseSkin $skin, BattlePauseMenu $menu,
-    int $canvasWidth, int $canvasHeight, private int $width, private int $height)
+    int $canvasWidth, int $canvasHeight, private int $width, private int $height, private ?string $assetRoot)
   {
     $this->scale = $menu->scale();
     $this->opacity = $menu->opacity();
@@ -35,14 +36,16 @@ final class GraphicalBattlePause
   /** @param list<CanvasImage> $battlefield */
   public static function preflight(BattlePauseSkin $skin, string $root, array $battlefield = []): void
   {
-    CanvasImagePreflight::inspect([...$battlefield, ...CanvasImagePreflight::textures(array_values($skin->textures))], $root);
+    CanvasImagePreflight::inspect([...$battlefield, ...CanvasImagePreflight::textures(
+      CanvasTextureFallback::getAvailableTextures(array_values($skin->textures), $root))], $root);
     foreach (['panel' => [400, 320], 'normal' => [336, 40], 'selected' => [336, 40],
       'pressed' => [336, 40], 'focus' => [336, 40], 'selector' => [16, 16], 'divider' => [72, 12]] as $role => [$w, $h]) {
       $skin->textures[$role]->images('pause-preflight', new CanvasRectangle(0, 0, $w, $h), 0);
     }
   }
 
-  public static function frame(PresentationCanvas $battlefield, BattlePauseSkin $skin, BattlePauseMenu $menu): PresentationCanvas
+  public static function frame(PresentationCanvas $battlefield, BattlePauseSkin $skin, BattlePauseMenu $menu,
+    ?string $assetRoot = null): PresentationCanvas
   {
     if ($menu->isClosed()) { return $battlefield; }
     $confirm = $menu->confirmation !== null;
@@ -51,12 +54,12 @@ final class GraphicalBattlePause
     if ($battlefield->width < $width || $battlefield->height < $height) {
       throw new InvalidArgumentException('Pause panel exceeds the logical canvas; use the existing minimum-window/uniform-fit policy.');
     }
-    $view = new self($skin, $menu, $battlefield->width, $battlefield->height, $width, $height);
+    $view = new self($skin, $menu, $battlefield->width, $battlefield->height, $width, $height, $assetRoot);
     $view->fill('backing', 0, 0, $width, $height, 'ink', 10000);
-    $view->image('panel', 'panel', 0, 0, $width, $height);
+    $view->renderImage('panel', 'panel', 0, 0, $width, $height);
     $view->line('heading', $menu->heading(), 0, $confirm ? 28 : 24, $width, 14, 36);
     $dividerY = $confirm ? 75 : 66;
-    $view->image('divider', 'divider', ($width - 72) / 2, $dividerY, 72, 12);
+    $view->renderImage('divider', 'divider', ($width - 72) / 2, $dividerY, 72, 12);
     $view->fill('rule-left', 32, $dividerY + 6, ($width - 72) / 2 - 40, 1, 'accent', 10001);
     $view->fill('rule-right', ($width + 72) / 2 + 8, $dividerY + 6, ($width - 72) / 2 - 40, 1, 'accent', 10001);
     if ($confirm) { $view->line('warning', BattlePauseMenu::WARNING, 32, 104, $width - 64, 10, 28); }
@@ -66,12 +69,12 @@ final class GraphicalBattlePause
       $y = $confirm ? 164 : 86 + $index * 44;
       $rowHeight = $confirm ? 44 : 40;
       $selected = $menu->selection === $index;
-      $view->image('row-' . $index, $selected ? ($menu->isPressed() ? 'pressed' : 'selected') : 'normal', $x, $y, $rowWidth, $rowHeight);
+      $view->renderImage('row-' . $index, $selected ? ($menu->isPressed() ? 'pressed' : 'selected') : 'normal', $x, $y, $rowWidth, $rowHeight);
       if ($selected) {
-        $view->image('focus', 'focus', $x, $y, $rowWidth, $rowHeight);
+        $view->renderImage('focus', 'focus', $x, $y, $rowWidth, $rowHeight);
         if (!$confirm) {
           $offset = GraphicalBattleHud::cursorOffset($menu->time(), $menu->reducedMotion || !$menu->isReady());
-          $view->image('cursor', 'selector', $x + 17 + $offset, $y + ($rowHeight - 16) / 2, 16, 16);
+          $view->renderImage('cursor', 'selector', $x + 17 + $offset, $y + ($rowHeight - 16) / 2, 16, 16);
         }
       }
       $view->line('label-' . $index, $label, $x, $y + ($rowHeight - 28) / 2, $rowWidth, 10, 28);
@@ -80,9 +83,22 @@ final class GraphicalBattlePause
       [...$battlefield->images, ...$view->images], $battlefield->indicators, [...$battlefield->textLayers, ...$view->text]);
   }
 
-  private function image(string $id, string $role, float $x, float $y, float $width, float $height): void
+  private function renderImage(string $id, string $role, float $x, float $y, float $width, float $height): void
   {
-    foreach ($this->skin->textures[$role]->images('pause-' . $id, new CanvasRectangle($x, $y, $width, $height), 10002) as $image) {
+    $texture = $this->skin->textures[$role];
+    $images = $texture->images('pause-' . $id, new CanvasRectangle($x, $y, $width, $height), 10002);
+    if (!CanvasTextureFallback::isAvailable($texture, $this->assetRoot)) {
+      // Focus is an outline treatment; a solid overlay would obscure a healthy button.
+      if ($role === 'focus') {
+        $this->fill($id . '-fallback', $x, $y + $height - 2, $width, 2, 'accent', 10002);
+      } else {
+        $color = in_array($role, ['selector', 'divider'], true) ? 'accent' : 'ink';
+        $layer = $role === 'panel' ? 10000 : (in_array($role, ['normal', 'selected', 'pressed'], true) ? 10001 : 10002);
+        $this->fill($id . '-fallback', $x, $y, $width, $height, $color, $layer);
+      }
+      return;
+    }
+    foreach ($images as $image) {
       $rect = $image->destination;
       $this->images[] = new CanvasImage($image->id, $image->asset, $this->rect($rect->x, $rect->y, $rect->width, $rect->height),
         $image->layer, $image->sourceRect, $this->opacity);
@@ -103,16 +119,7 @@ final class GraphicalBattlePause
   private function fill(string $id, float $x, float $y, float $width, float $height, string $color, int $layer): void
   {
     $rect = $this->rect($x, $y, $width, $height);
-    $columns = (int)ceil($rect->width / 256);
-    $rows = (int)ceil($rect->height / 256);
-    $cw = (int)ceil($rect->width / $columns);
-    $ch = (int)ceil($rect->height / $rows);
-    $runs = [];
-    for ($row = 0; $row < $rows; $row++) {
-      $runs[] = new PresentationTextRun($row, 0, str_repeat(' ', $columns), background: $this->skin->colors[$color]);
-    }
-    $this->text[] = new CanvasTextLayer('pause-' . $id, $layer, $rect->x, $rect->y,
-      new RendererGridConfig($columns, $rows, $cw, $ch), $runs, $rect, $this->opacity);
+    $this->text[] = CanvasTextureFallback::createFill('pause-' . $id, $rect, $layer, $this->skin->colors[$color], $this->opacity);
   }
 
   private function rect(float $x, float $y, float $width, float $height): CanvasRectangle

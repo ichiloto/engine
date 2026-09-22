@@ -12,14 +12,17 @@ use RuntimeException;
 /** Complete binding lookup over the existing input owner, not an input or device implementation. */
 final class ControlsMenuPresentation
 {
+  // A compact binding lookup leaves more scenery visible than full-page menus.
+  private const int MAX_HEIGHT = 560;
+  // Description prose receives just under half; action names and glyphs share the rest.
+  private const float DESCRIPTION_WIDTH_SHARE = 0.48;
   public static function compose(ControlsMenuContent $content, MenuPresentationCatalog $theme, float $time = 0,
-    int $width = 1350, int $height = 720): PresentationCanvas
+    int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT): PresentationCanvas
   {
     $m = $theme->metrics;
     $p = $m->panelPadding;
     $gap = $m->sectionGap;
-    $host = new CanvasRectangle(($width - min(1100, $width - 20)) / 2, ($height - min(560, $height - 20)) / 2,
-      min(1100, $width - 20), min(560, $height - 20));
+    $host = MenuLayout::getBounds($width, $height, self::MAX_HEIGHT);
     $innerWidth = $host->width - 2 * $p;
     $cells = (int)floor($innerWidth / $m->cellWidth);
     $active = $content->rows[$content->index] ?? null;
@@ -47,7 +50,7 @@ final class ControlsMenuPresentation
       return $view->finish();
     }
     $glyphCells = max(array_map(fn($row) => ControlGlyphPresentation::cells($row['control'], $theme), $content->rows));
-    $descriptionCells = max(1, (int)floor(($bounds->width - 2 * $theme->rows->metrics->padding) * 0.48 / $m->cellWidth));
+    $descriptionCells = max(1, (int)floor(($bounds->width - 2 * $theme->rows->metrics->padding) * self::DESCRIPTION_WIDTH_SHARE / $m->cellWidth));
     $columns = [new MenuRowColumn($glyphCells, HorizontalAlignment::CENTER), new MenuRowColumn($descriptionCells, HorizontalAlignment::LEFT)];
     $layout = new MenuRowLayout($bounds, $columns, $m->rowHeight, $m->cellWidth, $m->cellHeight, true);
     $layout->assertFits($theme->rows->metrics);

@@ -345,7 +345,6 @@ it('submits through the existing renderer and retains reading position around su
 
 it('retains useful terminal reading and diagnostics for absent or unavailable graphical presentation', function (bool $records, string $reason) {
   $theme = $reason === 'absent' ? null : journalMenuTheme();
-  if ($reason === 'invalid') { $theme['frames'] = ['panel' => ['asset' => 'missing.png']]; }
   if ($reason === 'viewport') { $theme['metrics'] = ['panelPadding' => 200]; }
   journalMenuRuntime($this, $theme, $reason === 'capabilities' ? [] : null);
   $state = journalMenuOwner($this, $records);
@@ -356,7 +355,7 @@ it('retains useful terminal reading and diagnostics for absent or unavailable gr
   $panel = new ReflectionProperty($state, $records ? 'infoPanel' : 'listPanel')->getValue($state);
   expect(implode('', $panel->getContent()))->not->toBe('');
   if ($reason !== 'absent') { expect(file_get_contents($this->root . '/logs/error.log'))->toContain('Menu presentation degraded to terminal'); }
-})->with([false, true])->with(['absent', 'capabilities', 'invalid', 'viewport']);
+})->with([false, true])->with(['absent', 'capabilities', 'viewport']);
 
 it('handles empty tabs without synthetic records or detail focus and resumes after source removal', function (bool $records) {
   if ($records) {
@@ -463,3 +462,22 @@ it('bounds dense journal layers and measures wrapped category tabs', function (a
   'dense' => [['cellWidth' => 6, 'cellHeight' => 12, 'rowHeight' => 24, 'panelPadding' => 16, 'sectionGap' => 8], 1350, 720],
   'wide glyphs' => [['cellWidth' => 16], 960, 540],
 ]);
+
+
+it('keeps journal text and healthy artwork when a panel frame is unavailable', function (bool $records) {
+  $theme = journalMenuTheme(true);
+  $theme['frames']['panel'] = ['asset' => 'missing.png'];
+  journalMenuRuntime($this, $theme);
+  $state = journalMenuOwner($this, $records);
+  $before = $state->getPresentationContent();
+  $frame = $this->scene->getPresentationCanvas();
+  expect($frame)->toBeInstanceOf(PresentationCanvas::class)
+    ->and(implode('', journalMenuText($frame)))->not->toBe('')
+    ->and(array_column($frame->images, 'asset'))->toContain('surface.png')->not->toContain('missing.png')
+    ->and($state->getPresentationContent())->toEqual($before)
+    ->and(file_get_contents($this->root . '/logs/warning.log'))->toContain('missing.png');
+  journalMenuKey($state, KeyCode::ENTER);
+  journalMenuKey($state, KeyCode::DOWN);
+  expect($state->getPresentationContent()->detailsOpen)->toBeTrue()
+    ->and($this->scene->getPresentationCanvas())->toBeInstanceOf(PresentationCanvas::class);
+})->with([false, true]);

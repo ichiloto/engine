@@ -324,7 +324,7 @@ it('uses optional state delegation and restores the same active menu after a mod
     ->and($this->state->currentMode())->toBeInstanceOf(EquipmentMenuCommandSelectionMode::class);
 });
 
-it('loads menu-only capabilities without a battle theme and keeps absent and terminal paths unchanged', function () {
+it('negotiates a base session independently of optional theme files', function () {
   $resolver = new class implements RendererExecutableResolverInterface {
     public function resolve(string $rendererId): string { return PHP_BINARY; }
   };
@@ -337,10 +337,9 @@ it('loads menu-only capabilities without a battle theme and keeps absent and ter
   characterMenuWriteTheme($this->root, ['schema' => 'ichiloto.menu/1']);
   $configured = $registry->require('gpui')->createRuntime($this->root);
   $config = new ReflectionProperty($configured, 'config')->getValue($configured);
-  expect($config->requiredCapabilities)->toContain(...MenuPresentationCatalog::CAPABILITIES)
-    ->toContain(RendererSessionConfig::WINDOW_ACTIVATION)
+  expect($config->requiredCapabilities)->toBe([RendererSessionConfig::SPRITE_SOURCE_RECT, RendererSessionConfig::TILE_BATCHES])
     ->and(is_file($this->root . '/Data/Presentation/battle.php'))->toBeFalse();
-  $this->runtime = characterMenuRuntime($this->root, $config->requiredCapabilities);
+  $this->runtime = characterMenuRuntime($this->root, array_values(array_unique([...$config->requiredCapabilities, ...MenuPresentationCatalog::CAPABILITIES])));
   $this->game->useRendererRuntime($this->runtime);
   expect($this->scene->getPresentationCanvas())->toBeInstanceOf(PresentationCanvas::class);
   foreach (MenuPresentationCatalog::CAPABILITIES as $capability) { expect($this->runtime->supports($capability))->toBeTrue(); }
@@ -353,6 +352,13 @@ it('diagnoses unsupported capabilities and invalid configured assets without cha
   $this->runtime = characterMenuRuntime($this->root, $failure === 'capability' ? [] : MenuPresentationCatalog::CAPABILITIES);
   $this->game->useRendererRuntime($this->runtime);
   $mode = $this->state->currentMode();
+  if ($failure === 'asset') {
+    $frame = $this->scene->getPresentationCanvas();
+    expect($frame)->toBeInstanceOf(PresentationCanvas::class)
+      ->and(array_filter($frame->images, fn($image) => $image->asset === 'portrait.png'))->toHaveCount(1)
+      ->and($this->state->currentMode())->toBe($mode)->and($this->state->character)->toBe($this->actor);
+    return;
+  }
   expect($this->scene->getPresentationCanvas())->toBeNull()->and($this->scene->getPresentationCanvas())->toBeNull()
     ->and($this->state->currentMode())->toBe($mode)->and($this->state->character)->toBe($this->actor);
   $log = file_get_contents($this->root . '/logs/error.log');
@@ -471,14 +477,24 @@ it('rejects malformed configured themes while terminal mode never evaluates them
   [['schema' => 'ichiloto.menu/1', 'frames' => ['panel' => ['asset' => '../outside.png']]]],
 ]);
 
-it('uses the existing explicit handshake diagnostic when a renderer cannot acknowledge requested menu capabilities', function () {
+it('starts a themed project with only base capabilities and retains terminal menus', function () {
   characterMenuWriteTheme($this->root, ['schema' => 'ichiloto.menu/1']);
   $transport = new FakeRendererTransport();
-  $transport->batches = [[RendererEvent::fromJson('{"type":"ready","protocol":2,"capabilities":[]}')]];
+  // Even malformed optional title/battle catalogs must not execute during registry discovery.
+  file_put_contents($this->root . '/Data/Presentation/title.php', '<?php throw new RuntimeException("optional title");');
+  file_put_contents($this->root . '/Data/Presentation/battle.php', '<?php throw new RuntimeException("optional battle");');
+  $registry = new RendererRegistry(new class implements RendererExecutableResolverInterface {
+    public function resolve(string $rendererId): string { return 'not-launched'; }
+  });
+  $discovered = $registry->require('gpui')->createRuntime($this->root);
+  $config = new ReflectionProperty($discovered, 'config')->getValue($discovered);
+  $transport->batches = [[RendererEvent::fromJson('{"type":"ready","protocol":2,"capabilities":["sprite_source_rect","tile_batches"]}')]];
   $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['not-launched']), $this->root,
-    requiredCapabilities: MenuPresentationCatalog::requestedCapabilities($this->root)), $transport);
-  expect(fn() => $this->runtime->start('Fixture', 135, 36))
-    ->toThrow(\Ichiloto\Engine\Rendering\Transport\Exceptions\RendererProtocolException::class, 'required capabilities');
+    requiredCapabilities: $config->requiredCapabilities), $transport);
+  $this->runtime->start('Fixture', 135, 36);
+  $this->game->useRendererRuntime($this->runtime);
+  expect($this->scene->getPresentationCanvas())->toBeNull()
+    ->and($this->state->character)->toBe($this->actor);
 });
 
 it('refreshes both menu footers from live semantic rebindings without consuming input or changing owners', function (bool $alternative) {

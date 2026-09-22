@@ -13,8 +13,15 @@ use RuntimeException;
 /** Shared Abilities/Magic layout. Learning, sorting, casting and targeting stay with the owner. */
 final class SkillMenuPresentation
 {
+  // Summary identity/resources leave the remaining width for learned/equipped counts.
+  private const float IDENTITY_WIDTH_SHARE = 0.30;
+  private const float RESOURCE_WIDTH_SHARE = 0.27;
+  // Preserve the established detail column relative to the common menu envelope.
+  private const int DETAIL_WIDTH = 380;
+  // Value columns may use at most three fifths, preserving room for the skill name.
+  private const float VALUE_WIDTH_SHARE = 3 / 5;
   public static function compose(SkillMenuContent $content, MenuPresentationCatalog $theme, float $time = 0,
-    int $width = 1350, int $height = 720): PresentationCanvas
+    int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT): PresentationCanvas
   {
     $m = $theme->metrics;
     $p = $m->panelPadding;
@@ -23,8 +30,8 @@ final class SkillMenuPresentation
     $innerWidth = $host->width - 2 * $p;
     $actor = $content->character;
     $portrait = isset($theme->portraits[$actor->actorId]) ? $m->portraitSize : 0;
-    $identityWidth = floor($innerWidth * 0.30);
-    $resourcesWidth = floor($innerWidth * 0.27);
+    $identityWidth = floor($innerWidth * self::IDENTITY_WIDTH_SHARE);
+    $resourcesWidth = floor($innerWidth * self::RESOURCE_WIDTH_SHARE);
     $countsWidth = $innerWidth - $identityWidth - $resourcesWidth - 2 * $gap;
     $nameWidth = $identityWidth - ($portrait > 0 ? $portrait + $gap : 0);
     $identity = $content->title . "\n" . $actor->name . "\nRole: " . $actor->role->name;
@@ -68,7 +75,7 @@ final class SkillMenuPresentation
       $view->rows('skill-tab', [new MenuRow((string)$index, $label, kind: MenuRowKind::BUTTON, selected: $index === $content->tabIndex)],
         new MenuRowLayout($bounds, rowHeight: $m->rowHeight, cellWidth: $m->cellWidth, cellHeight: $m->cellHeight, wrapText: true));
     }
-    $detailWidth = $host->width * 380 / 1100;
+    $detailWidth = $host->width * self::DETAIL_WIDTH / MenuLayout::MAX_WIDTH;
     $details = new CanvasRectangle($host->x, $tabs->y + $tabHeight, $detailWidth, $bodyHeight);
     $list = new CanvasRectangle($details->x + $details->width, $details->y, $host->width - $detailWidth, $bodyHeight);
     $view->frame('skill-details', $details);
@@ -106,7 +113,7 @@ final class SkillMenuPresentation
         foreach ($row->values as $index => $value) { $sizes[$index] = max($sizes[$index] ?? 1, mb_strlen($value->text)); }
       }
       $available = (int)floor(($listBounds->width - 2 * $theme->rows->metrics->padding) / $m->cellWidth);
-      $cap = max(1, (int)floor($available * 0.60 / max(1, count($sizes))));
+      $cap = max(1, (int)floor($available * self::VALUE_WIDTH_SHARE / max(1, count($sizes))));
       $columns = array_map(fn($size) => new MenuRowColumn(min($size, $cap)), $sizes);
       $view->rows('skill-entry', $content->rows, new MenuRowLayout($listBounds, $columns,
         $m->rowHeight, $m->cellWidth, $m->cellHeight, true), $content->index);

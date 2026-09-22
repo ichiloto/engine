@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\UI\Presentation;
 
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
-use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
+use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use InvalidArgumentException;
 use RuntimeException;
@@ -14,6 +15,10 @@ use RuntimeException;
 final readonly class TitlePresentationCatalog
 {
   public const string FILE = 'Data/Presentation/title.php';
+  /** Default logical registrations: logo x/y/width, menu x/y/width/height, button x/y/width/height/gap. */
+  public const array DEFAULT_LOGO_PLACEMENT = [409, 16, 532];
+  public const array DEFAULT_MENU = [507, 374, 336, 292];
+  public const array DEFAULT_BUTTONS = [24, 20, 288, 44, 8];
   public const array CAPABILITIES = [...MenuPresentationCatalog::CAPABILITIES, RendererSessionConfig::CANVAS_COMPOSITING,
     RendererSessionConfig::WINDOW_ACTIVATION];
   public MenuPresentationCatalog $theme;
@@ -32,16 +37,16 @@ final readonly class TitlePresentationCatalog
     }
     $this->theme = new MenuPresentationCatalog($assetRoot, $data['theme'] ?? []);
     $this->logo = $data['logo'] ?? '';
-    PngAssetPreflight::inspect($assetRoot, $this->logo);
-    $this->logoPlacement = self::getNumbers($data['logoPlacement'] ?? [409, 16, 532], 3);
+    SpriteValidation::validateAssetPath($this->logo);
+    $this->logoPlacement = self::getNumbers($data['logoPlacement'] ?? self::DEFAULT_LOGO_PLACEMENT, 3);
     [$x, $y, $width] = $this->logoPlacement;
-    if ($x < 0 || $y < 0 || $width <= 0 || $x + $width > 1350 || $y >= 720) {
+    if ($x < 0 || $y < 0 || $width <= 0 || $x + $width > PresentationCanvas::DEFAULT_WIDTH || $y >= PresentationCanvas::DEFAULT_HEIGHT) {
       throw new InvalidArgumentException('Title logo registration must fit the logical canvas.');
     }
-    $this->menu = new CanvasRectangle(...self::getNumbers($data['menu'] ?? [507, 374, 336, 292], 4));
-    $this->menu->assertWithin(1350, 720);
+    $this->menu = new CanvasRectangle(...self::getNumbers($data['menu'] ?? self::DEFAULT_MENU, 4));
+    $this->menu->assertWithin(PresentationCanvas::DEFAULT_WIDTH, PresentationCanvas::DEFAULT_HEIGHT);
     if ($y >= $this->menu->y) { throw new InvalidArgumentException('Title logo must have room above its menu.'); }
-    $this->buttons = self::getNumbers($data['buttons'] ?? [24, 20, 288, 44, 8], 5);
+    $this->buttons = self::getNumbers($data['buttons'] ?? self::DEFAULT_BUTTONS, 5);
     [$bx, $by, $bw, $bh, $gap] = $this->buttons;
     if (min($bx, $by, $gap) < 0 || min($bw, $bh) <= 0 || $bx + $bw > $this->menu->width
       || $by + $bh > $this->menu->height) {
@@ -55,7 +60,7 @@ final readonly class TitlePresentationCatalog
       if (!is_array($scene) || array_diff(array_keys($scene), ['background', 'sprites', 'effects']) !== []) {
         throw new InvalidArgumentException('Title scenery requires a background and optional sprite registrations.');
       }
-      PngAssetPreflight::inspect($assetRoot, $scene['background'] ?? '');
+      SpriteValidation::validateAssetPath($scene['background'] ?? '');
       TitleAmbientPresentation::getOperations($scene['background'], $scene['effects'] ?? [], 0, 1);
       if (!is_array($scene['sprites'] ?? [])) { throw new InvalidArgumentException('Title sprites must be an array.'); }
       if (count($scene['sprites'] ?? []) > 32) { throw new InvalidArgumentException('Title supports at most 32 sprite subjects per scene.'); }
@@ -67,7 +72,7 @@ final readonly class TitlePresentationCatalog
     $this->gleam = $data['gleam'] ?? null;
     if ($this->gleam !== null) {
       TitleGleamPresentation::getComposite(new \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage('logo',
-        $this->logo, new CanvasRectangle(0, 0, $width, min(720, $width))), $this->gleam, 0, true);
+        $this->logo, new CanvasRectangle(0, 0, $width, min(PresentationCanvas::DEFAULT_HEIGHT, $width))), $this->gleam, 0, true);
     }
   }
 

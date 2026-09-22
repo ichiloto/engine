@@ -15,8 +15,10 @@ use RuntimeException;
 /** Shared settings drawing for Main Menu, Pause and Title; owners retain selection and persistence. */
 final class SettingsMenuPresentation
 {
+  // Values, slider and chevrons share this column; labels retain the majority.
+  private const float VALUE_WIDTH_SHARE = 0.44;
   public static function compose(SettingsMenuContent $menu, MenuPresentationCatalog $theme, float $time = 0,
-    int $width = 1350, int $height = 720): PresentationCanvas
+    int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT): PresentationCanvas
   {
     $m = $theme->metrics;
     $p = $m->panelPadding;
@@ -50,7 +52,7 @@ final class SettingsMenuPresentation
     $settings = $menu->settings;
     $rail = $m->cellHeight;
     $listBox = new CanvasRectangle($x, $listTop, $innerWidth - $m->scrollbarWidth - $gap, $listHeight);
-    $valueCells = max(1, (int)floor(($listBox->width - 2 * $theme->rows->metrics->padding) * 0.44 / $m->cellWidth));
+    $valueCells = max(1, (int)floor(($listBox->width - 2 * $theme->rows->metrics->padding) * self::VALUE_WIDTH_SHARE / $m->cellWidth));
     $layout = new MenuRowLayout($listBox, [new MenuRowColumn($valueCells, HorizontalAlignment::CENTER)],
       $m->rowHeight, $m->cellWidth, $m->cellHeight, true);
     $layout->assertFits($theme->rows->metrics);

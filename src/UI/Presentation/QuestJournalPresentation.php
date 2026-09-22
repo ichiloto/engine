@@ -14,15 +14,17 @@ use RuntimeException;
 /** Persistent quest navigation beside a sectioned, independently scrollable journal. */
 final class QuestJournalPresentation
 {
+  // Quest names use the narrow column; the journal receives the majority for prose.
+  private const float LIST_WIDTH_SHARE = 0.38;
   /** @return array{int, int} */
-  public static function pageSize(JournalMenuContent $content, MenuPresentationCatalog $theme, int $width = 1350, int $height = 720): array
+  public static function pageSize(JournalMenuContent $content, MenuPresentationCatalog $theme, int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT): array
   {
     $text = self::getGeometry($content, $theme, $width, $height)['text'];
     return [(int)floor($text->width / $theme->metrics->cellWidth), (int)floor($text->height / $theme->metrics->cellHeight)];
   }
 
   public static function compose(JournalMenuContent $content, MenuPresentationCatalog $theme, TextPage $page,
-    float $time = 0, int $width = 1350, int $height = 720): PresentationCanvas
+    float $time = 0, int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT): PresentationCanvas
   {
     $g = self::getGeometry($content, $theme, $width, $height);
     [$columns, $rows] = self::pageSize($content, $theme, $width, $height);
@@ -124,11 +126,9 @@ final class QuestJournalPresentation
     $m = $theme->metrics;
     $p = $m->panelPadding;
     $gap = $m->sectionGap;
-    $w = min(1100, $width - 20);
-    $h = min(700, $height - 20);
-    $x = ($width - $w) / 2;
-    $y = ($height - $h) / 2;
-    $leftWidth = floor($w * 0.38);
+    $host = MenuLayout::getBounds($width, $height);
+    [$x, $y, $w, $h] = [$host->x, $host->y, $host->width, $host->height];
+    $leftWidth = floor($w * self::LIST_WIDTH_SHARE);
     $rightX = $x + $leftWidth + $gap;
     $rightWidth = $w - $leftWidth - $gap;
     $gutter = max(28, (int)ceil($theme->rows->metrics->iconWidth + 8));

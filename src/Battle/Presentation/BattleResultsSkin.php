@@ -7,6 +7,7 @@ namespace Ichiloto\Engine\Battle\Presentation;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasNineSlice;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 use Ichiloto\Engine\Util\Debug;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use InvalidArgumentException;
 
 /** Project-owned visual slots, independent of rewards and playback. */
@@ -21,7 +22,7 @@ final readonly class BattleResultsSkin
   /** @var array<string, CanvasNineSlice> */
   public array $icons;
 
-  public function __construct(array $textures, array $colors, array $portraits = [], array $icons = [])
+  public function __construct(array $textures, array $colors, array $portraits = [], array $icons = [], public ?string $assetRoot = null)
   {
     $this->textures = self::roles($textures, CanvasNineSlice::class,
       ['panel', 'quiet', 'track', 'selector', 'portrait', 'exp', 'divider', 'button']);
@@ -57,7 +58,8 @@ final readonly class BattleResultsSkin
   /** Portraits and icons are whole images; their source sizes belong to the files, not the catalog. */
   public function withCurrentImages(string $root): self
   {
-    $resolve = static function (CanvasNineSlice $art) use ($root): CanvasNineSlice {
+    $resolve = static function (CanvasNineSlice $art) use ($root): ?CanvasNineSlice {
+      if (PngAssetPreflight::getAvailableSize($root, $art->asset) === null) { return null; }
       $current = CanvasNineSlice::fromPng($root, $art->asset);
       if ($current->source != $art->source) {
         Debug::warn("Results whole-image metadata reconciled to the current PNG: {$art->asset}");
@@ -70,7 +72,7 @@ final readonly class BattleResultsSkin
         $portraits[$id][$family] = $art === null ? null : $resolve($art);
       }
     }
-    return new self($this->textures, $this->colors, $portraits, array_map($resolve, $this->icons));
+    return new self($this->textures, $this->colors, $portraits, array_filter(array_map($resolve, $this->icons)), $root);
   }
 
   private static function plainImage(mixed $art): void

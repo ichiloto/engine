@@ -2,11 +2,16 @@
 
 namespace Ichiloto\Engine\Rendering\Presentation\Canvas;
 
+use Ichiloto\Engine\Rendering\Presentation\StyledPresentationFrame;
 use InvalidArgumentException;
 
 /** One complete canvas snapshot. It contains drawing state, never gameplay commands. */
 final readonly class PresentationCanvas
 {
+  /** Default authored logical surface; native window sizing remains independent. */
+  public const int DEFAULT_WIDTH = 1350;
+  public const int DEFAULT_HEIGHT = 720;
+
   /** @var list<CanvasImage> */
   public array $images;
   /** @var list<CanvasIndicator> */
@@ -34,7 +39,7 @@ final readonly class PresentationCanvas
     }
     $this->images = CanvasValidation::orderedList($images, CanvasImage::class, 1024);
     $this->indicators = CanvasValidation::orderedList($indicators, CanvasIndicator::class, 2048);
-    $this->textLayers = CanvasValidation::orderedList($textLayers, CanvasTextLayer::class, 64);
+    $this->textLayers = CanvasValidation::orderedList($textLayers, CanvasTextLayer::class, StyledPresentationFrame::MAX_TEXT_LAYERS);
     $this->composites = CanvasValidation::orderedList($composites, CanvasComposite::class, 8);
     $pixels = $operations = $nodes = 0;
     foreach ($this->composites as $composite) {

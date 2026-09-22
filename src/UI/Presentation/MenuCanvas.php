@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\UI\Presentation;
 
+use Ichiloto\Engine\Rendering\Presentation\StyledPresentationFrame;
+
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasComposite;
@@ -23,7 +25,7 @@ final class MenuCanvas
   private array $fills = [];
 
   public function __construct(public readonly MenuPresentationCatalog $theme,
-    public readonly int $width = 1350, public readonly int $height = 720, public readonly float $time = 0)
+    public readonly int $width = PresentationCanvas::DEFAULT_WIDTH, public readonly int $height = PresentationCanvas::DEFAULT_HEIGHT, public readonly float $time = 0)
   {
     $this->fill('menu-background', new CanvasRectangle(0, 0, $width, $height), 'background', 0);
   }
@@ -32,9 +34,8 @@ final class MenuCanvas
   public function frame(string $id, CanvasRectangle $bounds, string $role = 'panel', int $layer = 10, ?int $borderLayer = null): void
   {
     $art = $this->theme->frames[$role] ?? $this->theme->frames['panel'] ?? null;
-    if ($art !== null) {
-      array_push($this->images, ...$art->images($this->theme->assetRoot, $id, $bounds, $layer, $borderLayer));
-    }
+    $images = $art?->images($this->theme->assetRoot, $id, $bounds, $layer, $borderLayer) ?? [];
+    if ($images !== []) { array_push($this->images, ...$images); }
     else { $this->fill($id, $bounds, 'panel', $layer); }
   }
 
@@ -49,8 +50,9 @@ final class MenuCanvas
   {
     $asset = $this->theme->icons?->icons[$role] ?? null;
     if ($asset === null) { return false; }
-    array_push($this->images, ...MenuIconRegistry::containAsset($this->theme->assetRoot, $id, $asset, $bounds, 31, $bounds));
-    return true;
+    $images = MenuIconRegistry::containAsset($this->theme->assetRoot, $id, $asset, $bounds, 31, $bounds);
+    array_push($this->images, ...$images);
+    return $images !== [];
   }
 
   /** Already measured lines retain per-line color in one bounded text layer.
@@ -142,8 +144,9 @@ final class MenuCanvas
     $inset = min($this->theme->metrics->sectionGap, $bounds->width / 4, $bounds->height / 4);
     $box = new CanvasRectangle($bounds->x + $inset, $bounds->y + $inset,
       $bounds->width - 2 * $inset, $bounds->height - 2 * $inset);
-    array_push($this->images, ...MenuIconRegistry::containAsset($this->theme->assetRoot,
-      $id, $asset, $box, 22, $bounds));
+    $images = MenuIconRegistry::containAsset($this->theme->assetRoot, $id, $asset, $box, 22, $bounds);
+    array_push($this->images, ...$images);
+    if ($images === []) { $this->fill($id . '-fallback', $box, 'panel', 22); }
   }
 
   /** Prose and hints never become record rows or acquire separators. Returns consumed height. */
@@ -242,7 +245,7 @@ final class MenuCanvas
     $this->compactOutlines();
     $this->compactRules();
     $this->text = MenuCanvasTextBatch::compact($this->text);
-    if (count($this->text) > 64) { throw new RuntimeException('Menu composition exceeds the existing Canvas text-layer budget: ' . count($this->text)); }
+    if (count($this->text) > StyledPresentationFrame::MAX_TEXT_LAYERS) { throw new RuntimeException('Menu composition exceeds the existing Canvas text-layer budget: ' . count($this->text)); }
     CanvasImagePreflight::inspect($this->images, $this->theme->assetRoot);
     return new PresentationCanvas($this->width, $this->height, $this->images, textLayers: $this->text);
   }
@@ -250,8 +253,8 @@ final class MenuCanvas
   private function fill(string $id, CanvasRectangle $bounds, string $color, int $layer): void
   {
     $bounds->assertWithin($this->width, $this->height);
-    $columns = (int)ceil($bounds->width / 256);
-    $rows = (int)ceil($bounds->height / 256);
+    $columns = (int)ceil($bounds->width / RendererGridConfig::MAX_CELL_SIZE);
+    $rows = (int)ceil($bounds->height / RendererGridConfig::MAX_CELL_SIZE);
     $cw = (int)ceil($bounds->width / $columns);
     $ch = (int)ceil($bounds->height / $rows);
     $xs = $this->fillAxis($bounds->width, $this->width, $columns, $cw);
@@ -295,7 +298,7 @@ final class MenuCanvas
   {
     do {
       $merged = false;
-      if (count($this->text) <= 64) { return; }
+      if (count($this->text) <= StyledPresentationFrame::MAX_TEXT_LAYERS) { return; }
       foreach ($this->fills as $id => [$a, $color, $layer]) {
         foreach ($this->fills as $other => [$b, $otherColor, $otherLayer]) {
           if ($id === $other || $color !== $otherColor || $layer !== $otherLayer) { continue; }
@@ -320,7 +323,7 @@ final class MenuCanvas
   private function compactOutlines(): void
   {
     foreach ($this->text as $index => $first) {
-      if (count($this->text) <= 64) { break; }
+      if (count($this->text) <= StyledPresentationFrame::MAX_TEXT_LAYERS) { break; }
       if (!str_ends_with($first->id, '-focus-0')) { continue; }
       $id = substr($first->id, 0, -2);
       $edges = array_filter($this->text, fn(CanvasTextLayer $text) => in_array($text->id,
@@ -340,7 +343,7 @@ final class MenuCanvas
         $right = max($right, $edge->x + $edge->bounds->width);
         $bottom = max($bottom, $edge->y + $edge->bounds->height);
       }
-      if ($right - $x > 512 || $bottom - $y > 256) { continue; }
+      if ($right - $x > RendererGridConfig::MAX_COLUMNS || $bottom - $y > RendererGridConfig::MAX_ROWS) { continue; }
       $runs = [];
       foreach ($edges as $edgeIndex => $edge) {
         for ($row = 0; $row < $edge->bounds->height; $row++) {
@@ -360,7 +363,7 @@ final class MenuCanvas
   private function compactRules(): void
   {
     foreach ($this->text as $index => $a) {
-      if (count($this->text) <= 64) { break; }
+      if (count($this->text) <= StyledPresentationFrame::MAX_TEXT_LAYERS) { break; }
       if (!isset($this->text[$index]) || !str_ends_with($a->id, '-separator') || $a->clipRect === null) { continue; }
       foreach ($this->text as $other => $b) {
         if ($other <= $index || !str_ends_with($b->id, '-separator') || $b->clipRect === null
@@ -370,7 +373,7 @@ final class MenuCanvas
           || $a->bounds != $a->clipRect || $b->bounds != $b->clipRect) { continue; }
         $offset = ($b->y - $a->y) / $a->grid->cellHeight;
         $rows = (int)$offset + $b->grid->rows;
-        if ($offset !== floor($offset) || $rows > 256) { continue; }
+        if ($offset !== floor($offset) || $rows > RendererGridConfig::MAX_ROWS) { continue; }
         $runs = $a->runs;
         foreach ($b->runs as $run) {
           $runs[] = new PresentationTextRun($run->row + (int)$offset, $run->column, $run->text, $run->foreground, $run->background);

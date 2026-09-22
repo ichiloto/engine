@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\UI\Presentation;
 
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasCompositeValues as V;
 use InvalidArgumentException;
 
@@ -106,7 +107,7 @@ final class TitleTextureMotion
 
   private static function getSource(array $bounds): array
   {
-    return ['x' => $bounds['x'] / 1350, 'y' => $bounds['y'] / 720,
-      'width' => $bounds['width'] / 1350, 'height' => $bounds['height'] / 720];
+    return ['x' => $bounds['x'] / PresentationCanvas::DEFAULT_WIDTH, 'y' => $bounds['y'] / PresentationCanvas::DEFAULT_HEIGHT,
+      'width' => $bounds['width'] / PresentationCanvas::DEFAULT_WIDTH, 'height' => $bounds['height'] / PresentationCanvas::DEFAULT_HEIGHT];
   }
 }

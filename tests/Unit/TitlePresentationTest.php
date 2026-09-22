@@ -24,6 +24,7 @@ use Ichiloto\Engine\UI\Presentation\TitleSpritePresentation;
 use Ichiloto\Engine\UI\Text\MenuInfoText;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Util\Debug;
 
 function writeTitleTestPng(string $path, int $width, int $height): void
 {
@@ -85,11 +86,12 @@ final class TitlePresentationSceneProbe extends TitleScene
 
 beforeEach(function () {
   $this->statics = [];
-  foreach ([Console::class, ConfigStore::class] as $class) { $this->statics[$class] = new ReflectionClass($class)->getStaticProperties(); }
+  foreach ([Console::class, ConfigStore::class, Debug::class] as $class) { $this->statics[$class] = new ReflectionClass($class)->getStaticProperties(); }
   Console::setTerminalOutputEnabled(false);
   ConfigStore::put(ProjectConfig::class, new TitlePresentationMemoryConfig(['audio' => ['master_volume' => 0, 'music' => false, 'sfx' => false]]));
   $this->root = sys_get_temp_dir() . '/ichiloto-title-' . bin2hex(random_bytes(5));
   mkdir($this->root);
+  Debug::configure(['log_directory' => $this->root]);
   foreach (['day', 'night', 'logo', 'banner', 'bird'] as $file) { writeTitleTestPng($this->root . '/' . $file . '.png', 61, 41); }
 });
 
@@ -325,3 +327,55 @@ it('preserves title focus through modal suspension and cancels canvas ownership 
   $scene->releasePresentation();
   expect($scene->getPresentationCanvas())->toBeNull();
 });
+
+
+it('keeps the day scene and commands when an unused night image is missing', function () {
+  $data = getTitleTestData();
+  $clock = new TitlePlayback();
+  $clock->advance(0, new DateTimeImmutable('2026-09-22 12:00:00'), false);
+  advanceTitleTestClock($clock, 0, 0.3, '2026-09-22 12:00:00');
+  $commands = [new MenuRow('new', 'New Game', kind: MenuRowKind::BUTTON, selected: true, focused: true)];
+  $before = TitleMenuPresentation::compose(new TitlePresentationCatalog($this->root, $data), $clock, $commands);
+  unlink($this->root . '/night.png');
+  $catalog = new TitlePresentationCatalog($this->root, $data);
+  expect(file_exists($this->root . '/warning.log'))->toBeFalse();
+  $frame = TitleMenuPresentation::compose($catalog, $clock, $commands);
+  expect($frame)->toEqual($before)
+    ->and(array_column($frame->images, 'asset'))->toContain('day.png', 'logo.png', 'banner.png')
+    ->and(getTitleTestText($frame))->toContain('New Game')
+    ->and(file_exists($this->root . '/warning.log'))->toBeFalse();
+});
+
+it('omits only unavailable title artwork while preserving healthy siblings and commands', function (string $asset) {
+  $data = getTitleTestData();
+  $clock = new TitlePlayback();
+  $clock->advance(0, new DateTimeImmutable('2026-09-22 12:00:00'), false);
+  advanceTitleTestClock($clock, 0, 0.3, '2026-09-22 12:00:00');
+  $commands = [];
+  foreach (['New Game', 'Load Game', 'Options', 'Credits', 'Exit'] as $index => $label) {
+    $commands[] = new MenuRow('command-' . $index, $label, kind: MenuRowKind::BUTTON,
+      selected: $index === 1, focused: $index === 1, disabled: $index === 1);
+  }
+  $before = TitleMenuPresentation::compose(new TitlePresentationCatalog($this->root, $data), $clock, $commands);
+  unlink($this->root . '/' . $asset);
+  $catalog = new TitlePresentationCatalog($this->root, $data);
+  expect(file_exists($this->root . '/warning.log'))->toBeFalse();
+  $elapsed = $clock->elapsed;
+  $frame = TitleMenuPresentation::compose($catalog, $clock, $commands);
+  // Overlay layer numbers follow the highest surviving scene layer; content and relative ordering stay unchanged.
+  $getTextLayers = static function (PresentationCanvas $canvas): array {
+    $baseLayer = min(array_column($canvas->textLayers, 'layer'));
+    return array_map(static function ($layer) use ($baseLayer): array {
+      $values = get_object_vars($layer);
+      $values['layer'] -= $baseLayer;
+      return $values;
+    }, $canvas->textLayers);
+  };
+  expect($frame->images)->toEqual(array_values(array_filter($before->images, static fn($image) => $image->asset !== $asset)))
+    ->and($getTextLayers($frame))->toEqual($getTextLayers($before))
+    ->and(min(array_column($frame->textLayers, 'layer')))->toBeGreaterThan(max(array_column($frame->images, 'layer')))
+    ->and(array_column($frame->images, 'asset'))->toContain('day.png', 'bird.png')->not->toContain($asset)
+    ->and($clock->elapsed)->toBe($elapsed)
+    ->and(file_get_contents($this->root . '/warning.log'))->toContain($asset);
+  foreach ($commands as $command) { expect(getTitleTestText($frame))->toContain($command->label); }
+})->with(['logo.png', 'banner.png']);

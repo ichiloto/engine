@@ -10,7 +10,7 @@ use Ichiloto\Engine\UI\Text\MenuInfoText;
 /** A stable two-line description/status slot. Hints occupy separately reserved space. */
 final class MenuInfoPanel
 {
-  public static function getHeight(MenuPresentationCatalog $theme, array $hints = [], float $width = 1100): int
+  public static function getHeight(MenuPresentationCatalog $theme, array $hints = [], float $width = MenuLayout::MAX_WIDTH): int
   {
     $m = $theme->metrics;
     $hintHeight = MenuActionHints::height($hints, $theme, $width - 2 * $m->panelPadding);

@@ -118,7 +118,8 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
     if ($this->graphicalPresentation !== null) {
       return $this->graphicalPresentation->frame($this->ui?->fieldWindow, $ui, $hud, $focus);
     }
-    $composition = $hud === null ? null : GraphicalBattleHud::compose($layout, $hud, $focus, hrtime(true) / 1_000_000_000);
+    $composition = $hud === null ? null : GraphicalBattleHud::compose($layout, $hud, $focus,
+      hrtime(true) / 1_000_000_000, $this->getGame()->getRendererRuntime()?->getAssetRoot());
     return new PresentationCanvas($layout->width, $layout->height, $composition?->images ?? [],
       textLayers: [...$ui, ...($composition?->textLayers ?? [])]);
   }
@@ -319,18 +320,32 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
         $resultsSkin = $catalog->results;
         $pauseSkin = $catalog->pause;
         if ($pauseSkin !== null) {
-          if ($layout === null || $layout->width < 520 || $layout->height < 320) {
-            throw new RuntimeException('The Pause skin requires a battle canvas of at least 520 by 320.');
+          try {
+            if ($layout === null || $layout->width < 520 || $layout->height < 320) {
+              throw new RuntimeException('The Pause skin requires a battle canvas of at least 520 by 320.');
+            }
+            GraphicalBattlePause::preflight($pauseSkin, $runtime->getAssetRoot(), $presentation?->frame()->images ?? []);
+          } catch (Throwable $failure) {
+            Debug::warn('Pause artwork unavailable; retaining the default pause menu: ' . $failure->getMessage());
+            $pauseSkin = null;
           }
-          GraphicalBattlePause::preflight($pauseSkin, $runtime->getAssetRoot(), $presentation?->frame()->images ?? []);
         }
-        if ($resultsSkin !== null && ($layout === null || $layout->width !== 1350 || $layout->height !== 720)) {
-          throw new RuntimeException('The Results skin requires a 1350 by 720 battle canvas.');
-        }
-        if ($resultsSkin !== null) {
-          $resultsSkin = GraphicalBattleResults::prepare($resultsSkin, $runtime->getAssetRoot(),
-            $presentation?->frame()->images ?? [],
-            array_map(static fn(Character $member): string => $member->actorId, $config->party->members->toArray()));
+        try {
+          if ($resultsSkin !== null && ($layout === null || $layout->width !== PresentationCanvas::DEFAULT_WIDTH || $layout->height !== PresentationCanvas::DEFAULT_HEIGHT)) {
+            throw new RuntimeException(sprintf('The Results skin requires a %d by %d battle canvas.', PresentationCanvas::DEFAULT_WIDTH, PresentationCanvas::DEFAULT_HEIGHT));
+          }
+          if ($resultsSkin !== null) {
+            foreach ([RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::SPRITE_SOURCE_RECT,
+              RendererSessionConfig::CANVAS_CLIP_OPACITY, RendererSessionConfig::CANVAS_GLYPH_EFFECTS] as $capability) {
+              if (!$runtime->supports($capability)) { throw new RuntimeException('Results require negotiated ' . $capability); }
+            }
+            $resultsSkin = GraphicalBattleResults::prepare($resultsSkin, $runtime->getAssetRoot(),
+              $presentation?->frame()->images ?? [],
+              array_map(static fn(Character $member): string => $member->actorId, $config->party->members->toArray()));
+          }
+        } catch (Throwable $failure) {
+          Debug::warn('Results artwork unavailable; retaining terminal results: ' . $failure->getMessage());
+          $resultsSkin = null;
         }
         if ($presentation === null && $layout !== null) {
           GraphicalBattleHud::preflight($layout, $runtime->getAssetRoot());

@@ -2,14 +2,10 @@
 
 namespace Ichiloto\Engine\Rendering\Launch;
 
-use Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
-use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
-use Ichiloto\Engine\UI\Presentation\CreditsMenuPresentation;
-use Ichiloto\Engine\UI\Presentation\TitlePresentationCatalog;
 use InvalidArgumentException;
 
 final class RendererRegistry
@@ -25,11 +21,9 @@ final class RendererRegistry
       new RendererDescriptor('terminal', static fn(string $assetRoot): ?RendererRuntime => null),
       new RendererDescriptor('gpui', static fn(string $assetRoot): RendererRuntime => new RendererRuntime(
         new RendererRuntimeConfig(new RendererProcessConfig([$resolver->resolve('gpui')]), $assetRoot, 10, 20,
-          requiredCapabilities: array_values(array_unique([RendererSessionConfig::SPRITE_SOURCE_RECT, RendererSessionConfig::TILE_BATCHES,
-            ...(BattlePresentationCatalog::load($assetRoot)?->requiredCapabilities() ?? []),
-            ...MenuPresentationCatalog::requestedCapabilities($assetRoot),
-            ...(MenuPresentationCatalog::exists($assetRoot) ? CreditsMenuPresentation::CAPABILITIES : []),
-            ...TitlePresentationCatalog::getRequestedCapabilities($assetRoot)]))),
+          // Optional surfaces select from the renderer's advertised capabilities after startup.
+          // Merely installing a theme must not tighten the game's transport requirements.
+          requiredCapabilities: [RendererSessionConfig::SPRITE_SOURCE_RECT, RendererSessionConfig::TILE_BATCHES]),
       )),
     ];
     foreach ($descriptors as $descriptor) {

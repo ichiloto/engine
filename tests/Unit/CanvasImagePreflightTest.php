@@ -69,8 +69,10 @@ it('accounts for nine-slice regions and rejects source bounds before rendering',
 
 it('loads whole PNGs without authored source dimensions and reconciles borders after replacement', function () {
   $bounds = new CanvasRectangle(0, 0, 200, 100);
-  foreach ([[32, 48], [8, 6], [100, 80]] as [$width, $height]) {
+  foreach ([[32, 48], [8, 6], [100, 80]] as $revision => [$width, $height]) {
     ($this->png)('panel.png', $width, $height);
+    // Header-only replacements have equal byte length; mark each revision explicitly without a timing-dependent sleep.
+    touch($this->root . '/panel.png', 1700000000 + $revision);
     $texture = CanvasNineSlice::fromPng($this->root, 'panel.png', 12, 12, 12, 12);
     $images = $texture->images('panel', $bounds, 0);
     CanvasImagePreflight::inspect($images, $this->root);

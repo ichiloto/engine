@@ -65,18 +65,20 @@ it('bounds large-quantity snapshots by reward entry count without loading or ins
     ->and($quest->rewards)->toBe($rewards);
 });
 
-it('validates references before omitting zero or negative quantity rewards', function (int $quantity) {
+it('keeps reward granting strict while zero-quantity display is best effort', function (int $quantity) {
   $valid = new Quest('zero', 'Zero', rewards: ['items' => [['item' => 'Old Tonic', 'quantity' => $quantity]]]);
   expect($valid->describeRewards())->toBe('')
     ->and($this->store->load($valid->rewards['items']))->toBe([])
-    ->and(fn() => new Quest('missing', 'Missing', rewards: ['items' => [['item' => 'missing', 'quantity' => $quantity]]])->describeRewards())->toThrow(NotFoundException::class)
-    ->and(fn() => new Quest('bad', 'Bad', rewards: ['items' => [['quantity' => $quantity]]])->describeRewards())->toThrow(RequiredFieldException::class);
+    ->and(new Quest('missing', 'Missing', rewards: ['items' => [['item' => 'missing', 'quantity' => $quantity]]])->describeRewards())->toBe('')
+    ->and(new Quest('bad', 'Bad', rewards: ['items' => [['quantity' => $quantity]]])->describeRewards())->toBe('')
+    ->and(fn() => $this->store->load([['item' => 'missing', 'quantity' => $quantity]]))->toThrow(NotFoundException::class);
 })->with([0, -5]);
 
-it('retains loader diagnostics rather than hiding invalid structured rewards', function () {
-  expect(fn() => new Quest('bad', 'Bad', rewards: ['items' => [['quantity' => 2]]])->describeRewards())->toThrow(RequiredFieldException::class)
-    ->and(fn() => new Quest('missing', 'Missing', rewards: ['items' => [['item' => 'missing']]])->describeRewards())->toThrow(NotFoundException::class);
+it('describes invalid rewards without crashing and keeps valid rewards visible', function () {
+  expect(new Quest('bad', 'Bad', rewards: ['items' => [['quantity' => 2]]])->describeRewards())->toBe('Unknown item x2')
+    ->and(new Quest('missing', 'Missing', rewards: ['items' => [['item' => 'missing'], 'item.tonic']])->describeRewards())
+    ->toBe('missing (unavailable), Current Tonic');
   ConfigStore::remove(ItemStore::class);
   expect(new Quest('legacy', 'Legacy', rewards: ['items' => ['Legacy name']])->describeRewards())->toBe('Legacy name')
-    ->and(fn() => new Quest('unloaded', 'Unloaded', rewards: ['items' => [['item' => 'item.tonic']]])->describeRewards())->toThrow(InvalidArgumentException::class);
+    ->and(new Quest('unloaded', 'Unloaded', rewards: ['items' => [['item' => 'item.tonic']]])->describeRewards())->toBe('item.tonic');
 });
