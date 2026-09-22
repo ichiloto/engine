@@ -191,13 +191,13 @@ presentation. The staged route that reuses what exists:
    (which remains the always-available surface) are decided when Phase 4 is
    scoped, not preempted here.
 
-## Sequencing (decided 2026-09-20)
+## Implementation dependencies
 
 This plan's Phase 0 and the layered-tilemaps Phase 0 run simultaneously.
 After both Phase 0s, the layered-tilemaps implementation proceeds first;
 this plan's Phases 1-4 follow it.
 
-## Decisions already made (do not relitigate)
+## Technical constraints
 
 - The summon timeline model is the single effect-animation runtime;
   spectacles are data, not bespoke runtimes.

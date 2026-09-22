@@ -34,14 +34,14 @@ it does not change selection. Boot captures these effective bindings for Restore
 Defaults. Loading never writes configuration; the existing explicit Controls
 rebind/restore workflow retains persistence ownership.
 
-### Approved compatibility correction
+<a id="approved-compatibility-correction"></a>
+### Canonical key comparison
 
-S3 uses canonical comparison for `isKeyPressed()` with maintainer approval.
+S3 uses canonical comparison for `isKeyPressed()`.
 Previously that method compared raw terminal bytes with enum values, so special
 keys such as Up and Enter always returned false even when `isKeyDown()` returned
 true. These keys now report pressed consistently for terminal and renderer input.
-This is an explicitly approved correction to the legacy behavior, not a preserved
-quirk. No special-key whitelist or terminal-byte leakage is needed in InputManager.
+No special-key whitelist or terminal-byte leakage is needed in InputManager.
 
 The normalized contract also excludes terminal bytes outside the existing enum:
 these yield null rather than dispatching an event whose `getKey()` is null.
@@ -67,20 +67,16 @@ elsewhere have not all been migrated.
 
 Themes may set `showInputHints` to false to omit persistent graphical helper
 strips and their reserved layout space without changing actions or bindings.
-The default remains true for compatibility. Last Legend uses the dedicated
-Controls lookup instead, retaining useful action descriptions in menus and
-dialogs. Controls still exposes all aliases, not only the compact primary key.
+The default remains true for compatibility. Themes can use the dedicated
+Controls lookup while retaining useful action descriptions in menus and dialogs.
+Controls exposes all aliases, not only the compact primary key.
 
 A PHP input context can supply an `ActionHintProvider` and replace its display
 profile without changing menu composition or dispatching input. That is a
 presentation boundary, **not implemented gamepad detection or controller input**.
 The current native and terminal sources still report keyboard identities only.
-The approved PC/Desktop Controls Art example uses Xbox glyphs (`gamepad.xbox`):
-A/B/X/Y, shoulders/triggers, D-pad, Menu and View. PlayStation and Nintendo
-families are later variants. This is a manually selected preview family, not
-approved shipping mappings, device detection or authorization to implement a
-controller backend; semantic actions and keyboard bindings remain unchanged.
-Physical-controller work must drive the profile from meaningful active-device
+Display providers may select gamepad-family glyphs for previews without changing
+keyboard input or establishing physical device support. Physical-controller work must drive the profile from meaningful active-device
 input, handle focus/disconnection and keyboard/controller coexistence, and keep
 device glyph changes independent of actions, focus and selection. Merely having
 a controller connected must not make hints unusable for a keyboard player.
@@ -200,15 +196,13 @@ separately before cleanup. The duration defaults to 60 seconds (allowed 0-300).
 Lifecycle diagnostics go to stderr. The tool generates no frames or game actions.
 
 See the [S3 validation and handoff record](s3-validation.md) for tested boundaries
-and the approved compatibility correction. Runtime selection, presentation,
-and Last Legend integration remain out of scope.
+and the canonical key comparison behaviour. The smoke tool does not run gameplay.
 
 ## Planned controller-ready input and normalized movement
 
 **Not implemented.** The sections above describe the current event-only source
 contract. This extension is queued in the [integration roadmap](integration-roadmap.md#controller-ready-input-and-normalized-movement)
-for G4 field readiness after the current cinematic ownership work; capture does
-not change current APIs or authorize an immediate implementation.
+for G4 field readiness after the current cinematic ownership work; this plan does not change current APIs.
 
 ### Ownership and compatibility
 
@@ -258,8 +252,8 @@ adapter and cannot claim reliable physical key release.
   triggers or encounter RNG. Only the occupied destination receives existing
   movement/event effects, exactly once.
 - Document how a committed diagonal counts for step-based systems before
-  implementation. Do not silently rebalance encounter frequency; unresolved
-  gameplay policy goes through the Engine coordinator, not Renderer.
+  implementation. Do not silently rebalance encounter frequency; encounter
+  policy belongs to Engine/game rules, not Renderer.
 - Follow both camera axes using the existing policy and only the necessary
   completed field recomposition, retaining T1's gains. Use existing four-direction
   art with a documented deterministic facing rule, independent of movement vector;
@@ -286,11 +280,9 @@ Native acceptance uses one bounded ordinary-Game GPUI pass: simultaneous keys,
 partial/all release, unobstructed horizontal/vertical/diagonal travel, corners,
 scrolling, focus loss and dialogue/menu/cinematic entry and return. Measure
 travel relative to the field, not only a camera-followed on-screen Player.
-Verify silence before launch without changing Andrew's normal configuration;
-no scratch-runtime family or user-data changes. State tested platforms honestly.
+Preserve user audio settings, saves and configuration during validation. State
+tested platforms explicitly.
 
 Physical controllers, controller libraries, enhanced terminal key reporting,
-continuous subcell animation, renderer upgrades, broad platform ports, new art
-admission and publishing are not part of this queued first delivery. Before
-implementation, read the original canonical and workspace policies and establish
-shared-file ownership; preserve existing work, author files, saves and settings.
+continuous subcell animation and broad platform ports are outside this first
+stateful-keyboard delivery.
