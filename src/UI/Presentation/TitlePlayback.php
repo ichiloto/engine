@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\UI\Presentation;
 
 use DateTimeImmutable;
+use Ichiloto\Engine\Util\LocalClock;
 use InvalidArgumentException;
 
 /** PHP-owned decorative time. Drawing reads state; it never advances the clock. */
@@ -36,7 +37,7 @@ final class TitlePlayback
     $this->initialized = true;
     $this->elapsed += $delta;
     if ($first || $now >= $this->nextClockCheck) {
-      $localTime ??= new DateTimeImmutable();
+      $localTime ??= LocalClock::getTime();
       $hour = (int)$localTime->format('G');
       $target = $hour >= 6 && $hour < 18 ? 0.0 : 1.0;
       if ($first) { $this->nightWeight = $this->target = $target; }

@@ -544,6 +544,13 @@ returns. Suspension pauses decorative elapsed time without later catch-up;
 stop releases presentation ownership. Reduced motion retains original scenery
 and atlas frame zero while omitting travelling birds.
 
+Host-local wall time comes from the shared `LocalClock`, not PHP's configured
+logging/application timezone. It resolves `TZ`, the OS zoneinfo link or timezone
+file, then optional ICU host detection, without shelling out or changing global
+PHP state. Region identifiers retain daylight-saving rules. If no host source
+is available, it reports the fallback through Debug and uses PHP's timezone.
+The existing `get_local_timezone()` helper shares the same resolver.
+
 The graphical adapter projects the existing TitleMenu command labels,
 availability and selection. Buttons remain centered without oscillating cursors.
 Title Options and Config share `SettingsMenuPresentation` over their existing

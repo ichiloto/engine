@@ -529,24 +529,7 @@ if (! function_exists('get_local_timezone') ) {
    */
   function get_local_timezone(): string
   {
-    $timezoneCommand = 'timedatectl';
-
-    if (os_program_exists($timezoneCommand)) {
-      $output = shell_exec($timezoneCommand) ?? '';
-      $lines = explode("\n", $output);
-
-      foreach ($lines as $line) {
-        if (str_contains($line, 'Local time')) {
-          preg_match('/Local time: (.*)\s([A-Z]{1,5})$/', $line, $matches);
-
-          if (! empty($matches[2])) {
-            return $matches[2];
-          }
-        }
-      }
-    }
-
-    return date_default_timezone_get();
+    return \Ichiloto\Engine\Util\LocalClock::getTimezone()->getName();
   }
 }
 
