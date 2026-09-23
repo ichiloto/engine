@@ -759,30 +759,32 @@ class MapManager implements CanRenderAt
    */
   protected function prepareSplitMapDataFromFiles(array $paths): array
   {
+    $displayPaths = [];
     foreach (['data', 'map', 'event'] as $type) {
+      $displayPaths[$type] = $paths['id'] . '/' . basename($paths[$type]);
       if (! file_exists($paths[$type])) {
-        throw new NotFoundException("File {$paths[$type]} not found.");
+        throw new NotFoundException("File {$displayPaths[$type]} not found.");
       }
     }
 
-    $mapText = MapGridSource::readFile($paths['map']);
-    $eventText = MapGridSource::readFile($paths['event']);
+    $mapText = MapGridSource::readFile($paths['map'], $displayPaths['map']);
+    $eventText = MapGridSource::readFile($paths['event'], $displayPaths['event']);
     $map = $this->requirePhpFile($paths['data']);
 
     if (! is_array($map)) {
-      throw new NotFoundException("File {$paths['data']} does not return an array.");
+      throw new NotFoundException("File {$displayPaths['data']} does not return an array.");
     }
 
     $map['id'] ??= $paths['id'];
 
     $tiles2d = array_key_exists('tiles2d', $map)
-      ? GraphicalTileDefinition::fromArray($map['tiles2d'], $paths['data']) : null;
+      ? GraphicalTileDefinition::fromArray($map['tiles2d'], $displayPaths['data']) : null;
 
-    $tileMap = $this->parseMapLayer($mapText, $paths['map'], 'map');
+    $tileMap = $this->parseMapLayer($mapText, $displayPaths['map'], 'map');
 
-    $eventLayer = $this->parseMapLayer($eventText, $paths['event'], 'event');
-    $this->assertEventLayerMatchesTileMap($eventLayer, $paths['event'], $tileMap);
-    $map['events'] = $this->resolveEventDefinitions($map['events'] ?? [], $eventLayer, $paths['event']);
+    $eventLayer = $this->parseMapLayer($eventText, $displayPaths['event'], 'event');
+    $this->assertEventLayerMatchesTileMap($eventLayer, $displayPaths['event'], $tileMap);
+    $map['events'] = $this->resolveEventDefinitions($map['events'] ?? [], $eventLayer, $displayPaths['event']);
 
     return ['data' => $map, 'tiles' => $tileMap, 'tiles2d' => $tiles2d];
   }

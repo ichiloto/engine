@@ -104,6 +104,16 @@ PHP);
       ->and($npcManager->npcs[0]->id)->toBe('original')
       ->and($manager->tileMap)->toBe([])
       ->and($camera->worldSpace)->toBe([['old']]);
+
+    unlink($paths['event']);
+    try {
+      $manager->prepareMap('ignored');
+      throw new RuntimeException('Missing event grid was accepted.');
+    } catch (\Ichiloto\Engine\Exceptions\NotFoundException $error) {
+      expect($error->getMessage())->toContain('test/destination/destination.event.php')
+        ->not->toContain($directory);
+    }
+    file_put_contents($paths['event'], "<?php return <<<'EVENT'\n  \nEVENT;");
   } finally {
     foreach (['data', 'map', 'event'] as $member) {
       unlink($paths[$member]);
@@ -156,8 +166,13 @@ PHP);
     (new ReflectionProperty(GameScene::class, 'camera'))->setValue($gameScene, $camera);
     (new ReflectionProperty(MapManager::class, 'gameScene'))->setValue($manager, $gameScene);
 
-    expect(fn() => $manager->readSplitMap($paths))
-      ->toThrow(InvalidArgumentException::class, 'literal nowdoc');
+    try {
+      $manager->readSplitMap($paths);
+      throw new RuntimeException('Executable grid source was accepted.');
+    } catch (InvalidArgumentException $error) {
+      expect($error->getMessage())->toContain('test/colliding-map/colliding-map.map.php: found T_VARIABLE at line 3')
+        ->not->toContain($directory);
+    }
   } finally {
     foreach (['data', 'map', 'event'] as $type) {
       if (is_file($paths[$type])) {
