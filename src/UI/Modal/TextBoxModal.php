@@ -11,6 +11,7 @@ use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputBindings;
+use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowHeightPolicy;
@@ -30,6 +31,7 @@ class TextBoxModal extends Modal
   private const int DEFAULT_CONTENT_LINES = 3;
   /** A fourth wrapped line may grow the box; longer dialogue is paginated. */
   private const int MAX_CONTENT_LINES_PER_PAGE = 4;
+  private const float DEFAULT_TYPING_SPEED = 60.0;
   /**
    * @var string|null $help The help text to display.
    */
@@ -90,10 +92,11 @@ class TextBoxModal extends Modal
     string $help = '',
     ?WindowPosition $position = null,
     BorderPackInterface $borderPack = new DefaultBorderPack(),
-    protected float $charactersPerSecond = 60,
+    protected float $charactersPerSecond = self::DEFAULT_TYPING_SPEED,
     protected ?DialoguePlayback $playback = null,
   )
   {
+    $this->playback ??= new DialoguePlayback(isset($game->audioManager) ? $game->audioManager : null);
     $width = min(DEFAULT_DIALOG_WIDTH, max(4, get_screen_width()));
     $contentWidth = max(1, $width - 4); // borders and Window's default horizontal padding
     $wrappedLines = $this->wrapMessageIntoLines($message, $contentWidth);
@@ -137,6 +140,7 @@ class TextBoxModal extends Modal
    */
   public function show(): void
   {
+    InputManager::consumeCurrentInput();
     parent::show();
     $this->leftMargin = $this->rect->getX();
     $this->topMargin = $this->rect->getY();
@@ -195,7 +199,7 @@ class TextBoxModal extends Modal
       $now = microtime(true);
 
       if ($now >= $this->nextPrintTime) {
-        $speed = is_finite($this->charactersPerSecond) ? max(1.0, $this->charactersPerSecond) : 60.0;
+        $speed = is_finite($this->charactersPerSecond) ? max(1.0, $this->charactersPerSecond) : self::DEFAULT_TYPING_SPEED;
         $this->nextPrintTime = $now + (1 / $speed);
         $this->currentCharacterIndex++;
       }

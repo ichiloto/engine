@@ -7,10 +7,28 @@ namespace Ichiloto\Engine\Messaging\Dialogue;
 use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\Audio\AudioPlayback;
 use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Util\Debug;
+use Exception;
 
 /** Dialogue-wide playback state. A conversation shares one instance across its lines. */
 final class DialoguePlayback
 {
+  public const string CONFIG_AUTO = 'ui.dialogue.auto';
+  public bool $auto = false {
+    get => ConfigStore::has(ProjectConfig::class)
+      ? boolval(ConfigStore::get(ProjectConfig::class)->get(self::CONFIG_AUTO, false)) : $this->auto;
+    set {
+      $this->auto = $value;
+      if (ConfigStore::has(ProjectConfig::class)) {
+        $config = ConfigStore::get(ProjectConfig::class);
+        $config->set(self::CONFIG_AUTO, $value);
+        try { $config->persist(); }
+        catch (Exception $exception) { Debug::warn('Dialogue Auto changed for this session only: ' . $exception->getMessage()); }
+      }
+    }
+  }
   private const float MINIMUM_READING_SECONDS = 1.0;
   private const float READING_CHARACTERS_PER_SECOND = 15.0;
   private ?AudioPlayback $voice = null;
@@ -21,8 +39,10 @@ final class DialoguePlayback
 
   public function __construct(
     private readonly ?AudioManager $audio = null,
-    public bool $auto = false,
-  ) {}
+    ?bool $auto = null,
+  ) {
+    if ($auto !== null) { $this->auto = $auto; }
+  }
 
   public function beginLine(?string $voicePath = null, float $musicDuckFactor = 1.0): void
   {

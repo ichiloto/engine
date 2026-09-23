@@ -25,6 +25,7 @@ class TitleOptionsSettingsManager extends SettingsManager
       'voice',
       'transitions',
       'dialogue_speed',
+      'dialogue_auto',
       'notification_duration',
     ];
   }

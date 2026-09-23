@@ -197,7 +197,7 @@ it('preserves an explicit Info entry including deliberate unbinding', function (
   $authored = ['info' => $entry, 'custom' => ['keys' => [KeyCode::F2]]];
   InputManager::setBindings($authored);
   expect(InputManager::getBindings())->toBe([...$authored,
-    'dialogue_auto' => ['description' => 'Toggle automatic dialogue advance.', 'keys' => [KeyCode::F3]],
+    'dialogue_auto' => InputManager::getDefaultDialogueAutoBinding($authored),
   ]);
   InputManager::setInputSource(new FakeInputSource(KeyCode::i));
   InputManager::handleInput();

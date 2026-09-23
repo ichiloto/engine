@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Settings;
 
 use Ichiloto\Engine\Audio\AudioManager;
+use Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\Rendering\Enumerations\TransitionStyle;
 use Ichiloto\Engine\Rendering\ScreenTransition;
@@ -74,6 +75,12 @@ class SettingsCatalog
         'Notification Duration',
         'Controls how long transient notifications remain on screen.',
         ['Standard' => 1.0, 'Long' => 2.0, 'Extended' => 10.0],
+      ),
+      new GameSetting(
+        'dialogue_auto',
+        'Dialogue Auto',
+        'Advances dialogue after voice or reading time until switched off.',
+        ['Off' => false, 'On' => true],
       ),
       new GameSetting(
         'cursor_memory',
@@ -163,6 +170,7 @@ class SettingsCatalog
       'music' => boolval(config(ProjectConfig::class, 'audio.music', false)),
       'sfx' => boolval(config(ProjectConfig::class, 'audio.sfx', false)),
       'voice' => boolval(config(ProjectConfig::class, AudioManager::CONFIG_VOICE_ENABLED, true)),
+      'dialogue_auto' => boolval(config(ProjectConfig::class, DialoguePlayback::CONFIG_AUTO, false)),
       'dialogue_speed' => config(
         ProjectConfig::class,
         'ui.dialogue.speed',
@@ -205,6 +213,7 @@ class SettingsCatalog
       'music' => $config->set('audio.music', boolval($value)),
       'sfx' => $config->set('audio.sfx', boolval($value)),
       'voice' => $config->set(AudioManager::CONFIG_VOICE_ENABLED, boolval($value)),
+      'dialogue_auto' => $config->set(DialoguePlayback::CONFIG_AUTO, boolval($value)),
       // Two paths, because dialogue speed was authored under both and a
       // project may read either.
       'dialogue_speed' => $this->writeBoth($config, ['ui.dialogue.speed', 'ui.dialogue.message.speed'], intval($value)),

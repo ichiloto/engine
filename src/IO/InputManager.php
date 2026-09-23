@@ -124,7 +124,6 @@ class InputManager
   {
     foreach ([
       'info' => ['Read the next Info page; wrap to the first.', [KeyCode::i, KeyCode::I]],
-      'dialogue_auto' => ['Toggle automatic dialogue advance.', [KeyCode::F3]],
     ] as $action => [$description, $candidates]) {
       if (array_key_exists($action, $bindings)) {
         continue;
@@ -134,7 +133,36 @@ class InputManager
       $bindings[$action] = ['description' => $description, 'keys' => $keys];
     }
 
+    if (! array_key_exists('dialogue_auto', $bindings)) {
+      $bindings['dialogue_auto'] = self::getDefaultDialogueAutoBinding($bindings);
+    }
+
     return $bindings;
+  }
+
+  /** Controller identities are reserved data, not simulated keyboard input. */
+  public const array DIALOGUE_AUTO_CONTROLLERS = [
+    ['family' => 'gamepad.xbox', 'control' => 'face_west', 'label' => 'X'],
+    ['family' => 'gamepad.playstation', 'control' => 'face_west', 'label' => 'Square'],
+  ];
+
+  public static function getDefaultDialogueAutoBinding(array $bindings = []): array
+  {
+    // Field interaction is suspended by dialogue, so sharing its Space is safe.
+    // Confirm/cancel and any other authored action keep their explicit keys.
+    $occupied = array_diff_key($bindings, ['action' => true]);
+    $available = static fn(KeyCode $key): bool => ! array_any($occupied,
+      static fn(array $binding): bool => in_array($key, $binding['keys'] ?? [], true));
+    $keys = $available(KeyCode::SPACE) ? [KeyCode::SPACE]
+      : array_values(array_filter([KeyCode::x, KeyCode::X], $available));
+    return ['description' => 'Toggle automatic dialogue advance.', 'keys' => $keys,
+      'controllers' => self::DIALOGUE_AUTO_CONTROLLERS];
+  }
+
+  /** Consume only the opening edge, preserving unread input for the new context. */
+  public static function consumeCurrentInput(): void
+  {
+    self::$previousKeyPress = self::$keyPress = null;
   }
 
   /**

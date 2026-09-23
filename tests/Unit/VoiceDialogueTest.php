@@ -22,6 +22,7 @@ use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\UI\Modal\TextBoxModal;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 
 require_once __DIR__ . '/../Support/Input/FakeInputSource.php';
 
@@ -32,6 +33,7 @@ final class VoiceTestTextBox extends TextBoxModal
   public function getPageIndex(): int { return $this->currentPageIndex; }
   public function getIsTyping(): bool { return $this->isPrinting; }
   public function getHelp(): string { return $this->help ?? ''; }
+  public function getPlayback(): DialoguePlayback { return $this->playback; }
 }
 
 final class VoiceTestHandle extends AudioPlayback
@@ -101,6 +103,7 @@ beforeEach(function () {
   $this->inputState = new ReflectionClass(InputManager::class)->getStaticProperties();
   $this->consoleState = new ReflectionClass(Console::class)->getStaticProperties();
   $this->configState = new ReflectionClass(ConfigStore::class)->getStaticProperties();
+  ConfigStore::remove(ProjectConfig::class);
   $this->eventState = new ReflectionClass(EventManager::class)->getStaticProperties();
   new ReflectionProperty(EventManager::class,'instance')->setValue(null,null);
   ConfigStore::put(PlaySettings::class,new PlaySettings(['width'=>80,'height'=>24]));
@@ -297,7 +300,7 @@ it('releases speech on interrupted presentation without marking an unfinished sk
 });
 
 it('supplies a remappable Auto action without claiming an authored key', function () {
-  InputManager::setBindings(['left'=>['keys'=>[KeyCode::F3]],'info'=>['keys'=>[]]]);
+  InputManager::setBindings(['left'=>['keys'=>[KeyCode::SPACE, KeyCode::x, KeyCode::X]],'info'=>['keys'=>[]]]);
   expect(InputManager::getBindings()['dialogue_auto']['keys'])->toBe([]);
   InputManager::setBindings(['dialogue_auto'=>['keys'=>[KeyCode::x]]]);
   expect(InputManager::getBindings()['dialogue_auto']['keys'])->toBe([KeyCode::x]);
@@ -363,4 +366,46 @@ it('preserves authored help while appending live rebound Auto hints without dupl
   InputManager::handleInput(); $modal->update();
   expect($modal->getHelp())->toBe('Remember the blue door. ENTER:continue x:Auto on');
   $modal->hide();
+});
+
+it('uses contextual Space Auto and consumes the opening edge without discarding the next press', function () {
+  InputManager::setBindings(['action'=>['keys'=>[KeyCode::SPACE]], 'confirm'=>['keys'=>[KeyCode::ENTER]]]);
+  expect(InputManager::getBindings()['dialogue_auto']['keys'])->toBe([KeyCode::SPACE])
+    ->and(InputManager::getBindings()['dialogue_auto']['controllers'])->toBe(InputManager::DIALOGUE_AUTO_CONTROLLERS);
+  InputManager::setInputSource(new \Tests\Support\Input\FakeInputSource(KeyCode::SPACE, KeyCode::SPACE, KeyCode::ENTER));
+  InputManager::handleInput();
+  $game = new ReflectionClass(Game::class)->newInstanceWithoutConstructor();
+  $modal = new VoiceTestTextBox($game, 'A line that is still typing.', charactersPerSecond:1);
+  $modal->show(); $modal->update();
+  expect($modal->getPlayback()->auto)->toBeFalse()->and($modal->getIsTyping())->toBeTrue();
+  InputManager::handleInput(); $modal->update();
+  expect($modal->getPlayback()->auto)->toBeTrue()->and($modal->getIsTyping())->toBeTrue();
+  InputManager::handleInput(); $modal->update(); $modal->updateContent();
+  expect($modal->getIsTyping())->toBeFalse()->and($modal->isShowing)->toBeTrue();
+  $modal->hide();
+  InputManager::setBindings(['confirm'=>['keys'=>[KeyCode::SPACE]]]);
+  expect(InputManager::getBindings()['dialogue_auto']['keys'])->toBe([KeyCode::x, KeyCode::X]);
+});
+
+it('persists Auto across ordinary dialogue skits and reloaded configuration and honours Config changes', function () {
+  file_put_contents($this->voiceTemp.'/config.php', "<?php return [];\n");
+  ConfigStore::put(ProjectConfig::class, new ProjectConfig());
+  $first = new DialoguePlayback();
+  $first->toggleAuto();
+  $first->finishLine();
+  ConfigStore::put(ProjectConfig::class, new ProjectConfig());
+  $game = new ReflectionClass(Game::class)->newInstanceWithoutConstructor();
+  $modal = new VoiceTestTextBox($game, 'Ordinary dialogue');
+  expect($modal->getPlayback()->auto)->toBeTrue();
+  $skits = new VoiceTestSkits(new VoiceTestScene($game));
+  $skits->runSkit(['speed'=>20,'beats'=>[['speaker'=>'Narrator','text'=>'A skit']]]);
+  expect($skits->shown[0][2])->toBeTrue();
+  $catalogue = new \Ichiloto\Engine\Settings\SettingsCatalog();
+  $catalogue->write('dialogue_auto', true); $catalogue->persist();
+  expect($modal->getPlayback()->auto)->toBeTrue();
+  $catalogue->write('dialogue_auto', false); $catalogue->persist();
+  expect(new DialoguePlayback()->auto)->toBeFalse()->and($modal->getPlayback()->auto)->toBeFalse();
+  foreach ([new \Ichiloto\Engine\Core\Menu\MainMenu\MainMenuSettingsManager(), new \Ichiloto\Engine\Scenes\Title\TitleOptionsSettingsManager()] as $manager) {
+    expect(array_column($manager->getSettings(), 'key'))->toContain('dialogue_auto');
+  }
 });

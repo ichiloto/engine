@@ -213,7 +213,7 @@ it('discovers fallback Info without inventing a confirmation binding for an empt
     ->and(array_column($this->owner->getPresentationContent()->rows, 'action'))->toBe(['info', 'dialogue_auto']);
   $this->owner->select(1);
   $frame = ControlsMenuPresentation::compose($this->owner->getPresentationContent(), $theme);
-  expect(controlsPresentationText($frame))->toContain('Dialogue auto', 'Toggle automatic dialogue advance.', 'Keyboard bindings: F3');
+  expect(controlsPresentationText($frame))->toContain('Dialogue auto', 'Toggle automatic dialogue advance.', 'Keyboard bindings: SPACE');
 });
 
 it('scrolls the full owner list in terminal and native without losing the active action', function () {
@@ -233,9 +233,9 @@ it('scrolls the full owner list in terminal and native without losing the active
   controlsPresentationKey($this->owner, KeyCode::DOWN);
   expect($this->owner->getPresentationContent()->index)->toBe(55)
     ->and($this->owner->getPresentationContent()->rows[55]['action'])->toBe('dialogue_auto')
-    ->and(implode('', $this->owner->terminalRows()))->toContain('Dialogue auto', 'F3');
+    ->and(implode('', $this->owner->terminalRows()))->toContain('Dialogue auto', 'x, X');
   $frame = ControlsMenuPresentation::compose($this->owner->getPresentationContent(), $theme);
-  expect(controlsPresentationText($frame))->toContain('Dialogue auto', 'Toggle automatic dialogue advance.', 'Keyboard bindings: F3', '/ 56');
+  expect(controlsPresentationText($frame))->toContain('Dialogue auto', 'Toggle automatic dialogue advance.', 'Keyboard bindings: x, X', '/ 56');
   controlsPresentationKey($this->owner, KeyCode::DOWN);
   expect($this->owner->getPresentationContent()->index)->toBe(0);
 });
