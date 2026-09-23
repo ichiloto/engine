@@ -17,7 +17,6 @@ use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Console\NormalizedRow;
-use Ichiloto\Engine\IO\Console\SgrColorParser;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\UI\Enumerations\PresentationPriority;
@@ -1378,12 +1377,8 @@ class BattleFieldWindow extends Window
     }
     $buffer = Console::getBuffer();
     $lines = [];
-    $foreground = SgrColorParser::parse($flash['color']->value)['foreground'];
-    $colorIndex = $foreground?->toArray()['index'] ?? null;
-    if (!is_int($colorIndex)) { return; }
-    $backgroundCode = $colorIndex < 8 ? 40 + $colorIndex : 100 + $colorIndex - 8;
-    $contrastCode = $colorIndex >= 8 ? 30 : 97;
-    $flashStyle = "\033[{$contrastCode};{$backgroundCode}m";
+    $flashStyle = $flash['color']->getContrastingBackgroundSequence();
+    if ($flashStyle === null) { return; }
     for ($row = max(0, $y); $row < min(count($buffer), $y + $height); $row++) {
       $cells = NormalizedRow::fromText($buffer[$row])->cells;
       $plain = '';

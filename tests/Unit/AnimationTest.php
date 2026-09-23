@@ -6,6 +6,12 @@ use Ichiloto\Engine\Animations\AnimationTargetPosition;
 use Ichiloto\Engine\Animations\AnimationPlaybackSession;
 use Ichiloto\Engine\Animations\AnimationPlayer;
 use Ichiloto\Engine\Animations\AnimationLibrary;
+use Ichiloto\Engine\Animations\ActionAnimationResolver;
+use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
+use Ichiloto\Engine\Battle\BattleCommandCatalog;
+use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\ActionExecutionState;
+use Ichiloto\Engine\Entities\Magic\MagicEffectType;
+use Ichiloto\Engine\Entities\Skills\SpecialSkill;
 use Ichiloto\Engine\Util\Debug;
 
 it('hydrates animations from arrays and preserves frame cells and cues', function () {
@@ -106,6 +112,50 @@ it('continues authored cell cues when a frame cannot render', function () {
     function (AnimationCue $cue, int $frame) use (&$cues): void { $cues[] = $frame; }); })
     ->toThrow(RuntimeException::class, 'display offline');
   expect($cues)->toBe([1, 3]);
+});
+
+it('does not consume a rendering type error as an optional animation failure', function () {
+  $animation = new Animation(6, 'Invalid renderer', maxFrames: 3);
+  $animation->setCue(3, new AnimationCue(soundEffect: 'later'));
+  $cues = [];
+  expect(function () use ($animation, &$cues): void {
+    (new AnimationPlayer(0.01))->play($animation,
+      static function (): void { throw new TypeError('renderer contract broken'); },
+      function (AnimationCue $cue, int $frame) use (&$cues): void { $cues[] = $frame; });
+  })->toThrow(TypeError::class, 'renderer contract broken');
+  expect($cues)->toBe([]);
+});
+
+it('shares ordered legacy animation names with the editor', function () {
+  expect(ActionAnimationResolver::getSkillCandidateNames('Cure', MagicEffectType::RESTORATIVE))->toBe(['Cure', 'Healing Aura'])
+    ->and(ActionAnimationResolver::getSkillCandidateNames('Flare', MagicEffectType::DESTRUCTIVE))->toBe(['Flare', 'Hit Spark'])
+    ->and(ActionAnimationResolver::getSkillCandidateNames('Slash', null))->toBe(['Slash', 'Hit Spark']);
+});
+
+it('replaces scene-owned animation assets between battles even when the action state survives', function () {
+  $previous = getcwd();
+  $root = sys_get_temp_dir() . '/ichiloto-battle-animation-' . uniqid();
+  mkdir($root . '/assets/Data', 0777, true);
+  $path = $root . '/assets/Data/animations.php';
+  try {
+    chdir($root);
+    file_put_contents($path, "<?php return [['id' => 7, 'name' => 'Before']];");
+    $state = (new ReflectionClass(ActionExecutionState::class))->newInstanceWithoutConstructor();
+    $resolve = new ReflectionMethod(ActionExecutionState::class, 'resolveActionAnimation');
+    $action = new SkillBattleAction(new SpecialSkill('Strike', '', '', 0, 0, animationId: 7));
+    BattleCommandCatalog::beginBattle();
+    expect($resolve->invoke($state, $action)?->name)->toBe('Before');
+    file_put_contents($path, "<?php return [['id' => 7, 'name' => 'After']];");
+    expect($resolve->invoke($state, $action)?->name)->toBe('Before');
+    BattleCommandCatalog::endBattle();
+    BattleCommandCatalog::beginBattle();
+    expect($resolve->invoke($state, $action)?->name)->toBe('After');
+  } finally {
+    BattleCommandCatalog::endBattle();
+    chdir($previous);
+    unlink($path);
+    rmdir($root . '/assets/Data'); rmdir($root . '/assets'); rmdir($root);
+  }
 });
 
 it('keeps an animation library stable for one battle and reloads in the next', function () {

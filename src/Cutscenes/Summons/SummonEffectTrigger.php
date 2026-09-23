@@ -9,15 +9,18 @@ final class SummonEffectTrigger
 {
   private bool $applied = false;
   private Closure $apply;
+  /** @var array<string, mixed> */
+  private readonly array $timing;
 
-  public function __construct(private readonly array $timing, callable $apply)
+  public function __construct(array $timing, callable $apply)
   {
+    $this->timing = SummonEffectTiming::fromArray($timing)->toArray();
     $this->apply = Closure::fromCallable($apply);
   }
 
   public function onFrame(int $frame): void
   {
-    if (in_array(($this->timing['mode'] ?? 'end'), ['explicit_frame', 'frame'], true)
+    if (in_array(($this->timing['mode'] ?? SummonEffectTiming::DEFAULT_MODE), ['explicit_frame', 'frame'], true)
       && $frame >= intval($this->timing['frame'] ?? PHP_INT_MAX)) {
       $this->applyOnce();
     }
@@ -25,7 +28,7 @@ final class SummonEffectTrigger
 
   public function onCue(array $cue): void
   {
-    if (($this->timing['mode'] ?? 'end') === 'cue'
+    if (($this->timing['mode'] ?? SummonEffectTiming::DEFAULT_MODE) === 'cue'
       && strval($cue['id'] ?? '') === strval($this->timing['cueId'] ?? '')) {
       $this->applyOnce();
     }

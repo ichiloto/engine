@@ -6,6 +6,7 @@ use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Battle\Actions\ItemBattleAction;
+use Ichiloto\Engine\Battle\BattleCommandCatalog;
 use Ichiloto\Engine\Battle\BattleAction;
 use Ichiloto\Engine\Battle\BattleTurnTimings;
 use Ichiloto\Engine\Battle\Presentation\BattleFeedbackRole;
@@ -49,11 +50,17 @@ final class ActionEffectField extends BattleFieldWindow
   public function __construct(private ActionEffectTrace $trace) {}
   public function erase(?int $x = null, ?int $y = null): void {}
   public function render(?int $x = null, ?int $y = null): void {}
+  public function showActionAnimationFrame(\Ichiloto\Engine\Entities\Interfaces\CharacterInterface $battler, Animation $animation, int $frameIndex): void
+  {
+    $this->trace->events[] = 'render:' . $frameIndex;
+    if ($this->trace->renderMode === 'type-error') { throw new TypeError('invalid cell renderer'); }
+  }
   public function clearTargetIndicators(): void {}
   public function clearMagicCastEffects(): void {}
   public function clearStatChangePopups(): void {}
   public function clearBattleFlash(): void
   {
+    $this->trace->events[] = 'clear-flash';
     if ($this->trace->renderMode === 'cleanup-fail') {
       $this->trace->events[] = 'cleanup-failed';
       throw new RuntimeException('cleanup render failed');
@@ -84,6 +91,16 @@ final class ActionEffectScreen extends BattleScreen
   public function showMessage(string $text): void { $this->trace->events[] = $text; }
 }
 
+final class ActionEffectHoldState extends ActionExecutionState
+{
+  public function __construct(private ActionEffectTrace $trace) {}
+
+  protected function pause(float $seconds): void
+  {
+    $this->trace->events[] = 'hold:' . $seconds;
+  }
+}
+
 /** Exercise the action state's real presentation-to-resolution boundary without audio or a native window. */
 function runActionEffectPlayback(
   array $timing,
@@ -91,6 +108,7 @@ function runActionEffectPlayback(
   bool $reducedMotion,
   ?ActionEffectTrace $trace = null,
   ?callable $afterResolution = null,
+  float $effectDisplaySeconds = 0.0,
 ): array
 {
   $previousConfig = ConfigStore::has(ProjectConfig::class) ? ConfigStore::get(ProjectConfig::class) : null;
@@ -110,8 +128,8 @@ function runActionEffectPlayback(
       defaults: ['name' => '', 'lengthFrames' => 4, 'effectTiming' => $timing]);
     $resolutions = 0;
     new ReflectionMethod(ActionExecutionState::class, 'resolvePresentedAction')->invoke(
-      makeActionExecutionStateForTest(), $context, $actor, $target, null,
-      new BattleTurnTimings(0, 0, 0, 0, 0, 0, 0), $cutscene, null,
+      new ActionEffectHoldState($trace), $context, $actor, $target, null,
+      new BattleTurnTimings(0, 0, 0, $effectDisplaySeconds, 0, 0, 0), $cutscene, null,
       function () use ($target, $trace, $afterResolution, &$resolutions): void {
         $resolutions++;
         $target->stats->currentHp -= 7;
@@ -168,6 +186,90 @@ it('preserves a gameplay failure when summon cleanup also fails', function () {
   expect($attempts)->toBe(1)
     ->and(array_count_values($trace->events)['resolve'] ?? 0)->toBe(1)
     ->and($trace->events)->toContain('cleanup-failed');
+});
+
+it('holds the final summon frame through the reduced-motion effect beat before cleanup', function () {
+  $result = runActionEffectPlayback(['mode' => 'end'], 'normal', true, effectDisplaySeconds: 0.25);
+  $events = $result['events'];
+  expect(array_search('render:3', $events, true))->toBeLessThan(array_search('hold:0.25', $events, true))
+    ->and(array_search('hold:0.25', $events, true))->toBeLessThan(array_search('clear-flash', $events, true));
+});
+
+it('holds the final cell animation frame through the reduced-motion effect beat before cleanup', function () {
+  $previousConfig = ConfigStore::has(ProjectConfig::class) ? ConfigStore::get(ProjectConfig::class) : null;
+  ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => true]]));
+  try {
+    $trace = new ActionEffectTrace('normal');
+    $context = (new ReflectionClass(TurnStateExecutionContext::class))->newInstanceWithoutConstructor();
+    new ReflectionProperty(TurnStateExecutionContext::class, 'ui')->setValue($context, new ActionEffectScreen($trace));
+    $actor = new Character('Caster', 0, new Stats());
+    $target = new Character('Target', 0, new Stats());
+    new ReflectionMethod(ActionExecutionState::class, 'resolvePresentedAction')->invoke(
+      new ActionEffectHoldState($trace), $context, $actor, $target, null,
+      new BattleTurnTimings(0, 0, 0, 0.25, 0, 0, 0), null,
+      new Animation(1, 'Effect', maxFrames: 3), static function (): void {},
+    );
+    expect(array_search('render:3', $trace->events, true))->toBeLessThan(array_search('hold:0.25', $trace->events, true))
+      ->and(array_search('hold:0.25', $trace->events, true))->toBeLessThan(array_search('clear-flash', $trace->events, true));
+  } finally {
+    $previousConfig === null ? ConfigStore::remove(ProjectConfig::class)
+      : ConfigStore::put(ProjectConfig::class, $previousConfig);
+  }
+});
+
+it('surfaces a cell renderer type error instead of treating it as an optional presentation failure', function () {
+  $previousConfig = ConfigStore::has(ProjectConfig::class) ? ConfigStore::get(ProjectConfig::class) : null;
+  ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => true]]));
+  try {
+    $trace = new ActionEffectTrace('type-error');
+    $context = (new ReflectionClass(TurnStateExecutionContext::class))->newInstanceWithoutConstructor();
+    new ReflectionProperty(TurnStateExecutionContext::class, 'ui')->setValue($context, new ActionEffectScreen($trace));
+    $actor = new Character('Caster', 0, new Stats());
+    $target = new Character('Target', 0, new Stats());
+    expect(static function () use ($trace, $context, $actor, $target): void {
+      new ReflectionMethod(ActionExecutionState::class, 'resolvePresentedAction')->invoke(
+        new ActionEffectHoldState($trace), $context, $actor, $target, null,
+        new BattleTurnTimings(0, 0, 0, 0, 0, 0, 0), null,
+        new Animation(1, 'Effect', maxFrames: 1), static function (): void {},
+      );
+    })->toThrow(TypeError::class, 'invalid cell renderer');
+    expect($trace->events)->not->toContain('clear-flash');
+  } finally {
+    $previousConfig === null ? ConfigStore::remove(ProjectConfig::class)
+      : ConfigStore::put(ProjectConfig::class, $previousConfig);
+  }
+});
+
+it('replaces scene-owned summon assets between battles even when the action state survives', function () {
+  $previous = getcwd();
+  $root = sys_get_temp_dir() . '/ichiloto-battle-summon-' . uniqid();
+  $directory = $root . '/assets/Cutscenes/Summons/call';
+  mkdir($directory, 0777, true);
+  $data = $directory . '/call.data.php';
+  $timeline = $directory . '/call.timeline.php';
+  try {
+    chdir($root);
+    file_put_contents($data, "<?php return ['id' => 'call', 'name' => 'Before', 'linkedActionId' => 'Call'];");
+    file_put_contents($timeline, "<?php return ['fps' => 12, 'lengthFrames' => 1, 'tracks' => [], 'cues' => []];");
+    $state = makeActionExecutionStateForTest();
+    $resolve = new ReflectionMethod(ActionExecutionState::class, 'resolveSummonCutscene');
+    $action = new SkillBattleAction(new SpecialSkill('Call', '', '', 0, 0));
+    BattleCommandCatalog::beginBattle();
+    expect($resolve->invoke($state, $action)?->defaults['name'])->toBe('Before');
+    file_put_contents($data, "<?php return ['id' => 'call', 'name' => 'After', 'linkedActionId' => 'Call'];");
+    expect($resolve->invoke($state, $action)?->defaults['name'])->toBe('Before');
+    BattleCommandCatalog::endBattle();
+    BattleCommandCatalog::beginBattle();
+    expect($resolve->invoke($state, $action)?->defaults['name'])->toBe('After');
+  } finally {
+    BattleCommandCatalog::endBattle();
+    chdir($previous);
+    unlink($data); unlink($timeline);
+    rmdir($directory);
+    rmdir($root . '/assets/Cutscenes/Summons');
+    rmdir($root . '/assets/Cutscenes');
+    rmdir($root . '/assets'); rmdir($root);
+  }
 });
 
 it('builds floating damage and knockout popup lines for defeated targets', function () {

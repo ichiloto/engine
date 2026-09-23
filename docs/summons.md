@@ -206,6 +206,26 @@ logically, reports the presentation error and restores the battlefield;
 gameplay failures propagate instead of being retried. MP spending, assignment
 rules and the authored data format are unchanged.
 
+If `effectTiming` or its mode is omitted, the effect resolves at `end`.
+Unknown modes produce a warning and use `end` rather than silently changing
+when combat resolves.
+
+Timeline cues use `id`, `frame`, `type`, and an optional `payload` map. Battle
+recognizes these payload keys:
+
+| Cue type | Payload keys | Behavior |
+| --- | --- | --- |
+| `applyEffect` | none | Its id can be selected by `effectTiming.cueId`; the timing gate resolves gameplay once. |
+| `showMessage` | `text` (or `message`) | Shows non-empty text in the battle message panel. |
+| `playSound` | `soundEffect` (or `sound`, `assetId`) | Plays the named effect through the game's audio manager. |
+| `flash` | `color`, `durationFrames` (or `duration`), `scope` | Flashes the `screen` (default) or `target`; default color is white and minimum duration is one frame. |
+| `shake` | `amplitude`, `durationFrames` (or `duration`) | Shakes the battlefield for at least one frame; default amplitude is one. |
+| `restoreBattlefield` | none | Clears flash, shake and effect art, then redraws the field. |
+
+Visual `flash` and `shake` cues are skipped in reduced motion. Other cues and
+their ordering remain active, and the final frame stays visible through the
+effect display phase before the battlefield returns.
+
 Reduced motion delivers every cue in authored order, applies the skill effect,
 and draws only the final frame. The battle skips summon title and transition
 motion as well as visual flash and shake. In terminal presentation, active

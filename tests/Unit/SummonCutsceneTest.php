@@ -13,6 +13,33 @@ use Ichiloto\Engine\Cutscenes\Summons\SummonPlaybackSession;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutscenePlayer;
 use Ichiloto\Engine\Cutscenes\Summons\SummonTargetPresentation;
 use Ichiloto\Engine\Cutscenes\Summons\SummonTransitionDefinition;
+use Ichiloto\Engine\Util\Debug;
+
+it('uses end timing for omitted and unknown modes while warning about unknown authoring', function () {
+  $logDirectory = new ReflectionProperty(Debug::class, 'logDirectory');
+  $previousLogDirectory = $logDirectory->getValue();
+  $logs = sys_get_temp_dir() . '/ichiloto-summon-timing-' . uniqid();
+  try {
+    $logDirectory->setValue(null, $logs);
+    $omitted = SummonCutsceneDefinition::fromArrays(
+      ['id' => 'untimed', 'name' => 'Untimed'],
+      ['fps' => 12, 'lengthFrames' => 1, 'tracks' => [], 'cues' => []],
+    );
+    $unknown = SummonCutsceneDefinition::fromArrays(
+      ['id' => 'unknown', 'name' => 'Unknown', 'effectTiming' => ['mode' => 'typo']],
+      ['fps' => 12, 'lengthFrames' => 1, 'tracks' => [], 'cues' => []],
+    );
+    expect($omitted->effectTiming->mode)->toBe(SummonEffectTiming::DEFAULT_MODE)
+      ->and((new SummonCutsceneCompiler())->compile($omitted)->defaults['effectTiming']['mode'])->toBe(SummonEffectTiming::DEFAULT_MODE)
+      ->and($unknown->effectTiming->mode)->toBe(SummonEffectTiming::DEFAULT_MODE)
+      ->and(file_get_contents($logs . '/warning.log'))->toContain('Unknown summon effect timing mode "typo"');
+  } finally {
+    $logDirectory->setValue(null, $previousLogDirectory);
+    if (is_file($logs . '/warning.log')) { unlink($logs . '/warning.log'); }
+    if (is_file($logs . '/debug.log')) { unlink($logs . '/debug.log'); }
+    if (is_dir($logs)) { rmdir($logs); }
+  }
+});
 
 it('hydrates summon cutscene definitions from source arrays', function () {
   $definition = SummonCutsceneDefinition::fromArrays(

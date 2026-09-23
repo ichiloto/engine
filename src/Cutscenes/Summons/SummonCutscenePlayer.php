@@ -48,7 +48,7 @@ final class SummonCutscenePlayer
       }
       try {
         $renderFrame($frame, $session->activeSegments());
-      } catch (\Throwable $error) {
+      } catch (\Exception $error) {
         for ($next = $frame + 1; $next < $session->totalFrames; $next++) {
           if ($onFrame !== null) { $onFrame($next); }
           if ($onCue !== null) {

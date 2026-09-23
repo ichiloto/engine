@@ -61,7 +61,7 @@ final class AnimationPlayer
           $animation->getFrame($frameIndex),
           $onCue === null ? $cue : null,
         );
-      } catch (\Throwable $error) {
+      } catch (\Exception $error) {
         if ($onCue !== null) {
           for ($next = $frameIndex + 1; $next <= $animation->maxFrames; $next++) {
             if (($nextCue = $animation->getCue($next)) !== null) { $onCue($nextCue, $next); }

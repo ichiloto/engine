@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Battle;
 
 use Assegai\Util\Path;
+use Ichiloto\Engine\Animations\AnimationLibrary;
 use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Battle\Actions\ItemBattleAction;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
@@ -32,21 +33,42 @@ use Throwable;
 final class BattleCommandCatalog
 {
   private static ?SummonCutsceneLibrary $battleSummons = null;
+  private static ?AnimationLibrary $battleAnimations = null;
+  /** @var array<int, true> */
+  private static array $missingAnimationIds = [];
 
   /** Scene-owned cache shared by command selection and action execution. */
   public static function beginBattle(): void
   {
     self::$battleSummons = new SummonCutsceneLibrary(cacheForBattle: true);
+    self::$battleAnimations = new AnimationLibrary(cacheForBattle: true);
+    self::$missingAnimationIds = [];
   }
 
   public static function endBattle(): void
   {
     self::$battleSummons = null;
+    self::$battleAnimations = null;
+    self::$missingAnimationIds = [];
   }
 
   public static function getBattleSummonLibrary(): ?SummonCutsceneLibrary
   {
     return self::$battleSummons;
+  }
+
+  public static function getBattleAnimationLibrary(): ?AnimationLibrary
+  {
+    return self::$battleAnimations;
+  }
+
+  /** Suppresses duplicate missing-id warnings only within the active battle. */
+  public static function recordMissingAnimationId(int $id): bool
+  {
+    if (self::$battleAnimations === null) { return true; }
+    if (isset(self::$missingAnimationIds[$id])) { return false; }
+    self::$missingAnimationIds[$id] = true;
+    return true;
   }
 
   /**
@@ -337,10 +359,7 @@ final class BattleCommandCatalog
    */
   protected static function isSummonSkill(Skill $skill): bool
   {
-    static $summonActionIds = null;
-    $summonActionIds ??= self::loadSummonActionNames();
-
-    return in_array($skill->name, $summonActionIds, true);
+    return in_array($skill->name, self::loadSummonActionNames(), true);
   }
 
   /**
