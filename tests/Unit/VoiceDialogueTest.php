@@ -8,6 +8,9 @@ use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Field\SkitBeatPresentation;
 use Ichiloto\Engine\Field\SkitManager;
+use Ichiloto\Engine\Field\SkitSpeaker;
+use Ichiloto\Engine\Entities\Actors\ActorDefinition;
+use Ichiloto\Engine\Util\Stores\ActorStore;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback;
@@ -228,13 +231,46 @@ it('gives each wrapped page reading time and preserves Auto between lines', func
 it('softly resolves optional emotion and voice without allowing paths outside the skit', function () {
   $catalogue = new DialoguePresentationCatalog(['Actor'=>['emotions'=>['Concerned'=>'portrait.png']]]);
   $assets = $this->voiceTemp.'/assets';
-  $beat = SkitBeatPresentation::getFromBeat($assets,'sample',['speaker'=>'Actor','emotion'=>'Concerned','voice'=>'line'],$catalogue);
+  $beat = SkitBeatPresentation::getFromBeat($assets,'sample',['actor'=>'Actor','emotion'=>'Concerned','voice'=>'line'],$catalogue, 'Actor');
   expect($beat->emotion)->toBe('Concerned')->and($beat->voicePath)->toBe(realpath($this->voicePath));
   foreach (['../line','/line','line.wav','missing',[]] as $voice) {
     $beat = SkitBeatPresentation::getFromBeat($assets,'sample',['emotion'=>[],'voice'=>$voice],$catalogue);
     expect($beat->emotion)->toBe('Neutral')->and($beat->voicePath)->toBeNull();
   }
   expect(file_get_contents($this->voiceTemp.'/warning.log'))->toContain('Unknown skit emotion','Voice file missing','Invalid voice reference');
+});
+
+it('resolves stable skit actor identity and notices legacy ids without treating display names as ids', function () {
+  $actors = new ActorStore($this->voiceTemp . '/actors');
+  $definition = new ActorDefinition('hero-id', ['name'=>'Before']);
+  $actors->set('hero-file', $definition);
+  $explicit = SkitSpeaker::getFromBeat(['actor'=>'hero-id'], $actors);
+  expect($explicit->actorId)->toBe('hero-id')->and($explicit->name)->toBe('Before')->and($explicit->notices)->toBeEmpty();
+  $renamed = new ActorStore($this->voiceTemp . '/actors');
+  $renamed->set('hero-file', new ActorDefinition('hero-id', ['name'=>'After']));
+  expect(SkitSpeaker::getFromBeat(['actor'=>'hero-id'], $renamed)->name)->toBe('After');
+  $legacy = SkitSpeaker::getFromBeat(['speaker'=>'hero-id'], $renamed);
+  expect($legacy->actorId)->toBe('hero-id')->and($legacy->name)->toBe('After')->and($legacy->notices)->toHaveCount(1);
+  expect(SkitSpeaker::getFromBeat(['speaker'=>'After'], $renamed)->actorId)->toBeNull()
+    ->and(SkitSpeaker::getFromBeat(['actor'=>'After'], $renamed)->errors)->not->toBeEmpty()
+    ->and(SkitSpeaker::getFromBeat(['actor'=>'missing'], $renamed)->errors)->not->toBeEmpty()
+    ->and(SkitSpeaker::getFromBeat(['actor'=>'hero-id','speaker'=>'After'], $renamed)->errors)->not->toBeEmpty();
+  $catalogue = new DialoguePresentationCatalog(['hero-id'=>['emotions'=>['Concerned'=>'portrait.png']]]);
+  $plain = SkitBeatPresentation::getFromBeat($this->voiceTemp.'/assets','sample', ['speaker'=>'After','emotion'=>'Concerned'], $catalogue);
+  expect($plain->emotion)->toBe(SkitBeatPresentation::NEUTRAL_EMOTION);
+});
+
+it('accepts an empty dialogue catalogue placeholder and displays the registered actor name', function () {
+  mkdir($this->voiceTemp.'/assets/Data/Presentation', 0777, true);
+  file_put_contents($this->voiceTemp.'/assets/Data/Presentation/dialogue.php', "<?php\n\n");
+  $actors = new ActorStore($this->voiceTemp.'/actors');
+  $actors->set('hero', new ActorDefinition('hero', ['name'=>'Current Name']));
+  ConfigStore::put(ActorStore::class, $actors);
+  $game = new ReflectionClass(Game::class)->newInstanceWithoutConstructor();
+  $skits = new VoiceTestSkits(new VoiceTestScene($game));
+  $skits->runSkit(['speed'=>20, 'beats'=>[['actor'=>'hero','text'=>'Hello']]]);
+  expect($skits->shown[0][0]['speaker'])->toBe('Current Name')
+    ->and(is_file($this->voiceTemp.'/warning.log'))->toBeFalse();
 });
 
 it('keeps legacy skits and missing optional presentation playable and marks them seen', function () {

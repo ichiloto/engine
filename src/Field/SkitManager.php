@@ -14,6 +14,7 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Util\Stores\ActorStore;
 use Throwable;
 
 /**
@@ -166,6 +167,10 @@ class SkitManager
     $playback = new DialoguePlayback(isset($game->audioManager) ? $game->audioManager : null);
     $assets = Path::join(Path::getCurrentWorkingDirectory(), 'assets');
     $catalogue = $this->loadDialoguePresentation($assets);
+    $actors = ConfigStore::has(ActorStore::class) ? ConfigStore::get(ActorStore::class) : null;
+    if (! $actors instanceof ActorStore) {
+      $actors = new ActorStore(Path::join($assets, 'Data', 'Actors'));
+    }
     $duck = ConfigStore::has(ProjectConfig::class)
       ? ConfigStore::get(ProjectConfig::class)->get('audio.voice_music_duck', 1.0) : 1.0;
     $duck = is_numeric($duck) ? (float) $duck : 1.0;
@@ -176,10 +181,14 @@ class SkitManager
           return;
         }
         if (is_array($beat)) {
-          $presentation = SkitBeatPresentation::getFromBeat($assets, $skitId, $beat, $catalogue);
+          $speaker = SkitSpeaker::getFromBeat($beat, $actors);
+          foreach ([...$speaker->notices, ...$speaker->errors] as $diagnostic) {
+            Debug::warn("Skit $skitId: $diagnostic");
+          }
+          $presentation = SkitBeatPresentation::getFromBeat($assets, $skitId, $beat, $catalogue, $speaker->actorId);
           $playback->beginLine($presentation->voicePath, $duck);
           try {
-            $this->showBeat([...$beat, 'emotion' => $presentation->emotion], $speed, $playback);
+            $this->showBeat([...$beat, 'speaker' => $speaker->name, 'emotion' => $presentation->emotion], $speed, $playback);
           } finally {
             $playback->finishLine();
           }
@@ -207,6 +216,10 @@ class SkitManager
         $catalogue = require $filename;
         if ($catalogue instanceof DialoguePresentationCatalog) {
           return $catalogue;
+        }
+        // An empty PHP placeholder returns 1; an empty authored array is also valid.
+        if ($catalogue === 1 || $catalogue === null || $catalogue === []) {
+          return new DialoguePresentationCatalog();
         }
         Debug::warn('Invalid dialogue presentation catalogue; using Neutral skit emotions.');
       } catch (Throwable $exception) {
