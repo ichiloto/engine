@@ -200,10 +200,11 @@ if (! function_exists('show_text') ) {
     string         $title = '',
     string         $help = '',
     ?WindowPosition $position = null,
-    float          $charactersPerSecond = 1
+    float          $charactersPerSecond = 1,
+    ?\Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback $playback = null,
   ): void
   {
-    Console::showText($message, $title, $help, $position, $charactersPerSecond);
+    Console::showText($message, $title, $help, $position, $charactersPerSecond, $playback);
   }
 }
 

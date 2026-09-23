@@ -10,6 +10,8 @@ use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\IO\Input;
+use Ichiloto\Engine\IO\InputBindings;
+use Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowHeightPolicy;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
@@ -88,7 +90,8 @@ class TextBoxModal extends Modal
     string $help = '',
     ?WindowPosition $position = null,
     BorderPackInterface $borderPack = new DefaultBorderPack(),
-    protected float $charactersPerSecond = 60
+    protected float $charactersPerSecond = 60,
+    protected ?DialoguePlayback $playback = null,
   )
   {
     $width = min(DEFAULT_DIALOG_WIDTH, max(4, get_screen_width()));
@@ -142,8 +145,11 @@ class TextBoxModal extends Modal
     $this->messageLength = mb_strlen($this->currentPageMessage());
     $this->help = $this->authoredHelp;
     $this->isPrinting = true;
+    $this->nextPrintTime = 0;
+    $this->playback?->beginPage($this->currentPageMessage());
 
     $this->updateContent();
+    $this->refreshPlaybackHelp();
   }
 
   /**
@@ -163,6 +169,23 @@ class TextBoxModal extends Modal
       $this->submit();
     } elseif (Input::isButtonDown('cancel')) {
       $this->cancel();
+    } elseif ($this->playback !== null && Input::isButtonDown('dialogue_auto')) {
+      $this->playback->toggleAuto();
+    } elseif ($this->playback?->canAdvance(
+      microtime(true), $this->isPrinting, ! isset($this->messagePages[$this->currentPageIndex + 1]),
+    )) {
+      $this->submit();
+    }
+    $this->refreshPlaybackHelp();
+  }
+
+  private function refreshPlaybackHelp(): void
+  {
+    if ($this->playback !== null) {
+      $bindings = new InputBindings();
+      $hints = sprintf('%s:continue %s:Auto %s', $bindings->describeKeys('confirm'),
+        $bindings->describeKeys('dialogue_auto'), $this->playback->auto ? 'on' : 'off');
+      $this->help = $this->authoredHelp === '' ? $hints : $this->authoredHelp . ' ' . $hints;
     }
   }
 
@@ -172,7 +195,8 @@ class TextBoxModal extends Modal
       $now = microtime(true);
 
       if ($now >= $this->nextPrintTime) {
-        $this->nextPrintTime = $now + (1 / $this->charactersPerSecond);
+        $speed = is_finite($this->charactersPerSecond) ? max(1.0, $this->charactersPerSecond) : 60.0;
+        $this->nextPrintTime = $now + (1 / $speed);
         $this->currentCharacterIndex++;
       }
 
@@ -226,7 +250,9 @@ class TextBoxModal extends Modal
       $this->help = $this->authoredHelp;
       $this->nextPrintTime = 0;
       $this->isPrinting = true;
+      $this->playback?->beginPage($this->currentPageMessage());
       $this->updateContent();
+      $this->refreshPlaybackHelp();
     } else {
       $this->cancel();
     }
@@ -241,6 +267,15 @@ class TextBoxModal extends Modal
   protected function playInteractionSound(SystemSound $sound): void
   {
     // Intentionally silent.
+  }
+
+  public function hide(): void
+  {
+    try {
+      parent::hide();
+    } finally {
+      $this->playback?->finishLine();
+    }
   }
 
   /**

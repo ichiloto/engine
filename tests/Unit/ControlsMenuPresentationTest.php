@@ -210,7 +210,10 @@ it('discovers fallback Info without inventing a confirmation binding for an empt
   $frame = ControlsMenuPresentation::compose($this->owner->getPresentationContent(), $theme);
   expect(controlsPresentationText($frame))->toContain('Info', 'Read the next Info page; wrap to the first.', 'Keyboard bindings: i, I')
     ->and($this->owner->getPresentationContent()->listening)->toBeFalse()
-    ->and(array_column($this->owner->getPresentationContent()->rows, 'action'))->toBe(['info']);
+    ->and(array_column($this->owner->getPresentationContent()->rows, 'action'))->toBe(['info', 'dialogue_auto']);
+  $this->owner->select(1);
+  $frame = ControlsMenuPresentation::compose($this->owner->getPresentationContent(), $theme);
+  expect(controlsPresentationText($frame))->toContain('Dialogue auto', 'Toggle automatic dialogue advance.', 'Keyboard bindings: F3');
 });
 
 it('scrolls the full owner list in terminal and native without losing the active action', function () {
@@ -223,10 +226,16 @@ it('scrolls the full owner list in terminal and native without losing the active
   expect($this->owner->getPresentationContent()->index)->toBe(53)
     ->and(implode('', $this->owner->terminalRows()))->toContain('Command 49');
   $frame = ControlsMenuPresentation::compose($this->owner->getPresentationContent(), $theme);
-  expect(controlsPresentationText($frame))->toContain('Command 49', '/ 55');
+  expect(controlsPresentationText($frame))->toContain('Command 49', '/ 56');
   controlsPresentationKey($this->owner, KeyCode::DOWN);
   expect($this->owner->getPresentationContent()->index)->toBe(54)
     ->and($this->owner->getPresentationContent()->rows[54]['action'])->toBe('info');
+  controlsPresentationKey($this->owner, KeyCode::DOWN);
+  expect($this->owner->getPresentationContent()->index)->toBe(55)
+    ->and($this->owner->getPresentationContent()->rows[55]['action'])->toBe('dialogue_auto')
+    ->and(implode('', $this->owner->terminalRows()))->toContain('Dialogue auto', 'F3');
+  $frame = ControlsMenuPresentation::compose($this->owner->getPresentationContent(), $theme);
+  expect(controlsPresentationText($frame))->toContain('Dialogue auto', 'Toggle automatic dialogue advance.', 'Keyboard bindings: F3', '/ 56');
   controlsPresentationKey($this->owner, KeyCode::DOWN);
   expect($this->owner->getPresentationContent()->index)->toBe(0);
 });

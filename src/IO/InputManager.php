@@ -115,20 +115,24 @@ class InputManager
   }
 
   /**
-   * Adds the menu Info action for older projects without claiming authored controls.
+   * Adds shared actions for older projects without claiming authored controls.
    *
    * @param array<string, array{description?: string, keys?: KeyCode[]}> $bindings
    * @return array<string, array{description?: string, keys?: KeyCode[]}>
    */
   private static function getBindingsWithDefaults(array $bindings): array
   {
-    if (array_key_exists('info', $bindings)) {
-      return $bindings;
+    foreach ([
+      'info' => ['Read the next Info page; wrap to the first.', [KeyCode::i, KeyCode::I]],
+      'dialogue_auto' => ['Toggle automatic dialogue advance.', [KeyCode::F3]],
+    ] as $action => [$description, $candidates]) {
+      if (array_key_exists($action, $bindings)) {
+        continue;
+      }
+      $keys = array_values(array_filter($candidates, static fn(KeyCode $key): bool =>
+        !array_any($bindings, static fn(array $binding): bool => in_array($key, $binding['keys'] ?? [], true))));
+      $bindings[$action] = ['description' => $description, 'keys' => $keys];
     }
-
-    $keys = array_values(array_filter([KeyCode::i, KeyCode::I], static fn(KeyCode $key): bool =>
-      !array_any($bindings, static fn(array $binding): bool => in_array($key, $binding['keys'] ?? [], true))));
-    $bindings['info'] = ['description' => 'Read the next Info page; wrap to the first.', 'keys' => $keys];
 
     return $bindings;
   }

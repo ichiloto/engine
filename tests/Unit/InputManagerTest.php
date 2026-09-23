@@ -182,7 +182,9 @@ it('adds a missing Info action using only unclaimed default keys', function (arr
 it('preserves an explicit Info entry including deliberate unbinding', function (array $entry) {
   $authored = ['info' => $entry, 'custom' => ['keys' => [KeyCode::F2]]];
   InputManager::setBindings($authored);
-  expect(InputManager::getBindings())->toBe($authored);
+  expect(InputManager::getBindings())->toBe([...$authored,
+    'dialogue_auto' => ['description' => 'Toggle automatic dialogue advance.', 'keys' => [KeyCode::F3]],
+  ]);
   InputManager::setInputSource(new FakeInputSource(KeyCode::i));
   InputManager::handleInput();
   expect(Input::isButtonDown('info'))->toBeFalse();

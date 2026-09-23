@@ -79,7 +79,7 @@ it('lists the rebindable actions with their keys', function () {
 
   // Back is deliberately absent: escape is how every screen is left,
   // including the rebinding screen.
-  expect($actions)->toBe(['action', 'up', 'info'])
+  expect($actions)->toBe(['action', 'up', 'info', 'dialogue_auto'])
     ->and($bindings->describeKeys('action'))->toBe('SPACE, ENTER')
     ->and($bindings->describeKeys('up'))->toBe('UP, W')
     ->and($bindings->describeKeys('info'))->toBe('i, I');
@@ -185,7 +185,7 @@ it('discovers a fully conflicted Info default as unbound and permits an explicit
   $authored = ['custom' => ['description' => 'Custom action.', 'keys' => [KeyCode::i, KeyCode::I]]];
   $config = installBindings($authored);
   $bindings = new InputBindings();
-  expect(array_column($bindings->all(), 'action'))->toBe(['custom', 'info'])
+  expect(array_column($bindings->all(), 'action'))->toBe(['custom', 'info', 'dialogue_auto'])
     ->and($bindings->describeKeys('info'))->toBe('Unbound')
     ->and($bindings->controlForAction('info'))->toBeNull()
     ->and($config->all())->toBe($authored)->and($config->written)->toBeEmpty();
