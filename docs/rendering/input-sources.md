@@ -34,6 +34,12 @@ it does not change selection. Boot captures these effective bindings for Restore
 Defaults. Loading never writes configuration; the existing explicit Controls
 rebind/restore workflow retains persistence ownership.
 
+Controls stores changed keyboard keys under `input.bindings` in the player's
+`.data/player-settings.json`. The authored `input.php` supplies action identities,
+descriptions, controller metadata and default keys. At boot, the Engine applies
+valid player key overrides to known, rebindable actions; Restore Defaults clears
+those overrides. Neither action rewrites `input.php`.
+
 <a id="approved-compatibility-correction"></a>
 ### Canonical key comparison
 

@@ -13,6 +13,8 @@ use Ichiloto\Engine\IO\InputSources\InputSourceInterface;
 use Ichiloto\Engine\IO\InputSources\TerminalInputSource;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\InputConfig;
+use Ichiloto\Engine\Util\Config\PlayerSettings;
+use Ichiloto\Engine\Util\Debug;
 use RuntimeException;
 
 class InputManager
@@ -63,6 +65,18 @@ class InputManager
     assert($inputConfig instanceof InputConfig);
     self::setBindings($inputConfig->all());
     self::$defaultConfig = self::$config;
+    if (ConfigStore::has(PlayerSettings::class)) {
+      $player = ConfigStore::get(PlayerSettings::class);
+      if ($player instanceof PlayerSettings) {
+        foreach ($player->getInputBindings() as $action => $keys) {
+          if (! isset(self::$config[$action]) || ! InputBindings::canRebind($action)) {
+            Debug::warn("Ignoring obsolete or locked player input binding: $action.");
+            continue;
+          }
+          self::$config[$action]['keys'] = $keys;
+        }
+      }
+    }
   }
 
   /**
