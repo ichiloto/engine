@@ -8,8 +8,12 @@ use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\IO\InputBindings;
+use Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePresentationCatalog;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Debug;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Throwable;
 
 /**
@@ -158,18 +162,58 @@ class SkitManager
   protected function play(string $skitId, array $skit): void
   {
     $speed = is_numeric($skit['speed'] ?? null) ? floatval($skit['speed']) : dialogue_speed();
+    $game = $this->gameScene->getGame();
+    $playback = new DialoguePlayback(isset($game->audioManager) ? $game->audioManager : null);
+    $assets = Path::join(Path::getCurrentWorkingDirectory(), 'assets');
+    $catalogue = $this->loadDialoguePresentation($assets);
+    $duck = ConfigStore::has(ProjectConfig::class)
+      ? ConfigStore::get(ProjectConfig::class)->get('audio.voice_music_duck', 1.0) : 1.0;
+    $duck = is_numeric($duck) ? (float) $duck : 1.0;
 
-    foreach ((array) $skit['beats'] as $beat) {
-      if (is_array($beat)) {
-        show_text(
-          strval($beat['text'] ?? ''),
-          strval($beat['speaker'] ?? ''),
-          charactersPerSecond: $speed
-        );
+    try {
+      foreach ((array) $skit['beats'] as $beat) {
+        if ($game->hasStopped()) {
+          return;
+        }
+        if (is_array($beat)) {
+          $presentation = SkitBeatPresentation::getFromBeat($assets, $skitId, $beat, $catalogue);
+          $playback->beginLine($presentation->voicePath, $duck);
+          try {
+            $this->showBeat([...$beat, 'emotion' => $presentation->emotion], $speed, $playback);
+          } finally {
+            $playback->finishLine();
+          }
+        }
+      }
+      if (! $game->hasStopped()) {
+        $this->gameScene->gameState->recordStoryEvent(sprintf('skit_seen:%s', $skitId));
+      }
+    } finally {
+      $playback->finishLine();
+    }
+  }
+
+  protected function showBeat(array $beat, float $speed, DialoguePlayback $playback): void
+  {
+    show_text(strval($beat['text'] ?? ''), strval($beat['speaker'] ?? ''),
+      charactersPerSecond: $speed, playback: $playback);
+  }
+
+  protected function loadDialoguePresentation(string $assets): DialoguePresentationCatalog
+  {
+    $filename = Path::join($assets, DialoguePresentationCatalog::FILE);
+    if (is_file($filename)) {
+      try {
+        $catalogue = require $filename;
+        if ($catalogue instanceof DialoguePresentationCatalog) {
+          return $catalogue;
+        }
+        Debug::warn('Invalid dialogue presentation catalogue; using Neutral skit emotions.');
+      } catch (Throwable $exception) {
+        Debug::warn('Dialogue presentation catalogue could not load: ' . $exception->getMessage());
       }
     }
-
-    $this->gameScene->gameState->recordStoryEvent(sprintf('skit_seen:%s', $skitId));
+    return new DialoguePresentationCatalog();
   }
 
   /**

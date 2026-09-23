@@ -32,7 +32,7 @@ this functionality. Last Legend is the reference consumer. Related docs:
 5. **Preview is the runtime.** The editor previews skits through the
    engine's own playback path, as summons already do.
 
-## Current state (audited 2026-09-22)
+## Current runtime scope
 
 - **The skit system is real and shipping.** `Field\SkitManager` loads
   `assets/Data/Skits/*.php` (id, title, optional map gate, trigger
@@ -40,7 +40,8 @@ this functionality. Last Legend is the reference consumer. Related docs:
   availability by notification, plays beats through the standard dialogue
   box (`show_text`), and records `skit_seen:<id>`. The engine roadmap
   already defers "a dedicated compact skit overlay."
-- **Beats carry no emotion and no voice.** Speaker and text only.
+- **Beats accept optional emotion and voice.** Phase 0 resolves these softly
+  and plays voice through the existing dialogue box on either presentation.
 - **The bust art already exists.** Each Last Legend cast member ships eight
   emotional dialogue portraits (Angry, Concerned, Determined, Happy,
   Neutral, Sad, Surprised, Thinking), some with alternate sets (e.g. a
@@ -49,12 +50,10 @@ this functionality. Last Legend is the reference consumer. Related docs:
 - **A dialogue presentation catalog is beginning.** The in-flight
   `DialoguePresentationCatalog` (`Data/Presentation/dialogue.php`) is the
   natural home for per-actor bust bindings shared by dialogue and skits.
-- **Audio is close but has no voice channel.** `AudioManager` handles BGM,
-  cinematic music sessions and fire-and-forget SFX over process-backed
-  playbacks that expose `isRunning` - so "is this voice line still
-  playing" is already answerable. There is no speech channel, no
-  interrupt-on-advance, and no music ducking.
-- **No Auto, Log or Skip exists** in any dialogue surface.
+- **Audio owns one speech line independently of SFX.** Advance interrupts
+  that line; optional BGM ducking uses seek-safe backend support.
+- **Shared Auto playback is available, with skits its first adopter.** Log,
+  Skip, the graphical stage and Editor emotion/voice authoring remain planned.
 
 ## The model
 
@@ -73,10 +72,11 @@ Beats gain optional fields; everything existing remains valid:
 
 - `emotion` names a portrait in the speaker's dialogue set, resolved
   through the dialogue presentation catalog; unknown or absent falls back
-  to Neutral with a logged note.
+  to Neutral. Invalid or unknown authored values log a note; omission is a
+  normal legacy default and does not warn.
 - `voice` names an audio asset under the game's voice tree; the engine
-  advises `assets/Audio/Voice/Skits/<skit-id>/` and resolves by basename
-  against the formats the audio backend supports. Absent means unvoiced.
+  uses `assets/Audio/Voice/Skits/<skit-id>/<name>.mp3` in Phase 0. The basename
+  may include its `.mp3` extension. Absent means unvoiced.
 - The location plate on the stage comes from the current map's data
   (name/region), never authored into the skit: metadata never restates
   what the game already knows.
@@ -155,6 +155,45 @@ All three work identically on both presentations.
    flow. Voice-acted skits ship here, before any graphical work.
 4. Auto mode driven by voice-line end / typing completion.
 
+#### Runtime contract
+
+`SkitBeatPresentation` resolves emotion names against
+`DialoguePresentationCatalog::actors[$speaker]['emotions']` keys. Neutral
+is always available as a fallback; Phase 0 does not draw emotional portraits.
+Voice references must be basenames within their own skit directory, including
+after resolving symlinks. Invalid references, missing files, unsupported
+playback and failed voice processes log diagnostics and leave text playable.
+
+`SkitManager` shares one `DialoguePlayback` across all beats, retaining Auto
+within the conversation. `show_text(..., playback: $playback)` forwards the
+same optional state through Console and ModalManager to TextBoxModal; other
+dialogue callers keep their existing manual behaviour unless they adopt it.
+Authored help remains visible alongside the shared controls. The semantic
+`dialogue_auto` action defaults to F3 only when that key is unclaimed, appears
+in Controls, and honours explicit remapping or unbinding. Confirm still
+finishes typing before a later press advances; cancelling a beat stops its
+owned speech. Modal and skit cleanup also stop that speech on interruption.
+
+Auto waits for both voice completion and completed typing on a single-page
+voiced beat. Unvoiced, muted or failed-voice pages use a reading timer that
+starts after typing finishes: at least one second, or text length divided by
+15 characters per second, whichever is longer. These are named defaults in
+`DialoguePlayback`, not project configuration keys. Wrapped beats give each
+page this reading interval; intermediate pages may advance while voice plays,
+but the final page also waits for voice completion. Enabling Auto starts a
+fresh minimum one-second hold, even if the voice has already ended.
+
+Missing optional presentation does not prevent completed skits being marked
+seen. An interrupted or stopped game no longer marks an unfinished skit seen.
+This is not the planned Skip feature, which will explicitly complete an
+optional skit after confirmation.
+
+Speech honours existing mute settings. `audio.voice_music_duck` optionally
+sets the BGM multiplier for skit speech, defaulting to 1.0 (no ducking).
+Backend limitations and ownership rules are described in [audio.md](audio.md#speech).
+Editor beat emotion/voice pickers, safe authoring round trips and runtime
+preview remain Phase 4 work; runtime support is not full authoring completion.
+
 ### Phase 1 - The graphical stage
 
 1. Bind per-actor emotional busts in the dialogue presentation catalog.
@@ -216,4 +255,3 @@ complete.
 - The skit stage is not tied to the shared menu theme: it owns its
   presentation data, PHP drives the content, and the presentation is free
   to grow from Tales-like toward fuller animation.
-
