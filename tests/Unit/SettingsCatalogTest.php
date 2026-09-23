@@ -127,6 +127,19 @@ it('writes dialogue speed to both paths a project may read', function () {
     ->and($config->get('ui.dialogue.message.speed'))->toBe(80);
 });
 
+it('exposes independent Voice in both settings menus without changing SFX', function () {
+  $config = new CatalogConfigStub(['audio'=>['sfx'=>false, 'voice'=>true]]);
+  ConfigStore::put(ProjectConfig::class, $config);
+  $catalog = new SettingsCatalog();
+  foreach ([new MainMenuSettingsManager(), new TitleOptionsSettingsManager()] as $manager) {
+    expect(array_column($manager->getSettings(), 'key'))->toContain('voice');
+  }
+  expect($catalog->read('voice'))->toBeTrue()->and($catalog->read('sfx'))->toBeFalse();
+  $catalog->write('voice', false);
+  $catalog->write('sfx', true);
+  expect($catalog->read('voice'))->toBeFalse()->and($catalog->read('sfx'))->toBeTrue();
+});
+
 it('reads and writes the player notification duration profile', function () {
   $config = new CatalogConfigStub([]);
   ConfigStore::put(ProjectConfig::class, $config);

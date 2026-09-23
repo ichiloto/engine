@@ -58,6 +58,8 @@ class AudioManager implements CanUpdate
    * The project config path of the sound effect toggle.
    */
   protected const string CONFIG_SFX_ENABLED = 'audio.sfx';
+  public const string CONFIG_VOICE_ENABLED = 'audio.voice';
+  public const string VOICE_DIRECTORY = 'Voice';
   /**
    * The project config path of the master volume (0-100).
    */
@@ -212,7 +214,7 @@ class AudioManager implements CanUpdate
       return null;
     }
     try {
-      $resolved = $this->resolveAudioPath($path, 'Voice');
+      $resolved = $this->resolveAudioPath($path, self::VOICE_DIRECTORY);
       if ($resolved === null) {
         $this->warnOnce("speech-missing:$path", "Voice file not found: $path");
         return null;
@@ -280,8 +282,7 @@ class AudioManager implements CanUpdate
 
   protected function isSpeechEnabled(): bool
   {
-    return $this->areSoundEffectsEnabled()
-      && boolval($this->getProjectSetting('audio.voice', true)) && $this->getMasterVolume() > 0.0;
+    return boolval($this->getProjectSetting(self::CONFIG_VOICE_ENABLED, true)) && $this->getMasterVolume() > 0.0;
   }
 
   protected function getBackgroundMusicVolume(): float

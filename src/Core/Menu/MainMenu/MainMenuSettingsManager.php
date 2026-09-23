@@ -20,6 +20,7 @@ class MainMenuSettingsManager extends SettingsManager
             'volume',
             'music',
             'sfx',
+            'voice',
             'dialogue_speed',
             'notification_duration',
             'cursor_memory',

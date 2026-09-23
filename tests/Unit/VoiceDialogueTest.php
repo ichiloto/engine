@@ -141,7 +141,20 @@ it('respects existing mutes and live muting without resuming an interrupted line
   $this->audio->settings[$setting] = $setting === 'audio.master_volume' ? 80 : true;
   $this->audio->update();
   expect($this->audio->isSpeechPlaying())->toBeFalse()->and($this->audio->handles)->toHaveCount(1);
-})->with([['audio.sfx',false],['audio.voice',false],['audio.master_volume',0]]);
+})->with([['audio.voice',false],['audio.master_volume',0]]);
+
+it('keeps Voice independent of SFX mute in both directions', function () {
+  $this->audio->settings['audio.sfx'] = false;
+  $voice = $this->audio->playSpeech($this->voicePath);
+  $this->audio->playSoundEffect($this->voicePath);
+  expect($voice->isRunning)->toBeTrue()->and($this->audio->handles)->toHaveCount(1);
+  $this->audio->settings['audio.sfx'] = true;
+  $this->audio->settings['audio.voice'] = false;
+  $this->audio->update();
+  $this->audio->playSoundEffect($this->voicePath);
+  expect($voice->wasInterrupted)->toBeTrue()->and($this->audio->isSpeechPlaying())->toBeFalse()
+    ->and(end($this->audio->handles)->isRunning)->toBeTrue();
+});
 
 it('diagnoses missing unsupported spawn and corrupt voice failures without throwing', function () {
   expect($this->audio->playSpeech('missing.mp3'))->toBeNull();
@@ -189,7 +202,7 @@ it('waits for both voice end and completed typing in Auto mode', function () {
 });
 
 it('uses text length after typing for unvoiced failed and muted lines', function ($mode) {
-  if ($mode === 'muted') $this->audio->settings['audio.sfx'] = false;
+  if ($mode === 'muted') $this->audio->settings['audio.voice'] = false;
   $flow = new DialoguePlayback($this->audio, true);
   $flow->beginLine($mode === 'unvoiced' ? null : $this->voicePath);
   $flow->beginPage(str_repeat('a', 60));

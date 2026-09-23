@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Settings;
 
+use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\Rendering\Enumerations\TransitionStyle;
 use Ichiloto\Engine\Rendering\ScreenTransition;
@@ -40,7 +41,7 @@ class SettingsCatalog
       new GameSetting(
         'volume',
         'Volume',
-        'Sets the master volume for music and sound effects.',
+        'Sets the master volume for music, sound effects and voice.',
         $this->buildVolumeChoices(),
         wraps: false,
       ),
@@ -54,6 +55,12 @@ class SettingsCatalog
         'sfx',
         'SFX',
         'Turns sound effects on or off.',
+        ['Off' => false, 'On' => true],
+      ),
+      new GameSetting(
+        'voice',
+        'Voice',
+        'Turns voice acting on or off independently of sound effects.',
         ['Off' => false, 'On' => true],
       ),
       new GameSetting(
@@ -155,6 +162,7 @@ class SettingsCatalog
       ),
       'music' => boolval(config(ProjectConfig::class, 'audio.music', false)),
       'sfx' => boolval(config(ProjectConfig::class, 'audio.sfx', false)),
+      'voice' => boolval(config(ProjectConfig::class, AudioManager::CONFIG_VOICE_ENABLED, true)),
       'dialogue_speed' => config(
         ProjectConfig::class,
         'ui.dialogue.speed',
@@ -196,6 +204,7 @@ class SettingsCatalog
       'volume' => $config->set('audio.master_volume', intval($value)),
       'music' => $config->set('audio.music', boolval($value)),
       'sfx' => $config->set('audio.sfx', boolval($value)),
+      'voice' => $config->set(AudioManager::CONFIG_VOICE_ENABLED, boolval($value)),
       // Two paths, because dialogue speed was authored under both and a
       // project may read either.
       'dialogue_speed' => $this->writeBoth($config, ['ui.dialogue.speed', 'ui.dialogue.message.speed'], intval($value)),
