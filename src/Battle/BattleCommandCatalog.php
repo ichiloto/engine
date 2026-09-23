@@ -31,6 +31,24 @@ use Throwable;
  */
 final class BattleCommandCatalog
 {
+  private static ?SummonCutsceneLibrary $battleSummons = null;
+
+  /** Scene-owned cache shared by command selection and action execution. */
+  public static function beginBattle(): void
+  {
+    self::$battleSummons = new SummonCutsceneLibrary(cacheForBattle: true);
+  }
+
+  public static function endBattle(): void
+  {
+    self::$battleSummons = null;
+  }
+
+  public static function getBattleSummonLibrary(): ?SummonCutsceneLibrary
+  {
+    return self::$battleSummons;
+  }
+
   /**
    * BattleCommandCatalog constructor.
    */
@@ -403,7 +421,7 @@ final class BattleCommandCatalog
   protected static function loadSummonDefinitions(): array
   {
     try {
-      return (new SummonCutsceneLibrary())->load();
+      return (self::$battleSummons ?? new SummonCutsceneLibrary())->load();
     } catch (Throwable) {
       return [];
     }

@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\Animations;
 
 use RuntimeException;
+use Throwable;
+use Ichiloto\Engine\Util\Debug;
 
 /**
  * Loads terminal animations from the project's data assets.
@@ -11,11 +13,15 @@ use RuntimeException;
  */
 final class AnimationLibrary
 {
+  /** @var Animation[]|null */
+  private ?array $battleAnimations = null;
+
   /**
    * @param string $assetPath The asset path relative to assets/.
    */
   public function __construct(
     protected string $assetPath = 'Data/animations.php',
+    protected bool $cacheForBattle = false,
   )
   {
   }
@@ -27,20 +33,32 @@ final class AnimationLibrary
    */
   public function load(): array
   {
+    if ($this->cacheForBattle && $this->battleAnimations !== null) {
+      return $this->battleAnimations;
+    }
+
     try {
       $payload = asset($this->assetPath, true);
-    } catch (RuntimeException) {
-      return [];
+    } catch (Throwable $error) {
+      Debug::warn(sprintf('Animation library %s could not be loaded: %s', $this->assetPath, $error->getMessage()));
+      return $this->cacheForBattle ? ($this->battleAnimations = []) : [];
     }
 
     if (! is_array($payload)) {
-      return [];
+      Debug::warn(sprintf('Animation library %s must return an array.', $this->assetPath));
+      return $this->cacheForBattle ? ($this->battleAnimations = []) : [];
     }
 
-    return array_map(
-      static fn(array $animation): Animation => Animation::fromArray($animation),
-      array_values(array_filter($payload, 'is_array'))
-    );
+    $animations = [];
+    foreach ($payload as $index => $source) {
+      try {
+        if (!is_array($source)) { throw new RuntimeException('Animation entry must be an array.'); }
+        $animations[] = Animation::fromArray($source);
+      } catch (Throwable $error) {
+        Debug::warn(sprintf('Animation entry %s could not be loaded: %s', strval($index), $error->getMessage()));
+      }
+    }
+    return $this->cacheForBattle ? ($this->battleAnimations = $animations) : $animations;
   }
 
   /**

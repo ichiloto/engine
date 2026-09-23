@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Scenes\Battle;
 
 use Ichiloto\Engine\Battle\BattleResult;
+use Ichiloto\Engine\Battle\BattleCommandCatalog;
 use Ichiloto\Engine\Battle\Presentation\BattleCanvasUiAdapter;
 use Ichiloto\Engine\Battle\Presentation\BattleCanvasLayout;
 use Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog;
@@ -89,6 +90,7 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
       if ($this->pauseState?->hasOwnedResources()) { $this->pauseState->exit(); }
       $this->endResults();
     } finally {
+      BattleCommandCatalog::endBattle();
       parent::stop();
     }
   }
@@ -400,7 +402,13 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
 
     (new BattleEntryRuleRunner($catalog))->apply($config, $worldState);
     $this->initializeBattleSceneStates();
-    $this->setState($this->startState);
+    BattleCommandCatalog::beginBattle();
+    try {
+      $this->setState($this->startState);
+    } catch (Throwable $error) {
+      BattleCommandCatalog::endBattle();
+      throw $error;
+    }
   }
 
   /**
