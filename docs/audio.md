@@ -1,6 +1,6 @@
 # Audio
 
-The engine plays background music (BGM) and sound effects (SFX) through the
+The engine plays background music (BGM), sound effects (SFX) and speech through the
 `AudioManager`. Like the rest of Ichiloto, audio is data-driven: game authors
 declare tracks in the project config and map data, and the engine's systems
 play them at the right moments. Direct calls on `$game->audioManager` exist
@@ -238,6 +238,9 @@ methods (`playBackgroundMusic()`, `playSoundEffect()`, `playSystemSound()`,
 
 ## Zero dependencies, graceful degradation
 
+Speech ownership and optional attenuation are described below; a missing audio
+backend never prevents dialogue progression.
+
 Audio is strictly optional. The engine ships no audio libraries and requires no
 PHP extensions: playback is delegated to whichever command line player is
 already installed on the host, detected once at startup.
@@ -287,11 +290,39 @@ and it honours them live — no restart required:
 | Key                   | Default | Effect                                        |
 |-----------------------|---------|-----------------------------------------------|
 | `audio.music`         | `false` | Toggling off stops BGM; on resumes the track. |
-| `audio.sfx`           | `false` | Gates sound effects.                          |
+| `audio.sfx`           | `false` | Gates sound effects and speech.               |
+| `audio.voice`         | `true`  | Additional speech gate; does not override SFX mute. |
+| `audio.voice_music_duck` | `1.0` | Skit speech BGM multiplier, clamped to 0-1; 1 leaves music unchanged. |
 | `audio.master_volume` | `75`    | 0–100; changes restart BGM at the new volume. |
 
 Note that music and SFX default to **off**, matching the title options menu;
 enable them in the game's project config to ship with sound on.
+
+## Speech
+
+`AudioManager::playSpeech($path, $musicDuckFactor = 1.0)` interrupts the previous
+speech line and returns its `AudioPlayback` ownership handle, or null when
+muted or unavailable. `isSpeechPlaying($handle)` polls that owned line;
+`stopSpeech($handle)` releases it. An old handle cannot stop a newer line.
+Omitting the handle queries or stops the current speech channel. Speech is
+separate from fire-and-forget SFX, so advancing dialogue does not stop effects.
+Manager shutdown stops both channels. General speech references use the normal
+audio resolver with `Audio/Voice` as the conventional directory; skit basenames
+use the stricter directory contract in [skits.md](skits.md#runtime-contract).
+
+Speech respects SFX mute, the additional `audio.voice` gate and zero master
+volume. Muting during playback stops the line on the next update or query;
+unmuting does not resume an interrupted line. Missing files, unsupported
+formats, spawn failures and unsuccessful process exits produce diagnostics;
+dialogue can fall back to text timing rather than waiting indefinitely.
+
+Optional ducking affects BGM only, preserving its current track and position
+and restoring the current master volume when speech ends. Existing backends
+set volume at process launch, so this requires a seek-capable backend; a
+natively looping track also needs a known duration to restore its loop
+position safely. Otherwise music remains unattenuated with a diagnostic,
+without restarting the track. This is not live-volume support for non-seeking
+players such as afplay. The default multiplier is 1.0, so ducking is opt-in.
 
 ## Looping
 
