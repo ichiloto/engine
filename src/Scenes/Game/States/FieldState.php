@@ -183,7 +183,7 @@ class FieldState extends GameSceneState
                 );
             } catch (\Throwable $exception) {
                 Debug::warn(sprintf('Quick save failed: %s', $exception->getMessage()));
-                alert($exception->getMessage(), 'Quick Save Unavailable');
+                alert('Saving is unavailable. Check storage permissions and try again.', 'Quick Save Unavailable');
             }
         }
 

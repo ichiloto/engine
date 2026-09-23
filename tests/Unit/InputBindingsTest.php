@@ -265,6 +265,7 @@ it('ignores stale locked and invalid player keys while preserving authored actio
       'back' => [KeyCode::K->value],
       'retired' => [KeyCode::K->value],
       'info' => [],
+      'action' => [KeyCode::K->value],
     ]],
   ], JSON_THROW_ON_ERROR));
   ConfigStore::put(PlayerSettings::class, new PlayerSettings($this->playerRoot));
@@ -277,8 +278,43 @@ it('ignores stale locked and invalid player keys while preserving authored actio
   InputManager::init($game);
   expect(InputManager::getBindings()['up']['keys'])->toBe([KeyCode::UP, KeyCode::W])
     ->and(InputManager::getBindings()['back']['keys'])->toBe([KeyCode::ESCAPE])
-    ->and(InputManager::getBindings()['info']['keys'])->toBe([])
+    ->and(InputManager::getBindings()['info']['keys'])->toBe([KeyCode::i, KeyCode::I])
+    ->and(InputManager::getBindings()['action']['keys'])->toBe([KeyCode::K])
+    ->and(InputManager::getBindings()['action']['description'])->toBe('Perform an action.')
     ->and(InputManager::getBindings())->not->toHaveKey('retired')
     ->and(file_get_contents($this->playerRoot . '/logs/warning.log'))
-    ->toContain('invalid player input binding for up', 'obsolete or locked player input binding');
+    ->toContain('invalid player input binding for up', 'malformed player input binding for info',
+      'obsolete or locked player input binding');
+});
+
+it('rejects malformed player input parents and per-action overrides while retaining authored metadata', function (mixed $input, array $expectedKeys, string $diagnostic) {
+  mkdir($this->playerRoot . '/.data');
+  file_put_contents($this->playerRoot . '/.data/player-settings.json', json_encode(['input' => $input], JSON_THROW_ON_ERROR));
+  ConfigStore::put(PlayerSettings::class, new PlayerSettings($this->playerRoot));
+  ConfigStore::put(InputConfig::class, new RecordingInputConfig(['initial' => demoBindings()]));
+  $game = new class extends Game {
+    public function __construct() {}
+    public function __destruct() {}
+  };
+  InputManager::init($game);
+
+  expect(InputManager::getBindings()['up']['keys'])->toBe($expectedKeys)
+    ->and(InputManager::getBindings()['up']['description'])->toBe('Move up.')
+    ->and(InputManager::getBindings()['action']['description'])->toBe('Perform an action.')
+    ->and(file_get_contents($this->playerRoot . '/logs/warning.log'))->toContain($diagnostic);
+})->with([
+  [['bindings' => ['up' => []]], [KeyCode::UP, KeyCode::W], 'malformed player input binding for up'],
+  [['bindings' => ['up' => 'K']], [KeyCode::UP, KeyCode::W], 'malformed player input binding for up'],
+  [['bindings' => 'wrong type'], [KeyCode::UP, KeyCode::W], 'invalid player input bindings'],
+  ['wrong type', [KeyCode::UP, KeyCode::W], 'invalid player input data'],
+]);
+
+it('refuses to persist an empty override for an authored action', function () {
+  $defaults = demoBindings();
+  $bindings = $defaults;
+  $bindings['up']['keys'] = [];
+  $player = ConfigStore::get(PlayerSettings::class);
+  expect(fn() => $player->setInputBindings($bindings, $defaults))
+    ->toThrow(InvalidArgumentException::class, 'empty key override for action up');
+  expect(is_file($this->playerRoot . '/.data/player-settings.json'))->toBeFalse();
 });

@@ -160,6 +160,7 @@ function resolveCompatibilityActor(array $savedState, bool $deferred, SaveCompat
 
 function writeCompatibilityPayload(string $path, array $payload): void
 {
+  if (! is_dir(dirname($path))) { mkdir(dirname($path), 0777, true); }
   file_put_contents($path, 'IED1' . gzencode(serialize($payload), 9));
 }
 
@@ -251,6 +252,7 @@ it('binds relocated save summaries to the destination file and slot', function (
     $manager->getQuickSavePath('auto-01') => SaveManager::AUTO_SAVE_SLOT,
     $manager->getQuickSavePath('backup') => $sourceSlot,
   ];
+  mkdir(dirname($manager->getQuickSavePath('quick')), 0777, true);
 
   try {
     foreach ($copies as $path => $destinationSlot) {
@@ -743,6 +745,7 @@ it('applies persistent-state aliases during complete save loading and fails on t
       makeCompatibilityManifest(['tombstones' => ['states' => ['persistent-test']]]),
     );
     $tombstonePath = $tombstoneManager->getSlotPath(1);
+    if (! is_dir(dirname($tombstonePath))) { mkdir(dirname($tombstonePath), 0777, true); }
     file_put_contents($tombstonePath, file_get_contents($path));
 
     expect(fn() => $tombstoneManager->loadSlot(1))

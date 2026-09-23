@@ -15,6 +15,7 @@ use Ichiloto\Engine\IO\Saves\SaveSlot;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Debug;
+use Ichiloto\Engine\Util\LocalDataFiles;
 use RuntimeException;
 use Throwable;
 
@@ -68,7 +69,7 @@ class SaveManager
     $this->quickSaveDirectory = Path::normalize(Path::join(Path::getCurrentWorkingDirectory(), self::DATA_DIRECTORY, $this->quickSaveDirectory));
     $compatibilityManifest ??= SaveCompatibilityManifest::fromProjectRoot(Path::getCurrentWorkingDirectory());
     $this->compatibilityPipeline = new SaveCompatibilityPipeline($compatibilityManifest);
-    $this->ensureDirectoriesExist();
+    $this->diagnoseStorageAvailability();
   }
 
   /**
@@ -238,10 +239,6 @@ class SaveManager
    */
   public function getQuickSavePath(string $name): string
   {
-    if (! is_dir($this->quickSaveDirectory)) {
-      mkdir($this->quickSaveDirectory, 0o775, true);
-    }
-
     return Path::join($this->quickSaveDirectory, sprintf('%s.%s', $name, self::FILE_EXTENSION));
   }
 
@@ -272,11 +269,7 @@ class SaveManager
       throw new RuntimeException('Could not encode the save payload.');
     }
 
-    $bytes = file_put_contents($savedGame->slot->path, self::FILE_HEADER . $encodedPayload);
-
-    if ($bytes === false) {
-      throw new RuntimeException(sprintf('Could not write save to %s.', $path));
-    }
+    LocalDataFiles::writeAtomically($savedGame->slot->path, self::FILE_HEADER . $encodedPayload);
 
     return $savedGame->slot;
   }
@@ -353,8 +346,12 @@ class SaveManager
   public function deleteSlot(int $slot): bool
   {
     $path = $this->getSlotPath($slot);
-
-    return file_exists($path) ? unlink($path) : false;
+    try {
+      return LocalDataFiles::runFileOperation(static fn(): bool => file_exists($path) && unlink($path));
+    } catch (RuntimeException $exception) {
+      Debug::warn(sprintf('Could not delete save slot %d: %s', $slot, $exception->getMessage()));
+      return false;
+    }
   }
 
   /**
@@ -397,21 +394,31 @@ class SaveManager
     return new SavedGame($saveSlot, $config);
   }
 
-  /**
-   * Creates the save directories if they do not exist yet.
-   *
-   * @return void
-   */
-  protected function ensureDirectoriesExist(): void
+  /** Report an unavailable save location without writing to it during startup. */
+  protected function diagnoseStorageAvailability(): void
   {
-    foreach ([$this->saveDirectory, $this->quickSaveDirectory] as $directory) {
-      if (is_dir($directory)) {
-        continue;
+    $diagnostics = [];
+    foreach ([$this->saveDirectory, $this->quickSaveDirectory] as $target) {
+      try {
+        $directory = $target;
+        while (! LocalDataFiles::runFileOperation(static fn(): bool => is_dir($directory))) {
+          if (LocalDataFiles::runFileOperation(static fn(): bool => file_exists($directory))) {
+            $diagnostics["$directory is not a directory"] = true;
+            continue 2;
+          }
+          $parent = dirname($directory);
+          if ($parent === $directory) { break; }
+          $directory = $parent;
+        }
+        if (! LocalDataFiles::runFileOperation(static fn(): bool => is_writable($directory))) {
+          $diagnostics["$directory is not writable"] = true;
+        }
+      } catch (RuntimeException $exception) {
+        $diagnostics[$exception->getMessage()] = true;
       }
-
-      if (! mkdir($directory, 0777, true) && ! is_dir($directory)) {
-        throw new RuntimeException(sprintf('Could not create save directory: %s', $directory));
-      }
+    }
+    foreach (array_keys($diagnostics) as $reason) {
+      Debug::warn("Saving is unavailable: $reason.");
     }
   }
 

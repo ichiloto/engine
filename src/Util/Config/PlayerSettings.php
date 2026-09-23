@@ -8,6 +8,7 @@ use BackedEnum;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\SaveManager;
 use Ichiloto\Engine\Util\Debug;
+use Ichiloto\Engine\Util\LocalDataFiles;
 use InvalidArgumentException;
 use JsonException;
 use RuntimeException;
@@ -40,10 +41,10 @@ final class PlayerSettings extends AbstractConfig
   protected function load(): array
   {
     try {
-      if (! self::runFileOperation(fn() => is_file($this->filename))) {
+      if (! LocalDataFiles::runFileOperation(fn() => is_file($this->filename))) {
         return [];
       }
-      $content = self::runFileOperation(fn() => file_get_contents($this->filename));
+      $content = LocalDataFiles::runFileOperation(fn() => file_get_contents($this->filename));
       if ($content === false) {
         throw new RuntimeException('Could not read player settings.');
       }
@@ -108,16 +109,28 @@ final class PlayerSettings extends AbstractConfig
    */
   public function getInputBindings(): array
   {
-    $saved = $this->get('input.bindings', []);
-    if (! is_array($saved)) {
+    if (! array_key_exists('input', $this->config)) {
+      return [];
+    }
+    $input = $this->config['input'];
+    if (! is_array($input)) {
+      Debug::warn('Ignoring invalid player input data.');
+      return [];
+    }
+    if (! array_key_exists('bindings', $input)) {
+      return [];
+    }
+    $saved = $input['bindings'];
+    if (! is_array($saved) || ($saved !== [] && array_is_list($saved))) {
       Debug::warn('Ignoring invalid player input bindings.');
       return [];
     }
 
     $bindings = [];
     foreach ($saved as $action => $values) {
-      if (! is_string($action) || $action === '' || ! is_array($values) || ! array_is_list($values)) {
-        Debug::warn('Ignoring malformed player input binding.');
+      if (! is_string($action) || $action === '' || ! is_array($values) || ! array_is_list($values) || $values === []) {
+        $label = is_string($action) && $action !== '' ? $action : '(unknown action)';
+        Debug::warn("Ignoring malformed player input binding for $label.");
         continue;
       }
       $keys = [];
@@ -152,6 +165,9 @@ final class PlayerSettings extends AbstractConfig
         throw new InvalidArgumentException("Invalid keys for action $action.");
       }
       if ($keys !== ($defaults[$action]['keys'] ?? [])) {
+        if ($keys === []) {
+          throw new InvalidArgumentException("Cannot save an empty key override for action $action.");
+        }
         $overrides[$action] = array_values($keys);
       }
     }
@@ -160,44 +176,13 @@ final class PlayerSettings extends AbstractConfig
 
   public function persist(): void
   {
-    $directory = dirname($this->filename);
-    if (! self::runFileOperation(fn() => is_dir($directory))) {
-      try {
-        self::runFileOperation(fn() => mkdir($directory, 0777, true));
-      } catch (RuntimeException $exception) {
-        if (! self::runFileOperation(fn() => is_dir($directory))) {
-          throw new RuntimeException("Could not create player data directory: $directory", previous: $exception);
-        }
-      }
-      if (! self::runFileOperation(fn() => is_dir($directory))) {
-        throw new RuntimeException("Could not create player data directory: $directory");
-      }
-    }
-
     $data = $this->getOverrides();
     $bindings = $this->getInputBindings();
     if ($bindings !== []) {
       $data['input']['bindings'] = self::encodeInputBindings($bindings);
     }
     $content = json_encode((object) $data, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR) . "\n";
-    $temporary = self::runFileOperation(fn() => tempnam($directory, '.player-settings-'));
-    if ($temporary === false) {
-      throw new RuntimeException('Could not create a temporary player settings file.');
-    }
-    try {
-      if (self::runFileOperation(fn() => file_put_contents($temporary, $content)) !== strlen($content)
-        || ! self::runFileOperation(fn() => rename($temporary, $this->filename))) {
-        throw new RuntimeException('Could not write player settings.');
-      }
-    } finally {
-      try {
-        if (self::runFileOperation(fn() => is_file($temporary))) {
-          self::runFileOperation(fn() => unlink($temporary));
-        }
-      } catch (RuntimeException $exception) {
-        Debug::warn('Could not clean up temporary player settings: ' . $exception->getMessage());
-      }
-    }
+    LocalDataFiles::writeAtomically($this->filename, $content);
   }
 
   /** @param array<string, KeyCode[]> $bindings */
@@ -207,16 +192,4 @@ final class PlayerSettings extends AbstractConfig
       static fn(KeyCode $key): string => $key->value, $keys), $bindings);
   }
 
-  /** Convert local filesystem warnings before Game's fatal handler sees them. */
-  private static function runFileOperation(callable $operation): mixed
-  {
-    set_error_handler(static function (int $severity, string $message): never {
-      throw new RuntimeException($message);
-    });
-    try {
-      return $operation();
-    } finally {
-      restore_error_handler();
-    }
-  }
 }

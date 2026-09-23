@@ -6,6 +6,7 @@ use Ichiloto\Engine\Settings\GameSetting;
 use Ichiloto\Engine\Util\Config\AppConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
 
 class TitleOptionsConfigStub implements ConfigInterface
@@ -93,9 +94,9 @@ class TitleOptionsProbe extends TitleScene
  * @param string $key The setting to select.
  * @return TitleOptionsProbe The probe.
  */
-function titleOptionsProbeFor(string $key): TitleOptionsProbe
+function titleOptionsProbeFor(string $key, ?TitleOptionsSettingsManager $manager = null): TitleOptionsProbe
 {
-  $manager = new TitleOptionsSettingsManager();
+  $manager ??= new TitleOptionsSettingsManager();
   $options = $manager->getOptions();
   $index = 0;
 
@@ -141,6 +142,35 @@ it('toggles a switch from the title screen', function () {
   titleOptionsProbeFor('music')->change(1);
 
   expect($config->get('audio.music'))->toBeTrue();
+});
+
+it('logs title option save failures while showing a plain session-only status', function () {
+  $root = sys_get_temp_dir() . '/ichiloto-title-status-' . bin2hex(random_bytes(5));
+  mkdir($root);
+  $previousDebug = new ReflectionClass(Debug::class)->getStaticProperties();
+  Debug::configure(['log_directory' => $root]);
+  try {
+    $manager = new class extends TitleOptionsSettingsManager {
+      public function cycle(GameSetting $setting, int $step): string
+      {
+        ConfigStore::get(ProjectConfig::class)->set('audio.master_volume', 55);
+        throw new RuntimeException('Permission denied at /private/path');
+      }
+    };
+    $probe = titleOptionsProbeFor('volume', $manager);
+    $probe->change(1);
+    expect(new ReflectionProperty($probe, 'optionStatusMessage')->getValue($probe))
+      ->toBe('Could not save settings. Your choice is active for this session.')
+      ->and(ConfigStore::get(ProjectConfig::class)->get('audio.master_volume'))->toBe(55)
+      ->and(file_get_contents($root . '/warning.log'))->toContain('Permission denied at /private/path');
+  } finally {
+    foreach ($previousDebug as $name => $value) {
+      new ReflectionProperty(Debug::class, $name)->setValue(null, $value);
+    }
+    if (is_file($root . '/warning.log')) { unlink($root . '/warning.log'); }
+    if (is_file($root . '/debug.log')) { unlink($root . '/debug.log'); }
+    rmdir($root);
+  }
 });
 
 it('lists settings the overlay can actually act on', function () {

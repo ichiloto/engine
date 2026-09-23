@@ -651,8 +651,8 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
       $this->optionsManager->cycle($option, $step);
       $this->optionStatusMessage = null;
     } catch (Throwable $error) {
-      $this->optionStatusMessage = 'Could not save settings: ' . $error->getMessage();
-      Debug::error($this->optionStatusMessage);
+      Debug::warn('Could not save title settings: ' . $error->getMessage());
+      $this->optionStatusMessage = 'Could not save settings. Your choice is active for this session.';
     }
     $this->renderOptionsMenu();
   }

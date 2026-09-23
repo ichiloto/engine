@@ -191,7 +191,7 @@ it('keeps adjustment clamping wrapping persistence and semantic cancel in the ex
   expect($this->backs)->toBe(1)->and($this->config->writes)->toBe(5);
 });
 
-it('pages the entire live persistence failure without resizing or inventing rollback', function () {
+it('shows plain session-only save feedback without resizing or inventing rollback', function () {
   $this->config->failure = str_repeat('A complete persistence detail. ', 6);
   configPresentationKey($this->menu, KeyCode::RIGHT);
   $theme = new MenuPresentationCatalog($this->root, configPresentationTheme());
@@ -218,9 +218,13 @@ it('pages the entire live persistence failure without resizing or inventing roll
       }
       $this->menu->menuInfoText->advance();
     } while ($page->nextOffset !== 0);
-    expect($seen)->toBe($this->menu->selection->getActiveSetting()->description . 'Could not save settings: ' . $failure);
+    expect($seen)->toBe($this->menu->selection->getActiveSetting()->description
+      . 'Could not save settings. Your choice is active for this session.')
+      ->not->toContain($failure);
   }
-  expect($this->config->get('audio.master_volume'))->toBe(85)->and($this->menu->hasStatusError())->toBeTrue();
+  expect($this->config->get('audio.master_volume'))->toBe(85)
+    ->and($this->menu->hasStatusError())->toBeTrue()
+    ->and(file_get_contents($this->root . '/warning.log'))->toContain($this->config->failure);
 });
 
 it('wraps long live labels values and descriptions without cropping any selected record', function () {

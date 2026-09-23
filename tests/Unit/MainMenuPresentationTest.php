@@ -646,6 +646,32 @@ it('connects in-game Save to the shared themed canvas and modal lifecycle withou
   expect(mainMenuPresentationText($this->scene->getPresentationCanvas())['save-info-description'])->toBe('Choose a file.');
 })->with([false, true]);
 
+it('keeps the Save menu usable and reports plain feedback when local storage refuses a write', function () {
+  $slots = array_map(static fn(int $slot): SaveSlot => SaveSlot::empty($slot, ''), range(1, 5));
+  $manager = $this->createMock(SaveManager::class);
+  $manager->method('getSaveSlots')->willReturn($slots);
+  $manager->method('save')->willThrowException(new RuntimeException('Permission denied at /private/path'));
+  new ReflectionProperty($this->scene->sceneManager, 'saveManager')->setValue($this->scene->sceneManager, $manager);
+  $modals = new class extends ModalManager {
+    public array $alerts = [];
+    public function __construct() {}
+    public function alert(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH): void
+    {
+      $this->alerts[] = [$message, $title];
+    }
+  };
+  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $modals);
+  $state = new SaveMenuState(new SceneStateContext($this->scene));
+  new ReflectionProperty($this->scene, 'state')->setValue($this->scene, $state);
+  $state->enter();
+  new ReflectionMethod($state, 'saveToActiveSlot')->invoke($state);
+  $message = 'Saving is unavailable. Check storage permissions and try again.';
+  expect(new ReflectionProperty($state, 'statusMessage')->getValue($state))->toBe($message)
+    ->and($modals->alerts)->toBe([[$message, 'Save Unavailable']])
+    ->and(file_get_contents($this->root . '/logs/warning.log'))->toContain('Permission denied at /private/path')
+    ->and($this->scene->state)->toBe($state);
+});
+
 it('diagnoses unrenderable content and recovers without mutating the owner', function () {
   file_put_contents($this->root . '/' . MenuPresentationCatalog::FILE, '<?php return ' . var_export(mainMenuPresentationTheme(false), true) . ';');
   $this->runtime = mainMenuPresentationRuntime($this->root, MenuPresentationCatalog::CAPABILITIES);

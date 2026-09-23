@@ -92,6 +92,29 @@ function cleanupSaveManagerTestFiles(string $slotPath): void
   }
 }
 
+function writeSaveManagerTestPayload(string $path, string $content): void
+{
+  if (! is_dir(dirname($path))) { mkdir(dirname($path), 0777, true); }
+  file_put_contents($path, $content);
+}
+
+it('leaves absent player data untouched while listing saves and resolving quick-save paths', function () {
+  $original = getcwd();
+  $root = sys_get_temp_dir() . '/ichiloto-save-read-' . bin2hex(random_bytes(6));
+  mkdir($root);
+  try {
+    chdir($root);
+    $manager = new SaveManager(makeSaveManagerTestGame(), 'saves', 'saves/quick', makeSaveManagerTestManifest());
+    expect($manager->getSaveFiles(true))->toBe([])
+      ->and($manager->getSaveSlots())->toHaveCount(5)
+      ->and($manager->getQuickSavePath('quick'))->toBe(realpath($root) . '/.data/saves/quick/quick.iedata')
+      ->and(is_dir($root . '/.data'))->toBeFalse();
+  } finally {
+    chdir($original);
+    rmdir($root);
+  }
+});
+
 it('loads binary .iedata save files and resolves slot summaries', function () {
   $slug = 'save-manager-' . uniqid();
   $manager = new SaveManager(
@@ -116,7 +139,7 @@ it('loads binary .iedata save files and resolves slot summaries', function () {
     'config' => makeSaveManagerTestConfig(),
   ]);
 
-  file_put_contents($slotPath, 'IED1' . gzencode($payload, 9));
+  writeSaveManagerTestPayload($slotPath, 'IED1' . gzencode($payload, 9));
 
   $loadedSave = $manager->loadSlot(2);
   $slots = $manager->getSaveSlots(3);
@@ -156,7 +179,7 @@ it('marks incompatible save slots instead of crashing the slot list', function (
     'config' => 'invalid-config',
   ]);
 
-  file_put_contents($slotPath, 'IED1' . gzencode($invalidPayload, 9));
+  writeSaveManagerTestPayload($slotPath, 'IED1' . gzencode($invalidPayload, 9));
 
   $slots = $manager->getSaveSlots(1);
 
@@ -192,7 +215,7 @@ it('marks slots as incompatible when nested payload unserialization fails', func
     'config' => new SaveManagerBrokenPayloadStub(),
   ]);
 
-  file_put_contents($slotPath, 'IED1' . gzencode($brokenPayload, 9));
+  writeSaveManagerTestPayload($slotPath, 'IED1' . gzencode($brokenPayload, 9));
 
   $slots = $manager->getSaveSlots(1);
 
@@ -243,8 +266,8 @@ it('returns the latest loadable save file when newer incompatible saves exist', 
     'config' => 'invalid-config',
   ]);
 
-  file_put_contents($olderPath, 'IED1' . gzencode($validPayload, 9));
-  file_put_contents($newerPath, 'IED1' . gzencode($invalidPayload, 9));
+  writeSaveManagerTestPayload($olderPath, 'IED1' . gzencode($validPayload, 9));
+  writeSaveManagerTestPayload($newerPath, 'IED1' . gzencode($invalidPayload, 9));
   touch($olderPath, 100);
   touch($newerPath, 200);
 

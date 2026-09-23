@@ -20,6 +20,7 @@ use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\SaveSlotWindow;
 use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\Util\Debug;
+use RuntimeException;
 
 /**
  * Displays the in-game save screen and writes snapshot data to `.iedata` files.
@@ -250,6 +251,13 @@ class SaveMenuState extends GameSceneState implements CanRender, CanvasProviderI
       $this->statusMessage = $exception->getMessage();
       $this->statusColor = 'decrease';
       Debug::warn($this->statusMessage);
+      $this->render();
+      alert($this->statusMessage, 'Save Unavailable');
+      return;
+    } catch (RuntimeException $exception) {
+      Debug::warn(sprintf('Manual save failed: %s', $exception->getMessage()));
+      $this->statusMessage = 'Saving is unavailable. Check storage permissions and try again.';
+      $this->statusColor = 'decrease';
       $this->render();
       alert($this->statusMessage, 'Save Unavailable');
       return;

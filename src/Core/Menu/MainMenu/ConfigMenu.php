@@ -12,6 +12,7 @@ use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Settings\GameSetting;
 use Ichiloto\Engine\UI\Text\MenuInfoText;
+use Ichiloto\Engine\Util\Debug;
 use Throwable;
 
 /** The existing settings interaction, hosted by either Main Menu or Pause. */
@@ -100,7 +101,8 @@ final class ConfigMenu
         $this->statusMessage = sprintf('%s set to %s.', $setting->label, $label);
         $this->statusError = false;
       } catch (Throwable $exception) {
-        $this->statusMessage = sprintf('Could not save settings: %s', $exception->getMessage());
+        Debug::warn(sprintf('Could not save settings: %s', $exception->getMessage()));
+        $this->statusMessage = 'Could not save settings. Your choice is active for this session.';
         $this->statusError = true;
       }
       $this->selection->updateContent();
