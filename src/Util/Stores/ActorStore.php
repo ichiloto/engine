@@ -17,8 +17,15 @@ final class ActorStore implements ConfigInterface
   /** @var array<string, string> */
   private array $references = [];
 
-  public function __construct(?string $directory = null)
+  /** @param iterable<ActorDefinition>|null $definitions In-memory authoring registry, when supplied. */
+  public function __construct(?string $directory = null, ?iterable $definitions = null)
   {
+    if ($definitions !== null) {
+      foreach ($definitions as $definition) {
+        $this->register($definition, $definition->id);
+      }
+      return;
+    }
     $directory ??= Path::join(Path::getCurrentWorkingDirectory(), 'assets', 'Data', 'Actors');
 
     foreach (glob(Path::join($directory, '*.php')) ?: [] as $filename) {

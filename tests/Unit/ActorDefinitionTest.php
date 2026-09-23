@@ -12,6 +12,36 @@ function foundationActorDefinition(): ActorDefinition
   return $store->require('actor.hero', 'loading the project-backed actor test fixture');
 }
 
+it('requires explicit actor identities and refuses to mutate an established identity', function () {
+  foreach ([['name' => 'Hero'], ['id' => '', 'name' => 'Hero'], ['id' => 42, 'name' => 'Hero']] as $data) {
+    expect(fn() => ActorDefinition::fromArray($data, 'Actors/Hero.php'))
+      ->toThrow(InvalidArgumentException::class, 'Actors/Hero.php must declare an explicit non-empty actor id');
+  }
+  $definition = ActorDefinition::fromArray(['id' => 'actor.hero', 'name' => 'Hero']);
+  expect(fn() => $definition->id = 'renamed')->toThrow(Error::class);
+  expect($definition->id)->toBe('actor.hero');
+});
+
+it('reconstructs a renamed actor from the same authored id and saved mutable state', function () {
+  $data = foundationActorDefinition()->data();
+  $saved = foundationActorDefinition()->createCharacter()->toArray();
+  $saved['stats']['currentHp'] = 37;
+  $data['name'] = 'Hero Renamed';
+  $store = new ActorStore(definitions: [ActorDefinition::fromArray($data)]);
+  $restored = $store->require($saved['actorId'], 'restoring renamed actor')->createCharacter($saved);
+  expect($restored->actorId)->toBe('actor.hero')->and($restored->name)->toBe('Hero Renamed')
+    ->and($restored->stats->currentHp)->toBe(37)->and($restored->toArray()['actorId'])->toBe('actor.hero');
+  $beat = ['actor' => 'actor.hero', 'emotion' => 'Concerned'];
+  $speaker = \Ichiloto\Engine\Field\SkitSpeaker::getFromBeat($beat, $store);
+  $catalogue = new \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePresentationCatalog([
+    'actor.hero' => ['emotions' => ['Concerned' => 'hero-concerned.png']],
+  ]);
+  $presentation = \Ichiloto\Engine\Field\SkitBeatPresentation::getFromBeat(
+    dirname(__DIR__) . '/Fixtures', 'rename', $beat, $catalogue, $speaker->actorId);
+  expect($speaker->name)->toBe('Hero Renamed')->and($speaker->errors)->toBeEmpty()
+    ->and($presentation->emotion)->toBe('Concerned');
+});
+
 it('reconstructs fixed actor naturals from project data and defaults old saves to the project variant', function () {
   $definition = foundationActorDefinition();
   $restored = $definition->createCharacter([

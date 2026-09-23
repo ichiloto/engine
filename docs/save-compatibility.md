@@ -147,6 +147,14 @@ list of `from`/`to` pairs so contradictory duplicate sources remain visible
 to validation. Chains resolve deterministically; self-aliases and cycles are
 invalid. No rename is inferred.
 
+Actor definitions must declare a non-empty string `data.id`. Inferring an actor
+id from its display name has been removed. For legacy content, declare the
+original display name as the explicit id before renaming; this preserves saved
+references without a content migration. The Editor assigns ids when creating
+actors and keeps established ids read-only. Renames change only `data.name`.
+Skits, dialogue presentation, battle artwork, results portraits and current saves
+use the explicit id; a display-name change requires no artwork rebinding.
+
 A tombstone means removal was deliberate. If a loaded save still contains
 that identity, loading fails and asks for a project content migration. A game
 migration may replace, remove, compensate, or preserve an inert marker; the

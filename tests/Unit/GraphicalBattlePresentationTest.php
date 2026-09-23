@@ -85,6 +85,21 @@ function graphicalBattleFixture(bool $skinned = false, bool $directionalCursor =
   return [$battle, new BattlePresentationCatalog(['Twins' => $arena], ['Hero' => $art], ['Twin' => $art]), $hero, $enemies];
 }
 
+it('keeps battle artwork attached to explicit actor identity after an authored display rename', function () {
+  [$battle, $catalog, $hero] = graphicalBattleFixture();
+  $data = (require dirname(__DIR__) . '/Fixtures/Actors/FoundationHero.php')['data'];
+  $data['id'] = 'Hero';
+  $definition = \Ichiloto\Engine\Entities\Actors\ActorDefinition::fromArray($data);
+  $saved = $definition->createCharacter()->toArray();
+  $data['name'] = 'Hero Renamed';
+  $battle->party->members[0] = \Ichiloto\Engine\Entities\Actors\ActorDefinition::fromArray($data)->createCharacter($saved);
+  $frame = GraphicalBattlePresentation::prepare($battle, $catalog, $this->root)->frame();
+  $identity = 'combatant-' . spl_object_id($battle->party->members[0]);
+  $party = array_values(array_filter($frame->images, static fn($image) => $image->id === $identity));
+  expect($battle->party->members[0]->actorId)->toBe('Hero')->and($battle->party->members[0]->name)->toBe('Hero Renamed')
+    ->and($party)->not->toBeEmpty()->and($party[0]->asset)->toBe($catalog->actors['Hero']->asset);
+});
+
 function graphicalBattleScene(BattleConfig $battle, ?GraphicalBattlePresentation $presentation, ?BattleCanvasLayout $ui = null): BattleScene
 {
   $scene = new ReflectionClass(BattleScene::class)->newInstanceWithoutConstructor();

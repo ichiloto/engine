@@ -68,6 +68,20 @@ function resultsFrameText(PresentationCanvas $frame): string
   return implode("\n", array_merge(...array_map(fn($layer) => array_column($layer->runs, 'text'), $frame->textLayers)));
 }
 
+it('keeps results portraits on the actor id while displaying a renamed actor', function () {
+  $data = (require dirname(__DIR__) . '/Fixtures/Actors/FoundationHero.php')['data'];
+  $original = \Ichiloto\Engine\Entities\Actors\ActorDefinition::fromArray($data)->createCharacter();
+  $data['name'] = 'Hero Renamed';
+  $renamed = \Ichiloto\Engine\Entities\Actors\ActorDefinition::fromArray($data)->createCharacter($original->toArray());
+  $snapshot = ProgressionSnapshot::capture($renamed);
+  $portrait = new CanvasNineSlice('hero-portrait.png', new SpriteSourceRect(0, 0, 96, 96));
+  $skin = resultsSkinFixture(['actor.hero' => ['menu' => $portrait, 'bust' => $portrait]]);
+  $playback = new BattleResultsPlayback(new BattleRewards(0, 0, [new BattleProgression(0, $snapshot, $snapshot)]), true);
+  $frame = GraphicalBattleResults::frame(resultsBattlefield(), $skin, $playback);
+  expect($snapshot->actorId)->toBe('actor.hero')->and(resultsFrameText($frame))->toContain('Hero Renamed')
+    ->and(array_column($frame->images, 'asset'))->toContain('hero-portrait.png');
+});
+
 it('centers each confirmation label on its button without a list cursor', function () {
   $p = new BattleResultsPlayback(new BattleRewards(0, 0, []));
   $p->update(0.5);
