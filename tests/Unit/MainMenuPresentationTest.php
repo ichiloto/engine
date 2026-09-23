@@ -552,7 +552,7 @@ it('uses shared Config when themed and overlays alerts without changing the acti
   $configFrame = $this->scene->getPresentationCanvas();
   $configRuns = array_merge(...array_map(fn($layer) => array_column($layer->runs, 'text'), $configFrame->textLayers));
   expect($this->state->getPresentationMode())->toBeInstanceOf(MainMenuConfigMode::class)
-    ->and($configRuns)->toContain('Config', 'Volume', '75%', 'Sets the master volume for music and sound effects.', 'Cancel');
+    ->and($configRuns)->toContain('Config', 'Volume', '75%', 'Sets the master volume for music, sound effects and voice.', 'Cancel');
   $config = $this->state->getPresentationMode()->getConfigMenu();
   InputManager::setBindings([...InputManager::getBindings(), 'down' => ['keys' => [KeyCode::DOWN]]]);
   mainMenuPresentationKey(KeyCode::DOWN, $this->state);
