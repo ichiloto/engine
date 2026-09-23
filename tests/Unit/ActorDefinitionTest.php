@@ -53,6 +53,12 @@ it('loads a legacy file provisionally without writing and drops name and file al
     $store = new ActorStore($root);
     expect(file_get_contents($path))->toBe($source)
       ->and($store->has('unrelated-filename'))->toBeFalse();
+    expect($store->requireStartingPartyActor('unrelated-filename')->id)->toBe('Legacy Hero')
+      ->and(file_get_contents($root . '/warning.log'))->toContain('Legacy starting-party reference', 'IDs and references');
+    expect(fn() => $store->require('unrelated-filename', 'ordinary actor lookup'))
+      ->toThrow(UnresolvedSaveReferenceException::class);
+    $store->set('unrelated-filename', ActorDefinition::fromArray([...$data, 'id' => 'unrelated-filename', 'name' => 'Modern']));
+    expect($store->requireStartingPartyActor('unrelated-filename')->id)->toBe('unrelated-filename');
     $saved = $store->require('Legacy Hero', 'loading legacy project')->createCharacter()->toArray();
     $saved['stats']['currentHp'] = 23;
     expect(file_get_contents($root . '/warning.log'))->toContain($path, 'provisional id', 'before renaming', 'No project file was changed');
@@ -61,6 +67,7 @@ it('loads a legacy file provisionally without writing and drops name and file al
     file_put_contents($path, '<?php return ' . var_export(['data' => $data], true) . ';');
     $store = new ActorStore($root);
     expect($store->has('Renamed Hero'))->toBeFalse()->and($store->has('unrelated-filename'))->toBeFalse();
+    expect(fn() => $store->requireStartingPartyActor('unrelated-filename'))->toThrow(UnresolvedSaveReferenceException::class);
     $restored = $store->require($saved['actorId'], 'loading migrated project')->createCharacter($saved);
     expect($restored->actorId)->toBe('Legacy Hero')->and($restored->name)->toBe('Renamed Hero')
       ->and($restored->stats->currentHp)->toBe(23);

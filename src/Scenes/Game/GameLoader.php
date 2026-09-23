@@ -86,10 +86,7 @@ class GameLoader
     $party = new Party();
 
     foreach ($systemData->startingParty as $member) {
-      $party->addMember($this->actorStore->require(
-        strval($member),
-        'loading the project starting party',
-      )->createCharacter());
+      $party->addMember($this->actorStore->requireStartingPartyActor(strval($member))->createCharacter());
     }
     if ($systemData->currency->amount) {
       $party->accountBalance = $systemData->currency->amount;

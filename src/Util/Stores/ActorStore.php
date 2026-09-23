@@ -15,6 +15,8 @@ final class ActorStore implements ConfigInterface
 {
   /** @var array<string, ActorDefinition> */
   private array $definitions = [];
+  /** @var array<string, list<string>> File references of missing-id definitions only. */
+  private array $legacyStartingPartyIds = [];
 
   /** @param iterable<ActorDefinition>|null $definitions In-memory authoring registry, when supplied. */
   public function __construct(?string $directory = null, ?iterable $definitions = null)
@@ -37,6 +39,7 @@ final class ActorStore implements ConfigInterface
       $data = is_array($payload['data'] ?? null) ? $payload['data'] : $payload;
       if (! array_key_exists('id', $data) && is_string($data['name'] ?? null) && trim($data['name']) !== '') {
         $data['id'] = trim($data['name']);
+        $this->legacyStartingPartyIds[self::normalize(pathinfo($filename, PATHINFO_FILENAME))][] = $data['id'];
         Debug::warn(sprintf(
           'Legacy actor %s has no explicit id; using provisional id "%s" in memory only. Freeze the current name as data.id using the Editor actor identity repair or CLI validation migration before renaming. No project file was changed.',
           $filename, $data['id'],
@@ -68,6 +71,25 @@ final class ActorStore implements ConfigInterface
     }
 
     return $definition;
+  }
+
+  /** Released projects used file stems in startingParty before actor IDs existed. */
+  public function requireStartingPartyActor(string $reference): ActorDefinition
+  {
+    // Authored IDs always win; legacy filenames cannot shadow modern actors.
+    if (($definition = $this->get($reference)) !== null) { return $definition; }
+    $candidates = $this->legacyStartingPartyIds[self::normalize($reference)] ?? [];
+    if (count($candidates) > 1) {
+      throw new RuntimeException(sprintf('Ambiguous legacy starting-party actor reference "%s".', $reference));
+    }
+    if (count($candidates) === 1) {
+      Debug::warn(sprintf(
+        'Legacy starting-party reference "%s" uses actor filename instead of provisional id "%s". Run the confirmed project actor identity migration to update IDs and references. No project file was changed.',
+        $reference, $candidates[0],
+      ));
+      return $this->require($candidates[0], 'loading the legacy project starting party');
+    }
+    return $this->require($reference, 'loading the project starting party');
   }
 
   public function set(string $path, mixed $value): void

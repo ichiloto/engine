@@ -155,13 +155,26 @@ For a legacy file with an **absent** ID, the runtime file loader temporarily use
 its current name as an in-memory provisional ID and logs the source filename and
 migration instructions. It never writes project files. An empty or malformed
 authored ID remains an error, not a fallback.
+Released projects also used actor file stems in `startingParty`. Only that
+startup path can resolve a missing-ID actor by file stem, with a warning. A
+registered ID takes precedence; explicit modern actors gain no filename or
+display-name aliases, and ambiguous legacy references are refused.
 
 Before renaming legacy content, use the Editor's **Freeze current name as ID**
 repair or confirm the CLI validation migration (`validate --migrate-actor-ids`).
-Both use the same source-preserving service; unsupported PHP and colliding IDs
-are refused before writing. The CLI migration preflights and commits the batch
-transactionally. Editor repair is undoable and persists only on save. The frozen
-ID preserves existing name-based references and saves; changing the identity
+Both use the same source-preserving service. A project plan freezes missing IDs
+and updates filename/display-name references to stable IDs, including projects
+whose IDs were frozen earlier without updating their references. It lists every
+changed file before confirmation. Starting parties, skits, actor presentation
+bindings and battle-entry-rule actor predicates/effects share this inventory.
+NPC/staged scene identities, enemy references, ordinary dialogue names and
+name-based summon wielder restrictions are separate contracts and stay untouched.
+Unsupported dynamic source, ambiguous references and colliding keys/IDs are
+refused before writing. Confirmed project repair writes the listed files as one
+transaction; undo/redo checks source snapshots and uses the same transaction.
+The TUI's actor-only freeze retains deferred save when no reference files need
+repair. Validation reports unresolved actor references, including startingParty.
+The frozen ID preserves existing name-based saves; changing the identity
 instead requires an explicit content migration. The Editor assigns IDs to new
 actors and keeps established IDs read-only. Renames change only `data.name`.
 Skits, dialogue presentation, battle artwork, results portraits and current saves
