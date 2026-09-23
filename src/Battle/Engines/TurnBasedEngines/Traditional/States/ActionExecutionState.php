@@ -7,14 +7,18 @@ use Ichiloto\Engine\Core\Timers;
 use Ichiloto\Engine\Animations\AnimationCue;
 use Ichiloto\Engine\Animations\AnimationLibrary;
 use Ichiloto\Engine\Animations\AnimationPlayer;
+use Ichiloto\Engine\Animations\AnimationTargetPosition;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCompiledCutscene;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutscenePlayer;
+use Ichiloto\Engine\Cutscenes\Summons\SummonEffectTrigger;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
+use Ichiloto\Engine\Battle\Actions\ItemBattleAction;
 use Ichiloto\Engine\Battle\BattleAction;
 use Ichiloto\Engine\Battle\BattleCommandCatalog;
+use Ichiloto\Engine\Battle\BattleTurnTimings;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnExecutionContext;
 use Ichiloto\Engine\Battle\Presentation\BattleFeedbackRole;
 use Ichiloto\Engine\Battle\Resolution\CombatTargetResult;
@@ -31,9 +35,16 @@ use Ichiloto\Engine\Entities\Magic\MagicEffectType;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
 use Ichiloto\Engine\Entities\Skills\Skill;
 use Ichiloto\Engine\IO\Enumerations\Color;
+use Ichiloto\Engine\UI\Accessibility;
+use Ichiloto\Engine\Util\Debug;
 
 class ActionExecutionState extends TurnState
 {
+  private ?AnimationLibrary $animationLibrary = null;
+  private ?SummonCutsceneLibrary $summonLibrary = null;
+  /** @var array<int, true> */
+  private array $missingAnimationIds = [];
+
   /**
    * @inheritDoc
    */
@@ -209,27 +220,12 @@ class ActionExecutionState extends TurnState
       $context->game->audioManager->playSystemSound($presentationSound);
     }
 
-    $extendedAnimationHandled = $this->playActionAnimation(
-      $context,
-      $actor,
-      $focusTarget,
-      $action,
-      $timings->actionAnimation,
-      $summonCutscene,
-      $actionAnimation,
-    );
-    if (! $extendedAnimationHandled) {
-      $this->pause($timings->actionAnimation);
-      $this->pause($timings->effectAnimation);
-    }
-
     $previousVitals = [];
-
     foreach ($targets as $index => $target) {
       $previousVitals[$index] = [$target->stats->currentHp, $target->stats->currentMp];
     }
-
-    $resolveAction();
+    $this->resolvePresentedAction($context, $actor, $focusTarget, $action, $timings,
+      $summonCutscene, $actionAnimation, $resolveAction);
 
     $this->stepActorBack($context, $actor);
     $this->pause($timings->stepBack);
@@ -263,6 +259,53 @@ class ActionExecutionState extends TurnState
     $context->ui->fieldWindow->clearMagicCastEffects();
     $context->ui->fieldWindow->clearStatChangePopups();
     $context->ui->refreshField();
+  }
+
+  /** Resolve gameplay once while the authored presentation advances or fails. */
+  protected function resolvePresentedAction(
+    TurnStateExecutionContext $context,
+    CharacterInterface $actor,
+    CharacterInterface $target,
+    ?BattleAction $action,
+    BattleTurnTimings $timings,
+    ?SummonCompiledCutscene $summonCutscene,
+    ?Animation $actionAnimation,
+    callable $resolveAction,
+  ): void
+  {
+    $resolved = false;
+    $resolutionFailure = null;
+    $resolveOnce = function () use (&$resolved, &$resolutionFailure, $resolveAction): void {
+      if ($resolved) { return; }
+      $resolved = true;
+      try { $resolveAction(); }
+      catch (\Throwable $error) { $resolutionFailure = $error; throw $error; }
+    };
+    try {
+      $extendedAnimationHandled = $this->playActionAnimation(
+        $context,
+        $actor,
+        $target,
+        $action,
+        $timings->actionAnimation,
+        $summonCutscene,
+        $actionAnimation,
+        $resolveOnce,
+      );
+    } catch (\Throwable $error) {
+      if ($error === $resolutionFailure) { throw $error; }
+      Debug::warn('Battle effect presentation failed: ' . $error->getMessage());
+      $context->ui->fieldWindow->clearBattleFlash();
+      $context->ui->fieldWindow->clearSummonShake();
+      $extendedAnimationHandled = true;
+    } finally {
+      if ($summonCutscene instanceof SummonCompiledCutscene) { $resolveOnce(); }
+    }
+    if (! $extendedAnimationHandled) {
+      $this->pause($timings->actionAnimation);
+      $this->pause($timings->effectAnimation);
+    }
+    $resolveOnce();
   }
 
   /**
@@ -460,10 +503,11 @@ class ActionExecutionState extends TurnState
     float $delaySeconds,
     ?SummonCompiledCutscene $summonCutscene = null,
     ?Animation $animation = null,
+    ?callable $resolveAction = null,
   ): bool
   {
     if ($summonCutscene instanceof SummonCompiledCutscene) {
-      $this->playSummonCutscene($context, $actor, $summonCutscene);
+      $this->playSummonCutscene($context, $actor, $target, $summonCutscene, $resolveAction);
       return true;
     }
 
@@ -474,13 +518,27 @@ class ActionExecutionState extends TurnState
     }
 
     $player = new AnimationPlayer(max(0.01, $delaySeconds / max(1, $animation->maxFrames)));
-    $player->play($animation, function (int $frameIndex, mixed $frame, ?AnimationCue $cue) use ($context, $target, $animation): void {
-      if ($cue instanceof AnimationCue && $cue->soundEffect !== '') {
-        $context->game->audioManager->playSoundEffect($cue->soundEffect);
-      }
-
+    $flashEndFrame = 0;
+    $player->play($animation, function (int $frameIndex) use ($context, $target, $animation): void {
       $context->ui->fieldWindow->showActionAnimationFrame($target, $animation, $frameIndex);
-    });
+    }, function (AnimationCue $cue, int $frameIndex) use ($context, $target, $animation, &$flashEndFrame): void {
+      if ($cue->soundEffect !== '') {
+        try { $context->game->audioManager->playSoundEffect($cue->soundEffect); }
+        catch (\Throwable $error) { Debug::warn('Animation sound cue failed: ' . $error->getMessage()); }
+      }
+      if (!Accessibility::prefersReducedMotion() && $cue->flashColor !== null && $cue->flashDurationFrames > 0) {
+        $flashEndFrame = max($flashEndFrame, $frameIndex + $cue->flashDurationFrames);
+        try {
+          $context->ui->fieldWindow->beginBattleFlash($target, $animation->position === AnimationTargetPosition::SCREEN, $cue->flashColor,
+            $frameIndex, $cue->flashDurationFrames);
+        } catch (\Throwable $error) { Debug::warn('Animation flash cue failed: ' . $error->getMessage()); }
+      }
+    }, Accessibility::prefersReducedMotion());
+    for ($frame = $animation->maxFrames + 1; $frame < $flashEndFrame; $frame++) {
+      $context->ui->fieldWindow->showActionAnimationFrame($target, $animation, $frame);
+      $this->pause($player->secondsPerFrame);
+    }
+    $context->ui->fieldWindow->clearBattleFlash();
     $context->ui->fieldWindow->clearMagicCastEffects();
     $context->ui->refreshField();
 
@@ -581,8 +639,11 @@ class ActionExecutionState extends TurnState
     }
 
     try {
-      return (new SummonCutsceneLibrary())->loadCompiledOrCompileByLinkedActionId($action->skill->name);
-    } catch (\Throwable) {
+      return ($this->summonLibrary ??= BattleCommandCatalog::getBattleSummonLibrary()
+        ?? new SummonCutsceneLibrary(cacheForBattle: true))
+        ->loadCompiledOrCompileByLinkedActionId($action->skill->name);
+    } catch (\Throwable $error) {
+      Debug::warn('Summon presentation could not be loaded: ' . $error->getMessage());
       return null;
     }
   }
@@ -597,9 +658,16 @@ class ActionExecutionState extends TurnState
   protected function playSummonCutscene(
     TurnStateExecutionContext $context,
     CharacterInterface $actor,
+    CharacterInterface $target,
     SummonCompiledCutscene $cutscene,
+    ?callable $resolveAction,
   ): void
   {
+    $effect = new SummonEffectTrigger(
+      is_array($cutscene->defaults['effectTiming'] ?? null) ? $cutscene->defaults['effectTiming'] : [],
+      $resolveAction ?? static function (): void {},
+    );
+    $reducedMotion = Accessibility::prefersReducedMotion();
     $transitionIn = is_array($cutscene->transitionCache["in"] ?? null)
       ? $cutscene->transitionCache["in"]
       : [];
@@ -607,30 +675,106 @@ class ActionExecutionState extends TurnState
       ? $cutscene->transitionCache["out"]
       : [];
 
-    $context->ui->hideMessage();
-    $context->ui->hideControls();
-    $context->ui->fieldWindow->clearTargetIndicators();
-    $context->ui->fieldWindow->clearMagicCastEffects();
-    $context->ui->fieldWindow->clearStatChangePopups();
+    $failure = null;
+    try {
+      $context->ui->hideMessage();
+      $context->ui->hideControls();
+      $context->ui->fieldWindow->clearTargetIndicators();
+      $context->ui->fieldWindow->clearMagicCastEffects();
+      $context->ui->fieldWindow->clearStatChangePopups();
+      if (!$reducedMotion) { $this->playSummonTransition($context, $transitionIn, "in"); }
+      $context->ui->fieldWindow->erase();
+      $context->ui->fieldWindow->render();
+      if (!$reducedMotion) { $this->displaySummonTitleCard($context, $actor, $cutscene); }
 
-    $this->playSummonTransition($context, $transitionIn, "in");
-    $context->ui->fieldWindow->erase();
-    $context->ui->fieldWindow->render();
-    $this->displaySummonTitleCard($context, $actor, $cutscene);
+      (new SummonCutscenePlayer())->play(
+        $cutscene,
+        function (int $frameIndex) use ($context, $cutscene): void {
+          $context->ui->fieldWindow->showSummonCutsceneFrame($cutscene, $frameIndex);
+        },
+        function (array $cue, int $frame) use ($context, $target, $effect, $reducedMotion): void {
+          $effect->onCue($cue);
+          try { $this->handleSummonCue($context, $target, $cue, $frame, $reducedMotion); }
+          catch (\Throwable $error) { Debug::warn('Summon cue presentation failed: ' . $error->getMessage()); }
+        },
+        $effect->onFrame(...),
+        $reducedMotion,
+      );
 
-    (new SummonCutscenePlayer())->play(
-      $cutscene,
-      function (int $frameIndex) use ($context, $cutscene): void {
-        $context->ui->fieldWindow->showSummonCutsceneFrame($cutscene, $frameIndex);
+      $effect->finish();
+      if (!$reducedMotion) { $this->playSummonTransition($context, $transitionOut, "out"); }
+    } catch (\Throwable $error) {
+      $failure = $error;
+    } finally {
+      // Gameplay resolution outranks a presentation failure, and cleanup must
+      // never replace the original gameplay exception.
+      try { $effect->finish(); }
+      catch (\Throwable $error) { $failure = $error; }
+      foreach ([
+        'flash' => fn() => $context->ui->fieldWindow->clearBattleFlash(),
+        'shake' => fn() => $context->ui->fieldWindow->clearSummonShake(),
+        'effect art' => fn() => $context->ui->fieldWindow->clearMagicCastEffects(),
+        'field' => fn() => $context->ui->refreshField(),
+        'controls' => fn() => $context->ui->showControls(),
+      ] as $part => $clear) {
+        try { $clear(); }
+        catch (\Throwable $error) {
+          Debug::warn(sprintf('Summon %s cleanup failed: %s', $part, $error->getMessage()));
+          $failure ??= $error;
+        }
       }
-    );
+    }
+    if ($failure !== null) { throw $failure; }
+  }
 
-    $context->ui->fieldWindow->clearMagicCastEffects();
-    $context->ui->refreshField();
-    $this->playSummonTransition($context, $transitionOut, "out");
-    $context->ui->fieldWindow->clearMagicCastEffects();
-    $context->ui->refreshField();
-    $context->ui->showControls();
+  /** Dispatch authored summon cues independently of the current renderer. */
+  protected function handleSummonCue(
+    TurnStateExecutionContext $context,
+    CharacterInterface $target,
+    array $cue,
+    int $frame,
+    bool $reducedMotion,
+  ): void
+  {
+    $payload = is_array($cue['payload'] ?? null) ? $cue['payload'] : [];
+    $type = strtolower(trim(strval($cue['type'] ?? '')));
+    switch ($type) {
+      case 'applyeffect':
+        // The authored effectTiming gate decides whether this cue resolves combat.
+        break;
+      case 'playsound':
+      case 'sound':
+        $path = trim(strval($payload['soundEffect'] ?? $payload['sound'] ?? $payload['assetId'] ?? ''));
+        if ($path !== '') { $context->game->audioManager->playSoundEffect($path); }
+        break;
+      case 'showmessage':
+        $message = trim(strval($payload['text'] ?? $payload['message'] ?? ''));
+        if ($message !== '') { $context->ui->showMessage($message); }
+        break;
+      case 'flash':
+        if (!$reducedMotion) {
+          $color = trim(strval($payload['color'] ?? 'white'));
+          $duration = max(1, intval($payload['durationFrames'] ?? $payload['duration'] ?? 1));
+          $screen = strtolower(trim(strval($payload['scope'] ?? 'screen'))) !== 'target';
+          $context->ui->fieldWindow->beginBattleFlash($target, $screen, $color, $frame, $duration);
+        }
+        break;
+      case 'shake':
+        if (!$reducedMotion) {
+          $context->ui->fieldWindow->beginSummonShake($frame,
+            max(1, intval($payload['durationFrames'] ?? $payload['duration'] ?? 1)),
+            max(0, intval($payload['amplitude'] ?? 1)));
+        }
+        break;
+      case 'restorebattlefield':
+        $context->ui->fieldWindow->clearBattleFlash();
+        $context->ui->fieldWindow->clearSummonShake();
+        $context->ui->fieldWindow->clearMagicCastEffects();
+        $context->ui->refreshField();
+        break;
+      default:
+        Debug::warn('Unknown summon cue type: ' . $type);
+    }
   }
 
   /**
@@ -715,7 +859,23 @@ class ActionExecutionState extends TurnState
    */
   protected function resolveActionAnimation(?BattleAction $action): ?Animation
   {
-    $animationLibrary = new AnimationLibrary('Data/animations.php');
+    $animationLibrary = $this->animationLibrary ??= new AnimationLibrary('Data/animations.php', cacheForBattle: true);
+
+    $animationId = match (true) {
+      $action instanceof SkillBattleAction => $action->skill->animationId,
+      $action instanceof ItemBattleAction => $action->item->animationId,
+      default => null,
+    };
+    if ($animationId !== null) {
+      $animation = $animationLibrary->findById($animationId);
+      if ($animation === null && !isset($this->missingAnimationIds[$animationId])) {
+        $this->missingAnimationIds[$animationId] = true;
+        Debug::warn(sprintf('Battle animation id %d was not found.', $animationId));
+      }
+      return $animation;
+    }
+
+    if ($action instanceof ItemBattleAction) { return null; }
 
     if ($action instanceof SkillBattleAction) {
       $explicitAnimation = $animationLibrary->findByName($action->skill->name);

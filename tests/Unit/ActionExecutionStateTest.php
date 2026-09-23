@@ -5,7 +5,9 @@ use Ichiloto\Engine\Animations\AnimationCue;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
+use Ichiloto\Engine\Battle\Actions\ItemBattleAction;
 use Ichiloto\Engine\Battle\BattleAction;
+use Ichiloto\Engine\Battle\BattleTurnTimings;
 use Ichiloto\Engine\Battle\Presentation\BattleFeedbackRole;
 use Ichiloto\Engine\Battle\Resolution\CombatHitResult;
 use Ichiloto\Engine\Battle\Resolution\CombatTargetResult;
@@ -15,11 +17,14 @@ use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\ActionExe
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnResolutionState;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnStateExecutionContext;
 use Ichiloto\Engine\Battle\UI\BattleFieldWindow;
+use Ichiloto\Engine\Battle\UI\BattleScreen;
+use Ichiloto\Engine\Cutscenes\Summons\SummonCompiledCutscene;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\HPRecoverSkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDamageSkillEffect;
 use Ichiloto\Engine\Entities\Enumerations\Occasion;
 use Ichiloto\Engine\Entities\ItemScope;
+use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\Magic\MagicEffectType;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
@@ -27,6 +32,143 @@ use Ichiloto\Engine\Entities\Skills\SpecialSkill;
 use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\IO\Enumerations\Color;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\PlaySettings;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
+
+final class ActionEffectTrace
+{
+  public array $events = [];
+  public array $frames = [];
+
+  public function __construct(public string $renderMode) {}
+}
+
+final class ActionEffectField extends BattleFieldWindow
+{
+  public function __construct(private ActionEffectTrace $trace) {}
+  public function erase(?int $x = null, ?int $y = null): void {}
+  public function render(?int $x = null, ?int $y = null): void {}
+  public function clearTargetIndicators(): void {}
+  public function clearMagicCastEffects(): void {}
+  public function clearStatChangePopups(): void {}
+  public function clearBattleFlash(): void
+  {
+    if ($this->trace->renderMode === 'cleanup-fail') {
+      $this->trace->events[] = 'cleanup-failed';
+      throw new RuntimeException('cleanup render failed');
+    }
+  }
+  public function clearSummonShake(): void {}
+  public function showSummonCutsceneFrame(SummonCompiledCutscene $cutscene, int $frameIndex): void
+  {
+    if ($this->trace->renderMode === 'none') { return; }
+    $this->trace->frames[] = $frameIndex;
+    $this->trace->events[] = 'render:' . $frameIndex;
+    if ($this->trace->renderMode === 'fail' && $frameIndex === 0) {
+      throw new RuntimeException('display offline');
+    }
+  }
+}
+
+final class ActionEffectScreen extends BattleScreen
+{
+  public function __construct(private ActionEffectTrace $trace)
+  {
+    $this->fieldWindow = new ActionEffectField($trace);
+  }
+  public function hideMessage(): void {}
+  public function hideControls(): void {}
+  public function showControls(): void {}
+  public function refreshField(): void {}
+  public function showMessage(string $text): void { $this->trace->events[] = $text; }
+}
+
+/** Exercise the action state's real presentation-to-resolution boundary without audio or a native window. */
+function runActionEffectPlayback(
+  array $timing,
+  string $renderMode,
+  bool $reducedMotion,
+  ?ActionEffectTrace $trace = null,
+  ?callable $afterResolution = null,
+): array
+{
+  $previousConfig = ConfigStore::has(ProjectConfig::class) ? ConfigStore::get(ProjectConfig::class) : null;
+  ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reducedMotion]]));
+  try {
+    $trace ??= new ActionEffectTrace($renderMode);
+    $context = (new ReflectionClass(TurnStateExecutionContext::class))->newInstanceWithoutConstructor();
+    new ReflectionProperty(TurnStateExecutionContext::class, 'ui')->setValue($context, new ActionEffectScreen($trace));
+    $actor = new Character('Caster', 0, new Stats());
+    $target = new Character('Target', 0, new Stats(currentHp: 100, totalHp: 100));
+    $cutscene = new SummonCompiledCutscene('', 'fixture', fps: 1000,
+      cueSchedule: [
+        ['id' => 'before', 'frame' => 1, 'type' => 'showMessage', 'payload' => ['text' => 'before']],
+        ['id' => 'impact', 'frame' => 2, 'type' => 'applyEffect'],
+        ['id' => 'after', 'frame' => 3, 'type' => 'showMessage', 'payload' => ['text' => 'after']],
+      ],
+      defaults: ['name' => '', 'lengthFrames' => 4, 'effectTiming' => $timing]);
+    $resolutions = 0;
+    new ReflectionMethod(ActionExecutionState::class, 'resolvePresentedAction')->invoke(
+      makeActionExecutionStateForTest(), $context, $actor, $target, null,
+      new BattleTurnTimings(0, 0, 0, 0, 0, 0, 0), $cutscene, null,
+      function () use ($target, $trace, $afterResolution, &$resolutions): void {
+        $resolutions++;
+        $target->stats->currentHp -= 7;
+        $trace->events[] = 'resolve';
+        if ($afterResolution !== null) { $afterResolution(); }
+      },
+    );
+    return ['events' => $trace->events, 'frames' => $trace->frames,
+      'resolutions' => $resolutions, 'hp' => $target->stats->currentHp];
+  } finally {
+    $previousConfig === null ? ConfigStore::remove(ProjectConfig::class)
+      : ConfigStore::put(ProjectConfig::class, $previousConfig);
+  }
+}
+
+it('resolves an authored summon once at cue, frame or end through the action state', function ($timing, $renderMode, $reducedMotion, $expectedFrames) {
+  $result = runActionEffectPlayback($timing, $renderMode, $reducedMotion);
+  $events = $result['events'];
+  $resolution = array_search('resolve', $events, true);
+  $before = array_search('before', $events, true);
+  $after = array_search('after', $events, true);
+
+  expect($result['resolutions'])->toBe(1)
+    ->and($result['hp'])->toBe(93)
+    ->and($result['frames'])->toBe($expectedFrames)
+    ->and($before)->toBeInt()
+    ->and($after)->toBeInt()
+    ->and($resolution)->toBeInt()
+    ->and($resolution > $before)->toBeTrue()
+    ->and($timing['mode'] === 'end' ? $resolution > $after : $resolution < $after)->toBeTrue();
+})->with([
+  'cue' => [['mode' => 'cue', 'cueId' => 'impact'], 'normal', false, [0, 1, 2, 3]],
+  'frame' => [['mode' => 'frame', 'frame' => 2], 'normal', false, [0, 1, 2, 3]],
+  'end' => [['mode' => 'end'], 'normal', false, [0, 1, 2, 3]],
+  'cue after render failure' => [['mode' => 'cue', 'cueId' => 'impact'], 'fail', false, [0]],
+  'frame after render failure' => [['mode' => 'frame', 'frame' => 2], 'fail', false, [0]],
+  'end after render failure' => [['mode' => 'end'], 'fail', false, [0]],
+  'cue without renderer drawing' => [['mode' => 'cue', 'cueId' => 'impact'], 'none', false, []],
+  'cue reduced motion' => [['mode' => 'cue', 'cueId' => 'impact'], 'normal', true, [3]],
+  'frame reduced motion' => [['mode' => 'frame', 'frame' => 2], 'normal', true, [3]],
+  'end reduced motion' => [['mode' => 'end'], 'normal', true, [3]],
+]);
+
+it('preserves a gameplay failure when summon cleanup also fails', function () {
+  $trace = new ActionEffectTrace('cleanup-fail');
+  $attempts = 0;
+  expect(function () use ($trace, &$attempts): void {
+    runActionEffectPlayback(['mode' => 'cue', 'cueId' => 'impact'], 'cleanup-fail', false,
+      $trace, function () use (&$attempts): void {
+        $attempts++;
+        throw new RuntimeException('gameplay failed');
+      });
+  })->toThrow(RuntimeException::class, 'gameplay failed');
+  expect($attempts)->toBe(1)
+    ->and(array_count_values($trace->events)['resolve'] ?? 0)->toBe(1)
+    ->and($trace->events)->toContain('cleanup-failed');
+});
 
 it('builds floating damage and knockout popup lines for defeated targets', function () {
   $state = makeActionExecutionStateForTest();
@@ -173,6 +315,34 @@ it('lets authored animation and summon audio override generic battle cues', func
 
   expect(invokeActionPresentationSoundResolver($state, $action, $animation))->toBeNull()
     ->and(invokeActionPresentationSoundResolver($state, $action, isSummonAction: true))->toBeNull();
+});
+
+it('resolves explicit skill and item animation ids without falling back by name', function () {
+  $previous = getcwd();
+  $root = sys_get_temp_dir() . '/ichiloto-action-animation-' . uniqid();
+  mkdir($root . '/assets/Data', 0777, true);
+  $path = $root . '/assets/Data/animations.php';
+  try {
+    chdir($root);
+    file_put_contents($path, "<?php return [['id' => 7, 'name' => 'Named Skill'], ['id' => 8, 'name' => 'Selected']];");
+    $resolve = new ReflectionMethod(ActionExecutionState::class, 'resolveActionAnimation');
+    $state = makeActionExecutionStateForTest();
+    $selectedSkill = new SpecialSkill('Named Skill', '', '*', 0, 0, animationId: 8);
+    $missingSkill = new SpecialSkill('Named Skill', '', '*', 0, 0, animationId: 999);
+    $legacySkill = new SpecialSkill('Named Skill', '', '*', 0, 0);
+    $item = new Item('Potion', '', '*', 0, animationId: 8);
+    $legacyItem = new Item('Potion', '', '*', 0);
+    expect($resolve->invoke($state, new SkillBattleAction($selectedSkill))?->id)->toBe(8)
+      ->and($resolve->invoke($state, new ItemBattleAction($item))?->id)->toBe(8)
+      ->and($resolve->invoke($state, new SkillBattleAction($missingSkill)))->toBeNull()
+      ->and($resolve->invoke($state, new SkillBattleAction($legacySkill))?->id)->toBe(7)
+      ->and($resolve->invoke($state, new ItemBattleAction($legacyItem)))->toBeNull();
+  } finally {
+    chdir($previous);
+    $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
+    foreach ($files as $file) { $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname()); }
+    rmdir($root);
+  }
 });
 
 it('treats battle as concluded when a side has no living battlers', function () {

@@ -110,7 +110,7 @@ final class SummonCutsceneCompiler
       }
     }
 
-    if ($definition->effectTiming->mode === 'explicit_frame' && $definition->effectTiming->frame === null) {
+    if (in_array($definition->effectTiming->mode, ['explicit_frame', 'frame'], true) && $definition->effectTiming->frame === null) {
       throw new InvalidArgumentException('Summon cutscene explicit frame timing requires a frame value.');
     }
   }

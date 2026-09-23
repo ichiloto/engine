@@ -16,7 +16,11 @@ use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\IO\Console\NormalizedRow;
+use Ichiloto\Engine\IO\Console\SgrColorParser;
 use Ichiloto\Engine\IO\Enumerations\Color;
+use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
+use Ichiloto\Engine\UI\Enumerations\PresentationPriority;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCompiledCutscene;
 use Ichiloto\Engine\UI\Windows\Window;
 use InvalidArgumentException;
@@ -132,6 +136,9 @@ class BattleFieldWindow extends Window
    * the window border plus a one-row inset.
    */
   const int SUMMON_CUTSCENE_OFFSET_Y = 2;
+  private const string FLASH_OVERLAY_ID = 'battle-effect-flash';
+  /** Battlefield effects sit above the field HUD but below modal interaction. */
+  private const int FLASH_LAYER = PresentationLayerPolicy::UI + PresentationPriority::FIELD_HUD->value + 1;
   /**
    * @var string The marker shown for the active troop focus.
    */
@@ -188,6 +195,10 @@ class BattleFieldWindow extends Window
    * @var array<int, array{text: string, x: int, y: int}> Active magic cast effects.
    */
   protected array $magicCastEffects = [];
+  /** @var array{target: CharacterInterface, screen: bool, color: Color, start: int, end: int}|null */
+  private ?array $battleFlash = null;
+  /** @var array{start: int, end: int, amplitude: int}|null */
+  private ?array $summonShake = null;
   /**
    * @var int[] Party battler indices whose sprites should remain visible during a popup.
    */
@@ -1264,6 +1275,7 @@ class BattleFieldWindow extends Window
     }
 
     $this->renderMagicCastEffects();
+    $this->renderBattleFlash($frameIndex);
   }
 
   /**
@@ -1277,7 +1289,7 @@ class BattleFieldWindow extends Window
   {
     if ($this->battleScreen->usesGraphicalField()) { return; }
     $this->clearMagicCastEffects();
-
+    $segments = [];
     foreach ($cutscene->playbackSegments as $segment) {
       $startFrame = intval($segment['startFrame'] ?? -1);
       $endFrame = intval($segment['endFrame'] ?? -1);
@@ -1285,13 +1297,111 @@ class BattleFieldWindow extends Window
       if ($frameIndex < $startFrame || $frameIndex > $endFrame) {
         continue;
       }
-
+      $segments[] = $segment;
+    }
+    usort($segments, static fn(array $left, array $right): int =>
+      intval($left['drawCommands'][0]['zIndex'] ?? 0) <=> intval($right['drawCommands'][0]['zIndex'] ?? 0));
+    $commands = [];
+    foreach ($segments as $segment) {
+      if (boolval($segment['clearBeforeDraw'] ?? false)) { $commands = []; }
       foreach (array_values(array_filter($segment['drawCommands'] ?? [], 'is_array')) as $drawCommand) {
-        $this->queueSummonDrawCommand($drawCommand);
+        $commands[] = $drawCommand;
       }
     }
-
+    $offset = $this->getSummonShakeOffset($frameIndex);
+    foreach ($commands as $drawCommand) {
+      $this->queueSummonDrawCommand($drawCommand, $offset);
+    }
     $this->renderMagicCastEffects();
+    $this->renderBattleFlash($frameIndex);
+  }
+
+  /** Start a finite recolour pulse over the target or the entire battlefield. */
+  public function beginBattleFlash(CharacterInterface $target, bool $screen, string $colorName, int $frame, int $durationFrames): void
+  {
+    $color = $this->resolveNamedColor($colorName);
+    if ($color === null || $durationFrames < 1) { return; }
+    $this->battleFlash = ['target' => $target, 'screen' => $screen, 'color' => $color,
+      'start' => $frame, 'end' => $frame + $durationFrames];
+  }
+
+  public function clearBattleFlash(): void
+  {
+    $this->battleFlash = null;
+    Console::removeOverlay(self::FLASH_OVERLAY_ID);
+  }
+
+  /** Timeline shakes shift effect art only, keeping combatants and controls stable. */
+  public function beginSummonShake(int $frame, int $durationFrames, int $amplitude = 1): void
+  {
+    if ($durationFrames < 1) { return; }
+    $this->summonShake = ['start' => $frame, 'end' => $frame + $durationFrames,
+      'amplitude' => max(0, min(intdiv(max(0, $this->width - 2), 2), $amplitude))];
+  }
+
+  public function clearSummonShake(): void
+  {
+    $this->summonShake = null;
+  }
+
+  /** @return array{x: int, y: int} */
+  private function getSummonShakeOffset(int $frame): array
+  {
+    if ($this->summonShake === null || $frame < $this->summonShake['start']) { return ['x' => 0, 'y' => 0]; }
+    if ($frame >= $this->summonShake['end']) { $this->summonShake = null; return ['x' => 0, 'y' => 0]; }
+    $step = $frame - $this->summonShake['start'];
+    return ['x' => ($step % 2 === 0 ? 1 : -1) * $this->summonShake['amplitude'], 'y' => 0];
+  }
+
+  private function renderBattleFlash(int $frame): void
+  {
+    $flash = $this->battleFlash;
+    if ($flash === null) { return; }
+    if ($frame >= $flash['end']) { $this->clearBattleFlash(); return; }
+    if ($frame < $flash['start']) { return; }
+
+    // Snapshot the live battlefield, then let Console restore it when the overlay ends.
+    Console::removeOverlay(self::FLASH_OVERLAY_ID);
+    $x = $this->position->x + 1;
+    $y = $this->position->y + 1;
+    $width = max(1, $this->width - 2);
+    $height = max(1, $this->height - 2);
+    if (!$flash['screen']) {
+      $anchor = $this->resolveStatChangePopupAnchor($flash['target']);
+      if ($anchor === null) { return; }
+      $sprite = $flash['target'] instanceof Character
+        ? $flash['target']->images->battle : $flash['target']->image;
+      $width = max(1, $this->getSpriteWidth($sprite));
+      $height = max(1, count($sprite));
+      $x = $anchor['x'] - intdiv($width, 2);
+      $y = $anchor['y'] + 1;
+    }
+    $buffer = Console::getBuffer();
+    $lines = [];
+    $foreground = SgrColorParser::parse($flash['color']->value)['foreground'];
+    $colorIndex = $foreground?->toArray()['index'] ?? null;
+    if (!is_int($colorIndex)) { return; }
+    $backgroundCode = $colorIndex < 8 ? 40 + $colorIndex : 100 + $colorIndex - 8;
+    $contrastCode = $colorIndex >= 8 ? 30 : 97;
+    $flashStyle = "\033[{$contrastCode};{$backgroundCode}m";
+    for ($row = max(0, $y); $row < min(count($buffer), $y + $height); $row++) {
+      $cells = NormalizedRow::fromText($buffer[$row])->cells;
+      $plain = '';
+      for ($column = max(0, $x); $column < min(count($cells), $x + $width); $column++) {
+        $cell = $cells[$column];
+        if ($cell === NormalizedRow::CONTINUATION) {
+          if ($column === max(0, $x)) { $plain .= ' '; }
+          continue;
+        }
+        $cellWidth = TerminalText::getSymbolWidth($cell);
+        $plain .= $column + $cellWidth > $x + $width
+          ? str_repeat(' ', max(1, $x + $width - $column))
+          : TerminalText::stripAnsi($cell);
+      }
+      // A coloured background also pulses on empty cells, unlike foreground-only text.
+      $lines[] = $flashStyle . $plain . Color::RESET->value;
+    }
+    Console::replaceOverlay(self::FLASH_OVERLAY_ID, $lines, max(0, $x), max(0, $y), self::FLASH_LAYER);
   }
 
   /**
@@ -1415,7 +1525,7 @@ class BattleFieldWindow extends Window
    * @param array<string, mixed> $drawCommand The compiled draw command.
    * @return void
    */
-  protected function queueSummonDrawCommand(array $drawCommand): void
+  protected function queueSummonDrawCommand(array $drawCommand, array $offset = ['x' => 0, 'y' => 0]): void
   {
     if (($drawCommand['visible'] ?? true) === false) {
       return;
@@ -1434,8 +1544,8 @@ class BattleFieldWindow extends Window
 
       $this->magicCastEffects[] = [
         'text' => $this->formatSummonDrawCommandLine($line, $color),
-        'x' => $this->position->x + self::SUMMON_CUTSCENE_OFFSET_X + $x,
-        'y' => $this->position->y + self::SUMMON_CUTSCENE_OFFSET_Y + $y + $lineIndex,
+        'x' => $this->position->x + self::SUMMON_CUTSCENE_OFFSET_X + $x + $offset['x'],
+        'y' => $this->position->y + self::SUMMON_CUTSCENE_OFFSET_Y + $y + $lineIndex + $offset['y'],
       ];
     }
   }

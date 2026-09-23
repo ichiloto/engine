@@ -125,6 +125,14 @@ final class SummonPlaybackSession
     return $this->cuesByFrame[$frame ?? $this->currentFrame] ?? [];
   }
 
+  /** Consume entry cues once; inspection through cuesAt remains side effect free. */
+  public function takeCurrentFrameCues(): array
+  {
+    if (!$this->currentFrameCuesPending) { return []; }
+    $this->currentFrameCuesPending = false;
+    return $this->cuesAt();
+  }
+
   public function update(float $elapsedSeconds): SummonPlaybackUpdate
   {
     if ($this->isPaused || $this->isCompleted || $elapsedSeconds <= 0.0) {
@@ -133,8 +141,7 @@ final class SummonPlaybackSession
 
     $this->accumulatedSeconds += $elapsedSeconds;
     $crossedFrames = [];
-    $crossedCues = $this->currentFrameCuesPending ? $this->cuesAt() : [];
-    $this->currentFrameCuesPending = false;
+    $crossedCues = $this->takeCurrentFrameCues();
     $frameDuration = $this->secondsPerFrame;
 
     while ($this->accumulatedSeconds + PHP_FLOAT_EPSILON >= $frameDuration) {

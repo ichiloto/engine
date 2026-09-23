@@ -20,22 +20,46 @@ final class SummonCutscenePlayer
     SummonCompiledCutscene $cutscene,
     callable $renderFrame,
     ?callable $onCue = null,
+    ?callable $onFrame = null,
+    bool $reducedMotion = false,
   ): void
   {
     $session = new SummonPlaybackSession($cutscene, loop: false);
 
+    if ($reducedMotion) {
+      for ($frame = 0; $frame < $session->totalFrames; $frame++) {
+        if ($onFrame !== null) { $onFrame($frame); }
+        if ($onCue !== null) {
+          foreach ($session->cuesAt($frame) as $cue) { $onCue($cue, $frame); }
+        }
+      }
+      $session->seek($session->totalFrames - 1);
+      $renderFrame($session->currentFrame, $session->activeSegments());
+      return;
+    }
+
+    $pendingCues = $session->takeCurrentFrameCues();
+
     while (! $session->isCompleted) {
       $frame = $session->currentFrame;
-      $renderFrame($frame, $session->activeSegments());
-
+      if ($onFrame !== null) { $onFrame($frame); }
       if ($onCue !== null) {
-        foreach ($session->cuesAt() as $cue) {
-          $onCue($cue, $frame);
+        foreach ($pendingCues as $cue) { $onCue($cue, intval($cue['frame'] ?? $frame)); }
+      }
+      try {
+        $renderFrame($frame, $session->activeSegments());
+      } catch (\Throwable $error) {
+        for ($next = $frame + 1; $next < $session->totalFrames; $next++) {
+          if ($onFrame !== null) { $onFrame($next); }
+          if ($onCue !== null) {
+            foreach ($session->cuesAt($next) as $cue) { $onCue($cue, $next); }
+          }
         }
+        throw $error;
       }
 
       Timers::wait($session->secondsPerFrame);
-      $session->update($session->secondsPerFrame);
+      $pendingCues = $session->update($session->secondsPerFrame)->crossedCues;
     }
   }
 }

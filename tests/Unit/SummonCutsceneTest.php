@@ -7,6 +7,7 @@ use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneDefinition;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneTrack;
 use Ichiloto\Engine\Cutscenes\Summons\SummonEffectTiming;
+use Ichiloto\Engine\Cutscenes\Summons\SummonEffectTrigger;
 use Ichiloto\Engine\Cutscenes\Summons\SummonPlaybackConfig;
 use Ichiloto\Engine\Cutscenes\Summons\SummonPlaybackSession;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutscenePlayer;
@@ -191,6 +192,48 @@ it('round-trips codex fields through the definition', function () {
     ->and($data['attributes'])->toBe(['Power' => 'A']);
 });
 
+it('keeps compiled summon definitions stable for one battle and reloads in the next', function () {
+  $root = sys_get_temp_dir() . '/ichiloto-summon-cache-' . uniqid();
+  $directory = $root . '/first';
+  mkdir($directory, 0777, true);
+  $data = $directory . '/first.data.php';
+  $timeline = $directory . '/first.timeline.php';
+  try {
+    file_put_contents($data, "<?php return ['id' => 'first', 'name' => 'Before', 'linkedActionId' => 'Call', 'effectTiming' => ['mode' => 'end']];");
+    file_put_contents($timeline, "<?php return ['fps' => 12, 'lengthFrames' => 2, 'tracks' => [], 'cues' => []];");
+    $battle = new SummonCutsceneLibrary($root, cacheForBattle: true);
+    $first = $battle->loadCompiledOrCompileByLinkedActionId('Call');
+    file_put_contents($data, "<?php return ['id' => 'first', 'name' => 'After', 'linkedActionId' => 'Call', 'effectTiming' => ['mode' => 'end']];");
+    expect($battle->loadCompiledOrCompileByLinkedActionId('Call'))->toBe($first)
+      ->and($battle->findById('first')?->name)->toBe('Before')
+      ->and((new SummonCutsceneLibrary($root, cacheForBattle: true))->findById('first')?->name)->toBe('After');
+  } finally {
+    unlink($data); unlink($timeline); rmdir($directory); rmdir($root);
+  }
+});
+
+it('keeps valid summons available when a neighbouring optional definition is malformed', function () {
+  $root = sys_get_temp_dir() . '/ichiloto-summon-invalid-' . uniqid();
+  $valid = $root . '/valid';
+  $invalid = $root . '/invalid';
+  mkdir($valid, 0777, true);
+  mkdir($invalid, 0777, true);
+  try {
+    file_put_contents($valid . '/valid.data.php', "<?php return ['id' => 'valid', 'name' => 'Valid', 'linkedActionId' => 'Call', 'effectTiming' => ['mode' => 'end']];");
+    file_put_contents($valid . '/valid.timeline.php', "<?php return ['fps' => 12, 'lengthFrames' => 1, 'tracks' => [], 'cues' => []];");
+    file_put_contents($invalid . '/invalid.data.php', "<?php return 'bad';");
+    file_put_contents($invalid . '/invalid.timeline.php', "<?php return [];");
+    $library = new SummonCutsceneLibrary($root, cacheForBattle: true);
+    expect(array_map(static fn($definition): string => $definition->id, $library->load()))->toBe(['valid'])
+      ->and($library->loadCompiledOrCompileByLinkedActionId('Call'))->toBeInstanceOf(SummonCompiledCutscene::class);
+  } finally {
+    foreach ([$valid . '/valid.data.php', $valid . '/valid.timeline.php', $invalid . '/invalid.data.php', $invalid . '/invalid.timeline.php'] as $path) {
+      unlink($path);
+    }
+    rmdir($valid); rmdir($invalid); rmdir($root);
+  }
+});
+
 it('keeps an omitted wielder policy omitted through source round-trip', function () {
   $definition = SummonCutsceneDefinition::fromArrays(
     ['id' => 'open-summon', 'name' => 'Open Summon'],
@@ -330,4 +373,65 @@ it('keeps the blocking summon player source-compatible through the shared sessio
     ['opening', 0],
     ['effect', 2],
   ]);
+});
+
+it('fires each summon cue once and reduced motion retains ordered cues with only the final frame', function () {
+  $cutscene = makePlaybackCutscene();
+  $normal = $reduced = [];
+  $normalFrames = $reducedFrames = [];
+  (new SummonCutscenePlayer())->play($cutscene,
+    function (int $frame) use (&$normalFrames): void { $normalFrames[] = $frame; },
+    function (array $cue) use (&$normal): void { $normal[] = $cue['id']; });
+  (new SummonCutscenePlayer())->play($cutscene,
+    function (int $frame) use (&$reducedFrames): void { $reducedFrames[] = $frame; },
+    function (array $cue) use (&$reduced): void { $reduced[] = $cue['id']; },
+    reducedMotion: true);
+  expect($normalFrames)->toBe([0, 1, 2, 3, 4])
+    ->and($reducedFrames)->toBe([4])
+    ->and($normal)->toBe(['opening', 'first', 'second', 'finish'])
+    ->and($reduced)->toBe($normal);
+});
+
+it('continues the summon cue timeline after its renderer fails before impact', function () {
+  $cutscene = makePlaybackCutscene();
+  $events = [];
+  $frameAtEffect = null;
+  $trigger = new SummonEffectTrigger(['mode' => 'cue', 'cueId' => 'second'],
+    function () use (&$frameAtEffect, &$events): void { $frameAtEffect = end($events); });
+  expect(function () use ($cutscene, $trigger, &$events): void { (new SummonCutscenePlayer())->play($cutscene,
+    static function (): void { throw new RuntimeException('display offline'); },
+    function (array $cue, int $frame) use ($trigger, &$events): void {
+      $events[] = $frame;
+      $trigger->onCue($cue);
+    }); })
+    ->toThrow(RuntimeException::class, 'display offline');
+  $trigger->finish();
+  expect($events)->toBe([0, 1, 2, 4])->and($frameAtEffect)->toBe(2);
+});
+
+it('applies summon combat exactly once at end cue or explicit frame and after presentation failure', function () {
+  foreach ([
+    [['mode' => 'end'], null, null],
+    [['mode' => 'cue', 'cueId' => 'impact'], 'impact', null],
+    [['mode' => 'explicit_frame', 'frame' => 2], null, 2],
+    [['mode' => 'frame', 'frame' => 2], null, 2],
+  ] as [$timing, $cueId, $frame]) {
+    $count = 0;
+    $trigger = new SummonEffectTrigger($timing, function () use (&$count): void { $count++; });
+    $trigger->onFrame(0);
+    $trigger->onCue(['id' => 'other']);
+    expect($count)->toBe(0);
+    if ($cueId !== null) { $trigger->onCue(['id' => $cueId]); }
+    if ($frame !== null) { $trigger->onFrame($frame); }
+    expect($count)->toBe($cueId !== null || $frame !== null ? 1 : 0);
+    $trigger->finish(); $trigger->finish();
+    expect($count)->toBe(1);
+  }
+  $count = 0;
+  $trigger = new SummonEffectTrigger(['mode' => 'cue', 'cueId' => 'never-reached'],
+    function () use (&$count): void { $count++; });
+  try { throw new RuntimeException('presentation failed'); }
+  catch (RuntimeException) { /* Runtime reports the presentation failure after the effect fallback. */ }
+  finally { $trigger->finish(); }
+  expect($count)->toBe(1);
 });

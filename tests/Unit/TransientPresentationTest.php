@@ -172,6 +172,51 @@ it('presents each summon frame and retains PHP cue order', function () {
     ->and($cues)->toBe([1]);
 });
 
+it('recolours the battlefield for the authored flash frames and restores its underlay', function () {
+  $field = new TransientBattleField();
+  Console::write('BASE', 2, 2);
+  $before = Console::getBuffer()[2];
+  $field->beginBattleFlash(new Character('Target', 0, new Stats()), true, 'red', 1, 2);
+  $render = new ReflectionMethod(BattleFieldWindow::class, 'renderBattleFlash');
+  $render->invoke($field, 1);
+  expect(Console::getBuffer()[2])->toContain("\033[41m");
+  expect(\Ichiloto\Engine\IO\Console\TerminalText::stripAnsi(Console::getBuffer()[2]))->toContain('BASE');
+  $render->invoke($field, 2);
+  expect(Console::getBuffer()[2])->toContain("\033[41m");
+  $render->invoke($field, 3);
+  expect(Console::getBuffer()[2])->toBe($before);
+});
+
+it('limits target flashes to the target and makes white visible on empty cells', function () {
+  $field = new TransientBattleField();
+  Console::write('OUTSIDE', 2, 2);
+  Console::write('TARGET', 9, 6);
+  $outside = Console::getBuffer()[2];
+  $target = Console::getBuffer()[6];
+  $field->beginBattleFlash(new Character('Target', 0, new Stats()), false, 'white', 0, 1);
+  new ReflectionMethod(BattleFieldWindow::class, 'renderBattleFlash')->invoke($field, 0);
+  expect(Console::getBuffer()[2])->toBe($outside)
+    ->and(Console::getBuffer()[6])->toContain('107m');
+  $field->clearBattleFlash();
+  expect(Console::getBuffer()[6])->toBe($target);
+});
+
+it('orders terminal summon art by z and clears lower layers before drawing', function () {
+  $screen = new TransientBattleScreen();
+  $field = $screen->fieldWindow;
+  new ReflectionProperty(BattleFieldWindow::class, 'battleScreen')->setValue($field, $screen);
+  $command = static fn(string $content, int $x, int $z): array =>
+    ['content' => $content, 'position' => [$x, 0], 'zIndex' => $z];
+  $cutscene = new SummonCompiledCutscene('layers', 'fixture', playbackSegments: [
+    ['startFrame' => 0, 'endFrame' => 0, 'drawCommands' => [$command('B', 2, 10)]],
+    ['startFrame' => 0, 'endFrame' => 0, 'drawCommands' => [$command('A', 0, 0)]],
+    ['startFrame' => 0, 'endFrame' => 0, 'clearBeforeDraw' => true, 'drawCommands' => [$command('C', 1, 5)]],
+  ]);
+  $field->showSummonCutsceneFrame($cutscene, 0);
+  $line = \Ichiloto\Engine\IO\Console\TerminalText::stripAnsi(Console::getBuffer()[1]);
+  expect(substr($line, 1, 3))->toBe(' CB');
+});
+
 it('presents transition cover above all UI and sprites before it is removed', function () {
   $transition = new class(TransitionStyle::FADE, 20) extends ScreenTransition {
     public function isEnabled(): bool { return true; }

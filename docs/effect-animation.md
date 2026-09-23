@@ -33,7 +33,10 @@ replacing them. Related plans: [layered-tilemaps.md](layered-tilemaps.md); relat
    playback session, as the summon preview already does. Anything the preview
    fires, battle fires; anything battle honors, the preview shows.
 
-## Current state (audited 2026-09-20)
+## Baseline audit (2026-09-20)
+
+This records the behavior that motivated the phases below. The Phase 0 runtime
+contract follows the phase list.
 
 Two authored animation systems exist, plus one orphan:
 
@@ -122,6 +125,63 @@ says.
 6. Add the explicit animation reference to skills and items (engine schema +
    editor picker), keeping the name fallback with a validator notice.
 
+#### Phase 0 runtime contract
+
+`ActionExecutionState` passes summon frame and cue callbacks into
+`SummonCutscenePlayer`. `effectTiming.mode` selects exactly one gameplay
+resolution: `cue` fires when the named `cueId` is crossed; `frame` (also
+accepted as `explicit_frame`) fires at the start of that frame; `end` fires
+after the last frame and before the outgoing transition. Frame-zero cues are
+delivered once. Presentation cues such as sound, message, flash, shake and
+restore are dispatched separately from combat resolution; an `applyEffect`
+cue does not override a different authored timing mode.
+
+If a frame renderer fails, the summon player traverses remaining frame and
+cue callbacks logically, while the cell-animation player delivers remaining
+cues; both rethrow the presentation failure. The battle state logs
+that failure, clears transient visuals and still resolves gameplay once. If a
+cue or frame cannot be reached because presentation setup fails, resolution
+falls back to once at cleanup. Gameplay callback failures propagate; they are
+not treated as render failures or retried. Missing explicit animation ids and
+malformed optional assets are diagnosed without suppressing the battle action.
+
+Under reduced motion, both players deliver cues in frame order and draw only
+the final frame. Summon title cards and transitions, and visual flash/shake
+motion are skipped. Cell-frame animations retain the old two-argument
+`AnimationPlayer::play()` callback in ordinary playback; reduced-motion
+callers must provide the separate cue callback when an earlier frame has a
+cue, rather than silently losing it.
+
+Terminal cell-animation flashes recolour the target sprite area or the whole
+battlefield, including empty cells, for `flashDurationFrames`; the underlying
+field returns when the pulse ends. Terminal summon segments draw in compiled
+`zIndex` order, and `clearBeforeDraw` removes lower queued art before the
+current segment draws. Graphical effect drawing remains a later phase; PHP cue
+traversal and combat resolution continue even when that presenter draws no
+effect art.
+
+Animation and summon definitions, including compiled summon timelines, stay
+stable for one battle. The scene releases the battle cache when it stops or
+fails to enter; a later battle reads current assets. Editor/default library
+instances continue to load live data. Malformed entries are warned about and
+skipped individually, so valid neighbouring assets remain usable.
+
+#### Explicit references
+
+`Skill` (including Basic, Magic and Special) and `Item` accept an optional
+`animationId: ?int`, identifying the numeric id in `Data/animations.php`.
+The Editor's Animation picker displays the name and id, stores the id, and
+supports clearing it. Skill Ctrl+G follows the explicit id even after a rename.
+Saved inventory instances resolve the current item definition's animation;
+the artwork binding is not frozen into a save.
+
+A null skill reference retains the deprecated name-based selection, including
+the existing Healing Aura/Hit Spark defaults. Project validation reports a
+notice when that fallback selects an animation. Legacy items retain their
+existing no-animation behavior. A missing explicit id reports a warning and
+omits only that animation; it never selects different artwork by name or
+prevents the item's or skill's gameplay effect.
+
 ### Phase 1 - One runtime
 
 1. Generalize the summon compiler/session into the effect-timeline library
@@ -172,8 +232,8 @@ The summon timeline surface generalizes into the animation editor:
 4. Cue authoring gains the pieces Phase 0 made real: flash parameters,
    effect timing against the cue lane, per-track mute/solo for isolating a
    layer while authoring.
-5. Skill and item forms gain the animation reference picker, and Ctrl+G
-   follows the reference instead of the name.
+5. Extend the Phase 0 skill/item reference picker and Ctrl+G navigation to
+   the unified timeline library.
 
 ### Phase 4 - The rich 2D editor (direction, scoped separately)
 
