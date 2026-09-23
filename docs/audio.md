@@ -324,6 +324,16 @@ position safely. Otherwise music remains unattenuated with a diagnostic,
 without restarting the track. This is not live-volume support for non-seeking
 players such as afplay. The default multiplier is 1.0, so ducking is opt-in.
 
+Conversations can own a `beginSpeechSequence()` token and release it with
+`endSpeechSequence($token)` in `finally`. Within that sequence, completed or
+manually advanced voiced lines retain the attenuation between beats, avoiding
+two music restarts at each boundary. An unvoiced next beat calls
+`releaseSpeechDucking($token)`; failed or muted speech also restores music.
+Ending the sequence stops its speech and restores music. Stale tokens cannot
+release a newer conversation. `DialoguePlayback::beginConversation()` and
+`finishConversation()` provide this ownership to skits; modal line cleanup
+still stops speech immediately without ending the conversation's attenuation.
+
 ## Looping
 
 BGM loops by default (`playBackgroundMusic($path, loop: false)` for one-shot

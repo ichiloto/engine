@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\Messaging\Dialogue;
 
 use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\Audio\AudioPlayback;
+use Ichiloto\Engine\Audio\SpeechSequence;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
@@ -32,6 +33,7 @@ final class DialoguePlayback
   private const float MINIMUM_READING_SECONDS = 1.0;
   private const float READING_CHARACTERS_PER_SECOND = 15.0;
   private ?AudioPlayback $voice = null;
+  private ?SpeechSequence $sequence = null;
   private ?float $textCompletedAt = null;
   private float $readingSeconds = self::MINIMUM_READING_SECONDS;
   private int $pageIndex = -1;
@@ -49,7 +51,25 @@ final class DialoguePlayback
     $this->finishLine();
     $this->pageIndex = -1;
     $this->holdAfterAutoToggle = false;
+    if ($voicePath === null && $this->sequence !== null) {
+      $this->audio?->releaseSpeechDucking($this->sequence);
+    }
     $this->voice = $voicePath === null ? null : $this->audio?->playSpeech($voicePath, $musicDuckFactor);
+  }
+
+  public function beginConversation(): void
+  {
+    $this->finishConversation();
+    $this->sequence = $this->audio?->beginSpeechSequence();
+  }
+
+  public function finishConversation(): void
+  {
+    $this->finishLine();
+    if ($this->sequence !== null) {
+      $this->audio?->endSpeechSequence($this->sequence);
+      $this->sequence = null;
+    }
   }
 
   public function beginPage(string $text): void

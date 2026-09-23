@@ -205,27 +205,55 @@ class AudioManager implements CanUpdate
   protected ?AudioPlayback $speechPlayback = null;
   protected ?string $speechPath = null;
   protected float $speechDuckFactor = 1.0;
+  protected ?SpeechSequence $speechSequence = null;
+
+  public function beginSpeechSequence(): SpeechSequence
+  {
+    if ($this->speechSequence !== null) {
+      $this->endSpeechSequence($this->speechSequence);
+    }
+    return $this->speechSequence = new SpeechSequence();
+  }
+
+  public function endSpeechSequence(SpeechSequence $owner): void
+  {
+    if ($owner !== $this->speechSequence) { return; }
+    $this->speechSequence = null;
+    $this->stopSpeech();
+  }
+
+  public function releaseSpeechDucking(?SpeechSequence $owner = null): void
+  {
+    if ($owner !== null && $owner !== $this->speechSequence) { return; }
+    $wasDucked = $this->speechDuckFactor < 1.0;
+    $this->speechDuckFactor = 1.0;
+    if ($wasDucked && $this->bgmPlayback !== null) { $this->updateBackgroundMusic(); }
+  }
 
   /** One owned line at a time. A new request also interrupts a muted/missing line. */
   public function playSpeech(string $path, float $musicDuckFactor = 1.0): ?AudioPlayback
   {
     $this->stopSpeech();
     if (! $this->isSpeechEnabled()) {
+      $this->releaseSpeechDucking();
       return null;
     }
     try {
       $resolved = $this->resolveAudioPath($path, self::VOICE_DIRECTORY);
       if ($resolved === null) {
+        $this->releaseSpeechDucking();
         $this->warnOnce("speech-missing:$path", "Voice file not found: $path");
         return null;
       }
       $backend = $this->selectBackend($resolved);
       if ($backend === null) {
+        $this->releaseSpeechDucking();
         $this->warnOnce("speech-format:$resolved", "No available audio player supports voice: $resolved");
         return null;
       }
       $playback = $this->spawn($backend->buildCommand($resolved, $this->getMasterVolume(), false));
       if ($playback === null) {
+        $this->releaseSpeechDucking();
         $this->warnOnce("speech-spawn:$resolved", "Failed to start voice playback: $resolved");
         return null;
       }
@@ -236,6 +264,7 @@ class AudioManager implements CanUpdate
       return $playback;
     } catch (Throwable $exception) {
       $this->stopSpeech();
+      $this->releaseSpeechDucking();
       $this->warnOnce("speech-error:$path", "Voice playback failed: $path: {$exception->getMessage()}");
       return null;
     }
@@ -250,10 +279,8 @@ class AudioManager implements CanUpdate
     $this->speechPlayback?->stop();
     $this->speechPlayback = null;
     $this->speechPath = null;
-    $wasDucked = $this->speechDuckFactor < 1.0;
-    $this->speechDuckFactor = 1.0;
-    if ($wasDucked && $this->bgmPlayback !== null) {
-      $this->updateBackgroundMusic();
+    if ($this->speechSequence === null) {
+      $this->releaseSpeechDucking();
     }
   }
 
@@ -263,11 +290,12 @@ class AudioManager implements CanUpdate
     if ($owner !== null && $owner !== $this->speechPlayback) {
       return false;
     }
-    if ($this->speechPlayback === null) {
-      return false;
-    }
     if (! $this->isSpeechEnabled()) {
       $this->stopSpeech($owner);
+      $this->releaseSpeechDucking();
+      return false;
+    }
+    if ($this->speechPlayback === null) {
       return false;
     }
     if ($this->speechPlayback->isRunning) {
@@ -275,6 +303,7 @@ class AudioManager implements CanUpdate
     }
     if (($this->speechPlayback->exitCode ?? 0) !== 0) {
       $this->warnOnce("speech-exit:$this->speechPath", "Voice playback failed: $this->speechPath");
+      $this->releaseSpeechDucking();
     }
     $this->stopSpeech($owner);
     return false;
@@ -554,6 +583,7 @@ class AudioManager implements CanUpdate
    */
   public function shutdown(): void
   {
+    $this->speechSequence = null;
     $this->stopBackgroundMusic();
     $this->stopSpeech();
 

@@ -409,3 +409,37 @@ it('persists Auto across ordinary dialogue skits and reloaded configuration and 
     expect(array_column($manager->getSettings(), 'key'))->toContain('dialogue_auto');
   }
 });
+
+it('holds one duck across consecutive voiced beats and restores for silence or conversation completion', function () {
+  $this->audio->playBackgroundMusic($this->voicePath);
+  $flow = new DialoguePlayback($this->audio);
+  $flow->beginConversation();
+  $flow->beginLine($this->voicePath, 0.25);
+  $voice = $this->audio->handles[1];
+  $duckedMusic = end($this->audio->handles);
+  expect($this->audio->handles)->toHaveCount(3);
+  $voice->complete(); $this->audio->update();
+  $flow->finishLine(); $flow->beginLine($this->voicePath, 0.25);
+  expect($this->audio->handles)->toHaveCount(4)->and($duckedMusic->isRunning)->toBeTrue();
+  $flow->beginLine();
+  expect($this->audio->handles)->toHaveCount(5)->and($duckedMusic->isRunning)->toBeFalse()
+    ->and(end($this->audio->handles)->command[1])->toBe('0.8');
+  $flow->beginLine($this->voicePath, 0.25);
+  $flow->finishConversation();
+  expect(end($this->audio->handles)->command[1])->toBe('0.8')->and($this->audio->isSpeechPlaying())->toBeFalse();
+});
+
+it('releases conversation ducking when the next voice fails and ignores stale sequence owners', function () {
+  $this->audio->playBackgroundMusic($this->voicePath);
+  $old = $this->audio->beginSpeechSequence();
+  $this->audio->playSpeech($this->voicePath, 0.25);
+  $this->audio->playSpeech('missing.mp3', 0.25);
+  expect(end($this->audio->handles)->command[1])->toBe('0.8');
+  $next = $this->audio->beginSpeechSequence();
+  $voice = $this->audio->playSpeech($this->voicePath, 0.25);
+  $this->audio->endSpeechSequence($old);
+  $this->audio->releaseSpeechDucking($old);
+  expect($voice->isRunning)->toBeTrue()->and(end($this->audio->handles)->command[1])->toBe('0.2');
+  $this->audio->endSpeechSequence($next);
+  expect($voice->isRunning)->toBeFalse()->and(end($this->audio->handles)->command[1])->toBe('0.8');
+});

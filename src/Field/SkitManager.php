@@ -175,6 +175,7 @@ class SkitManager
       ? ConfigStore::get(ProjectConfig::class)->get('audio.voice_music_duck', 1.0) : 1.0;
     $duck = is_numeric($duck) ? (float) $duck : 1.0;
 
+    $playback->beginConversation();
     try {
       foreach ((array) $skit['beats'] as $beat) {
         if ($game->hasStopped()) {
@@ -198,7 +199,7 @@ class SkitManager
         $this->gameScene->gameState->recordStoryEvent(sprintf('skit_seen:%s', $skitId));
       }
     } finally {
-      $playback->finishLine();
+      $playback->finishConversation();
     }
   }
 
