@@ -22,6 +22,7 @@ use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\UI\Modal\TextBoxModal;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
+use Ichiloto\Engine\Util\Config\PlayerSettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 
 require_once __DIR__ . '/../Support/Input/FakeInputSource.php';
@@ -104,6 +105,7 @@ beforeEach(function () {
   $this->consoleState = new ReflectionClass(Console::class)->getStaticProperties();
   $this->configState = new ReflectionClass(ConfigStore::class)->getStaticProperties();
   ConfigStore::remove(ProjectConfig::class);
+  ConfigStore::remove(PlayerSettings::class);
   $this->eventState = new ReflectionClass(EventManager::class)->getStaticProperties();
   new ReflectionProperty(EventManager::class,'instance')->setValue(null,null);
   ConfigStore::put(PlaySettings::class,new PlaySettings(['width'=>80,'height'=>24]));
@@ -365,6 +367,8 @@ it('preserves authored help while appending live rebound Auto hints without dupl
   expect($modal->getHelp())->toBe('Remember the blue door. ENTER:continue x:Auto on');
   InputManager::handleInput(); $modal->update();
   expect($modal->getHelp())->toBe('Remember the blue door. ENTER:continue x:Auto on');
+  $modal->updateContent();
+  expect($modal->getHelp())->toBe('Remember the blue door. ENTER:continue x:Auto on');
   $modal->hide();
 });
 
@@ -388,11 +392,16 @@ it('uses contextual Space Auto and consumes the opening edge without discarding 
 });
 
 it('persists Auto across ordinary dialogue skits and reloaded configuration and honours Config changes', function () {
-  file_put_contents($this->voiceTemp.'/config.php', "<?php return [];\n");
+  $projectSource = "<?php return [];\n";
+  file_put_contents($this->voiceTemp.'/config.php', $projectSource);
+  ConfigStore::put(PlayerSettings::class, new PlayerSettings($this->voiceTemp));
   ConfigStore::put(ProjectConfig::class, new ProjectConfig());
   $first = new DialoguePlayback();
   $first->toggleAuto();
   $first->finishLine();
+  expect(file_get_contents($this->voiceTemp.'/config.php'))->toBe($projectSource)
+    ->and(is_file($this->voiceTemp.'/.data/player-settings.json'))->toBeTrue();
+  ConfigStore::put(PlayerSettings::class, new PlayerSettings($this->voiceTemp));
   ConfigStore::put(ProjectConfig::class, new ProjectConfig());
   $game = new ReflectionClass(Game::class)->newInstanceWithoutConstructor();
   $modal = new VoiceTestTextBox($game, 'Ordinary dialogue');

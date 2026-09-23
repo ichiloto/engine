@@ -53,6 +53,7 @@ use Ichiloto\Engine\Util\Config\AppConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\InputConfig;
 use Ichiloto\Engine\Util\Config\PlaySettings;
+use Ichiloto\Engine\Util\Config\PlayerSettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Stores\EnemyStore;
@@ -498,6 +499,7 @@ class Game implements CanRun, SubjectInterface
         EquipmentOptimizationPolicyRegistry::configureFromProject();
         ConfigStore::put(PlaySettings::class, new PlaySettings($this->options));
         ConfigStore::put(AppConfig::class, new AppConfig());
+        ConfigStore::put(PlayerSettings::class, new PlayerSettings());
         ConfigStore::put(ProjectConfig::class, new ProjectConfig());
         ConfigStore::put(FieldMusicCatalog::class, FieldMusicCatalog::fromProject());
 

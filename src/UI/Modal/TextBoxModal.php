@@ -219,9 +219,8 @@ class TextBoxModal extends Modal
       }
 
       $this->window->setContent($this->content);
-    } else {
-      $this->help = 'space:continue';
     }
+    $this->refreshPlaybackHelp();
   }
 
   /**

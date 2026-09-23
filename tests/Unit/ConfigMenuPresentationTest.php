@@ -22,6 +22,7 @@ use Ichiloto\Engine\UI\Presentation\MenuRow;
 use Ichiloto\Engine\UI\Presentation\MenuRowLayout;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
+use Ichiloto\Engine\Util\Config\PlayerSettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
 use Tests\Support\Input\FakeInputSource;
@@ -106,6 +107,7 @@ beforeEach(function () {
   foreach (['surface', 'arrow', 'thumb'] as $file) { configPresentationPng($this->root . '/' . $file . '.png', 71, 39); }
   $this->config = new ConfigPresentationMemoryConfig(['audio' => ['master_volume' => 75, 'music' => false, 'sfx' => false]]);
   ConfigStore::put(ProjectConfig::class, $this->config);
+  ConfigStore::put(PlayerSettings::class, $this->config);
   ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 135, 'height' => 36]));
   Console::syncDimensions(135, 36);
   Console::setTerminalOutputEnabled(false);

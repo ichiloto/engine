@@ -8,6 +8,7 @@ use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\Audio\AudioPlayback;
 use Ichiloto\Engine\Audio\SpeechSequence;
 use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\Settings\SettingsCatalog;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
@@ -23,9 +24,11 @@ final class DialoguePlayback
     set {
       $this->auto = $value;
       if (ConfigStore::has(ProjectConfig::class)) {
-        $config = ConfigStore::get(ProjectConfig::class);
-        $config->set(self::CONFIG_AUTO, $value);
-        try { $config->persist(); }
+        try {
+          $settings = new SettingsCatalog();
+          $settings->write('dialogue_auto', $value);
+          $settings->persist();
+        }
         catch (Exception $exception) { Debug::warn('Dialogue Auto changed for this session only: ' . $exception->getMessage()); }
       }
     }

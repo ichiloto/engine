@@ -9,7 +9,10 @@ use Ichiloto\Engine\Rendering\Enumerations\TransitionStyle;
 use Ichiloto\Engine\Rendering\ScreenTransition;
 use Ichiloto\Engine\UI\Accessibility;
 use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\PlayerSettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\UI\SelectionStyle;
+use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
 use RuntimeException;
 
 /**
@@ -184,11 +187,7 @@ class SettingsCatalog
         'ui.battle.animation_pace',
         config(ProjectConfig::class, 'ui.battle.message_pace', 'slow')
       ),
-      'selection_color' => config(
-        ProjectConfig::class,
-        'ui.menu.selection_color',
-        config(ProjectConfig::class, 'ui.battle.selection_color', Color::LIGHT_BLUE)
-      ),
+      'selection_color' => SelectionStyle::resolveColor(),
       'location_hud' => boolval(config(ProjectConfig::class, 'ui.hud.location', false)),
       'transitions' => TransitionStyle::tryFrom(strtolower(strval(
         config(ProjectConfig::class, ScreenTransition::CONFIG_STYLE, TransitionStyle::NONE->value)
@@ -209,25 +208,25 @@ class SettingsCatalog
     $config = ConfigStore::get(ProjectConfig::class);
 
     match ($key) {
-      'volume' => $config->set('audio.master_volume', intval($value)),
-      'music' => $config->set('audio.music', boolval($value)),
-      'sfx' => $config->set('audio.sfx', boolval($value)),
-      'voice' => $config->set(AudioManager::CONFIG_VOICE_ENABLED, boolval($value)),
-      'dialogue_auto' => $config->set(DialoguePlayback::CONFIG_AUTO, boolval($value)),
+      'volume' => $this->writePath($config, 'audio.master_volume', intval($value)),
+      'music' => $this->writePath($config, 'audio.music', boolval($value)),
+      'sfx' => $this->writePath($config, 'audio.sfx', boolval($value)),
+      'voice' => $this->writePath($config, AudioManager::CONFIG_VOICE_ENABLED, boolval($value)),
+      'dialogue_auto' => $this->writePath($config, DialoguePlayback::CONFIG_AUTO, boolval($value)),
       // Two paths, because dialogue speed was authored under both and a
       // project may read either.
       'dialogue_speed' => $this->writeBoth($config, ['ui.dialogue.speed', 'ui.dialogue.message.speed'], intval($value)),
-      'notification_duration' => $config->set('accessibility.notificationDurationScale', max(0.1, floatval($value))),
-      'cursor_memory' => $config->set('ui.cursor.memory', boolval($value)),
-      'battle_message_pace' => $config->set('ui.battle.message_pace', strval($value)),
-      'battle_animation_pace' => $config->set('ui.battle.animation_pace', strval($value)),
+      'notification_duration' => $this->writePath($config, 'accessibility.notificationDurationScale', max(0.1, floatval($value))),
+      'cursor_memory' => $this->writePath($config, 'ui.cursor.memory', boolval($value)),
+      'battle_message_pace' => $this->writePath($config, 'ui.battle.message_pace', strval($value)),
+      'battle_animation_pace' => $this->writePath($config, 'ui.battle.animation_pace', strval($value)),
       'selection_color' => $this->writeBoth(
         $config,
         ['ui.menu.selection_color', 'ui.battle.selection_color'],
         $value instanceof Color ? $value : Color::LIGHT_BLUE
       ),
-      'location_hud' => $config->set('ui.hud.location', boolval($value)),
-      'transitions' => $config->set(
+      'location_hud' => $this->writePath($config, 'ui.hud.location', boolval($value)),
+      'transitions' => $this->writePath($config,
         ScreenTransition::CONFIG_STYLE,
         ($value instanceof TransitionStyle ? $value : TransitionStyle::NONE)->value
       ),
@@ -236,33 +235,39 @@ class SettingsCatalog
   }
 
   /**
-   * Persists the project configuration to disk.
+   * Persists player choices without rewriting project defaults.
    *
    * @return void
    */
   public function persist(): void
   {
-    $config = ConfigStore::get(ProjectConfig::class);
-
-    if (! $config instanceof ProjectConfig) {
-      throw new RuntimeException('Project config is not available.');
+    if (ConfigStore::has(PlayerSettings::class)) {
+      ConfigStore::get(PlayerSettings::class)->persist();
+      return;
     }
-
-    $config->persist();
+    throw new RuntimeException('Player settings are not available.');
   }
 
   /**
    * Writes one value to several config paths.
    *
-   * @param object $config The project config.
+   * @param ConfigInterface $config The live project config.
    * @param string[] $paths The config paths to write.
    * @param mixed $value The value to write.
    * @return void
    */
-  protected function writeBoth(object $config, array $paths, mixed $value): void
+  protected function writeBoth(ConfigInterface $config, array $paths, mixed $value): void
   {
     foreach ($paths as $path) {
-      $config->set($path, $value);
+      $this->writePath($config, $path, $value);
+    }
+  }
+
+  private function writePath(ConfigInterface $config, string $path, mixed $value): void
+  {
+    $config->set($path, $value);
+    if (ConfigStore::has(PlayerSettings::class)) {
+      ConfigStore::get(PlayerSettings::class)->set($path, $value);
     }
   }
 
