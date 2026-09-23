@@ -17,6 +17,8 @@ use ReflectionException;
  */
 class Item extends InventoryItem
 {
+  protected(set) ?int $animationId = null;
+
   /**
    * The Item constructor.
    *
@@ -50,8 +52,10 @@ class Item extends InventoryItem
     array $aliases = [],
     string $availability = 'ordinary',
     ?string $acquisitionPolicy = null,
+    ?int $animationId = null,
   )
   {
+    $this->animationId = $animationId;
     // $consumable is deliberately not promoted here: InventoryItem already
     // owns that property, and re-promoting it would let the parent
     // constructor below reset it to the parent's default, silently marking
@@ -116,6 +120,7 @@ class Item extends InventoryItem
       is_array($data['aliases'] ?? null) ? $data['aliases'] : [],
       strval($data['availability'] ?? 'ordinary'),
       isset($data['acquisitionPolicy']) ? strval($data['acquisitionPolicy']) : null,
+      isset($data['animationId']) ? intval($data['animationId']) : null,
     );
   }
 
@@ -146,5 +151,6 @@ class Item extends InventoryItem
     $this->scope = clone $prototype->scope;
     $this->occasion = $prototype->occasion;
     $this->effects = $prototype->effects;
+    $this->animationId = $prototype->animationId;
   }
 }
