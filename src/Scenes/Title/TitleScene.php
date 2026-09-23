@@ -870,10 +870,11 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
       }
 
       $currentScene->configure($gameConfig);
-    } catch (Throwable) {
+    } catch (Throwable $error) {
       $sceneManager->loadScene(self::class);
       $this->openContinueMenu();
-      $this->continueStatusMessage = "That save file cannot be loaded.";
+      $this->continueStatusMessage = 'Continue unavailable: ' . $error->getMessage();
+      Debug::warn($this->continueStatusMessage);
       $this->renderContinueMenu();
     }
   }

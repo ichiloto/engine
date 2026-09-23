@@ -6,6 +6,18 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
 
 final class SplitMapManagerProbe extends MapManager
 {
+  public ?array $testPaths = null;
+
+  protected function resolveMapPaths(string $filename): array
+  {
+    return $this->testPaths ?? parent::resolveMapPaths($filename);
+  }
+
+  protected function getCollisionDictionary(): array
+  {
+    return [];
+  }
+
   /**
    * @param array{id: string, data: string, map: string, event: string} $paths
    * @return array<string, mixed>
@@ -41,6 +53,44 @@ it('loads current optional terrain metadata afresh and rejects malformed presenc
       ->and($manager->tiles2d)->toBeNull()->and($manager->tileMap)->toBe([[';','~']]);
   } finally {
     foreach (['data','map','event'] as $key) { unlink($paths[$key]); }
+    rmdir($directory);
+  }
+});
+
+it('prepares a destination without touching the active map and refuses a bad event layer', function (): void {
+  $directory = sys_get_temp_dir() . '/ichiloto-map-preflight-' . bin2hex(random_bytes(8));
+  mkdir($directory);
+  $paths = [
+    'id' => 'test/destination',
+    'data' => $directory . '/destination.data.php',
+    'map' => $directory . '/destination.map.php',
+    'event' => $directory . '/destination.event.php',
+  ];
+  file_put_contents($paths['data'], "<?php return ['name' => 'Destination', 'events' => []];");
+  file_put_contents($paths['map'], "<?php return <<<'MAP'\n..\nMAP;");
+  file_put_contents($paths['event'], "<?php return <<<'EVENT'\n  \nEVENT;");
+
+  try {
+    $manager = (new ReflectionClass(SplitMapManagerProbe::class))->newInstanceWithoutConstructor();
+    $scene = (new ReflectionClass(GameScene::class))->newInstanceWithoutConstructor();
+    $camera = new Camera(makeCameraTestScene(), 8, 4, worldSpace: [['old']]);
+    new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
+    new ReflectionProperty(MapManager::class, 'gameScene')->setValue($manager, $scene);
+    $manager->testPaths = $paths;
+
+    $prepared = $manager->prepareMap('ignored');
+    expect($prepared->tiles)->toBe([['.', '.']])
+      ->and($manager->tileMap)->toBe([])
+      ->and($camera->worldSpace)->toBe([['old']]);
+
+    file_put_contents($paths['event'], "<?php return <<<'EVENT'\nX\nEVENT;");
+    expect(fn () => $manager->prepareMap('ignored'))->toThrow(InvalidArgumentException::class, 'must be 2 tiles wide')
+      ->and($manager->tileMap)->toBe([])
+      ->and($camera->worldSpace)->toBe([['old']]);
+  } finally {
+    foreach (['data', 'map', 'event'] as $member) {
+      unlink($paths[$member]);
+    }
     rmdir($directory);
   }
 });

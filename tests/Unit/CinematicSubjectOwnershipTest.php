@@ -22,6 +22,7 @@ use Ichiloto\Engine\Events\Interpreter\MovementRouteRunner;
 use Ichiloto\Engine\Events\Interpreter\MovementRoutePlanner;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicScriptValidator;
 use Ichiloto\Engine\Field\MapManager;
+use Ichiloto\Engine\Field\PreparedMap;
 use Ichiloto\Engine\Field\Location;
 use Ichiloto\Engine\Field\NpcManager;
 use Ichiloto\Engine\Field\Player;
@@ -43,6 +44,7 @@ require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 final class SubjectOwnershipMap extends MapManager
 {
   public bool $blocked = false;
+  public ?\Throwable $prepareFailure = null;
   public ?\Closure $onLoad = null;
   public ?\Closure $passable = null;
   public function __construct() {}
@@ -50,6 +52,17 @@ final class SubjectOwnershipMap extends MapManager
   {
     ($this->onLoad)?->__invoke($filename, $player);
     return $this;
+  }
+  public function prepareMap(string $filename): PreparedMap
+  {
+    if ($this->prepareFailure !== null) {
+      throw $this->prepareFailure;
+    }
+    return new PreparedMap(['id' => $filename], [], [], null, [], []);
+  }
+  public function applyPreparedMap(PreparedMap $prepared, Player $player): void
+  {
+    ($this->onLoad)?->__invoke($prepared->data['id'], $player);
   }
   public function canMoveTo(int $x, int $y, ?CollisionType &$collisionType = null): bool
   {
@@ -84,6 +97,7 @@ final class SubjectOwnershipScene extends GameScene
 {
   public SubjectOwnershipPresentation $testPresentation;
   public array $restoredTiles = [];
+  public ?string $mapLoadDiagnostic = null;
   private Game $testGame;
 
   public function __construct()
@@ -123,6 +137,10 @@ final class SubjectOwnershipScene extends GameScene
   }
 
   public function getGame(): Game { return $this->testGame; }
+  protected function reportMapLoadFailure(string $mapId, \Throwable $error): void
+  {
+    $this->mapLoadDiagnostic = $mapId . ': ' . $error->getMessage();
+  }
   public function onEventSessionFinished(EventExecutionSession $session, bool $completed): void
   {
     $this->requestFieldPresentationReconciliation();
@@ -427,6 +445,22 @@ it('clears the source-map lease before the real transfer path assigns destinatio
   expect($this->player->position->x)->toBe(18.0)
     ->and($this->scene->npcManager->findById('guide')->position->x)->toBe(20.0)
     ->and($old->isVisible)->toBeFalse();
+});
+
+it('preserves the current field when a destination map fails preflight', function () {
+  $this->scene->startCinematic(subjectOwnershipDefinition());
+  $old = $this->stage->require('pose');
+  $beforeWorld = $this->scene->camera->worldSpace;
+  $this->scene->mapManager->prepareFailure = new InvalidArgumentException('destination grid is invalid');
+
+  $this->scene->transferPlayer(new Location('map-b', new Vector2(18, 4), null), useConfiguredTransition: false);
+
+  expect($this->scene->mapLoadDiagnostic)->toBe('map-b: destination grid is invalid')
+    ->and($this->scene->currentMapId)->toBe('map-a')
+    ->and($this->player->position->x)->toBe(3.0)
+    ->and($this->player->position->y)->toBe(4.0)
+    ->and($this->scene->camera->worldSpace)->toBe($beforeWorld)
+    ->and($this->stage->require('pose'))->toBe($old);
 });
 
 it('invalidates old leases even when the same map and NPC id are reloaded', function () {

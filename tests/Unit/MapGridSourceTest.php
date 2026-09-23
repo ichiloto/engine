@@ -34,3 +34,16 @@ it('refuses executable and non-nowdoc grids without executing them', function (s
     'interpolated heredoc' => "<?php return <<<GRID\na\nGRID;",
     'additional statement' => "<?php return <<<'GRID'\na\nGRID; file_put_contents(EXECUTION_MARKER, 'ran');",
 ]);
+
+it('names the offending token and line when refusing executable source', function (): void {
+    expect(fn (): string => MapGridSource::parseSource("<?php\nreturn <<<'GRID'\na\nGRID;\nprint 'bad';", 'bad.map.php'))
+        ->toThrow(InvalidArgumentException::class, 'T_PRINT at line 5');
+});
+
+it('chooses a safe nowdoc label even when grid rows resemble the preferred closer', function (): void {
+    $body = "ICHILOTO_MAP;\n  ICHILOTO_MAP_1;\nordinary row";
+    $source = MapGridSource::buildSource($body, 'ICHILOTO_MAP');
+
+    expect($source)->toContain("<<<'ICHILOTO_MAP_2'")
+        ->and(MapGridSource::parseSource($source, 'generated.map.php'))->toBe($body);
+});

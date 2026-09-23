@@ -101,10 +101,11 @@ temple-of-the-listening-stone/
 The Engine and Editor share a static grid-source parser. It accepts a single
 nowdoc return with optional surrounding comments and whitespace, and reads the
 grid without evaluating its PHP source. Both `.map.php` and `.event.php` are
-validated before `.data.php` is evaluated. The Editor refuses a noncanonical
-grid on load and rechecks existing grid sources before save, duplicate or
-move, including unchanged grids. Refusal happens before file transactions and
-leaves authored bytes untouched. Executable grid source and `string[]` grid
+validated before `.data.php` is evaluated. The Editor lists a noncanonical
+map as read-only with its source diagnostic, while other maps remain editable
+and validation reports each invalid map. It rechecks existing grid sources
+before save, duplicate or move, including unchanged grids. Refusal happens
+before file transactions and leaves authored bytes untouched. Executable grid source and `string[]` grid
 values have been removed from the contract; `.data.php` retains its separate
 source-preserving editing rules.
 - Layer names and the standard stack for a given game (e.g. Last Legend's

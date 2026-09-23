@@ -31,10 +31,12 @@ The delimiter may be any valid nowdoc label. Comments and whitespace outside
 the return are allowed; executable statements, builders, calls, interpolated
 heredocs, arrays and additional returns are not. The Engine parses these two
 files without executing them, before it evaluates `.data.php`. The Editor uses
-the same parser and refuses to load or save a noncanonical grid. It also
-rechecks the source before duplicating or moving a map, so an external edit
-cannot be silently rewritten. An unchanged canonical grid keeps its source
-bytes on save.
+the same parser. An invalid map remains listed with a source diagnostic but is
+read-only; other maps still open and validate. A repaired map becomes editable
+after reopening the project. The Editor rechecks the source before saving,
+duplicating or moving a map, so an external edit cannot be silently rewritten.
+An unchanged canonical grid keeps its source bytes on save. A failed Game map
+transfer leaves the current map and player position intact.
 
 Executable PHP and `string[]` grid values are no longer supported. Only
 `.data.php` remains an executable PHP data source.

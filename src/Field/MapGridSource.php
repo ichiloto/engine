@@ -26,24 +26,29 @@ final class MapGridSource
         try {
             $tokens = token_get_all($source, TOKEN_PARSE);
         } catch (ParseError $error) {
-            throw new InvalidArgumentException("Grid source {$path} must return one literal nowdoc string.", previous: $error);
+            throw new InvalidArgumentException(sprintf(
+                'Grid source %s has invalid PHP at line %d: %s',
+                $path,
+                $error->getLine(),
+                $error->getMessage(),
+            ), previous: $error);
         }
 
         $index = 0;
         if (!self::take($tokens, $index, T_OPEN_TAG)) {
-            throw self::createRefusalException($path);
+            throw self::createRefusalException($path, $tokens, $index);
         }
 
         self::skipTrivia($tokens, $index);
         if (!self::take($tokens, $index, T_RETURN)) {
-            throw self::createRefusalException($path);
+            throw self::createRefusalException($path, $tokens, $index);
         }
 
         self::skipTrivia($tokens, $index);
         $start = $tokens[$index] ?? null;
         if (!is_array($start) || $start[0] !== T_START_HEREDOC
             || preg_match("/\\A<<<[ \\t]*'([A-Za-z_][A-Za-z0-9_]*)'(?:\\r\\n|\\n|\\r)\\z/", $start[1], $matches) !== 1) {
-            throw self::createRefusalException($path);
+            throw self::createRefusalException($path, $tokens, $index);
         }
         $marker = $matches[1];
         $index++;
@@ -58,18 +63,18 @@ final class MapGridSource
         $end = $tokens[$index] ?? null;
         if (!is_array($end) || $end[0] !== T_END_HEREDOC
             || preg_match('/\\A([ \\t]*)' . preg_quote($marker, '/') . '\\z/', $end[1], $matches) !== 1) {
-            throw self::createRefusalException($path);
+            throw self::createRefusalException($path, $tokens, $index);
         }
         $indent = $matches[1];
         $index++;
 
         if (($tokens[$index] ?? null) !== ';') {
-            throw self::createRefusalException($path);
+            throw self::createRefusalException($path, $tokens, $index);
         }
         $index++;
         self::skipTrivia($tokens, $index);
         if ($index !== count($tokens)) {
-            throw self::createRefusalException($path);
+            throw self::createRefusalException($path, $tokens, $index);
         }
 
         // PHP excludes the line ending immediately before the closing marker.
@@ -95,6 +100,29 @@ final class MapGridSource
         return $body;
     }
 
+    /** Builds a literal grid source using a closing label absent from the grid. */
+    public static function buildSource(string $body, string $preferredMarker, string $leadingComment = ''): string
+    {
+        if (preg_match('/\A[A-Za-z_][A-Za-z0-9_]*\z/', $preferredMarker) !== 1) {
+            throw new InvalidArgumentException('A nowdoc marker must be a PHP identifier.');
+        }
+
+        for ($suffix = 0; $suffix < 1000; $suffix++) {
+            $marker = $preferredMarker . ($suffix === 0 ? '' : '_' . $suffix);
+            $source = "<?php\n\n" . $leadingComment . "return <<<'{$marker}'\n{$body}\n{$marker};\n";
+
+            try {
+                if (self::parseSource($source, '<generated grid>') === $body) {
+                    return $source;
+                }
+            } catch (InvalidArgumentException) {
+                // This marker occurs in the body as a closing label.
+            }
+        }
+
+        throw new InvalidArgumentException('Grid content cannot be represented as a literal nowdoc.');
+    }
+
     /** @param array<int, array{int, string, int}|string> $tokens */
     private static function skipTrivia(array $tokens, int &$index): void
     {
@@ -114,8 +142,29 @@ final class MapGridSource
         return true;
     }
 
-    private static function createRefusalException(string $path): InvalidArgumentException
+    /** @param array<int, array{int, string, int}|string> $tokens */
+    private static function createRefusalException(string $path, array $tokens, int $index): InvalidArgumentException
     {
-        return new InvalidArgumentException("Grid source {$path} must return one literal nowdoc string without executable code.");
+        $token = $tokens[$index] ?? null;
+        $line = 1;
+        foreach (array_slice($tokens, 0, $index) as $preceding) {
+            if (is_array($preceding)) {
+                $line = $preceding[2];
+            }
+            $line += substr_count(is_array($preceding) ? $preceding[1] : $preceding, "\n");
+        }
+        if (is_array($token)) {
+            $line = $token[2];
+            $label = token_name($token[0]);
+        } else {
+            $label = $token === null ? 'end of file' : var_export($token, true);
+        }
+
+        return new InvalidArgumentException(sprintf(
+            'Grid source %s must return one literal nowdoc string without executable code; found %s at line %d.',
+            $path,
+            $label,
+            $line,
+        ));
     }
 }

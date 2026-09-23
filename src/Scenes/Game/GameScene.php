@@ -26,6 +26,8 @@ use Ichiloto\Engine\Exceptions\IchilotoException;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Field\Location;
 use Ichiloto\Engine\Field\MapManager;
+use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
+use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
 use Ichiloto\Engine\Field\Player;
 use Ichiloto\Engine\Field\PlayerPresentationConfig;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderHostInterface;
@@ -65,6 +67,7 @@ use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Debug;
 use Override;
+use Throwable;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 
@@ -496,9 +499,10 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
      */
     public function loadMap(string $mapFilename, Player $player): void
     {
+        $prepared = $this->mapManager->prepareMap($mapFilename);
         $this->cinematicStage?->clear();
+        $this->mapManager->applyPreparedMap($prepared, $player);
         $this->currentMapId = preg_replace('/(\.(data|map|event))?\.php$/', '', $mapFilename) ?: $mapFilename;
-        $this->mapManager->loadMap($mapFilename, $player);
     }
 
     /**
@@ -667,6 +671,13 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     {
         Debug::info("Transferring player to $location->mapFilename... at $location->playerPosition");
 
+        try {
+            $destination = $this->mapManager->prepareMap($location->mapFilename);
+        } catch (Throwable $error) {
+            $this->reportMapLoadFailure($location->mapFilename, $error);
+            return;
+        }
+
         // Staged actors are map-local presentation participants. A cinematic
         // that needs cast in the destination explicitly stages them there.
         $this->cinematicStage?->clear();
@@ -679,7 +690,8 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         if ($location->playerSprite) {
             $this->player->setFacingSprite($location->playerSprite);
         }
-        $this->loadMap($location->mapFilename, $this->player);
+        $this->mapManager->applyPreparedMap($destination, $this->player);
+        $this->currentMapId = preg_replace('/(\.(data|map|event))?\.php$/', '', $location->mapFilename) ?: $location->mapFilename;
 
         if ($transition !== null) {
             // The field is drawn behind the configured cover, then revealed.
@@ -702,6 +714,14 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         Debug::info("Player transferred to $location->mapFilename... at {$this->player->position}");
 
         $this->finalizePlayerTransfer();
+    }
+
+    /** Shows a failed destination without interrupting the current map. */
+    protected function reportMapLoadFailure(string $mapId, Throwable $error): void
+    {
+        $message = sprintf('Map %s could not be loaded: %s', $mapId, $error->getMessage());
+        Debug::warn($message);
+        notify($this->getGame(), NotificationChannel::ERROR, 'Map transfer unavailable', $message, NotificationDuration::LONG);
     }
 
     /** Completes transfer side effects once the destination map is ready. */

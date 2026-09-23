@@ -9,7 +9,10 @@ use Ichiloto\Engine\Exceptions\IchilotoException;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Scenes\Title\TitleScene;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Util\Debug;
+use Throwable;
 
 /**
  * NewGameCommand is a command that starts a new game.
@@ -44,12 +47,20 @@ class NewGameCommand extends MenuItem
       throw new NotFoundException('The context is not an instance of ' . MenuCommandExecutionContext::class . ', found ' . get_class($context) . '.');
     }
     $sceneManager = $context->sceneManager;
-    $currentScene = $sceneManager->loadScene(GameScene::class)->currentScene;
+    try {
+      $config = $this->gameLoader->loadNewGame();
+      $currentScene = $sceneManager->loadScene(GameScene::class)->currentScene;
 
-    if (! $currentScene instanceof GameScene ) {
-      throw new NotFoundException('The current scene is not a game scene.');
+      if (! $currentScene instanceof GameScene ) {
+        throw new NotFoundException('The current scene is not a game scene.');
+      }
+      $currentScene->configure($config);
+    } catch (Throwable $error) {
+      Debug::warn('New game could not start: ' . $error->getMessage());
+      $sceneManager->loadScene(TitleScene::class);
+      alert($error->getMessage(), 'New Game Unavailable');
+      return self::FAILURE;
     }
-    $currentScene->configure($this->gameLoader->loadNewGame());
 
     return self::SUCCESS;
   }

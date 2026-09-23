@@ -308,16 +308,44 @@ class MapManager implements CanRenderAt
    */
   private function loadTileMap(string $filename, Player $player): void
   {
-    $map = $this->readMapDataFromFile($filename);
+    $this->applyPreparedMap($this->prepareMap($filename), $player);
+  }
+
+  /** Validates every map source and trigger before changing the active field. */
+  public function prepareMap(string $filename): PreparedMap
+  {
+    $source = $this->prepareSplitMapDataFromFiles($this->resolveMapPaths($filename));
+    $map = $source['data'];
+    $collisions = $this->generateCollisionMap($source['tiles'], $this->getCollisionDictionary());
+    $mapTriggers = [];
+    foreach ($map['triggers'] ?? [] as $trigger) {
+      $mapTriggers[] = MapTrigger::tryFromArray($trigger);
+    }
+    $eventTriggers = [];
+    $mapId = strval($map['id'] ?? '');
+    foreach ($map['events'] ?? [] as $event) {
+      $eventTriggers[] = EventTriggerFactory::create($event, $mapId !== '' ? $mapId : null);
+    }
+
+    return new PreparedMap($map, $source['tiles'], $collisions, $source['tiles2d'], $mapTriggers, $eventTriggers);
+  }
+
+  /** Commits a previously validated destination and its field side effects. */
+  public function applyPreparedMap(PreparedMap $prepared, Player $player): void
+  {
+    $map = $prepared->data;
+    $this->tileMap = $prepared->tiles;
+    $this->tiles2d = $prepared->tiles2d;
+    $this->collisionMap = $prepared->collisions;
+    $this->camera->worldSpace = $prepared->tiles;
     $locationName = $map['name'] ?? MapLocation::DEFAULT_LOCATION_NAME;
     $locationRegion = $map['region'] ?? MapLocation::DEFAULT_LOCATION_REGION;
     $this->gameScene->party->location = new MapLocation($locationName, $locationRegion);
 
     $this->calculateMapDimensions();
-    $this->loadCollisionMap($this->tileMap);
     $mapId = strval($map['id'] ?? '');
-    $this->loadMapTriggers($map['triggers'] ?? []);
-    $this->loadMapEvents($map['events'] ?? [], $mapId);
+    $this->loadMapTriggers($prepared->mapTriggers);
+    $this->loadMapEvents($prepared->eventTriggers, $mapId);
     $this->applyMapBackgroundMusic($map['bgm'] ?? null, $map['bgmVariants'] ?? []);
 
     if ($mapId !== '') {
@@ -492,7 +520,7 @@ class MapManager implements CanRenderAt
       $player->removeTriggers();
 
       foreach ($triggers as $data) {
-        $trigger = MapTrigger::tryFromArray($data);
+        $trigger = $data instanceof MapTrigger ? $data : MapTrigger::tryFromArray($data);
         $player->addTrigger($trigger);
       }
     }
@@ -513,7 +541,8 @@ class MapManager implements CanRenderAt
       $gameState = $this->gameScene->gameState;
 
       foreach ($events as $eventData) {
-        $eventTrigger = EventTriggerFactory::create($eventData, $mapId !== '' ? $mapId : null);
+        $eventTrigger = $eventData instanceof \Ichiloto\Engine\Events\Triggers\EventTrigger
+          ? $eventData : EventTriggerFactory::create($eventData, $mapId !== '' ? $mapId : null);
         $eventTrigger->bind($gameState, $this->gameScene->party);
 
         // A one-shot event the world state already records as completed
@@ -727,6 +756,20 @@ class MapManager implements CanRenderAt
    */
   protected function readSplitMapDataFromFiles(array $paths): array
   {
+    $prepared = $this->prepareSplitMapDataFromFiles($paths);
+    $this->tileMap = $prepared['tiles'];
+    $this->tiles2d = $prepared['tiles2d'];
+    $this->camera->worldSpace = $prepared['tiles'];
+
+    return $prepared['data'];
+  }
+
+  /**
+   * @param array{id: string, data: string, map: string, event: string} $paths
+   * @return array{data: array<string, mixed>, tiles: array<int, string[]>, tiles2d: ?GraphicalTileDefinition}
+   */
+  protected function prepareSplitMapDataFromFiles(array $paths): array
+  {
     foreach (['data', 'map', 'event'] as $type) {
       if (! file_exists($paths[$type])) {
         throw new NotFoundException("File {$paths[$type]} not found.");
@@ -746,16 +789,13 @@ class MapManager implements CanRenderAt
     $tiles2d = array_key_exists('tiles2d', $map)
       ? GraphicalTileDefinition::fromArray($map['tiles2d'], $paths['data']) : null;
 
-    $this->tileMap = $this->parseMapLayer($mapText, $paths['map'], 'map');
-    $this->camera->worldSpace = $this->tileMap;
+    $tileMap = $this->parseMapLayer($mapText, $paths['map'], 'map');
 
     $eventLayer = $this->parseMapLayer($eventText, $paths['event'], 'event');
-    $this->assertEventLayerMatchesTileMap($eventLayer, $paths['event']);
+    $this->assertEventLayerMatchesTileMap($eventLayer, $paths['event'], $tileMap);
     $map['events'] = $this->resolveEventDefinitions($map['events'] ?? [], $eventLayer, $paths['event']);
 
-    $this->tiles2d = $tiles2d;
-
-    return $map;
+    return ['data' => $map, 'tiles' => $tileMap, 'tiles2d' => $tiles2d];
   }
 
   /**
@@ -810,13 +850,14 @@ class MapManager implements CanRenderAt
    * @param string $filename The event-layer filename.
    * @return void
    */
-  protected function assertEventLayerMatchesTileMap(array $eventLayer, string $filename): void
+  protected function assertEventLayerMatchesTileMap(array $eventLayer, string $filename, ?array $tileMap = null): void
   {
-    if (count($eventLayer) !== count($this->tileMap)) {
-      throw new InvalidArgumentException("Event map {$filename} must have " . count($this->tileMap) . " rows.");
+    $tileMap ??= $this->tileMap;
+    if (count($eventLayer) !== count($tileMap)) {
+      throw new InvalidArgumentException("Event map {$filename} must have " . count($tileMap) . " rows.");
     }
 
-    foreach ($this->tileMap as $rowIndex => $tileRow) {
+    foreach ($tileMap as $rowIndex => $tileRow) {
       $eventRow = $eventLayer[$rowIndex] ?? [];
 
       if (count($eventRow) !== count($tileRow)) {

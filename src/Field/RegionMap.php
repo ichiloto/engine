@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Field;
 
 use Assegai\Util\Path;
 use Ichiloto\Engine\Field\Enumerations\CompassDirection;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Util\Debug;
 use Throwable;
 
@@ -418,20 +419,20 @@ class RegionMap
     }
 
     try {
-      $layer = require $filename;
+      $layer = MapGridSource::readFile($filename);
     } catch (Throwable $exception) {
       Debug::warn(sprintf('Could not read the event layer %s: %s', $filename, $exception->getMessage()));
 
       return [];
     }
 
-    $rows = is_array($layer) ? $layer : explode("\n", strval($layer));
+    $rows = preg_split('/\r\n|\n|\r/', rtrim($layer, "\r\n")) ?: [];
     $height = max(1, count($rows));
     $width = 1;
     $cells = [];
 
     foreach ($rows as $y => $row) {
-      $characters = is_array($row) ? $row : mb_str_split(strval($row));
+      $characters = TerminalText::visibleSymbols($row);
       $width = max($width, count($characters));
 
       foreach ($characters as $x => $character) {
