@@ -84,7 +84,7 @@ final readonly class MenuRowArtwork
     if ([$left, $top, $right, $bottom] !== [$this->left, $this->top, $this->right, $this->bottom]) {
       Debug::warn("Menu artwork cuts reconciled to current image and row bounds: {$this->asset}");
     }
-    return CanvasNineSlice::fromPng($root, $this->asset, $left, $top, $right, $bottom, $this->density);
+    return CanvasNineSlice::getFromPng($root, $this->asset, $left, $top, $right, $bottom, $this->density);
   }
 
   /** @return array{int, int} */

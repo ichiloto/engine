@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Changed
+
+- Standardized whole-image factories on `getFromPng`. Removed the former
+  `CanvasNineSlice::fromPng` name; callers now use `CanvasNineSlice::getFromPng`,
+  matching `BattlerArtwork::getFromPng`. Image loading behaviour is unchanged.
+
 ### Removed
 
 - Automatic pause-on-unfocus for title animation and rolling credits was removed

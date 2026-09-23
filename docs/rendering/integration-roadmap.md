@@ -9,7 +9,7 @@ and remaining engineering work, not release status.
 | --- | --- | --- |
 | T1 | Retained-cell terminal composition and scrolling | Implemented; see [validation](t1-retained-cells-validation.md) for the bounded fixture and measurement method. |
 | G1 | Graphical arena, static battlers and battle UI | Implemented; see [battle contract](graphical-battle-g1.md). Artwork coverage is project-owned. |
-| G2 | Animated battlers and combat effects | Planned in [effect animation](../effect-animation.md), Phases 0–2. Static images do not complete this work. |
+| G2 | Animated battlers and combat effects | Planned in [effect animation](../effect-animation.md), Phases 0-2. Static images do not complete this work. |
 | G3 | Graphical summon presentation | Planned through the same effect session, with terminal parity and outcome-timing checks. |
 | G4 | Field actors, objects and environment | Partial; needs complete asset-role coverage and [stateful input](#controller-ready-input-and-normalized-movement). |
 | G5 | Game-wide interface coverage | Shared adapters described below are implemented; complete screen coverage and Editor authoring remain outstanding. |

@@ -60,7 +60,7 @@ final readonly class BattleResultsSkin
   {
     $resolve = static function (CanvasNineSlice $art) use ($root): ?CanvasNineSlice {
       if (PngAssetPreflight::getAvailableSize($root, $art->asset) === null) { return null; }
-      $current = CanvasNineSlice::fromPng($root, $art->asset);
+      $current = CanvasNineSlice::getFromPng($root, $art->asset);
       if ($current->source != $art->source) {
         Debug::warn("Results whole-image metadata reconciled to the current PNG: {$art->asset}");
       }

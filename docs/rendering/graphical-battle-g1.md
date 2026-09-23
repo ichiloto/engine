@@ -164,7 +164,7 @@ a local readable fallback without disabling other participants or the UI.
 An unusable surface is diagnosed and falls back to terminal presentation;
 presentation never decides whether combat happens.
 
-For whole-file UI textures, use `CanvasNineSlice::fromPng($assetRoot, $path, ...)`
+For whole-file UI textures, use `CanvasNineSlice::getFromPng($assetRoot, $path, ...)`
 with any intended border cuts, density and destination minimums. It reads the
 current source dimensions instead of repeating them in the catalog. Explicit
 atlas regions continue to use the constructor with a `SpriteSourceRect`.

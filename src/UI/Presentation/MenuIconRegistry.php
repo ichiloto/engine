@@ -62,7 +62,7 @@ final readonly class MenuIconRegistry
   public static function containAsset(string $root, string $id, string $asset, CanvasRectangle $box, int $layer, CanvasRectangle $clip): array
   {
     if (PngAssetPreflight::getAvailableSize($root, $asset) === null) { return []; }
-    $art = CanvasNineSlice::fromPng($root, $asset);
+    $art = CanvasNineSlice::getFromPng($root, $asset);
     $scale = min($box->width / $art->source->width, $box->height / $art->source->height);
     $width = $art->source->width * $scale;
     $height = $art->source->height * $scale;
