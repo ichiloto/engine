@@ -304,18 +304,19 @@ it('wraps long save details and keeps focused records in view without truncation
   expect(getTitleTestText($frame))->toContain('File 5', 'Cannot load this file.')->not->toContain('...');
 });
 
-it('shares settings controls while retaining exactly seven title options and a focused Back button', function () {
+it('shares settings controls and scrolls every title option including Voice and Auto into view', function () {
   $manager = new TitleOptionsSettingsManager();
   $settings = $manager->getOptions();
   $theme = new MenuPresentationCatalog($this->root, getTitleTestData()['theme']);
-  foreach ([0, 7] as $active) {
+  foreach (range(0, count($settings)) as $active) {
     $content = new SettingsMenuContent('Options', $settings, array_map($manager->getCurrentChoiceIndex(...), $settings),
-      $active, new MenuInfoText(), backLabel: 'Back', backFocused: $active === 7, bounds: new CanvasRectangle(225, 60, 900, 600));
+      $active, new MenuInfoText(), backLabel: 'Back', backFocused: $active === count($settings), bounds: new CanvasRectangle(225, 60, 900, 600));
     $frame = SettingsMenuPresentation::compose($content, $theme);
-    foreach ($settings as $setting) { expect(getTitleTestText($frame))->toContain($setting->label); }
+    if (isset($settings[$active])) { expect(getTitleTestText($frame))->toContain($settings[$active]->label); }
     expect(getTitleTestText($frame))->toContain('Back')->not->toContain('Battle Message Pace');
   }
-  expect($settings)->toHaveCount(7);
+  expect($settings)->toHaveCount(9);
+  expect(array_column($settings, 'key'))->toContain('voice', 'dialogue_auto', 'notification_duration');
 });
 
 it('preserves title focus through modal suspension and cancels canvas ownership on stop', function () {
