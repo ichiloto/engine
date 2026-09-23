@@ -664,11 +664,11 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
      *
      * @param Location $location The destination location.
      * @param bool $useConfiguredTransition Whether to run the project's legacy blocking transfer transition.
-     * @return void
+     * @return bool Whether the destination was loaded.
      * @throws IchilotoException If the map cannot be loaded.
      * @throws NotFoundException If the map is not found.
      */
-    public function transferPlayer(Location $location, bool $useConfiguredTransition = true): void
+    public function transferPlayer(Location $location, bool $useConfiguredTransition = true): bool
     {
         Debug::info("Transferring player to $location->mapFilename... at $location->playerPosition");
 
@@ -676,7 +676,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
             $destination = $this->mapManager->prepareMap($location->mapFilename);
         } catch (Throwable $error) {
             $this->reportMapLoadFailure($location->mapFilename, $error);
-            return;
+            return false;
         }
 
         // Staged actors are map-local presentation participants. A cinematic
@@ -716,6 +716,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         Debug::info("Player transferred to $location->mapFilename... at {$this->player->position}");
 
         $this->finalizePlayerTransfer();
+        return true;
     }
 
     /** Shows a failed destination without interrupting the current map. */

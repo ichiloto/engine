@@ -359,6 +359,7 @@ class EventTestGameScene extends GameScene
   public array $configuredTransferTransitions = [];
   public array $cinematicCoverAtTransfer = [];
   public bool $autoResumeTransfers = true;
+  public bool $refuseTransfers = false;
   public int $cameraScrollRecompositions = 0;
   public bool $canRecomposeCameraScroll = false;
 
@@ -419,11 +420,14 @@ class EventTestGameScene extends GameScene
     $this->hasDeferredAutoSave = true;
   }
 
-  public function transferPlayer(Location $location, bool $useConfiguredTransition = true): void
+  public function transferPlayer(Location $location, bool $useConfiguredTransition = true): bool
   {
     $this->transferCount++;
     $this->configuredTransferTransitions[] = $useConfiguredTransition;
     $this->cinematicCoverAtTransfer[] = $this->cinematicPresentation?->hasTransitionCover() ?? false;
+    if ($this->refuseTransfers) {
+      return false;
+    }
     $this->cinematicStage?->clear();
     $this->currentMapId = $location->mapFilename;
 
@@ -432,6 +436,7 @@ class EventTestGameScene extends GameScene
     } else {
       $this->autoSave();
     }
+    return true;
   }
 
   public function onEventSessionStarted(EventExecutionSession $session): void
@@ -2310,6 +2315,51 @@ it('retains configured transfer transitions for ordinary event scripts', functio
   expect($session?->status)->toBe(EventExecutionStatus::COMPLETED)
     ->and($scene->configuredTransferTransitions)->toBe([true]);
   ConfigStore::remove(ProjectConfig::class);
+});
+
+it('fails an ordinary event when its destination map is refused without leaving a suspended lane', function () {
+  [$scene, $interpreter] = makeEventRuntime();
+  $scene->installPlayer(new EventTestPlayer(new Vector2(1, 1)));
+  $scene->refuseTransfers = true;
+  $session = $interpreter->run([
+    ['type' => 'transfer', 'map' => 'bad-map', 'x' => 2, 'y' => 3],
+    ['type' => 'set_switch', 'name' => 'after_refused_transfer', 'value' => true],
+  ], 'refused-transfer');
+
+  expect($session?->status)->toBe(EventExecutionStatus::FAILED)
+    ->and($session?->failureMessage)->toContain('Map transfer to "bad-map" was refused')
+    ->and($session?->failureMessage)->toContain('lane "root"')
+    ->and($scene->gameState->getSwitch('after_refused_transfer'))->toBeFalse()
+    ->and($scene->currentMapId)->toBe('map-a')
+    ->and($scene->finished)->toBe([[$session?->id, false]])
+    ->and($scene->hasUnstableEventSession())->toBeFalse();
+});
+
+it('cleans up cinematic presentation when a scripted destination map is refused', function () {
+  [$scene] = makeEventRuntime();
+  $scene->installPlayer(new EventTestPlayer(new Vector2(1, 1)));
+  $scene->installCinematicRuntime();
+  $scene->refuseTransfers = true;
+  $cinematic = CinematicDefinition::fromArrays([
+    'id' => 'refused-cinematic-transfer',
+    'name' => 'Refused Cinematic Transfer',
+    'cast' => [['kind' => 'staged_actor', 'id' => 'visible-runner', 'sprite' => '@', 'x' => 2, 'y' => 2]],
+  ], [
+    ['type' => 'camera', 'operation' => 'detach'],
+    ['type' => 'transfer', 'map' => 'bad-map', 'x' => 2, 'y' => 3],
+    ['type' => 'record_event', 'name' => 'after_refused_cinematic_transfer'],
+  ]);
+  $session = $scene->cinematicController?->start($cinematic);
+
+  expect($session?->status)->toBe(EventExecutionStatus::FAILED)
+    ->and($session?->failureMessage)->toContain('Map transfer to "bad-map" was refused')
+    ->and($scene->gameState->hasStoryEvent('after_refused_cinematic_transfer'))->toBeFalse()
+    ->and($scene->gameState->hasStoryEvent('cinematic:refused-cinematic-transfer:completed'))->toBeFalse()
+    ->and($scene->currentMapId)->toBe('map-a')
+    ->and($scene->cinematicStage?->all())->toBe([])
+    ->and($scene->camera->followsPlayer)->toBeTrue()
+    ->and($scene->cinematicController?->active())->toBeNull()
+    ->and($scene->hasUnstableEventSession())->toBeFalse();
 });
 
 it('restores camera input and staged cast after controlled cinematic failure', function () {

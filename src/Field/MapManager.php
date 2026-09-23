@@ -441,19 +441,6 @@ class MapManager implements CanRenderAt
   }
 
   /**
-   * Loads the collision map from a tile map.
-   *
-   * @param array<int, string[]> $tileMap The tile map.
-   * @return void
-   * @throws NotFoundException
-   */
-  private function loadCollisionMap(array $tileMap): void
-  {
-    $dictionary = $this->getCollisionDictionary();
-    $this->collisionMap = $this->generateCollisionMap($tileMap, $dictionary);
-  }
-
-  /**
    * Generates a collision map from a tile map.
    *
    * @param array<int, string[]|string> $tilemap The tile map.

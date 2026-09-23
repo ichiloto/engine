@@ -10,15 +10,19 @@ use ParseError;
 /** Reads an authored grid without executing its PHP source. */
 final class MapGridSource
 {
-    public static function readFile(string $path): string
+    private const int MAX_NOWDOC_MARKER_ATTEMPTS = 1000;
+
+    public static function readFile(string $path, ?string $displayPath = null): string
     {
         $source = @file_get_contents($path);
 
+        $displayPath ??= $path;
+
         if ($source === false) {
-            throw new InvalidArgumentException("Grid source {$path} could not be read.");
+            throw new InvalidArgumentException("Grid source {$displayPath} could not be read.");
         }
 
-        return self::parseSource($source, $path);
+        return self::parseSource($source, $displayPath);
     }
 
     public static function parseSource(string $source, string $path): string
@@ -107,7 +111,7 @@ final class MapGridSource
             throw new InvalidArgumentException('A nowdoc marker must be a PHP identifier.');
         }
 
-        for ($suffix = 0; $suffix < 1000; $suffix++) {
+        for ($suffix = 0; $suffix < self::MAX_NOWDOC_MARKER_ATTEMPTS; $suffix++) {
             $marker = $preferredMarker . ($suffix === 0 ? '' : '_' . $suffix);
             $source = "<?php\n\n" . $leadingComment . "return <<<'{$marker}'\n{$body}\n{$marker};\n";
 
@@ -161,7 +165,7 @@ final class MapGridSource
         }
 
         return new InvalidArgumentException(sprintf(
-            'Grid source %s must return one literal nowdoc string without executable code; found %s at line %d.',
+            'Grid source %s: found %s at line %d; must return one literal nowdoc string without executable code.',
             $path,
             $label,
             $line,
