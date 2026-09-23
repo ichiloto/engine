@@ -501,8 +501,9 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     {
         $prepared = $this->mapManager->prepareMap($mapFilename);
         $this->cinematicStage?->clear();
-        $this->mapManager->applyPreparedMap($prepared, $player);
+        // Field music and NPC diagnostics read this identity during commit.
         $this->currentMapId = preg_replace('/(\.(data|map|event))?\.php$/', '', $mapFilename) ?: $mapFilename;
+        $this->mapManager->applyPreparedMap($prepared, $player);
     }
 
     /**
@@ -690,8 +691,9 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         if ($location->playerSprite) {
             $this->player->setFacingSprite($location->playerSprite);
         }
-        $this->mapManager->applyPreparedMap($destination, $this->player);
+        // The destination is already validated; its music resolves on commit.
         $this->currentMapId = preg_replace('/(\.(data|map|event))?\.php$/', '', $location->mapFilename) ?: $location->mapFilename;
+        $this->mapManager->applyPreparedMap($destination, $this->player);
 
         if ($transition !== null) {
             // The field is drawn behind the configured cover, then revealed.

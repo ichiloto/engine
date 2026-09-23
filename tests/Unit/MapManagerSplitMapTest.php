@@ -1,6 +1,7 @@
 <?php
 
 use Ichiloto\Engine\Field\MapManager;
+use Ichiloto\Engine\Field\NpcManager;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 
@@ -85,6 +86,22 @@ it('prepares a destination without touching the active map and refuses a bad eve
 
     file_put_contents($paths['event'], "<?php return <<<'EVENT'\nX\nEVENT;");
     expect(fn () => $manager->prepareMap('ignored'))->toThrow(InvalidArgumentException::class, 'must be 2 tiles wide')
+      ->and($manager->tileMap)->toBe([])
+      ->and($camera->worldSpace)->toBe([['old']]);
+
+    file_put_contents($paths['event'], "<?php return <<<'EVENT'\n  \nEVENT;");
+    file_put_contents($paths['data'], <<<'PHP'
+<?php return ['name' => 'Destination', 'events' => [], 'npcs' => [
+  ['id' => 'duplicate', 'name' => 'First', 'x' => 0, 'y' => 0],
+  ['id' => 'duplicate', 'name' => 'Second', 'x' => 1, 'y' => 0],
+]];
+PHP);
+    $npcManager = new NpcManager($scene);
+    new ReflectionProperty(GameScene::class, 'npcManager')->setValue($scene, $npcManager);
+    $npcManager->configure([['id' => 'original', 'name' => 'Original', 'x' => 0, 'y' => 0]]);
+    expect(fn () => $manager->prepareMap('ignored'))->toThrow(RuntimeException::class, 'Duplicate NPC id')
+      ->and($npcManager->npcs)->toHaveCount(1)
+      ->and($npcManager->npcs[0]->id)->toBe('original')
       ->and($manager->tileMap)->toBe([])
       ->and($camera->worldSpace)->toBe([['old']]);
   } finally {

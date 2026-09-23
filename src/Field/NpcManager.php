@@ -43,7 +43,14 @@ class NpcManager
    */
   public function configure(array $entries): void
   {
-    $this->npcs = [];
+    $this->applyPreparedNpcs($this->prepareNpcs($entries, $this->gameScene->currentMapId));
+  }
+
+  /** Builds a destination's NPC list without changing the current map. */
+  public function prepareNpcs(array $entries, string $mapId): array
+  {
+    $npcs = [];
+    $ids = [];
 
     foreach ($entries as $entry) {
       if (! is_array($entry)) {
@@ -69,15 +76,18 @@ class NpcManager
 
       $id = trim(strval($entry['id'] ?? ''));
 
-      if ($id !== '' && $this->findById($id) !== null) {
+      if ($id !== '' && isset($ids[$id])) {
         throw new RuntimeException(sprintf(
           'Duplicate NPC id "%s" on map "%s".',
           $id,
-          $this->gameScene->currentMapId,
+          $mapId,
         ));
       }
+      if ($id !== '') {
+        $ids[$id] = true;
+      }
 
-      $this->npcs[] = new Npc(
+      $npcs[] = new Npc(
         name: $name,
         sprite: strval($entry['sprite'] ?? '@'),
         position: new Vector2(intval($entry['x']), intval($entry['y'])),
@@ -91,6 +101,14 @@ class NpcManager
         directionalSprites: is_array($entry['sprites'] ?? null) ? $entry['sprites'] : [],
       );
     }
+
+    return $npcs;
+  }
+
+  /** @param Npc[] $npcs */
+  public function applyPreparedNpcs(array $npcs): void
+  {
+    $this->npcs = $npcs;
   }
 
   /**

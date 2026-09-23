@@ -326,8 +326,12 @@ class MapManager implements CanRenderAt
     foreach ($map['events'] ?? [] as $event) {
       $eventTriggers[] = EventTriggerFactory::create($event, $mapId !== '' ? $mapId : null);
     }
+    $npcs = $this->gameScene->npcManager?->prepareNpcs(
+      is_array($map['npcs'] ?? null) ? $map['npcs'] : [],
+      $mapId,
+    );
 
-    return new PreparedMap($map, $source['tiles'], $collisions, $source['tiles2d'], $mapTriggers, $eventTriggers);
+    return new PreparedMap($map, $source['tiles'], $collisions, $source['tiles2d'], $mapTriggers, $eventTriggers, $npcs);
   }
 
   /** Commits a previously validated destination and its field side effects. */
@@ -356,9 +360,7 @@ class MapManager implements CanRenderAt
     $this->gameScene->encounterManager?->configure(
       is_array($map['encounters'] ?? null) ? $map['encounters'] : null
     );
-    $this->gameScene->npcManager?->configure(
-      is_array($map['npcs'] ?? null) ? $map['npcs'] : []
-    );
+    $this->gameScene->npcManager?->applyPreparedNpcs($prepared->npcs ?? []);
     $this->gameScene->skitManager?->announceAvailableSkits();
 
     $this->camera->resetPosition($player);

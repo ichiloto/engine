@@ -16,6 +16,7 @@ final readonly class PreparedMap
      * @param int[][] $collisions
      * @param MapTrigger[] $mapTriggers
      * @param EventTrigger[] $eventTriggers
+     * @param Npc[]|null $npcs
      */
     public function __construct(
         public array $data,
@@ -24,6 +25,7 @@ final readonly class PreparedMap
         public ?GraphicalTileDefinition $tiles2d,
         public array $mapTriggers,
         public array $eventTriggers,
+        public ?array $npcs = null,
     ) {
     }
 }
