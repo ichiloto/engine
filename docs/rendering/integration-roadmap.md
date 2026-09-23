@@ -187,9 +187,15 @@ distinguish success/failure; re-entry clears stale status without changing saves
 Credits retains authored sections through `CreditsContent`. GPUI rolls centred,
 clipped text above the title backdrop with a steady Back button; a capable
 renderer without title art uses the default theme. `CreditsPlayback` advances
-only in PHP, pauses behind focus loss/modals/suspension, and restores title
+only in PHP, pauses behind modals/suspension, and restores title
 selection on completion or semantic dismissal. Re-entry starts fresh. Terminal
 and reduced-motion presentations use bounded centred pages.
+
+Automatic title-animation and credits pause-on-unfocus was removed in `eb5e19e`
+when activation stopped being required by those surfaces. Explicit activation
+subscriptions still support focus pausing, but normal launches do not subscribe.
+Optional advertised-then-requested restoration is a proposal, not implemented;
+see [the removal record and proposal](runtime.md#optional-graphical-surfaces).
 
 Narration and speech use left-aligned text independently from top-centre box
 placement; explicit caller placement wins. Cinematic title cards remain

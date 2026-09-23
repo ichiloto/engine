@@ -4,6 +4,9 @@ These rules intentionally repeat the repository-level rules so engine work canno
 
 ## Correctness First
 
+Name any removed, disabled or narrowed behaviour as a removal in both the commit
+message and report. Never rename tests to make a removal look like original intent.
+
 Always favor correctness, maintainability, and complete design over speed. No shortcuts. No hacky solutions. If a problem deserves a proper model, architecture, state machine, picker, abstraction, or validation layer, build that instead of patching symptoms.
 
 ## Solve Globally By Default

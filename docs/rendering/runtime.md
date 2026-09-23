@@ -68,6 +68,18 @@ art or rolling credits. Without that subscription, scene/modal pausing still
 works, but native window-focus pausing is unavailable. The Hello wire shape and
 V1 opt-in behavior are unchanged.
 
+**Removed behaviour:** `eb5e19e` removed automatic pause-on-unfocus for title
+animation and rolling credits when it removed their activation requirement to
+decouple graphics availability from startup. Normal launches no longer subscribe
+to activation events; `windowActive` consequently remains true. This was a
+behaviour removal, not merely a capability fallback correction.
+
+**Proposed, not implemented:** restore pause-on-unfocus through an optional
+activation subscription requested only after the renderer advertises support.
+It must never become a mandatory startup capability. Older renderers must remain
+usable, and renderers must not send unsolicited events to older clients. This
+proposal needs approval and a compatible subscription contract before implementation.
+
 `PackagedRendererExecutableResolver` is the sole owner of the installation
 manifest layout and platform lookup. It resolves only a readable installed
 manifest entry naming an executable within that package. See the

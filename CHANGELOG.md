@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Removed
+
+- Automatic pause-on-unfocus for title animation and rolling credits was removed
+  in `eb5e19e`. Removing `window_activation` from their capability requirements
+  decoupled graphical presentation from renderer startup requirements, but also
+  removed the automatic activation-event subscription. Normal launches therefore
+  keep playback running when the window loses focus. Scene/modal/suspension
+  pausing and explicitly configured activation subscriptions remain supported.
+  This records the removal; it does not restore or newly approve that behaviour.
+
 ## 0.5.0
 
 Ichiloto Engine 0.5.0 expands the runtime from a field-and-battle foundation
