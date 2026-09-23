@@ -22,6 +22,60 @@ it('requires explicit actor identities and refuses to mutate an established iden
   expect($definition->id)->toBe('actor.hero');
 });
 
+it('uses ids alone despite duplicate display names and names matching another id', function () {
+  $data = foundationActorDefinition()->data();
+  $store = new ActorStore(definitions: [
+    ActorDefinition::fromArray([...$data, 'id' => 'first', 'name' => 'second']),
+    ActorDefinition::fromArray([...$data, 'id' => 'second', 'name' => 'Shared']),
+    ActorDefinition::fromArray([...$data, 'id' => 'third', 'name' => 'Shared']),
+  ]);
+  expect($store->require('second', 'new party')->id)->toBe('second')
+    ->and($store->has('Shared'))->toBeFalse()
+    ->and($store->canonicalId('first'))->toBe('first');
+  expect(fn() => $store->set('file-alias', new ActorDefinition('fourth', $data)))
+    ->toThrow(InvalidArgumentException::class, 'aliases are not supported');
+  $saved = $store->require('first', 'saving')->createCharacter()->toArray();
+  $restored = $store->require($saved['actorId'], 'loading')->createCharacter($saved);
+  expect($restored->actorId)->toBe('first')->and($restored->name)->toBe('second');
+});
+
+it('loads a legacy file provisionally without writing and drops name and file aliases after migration', function () {
+  $root = sys_get_temp_dir() . '/ichiloto-legacy-actor-' . bin2hex(random_bytes(6));
+  mkdir($root);
+  $path = $root . '/unrelated-filename.php';
+  $data = foundationActorDefinition()->data();
+  unset($data['id']);
+  $data['name'] = 'Legacy Hero';
+  $source = '<?php return ' . var_export(['data' => $data], true) . ';';
+  file_put_contents($path, $source);
+  \Ichiloto\Engine\Util\Debug::configure(['log_directory' => $root]);
+  try {
+    $store = new ActorStore($root);
+    expect(file_get_contents($path))->toBe($source)
+      ->and($store->has('unrelated-filename'))->toBeFalse();
+    $saved = $store->require('Legacy Hero', 'loading legacy project')->createCharacter()->toArray();
+    $saved['stats']['currentHp'] = 23;
+    expect(file_get_contents($root . '/warning.log'))->toContain($path, 'provisional id', 'before renaming', 'No project file was changed');
+    $data['id'] = 'Legacy Hero';
+    $data['name'] = 'Renamed Hero';
+    file_put_contents($path, '<?php return ' . var_export(['data' => $data], true) . ';');
+    $store = new ActorStore($root);
+    expect($store->has('Renamed Hero'))->toBeFalse()->and($store->has('unrelated-filename'))->toBeFalse();
+    $restored = $store->require($saved['actorId'], 'loading migrated project')->createCharacter($saved);
+    expect($restored->actorId)->toBe('Legacy Hero')->and($restored->name)->toBe('Renamed Hero')
+      ->and($restored->stats->currentHp)->toBe(23);
+    foreach (['', null, 42] as $invalidId) {
+      $data['id'] = $invalidId;
+      file_put_contents($path, '<?php return ' . var_export(['data' => $data], true) . ';');
+      expect(fn() => new ActorStore($root))->toThrow(InvalidArgumentException::class, 'explicit non-empty actor id');
+    }
+  } finally {
+    foreach (glob($root . '/*') ?: [] as $file) { unlink($file); }
+    rmdir($root);
+    \Ichiloto\Engine\Util\Debug::configure();
+  }
+});
+
 it('reconstructs a renamed actor from the same authored id and saved mutable state', function () {
   $data = foundationActorDefinition()->data();
   $saved = foundationActorDefinition()->createCharacter()->toArray();

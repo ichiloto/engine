@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Util\Stores;
 use Assegai\Util\Path;
 use Ichiloto\Engine\Entities\Actors\ActorDefinition;
 use Ichiloto\Engine\Exceptions\UnresolvedSaveReferenceException;
+use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
 use InvalidArgumentException;
 use RuntimeException;
@@ -14,15 +15,13 @@ final class ActorStore implements ConfigInterface
 {
   /** @var array<string, ActorDefinition> */
   private array $definitions = [];
-  /** @var array<string, string> */
-  private array $references = [];
 
   /** @param iterable<ActorDefinition>|null $definitions In-memory authoring registry, when supplied. */
   public function __construct(?string $directory = null, ?iterable $definitions = null)
   {
     if ($definitions !== null) {
       foreach ($definitions as $definition) {
-        $this->register($definition, $definition->id);
+        $this->register($definition);
       }
       return;
     }
@@ -35,8 +34,16 @@ final class ActorStore implements ConfigInterface
         throw new RuntimeException(sprintf('Actor definition %s must return an array.', $filename));
       }
 
-      $definition = ActorDefinition::fromArray($payload, $filename);
-      $this->register($definition, pathinfo($filename, PATHINFO_FILENAME));
+      $data = is_array($payload['data'] ?? null) ? $payload['data'] : $payload;
+      if (! array_key_exists('id', $data) && is_string($data['name'] ?? null) && trim($data['name']) !== '') {
+        $data['id'] = trim($data['name']);
+        Debug::warn(sprintf(
+          'Legacy actor %s has no explicit id; using provisional id "%s" in memory only. Freeze the current name as data.id using the Editor actor identity repair or CLI validation migration before renaming. No project file was changed.',
+          $filename, $data['id'],
+        ));
+      }
+      $definition = ActorDefinition::fromArray($data, $filename);
+      $this->register($definition);
     }
   }
 
@@ -69,7 +76,10 @@ final class ActorStore implements ConfigInterface
       throw new InvalidArgumentException('ActorStore values must be ActorDefinition instances.');
     }
 
-    $this->register($value, $path);
+    if (self::normalize($path) !== self::normalize($value->id)) {
+      throw new InvalidArgumentException('ActorStore keys must match the actor id; aliases are not supported.');
+    }
+    $this->register($value);
   }
 
   public function has(string $path): bool
@@ -77,7 +87,7 @@ final class ActorStore implements ConfigInterface
     return $this->resolveId($path) !== null;
   }
 
-  /** Returns the canonical durable ID behind any accepted actor reference. */
+  /** Returns the authored ID; display names and filenames are not references. */
   public function canonicalId(string $reference): ?string
   {
     $id = $this->resolveId($reference);
@@ -89,7 +99,7 @@ final class ActorStore implements ConfigInterface
   {
   }
 
-  private function register(ActorDefinition $definition, string $fileReference): void
+  private function register(ActorDefinition $definition): void
   {
     $id = self::normalize($definition->id);
 
@@ -98,31 +108,12 @@ final class ActorStore implements ConfigInterface
     }
 
     $this->definitions[$id] = $definition;
-    $this->registerReference($definition->id, $id);
-    $this->registerReference(strval($definition->data()['name'] ?? ''), $id);
-    $this->registerReference($fileReference, $id);
-  }
-
-  private function registerReference(string $reference, string $id): void
-  {
-    $reference = self::normalize($reference);
-
-    if ($reference === '') {
-      return;
-    }
-
-    $existing = $this->references[$reference] ?? null;
-
-    if ($existing !== null && $existing !== $id) {
-      throw new RuntimeException(sprintf('Actor reference "%s" is ambiguous.', $reference));
-    }
-
-    $this->references[$reference] = $id;
   }
 
   private function resolveId(string $reference): ?string
   {
-    return $this->references[self::normalize($reference)] ?? null;
+    $id = self::normalize($reference);
+    return isset($this->definitions[$id]) ? $id : null;
   }
 
   private static function normalize(string $reference): string

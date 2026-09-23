@@ -147,11 +147,23 @@ list of `from`/`to` pairs so contradictory duplicate sources remain visible
 to validation. Chains resolve deterministically; self-aliases and cycles are
 invalid. No rename is inferred.
 
-Actor definitions must declare a non-empty string `data.id`. Inferring an actor
-id from its display name has been removed. For legacy content, declare the
-original display name as the explicit id before renaming; this preserves saved
-references without a content migration. The Editor assigns ids when creating
-actors and keeps established ids read-only. Renames change only `data.name`.
+Actor definitions must declare a non-empty string `data.id`. Display-name and
+filename lookup aliases have been removed: only IDs resolve definitions, so two
+actors may share a display name and a name may match another actor's ID without
+changing either identity. Existing case-insensitive ID lookup is retained.
+For a legacy file with an **absent** ID, the runtime file loader temporarily uses
+its current name as an in-memory provisional ID and logs the source filename and
+migration instructions. It never writes project files. An empty or malformed
+authored ID remains an error, not a fallback.
+
+Before renaming legacy content, use the Editor's **Freeze current name as ID**
+repair or confirm the CLI validation migration (`validate --migrate-actor-ids`).
+Both use the same source-preserving service; unsupported PHP and colliding IDs
+are refused before writing. The CLI migration preflights and commits the batch
+transactionally. Editor repair is undoable and persists only on save. The frozen
+ID preserves existing name-based references and saves; changing the identity
+instead requires an explicit content migration. The Editor assigns IDs to new
+actors and keeps established IDs read-only. Renames change only `data.name`.
 Skits, dialogue presentation, battle artwork, results portraits and current saves
 use the explicit id; a display-name change requires no artwork rebinding.
 

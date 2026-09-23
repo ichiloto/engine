@@ -27,6 +27,13 @@ use Ichiloto\Engine\Util\Config\ProjectConfig;
 
 require_once __DIR__ . '/../Support/Input/FakeInputSource.php';
 
+/** These tests do not own a terminal or a native game lifecycle. */
+final class VoiceTestGame extends Game
+{
+  public function __construct() {}
+  public function __destruct() {}
+}
+
 final class VoiceTestTextBox extends TextBoxModal
 {
   public function render(?int $x = null, ?int $y = null): void {}
@@ -66,7 +73,7 @@ final class VoiceTestAudio extends AudioManager
   public ?float $duration = 100.0;
   public array $settings = ['audio.music'=>true, 'audio.sfx'=>true, 'audio.master_volume'=>80];
   public function __construct(private array $testBackends = [new VoiceTestBackend()])
-  { parent::__construct(new ReflectionClass(Game::class)->newInstanceWithoutConstructor()); }
+  { parent::__construct(new VoiceTestGame()); }
   protected function createBackends(): array { return $this->testBackends; }
   protected function getProjectSetting(string $path, mixed $default = null): mixed { return $this->settings[$path] ?? $default; }
   protected function probeTrackDuration(?string $path): ?float { return $this->duration; }
@@ -248,11 +255,11 @@ it('softly resolves optional emotion and voice without allowing paths outside th
 it('resolves stable skit actor identity and notices legacy ids without treating display names as ids', function () {
   $actors = new ActorStore($this->voiceTemp . '/actors');
   $definition = new ActorDefinition('hero-id', ['name'=>'Before']);
-  $actors->set('hero-file', $definition);
+  $actors->set('hero-id', $definition);
   $explicit = SkitSpeaker::getFromBeat(['actor'=>'hero-id'], $actors);
   expect($explicit->actorId)->toBe('hero-id')->and($explicit->name)->toBe('Before')->and($explicit->notices)->toBeEmpty();
   $renamed = new ActorStore($this->voiceTemp . '/actors');
-  $renamed->set('hero-file', new ActorDefinition('hero-id', ['name'=>'After']));
+  $renamed->set('hero-id', new ActorDefinition('hero-id', ['name'=>'After']));
   expect(SkitSpeaker::getFromBeat(['actor'=>'hero-id'], $renamed)->name)->toBe('After');
   $legacy = SkitSpeaker::getFromBeat(['speaker'=>'hero-id'], $renamed);
   expect($legacy->actorId)->toBe('hero-id')->and($legacy->name)->toBe('After')->and($legacy->notices)->toHaveCount(1);
@@ -271,7 +278,7 @@ it('accepts an empty dialogue catalogue placeholder and displays the registered 
   $actors = new ActorStore($this->voiceTemp.'/actors');
   $actors->set('hero', new ActorDefinition('hero', ['name'=>'Current Name']));
   ConfigStore::put(ActorStore::class, $actors);
-  $game = new ReflectionClass(Game::class)->newInstanceWithoutConstructor();
+  $game = new VoiceTestGame();
   $skits = new VoiceTestSkits(new VoiceTestScene($game));
   $skits->runSkit(['speed'=>20, 'beats'=>[['actor'=>'hero','text'=>'Hello']]]);
   expect($skits->shown[0][0]['speaker'])->toBe('Current Name')
@@ -279,7 +286,7 @@ it('accepts an empty dialogue catalogue placeholder and displays the registered 
 });
 
 it('keeps legacy skits and missing optional presentation playable and marks them seen', function () {
-  $game = new ReflectionClass(Game::class)->newInstanceWithoutConstructor();
+  $game = new VoiceTestGame();
   new ReflectionProperty(Game::class,'audioManager')->setValue($game,$this->audio);
   $scene = new VoiceTestScene($game); $skits = new VoiceTestSkits($scene);
   $skits->runSkit(['speed'=>20,'beats'=>[
@@ -293,7 +300,7 @@ it('keeps legacy skits and missing optional presentation playable and marks them
 });
 
 it('releases speech on interrupted presentation without marking an unfinished skit seen', function () {
-  $game = new ReflectionClass(Game::class)->newInstanceWithoutConstructor();
+  $game = new VoiceTestGame();
   new ReflectionProperty(Game::class,'audioManager')->setValue($game,$this->audio);
   $scene = new VoiceTestScene($game); $skits = new VoiceTestSkits($scene); $skits->failPresentation = true;
   expect(fn()=>$skits->runSkit(['speed'=>20,'beats'=>[['text'=>'Line','voice'=>'line']]]))->toThrow(RuntimeException::class)
@@ -309,7 +316,7 @@ it('supplies a remappable Auto action without claiming an authored key', functio
 });
 
 it('toggles shared TextBox Auto through a rebound action and dismisses only after voice ends', function () {
-  $game = new ReflectionClass(Game::class)->newInstanceWithoutConstructor();
+  $game = new VoiceTestGame();
   $flow = new DialoguePlayback($this->audio);
   $flow->beginLine($this->voicePath);
   $modal = new VoiceTestTextBox($game,'X','Actor',playback:$flow);
@@ -327,7 +334,7 @@ it('toggles shared TextBox Auto through a rebound action and dismisses only afte
 });
 
 it('keeps voice while confirm finishes typing and stops it when the line is dismissed', function () {
-  $game = new ReflectionClass(Game::class)->newInstanceWithoutConstructor();
+  $game = new VoiceTestGame();
   $flow = new DialoguePlayback($this->audio);
   $flow->beginLine($this->voicePath);
   $modal = new VoiceTestTextBox($game,'Long enough to type','Actor',charactersPerSecond:1,playback:$flow);
@@ -354,7 +361,7 @@ it('does not instantly dismiss an ended voiced line when Auto is re-enabled', fu
 });
 
 it('preserves authored help while appending live rebound Auto hints without duplication', function () {
-  $game = new ReflectionClass(Game::class)->newInstanceWithoutConstructor();
+  $game = new VoiceTestGame();
   $flow = new DialoguePlayback();
   InputManager::setBindings(['confirm'=>['keys'=>[KeyCode::ENTER]], 'dialogue_auto'=>['keys'=>[KeyCode::x]]]);
   InputManager::setInputSource(new \Tests\Support\Input\FakeInputSource(null, KeyCode::x, null));
@@ -378,7 +385,7 @@ it('uses contextual Space Auto and consumes the opening edge without discarding 
     ->and(InputManager::getBindings()['dialogue_auto']['controllers'])->toBe(InputManager::DIALOGUE_AUTO_CONTROLLERS);
   InputManager::setInputSource(new \Tests\Support\Input\FakeInputSource(KeyCode::SPACE, KeyCode::SPACE, KeyCode::ENTER));
   InputManager::handleInput();
-  $game = new ReflectionClass(Game::class)->newInstanceWithoutConstructor();
+  $game = new VoiceTestGame();
   $modal = new VoiceTestTextBox($game, 'A line that is still typing.', charactersPerSecond:1);
   $modal->show(); $modal->update();
   expect($modal->getPlayback()->auto)->toBeFalse()->and($modal->getIsTyping())->toBeTrue();
@@ -403,7 +410,7 @@ it('persists Auto across ordinary dialogue skits and reloaded configuration and 
     ->and(is_file($this->voiceTemp.'/.data/player-settings.json'))->toBeTrue();
   ConfigStore::put(PlayerSettings::class, new PlayerSettings($this->voiceTemp));
   ConfigStore::put(ProjectConfig::class, new ProjectConfig());
-  $game = new ReflectionClass(Game::class)->newInstanceWithoutConstructor();
+  $game = new VoiceTestGame();
   $modal = new VoiceTestTextBox($game, 'Ordinary dialogue');
   expect($modal->getPlayback()->auto)->toBeTrue();
   $skits = new VoiceTestSkits(new VoiceTestScene($game));

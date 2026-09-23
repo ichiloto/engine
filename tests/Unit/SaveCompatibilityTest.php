@@ -509,7 +509,7 @@ describe('saved actor identities', function () {
       $data = $this->actorStore->require('actor.hero', 'building the collision fixture')->data();
       $data['id'] = 'actor.decoy';
       $data['name'] = 'Legacy Hero';
-      $this->actorStore->set('decoy', ActorDefinition::fromArray($data));
+      $this->actorStore->set('actor.decoy', ActorDefinition::fromArray($data));
     }
 
     $saved = $this->savedActor->toArray();
@@ -547,7 +547,7 @@ describe('saved actor identities', function () {
     'display-name tombstone' => [['tombstones' => ['actors' => ['Legacy Hero']]]],
   ]);
 
-  it('falls back to legacy names only when a stable ID is absent or empty', function (bool $deferred, ?string $actorId, bool $alias) {
+  it('removes inferred display name lookup from legacy saves and requires an explicit identity migration', function (bool $deferred, ?string $actorId, bool $alias) {
     $saved = $this->savedActor->toArray();
     $saved['name'] = $alias ? 'Legacy Hero' : 'Hero';
     unset($saved['actorId']);
@@ -556,9 +556,15 @@ describe('saved actor identities', function () {
       $saved['actorId'] = $actorId;
     }
 
-    $restored = resolveCompatibilityActor($saved, $deferred, makeCompatibilityManifest([
+    $manifest = makeCompatibilityManifest([
       'aliases' => ['actors' => [['from' => 'Legacy Hero', 'to' => 'actor.hero']]],
-    ]));
+    ]);
+    if (! $alias) {
+      expect(fn() => resolveCompatibilityActor($saved, $deferred, $manifest))
+        ->toThrow(UnresolvedSaveReferenceException::class, 'Actor definition "Hero" cannot be resolved');
+      return;
+    }
+    $restored = resolveCompatibilityActor($saved, $deferred, $manifest);
 
     expect($restored->actorId)->toBe('actor.hero')
       ->and($restored->name)->toBe('Hero')
