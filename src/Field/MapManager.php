@@ -733,6 +733,8 @@ class MapManager implements CanRenderAt
       }
     }
 
+    $mapText = MapGridSource::readFile($paths['map']);
+    $eventText = MapGridSource::readFile($paths['event']);
     $map = $this->requirePhpFile($paths['data']);
 
     if (! is_array($map)) {
@@ -744,10 +746,10 @@ class MapManager implements CanRenderAt
     $tiles2d = array_key_exists('tiles2d', $map)
       ? GraphicalTileDefinition::fromArray($map['tiles2d'], $paths['data']) : null;
 
-    $this->tileMap = $this->parseMapLayer($this->requirePhpFile($paths['map']), $paths['map'], 'map');
+    $this->tileMap = $this->parseMapLayer($mapText, $paths['map'], 'map');
     $this->camera->worldSpace = $this->tileMap;
 
-    $eventLayer = $this->parseMapLayer($this->requirePhpFile($paths['event']), $paths['event'], 'event');
+    $eventLayer = $this->parseMapLayer($eventText, $paths['event'], 'event');
     $this->assertEventLayerMatchesTileMap($eventLayer, $paths['event']);
     $map['events'] = $this->resolveEventDefinitions($map['events'] ?? [], $eventLayer, $paths['event']);
 
@@ -759,11 +761,9 @@ class MapManager implements CanRenderAt
   /**
    * Requires an authored PHP asset without exposing the caller's local scope.
    *
-   * PHP includes inherit and may mutate variables from the scope that invokes
-   * them. Map assets are executable PHP and commonly use descriptive local
-   * names such as `$map`, `$events`, or `$paths`; loading each file inside a
-   * dedicated static closure prevents those implementation details from
-   * replacing the loader's own state.
+   * The data member may contain authored PHP. Loading it inside a dedicated
+   * static closure prevents its local variables from replacing loader state.
+   * Grid members are parsed as literal nowdocs and are never required.
    *
    * @param string $filename The PHP asset to load.
    * @return mixed The value returned by the asset.
@@ -778,17 +778,14 @@ class MapManager implements CanRenderAt
   /**
    * Parses a text-based map layer into symbol rows.
    *
-   * @param string|string[] $layer The raw layer content.
+   * @param string $layer The raw layer content.
    * @param string $filename The source filename.
    * @param string $fieldName The layer label used in validation errors.
    * @return array<int, string[]> The parsed symbol grid.
    */
-  protected function parseMapLayer(string|array $layer, string $filename, string $fieldName): array
+  protected function parseMapLayer(string $layer, string $filename, string $fieldName): array
   {
-    $rows = match (true) {
-      is_string($layer) => preg_split('/\r\n|\n|\r/', rtrim($layer, "\r\n")) ?: [],
-      default => $layer,
-    };
+    $rows = preg_split('/\r\n|\n|\r/', rtrim($layer, "\r\n")) ?: [];
 
     if ($rows === []) {
       return [];

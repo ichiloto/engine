@@ -20,8 +20,8 @@ it('loads current optional terrain metadata afresh and rejects malformed presenc
   $directory = sys_get_temp_dir() . DIRECTORY_SEPARATOR . uniqid('ichiloto-terrain-map-', true);
   mkdir($directory);
   $paths = ['id'=>'test/terrain','data'=>"$directory/map.data.php",'map'=>"$directory/map.map.php",'event'=>"$directory/map.event.php"];
-  file_put_contents($paths['map'], '<?php return ";~";');
-  file_put_contents($paths['event'], '<?php return "  ";');
+  file_put_contents($paths['map'], "<?php\nreturn <<<'MAP'\n;~\nMAP;\n");
+  file_put_contents($paths['event'], "<?php\nreturn <<<'EVENT'\n  \nEVENT;\n");
   $manager = new ReflectionClass(SplitMapManagerProbe::class)->newInstanceWithoutConstructor();
   $scene = new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();
   $camera = new Camera(makeCameraTestScene(),8,4);
@@ -45,7 +45,7 @@ it('loads current optional terrain metadata afresh and rejects malformed presenc
   }
 });
 
-it('isolates authored map variables from split-map loader state', function () {
+it('removes executable grid sources from the split-map contract', function () {
   $directory = sys_get_temp_dir() . DIRECTORY_SEPARATOR . uniqid('ichiloto-split-map-', true);
   mkdir($directory, 0777, true);
 
@@ -70,7 +70,7 @@ return [
 ];
 PHP);
 
-  // This local name deliberately matches MapManager's `$map` data variable.
+  // The former executable source shape is refused, not evaluated.
   file_put_contents($paths['map'], <<<'PHP'
 <?php
 
@@ -79,11 +79,7 @@ $map = "  \n  ";
 return $map;
 PHP);
 
-  file_put_contents($paths['event'], <<<'PHP'
-<?php
-
-return "A \n  ";
-PHP);
+  file_put_contents($paths['event'], "<?php\nreturn <<<'EVENT'\nA \n  \nEVENT;\n");
 
   try {
     $manager = (new ReflectionClass(SplitMapManagerProbe::class))->newInstanceWithoutConstructor();
@@ -93,17 +89,8 @@ PHP);
     (new ReflectionProperty(GameScene::class, 'camera'))->setValue($gameScene, $camera);
     (new ReflectionProperty(MapManager::class, 'gameScene'))->setValue($manager, $gameScene);
 
-    $mapData = $manager->readSplitMap($paths);
-
-    expect($mapData['name'])->toBe('Collision Test')
-      ->and($mapData['events'])->toHaveCount(1)
-      ->and($mapData['events'][0]['marker'])->toBe('A')
-      ->and($mapData['events'][0]['area'])->toBe([
-        'x' => 0,
-        'y' => 0,
-        'width' => 1,
-        'height' => 1,
-      ]);
+    expect(fn() => $manager->readSplitMap($paths))
+      ->toThrow(InvalidArgumentException::class, 'literal nowdoc');
   } finally {
     foreach (['data', 'map', 'event'] as $type) {
       if (is_file($paths[$type])) {
@@ -116,3 +103,33 @@ PHP);
     }
   }
 });
+
+it('refuses either executable grid before evaluating the map data file', function (string $member): void {
+  $directory = sys_get_temp_dir() . '/ichiloto-grid-gate-' . bin2hex(random_bytes(8));
+  mkdir($directory);
+  $marker = $directory . '/executed';
+  $paths = [
+    'id' => 'test/gate',
+    'data' => $directory . '/gate.data.php',
+    'map' => $directory . '/gate.map.php',
+    'event' => $directory . '/gate.event.php',
+  ];
+  file_put_contents($paths['data'], '<?php file_put_contents(' . var_export($marker, true) . ", 'yes'); return []; ");
+  file_put_contents($paths['map'], "<?php return <<<'MAP'\nx\nMAP;");
+  file_put_contents($paths['event'], "<?php return <<<'EVENT'\n \nEVENT;");
+  file_put_contents($paths[$member], '<?php file_put_contents(' . var_export($marker, true) . ", 'yes'); return 'x';");
+
+  try {
+    $manager = (new ReflectionClass(SplitMapManagerProbe::class))->newInstanceWithoutConstructor();
+    expect(fn() => $manager->readSplitMap($paths))->toThrow(InvalidArgumentException::class, 'literal nowdoc');
+    expect(is_file($marker))->toBeFalse();
+  } finally {
+    foreach (['data', 'map', 'event'] as $type) {
+      unlink($paths[$type]);
+    }
+    if (is_file($marker)) {
+      unlink($marker);
+    }
+    rmdir($directory);
+  }
+})->with(['map', 'event']);

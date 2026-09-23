@@ -92,10 +92,21 @@ temple-of-the-listening-stone/
 - Discovery is by convention: glob `layers/*.{map,deco}.php`, sort on the
   integer prefix. `.data.php` needs no layer declaration; the editor's
   surgical `.data.php` rewrite path is untouched.
-- Every layer file returns a literal `<<<'ICHILOTO_MAP'` nowdoc, same
-  dimensions as the base layer, validated like the event layer is today.
-  No classes, no function calls, no generated grids - enforced by validation.
-- `.event.php` and `.data.php` are unchanged.
+- Every layer file returns one literal nowdoc grid string, same dimensions as
+  the base layer. The conventional delimiter is `ICHILOTO_MAP`, but any valid
+  nowdoc label is accepted. No classes, function calls or generated grids.
+- `.event.php` stays at the map root and follows the same literal-nowdoc
+  source contract. `.data.php` remains the executable map-data member.
+
+The Engine and Editor share a static grid-source parser. It accepts a single
+nowdoc return with optional surrounding comments and whitespace, and reads the
+grid without evaluating its PHP source. Both `.map.php` and `.event.php` are
+validated before `.data.php` is evaluated. The Editor refuses a noncanonical
+grid on load and rechecks existing grid sources before save, duplicate or
+move, including unchanged grids. Refusal happens before file transactions and
+leaves authored bytes untouched. Executable grid source and `string[]` grid
+values have been removed from the contract; `.data.php` retains its separate
+source-preserving editing rules.
 - Layer names and the standard stack for a given game (e.g. Last Legend's
   terrain → buildings → fixtures) are game-owned conventions; the engine
   imposes only the file format and ordering. Maps declare only the layers

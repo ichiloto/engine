@@ -12,6 +12,33 @@ assets/Maps/happyville/town-center/town-center.data.php
 The directory path is the map's **id**: `happyville/town-center`. That is what
 `destinationMap` names, what save files record, and what the map screen uses.
 
+## Grid source format
+
+The `.map.php` and `.event.php` files each return one literal nowdoc string.
+For example:
+
+```php
+<?php
+
+return <<<'TOWN_MAP'
+####
+#  #
+####
+TOWN_MAP;
+```
+
+The delimiter may be any valid nowdoc label. Comments and whitespace outside
+the return are allowed; executable statements, builders, calls, interpolated
+heredocs, arrays and additional returns are not. The Engine parses these two
+files without executing them, before it evaluates `.data.php`. The Editor uses
+the same parser and refuses to load or save a noncanonical grid. It also
+rechecks the source before duplicating or moving a map, so an external edit
+cannot be silently rewritten. An unchanged canonical grid keeps its source
+bytes on save.
+
+Executable PHP and `string[]` grid values are no longer supported. Only
+`.data.php` remains an executable PHP data source.
+
 ## Regions
 
 `.data.php` gives a map its `name` and its `region`:
