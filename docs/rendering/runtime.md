@@ -42,9 +42,9 @@ Logical dimensions come from the Game, not from Console or binary discovery.
 
 Since S8-A the automatic GPUI registration requires the negotiated
 `sprite_source_rect` capability. An older installed renderer fails startup clearly
-rather than displaying an entire sprite sheet. Rebuild/install the matching
-renderer when updating this spike. Explicit programmatic runtime configurations
-retain an empty requirement list by default for legacy full-image integrations;
+rather than displaying an entire sprite sheet. Source-development launches through
+Console offer matching renderer updates as described below. Explicit programmatic
+runtime configurations retain an empty requirement list by default for legacy full-image integrations;
 sheet users must request the capability as described in [sprite sheets](sprite-sheets.md).
 
 S8-B additionally requires v2 `tile_batches` for automatic GPUI startup, even
@@ -52,6 +52,50 @@ when the initial map has no graphical terrain. This permits later transfers
 without renegotiation. An older binary must fail clearly before frames are sent.
 See [optional map terrain and the wire contract](tile-batches.md) and the
 [S8-B validation/publication gate](s8-b-validation.md) before installing this slice.
+
+## Development renderer updates
+
+Before starting a new graphical game process, Console's `ichiloto play` checks
+the renderer declared in `resources/renderers/development.json` without building,
+but only when the project's resolved Engine is a Git source checkout outside its
+vendor tree. Composer's vendored Git clones do not activate this development path.
+The declaration names the source directory relative to itself and a PHP builder relative to that
+source. It is excluded from exported Engine archives. No executable search on
+PATH or implicit sibling-source discovery is involved.
+
+The renderer builder's read-only `--describe` mode describes its current build
+inputs. Console compares that fingerprint and the installed payload with its
+installation receipt. When an update is available, interactive play offers:
+
+- **Update now:** build a release package and install it through the verified
+  package installer before attempting launch.
+- **Continue:** attempt this launch with the current installation, without
+  changing the update preference.
+- **Skip this version:** suppress this exact source fingerprint for the selected
+  renderer and host platform. A different fingerprint is offered again.
+
+Non-interactive play reports an available update and continues without prompting
+or building. `ichiloto renderer:update` explicitly requests the update, including
+a skipped version. Successful installation clears its skip preference. Update
+checks do not create installation directories, acquire a write lock, or build.
+Only an explicit update serializes package creation and installation. Failed
+checks, preference writes, or updates produce a warning and never prevent play
+from attempting the selected renderer. An unsuccessful update preserves the
+previous installation. This does not bypass runtime protocol or availability
+checks, and does not silently switch the selected renderer to Terminal.
+
+**Removed behaviour:** automatic rebuilding during play and refusing launch
+because renderer preparation failed are removed from the development workflow.
+Build fingerprints cover renderer source and packaging, not game artwork or PHP
+gameplay edits. They identify update versions, not runtime asset identity.
+Terminal launches and existing tmux-session reattachment skip update checks.
+WSL uses the Linux host target.
+
+Direct PHP entrypoints still consume an already installed renderer; they do not
+invoke Console or a compiler. Ordinary Composer distributions do not activate
+source updates, download binaries, or require Rust. Delivery of compatible
+prebuilt packages with those distributions remains separate unfinished work;
+the development updater is not a published player-update service.
 
 ## Optional graphical surfaces
 

@@ -14,7 +14,22 @@ first); the package format carries its renderer and platform identities, so
 additional renderer implementations install through the same command. That
 generated installation directory is ignored by Git; binaries and
 machine-specific manifests must not enter source commits. There is no default
-download, checkout-relative search or PATH fallback.
+download, implicit checkout-relative search or PATH fallback.
+
+For source development, Console's normal `ichiloto play` checks for a changed
+renderer without building before a new graphical process. `development.json` names
+the source directory relative to this boundary and its PHP package builder.
+Console reads it only for a Git Engine checkout outside the project's vendor
+tree; Composer's vendored Git clones do not activate it, and exported archives omit it.
+The renderer owns its read-only build-input fingerprint and compiler invocation.
+Console offers Update now, Continue, or Skip this version; only Update now or
+`ichiloto renderer:update` may build and install. Console owns the update lock,
+installation receipt, exact-version skip preference and verified installation.
+Non-interactive play reports available updates without prompting or building.
+Update failures preserve the old installation and never block the launch attempt.
+Automatic rebuilding and launch refusal on preparation failure are removed.
+Game art and PHP gameplay changes do not invalidate the native build. See
+[startup](../../docs/rendering/runtime.md#development-renderer-updates).
 
 A clean Engine checkout therefore contains this README, not a native renderer
 or a Rust project. Cargo commands belong in the separate `ichiloto/gpui-renderer`
@@ -28,8 +43,8 @@ GPUI gameplay, packaging and performance validation must use the optimized
 release renderer built with `cargo build --release --locked` in its own
 repository. Debug builds are for development and diagnostics, not representative
 gameplay performance. Packages stage the release executable with its required
-platform bundle resources; this boundary does not build or download anything
-automatically.
+platform bundle resources. The Engine runtime resolver itself never builds or
+downloads; explicit source updates belong to Console, not the game process.
 
 Manifest version 1 maps renderer IDs and platform IDs to executable paths
 relative to the manifest. For the currently validated Apple Silicon build:

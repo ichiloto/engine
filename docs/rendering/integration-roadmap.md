@@ -13,7 +13,7 @@ and remaining engineering work, not release status.
 | G3 | Graphical summon presentation | Planned through the same effect session, with terminal parity and outcome-timing checks. |
 | G4 | Field actors, objects and environment | Partial; needs complete asset-role coverage and [stateful input](#controller-ready-input-and-normalized-movement). |
 | G5 | Game-wide interface coverage | Shared adapters described below are implemented; complete screen coverage and Editor authoring remain outstanding. |
-| G6 | Packaging and supported platforms | Platform packages, installation dependencies and platform-specific validation remain separate from runtime integration. Native Windows also needs compatible process transport. |
+| G6 | Packaging and supported platforms | Console checks source-development renderer updates before normal play without building. Installation through the verified installer requires an explicit update choice or `renderer:update`. Prebuilt player distribution, installation dependencies and platform-specific validation remain unfinished. Native Windows also needs compatible process transport. |
 
 Headless PHP checks and macOS rendering checks do not establish Linux/WSLg or
 Windows support. Merging implementation does not create a package release.
