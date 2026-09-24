@@ -14,6 +14,7 @@ use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityManifest;
 use Ichiloto\Engine\IO\SaveManager;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Util\Config\AppConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlayerSettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
@@ -23,6 +24,11 @@ final class LocalDataProbeGame extends Game
 {
   public function __construct() {}
   public function __destruct() {}
+}
+
+final class LocalDataProbeAppConfig extends AppConfig
+{
+  protected function load(): array { return ['debug' => ['enabled' => true]]; }
 }
 
 final class LocalDataProbeScene extends GameScene
@@ -35,16 +41,21 @@ $root = $argv[1];
 $mode = $argv[2] ?? 'blocked-data';
 $logsBlocked = $mode === 'blocked-logs';
 chdir($root);
-Debug::configure(['log_directory' => $root . '/logs']);
+Debug::configure(['log_directory' => $root . '/logs', 'log_level' => Debug::DEBUG]);
 $player = new PlayerSettings($root);
 ConfigStore::put(PlayerSettings::class, $player);
 $effective = new ProjectConfig();
 ConfigStore::put(ProjectConfig::class, $effective);
 // No native game starts in this probe; still verify the effective audio state first.
 AudioMutePreflight::assertMuted($effective);
+ConfigStore::put(AppConfig::class, new LocalDataProbeAppConfig());
 
 $game = new LocalDataProbeGame();
 $game->configureErrorAndExceptionHandlers();
+Debug::log('Diagnostic probe debug.');
+Debug::info('Diagnostic probe info.');
+Debug::warn('Diagnostic probe warning.');
+Debug::error('Diagnostic probe error.');
 $manifest = SaveCompatibilityManifest::fromArray('ichiloto/test-project',
   ['contentVersion' => 0, 'migrations' => [], 'aliases' => [], 'tombstones' => []], 'storage probe');
 $manager = new SaveManager($game, 'saves', 'saves/quick', $manifest);

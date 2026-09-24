@@ -123,10 +123,13 @@ it('keeps startup, save listings, and session choices alive with the real Game h
       'diagnosed' => true,
       'dataPath' => 'file',
       'deleteRefused' => null,
-    ]);
+    ])
+    ->and(file_get_contents($this->projectRoot . '/logs/debug.log'))
+    ->toContain('Diagnostic probe debug.', 'Diagnostic probe info.', 'Diagnostic probe warning.', 'Diagnostic probe error.')
+    ->and(file_get_contents($this->projectRoot . '/logs/error.log'))->toContain('Diagnostic probe error.');
 });
 
-it('keeps blocked diagnostics off stdout and stderr under the real Game handler', function () {
+it('survives blocked player data and blocked diagnostics under the Game handler', function () {
   file_put_contents($this->projectRoot . '/config.php',
     "<?php return ['audio' => ['music' => false, 'sfx' => false, 'voice' => false]];\n");
   file_put_contents($this->projectRoot . '/.data', 'blocked');
