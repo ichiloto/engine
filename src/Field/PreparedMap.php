@@ -26,6 +26,7 @@ final readonly class PreparedMap
         public array $mapTriggers,
         public array $eventTriggers,
         public ?array $npcs = null,
+        public ?MapLayerSet $layers = null,
     ) {
     }
 }

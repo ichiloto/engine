@@ -41,6 +41,7 @@ class MapManager implements CanRenderAt
    */
   protected(set) array $tileMap = [];
   public private(set) ?GraphicalTileDefinition $tiles2d = null;
+  public private(set) ?MapLayerSet $layers = null;
   /**
    * The collision map.
    *
@@ -331,7 +332,7 @@ class MapManager implements CanRenderAt
       $mapId,
     );
 
-    return new PreparedMap($map, $source['tiles'], $collisions, $source['tiles2d'], $mapTriggers, $eventTriggers, $npcs);
+    return new PreparedMap($map, $source['tiles'], $collisions, $source['tiles2d'], $mapTriggers, $eventTriggers, $npcs, $source['layers']);
   }
 
   /** Commits a previously validated destination and its field side effects. */
@@ -340,6 +341,7 @@ class MapManager implements CanRenderAt
     $map = $prepared->data;
     $this->tileMap = $prepared->tiles;
     $this->tiles2d = $prepared->tiles2d;
+    $this->layers = $prepared->layers;
     $this->collisionMap = $prepared->collisions;
     $this->camera->worldSpace = $prepared->tiles;
     $locationName = $map['name'] ?? MapLocation::DEFAULT_LOCATION_NAME;
@@ -748,6 +750,7 @@ class MapManager implements CanRenderAt
     $prepared = $this->prepareSplitMapDataFromFiles($paths);
     $this->tileMap = $prepared['tiles'];
     $this->tiles2d = $prepared['tiles2d'];
+    $this->layers = $prepared['layers'];
     $this->camera->worldSpace = $prepared['tiles'];
 
     return $prepared['data'];
@@ -755,20 +758,22 @@ class MapManager implements CanRenderAt
 
   /**
    * @param array{id: string, data: string, map: string, event: string} $paths
-   * @return array{data: array<string, mixed>, tiles: array<int, string[]>, tiles2d: ?GraphicalTileDefinition}
+   * @return array{data: array<string, mixed>, tiles: array<int, string[]>, tiles2d: ?GraphicalTileDefinition, layers: MapLayerSet}
    */
   protected function prepareSplitMapDataFromFiles(array $paths): array
   {
     $displayPaths = [];
-    foreach (['data', 'map', 'event'] as $type) {
+    foreach (['data', 'event'] as $type) {
       $displayPaths[$type] = $paths['id'] . '/' . basename($paths[$type]);
       if (! file_exists($paths[$type])) {
         throw new NotFoundException("File {$displayPaths[$type]} not found.");
       }
     }
 
-    $mapText = MapGridSource::readFile($paths['map'], $displayPaths['map']);
+    $layers = MapLayerSource::loadFromDirectory(dirname($paths['data']), $paths['id'], $paths['map']);
     $eventText = MapGridSource::readFile($paths['event'], $displayPaths['event']);
+    $eventLayer = $this->parseMapLayer($eventText, $displayPaths['event'], 'event');
+    $layers->assertMatchingGrid($eventLayer, "Event map {$displayPaths['event']}");
     $map = $this->requirePhpFile($paths['data']);
 
     if (! is_array($map)) {
@@ -780,13 +785,10 @@ class MapManager implements CanRenderAt
     $tiles2d = array_key_exists('tiles2d', $map)
       ? GraphicalTileDefinition::fromArray($map['tiles2d'], $displayPaths['data']) : null;
 
-    $tileMap = $this->parseMapLayer($mapText, $displayPaths['map'], 'map');
-
-    $eventLayer = $this->parseMapLayer($eventText, $displayPaths['event'], 'event');
-    $this->assertEventLayerMatchesTileMap($eventLayer, $displayPaths['event'], $tileMap);
+    $tileMap = $layers->getComposedGrid();
     $map['events'] = $this->resolveEventDefinitions($map['events'] ?? [], $eventLayer, $displayPaths['event']);
 
-    return ['data' => $map, 'tiles' => $tileMap, 'tiles2d' => $tiles2d];
+    return ['data' => $map, 'tiles' => $tileMap, 'tiles2d' => $tiles2d, 'layers' => $layers];
   }
 
   /**
