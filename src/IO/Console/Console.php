@@ -120,7 +120,7 @@ class Console
   private static bool $replaceUnderlyingLayer = false;
   /** @var array<string, int> Named layer priorities in drawing order. */
   private static array $layerPriorities = [];
-  /** @var array<int, array<int, array{base: string, layers: array<string, string>}>> */
+  /** @var array<int, array<int, array{base: ?string, layers: array<string, string>}>> */
   private static array $layerCells = [];
   /** Retained transient surfaces, separate from the live scene beneath them. */
   private static array $overlays = [];
@@ -300,7 +300,7 @@ class Console
         if (!$affected || !isset(self::$buffer[$row])) { continue; }
         $cells = self::$buffer[$row];
         foreach ($entries as $x => $entry) {
-          $cells[$x] = $entry['base'];
+          $cells[$x] = $entry['base'] ?? ' ';
           foreach ($entry['layers'] as $cell) { $cells[$x] = $cell; }
         }
         // A newer write can cover only one half of a retained wide underlay.
@@ -359,7 +359,7 @@ class Console
         unset(self::$layerCells[$row][$x]);
         continue;
       }
-      $entry = self::$replaceUnderlyingLayer ? ['base' => ' ', 'layers' => []]
+      $entry = self::$replaceUnderlyingLayer ? ['base' => null, 'layers' => []]
         : (self::$layerCells[$row][$x] ?? ['base' => $before[$x] ?? ' ', 'layers' => []]);
       self::$layerPriorities[self::$activeLayer] = self::$activeLayerPriority;
       // One entry per layer/cell bounds retained state even across repeated incremental redraws.
@@ -1024,7 +1024,7 @@ class Console
       $cells = self::snapshotCells($y);
       if ($excluded !== []) {
         foreach (self::$layerCells[$y] ?? [] as $x => $entry) {
-          $cells[$x] = $entry['base'];
+          $cells[$x] = $entry['base'] ?? ' ';
           foreach ($entry['layers'] as $id => $cell) {
             if (!isset($excluded[$id])) {
               $cells[$x] = $cell;
@@ -1063,7 +1063,11 @@ class Console
     for ($y = 0; $y < self::$height; $y++) {
       $world[$y] = self::snapshotCells($y);
       foreach (self::$layerCells[$y] ?? [] as $x => $entry) {
-        $world[$y][$x] = $entry['base'];
+        if ($entry['base'] === null) {
+          unset($world[$y][$x]);
+        } else {
+          $world[$y][$x] = $entry['base'];
+        }
         foreach ($entry['layers'] as $id => $cell) {
           if (isset($replacedLayerCells[$id][$y][$x])) {
             unset($world[$y][$x]);

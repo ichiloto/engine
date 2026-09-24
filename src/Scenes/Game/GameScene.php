@@ -89,6 +89,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     private bool $fieldMusicPending = false;
     private int $fieldMusicHolds = 0;
     private bool $fieldMusicIsExplicitSilence = false;
+    private ?GraphicalTileCollector $graphicalTileCollector = null;
 
     public function getGraphicalSpriteProviders(): iterable
     {
@@ -105,8 +106,11 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
 
     public function getGraphicalTileBatches(): array
     {
-        return $this->hasGraphicalFieldPresentation()
-            ? new GraphicalTileCollector()->collect($this->mapManager?->tiles2d, $this->camera) : [];
+        if (!$this->hasGraphicalFieldPresentation()) { return []; }
+        $collector = $this->graphicalTileCollector ??= new GraphicalTileCollector();
+        return $this->mapManager?->layers !== null && !$this->mapManager->layers->legacy
+            ? $collector->collectLayers($this->mapManager->layers, $this->mapManager->layerTiles2d, $this->camera)
+            : $collector->collect($this->mapManager?->tiles2d, $this->camera);
     }
 
     private function hasGraphicalFieldPresentation(): bool

@@ -12,6 +12,8 @@ final readonly class MapLayerSet
 {
     /** @var list<MapLayer> */
     public array $layers;
+    /** @var non-empty-list<MapLayer> */
+    private array $gameplayLayers;
 
     /** @param list<MapLayer> $layers */
     public function __construct(array $layers, public bool $legacy = false)
@@ -28,6 +30,7 @@ final readonly class MapLayerSet
             $names[$layer->name] = $orders[$layer->order] = true;
         }
         $this->layers = array_values($layers);
+        $this->gameplayLayers = array_values(array_filter($layers, static fn(MapLayer $layer): bool => !$layer->decoration));
         if (!$legacy) {
             $width = count($layers[0]->grid[0] ?? []);
             if ($width === 0) {
@@ -43,10 +46,7 @@ final readonly class MapLayerSet
     public function getComposedGrid(): array
     {
         $result = [];
-        foreach ($this->layers as $layer) {
-            if ($layer->decoration) {
-                continue;
-            }
+        foreach ($this->gameplayLayers as $layer) {
             if ($result === []) {
                 $result = $layer->grid;
                 continue;
@@ -60,6 +60,18 @@ final readonly class MapLayerSet
             }
         }
         return $result;
+    }
+
+    public function getGameplayLayerAt(int $x, int $y): MapLayer
+    {
+        $gameplay = $this->gameplayLayers;
+        for ($index = count($gameplay) - 1; $index > 0; $index--) {
+            $cell = $gameplay[$index]->grid[$y][$x] ?? ' ';
+            if (TerminalText::stripAnsi($cell) !== ' ') {
+                return $gameplay[$index];
+            }
+        }
+        return $gameplay[0];
     }
 
     /** @param array<int, string[]> $grid */

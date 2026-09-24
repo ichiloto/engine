@@ -17,6 +17,7 @@ final readonly class PreparedMap
      * @param MapTrigger[] $mapTriggers
      * @param EventTrigger[] $eventTriggers
      * @param Npc[]|null $npcs
+     * @param array<string, GraphicalTileDefinition> $layerTiles2d
      */
     public function __construct(
         public array $data,
@@ -27,6 +28,7 @@ final readonly class PreparedMap
         public array $eventTriggers,
         public ?array $npcs = null,
         public ?MapLayerSet $layers = null,
+        public array $layerTiles2d = [],
     ) {
     }
 }

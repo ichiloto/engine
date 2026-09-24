@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Rendering\Presentation;
 
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\Field\MapLayer;
 use Ichiloto\Engine\UI\Enumerations\PresentationPriority;
 use Ichiloto\Engine\UI\Interfaces\LayeredPresentationInterface;
 use InvalidArgumentException;
@@ -20,6 +21,22 @@ final class PresentationLayerPolicy
   public static function terrain(callable $draw): void
   {
     Console::withLayer(self::TERRAIN_ID, $draw, self::WORLD, replaceUnderlying: true);
+  }
+
+  public static function getMapLayerId(MapLayer $layer): string
+  {
+    return 'map:' . $layer->name;
+  }
+
+  public static function getMapLayerOrder(MapLayer $layer): int
+  {
+    // Authored two-digit prefixes span 0..99, keeping every map layer below WORLD.
+    return self::TERRAIN + $layer->order;
+  }
+
+  public static function drawMapLayer(MapLayer $layer, callable $draw): void
+  {
+    Console::withLayer(self::getMapLayerId($layer), $draw, self::getMapLayerOrder($layer), replaceUnderlying: true);
   }
 
   public static function ui(object $element, callable $draw): void

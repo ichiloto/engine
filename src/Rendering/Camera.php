@@ -11,6 +11,8 @@ use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Exceptions\NotImplementedException;
 use Ichiloto\Engine\Field\Player;
+use Ichiloto\Engine\Field\MapLayerSet;
+use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\NormalizedRow;
 use Ichiloto\Engine\IO\Console\TerminalCapabilities;
@@ -162,7 +164,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
    *
    * @return void
    */
-  public function renderMap(): void
+  public function renderMap(?MapLayerSet $layers = null): void
   {
     $renderOffset = $this->getRenderOffset();
     $visibleWidth = $this->getVisibleWorldWidth();
@@ -177,10 +179,38 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
       $content = $this->normalizedMapRow((int)$this->position->y + $row)
         ->select((int)$this->position->x, $visibleWidth, $visibleWidth);
       LatencyTrace::end('terminal.select', $started);
-      Console::writeNormalizedRow($content, $renderOffset->x, $renderOffset->y + $row);
+      if ($layers === null) {
+        Console::writeNormalizedRow($content, $renderOffset->x, $renderOffset->y + $row);
+      } else {
+        $this->renderLayeredMapRow($content, (int)$this->position->y + $row, $layers, $renderOffset->x, $renderOffset->y + $row);
+      }
     }
 
     Console::endFrame();
+  }
+
+  private function renderLayeredMapRow(NormalizedRow $content, int $worldY, MapLayerSet $layers, int $screenX, int $screenY): void
+  {
+    $logicalX = (int)$this->position->x;
+    $group = [];
+    $groupStart = 0;
+    $owner = null;
+    foreach ($content->cells as $column => $cell) {
+      if ($cell === NormalizedRow::CONTINUATION) { continue; }
+      $next = $layers->getGameplayLayerAt($logicalX++, $worldY);
+      if ($owner !== null && $next !== $owner) {
+        PresentationLayerPolicy::drawMapLayer($owner, fn() => Console::writeNormalizedRow(
+          NormalizedRow::fromSymbols($group), $screenX + $groupStart, $screenY));
+        $group = [];
+      }
+      if ($group === []) { $groupStart = $column; }
+      $group[] = $cell;
+      $owner = $next;
+    }
+    if ($owner !== null) {
+      PresentationLayerPolicy::drawMapLayer($owner, fn() => Console::writeNormalizedRow(
+        NormalizedRow::fromSymbols($group), $screenX + $groupStart, $screenY));
+    }
   }
 
   /** @return iterable<int, list<string>> Visible authored symbols, without synthetic padding. */
