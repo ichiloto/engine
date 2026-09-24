@@ -309,6 +309,35 @@ it('rejects malformed player input parents and per-action overrides while retain
   ['wrong type', [KeyCode::UP, KeyCode::W], 'invalid player input data'],
 ]);
 
+it('reports a malformed player binding once per load and reads a changed file on the next startup', function () {
+  mkdir($this->playerRoot . '/.data');
+  $settingsFile = $this->playerRoot . '/.data/player-settings.json';
+  file_put_contents($settingsFile, json_encode(['input' => ['bindings' => ['up' => []]]], JSON_THROW_ON_ERROR));
+  ConfigStore::put(PlayerSettings::class, new PlayerSettings($this->playerRoot));
+  ConfigStore::put(InputConfig::class, new RecordingInputConfig(['initial' => demoBindings()]));
+  $game = new class extends Game {
+    public function __construct() {}
+    public function __destruct() {}
+  };
+
+  InputManager::init($game);
+  $player = ConfigStore::get(PlayerSettings::class);
+  $player->getInputBindings();
+  $player->getInputBindings();
+  expect(InputManager::getBindings()['up']['keys'])->toBe([KeyCode::UP, KeyCode::W])
+    ->and(InputManager::getBindings()['up']['description'])->toBe('Move up.')
+    ->and(substr_count((string) file_get_contents($this->playerRoot . '/logs/warning.log'),
+      'malformed player input binding for up'))->toBe(1);
+
+  file_put_contents($settingsFile, json_encode(['input' => ['bindings' => ['up' => [KeyCode::K->value]]]], JSON_THROW_ON_ERROR));
+  ConfigStore::put(PlayerSettings::class, new PlayerSettings($this->playerRoot));
+  InputManager::init($game);
+  expect(InputManager::getBindings()['up']['keys'])->toBe([KeyCode::K])
+    ->and(InputManager::getBindings()['up']['description'])->toBe('Move up.')
+    ->and(substr_count((string) file_get_contents($this->playerRoot . '/logs/warning.log'),
+      'malformed player input binding for up'))->toBe(1);
+});
+
 it('refuses to persist an empty override for an authored action', function () {
   $defaults = demoBindings();
   $bindings = $defaults;

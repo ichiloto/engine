@@ -27,6 +27,9 @@ final class PlayerSettings extends AbstractConfig
 
   private readonly string $filename;
 
+  /** @var array<string, KeyCode[]>|null */
+  private ?array $inputBindings = null;
+
   public function __construct(?string $projectRoot = null)
   {
     $root = $projectRoot ?? getcwd();
@@ -109,21 +112,24 @@ final class PlayerSettings extends AbstractConfig
    */
   public function getInputBindings(): array
   {
+    if ($this->inputBindings !== null) {
+      return $this->inputBindings;
+    }
     if (! array_key_exists('input', $this->config)) {
-      return [];
+      return $this->inputBindings = [];
     }
     $input = $this->config['input'];
     if (! is_array($input)) {
       Debug::warn('Ignoring invalid player input data.');
-      return [];
+      return $this->inputBindings = [];
     }
     if (! array_key_exists('bindings', $input)) {
-      return [];
+      return $this->inputBindings = [];
     }
     $saved = $input['bindings'];
     if (! is_array($saved) || ($saved !== [] && array_is_list($saved))) {
       Debug::warn('Ignoring invalid player input bindings.');
-      return [];
+      return $this->inputBindings = [];
     }
 
     $bindings = [];
@@ -144,7 +150,7 @@ final class PlayerSettings extends AbstractConfig
       }
       $bindings[$action] = $keys;
     }
-    return $bindings;
+    return $this->inputBindings = $bindings;
   }
 
   /**
@@ -172,6 +178,7 @@ final class PlayerSettings extends AbstractConfig
       }
     }
     parent::set('input.bindings', self::encodeInputBindings($overrides));
+    $this->inputBindings = $overrides;
   }
 
   public function persist(): void

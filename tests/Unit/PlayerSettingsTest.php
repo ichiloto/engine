@@ -126,7 +126,7 @@ it('keeps startup, save listings, and session choices alive with the real Game h
     ]);
 });
 
-it('survives blocked player data and blocked diagnostics under the Game handler', function () {
+it('keeps blocked diagnostics off stdout and stderr under the real Game handler', function () {
   file_put_contents($this->projectRoot . '/config.php',
     "<?php return ['audio' => ['music' => false, 'sfx' => false, 'voice' => false]];\n");
   file_put_contents($this->projectRoot . '/.data', 'blocked');
@@ -142,7 +142,7 @@ it('survives blocked player data and blocked diagnostics under the Game handler'
       'dataPath' => 'file',
       'deleteRefused' => null,
     ])
-    ->and($errors)->toContain('Saving is unavailable:');
+    ->and($errors)->toBe('');
 });
 
 it('keeps a read-only game root with no player data playable under the real Game handler', function () {

@@ -39,7 +39,7 @@ final class Debug
       @self::writeLine("WARN", $message, "warning.log");
       @self::write(self::WARNING, "WARN", $message, "debug.log");
     } catch (RuntimeException) {
-      error_log(self::getFormattedMessage($message, "WARN"));
+      // A missing or unwritable project log must not write over the game display.
     }
   }
 
