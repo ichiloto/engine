@@ -5,6 +5,8 @@ use Ichiloto\Engine\Field\MapLayer;
 use Ichiloto\Engine\Field\MapLayerSet;
 use Ichiloto\Engine\Field\MapLayerSource;
 use Ichiloto\Engine\Field\MapManager;
+use Ichiloto\Engine\Field\MapCollisionResolver;
+use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 
@@ -110,4 +112,45 @@ it('loads the composed grid into the camera and validates event dimensions befor
     file_put_contents($paths['data'], '<?php throw new RuntimeException("data was executed");');
     expect(fn() => $manager->readSplitMap($paths))->toThrow(InvalidArgumentException::class, 'town/town.event.php row 0 must be 2 tiles wide');
     expect($camera->worldSpace)->toBe([[';', '#']]);
+});
+
+it('resolves collision from the top occupied glyph with per-layer overrides and pass-through', function () {
+    $layers = new MapLayerSet([
+        new MapLayer('terrain', 1, false, 'terrain', ';~~~ '),
+        new MapLayer('buildings', 2, false, 'buildings', 'axb? '),
+        new MapLayer('fixtures', 3, false, 'fixtures', " \e[33mi\e[0m   "),
+        new MapLayer('detail', 4, true, 'detail', 'xxxxx'),
+    ]);
+    $dictionary = [';' => CollisionType::ENCOUNTER, '~' => CollisionType::SOLID, ' ' => CollisionType::NONE,
+        'a' => CollisionType::PASS_THROUGH, 'b' => CollisionType::NONE, 'x' => CollisionType::SOLID,
+        'buildings' => ['x' => CollisionType::NONE], 'fixtures' => ['i' => CollisionType::PASS_THROUGH]];
+    expect(MapCollisionResolver::resolveLayers($layers, $dictionary))->toBe([[
+        CollisionType::ENCOUNTER->value, CollisionType::NONE->value, CollisionType::NONE->value,
+        CollisionType::SOLID->value, CollisionType::NONE->value,
+    ]]);
+});
+
+it('never stores pass-through as a final collision type even on the base layer', function () {
+    $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', 'x')]);
+    expect(MapCollisionResolver::resolveLayers($layers, ['x' => CollisionType::PASS_THROUGH]))
+        ->toBe([[CollisionType::SOLID->value]]);
+});
+
+it('rejects decoration collision sections and malformed layer dictionary values', function () {
+    $set = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', ' '),
+        new MapLayer('rugs', 2, true, 'rugs', 'x')]);
+    expect(fn() => MapCollisionResolver::resolveLayers($set, ['rugs' => ['x' => CollisionType::NONE]]))
+        ->toThrow(InvalidArgumentException::class, 'Decoration layer rugs');
+    expect(fn() => MapCollisionResolver::validateDictionary(['terrain' => ['x' => 'solid']]))
+        ->toThrow(InvalidArgumentException::class, 'layer terrain');
+});
+
+it('keeps the existing flat collision results on legacy and split maps', function () {
+    $manager = new ReflectionClass(MapManager::class)->newInstanceWithoutConstructor();
+    $text = ";~8\n ? ";
+    $set = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', $text)]);
+    $dictionary = [';' => CollisionType::ENCOUNTER, '~' => CollisionType::SOLID,
+        8 => CollisionType::SOLID, '?' => CollisionType::SAVE_POINT, ' ' => CollisionType::NONE];
+    expect($manager->generateLayerCollisionMap($set, $dictionary))
+        ->toBe($manager->generateCollisionMap(MapLayer::parseGrid($text), $dictionary));
 });

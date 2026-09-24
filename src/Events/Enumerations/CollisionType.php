@@ -18,4 +18,5 @@ enum CollisionType: int
   case SAVE_POINT = 6;
   case ENCOUNTER = 7;
   case COLLECTABLE = 8;
+  case PASS_THROUGH = 9;
 }

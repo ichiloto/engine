@@ -255,7 +255,7 @@ class MapManager implements CanRenderAt
    * PHP normalizes numeric-string array keys such as `"8"` to integers, so
    * single decimal digit keys are valid tile glyphs alongside string keys.
    *
-   * @return array<int|string, CollisionType> The collision dictionary.
+   * @return array<int|string, CollisionType|array<int|string, CollisionType>> The collision dictionary.
    * @throws NotFoundException
    */
   public function loadCollisionDictionary(string $filename): array
@@ -272,25 +272,10 @@ class MapManager implements CanRenderAt
       throw new NotFoundException("File $filename does not return an array.");
     }
 
-    if (!empty($dictionary)) {
-      foreach ($dictionary as $key => $value) {
-        $isSupportedKeyType = is_string($key) || is_int($key);
-        $isSingleGlyph = $isSupportedKeyType
-          && TerminalText::symbolCount((string) $key) === 1;
-
-        if (! $isSingleGlyph || ! ($value instanceof CollisionType)) {
-          $keyDescription = is_scalar($key) || $key === null
-            ? sprintf('%s(%s)', get_debug_type($key), var_export($key, true))
-            : get_debug_type($key);
-          $valueDescription = $value instanceof \UnitEnum
-            ? sprintf('%s::%s', $value::class, $value->name)
-            : (is_scalar($value) || $value === null
-              ? sprintf('%s(%s)', get_debug_type($value), var_export($value, true))
-              : get_debug_type($value));
-
-          throw new NotFoundException("Invalid dictionary entry: {$keyDescription} => {$valueDescription}");
-        }
-      }
+    try {
+      MapCollisionResolver::validateDictionary($dictionary);
+    } catch (InvalidArgumentException $error) {
+      throw new NotFoundException($error->getMessage(), previous: $error);
     }
 
     return $dictionary;
@@ -317,7 +302,7 @@ class MapManager implements CanRenderAt
   {
     $source = $this->prepareSplitMapDataFromFiles($this->resolveMapPaths($filename));
     $map = $source['data'];
-    $collisions = $this->generateCollisionMap($source['tiles'], $this->getCollisionDictionary());
+    $collisions = $this->generateLayerCollisionMap($source['layers'], $this->getCollisionDictionary());
     $mapTriggers = [];
     foreach ($map['triggers'] ?? [] as $trigger) {
       $mapTriggers[] = MapTrigger::tryFromArray($trigger);
@@ -446,7 +431,7 @@ class MapManager implements CanRenderAt
    * Generates a collision map from a tile map.
    *
    * @param array<int, string[]|string> $tilemap The tile map.
-   * @param array<int|string, CollisionType> $dictionary The dictionary that maps tile glyphs to collision types.
+   * @param array<int|string, CollisionType|array<int|string, CollisionType>> $dictionary The dictionary that maps tile glyphs to collision types.
    * @return int[][] The collision map.
    */
   public function generateCollisionMap(
@@ -467,13 +452,24 @@ class MapManager implements CanRenderAt
 
       foreach ($tiles as $tile) {
         $cleanedTile = ASCII::to_ascii(TerminalText::stripAnsi($tile));
-        $collisionRow[] = $dictionary[$cleanedTile]->value ?? CollisionType::SOLID->value;
+        $type = $dictionary[$cleanedTile] ?? CollisionType::SOLID;
+        $collisionRow[] = $type instanceof CollisionType && $type !== CollisionType::PASS_THROUGH
+          ? $type->value : CollisionType::SOLID->value;
       }
 
       $collisionMap[] = $collisionRow;
     }
 
     return $collisionMap;
+  }
+
+  /**
+   * @param array<int|string, CollisionType|array<int|string, CollisionType>> $dictionary
+   * @return int[][]
+   */
+  public function generateLayerCollisionMap(MapLayerSet $layers, array $dictionary = []): array
+  {
+    return MapCollisionResolver::resolveLayers($layers, $dictionary ?: $this->defaultCollisionDictionary);
   }
 
   /**
@@ -568,7 +564,7 @@ class MapManager implements CanRenderAt
   /**
    * Gets the collision dictionary from a file.
    *
-   * @return array<int|string, CollisionType> The collision dictionary.
+   * @return array<int|string, CollisionType|array<int|string, CollisionType>> The collision dictionary.
    * @throws NotFoundException If the file is not found.
    */
   protected function getCollisionDictionary(): array
