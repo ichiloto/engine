@@ -10,6 +10,14 @@ use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 
+final class LayeredMapManagerProbe extends MapManager
+{
+    public function readSplitMap(array $paths): array
+    {
+        return $this->readSplitMapDataFromFiles($paths);
+    }
+}
+
 beforeEach(function () {
     $this->directory = sys_get_temp_dir() . '/ichiloto-layers-' . bin2hex(random_bytes(8));
     mkdir($this->directory . '/layers', recursive: true);
@@ -79,7 +87,7 @@ it('refuses a bad layer before executing map data and preserves the active camer
     writeLayerGrid($this->directory, 'layers/01.floor.map.php', 'xx');
     writeLayerGrid($this->directory, 'town.event.php', '  ');
     file_put_contents($this->directory . '/layers/02.wall.map.php', "<?php\nreturn explode('x', 'x');");
-    $manager = new ReflectionClass(SplitMapManagerProbe::class)->newInstanceWithoutConstructor();
+    $manager = new ReflectionClass(LayeredMapManagerProbe::class)->newInstanceWithoutConstructor();
     $scene = new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();
     $camera = new Camera(makeCameraTestScene(), 8, 4, worldSpace: [['old']]);
     new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
@@ -101,7 +109,7 @@ it('loads the composed grid into the camera and validates event dimensions befor
     writeLayerGrid($this->directory, 'layers/02.wall.map.php', ' #');
     writeLayerGrid($this->directory, 'town.event.php', '  ');
     file_put_contents($paths['data'], '<?php return ["name" => "Town"];');
-    $manager = new ReflectionClass(SplitMapManagerProbe::class)->newInstanceWithoutConstructor();
+    $manager = new ReflectionClass(LayeredMapManagerProbe::class)->newInstanceWithoutConstructor();
     $scene = new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();
     $camera = new Camera(makeCameraTestScene(), 8, 4);
     new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
