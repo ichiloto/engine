@@ -30,6 +30,7 @@ final class SettingsMenuPresentation
     $setting = $menu->settings[$menu->activeIndex] ?? null;
     $description = $setting?->description ?? ($menu->backFocused ? 'Return to the previous menu.' : 'No settings available.');
     $status = $menu->status ?? '';
+    $showError = $menu->statusError && $status !== '';
     $detailHeight = 3 * $m->cellHeight + $gap;
     $cancelWidth = MenuLayout::getButtonWidth($theme, $menu->backLabel, $innerWidth);
     $hints = [ActionHints::resolve('confirm', 'Next'), ActionHints::resolve('cancel', 'Cancel')];
@@ -116,10 +117,10 @@ final class SettingsMenuPresentation
         array_sum(array_slice($heights, 0, $first)), $y - $listTop, array_sum($heights));
     }
     $controls->renderDivider('config-description-divider', new CanvasRectangle($x, $detailTop - $gap, $innerWidth, max(1, $gap / 2)));
-    $view->prose('config-description-title', 'Description', new CanvasRectangle($x, $detailTop, $innerWidth, $m->cellHeight), 'accent');
+    $view->prose('config-description-title', $showError ? 'Status' : 'Description', new CanvasRectangle($x, $detailTop, $innerWidth, $m->cellHeight), 'accent');
     MenuInfoPanel::renderContent($view, 'config',
       new CanvasRectangle($x, $detailTop + $m->cellHeight + $gap, $innerWidth, 2 * $m->cellHeight),
-      $description, $status, $menu->statusError ? 'decrease' : 'disabled', $menu->info,
+      $showError ? '' : $description, $status, $menu->statusError ? 'decrease' : 'disabled', $menu->info,
       new CanvasRectangle($x + $innerWidth / 2, $detailTop, $innerWidth / 2, $m->cellHeight));
     $footerY = $box->y + $box->height - $p - $footerHeight;
     if ($hintHeight > 0) {

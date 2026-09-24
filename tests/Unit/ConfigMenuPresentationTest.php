@@ -205,6 +205,9 @@ it('shows plain session-only save feedback without resizing or inventing rollbac
     do {
       $frame = ConfigMenuPresentation::compose($this->menu, $theme);
       $page = $this->menu->menuInfoText->lastPage;
+      if ($page->first === 0) {
+        expect(implode(' ', $page->lines))->toContain('Could not save settings.');
+      }
       $cancel = getConfigTextPosition($frame, 'Cancel');
       $footer ??= $cancel;
       expect($cancel)->toEqual($footer)->and($page->rows)->toBe(2);
@@ -218,9 +221,8 @@ it('shows plain session-only save feedback without resizing or inventing rollbac
       }
       $this->menu->menuInfoText->advance();
     } while ($page->nextOffset !== 0);
-    expect($seen)->toBe($this->menu->selection->getActiveSetting()->description
-      . 'Could not save settings. Your choice is active for this session.')
-      ->not->toContain($failure);
+    expect($seen)->toBe('Could not save settings. Your choice is active for this session.')
+      ->not->toContain($failure, $this->menu->selection->getActiveSetting()->description);
   }
   expect($this->config->get('audio.master_volume'))->toBe(85)
     ->and($this->menu->hasStatusError())->toBeTrue()

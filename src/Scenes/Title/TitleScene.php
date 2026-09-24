@@ -22,6 +22,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Scenes\AbstractScene;
 use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Ichiloto\Engine\UI\SelectionStyle;
+use Ichiloto\Engine\UI\Text\MenuInfoText;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\SaveSlotWindow;
 use Ichiloto\Engine\UI\Windows\Window;
@@ -43,6 +44,7 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
   protected const int TITLE_OPTIONS_MIN_WIDTH = 34;
   protected const int TITLE_OPTIONS_HORIZONTAL_PADDING = 4;
   protected const int TITLE_OPTIONS_COLUMN_GAP = 2;
+  protected const int TITLE_OPTIONS_STATUS_ROWS = 2;
   protected const string TITLE_OPTIONS_TITLE = 'Options';
   protected const string TITLE_OPTIONS_HELP = 'Esc:Back';
   protected const int CONTINUE_MENU_WIDTH = 110;
@@ -652,7 +654,7 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
       $this->optionStatusMessage = null;
     } catch (Throwable $error) {
       Debug::warn('Could not save title settings: ' . $error->getMessage());
-      $this->optionStatusMessage = 'Could not save settings. Your choice is active for this session.';
+      $this->optionStatusMessage = "Could not save settings.\nChoice kept for this session.";
     }
     $this->renderOptionsMenu();
   }
@@ -725,6 +727,8 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
     }
 
     $content[] = $backLine;
+    $status = ($this->titleInfoText ??= new MenuInfoText())->getPage('', $this->optionStatusMessage, $availableWidth);
+    array_push($content, ...array_pad($status->lines, self::TITLE_OPTIONS_STATUS_ROWS, ''));
 
     $this->optionsWindow->setContent(array_pad($content, $windowHeight - 2, ''));
     $this->optionsWindow->render();
@@ -745,7 +749,7 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
       TerminalText::displayWidth(self::TITLE_OPTIONS_TITLE) + 3,
       TerminalText::displayWidth(self::TITLE_OPTIONS_HELP) + 3,
     );
-    $height = count($this->options) + 3;
+    $height = count($this->options) + 3 + self::TITLE_OPTIONS_STATUS_ROWS;
 
     return [
       'width' => min(get_screen_width(), $width),
