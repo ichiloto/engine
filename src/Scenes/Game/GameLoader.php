@@ -86,7 +86,15 @@ class GameLoader
     $party = new Party();
 
     foreach ($systemData->startingParty as $member) {
-      $party->addMember($this->actorStore->requireStartingPartyActor(strval($member))->createCharacter());
+      try {
+        $actor = $this->actorStore->requireStartingPartyActor(strval($member));
+      } catch (RuntimeException $failure) {
+        throw new RuntimeException(sprintf(
+          'assets/Data/system.php: startingParty actor "%s" cannot be resolved. Run ichiloto validate --migrate-actor-ids to repair actor IDs and references.',
+          strval($member),
+        ), previous: $failure);
+      }
+      $party->addMember($actor->createCharacter());
     }
     if ($systemData->currency->amount) {
       $party->accountBalance = $systemData->currency->amount;
