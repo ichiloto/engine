@@ -76,7 +76,7 @@ it('keeps terminal composition exact while unmapped gameplay glyphs and decorati
     $camera = new Camera(makeCameraTestScene(), 8, 4, worldSpace: $set->getComposedGrid());
     $camera->renderMap();
     $expected = Console::snapshot();
-    Console::recomposeFrame(fn() => $camera->renderMap($set));
+    Console::recomposeFrame(fn() => $camera->renderLayeredMap($set));
     expect(Console::snapshot())->toEqual($expected);
     $batches = new GraphicalTileCollector()->collectLayers($set, $definitions, $camera);
     $mask = [];
@@ -112,7 +112,7 @@ it('preserves camera clipping centering ragged rows and wide-glyph fallback acro
         $camera->moveTo($x, $y);
         Console::recomposeFrame($camera->renderMap(...));
         $expected = Console::snapshot();
-        Console::recomposeFrame(fn() => $camera->renderMap($set));
+        Console::recomposeFrame(fn() => $camera->renderLayeredMap($set));
         expect(Console::snapshot())->toEqual($expected);
     }
 })->with(['xx', "x\nxxx", 'xx界xx', 'xxxxxxxx界x', ";e\e[0m\u{0301}界;a"]);
@@ -126,4 +126,21 @@ it('does not map any layer onto cells shifted by a composed wide glyph', functio
     $camera = new Camera(makeCameraTestScene(), 8, 4, worldSpace: $set->getComposedGrid());
     $batches = new GraphicalTileCollector()->collectLayers($set, $definitions, $camera);
     expect($batches[0]->cells)->toBe([['column' => 2, 'row' => 1, 'source' => 0]]);
+});
+
+it('retains the no-argument camera override contract alongside layered rendering', function () {
+    $set = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', 'xx')]);
+    $camera = new class(makeCameraTestScene(), 8, 4, worldSpace: $set->getComposedGrid()) extends Camera {
+        public int $renderCount = 0;
+
+        public function renderMap(): void
+        {
+            $this->renderCount++;
+            parent::renderMap();
+        }
+    };
+    Console::recomposeFrame($camera->renderMap(...));
+    $expected = Console::snapshot();
+    Console::recomposeFrame(fn() => $camera->renderLayeredMap($set));
+    expect($camera->renderCount)->toBe(1)->and(Console::snapshot())->toEqual($expected);
 });

@@ -484,7 +484,7 @@ class MapManager implements CanRenderAt
   public function render(?int $x = null, ?int $y = null): void
   {
     if ($this->layers !== null && !$this->layers->legacy && $this->layerTiles2d !== []) {
-      $this->camera->renderMap($this->layers);
+      $this->camera->renderLayeredMap($this->layers);
       return;
     }
     $this->tiles2d === null ? $this->camera->renderMap()

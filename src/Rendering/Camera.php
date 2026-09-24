@@ -164,7 +164,17 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
    *
    * @return void
    */
-  public function renderMap(?MapLayerSet $layers = null): void
+  public function renderMap(): void
+  {
+    $this->renderMapRows();
+  }
+
+  public function renderLayeredMap(MapLayerSet $layers): void
+  {
+    $this->renderMapRows($layers);
+  }
+
+  private function renderMapRows(?MapLayerSet $layers = null): void
   {
     $renderOffset = $this->getRenderOffset();
     $visibleWidth = $this->getVisibleWorldWidth();
