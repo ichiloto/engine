@@ -393,15 +393,50 @@ it('reports unknown actors unknown stats and malformed deltas without mutation',
   $state = new GameState();
   $actorStore = new ActorStore(dirname(__DIR__) . '/Fixtures/Actors');
 
-  expect(fn() => new BattleEntryRuleCatalog(['rules' => [
+  // Invalid actor references now disable that rule, not the whole game startup.
+  $catalog = new BattleEntryRuleCatalog(['rules' => [
     battleEntryRule(actor: 'actor.missing'),
-  ]], 'unknown actor fixture', $actorStore))->toThrow(InvalidArgumentException::class, 'actor.missing')
+  ]], 'unknown actor fixture', $actorStore);
+  expect($catalog->rules())->toBe([])
+    ->and($catalog->getDiagnostics())->toHaveCount(1)
+    ->and($catalog->getDiagnostics()[0])->toContain('actor.missing', 'rule.test', 'actors[0]', 'disabled')
     ->and(fn() => new BattleEntryRuleCatalog(['rules' => [battleEntryRule(stat: 'luck')]], 'unknown stat fixture'))
     ->toThrow(InvalidArgumentException::class, 'field "stat"')
     ->and(fn() => new BattleEntryRuleCatalog(['rules' => [battleEntryRule(delta: '1')]], 'delta fixture'))
     ->toThrow(InvalidArgumentException::class, 'field "delta"')
     ->and($state->toArray())->toBe((new GameState())->toArray());
 });
+
+it('disables only the rule with an invalid actor predicate or effect and still runs valid rules', function (string $field, mixed $reference) {
+  $store = new ActorStore(dirname(__DIR__) . '/Fixtures/Actors');
+  $invalid = battleEntryRule('rule.invalid', actor: 'actor.hero', writes: [
+    ['type' => 'variable', 'key' => 'invalid.applied', 'value' => true],
+  ]);
+  $invalid[$field][0]['actor'] = $reference;
+  $catalog = new BattleEntryRuleCatalog(['rules' => [
+    battleEntryRule('rule.first', actor: 'actor.hero'),
+    $invalid,
+    battleEntryRule('rule.last', actor: ' ACTOR.HERO ', stat: 'grace'),
+  ]], 'mixed rules fixture', $store);
+  $hero = $store->require('actor.hero', 'test')->createCharacter();
+  $party = new Party();
+  $party->addMember($hero);
+  $state = new GameState();
+  (new BattleEntryRuleRunner($catalog))->apply(new BattleConfig($party, new Troop('Encounter')), $state);
+  expect(array_map(static fn($rule) => $rule->id, $catalog->rules()))->toBe(['rule.first', 'rule.last'])
+    ->and($catalog->has('rule.invalid'))->toBeFalse()
+    ->and($catalog->getDiagnostics())->toHaveCount(1)
+    ->and($catalog->getDiagnostics()[0])->toContain('mixed rules fixture', 'rule.invalid', $field . '[0]', 'disabled')
+    ->and($hero->getStatStage('speed'))->toBe(1)
+    ->and($hero->getStatStage('grace'))->toBe(1)
+    ->and($state->toArray())->toBe((new GameState())->toArray());
+})->with([
+  'unknown predicate' => ['actors', 'missing.actor'],
+  'display name is not an id' => ['actors', 'Hero'],
+  'unknown effect' => ['effects', 'missing.actor'],
+  'empty predicate' => ['actors', ''],
+  'malformed effect' => ['effects', 42],
+]);
 
 it('fails atomically when a matched rule targets an actor absent from the entry roster', function () {
   [$party, $actors] = battleEntryTestParty();
@@ -419,6 +454,51 @@ it('fails atomically when a matched rule targets an actor absent from the entry 
     new GameState(),
   ))->toThrow(RuntimeException::class, 'actor.missing')
     ->and($actors['actor.alpha']->getStatStage('speed'))->toBe(0);
+});
+
+it('continues real Game startup with disabled bad actor rules and logs their file and field', function () {
+  $root = sys_get_temp_dir() . '/ichiloto-battle-entry-startup-' . uniqid();
+  mkdir($root . '/assets/Data/Actors', 0777, true);
+  file_put_contents($root . '/ichiloto.json', '{"id":"battle-entry-startup-fixture"}');
+  file_put_contents($root . '/assets/Data/save-compatibility.php', '<?php return ["contentVersion" => 0];');
+  file_put_contents($root . '/config.php', '<?php return ["audio" => ["music" => false, "sfx" => false, "voice" => false]];');
+  foreach (['input.php', 'assets/Data/system.php', 'assets/Data/items.php', 'assets/Data/enemies.php'] as $path) {
+    file_put_contents($root . '/' . $path, '<?php return [];');
+  }
+  copy(dirname(__DIR__) . '/Fixtures/Actors/FoundationHero.php', $root . '/assets/Data/Actors/Hero.php');
+  $effectRule = battleEntryRule('rule.bad-effect', actor: 'actor.hero');
+  $effectRule['effects'][0]['actor'] = 'stale.effect';
+  $rules = ['rules' => [
+    battleEntryRule('rule.valid-before', actor: 'actor.hero'),
+    battleEntryRule('rule.bad-predicate', actor: 'stale.predicate'),
+    $effectRule,
+    battleEntryRule('rule.valid-after', actor: 'actor.hero', stat: 'grace'),
+  ]];
+  $rulePath = $root . '/assets/Data/battle-entry-rules.php';
+  file_put_contents($rulePath, '<?php return ' . var_export($rules, true) . ';');
+  try {
+    $process = proc_open([PHP_BINARY, __DIR__ . '/../Support/BattleEntryStartupProbe.php'],
+      [0 => ['pipe', 'r'], 1 => ['file', $root . '/stdout', 'w'], 2 => ['file', $root . '/stderr', 'w']],
+      $pipes, $root, array_replace(getenv(), ['ICHILOTO_RENDERER' => 'terminal', 'TERM' => 'dumb', 'COLUMNS' => '117', 'LINES' => '31']));
+    expect(is_resource($process))->toBeTrue();
+    fclose($pipes[0]);
+    $exit = proc_close($process);
+    $errors = file_get_contents($root . '/stderr') . (is_file($root . '/logs/error.log') ? file_get_contents($root . '/logs/error.log') : '');
+    $this->assertSame(0, $exit, $errors);
+    $result = json_decode(file_get_contents($root . '/result.json'), true, flags: JSON_THROW_ON_ERROR);
+    expect($result['rules'])->toBe(['rule.valid-before', 'rule.valid-after'])
+      ->and($result['speed'])->toBe(1)->and($result['grace'])->toBe(1)
+      ->and($result['diagnostics'])->toHaveCount(2)
+      ->and($result['diagnostics'][0])->toContain($rulePath, 'rule.bad-predicate', 'actors[0]', 'stale.predicate', 'disabled')
+      ->and($result['diagnostics'][1])->toContain($rulePath, 'rule.bad-effect', 'effects[0]', 'stale.effect', 'disabled')
+      ->and(file_get_contents($root . '/stdout'))->toBe('');
+    $log = file_get_contents($root . '/logs/warning.log');
+    foreach ($result['diagnostics'] as $diagnostic) { expect($log)->toContain($diagnostic); }
+  } finally {
+    $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
+    foreach ($files as $file) { $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname()); }
+    rmdir($root);
+  }
 });
 
 it('rolls back an earlier effect when a later effect fails', function () {
