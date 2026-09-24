@@ -765,6 +765,18 @@ class MapManager implements CanRenderAt
     return $prepared['data'];
   }
 
+  /** Clears loaded geometry and presentation together for map preview lifecycles. */
+  protected function clearMapGeometry(): void
+  {
+    $this->tileMap = [];
+    $this->collisionMap = [];
+    $this->tiles2d = null;
+    $this->layers = null;
+    $this->layerTiles2d = [];
+    $this->calculateMapDimensions();
+    $this->camera->worldSpace = [];
+  }
+
   /**
    * @param array{id: string, data: string, map: string, event: string} $paths
    * @return array{data: array<string, mixed>, tiles: array<int, string[]>, tiles2d: ?GraphicalTileDefinition, layers: MapLayerSet, layerTiles2d: array<string, GraphicalTileDefinition>}

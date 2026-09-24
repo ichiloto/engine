@@ -16,6 +16,11 @@ final class LayeredMapManagerProbe extends MapManager
     {
         return $this->readSplitMapDataFromFiles($paths);
     }
+
+    public function unloadGeometry(): void
+    {
+        $this->clearMapGeometry();
+    }
 }
 
 beforeEach(function () {
@@ -121,6 +126,36 @@ it('loads the composed grid into the camera and validates event dimensions befor
     expect(fn() => $manager->readSplitMap($paths))->toThrow(InvalidArgumentException::class, 'town/town.event.php row 0 must be 2 tiles wide');
     expect($camera->worldSpace)->toBe([[';', '#']]);
 });
+
+it('clears layered and legacy geometry together when a preview unloads', function (bool $layered) {
+    $paths = ['id' => 'town', 'data' => $this->directory . '/town.data.php',
+        'map' => $this->directory . '/town.map.php', 'event' => $this->directory . '/town.event.php'];
+    $atlas = ['asset' => 'tiles.png', 'symbols' => ['x' => ['x' => 0, 'y' => 0, 'width' => 16, 'height' => 16]]];
+    if ($layered) {
+        writeLayerGrid($this->directory, 'layers/01.terrain.map.php', 'xx');
+        $tiles = ['layers' => ['terrain' => $atlas]];
+    } else {
+        rmdir($this->directory . '/layers');
+        writeLayerGrid($this->directory, 'town.map.php', 'xx');
+        $tiles = $atlas;
+    }
+    writeLayerGrid($this->directory, 'town.event.php', '  ');
+    file_put_contents($paths['data'], '<?php return ' . var_export(['tiles2d' => $tiles], true) . ';');
+    $manager = new ReflectionClass(LayeredMapManagerProbe::class)->newInstanceWithoutConstructor();
+    $scene = new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();
+    $camera = new Camera(makeCameraTestScene(), 8, 4);
+    new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
+    new ReflectionProperty(MapManager::class, 'gameScene')->setValue($manager, $scene);
+    $manager->readSplitMap($paths);
+    $collision = new ReflectionProperty(MapManager::class, 'collisionMap');
+    $collision->setValue($manager, [[0, 0]]);
+    expect($manager->layerTiles2d)->toHaveCount(1)->and($camera->worldSpace)->toBe([['x', 'x']]);
+    $manager->unloadGeometry();
+    expect($manager->layers)->toBeNull()->and($manager->tiles2d)->toBeNull()
+        ->and($manager->layerTiles2d)->toBe([])->and($manager->tileMap)->toBe([])
+        ->and($collision->getValue($manager))->toBe([])->and($camera->worldSpace)->toBe([])
+        ->and($manager->mapWidth)->toBe(0)->and($manager->mapHeight)->toBe(0);
+})->with([true, false]);
 
 it('resolves collision from the top occupied glyph with per-layer overrides and pass-through', function () {
     $layers = new MapLayerSet([
