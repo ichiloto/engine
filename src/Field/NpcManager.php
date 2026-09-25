@@ -5,9 +5,15 @@ namespace Ichiloto\Engine\Field;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Quests\QuestManager;
+use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
+use Ichiloto\Engine\Rendering\Sprites\DirectionalGraphicalSpriteSet;
+use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderInterface;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Util\Debug;
+use InvalidArgumentException;
 use RuntimeException;
 
 /**
@@ -52,7 +58,7 @@ class NpcManager
     $npcs = [];
     $ids = [];
 
-    foreach ($entries as $entry) {
+    foreach (array_values($entries) as $index => $entry) {
       if (! is_array($entry)) {
         continue;
       }
@@ -87,6 +93,7 @@ class NpcManager
         $ids[$id] = true;
       }
 
+      $graphicalSprites = $this->loadGraphicalSprites($entry, $mapId, $id !== '' ? $id : "entry:$index ($name)");
       $npcs[] = new Npc(
         name: $name,
         sprite: strval($entry['sprite'] ?? '@'),
@@ -99,6 +106,11 @@ class NpcManager
         sets: array_values(array_filter((array) ($entry['sets'] ?? []), is_array(...))),
         id: $id !== '' ? $id : null,
         directionalSprites: is_array($entry['sprites'] ?? null) ? $entry['sprites'] : [],
+        graphicalSprites: $graphicalSprites,
+        graphicalSpriteId: 'npc:map:' . rawurlencode($mapId) . ':'
+          . ($id !== '' ? 'id:' . rawurlencode($id) : 'entry:' . $index),
+        assetRoot: $graphicalSprites === null ? null
+          : ($this->gameScene->getGame()->getRendererRuntime()?->getAssetRoot() ?? getcwd() . '/assets'),
       );
     }
 
@@ -108,7 +120,62 @@ class NpcManager
   /** @param Npc[] $npcs */
   public function applyPreparedNpcs(array $npcs): void
   {
+    $this->stopGraphicalAnimation();
     $this->npcs = $npcs;
+  }
+
+  /** Malformed optional art must not abort map loading or remove a gameplay subject. */
+  private function loadGraphicalSprites(array $entry, string $mapId, string $identity): ?DirectionalGraphicalSpriteSet
+  {
+    if (!array_key_exists('sprites2d', $entry)) {
+      return null;
+    }
+    try {
+      if (!is_array($entry['sprites2d'])) {
+        throw new InvalidArgumentException('sprites2d must be a complete directional definition array.');
+      }
+      $sprites = DirectionalGraphicalSpriteSet::fromArray($entry['sprites2d']);
+      foreach ([$sprites->north, $sprites->east, $sprites->south, $sprites->west] as $definition) {
+        if ($definition->layer < PresentationLayerPolicy::WORLD || $definition->layer >= PresentationLayerPolicy::UI) {
+          throw new InvalidArgumentException('Automatic Game world sprites require layers 0..999; UI layers are reserved.');
+        }
+      }
+      return $sprites;
+    } catch (InvalidArgumentException $error) {
+      Debug::warn(sprintf('NPC "%s" on map "%s" has invalid sprites2d; keeping terminal sprite: %s',
+        $identity, $mapId, $error->getMessage()));
+      return null;
+    }
+  }
+
+  /** @return list<GraphicalSpriteProviderInterface> Same subjects as ordinary terminal rendering. */
+  public function getGraphicalSpriteProviders(): array
+  {
+    return array_values(array_filter($this->npcs, $this->isPresentationVisible(...)));
+  }
+
+  /** Called alongside the Player/staged-actor tick, including during event routes. */
+  public function advanceGraphicalAnimation(float $seconds): void
+  {
+    foreach ($this->npcs as $npc) {
+      if ($this->isPresentationVisible($npc)) {
+        $npc->advanceGraphicalAnimation($seconds);
+      } else {
+        $npc->stopGraphicalAnimation();
+      }
+    }
+  }
+
+  public function stopGraphicalAnimation(): void
+  {
+    foreach ($this->npcs as $npc) {
+      $npc->stopGraphicalAnimation();
+    }
+  }
+
+  private function isPresentationVisible(Npc $npc): bool
+  {
+    return $this->conditionsHold($npc->conditions) && !($this->gameScene->cinematicStage?->suppresses($npc) ?? false);
   }
 
   /**
@@ -153,8 +220,10 @@ class NpcManager
 
   protected function renderNpc(Npc $npc): void
   {
-    if ($this->conditionsHold($npc->conditions) && !($this->gameScene->cinematicStage?->suppresses($npc) ?? false)) {
-      $this->gameScene->camera->renderOnScreen([$npc->sprite], $npc->position);
+    if ($this->isPresentationVisible($npc)) {
+      Console::withLayer($npc->getGraphicalSpriteId(), function () use ($npc): void {
+        $this->gameScene->camera->renderOnScreen([$npc->sprite], $npc->position);
+      });
     }
   }
 
@@ -221,6 +290,7 @@ class NpcManager
         && intval($player->position->x) === $destinationX
         && intval($player->position->y) === $destinationY)
     ) {
+      $npc->stopGraphicalAnimation();
       $this->gameScene->cinematicStage?->subjectStopped($npc);
       return false;
     }
@@ -229,6 +299,7 @@ class NpcManager
     $npc->face($direction);
     $npc->position->x = $destinationX;
     $npc->position->y = $destinationY;
+    $this->beginGraphicalStep($npc);
     $this->gameScene->cinematicStage?->subjectMoved($npc);
     $this->renderNpc($npc);
 
@@ -252,6 +323,7 @@ class NpcManager
 
     $this->eraseNpc($npc);
     $npc->face($direction);
+    $npc->stopGraphicalAnimation();
     $this->gameScene->cinematicStage?->subjectStopped($npc);
     $this->renderNpc($npc);
 
@@ -300,8 +372,18 @@ class NpcManager
     $npc->face(new Vector2($dx, $dy));
     $npc->position->x = $destinationX;
     $npc->position->y = $destinationY;
+    $this->beginGraphicalStep($npc);
     $this->gameScene->cinematicStage?->subjectMoved($npc);
     $this->renderNpc($npc);
+  }
+
+  private function beginGraphicalStep(Npc $npc): void
+  {
+    if ($this->isPresentationVisible($npc)) {
+      $npc->beginGraphicalStep();
+    } else {
+      $npc->stopGraphicalAnimation();
+    }
   }
 
   /**

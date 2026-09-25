@@ -70,14 +70,65 @@ use Override;
 use Throwable;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot;
+use Ichiloto\Engine\Rendering\FieldViewport;
+use Ichiloto\Engine\Rendering\Presentation\FrameViewportProviderInterface;
+use Ichiloto\Engine\Rendering\Presentation\PresentationViewport;
+use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 
 /**
  * Class GameScene. Represents the game scene.
  *
  * @package Ichiloto\Engine\Scenes\Game
  */
-class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInterface, GraphicalTileProviderHostInterface, CanvasProviderInterface
+class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInterface, GraphicalTileProviderHostInterface, CanvasProviderInterface, FrameViewportProviderInterface
 {
+    private ?FieldViewport $fieldViewport = null;
+    private bool $reportedInvalidFieldZoom = false;
+    private bool $reportedUnsupportedFieldZoom = false;
+
+    /** Resolve camera dimensions before any field producer draws into Console. */
+    public function synchronizeFieldViewport(): void
+    {
+        $runtime = isset($this->sceneManager) ? $this->getGame()->getRendererRuntime() : null;
+        $grid = $runtime?->grid;
+        $requested = ConfigStore::has(ProjectConfig::class)
+            ? config(ProjectConfig::class, 'graphics.field.zoom', FieldViewport::DEFAULT_ZOOM) : FieldViewport::DEFAULT_ZOOM;
+        $zoom = FieldViewport::DEFAULT_ZOOM;
+        if ((is_float($requested) || is_int($requested)) && is_finite((float)$requested)
+            && $requested >= FieldViewport::MIN_ZOOM && $requested <= FieldViewport::MAX_ZOOM) {
+            $zoom = (float)$requested;
+        } elseif (!$this->reportedInvalidFieldZoom) {
+            Debug::warn('config.php graphics.field.zoom must be a finite number from 1 to 8; using 1x field scale.');
+            $this->reportedInvalidFieldZoom = true;
+        }
+        $supported = $runtime?->supports(RendererSessionConfig::FRAME_VIEWPORT) ?? false;
+        if ($runtime !== null && !$supported && $zoom !== FieldViewport::DEFAULT_ZOOM && !$this->reportedUnsupportedFieldZoom) {
+            Debug::warn('Renderer does not support frame_viewport; using 1x field scale. Update the renderer to enable field zoom.');
+            $this->reportedUnsupportedFieldZoom = true;
+        }
+        $previous = $this->fieldViewport;
+        $this->fieldViewport = $grid !== null && $supported && $zoom !== FieldViewport::DEFAULT_ZOOM
+            ? new FieldViewport($grid, $zoom) : null;
+        if ($this->fieldViewport === null && $previous === null) {
+            return;
+        }
+        $columns = $this->fieldViewport?->columns ?? Console::getWidth();
+        $rows = $this->fieldViewport?->rows ?? Console::getHeight();
+        if ($this->camera->screen->getWidth() !== $columns || $this->camera->screen->getHeight() !== $rows) {
+            $this->camera->resizeViewport($columns, $rows);
+            if ($this->player !== null && $this->camera->followsPlayer) {
+                $this->camera->resetPosition($this->player);
+            }
+        }
+    }
+
+    public function getPresentationViewport(ConsolePresentationSnapshot $snapshot, array $sprites, array $tiles): ?PresentationViewport
+    {
+        return $this->hasGraphicalFieldPresentation()
+            ? $this->fieldViewport?->createViewport($snapshot->textLayers, $sprites, $tiles) : null;
+    }
+
     public function getPresentationCanvas(): ?PresentationCanvas
     {
         return $this->state instanceof CanvasProviderInterface ? $this->state->getPresentationCanvas() : null;
@@ -101,6 +152,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
             foreach ($this->cinematicStage?->all() ?? [] as $actor) {
                 yield $actor;
             }
+            yield from $this->npcManager?->getGraphicalSpriteProviders() ?? [];
         }
     }
 
@@ -519,6 +571,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     public function setState(GameSceneState $state): void
     {
         $this->player?->stopGraphicalAnimation();
+        $this->npcManager?->stopGraphicalAnimation();
         $this->sceneStateContext = new SceneStateContext($this, $this->sceneStateContext);
         $this->state?->exit();
         $this->state = $state;
@@ -534,6 +587,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
             return;
         }
         $this->player?->advanceGraphicalAnimation(max(0.0, Time::getDeltaTime()));
+        $this->npcManager?->advanceGraphicalAnimation(max(0.0, Time::getDeltaTime()));
         $this->cinematicStage?->advanceGraphicalAnimation(max(0.0, Time::getDeltaTime()));
         parent::update();
         if ($this->isStopping || $this->sceneManager->currentScene !== $this) {
@@ -567,6 +621,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     public function suspend(): void
     {
         $this->player?->stopGraphicalAnimation();
+        $this->npcManager?->stopGraphicalAnimation();
         parent::suspend();
         $this->state->suspend();
     }

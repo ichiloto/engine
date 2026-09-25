@@ -32,7 +32,8 @@ final class RendererPresentation
    * @param list<PresentationTileBatch> $tileBatches
    * Returns true only when a changed frame was queued.
    */
-  public function present(ConsoleFrameSnapshot|ConsolePresentationSnapshot $snapshot, array $sprites = [], array $tileBatches = []): bool
+  public function present(ConsoleFrameSnapshot|ConsolePresentationSnapshot $snapshot, array $sprites = [], array $tileBatches = [],
+    ?PresentationViewport $viewport = null): bool
   {
     if ($snapshot->width !== $this->grid->columns || $snapshot->height !== $this->grid->rows) {
       throw new InvalidArgumentException('Console snapshot dimensions must match the fixed renderer session grid.');
@@ -47,10 +48,16 @@ final class RendererPresentation
       throw new RendererProtocolException('Graphical terrain requires protocol v2 and negotiated tile_batches support. Request it at startup and install an updated renderer.');
     }
     foreach ($tileBatches as $batch) { $batch->assertWithin($this->grid); }
+    if ($viewport !== null) {
+      if (!$snapshot instanceof ConsolePresentationSnapshot || !$this->client->supports(RendererSessionConfig::FRAME_VIEWPORT)) {
+        throw new RendererProtocolException('Viewport presentation requires protocol v2 and negotiated frame_viewport support.');
+      }
+      $viewport->assertWithin($this->grid);
+    }
     $preparation = LatencyTrace::getTimeNow();
     $number = $this->frameNumber < PHP_INT_MAX ? $this->frameNumber + 1 : $this->frameNumber;
     $message = $snapshot instanceof ConsolePresentationSnapshot
-      ? new StyledPresentationFrame($number, $snapshot->textLayers, $sprites, $tileBatches)->toRendererMessage()
+      ? new StyledPresentationFrame($number, $snapshot->textLayers, $sprites, $tileBatches, viewport: $viewport)->toRendererMessage()
       : new PresentationFrame($number, $snapshot->rows, $sprites)->toRendererMessage();
     LatencyTrace::end('presentation.message', $preparation);
     return $this->queue($message);

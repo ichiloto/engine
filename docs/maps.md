@@ -155,6 +155,65 @@ walls, approaches or safe arrival cells need separate save-compatibility review
 and migrations where old positions become unsafe. Do not hide such changes by
 updating the equivalence baseline.
 
+### Regular NPC sprites
+
+Map `npcs` entries may add optional `sprites2d` alongside the existing terminal
+`sprite` and directional `sprites`. It uses the same complete
+`DirectionalGraphicalSpriteSet` contract as the Player: either four cardinal
+pose definitions or the existing `mode: sheet` configuration with all four
+directions. Omit `sprites2d` for terminal-only NPCs; an explicit empty array,
+null, or incomplete set is invalid and produces a diagnostic with terminal
+fallback, without removing the NPC.
+
+```php
+'npcs' => [[
+  'id' => 'village-guide',
+  'name' => 'Guide',
+  'sprite' => '@',
+  'x' => 7, 'y' => 4,
+  'sprites2d' => [
+    'north' => ['asset' => 'Graphics/Guide/North.png', 'width' => 32, 'height' => 48, 'layer' => 100],
+    'east'  => ['asset' => 'Graphics/Guide/East.png',  'width' => 32, 'height' => 48, 'layer' => 100],
+    'south' => ['asset' => 'Graphics/Guide/South.png', 'width' => 32, 'height' => 48, 'layer' => 100],
+    'west'  => ['asset' => 'Graphics/Guide/West.png',  'width' => 32, 'height' => 48, 'layer' => 100],
+  ],
+]],
+```
+
+Assets are project-asset-root-relative PNG paths, not character identities.
+Display `width`/`height` are logical presentation sizes, not duplicated source
+image dimensions. The standard optional anchor defaults to `bottom_center`;
+world layers are 0..999. Shared limits require readable root-contained PNGs of
+at most 16 MiB and 4096 pixels per source dimension; authored crops and sheet
+grids must fit the current image. These are resource limits, not recommended
+artwork sizes. All four directions are preflighted before replacing any glyph.
+Missing files, invalid headers, unsafe paths, and out-of-bounds crops retain
+terminal art with a warning. Replacing a valid file at the same path requires
+no hash or source-dimension metadata update; preflight retries changed files.
+Full PNG decoding remains the native renderer's responsibility: a valid header
+with corrupt IDAT data is not detected by this PHP preflight, and recovery from
+that native decode failure is not supplied by the NPC sidecar.
+
+NPCs implement `GraphicalSpriteProviderInterface`.
+`NpcManager::getGraphicalSpriteProviders()` returns exactly the visible,
+cinematically unsuppressed ordinary NPCs; terminal-only providers return a null
+graphical definition. Each terminal fallback uses its provider's named Console
+layer, so graphical replacement masks only that NPC. Presentation IDs are
+map-scoped and use the existing stable NPC `id`; legacy id-less entries receive
+separate entry-based presentation IDs without changing script or save identity.
+Visibility, interaction, collision, conversation writes and movement stay owned
+by the existing NPC logic. Cinematic leases suppress ordinary NPC art until
+released, including while the staged actor is hidden.
+
+The scene advances `NpcManager::advanceGraphicalAnimation($seconds)` alongside
+Player/staged-actor animation, including event routes, and uses
+`stopGraphicalAnimation()` on presentation lifecycle boundaries. Successful
+steps use the shared `SpriteWalkAnimation`; facing, blocked movement, restored
+staging, and map replacement reset to idle. Reduced motion retains route
+outcomes and directional idle art without sheet animation. The regular-NPC
+Editor picker and safe source-preserving authoring workflow are coordinated
+separately; runtime support alone does not complete Editor authoring.
+
 ### Map-owned interactive fixtures
 
 A fixed interaction can keep its stable NPC `id`, dialogue and position while

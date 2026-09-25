@@ -9,7 +9,13 @@ use Ichiloto\Engine\Events\Interpreter\EventExecutionSession;
 use Ichiloto\Engine\Events\Interpreter\EventSessionCompletionTargetInterface;
 use Ichiloto\Engine\Messaging\Dialogue\ConditionalDialogue;
 use Ichiloto\Engine\Quests\QuestManager;
+use Ichiloto\Engine\Rendering\Sprites\DirectionalGraphicalSpriteAssetGuard;
+use Ichiloto\Engine\Rendering\Sprites\DirectionalGraphicalSpriteSet;
+use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
+use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderInterface;
+use Ichiloto\Engine\Rendering\Sprites\SpriteWalkAnimation;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\UI\Accessibility;
 
 /**
  * A field NPC: a sprite on the map the player can talk to.
@@ -36,7 +42,7 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
  *
  * @package Ichiloto\Engine\Field
  */
-class Npc implements EventSessionCompletionTargetInterface
+class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProviderInterface
 {
   /**
    * @var float The next time this NPC may take a wander step.
@@ -48,6 +54,9 @@ class Npc implements EventSessionCompletionTargetInterface
   /** @var array<int, array<string, mixed>> Variant writes awaiting script completion. */
   protected array $pendingConversationSets = [];
   protected bool $conversationIsActive = false;
+  private readonly string $graphicalSpriteId;
+  private readonly SpriteWalkAnimation $walkAnimation;
+  private readonly ?DirectionalGraphicalSpriteAssetGuard $graphicalAssetGuard;
 
   /**
    * @param string $name The NPC's name (talk-to quests match it).
@@ -61,6 +70,9 @@ class Npc implements EventSessionCompletionTargetInterface
    * @param array<int, array<string, mixed>> $sets World-state writes applied after each conversation.
    * @param string|null $id Stable map-local script identity.
    * @param array<string, string> $directionalSprites Optional cardinal sprite glyphs.
+   * @param DirectionalGraphicalSpriteSet|null $graphicalSprites Optional complete graphical set.
+   * @param string|null $graphicalSpriteId Map-scoped presentation identity, independent of script/save identity.
+   * @param string|null $assetRoot Project asset root for graphical preflight.
    */
   public function __construct(
     protected(set) string $name,
@@ -74,9 +86,58 @@ class Npc implements EventSessionCompletionTargetInterface
     protected(set) array $sets = [],
     protected(set) ?string $id = null,
     protected(set) array $directionalSprites = [],
+    private readonly ?DirectionalGraphicalSpriteSet $graphicalSprites = null,
+    ?string $graphicalSpriteId = null,
+    ?string $assetRoot = null,
   )
   {
     $this->id = $id !== null && trim($id) !== '' ? trim($id) : null;
+    $this->graphicalSpriteId = $graphicalSpriteId ?? 'npc:object:' . spl_object_id($this);
+    $this->walkAnimation = new SpriteWalkAnimation();
+    $this->graphicalAssetGuard = $graphicalSprites === null ? null : new DirectionalGraphicalSpriteAssetGuard(
+      $assetRoot ?? getcwd() . '/assets', $this->graphicalSpriteId,
+    );
+  }
+
+  public function getGraphicalSpriteId(): string
+  {
+    return $this->graphicalSpriteId;
+  }
+
+  public function getGraphicalSpriteDefinition(): ?GraphicalSpriteDefinition
+  {
+    if ($this->graphicalSprites === null || !$this->graphicalAssetGuard?->isAvailable($this->graphicalSprites)) {
+      return null;
+    }
+    $definition = $this->graphicalSprites->getForHeading($this->heading);
+    return Accessibility::prefersReducedMotion() ? $definition : $this->walkAnimation->present($definition);
+  }
+
+  public function getGraphicalSpriteWorldPosition(): Vector2
+  {
+    return clone $this->position;
+  }
+
+  public function beginGraphicalStep(): void
+  {
+    if ($this->graphicalSprites !== null && !Accessibility::prefersReducedMotion()) {
+      $this->walkAnimation->step($this->graphicalSprites->getForHeading($this->heading));
+    } else {
+      $this->stopGraphicalAnimation();
+    }
+  }
+
+  public function advanceGraphicalAnimation(float $seconds): void
+  {
+    $this->walkAnimation->advance($seconds);
+    if (Accessibility::prefersReducedMotion()) {
+      $this->stopGraphicalAnimation();
+    }
+  }
+
+  public function stopGraphicalAnimation(): void
+  {
+    $this->walkAnimation->stop();
   }
 
   /**
@@ -151,6 +212,7 @@ class Npc implements EventSessionCompletionTargetInterface
     $this->position->y = $position->y;
     $this->heading = $heading;
     $this->sprite = $sprite;
+    $this->stopGraphicalAnimation();
   }
 
   /**

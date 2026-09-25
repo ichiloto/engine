@@ -4,11 +4,13 @@ namespace Ichiloto\Engine\Rendering\Runtime;
 
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\IO\InputSources\InputSourceInterface;
 use Ichiloto\Engine\IO\InputSources\RendererInputSource;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
+use Ichiloto\Engine\Rendering\Presentation\FrameViewportProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTileBatch;
 use Ichiloto\Engine\Rendering\Presentation\RendererPresentation;
 use Ichiloto\Engine\Rendering\RendererClient;
@@ -39,6 +41,7 @@ final class RendererRuntime
   private bool $closed = false;
   private bool $closeRequested = false;
   public private(set) bool $windowActive = true;
+  public private(set) ?RendererGridConfig $grid = null;
 
   public function __construct(private readonly RendererRuntimeConfig $config, ?RendererTransportInterface $transport = null)
   {
@@ -54,6 +57,7 @@ final class RendererRuntime
       throw new LogicException('A RendererRuntime owns exactly one session.');
     }
     $grid = new RendererGridConfig($columns, $rows, $this->config->cellWidth, $this->config->cellHeight);
+    $this->grid = $grid;
     if (in_array(RendererSessionConfig::TILE_BATCHES, $this->config->requiredCapabilities, true)
       && $columns * $rows > PresentationTileBatch::MAX_CELLS) {
       throw new InvalidArgumentException(sprintf(
@@ -144,7 +148,10 @@ final class RendererRuntime
     $snapshot = $this->config->protocol === RendererProtocolVersion::V2
       ? Console::presentationSnapshot($excluded, $replaced) : Console::snapshot($excluded);
     LatencyTrace::end('presentation.snapshot', $snapshotStart);
-    $changed = $this->presentation->present($snapshot, $sprites, $tiles);
+    $viewport = $snapshot instanceof ConsolePresentationSnapshot && $scene instanceof FrameViewportProviderInterface
+      && $this->supports(RendererSessionConfig::FRAME_VIEWPORT)
+      ? $scene->getPresentationViewport($snapshot, $sprites, $tiles) : null;
+    $changed = $this->presentation->present($snapshot, $sprites, $tiles, $viewport);
     if ($changed) {
       // Begin delivery at the presentation boundary, not after Game/Timers sleep.
       // This is one bounded zero-wait pass; partial writes retain their remainder.

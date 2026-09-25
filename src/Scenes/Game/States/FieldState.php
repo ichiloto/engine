@@ -54,6 +54,7 @@ class FieldState extends GameSceneState
      */
     public function renderTheField(bool $forceFullRepaint = false): void
     {
+        $this->getGameScene()->synchronizeFieldViewport();
         Console::recomposeFrame(function (): void {
             $this->getGameScene()->mapManager->render();
             $this->getGameScene()->player->renderEventCues();

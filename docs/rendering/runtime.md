@@ -53,6 +53,29 @@ without renegotiation. An older binary must fail clearly before frames are sent.
 See [optional map terrain and the wire contract](tile-batches.md) and the
 [S8-B validation/publication gate](s8-b-validation.md) before installing this slice.
 
+## Field zoom
+
+Projects may set `graphics.field.zoom` in `config.php` to a number from 1 to 8
+(default 1). The Editor exposes this as **System > Field zoom**. This scales
+the field's terrain, decorations, terminal fallback glyphs and graphical actors
+together. Dialogue, notifications, menus and battle canvases keep their existing
+sizes. Zoom does not change world coordinates, collision or movement speed.
+
+The optional V2 `frame_viewport` capability is advertised by supporting renderers,
+never added to the minimum startup requirements. An older renderer continues at
+1x with a diagnostic when a project requests zoom; Native Terminal stays at its
+normal scale. PHP reduces the field camera to whole cells before drawing, keeps
+small maps centered and follows the player across larger maps. Changing back to
+1x restores the normal viewport. Menus omit the field transform entirely.
+
+Styled frames may carry a `viewport` object with `scale`, a pixel `origin`, a
+pixel `clipRect`, and explicit `textLayerIds`, `spriteIds` and `tileBatchIds`.
+Each membership list references unique items in that frame. The renderer applies
+one uniform transform and clip before fitting the session surface to the window;
+unlisted items remain unchanged. The renderer does not infer game layers or own
+the camera. Canvas frames and `viewport` are mutually exclusive; omitting
+`viewport` restores ordinary rendering without retained transform state.
+
 ## Development renderer updates
 
 Before starting a new graphical game process, Console's `ichiloto play` checks
