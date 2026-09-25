@@ -145,6 +145,21 @@ walls, approaches or safe arrival cells need separate save-compatibility review
 and migrations where old positions become unsafe. Do not hide such changes by
 updating the equivalence baseline.
 
+### Map-owned interactive fixtures
+
+A fixed interaction can keep its stable NPC `id`, dialogue and position while
+the gameplay layer supplies its appearance. Set that NPC's `sprite` explicitly
+to the empty string (`''`), and omit directional `sprites`. An omitted sprite
+still defaults to `@`; a space is not an empty sprite and would paint over the
+map. The empty sprite writes no cells, leaving both the terminal map glyph and
+its graphical crop visible without a second drawing above them.
+
+Keep the interaction anchored on the visible fixture cell, with a reachable
+approach cell beside it. The NPC still participates in interaction, conditions
+and occupancy. Its conditions control the interaction, not the authored map
+glyph; use a regular NPC sprite for an object whose appearance must move or
+disappear with the NPC. Map-owned fixtures should remain fixed.
+
 ## Regions
 
 `.data.php` gives a map its `name` and its `region`:
