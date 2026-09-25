@@ -113,6 +113,11 @@ dictionary, never from colour or a separate stored collision grid.
 
 Graphical crop mappings are also keyed by layer and symbol, so a symbol can have
 different crops on different layers without changing the terminal or collision.
+Optional per-cell crop overrides distinguish repeated symbols within one layer,
+for example the ends and middle of a multi-cell table. They select appearance
+only: authored glyphs and collision remain authoritative. Their coordinates are
+validated against the owning map layer, including ragged rows. Explicit artwork
+on blank cells does not make those cells occupied for gameplay.
 See [tile batches](rendering/tile-batches.md) for the `tiles2d` format, stacking
 and resource limits. All current map layers paint below the player; pass-through
 does not yet imply above-player drawing.
@@ -123,8 +128,13 @@ The Editor cycles through gameplay, decoration and event layers with independent
 visibility and dimming. Terminal preview shows the composed gameplay grid only.
 Vim, mouse, colour, selection and clipboard operations use the active layer.
 Event colours are authoring aids only; runtime event markers are read without
-colour tags. Crop bindings are read-only in the inspector, with a warning when
-painting a symbol that has a mapping on that layer.
+colour tags. Symbol crop defaults remain read-only in the inspector. The
+`Tile art: Edit selected cell` action opens a staged form for a cell override,
+using the shared project PNG picker and numeric crop fields. Apply and Remove
+are undoable; Cancel leaves the map unchanged. Changing a layer's atlas requires
+confirmation because every existing crop on that layer uses it. Opaque source
+edits are refused before writing, and painting warns when a symbol has a crop
+mapping or a cell override stays attached to that coordinate.
 
 Saves transact the whole changed file set. Untouched layer files are not written,
 and unchanged rows preserve their original bytes. Layer create, rename and remove

@@ -106,14 +106,17 @@ layer. For example, given `01.ground.map.php`, `02.floor.deco.php` and
 
 Here `ground:x` and `structures:x` deliberately select different crops; no
 colour inference is involved. The names are examples, not required Engine layer
-conventions. A layer entry contains only `symbols` and an optional `asset`;
-without a local asset it inherits the shared one. Unknown layer names and fields,
-empty symbol tables and missing effective atlas paths are rejected.
+conventions. A layer entry contains `symbols`, `cells`, or both, and an optional
+`asset`; without a local asset it inherits the shared one. Unknown layer names
+and fields, empty mapping definitions and missing effective atlas paths are
+rejected.
 
 Gameplay layers may omit the table or leave individual symbols unmapped. Every
-non-space decoration symbol must have a mapping. Upper-layer spaces, including
-decoration spaces, stay empty even if a space crop was declared; an explicitly
-mapped space on the base gameplay layer can render. Decoration never changes
+non-space decoration cell must have a symbol mapping or an explicit cell override.
+Upper-layer spaces, including decoration spaces, stay empty even if a space
+symbol crop was declared; an explicit cell override can place artwork at a
+particular blank cell. A mapped space on the base gameplay layer can render.
+Decoration never changes
 the composed terminal grid or collision. See [map layers](../maps.md) for source
 validation and collision precedence.
 
@@ -122,6 +125,44 @@ The collector emits one nonempty batch per mapped visible layer, with the ID
 atlas and overlap destination cells; cells within one batch remain unique.
 An empty/offscreen layer emits no batch. Frame replacement clears any batch
 that is no longer emitted. The legacy collector keeps its `terrain` ID.
+
+### Cell-specific artwork
+
+Repeated terminal symbols need not repeat the same picture. A table drawn as
+`###` can use separate left, middle and right image crops without changing those
+symbols, the collision dictionary, or its interaction. Add a `cells` list to
+the owning layer's definition (or the flat definition on a legacy map):
+
+```php
+'fixtures' => [
+    'asset' => 'Graphics/Tilesets/Furniture.png',
+    'symbols' => ['#' => ['x' => 16, 'y' => 0, 'width' => 16, 'height' => 32]],
+    'cells' => [
+        ['column' => 4, 'row' => 2,
+         'source' => ['x' => 0, 'y' => 0, 'width' => 16, 'height' => 32]],
+        ['column' => 6, 'row' => 2,
+         'source' => ['x' => 32, 'y' => 0, 'width' => 16, 'height' => 32]],
+    ],
+],
+```
+
+Coordinates are zero-based logical map cells, never screen or image coordinates.
+The explicit cell takes precedence over the symbol default. `symbols` may be
+omitted when all mappings are explicit. Each cell has exactly `column`, `row`
+and `source`; coordinates must be nonnegative integers within the actual
+authored row, including ragged maps. Duplicate positions, unknown fields and
+invalid rectangles are refused with map context before replacing active geometry.
+Overrides share the existing deduplicated 256-source layer catalog and have a
+32,768-entry authored limit; visible output shares the frame budgets above.
+
+These positions select fidelity only, not gameplay identity. Supplemental art
+may occupy blank cells of a sparse fixture footprint without making them solid.
+Only text contributed by the owning layer is replaced; art on a decoration layer
+does not suppress a different fixture or an NPC. Keep map-owned objects' crops
+on their contributing gameplay layer so transparent corners reveal lower map
+art, not the object's old text backing. Later player, dialogue and UI content
+remains intact. Wide/shifted glyphs retain the existing text fallback even when
+an override is present. The renderer protocol and binary are unchanged.
 
 ### Mixed interior materials
 

@@ -35,9 +35,9 @@ final class GraphicalTileCollector
           $cell = $layer->grid[$y][$x];
           $metrics[$cell] ??= [TerminalText::stripAnsi($cell), NormalizedRow::symbolWidth($cell)];
           [$glyph, $cellWidth] = $metrics[$cell];
-          $source = $definition->symbols[$glyph] ?? null;
+          $source = $definition->getSourceIndex($glyph, $x, $y);
           if ($source !== null && $displayColumn === $column && $width === 1 && $cellWidth === 1
-            && ($layer === $base || $glyph !== ' ')) {
+            && ($layer === $base || $glyph !== ' ' || $definition->hasCellOverride($x, $y))) {
             $screen = $camera->getScreenSpacePosition(new Vector2($x, $y));
             if ($screen->x >= 0 && $screen->y >= 0
               && $screen->x < $camera->screen->getWidth() && $screen->y < $camera->screen->getHeight()) {
@@ -74,11 +74,12 @@ final class GraphicalTileCollector
       foreach ($symbols as $column => $symbol) {
         $metrics[$symbol] ??= [TerminalText::stripAnsi($symbol), NormalizedRow::symbolWidth($symbol)];
         [$normalized, $width] = $metrics[$symbol];
-        $source = $definition->symbols[$normalized] ?? null;
+        $x = (int)$camera->position->x + $column;
+        $source = $definition->getSourceIndex($normalized, $x, $y);
         // Wide unmapped art retains its existing text path. Never cut a hole
         // where that path no longer coincides with a logical map-cell anchor.
         if ($source !== null && $displayColumn === $column && $width === 1) {
-          $screen = $camera->getScreenSpacePosition(new Vector2((int)$camera->position->x + $column, $y));
+          $screen = $camera->getScreenSpacePosition(new Vector2($x, $y));
           if ($screen->x >= 0 && $screen->y >= 0
             && $screen->x < $camera->screen->getWidth() && $screen->y < $camera->screen->getHeight()) {
             $cells[] = ['column' => (int)$screen->x, 'row' => (int)$screen->y, 'source' => $source];

@@ -10,6 +10,8 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
 use Ichiloto\Engine\Events\Interfaces\StaticObserverInterface;
 use Ichiloto\Engine\Field\MapManager;
+use Ichiloto\Engine\Field\MapLayer;
+use Ichiloto\Engine\Field\MapLayerSet;
 use Ichiloto\Engine\Field\Player;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
@@ -344,6 +346,60 @@ it('presents the same field ownership from real Game renders and blocked ticks w
   $game->tickWhileBlocked();
   expect($this->transport->sent[2]->payload['sprites'])->toBe([]);
   $game->quit();
+});
+
+it('presents cell-specific fixture crops through the real field runtime and clears them on replacement', function () {
+  $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__,
+    requiredCapabilities: ['tile_batches', 'sprite_source_rect']), $this->transport);
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["tile_batches","sprite_source_rect"]}')];
+  $this->runtime->start('Fixture artwork', 12, 4);
+  $scene = makeBareScene(GameScene::class);
+  $layers = new MapLayerSet([new MapLayer('floor', 1, false, 'floor', '     '),
+    new MapLayer('fixtures', 2, false, 'fixtures', '## #i')]);
+  $camera = new Camera($scene, 12, 4, worldSpace: $layers->getComposedGrid());
+  new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
+  $map = makeBareScene(MapManager::class);
+  foreach (['gameScene' => $scene, 'layers' => $layers, 'tileMap' => $camera->worldSpace] as $name => $value) {
+    new ReflectionProperty(MapManager::class, $name)->setValue($map, $value);
+  }
+  $cell = static fn(int $x) => ['column' => $x, 'row' => 0,
+    'source' => ['x' => $x * 16, 'y' => 0, 'width' => 16, 'height' => 32]];
+  new ReflectionProperty(MapManager::class, 'layerTiles2d')->setValue($map,
+    GraphicalTileDefinition::getForLayers(['layers' => ['fixtures' => [
+      'asset' => 'parts.png', 'cells' => array_map($cell, range(0, 3)),
+    ]]], $layers, 'room'));
+  new ReflectionProperty(GameScene::class, 'mapManager')->setValue($scene, $map);
+  $player = $this->getMockBuilder(Player::class)->disableOriginalConstructor()
+    ->onlyMethods(['getGraphicalSpriteDefinition'])->getMock();
+  $player->method('getGraphicalSpriteDefinition')->willReturn(null);
+  new ReflectionProperty(Player::class, 'isActive')->setValue($player, true);
+  new ReflectionProperty(GameScene::class, 'player')->setValue($scene, $player);
+  $field = makeBareScene(FieldState::class);
+  new ReflectionProperty(GameScene::class, 'fieldState')->setValue($scene, $field);
+  new ReflectionProperty(GameScene::class, 'state')->setValue($scene, $field);
+  Console::recomposeFrame($map->render(...));
+  $terminal = Console::snapshot();
+  expect($this->runtime->present($scene))->toBeTrue();
+  $payload = end($this->transport->sent)->payload;
+  $text = array_column($payload['textLayers'], null, 'id');
+  expect($payload['tileBatches'][0]['id'])->toBe('map:fixtures')
+    ->and(array_column($payload['tileBatches'][0]['cells'], 'source'))->toBe([0, 1, 2, 3])
+    ->and($text['map:fixtures']['runs'][0]['text'])->toBe('i')
+    ->and(Console::snapshot())->toEqual($terminal);
+  Console::withLayer('dialogue', fn() => Console::write('Talk', 0, 3), 1020);
+  $this->runtime->present($scene);
+  expect(end($this->transport->sent)->payload['tileBatches'])->toBe($payload['tileBatches']);
+  new ReflectionProperty(GameScene::class, 'state')->setValue($scene, makeBareScene(\Ichiloto\Engine\Scenes\Game\States\MainMenuState::class));
+  Console::recomposeFrame(fn() => Console::write('Menu', 0, 0));
+  $this->runtime->present($scene);
+  expect(end($this->transport->sent)->payload)->not->toHaveKey('tileBatches');
+  new ReflectionProperty(GameScene::class, 'state')->setValue($scene, $field);
+  Console::recomposeFrame($map->render(...));
+  $this->runtime->present($scene);
+  expect(end($this->transport->sent)->payload['tileBatches'])->toBe($payload['tileBatches'])
+    ->and(Console::snapshot())->toEqual($terminal);
+  $this->runtime->present(null);
+  expect(end($this->transport->sent)->payload)->not->toHaveKey('tileBatches');
 });
 
 it('uses the same field eligibility for terrain and Player and clears tiles on scene replacement', function () {

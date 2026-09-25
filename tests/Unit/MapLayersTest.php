@@ -157,6 +157,25 @@ it('clears layered and legacy geometry together when a preview unloads', functio
         ->and($manager->mapWidth)->toBe(0)->and($manager->mapHeight)->toBe(0);
 })->with([true, false]);
 
+it('refuses a destination cell-art override outside the authored grid without replacing the active camera', function () {
+    $paths = ['id' => 'town', 'data' => $this->directory . '/town.data.php',
+        'map' => $this->directory . '/town.map.php', 'event' => $this->directory . '/town.event.php'];
+    writeLayerGrid($this->directory, 'layers/01.floor.map.php', '##');
+    writeLayerGrid($this->directory, 'town.event.php', '  ');
+    $data = ['tiles2d' => ['layers' => ['floor' => ['asset' => 'parts.png', 'cells' => [
+        ['column' => 2, 'row' => 0, 'source' => ['x' => 0, 'y' => 0, 'width' => 16, 'height' => 32]],
+    ]]]]];
+    file_put_contents($paths['data'], '<?php return ' . var_export($data, true) . ';');
+    $manager = new ReflectionClass(LayeredMapManagerProbe::class)->newInstanceWithoutConstructor();
+    $scene = new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();
+    $camera = new Camera(makeCameraTestScene(), 8, 4, worldSpace: [['old']]);
+    new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
+    new ReflectionProperty(MapManager::class, 'gameScene')->setValue($manager, $scene);
+    expect(fn() => $manager->readSplitMap($paths))->toThrow(InvalidArgumentException::class,
+        'town/town.data.php tiles2d: cell override at row 0, column 2 lies outside layer town/layers/01.floor.map.php')
+        ->and($camera->worldSpace)->toBe([['old']])->and($manager->layers)->toBeNull();
+});
+
 it('resolves collision from the top occupied glyph with per-layer overrides and pass-through', function () {
     $layers = new MapLayerSet([
         new MapLayer('terrain', 1, false, 'terrain', ';~~~ '),

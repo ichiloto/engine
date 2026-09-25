@@ -30,7 +30,9 @@ and the implementation phases. Related engine docs: [maps.md](maps.md),
      tell sand from savannah, and it should never have to.
    - **Crop = fidelity.** Visual richness (checkered kitchen tiles, rugs,
      wall paintings, isometric facades) lives in per-layer atlas crop tables,
-     keyed off authored glyphs. Fidelity is sugar on top; it costs the
+     keyed off authored glyphs, with optional cell-specific crop overrides for
+     repeated symbols. Overrides select appearance, never gameplay identity.
+     Fidelity is sugar on top; it costs the
      terminal nothing and the terminal costs it nothing.
 3. **The map text is the terminal display.** Gameplay layers contain exactly
    what the terminal shows. No glyph in a gameplay layer may secretly mean
@@ -166,7 +168,13 @@ translated to glyphs:
 
 - `tiles2d` becomes per-layer symbol tables (shared or per-layer atlases).
   Keys are bare glyphs, normalised exactly as `GraphicalTileDefinition` does
-  today - no style-aware lookup.
+  today - no style-aware lookup. Optional per-layer `cells` entries override
+  artwork at explicit logical map positions without modifying terminal glyphs
+  or collision. Repeated furniture symbols can therefore select separate
+  image slices without proliferating gameplay layers. Text replacement remains
+  confined to the artwork's owning layer; decoration never erases a different
+  fixture or actor. The format and bounds are documented in
+  [tile batches](rendering/tile-batches.md#cell-specific-artwork).
 - `GraphicalTileCollector` emits one `PresentationTileBatch` per layer
   (gameplay and decoration), z-ordered by the layer prefix, all below
   `WORLD 0` (e.g. terrain −100, upward in steps). The protocol needs no
