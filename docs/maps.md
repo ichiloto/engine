@@ -1,20 +1,32 @@
 # Maps, regions, and the map screen
 
-A map lives in its own directory under `assets/Maps`, with its three files
-named after it:
+A map lives in its own directory under `assets/Maps`. Its data and event files
+are named after the directory; its visible geometry can use ordered layers:
 
 ```
-assets/Maps/happyville/town-center/town-center.data.php
-                                   town-center.map.php
-                                   town-center.event.php
+assets/Maps/village/harbour/
+  harbour.data.php
+  harbour.event.php
+  layers/
+    01.ground.map.php
+    02.floor.deco.php
+    03.structures.map.php
+    04.objects.map.php
 ```
 
-The directory path is the map's **id**: `happyville/town-center`. That is what
+The directory path is the map's **id**: `village/harbour`. That is what
 `destinationMap` names, what save files record, and what the map screen uses.
+Layer names and the choice of layers belong to the game, not the Engine.
+A simple layered map needs only one gameplay layer.
+
+Maps without a `layers/` directory continue to load `<name>.map.php` beside
+their data and event files. This legacy format remains supported. An existing
+but empty or invalid `layers/` directory is an error, not a request to fall back
+to the legacy grid.
 
 ## Grid source format
 
-The `.map.php` and `.event.php` files each return one literal nowdoc string.
+Every `.map.php`, `.deco.php` and `.event.php` file returns one literal nowdoc string.
 For example:
 
 ```php
@@ -29,7 +41,7 @@ TOWN_MAP;
 
 The delimiter may be any valid nowdoc label. Comments and whitespace outside
 the return are allowed; executable statements, builders, calls, interpolated
-heredocs, arrays and additional returns are not. The Engine parses these two
+heredocs, arrays and additional returns are not. The Engine parses all grid
 files without executing them, before it evaluates `.data.php`. The Editor uses
 the same parser. An invalid map remains listed with a source diagnostic but is
 read-only; other maps still open and validate. A repaired map becomes editable
@@ -38,8 +50,100 @@ duplicating or moving a map, so an external edit cannot be silently rewritten.
 An unchanged canonical grid keeps its source bytes on save. A failed Game map
 transfer leaves the current map and player position intact.
 
-Executable PHP and `string[]` grid values are no longer supported. Only
-`.data.php` remains an executable PHP data source.
+Executable PHP and `string[]` grid values are no longer supported. Map metadata
+in `.data.php` and the project's `collisions.php` remain executable PHP data
+sources; they are not grid files.
+
+## Layer order and composition
+
+Layer filenames have the form `NN.name.map.php` for gameplay or
+`NN.name.deco.php` for decoration. The two-digit order is in `00` through `99`,
+and names start with a letter followed by letters, digits, underscores or
+hyphens. Names and order numbers must each be unique within a map. Files are
+discovered from `layers/` and sorted by their numeric prefix; there is no
+second layer list in `.data.php`.
+
+All layers and the root event grid must have the same number of rows and the
+same number of logical symbols on each corresponding row. Existing ragged
+maps are supported: one row may be shorter than another, but that row must have
+the same width on every layer. Do not pad a migration just to make it rectangular.
+Colour markup is not a cell; wide glyphs retain their existing logical-cell and
+terminal-display behavior.
+
+The lowest gameplay layer is the base. Higher gameplay layers replace it only
+where they contain a non-space symbol. A space on an upper layer, including a
+styled space, is empty and shows the lower layer. The topmost occupied cell
+supplies the complete styled symbol. This composed grid is `Camera::worldSpace`
+and is exactly what the terminal renders.
+
+Decoration is never composed into that grid and never contributes collision.
+Each occupied decoration cell must instead have a crop mapping in that layer's
+`tiles2d` table. A decoration layer named in the collision dictionary, or an
+occupied decoration cell without a mapping, refuses the map with a diagnostic.
+Interactive objects must be gameplay glyphs or events, never hidden decoration.
+
+## Collision dictionaries
+
+The game's `assets/Maps/collisions.php` can combine a flat glyph dictionary with
+optional sections keyed by layer name:
+
+```php
+<?php
+
+use Ichiloto\Engine\Events\Enumerations\CollisionType;
+
+return [
+    ' ' => CollisionType::NONE,
+    '#' => CollisionType::SOLID,
+    ';' => CollisionType::ENCOUNTER,
+    'structures' => [
+        '=' => CollisionType::NONE,          // A bridge overrides the ground.
+        '^' => CollisionType::PASS_THROUGH,  // An awning inherits the ground.
+    ],
+];
+```
+
+A named section overrides the flat dictionary for that layer; otherwise the
+flat entry applies. Unknown glyphs remain solid. Resolution walks gameplay
+layers from top to bottom, skipping upper spaces and `PASS_THROUGH` symbols.
+The first remaining glyph supplies the collision result. If no layer supplies
+a result, the cell is solid; `PASS_THROUGH` is never a final collision value.
+Decoration is excluded entirely. Collision comes from authored symbols and the
+dictionary, never from colour or a separate stored collision grid.
+
+Graphical crop mappings are also keyed by layer and symbol, so a symbol can have
+different crops on different layers without changing the terminal or collision.
+See [tile batches](rendering/tile-batches.md) for the `tiles2d` format, stacking
+and resource limits. All current map layers paint below the player; pass-through
+does not yet imply above-player drawing.
+
+## Editing and migration
+
+The Editor cycles through gameplay, decoration and event layers with independent
+visibility and dimming. Terminal preview shows the composed gameplay grid only.
+Vim, mouse, colour, selection and clipboard operations use the active layer.
+Event colours are authoring aids only; runtime event markers are read without
+colour tags. Crop bindings are read-only in the inspector, with a warning when
+painting a symbol that has a mapping on that layer.
+
+Saves transact the whole changed file set. Untouched layer files are not written,
+and unchanged rows preserve their original bytes. Layer create, rename and remove
+participate in undo. Renaming preserves the numeric order and updates local crop
+keys without flattening the data file. Because a shared collision dictionary may
+use the old name, the Editor asks for confirmation if a rename changes resolved
+collision; it does not rewrite that dictionary automatically. The first explicit
+layer creation on a legacy map converts its grid and optional flat crop table.
+
+A game may supply a building catalogue for multi-row facade brushes. The Editor
+reads the catalogue as the shape source rather than keeping copied definitions.
+The game's layer conventions still determine where those brushes belong.
+
+When splitting an existing map, compare its complete styled composed grid and
+every cell's resolved collision before and after. A geometry-preserving split
+does not by itself require a save-content version change. Deliberate changes to
+walls, approaches or safe arrival cells need separate save-compatibility review
+and migrations where old positions become unsafe. Do not hide such changes by
+updating the equivalence baseline.
 
 ## Regions
 

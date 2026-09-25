@@ -50,15 +50,17 @@ frame and cache limit. It is keyed by decoded atlas identity and source rectangl
 not by destination cell, and never creates cropped PNG files per frame.
 
 Paint order is ascending layer, with ties ordered tiles, text, sprites. Incoming
-order within each type and within the cells array is stable. Engine terrain uses
--100, world text 0, graphical Player the existing world-sprite policy and UI its
-existing priorities. Clearing, cinematic eligibility and snapshot rollback must
-not retain terrain from the previous full frame.
+order within each type and within the cells array is stable. Legacy terrain uses
+-100. Each authored map layer uses `-100 + order`, where its two-digit filename
+prefix is `00..99`; all map layers therefore remain below world actors at 0.
+Graphical Player and UI keep their existing policies. Clearing, cinematic
+eligibility and snapshot rollback must not retain tiles from a previous frame.
+Neither the protocol nor the renderer requires changes to support authored layers.
 
 ## Optional map metadata
 
-`tiles2d` in the current map's `.data.php` is optional. When present it contains
-exactly `asset` and `symbols`:
+`tiles2d` in the current map's `.data.php` is optional. A legacy map without
+`layers/` retains the flat `asset` and `symbols` format:
 
 ```php
 'tiles2d' => [
@@ -70,6 +72,58 @@ exactly `asset` and `symbols`:
     ],
 ],
 ```
+
+### Authored layers
+
+A map with `layers/` uses a `layers` table keyed by the exact authored layer name,
+without its order prefix. It can provide a shared atlas or a different atlas per
+layer. For example, given `01.ground.map.php`, `02.floor.deco.php` and
+`03.structures.map.php`:
+
+```php
+'tiles2d' => [
+    'asset' => 'Graphics/Tilesets/Outdoor.png',
+    'layers' => [
+        'ground' => [
+            'symbols' => [
+                'x' => ['x' => 0, 'y' => 0, 'width' => 16, 'height' => 32],
+            ],
+        ],
+        'floor' => [
+            'asset' => 'Graphics/Tilesets/Indoor.png',
+            'symbols' => [
+                'r' => ['x' => 0, 'y' => 0, 'width' => 16, 'height' => 32],
+            ],
+        ],
+        'structures' => [
+            'symbols' => [
+                'x' => ['x' => 16, 'y' => 0, 'width' => 16, 'height' => 32],
+            ],
+        ],
+    ],
+],
+```
+
+Here `ground:x` and `structures:x` deliberately select different crops; no
+colour inference is involved. The names are examples, not required Engine layer
+conventions. A layer entry contains only `symbols` and an optional `asset`;
+without a local asset it inherits the shared one. Unknown layer names and fields,
+empty symbol tables and missing effective atlas paths are rejected.
+
+Gameplay layers may omit the table or leave individual symbols unmapped. Every
+non-space decoration symbol must have a mapping. Upper-layer spaces, including
+decoration spaces, stay empty even if a space crop was declared; an explicitly
+mapped space on the base gameplay layer can render. Decoration never changes
+the composed terminal grid or collision. See [map layers](../maps.md) for source
+validation and collision precedence.
+
+The collector emits one nonempty batch per mapped visible layer, with the ID
+`map:<name>` and the filename-derived z-order. Separate layers can reuse the same
+atlas and overlap destination cells; cells within one batch remain unique.
+An empty/offscreen layer emits no batch. Frame replacement clears any batch
+that is no longer emitted. The legacy collector keeps its `terrain` ID.
+
+### Symbols and fallback
 
 Symbols explicitly map one terminal symbol of
 display width one to an S8-A source rectangle. ANSI styling is normalized using
@@ -86,10 +140,22 @@ before starting the renderer or changing input/Console ownership; reduce columns
 or rows rather than silently degrading terrain. This is an Engine runtime policy,
 not a change to low-level protocol grid limits. Custom overlapping batches and
 styled text still have their independently validated aggregate frame limits.
+For layered maps, mapped visible cells across all layers share the same 32,768
+cell budget. If their combined collection exceeds it, the collector reports the
+problem and returns no tile batches, retaining the complete terminal map rather
+than a partial set. Layer crop catalogues are also bounded by the batch/source
+limits above.
 Graphical snapshots omit a replaced terrain write and its opaque underlay using
 draw provenance, not equality with the final glyph. Later text, including an
 identical glyph or a deliberate blank, remains opaque. Canonical Console output
 is unchanged.
+
+Unmapped composed map text retains the z-order of its owning gameplay layer.
+Mapped cells are replaced only at that layer; decoration can paint over lower
+map content without erasing a higher gameplay glyph. The synthetic opaque
+WORLD-plane underlay was removed from replaced map drawing because it covered
+all negative-z map layers. This does not remove canonical terminal cells or
+later world/UI writes.
 
 An unmapped wide glyph retains the existing terminal path. If its display width
 shifts subsequent text away from logical map anchors, those shifted cells remain
