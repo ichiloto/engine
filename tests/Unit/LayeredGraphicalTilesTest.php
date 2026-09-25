@@ -2,6 +2,8 @@
 
 use Ichiloto\Engine\Field\MapLayer;
 use Ichiloto\Engine\Field\MapLayerSet;
+use Ichiloto\Engine\Field\MapCollisionResolver;
+use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Camera;
@@ -62,6 +64,62 @@ it('refuses missing decoration crops with the authored file and exact glyph loca
         'typo' => ['symbols' => ['r' => getLayerCrop()]],
     ]], $set, 'town.data.php'))->toThrow(InvalidArgumentException::class, 'unknown or malformed layer typo');
 });
+
+it('renders mixed floor and wall finishes without changing blank floors solid walls or interaction glyphs', function (bool $tracking) {
+    Console::setLayerTracking($tracking);
+    $terrain = new MapLayer('ground', 1, false, 'ground', "      \n      ");
+    $walls = new MapLayer('walls', 4, false, 'walls', "######\n      ");
+    $fixtures = new MapLayer('fixtures', 6, false, 'fixtures', " i    \n      ");
+    $baseline = new MapLayerSet([$terrain, $walls, $fixtures]);
+    $decorated = new MapLayerSet([
+        $terrain,
+        new MapLayer('floor', 2, true, 'floor', "      \nwwkkss"),
+        new MapLayer('rugs', 3, true, 'rugs', "      \n r  cc"),
+        $walls,
+        new MapLayer('wall-detail', 5, true, 'wall-detail', "p  o  \n      "),
+        $fixtures,
+    ]);
+    $dictionary = [' ' => CollisionType::NONE, '#' => CollisionType::SOLID,
+        'i' => CollisionType::PASS_THROUGH];
+    expect($decorated->getComposedGrid())->toBe($baseline->getComposedGrid())
+        ->and($decorated->getComposedGrid()[1])->toBe(array_fill(0, 6, ' '))
+        ->and(MapCollisionResolver::resolveLayers($decorated, $dictionary))
+        ->toBe(MapCollisionResolver::resolveLayers($baseline, $dictionary))
+        ->toBe([array_fill(0, 6, CollisionType::SOLID->value), array_fill(0, 6, CollisionType::NONE->value)]);
+
+    $definitions = GraphicalTileDefinition::getForLayers(['asset' => 'interior.png', 'layers' => [
+        'floor' => ['symbols' => ['w' => getLayerCrop(), 'k' => getLayerCrop(16), 's' => getLayerCrop(32)]],
+        'rugs' => ['symbols' => ['r' => getLayerCrop(48), 'c' => getLayerCrop(64)]],
+        'walls' => ['symbols' => ['#' => getLayerCrop(80)]],
+        'wall-detail' => ['symbols' => ['p' => getLayerCrop(96), 'o' => getLayerCrop(112)]],
+    ]], $decorated, 'interior.data.php');
+    GraphicalTileDefinition::validateDecoration($decorated, $definitions);
+    $camera = new Camera(makeCameraTestScene(), 8, 4, worldSpace: $baseline->getComposedGrid());
+    Console::recomposeFrame($camera->renderMap(...));
+    $terminal = Console::snapshot();
+    Console::recomposeFrame(fn() => $camera->renderLayeredMap($decorated));
+    expect(Console::snapshot())->toEqual($terminal);
+
+    $batches = new GraphicalTileCollector()->collectLayers($decorated, $definitions, $camera);
+    expect(array_column($batches, 'id'))->toBe(['map:floor', 'map:rugs', 'map:walls', 'map:wall-detail'])
+        ->and(array_column($batches, 'layer'))->toBe([-98, -97, -96, -95])
+        ->and(array_column($batches[0]->cells, 'source'))->toBe([0, 0, 1, 1, 2, 2])
+        ->and(array_column($batches[1]->cells, 'source'))->toBe([0, 1, 1])
+        ->and(array_column($batches[3]->cells, 'source'))->toBe([0, 1]);
+
+    if ($tracking) {
+        $mask = [];
+        foreach ($batches as $batch) {
+            foreach ($batch->cells as $cell) {
+                $mask[$batch->id][$cell['row']][$cell['column']] = true;
+            }
+        }
+        $layers = array_column(Console::presentationSnapshot([], $mask)->textLayers, null, 'id');
+        expect($layers['map:fixtures']->runs[0]->text)->toBe('i')
+            ->and($layers['map:fixtures']->layer)->toBe(-94);
+    }
+    expect(Console::snapshot())->toEqual($terminal);
+})->with([false, true]);
 
 it('keeps terminal composition exact while unmapped gameplay glyphs and decorative crops retain their stacking positions', function () {
     $set = new MapLayerSet([

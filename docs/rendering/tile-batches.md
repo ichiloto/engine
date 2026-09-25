@@ -123,6 +123,35 @@ atlas and overlap destination cells; cells within one batch remain unique.
 An empty/offscreen layer emits no batch. Frame replacement clears any batch
 that is no longer emitted. The legacy collector keeps its `terrain` ID.
 
+### Mixed interior materials
+
+Use decoration layers to vary appearance without changing gameplay. For example,
+an interior may stack these authored layers:
+
+```text
+01.ground.map.php       blank walkable floor
+02.floor.deco.php       w wood, k kitchen tile, s stone
+03.rugs.deco.php        r rug, c carpet, spaces elsewhere
+04.walls.map.php        solid wall geometry
+05.wall-detail.deco.php cosmetic writing, trim and ornaments
+06.fixtures.map.php    visible interaction markers
+```
+
+The material letters are examples of game-owned crop keys, not Engine tile types.
+Each non-space decoration marker has an explicit crop in its layer's `symbols`
+table. Wood, kitchen tile and stone may select different crops within one layer;
+a carpet layer can cover stone without changing its walkability. Floor detail
+sits above blank ground and below walls. Wall ornaments sit above wall artwork,
+but never replace its collision. All these batches remain below world actors.
+
+Do not map every blank space to one universal floor: the same map can contain
+interior floors, doorways, exterior space and gaps in its drawing. Author the
+material coverage explicitly. Native terminal players still see the underlying
+blank floors, solid wall glyphs and interaction markers, not the decoration
+letters. A readable notice or usable object belongs to a gameplay fixture or
+event, while meaningless writing and wall texture remain decoration. Decoration
+cannot turn a wall into a doorway or a rug into an obstacle.
+
 ### Symbols and fallback
 
 Symbols explicitly map one terminal symbol of
