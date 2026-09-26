@@ -862,7 +862,8 @@ class Game implements CanRun, SubjectInterface
         TerminalCapabilities::reset();
         TerminalCapabilities::detect();
         $this->rendererRuntime?->start($this->name, $this->width, $this->height, $this->rendererRuntime === null ? null
-            : ApplicationIcon::getAssetPath(config(AppConfig::class, ApplicationIcon::KEY), $this->rendererRuntime->getAssetRoot()));
+            : ApplicationIcon::getAssetPath(ConfigStore::has(AppConfig::class) ? config(AppConfig::class, ApplicationIcon::KEY) : null,
+                $this->rendererRuntime->getAssetRoot()));
         if (InputManager::requiresTerminalInput()) {
             Console::saveTerminalSettings();
             $this->terminalInputConfigured = true;
