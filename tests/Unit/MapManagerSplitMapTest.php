@@ -29,30 +29,35 @@ final class SplitMapManagerProbe extends MapManager
   }
 }
 
-it('loads current optional terrain metadata afresh and rejects malformed presence without changing the map', function () {
+it('loads the terminal map afresh whatever retired tiles2d metadata the data file holds', function () {
   $directory = sys_get_temp_dir() . DIRECTORY_SEPARATOR . uniqid('ichiloto-terrain-map-', true);
   mkdir($directory);
   $paths = ['id'=>'test/terrain','data'=>"$directory/map.data.php",'map'=>"$directory/map.map.php",'event'=>"$directory/map.event.php"];
-  file_put_contents($paths['map'], "<?php\nreturn <<<'MAP'\n;~\nMAP;\n");
-  file_put_contents($paths['event'], "<?php\nreturn <<<'EVENT'\n  \nEVENT;\n");
+  file_put_contents($paths['map'], "<?php\nreturn <<<'MAP'\n;;~~\nMAP;\n");
+  file_put_contents($paths['event'], "<?php\nreturn <<<'EVENT'\n    \nEVENT;\n");
   $manager = new ReflectionClass(SplitMapManagerProbe::class)->newInstanceWithoutConstructor();
   $scene = new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();
   $camera = new Camera(makeCameraTestScene(),8,4);
   new ReflectionProperty(GameScene::class,'camera')->setValue($scene,$camera);
   new ReflectionProperty(MapManager::class,'gameScene')->setValue($manager,$scene);
+  $debug = new ReflectionClass(\Ichiloto\Engine\Util\Debug::class)->getStaticProperties();
+  \Ichiloto\Engine\Util\Debug::configure(['log_directory' => $directory]);
   try {
+    // Glyph-keyed crops were removed with two-column cells: any tiles2d value, even a malformed one, is ignored.
     foreach ([null, 'one.png', 'two.png', null] as $asset) {
       $data = ['name'=>'Test'];
       if ($asset !== null) { $data['tiles2d'] = ['asset'=>$asset,'symbols'=>[';'=>['x'=>0,'y'=>0,'width'=>16,'height'=>32]]]; }
       file_put_contents($paths['data'], '<?php return ' . var_export($data,true) . ';');
       $manager->readSplitMap($paths);
-      expect($manager->tiles2d?->asset)->toBe($asset)->and($manager->tileMap)->toBe([[';','~']])
-        ->and($camera->worldSpace)->toBe($manager->tileMap);
+      expect($manager->tileMap)->toBe([[';;','~~']])->and($camera->worldSpace)->toBe($manager->tileMap);
     }
     file_put_contents($paths['data'], '<?php return ["tiles2d"=>null];');
-    expect(fn()=>$manager->readSplitMap($paths))->toThrow(InvalidArgumentException::class, 'map.data.php tiles2d:')
-      ->and($manager->tiles2d)->toBeNull()->and($manager->tileMap)->toBe([[';','~']]);
+    $manager->readSplitMap($paths);
+    expect($manager->tileMap)->toBe([[';;','~~']])
+      ->and(substr_count(file_get_contents($directory . '/warning.log'), 'tiles2d is no longer read'))->toBe(3);
   } finally {
+    foreach ($debug as $name => $value) { new ReflectionProperty(\Ichiloto\Engine\Util\Debug::class, $name)->setValue(null, $value); }
+    foreach (['warning.log', 'debug.log'] as $log) { if (is_file("$directory/$log")) { unlink("$directory/$log"); } }
     foreach (['data','map','event'] as $key) { unlink($paths[$key]); }
     rmdir($directory);
   }
@@ -68,8 +73,8 @@ it('prepares a destination without touching the active map and refuses a bad eve
     'event' => $directory . '/destination.event.php',
   ];
   file_put_contents($paths['data'], "<?php return ['name' => 'Destination', 'events' => []];");
-  file_put_contents($paths['map'], "<?php return <<<'MAP'\n..\nMAP;");
-  file_put_contents($paths['event'], "<?php return <<<'EVENT'\n  \nEVENT;");
+  file_put_contents($paths['map'], "<?php return <<<'MAP'\n....\nMAP;");
+  file_put_contents($paths['event'], "<?php return <<<'EVENT'\n    \nEVENT;");
 
   try {
     $manager = (new ReflectionClass(SplitMapManagerProbe::class))->newInstanceWithoutConstructor();
@@ -80,16 +85,16 @@ it('prepares a destination without touching the active map and refuses a bad eve
     $manager->testPaths = $paths;
 
     $prepared = $manager->prepareMap('ignored');
-    expect($prepared->tiles)->toBe([['.', '.']])
+    expect($prepared->tiles)->toBe([['..', '..']])
       ->and($manager->tileMap)->toBe([])
       ->and($camera->worldSpace)->toBe([['old']]);
 
-    file_put_contents($paths['event'], "<?php return <<<'EVENT'\nX\nEVENT;");
-    expect(fn () => $manager->prepareMap('ignored'))->toThrow(InvalidArgumentException::class, 'must be 2 tiles wide')
+    file_put_contents($paths['event'], "<?php return <<<'EVENT'\nXX\nEVENT;");
+    expect(fn () => $manager->prepareMap('ignored'))->toThrow(InvalidArgumentException::class, 'must be 2 cells wide')
       ->and($manager->tileMap)->toBe([])
       ->and($camera->worldSpace)->toBe([['old']]);
 
-    file_put_contents($paths['event'], "<?php return <<<'EVENT'\n  \nEVENT;");
+    file_put_contents($paths['event'], "<?php return <<<'EVENT'\n    \nEVENT;");
     file_put_contents($paths['data'], <<<'PHP'
 <?php return ['name' => 'Destination', 'events' => [], 'npcs' => [
   ['id' => 'duplicate', 'name' => 'First', 'x' => 0, 'y' => 0],
@@ -113,7 +118,7 @@ PHP);
       expect($error->getMessage())->toContain('test/destination/destination.event.php')
         ->not->toContain($directory);
     }
-    file_put_contents($paths['event'], "<?php return <<<'EVENT'\n  \nEVENT;");
+    file_put_contents($paths['event'], "<?php return <<<'EVENT'\n    \nEVENT;");
   } finally {
     foreach (['data', 'map', 'event'] as $member) {
       unlink($paths[$member]);
@@ -197,8 +202,8 @@ it('refuses either executable grid before evaluating the map data file', functio
     'event' => $directory . '/gate.event.php',
   ];
   file_put_contents($paths['data'], '<?php file_put_contents(' . var_export($marker, true) . ", 'yes'); return []; ");
-  file_put_contents($paths['map'], "<?php return <<<'MAP'\nx\nMAP;");
-  file_put_contents($paths['event'], "<?php return <<<'EVENT'\n \nEVENT;");
+  file_put_contents($paths['map'], "<?php return <<<'MAP'\nxx\nMAP;");
+  file_put_contents($paths['event'], "<?php return <<<'EVENT'\n  \nEVENT;");
   file_put_contents($paths[$member], '<?php file_put_contents(' . var_export($marker, true) . ", 'yes'); return 'x';");
 
   try {
