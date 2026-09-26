@@ -660,7 +660,6 @@ it('presents layered field ownership through the real field runtime and clears i
   $frames = RetainedFrameState::replay($this->transport->sent);
   $world = end($frames)['worlds']['map'];
   expect($world['layers'][1]['id'])->toBe('map:fixtures')
-    ->and($world['tileRows'])->toBe([])
     ->and($world['glyphRows']['map:fixtures'][0][4]['glyph'])->toBe('i ')
     ->and($world['glyphRows']['map:floor'][0][2]['glyph'])->toBe('  ')
     ->and(Console::snapshot())->toEqual($terminal);
@@ -725,7 +724,6 @@ it('uses the same field eligibility for the terrain world and Player and clears 
   $frames = RetainedFrameState::replay($this->transport->sent);
   $world = $frames[0]['worlds']['map'];
   expect(array_sum(array_map(count(...), $world['glyphRows']['map:terrain'])))->toBe(48)
-    ->and($world['tileRows'])->toBe([])
     ->and($frames[0]['sprites'][0]['id'])->toBe('staged:runner')
     ->and($frames[0]['sprites'][0]['sourceRect']['x'])->toBe(256)
     ->and(Console::snapshot())->toEqual($terminal);

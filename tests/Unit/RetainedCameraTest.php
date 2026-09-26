@@ -175,7 +175,7 @@ it('retains graphical terrain and player provenance without normalizing the map 
   $player = NormalizedRow::fromText("\e[38;2;0;120;0m@\e[0m");
   $blank = NormalizedRow::fromText("\e[48;5;0m \e[0m");
   $this->records = [];
-  Console::withLayer('terrain', $camera->renderMap(...), 0, replaceUnderlying: true);
+  Console::withLayer('terrain', $camera->renderMap(...), 0);
   Console::withLayer('player', fn() => Console::writeNormalizedRow($player, 2, 1), 100);
   Console::withLayer('ui', fn() => Console::writeNormalizedRow($blank, 2, 1), 1000);
   $before = Console::presentationSnapshot();

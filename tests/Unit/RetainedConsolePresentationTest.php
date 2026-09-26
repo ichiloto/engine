@@ -14,7 +14,7 @@ beforeEach(function () {
     'terminalOutputStream' => null, 'overlays' => [], 'presentationBaseCells' => [],
     'retainedWorldPresentation' => false, 'retainedPresentation' => null,
     'buffer' => [], 'layerCells' => [], 'layerPriorities' => [], 'trackLayers' => false,
-    'activeLayer' => null, 'activeLayerPriority' => 0, 'replaceUnderlyingLayer' => false,
+    'activeLayer' => null, 'activeLayerPriority' => 0,
     'frameRows' => [], 'recomposeRepaintRows' => []] as $name => $value) {
     new ReflectionProperty(Console::class, $name)->setValue(null, $value);
   }
@@ -300,7 +300,7 @@ it('matches the reference through a deterministic mixed incremental lifecycle', 
       case 4: Console::replaceOverlay('notice', [$glyph], $x, $y, 1000); break;
       case 5: Console::removeOverlay('notice'); break;
       case 6: Console::recomposeFrame(fn() => Console::withLayer($id, fn() => Console::write($glyph, $x, $y), 100)); break;
-      case 7: Console::withLayer($id, fn() => Console::write($glyph, $x, $y), 100, replaceUnderlying: true); break;
+      case 7: Console::withLayer($id, fn() => Console::write($glyph, $x, $y), 1500); break;
     }
     $excluded = $step % 3 === 0 ? ['npc'] : [];
     expect(applyConsoleRowChanges($this, Console::getRetainedPresentationChanges($excluded)))

@@ -105,15 +105,12 @@ it('replays world row replacement by owner and clears empty rows and replaced wo
       'generation' => $generation, 'reset' => $reset, 'present' => true, 'operations' => $operations], RendererProtocolVersion::V2);
   $state->applyMessage($message(1, [$put,
     ['op' => 'worldRows', 'id' => 'map', 'rows' => [['row' => 0, 'cells' => [$cell('back'), $cell('front')]]]],
-    ['op' => 'worldTiles', 'id' => 'map', 'layerId' => 'front', 'rows' => [['row' => 0, 'cells' => [['column' => 1, 'source' => 0]]]]],
   ], true));
   expect($state->getFrame()['worlds']['map']['glyphRows']['front'][0])->toBe([1 => $cell('front')]);
   $state->applyMessage($message(2, [
     ['op' => 'worldRows', 'id' => 'map', 'rows' => [['row' => 0, 'cells' => [$cell('back'), $cell('back')]]]],
-    ['op' => 'worldTiles', 'id' => 'map', 'layerId' => 'front', 'rows' => [['row' => 0, 'cells' => []]]],
   ]));
-  expect($state->getFrame()['worlds']['map']['glyphRows'])->toBe(['back' => [0 => [$cell('back'), $cell('back')]]])
-    ->and($state->getFrame()['worlds']['map']['tileRows'])->toBe([]);
+  expect($state->getFrame()['worlds']['map']['glyphRows'])->toBe(['back' => [0 => [$cell('back'), $cell('back')]]]);
   $state->applyMessage($message(3, [$put]));
   expect($state->getFrame()['worlds']['map']['glyphRows'])->toBe([]);
   $state->applyMessage($message(4, [['op' => 'remove', 'kind' => 'world', 'id' => 'map']]));

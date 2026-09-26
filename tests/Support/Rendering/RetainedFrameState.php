@@ -16,7 +16,6 @@ final class RetainedFrameState
   /** World ID / owner layer ID / row / column / complete glyph cell. */
   private array $worldGlyphRows = [];
   /** World ID / tile layer ID / row / column / complete tile cell. */
-  private array $worldTileRows = [];
   private ?array $viewport = null;
 
   /** @param list<RendererMessage> $messages @return list<array<string, mixed>> */
@@ -44,7 +43,7 @@ final class RetainedFrameState
       throw new RuntimeException('Retained generations must advance exactly once per packet.');
     }
     if ($payload['reset']) {
-      $this->values = $this->textRows = $this->worldGlyphRows = $this->worldTileRows = [];
+      $this->values = $this->textRows = $this->worldGlyphRows = [];
       $this->viewport = null;
     }
     foreach ($payload['operations'] as $operation) {
@@ -58,13 +57,13 @@ final class RetainedFrameState
             foreach ($operation['value']['runs'] as $run) { $this->textRows[$id][$run['row']][] = $run; }
           }
           if ($kind === 'world') {
-            unset($this->worldGlyphRows[$id], $this->worldTileRows[$id]);
+            unset($this->worldGlyphRows[$id]);
           }
           break;
         case 'remove':
           unset($this->values[$operation['kind']][$id]);
           if ($operation['kind'] === 'text') { unset($this->textRows[$id]); }
-          if ($operation['kind'] === 'world') { unset($this->worldGlyphRows[$id], $this->worldTileRows[$id]); }
+          if ($operation['kind'] === 'world') { unset($this->worldGlyphRows[$id]); }
           break;
         case 'textRows':
           if (!isset($this->values['text'][$id])) { throw new RuntimeException('Cannot patch an absent text layer.'); }
@@ -86,18 +85,7 @@ final class RetainedFrameState
             }
           }
           break;
-        case 'worldTiles':
-          if (!isset($this->values['world'][$id])) { throw new RuntimeException('Cannot patch an absent world.'); }
-          $layerId = $operation['layerId'];
-          foreach ($operation['rows'] as $row) {
-            if ($row['cells'] === []) {
-              unset($this->worldTileRows[$id][$layerId][$row['row']]);
-              if (($this->worldTileRows[$id][$layerId] ?? []) === []) { unset($this->worldTileRows[$id][$layerId]); }
-            } else {
-              $this->worldTileRows[$id][$layerId][$row['row']] = array_column($row['cells'], null, 'column');
-            }
-          }
-          break;
+
         default: throw new RuntimeException('Unknown retained test operation: ' . $operation['op']);
       }
     }
@@ -128,8 +116,7 @@ final class RetainedFrameState
     }
     if ($this->viewport !== null) { $frame['viewport'] = $this->viewport; }
     foreach ($this->values['world'] ?? [] as $id => $world) {
-      $frame['worlds'][$id] = [...$world, 'glyphRows' => $this->worldGlyphRows[$id] ?? [],
-        'tileRows' => $this->worldTileRows[$id] ?? []];
+      $frame['worlds'][$id] = [...$world, 'glyphRows' => $this->worldGlyphRows[$id] ?? []];
     }
     return $frame;
   }
