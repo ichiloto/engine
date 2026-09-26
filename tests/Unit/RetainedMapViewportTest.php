@@ -4,6 +4,7 @@ use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Field\MapCell;
 use Ichiloto\Engine\Field\MapGridSource;
 use Ichiloto\Engine\Field\MapLayer;
 use Ichiloto\Engine\Field\MapLayerSet;
@@ -22,7 +23,6 @@ use Ichiloto\Engine\Rendering\Presentation\PresentationViewport;
 use Ichiloto\Engine\Rendering\Presentation\RetainedWorldProviderInterface;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
-use Ichiloto\Engine\Rendering\Tiles\GraphicalTileDefinition;
 use Ichiloto\Engine\Rendering\Transport\RendererEvent;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
@@ -49,16 +49,16 @@ final class RetainedMapManagerProbe extends MapManager
     protected function applyMapBackgroundMusic(mixed $bgm, mixed $variants = []): void {}
 }
 
-/** Counts real map calls while refusing the removed per-cell tile projection path. */
+/** Counts real map calls while refusing per-cell map projection during a retained scroll. */
 final class RetainedScrollCameraProbe extends Camera
 {
     public int $mapDraws = 0;
     public int $projections = 0;
 
-    public function renderLayeredMap(MapLayerSet $layers): void
+    public function renderMap(): void
     {
         $this->mapDraws++;
-        parent::renderLayeredMap($layers);
+        parent::renderMap();
     }
 
     public function visibleMapRows(): iterable
@@ -110,15 +110,14 @@ afterEach(function () {
     rmdir($this->root);
 });
 
-function createRetainedMapSource(string $root, string $name, string $text = '....', bool $legacy = false): array
+function createRetainedMapSource(string $root, string $name, string $text = '........', bool $legacy = false): array
 {
     $directory = $root . '/' . $name;
     mkdir($directory);
     $paths = ['id' => $name, 'data' => $directory . '/' . $name . '.data.php',
         'event' => $directory . '/' . $name . '.event.php', 'map' => $directory . '/' . $name . '.map.php'];
-    $definition = ['asset' => 'tiles.png', 'symbols' => ['.' => ['x' => 0, 'y' => 0, 'width' => 16, 'height' => 16]]];
-    file_put_contents($paths['data'], '<?php return ' . var_export(['tiles2d' => $legacy ? $definition : ['layers' => ['terrain' => $definition]]], true) . ';');
-    file_put_contents($paths['event'], MapGridSource::buildSource(str_repeat(' ', count(MapLayer::parseGrid($text)[0])), 'EVENT'));
+    file_put_contents($paths['data'], '<?php return [];');
+    file_put_contents($paths['event'], MapGridSource::buildSource(str_repeat(MapCell::BLANK, count(MapLayer::parseGrid($text)[0])), 'EVENT'));
     if (!$legacy) { mkdir($directory . '/layers'); }
     file_put_contents($legacy ? $paths['map'] : $directory . '/layers/00.terrain.map.php', MapGridSource::buildSource($text, 'MAP'));
     return $paths;
@@ -139,11 +138,14 @@ it('caches world uploads per successful installed map and width policy, preservi
     $paths = createRetainedMapSource($this->root, 'first', legacy: $legacy);
     $this->manager->readSource($paths);
     $world = $this->manager->getPresentationWorld();
-    // The world declares its field cell size so the renderer draws every world cell as a 48-pixel square.
+    // The world declares its field cell size and text columns per cell, so the renderer draws every
+    // world cell as a 48-pixel square holding two terminal columns of text.
     expect($world?->id)->toBe('map')
-        ->and(array_keys($world->operations[0]['value']))->toBe(['columns', 'rows', 'cellSize', 'layers'])
+        ->and(array_keys($world->operations[0]['value']))->toBe(['columns', 'rows', 'cellSize', 'cellColumns', 'layers'])
+        ->and($world->operations[0]['value']['columns'])->toBe(4)
         ->and($world->operations[0]['value']['cellSize'])->toBe(FieldViewport::CELL_SIZE)
-        ->and($world->operations[0]['value']['layers'][0]['asset'])->toBe('tiles.png');
+        ->and($world->operations[0]['value']['cellColumns'])->toBe(MapCell::COLUMNS)
+        ->and($world->operations[0]['value']['layers'][0])->not->toHaveKeys(['asset', 'sources']);
     $this->records = [];
     for ($index = 0; $index < 20; $index++) {
         expect($this->manager->getPresentationWorld())->toBe($world);
@@ -151,7 +153,7 @@ it('caches world uploads per successful installed map and width policy, preservi
     }
     expect($this->records)->toBe([]);
     $bad = createRetainedMapSource($this->root, 'bad');
-    file_put_contents($bad['event'], MapGridSource::buildSource(' ', 'EVENT'));
+    file_put_contents($bad['event'], MapGridSource::buildSource(MapCell::BLANK, 'EVENT'));
     expect(fn() => $this->manager->readSource($bad))->toThrow(InvalidArgumentException::class)
         ->and($this->manager->getPresentationWorld())->toBe($world);
     $this->manager->readSource(createRetainedMapSource($this->root, 'second', 'xx'));
@@ -169,15 +171,15 @@ it('caches world uploads per successful installed map and width policy, preservi
 it('replaces the cached world when a prepared destination is committed', function () {
     $this->manager->readSource(createRetainedMapSource($this->root, 'first'));
     $before = $this->manager->getPresentationWorld();
-    $layers = new MapLayerSet([new MapLayer('terrain', 0, false, 'second', 'xx')]);
+    $layers = new MapLayerSet([new MapLayer('terrain', 0, false, 'second', 'xxyy')]);
     $party = new ReflectionClass(Party::class)->newInstanceWithoutConstructor();
     new ReflectionProperty(GameScene::class, 'party')->setValue($this->scene, $party);
     $player = new ReflectionClass(Player::class)->newInstanceWithoutConstructor();
     new ReflectionProperty(Player::class, 'position')->setValue($player, new \Ichiloto\Engine\Core\Vector2(0, 0));
-    $prepared = new PreparedMap([], $layers->getComposedGrid(), [[0, 0]], null, [], [], layers: $layers);
+    $prepared = new PreparedMap([], $layers->getComposedGrid(), [[0, 0]], [], [], layers: $layers);
     $this->manager->applyPreparedMap($prepared, $player);
     expect($this->manager->getPresentationWorld())->not->toBe($before)
-        ->and($this->camera->worldSpace)->toBe([['x', 'x']]);
+        ->and($this->camera->worldSpace)->toBe([['xx', 'yy']]);
 });
 
 it('keeps useful screen-space retained glyphs when the world budget refuses a map', function () {
@@ -211,7 +213,7 @@ it('erases complete actor glyphs without map spaces while preserving UI and term
     expect(implode('', Console::snapshot()->rows))->toContain('....');
     // The flag alone never suppresses an unrelated standalone camera's map.
     Console::setRetainedWorldPresentation(true);
-    $this->camera->worldSpace = [['n', 'e', 'w']];
+    $this->camera->worldSpace = [['ne', 'w ']];
     $this->camera->renderMap();
     expect(implode('', Console::snapshot()->rows))->toContain('new');
 });
@@ -227,17 +229,18 @@ it('keeps T1 drawing active even when a valid retained world and request flag ex
 });
 
 it('reports signed logical origins and keeps scale-one world viewports through unchanged deltas and menu return', function () {
-    $this->manager->readSource(createRetainedMapSource($this->root, 'first'));
+    // Two cells centred in the camera's four leave one blank cell on the left.
+    $this->manager->readSource(createRetainedMapSource($this->root, 'first', '....'));
     activateRetainedField($this->scene, new FieldViewport(new RendererGridConfig(8, 4, 10, 20)));
     expect($this->scene)->toBeInstanceOf(RetainedWorldProviderInterface::class)
-        ->and($this->camera->getWorldOrigin())->toBe(['x' => -2, 'y' => -1]);
+        ->and($this->camera->getWorldOrigin())->toBe(['x' => -1, 'y' => -1]);
     $world = $this->scene->getPresentationWorld();
     $first = new ConsolePresentationChanges(8, 4, true, [
         ['id' => 'npc:text', 'layer' => 10, 'rows' => []], ['id' => 'dialogue', 'layer' => 1000, 'rows' => []],
     ]);
     $viewport = $this->scene->getPresentationViewport($first, []);
     expect($viewport?->scale)->toBe(1.0)->and($viewport->worldId)->toBe('map')
-        ->and($viewport->toArray()['worldOrigin'])->toBe(['column' => -2, 'row' => -1])
+        ->and($viewport->toArray()['worldOrigin'])->toBe(['column' => -1, 'row' => -1])
         ->and($viewport->textLayerIds)->toBe(['npc:text'])
         ->and($viewport->toArray())->not->toHaveKey('tileBatchIds');
     $unchanged = new ConsolePresentationChanges(8, 4, false);
@@ -249,7 +252,7 @@ it('reports signed logical origins and keeps scale-one world viewports through u
     expect($this->scene->getPresentationWorld())->toBe($world);
     $removed = new ConsolePresentationChanges(8, 4, false, removedIds: ['npc:text']);
     expect($this->scene->getPresentationViewport($removed, [])?->textLayerIds)->toBe([]);
-    $this->camera->worldSpace = array_fill(0, 8, array_fill(0, 20, '.'));
+    $this->camera->worldSpace = array_fill(0, 8, array_fill(0, 20, '..'));
     $this->camera->moveTo(3, 2);
     expect($this->camera->getWorldOrigin())->toBe(['x' => 3, 'y' => 2]);
 });
@@ -284,14 +287,14 @@ it('scrolls through the real field compositor and runtime without revisiting sta
         ->onlyMethods(['getRendererRuntime', '__destruct'])->getMock();
     $game->method('getRendererRuntime')->willReturn($runtime);
     $scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()
-        ->onlyMethods(['getGame', 'getGraphicalTileBatches'])->getMock();
+        ->onlyMethods(['getGame'])->getMock();
     $scene->method('getGame')->willReturn($game);
-    $scene->expects($this->never())->method('getGraphicalTileBatches');
     new ReflectionProperty(AbstractScene::class, 'sceneManager')->setValue($scene,
         new ReflectionClass(SceneManager::class)->newInstanceWithoutConstructor());
     // The graphical field shows whole 48-pixel cells, not the text grid; size the camera as the field does.
     $layout = new FieldViewport($runtime->grid);
-    $camera = new RetainedScrollCameraProbe($scene, $layout->columns, $layout->rows);
+    $camera = new RetainedScrollCameraProbe($scene, $layout->columns * MapCell::COLUMNS, $layout->rows);
+    expect($camera->screen->getWidth())->toBe($layout->columns);
     new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
     $manager = new RetainedMapManagerProbe($scene);
     new ReflectionProperty(GameScene::class, 'mapManager')->setValue($scene, $manager);
@@ -313,28 +316,25 @@ it('scrolls through the real field compositor and runtime without revisiting sta
     new ReflectionProperty(GameScene::class, 'fieldState')->setValue($scene, $field);
     new ReflectionProperty(GameScene::class, 'state')->setValue($scene, $field);
 
-    $layers = $cropTables = [];
+    $layers = [];
     for ($index = 0; $index < $layerCount; $index++) {
         $name = 'layer' . $index;
         $marker = $index === 0 ? '.' : chr(ord('A') + $index);
-        $row = $index === 0 ? str_repeat('.', $mapWidth)
-            : substr_replace(str_repeat(' ', $mapWidth), $marker, $index, 1);
+        $row = $index === 0 ? str_repeat('..', $mapWidth)
+            : substr_replace(str_repeat(MapCell::BLANK, $mapWidth), $marker . $marker, $index * MapCell::COLUMNS, MapCell::COLUMNS);
         $layers[] = new MapLayer($name, $index, $index % 2 === 1, $name,
             implode("\n", array_fill(0, $mapHeight, $row)));
-        $cropTables[$name] = ['symbols' => [$marker => ['x' => 0, 'y' => 0, 'width' => 16, 'height' => 16]]];
     }
     $set = new MapLayerSet($layers);
-    $definitions = GraphicalTileDefinition::getForLayers(
-        ['asset' => 'replaceable-test-atlas.png', 'layers' => $cropTables], $set, 'Scroll guard');
     $manager->applyPreparedMap(new PreparedMap([], $set->getComposedGrid(),
-        array_fill(0, $mapHeight, array_fill(0, $mapWidth, 0)), null, [], [],
-        layers: $set, layerTiles2d: $definitions), $player);
+        array_fill(0, $mapHeight, array_fill(0, $mapWidth, 0)), [], [], layers: $set), $player);
     new ReflectionProperty(GameScene::class, 'player')->setValue($scene, $player);
     $field->renderTheField();
     expect($runtime->present($scene))->toBeTrue();
     $world = $manager->getPresentationWorld();
     expect($world)->not->toBeNull()->and($world->operations[0]['value']['layers'])->toHaveCount($layerCount)
-        ->and(array_column($world->operations, 'op'))->toContain('worldRows', 'worldTiles');
+        ->and($world->operations[0]['value']['columns'])->toBe($mapWidth)
+        ->and(array_column($world->operations, 'op'))->toContain('worldRows')->not->toContain('worldTiles');
     $acknowledge = static function (array $packet) use ($transport, $runtime): void {
         $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'frame_ack',
             'generation' => $packet['generation'], 'frame' => $packet['frame'],
@@ -364,7 +364,6 @@ it('scrolls through the real field compositor and runtime without revisiting sta
     $tracker = new ReflectionProperty(Console::class, 'retainedPresentation');
     $composedRows = new ReflectionProperty($tracker->getValue(), 'composedRows');
     expect($composedRows->getValue($tracker->getValue()))->toBe(0);
-    $metrics = new ReflectionProperty(MapLayerSet::class, 'composedMetrics')->getValue($set);
     $this->records = [];
     $expectedX = $expectedY = 10;
     foreach ([Vector2::right(), Vector2::down(), Vector2::left(), Vector2::up()] as $direction) {
@@ -384,10 +383,8 @@ it('scrolls through the real field compositor and runtime without revisiting sta
             ->and($packet['viewport']['clipRect'])->toBe(['x' => 0.0, 'y' => 0.0,
                 'width' => (float)($columns * 10), 'height' => (float)($rows * 20)])
             ->and($manager->getPresentationWorld())->toBe($world)
-            ->and(new ReflectionProperty(MapLayerSet::class, 'composedMetrics')->getValue($set))->toBe($metrics)
             ->and($composedRows->getValue($tracker->getValue()))->toBe(0)
-            ->and(new ReflectionProperty(Camera::class, 'normalizedRows')->getValue($camera))->toBe([])
-            ->and(new ReflectionProperty(GameScene::class, 'graphicalTileCollector')->getValue($scene))->toBeNull();
+            ->and(new ReflectionProperty(Camera::class, 'normalizedRows')->getValue($camera))->toBe([]);
         // Only bounded viewport/envelope numbers may vary, never cells or layer data.
         $shape = $packet;
         unset($shape['generation'], $shape['baseGeneration'], $shape['frame']);
@@ -409,7 +406,7 @@ it('scrolls through the real field compositor and runtime without revisiting sta
         ->and($camera->mapDraws)->toBe(6)->and($camera->projections)->toBe(0)
         ->and(array_column($this->records, 'stage'))->not->toContain(
             'terminal.select', 'terminal.normalize', 'terminal.tokenize', 'terminal.format',
-            'terminal.compose', 'terminal.diff', 'terminal.serialize', 'map.measure', 'console.cells', 'console.runs');
+            'terminal.compose', 'terminal.diff', 'terminal.serialize', 'console.cells', 'console.runs');
     foreach (['buffer', 'layerCells', 'presentationBaseCells'] as $property) {
         expect(new ReflectionProperty(Console::class, $property)->getValue())->toBe([]);
     }
