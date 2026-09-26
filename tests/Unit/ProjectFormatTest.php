@@ -32,23 +32,17 @@ it('reads the current format and treats a missing or malformed record as predati
   ProjectFormat::assertSupported(ProjectFormat::CURRENT);
 });
 
-it('refuses an older project by listing every pending change and pointing to the upgrade', function (mixed $recorded, array $pending, array $done) {
-  try {
-    ProjectFormat::assertSupported($recorded);
-    throw new RuntimeException('An outdated project was accepted.');
-  } catch (UnsupportedProjectFormatException $error) {
-    expect($error->getMessage())->toContain('Run `ichiloto upgrade`', ...$pending);
-    foreach ($done as $change) { expect($error->getMessage())->not->toContain($change); }
-  }
+it('refuses an older project and points to the upgrade, which explains the changes', function (mixed $recorded, int $version) {
+  expect(fn() => ProjectFormat::assertSupported($recorded))->toThrow(UnsupportedProjectFormatException::class,
+    "This project's format ({$version}) is older than this engine's (2). Run `ichiloto upgrade` in the project directory");
 })->with([
-  'missing' => [null, [ProjectFormat::CHANGES[1], ProjectFormat::CHANGES[2]], []],
-  'format zero' => [0, [ProjectFormat::CHANGES[1], ProjectFormat::CHANGES[2]], []],
-  'format one' => [1, [ProjectFormat::CHANGES[2]], [ProjectFormat::CHANGES[1]]],
+  'missing' => [null, 0],
+  'format zero' => [0, 0],
+  'format one' => [1, 1],
 ]);
-
 it('refuses a project from a newer engine instead of misreading it', function () {
   expect(fn() => ProjectFormat::assertSupported(ProjectFormat::CURRENT + 1))
-    ->toThrow(UnsupportedProjectFormatException::class, 'This project uses format 3, which is newer than this engine reads (2).');
+    ->toThrow(UnsupportedProjectFormatException::class, "This project's format (3) is newer than this engine's (2).");
 });
 
 it('refuses to boot a project whose ichiloto.json records another format', function (string $json, string $message) {
@@ -71,6 +65,6 @@ it('refuses to boot a project whose ichiloto.json records another format', funct
   }
 })->with([
   'missing format' => ['{"id":"format-fixture"}', 'ichiloto upgrade'],
-  'older format' => ['{"id":"format-fixture","format":1}', ProjectFormat::CHANGES[2]],
-  'newer format' => ['{"id":"format-fixture","format":3}', 'newer than this engine reads'],
+  'older format' => ['{"id":"format-fixture","format":1}', "This project's format (1) is older"],
+  'newer format' => ['{"id":"format-fixture","format":3}', "This project's format (3) is newer"],
 ]);

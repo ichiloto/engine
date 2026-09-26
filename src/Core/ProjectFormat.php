@@ -34,14 +34,13 @@ final class ProjectFormat
     $version = self::getVersion($recorded);
     if ($version > self::CURRENT) {
       throw new UnsupportedProjectFormatException(sprintf(
-        'This project uses format %d, which is newer than this engine reads (%d). Update Ichiloto to open it.',
+        "This project's format (%d) is newer than this engine's (%d). Update Ichiloto to open it.",
         $version, self::CURRENT));
     }
     if ($version < self::CURRENT) {
-      $pending = array_slice(self::CHANGES, $version, preserve_keys: true);
       throw new UnsupportedProjectFormatException(sprintf(
-        'This project predates %s. Run `ichiloto upgrade` in the project directory to convert it.',
-        implode('; and ', $pending)));
+        "This project's format (%d) is older than this engine's (%d). Run `ichiloto upgrade` in the project directory; it lists what will change before changing anything.",
+        $version, self::CURRENT));
     }
   }
 }
