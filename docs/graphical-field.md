@@ -89,6 +89,23 @@ compatibility chain. Each step is its own class; a later format change
 adds a step and never edits an earlier one. The existing metadata upgrade
 (project id and save compatibility manifest) is the first step.
 
+The version is bookkeeping the tools write and read; nobody tracks it.
+The experience follows established upgraders (Unity and Godot on
+opening an older project, framework migrations, `ng update`):
+
+1. **Detect.** `ichiloto play`, `validate` and the editor notice a project
+   behind the engine's format and say what is outdated and to run
+   `ichiloto upgrade`, instead of failing on the old data. The editor may
+   offer the upgrade when it opens such a project.
+2. **Explain.** `ichiloto upgrade` takes no arguments. It first lists, one
+   line per pending step, what will change (for example, 30 maps converted,
+   coordinates halved in 57 files, a save migration added), then asks to
+   continue. `--dry-run` prints the same list and changes nothing.
+3. **Protect.** It refuses to run over uncommitted changes unless told to,
+   so each upgrade is one reviewable, reversible change.
+4. **Report.** It ends with the follow-up list for a person and writes it
+   to a file in the project.
+
 The two-column cell step converts a project from one-column cells:
 
 - Each map layer and event layer groups every two columns into one cell,
