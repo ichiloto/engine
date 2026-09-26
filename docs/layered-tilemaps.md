@@ -326,6 +326,11 @@ Everything converts; the terminal game must play identically throughout.
 
 ## Graphical correction roadmap
 
+The [graphical field plan](graphical-field.md) supersedes Stages 1 to 3
+below: one terminal cell is one 48 x 48 pixel unit, characters occupy one
+cell, and tilesets, autotiles and character sheets follow RPG Maker's
+conventions. Stages 1 to 3 remain as history only.
+
 All six stages below form the implementation roadmap. They are remaining
 correction and verification work, not capabilities delivered by this document.
 Extend the existing Engine/Editor contracts; do not introduce another gameplay
@@ -368,7 +373,7 @@ bindings while assembling and checking the first representative kits.
 
 ### Stage 4 - Named tile-family GUI authoring
 
-The [GUI Editor plan](../../gui-editor/README.md) owns the separate graphical
+The GUI Editor plan owns the separate graphical
 frontend, shared Editor session and `ichiloto edit` TUI/GUI choice. This section
 owns its field-map dependencies, not a second GUI implementation plan.
 
