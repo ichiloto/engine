@@ -20,6 +20,10 @@ use Ichiloto\Engine\IO\InputSources\RendererInputSource;
 use Ichiloto\Engine\IO\InputSources\TerminalInputSource;
 use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
 use Ichiloto\Engine\Rendering\Camera;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
 use Ichiloto\Engine\Rendering\Runtime\RendererWindowClosed;
@@ -36,11 +40,14 @@ use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\UI\UIManager;
 use Ichiloto\Engine\Util\Config\AppConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Debug;
 use Tests\Support\Input\FakeRendererTransport;
+use Tests\Support\Rendering\RetainedFrameState;
 use function Tests\Support\Rendering\graphicalSpriteData;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
+require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
 /** Real Game loop/quit/input policy without project bootstrap or a physical terminal. */
 final class RendererRuntimeGameProbe extends Game
@@ -86,7 +93,7 @@ beforeEach(function () {
   InputManager::setInputSource(new TerminalInputSource());
   $this->previous = InputManager::getInputSource();
   $this->transport = new FakeRendererTransport();
-  $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__, protocol: RendererProtocolVersion::V1), $this->transport);
+  $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__), $this->transport);
   ob_start();
 });
 
@@ -109,9 +116,11 @@ it('opts in exactly once and shares input and presentation on one session', func
     ->and($this->transport->session->grid->columns)->toBe(12);
   Console::write('TITLE', 0, 0);
   expect($this->runtime->present(null))->toBeTrue()->and($this->runtime->present(null))->toBeFalse();
-  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":1,"type":"key","key":"up"}')];
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"key","key":"up"}')];
   expect(InputManager::getInputSource()->poll())->toBe(KeyCode::UP)
-    ->and($this->transport->sent)->toHaveCount(1)->and($this->transport->sent[0]->payload['text'][0])->toBe('TITLE       ');
+    ->and($this->transport->sent)->toHaveCount(1)
+    ->and(RetainedFrameState::replay($this->transport->sent)[0]['textLayers'][0]['runs'][0]['text'])->toBe('TITLE       ')
+    ->and($this->transport->sent[0]->payload['reset'])->toBeTrue();
   expect(fn() => $this->runtime->start('Test', 12, 4))->toThrow(LogicException::class);
   $this->runtime->shutdown();
   $this->runtime->shutdown();
@@ -129,7 +138,7 @@ it('selects renderer-only game output while preserving frames and silent cleanup
   $this->runtime->present(null);
   $game->quit();
   expect(Console::isTerminalOutputEnabled())->toBeFalse()
-    ->and($this->transport->sent[0]->payload['text'][0])->toBe('GRAPHICAL   ')
+    ->and(RetainedFrameState::replay($this->transport->sent)[0]['textLayers'][0]['runs'][0]['text'])->toBe('GRAPHICAL')
     ->and(ob_get_contents())->toBe('');
 });
 
@@ -146,10 +155,10 @@ it('updates native activation state without consuming semantic input', function 
   expect($this->runtime->windowActive)->toBeTrue()->and(InputManager::getInputSource()->poll())->toBe(KeyCode::UP);
 });
 
-it('runs a real PHP-only peer through explicit v1 and v2 runtime lifecycles', function ($protocol) {
+it('runs a real PHP-only peer through the protocol two retained runtime lifecycle', function () {
   $capture = tempnam(sys_get_temp_dir(), 'runtime-version-');
   $process = new RendererProcessConfig([PHP_BINARY, __DIR__ . '/../Fixtures/Renderer/renderer-stub.php', 'ready_key', $capture]);
-  $this->runtime = new RendererRuntime(new RendererRuntimeConfig($process, __DIR__, protocol: $protocol), new ProcessRendererTransport($process));
+  $this->runtime = new RendererRuntime(new RendererRuntimeConfig($process, __DIR__), new ProcessRendererTransport($process));
   try {
     $this->runtime->start('Versioned runtime', 12, 4);
     InputManager::handleInput();
@@ -158,15 +167,205 @@ it('runs a real PHP-only peer through explicit v1 and v2 runtime lifecycles', fu
     $this->runtime->present(null);
     expect($this->runtime->shutdown())->toBe(0);
     $messages = array_map(fn($line) => json_decode($line, true), file($capture, FILE_IGNORE_NEW_LINES));
-    expect(array_column($messages, 'protocol'))->toBe(array_fill(0, 3, $protocol->value))
+    expect(array_column($messages, 'protocol'))->toBe([2, 2, 2])
       ->and(array_column($messages, 'type'))->toBe(['hello', 'frame', 'shutdown']);
-    if ($protocol === RendererProtocolVersion::V1) {
-      expect($messages[1]['text'][0])->toBe('TITLE       ')->and($messages[1])->not->toHaveKey('textLayers');
-    } else {
-      expect($messages[1]['textLayers'][0]['runs'][0]['text'])->toBe('TITLE       ')->and($messages[1])->not->toHaveKey('text');
-    }
+    expect($messages[1]['reset'])->toBeTrue()->and($messages[1]['operations'][0]['op'])->toBe('put')
+      ->and($messages[1]['operations'][0]['value']['runs'][0]['text'])->toBe('TITLE       ')
+      ->and($messages[1])->not->toHaveKeys(['text', 'textLayers', 'sprites', 'tileBatches']);
   } finally { unlink($capture); }
-})->with([RendererProtocolVersion::V1, RendererProtocolVersion::V2]);
+});
+
+it('removes protocol one native runtime selection before acquiring any session or input ownership', function () {
+  expect(fn() => new RendererRuntimeConfig(new RendererProcessConfig(['not-launched']), __DIR__, protocol: RendererProtocolVersion::V1))
+    ->toThrow(InvalidArgumentException::class, 'protocol 1 full-frame path was removed');
+  expect($this->transport->session)->toBeNull()->and(InputManager::getInputSource())->toBe($this->previous);
+});
+
+it('uploads initial retained state once and does not rebuild it for staged or presented acknowledgements', function () {
+  $this->runtime->start('Retained startup', 12, 4);
+  Console::write('READY', 0, 0);
+  expect($this->runtime->present(null))->toBeTrue();
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"frame_ack","generation":1,"frame":1,"presented":false}'),
+    RendererEvent::fromJson('{"protocol":2,"type":"frame_ack","generation":1,"frame":1,"presented":true}')];
+  expect($this->runtime->present(null))->toBeFalse()->and($this->runtime->present(null))->toBeFalse()
+    ->and($this->transport->sent)->toHaveCount(1)->and($this->transport->sent[0]->payload['reset'])->toBeTrue()
+    ->and($this->transport->sent[0]->payload['generation'])->toBe(1);
+});
+
+it('invalidates once for a drained resize or rejection batch and resends complete retained state without losing keys', function (bool $rejected) {
+  $debug = new ReflectionClass(Debug::class)->getStaticProperties();
+  $directory = sys_get_temp_dir() . '/retained-runtime-' . bin2hex(random_bytes(6));
+  Debug::configure(['log_directory' => $directory]);
+  try {
+    $this->runtime->start('Resynchronize', 12, 4);
+    Console::write('UNCHANGED', 0, 0);
+    $this->runtime->present(null);
+    $baseline = RetainedFrameState::replay($this->transport->sent)[0];
+    $batch = [RendererEvent::fromJson('{"protocol":2,"type":"resized"}'), RendererEvent::fromJson('{"protocol":2,"type":"resized"}')];
+    if ($rejected) {
+      $batch[] = RendererEvent::fromJson('{"protocol":2,"type":"frame_rejected","generation":1,"expectedGeneration":0,"message":"invalid retained delta","resyncRequired":true}');
+    }
+    $batch[] = RendererEvent::fromJson('{"protocol":2,"type":"key","key":"up"}');
+    $this->transport->batches[] = $batch;
+    $this->runtime->pump();
+    expect(InputManager::getInputSource()->poll())->toBe(KeyCode::UP)
+      ->and($this->runtime->present(null))->toBeTrue()->and($this->runtime->present(null))->toBeFalse()
+      ->and($this->transport->sent)->toHaveCount(2)
+      ->and($this->transport->sent[1]->payload['reset'])->toBeTrue()
+      ->and($this->transport->sent[1]->payload['baseGeneration'])->toBe(1)
+      ->and($this->transport->sent[1]->payload['generation'])->toBe(2);
+    // A reset also reconstructs a peer that missed the original transaction.
+    $recovered = RetainedFrameState::replay([$this->transport->sent[1]])[0];
+    unset($baseline['frame'], $recovered['frame']);
+    expect($recovered)->toBe($baseline)->and($this->transport->running)->toBeTrue();
+    if ($rejected) {
+      expect(file_get_contents($directory . '/warning.log'))->toContain('invalid retained delta', 'resynchronized')
+        ->and(substr_count(file_get_contents($directory . '/warning.log'), 'invalid retained delta'))->toBe(1);
+    } else {
+      expect(file_exists($directory . '/warning.log'))->toBeFalse();
+    }
+  } finally {
+    foreach ($debug as $property => $value) { new ReflectionProperty(Debug::class, $property)->setValue(null, $value); }
+    foreach (glob($directory . '/*') as $file) { unlink($file); }
+    if (is_dir($directory)) { rmdir($directory); }
+  }
+})->with(['resize only' => [false], 'resize plus rejected update' => [true]]);
+
+it('continues real gameplay and semantic input after a rejected update instead of stopping the game', function () {
+  $game = new RendererRuntimeGameProbe();
+  $game->useRendererRuntime($this->runtime);
+  $continued = false;
+  $game->onUpdate = function () use (&$continued): void {
+    Console::write('PLAY', 0, 0);
+    $this->runtime->present(null);
+    $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"frame_rejected","generation":1,"expectedGeneration":0,"message":"invalid update fixture","resyncRequired":true}'),
+      RendererEvent::fromJson('{"protocol":2,"type":"key","key":"right"}')];
+    $this->runtime->pump();
+    expect(InputManager::getInputSource()->poll())->toBe(KeyCode::RIGHT);
+    Console::write('CONTINUED', 0, 1);
+    expect($this->runtime->present(null))->toBeTrue();
+    $continued = true;
+  };
+  $game->run();
+  expect($continued)->toBeTrue()->and($game->updates)->toBe(1)
+    ->and($this->transport->shutdowns)->toBe(1)->and(InputManager::getInputSource())->toBe($this->previous);
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  expect(array_column(end($frames)['textLayers'][0]['runs'], 'text'))->toContain('CONTINUED');
+});
+
+it('recovers once above the highest expected receiver generation in a mixed rejection drain', function () {
+  $this->runtime->start('Ahead receiver', 12, 4);
+  Console::write('PRESERVED', 0, 0);
+  $this->runtime->present(null);
+  $this->transport->batches[] = [
+    RendererEvent::fromJson('{"protocol":2,"type":"frame_rejected","generation":1,"expectedGeneration":99,"message":"ahead","resyncRequired":true}'),
+    RendererEvent::fromJson('{"protocol":2,"type":"resized"}'),
+    RendererEvent::fromJson('{"protocol":2,"type":"frame_rejected","generation":1,"expectedGeneration":12,"message":"older","resyncRequired":true}'),
+    RendererEvent::fromJson('{"protocol":2,"type":"key","key":"up"}'),
+  ];
+  expect($this->runtime->present(null))->toBeTrue()->and($this->transport->sent)->toHaveCount(2)
+    ->and($this->transport->sent[1]->payload['generation'])->toBe(100)
+    ->and($this->transport->sent[1]->payload['baseGeneration'])->toBe(99)
+    ->and($this->transport->sent[1]->payload['reset'])->toBeTrue()
+    ->and(InputManager::getInputSource()->poll())->toBe(KeyCode::UP)
+    ->and($this->runtime->present(null))->toBeFalse();
+});
+
+it('restarts an active renderer once without replacing desired field or canvas state and discards only old-session keys', function (bool $canvasMode) {
+  $capabilities = ['graphical_canvas', 'sprite_source_rect'];
+  $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__,
+    requiredCapabilities: $capabilities), $this->transport);
+  $this->transport->onStart = static function (FakeRendererTransport $peer) use ($capabilities): void {
+    $events = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready', 'capabilities' => $capabilities]))];
+    if ($peer->starts > 1) { $events[] = RendererEvent::fromJson('{"protocol":2,"type":"key","key":"right"}'); }
+    $peer->batches = [$events];
+  };
+  $this->runtime->start('Restart retained scene', 12, 4);
+  $world = PresentationWorld::getFromLayers(new MapLayerSet([new MapLayer('terrain', 1, false, 'map', 'abc')]), []);
+  $canvas = new PresentationCanvas(320, 180, [new CanvasImage('panel', 'panel.png', new CanvasRectangle(8, 8, 64, 32))]);
+  $scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()
+    ->onlyMethods(['getPresentationWorld', 'getPresentationCanvas', 'getGraphicalSpriteProviders'])->getMock();
+  $scene->method('getPresentationWorld')->willReturn($world);
+  $scene->method('getPresentationCanvas')->willReturn($canvasMode ? $canvas : null);
+  $player = $this->getMockBuilder(Player::class)->disableOriginalConstructor()
+    ->onlyMethods(['getGraphicalSpriteDefinition', 'getGraphicalSpriteWorldPosition'])->getMock();
+  $player->method('getGraphicalSpriteDefinition')->willReturn(DirectionalGraphicalSpriteSet::fromArray(graphicalSpriteData())->south);
+  $player->method('getGraphicalSpriteWorldPosition')->willReturn(new Vector2(2, 1));
+  $scene->method('getGraphicalSpriteProviders')->willReturn([$player]);
+  new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, new Camera($scene, 12, 4));
+  Console::write('RETAIN ME', 0, 0);
+  expect($this->runtime->present($scene))->toBeTrue();
+  $initial = RetainedFrameState::replay($this->transport->sent)[0];
+  if ($canvasMode) { expect($initial['canvas']['images'][0]['asset'])->toBe('panel.png'); }
+  else { expect($initial['worlds']['map']['glyphRows']['map:terrain'][0][1]['glyph'])->toBe('b')->and($initial['sprites'])->toHaveCount(1); }
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"key","key":"left"}')];
+  $this->runtime->pump();
+  $input = InputManager::getInputSource(); $console = Console::snapshot(); $session = $this->transport->session;
+  $sent = count($this->transport->sent);
+  $this->runtime->restart();
+  expect(InputManager::getInputSource())->toBe($input)->and(Console::snapshot())->toEqual($console)
+    ->and($this->transport->session)->toBe($session)->and($this->transport->starts)->toBe(2)
+    ->and($input->poll())->toBe(KeyCode::RIGHT)->and($input->poll())->toBeNull()
+    ->and($this->runtime->present($scene))->toBeTrue()->and($this->runtime->present($scene))->toBeFalse();
+  $resets = array_slice($this->transport->sent, $sent);
+  expect($resets)->toHaveCount(1)->and($resets[0]->payload['reset'])->toBeTrue()
+    ->and($resets[0]->payload['baseGeneration'])->toBe(0)->and($resets[0]->payload['generation'])->toBe(1);
+  $restored = RetainedFrameState::replay($resets)[0];
+  unset($initial['frame'], $restored['frame']);
+  expect($restored)->toBe($initial);
+})->with(['field and sprites' => [false], 'canvas' => [true]]);
+
+it('restarts after a dead peer reports a shutdown failure and clears the old transport failure', function () {
+  $this->runtime->start('Dead peer restart', 12, 4);
+  Console::write('PRESERVED', 0, 0); $this->runtime->present(null);
+  $input = InputManager::getInputSource();
+  $this->transport->running = false;
+  $this->transport->failure = new RendererTransportException('old peer died');
+  $this->transport->shutdownFailure = new RendererTransportException('dead peer cleanup diagnostic');
+  expect(fn() => $this->runtime->pump())->toThrow(RendererTransportException::class, 'old peer died');
+  $this->transport->onStart = static function (FakeRendererTransport $peer): void {
+    $peer->failure = $peer->shutdownFailure = null;
+    $peer->batches = [[RendererEvent::fromJson('{"protocol":2,"type":"ready"}'),
+      RendererEvent::fromJson('{"protocol":2,"type":"key","key":"up"}')]];
+  };
+  $this->runtime->restart();
+  expect($this->transport->starts)->toBe(2)->and($this->transport->running)->toBeTrue()
+    ->and(InputManager::getInputSource())->toBe($input)->and($input->poll())->toBe(KeyCode::UP)
+    ->and($this->runtime->present(null))->toBeTrue()->and($this->runtime->present(null))->toBeFalse()
+    ->and($this->transport->sent)->toHaveCount(2)->and($this->transport->sent[1]->payload['generation'])->toBe(1)
+    ->and($this->transport->sent[1]->payload['reset'])->toBeTrue();
+});
+
+it('refuses restart before start or after final shutdown without acquiring a renderer', function () {
+  expect(fn() => $this->runtime->restart())->toThrow(LogicException::class, 'active runtime');
+  expect($this->transport->starts)->toBe(0);
+  $this->runtime->start('Final shutdown', 12, 4);
+  $this->runtime->shutdown();
+  expect(fn() => $this->runtime->restart())->toThrow(LogicException::class, 'active runtime');
+  expect($this->transport->starts)->toBe(1)->and(InputManager::getInputSource())->toBe($this->previous);
+});
+
+it('restarts a real PHP pipe peer with a new retained generation and the same runtime input source', function () {
+  $capture = tempnam(sys_get_temp_dir(), 'runtime-restart-');
+  $process = new RendererProcessConfig([PHP_BINARY, __DIR__ . '/../Fixtures/Renderer/renderer-stub.php', 'ready_key', $capture]);
+  $this->runtime = new RendererRuntime(new RendererRuntimeConfig($process, __DIR__), new ProcessRendererTransport($process));
+  try {
+    $this->runtime->start('Pipe restart', 12, 4);
+    $input = InputManager::getInputSource();
+    Console::write('SAME SCENE', 0, 0);
+    $this->runtime->present(null);
+    $this->runtime->restart();
+    expect(InputManager::getInputSource())->toBe($input)->and($input->poll())->toBe(KeyCode::W)
+      ->and($input->poll())->toBeNull()->and($this->runtime->present(null))->toBeTrue()
+      ->and($this->runtime->present(null))->toBeFalse();
+    $this->runtime->shutdown();
+    $wire = array_map(fn($line) => json_decode($line, true, flags: JSON_THROW_ON_ERROR), file($capture, FILE_IGNORE_NEW_LINES));
+    expect(array_column($wire, 'type'))->toBe(['hello', 'frame', 'shutdown', 'hello', 'frame', 'shutdown'])
+      ->and(array_column($wire, 'protocol'))->toBe(array_fill(0, 6, 2))
+      ->and([$wire[1]['generation'], $wire[4]['generation']])->toBe([1, 1])
+      ->and($wire[4]['operations'])->toBe($wire[1]['operations']);
+  } finally { unlink($capture); }
+});
 
 it('preserves input and shuts down once when startup fails after a child was started', function () {
   $this->transport->failure = new RendererTransportException('handshake fixture failure');
@@ -212,6 +411,86 @@ it('keeps presentation delivery bounded when a complete frame exceeds the I/O bu
   expect($transport->getPendingWriteBytes())->toBe($pending - 16);
 });
 
+it('resumes a large cold world through a slow real pipe while keeping input and latest scene changes', function (string $scenario) {
+  $capture = tempnam(sys_get_temp_dir(), 'retained-cold-');
+  $process = new RendererProcessConfig([PHP_BINARY, __DIR__ . '/../Fixtures/Renderer/renderer-stub.php', $scenario, $capture],
+    ioBudgetBytes: 8192);
+  $transport = new ProcessRendererTransport($process);
+  $this->runtime = new RendererRuntime(new RendererRuntimeConfig($process, __DIR__), $transport);
+  $world = PresentationWorld::getFromLayers(new MapLayerSet([
+    new MapLayer('terrain', 0, false, 'terrain', implode("\n", array_fill(0, 512, str_repeat('.', 256)))),
+  ]), []);
+  $scene = new class($world) extends GameScene {
+    public function __construct(private readonly PresentationWorld $world) {}
+    public function getPresentationWorld(): ?PresentationWorld { return $this->world; }
+    public function getPresentationCanvas(): ?PresentationCanvas { return null; }
+    public function getGraphicalSpriteProviders(): iterable { return []; }
+    public function getPresentationViewport(\Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot|\Ichiloto\Engine\IO\Console\ConsolePresentationChanges $snapshot, array $sprites, array $tiles = []): ?\Ichiloto\Engine\Rendering\Presentation\PresentationViewport { return null; }
+  };
+  try {
+    $this->runtime->start('Cold upload remains nonblocking', 12, 4);
+    Console::write('INITIAL', 0, 0);
+    $this->runtime->present($scene);
+    $keys = []; $commits = 0; $maxPending = 0; $longest = 0;
+    $deadline = hrtime(true) + 6_000_000_000;
+    $tick = 0;
+    do {
+      Console::write(sprintf('LATEST %03d', min(++$tick, 60)), 0, 0);
+      $start = hrtime(true);
+      $this->runtime->present($scene);
+      $longest = max($longest, hrtime(true) - $start);
+      $maxPending = max($maxPending, $transport->getPendingWriteBytes());
+      while (($key = InputManager::getInputSource()->poll()) !== null) {
+        $keys[] = $key;
+        if ($key === KeyCode::ENTER) { $commits++; }
+      }
+      usleep(200);
+    } while ($commits < 2 && hrtime(true) < $deadline);
+    expect($commits)->toBe(2)->and($keys)->toContain(KeyCode::RIGHT)
+      ->and($transport->isRunning())->toBeTrue()->and($maxPending)->toBeLessThanOrEqual(1048576)
+      ->and($longest / 1e9)->toBeLessThan(0.5)
+      ->and($this->runtime->present($scene))->toBeFalse();
+    $this->runtime->shutdown();
+    // Stream the large world proof rather than retaining a second decoded world in the test process.
+    $expected = hash_init('sha256');
+    foreach ($world->operations as $operation) {
+      if ($operation['op'] === 'worldRows') { hash_update($expected, json_encode($operation)); }
+    }
+    $expectedHash = hash_final($expected);
+    $received = hash_init('sha256'); $cells = 0;
+    $replay = new RetainedFrameState(); $frames = [];
+    $file = fopen($capture, 'r');
+    while (($line = fgets($file)) !== false) {
+      $wire = json_decode($line, true, flags: JSON_THROW_ON_ERROR);
+      if ($wire['type'] !== 'frame') { continue; }
+      if ($wire['reset']) { $received = hash_init('sha256'); $cells = 0; }
+      $screen = [];
+      foreach ($wire['operations'] as $operation) {
+        if ($operation['op'] === 'worldRows') {
+          hash_update($received, json_encode($operation));
+          foreach ($operation['rows'] as $row) { $cells += count($row['cells']); }
+        } elseif (($operation['kind'] ?? null) !== 'world') { $screen[] = $operation; }
+      }
+      $wire['operations'] = $screen;
+      unset($wire['type'], $wire['protocol']);
+      $message = new \Ichiloto\Engine\Rendering\Transport\RendererMessage(
+        \Ichiloto\Engine\Rendering\Transport\Enumerations\RendererMessageType::FRAME, $wire, RendererProtocolVersion::V2);
+      if ($replay->applyMessage($message)) {
+        $frames[] = $replay->getFrame();
+        expect($cells)->toBe(131072)->and(hash_final(hash_copy($received)))->toBe($expectedHash);
+      }
+    }
+    fclose($file);
+    expect(end($frames)['textLayers'][0]['runs'][0]['text'])->toStartWith('LATEST 060');
+  } finally {
+    $this->runtime->shutdown();
+    $this->runtime = null;
+    unset($world, $scene);
+    gc_collect_cycles();
+    unlink($capture);
+  }
+})->with(['retained_upload_slow', 'retained_upload_drop']);
+
 it('does not poll the transport twice just to drain already pumped lifecycle events', function () {
   $this->runtime->start('Poll budget', 12, 4);
   $before = $this->transport->polls;
@@ -234,11 +513,11 @@ it('propagates transport failures and diagnostic-bearing renderer errors', funct
     $this->transport->failure = new RendererTransportException('broken transport');
   }
   expect(fn() => $this->runtime->pump())->toThrow(RendererTransportException::class, $json === null ? 'broken transport' : 'missing image');
-})->with([null, '{"protocol":1,"type":"error","message":"missing image"}']);
+})->with([null, '{"protocol":2,"type":"error","message":"missing image"}']);
 
 it('keeps native close outside input and unwinds waits persistently', function () {
   $this->runtime->start('Test', 12, 4);
-  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":1,"type":"close_requested"}')];
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"close_requested"}')];
   expect(fn() => $this->runtime->pump())->toThrow(RendererWindowClosed::class);
   expect(fn() => $this->runtime->pump())->toThrow(RendererWindowClosed::class);
   expect(InputManager::getInputSource()->poll())->toBeNull();
@@ -247,8 +526,8 @@ it('keeps native close outside input and unwinds waits persistently', function (
 it('lets real Game quit on native close without updating gameplay or confirming', function () {
   $game = new RendererRuntimeGameProbe();
   $game->useRendererRuntime($this->runtime);
-  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":1,"type":"ready"}')];
-  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":1,"type":"close_requested"}')];
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready"}')];
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"close_requested"}')];
   $game->run();
   expect($game->updates)->toBe(0)->and($this->transport->shutdowns)->toBe(1)
     ->and(InputManager::getInputSource())->toBe($this->previous)
@@ -280,7 +559,7 @@ it('does not start a renderer for terminal-only Game and rejects late or repeate
 it('rejects fixed-grid mismatch and never captures unfinished composition', function () {
   $this->runtime->start('Test', 12, 4);
   Console::beginFrame();
-  expect(fn() => $this->runtime->present(null))->toThrow(RuntimeException::class, 'active');
+  expect(fn() => $this->runtime->present(null))->toThrow(RuntimeException::class, 'composition');
   Console::endFrame();
   Console::syncDimensions(13, 4);
   expect(fn() => $this->runtime->present(null))->toThrow(InvalidArgumentException::class, 'fixed renderer session grid');
@@ -334,9 +613,10 @@ it('presents the same field ownership from real Game renders and blocked ticks w
   $game->renderFrame();
   Console::write('Dialogue', 0, 3);
   $game->tickWhileBlocked();
+  $frames = RetainedFrameState::replay($this->transport->sent);
   expect($this->transport->sent)->toHaveCount(2)
-    ->and($this->transport->sent[1]->payload['sprites'])->toBe($this->transport->sent[0]->payload['sprites'])
-    ->and($this->transport->sent[1]->payload['text'][1][2])->toBe('.')
+    ->and($frames[1]['sprites'])->toBe($frames[0]['sprites'])
+    ->and(array_values(array_filter($frames[1]['textLayers'][0]['runs'], fn($run) => $run['row'] === 1 && $run['column'] === 2))[0]['text'])->toBe('.')
     ->and(Console::charAt(2, 1))->toBe('v');
   Console::beginFrame();
   $game->tickWhileBlocked();
@@ -344,7 +624,7 @@ it('presents the same field ownership from real Game renders and blocked ticks w
   expect($this->transport->sent)->toHaveCount(2);
   $sceneManager->currentScene = null;
   $game->tickWhileBlocked();
-  expect($this->transport->sent[2]->payload['sprites'])->toBe([]);
+  expect(RetainedFrameState::replay($this->transport->sent)[2]['sprites'])->toBe([]);
   $game->quit();
 });
 
@@ -380,26 +660,32 @@ it('presents cell-specific fixture crops through the real field runtime and clea
   Console::recomposeFrame($map->render(...));
   $terminal = Console::snapshot();
   expect($this->runtime->present($scene))->toBeTrue();
-  $payload = end($this->transport->sent)->payload;
-  $text = array_column($payload['textLayers'], null, 'id');
-  expect($payload['tileBatches'][0]['id'])->toBe('map:fixtures')
-    ->and(array_column($payload['tileBatches'][0]['cells'], 'source'))->toBe([0, 1, 2, 3])
-    ->and($text['map:fixtures']['runs'][0]['text'])->toBe('i')
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  $world = end($frames)['worlds']['map'];
+  expect($world['layers'][1]['id'])->toBe('map:fixtures')
+    ->and(array_column($world['tileRows']['map:fixtures'][0], 'source'))->toBe([0, 1, 2, 3])
+    ->and($world['glyphRows']['map:fixtures'][0][4]['glyph'])->toBe('i')
+    ->and($world['glyphRows']['map:floor'][0][2]['glyph'])->toBe(' ')
     ->and(Console::snapshot())->toEqual($terminal);
   Console::withLayer('dialogue', fn() => Console::write('Talk', 0, 3), 1020);
   $this->runtime->present($scene);
-  expect(end($this->transport->sent)->payload['tileBatches'])->toBe($payload['tileBatches']);
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  expect(end($frames)['worlds']['map'])->toBe($world)
+    ->and(array_column(end($this->transport->sent)->payload['operations'], 'op'))->not->toContain('worldTiles', 'worldRows');
   new ReflectionProperty(GameScene::class, 'state')->setValue($scene, makeBareScene(\Ichiloto\Engine\Scenes\Game\States\MainMenuState::class));
   Console::recomposeFrame(fn() => Console::write('Menu', 0, 0));
   $this->runtime->present($scene);
-  expect(end($this->transport->sent)->payload)->not->toHaveKey('tileBatches');
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  expect(end($frames))->not->toHaveKey('worlds');
   new ReflectionProperty(GameScene::class, 'state')->setValue($scene, $field);
   Console::recomposeFrame($map->render(...));
   $this->runtime->present($scene);
-  expect(end($this->transport->sent)->payload['tileBatches'])->toBe($payload['tileBatches'])
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  expect(end($frames)['worlds']['map'])->toBe($world)
     ->and(Console::snapshot())->toEqual($terminal);
   $this->runtime->present(null);
-  expect(end($this->transport->sent)->payload)->not->toHaveKey('tileBatches');
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  expect(end($frames))->not->toHaveKey('worlds');
 });
 
 it('uses the same field eligibility for terrain and Player and clears tiles on scene replacement', function () {
@@ -413,6 +699,9 @@ it('uses the same field eligibility for terrain and Player and clears tiles on s
   $map = makeBareScene(MapManager::class);
   new ReflectionProperty(MapManager::class,'gameScene')->setValue($map,$scene);
   new ReflectionProperty(MapManager::class,'tileMap')->setValue($map,$camera->worldSpace);
+  new ReflectionProperty(MapManager::class,'layers')->setValue($map, new MapLayerSet([
+    new MapLayer('terrain', 1, false, 'field', implode("\n", array_fill(0, 4, str_repeat(';', 12)))),
+  ], legacy: true));
   new ReflectionProperty(MapManager::class,'tiles2d')->setValue($map,GraphicalTileDefinition::fromArray([
     'asset'=>'field.png','symbols'=>[';'=>['x'=>0,'y'=>0,'width'=>16,'height'=>32]]], 'field'));
   new ReflectionProperty(GameScene::class,'mapManager')->setValue($scene,$map);
@@ -431,30 +720,37 @@ it('uses the same field eligibility for terrain and Player and clears tiles on s
       'sourceRect' => ['x' => 256, 'y' => 0, 'width' => 256, 'height' => 256]]]);
   Console::recomposeFrame(fn()=>$map->render());
   $terminal = Console::snapshot();
-  expect($this->runtime->present($scene))->toBeTrue()
-    ->and($this->transport->sent[0]->payload['tileBatches'][0]['cells'])->toHaveCount(48)
-    ->and($this->transport->sent[0]->payload['textLayers'][0]['runs'])->toBe([])
-    ->and($this->transport->sent[0]->payload['sprites'][0]['id'])->toBe('staged:runner')
-    ->and($this->transport->sent[0]->payload['sprites'][0]['sourceRect']['x'])->toBe(256)
+  expect($this->runtime->present($scene))->toBeTrue();
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  $world = $frames[0]['worlds']['map'];
+  expect(array_sum(array_map(count(...), $world['tileRows']['map:terrain'])))->toBe(48)
+    ->and($frames[0]['sprites'][0]['id'])->toBe('staged:runner')
+    ->and($frames[0]['sprites'][0]['sourceRect']['x'])->toBe(256)
     ->and(Console::snapshot())->toEqual($terminal);
   Console::withLayer('dialogue',fn()=>Console::write('Talk',0,3),1020);
-  expect($this->runtime->present($scene))->toBeTrue()
-    ->and($this->transport->sent[1]->payload['tileBatches'])->toBe($this->transport->sent[0]->payload['tileBatches']);
+  expect($this->runtime->present($scene))->toBeTrue();
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  expect(end($frames)['worlds']['map'])->toBe($world)
+    ->and(array_column(end($this->transport->sent)->payload['operations'], 'op'))->not->toContain('worldTiles', 'worldRows');
   $cinematic = new \Ichiloto\Engine\Cutscenes\Cinematics\CinematicController($scene);
   new ReflectionProperty(GameScene::class,'cinematicController')->setValue($scene,$cinematic);
   new ReflectionProperty($cinematic,'active')->setValue($cinematic,
     makeBareScene(\Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition::class));
   $this->runtime->present($scene);
-  expect(end($this->transport->sent)->payload['tileBatches'][0]['cells'])->toHaveCount(48);
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  expect(end($frames)['worlds']['map'])->toBe($world);
   expect(iterator_to_array($scene->getGraphicalSpriteProviders()))->toBe([$player, $cast]);
   new ReflectionProperty($cinematic,'active')->setValue($cinematic,null);
   $this->runtime->present($scene);
-  expect(end($this->transport->sent)->payload['tileBatches'][0]['cells'])->toHaveCount(48);
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  expect(end($frames)['worlds']['map'])->toBe($world);
   // Actual background restoration removes old named Player history.
   Console::withLayer('player',fn()=>Console::write('@',1,1));
   $map->renderBackgroundTile(1,1);
   $this->runtime->present($scene);
-  expect(Console::charAt(1,1))->toBe(';');
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  expect(end($frames)['worlds']['map']['glyphRows']['map:terrain'][1][1]['glyph'])->toBe(';')
+    ->and(array_column(end($frames)['textLayers'], 'id'))->not->toContain('player');
   $before = Console::getBuffer();
   $map->renderBackgroundTile(-1,0);
   expect(Console::getBuffer())->toBe($before);
@@ -464,30 +760,30 @@ it('uses the same field eligibility for terrain and Player and clears tiles on s
   Console::recomposeFrame(fn()=>Console::write('Menu',0,0));
   new ReflectionProperty(GameScene::class,'state')->setValue($scene,makeBareScene(\Ichiloto\Engine\Scenes\Game\States\MainMenuState::class));
   $this->runtime->present($scene);
-  expect(end($this->transport->sent)->payload)->not->toHaveKey('tileBatches');
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  expect(end($frames))->not->toHaveKey('worlds')->and(end($frames)['sprites'])->toBe([]);
   new ReflectionProperty(GameScene::class,'state')->setValue($scene,$field);
   Console::recomposeFrame(fn()=>$map->render());
   $this->runtime->present($scene);
-  expect(end($this->transport->sent)->payload['tileBatches'][0]['cells'])->toHaveCount(48);
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  expect(end($frames)['worlds']['map'])->toBe($world);
   new ReflectionProperty(MapManager::class,'tiles2d')->setValue($map,null);
+  new ReflectionMethod(MapManager::class, 'clearPresentationWorld')->invoke($map);
   Console::recomposeFrame(fn()=>$map->render());
   $this->runtime->present($scene);
-  expect(end($this->transport->sent)->payload)->not->toHaveKey('tileBatches');
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  expect(end($frames)['worlds']['map']['tileRows'])->toBe([])
+    ->and(end($frames)['worlds']['map']['glyphRows'])->toBe($world['glyphRows']);
 });
 
-it('rejects oversized tile viewports before acquiring session ownership and permits a valid retry', function (int $columns, int $rows) {
+it('allows the maximum logical grid with retained worlds independent of the removed 32768 tile viewport cap', function (int $columns, int $rows) {
   $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__,
     requiredCapabilities: ['tile_batches']), $this->transport);
-  $console = new ReflectionClass(Console::class)->getStaticProperties();
-  expect(fn() => $this->runtime->start('Large grid', $columns, $rows))
-    ->toThrow(InvalidArgumentException::class, '32768 cells')
-    ->and($this->transport->session)->toBeNull()
-    ->and(InputManager::getInputSource())->toBe($this->previous)
-    ->and(new ReflectionClass(Console::class)->getStaticProperties())->toBe($console);
   $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["tile_batches"]}')];
-  $this->runtime->start('Bounded tiles', 512, 64);
-  expect($this->transport->session->grid->columns)->toBe(512)
-    ->and($this->transport->session->grid->rows)->toBe(64);
+  $this->runtime->start('Retained world grid', $columns, $rows);
+  expect($this->transport->session->grid->columns)->toBe($columns)
+    ->and($this->transport->session->grid->rows)->toBe($rows)
+    ->and(InputManager::getInputSource())->toBeInstanceOf(RendererInputSource::class);
 })->with([[512, 65], [129, 256], [512, 256]]);
 
 it('preserves the maximum protocol grid for runtimes without tile capability requirements', function () {
@@ -569,13 +865,13 @@ it('cleans up scenario audio exactly once when native close interrupts a held fi
       $scene->refreshFieldMusic(force: true);
       // The normal wait callback propagates close through the action's
       // finally block before Game::run catches it and performs cleanup.
-      $transport->batches[] = [RendererEvent::fromJson('{"protocol":1,"type":"close_requested"}')];
+      $transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"close_requested"}')];
       $game->tickWhileBlocked();
       throw new LogicException('Expected the pending native close.');
     } finally { $scene->releaseFieldMusic(); }
   };
   $game->useRendererRuntime($this->runtime);
-  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":1,"type":"ready"}')];
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready"}')];
   $beforeRun = count($audio->calls);
   $game->run();
   expect($game->updates)->toBe(1)->and($audio->currentBackgroundMusic)->toBeNull()

@@ -14,6 +14,7 @@ final class PresentationLayerPolicy
   public const TERRAIN = -100;
   public const TERRAIN_ID = 'terrain';
   public const WORLD = 0;
+  public const FIELD_PROMPT_ID = 'field-prompt';
   public const UI = 1000;
   public const NOTIFICATIONS = 2000;
   public const TRANSITION = 3000;
@@ -47,7 +48,7 @@ final class PresentationLayerPolicy
 
   public static function fieldPrompt(callable $draw): void
   {
-    Console::withLayer('field-prompt', $draw, self::UI + PresentationPriority::FIELD_HUD->value);
+    Console::withLayer(self::FIELD_PROMPT_ID, $draw, self::UI + PresentationPriority::FIELD_HUD->value);
   }
 
   /** @param list<PresentationSprite> $sprites */

@@ -294,7 +294,7 @@ it('continues scene and platform cleanup once after a scene throws, including a 
   $this->game->sceneManager->currentScene = $partial;
   $transport = new FakeRendererTransport();
   $runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__,
-    protocol: RendererProtocolVersion::V1), $transport);
+    protocol: RendererProtocolVersion::V2), $transport);
   $runtime->start('Teardown test', 24, 8);
   $this->game->useRendererRuntime($runtime);
   Timers::setFrameTick(fn() => throw new RuntimeException('stale frame callback'));

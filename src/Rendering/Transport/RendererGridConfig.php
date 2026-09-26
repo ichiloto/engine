@@ -4,7 +4,7 @@ namespace Ichiloto\Engine\Rendering\Transport;
 
 use InvalidArgumentException;
 
-/** Logical-pixel geometry supported by the protocol v1 renderer. */
+/** Session text-grid geometry, independent of the presentation encoding. */
 final readonly class RendererGridConfig
 {
   public const int MAX_COLUMNS = 512;
@@ -22,7 +22,7 @@ final readonly class RendererGridConfig
     if ($columns < 1 || $columns > self::MAX_COLUMNS || $rows < 1 || $rows > self::MAX_ROWS
       || $cellWidth < 1 || $cellWidth > self::MAX_CELL_SIZE || $cellHeight < 1 || $cellHeight > self::MAX_CELL_SIZE
       || $columns * $cellWidth > self::MAX_EXTENT || $rows * $cellHeight > self::MAX_EXTENT) {
-      throw new InvalidArgumentException('Grid geometry exceeds protocol v1 limits.');
+      throw new InvalidArgumentException('Grid geometry exceeds renderer session limits.');
     }
   }
 

@@ -50,9 +50,11 @@ use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 use Tests\Support\Input\FakeInputSource;
 use Tests\Support\Input\FakeRendererTransport;
+use Tests\Support\Rendering\RetainedFrameState;
 
 require_once __DIR__ . '/../Support/Input/FakeInputSource.php';
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
 class JournalMenuTestGame extends Game
 {
@@ -324,7 +326,7 @@ it('submits through the existing renderer and retains reading position around su
   journalMenuKey($state, KeyCode::DOWN);
   $before = $state->getPresentationPage(100, 4);
   expect($this->runtime->present($this->scene))->toBeTrue();
-  expect(array_filter($this->transport->sent, fn($message) => isset($message->payload['canvas'])))->not->toBeEmpty();
+  expect(array_filter(RetainedFrameState::replay($this->transport->sent), fn($frame) => isset($frame['canvas'])))->not->toBeEmpty();
   $stack = new ReflectionProperty($this->game->modalManager, 'modals')->getValue($this->game->modalManager);
   $modal = new AlertModal($this->game, 'Owner notice.', 'Notice');
   $stack->push($modal);

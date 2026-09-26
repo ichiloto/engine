@@ -29,11 +29,13 @@ use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Tests\Support\Input\FakeRendererTransport;
+use Tests\Support\Rendering\RetainedFrameState;
 use function Tests\Support\Rendering\graphicalSpriteData;
 use function Tests\Support\Rendering\spriteSheetData;
 
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
 final class PlayerPresentationTestGame extends Game
 {
@@ -58,6 +60,7 @@ beforeEach(function () {
     'output' => null, 'terminalOutputStream' => null] as $name => $value) {
     new ReflectionProperty(Console::class, $name)->setValue(null, $value);
   }
+  Console::setTerminalOutputEnabled(false);
   Console::syncDimensions(20, 10);
   $this->data = ['sprites' => ['north' => '^', 'east' => '>', 'south' => 'v', 'west' => '<'], 'sprites2d' => graphicalSpriteData()];
   $this->writePlayerData = function (array $data): void {
@@ -198,12 +201,13 @@ it('defaults to v2 world sprite and opaque above-sprite prompt composition', fun
   expect($transport->session->protocol)->toBe(RendererProtocolVersion::V2)
     ->and($transport->sent[0]->protocol)->toBe(RendererProtocolVersion::V2)
     ->and($transport->sent[0]->payload)->not->toHaveKey('text');
-  $frame = $transport->sent[0]->payload;
+  $frame = RetainedFrameState::replay($transport->sent)[0];
   expect(array_column($frame['textLayers'], 'id'))->toBe(['world', 'field-prompt', 'modal'])
     ->and(array_column($frame['textLayers'], 'layer'))->toBe([0, 1010, 1020])
     ->and($frame['sprites'])->toHaveCount(1)
-    ->and($frame['textLayers'][0]['runs'][4]['text'][7])->toBe('.')
-    ->and($frame['textLayers'][2]['runs'][0]['text'])->toBe('   ');
+    ->and(mb_substr(RetainedFrameState::getTextRows(['textLayers' => [$frame['textLayers'][0]]], 20, 10)[4], 7, 1))->toBe('.')
+    ->and($frame['textLayers'][2]['runs'][0]['text'])->toBe('   ')
+    ->and(mb_substr(RetainedFrameState::getTextRows($frame, 20, 10)[4], 7, 3))->toBe('   ');
 });
 
 it('composes real field Player movement facing masking and duplicate detection in the runtime', function () {
@@ -218,28 +222,33 @@ it('composes real field Player movement facing masking and duplicate detection i
   new ReflectionProperty(MapManager::class, 'collisionMap')->setValue($map, [3 => [7 => CollisionType::SOLID->value]]);
   new ReflectionProperty(GameScene::class, 'mapManager')->setValue($this->scene, $map);
   $transport = new FakeRendererTransport();
-  $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), $this->root, protocol: RendererProtocolVersion::V1), $transport);
+  $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), $this->root, protocol: RendererProtocolVersion::V2), $transport);
   $this->runtime->start('Field', 20, 10);
   Console::write('.', 7, 4);
   $player->render();
   expect($this->runtime->present($this->scene))->toBeTrue()->and($this->runtime->present($this->scene))->toBeFalse()
-    ->and(Console::charAt(7, 4))->toBe('v')->and($transport->sent[0]->payload['text'][4][7])->toBe('.');
+    ->and(Console::charAt(7, 4))->toBe('v');
+  $frames = RetainedFrameState::replay($transport->sent);
+  expect(mb_substr(RetainedFrameState::getTextRows($frames[0], 20, 10)[4], 7, 1))->toBe('.');
   expect($player->tryMove(Vector2::up(), $this->camera))->toBeFalse();
   $this->runtime->present($this->scene);
-  $south = $transport->sent[0]->payload['sprites'][0];
-  $north = $transport->sent[1]->payload['sprites'][0];
+  $frames = RetainedFrameState::replay($transport->sent);
+  $south = $frames[0]['sprites'][0];
+  $north = $frames[1]['sprites'][0];
   expect(array_diff_assoc($north, $south))->toBe(['asset' => $this->data['sprites2d']['north']['asset']]);
   $player->position->x = 11;
   $this->camera->moveTo(3, 2);
   $this->runtime->present($this->scene);
-  expect([$transport->sent[2]->payload['sprites'][0]['x'], $transport->sent[2]->payload['sprites'][0]['y']])->toBe([8, 2]);
+  $frames = RetainedFrameState::replay($transport->sent);
+  expect([$frames[2]['sprites'][0]['x'], $frames[2]['sprites'][0]['y']])->toBe([8, 2]);
   $player->position->x = -100;
   $player->render();
   $before = Console::snapshot();
   $this->runtime->present($this->scene);
+  $frames = RetainedFrameState::replay($transport->sent);
   expect(Console::snapshot())->toEqual($before)
-    ->and($transport->sent[3]->payload['text'])->toBe($before->rows)
-    ->and($transport->sent[3]->payload['sprites'][0]['x'])->toBe(-103);
+    ->and(RetainedFrameState::getTextRows($frames[3], 20, 10))->toBe($before->rows)
+    ->and($frames[3]['sprites'][0]['x'])->toBe(-103);
 });
 
 it('keeps the graphical Player during an ordinary dialogue event without admitting menu overlays', function () {
@@ -255,18 +264,33 @@ it('keeps the graphical Player during an ordinary dialogue event without admitti
   $interpreter->start([['type' => 'text', 'name' => 'Mother', 'text' => 'Welcome home.']]);
   expect($this->scene->hasUnstableEventSession())->toBeTrue();
   $transport = new FakeRendererTransport();
-  $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), $this->root, protocol: RendererProtocolVersion::V1), $transport);
+  $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), $this->root, protocol: RendererProtocolVersion::V2), $transport);
   $this->runtime->start('Dialogue', 20, 10);
   Console::write('.', 7, 4);
   $player->render();
   Console::write('Mother: Welcome home', 0, 8);
   $this->runtime->present($this->scene);
-  expect($transport->sent[0]->payload['sprites'])->toHaveCount(1)
-    ->and($transport->sent[0]->payload['sprites'][0]['asset'])->toEndWith('South.png')
-    ->and($transport->sent[0]->payload['text'][4][7])->toBe('.')
-    ->and($transport->sent[0]->payload['text'][8])->toStartWith('Mother:')
+  $frames = RetainedFrameState::replay($transport->sent);
+  $text = RetainedFrameState::getTextRows($frames[0], 20, 10);
+  expect($frames[0]['sprites'])->toHaveCount(1)
+    ->and($frames[0]['sprites'][0]['asset'])->toEndWith('South.png')
+    ->and(mb_substr($text[4], 7, 1))->toBe('.')
+    ->and($text[8])->toStartWith('Mother:')
     ->and(Console::charAt(7, 4))->toBe('v');
   new ReflectionProperty(GameScene::class, 'state')->setValue($this->scene, makeBareScene(MainMenuState::class));
   $this->runtime->present($this->scene);
-  expect($transport->sent[1]->payload['sprites'])->toBe([]);
+  $frames = RetainedFrameState::replay($transport->sent);
+  expect($frames[1]['sprites'])->toBe([]);
+});
+
+it('flattens retained scalar cells by priority without treating opaque UI spaces as transparent', function () {
+  $frame = ['textLayers' => [
+    ['id' => 'modal', 'layer' => 1000, 'runs' => [['row' => 0, 'column' => 2, 'text' => ' ']]],
+    ['id' => 'world', 'layer' => 0, 'runs' => [['row' => 0, 'column' => 0, 'text' => "\u{00e9}\u{00a3}C"]]],
+    ['id' => 'actor', 'layer' => 10, 'runs' => [['row' => 0, 'column' => 3, 'text' => "\u{03a9}"]]],
+  ]];
+  $rows = RetainedFrameState::getTextRows($frame, 5, 2);
+  expect($rows)->toBe(["\u{00e9}\u{00a3} \u{03a9} ", '     '])
+    ->and(mb_substr($rows[0], 2, 1))->toBe(' ')
+    ->and(array_column($frame['textLayers'], 'id'))->toBe(['modal', 'world', 'actor']);
 });

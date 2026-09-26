@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Field;
 
-use Ichiloto\Engine\IO\Console\TerminalText;
 use InvalidArgumentException;
 
 /** The ordered authored layers, shared by runtime and authoring tools. */
@@ -14,10 +13,17 @@ final readonly class MapLayerSet
     public array $layers;
     /** @var non-empty-list<MapLayer> */
     private array $gameplayLayers;
+    /** @var list<list<int>> Topmost gameplay owner, indexed into the sorted layers. */
+    public array $gameplayOwners;
+    /** @var list<list<string>> */
+    private array $composedGrid;
+    private MapGridMetrics $composedMetrics;
 
     /** @param list<MapLayer> $layers */
     public function __construct(array $layers, public bool $legacy = false)
     {
+        // Detach caller-owned array references so the retained indexes cannot go stale.
+        $layers = array_map(static fn(MapLayer $layer): MapLayer => $layer, $layers);
         if ($layers === [] || !array_filter($layers, static fn(MapLayer $layer): bool => !$layer->decoration)) {
             throw new InvalidArgumentException('A map requires at least one gameplay layer.');
         }
@@ -40,38 +46,44 @@ final readonly class MapLayerSet
                 $this->assertMatchingGrid($layer->grid, "Layer {$layer->path}");
             }
         }
+        $result = $owners = [];
+        foreach ($this->layers as $index => $layer) {
+            if ($layer->decoration) { continue; }
+            if ($result === []) {
+                $result = $layer->grid;
+                foreach ($result as $y => $row) { $owners[$y] = array_fill(0, count($row), $index); }
+                continue;
+            }
+            foreach ($layer->grid as $y => $row) {
+                foreach ($row as $x => $cell) {
+                    if ($layer->glyphs[$y][$x] !== ' ') {
+                        $result[$y][$x] = $cell;
+                        $owners[$y][$x] = $index;
+                    }
+                }
+            }
+        }
+        $this->composedGrid = $result;
+        $this->gameplayOwners = $owners;
+        $this->composedMetrics = new MapGridMetrics($result);
     }
 
     /** @return list<list<string>> */
     public function getComposedGrid(): array
     {
-        $result = [];
-        foreach ($this->gameplayLayers as $layer) {
-            if ($result === []) {
-                $result = $layer->grid;
-                continue;
-            }
-            foreach ($layer->grid as $y => $row) {
-                foreach ($row as $x => $cell) {
-                    if (TerminalText::stripAnsi($cell) !== ' ') {
-                        $result[$y][$x] = $cell;
-                    }
-                }
-            }
-        }
-        return $result;
+        return $this->composedGrid;
+    }
+
+    /** @return list<list<int>> Display widths, preserving each authored row length. */
+    public function getComposedWidths(): array
+    {
+        return $this->composedMetrics->getWidths();
     }
 
     public function getGameplayLayerAt(int $x, int $y): MapLayer
     {
-        $gameplay = $this->gameplayLayers;
-        for ($index = count($gameplay) - 1; $index > 0; $index--) {
-            $cell = $gameplay[$index]->grid[$y][$x] ?? ' ';
-            if (TerminalText::stripAnsi($cell) !== ' ') {
-                return $gameplay[$index];
-            }
-        }
-        return $gameplay[0];
+        $index = $this->gameplayOwners[$y][$x] ?? null;
+        return $index === null ? $this->gameplayLayers[0] : $this->layers[$index];
     }
 
     /** @param array<int, string[]> $grid */

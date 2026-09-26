@@ -16,6 +16,7 @@ use Tests\Support\Input\FakeRendererTransport;
 use function Tests\Support\Rendering\spriteSheetData;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 
 beforeEach(function () {
@@ -113,14 +114,16 @@ it('emits opaque cinematic overlays and covers above world sprites and clears th
       [$this->projector->project($actor, $this->camera)]);
   };
   $render();
-  $frame = $transport->sent[0]->payload;
+  $frame = Tests\Support\Rendering\RetainedFrameState::replay($transport->sent)[0];
   expect($frame['sprites'])->toHaveCount(1)
     ->and(array_column($frame['textLayers'], 'layer'))->toContain(1020, 3000)
     ->and(Console::charAt(7, 4))->toBe('#');
   $this->presentation->clear();
   $render();
-  expect(array_column($transport->sent[1]->payload['textLayers'], 'layer'))->not->toContain(1020, 3000)
-    ->and($transport->sent[1]->payload['sprites'])->toBe($frame['sprites']);
+  $restored = Tests\Support\Rendering\RetainedFrameState::replay($transport->sent)[1];
+  expect(array_column($restored['textLayers'], 'layer'))->not->toContain(1020, 3000)
+    ->and($restored['sprites'])->toBe($frame['sprites'])
+    ->and(array_column($transport->sent[1]->payload['operations'], 'kind'))->not->toContain('sprite');
 });
 
 it('validates staged graphics at authoring boundaries without requiring an asset on disk', function () {

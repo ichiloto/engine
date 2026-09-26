@@ -4,6 +4,9 @@ namespace Ichiloto\Engine\Field;
 
 use Ichiloto\Engine\Rendering\Tiles\GraphicalTileDefinition;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
+use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
+use Ichiloto\Engine\IO\Console\TerminalCapabilities;
+use Ichiloto\Engine\IO\Console\Console;
 
 use Assegai\Util\Path;
 use Ichiloto\Engine\Core\Game;
@@ -44,6 +47,8 @@ class MapManager implements CanRenderAt
   public private(set) ?MapLayerSet $layers = null;
   /** @var array<string, GraphicalTileDefinition> */
   public private(set) array $layerTiles2d = [];
+  private ?PresentationWorld $presentationWorld = null;
+  private ?bool $presentationWorldPolicy = null;
   /**
    * The collision map.
    *
@@ -331,6 +336,7 @@ class MapManager implements CanRenderAt
     $this->tiles2d = $prepared->tiles2d;
     $this->layers = $prepared->layers;
     $this->layerTiles2d = $prepared->layerTiles2d;
+    $this->clearPresentationWorld();
     $this->collisionMap = $prepared->collisions;
     $this->camera->worldSpace = $prepared->tiles;
     $locationName = $map['name'] ?? MapLocation::DEFAULT_LOCATION_NAME;
@@ -483,12 +489,52 @@ class MapManager implements CanRenderAt
    */
   public function render(?int $x = null, ?int $y = null): void
   {
+    if (Console::isRetainedWorldPresentation()) { $this->getPresentationWorld(); }
     if ($this->layers !== null && !$this->layers->legacy && $this->layerTiles2d !== []) {
       $this->camera->renderLayeredMap($this->layers);
       return;
     }
     $this->tiles2d === null ? $this->camera->renderMap()
       : PresentationLayerPolicy::terrain(fn() => $this->camera->renderMap());
+  }
+
+  /** Build once per installed map/policy, only when a graphical consumer requests it. */
+  public function getPresentationWorld(): ?PresentationWorld
+  {
+    if ($this->layers === null) {
+      $this->camera->setRetainedWorldAvailable(false);
+      return null;
+    }
+    $policy = TerminalCapabilities::supportsCompositeEmoji();
+    if ($this->presentationWorldPolicy === $policy) {
+      $this->camera->setRetainedWorldAvailable($this->presentationWorld !== null);
+      return $this->presentationWorld;
+    }
+    $this->presentationWorldPolicy = $policy;
+    $this->presentationWorld = null;
+    try {
+      $definitions = $this->layerTiles2d;
+      if ($this->layers->legacy && $this->tiles2d !== null) { $definitions['terrain'] ??= $this->tiles2d; }
+      $this->presentationWorld = PresentationWorld::getFromLayers($this->layers, $definitions, 'map');
+    } catch (\Throwable $error) {
+      Debug::warn('Retained map presentation is unavailable: ' . $error->getMessage());
+      if ($definitions !== []) {
+        try {
+          $this->presentationWorld = PresentationWorld::getFromLayers($this->layers, [], 'map');
+          Debug::warn('The map atlas was omitted; retaining the complete map glyph presentation.');
+        } catch (\Throwable) {
+          // Unsupported world bounds keep the screen-space retained text path usable.
+        }
+      }
+    }
+    $this->camera->setRetainedWorldAvailable($this->presentationWorld !== null);
+    return $this->presentationWorld;
+  }
+
+  private function clearPresentationWorld(): void
+  {
+    $this->presentationWorld = null;
+    $this->presentationWorldPolicy = null;
   }
 
   /**
@@ -565,6 +611,7 @@ class MapManager implements CanRenderAt
    */
   public function renderBackgroundTile(int $x, int $y): void
   {
+    if (Console::isRetainedWorldPresentation()) { $this->getPresentationWorld(); }
     $draw = fn() => $this->camera->renderBackgroundTile($x, $y);
     if ($this->layers !== null && !$this->layers->legacy && $this->layerTiles2d !== []) {
       PresentationLayerPolicy::drawMapLayer($this->layers->getGameplayLayerAt($x, $y), $draw);
@@ -760,6 +807,7 @@ class MapManager implements CanRenderAt
     $this->tiles2d = $prepared['tiles2d'];
     $this->layers = $prepared['layers'];
     $this->layerTiles2d = $prepared['layerTiles2d'];
+    $this->clearPresentationWorld();
     $this->camera->worldSpace = $prepared['tiles'];
 
     return $prepared['data'];
@@ -773,6 +821,7 @@ class MapManager implements CanRenderAt
     $this->tiles2d = null;
     $this->layers = null;
     $this->layerTiles2d = [];
+    $this->clearPresentationWorld();
     $this->calculateMapDimensions();
     $this->camera->worldSpace = [];
   }

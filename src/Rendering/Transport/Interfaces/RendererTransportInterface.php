@@ -12,6 +12,9 @@ interface RendererTransportInterface
   public function start(RendererSessionConfig $session): void;
   public function isRunning(): bool;
   public function send(RendererMessage $message): void;
+  /** Queue without waiting; false means temporary outbound capacity pressure, not invalid data. */
+  public function trySend(RendererMessage $message): bool;
+  public function getPendingWriteBytes(): int;
 
   /**
    * Service bounded I/O; zero wait by default. Continue pumping after OS exit to drain final events.

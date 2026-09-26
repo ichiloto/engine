@@ -70,6 +70,18 @@ final readonly class NormalizedRow
     return new self($pad ? array_pad($cells, max(0, $width), ' ') : $cells, []);
   }
 
+  /** Select existing display cells without re-normalizing their glyphs or styles. */
+  public function selectColumns(int $start, int $width): self
+  {
+    $start = max(0, $start);
+    if (($this->cells[$start] ?? null) === self::CONTINUATION) {
+      throw new \InvalidArgumentException('A normalized column selection must begin at a glyph anchor.');
+    }
+    $end = min(count($this->cells), $start + max(0, $width));
+    while ($end > $start && ($this->cells[$end] ?? '') === self::CONTINUATION) { $end--; }
+    return new self(array_slice($this->cells, $start, max(0, $end - $start)), []);
+  }
+
   /** @return list<string> A clipped write never paints half a wide glyph. */
   public function clippedCells(int $width): array
   {

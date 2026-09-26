@@ -55,9 +55,11 @@ use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
 use Tests\Support\Input\FakeInputSource;
 use Tests\Support\Input\FakeRendererTransport;
+use Tests\Support\Rendering\RetainedFrameState;
 
 require_once __DIR__ . '/../Support/Input/FakeInputSource.php';
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
 class ModalMenuGame extends Game
 {
@@ -246,8 +248,9 @@ it('layers supported modals above the complete four-party menu through either th
   expect($this->manager->currentModal)->toBe($modal)
     ->and(modalMenuText($this->scene->getPresentationCanvas()))->toBe(modalMenuText($base));
   new ReflectionMethod(Game::class, 'presentBlockedFrame')->invoke($this->game);
-  expect(end($this->transport->sent)->payload)->toHaveKey('canvas')
-    ->and(json_encode(end($this->transport->sent)->payload))->not->toContain('menu-modal-')
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  expect(end($frames))->toHaveKey('canvas')
+    ->and(json_encode(end($frames)))->not->toContain('menu-modal-')
     ->and($source->keys)->toBe([KeyCode::TAB]);
 })->with([false, true])->with(['alert', 'confirm', 'select']);
 
@@ -275,17 +278,20 @@ it('submits the real Optimize alert through the blocked render frame and restore
   $source = new FakeInputSource(null, KeyCode::ENTER, KeyCode::TAB);
   InputManager::setInputSource($source);
   $equipment->equipmentMenu->getActiveItem()->execute($equipment->equipmentMenuContext);
-  $frames = array_filter($this->transport->sent, fn($message) => isset($message->payload['canvas']));
+  $frames = array_filter(RetainedFrameState::replay($this->transport->sent), fn($frame) => isset($frame['canvas']));
   expect($frames)->not->toBeEmpty()->and($this->manager->currentModal)->toBeNull()
     ->and($this->scene->state)->toBe($equipment)->and($equipment->equipmentMenu->activeIndex)->toBe(1)
     ->and($source->keys)->toBe([KeyCode::TAB]);
-  foreach ($frames as $message) {
-    $text = json_encode($message->payload['canvas']['textLayers']);
+  foreach ($frames as $frame) {
+    $text = json_encode($frame['canvas']['textLayers']);
     expect($text)->toContain('Equipment optimized!', 'menu-modal-choice-0-text', 'equipment-identity');
     if (!$showInputHints) { expect($text)->not->toContain('menu-modal-hints'); }
   }
   new ReflectionMethod(Game::class, 'presentBlockedFrame')->invoke($this->game);
-  expect(json_encode(end($this->transport->sent)->payload))->not->toContain('menu-modal-')->toContain('equipment-identity');
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  expect(json_encode(end($frames)))->not->toContain('menu-modal-')->toContain('equipment-identity');
+  expect(array_filter(end($this->transport->sent)->payload['operations'],
+    fn($operation) => $operation['op'] === 'remove' && str_starts_with($operation['id'], 'menu-modal-')))->not->toBeEmpty();
 })->with([false, true])->with([false, true]);
 
 it('cancels the real Quit selection through the same input path without exiting or consuming the next input', function () {
@@ -296,9 +302,9 @@ it('cancels the real Quit selection through the same input path without exiting 
   $this->state->mainMenu->getActiveItem()->execute();
   expect($source->keys)->toBe([KeyCode::TAB])->and($this->game->hasStopped())->toBeFalse()
     ->and($this->manager->currentModal)->toBeNull()->and($this->state->mainMenu->getActiveItem()->getLabel())->toBe('Quit');
-  $frames = array_filter($this->transport->sent, fn($message) => isset($message->payload['canvas']));
+  $frames = array_filter(RetainedFrameState::replay($this->transport->sent), fn($frame) => isset($frame['canvas']));
   expect($frames)->not->toBeEmpty();
-  foreach ($frames as $message) { expect(json_encode($message->payload))->toContain('To Title', 'Exit', 'menu-modal-choice-0-text'); }
+  foreach ($frames as $frame) { expect(json_encode($frame))->toContain('To Title', 'Exit', 'menu-modal-choice-0-text'); }
 });
 
 it('honors safe default selection indexes and live semantic cancel bindings without a hardcoded C alias', function () {
@@ -306,7 +312,8 @@ it('honors safe default selection indexes and live semantic cancel bindings with
   $source = new FakeInputSource(null, KeyCode::ENTER);
   InputManager::setInputSource($source);
   expect($this->manager->select('Discard progress?', ['Proceed', 'Cancel'], 'Confirm', default: 1))->toBe(1);
-  $frame = end($this->transport->sent)->payload['canvas'];
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  $frame = end($frames)['canvas'];
   expect(array_filter(array_column($frame['textLayers'], 'id'), fn($id) => str_starts_with($id, 'menu-modal-choice-1-focus')))->not->toBeEmpty();
   InputManager::setBinding('cancel', [KeyCode::Q]);
   $source = new FakeInputSource(KeyCode::C, KeyCode::ESCAPE, KeyCode::Q, KeyCode::TAB);
@@ -335,7 +342,8 @@ it('uses the Select owner navigation for large-choice viewport changes without r
   InputManager::setInputSource($source);
   expect($this->manager->select('Choose', array_map(fn($i) => 'Choice ' . $i, range(0, 59)), default: 30))->toBe(31)
     ->and($source->keys)->toBe([KeyCode::TAB]);
-  $frame = end($this->transport->sent)->payload['canvas'];
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  $frame = end($frames)['canvas'];
   expect(array_column($frame['textLayers'], 'id'))->toContain('menu-modal-choice-31-text', 'menu-modal-choice-range')
     ->and(count($frame['textLayers']))->toBeLessThanOrEqual(64);
 })->with([false, true]);
@@ -362,10 +370,12 @@ it('diagnoses unsupported or oversized modals instead of disguising them as gene
   $logs = implode('', array_map(file_get_contents(...), glob($this->root . '/logs/*')));
   expect($logs)->toContain('Menu presentation degraded to terminal', $type === 'long' ? 'finite menu viewport' : 'no supported menu canvas');
   new ReflectionMethod(Game::class, 'presentBlockedFrame')->invoke($this->game);
-  expect(end($this->transport->sent)->payload)->not->toHaveKey('canvas')->toHaveKey('textLayers');
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  expect(end($frames))->not->toHaveKey('canvas')->toHaveKey('textLayers');
   $modal->hide();
   new ReflectionMethod(Game::class, 'presentBlockedFrame')->invoke($this->game);
-  expect(end($this->transport->sent)->payload)->toHaveKey('canvas');
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  expect(end($frames))->toHaveKey('canvas');
 })->with(['prompt', 'text', 'long']);
 
 it('sizes compact dialogs from current text and wraps long content at the same bounded font size', function (bool $art) {

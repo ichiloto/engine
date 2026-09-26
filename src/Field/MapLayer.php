@@ -14,6 +14,9 @@ final readonly class MapLayer
     public const int MAX_ORDER = 99;
     /** @var list<list<string>> */
     public array $grid;
+    /** @var list<list<string>> Stripped authored glyphs; styles remain in grid. */
+    public array $glyphs;
+    private MapGridMetrics $metrics;
 
     public function __construct(
         public string $name,
@@ -27,6 +30,14 @@ final readonly class MapLayer
             throw new InvalidArgumentException("Layer {$path} requires a two-digit order and an alphanumeric, underscore or hyphen name beginning with a letter.");
         }
         $this->grid = self::parseGrid($text);
+        $this->metrics = new MapGridMetrics($this->grid);
+        $this->glyphs = $this->metrics->glyphs;
+    }
+
+    /** @return list<list<int>> Logical-cell widths under the current terminal policy. */
+    public function getWidths(): array
+    {
+        return $this->metrics->getWidths();
     }
 
     /** @return list<list<string>> */

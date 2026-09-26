@@ -29,6 +29,7 @@ use Tests\Support\Input\FakeRendererTransport;
 use function Tests\Support\Rendering\graphicalSpriteData;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 
 /** Supplies scene identity without starting a Game or claiming terminal lifecycle ownership. */
@@ -174,11 +175,15 @@ it('presents a real Player through the shared client with immutable frames and d
     ->and($presentation->present($snapshot, [$this->projector->project($this->player, $this->camera)]))->toBeFalse();
   expect($transport->sent)->toHaveCount(3)->and($transport->polls)->toBe(0)
     ->and($transport->shutdowns)->toBe(0)->and($input->poll())->toBe(KeyCode::UP);
+  $frames = Tests\Support\Rendering\RetainedFrameState::replay($transport->sent);
   foreach ([$south, $north, $moved] as $index => $sprite) {
     expect($transport->sent[$index]->type)->toBe(RendererMessageType::FRAME)
-      ->and($transport->sent[$index]->payload)->toBe([
-        'frame' => $index + 1, 'text' => $snapshot->rows, 'sprites' => [$sprite->toArray()],
-      ]);
+      ->and($frames[$index]['frame'])->toBe($index + 1)
+      ->and(array_column($frames[$index]['textLayers'][0]['runs'], 'text'))->toBe($snapshot->rows)
+      ->and($frames[$index]['sprites'])->toBe([$sprite->toArray()]);
+    if ($index > 0) {
+      expect(array_column($transport->sent[$index]->payload['operations'], 'kind'))->toBe(['sprite']);
+    }
   }
   expect(Console::snapshot())->toEqual($snapshot)->and($this->player->sprite)->toBe(['^^']);
   $this->player->render();

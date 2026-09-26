@@ -10,6 +10,7 @@ use Ichiloto\Engine\Rendering\FieldViewport;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextLayer;
+use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSprite;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTileBatch;
 use Ichiloto\Engine\Rendering\Presentation\PresentationViewport;
@@ -27,8 +28,10 @@ use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Tests\Support\Input\FakeRendererTransport;
+use Tests\Support\Rendering\RetainedFrameState;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
 beforeEach(function () {
     $this->globals = [];
@@ -66,6 +69,17 @@ it('centers a whole-cell field view without changing UI grid dimensions', functi
 it('refuses invalid field zoom without inventing extra source cells', function (float $zoom) {
     expect(fn() => new FieldViewport(new RendererGridConfig(135, 36), $zoom))->toThrow(InvalidArgumentException::class);
 })->with([0.0, 0.5, 8.1, INF, NAN]);
+
+it('scales the above-sprite field prompt by identity without scaling HUD text at the same priority', function () {
+    $layout = new FieldViewport(new RendererGridConfig(80, 40, 10, 20), 2);
+    $text = [new PresentationTextLayer('player', 0, []),
+        new PresentationTextLayer(PresentationLayerPolicy::FIELD_PROMPT_ID, 1010, []),
+        new PresentationTextLayer('location-hud', 1010, []), new PresentationTextLayer('modal', 1020, [])];
+    expect($layout->createViewport($text, [])->textLayerIds)->toBe(['player', 'field-prompt']);
+    $changes = new \Ichiloto\Engine\IO\Console\ConsolePresentationChanges(80, 40, false,
+        array_map(static fn($layer) => ['id' => $layer->id, 'layer' => $layer->layer, 'rows' => []], $text));
+    expect($layout->createViewport($changes, [])->textLayerIds)->toBe(['player', 'field-prompt']);
+});
 
 it('keeps small maps centered and applies one transform to terrain and actors', function (float $zoom) {
     $grid = new RendererGridConfig(135, 36, 10, 20);
@@ -107,10 +121,10 @@ it('validates viewport membership and prevents canvas mixing', function () {
         ->toThrow(InvalidArgumentException::class);
 });
 
-it('uses the reduced camera for real field projection while UI and menu frames stay unscaled', function (bool $supported) {
+it('uses the reduced camera for real field projection while UI and menu frames stay unscaled', function (bool $advertisesLegacyViewport) {
     $transport = new FakeRendererTransport();
     $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready',
-        'capabilities' => $supported ? ['frame_viewport'] : []], JSON_THROW_ON_ERROR))];
+        'capabilities' => $advertisesLegacyViewport ? ['frame_viewport'] : []], JSON_THROW_ON_ERROR))];
     $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__,
         cellWidth: 10, cellHeight: 20), $transport);
     $this->runtime->start('Field zoom', 135, 36);
@@ -132,9 +146,10 @@ it('uses the reduced camera for real field projection while UI and menu frames s
     new ReflectionProperty(GameScene::class, 'state')->setValue($scene, $field);
     ConfigStore::put(ProjectConfig::class, new PlaySettings(['graphics' => ['field' => ['zoom' => 2.0]]]));
     $scene->synchronizeFieldViewport();
-    expect([$camera->screen->getWidth(), $camera->screen->getHeight()])->toBe($supported ? [67, 18] : [135, 36]);
+    // Retained presentation removes the old optional viewport-capability fallback.
+    expect([$camera->screen->getWidth(), $camera->screen->getHeight()])->toBe([67, 18]);
     $camera->resetPosition($player);
-    expect([$camera->position->x, $camera->position->y])->toBe($supported ? [33.0, 22.0] : [0.0, 4.0]);
+    expect([$camera->position->x, $camera->position->y])->toBe([33.0, 22.0]);
     $screen = $camera->getScreenSpacePosition($player->position);
     expect($camera->getWorldSpacePosition($screen))->toEqual($player->position);
     Console::recomposeFrame(function () use ($camera) {
@@ -142,27 +157,28 @@ it('uses the reduced camera for real field projection while UI and menu frames s
         Console::withLayer('dialogue', fn() => Console::write('Still normal size', 10, 30), 1000);
     });
     $this->runtime->present($scene);
-    $payload = end($transport->sent)->payload;
-    expect(isset($payload['viewport']))->toBe($supported);
-    if ($supported) {
-        expect($payload['viewport']['scale'])->toBe(2.0)
-            ->and($payload['viewport']['textLayerIds'])->toBe(['world']);
-    }
+    $frames = RetainedFrameState::replay($transport->sent);
+    $payload = $frames[array_key_last($frames)];
+    expect($payload['viewport']['scale'])->toBe(2.0)
+        ->and($payload['viewport']['textLayerIds'])->toBe(['world']);
     $text = array_column($payload['textLayers'], null, 'id');
     expect($text['dialogue']['runs'][0]['row'])->toBe(30);
     new ReflectionProperty(GameScene::class, 'state')->setValue($scene, makeBareScene(MainMenuState::class));
     Console::recomposeFrame(fn() => Console::write('Menu', 0, 0));
     $this->runtime->present($scene);
-    expect(end($transport->sent)->payload)->not->toHaveKey('viewport');
+    $frames = RetainedFrameState::replay($transport->sent);
+    expect($frames[array_key_last($frames)])->not->toHaveKey('viewport');
     new ReflectionProperty(GameScene::class, 'state')->setValue($scene, $field);
     $scene->synchronizeFieldViewport();
     Console::recomposeFrame($camera->renderMap(...));
     $this->runtime->present($scene);
-    expect(isset(end($transport->sent)->payload['viewport']))->toBe($supported);
+    $frames = RetainedFrameState::replay($transport->sent);
+    expect($frames[array_key_last($frames)]['viewport']['scale'])->toBe(2.0);
     ConfigStore::put(ProjectConfig::class, new PlaySettings(['graphics' => ['field' => ['zoom' => 1.0]]]));
     $scene->synchronizeFieldViewport();
     expect([$camera->screen->getWidth(), $camera->screen->getHeight()])->toBe([135, 36]);
     Console::recomposeFrame($camera->renderMap(...));
     $this->runtime->present($scene);
-    expect(end($transport->sent)->payload)->not->toHaveKey('viewport');
+    $frames = RetainedFrameState::replay($transport->sent);
+    expect($frames[array_key_last($frames)])->not->toHaveKey('viewport');
 })->with([false, true]);

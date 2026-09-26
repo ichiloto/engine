@@ -60,9 +60,11 @@ use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 use Tests\Support\Input\FakeInputSource;
 use Tests\Support\Input\FakeRendererTransport;
+use Tests\Support\Rendering\RetainedFrameState;
 
 require_once __DIR__ . '/../Support/Input/FakeInputSource.php';
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
 class SkillMenuPresentationGame extends Game
 {
@@ -383,8 +385,8 @@ it('submits an actual menu canvas with a supported modal and restores it without
   $state = skillMenuOwner($this, $magic);
   $before = $state->getPresentationContent();
   expect($this->runtime->present($this->scene))->toBeTrue();
-  $messages = array_filter($this->transport->sent, fn($message) => isset($message->payload['canvas']));
-  expect($messages)->not->toBeEmpty();
+  $frames = array_filter(RetainedFrameState::replay($this->transport->sent), fn($frame) => isset($frame['canvas']));
+  expect($frames)->not->toBeEmpty();
   $modal = new AlertModal($this->game, 'Owner notice.', 'Notice');
   $stack = new ReflectionProperty($this->game->modalManager, 'modals')->getValue($this->game->modalManager);
   $stack->push($modal);

@@ -41,8 +41,10 @@ use Ichiloto\Engine\Rendering\Transport\RendererEvent;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
 use Ichiloto\Engine\Util\Debug;
 use Tests\Support\Input\FakeRendererTransport;
+use Tests\Support\Rendering\RetainedFrameState;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
 final class PauseInputFixture implements InputSourceInterface
 {
@@ -477,7 +479,8 @@ it('uses shared menu-only Config over the frozen battle with honest optional fal
       expect($backing->x)->toBeGreaterThan(0)->and($backing->y)->toBeGreaterThan(0)
         ->and($layers['config-frame']->layer)->toBeGreaterThan($layers['retained-field']->layer);
       $runtime->present($this->scene);
-      $wire = $transport->sent[array_key_last($transport->sent)]->payload;
+      $frames = RetainedFrameState::replay($transport->sent);
+      $wire = end($frames);
       expect(array_column($wire['canvas']['textLayers'], 'id'))->toContain('config-title', 'retained-field');
       if ($themeState === 'invalid') {
         expect(file_get_contents($root . '/logs/warning.log'))->toContain('missing.png')

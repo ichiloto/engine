@@ -71,21 +71,25 @@ use Throwable;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot;
+use Ichiloto\Engine\IO\Console\ConsolePresentationChanges;
 use Ichiloto\Engine\Rendering\FieldViewport;
 use Ichiloto\Engine\Rendering\Presentation\FrameViewportProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\PresentationViewport;
-use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
+use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
+use Ichiloto\Engine\Rendering\Presentation\PresentationTextLayer;
+use Ichiloto\Engine\Rendering\Presentation\RetainedWorldProviderInterface;
 
 /**
  * Class GameScene. Represents the game scene.
  *
  * @package Ichiloto\Engine\Scenes\Game
  */
-class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInterface, GraphicalTileProviderHostInterface, CanvasProviderInterface, FrameViewportProviderInterface
+class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInterface, GraphicalTileProviderHostInterface, CanvasProviderInterface, FrameViewportProviderInterface, RetainedWorldProviderInterface
 {
     private ?FieldViewport $fieldViewport = null;
     private bool $reportedInvalidFieldZoom = false;
-    private bool $reportedUnsupportedFieldZoom = false;
+    /** @var array<string, PresentationTextLayer> Metadata only, never retained screen cells. */
+    private array $viewportTextLayers = [];
 
     /** Resolve camera dimensions before any field producer draws into Console. */
     public function synchronizeFieldViewport(): void
@@ -102,13 +106,8 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
             Debug::warn('config.php graphics.field.zoom must be a finite number from 1 to 8; using 1x field scale.');
             $this->reportedInvalidFieldZoom = true;
         }
-        $supported = $runtime?->supports(RendererSessionConfig::FRAME_VIEWPORT) ?? false;
-        if ($runtime !== null && !$supported && $zoom !== FieldViewport::DEFAULT_ZOOM && !$this->reportedUnsupportedFieldZoom) {
-            Debug::warn('Renderer does not support frame_viewport; using 1x field scale. Update the renderer to enable field zoom.');
-            $this->reportedUnsupportedFieldZoom = true;
-        }
         $previous = $this->fieldViewport;
-        $this->fieldViewport = $grid !== null && $supported && $zoom !== FieldViewport::DEFAULT_ZOOM
+        $this->fieldViewport = $grid !== null
             ? new FieldViewport($grid, $zoom) : null;
         if ($this->fieldViewport === null && $previous === null) {
             return;
@@ -123,10 +122,39 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         }
     }
 
-    public function getPresentationViewport(ConsolePresentationSnapshot $snapshot, array $sprites, array $tiles): ?PresentationViewport
+    /** Unscaled cell height for placing field annotations against bottom-centered artwork. */
+    public function getGraphicalFieldCellHeight(): ?int
     {
-        return $this->hasGraphicalFieldPresentation()
-            ? $this->fieldViewport?->createViewport($snapshot->textLayers, $sprites, $tiles) : null;
+        return !Console::isTerminalOutputEnabled() && $this->hasGraphicalFieldPresentation()
+            ? $this->fieldViewport?->grid->cellHeight : null;
+    }
+
+    public function getPresentationViewport(ConsolePresentationSnapshot|ConsolePresentationChanges $snapshot, array $sprites, array $tiles = []): ?PresentationViewport
+    {
+        if ($snapshot instanceof ConsolePresentationSnapshot) {
+            $this->viewportTextLayers = [];
+            foreach ($snapshot->textLayers as $layer) {
+                $this->viewportTextLayers[$layer->id] = new PresentationTextLayer($layer->id, $layer->layer, []);
+            }
+        } else {
+            if ($snapshot->reset) { $this->viewportTextLayers = []; }
+            foreach ($snapshot->removedIds as $id) { unset($this->viewportTextLayers[$id]); }
+            foreach ($snapshot->layers as $layer) {
+                if (($this->viewportTextLayers[$layer['id']]->layer ?? null) !== $layer['layer']) {
+                    $this->viewportTextLayers[$layer['id']] = new PresentationTextLayer($layer['id'], $layer['layer'], []);
+                }
+            }
+        }
+        if (!$this->hasGraphicalFieldPresentation() || $this->fieldViewport === null) { return null; }
+        $world = $this->getPresentationWorld();
+        if ($world === null && $this->fieldViewport->zoom === FieldViewport::DEFAULT_ZOOM) { return null; }
+        return $this->fieldViewport->createViewport(array_values($this->viewportTextLayers), $sprites, $tiles,
+            $world?->id, $world === null ? ['x' => 0, 'y' => 0] : $this->camera->getWorldOrigin());
+    }
+
+    public function getPresentationWorld(): ?PresentationWorld
+    {
+        return $this->hasGraphicalFieldPresentation() ? $this->mapManager?->getPresentationWorld() : null;
     }
 
     public function getPresentationCanvas(): ?PresentationCanvas
@@ -158,7 +186,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
 
     public function getGraphicalTileBatches(): array
     {
-        if (!$this->hasGraphicalFieldPresentation()) { return []; }
+        if (!$this->hasGraphicalFieldPresentation() || Console::isRetainedWorldPresentation()) { return []; }
         $collector = $this->graphicalTileCollector ??= new GraphicalTileCollector();
         return $this->mapManager?->layers !== null && !$this->mapManager->layers->legacy
             ? $collector->collectLayers($this->mapManager->layers, $this->mapManager->layerTiles2d, $this->camera)

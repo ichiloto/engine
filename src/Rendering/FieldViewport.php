@@ -9,6 +9,8 @@ use Ichiloto\Engine\Rendering\Presentation\PresentationTextLayer;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTileBatch;
 use Ichiloto\Engine\Rendering\Presentation\PresentationViewport;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
+use Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot;
+use Ichiloto\Engine\IO\Console\ConsolePresentationChanges;
 use InvalidArgumentException;
 
 /** Field camera and paint transform share one logical-cell layout; UI keeps its own grid. */
@@ -30,8 +32,13 @@ final readonly class FieldViewport
   }
 
   /** @param list<PresentationTextLayer> $text @param list<PresentationSprite> $sprites @param list<PresentationTileBatch> $tiles */
-  public function createViewport(array $text, array $sprites, array $tiles): PresentationViewport
+  public function createViewport(array|ConsolePresentationSnapshot|ConsolePresentationChanges $text, array $sprites, array $tiles = [],
+    ?string $worldId = null, array $worldOrigin = ['x' => 0, 'y' => 0]): PresentationViewport
   {
+    if ($text instanceof ConsolePresentationSnapshot) { $text = $text->textLayers; }
+    elseif ($text instanceof ConsolePresentationChanges) {
+      $text = array_map(static fn(array $layer): PresentationTextLayer => new PresentationTextLayer($layer['id'], $layer['layer'], []), $text->layers);
+    }
     $width = $this->grid->columns * $this->grid->cellWidth;
     $height = $this->grid->rows * $this->grid->cellHeight;
     return new PresentationViewport($this->zoom,
@@ -39,7 +46,8 @@ final readonly class FieldViewport
       max(0, ($height - $this->rows * $this->grid->cellHeight * $this->zoom) / 2),
       new CanvasRectangle(0, 0, $width, $height),
       array_values(array_map(static fn($layer) => $layer->id,
-        array_filter($text, static fn($layer) => $layer->layer < PresentationLayerPolicy::UI))),
-      array_column($sprites, 'id'), array_column($tiles, 'id'));
+        array_filter($text, static fn($layer) => $layer->layer < PresentationLayerPolicy::UI
+          || $layer->id === PresentationLayerPolicy::FIELD_PROMPT_ID))),
+      array_column($sprites, 'id'), array_column($tiles, 'id'), $worldId, $worldOrigin['x'], $worldOrigin['y']);
   }
 }

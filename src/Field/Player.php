@@ -85,7 +85,12 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   /**
    * @var ActionInterface|null $availableAction The available action.
    */
-  public ?ActionInterface $availableAction = null;
+  public ?ActionInterface $availableAction = null {
+    set {
+      $this->availableAction = $value;
+      if ($value === null) { $this->clearActionPrompt(); }
+    }
+  }
   /**
    * @var array<int, true> Blocked triggers already announced, keyed by object
    * id, so a locked door explains itself once per approach rather than on
@@ -820,24 +825,20 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   public function render(): void
   {
     if ($this->isPresentationSuppressed()) {
+      $this->clearActionPrompt();
       return;
     }
     Console::withLayer($this->getGraphicalSpriteId(), function (): void {
       $this->scene->camera->renderAtScreenPosition($this->sprite, $this->screenPosition);
     });
 
-    if ($this->canAct) {
-      PresentationLayerPolicy::fieldPrompt(fn() => $this->scene->camera->draw(
-        $this->actionSprite,
-        $this->screenPosition->x + $this->getActionSpriteHorizontalOffset(),
-        clamp($this->screenPosition->y - 1, 1, get_screen_height())
-      ));
-    }
+    $this->renderActionPrompt($this->screenPosition);
   }
 
   public function renderPlayer(?Vector2 $offset = null): void
   {
     if ($this->isPresentationSuppressed()) {
+      $this->clearActionPrompt();
       return;
     }
     $worldPosition = new Vector2(
@@ -846,14 +847,38 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     );
     $screenPosition = $this->getRenderScreenPosition($worldPosition);
 
-    for ($row = $this->shape->getY(); $row < $this->shape->getY() + $this->shape->getHeight(); $row++) {
-      $output = TerminalText::sliceSymbols($this->sprite[$row], $this->shape->getX(), $this->shape->getWidth());
-      $this->scene->camera->renderAtScreenPosition($output, new Vector2($screenPosition->x, $screenPosition->y + $row));
-    }
+    Console::withLayer($this->getGraphicalSpriteId(), function () use ($screenPosition): void {
+      for ($row = $this->shape->getY(); $row < $this->shape->getY() + $this->shape->getHeight(); $row++) {
+        $output = TerminalText::sliceSymbols($this->sprite[$row], $this->shape->getX(), $this->shape->getWidth());
+        $this->scene->camera->renderAtScreenPosition($output, new Vector2($screenPosition->x, $screenPosition->y + $row));
+      }
+    });
 
-    if ($this->canAct) {
-      PresentationLayerPolicy::fieldPrompt(fn() => $this->scene->camera->draw($this->actionSprite, $screenPosition->x + $this->getActionSpriteHorizontalOffset(), clamp($screenPosition->y - 1, 1, get_screen_height())));
+    $this->renderActionPrompt($screenPosition);
+  }
+
+  private function clearActionPrompt(): void
+  {
+    Console::removeLayer(PresentationLayerPolicy::FIELD_PROMPT_ID);
+  }
+
+  private function renderActionPrompt(Vector2 $screenPosition): void
+  {
+    $this->clearActionPrompt();
+    if (!$this->canAct) { return; }
+    $cellHeight = $this->scene instanceof GameScene ? $this->scene->getGraphicalFieldCellHeight() : null;
+    $definition = $cellHeight === null ? null : $this->getGraphicalSpriteDefinition();
+    if ($definition !== null) {
+      // The sprite's bottom is the tile's bottom edge; put the entire prompt row above its top.
+      $column = (int)$screenPosition->x;
+      $row = (int)$screenPosition->y - (int)ceil($definition->height / $cellHeight);
+      if ($column < 0 || $row < 0 || $column >= $this->scene->camera->screen->getWidth()
+        || $row >= $this->scene->camera->screen->getHeight()) { return; }
+    } else {
+      $column = (int)$screenPosition->x + $this->getActionSpriteHorizontalOffset();
+      $row = (int)clamp($screenPosition->y - 1, 1, get_screen_height());
     }
+    PresentationLayerPolicy::fieldPrompt(fn() => $this->scene->camera->draw($this->actionSprite, $column, $row));
   }
 
   /**
@@ -861,6 +886,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    */
   public function erase(): void
   {
+    $this->clearActionPrompt();
     if ($this->isPresentationSuppressed()) {
       return;
     }
@@ -880,6 +906,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    */
   public function erasePlayer(Camera $camera, ?array $sprite = null): void
   {
+    $this->clearActionPrompt();
     if ($this->isPresentationSuppressed()) {
       return;
     }

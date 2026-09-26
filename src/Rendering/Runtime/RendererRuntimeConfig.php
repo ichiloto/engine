@@ -6,6 +6,7 @@ use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
+use InvalidArgumentException;
 
 final readonly class RendererRuntimeConfig
 {
@@ -21,6 +22,9 @@ final readonly class RendererRuntimeConfig
     public array $requiredCapabilities = [],
   )
   {
+    if ($protocol !== RendererProtocolVersion::V2) {
+      throw new InvalidArgumentException('Native GPUI requires protocol 2 retained presentation; the protocol 1 full-frame path was removed.');
+    }
     $this->assetRoot = (new RendererSessionConfig('Renderer', $assetRoot,
       new RendererGridConfig(1, 1, $cellWidth, $cellHeight), $protocol, $requiredCapabilities))->assetRoot;
   }

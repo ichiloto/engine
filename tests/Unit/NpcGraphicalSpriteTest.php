@@ -32,8 +32,10 @@ use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Debug;
 use Tests\Support\Input\FakeRendererTransport;
+use Tests\Support\Rendering\RetainedFrameState;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
 final class NpcGraphicalTestGame extends Game
 {
@@ -128,7 +130,7 @@ beforeEach(function () {
   Debug::configure(['log_directory' => $this->root]);
   $this->transport = new FakeRendererTransport();
   $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']),
-    $this->root, protocol: RendererProtocolVersion::V1), $this->transport);
+    $this->root, protocol: RendererProtocolVersion::V2), $this->transport);
   $game = new NpcGraphicalTestGame();
   $game->useRendererRuntime($this->runtime);
   ob_start();
@@ -181,6 +183,30 @@ it('selects every direction through the real facing caller and returns a defensi
   expect($this->npc->position->x)->toBe(7.0);
 });
 
+it('blocks the occupied NPC anchor at 23 5 while allowing the adjacent cell at 22 5', function () {
+  $entry = getNpcTestEntry(false, ['id' => 'mother', 'x' => 23, 'y' => 5]);
+  foreach ($entry['sprites2d'] as &$direction) {
+    $direction['width'] = 56;
+    $direction['height'] = 56;
+  }
+  unset($direction);
+  $this->manager->configure([$entry]);
+  $npc = $this->manager->findById('mother');
+  $player = $this->scene->player;
+  $player->position->x = 22;
+  $player->position->y = 5;
+  $collision = null;
+
+  expect($this->scene->mapManager->canMoveTo(22, 5))->toBeTrue()
+    ->and($this->scene->mapManager->canMoveTo(23, 5, $collision))->toBeFalse()
+    ->and($collision)->toBe(CollisionType::NPC)
+    ->and($player->tryMove(Vector2::right(), $this->scene->camera))->toBeFalse()
+    ->and([$player->position->x, $player->position->y])->toBe([22.0, 5.0])
+    ->and($player->heading)->toBe(MovementHeading::EAST)
+    ->and($this->manager->moveNpcById('mother', Vector2::left()))->toBeFalse()
+    ->and([$npc->position->x, $npc->position->y])->toBe([23.0, 5.0]);
+});
+
 it('masks only the successfully graphical NPC layer through the real scene collector and runtime', function () {
   $legacy = getNpcTestEntry(false, ['id' => 'legacy', 'sprite' => 'L', 'x' => 8]);
   unset($legacy['sprites2d']);
@@ -190,10 +216,11 @@ it('masks only the successfully graphical NPC layer through the real scene colle
   $terminal = Console::snapshot();
   expect(new GraphicalSpriteCollector()->collect($this->scene))->toHaveCount(1);
   $this->runtime->present($this->scene);
-  $frame = $this->transport->sent[0]->payload;
+  $frame = RetainedFrameState::replay($this->transport->sent)[0];
+  $text = RetainedFrameState::getTextRows($frame, 24, 8);
   expect($frame['sprites'])->toHaveCount(1)
     ->and($frame['sprites'][0]['id'])->toBe($this->npc->getGraphicalSpriteId())
-    ->and($frame['text'][4][7])->toBe('.')->and($frame['text'][4][8])->toBe('L')
+    ->and(mb_substr($text[4], 7, 1))->toBe('.')->and(mb_substr($text[4], 8, 1))->toBe('L')
     ->and(Console::charAt(7, 4))->toBe('G')->and(Console::snapshot())->toEqual($terminal);
 });
 
@@ -210,8 +237,9 @@ it('diagnoses malformed optional art without dropping occupancy or world-state w
   expect(Console::charAt(7, 4))->toBe('G');
   $this->runtime->start('NPC invalid definition', 24, 8);
   $this->runtime->present($this->scene);
-  $frame = end($this->transport->sent)->payload;
-  expect($frame['sprites'] ?? [])->toBe([])->and($frame['text'][4][7])->toBe('G');
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  $frame = $frames[array_key_last($frames)];
+  expect($frame['sprites'])->toBe([])->and(mb_substr(RetainedFrameState::getTextRows($frame, 24, 8)[4], 7, 1))->toBe('G');
 })->with([
   'empty' => [[]], 'null' => [null], 'wrong type' => ['sprite.png'],
   'incomplete' => [['north' => ['asset' => 'north.png', 'width' => 32, 'height' => 48]]],
@@ -225,16 +253,17 @@ it('keeps the whole set terminal on a missing or corrupt non-facing asset and re
   $this->runtime->start('NPC fallback', 24, 8);
   $this->scene->renderNpcField();
   for ($i = 0; $i < 3; $i++) { $this->runtime->present($this->scene); }
-  $frame = $this->transport->sent[0]->payload;
-  expect($frame['sprites'] ?? [])->toBe([])->and($frame['text'][4][7])->toBe('G')
+  $frame = RetainedFrameState::replay($this->transport->sent)[0];
+  expect($frame['sprites'])->toBe([])->and(mb_substr(RetainedFrameState::getTextRows($frame, 24, 8)[4], 7, 1))->toBe('G')
     ->and(file($this->root . '/warning.log'))->toHaveCount(1)
     ->and($this->manager->npcAt(7, 4))->toBe($this->npc);
   $id = $this->npc->getGraphicalSpriteId();
   writeNpcTestPng($this->root . '/north.png', 11, 17);
   touch($this->root . '/north.png', 1700000002);
   $this->runtime->present($this->scene);
-  $repaired = end($this->transport->sent)->payload;
-  expect($repaired['sprites'][0]['id'])->toBe($id)->and($repaired['text'][4][7])->toBe('.')
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  $repaired = $frames[array_key_last($frames)];
+  expect($repaired['sprites'][0]['id'])->toBe($id)->and(mb_substr(RetainedFrameState::getTextRows($repaired, 24, 8)[4], 7, 1))->toBe('.')
     ->and($this->npc->id)->toBe('guide')->and($this->npc->sprite)->toBe('G');
   writeNpcTestPng($this->root . '/south.png', 15, 9);
   touch($this->root . '/south.png', 1700000004);
@@ -260,8 +289,9 @@ it('guards crop and entire sheet bounds against replaced dimensions without reje
   $this->runtime->start('NPC invalid crop', 24, 8);
   $this->scene->renderNpcField();
   $this->runtime->present($this->scene);
-  $frame = end($this->transport->sent)->payload;
-  expect($frame['sprites'] ?? [])->toBe([])->and($frame['text'][4][7])->toBe('G');
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  $frame = $frames[array_key_last($frames)];
+  expect($frame['sprites'])->toBe([])->and(mb_substr(RetainedFrameState::getTextRows($frame, 24, 8)[4], 7, 1))->toBe('G');
   writeNpcTestPng($this->root . '/west.png', 16, 24);
   touch($this->root . '/west.png', 1700000002);
   expect($npc->getGraphicalSpriteDefinition())->not->toBeNull();

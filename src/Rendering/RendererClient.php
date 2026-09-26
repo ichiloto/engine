@@ -20,6 +20,8 @@ final class RendererClient
   private SplQueue $keys;
   /** @var SplQueue<RendererEvent> */
   private SplQueue $events;
+  /** @var array<int, RendererEvent> Latest pending generation per staged/presented state; at most two. */
+  private array $frameAcknowledgements = [];
   private int $queuedBytes = 0;
   private ?RendererTransportException $failure = null;
   /** @var list<string> */
@@ -46,7 +48,7 @@ final class RendererClient
 
   public function start(RendererSessionConfig $session): void
   {
-    if (! $this->keys->isEmpty() || ! $this->events->isEmpty()) {
+    if (! $this->keys->isEmpty() || ! $this->events->isEmpty() || $this->frameAcknowledgements !== []) {
       throw new RendererTransportException('Consume pending renderer events before starting another session.');
     }
     $this->capabilities = [];
@@ -73,6 +75,7 @@ final class RendererClient
       $events = $this->events->count();
       $bytes = $this->queuedBytes;
       $capabilities = $this->capabilities;
+      $acknowledgements = $this->frameAcknowledgements;
       foreach ($batch as $event) {
         if ($event->type === RendererEventType::READY) {
           $event->requireCapabilities($this->requiredCapabilities);
@@ -85,6 +88,15 @@ final class RendererClient
         if ($discardKeys && $event->type === RendererEventType::KEY) {
           continue;
         }
+        if ($event->type === RendererEventType::FRAME_ACK) {
+          $slot = (int) $event->presented;
+          $previous = $acknowledgements[$slot] ?? null;
+          if ($previous === null || $event->generation >= $previous->generation) {
+            $bytes += self::eventBytes($event) - ($previous === null ? 0 : self::eventBytes($previous));
+            $acknowledgements[$slot] = $event;
+          }
+          continue;
+        }
         $event->type === RendererEventType::KEY ? $keys++ : $events++;
         $bytes += self::eventBytes($event);
       }
@@ -93,6 +105,9 @@ final class RendererClient
           $this->transport->getDiagnostics(), $this->transport->getExitCode());
       }
       foreach ($batch as $event) {
+        if ($event->type === RendererEventType::FRAME_ACK) {
+          continue;
+        }
         if ($event->type === RendererEventType::KEY) {
           if (! $discardKeys) {
             $this->keys->enqueue($event);
@@ -106,6 +121,7 @@ final class RendererClient
         }
       }
       $this->queuedBytes = $bytes;
+      $this->frameAcknowledgements = $acknowledgements;
       $this->traceQueue();
     } catch (RendererTransportException $error) {
       $this->failure = $error;
@@ -128,16 +144,16 @@ final class RendererClient
     return $event->key;
   }
 
-  /** @return list<RendererEvent> Non-input events only; queued keys are untouched. */
+  /** @return list<RendererEvent> Non-input events, including coalesced ACK progress; keys are untouched. */
   public function pollEvents(): array
   {
-    if ($this->events->isEmpty()) {
+    if ($this->events->isEmpty() && $this->frameAcknowledgements === []) {
       $this->pump();
     }
     return $this->drainEvents();
   }
 
-  /** @return list<RendererEvent> Consume already-pumped lifecycle events without another I/O pass. */
+  /** @return list<RendererEvent> Ordered lifecycle events followed by coalesced ACK progress; no I/O. */
   public function drainEvents(): array
   {
     $events = [];
@@ -146,7 +162,19 @@ final class RendererClient
       $this->queuedBytes -= self::eventBytes($event);
       $events[] = $event;
     }
-    return $events;
+    return [...$events, ...$this->drainFrameAcknowledgements()];
+  }
+
+  /** @return list<RendererEvent> At most two latest ACKs in generation order; input/lifecycle queues untouched. */
+  public function drainFrameAcknowledgements(): array
+  {
+    $acknowledgements = array_values($this->frameAcknowledgements);
+    $this->frameAcknowledgements = [];
+    foreach ($acknowledgements as $event) {
+      $this->queuedBytes -= self::eventBytes($event);
+    }
+    usort($acknowledgements, static fn(RendererEvent $a, RendererEvent $b) => $a->generation <=> $b->generation);
+    return $acknowledgements;
   }
 
   /** Clear buffered gameplay keys, optionally including one bounded upstream pass. */
@@ -183,6 +211,14 @@ final class RendererClient
     $this->transport->send($message);
   }
 
+  public function trySend(RendererMessage $message): bool
+  {
+    if ($this->failure !== null) { throw $this->failure; }
+    return $this->transport->trySend($message);
+  }
+
+  public function getPendingWriteBytes(): int { return $this->transport->getPendingWriteBytes(); }
+
   public function isRunning(): bool
   {
     return $this->transport->isRunning();
@@ -206,6 +242,9 @@ final class RendererClient
   private static function eventBytes(RendererEvent $event): int
   {
     return strlen($event->key ?? '') + strlen($event->message ?? '')
-      + array_sum(array_map(strlen(...), $event->capabilities)) + ($event->active === null ? 0 : 1);
+      + array_sum(array_map(strlen(...), $event->capabilities)) + ($event->active === null ? 0 : 1)
+      + ($event->generation === null ? 0 : 8) + ($event->frame === null ? 0 : 8)
+      + ($event->expectedGeneration === null ? 0 : 8) + ($event->presented === null ? 0 : 1)
+      + ($event->resyncRequired === null ? 0 : 1);
   }
 }

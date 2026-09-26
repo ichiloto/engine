@@ -48,8 +48,10 @@ use Ichiloto\Engine\Rendering\Transport\RendererEvent;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Tests\Support\Input\FakeRendererTransport;
+use Tests\Support\Rendering\RetainedFrameState;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
 function graphicalBattleFixture(bool $skinned = false, bool $directionalCursor = false): array
 {
@@ -145,6 +147,7 @@ beforeEach(function () {
   foreach ([Console::class, ConfigStore::class, InputManager::class, Debug::class] as $class) { $this->statics[$class] = new ReflectionClass($class)->getStaticProperties(); }
   $this->logRoot = sys_get_temp_dir() . '/ichiloto-battle-logs-' . bin2hex(random_bytes(5));
   Debug::configure(['log_directory' => $this->logRoot]);
+  new ReflectionProperty(Console::class, 'terminalHandedBack')->setValue(null, false);
   Console::setTerminalOutputEnabled(false);
   Console::syncDimensions(135, 36);
   Console::setLayerTracking(true);
@@ -659,13 +662,17 @@ it('replaces a real battle canvas with the normal scene frame through the shared
   try {
     $runtime->start('Canvas battle', 135, 36);
     $runtime->present($scene);
-    expect($transport->sent[0]->payload['canvas']['images'])->toHaveCount(4)
-      ->and($transport->sent[0]->payload['textLayers'])->toBe([]);
+    $frames = RetainedFrameState::replay($transport->sent);
+    expect(end($frames)['canvas']['images'])->toHaveCount(4)
+      ->and(end($frames)['textLayers'])->toBe([]);
     expect($runtime->present($scene))->toBeFalse();
     Console::write('FIELD', 1, 1);
     $runtime->present(null);
-    expect($transport->sent[1]->payload)->not->toHaveKey('canvas');
-    expect(implode('', array_column($transport->sent[1]->payload['textLayers'][0]['runs'], 'text')))->toContain('FIELD');
+    $frames = RetainedFrameState::replay($transport->sent);
+    expect(end($frames))->not->toHaveKey('canvas');
+    expect(implode('', array_column(end($frames)['textLayers'][0]['runs'], 'text')))->toContain('FIELD');
+    expect(array_filter(end($transport->sent)->payload['operations'],
+      fn($operation) => $operation['op'] === 'remove' && $operation['kind'] === 'canvas'))->not->toBeEmpty();
   } finally { $runtime->shutdown(); }
 });
 

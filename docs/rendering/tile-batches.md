@@ -1,61 +1,78 @@
-# Protocol v2 tile batches (S8-B)
+# Retained world layers and tile artwork
 
-Engine and GPUI contract frozen on 2026-09-13. This is a negotiated v2
-extension, not protocol v3. PHP owns map meaning, camera and destination cells.
-GPUI crops and paints only; it does not infer terrain, collision or movement.
+PHP owns map meaning, collision, camera and authored layer order. Native GPUI
+retains source-coordinate world rows and tile catalogs, then offsets and clips
+them using the current viewport. Camera scrolling does not recollect, project or
+serialize every visible tile in PHP.
 
-## Negotiation and replacement
+**Removed behavior:** native stateless `tileBatches` frame output and the direct
+`RendererPresentation::present(..., tileBatches: [...])` path are removed. That
+argument rejects nonempty lists with guidance to supply a retained world.
+`PresentationTileBatch` and old `StyledPresentationFrame` encoders remain reference
+tooling, not native accepted packets. The authored `tiles2d` format is unchanged.
+Automatic startup still requests the existing `sprite_source_rect` and
+`tile_batches` capabilities; retaining state adds no capability flag.
 
-Automatic GPUI startup requests `sprite_source_rect` and `tile_batches`, even
-before entering a map with terrain. `tile_batches` is invalid in v1. Any v2
-`tileBatches` field presence, including `[]`, requires negotiated support.
-Omission or `[]` clears previous tiles as part of a complete frame replacement;
-`null` is invalid. Text-only and actor-sprite-only v1/v2 frames remain valid.
+## Upload and replacement
 
-Each batch has exactly these required fields:
+`MapManager::getPresentationWorld()` lazily builds one immutable `PresentationWorld`
+per installed map and text-width policy. It contains a world definition, composed
+owner glyph rows, and crop rows for each mapped layer. A map change replaces that
+object. The presenter uploads a changed world once and reuses it during camera
+movement; leaving the field removes it explicitly.
+
+The retained operations are:
 
 ```json
-{"id":"terrain","asset":"Graphics/Tilesets/Garden/Field.png","layer":-100,"sources":[{"x":0,"y":0,"width":16,"height":32}],"cells":[{"column":8,"row":3,"source":0}]}
+{"op":"put","kind":"world","id":"map","value":{"columns":2,"rows":1,"layers":[{"id":"map:ground","layer":-100,"kind":"gameplay","asset":"Graphics/Tilesets/Field.png","sources":[{"x":0,"y":0,"width":16,"height":32}]}]}}
+{"op":"worldRows","id":"map","rows":[{"row":0,"cells":[{"glyph":".","foreground":null,"background":null,"displayWidth":1,"ownerLayerId":"map:ground"},{"glyph":".","foreground":null,"background":null,"displayWidth":1,"ownerLayerId":"map:ground"}]}]}
+{"op":"worldTiles","id":"map","layerId":"map:ground","rows":[{"row":0,"cells":[{"column":1,"source":0}]}]}
 ```
 
-IDs are nonempty UTF-8, unique in the batch namespace, at most 256 bytes.
-Assets are nonempty confined relative PNG paths, at most 4096 UTF-8 bytes.
-`layer` is i32. Rectangles use the existing S8-A unsigned image-pixel contract:
-nonnegative x/y, positive width/height, endpoints within u32 and the decoded
-atlas. Every source, including unused sources, is validated. Cells contain
-strict u32 column/row/source integers; column/row must be within the hello grid
-and source must index the catalog. Unknown fields, floats and numeric strings
-are rejected. Sources are nonempty; cells may be empty. Duplicate destination
-cells within one batch are invalid; overlap across batches is allowed.
+These are members of a frame's `operations`, not separate message envelopes.
+World IDs and layer IDs are stable, control-free UTF-8 strings of at most 256
+bytes. Layers have signed i32 priority and `gameplay` or `decoration` kind.
+Optional atlas paths and source catalogs appear together. Paths remain confined
+asset-root-relative PNG references; source rectangles use image pixels.
 
-One destination covers exactly one session cellWidth by cellHeight rectangle.
-Source pixel proportions never change logical camera or gameplay coordinates.
+`worldRows` replaces complete authored rows: one glyph/colour/display-width/owner
+cell per authored column, up to the declared world width. Ragged and empty rows
+are allowed; missing trailing columns stay absent rather than becoming opaque
+spaces. Every declared row needs an owner-row entry before presentation.
+Owners reference gameplay layers, not decoration.
+`worldTiles` replaces the listed sparse rows for one layer; each cell has a world
+`column` and source-catalog index. An empty tile-cell list clears that row. Omitted
+rows persist. Putting a world again clears its old rows and tiles, so its complete
+owner-row entries must be supplied before presentation. `remove` with `kind:world`
+removes it; omission from an update does not.
 
-## Independent budgets and atomicity
+World coordinates are never preprojected to the hello grid. One tile destination
+uses one session cellWidth by cellHeight rectangle before viewport scaling.
+Source image proportions do not change camera or gameplay coordinates.
 
-- At most 64 batches per frame.
-- At most 256 sources per batch and 4096 sources across all batches.
-- At most 32768 cells across all batches, independently of the unchanged
-  1024 actor-sprite limit.
-- Existing 4 MiB NDJSON frame limit remains in effect.
-- Tiles and sprites share the existing 64 MiB decoded-image and 1024 unique
-  image budgets, PNG validation and root confinement.
+## Bounds and atomicity
 
-Any structural, bounds, path, decode or budget failure rejects the entire frame
-before replacing displayed state. No partial terrain/text/sprite mutation.
-Prepared source regions, if required by the painter, are bounded and reused;
-their allocation and accounting must be reported separately from decoded PNGs.
-GPUI's edge-extruded prepared-region cache has a separate 64 MiB / 4096-region
-frame and cache limit. It is keyed by decoded atlas identity and source rectangle,
-not by destination cell, and never creates cropped PNG files per frame.
+- A world has 1..64 layers, dimensions of at most 16384 per axis, and a rectangular
+  footprint of at most 1,048,576 logical cells.
+- A layer has at most 256 crop sources; Engine authoring retains its aggregate
+  4096-source limit. Up to 1,048,576 tile candidates can be retained across a world.
+- Owner rows must not exceed the declared width. Tile rows use unique in-bounds
+  columns and valid source indexes. Actor sprites retain their separate 1024 limit.
+- Retained source state is bounded to 64 MiB, with 128 MiB combined staging and
+  visible state. Operation chunks target 32 KiB and NDJSON lines remain at most 4 MiB.
+- Image decoding, path confinement and prepared crop caches remain separately
+  bounded; retaining tile rows does not bypass image validation or allocate a
+  cropped PNG per destination.
 
-Paint order is ascending layer, with ties ordered tiles, text, sprites. Incoming
-order within each type and within the cells array is stable. Legacy terrain uses
--100. Each authored map layer uses `-100 + order`, where its two-digit filename
-prefix is `00..99`; all map layers therefore remain below world actors at 0.
-Graphical Player and UI keep their existing policies. Clearing, cinematic
-eligibility and snapshot rollback must not retain tiles from a previous frame.
-Neither the protocol nor the renderer requires changes to support authored layers.
+Uploads can span `present:false` chunks. Only the final validated `present:true`
+update replaces visible state. Rejection leaves the previous presentation visible
+and requests a reset. See [retained presentation](presentation.md) for generations,
+acknowledgements and timeout recovery.
+
+Paint order is ascending layer. Each authored map layer uses `-100 + order`, with
+filename prefixes `00..99`, below world actors at 0. Retained layer IDs use
+`map:<name>`, including the legacy map's normalized gameplay layer. Cropped cells
+suppress only their owning map text, never later screen-space actors or UI.
 
 ## Optional map metadata
 
@@ -120,11 +137,10 @@ Decoration never changes
 the composed terminal grid or collision. See [map layers](../maps.md) for source
 validation and collision precedence.
 
-The collector emits one nonempty batch per mapped visible layer, with the ID
-`map:<name>` and the filename-derived z-order. Separate layers can reuse the same
-atlas and overlap destination cells; cells within one batch remain unique.
-An empty/offscreen layer emits no batch. Frame replacement clears any batch
-that is no longer emitted. The legacy collector keeps its `terrain` ID.
+Retained layers preserve `map:<name>` and filename-derived z-order. Separate
+layers may reuse an atlas and overlap world cells; destinations within one layer
+row remain unique. Offscreen rows stay retained rather than being removed and
+reuploaded as the camera moves.
 
 ### Cell-specific artwork
 
@@ -153,7 +169,8 @@ and `source`; coordinates must be nonnegative integers within the actual
 authored row, including ragged maps. Duplicate positions, unknown fields and
 invalid rectangles are refused with map context before replacing active geometry.
 Overrides share the existing deduplicated 256-source layer catalog and have a
-32,768-entry authored limit; visible output shares the frame budgets above.
+32,768-entry authored limit. These authoring limits are distinct from retained
+world-size and transport budgets.
 
 These positions select fidelity only, not gameplay identity. Supplemental art
 may occupy blank cells of a sparse fixture footprint without making them solid.
@@ -162,7 +179,7 @@ does not suppress a different fixture or an NPC. Keep map-owned objects' crops
 on their contributing gameplay layer so transparent corners reveal lower map
 art, not the object's old text backing. Later player, dialogue and UI content
 remains intact. Wide/shifted glyphs retain the existing text fallback even when
-an override is present. The renderer protocol and binary are unchanged.
+an override is present.
 
 ### Mixed interior materials
 
@@ -183,7 +200,7 @@ Each non-space decoration marker has an explicit crop in its layer's `symbols`
 table. Wood, kitchen tile and stone may select different crops within one layer;
 a carpet layer can cover stone without changing its walkability. Floor detail
 sits above blank ground and below walls. Wall ornaments sit above wall artwork,
-but never replace its collision. All these batches remain below world actors.
+but never replace its collision. All these layers remain below world actors.
 
 Do not map every blank space to one universal floor: the same map can contain
 interior floors, doorways, exterior space and gaps in its drawing. Author the
@@ -196,29 +213,22 @@ cannot turn a wall into a doorway or a rug into an obstacle.
 ### Symbols and fallback
 
 Symbols explicitly map one terminal symbol of
-display width one to an S8-A source rectangle. ANSI styling is normalized using
+display width one to an image source rectangle. ANSI styling is normalized using
 TerminalText. Numeric PHP array keys are accepted as their literal symbols;
 duplicate normalized keys, controls, wide/combining-only symbols and malformed
 rectangles fail with map context. Space is never implicit. Missing metadata and
 unmapped symbols retain terminal presentation.
 
-Only the current visible in-bounds map region is collected, through the same
-Camera bounds and projection as text. No duplicate map or collision grid exists.
-An Engine runtime requiring `tile_batches` accepts at most 32,768 viewport cells
-so one fully mapped field fits the frame budget. Larger configurations fail
-before starting the renderer or changing input/Console ownership; reduce columns
-or rows rather than silently degrading terrain. This is an Engine runtime policy,
-not a change to low-level protocol grid limits. Custom overlapping batches and
-styled text still have their independently validated aggregate frame limits.
-For layered maps, mapped visible cells across all layers share the same 32,768
-cell budget. If their combined collection exceeds it, the collector reports the
-problem and returns no tile batches, retaining the complete terminal map rather
-than a partial set. Layer crop catalogues are also bounded by the batch/source
-limits above.
-Graphical snapshots omit a replaced terrain write and its opaque underlay using
-draw provenance, not equality with the final glyph. Later text, including an
-identical glyph or a deliberate blank, remains opaque. Canonical Console output
-is unchanged.
+The GPUI field bypasses Console map drawing only after a valid retained world
+has been constructed. A glyph-only world needs no `tiles2d` metadata. If mapped
+world construction fails, MapManager reports the failure and attempts a complete
+glyph-only world; if no valid world can be built, ordinary screen-space Console
+map drawing remains available. T1 continues its existing map draw/restore path.
+
+In retained-world mode, synthetic Console base blanks are omitted rather than
+painting over the map. Camera background restoration removes stale dynamic cell
+contributions without writing an opaque space. Explicit authored base spaces,
+named UI and overlays remain intact. See [Console row tracking](styled-presentation.md#incremental-console-api).
 
 Unmapped composed map text retains the z-order of its owning gameplay layer.
 Mapped cells are replaced only at that layer; decoration can paint over lower
@@ -227,7 +237,26 @@ WORLD-plane underlay was removed from replaced map drawing because it covered
 all negative-z map layers. This does not remove canonical terminal cells or
 later world/UI writes.
 
-An unmapped wide glyph retains the existing terminal path. If its display width
-shifts subsequent text away from logical map anchors, those shifted cells remain
-text rather than cutting holes at incorrect coordinates. No camera or collision
-coordinate is changed to compensate for wide art.
+The world upload carries normalized glyph widths and ownership once. Native
+projection keeps unmapped wide glyphs and shifted cells as text rather than
+cutting tile holes at incorrect coordinates. No camera or collision coordinate
+is changed to compensate for wide art. PHP retains the existing map/collision
+source of truth; uploaded world data is derived presentation only.
+
+## Camera viewport
+
+`viewport.worldId` selects the retained world. `worldOrigin` contains signed
+`column` and `row` values in logical world cells; negative origins center small
+maps. Native painting subtracts that origin for world content, applies `scale`,
+then adds the pixel `origin` and clips to `clipRect` before window fitting.
+
+`textLayerIds` and `spriteIds` name screen-space contributions to scale and clip.
+Those coordinates have already been projected by PHP, so worldOrigin is not
+subtracted a second time. UI not listed remains unscaled. There is no
+`tileBatchIds` field in the retained wire viewport. Omitted `viewport` retains
+the previous transform; explicit null clears it. A camera-only update therefore
+needs no world rows, crop catalog or tile-cell payload.
+
+A screen-only viewport may omit `worldId`; its world origin must then be zero.
+Retained camera transforms are baseline V2 behavior, not gated by the historical
+`frame_viewport` capability symbol.

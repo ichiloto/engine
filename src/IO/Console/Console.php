@@ -124,6 +124,93 @@ class Console
   private static array $layerCells = [];
   /** Retained transient surfaces, separate from the live scene beneath them. */
   private static array $overlays = [];
+  /** Explicit base writes only; absent cells are lazy synthetic blanks. */
+  private static array $presentationBaseCells = [];
+  private static bool $retainedWorldPresentation = false;
+  private static ?RetainedConsolePresentation $retainedPresentation = null;
+
+  public static function setRetainedWorldPresentation(bool $enabled): void
+  {
+    self::$retainedWorldPresentation = $enabled;
+  }
+
+  public static function isRetainedWorldPresentation(): bool
+  {
+    return self::$retainedWorldPresentation && self::isRetainedTracking();
+  }
+
+  private static function isRetainedTracking(): bool
+  {
+    return self::$trackLayers && !self::$terminalOutputEnabled;
+  }
+
+  private static function getRetainedTracker(): RetainedConsolePresentation
+  {
+    return self::$retainedPresentation ??= new RetainedConsolePresentation();
+  }
+
+  /**
+   * Consume changed screen-space rows. Reset after rejected renderer delivery.
+   * World exclusions remove a named contribution and its older cell underlays.
+   * @param list<string> $excludedLayers
+   * @param list<string> $excludedWorldLayers
+   */
+  public static function getRetainedPresentationChanges(array $excludedLayers = [], bool $reset = false,
+    array $excludedWorldLayers = []): ConsolePresentationChanges
+  {
+    if (self::isComposing()) { throw new RuntimeException('Cannot collect Console changes during composition.'); }
+    $tracker = clone self::getRetainedTracker();
+    $changes = $tracker->collectChanges(self::$width, self::$height, self::$buffer, self::$layerCells,
+      self::$presentationBaseCells, self::$layerPriorities, self::$overlays, $excludedLayers, $reset,
+      $excludedWorldLayers, self::isRetainedWorldPresentation());
+    self::$retainedPresentation = $tracker;
+    return $changes;
+  }
+
+  /**
+   * Restore retained-map visibility without writing an opaque replacement space.
+   * Removes whole intersecting world glyphs, but never named UI or overlays.
+   * Outside retained-world mode this is a no-op; terminal callers restore map text.
+   */
+  public static function removeWorldCellContributions(int $column, int $row, int $width = 1): void
+  {
+    if (!self::isRetainedWorldPresentation() || self::$terminalHandedBack || $width <= 0
+      || $row < 0 || $row >= self::$height) { return; }
+    $start = max(0, $column);
+    $end = min(self::$width, $column + $width);
+    if ($start >= $end) { return; }
+    $planes = ['world' => self::$presentationBaseCells[$row] ?? []];
+    foreach (self::$layerCells[$row] ?? [] as $x => $entry) {
+      foreach ($entry['layers'] as $id => $cell) {
+        if ((self::$layerPriorities[$id] ?? 0) < PresentationLayerPolicy::UI) { $planes[$id][$x] = $cell; }
+      }
+    }
+    $affected = [];
+    foreach ($planes as $id => $cells) {
+      for ($x = $start; $x < $end; $x++) {
+        if (!isset($cells[$x])) { continue; }
+        $anchor = self::resolveCellAnchor($cells, $x) ?? $x;
+        $last = min(self::$width, $anchor + max(1, TerminalText::getSymbolWidth($cells[$anchor] ?? ' ')));
+        for ($cell = $anchor; $cell < $last; $cell++) {
+          $affected[$cell] = true;
+          if ($id === 'world') {
+            unset(self::$presentationBaseCells[$row][$cell]);
+            if (isset(self::$layerCells[$row][$cell])) { self::$layerCells[$row][$cell]['base'] = null; }
+          } else {
+            unset(self::$layerCells[$row][$cell]['layers'][$id]);
+          }
+        }
+      }
+    }
+    if ($affected === []) { return; }
+    $cells = self::$buffer[$row] ?? array_fill(0, self::$width, ' ');
+    foreach ($affected as $x => $_) {
+      $cells[$x] = self::$presentationBaseCells[$row][$x] ?? ' ';
+      foreach (self::$layerCells[$row][$x]['layers'] ?? [] as $cell) { $cells[$x] = $cell; }
+    }
+    self::$buffer[$row] = self::wholeGlyphCells($cells);
+    self::getRetainedTracker()->markRowDirty($row);
+  }
 
   /** @param list<string> $lines Opaque rows positioned in zero-based terminal cells. */
   public static function replaceOverlay(string $id, array $lines, int $x, int $y, int $priority): void
@@ -163,9 +250,9 @@ class Console
   {
     if (self::$terminalHandedBack || (self::$overlays[$id] ?? null) === $overlay) { return; }
     if ($overlay !== null) { self::assertLayerCapacity($id); }
-    if (self::$buffer === []) { self::$buffer = self::getEmptyBuffer(); }
+    if (self::$buffer === [] && !self::isRetainedTracking()) { self::$buffer = self::getEmptyBuffer(); }
     $previous = self::$overlays;
-    $before = self::visibleCellRows();
+    $before = self::$terminalOutputEnabled && !self::$isRecomposing ? self::visibleCellRows() : [];
     $previousRows = self::$frameRows;
     $previousDepth = self::$frameDepth;
     self::beginFrame();
@@ -183,6 +270,9 @@ class Console
         }
       }
       self::endFrame();
+      foreach (array_keys(($previous[$id]['rows'] ?? []) + ($overlay['rows'] ?? [])) as $row) {
+        self::getRetainedTracker()->markRowDirty($row);
+      }
     } catch (\Throwable $exception) {
       self::$overlays = $previous;
       self::$frameRows = $previousRows;
@@ -244,9 +334,21 @@ class Console
   /** Select full snapshot tracking; named writes also retain precedence for native overlays. */
   public static function setLayerTracking(bool $enabled): void
   {
+    // Resetting ownership flattens existing live writes into the base, not blanks.
+    foreach (self::$layerCells as $row => $entries) {
+      foreach ($entries as $column => $entry) {
+        if ($entry['layers'] !== []) {
+          self::$presentationBaseCells[$row][$column] = self::$buffer[$row][$column] ?? ' ';
+        }
+      }
+    }
+    if (!$enabled && self::isRetainedTracking()) {
+      self::$buffer = array_replace(self::getEmptyBuffer(), self::$buffer);
+    }
     self::$trackLayers = $enabled;
     self::$layerCells = [];
     self::$layerPriorities = [];
+    self::$retainedPresentation = null;
   }
 
   public static function withLayer(string $id, callable $draw, int $priority = 0, bool $replaceUnderlying = false): void
@@ -284,20 +386,26 @@ class Console
   public static function removeLayer(string $id, bool $repaint = true): void
   {
     if (!isset(self::$layerPriorities[$id])) { return; }
-    $before = self::visibleCellRows();
+    $before = $repaint && self::$terminalOutputEnabled ? self::visibleCellRows() : [];
     $saved = [self::$buffer, self::$layerCells, self::$layerPriorities, self::$frameRows,
       self::$frameDepth, self::$recomposeRepaintRows];
     $emit = $repaint && self::$terminalOutputEnabled && !self::$terminalHandedBack && !self::$isRecomposing;
     if ($emit) { self::beginFrame(); }
     try {
       unset(self::$layerPriorities[$id]);
-      foreach (self::$layerCells as $row => &$entries) {
+      $changedRows = [];
+      $candidates = self::isRetainedTracking() && self::$retainedPresentation !== null
+        ? self::$retainedPresentation->getCandidateLayerRows($id) : array_keys(self::$layerCells);
+      foreach ($candidates as $row) {
+        if (!isset(self::$layerCells[$row])) { continue; }
+        $entries = &self::$layerCells[$row];
         $affected = false;
         foreach ($entries as &$entry) {
           if (array_key_exists($id, $entry['layers'])) { unset($entry['layers'][$id]); $affected = true; }
         }
         unset($entry);
         if (!$affected || !isset(self::$buffer[$row])) { continue; }
+        $changedRows[] = $row;
         $cells = self::$buffer[$row];
         foreach ($entries as $x => $entry) {
           $cells[$x] = $entry['base'] ?? ' ';
@@ -317,6 +425,7 @@ class Console
         }
         self::endFrame();
       }
+      foreach ($changedRows as $row) { self::getRetainedTracker()->markRowDirty($row); }
     } catch (\Throwable $exception) {
       [self::$buffer, self::$layerCells, self::$layerPriorities, self::$frameRows,
         self::$frameDepth, self::$recomposeRepaintRows] = $saved;
@@ -357,8 +466,10 @@ class Console
     for ($x = $start; $x <= $end; $x++) {
       if (self::$activeLayer === null) {
         unset(self::$layerCells[$row][$x]);
+        self::$presentationBaseCells[$row][$x] = $after[$x] ?? ' ';
         continue;
       }
+      if (self::$replaceUnderlyingLayer) { unset(self::$presentationBaseCells[$row][$x]); }
       $entry = self::$replaceUnderlyingLayer ? ['base' => null, 'layers' => []]
         : (self::$layerCells[$row][$x] ?? ['base' => $before[$x] ?? ' ', 'layers' => []]);
       self::$layerPriorities[self::$activeLayer] = self::$activeLayerPriority;
@@ -411,6 +522,9 @@ class Console
     }
     if (self::$usingAlternateScreen || self::isComposing()) {
       throw new \LogicException('Select terminal output before composing a frame or entering the alternate screen.');
+    }
+    if ($enabled && self::isRetainedTracking()) {
+      self::$buffer = array_replace(self::getEmptyBuffer(), self::$buffer);
     }
     self::$terminalOutputEnabled = $enabled;
     if (!$enabled) {
@@ -594,7 +708,9 @@ class Console
     // Update the canonical buffer only after the physical clear succeeds. A
     // failed write therefore cannot leave engine state ahead of the screen.
     self::emitControlSequence("\033[0m\033[2J" . self::terminalHomeAddress());
-    self::$buffer = self::getEmptyBuffer();
+    self::markPresentationRowsDirty();
+    self::$buffer = self::isRetainedTracking() ? [] : self::getEmptyBuffer();
+    self::$presentationBaseCells = [];
     self::$layerCells = [];
     self::$layerPriorities = [];
     self::$frameRows = [];
@@ -640,6 +756,10 @@ class Console
     if (self::$frameDepth !== 0) {
       throw new \RuntimeException('A complete screen cannot be recomposed inside an active console frame.');
     }
+    if (self::isRetainedTracking()) {
+      self::recomposeRetainedFrame($renderer);
+      return;
+    }
 
     $previousBuffer = self::$buffer === [] ? self::getEmptyBuffer() : self::$buffer;
     $previousVisibleBuffer = self::visibleCellRows();
@@ -649,8 +769,11 @@ class Console
     $previousFrameRows = self::$frameRows;
     $previousRecomposeRepaintRows = self::$recomposeRepaintRows;
     $previousIsRecomposing = self::$isRecomposing;
+    $previousBaseCells = self::$presentationBaseCells;
+    $previousRetained = self::$retainedPresentation === null ? null : clone self::$retainedPresentation;
 
     self::$buffer = self::getEmptyBuffer();
+    self::$presentationBaseCells = [];
     self::$layerCells = [];
     self::$layerPriorities = [];
     self::$frameRows = [];
@@ -706,6 +829,7 @@ class Console
       self::$isRecomposing = false;
 
       self::endFrame();
+      self::markPresentationRowsDirty($previousBuffer);
     } catch (\Throwable $throwable) {
       self::$buffer = $previousBuffer;
       self::$overlays = $previousOverlays;
@@ -714,8 +838,64 @@ class Console
       self::$frameRows = $previousFrameRows;
       self::$recomposeRepaintRows = $previousRecomposeRepaintRows;
       self::$isRecomposing = $previousIsRecomposing;
+      self::$presentationBaseCells = $previousBaseCells;
+      self::$retainedPresentation = $previousRetained;
       self::$frameDepth = 0;
       throw $throwable;
+    }
+  }
+
+  /** GPUI builds only authored rows; implicit empty rows never enter the hot loop. */
+  private static function recomposeRetainedFrame(callable $renderer): void
+  {
+    $saved = [self::$buffer, self::$layerCells, self::$layerPriorities, self::$overlays,
+      self::$presentationBaseCells, self::$frameRows, self::$recomposeRepaintRows, self::$isRecomposing];
+    $tracker = self::$retainedPresentation === null ? null : clone self::$retainedPresentation;
+    self::$buffer = self::$layerCells = self::$layerPriorities = self::$presentationBaseCells = [];
+    self::$frameRows = self::$recomposeRepaintRows = [];
+    self::$isRecomposing = true;
+    self::beginFrame();
+    try {
+      $renderer();
+      if (self::$frameDepth !== 1) { throw new RuntimeException('The screen renderer left an unbalanced console frame.'); }
+      self::$isRecomposing = false;
+      self::endFrame();
+      // Discard intermediate paints, including rows temporarily cleared and redrawn.
+      self::$retainedPresentation = $tracker;
+      $rows = array_fill_keys(array_keys($saved[0] + self::$buffer + $saved[1] + self::$layerCells
+        + $saved[4] + self::$presentationBaseCells), true);
+      foreach ($saved[3] + self::$overlays as $id => $overlay) {
+        if (($saved[3][$id] ?? null) !== (self::$overlays[$id] ?? null)) {
+          $rows += array_fill_keys(array_keys(($saved[3][$id]['rows'] ?? []) + (self::$overlays[$id]['rows'] ?? [])), true);
+        }
+      }
+      foreach (array_keys($rows) as $row) {
+        if (($saved[0][$row] ?? []) !== (self::$buffer[$row] ?? [])
+          || ($saved[1][$row] ?? []) !== (self::$layerCells[$row] ?? [])
+          || ($saved[4][$row] ?? []) !== (self::$presentationBaseCells[$row] ?? [])) {
+          self::getRetainedTracker()->markRowDirty($row);
+          continue;
+        }
+        foreach ($saved[3] + self::$overlays as $id => $_) {
+          if (($saved[3][$id]['rows'][$row] ?? []) !== (self::$overlays[$id]['rows'][$row] ?? [])) {
+            self::getRetainedTracker()->markRowDirty($row);
+            break;
+          }
+        }
+      }
+    } catch (\Throwable $error) {
+      [self::$buffer, self::$layerCells, self::$layerPriorities, self::$overlays,
+        self::$presentationBaseCells, self::$frameRows, self::$recomposeRepaintRows, self::$isRecomposing] = $saved;
+      self::$retainedPresentation = $tracker;
+      self::$frameDepth = 0;
+      throw $error;
+    }
+  }
+
+  private static function markPresentationRowsDirty(array $previous = []): void
+  {
+    foreach (array_keys($previous + self::$buffer + self::$layerCells + self::$presentationBaseCells) as $row) {
+      self::getRetainedTracker()->markRowDirty($row);
     }
   }
 
@@ -765,7 +945,9 @@ class Console
     }
     self::$width = max(1, $width);
     self::$height = max(1, $height);
-    self::$buffer = self::getEmptyBuffer();
+    self::markPresentationRowsDirty();
+    self::$buffer = self::isRetainedTracking() ? [] : self::getEmptyBuffer();
+    self::$presentationBaseCells = [];
     self::$layerCells = [];
     self::$layerPriorities = [];
     self::$frameRows = [];
@@ -944,6 +1126,8 @@ class Console
 
     $started = LatencyTrace::getTimeNow();
     $before = self::$buffer[$y] ?? array_fill(0, self::$width, ' ');
+    $previousEntries = self::$layerCells[$y] ?? [];
+    $previousBase = self::$presentationBaseCells[$y] ?? [];
     $visibleBefore = self::$overlays === [] || self::$isRecomposing || !self::$terminalOutputEnabled
       ? null : self::compositeOverlayRow($before, $y);
     $after = $before;
@@ -952,10 +1136,12 @@ class Console
     self::clearCellRange($after, $x, 1);
     self::clearCellRange($after, $x + $length - 1, 1);
     array_splice($after, $x, $length, $incoming);
-    if (self::$trackLayers || self::$activeLayer !== null || isset(self::$layerCells[$y])) {
-      self::recordLayerWrite($y, $x, $x + $length - 1, $before, $after);
-    }
+    self::recordLayerWrite($y, $x, $x + $length - 1, $before, $after);
     self::$buffer[$y] = $after;
+    if ($before !== $after || $previousEntries !== (self::$layerCells[$y] ?? [])
+      || $previousBase !== (self::$presentationBaseCells[$y] ?? [])) {
+      self::getRetainedTracker()->markRowDirty($y);
+    }
     LatencyTrace::end('terminal.compose', $started);
     if (!self::$terminalOutputEnabled || self::$isRecomposing) { return; }
 
@@ -994,8 +1180,9 @@ class Console
   /** @return array<int, list<string>> Derived overlay view of the single canonical scene. */
   private static function visibleCellRows(): array
   {
-    if (self::$overlays === []) { return self::$buffer; }
-    $rows = self::$buffer === [] ? self::getEmptyBuffer() : self::$buffer;
+    $rows = self::isRetainedTracking() ? array_replace(self::getEmptyBuffer(), self::$buffer) : self::$buffer;
+    if (self::$overlays === []) { return $rows; }
+    if ($rows === []) { $rows = self::getEmptyBuffer(); }
     $affected = [];
     foreach (self::$overlays as $overlay) {
       foreach (array_keys($overlay['rows']) as $row) { $affected[$row] = true; }

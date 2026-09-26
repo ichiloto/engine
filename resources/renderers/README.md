@@ -69,19 +69,25 @@ WSL/WSLg uses the Linux entry with Linux PHP and a Linux renderer, not a Windows
 executable. Native Windows process transport is a separate
 [unsupported boundary](../../docs/rendering/process-transport.md).
 
-The Renderer window's earlier blanket non-macOS rejection has been corrected
-using shared GPUI maximize/restore handling. The accepted optimized canvas/UI
-renderer is now installed at this boundary locally, preserving the existing
-application identity and manifest. It has macOS validation only, not Linux/WSLg
-or native Windows execution acceptance, and is not a published package. See the
+The Renderer window uses shared GPUI maximize/restore handling rather than a
+blanket non-macOS rejection. An existing local installation may still contain
+the earlier stateless canvas/UI renderer. A source update does not replace that
+binary: the retained Engine contract requires an explicitly updated, matching
+renderer package. Existing macOS validation does not establish Linux/WSLg or
+native Windows execution acceptance. See the
 [current graphical battle record](../../docs/rendering/graphical-battle-g1.md).
 
 Preserve a platform bundle and its resources when staging it. On macOS the
-existing GPUI application includes its Info.plist for native application
-identity; its executable speaks the existing stdin/stdout protocol directly.
-Process launching and protocol remain the existing Engine runtime's
-responsibility. The session fixes the legacy grid; negotiated graphical canvases
-have their own logical dimensions. Cell defaults belong to the GPUI registration
+GPUI application includes its Info.plist for native application identity.
+The current source contract uses retained V2 stdin/stdout messages directly;
+the native stateless V1 and V2 full-frame paths are removed. Engine and renderer
+must use the same retained contract; a historical reference encoder is not a
+runtime fallback. Process launching and protocol remain the Engine runtime's
+responsibility. The session fixes the text grid; retained graphical canvases
+have their own logical dimensions. World layers upload once and use the shared
+viewport camera transform while text and canvas elements update by stable ID.
+See the [presentation contract](../../docs/rendering/presentation.md).
+Cell defaults belong to the GPUI registration
 (10x20), not to the manifest or Console.
 
 Tests inject a temporary manifest/platform or resolver and use PHP-only/fake

@@ -11,6 +11,8 @@ use InvalidArgumentException;
 final readonly class StyledPresentationFrame
 {
   public const int MAX_TEXT_LAYERS = 64;
+  public const int MAX_TEXT_RUNS = 32768;
+  public const int MAX_TEXT_SCALARS = 524288;
   /** @var list<PresentationTextLayer> */
   public array $textLayers;
   /** @var list<PresentationSprite> */
@@ -43,7 +45,7 @@ final readonly class StyledPresentationFrame
       foreach ($layer->runs as $run) { $scalars += mb_strlen($run->text, 'UTF-8'); }
       $copy[] = $layer;
     }
-    if ($runs > 32768 || $scalars > 524288) {
+    if ($runs > self::MAX_TEXT_RUNS || $scalars > self::MAX_TEXT_SCALARS) {
       throw new InvalidArgumentException('Styled frame exceeds renderer run/scalar limits.');
     }
     // Stable sorting preserves the frame array order for equal numeric layers.

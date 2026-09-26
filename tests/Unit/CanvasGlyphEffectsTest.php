@@ -18,6 +18,7 @@ use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Tests\Support\Input\FakeRendererTransport;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
 function glyphEffectsTestArguments(array $overrides = []): array
 {
@@ -224,7 +225,7 @@ it('rejects missing acknowledgement and only queues glyph frames after successfu
     ->and($presenter->presentCanvas($canvas))->toBeFalse()
     ->and($transport->sent[0]->payload['frame'])->toBe(1)
     ->and($transport->sent[0]->protocol)->toBe(RendererProtocolVersion::V2)
-    ->and($transport->sent[0]->payload['canvas'])->toBe($canvas->toArray());
+    ->and(Tests\Support\Rendering\RetainedFrameState::replay($transport->sent)[0]['canvas'])->toBe($canvas->toArray());
 })->with(['missing acknowledgement' => false, 'negotiated effects' => true]);
 
 it('negotiates glyph effects independently from clipping before enqueue', function (string $missing) {

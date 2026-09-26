@@ -18,6 +18,11 @@ final readonly class RendererEvent
     public RendererProtocolVersion $protocol = RendererProtocolVersion::V1,
     public array $capabilities = [],
     public ?bool $active = null,
+    public ?int $generation = null,
+    public ?int $frame = null,
+    public ?bool $presented = null,
+    public ?int $expectedGeneration = null,
+    public ?bool $resyncRequired = null,
   )
   {
   }
@@ -45,8 +50,8 @@ final readonly class RendererEvent
     if ($type === RendererEventType::KEY && (! is_string($key) || $key === '')) {
       throw new RendererProtocolException('Renderer key event requires a nonempty key string.');
     }
-    if ($type === RendererEventType::ERROR && ! is_string($message)) {
-      throw new RendererProtocolException('Renderer error event requires a message string.');
+    if (in_array($type, [RendererEventType::ERROR, RendererEventType::FRAME_REJECTED], true) && ! is_string($message)) {
+      throw new RendererProtocolException('Renderer error or frame rejection event requires a message string.');
     }
     $active = $object->active ?? null;
     if ($type === RendererEventType::WINDOW_ACTIVATION
@@ -55,6 +60,35 @@ final readonly class RendererEvent
     }
     if ($type !== RendererEventType::WINDOW_ACTIVATION && property_exists($object, 'active')) {
       throw new RendererProtocolException('Only window activation events carry active state.');
+    }
+    $retainedFields = match ($type) {
+      RendererEventType::FRAME_ACK => ['generation', 'frame', 'presented'],
+      RendererEventType::FRAME_REJECTED => ['generation', 'expectedGeneration', 'resyncRequired'],
+      default => [],
+    };
+    if (($retainedFields !== [] || $type === RendererEventType::RESIZED) && $protocol !== RendererProtocolVersion::V2) {
+      throw new RendererProtocolException('Retained frame feedback and resize notifications require protocol 2.');
+    }
+    foreach (['generation', 'frame', 'presented', 'expectedGeneration', 'resyncRequired'] as $field) {
+      if (property_exists($object, $field) && !in_array($field, $retainedFields, true)) {
+        throw new RendererProtocolException('Unexpected retained frame feedback field: ' . $field . '.');
+      }
+    }
+    $generation = $frame = $presented = $expectedGeneration = $resyncRequired = null;
+    if ($type === RendererEventType::FRAME_ACK) {
+      $generation = self::requireSequence($object, 'generation', 1);
+      $frame = self::requireSequence($object, 'frame');
+      $presented = $object->presented ?? null;
+      if (!is_bool($presented)) {
+        throw new RendererProtocolException('Frame acknowledgement requires a boolean presented state.');
+      }
+    } elseif ($type === RendererEventType::FRAME_REJECTED) {
+      $generation = self::requireSequence($object, 'generation');
+      $expectedGeneration = self::requireSequence($object, 'expectedGeneration');
+      $resyncRequired = $object->resyncRequired ?? null;
+      if ($resyncRequired !== true) {
+        throw new RendererProtocolException('Frame rejection requires resyncRequired: true.');
+      }
     }
     $capabilities = property_exists($object, 'capabilities') ? $object->capabilities : [];
     if (!is_array($capabilities) || !array_is_list($capabilities) || count($capabilities) > 32) {
@@ -70,7 +104,17 @@ final readonly class RendererEvent
       throw new RendererProtocolException('Capabilities must be unique and only appear on ready.');
     }
     return new self($type, $type === RendererEventType::KEY ? $key : null,
-      $type === RendererEventType::ERROR ? $message : null, $protocol, $capabilities, $active);
+      in_array($type, [RendererEventType::ERROR, RendererEventType::FRAME_REJECTED], true) ? $message : null,
+      $protocol, $capabilities, $active, $generation, $frame, $presented, $expectedGeneration, $resyncRequired);
+  }
+
+  private static function requireSequence(stdClass $object, string $field, int $minimum = 0): int
+  {
+    $value = $object->$field ?? null;
+    if (!is_int($value) || $value < $minimum) {
+      throw new RendererProtocolException('Renderer ' . $field . ' requires an integer of at least ' . $minimum . '.');
+    }
+    return $value;
   }
 
   /** @param list<string> $required */
