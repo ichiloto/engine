@@ -121,7 +121,7 @@ class SceneManager implements CanStart, CanRender, CanUpdate
   public function resizeViewports(int $width, int $height): void
   {
     foreach ($this->scenes as $scene) {
-      $scene->camera->resizeViewport($width, $height);
+      $scene->camera->resizeToConsole($width, $height);
     }
   }
 

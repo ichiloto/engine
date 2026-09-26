@@ -117,7 +117,8 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         $columns = $this->fieldViewport?->columns ?? intdiv(Console::getWidth(), MapCell::COLUMNS);
         $rows = $this->fieldViewport?->rows ?? Console::getHeight();
         if ($this->camera->screen->getWidth() !== $columns || $this->camera->screen->getHeight() !== $rows) {
-            $this->camera->resizeViewport($columns, $rows);
+            $this->fieldViewport === null ? $this->camera->resizeToConsole(Console::getWidth(), $rows)
+                : $this->camera->resizeViewport($columns, $rows);
             if ($this->player !== null && $this->camera->followsPlayer) {
                 $this->camera->resetPosition($this->player);
             }

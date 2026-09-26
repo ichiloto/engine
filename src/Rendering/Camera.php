@@ -597,8 +597,26 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
    */
   public function resizeViewport(int $width, int $height): void
   {
-    $this->width = max(1, $width);
-    $this->consoleColumns = $this->width * MapCell::COLUMNS;
+    $this->applyViewport(max(1, $width), max(1, $width) * MapCell::COLUMNS, $height);
+  }
+
+  /**
+   * Resizes the camera to a console area, as the constructor sizes it: the
+   * field shows the whole cells that fit, and drawing keeps every column.
+   *
+   * @param int $columns The new console width, in terminal columns.
+   * @param int $height The new viewport height.
+   * @return void
+   */
+  public function resizeToConsole(int $columns, int $height): void
+  {
+    $this->applyViewport(max(1, intdiv($columns, MapCell::COLUMNS)), max(1, $columns), $height);
+  }
+
+  private function applyViewport(int $cells, int $consoleColumns, int $height): void
+  {
+    $this->width = $cells;
+    $this->consoleColumns = $consoleColumns;
     $this->height = max(1, $height);
     $this->screen->setWidth($this->width);
     $this->screen->setHeight($this->height);
