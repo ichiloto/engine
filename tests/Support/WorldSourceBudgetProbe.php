@@ -13,7 +13,6 @@ use Ichiloto\Engine\Field\Player;
 use Ichiloto\Engine\Field\PreparedMap;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Rendering\Camera;
-use Ichiloto\Engine\Rendering\Tiles\GraphicalTileDefinition;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
@@ -39,8 +38,8 @@ $manager = new class($scene) extends MapManager {
 new ReflectionProperty(GameScene::class, 'mapManager')->setValue($scene, $manager);
 $player = new ReflectionClass(Player::class)->newInstanceWithoutConstructor();
 new ReflectionProperty(Player::class, 'position')->setValue($player, new Vector2(0, 0));
-$small = new MapLayerSet([new MapLayer('terrain', 0, false, 'small', '.')]);
-$preparedSmall = new PreparedMap([], $small->getComposedGrid(), [[0]], null, [], [], layers: $small);
+$small = new MapLayerSet([new MapLayer('terrain', 0, false, 'small', '..')]);
+$preparedSmall = new PreparedMap([], $small->getComposedGrid(), [[0]], [], [], layers: $small);
 $manager->applyPreparedMap($preparedSmall, $player);
 $initialWorldAvailable = $manager->getPresentationWorld() !== null;
 
@@ -48,13 +47,9 @@ $initialWorldAvailable = $manager->getPresentationWorld() !== null;
 $name = str_repeat('a', 210);
 $extent = 500;
 $layers = new MapLayerSet([new MapLayer($name, 0, false, 'layers/00.' . $name . '.map.php',
-    implode("\n", array_fill(0, $extent, str_repeat('.', $extent))))]);
-$definitions = GraphicalTileDefinition::getForLayers(['asset' => 'tiles.png', 'layers' => [
-    $name => ['symbols' => ['.' => ['x' => 0, 'y' => 0, 'width' => 16, 'height' => 16]]],
-]], $layers, 'Oversized source fixture');
+    implode("\n", array_fill(0, $extent, str_repeat('..', $extent))))]);
 $manager->applyPreparedMap(new PreparedMap([], $layers->getComposedGrid(),
-    array_fill(0, $extent, array_fill(0, $extent, 0)), null, [], [],
-    layers: $layers, layerTiles2d: $definitions), $player);
+    array_fill(0, $extent, array_fill(0, $extent, 0)), [], [], layers: $layers), $player);
 $oversizedWorldAvailable = $manager->getPresentationWorld() !== null;
 $manager->render();
 $changes = Console::getRetainedPresentationChanges();
@@ -84,7 +79,7 @@ echo json_encode([
     'extent' => $extent,
     'layerCount' => count($layers->layers),
     'ownerIdBytes' => strlen('map:' . $name),
-    'sourceBytes' => 8192 + $extent * $extent * (64 + 1 + strlen('map:' . $name)),
+    'sourceBytes' => 8192 + $extent * $extent * (64 + strlen('..') + strlen('map:' . $name)),
     'initialWorldAvailable' => $initialWorldAvailable,
     'oversizedWorldAvailable' => $oversizedWorldAvailable,
     'retainedMode' => Console::isRetainedWorldPresentation(),

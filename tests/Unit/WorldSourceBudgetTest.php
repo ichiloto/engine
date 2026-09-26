@@ -4,7 +4,6 @@ use Ichiloto\Engine\Field\MapLayer;
 use Ichiloto\Engine\Field\MapLayerSet;
 use Ichiloto\Engine\IO\Console\TerminalCapabilities;
 use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
-use Ichiloto\Engine\Rendering\Tiles\GraphicalTileDefinition;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
@@ -36,8 +35,6 @@ function getNativeWorldSourceCharge(PresentationWorld $world): int
                     $bytes += 64 + strlen($cell['glyph']) + strlen($cell['ownerLayerId']);
                 }
             }
-        } elseif ($operation['op'] === 'worldTiles') {
-            foreach ($operation['rows'] as $row) { $bytes += count($row['cells']) * 16; }
         }
     }
     return $bytes;
@@ -45,68 +42,22 @@ function getNativeWorldSourceCharge(PresentationWorld $world): int
 
 it('matches native source coefficients and charges rendered UTF-8 bytes and actual ragged-row owners', function () {
     $layers = new MapLayerSet([
-        new MapLayer('terrain', 0, false, 'base', "\e[31m\u{e9}\e[0m \u{754c}\u{1f600}a\ne\u{301}."),
-        new MapLayer('fixtures_long', 1, false, 'fixtures', " Z   \n  "),
-        new MapLayer('ornaments', 2, true, 'ornaments', "     \n  "),
+        new MapLayer('terrain', 0, false, 'base', "\e[31m\u{e9}\e[0m \u{754c}\u{1f600}ab\ne\u{301}."),
+        new MapLayer('fixtures_long', 1, false, 'fixtures', "  Z     \n  "),
+        new MapLayer('ornaments', 2, true, 'ornaments', "        \n  "),
     ]);
-    $world = PresentationWorld::getFromLayers($layers, []);
+    $world = PresentationWorld::getFromLayers($layers);
     expect(PresentationWorld::MAX_SOURCE_BYTES)->toBe(67108864)
         ->and(PresentationWorld::LAYER_SOURCE_BYTES)->toBe(8192)
         ->and(PresentationWorld::CELL_SOURCE_BYTES)->toBe(64)
-        ->and(PresentationWorld::TILE_SOURCE_BYTES)->toBe(16)
+        // One wire cell per map cell, carrying both of a pair's characters.
         ->and(array_column($world->operations[1]['rows'][0]['cells'], 'glyph'))
-        ->toBe(["\u{e9}", 'Z', "\u{754c}", "\u{1f600}", 'a'])
-        ->and(array_column($world->operations[2]['rows'][0]['cells'], 'glyph'))->toBe(['?', '.'])
+        ->toBe(["\u{e9} ", 'Z ', "\u{1f600}", 'ab'])
+        ->and(array_column($world->operations[2]['rows'][0]['cells'], 'glyph'))->toBe(['?.'])
         ->and(array_column($world->operations[1]['rows'][0]['cells'], 'ownerLayerId'))
-        ->toBe(['map:terrain', 'map:fixtures_long', 'map:terrain', 'map:terrain', 'map:terrain'])
-        // Three layers, seven authored cells, thirteen rendered glyph bytes, 83 owner-ID bytes.
-        ->and($world->estimatedSourceBytes)->toBe(3 * 8192 + 7 * 64 + 13 + 83)
-        ->and($world->estimatedSourceBytes)->toBe(getNativeWorldSourceCharge($world));
-});
-
-it('charges each emitted crop candidate including hidden base crops and explicit supplementary blanks', function () {
-    $layers = new MapLayerSet([
-        new MapLayer('terrain', 0, false, 'base', ". .\n.."),
-        new MapLayer('fixtures', 1, false, 'fixtures', " x \n  "),
-        new MapLayer('ornaments', 2, true, 'ornaments', "  *\n  "),
-    ]);
-    $crop = ['x' => 0, 'y' => 0, 'width' => 16, 'height' => 16];
-    $definitions = GraphicalTileDefinition::getForLayers(['asset' => 'tiles.png', 'layers' => [
-        'terrain' => ['symbols' => ['.' => $crop, ' ' => $crop]],
-        'fixtures' => ['symbols' => [' ' => $crop, 'x' => $crop],
-            'cells' => [['column' => 0, 'row' => 0, 'source' => $crop]]],
-        'ornaments' => ['symbols' => ['*' => $crop]],
-    ]], $layers, 'Source charge fixture');
-    GraphicalTileDefinition::validateDecoration($layers, $definitions);
-    $world = PresentationWorld::getFromLayers($layers, $definitions);
-    $candidates = [];
-    foreach ($world->operations as $operation) {
-        if ($operation['op'] !== 'worldTiles') { continue; }
-        foreach ($operation['rows'] as $row) {
-            foreach ($row['cells'] as $cell) {
-                $candidates[] = [$operation['layerId'], $row['row'], $cell['column']];
-            }
-        }
-    }
-    expect($candidates)->toBe([
-        ['map:terrain', 0, 0], ['map:terrain', 0, 1], ['map:terrain', 0, 2],
-        ['map:terrain', 1, 0], ['map:terrain', 1, 1],
-        ['map:fixtures', 0, 0], ['map:fixtures', 0, 1], ['map:ornaments', 0, 2],
-    ])->and($world->estimatedSourceBytes)->toBe(3 * 8192 + 5 * 64 + 5 + 56 + 8 * 16)
-        ->and($world->estimatedSourceBytes)->toBe(getNativeWorldSourceCharge($world));
-});
-
-it('does not charge a wide-cell override as a tile candidate on a legacy ragged map', function () {
-    $layers = new MapLayerSet([new MapLayer('terrain', 0, false, 'legacy', "\u{754c} .\n.")], legacy: true);
-    $crop = ['x' => 0, 'y' => 0, 'width' => 16, 'height' => 16];
-    $definitions = GraphicalTileDefinition::getForLayers(['asset' => 'tiles.png',
-        'symbols' => ['.' => $crop, ' ' => $crop],
-        'cells' => [['column' => 0, 'row' => 0, 'source' => $crop]],
-    ], $layers, 'Legacy source charge fixture');
-    $world = PresentationWorld::getFromLayers($layers, $definitions);
-    expect($world->operations[3]['rows'][0]['cells'])->toBe([
-        ['column' => 1, 'source' => 0], ['column' => 2, 'source' => 0],
-    ])->and($world->estimatedSourceBytes)->toBe(8192 + 4 * 64 + 6 + 4 * 11 + 3 * 16)
+        ->toBe(['map:terrain', 'map:fixtures_long', 'map:terrain', 'map:terrain'])
+        // Three layers, five authored cells, thirteen rendered glyph bytes, 61 owner-ID bytes.
+        ->and($world->estimatedSourceBytes)->toBe(3 * 8192 + 5 * 64 + 13 + 61)
         ->and($world->estimatedSourceBytes)->toBe(getNativeWorldSourceCharge($world));
 });
 
@@ -128,17 +79,18 @@ it('keeps real MapManager screen deltas and logs once when source bytes alone ex
             ->and($result['extent'])->toBe(500)->toBeLessThan(PresentationWorld::MAX_EXTENT)
             ->and($result['layerCount'])->toBe(1)->toBeLessThan(PresentationWorld::MAX_LAYERS)
             ->and($result['ownerIdBytes'])->toBe(214)->toBeLessThanOrEqual(256)
-            ->and($result['sourceBytes'])->toBe(69758192)->toBeGreaterThan(PresentationWorld::MAX_SOURCE_BYTES)
+            ->and($result['sourceBytes'])->toBe(70008192)->toBeGreaterThan(PresentationWorld::MAX_SOURCE_BYTES)
             ->and($result['initialWorldAvailable'])->toBeTrue()
             ->and($result['oversizedWorldAvailable'])->toBeFalse()
             ->and($result['retainedMode'])->toBeTrue()
             ->and($result['screenRows'])->toBe(array_fill(0, 4, '........'))
-            ->and($result['deltaLayerIds'])->toContain('map:' . str_repeat('a', 210))
+            // Without a retained world the map is drawn as plain terminal text in the world plane.
+            ->and($result['deltaLayerIds'])->toBe(['world'])
             ->and($result['warningCount'])->toBe(1)
             ->and($result['warningUnchanged'])->toBeTrue()
             ->and($result['recoveredWorldAvailable'])->toBeTrue();
         expect(file_get_contents($root . '/warning.log'))->toContain('source-memory budget')
-            ->not->toContain('bounded layer or cell budget', 'map atlas was omitted');
+            ->not->toContain('bounded layer or cell budget');
     } finally {
         foreach (new DirectoryIterator($root) as $file) {
             if (!$file->isDot()) { unlink($file->getPathname()); }

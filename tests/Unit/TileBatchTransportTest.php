@@ -4,7 +4,6 @@ use Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot;
 use Ichiloto\Engine\Field\MapLayer;
 use Ichiloto\Engine\Field\MapLayerSet;
 use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
-use Ichiloto\Engine\Rendering\Tiles\GraphicalTileDefinition;
 use Tests\Support\Rendering\RetainedFrameState;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSprite;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTileBatch;
@@ -70,16 +69,11 @@ it('retains terrain identity removes omitted worlds and resets after rejected te
   $client->pump();
   $presenter = new RendererPresentation($client, new RendererGridConfig(2,1));
   $snapshot = new ConsolePresentationSnapshot(2,1,[]);
-  $createWorld = static function (int $column): PresentationWorld {
-    $layers = new MapLayerSet([new MapLayer('terrain', 0, false, '00-terrain.txt', '..')]);
-    $definitions = GraphicalTileDefinition::getForLayers(['layers' => ['terrain' => [
-      'asset' => 'field.png', 'cells' => [['column' => $column, 'row' => 0,
-        'source' => ['x' => 0, 'y' => 0, 'width' => 16, 'height' => 32]]],
-    ]]], $layers, 'retained transport test');
-    return PresentationWorld::getFromLayers($layers, $definitions);
+  $createWorld = static function (string $text): PresentationWorld {
+    return PresentationWorld::getFromLayers(new MapLayerSet([new MapLayer('terrain', 0, false, '00-terrain.txt', $text)]));
   };
-  $original = $createWorld(0);
-  $changed = $createWorld(1);
+  $original = $createWorld('....');
+  $changed = $createWorld('..xx');
   expect($presenter->present($snapshot, world: $original))->toBeTrue()
     ->and($presenter->present($snapshot, world: $original))->toBeFalse();
   $transport->sendFailure = new RendererTransportException('backpressure');
@@ -94,12 +88,10 @@ it('retains terrain identity removes omitted worlds and resets after rejected te
     ->and($transport->sent[2]->payload['operations'])->toBe([['op' => 'remove', 'kind' => 'world', 'id' => 'map']]);
   $frames = RetainedFrameState::replay($transport->sent);
   expect($frames[0]['worlds']['map']['columns'])->toBe(2)->and($frames[2])->not->toHaveKey('worlds')
-    ->and($frames[0]['worlds']['map']['glyphRows']['map:terrain'][0][1]['glyph'])->toBe('.')
-    ->and($frames[0]['worlds']['map']['tileRows']['map:terrain'][0])->toBe([0 => ['column' => 0, 'source' => 0]])
-    ->and($frames[1]['worlds']['map']['tileRows']['map:terrain'][0])->toBe([1 => ['column' => 1, 'source' => 0]]);
-  $tiles = array_values(array_filter($transport->sent[1]->payload['operations'], fn($op) => $op['op'] === 'worldTiles'));
-  expect($tiles[0]['rows'][0]['cells'])->toBe([['column' => 1, 'source' => 0]]);
-  expect(fn() => $createWorld(2))->toThrow(InvalidArgumentException::class, 'outside layer');
+    ->and($frames[0]['worlds']['map']['glyphRows']['map:terrain'][0][1]['glyph'])->toBe('..')
+    ->and($frames[1]['worlds']['map']['glyphRows']['map:terrain'][0][1]['glyph'])->toBe('xx');
+  $rows = array_values(array_filter($transport->sent[1]->payload['operations'], fn($op) => $op['op'] === 'worldRows'));
+  expect(array_column($rows[0]['rows'][0]['cells'], 'glyph'))->toBe(['..', 'xx']);
 });
 
 it('replays world row replacement by owner and clears empty rows and replaced world state', function () {
