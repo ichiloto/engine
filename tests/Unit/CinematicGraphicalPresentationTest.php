@@ -46,7 +46,8 @@ beforeEach(function () {
   $manager = makeBareScene(SceneManager::class);
   new ReflectionProperty(SceneManager::class, 'game')->setValue($manager, $game);
   new ReflectionProperty(GameScene::class, 'sceneManager')->setValue($this->scene, $manager);
-  $this->camera = new Camera($this->scene, 24, 8, worldSpace: array_fill(0, 30, str_repeat('.', 60)));
+  // Twelve cells across; a staged actor at cell x draws from console column 2x.
+  $this->camera = new Camera($this->scene, 24, 8, worldSpace: array_fill(0, 30, str_repeat('..', 30)));
   new ReflectionProperty(GameScene::class, 'camera')->setValue($this->scene, $this->camera);
   $this->stage = new CinematicStageManager($this->scene);
   $this->presentation = new CinematicPresentationManager($this->scene);
@@ -106,8 +107,8 @@ it('keeps terminal fallbacks intact and masks only the graphical actor provenanc
   });
   $terminal = Console::snapshot();
   $graphical = Console::snapshot([$one->getGraphicalSpriteId()]);
-  expect(Console::charAt(7, 4))->toBe('@')->and(Console::charAt(8, 4))->toBe('L')
-    ->and($graphical->rows[4][7])->toBe('.')->and($graphical->rows[4][8])->toBe('L')
+  expect(Console::charAt(14, 4))->toBe('@')->and(Console::charAt(16, 4))->toBe('L')
+    ->and($graphical->rows[4][14])->toBe('.')->and($graphical->rows[4][16])->toBe('L')
     ->and($this->projector->project($legacy, $this->camera))->toBeNull()
     ->and($one->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(256)
     ->and(Console::snapshot())->toEqual($terminal);
@@ -140,7 +141,7 @@ it('emits opaque cinematic overlays and covers above world sprites and clears th
   $frame = Tests\Support\Rendering\RetainedFrameState::replay($transport->sent)[0];
   expect($frame['sprites'])->toHaveCount(1)
     ->and(array_column($frame['textLayers'], 'layer'))->toContain(1020, 3000)
-    ->and(Console::charAt(7, 4))->toBe('#');
+    ->and(Console::charAt(14, 4))->toBe('#');
   $this->presentation->clear();
   $render();
   $restored = Tests\Support\Rendering\RetainedFrameState::replay($transport->sent)[1];
