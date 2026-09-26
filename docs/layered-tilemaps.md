@@ -13,7 +13,9 @@ This document owns the product contract and implementation roadmap. The
 older requirement to author graphical markers and crops through the TUI,
 and the use of terminal characters as graphical tile identities;
 the original phases remain as implementation history, not a requirement to
-restore that workflow. Related engine docs: [maps.md](maps.md),
+restore that workflow. The glyph-keyed tile crops (`tiles2d`) described below
+are retired with two-column map cells; [graphical field](graphical-field.md)
+owns the replacement. Related engine docs: [maps.md](maps.md),
 [rendering/tile-batches.md](rendering/tile-batches.md),
 [integration roadmap](rendering/integration-roadmap.md).
 

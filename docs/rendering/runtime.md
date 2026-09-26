@@ -47,18 +47,18 @@ Console offer matching renderer updates as described below. Explicit programmati
 runtime configurations retain an empty requirement list by default for legacy full-image integrations;
 sheet users must request the capability as described in [sprite sheets](sprite-sheets.md).
 
-Automatic GPUI startup also requires v2 `tile_batches`, even
-when the initial map has no graphical terrain. This permits later transfers
-without renegotiation. An older binary must fail clearly before frames are sent.
-See [optional map terrain and the retained world contract](tile-batches.md).
+Automatic GPUI startup also requires v2 `tile_batches`, a historical capability
+name that no longer carries map tiles. An older binary must fail clearly before frames are sent.
+See [the retained world contract](tile-batches.md).
 Retained operations and camera transforms are core V2 behavior, not a new
 capability flag. Historical capability names do not enable stateless frames.
 
 ## Field zoom
 
 The graphical field is drawn in square cells of `FieldViewport::CELL_SIZE`
-(48) logical pixels, RPG Maker's tile size: one terminal cell is one field cell,
-and characters occupy exactly one cell. The camera shows as many whole field
+(48) logical pixels, RPG Maker's tile size: one map cell, two terminal columns
+wide, is one field cell, and characters occupy exactly one cell. A map without
+graphics shows each cell's two columns of text in its square. The camera shows as many whole field
 cells as the session surface holds, centred. See the
 [graphical field plan](../graphical-field.md).
 

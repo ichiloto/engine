@@ -33,11 +33,22 @@ For example:
 <?php
 
 return <<<'TOWN_MAP'
-####
-#  #
-####
+########
+##    ##
+########
 TOWN_MAP;
 ```
+
+A map cell is two terminal columns wide, which is square on a terminal whose
+character boxes are about twice as tall as wide, and one 48 pixel tile in a
+graphical renderer. A cell holds either two one-column characters (`##`, `[]`,
+`~~`), each with its own colour, or one two-column glyph such as an emoji. The
+map above is four cells wide and three tall. Every row is whole cells: a row
+ending halfway through a cell, or a one-column character followed by a
+two-column glyph, is refused with its row and column. Coordinates in map data,
+events, cutscenes and saves count cells, not columns. A project records this
+format in `ichiloto.json`; projects made before it are converted with
+`ichiloto upgrade` (see [graphical field](graphical-field.md)).
 
 The delimiter may be any valid nowdoc label. Comments and whitespace outside
 the return are allowed; executable statements, builders, calls, interpolated
@@ -64,23 +75,25 @@ discovered from `layers/` and sorted by their numeric prefix; there is no
 second layer list in `.data.php`.
 
 All layers and the root event grid must have the same number of rows and the
-same number of logical symbols on each corresponding row. Existing ragged
-maps are supported: one row may be shorter than another, but that row must have
-the same width on every layer. Do not pad a migration just to make it rectangular.
-Colour markup is not a cell; wide glyphs retain their existing logical-cell and
-terminal-display behavior.
+same number of cells on each corresponding row. Ragged maps are supported: one
+row may be shorter than another, but that row must have the same width on every
+layer. Colour markup is not a cell.
 
 The lowest gameplay layer is the base. Higher gameplay layers replace it only
-where they contain a non-space symbol. A space on an upper layer, including a
-styled space, is empty and shows the lower layer. The topmost occupied cell
-supplies the complete styled symbol. This composed grid is `Camera::worldSpace`
-and is exactly what the terminal renders.
+where they contain a non-blank cell. A cell of spaces on an upper layer,
+including styled spaces, is empty and shows the lower layer; any other cell
+replaces the one below it whole. This composed grid is `Camera::worldSpace` and
+is exactly what the terminal renders.
 
 Decoration is never composed into that grid and never contributes collision.
-Each occupied decoration cell must instead have a crop mapping in that layer's
-`tiles2d` table. A decoration layer named in the collision dictionary, or an
-occupied decoration cell without a mapping, refuses the map with a diagnostic.
-Interactive objects must be gameplay glyphs or events, never hidden decoration.
+A decoration layer named in the collision dictionary refuses the map with a
+diagnostic. Interactive objects must be gameplay glyphs or events, never hidden
+decoration. Decoration has no presentation of its own until graphical layers
+replace the retired glyph-keyed tile crops (`tiles2d`); a map data file that
+still has `tiles2d` loads with a warning and shows its terminal glyphs.
+
+An event cell is marked by its one non-blank character: `E `, ` E` and `EE`
+all mark event `E`. A cell holding two different markers is refused.
 
 ## Collision dictionaries
 
@@ -104,23 +117,16 @@ return [
 ```
 
 A named section overrides the flat dictionary for that layer; otherwise the
-flat entry applies. Unknown glyphs remain solid. Resolution walks gameplay
-layers from top to bottom, skipping upper spaces and `PASS_THROUGH` symbols.
-The first remaining glyph supplies the collision result. If no layer supplies
-a result, the cell is solid; `PASS_THROUGH` is never a final collision value.
-Decoration is excluded entirely. Collision comes from authored symbols and the
-dictionary, never from colour or a separate stored collision grid.
-
-Graphical crop mappings are also keyed by layer and symbol, so a symbol can have
-different crops on different layers without changing the terminal or collision.
-Optional per-cell crop overrides distinguish repeated symbols within one layer,
-for example the ends and middle of a multi-cell table. They select appearance
-only: authored glyphs and collision remain authoritative. Their coordinates are
-validated against the owning map layer, including ragged rows. Explicit artwork
-on blank cells does not make those cells occupied for gameplay.
-See [tile batches](rendering/tile-batches.md) for the `tiles2d` format, stacking
-and resource limits. All current map layers paint below the player; pass-through
-does not yet imply above-player drawing.
+flat entry applies. Keys stay single characters. A cell takes its kind from
+its characters, ignoring spaces within it: it is solid when any character is
+solid, so pairing never opens a wall; otherwise it takes the first kind other
+than none, left to right; a blank cell uses the space entry. Unknown glyphs
+remain solid. Resolution walks gameplay layers from top to bottom, skipping
+upper blank cells and `PASS_THROUGH` cells. The first remaining cell supplies
+the collision result. If no layer supplies a result, the cell is solid;
+`PASS_THROUGH` is never a final collision value. Decoration is excluded
+entirely. Collision comes from authored symbols and the dictionary, never from
+colour, graphics or a separate stored collision grid.
 
 ## Editing and migration
 
@@ -128,21 +134,16 @@ The Editor cycles through gameplay, decoration and event layers with independent
 visibility and dimming. Terminal preview shows the composed gameplay grid only.
 Vim, mouse, colour, selection and clipboard operations use the active layer.
 Event colours are authoring aids only; runtime event markers are read without
-colour tags. Symbol crop defaults remain read-only in the inspector. The
-`Tile art: Edit selected cell` action opens a staged form for a cell override,
-using the shared project PNG picker and numeric crop fields. Apply and Remove
-are undoable; Cancel leaves the map unchanged. Changing a layer's atlas requires
-confirmation because every existing crop on that layer uses it. Opaque source
-edits are refused before writing, and painting warns when a symbol has a crop
-mapping or a cell override stays attached to that coordinate.
+colour tags. The Editor paints whole cells: typing one character paints it
+repeated (`#` paints `##`), a second quick keystroke makes a mixed cell such
+as `[]`, and a two-column glyph fills its cell.
 
 Saves transact the whole changed file set. Untouched layer files are not written,
 and unchanged rows preserve their original bytes. Layer create, rename and remove
-participate in undo. Renaming preserves the numeric order and updates local crop
-keys without flattening the data file. Because a shared collision dictionary may
+participate in undo. Renaming preserves the numeric order without flattening the data file. Because a shared collision dictionary may
 use the old name, the Editor asks for confirmation if a rename changes resolved
 collision; it does not rewrite that dictionary automatically. The first explicit
-layer creation on a legacy map converts its grid and optional flat crop table.
+layer creation on a legacy map converts its grid.
 
 A game may supply a building catalogue for multi-row facade brushes. The Editor
 reads the catalogue as the shape source rather than keeping copied definitions.
