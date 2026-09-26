@@ -10,6 +10,7 @@ use Ichiloto\Engine\Entities\Interfaces\ActionInterface;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Field\Location;
+use Ichiloto\Engine\Field\MapCell;
 use Ichiloto\Engine\Field\MapLayer;
 use Ichiloto\Engine\Field\MapLayerSet;
 use Ichiloto\Engine\Field\MapManager;
@@ -73,9 +74,9 @@ final class PlayerPromptGame extends Game
 function createPlayerPromptMap(string $glyph): PreparedMap
 {
     $layers = new MapLayerSet([new MapLayer('terrain', 0, false, 'prompt-map',
-        implode("\n", array_fill(0, 45, str_repeat($glyph, 80))))]);
+        implode("\n", array_fill(0, 45, str_repeat($glyph, 160))))]);
     return new PreparedMap([], $layers->getComposedGrid(), array_fill(0, 45, array_fill(0, 80, 0)),
-        null, [], [], layers: $layers);
+        [], [], layers: $layers);
 }
 
 function presentPlayerPromptFrame(RendererRuntime $runtime, GameScene $scene, FakeRendererTransport $transport): array
@@ -182,10 +183,11 @@ it('keeps exactly one above-art prompt aligned with the player through real 2x m
             $frame = presentPlayerPromptFrame($this->runtime, $this->scene, $this->transport);
         }
         $sprite = $frame['sprites'][0];
-        // A field character occupies exactly its cell, whatever its direction; the prompt sits in the cell above.
+        // A field character occupies exactly its cell, whatever its direction; the prompt sits in the cell above,
+        // written at that cell's first console column.
         $row = $sprite['y'] - 1;
         expect([$sprite['width'], $sprite['height']])->toBe([FieldViewport::CELL_SIZE, FieldViewport::CELL_SIZE])
-            ->and(getPlayerPromptRuns($frame))->toBe([['row' => $row, 'column' => $sprite['x'], 'text' => '!']])
+            ->and(getPlayerPromptRuns($frame))->toBe([['row' => $row, 'column' => $sprite['x'] * MapCell::COLUMNS, 'text' => '!']])
             ->and($frame['viewport']['scale'])->toBe(2.0)
             ->and($frame['viewport']['textLayerIds'])->toContain(PresentationLayerPolicy::FIELD_PROMPT_ID)
             ->not->toContain('location-hud')
@@ -210,7 +212,7 @@ it('keeps exactly one above-art prompt aligned with the player through real 2x m
         ->and($this->camera->getWorldOrigin())->not->toBe($before);
     $frame = presentPlayerPromptFrame($this->runtime, $this->scene, $this->transport);
     $sprite = $frame['sprites'][0];
-    expect(getPlayerPromptRuns($frame))->toBe([['row' => $sprite['y'] - 1, 'column' => $sprite['x'], 'text' => '!']]);
+    expect(getPlayerPromptRuns($frame))->toBe([['row' => $sprite['y'] - 1, 'column' => $sprite['x'] * MapCell::COLUMNS, 'text' => '!']]);
 });
 
 it('replaces old prompt rows through either player draw entry point and removes them as soon as canAct becomes false', function (string $draw) {
@@ -220,10 +222,11 @@ it('replaces old prompt rows through either player draw entry point and removes 
     $this->player->position->y += 1;
     $this->player->$draw();
     $frame = presentPlayerPromptFrame($this->runtime, $this->scene, $this->transport);
-    // The camera centres the start row, so world (8, 9) is screen (8, 8) and the prompt is one cell above.
-    expect(getPlayerPromptRuns($frame))->toBe([['row' => 7, 'column' => 8, 'text' => '!']])
+    // The camera centres the start row, so world cell (8, 9) is screen cell (8, 8), console column 16,
+    // and the prompt is one cell above.
+    expect(getPlayerPromptRuns($frame))->toBe([['row' => 7, 'column' => 16, 'text' => '!']])
         ->and(array_column($frame['textLayers'], 'id'))->not->toContain('player');
-    Console::withLayer('modal', fn() => Console::write('   ', 8, 7), 1020);
+    Console::withLayer('modal', fn() => Console::write('   ', 16, 7), 1020);
     presentPlayerPromptFrame($this->runtime, $this->scene, $this->transport);
     $this->player->availableAction = null;
     expect($this->player->canAct)->toBeFalse();
@@ -232,7 +235,7 @@ it('replaces old prompt rows through either player draw entry point and removes 
         ->and($frame['viewport']['textLayerIds'])->not->toContain(PresentationLayerPolicy::FIELD_PROMPT_ID);
     $text = array_column($frame['textLayers'], null, 'id');
     expect($text['modal']['runs'][0]['text'])->toBe('   ')
-        ->and(Console::charAt(8, 7))->toBe(' ');
+        ->and(Console::charAt(16, 7))->toBe(' ');
     $this->player->$draw();
     expect($this->runtime->present($this->scene))->toBeFalse();
 })->with(['render', 'renderPlayer']);
@@ -240,9 +243,9 @@ it('replaces old prompt rows through either player draw entry point and removes 
 it('removes the prompt on either erase path even while staged presentation suppresses the player', function (string $erase, bool $suppressed) {
     $this->field->renderTheField();
     presentPlayerPromptFrame($this->runtime, $this->scene, $this->transport);
-    expect(Console::charAt(6, 6))->toBe('!');
-    Console::withLayer('modal', fn() => Console::write(' ', 6, 6), 1020);
-    expect(new ReflectionProperty(Console::class, 'layerCells')->getValue()[6][6]['layers'])
+    expect(Console::charAt(12, 6))->toBe('!');
+    Console::withLayer('modal', fn() => Console::write(' ', 12, 6), 1020);
+    expect(new ReflectionProperty(Console::class, 'layerCells')->getValue()[6][12]['layers'])
         ->toHaveKeys(['field-prompt', 'modal']);
     if ($suppressed) {
         $stage = new CinematicStageManager($this->scene);
@@ -251,7 +254,7 @@ it('removes the prompt on either erase path even while staged presentation suppr
     }
     $erase === 'erase' ? $this->player->erase() : $this->player->erasePlayer($this->camera);
     $frame = presentPlayerPromptFrame($this->runtime, $this->scene, $this->transport);
-    expect(getPlayerPromptRuns($frame))->toBe([])->and(Console::charAt(6, 6))->toBe(' ');
+    expect(getPlayerPromptRuns($frame))->toBe([])->and(Console::charAt(12, 6))->toBe(' ');
     expect(array_column($frame['textLayers'], 'id'))->toContain('modal');
 })->with(['erase', 'erasePlayer'])->with([false, true]);
 
@@ -278,7 +281,7 @@ it('retires the map-owned action and prompt on real map load and transfer while 
     }
     $frame = presentPlayerPromptFrame($this->runtime, $this->scene, $this->transport);
     expect($this->player->canAct)->toBeFalse()->and(getPlayerPromptRuns($frame))->toBe([])
-        ->and($frame['worlds']['map']['glyphRows']['map:terrain'][0][0]['glyph'])->toBe('x');
+        ->and($frame['worlds']['map']['glyphRows']['map:terrain'][0][0]['glyph'])->toBe('xx');
 })->with([false, true]);
 
 it('keeps terminal prompts above the terminal glyph even when graphical artwork and zoom are configured', function (string $draw) {
@@ -289,9 +292,9 @@ it('keeps terminal prompts above the terminal glyph even when graphical artwork 
         $this->camera->renderMap();
         $this->player->$draw();
         expect($this->scene->isGraphicalFieldPresented())->toBeFalse()
-            ->and(Console::charAt(7, 6))->toBe('!')->and(Console::charAt(6, 6))->toBe('.');
+            ->and(Console::charAt(13, 6))->toBe('!')->and(Console::charAt(12, 6))->toBe('.');
         $this->player->availableAction = null;
-        expect(Console::charAt(7, 6))->toBe('.');
+        expect(Console::charAt(13, 6))->toBe('.');
     } finally { ob_end_clean(); }
 })->with(['render', 'renderPlayer']);
 
@@ -299,7 +302,7 @@ it('anchors graphical prompts to the bottom-center tile rather than the terminal
     $this->player->sprite = ['abc'];
     $this->player->$draw();
     $frame = presentPlayerPromptFrame($this->runtime, $this->scene, $this->transport);
-    expect(getPlayerPromptRuns($frame))->toBe([['row' => 6, 'column' => 6, 'text' => '!']]);
+    expect(getPlayerPromptRuns($frame))->toBe([['row' => 6, 'column' => 6 * MapCell::COLUMNS, 'text' => '!']]);
 })->with(['render', 'renderPlayer']);
 
 it('clips a graphical prompt above an off-screen head instead of pinning it to a screen edge', function (int $x, int $y) {
