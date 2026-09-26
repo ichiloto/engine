@@ -165,19 +165,51 @@ The two-column cell step converts a project from one-column cells:
 
 ## Graphical map data
 
-- Each map may have a `graphics/` folder beside `layers/`: which tileset
-  the map uses, and ordered tile layers holding one tile identity per cell,
-  following RPG Maker's layer model. Each file returns literal data only,
-  like the terminal layers, and shares the map's dimensions.
-- A map without graphics renders its terminal glyphs in the graphical
-  renderer, on the 48-pixel unit.
-- The retained presentation uploads a map's graphical layers once per map
-  load, in world coordinates, and each frame carries only the camera, as
-  the retained contract already specifies.
-- The glyph-keyed crop tables (`tiles2d`) and per-cell crop overrides are
-  removed once graphical layers replace them. They bound graphical meaning
-  to glyphs, which principle 4 rules out.
-
+- **Tileset resource.** `assets/Data/Tilesets/<id>.php` returns the
+  tileset's `name`, its `sheets` keyed by RPG Maker sheet name (`A1` to
+  `A5`, `B` to `E`; any may be omitted) as asset-relative PNG paths, and
+  two optional lists of tile identities: `above` (RPG Maker's star: drawn
+  above characters) and `tables` (A2 autotiles drawn as tables). The file
+  name is the tileset's stable identity.
+- **Sheet validation.** Each sheet's tile size is its width divided by its
+  layout's tile columns (A1, A2, A3, A4, B to E: 16 columns; A5: 8). It
+  must be a whole, even number of pixels (autotiles are built from quarter
+  tiles), the height must be the layout's rows (A1 and A2: 12, A3: 8, A4:
+  15, A5 and B to E: 16) times the tile size, and every sheet of a tileset
+  shares one tile size. RPG Maker's 48 pixels is recommended, not
+  required. A missing or invalid sheet is reported, and the cells that
+  would use it fall back to terminal glyphs.
+- **Map graphics.** A map names its tileset in its data file
+  (`'tileset' => 'home'`, like RPG Maker's map properties). Its tile layers
+  live in `graphics/` beside `layers/`, named `NN.name.tiles.php` and
+  ordered by `NN` like terminal layers. Each returns a literal nowdoc with
+  one row per map row and one whitespace-separated tile identity per map
+  cell; `0` is empty (RPG Maker's first B tile). Rows match the map's cells
+  exactly. Nothing in them is executed.
+- **Autotile shapes** are carried in the identity, as RPG Maker stores them.
+  The engine resolves shapes from neighbouring cells of the same kind for
+  authoring tools, and composes each shape from quarter tiles when
+  presenting. Map edges count as the same kind, as in RPG Maker.
+- **Draw bands.** Tile layer `NN` draws at `-100 + NN`, the same band as the
+  terminal layers, below characters. Tiles listed in `above` draw at
+  `900 + NN`, above characters and below the interface.
+- **Glyph fallback.** A cell with no painted tile in any tile layer shows
+  its terminal glyph; a painted cell does not, even where its tile is
+  transparent.
+- **Animation.** A1 water cycles RPG Maker's frames (water 0, 1, 2, 1;
+  waterfalls 0, 1, 2) on one counter advancing every 30/60 seconds, as
+  RPG Maker does. Reduced motion holds the first frame.
+- **Retained upload.** The world carries the tileset: its sheets, tile size
+  and a catalog of the tile identities the map uses, each as frames of
+  pieces copied from a sheet into the tile. Tile layers are world layers
+  of kind `tiles` whose rows list cells and catalog indices, uploaded once
+  per map load. The viewport carries only the camera and the animation
+  frame. The renderer knows nothing of RPG Maker: composition rules stay in
+  the engine.
+- **Terminal and editors.** None of this changes terminal geometry,
+  collision, events or saves. The TUI editor preserves a map's graphics
+  folder through resize, duplicate, move and delete, validates it, and
+  never edits it; painting tiles belongs to the GUI editor (Phase 4).
 ## Phases
 
 ### Phase 1 - The unit and characters
