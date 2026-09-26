@@ -105,6 +105,63 @@ One authored format, the summon timeline generalized:
   explicit animation id, selected in the editor through a reference picker,
   never typed. Name-matching remains only as a deprecation-period fallback.
 
+## Battle command presentation sequence
+
+Planned G2 work, not current graphical behavior. This is the first battle
+presentation slice after the current graphical-field integration, built on the
+shared session work in Phases 1 and 2 below. Existing pose artwork alone does
+not implement this sequence.
+
+Once a confirmed command actually begins execution, present it in this order:
+
+1. Step the acting battler forward from its default formation position.
+2. Select the command's presentation pose, such as Attack, Casting Magic or
+   Using Item, through explicit project-owned role bindings.
+3. Announce the command or item use through the existing message surface.
+4. Play source effects, such as a caster's magic preparation.
+5. Play target effects, such as hit sparks, at the action's impact cues.
+6. Present each recipient's actual result: damage reaction pose/animation,
+   damage tint and shake, healing tint/aura, or the appropriate miss, block,
+   resistance, status or knockout feedback. Colour is not the only result cue.
+7. Finish command feedback and release action-owned transient effects.
+8. Step back to the default formation position and select the resulting
+   resting state, respecting guard, affliction and knockout rather than
+   unconditionally forcing an idle pose.
+
+Apply the same lifecycle to party and enemy actors, basic attacks, skills,
+items and summons. Selection or target preview never starts execution. The
+ordered stages may contain authored overlapping tracks; they are not eight
+unconditional delays. Multi-target and multi-hit reactions follow the actual
+combat result and its cues, not independently repeated action resolution.
+
+PHP owns sequence timing and exactly-once gameplay resolution at the authored
+effect cue. Rendering, dropped frames and unavailable artwork never determine
+damage, costs, targeting or completion. Reuse the shared playback session and
+existing pacing controls, with named/configurable timings and slot-relative
+motion rather than project-specific coordinates or another blocking loop.
+
+Pose roles reference replaceable assets by stable actor identity, not inferred
+filenames or display names. Single-pose images are a valid first treatment;
+animated poses and layered attachments must fit the same lifecycle. Keep the
+battle-art contract separate from the field's 48-pixel character sheets.
+Missing optional poses use the existing available battler representation with
+diagnostics; they do not cancel the command. Games supply pose choices, palette
+and effects while Engine owns reusable sequencing and safe cleanup.
+
+Terminal retains readable command/effect/result feedback. Reduced motion
+suppresses translation, shake and flashing while preserving pose/state changes,
+messages, logical cues and outcomes. On failure, interruption or battle exit,
+release only the action's visual state and restore surviving battlers' valid
+formation/resting state without replaying gameplay. Respect existing pause and
+legal-skip policies; presentation does not grant a new right to skip a command.
+
+Acceptance covers both battle engines, party and enemy actions, source/target
+effects, damage/healing/miss/KO, multi-hit and multi-target actions, counters,
+self-targeting, missing/replaced assets, reduced motion, pause and cleanup.
+Verify cue order and exactly-once results through real callers as well as the
+visible step/pose/feedback/return sequence. Share editor reference pickers and
+source-preserving role bindings; do not require every game to write drawing code.
+
 ## Phases
 
 ### Phase 0 - Make what exists honest
@@ -202,14 +259,18 @@ prevents the item's or skill's gameplay effect.
 
 ### Phase 2 - GPUI parity (feeds gates G2/G3)
 
-1. A presentation adapter renders a playing session's frame to canvas
-   primitives, following the `GraphicalBattleFeedback` precedent of per-frame
-   re-emission: glyph/text tracks become `CanvasTextLayer` runs (with
-   glyph effects and opacity available), flash tracks become translucent
-   `CanvasRectangle` fills, image tracks become `CanvasImage`s with
-   sprite-sheet `sourceRect` progression, shake becomes a bounded offset on
-   the affected layers (zero under reduced motion). No renderer or protocol
-   changes: the canvas is already a stateless per-frame description.
+1. A presentation adapter maps a playing session to the existing retained
+   canvas contract: glyph/text tracks become `CanvasTextLayer` runs, image
+   tracks become `CanvasImage`s with pose or sprite-sheet `sourceRect`
+   progression, and shake becomes a bounded destination offset on affected
+   entities (zero under reduced motion). Keep stable entity IDs and emit
+   changed state through retained updates; remove action-owned entities on
+   completion. Do not revive the old stateless transport. Flash/tint/aura
+   treatments use available compositing with a readable lower-capability
+   fallback, not an assumed native image-tint operation or rectangle draw
+   primitive. Respect negotiated capabilities and composite/resource limits
+   across multi-target effects. PHP drives time and cues; the native renderer
+   does not infer poses, motion or combat outcomes.
 2. Remove the five `usesGraphicalField()` early-returns by routing terminal
    and GPUI through the same session with two presenters.
 3. Summons render graphically through the identical path - G3 is then a
