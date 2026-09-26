@@ -50,7 +50,8 @@ final class RendererRuntime
     $this->collector = new GraphicalSpriteCollector();
   }
 
-  public function start(string $title, int $columns, int $rows): void
+  /** @param string|null $icon The game's application icon, relative to the asset root. */
+  public function start(string $title, int $columns, int $rows, ?string $icon = null): void
   {
     if ($this->started || $this->closed) {
       throw new LogicException('A RendererRuntime owns exactly one session.');
@@ -58,7 +59,7 @@ final class RendererRuntime
     $grid = new RendererGridConfig($columns, $rows, $this->config->cellWidth, $this->config->cellHeight);
     $this->grid = $grid;
     $session = new RendererSessionConfig($title, $this->config->assetRoot, $grid, $this->config->protocol,
-      $this->config->requiredCapabilities);
+      $this->config->requiredCapabilities, $icon);
     $this->session = $session;
     $this->started = true;
     try {

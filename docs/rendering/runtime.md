@@ -94,6 +94,22 @@ Omitting `viewport` from a delta retains its previous value; `viewport: null`
 clears it. Runtime clears it when leaving field presentation. Canvas and an active
 viewport are mutually exclusive. These transforms precede physical window fitting.
 
+## Application icon
+
+A game may name its application icon in `ichiloto.json`, as a PNG or ICNS
+path relative to the assets:
+
+```json
+"icon": "Graphics/System/Game.icns"
+```
+
+A graphical renderer shows it in place of its own, for example in the macOS
+Dock, from the start of the session. The renderer is shared by every game, so
+the icon belongs to the game rather than to the renderer bundle. A missing,
+unreadable or unsupported icon is reported and the renderer keeps its own; it
+never stops the game. The terminal has no application icon. The Editor does
+not yet expose this setting.
+
 ## Development renderer updates
 
 Before starting a new graphical game process, Console's `ichiloto play` checks

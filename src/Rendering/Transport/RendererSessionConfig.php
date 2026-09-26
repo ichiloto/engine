@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Rendering\Transport;
 
+use Ichiloto\Engine\Rendering\Launch\ApplicationIcon;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererMessageType;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
 use InvalidArgumentException;
@@ -28,15 +29,20 @@ final readonly class RendererSessionConfig
       : $this->requiredCapabilities;
   }
 
-  /** @param list<string> $requiredCapabilities */
+  /**
+   * @param list<string> $requiredCapabilities
+   * @param string|null $icon The game's application icon, relative to the asset root.
+   */
   public function __construct(
     public string $title,
     string $assetRoot,
     public RendererGridConfig $grid = new RendererGridConfig(),
     public RendererProtocolVersion $protocol = RendererProtocolVersion::V1,
     public array $requiredCapabilities = [],
+    public ?string $icon = null,
   )
   {
+    if ($icon !== null) { ApplicationIcon::assertAssetPath($icon); }
     $allowed = $protocol === RendererProtocolVersion::V2
       ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_CLIP_OPACITY, self::CANVAS_GLYPH_EFFECTS,
         self::CANVAS_COMPOSITING, self::WINDOW_ACTIVATION, self::FRAME_VIEWPORT] : [self::SPRITE_SOURCE_RECT];
@@ -74,6 +80,7 @@ final readonly class RendererSessionConfig
       'assetRoot' => $this->assetRoot,
       'grid' => $this->grid->toArray(),
       ...($this->requiredCapabilities === [] ? [] : ['requiredCapabilities' => $this->requiredCapabilities]),
+      ...($this->icon === null ? [] : ['icon' => $this->icon]),
     ], $this->protocol);
   }
 }
