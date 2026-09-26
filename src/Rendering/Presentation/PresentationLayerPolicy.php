@@ -12,17 +12,12 @@ use InvalidArgumentException;
 final class PresentationLayerPolicy
 {
   public const TERRAIN = -100;
-  public const TERRAIN_ID = 'terrain';
   public const WORLD = 0;
   public const FIELD_PROMPT_ID = 'field-prompt';
   public const UI = 1000;
   public const NOTIFICATIONS = 2000;
   public const TRANSITION = 3000;
 
-  public static function terrain(callable $draw): void
-  {
-    Console::withLayer(self::TERRAIN_ID, $draw, self::WORLD, replaceUnderlying: true);
-  }
 
   public static function getMapLayerId(MapLayer $layer): string
   {
@@ -35,10 +30,6 @@ final class PresentationLayerPolicy
     return self::TERRAIN + $layer->order;
   }
 
-  public static function drawMapLayer(MapLayer $layer, callable $draw): void
-  {
-    Console::withLayer(self::getMapLayerId($layer), $draw, self::getMapLayerOrder($layer), replaceUnderlying: true);
-  }
 
   public static function ui(object $element, callable $draw): void
   {

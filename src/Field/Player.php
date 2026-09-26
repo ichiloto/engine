@@ -878,7 +878,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
       // A field character occupies exactly its cell; the prompt sits in the cell above.
       $column = (int)$screenPosition->x;
       $row = (int)$screenPosition->y - 1;
-      if ($column < 0 || $row < 0 || $column >= $this->scene->camera->screen->getWidth()
+      if ($column < 0 || $row < 0 || $column >= $this->scene->camera->getConsoleColumns()
         || $row >= $this->scene->camera->screen->getHeight()) { return; }
     } else {
       $column = (int)$screenPosition->x + $this->getActionSpriteHorizontalOffset();
@@ -925,22 +925,17 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   }
 
   /**
-   * Returns the screen position used for rendering the current sprite.
-   *
-   * Wide glyphs such as emoji occupy multiple terminal cells, so we apply a
-   * small horizontal offset to keep the logical collision tile and the visual
-   * sprite feeling aligned.
+   * Returns the console position used for rendering the current sprite.
    *
    * @param Vector2 $worldPosition The world position being rendered.
-   * @return Vector2 The adjusted screen-space position.
+   * @return Vector2 The console column and row of the sprite's cell.
    */
   protected function getRenderScreenPosition(Vector2 $worldPosition): Vector2
   {
-    // A sprite is anchored to its own tile: its first column is the tile's
-    // column. Glyphs wider than one cell (emoji are two) overhang to the
-    // right. Shifting them left to "centre" them instead made a character
-    // standing beside a wall appear to be standing on it.
-    return $this->scene->camera->getScreenSpacePosition($worldPosition);
+    // A sprite is anchored to its own cell: its first column is the cell's
+    // first column. A two-column glyph fills the cell; anything wider
+    // overhangs to the right rather than appearing to stand on a wall.
+    return $this->scene->camera->getConsolePosition($worldPosition);
   }
 
   /**
@@ -950,7 +945,8 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    */
   protected function getActionSpriteHorizontalOffset(): int
   {
-    return max(0, intdiv($this->getSpriteDisplayWidth($this->sprite) - TerminalText::displayWidth($this->actionSprite), 2));
+    return max(0, intdiv(max(MapCell::COLUMNS, $this->getSpriteDisplayWidth($this->sprite))
+      - TerminalText::displayWidth($this->actionSprite), 2));
   }
 
   /**
@@ -980,7 +976,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   protected function eraseSpriteFootprint(Vector2 $worldPosition, array $sprite): void
   {
     $startX = intval($worldPosition->x);
-    $width = max($this->shape->getWidth(), $this->getSpriteDisplayWidth($sprite));
+    $width = max($this->shape->getWidth(), MapCell::getSpanCells($this->getSpriteDisplayWidth($sprite)));
 
     for ($row = 0; $row < max($this->shape->getHeight(), count($sprite)); $row++) {
       for ($column = 0; $column < $width; $column++) {
@@ -1012,7 +1008,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     }
 
     $startX = intval($worldPosition->x);
-    $width = max(1, $this->getSpriteDisplayWidth($sprite));
+    $width = MapCell::getSpanCells($this->getSpriteDisplayWidth($sprite));
 
     for ($column = 0; $column < $width; $column++) {
       $tileX = $startX + $column;

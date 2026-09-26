@@ -11,8 +11,7 @@ use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Exceptions\NotImplementedException;
 use Ichiloto\Engine\Field\Player;
-use Ichiloto\Engine\Field\MapLayerSet;
-use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
+use Ichiloto\Engine\Field\MapCell;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\NormalizedRow;
 use Ichiloto\Engine\IO\Console\TerminalCapabilities;
@@ -26,6 +25,10 @@ use Symfony\Component\Console\Output\OutputInterface;
 /**
  * Class Camera. The camera.
  *
+ * World positions, the screen rectangle and everything addressing the field
+ * are in map cells. A cell becomes MapCell::COLUMNS terminal columns only
+ * where text is written to the console; draw() takes console columns.
+ *
  * @package Ichiloto\Engine\Rendering
  */
 class Camera implements CanStart, CanResume, CanRender, CanUpdate
@@ -38,8 +41,10 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   private array $stringRowSymbols = [];
   private ?bool $normalizationPolicy = null;
   private bool $retainedWorldAvailable = false;
+  /** Console columns this camera draws into. */
+  protected int $consoleColumns;
   /**
-   * @var Rect The drawable screen area.
+   * @var Rect The visible world, in map cells.
    */
   public Rect $screen;
   /**
@@ -100,9 +105,9 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
         if (is_array($source)) {
           $this->worldSpaceWidth = max($this->worldSpaceWidth, count($source));
         } else {
-          $symbols = TerminalText::visibleSymbols((string)$source);
-          $this->worldSpaceWidth = max($this->worldSpaceWidth, count($symbols));
-          $this->stringRowSymbols[$y] = $symbols;
+          $cells = MapCell::parseRow((string)$source, "World row {$y}");
+          $this->worldSpaceWidth = max($this->worldSpaceWidth, count($cells));
+          $this->stringRowSymbols[$y] = $cells;
         }
       }
     }
@@ -135,13 +140,15 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   )
   {
     $this->output = new ConsoleOutput();
-    $this->screen = new Rect(0, 0, $width, $height);
+    $this->consoleColumns = max(1, $width);
+    $this->width = max(1, intdiv($width, MapCell::COLUMNS));
+    $this->screen = new Rect(0, 0, $this->width, $height);
     $this->position = $position;
 
     if ($worldSpace) {
       $this->worldSpace = $worldSpace;
     } else {
-      $this->worldSpace = array_fill(0, $this->screen->getHeight(), str_repeat(' ', $this->screen->getWidth()));
+      $this->worldSpace = array_fill(0, $this->screen->getHeight(), MapCell::getBlankRow($this->screen->getWidth()));
     }
   }
 
@@ -168,16 +175,6 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
    */
   public function renderMap(): void
   {
-    $this->renderMapRows();
-  }
-
-  public function renderLayeredMap(MapLayerSet $layers): void
-  {
-    $this->renderMapRows($layers);
-  }
-
-  private function renderMapRows(?MapLayerSet $layers = null): void
-  {
     if ($this->retainedWorldAvailable && Console::isRetainedWorldPresentation()) { return; }
     $renderOffset = $this->getRenderOffset();
     $visibleWidth = $this->getVisibleWorldWidth();
@@ -191,37 +188,12 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
 
     for ($row = 0, $height = $this->getVisibleWorldHeight(); $row < $height; $row++) {
       $started = LatencyTrace::getTimeNow();
-      $content = $this->normalizedMapRow($worldY + $row)->select($worldX, $visibleWidth, $visibleWidth);
+      $content = $this->normalizedMapRow($worldY + $row)->select($worldX, $visibleWidth, $visibleWidth * MapCell::COLUMNS);
       LatencyTrace::end('terminal.select', $started);
-      if ($layers === null) {
-        Console::writeNormalizedRow($content, $renderOffset->x, $renderOffset->y + $row);
-      } else {
-        $this->renderLayeredMapRow($content, $worldY + $row, $layers, $renderOffset->x, $renderOffset->y + $row);
-      }
+      Console::writeNormalizedRow($content, $renderOffset->x * MapCell::COLUMNS, $renderOffset->y + $row);
     }
 
     Console::endFrame();
-  }
-
-  private function renderLayeredMapRow(NormalizedRow $content, int $worldY, MapLayerSet $layers, int $screenX, int $screenY): void
-  {
-    $logicalX = (int)$this->screen->getX();
-    $groupStart = 0;
-    $owner = null;
-    foreach ($content->cells as $column => $cell) {
-      if ($cell === NormalizedRow::CONTINUATION) { continue; }
-      $next = $layers->getGameplayLayerAt($logicalX++, $worldY);
-      if ($owner !== null && $next !== $owner) {
-        PresentationLayerPolicy::drawMapLayer($owner, fn() => Console::writeNormalizedRow(
-          $content->selectColumns($groupStart, $column - $groupStart), $screenX + $groupStart, $screenY));
-        $groupStart = $column;
-      }
-      $owner = $next;
-    }
-    if ($owner !== null) {
-      PresentationLayerPolicy::drawMapLayer($owner, fn() => Console::writeNormalizedRow(
-        $content->selectColumns($groupStart, count($content->cells) - $groupStart), $screenX + $groupStart, $screenY));
-    }
   }
 
   /** @return iterable<int, list<string>> Visible authored symbols, without synthetic padding. */
@@ -246,8 +218,8 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
       $this->normalizedRows = [];
       $this->normalizationPolicy = $policy;
     }
-    return $this->normalizedRows[$y] ??= NormalizedRow::fromSymbols(
-      array_values($this->stringRowSymbols[$y] ?? $this->worldSpace[$y] ?? [])
+    return $this->normalizedRows[$y] ??= NormalizedRow::fromCells(
+      array_values($this->stringRowSymbols[$y] ?? $this->worldSpace[$y] ?? []), MapCell::COLUMNS
     );
   }
 
@@ -256,16 +228,16 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   {
     if ($this->retainedWorldAvailable && Console::isRetainedWorldPresentation()) {
       $origin = $this->getWorldOrigin();
-      Console::removeWorldCellContributions($x - $origin['x'], $y - $origin['y']);
+      Console::removeWorldCellContributions(($x - $origin['x']) * MapCell::COLUMNS, $y - $origin['y'], MapCell::COLUMNS);
       return;
     }
     $position = $this->getScreenSpacePosition(new Vector2($x, $y));
     if ($position->x < 0 || $position->y < 0
       || $position->x >= $this->screen->getWidth() || $position->y >= $this->screen->getHeight()) { return; }
     $row = $x >= 0 && $x < $this->worldSpaceWidth && $y >= 0 && $y < $this->worldSpaceHeight
-      ? $this->normalizedMapRow($y)->select($x, 1, $this->screen->getWidth(), pad: false) : null;
-    if ($row === null || $row->cells === []) { $row = NormalizedRow::fromText(' '); }
-    Console::writeNormalizedRow($row, $position->x, $position->y);
+      ? $this->normalizedMapRow($y)->select($x, 1, MapCell::COLUMNS, pad: false) : null;
+    if ($row === null || $row->cells === []) { $row = NormalizedRow::fromText(MapCell::BLANK); }
+    Console::writeNormalizedRow($row, $position->x * MapCell::COLUMNS, $position->y);
   }
 
   /**
@@ -367,7 +339,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
       if ($index >= $this->screen->getHeight()) {
         break;
       }
-      $buffer[] = TerminalText::truncateToWidth((string)$line, $this->screen->getWidth());
+      $buffer[] = TerminalText::truncateToWidth((string)$line, $this->consoleColumns);
     }
 
     $content = $buffer;
@@ -376,12 +348,12 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
       foreach ($content as $index => $line) {
         $row = $y + $index;
         $row = clamp($row, 0, max(0, $this->screen->getHeight() - 1));
-        $column = clamp($x, 0, max(0, $this->screen->getWidth() - 1));
+        $column = clamp($x, 0, max(0, $this->consoleColumns - 1));
         Console::write($line, $column, $row);
       }
     } else {
       $row = clamp($y, 0, max(0, $this->screen->getHeight() - 1));
-      $column = clamp($x, 0, max(0, $this->screen->getWidth() - 1));
+      $column = clamp($x, 0, max(0, $this->consoleColumns - 1));
       Console::write($content, $column, $row);
     }
   }
@@ -501,6 +473,19 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
     return new Vector2($screenSpaceX, $screenSpaceY);
   }
 
+  /** The console column and row where a world cell's text begins. */
+  public function getConsolePosition(Vector2 $worldSpacePosition): Vector2
+  {
+    $screen = $this->getScreenSpacePosition($worldSpacePosition);
+    return new Vector2($screen->x * MapCell::COLUMNS, $screen->y);
+  }
+
+  /** Console columns this camera draws into. */
+  public function getConsoleColumns(): int
+  {
+    return $this->consoleColumns;
+  }
+
   /** Signed logical-cell origin; retained world projection needs no per-cell vectors. */
   public function getWorldOrigin(): array
   {
@@ -540,7 +525,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
    */
   public function renderOnScreen(array $output, Vector2 $worldSpacePosition): void
   {
-    $screenSpacePosition = $this->getScreenSpacePosition($worldSpacePosition);
+    $screenSpacePosition = $this->getConsolePosition($worldSpacePosition);
 
     // Routed through Console so the cell buffer stays a faithful picture of
     // the screen. Writing sprites straight to the terminal used to leave the
@@ -556,13 +541,13 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   }
 
   /**
-   * Renders output directly at the provided screen-space position.
+   * Renders output directly at the provided console position.
    *
    * This is useful for overlays such as wide player sprites whose terminal
    * cell width should not alter the camera's world-space bookkeeping.
    *
    * @param string[]|string $output The output to render.
-   * @param Vector2 $screenSpacePosition The zero-based screen-space position.
+   * @param Vector2 $screenSpacePosition The zero-based console column and row.
    * @return void
    */
   public function renderAtScreenPosition(array|string $output, Vector2 $screenSpacePosition): void
@@ -606,13 +591,14 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   /**
    * Resizes the camera viewport to match the current screen size.
    *
-   * @param int $width The new viewport width.
+   * @param int $width The new viewport width, in map cells.
    * @param int $height The new viewport height.
    * @return void
    */
   public function resizeViewport(int $width, int $height): void
   {
     $this->width = max(1, $width);
+    $this->consoleColumns = $this->width * MapCell::COLUMNS;
     $this->height = max(1, $height);
     $this->screen->setWidth($this->width);
     $this->screen->setHeight($this->height);

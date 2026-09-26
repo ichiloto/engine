@@ -17,7 +17,6 @@ final readonly class MapLayerSet
     public array $gameplayOwners;
     /** @var list<list<string>> */
     private array $composedGrid;
-    private MapGridMetrics $composedMetrics;
 
     /** @param list<MapLayer> $layers */
     public function __construct(array $layers, public bool $legacy = false)
@@ -56,7 +55,7 @@ final readonly class MapLayerSet
             }
             foreach ($layer->grid as $y => $row) {
                 foreach ($row as $x => $cell) {
-                    if ($layer->glyphs[$y][$x] !== ' ') {
+                    if (!MapCell::isBlank($layer->glyphs[$y][$x])) {
                         $result[$y][$x] = $cell;
                         $owners[$y][$x] = $index;
                     }
@@ -65,19 +64,12 @@ final readonly class MapLayerSet
         }
         $this->composedGrid = $result;
         $this->gameplayOwners = $owners;
-        $this->composedMetrics = new MapGridMetrics($result);
     }
 
     /** @return list<list<string>> */
     public function getComposedGrid(): array
     {
         return $this->composedGrid;
-    }
-
-    /** @return list<list<int>> Display widths, preserving each authored row length. */
-    public function getComposedWidths(): array
-    {
-        return $this->composedMetrics->getWidths();
     }
 
     public function getGameplayLayerAt(int $x, int $y): MapLayer
@@ -95,7 +87,7 @@ final readonly class MapLayerSet
         }
         foreach ($base as $rowIndex => $row) {
             if (count($grid[$rowIndex] ?? []) !== count($row)) {
-                throw new InvalidArgumentException($context . " row {$rowIndex} must be " . count($row) . ' tiles wide.');
+                throw new InvalidArgumentException($context . " row {$rowIndex} must be " . count($row) . ' cells wide.');
             }
         }
     }

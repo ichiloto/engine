@@ -57,16 +57,16 @@ final class MapCollisionResolver
             $gameplay[] = [$layer, (is_array($section) ? $section : []) + $flat];
         }
         $result = [];
-        foreach ($gameplay[0][0]->grid as $y => $row) {
+        foreach ($gameplay[0][0]->glyphs as $y => $row) {
             foreach ($row as $x => $_) {
                 $result[$y][$x] = CollisionType::SOLID->value;
                 for ($index = count($gameplay) - 1; $index >= 0; $index--) {
                     [$layer, $types] = $gameplay[$index];
-                    $glyph = TerminalText::stripAnsi($layer->grid[$y][$x]);
-                    if ($index !== 0 && $glyph === ' ') {
+                    $cell = $layer->glyphs[$y][$x];
+                    if ($index !== 0 && MapCell::isBlank($cell)) {
                         continue;
                     }
-                    $type = $types[ASCII::to_ascii($glyph)] ?? CollisionType::SOLID;
+                    $type = self::resolveCell($cell, $types);
                     if ($type !== CollisionType::PASS_THROUGH) {
                         $result[$y][$x] = $type->value;
                         break;
@@ -76,5 +76,40 @@ final class MapCollisionResolver
             $result[$y] ??= [];
         }
         return $result;
+    }
+
+    /**
+     * A cell's kind from its characters, ignoring spaces within it: solid when
+     * any character is solid, so pairing never opens a wall; otherwise the first
+     * kind other than none, left to right. A blank cell uses the space entry.
+     *
+     * @param array<int|string, CollisionType> $types
+     */
+    public static function resolveCell(string $cell, array $types): CollisionType
+    {
+        $kinds = [];
+        foreach (MapCell::getCharacters($cell) as $character) {
+            if (trim($character) === '') {
+                continue;
+            }
+            $kind = $types[ASCII::to_ascii($character)] ?? CollisionType::SOLID;
+            if ($kind === CollisionType::SOLID) {
+                return $kind;
+            }
+            $kinds[] = $kind;
+        }
+        if ($kinds === []) {
+            return $types[' '] ?? CollisionType::SOLID;
+        }
+        $kinds = array_values(array_filter($kinds, static fn(CollisionType $kind): bool => $kind !== CollisionType::PASS_THROUGH));
+        if ($kinds === []) {
+            return CollisionType::PASS_THROUGH;
+        }
+        foreach ($kinds as $kind) {
+            if ($kind !== CollisionType::NONE) {
+                return $kind;
+            }
+        }
+        return CollisionType::NONE;
     }
 }

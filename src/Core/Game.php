@@ -500,6 +500,7 @@ class Game implements CanRun, SubjectInterface
         EquipmentOptimizationPolicyRegistry::configureFromProject();
         ConfigStore::put(PlaySettings::class, new PlaySettings($this->options));
         ConfigStore::put(AppConfig::class, new AppConfig());
+        ProjectFormat::assertSupported(config(AppConfig::class, ProjectFormat::KEY));
         ConfigStore::put(PlayerSettings::class, new PlayerSettings());
         ConfigStore::put(ProjectConfig::class, new ProjectConfig());
         ConfigStore::put(FieldMusicCatalog::class, FieldMusicCatalog::fromProject());

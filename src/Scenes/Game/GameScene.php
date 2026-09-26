@@ -2,8 +2,6 @@
 
 namespace Ichiloto\Engine\Scenes\Game;
 
-use Ichiloto\Engine\Rendering\Tiles\GraphicalTileCollector;
-use Ichiloto\Engine\Rendering\Tiles\GraphicalTileProviderHostInterface;
 
 use Ichiloto\Engine\Audio\FieldMusicCatalog;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
@@ -25,6 +23,7 @@ use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Exceptions\IchilotoException;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Field\Location;
+use Ichiloto\Engine\Field\MapCell;
 use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
@@ -84,7 +83,7 @@ use Ichiloto\Engine\Rendering\Presentation\RetainedWorldProviderInterface;
  *
  * @package Ichiloto\Engine\Scenes\Game
  */
-class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInterface, GraphicalTileProviderHostInterface, CanvasProviderInterface, FrameViewportProviderInterface, RetainedWorldProviderInterface
+class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInterface, CanvasProviderInterface, FrameViewportProviderInterface, RetainedWorldProviderInterface
 {
     private ?FieldViewport $fieldViewport = null;
     private bool $reportedInvalidFieldZoom = false;
@@ -115,7 +114,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         if ($this->fieldViewport === null && $previous === null) {
             return;
         }
-        $columns = $this->fieldViewport?->columns ?? Console::getWidth();
+        $columns = $this->fieldViewport?->columns ?? intdiv(Console::getWidth(), MapCell::COLUMNS);
         $rows = $this->fieldViewport?->rows ?? Console::getHeight();
         if ($this->camera->screen->getWidth() !== $columns || $this->camera->screen->getHeight() !== $rows) {
             $this->camera->resizeViewport($columns, $rows);
@@ -171,7 +170,6 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     private bool $fieldMusicPending = false;
     private int $fieldMusicHolds = 0;
     private bool $fieldMusicIsExplicitSilence = false;
-    private ?GraphicalTileCollector $graphicalTileCollector = null;
 
     public function getGraphicalSpriteProviders(): iterable
     {
@@ -187,14 +185,6 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         }
     }
 
-    public function getGraphicalTileBatches(): array
-    {
-        if (!$this->hasGraphicalFieldPresentation() || Console::isRetainedWorldPresentation()) { return []; }
-        $collector = $this->graphicalTileCollector ??= new GraphicalTileCollector();
-        return $this->mapManager?->layers !== null && !$this->mapManager->layers->legacy
-            ? $collector->collectLayers($this->mapManager->layers, $this->mapManager->layerTiles2d, $this->camera)
-            : $collector->collect($this->mapManager?->tiles2d, $this->camera);
-    }
 
     private function hasGraphicalFieldPresentation(): bool
     {

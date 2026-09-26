@@ -2,15 +2,18 @@
 
 namespace Ichiloto\Engine\Rendering\Presentation;
 
+use Ichiloto\Engine\Field\MapCell;
 use Ichiloto\Engine\Field\MapLayerSet;
-use Ichiloto\Engine\IO\Console\NormalizedRow;
 use Ichiloto\Engine\IO\Console\SgrColorParser;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\FieldViewport;
-use Ichiloto\Engine\Rendering\Tiles\GraphicalTileDefinition;
 use InvalidArgumentException;
 
-/** Immutable, map-owned upload. Camera movement never visits its cells in PHP. */
+/**
+ * Immutable, map-owned upload. Camera movement never visits its cells in PHP.
+ * One wire cell is one map cell whatever its text; its text keeps the
+ * terminal's MapCell::COLUMNS columns per cell.
+ */
 final readonly class PresentationWorld
 {
     public const int MAX_LAYERS = 64;
@@ -19,14 +22,12 @@ final readonly class PresentationWorld
     public const int MAX_SOURCE_BYTES = 67108864;
     public const int LAYER_SOURCE_BYTES = 8192;
     public const int CELL_SOURCE_BYTES = 64;
-    public const int TILE_SOURCE_BYTES = 16;
 
     /** @param list<array<string, mixed>> $operations */
     private function __construct(public string $id, public array $operations, public array $textLayerIds,
         public int $estimatedSourceBytes) {}
 
-    /** @param array<string, GraphicalTileDefinition> $definitions */
-    public static function getFromLayers(MapLayerSet $layers, array $definitions, string $id = 'map'): self
+    public static function getFromLayers(MapLayerSet $layers, string $id = 'map'): self
     {
         $grid = $layers->getComposedGrid();
         $height = count($grid);
@@ -35,70 +36,51 @@ final readonly class PresentationWorld
             || $width * $height > self::MAX_CELLS || count($layers->layers) > self::MAX_LAYERS) {
             throw new InvalidArgumentException('Retained world exceeds the bounded layer or cell budget.');
         }
-        $metadata = $rows = $tileOperations = $styled = [];
+        $metadata = $rows = $styled = [];
         $estimatedBytes = count($layers->layers) * self::LAYER_SOURCE_BYTES;
         // Match the native retained-source charge before allocating per-cell wire arrays.
-        foreach ($grid as $y => $symbols) {
-            foreach ($symbols as $x => $symbol) {
-                if (!isset($styled[$symbol])) {
-                    $style = SgrColorParser::parse($symbol);
-                    $styled[$symbol] = ['glyph' => TerminalText::rendererScalar($symbol),
-                        'foreground' => $style['foreground']?->toArray(), 'background' => $style['background']?->toArray(),
-                        'displayWidth' => NormalizedRow::symbolWidth($symbol)];
-                }
-                $estimatedBytes += self::CELL_SOURCE_BYTES + strlen($styled[$symbol]['glyph'])
+        foreach ($grid as $y => $cells) {
+            foreach ($cells as $x => $cell) {
+                $styled[$cell] ??= self::getWireCell($cell);
+                $estimatedBytes += self::CELL_SOURCE_BYTES + strlen($styled[$cell]['glyph'])
                     + strlen(PresentationLayerPolicy::getMapLayerId($layers->getGameplayLayerAt($x, $y)));
             }
         }
-        self::assertSourceBudget($estimatedBytes);
-        $base = $layers->getGameplayLayerAt(-1, -1);
-        $tileCount = 0;
-        foreach ($layers->layers as $layer) {
-            $layerId = PresentationLayerPolicy::getMapLayerId($layer);
-            $definition = $definitions[$layer->name] ?? ($layers->legacy ? ($definitions['terrain'] ?? null) : null);
-            $metadata[] = ['id' => $layerId, 'layer' => PresentationLayerPolicy::getMapLayerOrder($layer),
-                'kind' => $layer->decoration ? 'decoration' : 'gameplay',
-                ...($definition === null ? [] : ['asset' => $definition->asset,
-                    'sources' => array_map(static fn($source) => $source->toArray(), $definition->sources)])];
-            if ($definition === null) { continue; }
-            $widths = $layer->getWidths();
-            foreach ($layer->grid as $y => $symbols) {
-                $cells = [];
-                foreach ($symbols as $x => $symbol) {
-                    $glyph = $layer->glyphs[$y][$x];
-                    $cellWidth = $widths[$y][$x];
-                    $source = $definition->getSourceIndex($glyph, $x, $y);
-                    if ($source !== null && $cellWidth === 1
-                        && ($layer === $base || $glyph !== ' ' || $definition->hasCellOverride($x, $y))) {
-                        $cells[] = ['column' => $x, 'source' => $source];
-                        if (++$tileCount > self::MAX_CELLS) { throw new InvalidArgumentException('Retained world exceeds the tile budget.'); }
-                        $estimatedBytes += self::TILE_SOURCE_BYTES;
-                        self::assertSourceBudget($estimatedBytes);
-                    }
-                }
-                if ($cells !== []) {
-                    $tileOperations[] = ['op' => 'worldTiles', 'id' => $id, 'layerId' => $layerId,
-                        'rows' => [['row' => $y, 'cells' => $cells]]];
-                }
-            }
+        if ($estimatedBytes > self::MAX_SOURCE_BYTES) {
+            throw new InvalidArgumentException('Retained world exceeds the source-memory budget; use retained screen text.');
         }
-        foreach ($grid as $y => $symbols) {
-            $cells = [];
-            foreach ($symbols as $x => $symbol) {
-                $cells[] = [...$styled[$symbol], 'ownerLayerId' => PresentationLayerPolicy::getMapLayerId($layers->getGameplayLayerAt($x, $y))];
+        foreach ($layers->layers as $layer) {
+            $metadata[] = ['id' => PresentationLayerPolicy::getMapLayerId($layer),
+                'layer' => PresentationLayerPolicy::getMapLayerOrder($layer),
+                'kind' => $layer->decoration ? 'decoration' : 'gameplay'];
+        }
+        foreach ($grid as $y => $cells) {
+            $wire = [];
+            foreach ($cells as $x => $cell) {
+                $wire[] = [...$styled[$cell], 'ownerLayerId' => PresentationLayerPolicy::getMapLayerId($layers->getGameplayLayerAt($x, $y))];
             }
-            $rows[] = ['op' => 'worldRows', 'id' => $id, 'rows' => [['row' => $y, 'cells' => $cells]]];
+            $rows[] = ['op' => 'worldRows', 'id' => $id, 'rows' => [['row' => $y, 'cells' => $wire]]];
         }
         return new self($id, [['op' => 'put', 'kind' => 'world', 'id' => $id,
             'value' => ['columns' => $width, 'rows' => $height, 'cellSize' => FieldViewport::CELL_SIZE,
-                'layers' => $metadata]], ...$rows, ...$tileOperations],
-            [...array_column($metadata, 'id'), ...($layers->legacy ? [PresentationLayerPolicy::TERRAIN_ID] : [])], $estimatedBytes);
+                'cellColumns' => MapCell::COLUMNS, 'layers' => $metadata]], ...$rows],
+            array_column($metadata, 'id'), $estimatedBytes);
     }
 
-    private static function assertSourceBudget(int $bytes): void
+    /**
+     * The cell's text as the renderer draws it, with the colours of its first
+     * visible character (the background of its first character).
+     *
+     * @return array{glyph: string, foreground: ?array, background: ?array}
+     */
+    private static function getWireCell(string $cell): array
     {
-        if ($bytes > self::MAX_SOURCE_BYTES) {
-            throw new InvalidArgumentException('Retained world exceeds the source-memory budget; use retained screen text.');
-        }
+        $symbols = TerminalText::visibleSymbols($cell);
+        $glyph = implode('', array_map(TerminalText::rendererScalar(...), $symbols));
+        $visible = array_values(array_filter($symbols, static fn(string $symbol): bool => trim(TerminalText::stripAnsi($symbol)) !== ''));
+        $foreground = SgrColorParser::parse($visible[0] ?? $symbols[0] ?? ' ')['foreground'];
+        $background = SgrColorParser::parse($symbols[0] ?? ' ')['background'];
+        return ['glyph' => $glyph === '' ? MapCell::BLANK : $glyph,
+            'foreground' => $foreground?->toArray(), 'background' => $background?->toArray()];
     }
 }

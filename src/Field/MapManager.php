@@ -2,7 +2,6 @@
 
 namespace Ichiloto\Engine\Field;
 
-use Ichiloto\Engine\Rendering\Tiles\GraphicalTileDefinition;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
 use Ichiloto\Engine\IO\Console\TerminalCapabilities;
@@ -43,10 +42,7 @@ class MapManager implements CanRenderAt
    * @var array<int, string[]> The tile map.
    */
   protected(set) array $tileMap = [];
-  public private(set) ?GraphicalTileDefinition $tiles2d = null;
   public private(set) ?MapLayerSet $layers = null;
-  /** @var array<string, GraphicalTileDefinition> */
-  public private(set) array $layerTiles2d = [];
   private ?PresentationWorld $presentationWorld = null;
   private ?bool $presentationWorldPolicy = null;
   /**
@@ -324,8 +320,7 @@ class MapManager implements CanRenderAt
       $mapId,
     );
 
-    return new PreparedMap($map, $source['tiles'], $collisions, $source['tiles2d'], $mapTriggers, $eventTriggers, $npcs,
-      $source['layers'], $source['layerTiles2d']);
+    return new PreparedMap($map, $source['tiles'], $collisions, $mapTriggers, $eventTriggers, $npcs, $source['layers']);
   }
 
   /** Commits a previously validated destination and its field side effects. */
@@ -333,9 +328,7 @@ class MapManager implements CanRenderAt
   {
     $map = $prepared->data;
     $this->tileMap = $prepared->tiles;
-    $this->tiles2d = $prepared->tiles2d;
     $this->layers = $prepared->layers;
-    $this->layerTiles2d = $prepared->layerTiles2d;
     $this->clearPresentationWorld();
     $this->collisionMap = $prepared->collisions;
     $this->camera->worldSpace = $prepared->tiles;
@@ -455,16 +448,15 @@ class MapManager implements CanRenderAt
 
     $collisionMap = [];
 
-    foreach ($tilemap as $row) {
+    $types = array_filter($dictionary, static fn(mixed $type): bool => $type instanceof CollisionType);
+    foreach ($tilemap as $y => $row) {
       $collisionRow = [];
 
-      $tiles = is_array($row) ? $row : TerminalText::visibleSymbols($row);
+      $cells = is_array($row) ? $row : MapCell::parseRow($row, "Map row {$y}");
 
-      foreach ($tiles as $tile) {
-        $cleanedTile = ASCII::to_ascii(TerminalText::stripAnsi($tile));
-        $type = $dictionary[$cleanedTile] ?? CollisionType::SOLID;
-        $collisionRow[] = $type instanceof CollisionType && $type !== CollisionType::PASS_THROUGH
-          ? $type->value : CollisionType::SOLID->value;
+      foreach ($cells as $cell) {
+        $type = MapCollisionResolver::resolveCell($cell, $types);
+        $collisionRow[] = $type !== CollisionType::PASS_THROUGH ? $type->value : CollisionType::SOLID->value;
       }
 
       $collisionMap[] = $collisionRow;
@@ -490,12 +482,7 @@ class MapManager implements CanRenderAt
   public function render(?int $x = null, ?int $y = null): void
   {
     if (Console::isRetainedWorldPresentation()) { $this->getPresentationWorld(); }
-    if ($this->layers !== null && !$this->layers->legacy && $this->layerTiles2d !== []) {
-      $this->camera->renderLayeredMap($this->layers);
-      return;
-    }
-    $this->tiles2d === null ? $this->camera->renderMap()
-      : PresentationLayerPolicy::terrain(fn() => $this->camera->renderMap());
+    $this->camera->renderMap();
   }
 
   /** Build once per installed map/policy, only when a graphical consumer requests it. */
@@ -513,19 +500,10 @@ class MapManager implements CanRenderAt
     $this->presentationWorldPolicy = $policy;
     $this->presentationWorld = null;
     try {
-      $definitions = $this->layerTiles2d;
-      if ($this->layers->legacy && $this->tiles2d !== null) { $definitions['terrain'] ??= $this->tiles2d; }
-      $this->presentationWorld = PresentationWorld::getFromLayers($this->layers, $definitions, 'map');
+      $this->presentationWorld = PresentationWorld::getFromLayers($this->layers, 'map');
     } catch (\Throwable $error) {
+      // Unsupported world bounds keep the screen-space retained text path usable.
       Debug::warn('Retained map presentation is unavailable: ' . $error->getMessage());
-      if ($definitions !== []) {
-        try {
-          $this->presentationWorld = PresentationWorld::getFromLayers($this->layers, [], 'map');
-          Debug::warn('The map atlas was omitted; retaining the complete map glyph presentation.');
-        } catch (\Throwable) {
-          // Unsupported world bounds keep the screen-space retained text path usable.
-        }
-      }
     }
     $this->camera->setRetainedWorldAvailable($this->presentationWorld !== null);
     return $this->presentationWorld;
@@ -612,12 +590,7 @@ class MapManager implements CanRenderAt
   public function renderBackgroundTile(int $x, int $y): void
   {
     if (Console::isRetainedWorldPresentation()) { $this->getPresentationWorld(); }
-    $draw = fn() => $this->camera->renderBackgroundTile($x, $y);
-    if ($this->layers !== null && !$this->layers->legacy && $this->layerTiles2d !== []) {
-      PresentationLayerPolicy::drawMapLayer($this->layers->getGameplayLayerAt($x, $y), $draw);
-      return;
-    }
-    $this->tiles2d === null ? $draw() : PresentationLayerPolicy::terrain($draw);
+    $this->camera->renderBackgroundTile($x, $y);
   }
 
   /**
@@ -804,9 +777,7 @@ class MapManager implements CanRenderAt
   {
     $prepared = $this->prepareSplitMapDataFromFiles($paths);
     $this->tileMap = $prepared['tiles'];
-    $this->tiles2d = $prepared['tiles2d'];
     $this->layers = $prepared['layers'];
-    $this->layerTiles2d = $prepared['layerTiles2d'];
     $this->clearPresentationWorld();
     $this->camera->worldSpace = $prepared['tiles'];
 
@@ -818,9 +789,7 @@ class MapManager implements CanRenderAt
   {
     $this->tileMap = [];
     $this->collisionMap = [];
-    $this->tiles2d = null;
     $this->layers = null;
-    $this->layerTiles2d = [];
     $this->clearPresentationWorld();
     $this->calculateMapDimensions();
     $this->camera->worldSpace = [];
@@ -828,7 +797,7 @@ class MapManager implements CanRenderAt
 
   /**
    * @param array{id: string, data: string, map: string, event: string} $paths
-   * @return array{data: array<string, mixed>, tiles: array<int, string[]>, tiles2d: ?GraphicalTileDefinition, layers: MapLayerSet, layerTiles2d: array<string, GraphicalTileDefinition>}
+   * @return array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet}
    */
   protected function prepareSplitMapDataFromFiles(array $paths): array
   {
@@ -852,15 +821,15 @@ class MapManager implements CanRenderAt
 
     $map['id'] ??= $paths['id'];
 
-    $layerTiles2d = array_key_exists('tiles2d', $map)
-      ? GraphicalTileDefinition::getForLayers($map['tiles2d'], $layers, $displayPaths['data']) : [];
-    GraphicalTileDefinition::validateDecoration($layers, $layerTiles2d);
-    $tiles2d = $layers->legacy ? ($layerTiles2d['terrain'] ?? null) : null;
+    if (array_key_exists('tiles2d', $map)) {
+      // Glyph-keyed crops cannot address two-column cells; tilesets replace them.
+      Debug::warn("{$displayPaths['data']} tiles2d is no longer read; its map shows terminal glyphs until it has a tileset.");
+    }
 
     $tileMap = $layers->getComposedGrid();
     $map['events'] = $this->resolveEventDefinitions($map['events'] ?? [], $eventLayer, $displayPaths['event']);
 
-    return ['data' => $map, 'tiles' => $tileMap, 'tiles2d' => $tiles2d, 'layers' => $layers, 'layerTiles2d' => $layerTiles2d];
+    return ['data' => $map, 'tiles' => $tileMap, 'layers' => $layers];
   }
 
   /**
@@ -903,8 +872,9 @@ class MapManager implements CanRenderAt
     }
 
     return array_map(
-      static fn(string $row): array => TerminalText::visibleSymbols($row),
-      $rows
+      static fn(string $row, int $y): array => MapCell::parseRow($row, "{$fieldName} {$filename} row {$y}"),
+      $rows,
+      array_keys($rows),
     );
   }
 
@@ -965,7 +935,8 @@ class MapManager implements CanRenderAt
 
       $resolvedMarker = is_string($marker) ? $marker : ($eventDefinition['marker'] ?? null);
 
-      if (! is_string($resolvedMarker) || TerminalText::displayWidth($resolvedMarker) !== 1) {
+      if (! is_string($resolvedMarker) || TerminalText::symbolCount($resolvedMarker) !== 1
+        || TerminalText::displayWidth($resolvedMarker) > MapCell::COLUMNS) {
         throw new InvalidArgumentException("Events in split map data must be keyed by a single-character marker or declare one explicitly.");
       }
 
@@ -995,11 +966,12 @@ class MapManager implements CanRenderAt
   {
     $bounds = [];
 
+    $markers = [];
     foreach ($eventLayer as $y => $row) {
       foreach ($row as $x => $tile) {
-        $marker = TerminalText::stripAnsi($tile);
+        $marker = $markers[$y][$x] = MapCell::getMarker($tile, "Event cell at row {$y}, column {$x} of {$filename}");
 
-        if (trim($marker) === '') {
+        if ($marker === null) {
           continue;
         }
 
@@ -1025,9 +997,7 @@ class MapManager implements CanRenderAt
     foreach ($bounds as $marker => $markerBounds) {
       for ($y = $markerBounds['minY']; $y <= $markerBounds['maxY']; $y++) {
         for ($x = $markerBounds['minX']; $x <= $markerBounds['maxX']; $x++) {
-          $cell = TerminalText::stripAnsi($eventLayer[$y][$x] ?? ' ');
-
-          if ($cell !== $marker) {
+          if (($markers[$y][$x] ?? null) !== $marker) {
             throw new InvalidArgumentException("Event marker '{$marker}' in {$filename} must occupy a solid rectangle.");
           }
         }
