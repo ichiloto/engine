@@ -68,6 +68,10 @@ editing surface is owned by the GUI Editor plan. Related docs:
   one-column terminal sprite draws in the cell's first column and a
   two-column sprite fills it. Movement is one cell per step, so a step
   covers the same screen distance horizontally and vertically.
+- **Terminal editing.** In the TUI editor, typing one character paints a
+  cell of that character repeated (`#` paints `##`, `.` paints `..`); a
+  second quick keystroke or a pair entry in the character map sets a
+  mixed cell such as `[]`, and a two-column glyph fills the cell as it is.
 - **Camera.** The camera and everything addressing the field work in
   cells. Cells become terminal columns only where text is written to the
   console, so the terminal field shows half as many cells across as the
