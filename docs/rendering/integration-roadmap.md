@@ -11,7 +11,7 @@ and remaining engineering work, not release status.
 | G1 | Graphical arena, static battlers and battle UI | Implemented; see [battle contract](graphical-battle-g1.md). Artwork coverage is project-owned. |
 | G2 | Animated battlers and combat effects | Planned in [effect animation](../effect-animation.md), Phases 0-2. Static images do not complete this work. |
 | G3 | Graphical summon presentation | Planned through the same effect session, with terminal parity and outcome-timing checks. |
-| G4 | Field actors, objects and environment | Partial; needs complete asset-role coverage and [stateful input](#controller-ready-input-and-normalized-movement). |
+| G4 | Field actors, objects and environment | Partial; needs complete asset-role coverage, [field-map corrections and GUI authoring](../layered-tilemaps.md#graphical-correction-roadmap), and [stateful input](#controller-ready-input-and-normalized-movement). |
 | G5 | Game-wide interface coverage | Shared adapters described below are implemented; complete screen coverage and Editor authoring remain outstanding. |
 | G6 | Packaging and supported platforms | Console checks source-development renderer updates before normal play without building. Installation through the verified installer requires an explicit update choice or `renderer:update`. Prebuilt player distribution, installation dependencies and platform-specific validation remain unfinished. Native Windows also needs compatible process transport. |
 
@@ -156,8 +156,12 @@ successful session-only binding. Consumed edges cannot bind or navigate again.
 Replaceable display glyphs are not physical-controller detection.
 
 Remaining UI gaps include Main Menu Quit confirmation parity with Pause and
-Editor TUI authoring of themes and shared artwork-role bindings. Runtime
-composition does not establish authoring support.
+graphical GUI authoring of themes and shared artwork-role bindings, not a
+mandatory graphical workflow in the terminal editor. Runtime composition does
+not establish authoring support. The [layered-tilemap correction roadmap](../layered-tilemaps.md#graphical-correction-roadmap)
+owns the six-stage field-map work, concrete GUI gaps and removal of the
+graphical-marker/crop workflow from the TUI while preserving terminal editing,
+shared gameplay identity, existing data and source-safe round trips.
 
 ## Title presentation
 
