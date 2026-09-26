@@ -2,7 +2,8 @@
 
 namespace Ichiloto\Engine\Field;
 
-use Ichiloto\Engine\Rendering\Sprites\DirectionalGraphicalSpriteSet;
+use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
+use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
 
 /** Current project art, never persistent gameplay/save data. */
@@ -10,7 +11,7 @@ final readonly class PlayerPresentationConfig
 {
   public function __construct(
     public PlayerSpriteSet $terminal,
-    public ?DirectionalGraphicalSpriteSet $graphical = null,
+    public ?CharacterSheet $graphical = null,
   ) {}
 
   public static function load(): self
@@ -24,10 +25,15 @@ final readonly class PlayerPresentationConfig
   {
     $graphical = null;
     if (array_key_exists('sprites2d', $data)) {
-      if (!is_array($data['sprites2d'])) {
-        throw new InvalidArgumentException('Player sprites2d must be a complete directional definition array.');
+      // Optional art never stops the game: a malformed sheet keeps the terminal sprite.
+      try {
+        if (!is_array($data['sprites2d'])) {
+          throw new InvalidArgumentException('Player sprites2d must be a character sheet definition array.');
+        }
+        $graphical = CharacterSheet::fromArray($data['sprites2d']);
+      } catch (InvalidArgumentException $error) {
+        Debug::warn('Player sprites2d is invalid; keeping the terminal sprite: ' . $error->getMessage());
       }
-      $graphical = DirectionalGraphicalSpriteSet::fromArray($data['sprites2d']);
     }
     return new self(PlayerSpriteSet::fromArray($data), $graphical);
   }

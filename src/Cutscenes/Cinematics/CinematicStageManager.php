@@ -10,7 +10,7 @@ use Ichiloto\Engine\Field\Player;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
-use Ichiloto\Engine\Rendering\Sprites\DirectionalGraphicalSpriteSet;
+use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use RuntimeException;
@@ -112,6 +112,8 @@ final class CinematicStageManager
       graphicalSprites: $graphicalSprites,
       subject: $subject !== null ? $leases[spl_object_id($subject)] : null,
       suppressedSubjects: array_values($leases),
+      assetRoot: $graphicalSprites instanceof CharacterSheet
+        ? $this->gameScene->getGame()->getRendererRuntime()?->getAssetRoot() : null,
     );
     ($this->actors[$id] ?? null)?->releaseVisual();
     $this->subjects += $leases;
@@ -220,16 +222,13 @@ final class CinematicStageManager
   }
 
   /** Shared by authoring validation and runtime staging. */
-  public static function graphicalSprites(array $data): GraphicalSpriteDefinition|DirectionalGraphicalSpriteSet
+  public static function graphicalSprites(array $data): GraphicalSpriteDefinition|CharacterSheet
   {
-    $sprites = array_key_exists('asset', $data)
-      ? GraphicalSpriteDefinition::fromArray($data) : DirectionalGraphicalSpriteSet::fromArray($data);
-    $definitions = $sprites instanceof DirectionalGraphicalSpriteSet
-      ? [$sprites->north, $sprites->east, $sprites->south, $sprites->west] : [$sprites];
-    foreach ($definitions as $definition) {
-      if ($definition->layer < PresentationLayerPolicy::WORLD || $definition->layer >= PresentationLayerPolicy::UI) {
-        throw new \InvalidArgumentException('Cinematic world sprites require layers 0..999; UI layers are reserved.');
-      }
+    // A character sheet (`sheet`) walks and turns; a field image (`asset`) is a fixed pose.
+    $sprites = array_key_exists('sheet', $data)
+      ? CharacterSheet::fromArray($data) : GraphicalSpriteDefinition::fromArray($data);
+    if ($sprites->layer < PresentationLayerPolicy::WORLD || $sprites->layer >= PresentationLayerPolicy::UI) {
+      throw new \InvalidArgumentException('Cinematic world sprites require layers 0..999; UI layers are reserved.');
     }
     return $sprites;
   }

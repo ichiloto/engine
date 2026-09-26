@@ -107,7 +107,10 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
             $this->reportedInvalidFieldZoom = true;
         }
         $previous = $this->fieldViewport;
-        $this->fieldViewport = $grid !== null
+        // The square field cell travels with the retained world. Without one (a
+        // map beyond the world budget), the field degrades to plain text at the
+        // text grid, exactly as the terminal draws it.
+        $this->fieldViewport = $grid !== null && $this->getPresentationWorld() !== null
             ? new FieldViewport($grid, $zoom) : null;
         if ($this->fieldViewport === null && $previous === null) {
             return;
@@ -122,11 +125,11 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         }
     }
 
-    /** Unscaled cell height for placing field annotations against bottom-centered artwork. */
-    public function getGraphicalFieldCellHeight(): ?int
+    /** True while a graphical renderer presents the field instead of the terminal. */
+    public function isGraphicalFieldPresented(): bool
     {
         return !Console::isTerminalOutputEnabled() && $this->hasGraphicalFieldPresentation()
-            ? $this->fieldViewport?->grid->cellHeight : null;
+            && $this->fieldViewport !== null;
     }
 
     public function getPresentationViewport(ConsolePresentationSnapshot|ConsolePresentationChanges $snapshot, array $sprites, array $tiles = []): ?PresentationViewport
@@ -147,9 +150,9 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         }
         if (!$this->hasGraphicalFieldPresentation() || $this->fieldViewport === null) { return null; }
         $world = $this->getPresentationWorld();
-        if ($world === null && $this->fieldViewport->zoom === FieldViewport::DEFAULT_ZOOM) { return null; }
+        if ($world === null) { return null; }
         return $this->fieldViewport->createViewport(array_values($this->viewportTextLayers), $sprites, $tiles,
-            $world?->id, $world === null ? ['x' => 0, 'y' => 0] : $this->camera->getWorldOrigin());
+            $world->id, $this->camera->getWorldOrigin());
     }
 
     public function getPresentationWorld(): ?PresentationWorld
@@ -461,7 +464,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     {
         return new Player($this, 'Player', $config->playerPosition, $config->playerShape,
             $config->playerSprite, $config->playerHeading, $config->playerSprites,
-            PlayerPresentationConfig::load()->graphical);
+            PlayerPresentationConfig::load()->graphical, $this->getGame()->getRendererRuntime()?->getAssetRoot());
     }
 
     /** Initializes the game scene states. */

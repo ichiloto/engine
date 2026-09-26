@@ -19,6 +19,7 @@ use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteCollector;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
+use Ichiloto\Engine\Rendering\Transport\RendererEvent;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
 use Ichiloto\Engine\Scenes\Game\GameLoader;
@@ -28,10 +29,11 @@ use Ichiloto\Engine\Scenes\Game\States\MainMenuState;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Util\Debug;
 use Tests\Support\Input\FakeRendererTransport;
 use Tests\Support\Rendering\RetainedFrameState;
-use function Tests\Support\Rendering\graphicalSpriteData;
-use function Tests\Support\Rendering\spriteSheetData;
+use function Tests\Support\Rendering\characterSheetData;
+use function Tests\Support\Rendering\writeCharacterSheetPng;
 
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
@@ -43,6 +45,29 @@ final class PlayerPresentationTestGame extends Game
   public function __destruct() {}
 }
 
+/**
+ * A renderer transport that advertises sprite_source_rect, as the native
+ * renderer does; character frames are always source rects.
+ */
+function getPlayerPresentationTransport(): FakeRendererTransport
+{
+  $transport = new FakeRendererTransport();
+  $transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["sprite_source_rect","tile_batches"]}')];
+  return $transport;
+}
+
+/**
+ * A 48 x 48 frame of the fixture sheet's first character, by RPG Maker
+ * direction row (down, left, right, up) and walking pattern (1 stands).
+ *
+ * @return array{x: int, y: int, width: int, height: int}
+ */
+function getPlayerSheetFrame(string $direction, int $pattern = 1): array
+{
+  $row = ['south' => 0, 'west' => 1, 'east' => 2, 'north' => 3][$direction];
+  return ['x' => $pattern * 48, 'y' => $row * 48, 'width' => 48, 'height' => 48];
+}
+
 beforeEach(function () {
   $this->runtime = null;
   $this->oldDirectory = getcwd();
@@ -50,7 +75,7 @@ beforeEach(function () {
   mkdir($this->root . '/assets/Data/Entities', 0777, true);
   chdir($this->root);
   $this->states = [];
-  foreach ([Console::class, InputManager::class, ConfigStore::class, EventManager::class] as $class) {
+  foreach ([Console::class, InputManager::class, ConfigStore::class, EventManager::class, Debug::class] as $class) {
     $this->states[$class] = new ReflectionClass($class)->getStaticProperties();
   }
   ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub());
@@ -62,7 +87,11 @@ beforeEach(function () {
   }
   Console::setTerminalOutputEnabled(false);
   Console::syncDimensions(20, 10);
-  $this->data = ['sprites' => ['north' => '^', 'east' => '>', 'south' => 'v', 'west' => '<'], 'sprites2d' => graphicalSpriteData()];
+  Debug::configure(['log_directory' => $this->root]);
+  // Player art resolves against the project asset root (here the working directory's assets).
+  $this->sheet = characterSheetData()['sheet'];
+  writeCharacterSheetPng($this->root . '/assets/' . $this->sheet, 48, 48);
+  $this->data = ['sprites' => ['north' => '^', 'east' => '>', 'south' => 'v', 'west' => '<'], 'sprites2d' => characterSheetData()];
   $this->writePlayerData = function (array $data): void {
     file_put_contents($this->root . '/assets/Data/Entities/player.php', '<?php return ' . var_export($data, true) . ';');
   };
@@ -80,10 +109,10 @@ afterEach(function () {
   $this->runtime?->shutdown();
   ob_end_clean();
   chdir($this->oldDirectory);
-  unlink($this->root . '/assets/Data/Entities/player.php');
-  foreach (['/assets/Data/Entities', '/assets/Data', '/assets', ''] as $directory) {
-    rmdir($this->root . $directory);
-  }
+  $paths = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($this->root,
+    FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
+  foreach ($paths as $path) { $path->isDir() ? rmdir($path->getPathname()) : unlink($path->getPathname()); }
+  rmdir($this->root);
   foreach ($this->states as $class => $state) {
     foreach ($state as $name => $value) {
       new ReflectionProperty($class, $name)->setValue(null, $value);
@@ -104,40 +133,42 @@ it('shares project loading with new-game terminal art and treats absent graphica
 it('loads current project art for new and restored Players without serializing graphical data', function () {
   $new = ($this->createPlayer)($this->config);
   $save = serialize($this->config);
-  expect($new->getGraphicalSpriteDefinition()->asset)->toEndWith('South.png')
-    ->and($save)->not->toContain('sprites2d', 'GraphicalSprite', 'South.png');
-  $this->data['sprites2d']['south']['asset'] = 'Current-project-art.png';
+  expect($new->getGraphicalSpriteDefinition()->asset)->toBe($this->sheet)
+    ->and($save)->not->toContain('sprites2d', 'GraphicalSprite', 'CharacterSheet', $this->sheet);
+  writeCharacterSheetPng($this->root . '/assets/Graphics/Characters/Current.png', 48, 48);
+  $this->data['sprites2d'] = characterSheetData('Graphics/Characters/Current.png', 1);
   ($this->writePlayerData)($this->data);
   $restored = ($this->createPlayer)(unserialize($save));
-  expect($restored->getGraphicalSpriteDefinition()->asset)->toBe('Current-project-art.png')
+  // The second character's standing frame starts one three-frame block to the right.
+  expect($restored->getGraphicalSpriteDefinition()->asset)->toBe('Graphics/Characters/Current.png')
+    ->and($restored->getGraphicalSpriteDefinition()->sourceRect->toArray())->toBe(['x' => 192, 'y' => 0, 'width' => 48, 'height' => 48])
     ->and($restored->heading)->toBe($new->heading)->and($restored->sprite)->toBe($new->sprite)
     ->and([$restored->position->x, $restored->position->y])->toBe([7.0, 4.0])
     ->and(serialize($this->config))->toBe($save);
 });
 
 it('loads sheet presentation for new and restored players without modifying terminal art or saves', function () {
-  $this->data['sprites2d'] = spriteSheetData();
-  ($this->writePlayerData)($this->data);
   $save = serialize($this->config);
   $player = ($this->createPlayer)($this->config);
-  expect($player->getGraphicalSpriteDefinition()->sourceRect->width)->toBe(256)
+  expect($player->getGraphicalSpriteDefinition()->sourceRect->toArray())->toBe(getPlayerSheetFrame('south'))
     ->and($player->getDirectionalSprites())->toBe(['north' => ['^'], 'east' => ['>'], 'south' => ['v'], 'west' => ['<']])
-    ->and($save)->not->toContain('SpriteSheet', 'sourceRect', 'stepDuration');
-  $this->data['sprites2d']['idleFrame'] = 6;
+    ->and($save)->not->toContain('CharacterSheet', 'sourceRect', 'Heroes');
+  // Replacement art with smaller frames and a different character on the sheet.
+  writeCharacterSheetPng($this->root . '/assets/' . $this->sheet, 32, 32);
+  touch($this->root . '/assets/' . $this->sheet, 1700000002);
+  $this->data['sprites2d']['index'] = 5;
   ($this->writePlayerData)($this->data);
   $restored = ($this->createPlayer)(unserialize($save));
-  expect($restored->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(256)
-    ->and($restored->getGraphicalSpriteDefinition()->sourceRect->y)->toBe(256)
+  expect($restored->getGraphicalSpriteDefinition()->sourceRect->toArray())->toBe(['x' => 128, 'y' => 128, 'width' => 32, 'height' => 32])
+    ->and([$restored->getGraphicalSpriteDefinition()->width, $restored->getGraphicalSpriteDefinition()->height])->toBe([48, 48])
     ->and(serialize($this->config))->toBe($save);
 });
 
 it('animates only successful player steps and rests on blocked movement or facing changes', function () {
-  $this->data['sprites2d'] = spriteSheetData();
-  ($this->writePlayerData)($this->data);
   $set = PlayerPresentationConfig::load();
   $player = $this->getMockBuilder(Player::class)->setConstructorArgs([
     $this->scene, 'Sheet hero', new Vector2(7, 4), new Rect(0, 0, 1, 1), ['v'],
-    MovementHeading::SOUTH, $set->terminal->toArray(), $set->graphical,
+    MovementHeading::SOUTH, $set->terminal->toArray(), $set->graphical, $this->root . '/assets',
   ])->onlyMethods(['erasePlayer', 'render', 'renderEventCues', 'renderLocationHUDWindow', 'handleTriggers', 'notify'])->getMock();
   $map = $this->getMockBuilder(MapManager::class)->disableOriginalConstructor()
     ->onlyMethods(['canMoveTo', 'scrollMap'])->getMock();
@@ -147,23 +178,33 @@ it('animates only successful player steps and rests on blocked movement or facin
   expect($player->tryMove(Vector2::right(), $this->camera))->toBeTrue();
   $player->advanceGraphicalAnimation(0.08);
   $walking = $player->getGraphicalSpriteDefinition();
-  expect($walking->asset)->toBe('Graphics/east.png')->and($walking->sourceRect->x)->toBe(256)
+  expect($walking->asset)->toBe($this->sheet)->and($walking->sourceRect->toArray())->toBe(getPlayerSheetFrame('east', 2))
     ->and($player->position->x)->toBe(8.0)->and($player->sprite)->toBe(['>']);
   expect($player->tryMove(Vector2::up(), $this->camera))->toBeFalse();
   $player->advanceGraphicalAnimation(0.08);
   $idle = $player->getGraphicalSpriteDefinition();
-  expect($idle->asset)->toBe('Graphics/north.png')->and($idle->sourceRect->x)->toBe(0)
+  expect($idle->sourceRect->toArray())->toBe(getPlayerSheetFrame('north'))
     ->and($player->position->x)->toBe(8.0)->and($player->position->y)->toBe(4.0);
   $player->face(Vector2::left(), $this->camera);
-  expect($player->getGraphicalSpriteDefinition()->asset)->toBe('Graphics/west.png')
-    ->and($player->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(0);
+  expect($player->getGraphicalSpriteDefinition()->sourceRect->toArray())->toBe(getPlayerSheetFrame('west'));
 });
 
-it('fails clearly on malformed optional project graphical configuration', function ($value) {
+it('keeps the terminal sprite and reports malformed optional project graphical configuration', function ($value) {
   $this->data['sprites2d'] = $value;
   ($this->writePlayerData)($this->data);
-  expect(fn() => PlayerPresentationConfig::load())->toThrow(InvalidArgumentException::class);
-})->with([null, false, 'sprite.png', [[]], [['north' => []]]]);
+  $config = PlayerPresentationConfig::load();
+  expect($config->graphical)->toBeNull()
+    ->and($config->terminal->toArray())->toBe(['north' => ['^'], 'east' => ['>'], 'south' => ['v'], 'west' => ['<']])
+    ->and(($this->createPlayer)($this->config)->getGraphicalSpriteDefinition())->toBeNull()
+    ->and(file_get_contents($this->root . '/warning.log'))->toContain('Player sprites2d is invalid');
+})->with([
+  'null' => [null], 'false' => [false], 'wrong type' => ['sprite.png'], 'empty' => [[]],
+  'per-direction images' => [['north' => ['asset' => 'north.png']]],
+  'authored size' => [['sheet' => 'Graphics/Characters/Heroes.png', 'width' => 48, 'height' => 48]],
+  'authored frames' => [['sheet' => 'Graphics/Characters/Heroes.png', 'frameWidth' => 48]],
+  'index out of range' => [['sheet' => 'Graphics/Characters/Heroes.png', 'index' => 8]],
+  'unsafe path' => [['sheet' => '../Heroes.png']],
+]);
 
 it('collects only the active field Player and never overlays unrelated scenes or menus', function () {
   $player = ($this->createPlayer)($this->config);
@@ -191,7 +232,7 @@ it('defaults to v2 world sprite and opaque above-sprite prompt composition', fun
   $field = makeBareScene(FieldState::class);
   new ReflectionProperty(GameScene::class, 'fieldState')->setValue($this->scene, $field);
   new ReflectionProperty(GameScene::class, 'state')->setValue($this->scene, $field);
-  $transport = new FakeRendererTransport();
+  $transport = getPlayerPresentationTransport();
   $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), $this->root), $transport);
   $this->runtime->start('Field v2', 20, 10);
   Console::write('.', 7, 4);
@@ -221,7 +262,7 @@ it('composes real field Player movement facing masking and duplicate detection i
   new ReflectionProperty(MapManager::class, 'gameScene')->setValue($map, $this->scene);
   new ReflectionProperty(MapManager::class, 'collisionMap')->setValue($map, [3 => [7 => CollisionType::SOLID->value]]);
   new ReflectionProperty(GameScene::class, 'mapManager')->setValue($this->scene, $map);
-  $transport = new FakeRendererTransport();
+  $transport = getPlayerPresentationTransport();
   $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), $this->root, protocol: RendererProtocolVersion::V2), $transport);
   $this->runtime->start('Field', 20, 10);
   Console::write('.', 7, 4);
@@ -235,7 +276,7 @@ it('composes real field Player movement facing masking and duplicate detection i
   $frames = RetainedFrameState::replay($transport->sent);
   $south = $frames[0]['sprites'][0];
   $north = $frames[1]['sprites'][0];
-  expect(array_diff_assoc($north, $south))->toBe(['asset' => $this->data['sprites2d']['north']['asset']]);
+  expect($north)->toBe([...$south, 'sourceRect' => getPlayerSheetFrame('north')]);
   $player->position->x = 11;
   $this->camera->moveTo(3, 2);
   $this->runtime->present($this->scene);
@@ -263,7 +304,7 @@ it('keeps the graphical Player during an ordinary dialogue event without admitti
   new ReflectionProperty(GameScene::class, 'eventInterpreter')->setValue($this->scene, $interpreter);
   $interpreter->start([['type' => 'text', 'name' => 'Mother', 'text' => 'Welcome home.']]);
   expect($this->scene->hasUnstableEventSession())->toBeTrue();
-  $transport = new FakeRendererTransport();
+  $transport = getPlayerPresentationTransport();
   $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), $this->root, protocol: RendererProtocolVersion::V2), $transport);
   $this->runtime->start('Dialogue', 20, 10);
   Console::write('.', 7, 4);
@@ -273,7 +314,8 @@ it('keeps the graphical Player during an ordinary dialogue event without admitti
   $frames = RetainedFrameState::replay($transport->sent);
   $text = RetainedFrameState::getTextRows($frames[0], 20, 10);
   expect($frames[0]['sprites'])->toHaveCount(1)
-    ->and($frames[0]['sprites'][0]['asset'])->toEndWith('South.png')
+    ->and($frames[0]['sprites'][0]['asset'])->toBe($this->sheet)
+    ->and($frames[0]['sprites'][0]['sourceRect'])->toBe(getPlayerSheetFrame('south'))
     ->and(mb_substr($text[4], 7, 1))->toBe('.')
     ->and($text[8])->toStartWith('Mother:')
     ->and(Console::charAt(7, 4))->toBe('v');

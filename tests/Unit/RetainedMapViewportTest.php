@@ -139,7 +139,10 @@ it('caches world uploads per successful installed map and width policy, preservi
     $paths = createRetainedMapSource($this->root, 'first', legacy: $legacy);
     $this->manager->readSource($paths);
     $world = $this->manager->getPresentationWorld();
+    // The world declares its field cell size so the renderer draws every world cell as a 48-pixel square.
     expect($world?->id)->toBe('map')
+        ->and(array_keys($world->operations[0]['value']))->toBe(['columns', 'rows', 'cellSize', 'layers'])
+        ->and($world->operations[0]['value']['cellSize'])->toBe(FieldViewport::CELL_SIZE)
         ->and($world->operations[0]['value']['layers'][0]['asset'])->toBe('tiles.png');
     $this->records = [];
     for ($index = 0; $index < 20; $index++) {
@@ -286,7 +289,9 @@ it('scrolls through the real field compositor and runtime without revisiting sta
     $scene->expects($this->never())->method('getGraphicalTileBatches');
     new ReflectionProperty(AbstractScene::class, 'sceneManager')->setValue($scene,
         new ReflectionClass(SceneManager::class)->newInstanceWithoutConstructor());
-    $camera = new RetainedScrollCameraProbe($scene, $columns, $rows);
+    // The graphical field shows whole 48-pixel cells, not the text grid; size the camera as the field does.
+    $layout = new FieldViewport($runtime->grid);
+    $camera = new RetainedScrollCameraProbe($scene, $layout->columns, $layout->rows);
     new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
     $manager = new RetainedMapManagerProbe($scene);
     new ReflectionProperty(GameScene::class, 'mapManager')->setValue($scene, $manager);
@@ -389,8 +394,11 @@ it('scrolls through the real field compositor and runtime without revisiting sta
         $shape['viewport']['clipRect']['width'] = 2000.0;
         $shape['viewport']['clipRect']['height'] = 1000.0;
         $shape['viewport']['worldOrigin'] = ['column' => 10, 'row' => 10];
+        // The field is centred in the session: half the pixels left over after whole field cells.
+        $origin = ['x' => ($columns * 10 - $layout->columns * FieldViewport::CELL_SIZE) / 2.0,
+            'y' => ($rows * 20 - $layout->rows * FieldViewport::CELL_SIZE) / 2.0];
         expect($shape)->toBe(['reset' => false, 'present' => true, 'operations' => [],
-            'viewport' => ['scale' => 1.0, 'origin' => ['x' => 0.0, 'y' => 0.0],
+            'viewport' => ['scale' => 1.0, 'origin' => $origin,
                 'clipRect' => ['x' => 0.0, 'y' => 0.0, 'width' => 2000.0, 'height' => 1000.0],
                 'textLayerIds' => ['world'], 'spriteIds' => [], 'worldId' => 'map',
                 'worldOrigin' => ['column' => 10, 'row' => 10]]]);

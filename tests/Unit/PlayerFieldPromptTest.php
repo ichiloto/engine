@@ -21,7 +21,8 @@ use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
-use Ichiloto\Engine\Rendering\Sprites\DirectionalGraphicalSpriteSet;
+use Ichiloto\Engine\Rendering\FieldViewport;
+use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
 use Ichiloto\Engine\Rendering\Transport\RendererEvent;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
 use Ichiloto\Engine\Scenes\Game\GameScene;
@@ -36,7 +37,8 @@ use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
 use Tests\Support\Input\FakeRendererTransport;
 use Tests\Support\Rendering\RetainedFrameState;
-use function Tests\Support\Rendering\graphicalSpriteData;
+use function Tests\Support\Rendering\characterSheetData;
+use function Tests\Support\Rendering\writeCharacterSheetPng;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
@@ -119,8 +121,12 @@ beforeEach(function () {
     mkdir($this->root);
     Debug::configure(['log_directory' => $this->root]);
     $this->transport = new FakeRendererTransport();
+    // Character frames are source rects; the renderer advertises sprite_source_rect as the native renderer does.
+    $this->transport->batches[] = [RendererEvent::fromJson(
+        '{"protocol":2,"type":"ready","capabilities":["sprite_source_rect","tile_batches"]}')];
+    // A 1920 x 1440 pixel session holds 20 x 15 field cells of 48 pixels at 2x zoom.
     $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']),
-        $this->root, cellWidth: 10, cellHeight: 20), $this->transport);
+        $this->root, cellWidth: 24, cellHeight: 36), $this->transport);
     $this->runtime->start('Player prompt', 80, 40);
     $game = new PlayerPromptGame($this->runtime);
     $this->scene = new PlayerPromptScene($game);
@@ -136,12 +142,10 @@ beforeEach(function () {
     $this->camera = new Camera($this->scene, 80, 40);
     new ReflectionProperty(GameScene::class, 'camera')->setValue($this->scene, $this->camera);
     new ReflectionProperty(GameScene::class, 'party')->setValue($this->scene, makeBareScene(Party::class));
-    $data = graphicalSpriteData();
-    foreach ($data as &$definition) { $definition['height'] = 45; }
-    unset($definition);
-    $data['north']['height'] = 74;
+    writeCharacterSheetPng($this->root . '/Hero.png', 48, 48);
     $this->player = new Player($this->scene, 'Prompt hero', new Vector2(6, 8), new Rect(0, 0, 1, 1), ['v'],
-        MovementHeading::SOUTH, graphicalSprites: DirectionalGraphicalSpriteSet::fromArray($data));
+        MovementHeading::SOUTH, graphicalSprites: CharacterSheet::fromArray(characterSheetData('Hero.png')),
+        assetRoot: $this->root);
     $this->manager = new PlayerPromptMapManager($this->scene);
     new ReflectionProperty(GameScene::class, 'mapManager')->setValue($this->scene, $this->manager);
     $this->manager->applyPreparedMap(createPlayerPromptMap('.'), $this->player);
@@ -178,8 +182,10 @@ it('keeps exactly one above-art prompt aligned with the player through real 2x m
             $frame = presentPlayerPromptFrame($this->runtime, $this->scene, $this->transport);
         }
         $sprite = $frame['sprites'][0];
-        $row = $sprite['y'] - (int)ceil($sprite['height'] / 20);
-        expect(getPlayerPromptRuns($frame))->toBe([['row' => $row, 'column' => $sprite['x'], 'text' => '!']])
+        // A field character occupies exactly its cell, whatever its direction; the prompt sits in the cell above.
+        $row = $sprite['y'] - 1;
+        expect([$sprite['width'], $sprite['height']])->toBe([FieldViewport::CELL_SIZE, FieldViewport::CELL_SIZE])
+            ->and(getPlayerPromptRuns($frame))->toBe([['row' => $row, 'column' => $sprite['x'], 'text' => '!']])
             ->and($frame['viewport']['scale'])->toBe(2.0)
             ->and($frame['viewport']['textLayerIds'])->toContain(PresentationLayerPolicy::FIELD_PROMPT_ID)
             ->not->toContain('location-hud')
@@ -189,11 +195,13 @@ it('keeps exactly one above-art prompt aligned with the player through real 2x m
         expect($text['field-prompt']['layer'])->toBe(1010)->toBeGreaterThan($sprite['layer'])
             ->and($text['location-hud']['runs'][0]['row'])->toBe(38);
         $scale = $frame['viewport']['scale'];
-        // Both anchors use the same transform; the prompt's bottom is above the artwork's top.
-        expect(($row + 1) * 20 * $scale)->toBeLessThanOrEqual((($sprite['y'] + 1) * 20 - $sprite['height']) * $scale);
+        // Both anchors use the same field pitch; the prompt's bottom is at or above the artwork's top.
+        $pitch = FieldViewport::CELL_SIZE * $scale;
+        expect(($row + 1) * $pitch)->toBeLessThanOrEqual((($sprite['y'] + 1) * FieldViewport::CELL_SIZE - $sprite['height']) * $scale);
     }
-    $this->player->position->x = 50;
-    $this->player->position->y = 25;
+    // Centre the player in the 20 x 15 camera so the next step scrolls it.
+    $this->player->position->x = 40;
+    $this->player->position->y = 22;
     $this->camera->moveTo(30, 15);
     $this->field->renderTheField();
     presentPlayerPromptFrame($this->runtime, $this->scene, $this->transport);
@@ -202,7 +210,7 @@ it('keeps exactly one above-art prompt aligned with the player through real 2x m
         ->and($this->camera->getWorldOrigin())->not->toBe($before);
     $frame = presentPlayerPromptFrame($this->runtime, $this->scene, $this->transport);
     $sprite = $frame['sprites'][0];
-    expect(getPlayerPromptRuns($frame))->toBe([['row' => $sprite['y'] - 3, 'column' => $sprite['x'], 'text' => '!']]);
+    expect(getPlayerPromptRuns($frame))->toBe([['row' => $sprite['y'] - 1, 'column' => $sprite['x'], 'text' => '!']]);
 });
 
 it('replaces old prompt rows through either player draw entry point and removes them as soon as canAct becomes false', function (string $draw) {
@@ -212,9 +220,10 @@ it('replaces old prompt rows through either player draw entry point and removes 
     $this->player->position->y += 1;
     $this->player->$draw();
     $frame = presentPlayerPromptFrame($this->runtime, $this->scene, $this->transport);
-    expect(getPlayerPromptRuns($frame))->toBe([['row' => 6, 'column' => 8, 'text' => '!']])
+    // The camera centres the start row, so world (8, 9) is screen (8, 8) and the prompt is one cell above.
+    expect(getPlayerPromptRuns($frame))->toBe([['row' => 7, 'column' => 8, 'text' => '!']])
         ->and(array_column($frame['textLayers'], 'id'))->not->toContain('player');
-    Console::withLayer('modal', fn() => Console::write('   ', 8, 6), 1020);
+    Console::withLayer('modal', fn() => Console::write('   ', 8, 7), 1020);
     presentPlayerPromptFrame($this->runtime, $this->scene, $this->transport);
     $this->player->availableAction = null;
     expect($this->player->canAct)->toBeFalse();
@@ -223,7 +232,7 @@ it('replaces old prompt rows through either player draw entry point and removes 
         ->and($frame['viewport']['textLayerIds'])->not->toContain(PresentationLayerPolicy::FIELD_PROMPT_ID);
     $text = array_column($frame['textLayers'], null, 'id');
     expect($text['modal']['runs'][0]['text'])->toBe('   ')
-        ->and(Console::charAt(8, 6))->toBe(' ');
+        ->and(Console::charAt(8, 7))->toBe(' ');
     $this->player->$draw();
     expect($this->runtime->present($this->scene))->toBeFalse();
 })->with(['render', 'renderPlayer']);
@@ -231,9 +240,9 @@ it('replaces old prompt rows through either player draw entry point and removes 
 it('removes the prompt on either erase path even while staged presentation suppresses the player', function (string $erase, bool $suppressed) {
     $this->field->renderTheField();
     presentPlayerPromptFrame($this->runtime, $this->scene, $this->transport);
-    expect(Console::charAt(6, 5))->toBe('!');
-    Console::withLayer('modal', fn() => Console::write(' ', 6, 5), 1020);
-    expect(new ReflectionProperty(Console::class, 'layerCells')->getValue()[5][6]['layers'])
+    expect(Console::charAt(6, 6))->toBe('!');
+    Console::withLayer('modal', fn() => Console::write(' ', 6, 6), 1020);
+    expect(new ReflectionProperty(Console::class, 'layerCells')->getValue()[6][6]['layers'])
         ->toHaveKeys(['field-prompt', 'modal']);
     if ($suppressed) {
         $stage = new CinematicStageManager($this->scene);
@@ -242,7 +251,7 @@ it('removes the prompt on either erase path even while staged presentation suppr
     }
     $erase === 'erase' ? $this->player->erase() : $this->player->erasePlayer($this->camera);
     $frame = presentPlayerPromptFrame($this->runtime, $this->scene, $this->transport);
-    expect(getPlayerPromptRuns($frame))->toBe([])->and(Console::charAt(6, 5))->toBe(' ');
+    expect(getPlayerPromptRuns($frame))->toBe([])->and(Console::charAt(6, 6))->toBe(' ');
     expect(array_column($frame['textLayers'], 'id'))->toContain('modal');
 })->with(['erase', 'erasePlayer'])->with([false, true]);
 
@@ -279,10 +288,10 @@ it('keeps terminal prompts above the terminal glyph even when graphical artwork 
     try {
         $this->camera->renderMap();
         $this->player->$draw();
-        expect($this->scene->getGraphicalFieldCellHeight())->toBeNull()
-            ->and(Console::charAt(7, 7))->toBe('!')->and(Console::charAt(6, 5))->toBe('.');
+        expect($this->scene->isGraphicalFieldPresented())->toBeFalse()
+            ->and(Console::charAt(7, 6))->toBe('!')->and(Console::charAt(6, 6))->toBe('.');
         $this->player->availableAction = null;
-        expect(Console::charAt(7, 7))->toBe('.');
+        expect(Console::charAt(7, 6))->toBe('.');
     } finally { ob_end_clean(); }
 })->with(['render', 'renderPlayer']);
 
@@ -290,7 +299,7 @@ it('anchors graphical prompts to the bottom-center tile rather than the terminal
     $this->player->sprite = ['abc'];
     $this->player->$draw();
     $frame = presentPlayerPromptFrame($this->runtime, $this->scene, $this->transport);
-    expect(getPlayerPromptRuns($frame))->toBe([['row' => 5, 'column' => 6, 'text' => '!']]);
+    expect(getPlayerPromptRuns($frame))->toBe([['row' => 6, 'column' => 6, 'text' => '!']]);
 })->with(['render', 'renderPlayer']);
 
 it('clips a graphical prompt above an off-screen head instead of pinning it to a screen edge', function (int $x, int $y) {

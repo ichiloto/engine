@@ -51,7 +51,8 @@ final readonly class PresentationSprite
       $ids[$sprite->id] = true;
       $copy[] = $sprite;
     }
-    usort($copy, static fn(self $a, self $b) => $a->layer <=> $b->layer);
+    // Row order within a layer: a sprite lower on the field draws in front; ties keep their order.
+    usort($copy, static fn(self $a, self $b) => [$a->layer, $a->y] <=> [$b->layer, $b->y]);
     return $copy;
   }
 }

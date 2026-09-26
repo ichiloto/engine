@@ -56,10 +56,16 @@ capability flag. Historical capability names do not enable stateless frames.
 
 ## Field zoom
 
+The graphical field is drawn in square cells of `FieldViewport::CELL_SIZE`
+(48) logical pixels, RPG Maker's tile size: one terminal cell is one field cell,
+and characters occupy exactly one cell. The camera shows as many whole field
+cells as the session surface holds, centred. See the
+[graphical field plan](../graphical-field.md).
+
 Projects may set `graphics.field.zoom` in `config.php` to a number from 1 to 8
-(default 1). The Editor exposes this as **System > Field zoom**. This scales
-the field's terrain, decorations, terminal fallback glyphs and graphical actors
-together. Dialogue, notifications, menus and battle canvases keep their existing
+(default 1), a display scale applied to the 48-pixel cells. The Editor exposes
+this as **System > Field zoom**. This scales the field's terrain, decorations,
+terminal fallback glyphs and graphical actors together. Dialogue, notifications, menus and battle canvases keep their existing
 sizes. Zoom does not change world coordinates, collision or movement speed.
 
 Camera transforms are part of the retained V2 baseline. The historical
@@ -288,11 +294,10 @@ replay behaviour until a full reset.
 
 `Field\PlayerPresentationConfig::load()` reads the existing
 `assets/Data/Entities/player.php`. Its `sprites` key remains terminal art. Its
-optional `sprites2d` key uses the exact
-`DirectionalGraphicalSpriteSet::fromArray()` format documented in
-[graphical sprites](graphical-sprites.md). Missing means no graphical set;
-present but malformed data fails clearly, including explicit null.
-The alternative `mode: sheet` structure is documented in [sprite sheets](sprite-sheets.md).
+optional `sprites2d` key names an RPG Maker character sheet, documented in
+[field character sheets](sprite-sheets.md). Missing means no graphical
+character; malformed data, including explicit null, is reported and keeps the
+terminal sprite rather than stopping the game.
 
 New-game loading uses the same project presentation loader for terminal art.
 GameScene's shared Player construction path loads current graphical definitions

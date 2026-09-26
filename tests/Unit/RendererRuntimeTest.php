@@ -27,7 +27,7 @@ use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
 use Ichiloto\Engine\Rendering\Runtime\RendererWindowClosed;
-use Ichiloto\Engine\Rendering\Sprites\DirectionalGraphicalSpriteSet;
+use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
 use Ichiloto\Engine\Rendering\Tiles\GraphicalTileDefinition;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException;
@@ -43,7 +43,7 @@ use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Debug;
 use Tests\Support\Input\FakeRendererTransport;
 use Tests\Support\Rendering\RetainedFrameState;
-use function Tests\Support\Rendering\graphicalSpriteData;
+use function Tests\Support\Rendering\characterSheetData;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
@@ -289,7 +289,8 @@ it('restarts an active renderer once without replacing desired field or canvas s
   $scene->method('getPresentationCanvas')->willReturn($canvasMode ? $canvas : null);
   $player = $this->getMockBuilder(Player::class)->disableOriginalConstructor()
     ->onlyMethods(['getGraphicalSpriteDefinition', 'getGraphicalSpriteWorldPosition'])->getMock();
-  $player->method('getGraphicalSpriteDefinition')->willReturn(DirectionalGraphicalSpriteSet::fromArray(graphicalSpriteData())->south);
+  $player->method('getGraphicalSpriteDefinition')->willReturn(CharacterSheet::fromArray(characterSheetData())
+    ->getFrame(\Ichiloto\Engine\Core\Enumerations\MovementHeading::SOUTH, 1, ['width' => 48, 'height' => 48]));
   $player->method('getGraphicalSpriteWorldPosition')->willReturn(new Vector2(2, 1));
   $scene->method('getGraphicalSpriteProviders')->willReturn([$player]);
   new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, new Camera($scene, 12, 4));
@@ -599,13 +600,16 @@ it('presents the same field ownership from real Game renders and blocked ticks w
   $camera = new Camera($scene, 12, 4);
   new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
   $player = $this->getMockBuilder(Player::class)->disableOriginalConstructor()->onlyMethods(['getGraphicalSpriteDefinition', 'getGraphicalSpriteWorldPosition'])->getMock();
-  $player->method('getGraphicalSpriteDefinition')->willReturn(DirectionalGraphicalSpriteSet::fromArray(graphicalSpriteData())->south);
+  $player->method('getGraphicalSpriteDefinition')->willReturn(CharacterSheet::fromArray(characterSheetData())
+    ->getFrame(\Ichiloto\Engine\Core\Enumerations\MovementHeading::SOUTH, 1, ['width' => 48, 'height' => 48]));
   $player->method('getGraphicalSpriteWorldPosition')->willReturn(new Vector2(2, 1));
   new ReflectionProperty(Player::class, 'isActive')->setValue($player, true);
   new ReflectionProperty(GameScene::class, 'player')->setValue($scene, $player);
   $field = makeBareScene(FieldState::class);
   new ReflectionProperty(GameScene::class, 'fieldState')->setValue($scene, $field);
   new ReflectionProperty(GameScene::class, 'state')->setValue($scene, $field);
+  // The Player's character frame is a source rect, so the renderer advertises sprite_source_rect.
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["sprite_source_rect"]}')];
   $game->useRendererRuntime($this->runtime);
   $game->startInput();
   Console::write('.', 2, 1);
@@ -713,10 +717,16 @@ it('uses the same field eligibility for terrain and Player and clears tiles on s
   $field = makeBareScene(FieldState::class);
   new ReflectionProperty(GameScene::class,'fieldState')->setValue($scene,$field);
   new ReflectionProperty(GameScene::class,'state')->setValue($scene,$field);
+  // Staging graphical cast asks the scene's Game for the running renderer's asset root.
+  [$game] = makeSceneAudioGame();
+  $game->useRendererRuntime($this->runtime);
+  $sceneManager = makeBareScene(SceneManager::class);
+  new ReflectionProperty(SceneManager::class, 'game')->setValue($sceneManager, $game);
+  new ReflectionProperty(GameScene::class, 'sceneManager')->setValue($scene, $sceneManager);
   $stage = new \Ichiloto\Engine\Cutscenes\Cinematics\CinematicStageManager($scene);
   new ReflectionProperty(GameScene::class,'cinematicStage')->setValue($scene,$stage);
   $cast = $stage->add(['id' => 'runner', 'sprite' => '@', 'x' => 3, 'y' => 2,
-    'sprites2d' => ['asset' => 'runner.png', 'width' => 56, 'height' => 56, 'layer' => 100,
+    'sprites2d' => ['asset' => 'runner.png', 'layer' => 100,
       'sourceRect' => ['x' => 256, 'y' => 0, 'width' => 256, 'height' => 256]]]);
   Console::recomposeFrame(fn()=>$map->render());
   $terminal = Console::snapshot();

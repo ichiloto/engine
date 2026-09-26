@@ -207,10 +207,11 @@ does not affect field collision.
 Staged actors render through the field camera. Map transfer, normal
 completion, authored skip, and controlled failure remove temporary cast state.
 
-`sprites2d` accepts the Player's existing four-direction configuration, including
-`mode => sheet`, or a single pose with `asset`, `width`, `height`, optional
-`anchor` (only `bottom_center`), `layer` (0..999), and optional integer
-`sourceRect => ['x' => ..., 'y' => ..., 'width' => ..., 'height' => ...]`.
+`sprites2d` accepts an RPG Maker character sheet (`sheet`, optional `index`
+and `layer`), which walks and turns like the Player, or a single field image
+(`asset`, optional `sourceRect`, `layer` 0..999, and an optional footprint in
+whole `cells`), bottom-centred on the actor. See
+[field character sheets](rendering/sprite-sheets.md).
 The terminal `sprite` or `asset` remains required. Successful staged movement
 advances the existing PHP walk animation; facing-only, blocked movement, hiding
 and idle stop it. Definitions do not infer movement from input.

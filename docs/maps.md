@@ -158,12 +158,11 @@ updating the equivalence baseline.
 ### Regular NPC sprites
 
 Map `npcs` entries may add optional `sprites2d` alongside the existing terminal
-`sprite` and directional `sprites`. It uses the same complete
-`DirectionalGraphicalSpriteSet` contract as the Player: either four cardinal
-pose definitions or the existing `mode: sheet` configuration with all four
-directions. Omit `sprites2d` for terminal-only NPCs; an explicit empty array,
-null, or incomplete set is invalid and produces a diagnostic with terminal
-fallback, without removing the NPC.
+`sprite` and directional `sprites`. It names an RPG Maker character sheet, the
+same contract as the Player: see [field character sheets](rendering/sprite-sheets.md).
+An NPC occupies exactly one field cell. Omit `sprites2d` for terminal-only
+NPCs; an explicit empty array, null, or malformed definition is invalid and
+produces a diagnostic with terminal fallback, without removing the NPC.
 
 ```php
 'npcs' => [[
@@ -171,25 +170,17 @@ fallback, without removing the NPC.
   'name' => 'Guide',
   'sprite' => '@',
   'x' => 7, 'y' => 4,
-  'sprites2d' => [
-    'north' => ['asset' => 'Graphics/Guide/North.png', 'width' => 32, 'height' => 48, 'layer' => 100],
-    'east'  => ['asset' => 'Graphics/Guide/East.png',  'width' => 32, 'height' => 48, 'layer' => 100],
-    'south' => ['asset' => 'Graphics/Guide/South.png', 'width' => 32, 'height' => 48, 'layer' => 100],
-    'west'  => ['asset' => 'Graphics/Guide/West.png',  'width' => 32, 'height' => 48, 'layer' => 100],
-  ],
+  'sprites2d' => ['sheet' => 'Graphics/Characters/People.png', 'index' => 3, 'layer' => 100],
 ]],
 ```
 
-Assets are project-asset-root-relative PNG paths, not character identities.
-Display `width`/`height` are logical presentation sizes, not duplicated source
-image dimensions. The standard optional anchor defaults to `bottom_center`;
-world layers are 0..999. Shared limits require readable root-contained PNGs of
-at most 16 MiB and 4096 pixels per source dimension; authored crops and sheet
-grids must fit the current image. These are resource limits, not recommended
-artwork sizes. All four directions are preflighted before replacing any glyph.
-Missing files, invalid headers, unsafe paths, and out-of-bounds crops retain
-terminal art with a warning. Replacing a valid file at the same path requires
-no hash or source-dimension metadata update; preflight retries changed files.
+Sheets are project-asset-root-relative PNG paths, not character identities.
+Frame size is read from the image; world layers are 0..999. Shared limits
+require readable root-contained PNGs of at most 16 MiB and 4096 pixels per
+dimension. These are resource limits, not recommended artwork sizes. Missing
+files, invalid headers, unsafe paths, and sheets that do not divide into RPG
+Maker's layout retain terminal art with a warning. Replacing a valid file at the
+same path requires no metadata update; preflight retries changed files.
 Full PNG decoding remains the native renderer's responsibility: a valid header
 with corrupt IDAT data is not detected by this PHP preflight, and recovery from
 that native decode failure is not supplied by the NPC sidecar.
@@ -208,9 +199,10 @@ released, including while the staged actor is hidden.
 The scene advances `NpcManager::advanceGraphicalAnimation($seconds)` alongside
 Player/staged-actor animation, including event routes, and uses
 `stopGraphicalAnimation()` on presentation lifecycle boundaries. Successful
-steps use the shared `SpriteWalkAnimation`; facing, blocked movement, restored
-staging, and map replacement reset to idle. Reduced motion retains route
-outcomes and directional idle art without sheet animation. The regular-NPC
+steps use the shared `CharacterWalkAnimation` (RPG Maker's 1, 2, 1, 0 stride);
+facing, blocked movement, restored staging, and map replacement return to the
+standing frame. Reduced motion retains route outcomes and shows the standing
+frame for each direction. The regular-NPC
 Editor picker and safe source-preserving authoring workflow are coordinated
 separately; runtime support alone does not complete Editor authoring.
 

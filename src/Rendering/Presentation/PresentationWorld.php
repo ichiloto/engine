@@ -6,6 +6,7 @@ use Ichiloto\Engine\Field\MapLayerSet;
 use Ichiloto\Engine\IO\Console\NormalizedRow;
 use Ichiloto\Engine\IO\Console\SgrColorParser;
 use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\Rendering\FieldViewport;
 use Ichiloto\Engine\Rendering\Tiles\GraphicalTileDefinition;
 use InvalidArgumentException;
 
@@ -89,7 +90,8 @@ final readonly class PresentationWorld
             $rows[] = ['op' => 'worldRows', 'id' => $id, 'rows' => [['row' => $y, 'cells' => $cells]]];
         }
         return new self($id, [['op' => 'put', 'kind' => 'world', 'id' => $id,
-            'value' => ['columns' => $width, 'rows' => $height, 'layers' => $metadata]], ...$rows, ...$tileOperations],
+            'value' => ['columns' => $width, 'rows' => $height, 'cellSize' => FieldViewport::CELL_SIZE,
+                'layers' => $metadata]], ...$rows, ...$tileOperations],
             [...array_column($metadata, 'id'), ...($layers->legacy ? [PresentationLayerPolicy::TERRAIN_ID] : [])], $estimatedBytes);
     }
 

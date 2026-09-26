@@ -29,7 +29,11 @@ use Ichiloto\Engine\Field\Player;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\Cursor;
 use Ichiloto\Engine\Rendering\Camera;
-use Ichiloto\Engine\Rendering\Sprites\DirectionalGraphicalSpriteSet;
+use Ichiloto\Engine\Rendering\FieldViewport;
+use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
+use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
+use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
+use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProjector;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Game\States\FieldState;
@@ -37,8 +41,11 @@ use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\UIManager;
 use Ichiloto\Engine\UI\Elements\LocationHUDWindow;
 use Ichiloto\Engine\Util\Config\ConfigStore;
-use function Tests\Support\Rendering\spriteSheetData;
+use Tests\Support\Input\FakeRendererTransport;
+use function Tests\Support\Rendering\characterSheetData;
+use function Tests\Support\Rendering\writeCharacterSheetPng;
 
+require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 
 final class SubjectOwnershipMap extends MapManager
@@ -100,9 +107,12 @@ final class SubjectOwnershipScene extends GameScene
   public ?string $mapLoadDiagnostic = null;
   private Game $testGame;
 
-  public function __construct()
+  public function __construct(string $assetRoot)
   {
     [$this->testGame] = makeSceneAudioGame();
+    // Staged actors check their character sheet against the running renderer's asset root.
+    $this->testGame->useRendererRuntime(new RendererRuntime(new RendererRuntimeConfig(
+      new RendererProcessConfig(['fixture']), $assetRoot), new FakeRendererTransport()));
     $this->sceneManager = makeBareScene(\Ichiloto\Engine\Scenes\SceneManager::class);
     $this->sceneManager->currentScene = $this;
     $this->gameState = new GameState();
@@ -128,7 +138,7 @@ final class SubjectOwnershipScene extends GameScene
     $this->testPresentation = new SubjectOwnershipPresentation();
     $this->eventInterpreter = new EventInterpreter($this, $this->testPresentation);
     $this->player = new SubjectOwnershipPlayer($this, 'hero', new Vector2(3, 4), new Rect(0, 0, 1, 1), ['v'],
-      MovementHeading::SOUTH, graphicalSprites: DirectionalGraphicalSpriteSet::fromArray(spriteSheetData()));
+      MovementHeading::SOUTH, graphicalSprites: CharacterSheet::fromArray(characterSheetData()), assetRoot: $assetRoot);
     new ReflectionProperty(Player::class, 'isActive')->setValue($this->player, true);
     $this->npcManager->configure([['id' => 'guide', 'name' => 'Guide', 'sprite' => 'N', 'x' => 7, 'y' => 4,
       'movement' => 'wander', 'conditions' => [['type' => 'switch', 'name' => 'departed', 'value' => false]],
@@ -187,7 +197,7 @@ final class SubjectOwnershipScene extends GameScene
 function subjectOwnershipCast(array $extra = []): array
 {
   return array_replace(['id' => 'pose', 'sprite' => '@',
-    'subject' => ['kind' => 'npc', 'id' => 'guide'], 'sprites2d' => spriteSheetData()], $extra);
+    'subject' => ['kind' => 'npc', 'id' => 'guide'], 'sprites2d' => characterSheetData()], $extra);
 }
 
 function subjectOwnershipDefinition(array $commands = [], array $data = []): CinematicDefinition
@@ -210,7 +220,10 @@ beforeEach(function () {
   ob_start();
   Console::syncDimensions(24, 8);
   Console::setLayerTracking(true);
-  $this->scene = new SubjectOwnershipScene();
+  $this->assetRoot = sys_get_temp_dir() . '/ichiloto-subject-ownership-' . bin2hex(random_bytes(4));
+  // 48 x 48 frames: a standard sheet's frame rects are whole multiples of 48.
+  writeCharacterSheetPng($this->assetRoot . '/' . characterSheetData()['sheet'], 48, 48);
+  $this->scene = new SubjectOwnershipScene($this->assetRoot);
   $this->stage = $this->scene->cinematicStage;
   $this->npc = $this->scene->npcManager->findById('guide');
   $this->player = $this->scene->player;
@@ -223,6 +236,10 @@ afterEach(function () {
       new ReflectionProperty($class, $name)->setValue(null, $value);
     }
   }
+  $paths = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($this->assetRoot,
+    FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
+  foreach ($paths as $path) { $path->isDir() ? rmdir($path->getPathname()) : unlink($path->getPathname()); }
+  rmdir($this->assetRoot);
 });
 
 it('suppresses paired ordinary art and direct redraws without hiding collision or authored wandering', function () {
@@ -249,9 +266,10 @@ it('suppresses paired ordinary art and direct redraws without hiding collision o
   expect($actor->position->x)->toBe(8.0)->and($actor->facing)->toBe(MovementHeading::EAST)
     ->and(Console::charAt(8, 4))->not->toBe('E')->and($this->scene->restoredTiles)->toBe([]);
   $this->stage->advanceGraphicalAnimation(0.08);
-  expect($actor->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(256);
+  // The first stride shows walking pattern 2; turning in place stands again on pattern 1.
+  expect($actor->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(96);
   $this->scene->npcManager->faceNpc('guide', Vector2::right());
-  expect($actor->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(0);
+  expect($actor->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(48);
   $this->scene->installField();
   expect(iterator_to_array($this->scene->getGraphicalSpriteProviders()))->toBe([$actor]);
 });
@@ -260,12 +278,14 @@ it('animates real player routes independently of its ordinary graphical provider
   $actor = $this->stage->add(subjectOwnershipCast(['subject' => ['kind' => 'player']]));
   $this->player->tryMove(Vector2::right(), $this->scene->camera);
   $this->stage->advanceGraphicalAnimation(0.08);
-  expect($actor->getGraphicalSpriteDefinition()->asset)->toBe('Graphics/east.png')
-    ->and($actor->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(256)
+  // East is the sheet's third direction row; the first stride shows walking pattern 2.
+  expect($actor->getGraphicalSpriteDefinition()->asset)->toBe(characterSheetData()['sheet'])
+    ->and($actor->getGraphicalSpriteDefinition()->sourceRect->y)->toBe(96)
+    ->and($actor->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(96)
     ->and($actor->position->x)->toBe(4.0);
   $this->scene->mapManager->blocked = true;
   $this->player->tryMove(Vector2::right(), $this->scene->camera);
-  expect($actor->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(0)
+  expect($actor->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(48)
     ->and($actor->position->x)->toBe(4.0);
   expect(fn() => $this->stage->move('pose', Vector2::right()))->toThrow(RuntimeException::class, 'real subject');
   $copy = $actor->position;
@@ -287,10 +307,11 @@ it('replaces sheets with cropped poses without resetting the subject or entry sn
   $old = $this->stage->add(subjectOwnershipCast());
   $this->scene->npcManager->moveNpcById('guide', Vector2::right());
   $pose = $this->stage->add(subjectOwnershipCast(['replace' => true, 'sprite' => 'P',
-    'sprites2d' => ['asset' => 'pose.png', 'width' => 56, 'height' => 56,
+    'sprites2d' => ['asset' => 'pose.png',
       'sourceRect' => ['x' => 128, 'y' => 0, 'width' => 128, 'height' => 128]]]));
   expect($pose->subject)->toBe($old->subject)->and($old->getGraphicalSpriteDefinition())->toBeNull()
     ->and($pose->position->x)->toBe(8.0)->and($pose->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(128)
+    ->and($pose->getGraphicalSpriteDefinition()->width)->toBe(FieldViewport::CELL_SIZE)
     ->and($pose->getGraphicalSpriteId())->toBe($old->getGraphicalSpriteId());
   $this->stage->clear();
   expect($this->npc->position->x)->toBe(7.0)->and($this->npc->heading)->toBe(MovementHeading::SOUTH)

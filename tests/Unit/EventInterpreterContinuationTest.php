@@ -2397,7 +2397,7 @@ it('releases graphical cast on cinematic completion failure and legal skip befor
   $scene->installCinematicRuntime();
   $data = ['id' => 'graphical-lifecycle', 'name' => 'Graphical Lifecycle',
     'cast' => [['id' => 'runner', 'sprite' => '@', 'x' => 2, 'y' => 2,
-      'sprites2d' => ['asset' => 'runner.png', 'width' => 56, 'height' => 56, 'layer' => 100]]],
+      'sprites2d' => ['asset' => 'runner.png', 'layer' => 100]]],
     'skip' => ['policy' => 'authored'], 'finalizer' => [['type' => 'clear_presentation']]];
   $cinematic = CinematicDefinition::fromArrays($data, [
     ['type' => 'wait', 'seconds' => 0.1],

@@ -2,32 +2,36 @@
 
 namespace Tests\Support\Rendering;
 
-/** @return array<string, array{asset: string, width: int, height: int, anchor: string, layer: int}> */
-function graphicalSpriteData(): array
-{
-  $data = [];
-  foreach (['north', 'east', 'south', 'west'] as $direction) {
-    $data[$direction] = [
-      'asset' => 'Graphics/Characters/Hero/Field/' . ucfirst($direction) . '.png',
-      'width' => 32,
-      'height' => 48,
-      'anchor' => 'bottom_center',
-      'layer' => 100,
-    ];
-  }
+use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
 
-  return $data;
+/** @return array{sheet: string, index: int, layer: int} An RPG Maker character sheet definition. */
+function characterSheetData(string $sheet = 'Graphics/Characters/Heroes.png', int $index = 0, int $layer = 100): array
+{
+  return ['sheet' => $sheet, 'index' => $index, 'layer' => $layer];
 }
 
-/** @return array<string, mixed> */
-function spriteSheetData(): array
+/**
+ * Writes a valid PNG in RPG Maker's character sheet shape: 12 x 8 frames for
+ * a standard sheet, 3 x 4 for a `$` single-character sheet.
+ */
+function writeCharacterSheetPng(string $path, int $frameWidth = 4, int $frameHeight = 4, ?bool $single = null): void
 {
-  $directions = [];
-  foreach (['north' => 17, 'east' => 21, 'south' => 22, 'west' => 21] as $direction => $frames) {
-    $directions[$direction] = ['asset' => "Graphics/$direction.png", 'columns' => 5,
-      'rows' => $direction === 'north' ? 4 : 5, 'frames' => $frames];
+  $single ??= str_starts_with(basename($path), CharacterSheet::SINGLE_CHARACTER_PREFIX);
+  $columns = CharacterSheet::FRAMES_PER_DIRECTION * ($single ? 1 : CharacterSheet::SHEET_CHARACTER_COLUMNS);
+  $rows = CharacterSheet::DIRECTION_ROWS * ($single ? 1 : CharacterSheet::SHEET_CHARACTER_ROWS);
+  writeTestPng($path, $columns * $frameWidth, $rows * $frameHeight);
+}
+
+/** Writes a minimal valid RGBA PNG of the given size. */
+function writeTestPng(string $path, int $width, int $height): void
+{
+  if (!is_dir(dirname($path))) {
+    mkdir(dirname($path), 0777, true);
   }
-  return ['mode' => 'sheet', 'frameWidth' => 256, 'frameHeight' => 256, 'width' => 56, 'height' => 56,
-    'idleFrame' => 0, 'frameDurationMs' => 80, 'stepDurationMs' => 160,
-    'anchor' => 'bottom_center', 'layer' => 100, 'directions' => $directions];
+  $chunk = static fn(string $type, string $data): string => pack('N', strlen($data)) . $type . $data
+    . pack('N', crc32($type . $data));
+  file_put_contents($path, "\x89PNG\r\n\x1a\n"
+    . $chunk('IHDR', pack('NNCCCCC', $width, $height, 8, 6, 0, 0, 0))
+    . $chunk('IDAT', gzcompress(str_repeat("\0" . str_repeat("\x70\x90\xB0\xFF", $width), $height)))
+    . $chunk('IEND', ''));
 }

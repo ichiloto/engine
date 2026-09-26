@@ -16,17 +16,20 @@ use Ichiloto\Engine\IO\InputSources\RendererInputSource;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Rendering\Presentation\RendererPresentation;
 use Ichiloto\Engine\Rendering\RendererClient;
-use Ichiloto\Engine\Rendering\Sprites\DirectionalGraphicalSpriteSet;
+use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProjector;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderInterface;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererMessageType;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\RendererEvent;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
+use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Tests\Support\Input\FakeRendererTransport;
-use function Tests\Support\Rendering\graphicalSpriteData;
+use function Tests\Support\Rendering\characterSheetData;
+use function Tests\Support\Rendering\writeCharacterSheetPng;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
 require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
@@ -37,6 +40,18 @@ final class SpritePresentationTestGame extends Game
 {
   public function __construct() {}
   public function __destruct() {}
+}
+
+/**
+ * The standing frame (pattern 1) of the fixture's 48 x 48 pixel frames, by
+ * RPG Maker direction row: down, left, right, up.
+ *
+ * @return array{x: int, y: int, width: int, height: int}
+ */
+function getPlayerStandingFrame(string $direction): array
+{
+  $row = ['south' => 0, 'west' => 1, 'east' => 2, 'north' => 3][$direction];
+  return ['x' => 48, 'y' => $row * 48, 'width' => 48, 'height' => 48];
 }
 
 beforeEach(function () {
@@ -59,9 +74,12 @@ beforeEach(function () {
   $this->camera = new Camera($this->scene, 20, 10, worldSpace: array_fill(0, 30, str_repeat('.', 40)));
   new ReflectionProperty(GameScene::class, 'camera')->setValue($this->scene, $this->camera);
   $this->terminalSprites = ['north' => ['^^'], 'east' => ['>>'], 'south' => ['vv'], 'west' => ['<<']];
-  $this->graphicalSprites = DirectionalGraphicalSpriteSet::fromArray(graphicalSpriteData());
+  $this->assetRoot = sys_get_temp_dir() . '/ichiloto-player-sprite-' . bin2hex(random_bytes(4));
+  $this->sheet = characterSheetData()['sheet'];
+  writeCharacterSheetPng($this->assetRoot . '/' . $this->sheet, 48, 48);
+  $this->graphicalSprites = CharacterSheet::fromArray(characterSheetData());
   $this->player = new Player($this->scene, 'Test hero', new Vector2(7, 4), new Rect(0, 0, 1, 1),
-    ['vv'], MovementHeading::SOUTH, $this->terminalSprites, $this->graphicalSprites);
+    ['vv'], MovementHeading::SOUTH, $this->terminalSprites, $this->graphicalSprites, $this->assetRoot);
   $this->projector = new GraphicalSpriteProjector();
 });
 
@@ -74,6 +92,10 @@ afterEach(function () {
       new ReflectionProperty($class, $name)->setValue(null, $value);
     }
   }
+  $paths = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($this->assetRoot,
+    FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
+  foreach ($paths as $path) { $path->isDir() ? rmdir($path->getPathname()) : unlink($path->getPathname()); }
+  rmdir($this->assetRoot);
 });
 
 it('keeps existing constructor calls terminal-only without adding the capability to GameObject', function () {
@@ -91,8 +113,11 @@ it('preserves terminal configuration and resolves graphical art from the existin
   $plain = new Player($this->scene, 'Terminal hero', new Vector2(7, 4), new Rect(0, 0, 1, 1),
     ['vv'], $heading, $this->terminalSprites);
   $graphical = new Player($this->scene, 'Graphical hero', new Vector2(7, 4), new Rect(0, 0, 1, 1),
-    ['vv'], $heading, $this->terminalSprites, $this->graphicalSprites);
-  expect($graphical->getGraphicalSpriteDefinition())->toBe($this->graphicalSprites->$direction)
+    ['vv'], $heading, $this->terminalSprites, $this->graphicalSprites, $this->assetRoot);
+  $definition = $graphical->getGraphicalSpriteDefinition();
+  expect($definition->asset)->toBe($this->sheet)
+    ->and($definition->sourceRect->toArray())->toBe(getPlayerStandingFrame($direction))
+    ->and([$definition->width, $definition->height, $definition->layer])->toBe([48, 48, 100])
     ->and($graphical->heading)->toBe($plain->heading)
     ->and($graphical->sprite)->toBe($plain->sprite)->toBe($this->terminalSprites[$direction])
     ->and($graphical->getDirectionalSprites())->toBe($plain->getDirectionalSprites())->toBe($this->terminalSprites);
@@ -107,10 +132,10 @@ it('preserves terminal configuration and resolves graphical art from the existin
 
 it('uses south for NONE and changes direction without moving or maintaining graphical-facing state', function () {
   new ReflectionProperty(Player::class, 'heading')->setValue($this->player, MovementHeading::NONE);
-  expect($this->player->getGraphicalSpriteDefinition())->toBe($this->graphicalSprites->south);
+  expect($this->player->getGraphicalSpriteDefinition()->sourceRect->toArray())->toBe(getPlayerStandingFrame('south'));
   foreach ([[0, -1, 'north'], [1, 0, 'east'], [0, 1, 'south'], [-1, 0, 'west']] as [$x, $y, $direction]) {
     $this->player->updatePlayerSprite(new Vector2($x, $y));
-    expect($this->player->getGraphicalSpriteDefinition())->toBe($this->graphicalSprites->$direction)
+    expect($this->player->getGraphicalSpriteDefinition()->sourceRect->toArray())->toBe(getPlayerStandingFrame($direction))
       ->and($this->player->getGraphicalSpriteId())->toBe('player')
       ->and([$this->player->position->x, $this->player->position->y])->toBe([7.0, 4.0]);
   }
@@ -127,7 +152,7 @@ it('returns a defensive logical position independent of terminal widths overhang
   expect([$current->x, $current->y])->toBe([11.0, 4.0])
     ->and($current)->not->toBe($this->player->position)
     ->and([$sprite->x, $sprite->y])->toBe([8, 2])
-    ->and($this->player->getGraphicalSpriteDefinition())->toBe($this->graphicalSprites->south)
+    ->and($this->player->getGraphicalSpriteDefinition()->sourceRect->toArray())->toBe(getPlayerStandingFrame('south'))
     ->and($this->player->getDirectionalSprites())->toBe($this->terminalSprites)
     ->and($this->player->sprite)->toBe($terminal);
 })->with([[['@']], [["\u{1F6B6}"]], [['<---wide--->', 'second row']]]);
@@ -155,7 +180,14 @@ it('presents a real Player through the shared client with immutable frames and d
   $client = new RendererClient($transport);
   $input = new RendererInputSource($client);
   $presentation = new RendererPresentation($client, new RendererGridConfig(20, 10));
-  $transport->batches[] = [RendererEvent::fromJson('{"protocol":1,"type":"key","key":"up"}')];
+  // Character frames are source rects; negotiate sprite_source_rect as the native renderer does.
+  $client->start(new RendererSessionConfig('Player sprites', $this->assetRoot, new RendererGridConfig(20, 10),
+    RendererProtocolVersion::V2));
+  $transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["sprite_source_rect","tile_batches"]}')];
+  $client->pollEvents();
+  expect($client->supports(RendererSessionConfig::SPRITE_SOURCE_RECT))->toBeTrue();
+  $polls = $transport->polls;
+  $transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"key","key":"up"}')];
   $this->player->render();
   $snapshot = Console::snapshot();
   expect(Console::charAt(7, 4))->toBe('v');
@@ -164,7 +196,7 @@ it('presents a real Player through the shared client with immutable frames and d
   $this->player->updatePlayerSprite(Vector2::up());
   $north = $this->projector->project($this->player, $this->camera);
   expect($presentation->present($snapshot, [$north]))->toBeTrue()
-    ->and(array_diff_assoc($north->toArray(), $south->toArray()))->toBe(['asset' => $this->graphicalSprites->north->asset]);
+    ->and($north->toArray())->toBe([...$south->toArray(), 'sourceRect' => getPlayerStandingFrame('north')]);
 
   $this->player->position->x = 11;
   $this->player->position->y = 8;
@@ -173,7 +205,7 @@ it('presents a real Player through the shared client with immutable frames and d
   expect([$moved->x, $moved->y])->toBe([8, 6])
     ->and($presentation->present($snapshot, [$moved]))->toBeTrue()
     ->and($presentation->present($snapshot, [$this->projector->project($this->player, $this->camera)]))->toBeFalse();
-  expect($transport->sent)->toHaveCount(3)->and($transport->polls)->toBe(0)
+  expect($transport->sent)->toHaveCount(3)->and($transport->polls)->toBe($polls)
     ->and($transport->shutdowns)->toBe(0)->and($input->poll())->toBe(KeyCode::UP);
   $frames = Tests\Support\Rendering\RetainedFrameState::replay($transport->sent);
   foreach ([$south, $north, $moved] as $index => $sprite) {
@@ -196,13 +228,13 @@ it('observes a real blocked move as changed facing and unchanged graphical posit
   new ReflectionProperty(MapManager::class, 'collisionMap')->setValue($map, [3 => [7 => CollisionType::SOLID->value]]);
   new ReflectionProperty(GameScene::class, 'mapManager')->setValue($this->scene, $map);
   $before = $this->projector->project($this->player, $this->camera);
-  expect($before->asset)->toBe($this->graphicalSprites->south->asset)
+  expect($before->sourceRect->toArray())->toBe(getPlayerStandingFrame('south'))
     ->and($map->getCollision(7, 3))->toBe(CollisionType::SOLID)
     ->and($this->player->tryMove(Vector2::up(), $this->camera))->toBeFalse();
   $after = $this->projector->project($this->player, $this->camera);
   expect($this->player->heading)->toBe(MovementHeading::NORTH)
     ->and([$this->player->position->x, $this->player->position->y])->toBe([7.0, 4.0])
-    ->and($this->player->getGraphicalSpriteDefinition())->toBe($this->graphicalSprites->north)
-    ->and(array_diff_assoc($after->toArray(), $before->toArray()))->toBe(['asset' => $this->graphicalSprites->north->asset])
+    ->and($this->player->getGraphicalSpriteDefinition()->sourceRect->toArray())->toBe(getPlayerStandingFrame('north'))
+    ->and($after->toArray())->toBe([...$before->toArray(), 'sourceRect' => getPlayerStandingFrame('north')])
     ->and($this->player->sprite)->toBe(['^^'])->and(Console::charAt(7, 4))->toBe('^');
 });

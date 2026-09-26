@@ -4,10 +4,11 @@ namespace Ichiloto\Engine\Cutscenes\Cinematics;
 
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Vector2;
-use Ichiloto\Engine\Rendering\Sprites\DirectionalGraphicalSpriteSet;
+use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
+use Ichiloto\Engine\Rendering\Sprites\CharacterSheetAssetGuard;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderInterface;
-use Ichiloto\Engine\Rendering\Sprites\SpriteWalkAnimation;
+use Ichiloto\Engine\Rendering\Sprites\CharacterWalkAnimation;
 
 /** A temporary field participant owned by one cinematic. */
 final class StagedActor implements GraphicalSpriteProviderInterface
@@ -33,7 +34,8 @@ final class StagedActor implements GraphicalSpriteProviderInterface
   private array $baseSprite;
   private bool $visible;
   private bool $released = false;
-  private SpriteWalkAnimation $walkAnimation;
+  private CharacterWalkAnimation $walkAnimation;
+  private ?CharacterSheetAssetGuard $graphicalAssetGuard = null;
 
   /**
    * @param string[] $sprite
@@ -48,17 +50,21 @@ final class StagedActor implements GraphicalSpriteProviderInterface
     protected(set) array $directionalSprites = [],
     MovementHeading $facing = MovementHeading::SOUTH,
     public readonly ?string $assetReference = null,
-    private readonly GraphicalSpriteDefinition|DirectionalGraphicalSpriteSet|null $graphicalSprites = null,
+    private readonly GraphicalSpriteDefinition|CharacterSheet|null $graphicalSprites = null,
     public readonly ?CinematicSubjectLease $subject = null,
     /** @var CinematicSubjectLease[] */
     public readonly array $suppressedSubjects = [],
+    ?string $assetRoot = null,
   )
   {
     $this->localFacing = $facing;
     $this->localPosition = $position;
     $this->baseSprite = $sprite;
     $this->visible = $isVisible;
-    $this->walkAnimation = new SpriteWalkAnimation();
+    $this->walkAnimation = new CharacterWalkAnimation();
+    if ($graphicalSprites instanceof CharacterSheet) {
+      $this->graphicalAssetGuard = new CharacterSheetAssetGuard($assetRoot ?? getcwd() . '/assets', 'Staged actor ' . $id);
+    }
   }
 
   public function show(): void
@@ -106,8 +112,7 @@ final class StagedActor implements GraphicalSpriteProviderInterface
 
   public function getGraphicalSpriteDefinition(): ?GraphicalSpriteDefinition
   {
-    $definition = $this->directionDefinition();
-    return !$this->isVisible || $definition === null ? null : $this->walkAnimation->present($definition);
+    return $this->isVisible ? $this->directionDefinition() : null;
   }
 
   public function getGraphicalSpriteWorldPosition(): Vector2
@@ -117,9 +122,8 @@ final class StagedActor implements GraphicalSpriteProviderInterface
 
   public function beginGraphicalStep(): void
   {
-    $definition = $this->directionDefinition();
-    if ($this->isVisible && $definition !== null) {
-      $this->walkAnimation->step($definition);
+    if ($this->isVisible && $this->graphicalSprites instanceof CharacterSheet) {
+      $this->walkAnimation->step();
     }
   }
 
@@ -130,8 +134,12 @@ final class StagedActor implements GraphicalSpriteProviderInterface
 
   private function directionDefinition(): ?GraphicalSpriteDefinition
   {
-    return $this->graphicalSprites instanceof DirectionalGraphicalSpriteSet
-      ? $this->graphicalSprites->getForHeading($this->facing) : $this->graphicalSprites;
+    if (!$this->graphicalSprites instanceof CharacterSheet) {
+      return $this->graphicalSprites;
+    }
+    $frame = $this->graphicalAssetGuard?->getFrameSize($this->graphicalSprites);
+    return $frame === null ? null
+      : $this->graphicalSprites->getFrame($this->facing, $this->walkAnimation->getPattern(), $frame);
   }
 
   public function stopGraphicalAnimation(): void

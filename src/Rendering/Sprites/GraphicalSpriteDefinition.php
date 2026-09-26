@@ -2,47 +2,48 @@
 
 namespace Ichiloto\Engine\Rendering\Sprites;
 
+use Ichiloto\Engine\Rendering\FieldViewport;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteAnchor;
 use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 use InvalidArgumentException;
 
-/** Immutable graphical intent, independent of world position, Camera and transport. */
+/**
+ * Immutable graphical intent, independent of world position, Camera and
+ * transport. Field art is sized in whole field cells, never authored pixels:
+ * width and height here are derived from cells for the presentation protocol.
+ */
 final readonly class GraphicalSpriteDefinition
 {
-  public ?SpriteSourceRect $sourceRect;
-
   public function __construct(
     public string $asset,
     public int $width,
     public int $height,
     public PresentationSpriteAnchor $anchor = PresentationSpriteAnchor::BOTTOM_CENTER,
     public int $layer = 0,
-    ?SpriteSourceRect $sourceRect = null,
-    public ?SpriteSheet $sheet = null,
+    public ?SpriteSourceRect $sourceRect = null,
   )
   {
     SpriteValidation::validateDefinition($asset, $width, $height, $layer);
-    $this->sourceRect = $sourceRect ?? $sheet?->sourceRect($sheet->idleFrame);
   }
 
-  public function atFrame(int $frame): self
-  {
-    return $this->sheet === null ? $this : new self($this->asset, $this->width, $this->height,
-      $this->anchor, $this->layer, $this->sheet->sourceRect($frame), $this->sheet);
-  }
-
-  /** A single pose, optionally cropped from a sheet; no playback state is stored here. */
+  /**
+   * A single image drawn on the field, such as a cinematic pose: `asset`,
+   * optional `sourceRect`, optional `layer`, and an optional footprint in
+   * whole `cells` (default one cell), bottom-centred on its position.
+   *
+   * @param array<string, mixed> $data
+   */
   public static function fromArray(array $data): self
   {
-    $data += ['anchor' => 'bottom_center', 'layer' => 0];
-    if (array_diff_key($data, array_flip(['asset', 'width', 'height', 'anchor', 'layer', 'sourceRect'])) !== []
-      || !is_string($data['asset'] ?? null) || !is_string($data['anchor'])
-      || !is_int($data['width'] ?? null) || !is_int($data['height'] ?? null) || !is_int($data['layer'])) {
-      throw new InvalidArgumentException('Graphical sprite requires a string asset/anchor and integer width/height/layer, with no unknown fields.');
+    if (array_diff_key($data, array_flip(['asset', 'sourceRect', 'layer', 'cells'])) !== []
+      || !is_string($data['asset'] ?? null) || !is_int($data['layer'] ?? 0)) {
+      throw new InvalidArgumentException('A field image accepts only asset, sourceRect, layer and cells; it is sized in field cells, not pixels.');
     }
-    $anchor = PresentationSpriteAnchor::tryFrom($data['anchor']);
-    if ($anchor === null) {
-      throw new InvalidArgumentException('Graphical sprite has an unsupported anchor.');
+    $cells = $data['cells'] ?? ['width' => 1, 'height' => 1];
+    if (!is_array($cells) || array_diff_key($cells, array_flip(['width', 'height'])) !== []
+      || !is_int($cells['width'] ?? null) || !is_int($cells['height'] ?? null)
+      || $cells['width'] < 1 || $cells['height'] < 1) {
+      throw new InvalidArgumentException('A field image footprint requires positive integer cells width and height.');
     }
     $source = null;
     if (array_key_exists('sourceRect', $data)) {
@@ -57,6 +58,7 @@ final readonly class GraphicalSpriteDefinition
       }
       $source = new SpriteSourceRect($rect['x'], $rect['y'], $rect['width'], $rect['height']);
     }
-    return new self($data['asset'], $data['width'], $data['height'], $anchor, $data['layer'], $source);
+    return new self($data['asset'], $cells['width'] * FieldViewport::CELL_SIZE,
+      $cells['height'] * FieldViewport::CELL_SIZE, PresentationSpriteAnchor::BOTTOM_CENTER, $data['layer'] ?? 0, $source);
   }
 }

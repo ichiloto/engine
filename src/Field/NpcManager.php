@@ -9,7 +9,7 @@ use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
-use Ichiloto\Engine\Rendering\Sprites\DirectionalGraphicalSpriteSet;
+use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderInterface;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Debug;
@@ -125,20 +125,18 @@ class NpcManager
   }
 
   /** Malformed optional art must not abort map loading or remove a gameplay subject. */
-  private function loadGraphicalSprites(array $entry, string $mapId, string $identity): ?DirectionalGraphicalSpriteSet
+  private function loadGraphicalSprites(array $entry, string $mapId, string $identity): ?CharacterSheet
   {
     if (!array_key_exists('sprites2d', $entry)) {
       return null;
     }
     try {
       if (!is_array($entry['sprites2d'])) {
-        throw new InvalidArgumentException('sprites2d must be a complete directional definition array.');
+        throw new InvalidArgumentException('sprites2d must be a character sheet definition array.');
       }
-      $sprites = DirectionalGraphicalSpriteSet::fromArray($entry['sprites2d']);
-      foreach ([$sprites->north, $sprites->east, $sprites->south, $sprites->west] as $definition) {
-        if ($definition->layer < PresentationLayerPolicy::WORLD || $definition->layer >= PresentationLayerPolicy::UI) {
-          throw new InvalidArgumentException('Automatic Game world sprites require layers 0..999; UI layers are reserved.');
-        }
+      $sprites = CharacterSheet::fromArray($entry['sprites2d']);
+      if ($sprites->layer < PresentationLayerPolicy::WORLD || $sprites->layer >= PresentationLayerPolicy::UI) {
+        throw new InvalidArgumentException('Automatic Game world sprites require layers 0..999; UI layers are reserved.');
       }
       return $sprites;
     } catch (InvalidArgumentException $error) {

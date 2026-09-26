@@ -22,10 +22,11 @@ use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Rendering\Camera;
-use Ichiloto\Engine\Rendering\Sprites\DirectionalGraphicalSpriteSet;
+use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
+use Ichiloto\Engine\Rendering\Sprites\CharacterSheetAssetGuard;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderInterface;
-use Ichiloto\Engine\Rendering\Sprites\SpriteWalkAnimation;
+use Ichiloto\Engine\Rendering\Sprites\CharacterWalkAnimation;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\UI\Elements\LocationHUDWindow;
@@ -41,7 +42,8 @@ use RuntimeException;
  */
 class Player extends GameObject implements GraphicalSpriteProviderInterface
 {
-  private ?SpriteWalkAnimation $walkAnimation = null;
+  private ?CharacterWalkAnimation $walkAnimation = null;
+  private ?CharacterSheetAssetGuard $graphicalAssetGuard = null;
   /**
    * @var string[] $upSprite The sprite of the player when facing up.
    */
@@ -116,7 +118,8 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    * @param string[] $sprite The active sprite of the player.
    * @param MovementHeading $heading The heading of the player.
    * @param array<string, string[]> $directionalSprites The configured directional sprite set.
-   * @param DirectionalGraphicalSpriteSet|null $graphicalSprites Optional graphical art, independent of terminal sprites.
+   * @param CharacterSheet|null $graphicalSprites Optional RPG Maker character sheet, independent of terminal sprites.
+   * @param string|null $assetRoot Project asset root for checking the sheet.
    */
   public function __construct(
     SceneInterface $scene,
@@ -126,7 +129,8 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     array $sprite,
     MovementHeading $heading = MovementHeading::NONE,
     array $directionalSprites = [],
-    private readonly ?DirectionalGraphicalSpriteSet $graphicalSprites = null,
+    private readonly ?CharacterSheet $graphicalSprites = null,
+    ?string $assetRoot = null,
   )
   {
     parent::__construct(
@@ -138,7 +142,8 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     );
 
     if ($graphicalSprites !== null) {
-      $this->walkAnimation = new SpriteWalkAnimation();
+      $this->walkAnimation = new CharacterWalkAnimation();
+      $this->graphicalAssetGuard = new CharacterSheetAssetGuard($assetRoot ?? getcwd() . '/assets', 'Player');
     }
     $this->configureDirectionalSprites($directionalSprites);
     $this->setFacingSprite($sprite, $heading === MovementHeading::NONE ? null : $heading);
@@ -158,8 +163,9 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     if ($this->isPresentationSuppressed()) {
       return null;
     }
-    $definition = $this->graphicalSprites?->getForHeading($this->heading);
-    return $definition === null ? null : ($this->walkAnimation?->present($definition) ?? $definition);
+    $frame = $this->graphicalSprites === null ? null : $this->graphicalAssetGuard?->getFrameSize($this->graphicalSprites);
+    return $frame === null ? null : $this->graphicalSprites->getFrame($this->heading,
+      $this->walkAnimation?->getPattern() ?? CharacterWalkAnimation::PATTERNS[0], $frame);
   }
 
   public function advanceGraphicalAnimation(float $seconds): void
@@ -270,7 +276,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     $fieldWasRecomposed = $this->updatePlayerPosition($direction, $camera, $previousSprite);
     if ($this->walkAnimation !== null
       && ($origin->x !== $this->position->x || $origin->y !== $this->position->y)) {
-      $this->walkAnimation->step($this->graphicalSprites->getForHeading($this->heading));
+      $this->walkAnimation->step();
     }
     if ($origin->x !== $this->position->x || $origin->y !== $this->position->y) {
       $this->getGameScene()->cinematicStage?->subjectMoved($this);
@@ -866,12 +872,12 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   {
     $this->clearActionPrompt();
     if (!$this->canAct) { return; }
-    $cellHeight = $this->scene instanceof GameScene ? $this->scene->getGraphicalFieldCellHeight() : null;
-    $definition = $cellHeight === null ? null : $this->getGraphicalSpriteDefinition();
-    if ($definition !== null) {
-      // The sprite's bottom is the tile's bottom edge; put the entire prompt row above its top.
+    $graphical = $this->scene instanceof GameScene && $this->scene->isGraphicalFieldPresented()
+      && $this->getGraphicalSpriteDefinition() !== null;
+    if ($graphical) {
+      // A field character occupies exactly its cell; the prompt sits in the cell above.
       $column = (int)$screenPosition->x;
-      $row = (int)$screenPosition->y - (int)ceil($definition->height / $cellHeight);
+      $row = (int)$screenPosition->y - 1;
       if ($column < 0 || $row < 0 || $column >= $this->scene->camera->screen->getWidth()
         || $row >= $this->scene->camera->screen->getHeight()) { return; }
     } else {
