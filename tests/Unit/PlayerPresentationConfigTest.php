@@ -98,7 +98,8 @@ beforeEach(function () {
   ($this->writePlayerData)($this->data);
   $this->scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()->onlyMethods(['getGame'])->getMock();
   $this->scene->method('getGame')->willReturn(new PlayerPresentationTestGame());
-  $this->camera = new Camera($this->scene, 20, 10, worldSpace: array_fill(0, 30, str_repeat('.', 40)));
+  // Ten cells across: the player's cell (7, 4) begins at console column 14.
+  $this->camera = new Camera($this->scene, 20, 10, worldSpace: array_fill(0, 30, str_repeat('..', 20)));
   new ReflectionProperty(GameScene::class, 'camera')->setValue($this->scene, $this->camera);
   $this->config = new GameConfig('fixture', new Party(), new Vector2(7, 4), new Rect(0, 0, 1, 1), MovementHeading::SOUTH);
   $this->createPlayer = fn(GameConfig $config) => new ReflectionMethod(GameScene::class, 'createPlayer')->invoke($this->scene, $config);
@@ -235,9 +236,9 @@ it('defaults to v2 world sprite and opaque above-sprite prompt composition', fun
   $transport = getPlayerPresentationTransport();
   $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), $this->root), $transport);
   $this->runtime->start('Field v2', 20, 10);
-  Console::write('.', 7, 4);
+  Console::write('..', 14, 4);
   $player->render();
-  Console::withLayer('modal', fn() => Console::write('   ', 7, 4), 1020);
+  Console::withLayer('modal', fn() => Console::write('   ', 14, 4), 1020);
   $this->runtime->present($this->scene);
   expect($transport->session->protocol)->toBe(RendererProtocolVersion::V2)
     ->and($transport->sent[0]->protocol)->toBe(RendererProtocolVersion::V2)
@@ -246,9 +247,9 @@ it('defaults to v2 world sprite and opaque above-sprite prompt composition', fun
   expect(array_column($frame['textLayers'], 'id'))->toBe(['world', 'field-prompt', 'modal'])
     ->and(array_column($frame['textLayers'], 'layer'))->toBe([0, 1010, 1020])
     ->and($frame['sprites'])->toHaveCount(1)
-    ->and(mb_substr(RetainedFrameState::getTextRows(['textLayers' => [$frame['textLayers'][0]]], 20, 10)[4], 7, 1))->toBe('.')
+    ->and(mb_substr(RetainedFrameState::getTextRows(['textLayers' => [$frame['textLayers'][0]]], 20, 10)[4], 14, 1))->toBe('.')
     ->and($frame['textLayers'][2]['runs'][0]['text'])->toBe('   ')
-    ->and(mb_substr(RetainedFrameState::getTextRows($frame, 20, 10)[4], 7, 3))->toBe('   ');
+    ->and(mb_substr(RetainedFrameState::getTextRows($frame, 20, 10)[4], 14, 3))->toBe('   ');
 });
 
 it('composes real field Player movement facing masking and duplicate detection in the runtime', function () {
@@ -265,12 +266,12 @@ it('composes real field Player movement facing masking and duplicate detection i
   $transport = getPlayerPresentationTransport();
   $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), $this->root, protocol: RendererProtocolVersion::V2), $transport);
   $this->runtime->start('Field', 20, 10);
-  Console::write('.', 7, 4);
+  Console::write('..', 14, 4);
   $player->render();
   expect($this->runtime->present($this->scene))->toBeTrue()->and($this->runtime->present($this->scene))->toBeFalse()
-    ->and(Console::charAt(7, 4))->toBe('v');
+    ->and(Console::charAt(14, 4))->toBe('v');
   $frames = RetainedFrameState::replay($transport->sent);
-  expect(mb_substr(RetainedFrameState::getTextRows($frames[0], 20, 10)[4], 7, 1))->toBe('.');
+  expect(mb_substr(RetainedFrameState::getTextRows($frames[0], 20, 10)[4], 14, 1))->toBe('.');
   expect($player->tryMove(Vector2::up(), $this->camera))->toBeFalse();
   $this->runtime->present($this->scene);
   $frames = RetainedFrameState::replay($transport->sent);
@@ -307,7 +308,7 @@ it('keeps the graphical Player during an ordinary dialogue event without admitti
   $transport = getPlayerPresentationTransport();
   $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), $this->root, protocol: RendererProtocolVersion::V2), $transport);
   $this->runtime->start('Dialogue', 20, 10);
-  Console::write('.', 7, 4);
+  Console::write('..', 14, 4);
   $player->render();
   Console::write('Mother: Welcome home', 0, 8);
   $this->runtime->present($this->scene);
@@ -316,9 +317,9 @@ it('keeps the graphical Player during an ordinary dialogue event without admitti
   expect($frames[0]['sprites'])->toHaveCount(1)
     ->and($frames[0]['sprites'][0]['asset'])->toBe($this->sheet)
     ->and($frames[0]['sprites'][0]['sourceRect'])->toBe(getPlayerSheetFrame('south'))
-    ->and(mb_substr($text[4], 7, 1))->toBe('.')
+    ->and(mb_substr($text[4], 14, 1))->toBe('.')
     ->and($text[8])->toStartWith('Mother:')
-    ->and(Console::charAt(7, 4))->toBe('v');
+    ->and(Console::charAt(14, 4))->toBe('v');
   new ReflectionProperty(GameScene::class, 'state')->setValue($this->scene, makeBareScene(MainMenuState::class));
   $this->runtime->present($this->scene);
   $frames = RetainedFrameState::replay($transport->sent);
