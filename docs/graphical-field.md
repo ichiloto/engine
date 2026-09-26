@@ -75,14 +75,21 @@ editing surface is owned by the GUI Editor plan. Related docs:
 - **Graphical field.** A retained world cell is one field cell whatever its
   text; glyph fallback draws the cell's text at two terminal columns per
   square, so an unpainted map looks like its terminal presentation scaled.
-- **Format marker.** Two-column cells change what every x coordinate
-  means, so a converted project declares `"maps": {"cellColumns": 2}` in
-  `ichiloto.json`. The game, editor and validator refuse a project without
-  it and point to `ichiloto upgrade`, rather than misplace its contents.
+- **Format version.** Two-column cells change what every x coordinate
+  means, so they begin a new project format version. The game, editor and
+  validator refuse a project whose format is older than the engine's and
+  point to `ichiloto upgrade`, rather than misplace its contents.
 
 ## Converting existing projects
 
-`ichiloto upgrade` converts a project from one-column to two-column cells:
+`ichiloto upgrade` is the project's format chain. A project records its
+format version in `ichiloto.json`, and the command runs every numbered
+step between that version and the engine's, in order, like the save
+compatibility chain. Each step is its own class; a later format change
+adds a step and never edits an earlier one. The existing metadata upgrade
+(project id and save compatibility manifest) is the first step.
+
+The two-column cell step converts a project from one-column cells:
 
 - Each map layer and event layer groups every two columns into one cell,
   so the terminal art is unchanged. A row with an odd width gains a
@@ -161,10 +168,13 @@ editing surface is owned by the GUI Editor plan. Related docs:
 ### Phase 2 - Square map cells
 
 1. Two-column map cells in the engine: parsing, composition, collision,
-   events, the camera, terminal and retained presentation, and the format
-   marker.
+   events, the camera, terminal and retained presentation, and the
+   project format version check. The glyph-keyed crop tables (`tiles2d`)
+   cannot address two-column cells and are removed here, ahead of
+   Phase 3; maps using them show their terminal glyphs until tilesets.
 2. The TUI editor paints, selects and validates two-column cells.
-3. `ichiloto upgrade` converts projects and writes the review report.
+3. Turn `ichiloto upgrade` into the project format chain, with the
+   two-column cell step and its review report.
 4. Convert Last Legend and Epic Quest, then work through the report.
 
 ### Phase 3 - Tilesets and graphical layers
@@ -172,7 +182,6 @@ editing surface is owned by the GUI Editor plan. Related docs:
 1. Tileset resources with layout validation.
 2. Tile identities and autotile composition for A1 to A4.
 3. Graphical layer files, loading, validation and retained upload.
-4. Remove the glyph-keyed crop tables and cell overrides.
 
 ### Phase 4 - Authoring
 
