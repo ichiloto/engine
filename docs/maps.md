@@ -97,6 +97,38 @@ still has `tiles2d` loads with a warning and shows its terminal glyphs.
 An event cell is marked by its one non-blank character: `E `, ` E` and `EE`
 all mark event `E`. A cell holding two different markers is refused.
 
+## Graphics
+
+A graphical renderer draws a map from its own tile layers, independent of
+its terminal glyphs. The map names an RPG Maker style tileset in its data
+file and keeps one tile identity per cell in `graphics/`:
+
+```
+assets/Data/Tilesets/home.php          # name, sheets A1 to E, above, tables
+assets/Maps/village/harbour/
+  harbour.data.php                      # 'tileset' => 'home'
+  graphics/
+    01.floor.tiles.php
+    02.furniture.tiles.php
+```
+
+```php
+<?php
+
+return <<<'TILES'
+2816 2816 2816 0
+2816 2816 2816 0
+TILES;
+```
+
+Each tile layer is a literal nowdoc with one row per map row and one
+whitespace-separated RPG Maker tile identity per cell (`0` is empty); it is
+never executed. Graphics never change geometry, collision, events or saves,
+and unusable graphics or sheets are reported while the map shows its
+terminal glyphs. Autotile shapes are stored in the identities, as RPG Maker
+stores them; `AutotileShape::resolveLayer` chooses them from neighbours for
+authoring tools. See [graphical field](graphical-field.md) for sheets, draw
+bands and animation.
 ## Collision dictionaries
 
 The game's `assets/Maps/collisions.php` can combine a flat glyph dictionary with

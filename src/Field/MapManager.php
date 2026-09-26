@@ -43,6 +43,7 @@ class MapManager implements CanRenderAt
    */
   protected(set) array $tileMap = [];
   public private(set) ?MapLayerSet $layers = null;
+  public private(set) ?MapGraphics $graphics = null;
   private ?PresentationWorld $presentationWorld = null;
   private ?bool $presentationWorldPolicy = null;
   /**
@@ -320,7 +321,8 @@ class MapManager implements CanRenderAt
       $mapId,
     );
 
-    return new PreparedMap($map, $source['tiles'], $collisions, $mapTriggers, $eventTriggers, $npcs, $source['layers']);
+    return new PreparedMap($map, $source['tiles'], $collisions, $mapTriggers, $eventTriggers, $npcs, $source['layers'],
+      $source['graphics']);
   }
 
   /** Commits a previously validated destination and its field side effects. */
@@ -329,6 +331,7 @@ class MapManager implements CanRenderAt
     $map = $prepared->data;
     $this->tileMap = $prepared->tiles;
     $this->layers = $prepared->layers;
+    $this->graphics = $prepared->graphics;
     $this->clearPresentationWorld();
     $this->collisionMap = $prepared->collisions;
     $this->camera->worldSpace = $prepared->tiles;
@@ -493,7 +496,7 @@ class MapManager implements CanRenderAt
     $this->presentationWorldPolicy = $policy;
     $this->presentationWorld = null;
     try {
-      $this->presentationWorld = PresentationWorld::getFromLayers($this->layers, 'map');
+      $this->presentationWorld = PresentationWorld::getFromLayers($this->layers, 'map', $this->graphics, $this->getAssetRoot());
     } catch (\Throwable $error) {
       // Unsupported world bounds keep the screen-space retained text path usable.
       Debug::warn('Retained map presentation is unavailable: ' . $error->getMessage());
@@ -771,6 +774,7 @@ class MapManager implements CanRenderAt
     $prepared = $this->prepareSplitMapDataFromFiles($paths);
     $this->tileMap = $prepared['tiles'];
     $this->layers = $prepared['layers'];
+    $this->graphics = $prepared['graphics'];
     $this->clearPresentationWorld();
     $this->camera->worldSpace = $prepared['tiles'];
 
@@ -783,6 +787,7 @@ class MapManager implements CanRenderAt
     $this->tileMap = [];
     $this->collisionMap = [];
     $this->layers = null;
+    $this->graphics = null;
     $this->clearPresentationWorld();
     $this->calculateMapDimensions();
     $this->camera->worldSpace = [];
@@ -790,7 +795,7 @@ class MapManager implements CanRenderAt
 
   /**
    * @param array{id: string, data: string, map: string, event: string} $paths
-   * @return array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet}
+   * @return array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet, graphics: ?MapGraphics}
    */
   protected function prepareSplitMapDataFromFiles(array $paths): array
   {
@@ -819,10 +824,25 @@ class MapManager implements CanRenderAt
       Debug::warn("{$displayPaths['data']} tiles2d is no longer read; its map shows terminal glyphs until it has a tileset.");
     }
 
+    $graphics = null;
+    try {
+      $graphics = MapGraphics::loadFromDirectory(dirname($paths['data']), $paths['id'], $map['tileset'] ?? null,
+        $layers, $this->getAssetRoot());
+    } catch (\Throwable $error) {
+      // Graphics never decide whether a map loads: it shows its terminal glyphs instead.
+      Debug::warn("Map {$paths['id']} graphics are unusable; showing terminal glyphs: " . $error->getMessage());
+    }
+
     $tileMap = $layers->getComposedGrid();
     $map['events'] = $this->resolveEventDefinitions($map['events'] ?? [], $eventLayer, $displayPaths['event']);
 
-    return ['data' => $map, 'tiles' => $tileMap, 'layers' => $layers];
+    return ['data' => $map, 'tiles' => $tileMap, 'layers' => $layers, 'graphics' => $graphics];
+  }
+
+  /** The project's asset root, where tilesets and their sheets live. */
+  private function getAssetRoot(): string
+  {
+    return Path::join(Path::getCurrentWorkingDirectory(), 'assets');
   }
 
   /**

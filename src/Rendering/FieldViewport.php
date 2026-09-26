@@ -42,7 +42,7 @@ final readonly class FieldViewport
 
   /** @param list<PresentationTextLayer> $text @param list<PresentationSprite> $sprites @param list<PresentationTileBatch> $tiles */
   public function createViewport(array|ConsolePresentationSnapshot|ConsolePresentationChanges $text, array $sprites, array $tiles = [],
-    ?string $worldId = null, array $worldOrigin = ['x' => 0, 'y' => 0]): PresentationViewport
+    ?string $worldId = null, array $worldOrigin = ['x' => 0, 'y' => 0], int $tileFrame = 0): PresentationViewport
   {
     if ($text instanceof ConsolePresentationSnapshot) { $text = $text->textLayers; }
     elseif ($text instanceof ConsolePresentationChanges) {
@@ -57,6 +57,6 @@ final readonly class FieldViewport
       array_values(array_map(static fn($layer) => $layer->id,
         array_filter($text, static fn($layer) => $layer->layer < PresentationLayerPolicy::UI
           || $layer->id === PresentationLayerPolicy::FIELD_PROMPT_ID))),
-      array_column($sprites, 'id'), array_column($tiles, 'id'), $worldId, $worldOrigin['x'], $worldOrigin['y']);
+      array_column($sprites, 'id'), array_column($tiles, 'id'), $worldId, $worldOrigin['x'], $worldOrigin['y'], $tileFrame);
   }
 }

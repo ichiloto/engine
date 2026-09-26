@@ -3,16 +3,23 @@
 namespace Ichiloto\Engine\Rendering\Presentation;
 
 use Ichiloto\Engine\Field\MapCell;
+use Ichiloto\Engine\Field\MapGraphics;
 use Ichiloto\Engine\Field\MapLayerSet;
 use Ichiloto\Engine\IO\Console\SgrColorParser;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\FieldViewport;
+use Ichiloto\Engine\Rendering\Tilesets\TileComposer;
+use Ichiloto\Engine\Rendering\Tilesets\TileId;
+use Ichiloto\Engine\Rendering\Tilesets\TilePiece;
 use InvalidArgumentException;
 
 /**
  * Immutable, map-owned upload. Camera movement never visits its cells in PHP.
  * One wire cell is one map cell whatever its text; its text keeps the
- * terminal's MapCell::COLUMNS columns per cell.
+ * terminal's MapCell::COLUMNS columns per cell. A map with graphics also
+ * carries its tileset: the sheets, and a catalog of the tile identities it
+ * uses composed into generic pieces, so the renderer needs no RPG Maker
+ * knowledge. Tile layers draw at -100 + NN, their `above` tiles at 900 + NN.
  */
 final readonly class PresentationWorld
 {
@@ -22,12 +29,18 @@ final readonly class PresentationWorld
     public const int MAX_SOURCE_BYTES = 67108864;
     public const int LAYER_SOURCE_BYTES = 8192;
     public const int CELL_SOURCE_BYTES = 64;
+    public const int PIECE_SOURCE_BYTES = 32;
+    public const int TILE_CELL_SOURCE_BYTES = 16;
+    public const int MAX_CATALOG_TILES = 8192;
+    public const int BELOW_TILES = -100;
+    public const int ABOVE_TILES = 900;
 
     /** @param list<array<string, mixed>> $operations */
     private function __construct(public string $id, public array $operations, public array $textLayerIds,
-        public int $estimatedSourceBytes) {}
+        public int $estimatedSourceBytes, public bool $animated = false) {}
 
-    public static function getFromLayers(MapLayerSet $layers, string $id = 'map'): self
+    public static function getFromLayers(MapLayerSet $layers, string $id = 'map', ?MapGraphics $graphics = null,
+        string $assetRoot = ''): self
     {
         $grid = $layers->getComposedGrid();
         $height = count($grid);
@@ -54,6 +67,14 @@ final readonly class PresentationWorld
                 'layer' => PresentationLayerPolicy::getMapLayerOrder($layer),
                 'kind' => $layer->decoration ? 'decoration' : 'gameplay'];
         }
+        $tiles = $graphics === null ? null : self::getTilePresentation($graphics, $assetRoot, $id);
+        if ($tiles !== null) {
+            $metadata = [...$metadata, ...$tiles['layers']];
+            $estimatedBytes += $tiles['bytes'];
+            if (count($metadata) > self::MAX_LAYERS || $estimatedBytes > self::MAX_SOURCE_BYTES) {
+                throw new InvalidArgumentException('Retained world exceeds the bounded layer or source-memory budget with its tiles.');
+            }
+        }
         foreach ($grid as $y => $cells) {
             $wire = [];
             foreach ($cells as $x => $cell) {
@@ -63,8 +84,75 @@ final readonly class PresentationWorld
         }
         return new self($id, [['op' => 'put', 'kind' => 'world', 'id' => $id,
             'value' => ['columns' => $width, 'rows' => $height, 'cellSize' => FieldViewport::CELL_SIZE,
-                'cellColumns' => MapCell::COLUMNS, 'layers' => $metadata]], ...$rows],
-            array_column($metadata, 'id'), $estimatedBytes);
+                'cellColumns' => MapCell::COLUMNS, 'layers' => $metadata,
+                ...($tiles === null ? [] : ['tileset' => $tiles['tileset']])]], ...$rows, ...($tiles['operations'] ?? [])],
+            array_column(array_filter($metadata, static fn(array $layer): bool => $layer['kind'] !== 'tiles'), 'id'),
+            $estimatedBytes, $tiles['animated'] ?? false);
+    }
+
+    /**
+     * The tileset catalog, tile layers and their rows, or null when no sheet
+     * is usable (the map then shows its terminal glyphs). Tiles whose sheet is
+     * unusable are left out, and their cells show glyphs.
+     *
+     * @return array{tileset: array<string, mixed>, layers: list<array<string, mixed>>, operations: list<array<string, mixed>>, bytes: int, animated: bool}|null
+     */
+    private static function getTilePresentation(MapGraphics $graphics, string $assetRoot, string $id): ?array
+    {
+        $usable = $graphics->tileset->getUsableSheets($assetRoot);
+        if ($usable === null) {
+            return null;
+        }
+        $sheetNames = array_keys($usable['sheets']);
+        $sheetIndices = array_flip($sheetNames);
+        $catalog = $tiles = [];
+        $bytes = array_sum(array_map(strlen(...), $usable['sheets']));
+        $animated = false;
+        foreach ($graphics->layers as $layer) {
+            foreach ($layer->getUsedIds() as $tileId) {
+                if (isset($catalog[$tileId]) || !isset($sheetIndices[TileId::getSheet($tileId)?->value ?? ''])) {
+                    continue;
+                }
+                if (count($catalog) >= self::MAX_CATALOG_TILES) {
+                    throw new InvalidArgumentException('Retained world exceeds the ' . self::MAX_CATALOG_TILES . '-tile catalog.');
+                }
+                $frames = TileComposer::compose($tileId, $usable['tileSize'], $graphics->tileset->isTable($tileId));
+                $animated = $animated || count($frames) > 1;
+                $catalog[$tileId] = count($tiles);
+                $tiles[] = ['frames' => array_map(static fn(array $pieces): array => array_map(
+                    static function (TilePiece $piece) use ($sheetIndices, &$bytes): array {
+                        $bytes += self::PIECE_SOURCE_BYTES;
+                        return ['sheet' => $sheetIndices[$piece->sheet->value], 'x' => $piece->x, 'y' => $piece->y,
+                            'width' => $piece->width, 'height' => $piece->height, 'left' => $piece->left, 'top' => $piece->top];
+                    }, $pieces), $frames)];
+            }
+        }
+        $layers = $operations = [];
+        foreach ($graphics->layers as $layer) {
+            $bands = [];
+            foreach ($layer->tiles as $y => $row) {
+                foreach ($row as $x => $tileId) {
+                    if (!isset($catalog[$tileId])) { continue; }
+                    $band = $graphics->tileset->isAbove($tileId) ? 'above' : 'below';
+                    $bands[$band][$y][] = ['column' => $x, 'tile' => $catalog[$tileId]];
+                    $bytes += self::TILE_CELL_SOURCE_BYTES;
+                }
+            }
+            foreach (['below' => self::BELOW_TILES, 'above' => self::ABOVE_TILES] as $band => $base) {
+                if (!isset($bands[$band])) { continue; }
+                $layerId = 'tiles:' . $layer->name . ($band === 'above' ? ':above' : '');
+                $layers[] = ['id' => $layerId, 'layer' => $base + $layer->order, 'kind' => 'tiles'];
+                foreach ($bands[$band] as $y => $cells) {
+                    $operations[] = ['op' => 'worldTiles', 'id' => $id, 'layerId' => $layerId,
+                        'rows' => [['row' => $y, 'cells' => $cells]]];
+                }
+            }
+        }
+        if ($tiles === []) {
+            return null;
+        }
+        return ['tileset' => ['tileSize' => $usable['tileSize'], 'sheets' => array_values($usable['sheets']), 'tiles' => $tiles],
+            'layers' => $layers, 'operations' => $operations, 'bytes' => $bytes, 'animated' => $animated];
     }
 
     /**

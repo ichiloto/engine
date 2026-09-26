@@ -25,7 +25,12 @@ final readonly class PresentationViewport
     public ?string $worldId = null,
     public int $worldOriginX = 0,
     public int $worldOriginY = 0,
+    /** The world's tile animation counter; each animated tile shows frames[tileFrame % count]. */
+    public int $tileFrame = 0,
   ) {
+    if ($tileFrame < 0) {
+      throw new InvalidArgumentException('Viewport tileFrame must be nonnegative.');
+    }
     if (!is_finite($scale) || $scale <= 0 || $scale > self::MAX_SCALE
       || !is_finite($x) || !is_finite($y) || $x < 0 || $y < 0) {
       throw new InvalidArgumentException('Viewport scale must be finite, positive and at most 8; its origin must be finite and nonnegative.');
@@ -80,6 +85,7 @@ final readonly class PresentationViewport
       'clipRect' => $this->clipRect->toArray(), 'textLayerIds' => $this->textLayerIds,
       'spriteIds' => $this->spriteIds,
       ...($this->worldId === null ? [] : ['worldId' => $this->worldId,
-        'worldOrigin' => ['column' => $this->worldOriginX, 'row' => $this->worldOriginY]])];
+        'worldOrigin' => ['column' => $this->worldOriginX, 'row' => $this->worldOriginY]]),
+      ...($this->tileFrame === 0 ? [] : ['tileFrame' => $this->tileFrame])];
   }
 }

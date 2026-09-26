@@ -25,6 +25,7 @@ final readonly class PreparedMap
         public array $eventTriggers,
         public ?array $npcs = null,
         public ?MapLayerSet $layers = null,
+        public ?MapGraphics $graphics = null,
     ) {
     }
 }

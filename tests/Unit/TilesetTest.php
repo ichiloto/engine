@@ -1,0 +1,216 @@
+<?php
+
+use Ichiloto\Engine\Field\MapGraphics;
+use Ichiloto\Engine\Field\MapGridSource;
+use Ichiloto\Engine\Field\MapLayer;
+use Ichiloto\Engine\Field\MapLayerSet;
+use Ichiloto\Engine\Field\MapTileLayer;
+use Ichiloto\Engine\Rendering\Presentation\PresentationViewport;
+use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
+use Ichiloto\Engine\Rendering\Tilesets\AutotileShape;
+use Ichiloto\Engine\Rendering\Tilesets\TileAnimation;
+use Ichiloto\Engine\Rendering\Tilesets\TileComposer;
+use Ichiloto\Engine\Rendering\Tilesets\TileId;
+use Ichiloto\Engine\Rendering\Tilesets\TilePiece;
+use Ichiloto\Engine\Rendering\Tilesets\Tileset;
+use Ichiloto\Engine\Rendering\Tilesets\TilesetSheet;
+
+use function Tests\Support\Rendering\writeTestPng;
+
+require_once dirname(__DIR__) . '/Support/Rendering/GraphicalSpriteFixtures.php';
+
+/** @param list<TilePiece> $pieces @return list<array{int, int, int, int, int, int}> */
+function getPieceRects(array $pieces): array
+{
+  return array_map(static fn(TilePiece $piece): array => [$piece->x, $piece->y, $piece->width, $piece->height, $piece->left, $piece->top], $pieces);
+}
+
+function writeTilesetProject(string $root, array $sheets = ['A2' => [768, 576], 'B' => [768, 768]], string $extra = ''): void
+{
+  $entries = [];
+  foreach ($sheets as $name => [$width, $height]) {
+    writeTestPng("{$root}/Graphics/Tilesets/{$name}.png", $width, $height);
+    $entries[] = "'{$name}' => 'Graphics/Tilesets/{$name}.png'";
+  }
+  @mkdir("{$root}/Data/Tilesets", 0777, true);
+  file_put_contents("{$root}/Data/Tilesets/home.php", "<?php\nreturn ['name' => 'Home', 'sheets' => [" . implode(', ', $entries) . "]{$extra}];\n");
+}
+
+beforeEach(function () {
+  $this->root = sys_get_temp_dir() . '/ichiloto-tileset-' . bin2hex(random_bytes(6));
+  mkdir($this->root, 0777, true);
+});
+
+afterEach(function () {
+  $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($this->root, FilesystemIterator::SKIP_DOTS),
+    RecursiveIteratorIterator::CHILD_FIRST);
+  foreach ($files as $file) { $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname()); }
+  rmdir($this->root);
+});
+
+it('numbers tiles as RPG Maker MZ does', function () {
+  expect(TileId::getSheet(0))->toBe(TilesetSheet::B)
+    ->and(TileId::getSheet(300))->toBe(TilesetSheet::C)
+    ->and(TileId::getSheet(1536))->toBe(TilesetSheet::A5)
+    ->and(TileId::getSheet(1700))->toBeNull()
+    ->and(TileId::getSheet(2048))->toBe(TilesetSheet::A1)
+    ->and(TileId::getSheet(2816))->toBe(TilesetSheet::A2)
+    ->and(TileId::getSheet(4352))->toBe(TilesetSheet::A3)
+    ->and(TileId::getSheet(5888))->toBe(TilesetSheet::A4)
+    ->and(TileId::getSheet(8192))->toBeNull()
+    ->and(TileId::getKind(2816))->toBe(16)
+    ->and(TileId::getShape(2816 + 47))->toBe(47)
+    ->and(TileId::getAutotileId(17, 3))->toBe(2816 + 48 + 3)
+    ->and(TileId::getFlagId(2816 + 20))->toBe(2816)
+    ->and(TileId::isWaterfall(TileId::getAutotileId(5, 0)))->toBeTrue()
+    ->and(TileId::isWall(TileId::getAutotileId(88, 0)))->toBeTrue()
+    ->and(TileId::isWall(TileId::getAutotileId(80, 0)))->toBeFalse();
+});
+
+it('copies plain tiles from the two eight-column halves of their sheet', function () {
+  expect(getPieceRects(TileComposer::compose(1, 48)[0]))->toBe([[48, 0, 48, 48, 0, 0]])
+    ->and(getPieceRects(TileComposer::compose(9, 48)[0]))->toBe([[48, 48, 48, 48, 0, 0]])
+    ->and(getPieceRects(TileComposer::compose(130, 48)[0]))->toBe([[480, 0, 48, 48, 0, 0]])
+    ->and(TileComposer::compose(1536 + 3, 48)[0][0]->sheet)->toBe(TilesetSheet::A5)
+    ->and(fn() => TileComposer::compose(0, 48))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => TileComposer::compose(1, 47))->toThrow(InvalidArgumentException::class);
+});
+
+it('assembles autotiles from the quarters RPG Maker chooses for each shape', function () {
+  // The first A2 kind, isolated (shape 47): its preview tile, the block's first two by two quarters.
+  expect(getPieceRects(TileComposer::compose(2816 + 47, 48)[0]))->toBe([
+    [0, 0, 24, 24, 0, 0], [24, 0, 24, 24, 24, 0], [0, 24, 24, 24, 0, 24], [24, 24, 24, 24, 24, 24],
+  ])
+    // The second A2 kind surrounded (shape 0): interior quarters of the block two tiles right.
+    ->and(getPieceRects(TileComposer::compose(2816 + 48, 48)[0]))->toBe([
+      [144, 96, 24, 24, 0, 0], [120, 96, 24, 24, 24, 0], [144, 72, 24, 24, 0, 24], [120, 72, 24, 24, 24, 24],
+    ])
+    // A4's first wall-side row starts three tiles down and uses the wall table.
+    ->and(getPieceRects(TileComposer::compose(TileId::getAutotileId(88, 15), 48)[0]))->toBe([
+      [0, 144, 24, 24, 0, 0], [72, 144, 24, 24, 24, 0], [0, 216, 24, 24, 0, 24], [72, 216, 24, 24, 24, 24],
+    ]);
+});
+
+it('animates A1 water and waterfalls on RPG Maker frames', function () {
+  $water = TileComposer::compose(TileId::getAutotileId(0, 47), 48);
+  $waterfall = TileComposer::compose(TileId::getAutotileId(5, 0), 48);
+  expect($water)->toHaveCount(4)
+    ->and(array_map(static fn(array $frame): int => $frame[0]->x, $water))->toBe([0, 96, 192, 96])
+    ->and($waterfall)->toHaveCount(3)
+    ->and(array_map(static fn(array $frame): int => $frame[0]->y, $waterfall))->toBe([0, 48, 96])
+    ->and(TileComposer::compose(TileId::getAutotileId(2, 47), 48))->toHaveCount(1)
+    ->and(TileAnimation::getFrame(0.0))->toBe(0)
+    ->and(TileAnimation::getFrame(0.5))->toBe(1)
+    ->and(TileAnimation::getFrame(6.0))->toBe(0);
+});
+
+it('draws table legs beneath the top of an A2 table autotile', function () {
+  $table = TileComposer::compose(2816 + 47, 48, table: true)[0];
+  expect($table)->toHaveCount(6)
+    ->and(getPieceRects(array_slice($table, 2, 2)))->toBe([[0, 72, 24, 24, 0, 24], [0, 24, 24, 12, 0, 36]]);
+});
+
+it('chooses autotile shapes from neighbours of the same kind, with the map edge counting as the same', function () {
+  $floor = TileId::getAutotileId(16, 0);
+  $e = 0;
+  $shapes = static fn(array $layer): array => array_map(static fn(array $row): array => array_map(
+    static fn(int $id): int => TileId::isAutotile($id) ? TileId::getShape($id) : -1, $row), AutotileShape::resolveLayer($layer));
+  expect($shapes([
+    [$e, $e, $e, $e, $e],
+    [$e, $floor, $floor, $floor, $e],
+    [$e, $floor, $floor, $floor, $e],
+    [$e, $floor, $floor, $floor, $e],
+    [$e, $e, $e, $e, $floor],
+  ]))->toBe([
+    [-1, -1, -1, -1, -1],
+    [-1, 34, 20, 36, -1],
+    [-1, 16, 0, 24, -1],
+    [-1, 40, 28, 38, -1],
+    [-1, -1, -1, -1, 34],
+  ])
+    ->and($shapes([[$e, $e, $e], [$floor, $floor, $floor], [$e, $e, $e]])[1])->toBe([33, 33, 33])
+    ->and($shapes([[$e, $e, $e], [$e, $floor, $e], [$e, $e, $e]])[1][1])->toBe(46)
+    ->and($shapes([[$e, TileId::getAutotileId(88, 0), $e]])[0][1])->toBe(5)
+    ->and($shapes([[$e, TileId::getAutotileId(5, 0), $e]])[0][1])->toBe(3);
+});
+
+it('loads a tileset and uses only sheets whose images fit their RPG Maker layout', function () {
+  writeTilesetProject($this->root, ['A2' => [768, 576], 'A5' => [384, 768], 'B' => [700, 768], 'C' => [1536, 1536]],
+    ", 'above' => [2816 + 5, 10], 'tables' => [2816 + 48]");
+  $tileset = Tileset::load($this->root, 'home');
+  expect($tileset->isAbove(2816 + 40))->toBeTrue()
+    ->and($tileset->isAbove(2816 + 48))->toBeFalse()
+    ->and($tileset->isTable(2816 + 60))->toBeTrue()
+    ->and($tileset->getUsableSheets($this->root))->toBe(['tileSize' => 48,
+      'sheets' => ['A2' => 'Graphics/Tilesets/A2.png', 'A5' => 'Graphics/Tilesets/A5.png']])
+    ->and(fn() => Tileset::fromArray('bad', ['name' => 'Bad', 'sheets' => ['F' => 'x.png']]))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => Tileset::fromArray('bad', ['name' => 'Bad', 'sheets' => ['B' => 'x.png'], 'tables' => [5]]))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => Tileset::fromArray('bad', ['name' => 'Bad', 'sheets' => ['B' => '../x.png']]))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => Tileset::load($this->root, '../home'))->toThrow(InvalidArgumentException::class);
+});
+
+it('reads map tile layers as literal cells matching the map and refuses anything else', function () {
+  $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', "....\n....")]);
+  $layer = new MapTileLayer('floor', 1, 'floor', "2816 0\n  0   10  \n");
+  expect($layer->tiles)->toBe([[2816, 0], [0, 10]])
+    ->and($layer->getUsedIds())->toBe([2816, 10]);
+  $layer->assertMatches($layers);
+  expect(fn() => new MapTileLayer('floor', 1, 'floor', "1700 0"))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => new MapTileLayer('floor', 1, 'floor', "x 0"))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => (new MapTileLayer('floor', 1, 'floor', "0 0 0\n0 0"))->assertMatches($layers))->toThrow(InvalidArgumentException::class);
+});
+
+it('uploads the tileset, tile layers in their draw bands and glyph-free rows with the world', function () {
+  writeTilesetProject($this->root, extra: ", 'above' => [5]");
+  $map = $this->root . '/Maps/home';
+  mkdir($map . '/graphics', 0777, true);
+  file_put_contents($map . '/graphics/01.floor.tiles.php', MapGridSource::buildSource("2816 2816\n2816 0", 'TILES'));
+  file_put_contents($map . '/graphics/05.furniture.tiles.php', MapGridSource::buildSource("0 5\n1 0", 'TILES'));
+  $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', "....\n....")]);
+  $graphics = MapGraphics::loadFromDirectory($map, 'home', 'home', $layers, $this->root);
+  $world = PresentationWorld::getFromLayers($layers, 'map', $graphics, $this->root);
+  $value = $world->operations[0]['value'];
+  expect(array_map(static fn(array $layer): array => [$layer['id'], $layer['layer'], $layer['kind']], $value['layers']))->toBe([
+    ['map:terrain', -99, 'gameplay'],
+    ['tiles:floor', -99, 'tiles'],
+    ['tiles:furniture', -95, 'tiles'],
+    ['tiles:furniture:above', 905, 'tiles'],
+  ])
+    ->and($value['tileset']['tileSize'])->toBe(48)
+    ->and($value['tileset']['sheets'])->toBe(['Graphics/Tilesets/A2.png', 'Graphics/Tilesets/B.png'])
+    ->and($value['tileset']['tiles'])->toHaveCount(3)
+    ->and($value['tileset']['tiles'][2]['frames'][0])->toBe([['sheet' => 1, 'x' => 48, 'y' => 0, 'width' => 48, 'height' => 48, 'left' => 0, 'top' => 0]])
+    ->and($world->textLayerIds)->toBe(['map:terrain'])
+    ->and($world->animated)->toBeFalse();
+  $tiles = array_values(array_filter($world->operations, static fn(array $operation): bool => $operation['op'] === 'worldTiles'));
+  expect(array_map(static fn(array $operation): array => [$operation['layerId'], $operation['rows'][0]['row'],
+    array_column($operation['rows'][0]['cells'], 'column')], $tiles))->toBe([
+    ['tiles:floor', 0, [0, 1]],
+    ['tiles:floor', 1, [0]],
+    ['tiles:furniture', 1, [0]],
+    ['tiles:furniture:above', 0, [1]],
+  ]);
+});
+
+it('leaves a map on its glyphs when its graphics or every sheet are unusable', function () {
+  writeTilesetProject($this->root, ['A2' => [100, 100]]);
+  $map = $this->root . '/Maps/home';
+  mkdir($map . '/graphics', 0777, true);
+  file_put_contents($map . '/graphics/01.floor.tiles.php', MapGridSource::buildSource("2816", 'TILES'));
+  $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', "..")]);
+  $graphics = MapGraphics::loadFromDirectory($map, 'home', 'home', $layers, $this->root);
+  $world = PresentationWorld::getFromLayers($layers, 'map', $graphics, $this->root);
+  expect($world->operations[0]['value'])->not->toHaveKey('tileset')
+    ->and(MapGraphics::loadFromDirectory($this->root . '/Maps/none', 'none', null, $layers, $this->root))->toBeNull()
+    ->and(fn() => MapGraphics::loadFromDirectory($map, 'home', null, $layers, $this->root))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => MapGraphics::loadFromDirectory($map, 'home', 'missing', $layers, $this->root))->toThrow(InvalidArgumentException::class);
+});
+
+it('sends the tile animation frame only when it moves', function () {
+  $viewport = static fn(int $frame): PresentationViewport => new PresentationViewport(1.0, 0, 0, new CanvasRectangle(0, 0, 10, 10),
+    worldId: 'map', tileFrame: $frame);
+  expect($viewport(0)->toArray())->not->toHaveKey('tileFrame')
+    ->and($viewport(3)->toArray()['tileFrame'])->toBe(3)
+    ->and(fn() => $viewport(-1))->toThrow(InvalidArgumentException::class);
+});

@@ -13,6 +13,8 @@ use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicLibrary;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicPresentationManager;
 use Ichiloto\Engine\Core\Time;
+use Ichiloto\Engine\Rendering\Tilesets\TileAnimation;
+use Ichiloto\Engine\UI\Accessibility;
 use Ichiloto\Engine\Battle\BattleResult;
 use Ichiloto\Engine\Events\Interpreter\EventExecutionSession;
 use Ichiloto\Engine\Events\Interpreter\EventInterpreter;
@@ -151,8 +153,10 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         if (!$this->hasGraphicalFieldPresentation() || $this->fieldViewport === null) { return null; }
         $world = $this->getPresentationWorld();
         if ($world === null) { return null; }
+        // Water animates on RPG Maker's counter; reduced motion holds the first frame.
+        $tileFrame = $world->animated && !Accessibility::prefersReducedMotion() ? TileAnimation::getFrame(Time::getTime()) : 0;
         return $this->fieldViewport->createViewport(array_values($this->viewportTextLayers), $sprites, $tiles,
-            $world->id, $this->camera->getWorldOrigin());
+            $world->id, $this->camera->getWorldOrigin(), $tileFrame);
     }
 
     public function getPresentationWorld(): ?PresentationWorld
