@@ -28,7 +28,6 @@ use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
 use Ichiloto\Engine\Rendering\Runtime\RendererWindowClosed;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
-use Ichiloto\Engine\Rendering\Tiles\GraphicalTileDefinition;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException;
 use Ichiloto\Engine\Rendering\Transport\ProcessRendererTransport;
@@ -281,7 +280,7 @@ it('restarts an active renderer once without replacing desired field or canvas s
     $peer->batches = [$events];
   };
   $this->runtime->start('Restart retained scene', 12, 4);
-  $world = PresentationWorld::getFromLayers(new MapLayerSet([new MapLayer('terrain', 1, false, 'map', 'abc')]), []);
+  $world = PresentationWorld::getFromLayers(new MapLayerSet([new MapLayer('terrain', 1, false, 'map', 'aabbcc')]));
   $canvas = new PresentationCanvas(320, 180, [new CanvasImage('panel', 'panel.png', new CanvasRectangle(8, 8, 64, 32))]);
   $scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()
     ->onlyMethods(['getPresentationWorld', 'getPresentationCanvas', 'getGraphicalSpriteProviders'])->getMock();
@@ -298,7 +297,7 @@ it('restarts an active renderer once without replacing desired field or canvas s
   expect($this->runtime->present($scene))->toBeTrue();
   $initial = RetainedFrameState::replay($this->transport->sent)[0];
   if ($canvasMode) { expect($initial['canvas']['images'][0]['asset'])->toBe('panel.png'); }
-  else { expect($initial['worlds']['map']['glyphRows']['map:terrain'][0][1]['glyph'])->toBe('b')->and($initial['sprites'])->toHaveCount(1); }
+  else { expect($initial['worlds']['map']['glyphRows']['map:terrain'][0][1]['glyph'])->toBe('bb')->and($initial['sprites'])->toHaveCount(1); }
   $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"key","key":"left"}')];
   $this->runtime->pump();
   $input = InputManager::getInputSource(); $console = Console::snapshot(); $session = $this->transport->session;
@@ -419,8 +418,8 @@ it('resumes a large cold world through a slow real pipe while keeping input and 
   $transport = new ProcessRendererTransport($process);
   $this->runtime = new RendererRuntime(new RendererRuntimeConfig($process, __DIR__), $transport);
   $world = PresentationWorld::getFromLayers(new MapLayerSet([
-    new MapLayer('terrain', 0, false, 'terrain', implode("\n", array_fill(0, 512, str_repeat('.', 256)))),
-  ]), []);
+    new MapLayer('terrain', 0, false, 'terrain', implode("\n", array_fill(0, 512, str_repeat('..', 256)))),
+  ]));
   $scene = new class($world) extends GameScene {
     public function __construct(private readonly PresentationWorld $world) {}
     public function getPresentationWorld(): ?PresentationWorld { return $this->world; }
@@ -632,26 +631,20 @@ it('presents the same field ownership from real Game renders and blocked ticks w
   $game->quit();
 });
 
-it('presents cell-specific fixture crops through the real field runtime and clears them on replacement', function () {
+it('presents layered field ownership through the real field runtime and clears it on replacement', function () {
   $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__,
-    requiredCapabilities: ['tile_batches', 'sprite_source_rect']), $this->transport);
-  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["tile_batches","sprite_source_rect"]}')];
-  $this->runtime->start('Fixture artwork', 12, 4);
+    requiredCapabilities: ['sprite_source_rect']), $this->transport);
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["sprite_source_rect"]}')];
+  $this->runtime->start('Fixture ownership', 12, 4);
   $scene = makeBareScene(GameScene::class);
-  $layers = new MapLayerSet([new MapLayer('floor', 1, false, 'floor', '     '),
-    new MapLayer('fixtures', 2, false, 'fixtures', '## #i')]);
+  $layers = new MapLayerSet([new MapLayer('floor', 1, false, 'floor', '          '),
+    new MapLayer('fixtures', 2, false, 'fixtures', '####  ##i ')]);
   $camera = new Camera($scene, 12, 4, worldSpace: $layers->getComposedGrid());
   new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
   $map = makeBareScene(MapManager::class);
   foreach (['gameScene' => $scene, 'layers' => $layers, 'tileMap' => $camera->worldSpace] as $name => $value) {
     new ReflectionProperty(MapManager::class, $name)->setValue($map, $value);
   }
-  $cell = static fn(int $x) => ['column' => $x, 'row' => 0,
-    'source' => ['x' => $x * 16, 'y' => 0, 'width' => 16, 'height' => 32]];
-  new ReflectionProperty(MapManager::class, 'layerTiles2d')->setValue($map,
-    GraphicalTileDefinition::getForLayers(['layers' => ['fixtures' => [
-      'asset' => 'parts.png', 'cells' => array_map($cell, range(0, 3)),
-    ]]], $layers, 'room'));
   new ReflectionProperty(GameScene::class, 'mapManager')->setValue($scene, $map);
   $player = $this->getMockBuilder(Player::class)->disableOriginalConstructor()
     ->onlyMethods(['getGraphicalSpriteDefinition'])->getMock();
@@ -667,9 +660,9 @@ it('presents cell-specific fixture crops through the real field runtime and clea
   $frames = RetainedFrameState::replay($this->transport->sent);
   $world = end($frames)['worlds']['map'];
   expect($world['layers'][1]['id'])->toBe('map:fixtures')
-    ->and(array_column($world['tileRows']['map:fixtures'][0], 'source'))->toBe([0, 1, 2, 3])
-    ->and($world['glyphRows']['map:fixtures'][0][4]['glyph'])->toBe('i')
-    ->and($world['glyphRows']['map:floor'][0][2]['glyph'])->toBe(' ')
+    ->and($world['tileRows'])->toBe([])
+    ->and($world['glyphRows']['map:fixtures'][0][4]['glyph'])->toBe('i ')
+    ->and($world['glyphRows']['map:floor'][0][2]['glyph'])->toBe('  ')
     ->and(Console::snapshot())->toEqual($terminal);
   Console::withLayer('dialogue', fn() => Console::write('Talk', 0, 3), 1020);
   $this->runtime->present($scene);
@@ -692,22 +685,20 @@ it('presents cell-specific fixture crops through the real field runtime and clea
   expect(end($frames))->not->toHaveKey('worlds');
 });
 
-it('uses the same field eligibility for terrain and Player and clears tiles on scene replacement', function () {
+it('uses the same field eligibility for the terrain world and Player and clears the world on scene replacement', function () {
   $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__,
-    requiredCapabilities:['tile_batches', 'sprite_source_rect']), $this->transport);
-  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["tile_batches","sprite_source_rect"]}')];
-  $this->runtime->start('Tiles',12,4);
+    requiredCapabilities:['sprite_source_rect']), $this->transport);
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["sprite_source_rect"]}')];
+  $this->runtime->start('Terrain',12,4);
   $scene = makeBareScene(GameScene::class);
-  $camera = new Camera($scene,12,4,worldSpace:array_fill(0,4,array_fill(0,12,';')));
+  $camera = new Camera($scene,12,4,worldSpace:array_fill(0,4,array_fill(0,12,';;')));
   new ReflectionProperty(GameScene::class,'camera')->setValue($scene,$camera);
   $map = makeBareScene(MapManager::class);
   new ReflectionProperty(MapManager::class,'gameScene')->setValue($map,$scene);
   new ReflectionProperty(MapManager::class,'tileMap')->setValue($map,$camera->worldSpace);
   new ReflectionProperty(MapManager::class,'layers')->setValue($map, new MapLayerSet([
-    new MapLayer('terrain', 1, false, 'field', implode("\n", array_fill(0, 4, str_repeat(';', 12)))),
+    new MapLayer('terrain', 1, false, 'field', implode("\n", array_fill(0, 4, str_repeat(';;', 12)))),
   ], legacy: true));
-  new ReflectionProperty(MapManager::class,'tiles2d')->setValue($map,GraphicalTileDefinition::fromArray([
-    'asset'=>'field.png','symbols'=>[';'=>['x'=>0,'y'=>0,'width'=>16,'height'=>32]]], 'field'));
   new ReflectionProperty(GameScene::class,'mapManager')->setValue($scene,$map);
   $player = $this->getMockBuilder(Player::class)->disableOriginalConstructor()
     ->onlyMethods(['getGraphicalSpriteDefinition'])->getMock();
@@ -733,7 +724,8 @@ it('uses the same field eligibility for terrain and Player and clears tiles on s
   expect($this->runtime->present($scene))->toBeTrue();
   $frames = RetainedFrameState::replay($this->transport->sent);
   $world = $frames[0]['worlds']['map'];
-  expect(array_sum(array_map(count(...), $world['tileRows']['map:terrain'])))->toBe(48)
+  expect(array_sum(array_map(count(...), $world['glyphRows']['map:terrain'])))->toBe(48)
+    ->and($world['tileRows'])->toBe([])
     ->and($frames[0]['sprites'][0]['id'])->toBe('staged:runner')
     ->and($frames[0]['sprites'][0]['sourceRect']['x'])->toBe(256)
     ->and(Console::snapshot())->toEqual($terminal);
@@ -755,17 +747,17 @@ it('uses the same field eligibility for terrain and Player and clears tiles on s
   $frames = RetainedFrameState::replay($this->transport->sent);
   expect(end($frames)['worlds']['map'])->toBe($world);
   // Actual background restoration removes old named Player history.
-  Console::withLayer('player',fn()=>Console::write('@',1,1));
+  Console::withLayer('player',fn()=>Console::write('@',2,1));
   $map->renderBackgroundTile(1,1);
   $this->runtime->present($scene);
   $frames = RetainedFrameState::replay($this->transport->sent);
-  expect(end($frames)['worlds']['map']['glyphRows']['map:terrain'][1][1]['glyph'])->toBe(';')
+  expect(end($frames)['worlds']['map']['glyphRows']['map:terrain'][1][1]['glyph'])->toBe(';;')
     ->and(array_column(end($frames)['textLayers'], 'id'))->not->toContain('player');
   $before = Console::getBuffer();
   $map->renderBackgroundTile(-1,0);
   expect(Console::getBuffer())->toBe($before);
   new ReflectionProperty(Player::class,'isActive')->setValue($player,false);
-  expect($scene->getGraphicalTileBatches())->toBe([])->and(iterator_to_array($scene->getGraphicalSpriteProviders()))->toBe([]);
+  expect(iterator_to_array($scene->getGraphicalSpriteProviders()))->toBe([]);
   new ReflectionProperty(Player::class,'isActive')->setValue($player,true);
   Console::recomposeFrame(fn()=>Console::write('Menu',0,0));
   new ReflectionProperty(GameScene::class,'state')->setValue($scene,makeBareScene(\Ichiloto\Engine\Scenes\Game\States\MainMenuState::class));
@@ -777,13 +769,12 @@ it('uses the same field eligibility for terrain and Player and clears tiles on s
   $this->runtime->present($scene);
   $frames = RetainedFrameState::replay($this->transport->sent);
   expect(end($frames)['worlds']['map'])->toBe($world);
-  new ReflectionProperty(MapManager::class,'tiles2d')->setValue($map,null);
+  // A rebuilt world for the same map carries the same cells.
   new ReflectionMethod(MapManager::class, 'clearPresentationWorld')->invoke($map);
   Console::recomposeFrame(fn()=>$map->render());
   $this->runtime->present($scene);
   $frames = RetainedFrameState::replay($this->transport->sent);
-  expect(end($frames)['worlds']['map']['tileRows'])->toBe([])
-    ->and(end($frames)['worlds']['map']['glyphRows'])->toBe($world['glyphRows']);
+  expect(end($frames)['worlds']['map']['glyphRows'])->toBe($world['glyphRows']);
 });
 
 it('allows the maximum logical grid with retained worlds independent of the removed 32768 tile viewport cap', function (int $columns, int $rows) {
