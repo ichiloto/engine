@@ -59,19 +59,11 @@ final class MapCollisionResolver
         $result = [];
         foreach ($gameplay[0][0]->glyphs as $y => $row) {
             foreach ($row as $x => $_) {
-                $result[$y][$x] = CollisionType::SOLID->value;
-                for ($index = count($gameplay) - 1; $index >= 0; $index--) {
-                    [$layer, $types] = $gameplay[$index];
-                    $cell = $layer->glyphs[$y][$x];
-                    if ($index !== 0 && MapCell::isBlank($cell)) {
-                        continue;
-                    }
-                    $type = self::resolveCell($cell, $types);
-                    if ($type !== CollisionType::PASS_THROUGH) {
-                        $result[$y][$x] = $type->value;
-                        break;
-                    }
+                $kinds = [];
+                for ($column = 0; $column < MapCell::COLUMNS; $column++) {
+                    $kinds[] = self::resolveColumn($gameplay, $x, $y, $column);
                 }
+                $result[$y][$x] = self::combineColumns($kinds)->value;
             }
             $result[$y] ??= [];
         }
@@ -79,34 +71,63 @@ final class MapCollisionResolver
     }
 
     /**
-     * A cell's kind from its characters, ignoring spaces within it: solid when
-     * any character is solid, so pairing never opens a wall; otherwise the first
-     * kind other than none, left to right. A blank cell uses the space entry.
+     * One column of a cell, resolved as terminal layers always were: walk the
+     * gameplay layers from the top, skipping upper spaces and PASS_THROUGH.
+     *
+     * @param list<array{MapLayer, array<int|string, CollisionType>}> $gameplay
+     */
+    private static function resolveColumn(array $gameplay, int $x, int $y, int $column): CollisionType
+    {
+        for ($index = count($gameplay) - 1; $index >= 0; $index--) {
+            [$layer, $types] = $gameplay[$index];
+            $character = MapCell::getColumnCharacter($layer->glyphs[$y][$x], $column);
+            if ($index !== 0 && trim($character) === '') {
+                continue;
+            }
+            $kind = self::resolveCharacter($character, $types);
+            if ($kind !== CollisionType::PASS_THROUGH) {
+                return $kind;
+            }
+        }
+        return CollisionType::SOLID;
+    }
+
+    /**
+     * A single layer's cell: each column's character through the dictionary,
+     * then combined.
      *
      * @param array<int|string, CollisionType> $types
      */
     public static function resolveCell(string $cell, array $types): CollisionType
     {
         $kinds = [];
-        foreach (MapCell::getCharacters($cell) as $character) {
-            if (trim($character) === '') {
-                continue;
-            }
-            $kind = $types[ASCII::to_ascii($character)] ?? CollisionType::SOLID;
-            if ($kind === CollisionType::SOLID) {
-                return $kind;
-            }
-            $kinds[] = $kind;
+        for ($column = 0; $column < MapCell::COLUMNS; $column++) {
+            $kinds[] = self::resolveCharacter(MapCell::getColumnCharacter($cell, $column), $types);
         }
-        if ($kinds === []) {
-            return $types[' '] ?? CollisionType::SOLID;
-        }
-        $kinds = array_values(array_filter($kinds, static fn(CollisionType $kind): bool => $kind !== CollisionType::PASS_THROUGH));
-        if ($kinds === []) {
-            return CollisionType::PASS_THROUGH;
+        return in_array(CollisionType::PASS_THROUGH, $kinds, true) && count(array_unique($kinds, SORT_REGULAR)) === 1
+            ? CollisionType::PASS_THROUGH : self::combineColumns($kinds);
+    }
+
+    /** @param array<int|string, CollisionType> $types */
+    private static function resolveCharacter(string $character, array $types): CollisionType
+    {
+        return trim($character) === '' ? ($types[' '] ?? CollisionType::SOLID)
+            : ($types[ASCII::to_ascii($character)] ?? CollisionType::SOLID);
+    }
+
+    /**
+     * A cell is solid when either column is, so pairing never opens a wall;
+     * otherwise it takes the first kind other than none, left to right.
+     *
+     * @param list<CollisionType> $kinds
+     */
+    private static function combineColumns(array $kinds): CollisionType
+    {
+        if (in_array(CollisionType::SOLID, $kinds, true)) {
+            return CollisionType::SOLID;
         }
         foreach ($kinds as $kind) {
-            if ($kind !== CollisionType::NONE) {
+            if ($kind !== CollisionType::NONE && $kind !== CollisionType::PASS_THROUGH) {
                 return $kind;
             }
         }

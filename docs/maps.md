@@ -80,10 +80,12 @@ row may be shorter than another, but that row must have the same width on every
 layer. Colour markup is not a cell.
 
 The lowest gameplay layer is the base. Higher gameplay layers replace it only
-where they contain a non-blank cell. A cell of spaces on an upper layer,
-including styled spaces, is empty and shows the lower layer; any other cell
-replaces the one below it whole. This composed grid is `Camera::worldSpace` and
-is exactly what the terminal renders.
+where they contain a non-space character. Layers compose column by column: a
+space on an upper layer, including a styled space, is empty and shows the
+character beneath it in that column, so an upper `" m"` over `"| "` shows
+`"|m"`. A two-column glyph cannot be split, so where one is involved a
+non-blank upper cell replaces the whole cell. This composed grid is
+`Camera::worldSpace` and is exactly what the terminal renders.
 
 Decoration is never composed into that grid and never contributes collision.
 A decoration layer named in the collision dictionary refuses the map with a
@@ -117,14 +119,14 @@ return [
 ```
 
 A named section overrides the flat dictionary for that layer; otherwise the
-flat entry applies. Keys stay single characters. A cell takes its kind from
-its characters, ignoring spaces within it: it is solid when any character is
-solid, so pairing never opens a wall; otherwise it takes the first kind other
-than none, left to right; a blank cell uses the space entry. Unknown glyphs
-remain solid. Resolution walks gameplay layers from top to bottom, skipping
-upper blank cells and `PASS_THROUGH` cells. The first remaining cell supplies
-the collision result. If no layer supplies a result, the cell is solid;
-`PASS_THROUGH` is never a final collision value. Decoration is excluded
+flat entry applies. Keys stay single characters. Each column of a cell
+resolves as before: walk the gameplay layers from top to bottom, skipping
+upper spaces and `PASS_THROUGH` characters; the first remaining character
+supplies the column's kind (a base space uses the space entry), and a column
+no layer supplies is solid. Unknown glyphs remain solid. The cell is solid when
+either column is, so pairing never opens a wall; otherwise it takes the first
+kind other than none, left to right. `PASS_THROUGH` is never a final collision
+value. Decoration is excluded
 entirely. Collision comes from authored symbols and the dictionary, never from
 colour, graphics or a separate stored collision grid.
 

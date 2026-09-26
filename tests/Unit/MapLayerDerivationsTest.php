@@ -57,7 +57,14 @@ function getReferenceMapGrid(MapLayerSet $set): array
         if ($result === []) { $result = $layer->grid; continue; }
         foreach ($layer->grid as $y => $row) {
             foreach ($row as $x => $cell) {
-                if (trim(TerminalText::stripAnsi($cell)) !== '') { $result[$y][$x] = $cell; }
+                if (trim(TerminalText::stripAnsi($cell)) === '') { continue; }
+                // Column by column: a space in an upper pair shows the column below.
+                $upper = TerminalText::visibleSymbols($cell);
+                $lower = TerminalText::visibleSymbols($result[$y][$x]);
+                if (count($upper) !== 2 || count($lower) !== 2) { $result[$y][$x] = $cell; continue; }
+                $result[$y][$x] = implode('', array_map(
+                    static fn(string $top, string $bottom): string => trim(TerminalText::stripAnsi($top)) === '' ? $bottom : $top,
+                    $upper, $lower));
             }
         }
     }
@@ -74,7 +81,7 @@ it('precomputes exact styled composition glyphs and sorted gameplay owners on ra
     expect($set->getComposedGrid())->toBe(getReferenceMapGrid($set))
         ->and($set->gameplayOwners)->toBe([[2, 3, 1], [], [1, 3]])
         ->and(array_map(count(...), $set->getComposedGrid()))->toBe([3, 0, 2])
-        ->and($set->getComposedGrid()[0][0])->toBe("#\e[45m \e[0m")
+        ->and($set->getComposedGrid()[0][0])->toBe("#\e[44m \e[0m")
         ->and(TerminalText::stripAnsi($set->getComposedGrid()[0][1]))->toBe('0 ');
     foreach ($set->layers as $layer) {
         foreach ($layer->grid as $y => $row) {
@@ -160,10 +167,11 @@ it('reuses normalized map rows across pans padding and width policies without re
                 ->not->toContain('terminal.normalize', 'terminal.tokenize', 'terminal.format');
         }
     }
-    expect(Console::snapshot()->rows[0])->toBe(' icd界 gh') // A wide glyph's second column reads as a space.
-        ->and(Console::snapshot()->rows[1])->toBe('shi t   ');
+    // Upper spaces show the column beneath them; a wide glyph's second column reads as a space.
+    expect(Console::snapshot()->rows[0])->toBe('aicd界 gh')
+        ->and(Console::snapshot()->rows[1])->toBe('shirt   ');
     // Restoring a cell under a sprite repaints both of its columns.
     Console::write('@@', 0, 0);
     $camera->renderBackgroundTile(0, 0);
-    expect(Console::charAt(0, 0))->toBe(' ')->and(Console::charAt(1, 0))->toBe('i');
+    expect(Console::charAt(0, 0))->toBe('a')->and(Console::charAt(1, 0))->toBe('i');
 })->with([false, true]);

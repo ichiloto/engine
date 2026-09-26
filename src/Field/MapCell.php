@@ -77,6 +77,40 @@ final class MapCell
   }
 
   /**
+   * The cell's character in one of its columns: a two-column glyph fills
+   * both, and a pair has one character in each.
+   */
+  public static function getColumnCharacter(string $cell, int $column): string
+  {
+    $characters = self::getCharacters($cell);
+    return count($characters) === 1 ? $characters[0] : ($characters[$column] ?? ' ');
+  }
+
+  /**
+   * Lays an upper layer's cell over a lower one column by column, as the
+   * terminal layers always composed: a space in either column of an upper
+   * pair shows the lower layer's character there. A two-column glyph on
+   * either side cannot be split, so a non-blank upper cell then replaces
+   * the whole cell.
+   */
+  public static function overlay(string $lower, string $upper): string
+  {
+    if (self::isBlank($upper)) {
+      return $lower;
+    }
+    $top = TerminalText::visibleSymbols($upper);
+    $bottom = TerminalText::visibleSymbols($lower);
+    if (count($top) !== self::COLUMNS || count($bottom) !== self::COLUMNS) {
+      return $upper;
+    }
+    $cell = '';
+    foreach ($top as $column => $symbol) {
+      $cell .= trim(TerminalText::stripAnsi($symbol)) === '' ? $bottom[$column] : $symbol;
+    }
+    return $cell;
+  }
+
+  /**
    * The one character marking this cell (`E `, ` E` and `EE` all mark `E`), or null when blank.
    *
    * @throws InvalidArgumentException When the cell holds two different markers.

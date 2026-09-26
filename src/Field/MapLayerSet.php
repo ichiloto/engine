@@ -56,7 +56,7 @@ final readonly class MapLayerSet
             foreach ($layer->grid as $y => $row) {
                 foreach ($row as $x => $cell) {
                     if (!MapCell::isBlank($layer->glyphs[$y][$x])) {
-                        $result[$y][$x] = $cell;
+                        $result[$y][$x] = MapCell::overlay($result[$y][$x], $cell);
                         $owners[$y][$x] = $index;
                     }
                 }

@@ -44,7 +44,7 @@ function writeLayerGrid(string $directory, string $filename, string $text): void
     file_put_contents($directory . '/' . $filename, MapGridSource::buildSource($text, 'MAP'));
 }
 
-it('discovers ordered gameplay and decoration sources and composes styled occupied cells only', function () {
+it('discovers ordered gameplay and decoration sources and composes styled occupied columns only', function () {
     writeLayerGrid($this->directory, 'layers/12.fixtures.map.php', "  \e[33mi\e[0m   ");
     writeLayerGrid($this->directory, 'layers/01.terrain.map.php', ';;;;;;');
     writeLayerGrid($this->directory, 'layers/03.floor.deco.php', 'rrrrrr');
@@ -53,7 +53,7 @@ it('discovers ordered gameplay and decoration sources and composes styled occupi
     $grid = $set->getComposedGrid();
     expect(array_column($set->layers, 'name'))->toBe(['terrain', 'floor', 'buildings', 'fixtures'])
         ->and($set->legacy)->toBeFalse()
-        ->and(array_map(TerminalText::stripAnsi(...), $grid[0]))->toBe(['##', 'i ', '##'])
+        ->and(array_map(TerminalText::stripAnsi(...), $grid[0]))->toBe(['##', 'i;', '##'])
         ->and($grid[0][1])->toStartWith("\e[33mi");
 });
 

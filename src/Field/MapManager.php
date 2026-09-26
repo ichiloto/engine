@@ -446,23 +446,16 @@ class MapManager implements CanRenderAt
       $dictionary = $this->defaultCollisionDictionary;
     }
 
-    $collisionMap = [];
-
-    $types = array_filter($dictionary, static fn(mixed $type): bool => $type instanceof CollisionType);
-    foreach ($tilemap as $y => $row) {
-      $collisionRow = [];
-
-      $cells = is_array($row) ? $row : MapCell::parseRow($row, "Map row {$y}");
-
-      foreach ($cells as $cell) {
-        $type = MapCollisionResolver::resolveCell($cell, $types);
-        $collisionRow[] = $type !== CollisionType::PASS_THROUGH ? $type->value : CollisionType::SOLID->value;
-      }
-
-      $collisionMap[] = $collisionRow;
+    if ($tilemap === []) {
+      return [];
     }
+    // One grid is a single legacy layer; it resolves exactly as layered maps do.
+    $text = implode("\n", array_map(static fn(array|string $row): string => is_array($row) ? implode('', $row) : $row, $tilemap));
 
-    return $collisionMap;
+    return MapCollisionResolver::resolveLayers(
+      new MapLayerSet([new MapLayer('terrain', 0, false, 'Map', $text)], legacy: true),
+      $dictionary,
+    );
   }
 
   /**

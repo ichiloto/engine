@@ -96,11 +96,14 @@ it('resolves a non-solid cell to its first kind other than none, left to right',
   'styled characters' => ["\e[32m.\e[0m\e[33m;\e[0m", CollisionType::ENCOUNTER],
 ]);
 
-it('ignores spaces inside an occupied cell and gives a blank cell the space entry', function () {
+it('resolves each column of a cell, a space through the space entry', function () {
   $types = [' ' => CollisionType::SOLID, ';' => CollisionType::ENCOUNTER, 'i' => CollisionType::PASS_THROUGH];
-  expect(MapCollisionResolver::resolveCell('; ', $types))->toBe(CollisionType::ENCOUNTER)
-    ->and(MapCollisionResolver::resolveCell(' ;', $types))->toBe(CollisionType::ENCOUNTER)
-    ->and(MapCollisionResolver::resolveCell('i ', $types))->toBe(CollisionType::PASS_THROUGH)
+  $open = [' ' => CollisionType::NONE] + $types;
+  expect(MapCollisionResolver::resolveCell('; ', $types))->toBe(CollisionType::SOLID)
+    ->and(MapCollisionResolver::resolveCell('; ', $open))->toBe(CollisionType::ENCOUNTER)
+    ->and(MapCollisionResolver::resolveCell(' ;', $open))->toBe(CollisionType::ENCOUNTER)
+    ->and(MapCollisionResolver::resolveCell('i ', $types))->toBe(CollisionType::SOLID)
+    ->and(MapCollisionResolver::resolveCell('ii', $types))->toBe(CollisionType::PASS_THROUGH)
     ->and(MapCollisionResolver::resolveCell('  ', $types))->toBe(CollisionType::SOLID)
     ->and(MapCollisionResolver::resolveCell('  ', [' ' => CollisionType::NONE]))->toBe(CollisionType::NONE)
     ->and(MapCollisionResolver::resolveCell('  ', []))->toBe(CollisionType::SOLID);
@@ -123,10 +126,11 @@ it('generates the same per-cell collision from authored rows as the layer resolv
   $expected = [
     [CollisionType::SOLID->value, CollisionType::ENCOUNTER->value, CollisionType::NONE->value,
       CollisionType::SOLID->value, CollisionType::SAVE_POINT->value],
-    [CollisionType::NONE->value, CollisionType::SOLID->value, CollisionType::ENCOUNTER->value,
+    [CollisionType::NONE->value, CollisionType::SOLID->value, CollisionType::SOLID->value,
       CollisionType::NONE->value, CollisionType::SOLID->value],
   ];
-  // A lone pass-through cell on a single layer has nothing below it and stays solid.
+  // A pass-through column on a single layer has nothing below it and stays solid,
+  // so it makes its whole cell solid, as that column always was.
   expect($manager->generateCollisionMap(explode("\n", $text), getMapCellCollisionTypes()))->toBe($expected)
     ->and(MapCollisionResolver::resolveLayers($set, getMapCellCollisionTypes()))->toBe($expected);
 });
@@ -149,4 +153,19 @@ it('accepts event cue symbols up to one cell wide and refuses wider or multiple 
   expect(new EventCue('!')->symbol)->toBe('!')
     ->and(new EventCue('🚪')->symbol)->toBe('🚪')
     ->and(fn() => new EventCue('!!'))->toThrow(InvalidArgumentException::class, 'fits one map cell');
+});
+
+it('keeps a lower wall visible beside an upper character sharing its cell', function () {
+  // Home: the chest's fixture cell " m" sits over the building wall "| ".
+  $set = new MapLayerSet([
+    new MapLayer('buildings', 3, false, 'buildings', "| "),
+    new MapLayer('fixtures', 6, false, 'fixtures', " m"),
+  ]);
+  expect($set->getComposedGrid())->toBe([['|m']])
+    ->and(MapCell::overlay('| ', " \e[33mm\e[0m"))->toBe("|\e[33mm\e[0m")
+    ->and(MapCell::overlay('界', ' m'))->toBe(' m')
+    ->and(MapCell::overlay('| ', '界'))->toBe('界')
+    ->and(MapCell::overlay('| ', '  '))->toBe('| ')
+    ->and(MapCollisionResolver::resolveLayers($set, ['|' => CollisionType::SOLID, 'm' => CollisionType::SOLID, ' ' => CollisionType::NONE]))
+    ->toBe([[CollisionType::SOLID->value]]);
 });

@@ -54,12 +54,15 @@ editing surface is owned by the GUI Editor plan. Related docs:
   style. `##`, `[]`, `~~` and `🌲` are each one cell. Every authored row is
   whole cells; a one-column character followed by a two-column glyph, or a
   lone trailing character, is refused with its row and column.
-- **Blank.** A cell whose characters are all spaces is blank. In an upper
-  layer a blank cell is transparent; any other cell replaces the cell below
-  it whole.
-- **Collision.** Collision dictionaries keep single-character keys. A cell
-  is solid when any of its characters is solid; otherwise it takes the
-  first kind other than none among its characters, left to right. Pairing
+- **Layers.** Layers compose column by column, as terminal layers always
+  did: a space in an upper cell, styled or not, shows the character beneath
+  it in that column, so a chest `" m"` over a wall `"| "` shows `"|m"`. A
+  two-column glyph cannot be split, so where one is involved a non-blank
+  upper cell replaces the whole cell.
+- **Collision.** Collision dictionaries keep single-character keys. Each
+  column of a cell resolves through the layers exactly as before (a space
+  through the space entry), and the cell is solid when either column is;
+  otherwise it takes the first kind other than none, left to right. Pairing
   can only make a cell more solid, never open a wall.
 - **Events.** An event cell's marker is its non-blank character (`E `,
   ` E` and `EE` all mark event `E`); two different markers in one cell are
