@@ -4,22 +4,19 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Rendering\Tilesets;
 
-use Ichiloto\Engine\Rendering\FieldViewport;
-
 /**
  * Chooses each autotile's shape from its neighbours of the same kind, as RPG
  * Maker's editor does when painting, so authors and tools place kinds and
  * never pick shapes by hand. Beyond the map edge counts as the same kind.
- * A tile's neighbours across are the tiles beside it, one tile width away.
+ * Each field cell holds its own autotile, so neighbours are adjacent cells.
  */
 final class AutotileShape
 {
   /**
    * @param list<list<int>> $layer Tile identities by row and cell.
-   * @param int $columns Cells one tile covers across.
    * @return list<list<int>> The same layer with every autotile's shape resolved.
    */
-  public static function resolveLayer(array $layer, int $columns = FieldViewport::TILE_COLUMNS): array
+  public static function resolveLayer(array $layer): array
   {
     $resolved = $layer;
     foreach ($layer as $y => $row) {
@@ -28,10 +25,7 @@ final class AutotileShape
           continue;
         }
         $kind = TileId::getKind($id);
-        $same = static function (int $dx, int $dy) use ($layer, $x, $y, $kind, $columns): bool {
-          $neighbour = $layer[$y + $dy][$x + $dx * $columns] ?? null;
-          return $neighbour === null || (TileId::isAutotile($neighbour) && TileId::getKind($neighbour) === $kind);
-        };
+        $same = static fn(int $dx, int $dy): bool => self::isSameKind($layer, $x + $dx, $y + $dy, $kind);
         $resolved[$y][$x] = TileId::getAutotileId($kind, match (true) {
           TileId::isWaterfall($id) => self::getWaterfallShape($same),
           TileId::isWall($id) => self::getWallShape($same),
@@ -40,6 +34,17 @@ final class AutotileShape
       }
     }
     return $resolved;
+  }
+
+  /**
+   * Whether a cell holds an autotile of this kind; beyond the map edge does.
+   *
+   * @param list<list<int>> $layer
+   */
+  public static function isSameKind(array $layer, int $x, int $y, int $kind): bool
+  {
+    $neighbour = $layer[$y][$x] ?? null;
+    return $neighbour === null || (TileId::isAutotile($neighbour) && TileId::getKind($neighbour) === $kind);
   }
 
   /** @param callable(int, int): bool $same */

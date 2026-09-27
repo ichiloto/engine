@@ -57,8 +57,9 @@ capability flag. Historical capability names do not enable stateless frames.
 
 The graphical field keeps the terminal's grid: each terminal cell is drawn as a
 `FieldViewport::CELL_WIDTH` x `CELL_HEIGHT` (24 x 48) logical-pixel box, the
-terminal's own tall shape, so a step covers one cell in both. RPG Maker's
-48-pixel tiles and character frames span two cells across. A map without
+terminal's own tall shape, so a step covers one cell in both. A cell shows one
+column of an autotile's quarters; RPG Maker's 48-pixel plain tiles and
+character frames are two cells wide, centred on their cell. A map without
 graphics shows each cell's text in its box. The camera shows as many whole
 field cells as the session surface holds, centred. See the
 [graphical field plan](../graphical-field.md).

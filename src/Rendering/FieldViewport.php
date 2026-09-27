@@ -17,7 +17,7 @@ use InvalidArgumentException;
  * The graphical field's camera. One terminal cell draws as a CELL_WIDTH x
  * CELL_HEIGHT box, the terminal's own tall cell enlarged, so the field keeps
  * the terminal's grid and a step is one cell in both. RPG Maker's 48-pixel
- * tiles and character frames span TILE_COLUMNS cells across. Everything is
+ * tiles and character frames are two cells wide. Everything is
  * scaled by the display zoom; UI text keeps the session text grid.
  */
 final readonly class FieldViewport
@@ -27,8 +27,6 @@ final readonly class FieldViewport
   /** One terminal cell: half a tile wide and a tile tall. */
   public const int CELL_WIDTH = 24;
   public const int CELL_HEIGHT = 48;
-  /** Terminal cells one tile covers across. */
-  public const int TILE_COLUMNS = self::TILE_SIZE / self::CELL_WIDTH;
   public const float DEFAULT_ZOOM = 1.0;
   public const float MIN_ZOOM = 1.0;
   public const float MAX_ZOOM = PresentationViewport::MAX_SCALE;

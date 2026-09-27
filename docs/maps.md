@@ -108,18 +108,19 @@ assets/Maps/village/harbour/
 <?php
 
 return <<<'TILES'
-2816 0 2816 0 2816 0
-2816 0 2816 0 2816 0
+2816 2816 2816 2816   0   0
+2816 2816 2816 2816 42L 42R
 TILES;
 ```
 
 Each tile layer is a literal nowdoc with one row per map row and one
 whitespace-separated RPG Maker tile identity per cell (`0` is empty); it is
-never executed. A 48 pixel tile covers its cell and the next one across, so a
-floor is painted every other cell, as above. Graphics never change geometry,
-collision, events or saves,
-and unusable graphics or sheets are reported while the map shows its
-terminal glyphs. Autotile shapes are stored in the identities, as RPG Maker
+never executed. A field cell is half a tile wide. An autotile (such as floor
+2816) is composed for its own cell, so an area is painted in every cell. Any
+other tile is drawn whole and centred on its cell, or only its left or right
+half with an `L` or `R` suffix, as the table above. Graphics never change
+geometry, collision, events or saves, and unusable graphics or sheets are
+reported while the map shows its terminal glyphs. Autotile shapes are stored in the identities, as RPG Maker
 stores them; `AutotileShape::resolveLayer` chooses them from neighbours for
 authoring tools. See [graphical field](graphical-field.md) for sheets, draw
 bands and animation.

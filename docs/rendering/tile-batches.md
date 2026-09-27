@@ -57,9 +57,11 @@ its asset-relative `sheets`, and a catalog of `tiles`, each one to four frames
 of pieces copied from a sheet into the tile. The Engine composes RPG Maker
 autotiles into these pieces; the renderer knows no sheet layouts. World
 layers of kind `tiles` own no glyphs, and `worldTiles` lists each row's
-`column` and catalog `tile`. A tile is drawn at its cell's top-left corner at
-`tileSize`, so a 48 pixel tile covers its cell and the next one across. A cell
-covered by an available tile shows no glyph. The viewport's optional
+`column` and catalog `tile`. A tile is one cell tall and may set its own
+`width` and `left` offset from its cell's left edge (in source pixels), so the
+Engine sends a 24-pixel autotile column or tile half for one cell, or a whole
+48-pixel tile centred on its cell (`left` -12). A cell with an available tile
+shows no glyph; cells a tile only overhangs keep theirs. The viewport's optional
 `tileFrame` selects each tile's frame `tileFrame % frames`, so water animates
 with a camera-only update.
 

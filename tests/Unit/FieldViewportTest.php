@@ -74,8 +74,8 @@ it('centers a whole-cell field view without changing UI grid dimensions', functi
 it('sizes the field in 24 x 48 terminal cells scaled by zoom, independent of the text cell size', function (int $cellWidth, int $cellHeight, float $zoom, array $expected) {
     $layout = new FieldViewport(new RendererGridConfig(135, 36, $cellWidth, $cellHeight), $zoom);
     // A terminal cell keeps its tall shape: half an RPG Maker tile wide and one tile tall.
-    expect([FieldViewport::CELL_WIDTH, FieldViewport::CELL_HEIGHT, FieldViewport::TILE_SIZE, FieldViewport::TILE_COLUMNS])
-        ->toBe([24, 48, 48, 2])->and([$layout->columns, $layout->rows])->toBe($expected);
+    expect([FieldViewport::CELL_WIDTH, FieldViewport::CELL_HEIGHT, FieldViewport::TILE_SIZE])
+        ->toBe([24, 48, 48])->and([$layout->columns, $layout->rows])->toBe($expected);
 })->with([
     '10 x 20 text cells at 1x' => [10, 20, 1.0, [56, 15]],
     '10 x 20 text cells at 1.5x' => [10, 20, 1.5, [37, 10]],

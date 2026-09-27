@@ -10,6 +10,8 @@ use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\FieldViewport;
 use Ichiloto\Engine\Rendering\Tilesets\AutotileShape;
+use Ichiloto\Engine\Rendering\Tilesets\CellTiles;
+use Ichiloto\Engine\Rendering\Tilesets\TileSlice;
 use Ichiloto\Engine\Rendering\Tilesets\TileAnimation;
 use Ichiloto\Engine\Rendering\Tilesets\TileComposer;
 use Ichiloto\Engine\Rendering\Tilesets\TileId;
@@ -115,9 +117,8 @@ it('draws table legs beneath the top of an A2 table autotile', function () {
 it('chooses autotile shapes from neighbours of the same kind, with the map edge counting as the same', function () {
   $floor = TileId::getAutotileId(16, 0);
   $e = 0;
-  // Neighbours across are one tile apart: $columns cells.
-  $shapes = static fn(array $layer, int $columns = 1): array => array_map(static fn(array $row): array => array_map(
-    static fn(int $id): int => TileId::isAutotile($id) ? TileId::getShape($id) : -1, $row), AutotileShape::resolveLayer($layer, $columns));
+  $shapes = static fn(array $layer): array => array_map(static fn(array $row): array => array_map(
+    static fn(int $id): int => TileId::isAutotile($id) ? TileId::getShape($id) : -1, $row), AutotileShape::resolveLayer($layer));
   expect($shapes([
     [$e, $e, $e, $e, $e],
     [$e, $floor, $floor, $floor, $e],
@@ -134,10 +135,49 @@ it('chooses autotile shapes from neighbours of the same kind, with the map edge 
     ->and($shapes([[$e, $e, $e], [$floor, $floor, $floor], [$e, $e, $e]])[1])->toBe([33, 33, 33])
     ->and($shapes([[$e, $e, $e], [$e, $floor, $e], [$e, $e, $e]])[1][1])->toBe(46)
     ->and($shapes([[$e, TileId::getAutotileId(88, 0), $e]])[0][1])->toBe(5)
-    ->and($shapes([[$e, TileId::getAutotileId(5, 0), $e]])[0][1])->toBe(3)
-    // On the field a tile covers two terminal cells, so a floor strip is painted every other cell.
-    ->and($shapes([[$e, $e, $e, $e, $e, $e], [$floor, $e, $floor, $e, $floor, $e], [$e, $e, $e, $e, $e, $e]], FieldViewport::TILE_COLUMNS)[1])
-    ->toBe([33, -1, 33, -1, 33, -1]);
+    ->and($shapes([[$e, TileId::getAutotileId(5, 0), $e]])[0][1])->toBe(3);
+});
+
+it('gives each field cell the quarter column of its autotile that faces its edge', function () {
+  $f = TileId::getAutotileId(16, 0);
+  $wall = TileId::getAutotileId(88, 0);
+  $e = 0;
+  $slices = static fn(array $layer): array => array_map(static fn(array $row): array => array_map(
+    static fn(array $cell): string => $cell[1]->value, $row), CellTiles::resolveLayer($layer));
+  // West and east edges show their own halves, a run alternates halves so its
+  // texture continues, and one cell between two edges shows both outer halves.
+  expect($slices([
+    [$e, $e, $e, $e, $e, $e],
+    [$e, $f, $f, $f, $f, $e],
+    [$e, $e, $e, $e, $e, $e],
+    [$e, $f, $e, $e, $wall, $e],
+  ]))->toBe([
+    1 => [1 => 'left', 2 => 'right', 3 => 'left', 4 => 'right'],
+    3 => [1 => 'narrow', 4 => 'narrow'],
+  ])
+    // An inner corner shows on the side of the missing diagonal.
+    ->and($slices([[$f, $f, $f], [$f, $f, $f], [$e, $f, $f]])[1][1])->toBe('left')
+    ->and($slices([[$f, $f, $f], [$f, $f, $f], [$f, $f, $e]])[1][1])->toBe('right')
+    // Shapes still come from the cells beside them; the map edge above and below counts as floor.
+    ->and(TileId::getShape(CellTiles::resolveLayer([[$e, $f, $e]])[0][1][0]))->toBe(32)
+    // A plain tile is whole and centred unless its entry names a half.
+    ->and(array_map(static fn(array $cell): string => $cell[1]->value,
+      CellTiles::resolveLayer([[5, 5, 5]], [0 => [1 => TileSlice::LEFT, 2 => TileSlice::RIGHT]])[0]))
+    ->toBe(['whole', 'left', 'right']);
+});
+
+it('cuts a composed tile into the slice a field cell shows', function () {
+  $plain = TileComposer::compose(5, 48)[0];
+  $floor = TileComposer::compose(TileId::getAutotileId(16, 0), 48)[0];
+  expect(getPieceRects(TileSlice::LEFT->cut($plain, 48)))->toBe([[240, 0, 24, 48, 0, 0]])
+    ->and(getPieceRects(TileSlice::RIGHT->cut($plain, 48)))->toBe([[264, 0, 24, 48, 0, 0]])
+    ->and(getPieceRects(TileSlice::WHOLE->cut($plain, 48)))->toBe(getPieceRects($plain))
+    ->and([TileSlice::WHOLE->getWidth(48), TileSlice::WHOLE->getLeft(48)])->toBe([48, -12])
+    ->and([TileSlice::LEFT->getWidth(48), TileSlice::NARROW->getWidth(48), TileSlice::RIGHT->getLeft(48)])->toBe([24, 24, 0])
+    // One cell wide: the outer half of each quarter column, so both edges show.
+    ->and(array_map(static fn(array $rect): array => [$rect[2], $rect[4], $rect[5]], getPieceRects(TileSlice::NARROW->cut($floor, 48))))
+    ->toBe([[12, 0, 0], [12, 0, 24], [12, 12, 0], [12, 12, 24]])
+    ->and(getPieceRects(TileSlice::NARROW->cut($floor, 48))[2][0])->toBe($floor[1]->x + 12);
 });
 
 it('loads a tileset and uses only sheets whose images fit their RPG Maker layout', function () {
@@ -157,11 +197,16 @@ it('loads a tileset and uses only sheets whose images fit their RPG Maker layout
 
 it('reads map tile layers as literal cells matching the map and refuses anything else', function () {
   $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', "....\n....")]);
-  $layer = new MapTileLayer('floor', 1, 'floor', "2816 0 0 0\n  0 0  10 0 \n");
-  expect($layer->tiles)->toBe([[2816, 0, 0, 0], [0, 0, 10, 0]])
+  $layer = new MapTileLayer('floor', 1, 'floor', "2816 0 10L 10R\n  0 0  10 0 \n");
+  expect($layer->tiles)->toBe([[2816, 0, 10, 10], [0, 0, 10, 0]])
+    ->and($layer->halves)->toBe([0 => [2 => TileSlice::LEFT, 3 => TileSlice::RIGHT]])
+    ->and($layer->getEntries())->toBe([['2816', '0', '10L', '10R'], ['0', '0', '10', '0']])
     ->and($layer->getUsedIds())->toBe([2816, 10]);
   $layer->assertMatches($layers);
   expect(fn() => new MapTileLayer('floor', 1, 'floor', "1700 0"))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => new MapTileLayer('floor', 1, 'floor', "2816L 0"))->toThrow(InvalidArgumentException::class, 'autotiles')
+    ->and(fn() => new MapTileLayer('floor', 1, 'floor', "0R 0"))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => new MapTileLayer('floor', 1, 'floor', "10X 0"))->toThrow(InvalidArgumentException::class)
     ->and(fn() => new MapTileLayer('floor', 1, 'floor', "x 0"))->toThrow(InvalidArgumentException::class)
     ->and(fn() => (new MapTileLayer('floor', 1, 'floor', "0 0 0\n0 0"))->assertMatches($layers))->toThrow(InvalidArgumentException::class);
 });
@@ -170,8 +215,8 @@ it('uploads the tileset, tile layers in their draw bands and glyph-free rows wit
   writeTilesetProject($this->root, extra: ", 'above' => [5]");
   $map = $this->root . '/Maps/home';
   mkdir($map . '/graphics', 0777, true);
-  file_put_contents($map . '/graphics/01.floor.tiles.php', MapGridSource::buildSource("2816 0 2816 0\n2816 0 0 0", 'TILES'));
-  file_put_contents($map . '/graphics/05.furniture.tiles.php', MapGridSource::buildSource("0 0 5 0\n1 0 0 0", 'TILES'));
+  file_put_contents($map . '/graphics/01.floor.tiles.php', MapGridSource::buildSource("2816 2816 2816 2816\n2816 2816 0 0", 'TILES'));
+  file_put_contents($map . '/graphics/05.furniture.tiles.php', MapGridSource::buildSource("0 0 5L 5R\n1 0 0 0", 'TILES'));
   $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', "....\n....")]);
   $graphics = MapGraphics::loadFromDirectory($map, 'home', 'home', $layers, $this->root);
   $world = PresentationWorld::getFromLayers($layers, 'map', $graphics, $this->root);
@@ -184,18 +229,26 @@ it('uploads the tileset, tile layers in their draw bands and glyph-free rows wit
   ])
     ->and($value['tileset']['tileSize'])->toBe(48)
     ->and($value['tileset']['sheets'])->toBe(['Graphics/Tilesets/A2.png', 'Graphics/Tilesets/B.png'])
-    ->and($value['tileset']['tiles'])->toHaveCount(3)
-    ->and($value['tileset']['tiles'][2]['frames'][0])->toBe([['sheet' => 1, 'x' => 48, 'y' => 0, 'width' => 48, 'height' => 48, 'left' => 0, 'top' => 0]])
     ->and($world->textLayerIds)->toBe(['map:terrain'])
     ->and($world->animated)->toBeFalse();
   $tiles = array_values(array_filter($world->operations, static fn(array $operation): bool => $operation['op'] === 'worldTiles'));
   expect(array_map(static fn(array $operation): array => [$operation['layerId'], $operation['rows'][0]['row'],
     array_column($operation['rows'][0]['cells'], 'column')], $tiles))->toBe([
-    ['tiles:floor', 0, [0, 2]],
-    ['tiles:floor', 1, [0]],
+    ['tiles:floor', 0, [0, 1, 2, 3]],
+    ['tiles:floor', 1, [0, 1]],
     ['tiles:furniture', 1, [0]],
-    ['tiles:furniture:above', 0, [2]],
+    ['tiles:furniture:above', 0, [2, 3]],
   ]);
+  $catalog = $value['tileset']['tiles'];
+  $at = static fn(int $index, int $cell): array => $catalog[$tiles[$index]['rows'][0]['cells'][$cell]['tile']];
+  // Every floor cell is an autotile quarter column; B tile 5 lies across two
+  // cells as its halves; B tile 1 is whole and centred on its cell.
+  foreach ([[0, 0], [0, 1], [0, 2], [0, 3], [1, 0], [1, 1]] as [$index, $cell]) {
+    expect($at($index, $cell)['width'])->toBe(24)->and($at($index, $cell))->not->toHaveKey('left');
+  }
+  expect($at(3, 0)['frames'][0])->toBe([['sheet' => 1, 'x' => 240, 'y' => 0, 'width' => 24, 'height' => 48, 'left' => 0, 'top' => 0]])
+    ->and($at(3, 1)['frames'][0])->toBe([['sheet' => 1, 'x' => 264, 'y' => 0, 'width' => 24, 'height' => 48, 'left' => 0, 'top' => 0]])
+    ->and($at(2, 0))->toBe(['left' => -12, 'frames' => [[['sheet' => 1, 'x' => 48, 'y' => 0, 'width' => 48, 'height' => 48, 'left' => 0, 'top' => 0]]]]);
 });
 
 it('leaves a map on its glyphs when its graphics or every sheet are unusable', function () {
