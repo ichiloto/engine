@@ -104,7 +104,6 @@ final class PauseBattleFixture extends BattleScene
       public function stop(): void {}
       public function suspend(): void {}
       public function resizeViewport(int $width, int $height): void {}
-      public function resizeToConsole(int $columns, int $height): void {}
     };
     $party = new Party();
     $party->addMember(new Character('Pause Hero', 1, new Stats(currentHp: 100, speed: 10)));

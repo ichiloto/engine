@@ -16,7 +16,7 @@ it('draws every character exactly one field cell, whatever the frame size', func
   $sheet = new CharacterSheet('Graphics/Characters/People.png');
   $definition = $sheet->getFrame(MovementHeading::SOUTH, 1, ['width' => $frame, 'height' => $frame]);
 
-  expect([$definition->width, $definition->height])->toBe([FieldViewport::CELL_SIZE, FieldViewport::CELL_SIZE])
+  expect([$definition->width, $definition->height])->toBe([FieldViewport::TILE_SIZE, FieldViewport::TILE_SIZE])
     ->and($definition->anchor)->toBe(PresentationSpriteAnchor::BOTTOM_CENTER);
 })->with([[48], [32], [96]]);
 

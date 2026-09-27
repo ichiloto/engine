@@ -54,8 +54,7 @@ function geometryObservations(Game $game): array
 {
   $cameras = [];
   foreach (new \ReflectionProperty(SceneManager::class, 'scenes')->getValue($game->sceneManager) as $scene) {
-    $cameras[] = ['width' => $scene->camera->getConsoleColumns(), 'height' => $scene->camera->screen->getHeight(),
-      'cells' => $scene->camera->screen->getWidth()];
+    $cameras[] = ['width' => $scene->camera->screen->getWidth(), 'height' => $scene->camera->screen->getHeight()];
   }
   return [
     'game' => ['width' => new \ReflectionProperty(Game::class, 'width')->getValue($game),

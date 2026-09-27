@@ -280,7 +280,7 @@ it('restarts an active renderer once without replacing desired field or canvas s
     $peer->batches = [$events];
   };
   $this->runtime->start('Restart retained scene', 12, 4);
-  $world = PresentationWorld::getFromLayers(new MapLayerSet([new MapLayer('terrain', 1, false, 'map', 'aabbcc')]));
+  $world = PresentationWorld::getFromLayers(new MapLayerSet([new MapLayer('terrain', 1, false, 'map', 'abc')]));
   $canvas = new PresentationCanvas(320, 180, [new CanvasImage('panel', 'panel.png', new CanvasRectangle(8, 8, 64, 32))]);
   $scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()
     ->onlyMethods(['getPresentationWorld', 'getPresentationCanvas', 'getGraphicalSpriteProviders'])->getMock();
@@ -297,7 +297,7 @@ it('restarts an active renderer once without replacing desired field or canvas s
   expect($this->runtime->present($scene))->toBeTrue();
   $initial = RetainedFrameState::replay($this->transport->sent)[0];
   if ($canvasMode) { expect($initial['canvas']['images'][0]['asset'])->toBe('panel.png'); }
-  else { expect($initial['worlds']['map']['glyphRows']['map:terrain'][0][1]['glyph'])->toBe('bb')->and($initial['sprites'])->toHaveCount(1); }
+  else { expect($initial['worlds']['map']['glyphRows']['map:terrain'][0][1]['glyph'])->toBe('b')->and($initial['sprites'])->toHaveCount(1); }
   $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"key","key":"left"}')];
   $this->runtime->pump();
   $input = InputManager::getInputSource(); $console = Console::snapshot(); $session = $this->transport->session;
@@ -418,7 +418,7 @@ it('resumes a large cold world through a slow real pipe while keeping input and 
   $transport = new ProcessRendererTransport($process);
   $this->runtime = new RendererRuntime(new RendererRuntimeConfig($process, __DIR__), $transport);
   $world = PresentationWorld::getFromLayers(new MapLayerSet([
-    new MapLayer('terrain', 0, false, 'terrain', implode("\n", array_fill(0, 512, str_repeat('..', 256)))),
+    new MapLayer('terrain', 0, false, 'terrain', implode("\n", array_fill(0, 512, str_repeat('.', 256)))),
   ]));
   $scene = new class($world) extends GameScene {
     public function __construct(private readonly PresentationWorld $world) {}
@@ -637,8 +637,8 @@ it('presents layered field ownership through the real field runtime and clears i
   $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["sprite_source_rect"]}')];
   $this->runtime->start('Fixture ownership', 12, 4);
   $scene = makeBareScene(GameScene::class);
-  $layers = new MapLayerSet([new MapLayer('floor', 1, false, 'floor', '          '),
-    new MapLayer('fixtures', 2, false, 'fixtures', '####  ##i ')]);
+  $layers = new MapLayerSet([new MapLayer('floor', 1, false, 'floor', '     '),
+    new MapLayer('fixtures', 2, false, 'fixtures', '## #i')]);
   $camera = new Camera($scene, 12, 4, worldSpace: $layers->getComposedGrid());
   new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
   $map = makeBareScene(MapManager::class);
@@ -660,8 +660,8 @@ it('presents layered field ownership through the real field runtime and clears i
   $frames = RetainedFrameState::replay($this->transport->sent);
   $world = end($frames)['worlds']['map'];
   expect($world['layers'][1]['id'])->toBe('map:fixtures')
-    ->and($world['glyphRows']['map:fixtures'][0][4]['glyph'])->toBe('i ')
-    ->and($world['glyphRows']['map:floor'][0][2]['glyph'])->toBe('  ')
+    ->and($world['glyphRows']['map:fixtures'][0][4]['glyph'])->toBe('i')
+    ->and($world['glyphRows']['map:floor'][0][2]['glyph'])->toBe(' ')
     ->and(Console::snapshot())->toEqual($terminal);
   Console::withLayer('dialogue', fn() => Console::write('Talk', 0, 3), 1020);
   $this->runtime->present($scene);
@@ -690,13 +690,13 @@ it('uses the same field eligibility for the terrain world and Player and clears 
   $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["sprite_source_rect"]}')];
   $this->runtime->start('Terrain',12,4);
   $scene = makeBareScene(GameScene::class);
-  $camera = new Camera($scene,12,4,worldSpace:array_fill(0,4,array_fill(0,12,';;')));
+  $camera = new Camera($scene,12,4,worldSpace:array_fill(0,4,array_fill(0,12,';')));
   new ReflectionProperty(GameScene::class,'camera')->setValue($scene,$camera);
   $map = makeBareScene(MapManager::class);
   new ReflectionProperty(MapManager::class,'gameScene')->setValue($map,$scene);
   new ReflectionProperty(MapManager::class,'tileMap')->setValue($map,$camera->worldSpace);
   new ReflectionProperty(MapManager::class,'layers')->setValue($map, new MapLayerSet([
-    new MapLayer('terrain', 1, false, 'field', implode("\n", array_fill(0, 4, str_repeat(';;', 12)))),
+    new MapLayer('terrain', 1, false, 'field', implode("\n", array_fill(0, 4, str_repeat(';', 12)))),
   ], legacy: true));
   new ReflectionProperty(GameScene::class,'mapManager')->setValue($scene,$map);
   $player = $this->getMockBuilder(Player::class)->disableOriginalConstructor()
@@ -745,11 +745,11 @@ it('uses the same field eligibility for the terrain world and Player and clears 
   $frames = RetainedFrameState::replay($this->transport->sent);
   expect(end($frames)['worlds']['map'])->toBe($world);
   // Actual background restoration removes old named Player history.
-  Console::withLayer('player',fn()=>Console::write('@',2,1));
+  Console::withLayer('player',fn()=>Console::write('@',1,1));
   $map->renderBackgroundTile(1,1);
   $this->runtime->present($scene);
   $frames = RetainedFrameState::replay($this->transport->sent);
-  expect(end($frames)['worlds']['map']['glyphRows']['map:terrain'][1][1]['glyph'])->toBe(';;')
+  expect(end($frames)['worlds']['map']['glyphRows']['map:terrain'][1][1]['glyph'])->toBe(';')
     ->and(array_column(end($frames)['textLayers'], 'id'))->not->toContain('player');
   $before = Console::getBuffer();
   $map->renderBackgroundTile(-1,0);

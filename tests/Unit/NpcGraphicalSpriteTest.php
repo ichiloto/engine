@@ -49,7 +49,7 @@ final class NpcGraphicalTestGame extends Game
   public function __destruct() {}
 }
 
-/** Real NPC, map collision, camera, scene provider, and cinematic ownership paths. World cell (7, 4) is console column 14. */
+/** Real NPC, map collision, camera, scene provider, and cinematic ownership paths. */
 final class NpcGraphicalTestScene extends GameScene
 {
   public function __construct(private readonly Game $testGame)
@@ -57,7 +57,7 @@ final class NpcGraphicalTestScene extends GameScene
     $this->gameState = new GameState();
     $this->party = new Party();
     $this->currentMapId = 'Village/Plaza';
-    $this->camera = new Camera($this, 24, 8, worldSpace: array_fill(0, 12, str_repeat('..', 16)));
+    $this->camera = new Camera($this, 24, 8, worldSpace: array_fill(0, 12, str_repeat('.', 32)));
     $this->mapManager = makeBareScene(MapManager::class);
     new ReflectionProperty(MapManager::class, 'gameScene')->setValue($this->mapManager, $this);
     new ReflectionProperty(MapManager::class, 'collisionMap')->setValue($this->mapManager,
@@ -74,7 +74,7 @@ final class NpcGraphicalTestScene extends GameScene
 
   public function renderBackgroundTile(int $x, int $y): void
   {
-    $this->camera->renderOnScreen(['..'], new Vector2($x, $y));
+    $this->camera->renderOnScreen(['.'], new Vector2($x, $y));
   }
 
   public function changeMapIdentity(string $mapId): void { $this->currentMapId = $mapId; }
@@ -210,8 +210,8 @@ it('masks only the successfully graphical NPC layer through the real scene colle
   $text = RetainedFrameState::getTextRows($frame, 24, 8);
   expect($frame['sprites'])->toHaveCount(1)
     ->and($frame['sprites'][0]['id'])->toBe($this->npc->getGraphicalSpriteId())
-    ->and(mb_substr($text[4], 14, 1))->toBe('.')->and(mb_substr($text[4], 16, 1))->toBe('L')
-    ->and(Console::charAt(14, 4))->toBe('G')->and(Console::snapshot())->toEqual($terminal);
+    ->and(mb_substr($text[4], 7, 1))->toBe('.')->and(mb_substr($text[4], 8, 1))->toBe('L')
+    ->and(Console::charAt(7, 4))->toBe('G')->and(Console::snapshot())->toEqual($terminal);
 });
 
 it('diagnoses malformed optional art without dropping occupancy or world-state writes', function ($graphics) {
@@ -224,12 +224,12 @@ it('diagnoses malformed optional art without dropping occupancy or world-state w
     ->and($this->scene->gameState->getSwitch('talked'))->toBeTrue()
     ->and(file_get_contents($this->root . '/warning.log'))->toContain('guide', 'Village/Plaza', 'sprites2d');
   $this->scene->renderNpcField();
-  expect(Console::charAt(14, 4))->toBe('G');
+  expect(Console::charAt(7, 4))->toBe('G');
   $this->runtime->start('NPC invalid definition', 24, 8);
   $this->runtime->present($this->scene);
   $frames = RetainedFrameState::replay($this->transport->sent);
   $frame = $frames[array_key_last($frames)];
-  expect($frame['sprites'])->toBe([])->and(mb_substr(RetainedFrameState::getTextRows($frame, 24, 8)[4], 14, 1))->toBe('G');
+  expect($frame['sprites'])->toBe([])->and(mb_substr(RetainedFrameState::getTextRows($frame, 24, 8)[4], 7, 1))->toBe('G');
 })->with([
   'empty' => [[]], 'null' => [null], 'wrong type' => ['sprite.png'],
   'authored size' => [['sheet' => 'People.png', 'width' => 48, 'height' => 48]],
@@ -249,7 +249,7 @@ it('keeps the terminal glyph on a missing or corrupt sheet and recovers after re
   $this->scene->renderNpcField();
   for ($i = 0; $i < 3; $i++) { $this->runtime->present($this->scene); }
   $frame = RetainedFrameState::replay($this->transport->sent)[0];
-  expect($frame['sprites'])->toBe([])->and(mb_substr(RetainedFrameState::getTextRows($frame, 24, 8)[4], 14, 1))->toBe('G')
+  expect($frame['sprites'])->toBe([])->and(mb_substr(RetainedFrameState::getTextRows($frame, 24, 8)[4], 7, 1))->toBe('G')
     ->and(file($this->root . '/warning.log'))->toHaveCount(1)
     ->and($this->manager->npcAt(7, 4))->toBe($this->npc);
   $id = $this->npc->getGraphicalSpriteId();
@@ -258,7 +258,7 @@ it('keeps the terminal glyph on a missing or corrupt sheet and recovers after re
   $this->runtime->present($this->scene);
   $frames = RetainedFrameState::replay($this->transport->sent);
   $repaired = $frames[array_key_last($frames)];
-  expect($repaired['sprites'][0]['id'])->toBe($id)->and(mb_substr(RetainedFrameState::getTextRows($repaired, 24, 8)[4], 14, 1))->toBe('.')
+  expect($repaired['sprites'][0]['id'])->toBe($id)->and(mb_substr(RetainedFrameState::getTextRows($repaired, 24, 8)[4], 7, 1))->toBe('.')
     ->and($this->npc->id)->toBe('guide')->and($this->npc->sprite)->toBe('G');
   // Frame size follows the current image; the field footprint stays one cell.
   expect($this->npc->getGraphicalSpriteDefinition()->sourceRect->toArray())
@@ -287,7 +287,7 @@ it('guards the sheet layout against replaced dimensions without rejecting larger
   $this->runtime->present($this->scene);
   $frames = RetainedFrameState::replay($this->transport->sent);
   $frame = $frames[array_key_last($frames)];
-  expect($frame['sprites'])->toBe([])->and(mb_substr(RetainedFrameState::getTextRows($frame, 24, 8)[4], 14, 1))->toBe('G');
+  expect($frame['sprites'])->toBe([])->and(mb_substr(RetainedFrameState::getTextRows($frame, 24, 8)[4], 7, 1))->toBe('G');
   writeCharacterSheetPng($path, 16, 24);
   touch($path, 1700000002);
   expect($npc->getGraphicalSpriteDefinition()->sourceRect->toArray())
@@ -364,7 +364,7 @@ it('filters hidden and staged-suppressed subjects consistently and restores real
   expect($this->manager->getGraphicalSpriteProviders())->toBe([])
     ->and($this->manager->npcAt(7, 4))->toBe($npc);
   $this->scene->renderNpcField();
-  expect(Console::charAt(14, 4))->toBe('@');
+  expect(Console::charAt(7, 4))->toBe('@');
   $stage->hide('pose');
   $this->manager->moveNpcById('guide', Vector2::right());
   $this->manager->advanceGraphicalAnimation(0.08);
@@ -378,7 +378,7 @@ it('filters hidden and staged-suppressed subjects consistently and restores real
   $this->manager->advanceGraphicalAnimation(0.08);
   $this->scene->renderNpcField();
   expect($this->manager->getGraphicalSpriteProviders())->toBe([])
-    ->and($this->manager->npcAt(7, 4))->toBeNull()->and(Console::charAt(14, 4))->toBe('.');
+    ->and($this->manager->npcAt(7, 4))->toBeNull()->and(Console::charAt(7, 4))->toBe('.');
   $this->scene->gameState->setSwitch('departed', false);
   expect($this->manager->getGraphicalSpriteProviders())->toBe([$npc]);
 });

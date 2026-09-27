@@ -220,9 +220,7 @@ class EventTestCamera extends Camera
   public function __construct()
   {
     $this->player = null;
-    // Twenty cells across, drawn into forty console columns.
     $this->screen = new Rect(0, 0, 20, 10);
-    $this->consoleColumns = 20 * \Ichiloto\Engine\Field\MapCell::COLUMNS;
     $this->position = new Vector2(0, 0);
     $this->worldSpaceWidth = 100;
     $this->worldSpaceHeight = 60;
@@ -806,8 +804,6 @@ it('keeps cinematic narration visible for the global reading-time floor', functi
 it('centres title cards while left aligning narration inside its top centred box', function () {
   [$scene] = makeEventRuntime();
   $scene->installCinematicRuntime();
-  // Overlays span console columns: a twenty-column console shows ten cells.
-  $scene->camera->resizeViewport(10, 10);
   $console = new ReflectionClass(Console::class);
   $previousConsoleState = [];
 

@@ -449,16 +449,24 @@ class MapManager implements CanRenderAt
       $dictionary = $this->defaultCollisionDictionary;
     }
 
-    if ($tilemap === []) {
-      return [];
-    }
-    // One grid is a single legacy layer; it resolves exactly as layered maps do.
-    $text = implode("\n", array_map(static fn(array|string $row): string => is_array($row) ? implode('', $row) : $row, $tilemap));
+    $collisionMap = [];
 
-    return MapCollisionResolver::resolveLayers(
-      new MapLayerSet([new MapLayer('terrain', 0, false, 'Map', $text)], legacy: true),
-      $dictionary,
-    );
+    foreach ($tilemap as $row) {
+      $collisionRow = [];
+
+      $tiles = is_array($row) ? $row : TerminalText::visibleSymbols($row);
+
+      foreach ($tiles as $tile) {
+        $cleanedTile = ASCII::to_ascii(TerminalText::stripAnsi($tile));
+        $type = $dictionary[$cleanedTile] ?? CollisionType::SOLID;
+        $collisionRow[] = $type instanceof CollisionType && $type !== CollisionType::PASS_THROUGH
+          ? $type->value : CollisionType::SOLID->value;
+      }
+
+      $collisionMap[] = $collisionRow;
+    }
+
+    return $collisionMap;
   }
 
   /**
@@ -820,7 +828,7 @@ class MapManager implements CanRenderAt
     $map['id'] ??= $paths['id'];
 
     if (array_key_exists('tiles2d', $map)) {
-      // Glyph-keyed crops cannot address two-column cells; tilesets replace them.
+      // Glyph-keyed crops are retired; a map draws graphics from its tileset.
       Debug::warn("{$displayPaths['data']} tiles2d is no longer read; its map shows terminal glyphs until it has a tileset.");
     }
 
@@ -885,9 +893,8 @@ class MapManager implements CanRenderAt
     }
 
     return array_map(
-      static fn(string $row, int $y): array => MapCell::parseRow($row, "{$fieldName} {$filename} row {$y}"),
-      $rows,
-      array_keys($rows),
+      static fn(string $row): array => TerminalText::visibleSymbols($row),
+      $rows
     );
   }
 
@@ -948,8 +955,7 @@ class MapManager implements CanRenderAt
 
       $resolvedMarker = is_string($marker) ? $marker : ($eventDefinition['marker'] ?? null);
 
-      if (! is_string($resolvedMarker) || TerminalText::symbolCount($resolvedMarker) !== 1
-        || TerminalText::displayWidth($resolvedMarker) > MapCell::COLUMNS) {
+      if (! is_string($resolvedMarker) || TerminalText::displayWidth($resolvedMarker) !== 1) {
         throw new InvalidArgumentException("Events in split map data must be keyed by a single-character marker or declare one explicitly.");
       }
 
@@ -979,12 +985,11 @@ class MapManager implements CanRenderAt
   {
     $bounds = [];
 
-    $markers = [];
     foreach ($eventLayer as $y => $row) {
       foreach ($row as $x => $tile) {
-        $marker = $markers[$y][$x] = MapCell::getMarker($tile, "Event cell at row {$y}, column {$x} of {$filename}");
+        $marker = TerminalText::stripAnsi($tile);
 
-        if ($marker === null) {
+        if (trim($marker) === '') {
           continue;
         }
 
@@ -1010,7 +1015,9 @@ class MapManager implements CanRenderAt
     foreach ($bounds as $marker => $markerBounds) {
       for ($y = $markerBounds['minY']; $y <= $markerBounds['maxY']; $y++) {
         for ($x = $markerBounds['minX']; $x <= $markerBounds['maxX']; $x++) {
-          if (($markers[$y][$x] ?? null) !== $marker) {
+          $cell = TerminalText::stripAnsi($eventLayer[$y][$x] ?? ' ');
+
+          if ($cell !== $marker) {
             throw new InvalidArgumentException("Event marker '{$marker}' in {$filename} must occupy a solid rectangle.");
           }
         }

@@ -1,6 +1,5 @@
 <?php
 
-use Ichiloto\Engine\Field\MapCell;
 use Ichiloto\Engine\Field\MapLayer;
 use Ichiloto\Engine\Field\MapLayerSet;
 use Ichiloto\Engine\IO\Console\ConsolePresentationChanges;
@@ -34,9 +33,9 @@ function finishRetainedTestUpload(RetainedPresentation $sender, FakeRendererTran
 
 function retainedTestWorld(int $width = 10, int $height = 4, int $layers = 1): PresentationWorld
 {
-    $list = [new MapLayer('floor', 0, false, 'floor', implode("\n", array_fill(0, $height, str_repeat('..', $width))))];
+    $list = [new MapLayer('floor', 0, false, 'floor', implode("\n", array_fill(0, $height, str_repeat('.', $width))))];
     for ($n = 1; $n < $layers; $n++) {
-        $list[] = new MapLayer('detail' . $n, $n, false, 'detail', implode("\n", array_fill(0, $height, str_repeat(MapCell::BLANK, $width))));
+        $list[] = new MapLayer('detail' . $n, $n, false, 'detail', implode("\n", array_fill(0, $height, str_repeat(' ', $width))));
     }
     return PresentationWorld::getFromLayers(new MapLayerSet($list));
 }
@@ -201,7 +200,7 @@ it('bounds unacknowledged cold packets and coalesces changing text sprites and v
         ->and($frames[1]['sprites'][0]['x'])->toBe(60)
         ->and($frames[1]['textLayers'][0]['runs'][0]['text'])->toBe('latest 60')
         ->and($frames[1]['viewport']['worldOrigin']['column'])->toBe(60)
-        ->and($frames[1]['worlds']['map']['glyphRows']['map:floor'][255][255]['glyph'])->toBe('..')
+        ->and($frames[1]['worlds']['map']['glyphRows']['map:floor'][255][255]['glyph'])->toBe('.')
         ->and($sender->present($text('latest 60'), $sprite(60), retainedTestViewport(60), $world))->toBeFalse();
 });
 
@@ -279,7 +278,7 @@ it('restarts partially sent work after an actual send failure without losing new
     finishRetainedTestUpload($sender, $transport, fn() => $sender->present($text, $latest, null, $world));
     $frames = RetainedFrameState::replay($transport->sent);
     expect($frames)->toHaveCount(1)->and($frames[0]['sprites'][0]['id'])->toBe('latest')
-        ->and($frames[0]['worlds']['map']['glyphRows']['map:floor'][127][255]['glyph'])->toBe('..')
+        ->and($frames[0]['worlds']['map']['glyphRows']['map:floor'][127][255]['glyph'])->toBe('.')
         ->and($sender->present($text, $latest, null, $world))->toBeFalse();
 });
 

@@ -1,11 +1,12 @@
 # Field character sheets
 
 Field characters (the player, NPCs and cinematic actors) use RPG Maker's
-character sheet layout. A character occupies exactly one field cell, as it
-occupies one terminal cell: the graphical field is drawn in square cells of
-`FieldViewport::CELL_SIZE` (48) logical pixels, RPG Maker's tile size. PHP owns
-direction, walking pattern and frame selection; the renderer draws the
-selected crop into the character's cell. See the
+character sheet layout. A character stands on exactly one field cell, as it
+occupies one terminal cell. The graphical field draws each terminal cell as a
+`FieldViewport::CELL_WIDTH` x `CELL_HEIGHT` (24 x 48) box, and a character is
+one `FieldViewport::TILE_SIZE` (48) frame, RPG Maker's size, bottom-centred on
+its cell, so it overhangs half a cell on each side. PHP owns direction, walking
+pattern and frame selection; the renderer draws the selected crop. See the
 [graphical field plan](../graphical-field.md).
 
 ## Project metadata
@@ -57,8 +58,8 @@ exactly one cell, the field action prompt sits in the cell directly above it.
 
 A fixed pose (for example a cinematic embrace) uses `GraphicalSpriteDefinition`
 with `asset`, an optional `sourceRect` crop, an optional `layer`, and an
-optional footprint in whole `cells` (default one cell). It is bottom-centred on
-its position. Authored pixel sizes and anchors are rejected:
+optional size in whole character frames, `cells` (default one frame, 48 x 48).
+It is bottom-centred on its position's cell. Authored pixel sizes and anchors are rejected:
 
 ```php
 'sprites2d' => ['asset' => 'Graphics/Poses/Embrace.png', 'cells' => ['width' => 2, 'height' => 1],
@@ -67,9 +68,9 @@ its position. Authored pixel sizes and anchors are rejected:
 
 ## Renderer contract
 
-The retained world carries `cellSize`, and the renderer draws the field at
-that pitch: world cells, field text and the sprites the viewport names. Sprite
-positions are camera-screen cells; a one-cell character is sent at
-`width = height = cellSize` and fills its cell exactly. Crops use the
+The retained world carries `cellWidth` and `cellHeight`, and the renderer
+draws the field at that pitch: world cells, field text and the sprites the
+viewport names. Sprite positions are camera-screen cells; a character is sent
+at 48 x 48 and anchored at the bottom centre of its cell. Crops use the
 negotiated `sprite_source_rect` capability. See the renderer's documentation
 for the wire format.

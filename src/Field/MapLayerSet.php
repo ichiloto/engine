@@ -55,8 +55,8 @@ final readonly class MapLayerSet
             }
             foreach ($layer->grid as $y => $row) {
                 foreach ($row as $x => $cell) {
-                    if (!MapCell::isBlank($layer->glyphs[$y][$x])) {
-                        $result[$y][$x] = MapCell::overlay($result[$y][$x], $cell);
+                    if ($layer->glyphs[$y][$x] !== ' ') {
+                        $result[$y][$x] = $cell;
                         $owners[$y][$x] = $index;
                     }
                 }
@@ -71,6 +71,7 @@ final readonly class MapLayerSet
     {
         return $this->composedGrid;
     }
+
 
     public function getGameplayLayerAt(int $x, int $y): MapLayer
     {
@@ -87,7 +88,7 @@ final readonly class MapLayerSet
         }
         foreach ($base as $rowIndex => $row) {
             if (count($grid[$rowIndex] ?? []) !== count($row)) {
-                throw new InvalidArgumentException($context . " row {$rowIndex} must be " . count($row) . ' cells wide.');
+                throw new InvalidArgumentException($context . " row {$rowIndex} must be " . count($row) . ' tiles wide.');
             }
         }
     }

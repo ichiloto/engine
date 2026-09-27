@@ -33,7 +33,7 @@ final readonly class CharacterSheet
     public int $layer = self::DEFAULT_LAYER,
   )
   {
-    SpriteValidation::validateDefinition($asset, FieldViewport::CELL_SIZE, FieldViewport::CELL_SIZE, $layer);
+    SpriteValidation::validateDefinition($asset, FieldViewport::TILE_SIZE, FieldViewport::TILE_SIZE, $layer);
     $this->isSingleCharacter = str_starts_with(basename($asset), self::SINGLE_CHARACTER_PREFIX);
     $characters = $this->isSingleCharacter ? 1 : self::SHEET_CHARACTER_COLUMNS * self::SHEET_CHARACTER_ROWS;
     if ($index < 0 || $index >= $characters) {
@@ -84,7 +84,7 @@ final readonly class CharacterSheet
     $block = $this->isSingleCharacter ? 0 : $this->index;
     $column = ($block % self::SHEET_CHARACTER_COLUMNS) * self::FRAMES_PER_DIRECTION + $pattern;
     $row = intdiv($block, self::SHEET_CHARACTER_COLUMNS) * self::DIRECTION_ROWS + self::getDirectionRow($heading);
-    return new GraphicalSpriteDefinition($this->asset, FieldViewport::CELL_SIZE, FieldViewport::CELL_SIZE,
+    return new GraphicalSpriteDefinition($this->asset, FieldViewport::TILE_SIZE, FieldViewport::TILE_SIZE,
       PresentationSpriteAnchor::BOTTOM_CENTER, $this->layer, new SpriteSourceRect(
         $column * $frameSize['width'], $row * $frameSize['height'], $frameSize['width'], $frameSize['height'],
       ));

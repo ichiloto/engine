@@ -98,7 +98,7 @@ final class CinematicPresentationManager
 
     $origin = $this->animationUsesScreenSpace
       ? $this->animationPosition
-      : $this->gameScene->camera->getConsolePosition($this->animationPosition);
+      : $this->gameScene->camera->getScreenSpacePosition($this->animationPosition);
 
     foreach ($this->animationFrame->getCells() as $cell) {
       $symbol = $cell->color !== null && $cell->color !== ''
@@ -114,7 +114,7 @@ final class CinematicPresentationManager
       return;
     }
 
-    $screenWidth = $this->gameScene->camera->getConsoleColumns();
+    $screenWidth = $this->gameScene->camera->screen->getWidth();
     $screenHeight = $this->gameScene->camera->screen->getHeight();
     $width = min(max(20, intval($screenWidth * 0.6)), max(20, $screenWidth - 4));
     $text = trim(strval($this->overlay['text'] ?? ''));
@@ -156,7 +156,7 @@ final class CinematicPresentationManager
       return;
     }
 
-    $width = $this->gameScene->camera->getConsoleColumns();
+    $width = $this->gameScene->camera->screen->getWidth();
     $height = $this->gameScene->camera->screen->getHeight();
     $this->gameScene->camera->draw(
       array_fill(0, $height, str_repeat($this->fieldCover, $width)),

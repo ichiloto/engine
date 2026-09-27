@@ -399,9 +399,9 @@ class NpcManager
     if ($this->gameScene->cinematicStage?->suppresses($npc) ?? false) {
       return;
     }
-    $cells = MapCell::getSpanCells(TerminalText::displayWidth($npc->sprite));
+    $columns = max(1, TerminalText::displayWidth($npc->sprite));
 
-    for ($column = 0; $column < $cells; $column++) {
+    for ($column = 0; $column < $columns; $column++) {
       $this->gameScene->renderBackgroundTile(
         intval($npc->position->x) + $column,
         intval($npc->position->y)

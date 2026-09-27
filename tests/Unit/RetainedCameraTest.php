@@ -2,7 +2,6 @@
 
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\Core\GameState;
-use Ichiloto\Engine\Field\MapCell;
 use Ichiloto\Engine\Field\NpcManager;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\NormalizedRow;
@@ -44,9 +43,8 @@ function retainedCamera(): Camera
 {
   $rows = [];
   for ($y = 0; $y < 6; $y++) {
-    $rows[] = MapCell::parseRow("<fg=blue>abcdefghijklmnop</>" . $y . ' ');
+    $rows[] = TerminalText::visibleSymbols("<fg=blue>abcdefghijklmnop</>" . $y);
   }
-  // Twelve console columns show six two-column cells.
   return new Camera(makeCameraTestScene(), 12, 4, worldSpace: $rows);
 }
 
@@ -72,7 +70,7 @@ it('keeps map-owned fixture appearance intact while retaining its NPC identity a
   // Omission retains the normal NPC default; only an explicit empty string opts out.
   $manager->configure([['name' => 'Visible NPC', 'x' => 2, 'y' => 1]]);
   $manager->render();
-  expect(Console::charAt(4, 1))->toBe('@');
+  expect(Console::charAt(2, 1))->toBe('@');
 })->with(['terminal buffer' => false, 'graphical provenance' => true]);
 
 it('reuses map cells for idle, both pan axes, background restoration and menu return', function () {
@@ -90,9 +88,9 @@ it('reuses map cells for idle, both pan axes, background restoration and menu re
     $camera->moveTo($x, $y);
     $camera->renderMap();
   }
-  Console::writeNormalizedRow($player, 3 * MapCell::COLUMNS, 1);
+  Console::writeNormalizedRow($player, 3, 1);
   $camera->renderBackgroundTile(3, 1);
-  Console::writeNormalizedRow($player, 4 * MapCell::COLUMNS, 1);
+  Console::writeNormalizedRow($player, 4, 1);
   $camera->renderBackgroundTile(4, 1);
   Console::recomposeFrame(fn() => Console::writeNormalizedRow($menu, 0, 0));
   Console::recomposeFrame($camera->renderMap(...));
@@ -111,12 +109,12 @@ it('keeps live retained scenery under moved and dismissed notifications in both 
   ob_clean();
   $camera->moveTo(2, 0);
   $camera->renderMap();
-  expect(Console::snapshot(['notice'])->rows[1])->toBe('efghijklmnop');
+  expect(Console::snapshot(['notice'])->rows[1])->toBe('cdefghijklmn');
   expect(array_column($this->records, 'stage'))->not->toContain('terminal.normalize', 'terminal.tokenize', 'terminal.format');
   Console::replaceOverlay('notice', ['      '], 5, 2, 2000);
-  expect(Console::snapshot()->rows[1])->toBe('efghijklmnop');
+  expect(Console::snapshot()->rows[1])->toBe('cdefghijklmn');
   Console::removeOverlay('notice');
-  expect(Console::snapshot()->rows[2])->toBe('efghijklmnop');
+  expect(Console::snapshot()->rows[2])->toBe('cdefghijklmn');
   if (!$output) { expect(ob_get_contents())->toBe(''); }
   Console::setTerminalOutputEnabled(true);
   ob_clean();
@@ -125,37 +123,36 @@ it('keeps live retained scenery under moved and dismissed notifications in both 
 })->with([true, false]);
 
 it('restores blank margins outside a centered map without copying an edge tile', function () {
-  $camera = new Camera(makeCameraTestScene(), 12, 4, worldSpace: [['aa', 'bb']]);
+  $camera = new Camera(makeCameraTestScene(), 12, 4, worldSpace: [['a', 'b']]);
   $camera->renderMap();
   foreach ([[-1, 0], [2, 0], [0, -1], [0, 1]] as [$x, $y]) {
-    $position = $camera->getConsolePosition(new \Ichiloto\Engine\Core\Vector2($x, $y));
-    Console::write('@@', $position->x, $position->y);
+    $position = $camera->getScreenSpacePosition(new \Ichiloto\Engine\Core\Vector2($x, $y));
+    Console::write('@', $position->x, $position->y);
     $camera->renderBackgroundTile($x, $y);
-    expect(Console::charAt($position->x, $position->y))->toBe(' ')
-      ->and(Console::charAt($position->x + 1, $position->y))->toBe(' ');
+    expect(Console::charAt($position->x, $position->y))->toBe(' ');
   }
-  expect(Console::snapshot()->rows[1])->toBe('    aabb    ');
+  expect(Console::snapshot()->rows[1])->toBe('     ab     ');
 });
 
 it('refreshes changed rows, map reloads and width policy while geometry selects fresh bounds', function () {
   $camera = retainedCamera();
   $camera->renderMap();
   $changed = $camera->worldSpace;
-  $changed[0][0] = 'ZZ';
+  $changed[0][0] = 'Z';
   $camera->worldSpace = $changed;
   $camera->renderMap();
-  expect(Console::charAt(0, 0))->toBe('Z')->and(Console::charAt(1, 0))->toBe('Z');
-  $camera->worldSpace = array_fill(0, 4, array_fill(0, 12, 'xx'));
+  expect(Console::charAt(0, 0))->toBe('Z');
+  $camera->worldSpace = array_fill(0, 4, array_fill(0, 12, 'x'));
   $camera->renderMap();
   expect(Console::snapshot()->rows[0])->toBe(str_repeat('x', 12));
   Console::syncDimensions(8, 3);
-  $camera->resizeViewport(4, 3);
+  $camera->resizeViewport(8, 3);
   $this->records = [];
   $camera->moveTo(4, 1);
   $camera->renderMap();
   expect(Console::snapshot()->rows)->toBe(array_fill(0, 3, 'xxxxxxxx'))
     ->and(array_column($this->records, 'stage'))->not->toContain('terminal.normalize');
-  $camera->worldSpace = array_fill(0, 3, ['🏃🏽‍➡️', 'ab', 'cd', 'ef']);
+  $camera->worldSpace = array_fill(0, 3, ['🏃🏽‍➡️', 'a', 'b', 'c', 'd', 'e', 'f', 'g']);
   $camera->moveTo(0, 0);
   $camera->renderMap();
   $composite = Console::getBuffer();
@@ -201,20 +198,20 @@ it('formats string-authored maps once across scrolling, graphical collection and
 });
 
 it('owns authored map values instead of retaining mutable PHP array aliases', function () {
-  $symbol = 'aa';
-  $row = [&$symbol, 'bb'];
-  $camera = new Camera(makeCameraTestScene(), 4, 1, worldSpace: [&$row]);
-  Console::syncDimensions(4, 1);
+  $symbol = 'a';
+  $row = [&$symbol, 'b'];
+  $camera = new Camera(makeCameraTestScene(), 2, 1, worldSpace: [&$row]);
+  Console::syncDimensions(2, 1);
   $camera->renderMap();
-  $symbol = 'zz';
-  $row[] = 'cc';
+  $symbol = 'z';
+  $row[] = 'c';
   $camera->renderMap();
-  expect($camera->worldSpace)->toBe([['aa', 'bb']])
-    ->and(iterator_to_array($camera->visibleMapRows()))->toBe([['aa', 'bb']])
-    ->and(Console::snapshot()->rows)->toBe(['aabb']);
+  expect($camera->worldSpace)->toBe([['a', 'b']])
+    ->and(iterator_to_array($camera->visibleMapRows()))->toBe([['a', 'b']])
+    ->and(Console::snapshot()->rows)->toBe(['ab']);
   $camera->worldSpace = [$row];
   $camera->renderMap();
-  expect(Console::snapshot()->rows)->toBe(['zzbb']);
+  expect(Console::snapshot()->rows)->toBe(['zb']);
 });
 
 it('shares clipping and styled composition between string and normalized input', function (string $text) {

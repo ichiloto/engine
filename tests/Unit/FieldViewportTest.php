@@ -1,7 +1,6 @@
 <?php
 
 use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
-use Ichiloto\Engine\Field\MapCell;
 use Ichiloto\Engine\Field\MapLayerSet;
 use Ichiloto\Engine\Field\MapLayer;
 
@@ -63,8 +62,8 @@ it('centers a whole-cell field view without changing UI grid dimensions', functi
     $layout = new FieldViewport($grid, 2);
     $viewport = $layout->createViewport([new PresentationTextLayer('world', 0, []),
         new PresentationTextLayer('dialogue', 1000, [])], [], []);
-    // 1350 x 720 pixels hold 14 x 7 field cells of 48 pixels at 2x (96 pixels); the remainder is split evenly.
-    expect([$layout->columns, $layout->rows])->toBe([14, 7])
+    // 1350 x 720 pixels hold 28 x 7 terminal cells of 24 x 48 pixels at 2x (48 x 96); the remainder is split evenly.
+    expect([$layout->columns, $layout->rows])->toBe([28, 7])
         ->and([$viewport->x, $viewport->y])->toBe([3.0, 24.0])
         ->and($viewport->textLayerIds)->toBe(['world'])
         ->and($viewport->clipRect->toArray())->toBe(['x' => 0.0, 'y' => 0.0, 'width' => 1350.0, 'height' => 720.0])
@@ -72,14 +71,16 @@ it('centers a whole-cell field view without changing UI grid dimensions', functi
     $viewport->assertWithin($grid);
 });
 
-it('sizes the field in 48-pixel cells scaled by zoom, independent of the text cell size', function (int $cellWidth, int $cellHeight, float $zoom, array $expected) {
+it('sizes the field in 24 x 48 terminal cells scaled by zoom, independent of the text cell size', function (int $cellWidth, int $cellHeight, float $zoom, array $expected) {
     $layout = new FieldViewport(new RendererGridConfig(135, 36, $cellWidth, $cellHeight), $zoom);
-    expect(FieldViewport::CELL_SIZE)->toBe(48)->and([$layout->columns, $layout->rows])->toBe($expected);
+    // A terminal cell keeps its tall shape: half an RPG Maker tile wide and one tile tall.
+    expect([FieldViewport::CELL_WIDTH, FieldViewport::CELL_HEIGHT, FieldViewport::TILE_SIZE, FieldViewport::TILE_COLUMNS])
+        ->toBe([24, 48, 48, 2])->and([$layout->columns, $layout->rows])->toBe($expected);
 })->with([
-    '10 x 20 text cells at 1x' => [10, 20, 1.0, [28, 15]],
-    '10 x 20 text cells at 1.5x' => [10, 20, 1.5, [18, 10]],
-    '10 x 20 text cells at 2x' => [10, 20, 2.0, [14, 7]],
-    '16 x 24 text cells at 1x' => [16, 24, 1.0, [45, 18]],
+    '10 x 20 text cells at 1x' => [10, 20, 1.0, [56, 15]],
+    '10 x 20 text cells at 1.5x' => [10, 20, 1.5, [37, 10]],
+    '10 x 20 text cells at 2x' => [10, 20, 2.0, [28, 7]],
+    '16 x 24 text cells at 1x' => [16, 24, 1.0, [90, 18]],
     'a session smaller than one cell still shows one' => [1, 1, 8.0, [1, 1]],
 ]);
 
@@ -101,27 +102,26 @@ it('scales the above-sprite field prompt by identity without scaling HUD text at
 it('keeps small maps centered and applies one transform to terrain and actors', function (float $zoom) {
     $grid = new RendererGridConfig(135, 36, 10, 20);
     $layout = new FieldViewport($grid, $zoom);
-    // An 11 x 5 map is smaller than the field at every tested zoom (14 x 7 at 2x). The camera
-    // takes console columns, two per field cell.
-    $camera = new Camera(makeCameraTestScene(), $layout->columns * MapCell::COLUMNS, $layout->rows,
-        worldSpace: array_fill(0, 5, str_repeat('..', 11)));
-    expect($camera->screen->getWidth())->toBe($layout->columns);
+    // An 11 x 5 map is smaller than the field at every tested zoom (28 x 7 at 2x).
+    $camera = new Camera(makeCameraTestScene(), $layout->columns, $layout->rows,
+        worldSpace: array_fill(0, 5, str_repeat('.', 11)));
     $position = $camera->getScreenSpacePosition(new Vector2(5, 2));
     $sprite = new PresentationSprite('npc:fixture', 'actor.png', (int)$position->x, (int)$position->y,
-        FieldViewport::CELL_SIZE, FieldViewport::CELL_SIZE);
+        FieldViewport::TILE_SIZE, FieldViewport::TILE_SIZE);
     $tiles = new PresentationTileBatch('map:floor', 'floor.png', -100,
         [new SpriteSourceRect(0, 0, 16, 16)], [['column' => (int)$position->x, 'row' => (int)$position->y, 'source' => 0]]);
     $viewport = $layout->createViewport([], [$sprite], [$tiles]);
     expect($viewport->spriteIds)->toBe(['npc:fixture'])->and($viewport->tileBatchIds)->toBe(['map:floor']);
     $viewport->assertMembers([], [$sprite], [$tiles]);
     $origin = $camera->getScreenSpacePosition(new Vector2(0, 0));
-    // Terrain and actors share the field pitch: one 48-pixel cell scaled by zoom.
-    $pitch = FieldViewport::CELL_SIZE * $zoom;
-    $centerX = $viewport->x + ($origin->x + 11 / 2) * $pitch;
-    $centerY = $viewport->y + ($origin->y + 5 / 2) * $pitch;
+    // Terrain and actors share the field pitch: one 24 x 48 cell scaled by zoom.
+    $pitchX = FieldViewport::CELL_WIDTH * $zoom;
+    $pitchY = FieldViewport::CELL_HEIGHT * $zoom;
+    $centerX = $viewport->x + ($origin->x + 11 / 2) * $pitchX;
+    $centerY = $viewport->y + ($origin->y + 5 / 2) * $pitchY;
     expect($origin->x)->toBeGreaterThan(0)->and($origin->y)->toBeGreaterThan(0)
-        ->and(abs($centerX - 675))->toBeLessThanOrEqual($pitch / 2)
-        ->and(abs($centerY - 360))->toBeLessThanOrEqual($pitch / 2)
+        ->and(abs($centerX - 675))->toBeLessThanOrEqual($pitchX / 2)
+        ->and(abs($centerY - 360))->toBeLessThanOrEqual($pitchY / 2)
         ->and($camera->getWorldSpacePosition($position))->toEqual(new Vector2(5, 2));
 })->with([1.0, 1.5, 2.0]);
 
@@ -131,9 +131,7 @@ it('leaves a terminal camera with custom dimensions alone', function () {
     new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
     ConfigStore::put(ProjectConfig::class, new PlaySettings(['graphics' => ['field' => ['zoom' => 2.0]]]));
     $scene->synchronizeFieldViewport();
-    // Forty-two console columns hold twenty-one cells.
-    expect([$camera->screen->getWidth(), $camera->screen->getHeight()])->toBe([21, 17])
-        ->and($camera->getConsoleColumns())->toBe(42);
+    expect([$camera->screen->getWidth(), $camera->screen->getHeight()])->toBe([42, 17]);
 });
 
 it('validates viewport membership and prevents canvas mixing', function () {
@@ -159,12 +157,12 @@ it('uses the reduced camera for real field projection while UI and menu frames s
     $scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()
         ->onlyMethods(['getGame', 'getPresentationWorld'])->getMock();
     $scene->method('getGame')->willReturn($game);
-    // The field's square cell travels with its retained world.
+    // The field cell size travels with its retained world.
     $scene->method('getPresentationWorld')->willReturn(PresentationWorld::getFromLayers(
-        new MapLayerSet([new MapLayer('terrain', 0, false, 'terrain', implode("\n", array_fill(0, 40, str_repeat('..', 100))))])));
+        new MapLayerSet([new MapLayer('terrain', 0, false, 'terrain', implode("\n", array_fill(0, 40, str_repeat('.', 100))))])));
     new ReflectionProperty(GameScene::class, 'sceneManager')->setValue($scene,
         makeBareScene(\Ichiloto\Engine\Scenes\SceneManager::class));
-    $camera = new Camera($scene, 135, 36, worldSpace: array_fill(0, 40, str_repeat('..', 100)));
+    $camera = new Camera($scene, 135, 36, worldSpace: array_fill(0, 40, str_repeat('.', 100)));
     new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
     $player = $this->getMockBuilder(Player::class)->disableOriginalConstructor()->onlyMethods(['getGraphicalSpriteDefinition'])->getMock();
     $player->method('getGraphicalSpriteDefinition')->willReturn(null);
@@ -177,10 +175,10 @@ it('uses the reduced camera for real field projection while UI and menu frames s
     ConfigStore::put(ProjectConfig::class, new PlaySettings(['graphics' => ['field' => ['zoom' => 2.0]]]));
     $scene->synchronizeFieldViewport();
     // Retained presentation removes the old optional viewport-capability fallback.
-    expect([$camera->screen->getWidth(), $camera->screen->getHeight()])->toBe([14, 7]);
+    expect([$camera->screen->getWidth(), $camera->screen->getHeight()])->toBe([28, 7]);
     $camera->resetPosition($player);
     // The camera clamps to the 100 x 40 world's bottom-right corner.
-    expect([$camera->position->x, $camera->position->y])->toBe([86.0, 33.0]);
+    expect([$camera->position->x, $camera->position->y])->toBe([72.0, 33.0]);
     $screen = $camera->getScreenSpacePosition($player->position);
     expect($camera->getWorldSpacePosition($screen))->toEqual($player->position);
     Console::recomposeFrame(function () use ($camera) {
@@ -206,11 +204,11 @@ it('uses the reduced camera for real field projection while UI and menu frames s
     $this->runtime->present($scene);
     $frames = RetainedFrameState::replay($transport->sent);
     expect($frames[array_key_last($frames)]['viewport']['scale'])->toBe(2.0);
-    // At 1x a field cell is still 48 pixels, not a 10 x 20 text cell: the camera shows 28 x 15 cells
+    // At 1x a field cell is still 24 x 48 pixels, not a 10 x 20 text cell: the camera shows 56 x 15 cells
     // and the field text needs the viewport transform to be drawn at the field pitch.
     ConfigStore::put(ProjectConfig::class, new PlaySettings(['graphics' => ['field' => ['zoom' => 1.0]]]));
     $scene->synchronizeFieldViewport();
-    expect([$camera->screen->getWidth(), $camera->screen->getHeight()])->toBe([28, 15]);
+    expect([$camera->screen->getWidth(), $camera->screen->getHeight()])->toBe([56, 15]);
     Console::recomposeFrame($camera->renderMap(...));
     $this->runtime->present($scene);
     $frames = RetainedFrameState::replay($transport->sent);
@@ -234,15 +232,13 @@ it('degrades the field to the text grid when no retained world carries the field
     $scene->method('getPresentationWorld')->willReturn(null);
     new ReflectionProperty(GameScene::class, 'sceneManager')->setValue($scene,
         makeBareScene(\Ichiloto\Engine\Scenes\SceneManager::class));
-    $camera = new Camera($scene, 135, 36, worldSpace: array_fill(0, 40, str_repeat('..', 100)));
+    $camera = new Camera($scene, 135, 36, worldSpace: array_fill(0, 40, str_repeat('.', 100)));
     new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
     ConfigStore::put(ProjectConfig::class, new PlaySettings(['graphics' => ['field' => ['zoom' => 2.0]]]));
     $scene->synchronizeFieldViewport();
 
     // A map beyond the world budget is drawn as plain text at the text grid,
-    // exactly as the terminal draws it: no shrunken camera and no viewport. The 135 console
-    // columns hold 67 whole cells.
-    expect([$camera->screen->getWidth(), $camera->screen->getHeight()])->toBe([67, 36])
-        ->and($camera->getConsoleColumns())->toBe(135)
+    // exactly as the terminal draws it: no shrunken camera and no viewport.
+    expect([$camera->screen->getWidth(), $camera->screen->getHeight()])->toBe([135, 36])
         ->and($scene->isGraphicalFieldPresented())->toBeFalse();
 });

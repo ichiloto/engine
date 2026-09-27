@@ -8,6 +8,7 @@ use Ichiloto\Engine\Field\MapTileLayer;
 use Ichiloto\Engine\Rendering\Presentation\PresentationViewport;
 use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
+use Ichiloto\Engine\Rendering\FieldViewport;
 use Ichiloto\Engine\Rendering\Tilesets\AutotileShape;
 use Ichiloto\Engine\Rendering\Tilesets\TileAnimation;
 use Ichiloto\Engine\Rendering\Tilesets\TileComposer;
@@ -114,8 +115,9 @@ it('draws table legs beneath the top of an A2 table autotile', function () {
 it('chooses autotile shapes from neighbours of the same kind, with the map edge counting as the same', function () {
   $floor = TileId::getAutotileId(16, 0);
   $e = 0;
-  $shapes = static fn(array $layer): array => array_map(static fn(array $row): array => array_map(
-    static fn(int $id): int => TileId::isAutotile($id) ? TileId::getShape($id) : -1, $row), AutotileShape::resolveLayer($layer));
+  // Neighbours across are one tile apart: $columns cells.
+  $shapes = static fn(array $layer, int $columns = 1): array => array_map(static fn(array $row): array => array_map(
+    static fn(int $id): int => TileId::isAutotile($id) ? TileId::getShape($id) : -1, $row), AutotileShape::resolveLayer($layer, $columns));
   expect($shapes([
     [$e, $e, $e, $e, $e],
     [$e, $floor, $floor, $floor, $e],
@@ -132,7 +134,10 @@ it('chooses autotile shapes from neighbours of the same kind, with the map edge 
     ->and($shapes([[$e, $e, $e], [$floor, $floor, $floor], [$e, $e, $e]])[1])->toBe([33, 33, 33])
     ->and($shapes([[$e, $e, $e], [$e, $floor, $e], [$e, $e, $e]])[1][1])->toBe(46)
     ->and($shapes([[$e, TileId::getAutotileId(88, 0), $e]])[0][1])->toBe(5)
-    ->and($shapes([[$e, TileId::getAutotileId(5, 0), $e]])[0][1])->toBe(3);
+    ->and($shapes([[$e, TileId::getAutotileId(5, 0), $e]])[0][1])->toBe(3)
+    // On the field a tile covers two terminal cells, so a floor strip is painted every other cell.
+    ->and($shapes([[$e, $e, $e, $e, $e, $e], [$floor, $e, $floor, $e, $floor, $e], [$e, $e, $e, $e, $e, $e]], FieldViewport::TILE_COLUMNS)[1])
+    ->toBe([33, -1, 33, -1, 33, -1]);
 });
 
 it('loads a tileset and uses only sheets whose images fit their RPG Maker layout', function () {
@@ -152,8 +157,8 @@ it('loads a tileset and uses only sheets whose images fit their RPG Maker layout
 
 it('reads map tile layers as literal cells matching the map and refuses anything else', function () {
   $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', "....\n....")]);
-  $layer = new MapTileLayer('floor', 1, 'floor', "2816 0\n  0   10  \n");
-  expect($layer->tiles)->toBe([[2816, 0], [0, 10]])
+  $layer = new MapTileLayer('floor', 1, 'floor', "2816 0 0 0\n  0 0  10 0 \n");
+  expect($layer->tiles)->toBe([[2816, 0, 0, 0], [0, 0, 10, 0]])
     ->and($layer->getUsedIds())->toBe([2816, 10]);
   $layer->assertMatches($layers);
   expect(fn() => new MapTileLayer('floor', 1, 'floor', "1700 0"))->toThrow(InvalidArgumentException::class)
@@ -165,8 +170,8 @@ it('uploads the tileset, tile layers in their draw bands and glyph-free rows wit
   writeTilesetProject($this->root, extra: ", 'above' => [5]");
   $map = $this->root . '/Maps/home';
   mkdir($map . '/graphics', 0777, true);
-  file_put_contents($map . '/graphics/01.floor.tiles.php', MapGridSource::buildSource("2816 2816\n2816 0", 'TILES'));
-  file_put_contents($map . '/graphics/05.furniture.tiles.php', MapGridSource::buildSource("0 5\n1 0", 'TILES'));
+  file_put_contents($map . '/graphics/01.floor.tiles.php', MapGridSource::buildSource("2816 0 2816 0\n2816 0 0 0", 'TILES'));
+  file_put_contents($map . '/graphics/05.furniture.tiles.php', MapGridSource::buildSource("0 0 5 0\n1 0 0 0", 'TILES'));
   $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', "....\n....")]);
   $graphics = MapGraphics::loadFromDirectory($map, 'home', 'home', $layers, $this->root);
   $world = PresentationWorld::getFromLayers($layers, 'map', $graphics, $this->root);
@@ -186,10 +191,10 @@ it('uploads the tileset, tile layers in their draw bands and glyph-free rows wit
   $tiles = array_values(array_filter($world->operations, static fn(array $operation): bool => $operation['op'] === 'worldTiles'));
   expect(array_map(static fn(array $operation): array => [$operation['layerId'], $operation['rows'][0]['row'],
     array_column($operation['rows'][0]['cells'], 'column')], $tiles))->toBe([
-    ['tiles:floor', 0, [0, 1]],
+    ['tiles:floor', 0, [0, 2]],
     ['tiles:floor', 1, [0]],
     ['tiles:furniture', 1, [0]],
-    ['tiles:furniture:above', 0, [1]],
+    ['tiles:furniture:above', 0, [2]],
   ]);
 });
 
@@ -197,7 +202,7 @@ it('leaves a map on its glyphs when its graphics or every sheet are unusable', f
   writeTilesetProject($this->root, ['A2' => [100, 100]]);
   $map = $this->root . '/Maps/home';
   mkdir($map . '/graphics', 0777, true);
-  file_put_contents($map . '/graphics/01.floor.tiles.php', MapGridSource::buildSource("2816", 'TILES'));
+  file_put_contents($map . '/graphics/01.floor.tiles.php', MapGridSource::buildSource("2816 0", 'TILES'));
   $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', "..")]);
   $graphics = MapGraphics::loadFromDirectory($map, 'home', 'home', $layers, $this->root);
   $world = PresentationWorld::getFromLayers($layers, 'map', $graphics, $this->root);

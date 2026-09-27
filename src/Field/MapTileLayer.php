@@ -7,7 +7,11 @@ namespace Ichiloto\Engine\Field;
 use Ichiloto\Engine\Rendering\Tilesets\TileId;
 use InvalidArgumentException;
 
-/** One graphical tile layer: an RPG Maker tile identity per map cell, 0 for none. */
+/**
+ * One graphical tile layer: an RPG Maker tile identity per terminal cell, 0
+ * for none. A tile covers its cell and the next FieldViewport::TILE_COLUMNS - 1
+ * cells across, so a floor is usually painted every other cell.
+ */
 final readonly class MapTileLayer
 {
     /** @var list<list<int>> */

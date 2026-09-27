@@ -52,29 +52,6 @@ final readonly class NormalizedRow
     return new self($cells, $offsets);
   }
 
-  /**
-   * Map cells of exactly $columns display columns each. A cell may hold several
-   * symbols but is one logical offset; a narrower cell is padded with spaces,
-   * so selecting cells always selects whole, aligned columns.
-   *
-   * @param list<string> $cells
-   */
-  public static function fromCells(array $cells, int $columns): self
-  {
-    $symbols = $starts = [];
-    foreach ($cells as $cell) {
-      $starts[] = count($symbols);
-      $width = 0;
-      foreach (TerminalText::visibleSymbols($cell) as $symbol) {
-        $symbols[] = $symbol;
-        $width += self::symbolWidth($symbol);
-      }
-      for (; $width < $columns; $width++) { $symbols[] = ' '; }
-    }
-    $row = self::fromSymbols($symbols);
-    return new self($row->cells, array_map(static fn(int $start): int => $row->offsets[$start], $starts));
-  }
-
   /** Authored zero-width components still own a cell at a control boundary. */
   public static function symbolWidth(string $symbol): int
   {

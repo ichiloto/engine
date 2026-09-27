@@ -38,7 +38,7 @@ $manager = new class($scene) extends MapManager {
 new ReflectionProperty(GameScene::class, 'mapManager')->setValue($scene, $manager);
 $player = new ReflectionClass(Player::class)->newInstanceWithoutConstructor();
 new ReflectionProperty(Player::class, 'position')->setValue($player, new Vector2(0, 0));
-$small = new MapLayerSet([new MapLayer('terrain', 0, false, 'small', '..')]);
+$small = new MapLayerSet([new MapLayer('terrain', 0, false, 'small', '.')]);
 $preparedSmall = new PreparedMap([], $small->getComposedGrid(), [[0]], [], [], layers: $small);
 $manager->applyPreparedMap($preparedSmall, $player);
 $initialWorldAvailable = $manager->getPresentationWorld() !== null;
@@ -47,7 +47,7 @@ $initialWorldAvailable = $manager->getPresentationWorld() !== null;
 $name = str_repeat('a', 210);
 $extent = 500;
 $layers = new MapLayerSet([new MapLayer($name, 0, false, 'layers/00.' . $name . '.map.php',
-    implode("\n", array_fill(0, $extent, str_repeat('..', $extent))))]);
+    implode("\n", array_fill(0, $extent, str_repeat('.', $extent))))]);
 $manager->applyPreparedMap(new PreparedMap([], $layers->getComposedGrid(),
     array_fill(0, $extent, array_fill(0, $extent, 0)), [], [], layers: $layers), $player);
 $oversizedWorldAvailable = $manager->getPresentationWorld() !== null;
@@ -79,7 +79,7 @@ echo json_encode([
     'extent' => $extent,
     'layerCount' => count($layers->layers),
     'ownerIdBytes' => strlen('map:' . $name),
-    'sourceBytes' => 8192 + $extent * $extent * (64 + strlen('..') + strlen('map:' . $name)),
+    'sourceBytes' => 8192 + $extent * $extent * (64 + 1 + strlen('map:' . $name)),
     'initialWorldAvailable' => $initialWorldAvailable,
     'oversizedWorldAvailable' => $oversizedWorldAvailable,
     'retainedMode' => Console::isRetainedWorldPresentation(),

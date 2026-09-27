@@ -9,8 +9,9 @@ use InvalidArgumentException;
 
 /**
  * Immutable graphical intent, independent of world position, Camera and
- * transport. Field art is sized in whole field cells, never authored pixels:
- * width and height here are derived from cells for the presentation protocol.
+ * transport. Field art is sized in whole character frames (FieldViewport::TILE_SIZE),
+ * never authored pixels: width and height here are derived from them for the
+ * presentation protocol.
  */
 final readonly class GraphicalSpriteDefinition
 {
@@ -28,8 +29,8 @@ final readonly class GraphicalSpriteDefinition
 
   /**
    * A single image drawn on the field, such as a cinematic pose: `asset`,
-   * optional `sourceRect`, optional `layer`, and an optional footprint in
-   * whole `cells` (default one cell), bottom-centred on its position.
+   * optional `sourceRect`, optional `layer`, and an optional size in whole
+   * character frames, `cells` (default one), bottom-centred on its position.
    *
    * @param array<string, mixed> $data
    */
@@ -37,7 +38,7 @@ final readonly class GraphicalSpriteDefinition
   {
     if (array_diff_key($data, array_flip(['asset', 'sourceRect', 'layer', 'cells'])) !== []
       || !is_string($data['asset'] ?? null) || !is_int($data['layer'] ?? 0)) {
-      throw new InvalidArgumentException('A field image accepts only asset, sourceRect, layer and cells; it is sized in field cells, not pixels.');
+      throw new InvalidArgumentException('A field image accepts only asset, sourceRect, layer and cells; it is sized in character frames, not pixels.');
     }
     $cells = $data['cells'] ?? ['width' => 1, 'height' => 1];
     if (!is_array($cells) || array_diff_key($cells, array_flip(['width', 'height'])) !== []
@@ -58,7 +59,7 @@ final readonly class GraphicalSpriteDefinition
       }
       $source = new SpriteSourceRect($rect['x'], $rect['y'], $rect['width'], $rect['height']);
     }
-    return new self($data['asset'], $cells['width'] * FieldViewport::CELL_SIZE,
-      $cells['height'] * FieldViewport::CELL_SIZE, PresentationSpriteAnchor::BOTTOM_CENTER, $data['layer'] ?? 0, $source);
+    return new self($data['asset'], $cells['width'] * FieldViewport::TILE_SIZE,
+      $cells['height'] * FieldViewport::TILE_SIZE, PresentationSpriteAnchor::BOTTOM_CENTER, $data['layer'] ?? 0, $source);
   }
 }

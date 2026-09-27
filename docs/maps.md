@@ -33,22 +33,16 @@ For example:
 <?php
 
 return <<<'TOWN_MAP'
-########
-##    ##
-########
+####
+#  #
+####
 TOWN_MAP;
 ```
 
-A map cell is two terminal columns wide, which is square on a terminal whose
-character boxes are about twice as tall as wide, and one 48 pixel tile in a
-graphical renderer. A cell holds either two one-column characters (`##`, `[]`,
-`~~`), each with its own colour, or one two-column glyph such as an emoji. The
-map above is four cells wide and three tall. Every row is whole cells: a row
-ending halfway through a cell, or a one-column character followed by a
-two-column glyph, is refused with its row and column. Coordinates in map data,
-events, cutscenes and saves count cells, not columns. A project records this
-format in `ichiloto.json`; projects made before it are converted with
-`ichiloto upgrade` (see [graphical field](graphical-field.md)).
+A map cell is one terminal character. Coordinates in map data, events,
+cutscenes and saves count those cells, and the player moves one cell per step.
+A graphical renderer keeps this grid: it draws each cell in the terminal's own
+tall shape (see [graphical field](graphical-field.md)).
 
 The delimiter may be any valid nowdoc label. Comments and whitespace outside
 the return are allowed; executable statements, builders, calls, interpolated
@@ -75,33 +69,31 @@ discovered from `layers/` and sorted by their numeric prefix; there is no
 second layer list in `.data.php`.
 
 All layers and the root event grid must have the same number of rows and the
-same number of cells on each corresponding row. Ragged maps are supported: one
-row may be shorter than another, but that row must have the same width on every
-layer. Colour markup is not a cell.
+same number of logical symbols on each corresponding row. Existing ragged
+maps are supported: one row may be shorter than another, but that row must have
+the same width on every layer. Do not pad a migration just to make it rectangular.
+Colour markup is not a cell; wide glyphs retain their existing logical-cell and
+terminal-display behavior.
 
 The lowest gameplay layer is the base. Higher gameplay layers replace it only
-where they contain a non-space character. Layers compose column by column: a
-space on an upper layer, including a styled space, is empty and shows the
-character beneath it in that column, so an upper `" m"` over `"| "` shows
-`"|m"`. A two-column glyph cannot be split, so where one is involved a
-non-blank upper cell replaces the whole cell. This composed grid is
-`Camera::worldSpace` and is exactly what the terminal renders.
+where they contain a non-space symbol. A space on an upper layer, including a
+styled space, is empty and shows the lower layer. The topmost occupied cell
+supplies the complete styled symbol. This composed grid is `Camera::worldSpace`
+and is exactly what the terminal renders.
 
 Decoration is never composed into that grid and never contributes collision.
 A decoration layer named in the collision dictionary refuses the map with a
 diagnostic. Interactive objects must be gameplay glyphs or events, never hidden
-decoration. Decoration has no presentation of its own until graphical layers
-replace the retired glyph-keyed tile crops (`tiles2d`); a map data file that
-still has `tiles2d` loads with a warning and shows its terminal glyphs.
-
-An event cell is marked by its one non-blank character: `E `, ` E` and `EE`
-all mark event `E`. A cell holding two different markers is refused.
+decoration. Decoration has no graphical presentation of its own; a graphical
+renderer draws a map from its tile layers (see Graphics). The glyph-keyed tile
+crops (`tiles2d`) are retired: a map data file that still has `tiles2d` loads
+with a warning and shows its terminal glyphs.
 
 ## Graphics
 
 A graphical renderer draws a map from its own tile layers, independent of
 its terminal glyphs. The map names an RPG Maker style tileset in its data
-file and keeps one tile identity per cell in `graphics/`:
+file and keeps one tile identity per terminal cell in `graphics/`:
 
 ```
 assets/Data/Tilesets/home.php          # name, sheets A1 to E, above, tables
@@ -116,19 +108,22 @@ assets/Maps/village/harbour/
 <?php
 
 return <<<'TILES'
-2816 2816 2816 0
-2816 2816 2816 0
+2816 0 2816 0 2816 0
+2816 0 2816 0 2816 0
 TILES;
 ```
 
 Each tile layer is a literal nowdoc with one row per map row and one
 whitespace-separated RPG Maker tile identity per cell (`0` is empty); it is
-never executed. Graphics never change geometry, collision, events or saves,
+never executed. A 48 pixel tile covers its cell and the next one across, so a
+floor is painted every other cell, as above. Graphics never change geometry,
+collision, events or saves,
 and unusable graphics or sheets are reported while the map shows its
 terminal glyphs. Autotile shapes are stored in the identities, as RPG Maker
 stores them; `AutotileShape::resolveLayer` chooses them from neighbours for
 authoring tools. See [graphical field](graphical-field.md) for sheets, draw
 bands and animation.
+
 ## Collision dictionaries
 
 The game's `assets/Maps/collisions.php` can combine a flat glyph dictionary with
@@ -151,16 +146,12 @@ return [
 ```
 
 A named section overrides the flat dictionary for that layer; otherwise the
-flat entry applies. Keys stay single characters. Each column of a cell
-resolves as before: walk the gameplay layers from top to bottom, skipping
-upper spaces and `PASS_THROUGH` characters; the first remaining character
-supplies the column's kind (a base space uses the space entry), and a column
-no layer supplies is solid. Unknown glyphs remain solid. The cell is solid when
-either column is, so pairing never opens a wall; otherwise it takes the first
-kind other than none, left to right. `PASS_THROUGH` is never a final collision
-value. Decoration is excluded
-entirely. Collision comes from authored symbols and the dictionary, never from
-colour, graphics or a separate stored collision grid.
+flat entry applies. Unknown glyphs remain solid. Resolution walks gameplay
+layers from top to bottom, skipping upper spaces and `PASS_THROUGH` symbols.
+The first remaining glyph supplies the collision result. If no layer supplies
+a result, the cell is solid; `PASS_THROUGH` is never a final collision value.
+Decoration is excluded entirely. Collision comes from authored symbols and the
+dictionary, never from colour, graphics or a separate stored collision grid.
 
 ## Editing and migration
 
@@ -168,14 +159,12 @@ The Editor cycles through gameplay, decoration and event layers with independent
 visibility and dimming. Terminal preview shows the composed gameplay grid only.
 Vim, mouse, colour, selection and clipboard operations use the active layer.
 Event colours are authoring aids only; runtime event markers are read without
-colour tags. The Editor paints whole cells: typing one character paints it
-repeated (`#` paints `##`), a second quick keystroke makes a mixed cell such
-as `[]`, and a two-column glyph fills its cell.
+colour tags.
 
 Saves transact the whole changed file set. Untouched layer files are not written,
 and unchanged rows preserve their original bytes. Layer create, rename and remove
-participate in undo. Renaming preserves the numeric order without flattening the data file. Because a shared collision dictionary may
-use the old name, the Editor asks for confirmation if a rename changes resolved
+participate in undo. Renaming preserves the numeric order without flattening
+the data file. Because a shared collision dictionary may use the old name, the Editor asks for confirmation if a rename changes resolved
 collision; it does not rewrite that dictionary automatically. The first explicit
 layer creation on a legacy map converts its grid.
 

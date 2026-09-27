@@ -8,7 +8,6 @@ use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Field\MapCollisionResolver;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Rendering\Camera;
-use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Debug;
 
@@ -44,50 +43,47 @@ function writeLayerGrid(string $directory, string $filename, string $text): void
     file_put_contents($directory . '/' . $filename, MapGridSource::buildSource($text, 'MAP'));
 }
 
-it('discovers ordered gameplay and decoration sources and composes styled occupied columns only', function () {
-    writeLayerGrid($this->directory, 'layers/12.fixtures.map.php', "  \e[33mi\e[0m   ");
-    writeLayerGrid($this->directory, 'layers/01.terrain.map.php', ';;;;;;');
-    writeLayerGrid($this->directory, 'layers/03.floor.deco.php', 'rrrrrr');
-    writeLayerGrid($this->directory, 'layers/07.buildings.map.php', '##  ##');
+it('discovers ordered gameplay and decoration sources and composes styled occupied cells only', function () {
+    writeLayerGrid($this->directory, 'layers/12.fixtures.map.php', " \e[33mi\e[0m ");
+    writeLayerGrid($this->directory, 'layers/01.terrain.map.php', ';;;');
+    writeLayerGrid($this->directory, 'layers/03.floor.deco.php', 'rrr');
+    writeLayerGrid($this->directory, 'layers/07.buildings.map.php', '# #');
     $set = MapLayerSource::loadFromDirectory($this->directory, 'town');
-    $grid = $set->getComposedGrid();
     expect(array_column($set->layers, 'name'))->toBe(['terrain', 'floor', 'buildings', 'fixtures'])
         ->and($set->legacy)->toBeFalse()
-        ->and(array_map(TerminalText::stripAnsi(...), $grid[0]))->toBe(['##', 'i;', '##'])
-        ->and($grid[0][1])->toStartWith("\e[33mi");
+        ->and($set->getComposedGrid())->toBe([['#', "\e[33mi\e[0m", '#']]);
 });
 
 it('retains legacy ragged grids when there is no layers directory', function () {
     rmdir($this->directory . '/layers');
-    writeLayerGrid($this->directory, basename($this->directory) . '.map.php', "xx\nxxxx");
+    writeLayerGrid($this->directory, basename($this->directory) . '.map.php', "x\nxx");
     $set = MapLayerSource::loadFromDirectory($this->directory);
-    expect($set->legacy)->toBeTrue()->and($set->getComposedGrid())->toBe([['xx'], ['xx', 'xx']]);
+    expect($set->legacy)->toBeTrue()->and($set->getComposedGrid())->toBe([['x'], ['x', 'x']]);
 });
 
 it('refuses malformed layer stacks rather than silently loading a legacy grid', function (array $files, string $reason) {
     foreach ($files as $name => $text) {
         writeLayerGrid($this->directory, 'layers/' . $name, $text);
     }
-    writeLayerGrid($this->directory, basename($this->directory) . '.map.php', 'valid ');
+    writeLayerGrid($this->directory, basename($this->directory) . '.map.php', 'valid');
     expect(fn() => MapLayerSource::loadFromDirectory($this->directory, 'town'))
         ->toThrow(InvalidArgumentException::class, $reason);
 })->with([
     'empty' => [[], 'gameplay layer'],
-    'decoration only' => [['01.floor.deco.php' => 'xx'], 'gameplay layer'],
-    'filename' => [['1.floor.map.php' => 'xx'], 'NN.name.map.php'],
-    'duplicate order' => [['01.floor.map.php' => 'xx', '01.wall.map.php' => 'xx'], 'duplicate'],
-    'duplicate name' => [['01.floor.map.php' => 'xx', '02.floor.deco.php' => 'xx'], 'duplicate'],
+    'decoration only' => [['01.floor.deco.php' => 'x'], 'gameplay layer'],
+    'filename' => [['1.floor.map.php' => 'x'], 'NN.name.map.php'],
+    'duplicate order' => [['01.floor.map.php' => 'x', '01.wall.map.php' => 'x'], 'duplicate'],
+    'duplicate name' => [['01.floor.map.php' => 'x', '02.floor.deco.php' => 'x'], 'duplicate'],
     'height' => [['01.floor.map.php' => "xx\nxx", '02.wall.map.php' => 'xx'], 'must have 2 rows'],
-    'width' => [['01.floor.map.php' => 'xxxx', '02.wall.map.php' => 'xx'], 'must be 2 cells wide'],
-    'half cell' => [['01.floor.map.php' => 'xxx'], 'ends halfway through a cell'],
+    'width' => [['01.floor.map.php' => 'xx', '02.wall.map.php' => 'x'], 'must be 2 tiles wide'],
 ]);
 
 it('preserves ragged map geometry when every layer and event row has matching dimensions', function () {
-    writeLayerGrid($this->directory, 'layers/01.terrain.map.php', "xxxx\nxx");
-    writeLayerGrid($this->directory, 'layers/02.fixtures.map.php', "  ii\n  ");
+    writeLayerGrid($this->directory, 'layers/01.terrain.map.php', "xx\nx");
+    writeLayerGrid($this->directory, 'layers/02.fixtures.map.php', " i\n ");
     $set = MapLayerSource::loadFromDirectory($this->directory, 'town');
-    $set->assertMatchingGrid(MapLayer::parseGrid("    \n  "), 'Event map');
-    expect($set->getComposedGrid())->toBe([['xx', 'ii'], ['xx']]);
+    $set->assertMatchingGrid(MapLayer::parseGrid("  \n "), 'Event map');
+    expect($set->getComposedGrid())->toBe([['x', 'i'], ['x']]);
 });
 
 it('refuses a bad layer before executing map data and preserves the active camera', function () {
@@ -115,9 +111,9 @@ it('refuses a bad layer before executing map data and preserves the active camer
 it('loads the composed grid into the camera and validates event dimensions before data evaluation', function () {
     $paths = ['id' => 'town', 'data' => $this->directory . '/town.data.php',
         'map' => $this->directory . '/town.map.php', 'event' => $this->directory . '/town.event.php'];
-    writeLayerGrid($this->directory, 'layers/01.floor.map.php', ';;;;');
-    writeLayerGrid($this->directory, 'layers/02.wall.map.php', '  ##');
-    writeLayerGrid($this->directory, 'town.event.php', '    ');
+    writeLayerGrid($this->directory, 'layers/01.floor.map.php', ';;');
+    writeLayerGrid($this->directory, 'layers/02.wall.map.php', ' #');
+    writeLayerGrid($this->directory, 'town.event.php', '  ');
     file_put_contents($paths['data'], '<?php return ["name" => "Town"];');
     $manager = new ReflectionClass(LayeredMapManagerProbe::class)->newInstanceWithoutConstructor();
     $scene = new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();
@@ -125,23 +121,23 @@ it('loads the composed grid into the camera and validates event dimensions befor
     new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
     new ReflectionProperty(MapManager::class, 'gameScene')->setValue($manager, $scene);
     $manager->readSplitMap($paths);
-    expect($camera->worldSpace)->toBe([[';;', '##']])->and($manager->layers?->layers)->toHaveCount(2);
-    writeLayerGrid($this->directory, 'town.event.php', '  ');
+    expect($camera->worldSpace)->toBe([[';', '#']])->and($manager->layers?->layers)->toHaveCount(2);
+    writeLayerGrid($this->directory, 'town.event.php', ' ');
     file_put_contents($paths['data'], '<?php throw new RuntimeException("data was executed");');
-    expect(fn() => $manager->readSplitMap($paths))->toThrow(InvalidArgumentException::class, 'town/town.event.php row 0 must be 2 cells wide');
-    expect($camera->worldSpace)->toBe([[';;', '##']]);
+    expect(fn() => $manager->readSplitMap($paths))->toThrow(InvalidArgumentException::class, 'town/town.event.php row 0 must be 2 tiles wide');
+    expect($camera->worldSpace)->toBe([[';', '#']]);
 });
 
 it('clears layered and legacy geometry together when a preview unloads', function (bool $layered) {
     $paths = ['id' => 'town', 'data' => $this->directory . '/town.data.php',
         'map' => $this->directory . '/town.map.php', 'event' => $this->directory . '/town.event.php'];
     if ($layered) {
-        writeLayerGrid($this->directory, 'layers/01.terrain.map.php', 'xxxx');
+        writeLayerGrid($this->directory, 'layers/01.terrain.map.php', 'xx');
     } else {
         rmdir($this->directory . '/layers');
-        writeLayerGrid($this->directory, 'town.map.php', 'xxxx');
+        writeLayerGrid($this->directory, 'town.map.php', 'xx');
     }
-    writeLayerGrid($this->directory, 'town.event.php', '    ');
+    writeLayerGrid($this->directory, 'town.event.php', '  ');
     file_put_contents($paths['data'], '<?php return ["name" => "Town"];');
     $manager = new ReflectionClass(LayeredMapManagerProbe::class)->newInstanceWithoutConstructor();
     $scene = new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();
@@ -151,7 +147,7 @@ it('clears layered and legacy geometry together when a preview unloads', functio
     $manager->readSplitMap($paths);
     $collision = new ReflectionProperty(MapManager::class, 'collisionMap');
     $collision->setValue($manager, [[0, 0]]);
-    expect($manager->layers?->legacy)->toBe(!$layered)->and($camera->worldSpace)->toBe([['xx', 'xx']]);
+    expect($manager->layers?->legacy)->toBe(!$layered)->and($camera->worldSpace)->toBe([['x', 'x']]);
     $manager->unloadGeometry();
     expect($manager->layers)->toBeNull()->and($manager->tileMap)->toBe([])
         ->and($collision->getValue($manager))->toBe([])->and($camera->worldSpace)->toBe([])
@@ -161,8 +157,8 @@ it('clears layered and legacy geometry together when a preview unloads', functio
 it('warns about and ignores a retired glyph-keyed tiles2d table while loading the terminal map', function () {
     $paths = ['id' => 'town', 'data' => $this->directory . '/town.data.php',
         'map' => $this->directory . '/town.map.php', 'event' => $this->directory . '/town.event.php'];
-    writeLayerGrid($this->directory, 'layers/01.floor.map.php', '####');
-    writeLayerGrid($this->directory, 'town.event.php', '    ');
+    writeLayerGrid($this->directory, 'layers/01.floor.map.php', '##');
+    writeLayerGrid($this->directory, 'town.event.php', '  ');
     $data = ['tiles2d' => ['layers' => ['floor' => ['asset' => 'parts.png', 'cells' => [
         ['column' => 9, 'row' => 0, 'source' => ['x' => 0, 'y' => 0, 'width' => 16, 'height' => 32]],
     ]]]]];
@@ -179,17 +175,17 @@ it('warns about and ignores a retired glyph-keyed tiles2d table while loading th
     } finally {
         foreach ($debug as $name => $value) { new ReflectionProperty(Debug::class, $name)->setValue(null, $value); }
     }
-    expect($camera->worldSpace)->toBe([['##', '##']])
+    expect($camera->worldSpace)->toBe([['#', '#']])
         ->and(file_get_contents($this->directory . '/logs/warning.log'))
         ->toContain('town/town.data.php tiles2d is no longer read');
 });
 
-it('resolves collision from the top occupied cell with per-layer overrides and pass-through', function () {
+it('resolves collision from the top occupied glyph with per-layer overrides and pass-through', function () {
     $layers = new MapLayerSet([
-        new MapLayer('terrain', 1, false, 'terrain', ';;~~~~~~  '),
-        new MapLayer('buildings', 2, false, 'buildings', 'aaxxbb??  '),
-        new MapLayer('fixtures', 3, false, 'fixtures', "  \e[33mi\e[0m       "),
-        new MapLayer('detail', 4, true, 'detail', 'xxxxxxxxxx'),
+        new MapLayer('terrain', 1, false, 'terrain', ';~~~ '),
+        new MapLayer('buildings', 2, false, 'buildings', 'axb? '),
+        new MapLayer('fixtures', 3, false, 'fixtures', " \e[33mi\e[0m   "),
+        new MapLayer('detail', 4, true, 'detail', 'xxxxx'),
     ]);
     $dictionary = [';' => CollisionType::ENCOUNTER, '~' => CollisionType::SOLID, ' ' => CollisionType::NONE,
         'a' => CollisionType::PASS_THROUGH, 'b' => CollisionType::NONE, 'x' => CollisionType::SOLID,
@@ -201,14 +197,14 @@ it('resolves collision from the top occupied cell with per-layer overrides and p
 });
 
 it('never stores pass-through as a final collision type even on the base layer', function () {
-    $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', 'xx')]);
+    $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', 'x')]);
     expect(MapCollisionResolver::resolveLayers($layers, ['x' => CollisionType::PASS_THROUGH]))
         ->toBe([[CollisionType::SOLID->value]]);
 });
 
 it('rejects decoration collision sections and malformed layer dictionary values', function () {
-    $set = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', '  '),
-        new MapLayer('rugs', 2, true, 'rugs', 'xx')]);
+    $set = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', ' '),
+        new MapLayer('rugs', 2, true, 'rugs', 'x')]);
     expect(fn() => MapCollisionResolver::resolveLayers($set, ['rugs' => ['x' => CollisionType::NONE]]))
         ->toThrow(InvalidArgumentException::class, 'Decoration layer rugs');
     expect(fn() => MapCollisionResolver::validateDictionary(['terrain' => ['x' => 'solid']]))
@@ -217,7 +213,7 @@ it('rejects decoration collision sections and malformed layer dictionary values'
 
 it('keeps the existing flat collision results on legacy and split maps', function () {
     $manager = new ReflectionClass(MapManager::class)->newInstanceWithoutConstructor();
-    $text = ";;~~88\n  ??  ";
+    $text = ";~8\n ? ";
     $set = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', $text)]);
     $dictionary = [';' => CollisionType::ENCOUNTER, '~' => CollisionType::SOLID,
         8 => CollisionType::SOLID, '?' => CollisionType::SAVE_POINT, ' ' => CollisionType::NONE];

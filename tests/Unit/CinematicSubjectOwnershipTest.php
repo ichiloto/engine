@@ -130,8 +130,7 @@ final class SubjectOwnershipScene extends GameScene
     };
     $this->currentMapId = 'map-a';
     $this->mapManager = new SubjectOwnershipMap();
-    // Twelve cells across; a cell's glyph begins at console column 2x.
-    $this->camera = new Camera($this, 24, 8, worldSpace: array_fill(0, 30, str_repeat('..', 30)));
+    $this->camera = new Camera($this, 24, 8, worldSpace: array_fill(0, 30, str_repeat('.', 60)));
     $this->npcManager = new NpcManager($this);
     $this->cinematicStage = new CinematicStageManager($this);
     $this->cinematicPresentation = new CinematicPresentationManager($this);
@@ -252,7 +251,7 @@ it('suppresses paired ordinary art and direct redraws without hiding collision o
     $this->player->render();
     $this->stage->render();
   });
-  expect(Console::charAt(14, 4))->toBe('@')->and(Console::charAt(6, 4))->toBe('.')
+  expect(Console::charAt(7, 4))->toBe('@')->and(Console::charAt(3, 4))->toBe('.')
     ->and($this->player->getGraphicalSpriteDefinition())->toBeNull()
     ->and($this->scene->npcManager->visibleNpcs())->toBe([$this->npc])
     ->and($this->scene->npcManager->npcAt(7, 4))->toBe($this->npc)
@@ -261,11 +260,11 @@ it('suppresses paired ordinary art and direct redraws without hiding collision o
   $this->player->face(Vector2::left(), $this->scene->camera);
   $this->player->renderPlayer();
   $this->player->erase();
-  expect(Console::charAt(14, 4))->toBe('@')->and($this->scene->restoredTiles)->toBe([]);
+  expect(Console::charAt(7, 4))->toBe('@')->and($this->scene->restoredTiles)->toBe([]);
   $this->scene->npcManager->moveNpcById('guide', Vector2::right());
   $this->player->tryMove(Vector2::right(), $this->scene->camera);
   expect($actor->position->x)->toBe(8.0)->and($actor->facing)->toBe(MovementHeading::EAST)
-    ->and(Console::charAt(16, 4))->not->toBe('E')->and($this->scene->restoredTiles)->toBe([]);
+    ->and(Console::charAt(8, 4))->not->toBe('E')->and($this->scene->restoredTiles)->toBe([]);
   $this->stage->advanceGraphicalAnimation(0.08);
   // The first stride shows walking pattern 2; turning in place stands again on pattern 1.
   expect($actor->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(96);
@@ -299,9 +298,9 @@ it('recomposes ownership before the first cinematic yield rather than retaining 
   $this->scene->camera->moveTo(0, 0);
   $this->scene->npcManager->render();
   $this->player->render();
-  expect(Console::charAt(14, 4))->toBe('N')->and(Console::charAt(6, 4))->toBe('v');
+  expect(Console::charAt(7, 4))->toBe('N')->and(Console::charAt(3, 4))->toBe('v');
   $this->scene->startCinematic(subjectOwnershipDefinition());
-  expect(Console::charAt(14, 4))->toBe('@')->and(Console::charAt(6, 4))->not->toBe('v');
+  expect(Console::charAt(7, 4))->toBe('@')->and(Console::charAt(3, 4))->not->toBe('v');
 });
 
 it('replaces sheets with cropped poses without resetting the subject or entry snapshot', function () {
@@ -312,7 +311,7 @@ it('replaces sheets with cropped poses without resetting the subject or entry sn
       'sourceRect' => ['x' => 128, 'y' => 0, 'width' => 128, 'height' => 128]]]));
   expect($pose->subject)->toBe($old->subject)->and($old->getGraphicalSpriteDefinition())->toBeNull()
     ->and($pose->position->x)->toBe(8.0)->and($pose->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(128)
-    ->and($pose->getGraphicalSpriteDefinition()->width)->toBe(FieldViewport::CELL_SIZE)
+    ->and($pose->getGraphicalSpriteDefinition()->width)->toBe(FieldViewport::TILE_SIZE)
     ->and($pose->getGraphicalSpriteId())->toBe($old->getGraphicalSpriteId());
   $this->stage->clear();
   expect($this->npc->position->x)->toBe(7.0)->and($this->npc->heading)->toBe(MovementHeading::SOUTH)
@@ -353,7 +352,7 @@ it('never resurrects an ineligible real NPC or a stale paired visual', function 
     $this->scene->npcManager->faceNpc('guide', Vector2::left());
     $this->scene->npcManager->render();
   });
-  expect(Console::charAt(16, 4))->not->toBe('W');
+  expect(Console::charAt(8, 4))->not->toBe('W');
 });
 
 it('keeps failed replacement and competing owner acquisition atomic', function () {
@@ -802,7 +801,7 @@ it('provides terminal-only bound fallback and camera-relative graphical projecti
   unset($fallback['sprites2d']);
   $actor = $this->stage->add($fallback);
   Console::recomposeFrame(fn() => $this->stage->render());
-  expect($actor->getGraphicalSpriteDefinition())->toBeNull()->and(Console::charAt(8, 2))->toBe('@');
+  expect($actor->getGraphicalSpriteDefinition())->toBeNull()->and(Console::charAt(4, 2))->toBe('@');
 });
 
 it('validates bound ownership fields before runtime', function (array $invalid) {

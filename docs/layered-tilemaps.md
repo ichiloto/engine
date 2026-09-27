@@ -14,8 +14,7 @@ older requirement to author graphical markers and crops through the TUI,
 and the use of terminal characters as graphical tile identities;
 the original phases remain as implementation history, not a requirement to
 restore that workflow. The glyph-keyed tile crops (`tiles2d`) described below
-are retired with two-column map cells; [graphical field](graphical-field.md)
-owns the replacement. Related engine docs: [maps.md](maps.md),
+are retired; [graphical field](graphical-field.md) owns the replacement. Related engine docs: [maps.md](maps.md),
 [rendering/tile-batches.md](rendering/tile-batches.md),
 [integration roadmap](rendering/integration-roadmap.md).
 
@@ -329,9 +328,9 @@ Everything converts; the terminal game must play identically throughout.
 ## Graphical correction roadmap
 
 The [graphical field plan](graphical-field.md) supersedes Stages 1 to 3
-below: one terminal cell is one 48 x 48 pixel unit, characters occupy one
-cell, and tilesets, autotiles and character sheets follow RPG Maker's
-conventions. Stages 1 to 3 remain as history only.
+below: the terminal grid is unchanged, the graphical field draws each
+terminal cell as a 24 x 48 pixel box, and tilesets, autotiles and character
+sheets follow RPG Maker's conventions. Stages 1 to 3 remain as history only.
 
 All six stages below form the implementation roadmap. They are remaining
 correction and verification work, not capabilities delivered by this document.

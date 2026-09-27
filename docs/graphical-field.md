@@ -14,14 +14,14 @@ editing surface is owned by the GUI Editor plan. Related docs:
 
 1. **The terminal is the game.** Map geometry, collision, movement, events,
    interactions and saves derive from the terminal layers, always. Nothing
-   graphical can make a cell solid, walkable or interactive.
-2. **One cell is one unit, square in every renderer.** A map cell is two
-   terminal columns wide, which is square on a terminal whose character
-   boxes are about twice as tall as wide, and one 48 x 48 pixel tile in a
-   graphical renderer. Everything on the field is sized in cells, never in
-   pixels or columns. A character occupies exactly one cell in every
-   renderer, so what the player sees agrees with what collides, and a map
-   keeps its proportions in both.
+   graphical can make a cell solid, walkable or interactive, and nothing
+   graphical changes how the terminal looks or plays.
+2. **The terminal grid is the field's grid.** A map cell is one terminal
+   character, and the player moves one cell per step, in every renderer. A
+   graphical renderer corrects for its own pixels: it draws each terminal
+   cell in the terminal's tall shape, so a map that looks right in the
+   terminal looks right graphically, with no conversion of maps,
+   coordinates or saves.
 3. **RPG Maker's conventions, adopted outright.** Tile size, tileset sheet
    layouts, autotile composition, tile identities and character sheet
    layouts follow RPG Maker MZ. Only the conventions are adopted; no RPG
@@ -37,102 +37,19 @@ editing surface is owned by the GUI Editor plan. Related docs:
 
 ## The unit
 
-- A field cell renders as a 48 x 48 pixel square. The number of visible
-  cells follows from the window size divided by the unit (and any display
-  scale for fitting the window), not from the terminal's column count.
+- A terminal character box is about twice as tall as it is wide. The
+  graphical field draws each terminal cell as a 24 x 48 logical-pixel box
+  (`FieldViewport::CELL_WIDTH` x `CELL_HEIGHT`): the same shape, enlarged.
+  A step moves 24 pixels across or 48 down, one cell either way, as in the
+  terminal.
+- RPG Maker's tile is 48 x 48, built from four 24 x 24 quarters, so one
+  terminal cell is exactly one column of quarters and a tile covers two
+  cells across (`FieldViewport::TILE_COLUMNS`). Character frames are 48 x 48
+  as well.
+- The number of visible cells follows from the window size divided by the
+  cell size and the field zoom, not from the terminal's column count.
 - The field and the interface use separate grids. Dialogue, menus and the
-  HUD keep their text grid; only the field uses the 48-pixel unit.
-- A terminal character box is about twice as tall as it is wide, so a map
-  cell spans two terminal columns. The map is the same grid of square
-  cells in both renderers, and a map drawn to look right in the terminal
-  looks right as tiles.
-
-## Map cells
-
-- **Content.** A cell holds either one two-column glyph (an emoji or CJK
-  character) or two one-column characters side by side, each with its own
-  style. `##`, `[]`, `~~` and `🌲` are each one cell. Every authored row is
-  whole cells; a one-column character followed by a two-column glyph, or a
-  lone trailing character, is refused with its row and column.
-- **Layers.** Layers compose column by column, as terminal layers always
-  did: a space in an upper cell, styled or not, shows the character beneath
-  it in that column, so a chest `" m"` over a wall `"| "` shows `"|m"`. A
-  two-column glyph cannot be split, so where one is involved a non-blank
-  upper cell replaces the whole cell.
-- **Collision.** Collision dictionaries keep single-character keys. Each
-  column of a cell resolves through the layers exactly as before (a space
-  through the space entry), and the cell is solid when either column is;
-  otherwise it takes the first kind other than none, left to right. Pairing
-  can only make a cell more solid, never open a wall.
-- **Events.** An event cell's marker is its non-blank character (`E `,
-  ` E` and `EE` all mark event `E`); two different markers in one cell are
-  refused.
-- **Characters.** The player, NPCs and staged actors occupy one cell. A
-  one-column terminal sprite draws in the cell's first column and a
-  two-column sprite fills it. Movement is one cell per step, so a step
-  covers the same screen distance horizontally and vertically.
-- **Terminal editing.** In the TUI editor, typing one character paints a
-  cell of that character repeated (`#` paints `##`, `.` paints `..`); a
-  second quick keystroke or a pair entry in the character map sets a
-  mixed cell such as `[]`, and a two-column glyph fills the cell as it is.
-- **Camera.** The camera and everything addressing the field work in
-  cells. Cells become terminal columns only where text is written to the
-  console, so the terminal field shows half as many cells across as the
-  console has columns.
-- **Graphical field.** A retained world cell is one field cell whatever its
-  text; glyph fallback draws the cell's text at two terminal columns per
-  square, so an unpainted map looks like its terminal presentation scaled.
-- **Format version.** Two-column cells change what every x coordinate
-  means, so they begin a new project format version. The game, editor and
-  validator refuse a project whose format is older than the engine's and
-  point to `ichiloto upgrade`, rather than misplace its contents.
-
-## Converting existing projects
-
-`ichiloto upgrade` is the project's format chain. A project records its
-format version in `ichiloto.json`, and the command runs every numbered
-step between that version and the engine's, in order, like the save
-compatibility chain. Each step is its own class; a later format change
-adds a step and never edits an earlier one. The existing metadata upgrade
-(project id and save compatibility manifest) is the first step.
-
-The version is bookkeeping the tools write and read; nobody tracks it.
-The experience follows established upgraders (Unity and Godot on
-opening an older project, framework migrations, `ng update`):
-
-1. **Detect.** `ichiloto play`, `validate` and the editor notice a project
-   behind the engine's format and say what is outdated and to run
-   `ichiloto upgrade`, instead of failing on the old data. The editor may
-   offer the upgrade when it opens such a project.
-2. **Explain.** `ichiloto upgrade` takes no arguments. It first lists, one
-   line per pending step, what will change (for example, 30 maps converted,
-   coordinates halved in 57 files, a save migration added), then asks to
-   continue. `--dry-run` prints the same list and changes nothing.
-3. **Protect.** It refuses to run over uncommitted changes unless told to,
-   so each upgrade is one reviewable, reversible change.
-4. **Report.** It ends with the follow-up list for a person and writes it
-   to a file in the project.
-
-The two-column cell step converts a project from one-column cells:
-
-- Each map layer and event layer groups every two columns into one cell,
-  so the terminal art is unchanged. A row with an odd width gains a
-  trailing space.
-- Every field x coordinate is halved (rounded down): NPC positions and
-  wander areas, event spawn points, transfers and player moves, staged
-  actors, camera targets, cinematic cast and waypoints, and the new game
-  start. Widths become the cells their old columns covered.
-- Horizontal move route step counts are halved and reported, because the
-  exact count depends on where the route starts at runtime.
-- Saved games keep working through the project's save compatibility
-  chain: the conversion adds a content migration that halves the saved
-  player's x after every earlier migration.
-- The conversion writes a report of everything that needs a person: cells
-  that became solid from mixing a wall and a floor character (such as a
-  one-column doorway), cells holding two different event markers, NPCs,
-  events and spawn points that now stand in a solid cell, and halved
-  route counts. Re-proportioning furniture and rooms for square cells is
-  the author's work after the conversion.
+  HUD keep their text grid; only the field uses the field cell.
 
 ## Characters
 
@@ -142,8 +59,11 @@ The two-column cell step converts a project from one-column cells:
   holds one.
 - Walking cycles frames in RPG Maker's pattern (1, 2, 1, 0 around the idle
   middle frame); standing shows the middle frame.
-- A character is drawn inside its one cell. There are no authored width,
-  height or anchor values for field characters, and none are accepted.
+- A character stands on its one cell: its 48 x 48 frame is bottom-centred
+  on the cell and overhangs half a cell on each side, where RPG Maker's
+  figures leave the frame transparent. There are no authored width, height
+  or anchor values for field characters, and none are accepted. Field
+  images such as cinematic poses are sized in whole character frames.
 - Depth is row order: within a draw band, a character in a lower row draws
   in front of one above it, with stable ties.
 
@@ -153,7 +73,7 @@ The two-column cell step converts a project from one-column cells:
   A1 (animated water and waterfalls), A2 (ground), A3 (building exteriors),
   A4 (walls), A5 (normal lower tiles) and B to E (upper tiles, 256 each).
   The engine validates each sheet's dimensions against its layout.
-- Autotiles (A1 to A4) compose each cell from 24 x 24 quarter pieces
+- Autotiles (A1 to A4) compose each tile from 24 x 24 quarter pieces
   according to its neighbours, exactly as RPG Maker does, so edges,
   corners, ends and junctions need no hand-placed variants.
 - Tile identities follow RPG Maker MZ's numbering (B from 0, C from 256,
@@ -183,61 +103,85 @@ The two-column cell step converts a project from one-column cells:
   (`'tileset' => 'home'`, like RPG Maker's map properties). Its tile layers
   live in `graphics/` beside `layers/`, named `NN.name.tiles.php` and
   ordered by `NN` like terminal layers. Each returns a literal nowdoc with
-  one row per map row and one whitespace-separated tile identity per map
-  cell; `0` is empty (RPG Maker's first B tile). Rows match the map's cells
-  exactly. Nothing in them is executed.
+  one row per map row and one whitespace-separated tile identity per
+  terminal cell; `0` is empty (RPG Maker's first B tile). Rows match the
+  map's cells exactly. Nothing in them is executed.
+- **Placement.** A tile is placed at a cell and covers that cell and the
+  next one across, so a floor is painted every other cell and an object
+  starts at whichever cell the author chooses. A tile at a row's last cell
+  overhangs the map edge by half a tile.
 - **Autotile shapes** are carried in the identity, as RPG Maker stores them.
-  The engine resolves shapes from neighbouring cells of the same kind for
-  authoring tools, and composes each shape from quarter tiles when
-  presenting. Map edges count as the same kind, as in RPG Maker.
+  The engine resolves shapes from neighbouring tiles of the same kind, one
+  tile width (two cells) away across and one row away down, for authoring
+  tools, and composes each shape from quarter tiles when presenting. Map
+  edges count as the same kind, as in RPG Maker.
 - **Draw bands.** Tile layer `NN` draws at `-100 + NN`, the same band as the
   terminal layers, below characters. Tiles listed in `above` draw at
   `900 + NN`, above characters and below the interface.
-- **Glyph fallback.** A cell with no painted tile in any tile layer shows
-  its terminal glyph; a painted cell does not, even where its tile is
-  transparent.
+- **Glyph fallback.** A cell no painted tile covers shows its terminal
+  glyph; a covered cell does not, even where its tile is transparent.
 - **Animation.** A1 water cycles RPG Maker's frames (water 0, 1, 2, 1;
   waterfalls 0, 1, 2) on one counter advancing every 30/60 seconds, as
   RPG Maker does. Reduced motion holds the first frame.
-- **Retained upload.** The world carries the tileset: its sheets, tile size
-  and a catalog of the tile identities the map uses, each as frames of
-  pieces copied from a sheet into the tile. Tile layers are world layers
-  of kind `tiles` whose rows list cells and catalog indices, uploaded once
-  per map load. The viewport carries only the camera and the animation
-  frame. The renderer knows nothing of RPG Maker: composition rules stay in
-  the engine.
+- **Retained upload.** The world carries the cell size, and the tileset:
+  its sheets, tile size and a catalog of the tile identities the map uses,
+  each as frames of pieces copied from a sheet into the tile. Tile layers
+  are world layers of kind `tiles` whose rows list cells and catalog
+  indices, uploaded once per map load. The viewport carries only the camera
+  and the animation frame. The renderer knows nothing of RPG Maker:
+  composition rules stay in the engine.
 - **Terminal and editors.** None of this changes terminal geometry,
   collision, events or saves. The TUI editor preserves a map's graphics
   folder through resize, duplicate, move and delete, validates it, and
   never edits it; painting tiles belongs to the GUI editor (Phase 4).
+
+## Project format
+
+`ichiloto upgrade` is the project's format chain. A project records its
+format version in `ichiloto.json`, and the command runs every numbered
+step between that version and the engine's, in order, like the save
+compatibility chain. Each step is its own class; a later format change
+adds a step and never edits an earlier one. Format 1 is the project id and
+save compatibility manifest. The version is bookkeeping the tools write and
+read; nobody tracks it by hand.
+
+The experience follows established upgraders (Unity and Godot on opening
+an older project, framework migrations, `ng update`):
+
+1. **Detect.** `ichiloto play`, `validate` and the editor notice a project
+   behind the engine's format and say what is outdated and to run
+   `ichiloto upgrade`, instead of failing on the old data.
+2. **Explain.** `ichiloto upgrade` takes no arguments. It first lists, one
+   line per pending step, what will change, then asks to continue.
+   `--dry-run` prints the same list and changes nothing.
+3. **Protect.** It refuses to run over uncommitted changes unless told to,
+   so each upgrade is one reviewable, reversible change.
+4. **Report.** It ends with the follow-up list for a person and writes it
+   to a file in the project.
+
 ## Phases
 
 ### Phase 1 - The unit and characters
 
-1. Render field cells as 48 x 48 squares on their own grid, separate from
-   the interface's text grid.
+1. Render the field on its own grid, separate from the interface's text
+   grid, one terminal cell per 24 x 48 field cell.
 2. RPG Maker character sheets for the player, NPCs and field creatures,
-   drawn in one cell, with the walking pattern and row-order depth.
+   bottom-centred on their cell, with the walking pattern and row-order
+   depth.
 3. Remove per-sprite width, height and anchor for field characters.
-4. Maps without graphics render terminal glyphs on the unit.
+4. Maps without graphics render terminal glyphs in their cells.
 
-### Phase 2 - Square map cells
-
-1. Two-column map cells in the engine: parsing, composition, collision,
-   events, the camera, terminal and retained presentation, and the
-   project format version check. The glyph-keyed crop tables (`tiles2d`)
-   cannot address two-column cells and are removed here, ahead of
-   Phase 3; maps using them show their terminal glyphs until tilesets.
-2. The TUI editor paints, selects and validates two-column cells.
-3. Turn `ichiloto upgrade` into the project format chain, with the
-   two-column cell step and its review report.
-4. Convert Last Legend and Epic Quest, then work through the report.
-
-### Phase 3 - Tilesets and graphical layers
+### Phase 2 - Tilesets and graphical layers
 
 1. Tileset resources with layout validation.
 2. Tile identities and autotile composition for A1 to A4.
-3. Graphical layer files, loading, validation and retained upload.
+3. Graphical layer files, loading, validation and retained upload, with
+   tiles covering two cells across.
+4. Remove the glyph-keyed crop tables and cell overrides.
+
+### Phase 3 - Last Legend Home proof
+
+Home drawn from its tileset over its unchanged terminal layers.
 
 ### Phase 4 - Authoring
 
@@ -245,15 +189,17 @@ Map painting with tilesets and autotiles in the GUI Editor, per its plan.
 
 ### Phase 5 - Last Legend art
 
-New tilesets and character sheets in RPG Maker's layouts, then the Home
-proof, then wider maps. The existing 16 x 32 art is not carried forward.
+New tilesets and character sheets in RPG Maker's layouts for the wider
+maps. The existing 16 x 32 art is not carried forward.
 
 ## Decisions already made (do not relitigate)
 
 - The terminal is the game; collision always derives from terminal layers.
-- One map cell is two terminal columns and one 48 x 48 pixel tile, square
-  in both; characters occupy exactly one cell.
+- Graphics never change terminal geometry, movement or authoring. A map
+  cell is one terminal character in every renderer; the graphical field
+  draws it as a 24 x 48 box and corrects for its shape itself.
 - RPG Maker MZ's tile size, sheet layouts, autotiles, tile identities and
-  character sheets are adopted as the conventions.
+  character sheets are adopted as the conventions. A 48 x 48 tile or
+  character frame spans two cells across.
 - Graphics are independent authored data, never keyed off glyphs.
 - Existing 16 x 32 art is recreated, not migrated.

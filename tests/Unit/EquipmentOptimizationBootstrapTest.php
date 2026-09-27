@@ -36,7 +36,7 @@ function writeOptimizationBootstrapProject(string $root, string $name): string
 {
   $project = $root . '/' . $name;
   mkdir($project . '/assets/Data', 0777, true);
-  file_put_contents($project . '/ichiloto.json', '{"id":"optimization-bootstrap-fixture","format":2}');
+  file_put_contents($project . '/ichiloto.json', '{"id":"optimization-bootstrap-fixture","format":1}');
   foreach (['config.php', 'input.php', 'assets/Data/system.php', 'assets/Data/enemies.php'] as $path) {
     file_put_contents($project . '/' . $path, '<?php return [];');
   }

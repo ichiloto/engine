@@ -55,15 +55,16 @@ capability flag. Historical capability names do not enable stateless frames.
 
 ## Field zoom
 
-The graphical field is drawn in square cells of `FieldViewport::CELL_SIZE`
-(48) logical pixels, RPG Maker's tile size: one map cell, two terminal columns
-wide, is one field cell, and characters occupy exactly one cell. A map without
-graphics shows each cell's two columns of text in its square. The camera shows as many whole field
-cells as the session surface holds, centred. See the
+The graphical field keeps the terminal's grid: each terminal cell is drawn as a
+`FieldViewport::CELL_WIDTH` x `CELL_HEIGHT` (24 x 48) logical-pixel box, the
+terminal's own tall shape, so a step covers one cell in both. RPG Maker's
+48-pixel tiles and character frames span two cells across. A map without
+graphics shows each cell's text in its box. The camera shows as many whole
+field cells as the session surface holds, centred. See the
 [graphical field plan](../graphical-field.md).
 
 Projects may set `graphics.field.zoom` in `config.php` to a number from 1 to 8
-(default 1), a display scale applied to the 48-pixel cells. The Editor exposes
+(default 1), a display scale applied to the field cells. The Editor exposes
 this as **System > Field zoom**. This scales the field's terrain, decorations,
 terminal fallback glyphs and graphical actors together. Dialogue, notifications, menus and battle canvases keep their existing
 sizes. Zoom does not change world coordinates, collision or movement speed.

@@ -14,14 +14,21 @@ use Ichiloto\Engine\IO\Console\ConsolePresentationChanges;
 use InvalidArgumentException;
 
 /**
- * The graphical field's camera: one terminal cell is one square field cell of
- * CELL_SIZE logical pixels (RPG Maker's tile size), scaled by the display zoom.
- * The field has its own cell pitch; UI text keeps the session text grid.
+ * The graphical field's camera. One terminal cell draws as a CELL_WIDTH x
+ * CELL_HEIGHT box, the terminal's own tall cell enlarged, so the field keeps
+ * the terminal's grid and a step is one cell in both. RPG Maker's 48-pixel
+ * tiles and character frames span TILE_COLUMNS cells across. Everything is
+ * scaled by the display zoom; UI text keeps the session text grid.
  */
 final readonly class FieldViewport
 {
-  /** RPG Maker's tile size: one terminal cell draws as a 48 x 48 logical-pixel square. */
-  public const int CELL_SIZE = 48;
+  /** RPG Maker's tile and character frame size, in logical pixels. */
+  public const int TILE_SIZE = 48;
+  /** One terminal cell: half a tile wide and a tile tall. */
+  public const int CELL_WIDTH = 24;
+  public const int CELL_HEIGHT = 48;
+  /** Terminal cells one tile covers across. */
+  public const int TILE_COLUMNS = self::TILE_SIZE / self::CELL_WIDTH;
   public const float DEFAULT_ZOOM = 1.0;
   public const float MIN_ZOOM = 1.0;
   public const float MAX_ZOOM = PresentationViewport::MAX_SCALE;
@@ -35,9 +42,8 @@ final readonly class FieldViewport
     }
     // As many whole field cells as the session surface holds; the remainder is
     // split evenly around the field.
-    $pitch = self::CELL_SIZE * $zoom;
-    $this->columns = max(1, (int)floor($grid->columns * $grid->cellWidth / $pitch));
-    $this->rows = max(1, (int)floor($grid->rows * $grid->cellHeight / $pitch));
+    $this->columns = max(1, (int)floor($grid->columns * $grid->cellWidth / (self::CELL_WIDTH * $zoom)));
+    $this->rows = max(1, (int)floor($grid->rows * $grid->cellHeight / (self::CELL_HEIGHT * $zoom)));
   }
 
   /** @param list<PresentationTextLayer> $text @param list<PresentationSprite> $sprites @param list<PresentationTileBatch> $tiles */
@@ -51,8 +57,8 @@ final readonly class FieldViewport
     $width = $this->grid->columns * $this->grid->cellWidth;
     $height = $this->grid->rows * $this->grid->cellHeight;
     return new PresentationViewport($this->zoom,
-      max(0, ($width - $this->columns * self::CELL_SIZE * $this->zoom) / 2),
-      max(0, ($height - $this->rows * self::CELL_SIZE * $this->zoom) / 2),
+      max(0, ($width - $this->columns * self::CELL_WIDTH * $this->zoom) / 2),
+      max(0, ($height - $this->rows * self::CELL_HEIGHT * $this->zoom) / 2),
       new CanvasRectangle(0, 0, $width, $height),
       array_values(array_map(static fn($layer) => $layer->id,
         array_filter($text, static fn($layer) => $layer->layer < PresentationLayerPolicy::UI

@@ -2,7 +2,6 @@
 
 namespace Ichiloto\Engine\Rendering\Presentation;
 
-use Ichiloto\Engine\Field\MapCell;
 use Ichiloto\Engine\Field\MapGraphics;
 use Ichiloto\Engine\Field\MapLayerSet;
 use Ichiloto\Engine\IO\Console\SgrColorParser;
@@ -15,11 +14,12 @@ use InvalidArgumentException;
 
 /**
  * Immutable, map-owned upload. Camera movement never visits its cells in PHP.
- * One wire cell is one map cell whatever its text; its text keeps the
- * terminal's MapCell::COLUMNS columns per cell. A map with graphics also
+ * One wire cell is one terminal cell, drawn in the field as a
+ * FieldViewport::CELL_WIDTH x CELL_HEIGHT box. A map with graphics also
  * carries its tileset: the sheets, and a catalog of the tile identities it
  * uses composed into generic pieces, so the renderer needs no RPG Maker
- * knowledge. Tile layers draw at -100 + NN, their `above` tiles at 900 + NN.
+ * knowledge. A tile is placed at a cell and covers FieldViewport::TILE_COLUMNS
+ * cells across. Tile layers draw at -100 + NN, their `above` tiles at 900 + NN.
  */
 final readonly class PresentationWorld
 {
@@ -83,8 +83,8 @@ final readonly class PresentationWorld
             $rows[] = ['op' => 'worldRows', 'id' => $id, 'rows' => [['row' => $y, 'cells' => $wire]]];
         }
         return new self($id, [['op' => 'put', 'kind' => 'world', 'id' => $id,
-            'value' => ['columns' => $width, 'rows' => $height, 'cellSize' => FieldViewport::CELL_SIZE,
-                'cellColumns' => MapCell::COLUMNS, 'layers' => $metadata,
+            'value' => ['columns' => $width, 'rows' => $height, 'cellWidth' => FieldViewport::CELL_WIDTH,
+                'cellHeight' => FieldViewport::CELL_HEIGHT, 'layers' => $metadata,
                 ...($tiles === null ? [] : ['tileset' => $tiles['tileset']])]], ...$rows, ...($tiles['operations'] ?? [])],
             array_column(array_filter($metadata, static fn(array $layer): bool => $layer['kind'] !== 'tiles'), 'id'),
             $estimatedBytes, $tiles['animated'] ?? false);
@@ -168,7 +168,7 @@ final readonly class PresentationWorld
         $visible = array_values(array_filter($symbols, static fn(string $symbol): bool => trim(TerminalText::stripAnsi($symbol)) !== ''));
         $foreground = SgrColorParser::parse($visible[0] ?? $symbols[0] ?? ' ')['foreground'];
         $background = SgrColorParser::parse($symbols[0] ?? ' ')['background'];
-        return ['glyph' => $glyph === '' ? MapCell::BLANK : $glyph,
+        return ['glyph' => $glyph === '' ? ' ' : $glyph,
             'foreground' => $foreground?->toArray(), 'background' => $background?->toArray()];
     }
 }

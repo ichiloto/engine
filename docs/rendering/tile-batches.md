@@ -10,10 +10,10 @@ map in PHP. The graphical direction for tiles is
 `RendererPresentation::present(..., tileBatches: [...])` path are removed; that
 argument rejects nonempty lists with guidance to supply a retained world. The
 glyph-keyed tile crops (`tiles2d` in map data, per-cell crop overrides, world
-layer atlases and the `worldTiles` operation) are retired because a crop keyed
-by a single character cannot address a two-column map cell. A map data file
-that still has `tiles2d` loads with a warning and shows its terminal glyphs.
-Tilesets and graphical layers replace them.
+layer atlases) are retired: graphics are their own authored data, never
+keyed off glyphs. A map data file that still has `tiles2d` loads with a
+warning and shows its terminal glyphs. Tilesets and tile layers replace them
+(see Tiles below).
 
 ## Upload and replacement
 
@@ -26,19 +26,19 @@ removes it explicitly.
 The retained operations are:
 
 ```json
-{"op":"put","kind":"world","id":"map","value":{"columns":2,"rows":1,"cellSize":48,"cellColumns":2,"layers":[{"id":"map:ground","layer":-100,"kind":"gameplay"}]}}
-{"op":"worldRows","id":"map","rows":[{"row":0,"cells":[{"glyph":"..","foreground":null,"background":null,"ownerLayerId":"map:ground"},{"glyph":"##","foreground":null,"background":null,"ownerLayerId":"map:ground"}]}]}
+{"op":"put","kind":"world","id":"map","value":{"columns":2,"rows":1,"cellWidth":24,"cellHeight":48,"layers":[{"id":"map:ground","layer":-100,"kind":"gameplay"}]}}
+{"op":"worldRows","id":"map","rows":[{"row":0,"cells":[{"glyph":".","foreground":null,"background":null,"ownerLayerId":"map:ground"},{"glyph":"#","foreground":null,"background":null,"ownerLayerId":"map:ground"}]}]}
 ```
 
 These are members of a frame's `operations`, not separate message envelopes.
 World IDs and layer IDs are stable, control-free UTF-8 strings of at most 256
 bytes. Layers have signed i32 priority and `gameplay` or `decoration` kind.
-`cellSize` is the square field cell in logical pixels (48, RPG Maker's tile
-size) and `cellColumns` the terminal columns one cell holds (2).
+`cellWidth` and `cellHeight` are one terminal cell's size on the field in
+logical pixels (24 x 48: the terminal's own tall cell, half an RPG Maker tile
+wide).
 
 `worldRows` replaces complete authored rows: one cell per map cell, carrying the
-cell's text (both of its characters, or its two-column glyph), the colours of
-its first visible character, and its owning gameplay layer, up to the declared
+cell's text, its colours, and its owning gameplay layer, up to the declared
 world width. Ragged and empty rows are allowed; missing trailing cells stay
 absent rather than becoming opaque spaces. Every declared row needs an owner
 row before presentation. Owners reference gameplay layers, not decoration.
@@ -47,8 +47,21 @@ supplied before presentation. `remove` with `kind:world` removes it; omission
 from an update does not.
 
 World coordinates are never preprojected to the hello grid. The renderer draws
-each world cell as one square of `cellSize` before viewport scaling, with its
-text at `cellColumns` columns per square.
+each world cell as one `cellWidth` x `cellHeight` box before viewport scaling,
+with its text fitted to that box.
+
+## Tiles
+
+A world whose map has graphics also carries a `tileset`: its `tileSize` (48),
+its asset-relative `sheets`, and a catalog of `tiles`, each one to four frames
+of pieces copied from a sheet into the tile. The Engine composes RPG Maker
+autotiles into these pieces; the renderer knows no sheet layouts. World
+layers of kind `tiles` own no glyphs, and `worldTiles` lists each row's
+`column` and catalog `tile`. A tile is drawn at its cell's top-left corner at
+`tileSize`, so a 48 pixel tile covers its cell and the next one across. A cell
+covered by an available tile shows no glyph. The viewport's optional
+`tileFrame` selects each tile's frame `tileFrame % frames`, so water animates
+with a camera-only update.
 
 ## Bounds and atomicity
 
@@ -78,7 +91,7 @@ then adds the pixel `origin` and clips to `clipRect` before window fitting.
 
 `textLayerIds` and `spriteIds` name screen-space contributions to scale and clip.
 Those coordinates have already been projected by PHP (text in console columns,
-two per cell; field sprites in cells), so worldOrigin is not subtracted a second
+one per cell; field sprites in cells), so worldOrigin is not subtracted a second
 time. UI not listed remains unscaled. Omitted `viewport` retains the previous
 transform; explicit null clears it. A camera-only update therefore needs no
 world rows.

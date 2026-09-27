@@ -72,8 +72,8 @@ it('retains terrain identity removes omitted worlds and resets after rejected te
   $createWorld = static function (string $text): PresentationWorld {
     return PresentationWorld::getFromLayers(new MapLayerSet([new MapLayer('terrain', 0, false, '00-terrain.txt', $text)]));
   };
-  $original = $createWorld('....');
-  $changed = $createWorld('..xx');
+  $original = $createWorld('..');
+  $changed = $createWorld('.x');
   expect($presenter->present($snapshot, world: $original))->toBeTrue()
     ->and($presenter->present($snapshot, world: $original))->toBeFalse();
   $transport->sendFailure = new RendererTransportException('backpressure');
@@ -88,10 +88,10 @@ it('retains terrain identity removes omitted worlds and resets after rejected te
     ->and($transport->sent[2]->payload['operations'])->toBe([['op' => 'remove', 'kind' => 'world', 'id' => 'map']]);
   $frames = RetainedFrameState::replay($transport->sent);
   expect($frames[0]['worlds']['map']['columns'])->toBe(2)->and($frames[2])->not->toHaveKey('worlds')
-    ->and($frames[0]['worlds']['map']['glyphRows']['map:terrain'][0][1]['glyph'])->toBe('..')
-    ->and($frames[1]['worlds']['map']['glyphRows']['map:terrain'][0][1]['glyph'])->toBe('xx');
+    ->and($frames[0]['worlds']['map']['glyphRows']['map:terrain'][0][1]['glyph'])->toBe('.')
+    ->and($frames[1]['worlds']['map']['glyphRows']['map:terrain'][0][1]['glyph'])->toBe('x');
   $rows = array_values(array_filter($transport->sent[1]->payload['operations'], fn($op) => $op['op'] === 'worldRows'));
-  expect(array_column($rows[0]['rows'][0]['cells'], 'glyph'))->toBe(['..', 'xx']);
+  expect(array_column($rows[0]['rows'][0]['cells'], 'glyph'))->toBe(['.', 'x']);
 });
 
 it('replays world row replacement by owner and clears empty rows and replaced world state', function () {

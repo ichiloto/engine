@@ -42,22 +42,21 @@ function getNativeWorldSourceCharge(PresentationWorld $world): int
 
 it('matches native source coefficients and charges rendered UTF-8 bytes and actual ragged-row owners', function () {
     $layers = new MapLayerSet([
-        new MapLayer('terrain', 0, false, 'base', "\e[31m\u{e9}\e[0m \u{754c}\u{1f600}ab\ne\u{301}."),
-        new MapLayer('fixtures_long', 1, false, 'fixtures', "  Z     \n  "),
-        new MapLayer('ornaments', 2, true, 'ornaments', "        \n  "),
+        new MapLayer('terrain', 0, false, 'base', "\e[31m\u{e9}\e[0m \u{754c}\u{1f600}a\ne\u{301}."),
+        new MapLayer('fixtures_long', 1, false, 'fixtures', " Z   \n  "),
+        new MapLayer('ornaments', 2, true, 'ornaments', "     \n  "),
     ]);
     $world = PresentationWorld::getFromLayers($layers);
     expect(PresentationWorld::MAX_SOURCE_BYTES)->toBe(67108864)
         ->and(PresentationWorld::LAYER_SOURCE_BYTES)->toBe(8192)
         ->and(PresentationWorld::CELL_SOURCE_BYTES)->toBe(64)
-        // One wire cell per map cell, carrying both of a pair's characters.
         ->and(array_column($world->operations[1]['rows'][0]['cells'], 'glyph'))
-        ->toBe(["\u{e9} ", 'Z ', "\u{1f600}", 'ab'])
-        ->and(array_column($world->operations[2]['rows'][0]['cells'], 'glyph'))->toBe(['?.'])
+        ->toBe(["\u{e9}", 'Z', "\u{754c}", "\u{1f600}", 'a'])
+        ->and(array_column($world->operations[2]['rows'][0]['cells'], 'glyph'))->toBe(['?', '.'])
         ->and(array_column($world->operations[1]['rows'][0]['cells'], 'ownerLayerId'))
-        ->toBe(['map:terrain', 'map:fixtures_long', 'map:terrain', 'map:terrain'])
-        // Three layers, five authored cells, thirteen rendered glyph bytes, 61 owner-ID bytes.
-        ->and($world->estimatedSourceBytes)->toBe(3 * 8192 + 5 * 64 + 13 + 61)
+        ->toBe(['map:terrain', 'map:fixtures_long', 'map:terrain', 'map:terrain', 'map:terrain'])
+        // Three layers, seven authored cells, thirteen rendered glyph bytes, 83 owner-ID bytes.
+        ->and($world->estimatedSourceBytes)->toBe(3 * 8192 + 7 * 64 + 13 + 83)
         ->and($world->estimatedSourceBytes)->toBe(getNativeWorldSourceCharge($world));
 });
 
@@ -79,7 +78,7 @@ it('keeps real MapManager screen deltas and logs once when source bytes alone ex
             ->and($result['extent'])->toBe(500)->toBeLessThan(PresentationWorld::MAX_EXTENT)
             ->and($result['layerCount'])->toBe(1)->toBeLessThan(PresentationWorld::MAX_LAYERS)
             ->and($result['ownerIdBytes'])->toBe(214)->toBeLessThanOrEqual(256)
-            ->and($result['sourceBytes'])->toBe(70008192)->toBeGreaterThan(PresentationWorld::MAX_SOURCE_BYTES)
+            ->and($result['sourceBytes'])->toBe(69758192)->toBeGreaterThan(PresentationWorld::MAX_SOURCE_BYTES)
             ->and($result['initialWorldAvailable'])->toBeTrue()
             ->and($result['oversizedWorldAvailable'])->toBeFalse()
             ->and($result['retainedMode'])->toBeTrue()

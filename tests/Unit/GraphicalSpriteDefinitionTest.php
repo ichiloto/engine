@@ -42,7 +42,7 @@ it('keeps graphical definitions and S4 presentation under the same structural va
   ['Hero.png', 32, 48, -2147483649], ['Hero.png', 32, 48, 2147483648],
 ]);
 
-it('sizes a field image in whole field cells, never authored pixels', function () {
+it('sizes a field image in whole character frames, never authored pixels', function () {
   $single = GraphicalSpriteDefinition::fromArray(['asset' => 'Graphics/Poses/Rest.png']);
   $pair = GraphicalSpriteDefinition::fromArray(['asset' => 'Graphics/Poses/Embrace.png', 'layer' => 100,
     'cells' => ['width' => 2, 'height' => 1], 'sourceRect' => ['x' => 0, 'y' => 0, 'width' => 512, 'height' => 256]]);

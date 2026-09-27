@@ -38,18 +38,17 @@ it('uses the supplied Camera transform for any provider rather than reproducing 
 });
 
 it('inherits real Camera centering and viewport resizing', function () {
-  // Twenty console columns show ten cells: the five-cell map is offset two cells, three rows.
-  $camera = new Camera(makeCameraTestScene(), 20, 10, worldSpace: array_fill(0, 4, str_repeat('..', 5)));
+  $camera = new Camera(makeCameraTestScene(), 20, 10, worldSpace: array_fill(0, 4, '.....'));
   $sprite = $this->projector->project($this->provider, $camera);
-  expect([$sprite->x, $sprite->y])->toBe([9, 7]);
-  $camera->resizeViewport(12, 12);
+  expect([$sprite->x, $sprite->y])->toBe([14, 7]);
+  $camera->resizeViewport(24, 12);
   $resized = $this->projector->project($this->provider, $camera);
-  expect([$resized->x, $resized->y])->toBe([10, 8])
-    ->and([$sprite->x, $sprite->y])->toBe([9, 7]);
+  expect([$resized->x, $resized->y])->toBe([16, 8])
+    ->and([$sprite->x, $sprite->y])->toBe([14, 7]);
 });
 
 it('inherits scrolling without mutating provider or Camera state or filtering off-grid cells', function () {
-  $camera = new Camera(makeCameraTestScene(), 20, 10, worldSpace: array_fill(0, 30, str_repeat('..', 20)));
+  $camera = new Camera(makeCameraTestScene(), 20, 10, worldSpace: array_fill(0, 30, str_repeat('.', 40)));
   $camera->moveTo(3, 2);
   $state = $camera->captureState();
   $sprite = $this->projector->project($this->provider, $camera);

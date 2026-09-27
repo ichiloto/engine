@@ -4,7 +4,6 @@ namespace Ichiloto\Engine\Events\Triggers;
 
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
-use Ichiloto\Engine\Field\MapCell;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use InvalidArgumentException;
 use Symfony\Component\Console\Formatter\OutputFormatterStyle;
@@ -28,8 +27,8 @@ final readonly class EventCue
     public array $conditions = [],
   )
   {
-    if (TerminalText::symbolCount($this->symbol) !== 1 || TerminalText::displayWidth($this->symbol) > MapCell::COLUMNS) {
-      throw new InvalidArgumentException('Event cue symbols must be one character that fits one map cell.');
+    if (TerminalText::symbolCount($this->symbol) !== 1 || TerminalText::displayWidth($this->symbol) !== 1) {
+      throw new InvalidArgumentException('Event cue symbols must occupy exactly one terminal cell.');
     }
 
     try {

@@ -459,7 +459,7 @@ it('fails atomically when a matched rule targets an actor absent from the entry 
 it('continues real Game startup with disabled bad actor rules and logs their file and field', function () {
   $root = sys_get_temp_dir() . '/ichiloto-battle-entry-startup-' . uniqid();
   mkdir($root . '/assets/Data/Actors', 0777, true);
-  file_put_contents($root . '/ichiloto.json', '{"id":"battle-entry-startup-fixture","format":2}');
+  file_put_contents($root . '/ichiloto.json', '{"id":"battle-entry-startup-fixture","format":1}');
   file_put_contents($root . '/assets/Data/save-compatibility.php', '<?php return ["contentVersion" => 0];');
   file_put_contents($root . '/config.php', '<?php return ["audio" => ["music" => false, "sfx" => false, "voice" => false]];');
   foreach (['input.php', 'assets/Data/system.php', 'assets/Data/items.php', 'assets/Data/enemies.php'] as $path) {

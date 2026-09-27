@@ -71,8 +71,7 @@ beforeEach(function () {
   // Reuse the lightweight scene/map fixture approach; Player and Camera run their real constructors.
   $this->scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()->onlyMethods(['getGame'])->getMock();
   $this->scene->method('getGame')->willReturn(new SpritePresentationTestGame());
-  // Twenty console columns show ten cells; a cell's glyph begins at twice its screen x.
-  $this->camera = new Camera($this->scene, 20, 10, worldSpace: array_fill(0, 30, str_repeat('..', 20)));
+  $this->camera = new Camera($this->scene, 20, 10, worldSpace: array_fill(0, 30, str_repeat('.', 40)));
   new ReflectionProperty(GameScene::class, 'camera')->setValue($this->scene, $this->camera);
   $this->terminalSprites = ['north' => ['^^'], 'east' => ['>>'], 'south' => ['vv'], 'west' => ['<<']];
   $this->assetRoot = sys_get_temp_dir() . '/ichiloto-player-sprite-' . bin2hex(random_bytes(4));
@@ -107,7 +106,7 @@ it('keeps existing constructor calls terminal-only without adding the capability
     ->and($legacy->getGraphicalSpriteId())->toBe('player')
     ->and(is_a(GameObject::class, GraphicalSpriteProviderInterface::class, true))->toBeFalse();
   $legacy->render();
-  expect(Console::charAt(4, 3))->toBe('v');
+  expect(Console::charAt(2, 3))->toBe('v');
 });
 
 it('preserves terminal configuration and resolves graphical art from the existing heading', function ($heading, $direction) {
@@ -191,7 +190,7 @@ it('presents a real Player through the shared client with immutable frames and d
   $transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"key","key":"up"}')];
   $this->player->render();
   $snapshot = Console::snapshot();
-  expect(Console::charAt(14, 4))->toBe('v');
+  expect(Console::charAt(7, 4))->toBe('v');
   $south = $this->projector->project($this->player, $this->camera);
   expect($presentation->present($snapshot, [$south]))->toBeTrue();
   $this->player->updatePlayerSprite(Vector2::up());
@@ -220,7 +219,7 @@ it('presents a real Player through the shared client with immutable frames and d
   }
   expect(Console::snapshot())->toEqual($snapshot)->and($this->player->sprite)->toBe(['^^']);
   $this->player->render();
-  expect(Console::charAt(16, 6))->toBe('^');
+  expect(Console::charAt(8, 6))->toBe('^');
 });
 
 it('observes a real blocked move as changed facing and unchanged graphical position', function () {
@@ -237,5 +236,5 @@ it('observes a real blocked move as changed facing and unchanged graphical posit
     ->and([$this->player->position->x, $this->player->position->y])->toBe([7.0, 4.0])
     ->and($this->player->getGraphicalSpriteDefinition()->sourceRect->toArray())->toBe(getPlayerStandingFrame('north'))
     ->and($after->toArray())->toBe([...$before->toArray(), 'sourceRect' => getPlayerStandingFrame('north')])
-    ->and($this->player->sprite)->toBe(['^^'])->and(Console::charAt(14, 4))->toBe('^');
+    ->and($this->player->sprite)->toBe(['^^'])->and(Console::charAt(7, 4))->toBe('^');
 });

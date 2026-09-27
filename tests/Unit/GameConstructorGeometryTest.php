@@ -3,7 +3,7 @@
 it('resolves real Game constructor geometry without mistaking injected defaults for caller intent', function (array $arguments, array $expected, array $scenario = []) {
   $root = sys_get_temp_dir() . '/ichiloto-game-constructor-' . uniqid();
   mkdir($root . '/assets/Data', 0777, true);
-  file_put_contents($root . '/ichiloto.json', '{"id":"constructor-geometry-fixture","format":2,"debug":{"skip_splash":true},"splash_screen":{"enabled":false}}');
+  file_put_contents($root . '/ichiloto.json', '{"id":"constructor-geometry-fixture","format":1,"debug":{"skip_splash":true},"splash_screen":{"enabled":false}}');
   file_put_contents($root . '/assets/Data/save-compatibility.php', '<?php return ["contentVersion" => 0];');
   foreach (['config.php', 'input.php', 'assets/Data/system.php', 'assets/Data/items.php', 'assets/Data/enemies.php'] as $path) {
     file_put_contents($root . '/' . $path, '<?php return [];');
@@ -39,8 +39,7 @@ it('resolves real Game constructor geometry without mistaking injected defaults 
         ->and($observation['settings'])->toBe($size)
         ->and($observation['options'])->toBe($size)
         ->and($observation['cameras'])->toHaveCount(5);
-      // The field shows the whole two-column cells that fit; drawing keeps every column.
-      foreach ($observation['cameras'] as $camera) { expect($camera)->toBe($size + ['cells' => intdiv($size['width'], 2)]); }
+      foreach ($observation['cameras'] as $camera) { expect($camera)->toBe($size); }
     };
     $assertGeometry($observations, $expected);
     if (isset($scenario['origin'])) {

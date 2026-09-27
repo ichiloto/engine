@@ -25,7 +25,6 @@ use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Exceptions\IchilotoException;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Field\Location;
-use Ichiloto\Engine\Field\MapCell;
 use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
@@ -116,11 +115,10 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         if ($this->fieldViewport === null && $previous === null) {
             return;
         }
-        $columns = $this->fieldViewport?->columns ?? intdiv(Console::getWidth(), MapCell::COLUMNS);
+        $columns = $this->fieldViewport?->columns ?? Console::getWidth();
         $rows = $this->fieldViewport?->rows ?? Console::getHeight();
         if ($this->camera->screen->getWidth() !== $columns || $this->camera->screen->getHeight() !== $rows) {
-            $this->fieldViewport === null ? $this->camera->resizeToConsole(Console::getWidth(), $rows)
-                : $this->camera->resizeViewport($columns, $rows);
+            $this->camera->resizeViewport($columns, $rows);
             if ($this->player !== null && $this->camera->followsPlayer) {
                 $this->camera->resetPosition($this->player);
             }

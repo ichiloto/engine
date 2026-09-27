@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Field;
 
 use Assegai\Util\Path;
 use Ichiloto\Engine\Field\Enumerations\CompassDirection;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Util\Debug;
 use Throwable;
 
@@ -430,22 +431,15 @@ class RegionMap
     $width = 1;
     $cells = [];
 
-    try {
-      foreach ($rows as $y => $row) {
-        $characters = MapCell::parseRow($row, "{$filename} row {$y}");
-        $width = max($width, count($characters));
+    foreach ($rows as $y => $row) {
+      $characters = TerminalText::visibleSymbols($row);
+      $width = max($width, count($characters));
 
-        foreach ($characters as $x => $character) {
-          $marker = MapCell::getMarker($character, "{$filename} row {$y}, column {$x}");
-          if ($marker !== null) {
-            $cells[$marker][] = [$x, $y];
-          }
+      foreach ($characters as $x => $character) {
+        if (trim($character) !== '') {
+          $cells[$character][] = [$x, $y];
         }
       }
-    } catch (Throwable $exception) {
-      Debug::warn(sprintf('Could not read the event layer %s: %s', $filename, $exception->getMessage()));
-
-      return [];
     }
 
     $positions = [];

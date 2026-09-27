@@ -29,7 +29,7 @@ it('loads numeric tile glyphs after PHP normalizes their array keys to integers'
     $dictionary = collisionDictionaryManager()->loadCollisionDictionary($path);
 
     expect($dictionary['8'])->toBe(CollisionType::SOLID)
-      ->and(collisionDictionaryManager()->generateCollisionMap(['88'], $dictionary))->toBe([
+      ->and(collisionDictionaryManager()->generateCollisionMap(['8'], $dictionary))->toBe([
         [CollisionType::SOLID->value],
       ]);
   } finally {
