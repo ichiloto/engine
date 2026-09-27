@@ -111,8 +111,15 @@ editing surface is owned by the GUI Editor plan. Related docs:
   tiles. The cell shows the quarter column facing the edge it borders: the
   left half at a west edge or inner corner, the right half at an east one,
   the outer half of each when it borders both (a wall one column thick),
-  and alternating halves inside a run so the texture continues. A wall is
-  therefore exactly as thick as its terminal column.
+  and elsewhere the half matching its column's parity, so a texture keeps
+  one phase in every row. A wall is therefore exactly as thick as its
+  terminal column.
+- **Layer offsets.** The map data may shift a whole tile layer by half a
+  field cell across or down, like a Tiled layer offset:
+  `'tileLayers' => ['lounge' => ['offset' => [0, -0.5]]]`. Art can then sit
+  between the cells its terminal footprint allows, such as a coffee table
+  centred between a sofa and a television. Offsets are -0.5, 0 or 0.5 and
+  never move collision or events.
 - **Plain tiles** (A5 and B to E) are drawn whole and centred on their cell,
   like a character, so a chair on one column or a bed over an odd number of
   columns sits centred on its footprint. An entry with an `L` or `R` suffix

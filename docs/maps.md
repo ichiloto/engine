@@ -118,7 +118,10 @@ whitespace-separated RPG Maker tile identity per cell (`0` is empty); it is
 never executed. A field cell is half a tile wide. An autotile (such as floor
 2816) is composed for its own cell, so an area is painted in every cell. Any
 other tile is drawn whole and centred on its cell, or only its left or right
-half with an `L` or `R` suffix, as the table above. Graphics never change
+half with an `L` or `R` suffix, as the table above. The map data may shift a
+whole tile layer by half a cell across or down
+(`'tileLayers' => ['lounge' => ['offset' => [0, -0.5]]]`) so art can sit between
+the cells its terminal footprint allows. Graphics never change
 geometry, collision, events or saves, and unusable graphics or sheets are
 reported while the map shows its terminal glyphs. Autotile shapes are stored in the identities, as RPG Maker
 stores them; `AutotileShape::resolveLayer` chooses them from neighbours for

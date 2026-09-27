@@ -9,7 +9,8 @@ namespace Ichiloto\Engine\Rendering\Tilesets;
  * composed for its own cell, from its neighbouring cells, and the cell shows
  * the quarter column facing the edge it borders: the left half at a west
  * edge, the right half at an east edge, both outer halves when it borders
- * both, and alternating halves inside a run so its texture continues. Any
+ * both, and otherwise the half of its column's parity (left on even
+ * columns), so a texture keeps one phase across every row. Any
  * other tile shows what its entry names: the whole tile centred on the cell,
  * or its left or right half.
  */
@@ -53,10 +54,6 @@ final class CellTiles
     if ($west || $east) {
       return $west && $east ? TileSlice::NARROW : ($west ? TileSlice::LEFT : TileSlice::RIGHT);
     }
-    $run = 0;
-    while ($x - $run - 1 >= 0 && AutotileShape::isSameKind($tiles, $x - $run - 1, $y, $kind)) {
-      $run++;
-    }
-    return $run % 2 === 0 ? TileSlice::LEFT : TileSlice::RIGHT;
+    return $x % 2 === 0 ? TileSlice::LEFT : TileSlice::RIGHT;
   }
 }

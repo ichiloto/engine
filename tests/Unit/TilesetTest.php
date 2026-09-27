@@ -144,15 +144,16 @@ it('gives each field cell the quarter column of its autotile that faces its edge
   $e = 0;
   $slices = static fn(array $layer): array => array_map(static fn(array $row): array => array_map(
     static fn(array $cell): string => $cell[1]->value, $row), CellTiles::resolveLayer($layer));
-  // West and east edges show their own halves, a run alternates halves so its
-  // texture continues, and one cell between two edges shows both outer halves.
+  // West and east edges show their own halves, other cells the half of their
+  // column's parity so the texture keeps one phase in every row, and one cell
+  // between two edges shows both outer halves.
   expect($slices([
     [$e, $e, $e, $e, $e, $e],
     [$e, $f, $f, $f, $f, $e],
     [$e, $e, $e, $e, $e, $e],
     [$e, $f, $e, $e, $wall, $e],
   ]))->toBe([
-    1 => [1 => 'left', 2 => 'right', 3 => 'left', 4 => 'right'],
+    1 => [1 => 'left', 2 => 'left', 3 => 'right', 4 => 'right'],
     3 => [1 => 'narrow', 4 => 'narrow'],
   ])
     // An inner corner shows on the side of the missing diagonal.
@@ -249,6 +250,31 @@ it('uploads the tileset, tile layers in their draw bands and glyph-free rows wit
   expect($at(3, 0)['frames'][0])->toBe([['sheet' => 1, 'x' => 240, 'y' => 0, 'width' => 24, 'height' => 48, 'left' => 0, 'top' => 0]])
     ->and($at(3, 1)['frames'][0])->toBe([['sheet' => 1, 'x' => 264, 'y' => 0, 'width' => 24, 'height' => 48, 'left' => 0, 'top' => 0]])
     ->and($at(2, 0))->toBe(['left' => -12, 'frames' => [[['sheet' => 1, 'x' => 48, 'y' => 0, 'width' => 48, 'height' => 48, 'left' => 0, 'top' => 0]]]]);
+});
+
+it('shifts a whole tile layer by half a field cell from the map data, never its cells', function () {
+  writeTilesetProject($this->root);
+  $map = $this->root . '/Maps/home';
+  mkdir($map . '/graphics', 0777, true);
+  file_put_contents($map . '/graphics/01.floor.tiles.php', MapGridSource::buildSource("2816 2816\n2816 2816", 'TILES'));
+  file_put_contents($map . '/graphics/02.lounge.tiles.php', MapGridSource::buildSource("0 0\n5 0", 'TILES'));
+  $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', "..\n..")]);
+  $graphics = MapGraphics::loadFromDirectory($map, 'home', 'home', $layers, $this->root, ['lounge' => ['offset' => [0.5, -0.5]]]);
+  $world = PresentationWorld::getFromLayers($layers, 'map', $graphics, $this->root);
+  $tiles = array_values(array_filter($world->operations, static fn(array $operation): bool => $operation['op'] === 'worldTiles'));
+  $lounge = $tiles[array_key_last($tiles)];
+  $tile = $world->operations[0]['value']['tileset']['tiles'][$lounge['rows'][0]['cells'][0]['tile']];
+  // Half a cell is 12 pixels across (a cell is half a tile wide) and 24 down;
+  // the whole tile was already centred 12 pixels left of its cell.
+  expect($graphics->offsets)->toBe(['lounge' => [0.5, -0.5]])
+    ->and([$lounge['layerId'], $lounge['rows'][0]['row'], $lounge['rows'][0]['cells'][0]['column']])->toBe(['tiles:lounge', 1, 0])
+    ->and([$tile['left'] ?? 0, $tile['top']])->toBe([0, -24])
+    ->and(MapGraphics::readLayerOffsets(['lounge' => ['offset' => [0, 0]]], ['lounge'], 'home'))->toBe(['lounge' => [0.0, 0.0]])
+    ->and(MapGraphics::readLayerOffsets(null, [], 'home'))->toBe([]);
+  foreach ([['sofa' => ['offset' => [0, 0.5]]], ['lounge' => ['offset' => [0, 1]]], ['lounge' => ['offset' => [0.25, 0]]],
+    ['lounge' => ['offset' => [0]]], ['lounge' => ['offset' => [0, 0], 'above' => true]], 'lounge'] as $settings) {
+    expect(fn() => MapGraphics::readLayerOffsets($settings, ['floor', 'lounge'], 'home'))->toThrow(InvalidArgumentException::class);
+  }
 });
 
 it('leaves a map on its glyphs when its graphics or every sheet are unusable', function () {

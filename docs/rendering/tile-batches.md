@@ -58,7 +58,8 @@ of pieces copied from a sheet into the tile. The Engine composes RPG Maker
 autotiles into these pieces; the renderer knows no sheet layouts. World
 layers of kind `tiles` own no glyphs, and `worldTiles` lists each row's
 `column` and catalog `tile`. A tile is one cell tall and may set its own
-`width` and `left` offset from its cell's left edge (in source pixels), so the
+`width` and `left` and `top` offsets from its cell's corner (in source pixels,
+`top` for a map's half-cell layer offsets), so the
 Engine sends a 24-pixel autotile column or tile half for one cell, or a whole
 48-pixel tile centred on its cell (`left` -12). A cell with an available tile
 shows no glyph; cells a tile only overhangs keep theirs. The viewport's optional

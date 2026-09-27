@@ -114,12 +114,16 @@ final readonly class PresentationWorld
         $layers = $operations = [];
         foreach ($graphics->layers as $layer) {
             $bands = [];
+            // A layer offset in field cells: a cell is half a tile across and one tile down.
+            [$offsetX, $offsetY] = $graphics->offsets[$layer->name] ?? [0.0, 0.0];
+            $shiftX = (int)round($offsetX * $size / 2);
+            $shiftY = (int)round($offsetY * $size);
             foreach (CellTiles::resolveLayer($layer->tiles, $layer->halves) as $y => $cells) {
                 foreach ($cells as $x => [$tileId, $slice]) {
                     if (!isset($sheetIndices[TileId::getSheet($tileId)?->value ?? ''])) {
                         continue;
                     }
-                    $key = "{$tileId}:{$slice->value}";
+                    $key = "{$tileId}:{$slice->value}:{$shiftX}:{$shiftY}";
                     if (!isset($catalog[$key])) {
                         if (count($catalog) >= self::MAX_CATALOG_TILES) {
                             throw new InvalidArgumentException('Retained world exceeds the ' . self::MAX_CATALOG_TILES . '-tile catalog.');
@@ -129,7 +133,8 @@ final readonly class PresentationWorld
                         $catalog[$key] = count($tiles);
                         $tiles[] = [
                             ...($slice->getWidth($size) === $size ? [] : ['width' => $slice->getWidth($size)]),
-                            ...($slice->getLeft($size) === 0 ? [] : ['left' => $slice->getLeft($size)]),
+                            ...($slice->getLeft($size) + $shiftX === 0 ? [] : ['left' => $slice->getLeft($size) + $shiftX]),
+                            ...($shiftY === 0 ? [] : ['top' => $shiftY]),
                             'frames' => array_map(static fn(array $pieces): array => array_map(
                                 static function (TilePiece $piece) use ($sheetIndices, &$bytes): array {
                                     $bytes += self::PIECE_SOURCE_BYTES;

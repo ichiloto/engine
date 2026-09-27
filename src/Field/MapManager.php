@@ -835,7 +835,7 @@ class MapManager implements CanRenderAt
     $graphics = null;
     try {
       $graphics = MapGraphics::loadFromDirectory(dirname($paths['data']), $paths['id'], $map['tileset'] ?? null,
-        $layers, $this->getAssetRoot());
+        $layers, $this->getAssetRoot(), $map[MapGraphics::SETTINGS_KEY] ?? null);
     } catch (\Throwable $error) {
       // Graphics never decide whether a map loads: it shows its terminal glyphs instead.
       Debug::warn("Map {$paths['id']} graphics are unusable; showing terminal glyphs: " . $error->getMessage());
