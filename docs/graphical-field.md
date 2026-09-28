@@ -98,6 +98,17 @@ editing surface is owned by the GUI Editor plan. Related docs:
   shares one tile size. RPG Maker's 48 pixels is recommended, not
   required. A missing or invalid sheet is reported, and the cells that
   would use it fall back to terminal glyphs.
+- **Pieces.** A tileset may list `pieces`: whole items a map is built
+  from, such as a bed, keyed by id. Each has a `name`, the gameplay `layer`
+  its terminal `glyphs` go on (rows of one-cell characters), and optional
+  `tiles` keyed by tile layer name, with rows of the same entries a tile
+  layer holds (`42`, `42L`, `0`) over the same footprint:
+  `'bed' => ['name' => 'Bed', 'layer' => 'fixtures', 'glyphs' => ['=', '='], 'tiles' => ['furniture' => ['32', '40']]]`.
+  A space glyph or a `0` tile leaves that cell as it was. An editor stamps
+  a piece whole, writing its glyphs and its tiles together, so a map made
+  in the terminal draws correctly graphically without a second pass; the
+  terminal editor never asks for or shows the tiles. Collision still comes
+  from the glyphs alone. A map offers the pieces of the tileset it names.
 - **Map graphics.** A map names its tileset in its data file
   (`'tileset' => 'home'`, like RPG Maker's map properties). Its tile layers
   live in `graphics/` beside `layers/`, named `NN.name.tiles.php` and

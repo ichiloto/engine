@@ -11,19 +11,21 @@ use InvalidArgumentException;
 use RuntimeException;
 
 /**
- * A project tileset: RPG Maker sheets by name and the graphical flags RPG
- * Maker keeps per tile. Passage settings do not exist here: collision always
- * comes from the terminal layers. Loaded from `Data/Tilesets/<id>.php`.
+ * A project tileset: RPG Maker sheets by name, the graphical flags RPG Maker
+ * keeps per tile, and the pieces maps are built from with it. Passage
+ * settings do not exist here: collision always comes from the terminal
+ * layers. Loaded from `Data/Tilesets/<id>.php`.
  */
 final readonly class Tileset
 {
   public const string DIRECTORY = 'Data/Tilesets';
-  private const array FIELDS = ['name', 'sheets', 'above', 'tables'];
+  private const array FIELDS = ['name', 'sheets', 'above', 'tables', 'pieces'];
 
   /**
    * @param array<string, string> $sheets Asset-relative PNG paths keyed by sheet name.
    * @param list<int> $above Tile identities drawn above characters (every shape of an autotile kind).
    * @param list<int> $tables A2 autotile identities drawn as tables.
+   * @param array<string, TilesetPiece> $pieces Whole items, keyed by piece id, in authored order.
    */
   public function __construct(
     public string $id,
@@ -31,6 +33,7 @@ final readonly class Tileset
     public array $sheets,
     public array $above = [],
     public array $tables = [],
+    public array $pieces = [],
   ) {}
 
   public static function load(string $assetRoot, string $id): self
@@ -74,7 +77,14 @@ final readonly class Tileset
         throw new InvalidArgumentException("{$context}: only A2 autotiles can be tables; {$table} is not one.");
       }
     }
-    return new self($id, $data['name'], $sheets, $above, $tables);
+    $pieces = $data['pieces'] ?? [];
+    if (!is_array($pieces) || ($pieces !== [] && array_is_list($pieces))) {
+      throw new InvalidArgumentException("{$context} pieces must be keyed by piece id.");
+    }
+    foreach ($pieces as $pieceId => $piece) {
+      $pieces[$pieceId] = TilesetPiece::fromArray((string)$pieceId, $piece, $context);
+    }
+    return new self($id, $data['name'], $sheets, $above, $tables, $pieces);
   }
 
   /** @return list<int> Flag identities, one per autotile kind. */

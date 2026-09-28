@@ -277,6 +277,41 @@ it('shifts a whole tile layer by half a field cell from the map data, never its 
   }
 });
 
+it('reads whole pieces from the tileset with glyphs and tiles over one footprint', function () {
+  $tileset = Tileset::fromArray('home', ['name' => 'Home', 'sheets' => ['B' => 'Graphics/Tilesets/B.png'], 'pieces' => [
+    'bed' => ['name' => 'Bed', 'layer' => 'fixtures', 'glyphs' => ['=', '='], 'tiles' => ['furniture' => ['32', '40']]],
+    'table' => ['name' => 'Table', 'layer' => 'fixtures', 'glyphs' => ['####'], 'tiles' => ['furniture' => ['42L 42R 43L 43R']]],
+    'rug' => ['name' => 'Rug corner', 'layer' => 'fixtures', 'glyphs' => [' r']],
+  ]]);
+  $bed = $tileset->pieces['bed'];
+  expect(array_keys($tileset->pieces))->toBe(['bed', 'table', 'rug'])
+    ->and([$bed->name, $bed->layer, $bed->width, $bed->height])->toBe(['Bed', 'fixtures', 1, 2])
+    ->and($bed->glyphs)->toBe([['='], ['=']])
+    ->and($bed->tiles)->toBe(['furniture' => [['32'], ['40']]])
+    ->and($tileset->pieces['table']->tiles['furniture'])->toBe([['42L', '42R', '43L', '43R']])
+    ->and($tileset->pieces['rug']->glyphs)->toBe([[' ', 'r']])
+    ->and($tileset->pieces['rug']->tiles)->toBe([])
+    ->and(Tileset::fromArray('plain', ['name' => 'Plain', 'sheets' => ['B' => 'b.png']])->pieces)->toBe([]);
+  $piece = static fn(array $bed): array => ['name' => 'Home', 'sheets' => ['B' => 'b.png'], 'pieces' => ['bed' => $bed]];
+  $bad = ['name' => 'Bed', 'layer' => 'fixtures', 'glyphs' => ['=', '=']];
+  foreach ([
+    ['layer' => 'no spaces'] + $bad,
+    ['glyphs' => []] + $bad,
+    ['glyphs' => ['==', '=']] + $bad,
+    ['glyphs' => ["\u{754c}"]] + $bad,
+    ['tiles' => ['furniture' => ['32']]] + $bad,
+    ['tiles' => ['furniture' => ['32', '40 0']]] + $bad,
+    ['tiles' => ['furniture' => ['2816L', '0']]] + $bad,
+    ['colour' => 'red'] + $bad,
+  ] as $case) {
+    expect(fn() => Tileset::fromArray('home', $piece($case)))->toThrow(InvalidArgumentException::class);
+  }
+  expect(fn() => Tileset::fromArray('home', ['name' => 'Home', 'sheets' => ['B' => 'b.png'], 'pieces' => [$bad]]))
+    ->toThrow(InvalidArgumentException::class, 'keyed by piece id')
+    ->and(fn() => Tileset::fromArray('home', ['name' => 'Home', 'sheets' => ['B' => 'b.png'], 'pieces' => ['Bed' => $bad]]))
+    ->toThrow(InvalidArgumentException::class, 'piece id');
+});
+
 it('leaves a map on its glyphs when its graphics or every sheet are unusable', function () {
   writeTilesetProject($this->root, ['A2' => [100, 100]]);
   $map = $this->root . '/Maps/home';
