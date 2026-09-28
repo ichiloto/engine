@@ -159,8 +159,9 @@ editing surface is owned by the GUI Editor plan. Related docs:
   composition rules stay in the engine.
 - **Terminal and editors.** None of this changes terminal geometry,
   collision, events or saves. The TUI editor preserves a map's graphics
-  folder through resize, duplicate, move and delete, validates it, and
-  never edits it; painting tiles belongs to the GUI editor (Phase 4).
+  folder through resize, duplicate, move and delete, and validates it. It
+  writes tiles only when it stamps a piece, and never shows or asks for
+  them; painting individual tiles belongs to the GUI editor (Phase 4).
 
 ## Project format
 
