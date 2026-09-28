@@ -17,6 +17,7 @@ use Ichiloto\Engine\Rendering\Tilesets\TileComposer;
 use Ichiloto\Engine\Rendering\Tilesets\TileId;
 use Ichiloto\Engine\Rendering\Tilesets\TilePiece;
 use Ichiloto\Engine\Rendering\Tilesets\Tileset;
+use Ichiloto\Engine\Rendering\Tilesets\TilesetPiece;
 use Ichiloto\Engine\Rendering\Tilesets\TilesetSheet;
 
 use function Tests\Support\Rendering\writeTestPng;
@@ -310,6 +311,43 @@ it('reads whole pieces from the tileset with glyphs and tiles over one footprint
     ->toThrow(InvalidArgumentException::class, 'keyed by piece id')
     ->and(fn() => Tileset::fromArray('home', ['name' => 'Home', 'sheets' => ['B' => 'b.png'], 'pieces' => ['Bed' => $bad]]))
     ->toThrow(InvalidArgumentException::class, 'piece id');
+});
+
+it('reads connected wall pieces and shapes each cell from its neighbours', function () {
+  $wall = ['name' => 'Wall', 'layer' => 'buildings', 'connects' => 'lines',
+    'glyphs' => ['horizontal' => '-', 'vertical' => '|', 'corner' => '+'], 'tiles' => ['walls' => '5888']];
+  $fence = ['name' => 'Fence', 'layer' => 'fixtures', 'connects' => 'lines',
+    'glyphs' => ['horizontal' => '=', 'vertical' => '!', 'corner' => '#'],
+    'tiles' => ['fences' => ['horizontal' => '12', 'vertical' => '13', 'corner' => '14L']]];
+  $pieces = Tileset::fromArray('home', ['name' => 'Home', 'sheets' => ['B' => 'b.png'],
+    'pieces' => ['wall' => $wall, 'fence' => $fence]])->pieces;
+  $piece = $pieces['wall'];
+  expect([$piece->connects, $piece->width, $piece->height])->toBe([TilesetPiece::LINES, 1, 1])
+    ->and($piece->shapes)->toBe(['horizontal' => '-', 'vertical' => '|', 'corner' => '+'])
+    ->and($piece->shapeTiles)->toBe(['walls' => ['horizontal' => '5888', 'vertical' => '5888', 'corner' => '5888']])
+    ->and($pieces['fence']->shapeTiles['fences'])->toBe(['horizontal' => '12', 'vertical' => '13', 'corner' => '14L'])
+    ->and([$piece->isMember('-'), $piece->isMember("\e[33m|\e[0m"), $piece->isMember('+'), $piece->isMember('_'), $piece->isMember(' ')])
+    ->toBe([true, true, true, false, false])
+    // Joined only across, only down, or both ways; a lone post is a corner.
+    ->and($piece->getLineShape(false, true, false, true))->toBe('horizontal')
+    ->and($piece->getLineShape(false, false, false, true))->toBe('horizontal')
+    ->and($piece->getLineShape(true, false, true, false))->toBe('vertical')
+    ->and($piece->getLineShape(true, true, false, false))->toBe('corner')
+    ->and($piece->getLineShape(true, true, true, false))->toBe('corner')
+    ->and($piece->getLineShape(false, false, false, false))->toBe('corner');
+  $tileset = static fn(array $piece): array => ['name' => 'Home', 'sheets' => ['B' => 'b.png'], 'pieces' => ['wall' => $piece]];
+  foreach ([
+    ['connects' => 'areas'] + $wall,
+    ['glyphs' => ['horizontal' => '-', 'vertical' => '|']] + $wall,
+    ['glyphs' => ['horizontal' => '-', 'vertical' => '-', 'corner' => '+']] + $wall,
+    ['glyphs' => ['horizontal' => '--', 'vertical' => '|', 'corner' => '+']] + $wall,
+    ['glyphs' => ['horizontal' => ' ', 'vertical' => '|', 'corner' => '+']] + $wall,
+    ['tiles' => ['walls' => ['horizontal' => '5888']]] + $wall,
+    ['tiles' => ['walls' => '5888 5888']] + $wall,
+    ['tiles' => ['walls' => '99999']] + $wall,
+  ] as $case) {
+    expect(fn() => Tileset::fromArray('home', $tileset($case)))->toThrow(InvalidArgumentException::class);
+  }
 });
 
 it('leaves a map on its glyphs when its graphics or every sheet are unusable', function () {

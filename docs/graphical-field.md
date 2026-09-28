@@ -109,6 +109,15 @@ editing surface is owned by the GUI Editor plan. Related docs:
   in the terminal draws correctly graphically without a second pass; the
   terminal editor never asks for or shows the tiles. Collision still comes
   from the glyphs alone. A map offers the pieces of the tileset it names.
+- **Connected pieces.** A piece with `'connects' => 'lines'`, such as a
+  wall or fence, is drawn cell by cell and joins the cells of the same
+  piece beside it. Its `glyphs` name one glyph for each shape (`horizontal`,
+  `vertical`, `corner`) and its `tiles` give one entry per tile layer, or
+  one per shape. A cell joined only across is horizontal, only down is
+  vertical, and anything else (corners, junctions, a lone post) is a corner.
+  Drawing or erasing a cell reshapes the cells of the piece beside it, which
+  are recognised by their glyphs. A wall's tile can be an A4 wall top: the
+  autotile shapes its own edges.
 - **Map graphics.** A map names its tileset in its data file
   (`'tileset' => 'home'`, like RPG Maker's map properties). Its tile layers
   live in `graphics/` beside `layers/`, named `NN.name.tiles.php` and
