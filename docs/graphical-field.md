@@ -140,6 +140,13 @@ editing surface is owned by the GUI Editor plan. Related docs:
   between the cells its terminal footprint allows, such as a coffee table
   centred between a sofa and a television. Offsets are -0.5, 0 or 0.5 and
   never move collision or events.
+- **Tiles move with glyphs.** Each tile layer belongs to one gameplay layer,
+  so moving that layer's glyphs in an editor carries its tiles in the same
+  cells, and moving other layers leaves them. The map data may name it:
+  `'tileLayers' => ['floor' => ['movesWith' => 'buildings']]`. Otherwise it
+  is the gameplay layer whose tileset pieces write that tile layer, when
+  exactly one does; a tile layer with neither stays where it is. The
+  runtime only checks the setting names a gameplay layer.
 - **Plain tiles** (A5 and B to E) are drawn whole and centred on their cell,
   like a character, so a chair on one column or a bed over an odd number of
   columns sits centred on its footprint. An entry with an `L` or `R` suffix
@@ -169,8 +176,9 @@ editing surface is owned by the GUI Editor plan. Related docs:
 - **Terminal and editors.** None of this changes terminal geometry,
   collision, events or saves. The TUI editor preserves a map's graphics
   folder through resize, duplicate, move and delete, and validates it. It
-  writes tiles only when it stamps a piece, and never shows or asks for
-  them; painting individual tiles belongs to the GUI editor (Phase 4).
+  writes tiles only when it stamps a piece or copies, cuts and pastes the
+  glyphs they move with, and never shows or asks for them; painting
+  individual tiles belongs to the GUI editor (Phase 4).
 
 ## Project format
 

@@ -273,9 +273,29 @@ it('shifts a whole tile layer by half a field cell from the map data, never its 
     ->and(MapGraphics::readLayerOffsets(['lounge' => ['offset' => [0, 0]]], ['lounge'], 'home'))->toBe(['lounge' => [0.0, 0.0]])
     ->and(MapGraphics::readLayerOffsets(null, [], 'home'))->toBe([]);
   foreach ([['sofa' => ['offset' => [0, 0.5]]], ['lounge' => ['offset' => [0, 1]]], ['lounge' => ['offset' => [0.25, 0]]],
-    ['lounge' => ['offset' => [0]]], ['lounge' => ['offset' => [0, 0], 'above' => true]], 'lounge'] as $settings) {
+    ['lounge' => ['offset' => [0]]], ['lounge' => ['offset' => [0, 0], 'above' => true]], ['lounge' => []], 'lounge'] as $settings) {
     expect(fn() => MapGraphics::readLayerOffsets($settings, ['floor', 'lounge'], 'home'))->toThrow(InvalidArgumentException::class);
   }
+});
+
+it('reads the gameplay layer each tile layer moves with, and loads a map that names one', function () {
+  $settings = ['floor' => ['movesWith' => 'buildings'], 'lounge' => ['offset' => [0, -0.5], 'movesWith' => 'fixtures']];
+  expect(MapGraphics::readLayersMovingWith($settings, ['floor', 'lounge'], ['buildings', 'fixtures'], 'home'))
+    ->toBe(['floor' => 'buildings', 'lounge' => 'fixtures'])
+    ->and(MapGraphics::readLayerOffsets($settings, ['floor', 'lounge'], 'home'))->toBe(['lounge' => [0.0, -0.5]])
+    ->and(MapGraphics::readLayersMovingWith(null, [], ['terrain'], 'home'))->toBe([]);
+  foreach ([['floor' => ['movesWith' => 'roof']], ['floor' => ['movesWith' => ['buildings']]]] as $invalid) {
+    expect(fn() => MapGraphics::readLayersMovingWith($invalid, ['floor'], ['buildings'], 'home'))->toThrow(InvalidArgumentException::class);
+  }
+  writeTilesetProject($this->root);
+  $map = $this->root . '/Maps/home';
+  mkdir($map . '/graphics', 0777, true);
+  file_put_contents($map . '/graphics/01.floor.tiles.php', MapGridSource::buildSource('2816 2816', 'TILES'));
+  $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', '..'), new MapLayer('detail', 2, true, 'detail', '..')]);
+  expect(MapGraphics::loadFromDirectory($map, 'home', 'home', $layers, $this->root, ['floor' => ['movesWith' => 'terrain']]))->not->toBeNull()
+    // A decoration layer is not something tiles can move with.
+    ->and(fn() => MapGraphics::loadFromDirectory($map, 'home', 'home', $layers, $this->root, ['floor' => ['movesWith' => 'detail']]))
+    ->toThrow(InvalidArgumentException::class);
 });
 
 it('reads whole pieces from the tileset with glyphs and tiles over one footprint', function () {

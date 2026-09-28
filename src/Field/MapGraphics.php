@@ -19,6 +19,8 @@ final readonly class MapGraphics
     public const int MAX_LAYERS = 16;
     /** The map data key for per-layer settings, like a Tiled layer's properties. */
     public const string SETTINGS_KEY = 'tileLayers';
+    /** The tile layer setting naming the gameplay layer whose glyphs its tiles move with. */
+    public const string MOVES_WITH_KEY = 'movesWith';
     /**
      * A layer may be drawn this many field cells across or down from its grid,
      * like a Tiled layer offset: half a cell lets art sit between the cells
@@ -37,6 +39,8 @@ final readonly class MapGraphics
     /**
      * Reads the map data's tile layer settings: `'tileLayers' => ['lounge' =>
      * ['offset' => [0, -0.5]]]`, an offset across and down in field cells.
+     * A layer's settings may also name the gameplay layer it moves with
+     * ({@see readLayersMovingWith()}); a layer without an offset has none.
      *
      * @param list<string> $names The map's tile layer names.
      * @return array<string, array{float, float}>
@@ -55,9 +59,15 @@ final readonly class MapGraphics
             if (!in_array($name, $names, true)) {
                 throw new InvalidArgumentException("{$where} names '{$name}', which is not one of its tile layers.");
             }
-            if (!is_array($layer) || array_keys($layer) !== ['offset'] || !is_array($layer['offset'])
-                || !array_is_list($layer['offset']) || count($layer['offset']) !== 2) {
-                throw new InvalidArgumentException("{$where} '{$name}' accepts only an offset of two numbers, across and down.");
+            if (!is_array($layer) || $layer === [] || array_diff(array_keys($layer), ['offset', self::MOVES_WITH_KEY]) !== []) {
+                throw new InvalidArgumentException("{$where} '{$name}' accepts an offset and the gameplay layer it "
+                    . self::MOVES_WITH_KEY . '.');
+            }
+            if (!array_key_exists('offset', $layer)) {
+                continue;
+            }
+            if (!is_array($layer['offset']) || !array_is_list($layer['offset']) || count($layer['offset']) !== 2) {
+                throw new InvalidArgumentException("{$where} '{$name}' offset must be two numbers, across and down.");
             }
             $offset = [];
             foreach ($layer['offset'] as $value) {
@@ -69,6 +79,35 @@ final readonly class MapGraphics
             $offsets[$name] = [$offset[0], $offset[1]];
         }
         return $offsets;
+    }
+
+    /**
+     * Reads which gameplay layer each tile layer moves with when authoring
+     * tools move glyphs: `'tileLayers' => ['floor' => ['movesWith' =>
+     * 'buildings']]`. Moving a block of that layer's glyphs carries this
+     * layer's tiles in the same cells. The runtime draws tiles where they
+     * are, so it only checks the setting.
+     *
+     * @param list<string> $names The map's tile layer names.
+     * @param list<string> $gameplayNames The map's gameplay layer names.
+     * @return array<string, string> Gameplay layer names by tile layer name.
+     */
+    public static function readLayersMovingWith(mixed $settings, array $names, array $gameplayNames, string $displayDirectory): array
+    {
+        self::readLayerOffsets($settings, $names, $displayDirectory);
+        $where = "Map {$displayDirectory} " . self::SETTINGS_KEY;
+        $movesWith = [];
+        foreach ($settings ?? [] as $name => $layer) {
+            if (!array_key_exists(self::MOVES_WITH_KEY, $layer)) {
+                continue;
+            }
+            if (!is_string($layer[self::MOVES_WITH_KEY]) || !in_array($layer[self::MOVES_WITH_KEY], $gameplayNames, true)) {
+                throw new InvalidArgumentException("{$where} '{$name}' " . self::MOVES_WITH_KEY
+                    . ' must name one of its gameplay layers: ' . implode(', ', $gameplayNames) . '.');
+            }
+            $movesWith[$name] = $layer[self::MOVES_WITH_KEY];
+        }
+        return $movesWith;
     }
 
     /**
@@ -106,8 +145,10 @@ final readonly class MapGraphics
             $tileLayers[] = $layer;
         }
         usort($tileLayers, static fn(MapTileLayer $a, MapTileLayer $b): int => $a->order <=> $b->order);
-        $offsets = self::readLayerOffsets($settings, array_map(static fn(MapTileLayer $layer): string => $layer->name,
-            $tileLayers), $displayDirectory);
+        $names = array_map(static fn(MapTileLayer $layer): string => $layer->name, $tileLayers);
+        $offsets = self::readLayerOffsets($settings, $names, $displayDirectory);
+        self::readLayersMovingWith($settings, $names, array_values(array_map(static fn(MapLayer $layer): string => $layer->name,
+            array_filter($layers->layers, static fn(MapLayer $layer): bool => !$layer->decoration))), $displayDirectory);
         return new self($tileset, $tileLayers, $offsets);
     }
 }
