@@ -137,8 +137,34 @@ return [
 Migration classes implement `ContentMigrationInterface` and transform the
 existing decoded `payload` array. Migrations must be adjacent, deterministic,
 and must not execute a callable stored in a save. To advance from version 1
-to 2, add exactly one `1 -> 2` class, retain all older steps, then raise
+to 2, add exactly one `1 -> 2` step, retain all older steps, then raise
 `contentVersion`.
+
+### Declared map shifts
+
+A step may declare `mapShifts` instead of `class` (exactly one of the two).
+It records blank rows or columns inserted into a map, so no generated PHP
+class is needed:
+
+```php
+[
+  'from' => 1,
+  'to' => 2,
+  'mapShifts' => [
+    ['map' => 'town', 'axis' => 'y', 'at' => 4, 'by' => 2],
+    ['map' => 'town', 'axis' => 'x', 'at' => 7, 'by' => 3],
+  ],
+]
+```
+
+`map` is a non-empty map ID, `axis` is `'x'` or `'y'`, `at` is the 0-based
+insertion line (an integer of at least 0) and `by` is the inserted count (an
+integer of at least 1). The list must be non-empty; malformed entries make the
+manifest invalid. The engine applies the shifts in order to the saved player
+position: when the save's map is `map` and its coordinate on `axis` is at or
+beyond `at`, that coordinate grows by `by`. Map aliases apply to both the save
+and the entry, so a renamed map still matches. The Editor's row and column
+insert command appends such a step and raises `contentVersion`.
 
 `ContentReferenceCategory` is the shared runtime/editor vocabulary: maps,
 one-shot events, quests, actors, items, equipment, abilities, spells,

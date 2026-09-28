@@ -438,6 +438,65 @@ it('resolves map aliases in current visited and one-shot event identities', func
   cleanupCompatibilityManager($manager);
 });
 
+it('moves a saved player position through declared map shifts in order', function (string $mapId, array $position, array $expected) {
+  $manifest = makeCompatibilityManifest([
+    'contentVersion' => 2,
+    'migrations' => [
+      [
+        'from' => 0,
+        'to' => 1,
+        'mapShifts' => [
+          ['map' => 'town', 'axis' => 'y', 'at' => 4, 'by' => 2],
+          ['map' => 'town', 'axis' => 'x', 'at' => 7, 'by' => 3],
+        ],
+      ],
+      [
+        'from' => 1,
+        'to' => 2,
+        'mapShifts' => [['map' => 'town', 'axis' => 'y', 'at' => 11, 'by' => 1]],
+      ],
+    ],
+    'aliases' => ['maps' => [['from' => 'old-town', 'to' => 'town']]],
+  ]);
+  $path = '/tmp/ichiloto-map-shift.iedata';
+  $config = makeCompatibilityConfig($mapId);
+  $data = $config->getSaveCompatibilityData();
+  $data['playerPosition'] = new Vector2(...$position);
+  $config->applySaveCompatibilityData($data);
+  $legacy = serialize(['slot' => makeCompatibilitySlot($path), 'config' => $config]);
+
+  $loaded = new SaveCompatibilityPipeline($manifest)->load($legacy, $path)->config;
+
+  expect([$loaded->playerPosition->x, $loaded->playerPosition->y])->toEqual($expected);
+})->with([
+  'beyond both lines, then the later row' => ['town', [9, 9], [12, 12]],
+  'on the insertion lines themselves' => ['town', [7, 4], [10, 6]],
+  'above and left of every line' => ['town', [6, 3], [6, 3]],
+  'a renamed map follows its alias' => ['old-town', [0, 10], [0, 13]],
+  'another map is untouched' => ['forest', [9, 9], [9, 9]],
+]);
+
+it('rejects malformed declarative map shift migrations', function (array $entry, string $message) {
+  expect(fn() => makeCompatibilityManifest([
+    'contentVersion' => 1,
+    'migrations' => [array_replace(['from' => 0, 'to' => 1], $entry)],
+  ]))->toThrow(InvalidSaveCompatibilityManifestException::class, $message);
+})->with([
+  'both kinds' => [
+    ['class' => RecordingContentVersion0To1::class, 'mapShifts' => [['map' => 'a', 'axis' => 'y', 'at' => 0, 'by' => 1]]],
+    'exactly one of class or mapShifts',
+  ],
+  'neither kind' => [[], 'exactly one of class or mapShifts'],
+  'empty list' => [['mapShifts' => []], 'mapShifts must be a non-empty list'],
+  'keyed list' => [['mapShifts' => ['a' => ['map' => 'a', 'axis' => 'y', 'at' => 0, 'by' => 1]]], 'non-empty list'],
+  'not an array' => [['mapShifts' => ['y']], 'must be an array with map, axis, at and by'],
+  'empty map' => [['mapShifts' => [['map' => ' ', 'axis' => 'y', 'at' => 0, 'by' => 1]]], 'map must be a non-empty string'],
+  'unknown axis' => [['mapShifts' => [['map' => 'a', 'axis' => 'z', 'at' => 0, 'by' => 1]]], 'axis must be "x" or "y"'],
+  'negative line' => [['mapShifts' => [['map' => 'a', 'axis' => 'x', 'at' => -1, 'by' => 1]]], 'at must be a non-negative integer'],
+  'string line' => [['mapShifts' => [['map' => 'a', 'axis' => 'x', 'at' => '2', 'by' => 1]]], 'at must be a non-negative integer'],
+  'zero count' => [['mapShifts' => [['map' => 'a', 'axis' => 'x', 'at' => 0, 'by' => 0]]], 'by must be a positive integer'],
+]);
+
 it('resolves actor aliases before reconstructing current project definitions', function () {
   $slug = 'save-compatibility-actor-alias-' . uniqid();
   $actorStore = new ActorStore(dirname(__DIR__) . '/Fixtures/Actors');

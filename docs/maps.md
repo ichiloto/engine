@@ -185,6 +185,17 @@ walls, approaches or safe arrival cells need separate save-compatibility review
 and migrations where old positions become unsafe. Do not hide such changes by
 updating the equivalence baseline.
 
+Inserting blank rows or columns grows a map and moves everything at or beyond
+the insertion line by the inserted count: every terminal, event and tile layer,
+NPC positions and wander areas (an area straddling the line stretches), spawn
+points and transfers into the map from any file, `startingPositions`, and
+coordinates in scripts and cutscenes that run on the map. A regional `station`
+and tile-layer `offset` values are not map cells and never move. The Editor's
+insert command performs this as one transaction and reports every coordinate
+it cannot rewrite from source (a PHP expression, or a script started from
+several maps) for a hand edit. Saves follow through a declarative `mapShifts`
+content migration; see [Versioned save compatibility](save-compatibility.md#declared-map-shifts).
+
 ### Regular NPC sprites
 
 Map `npcs` entries may add optional `sprites2d` alongside the existing terminal
