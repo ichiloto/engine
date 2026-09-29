@@ -37,7 +37,7 @@ final readonly class TilesetPiece
 
   /**
    * @param list<list<string>> $glyphs One visible character per cell, by row; one cell for a connected piece.
-   * @param array<string, list<list<string>>> $tiles Tile layer entries (`42`, `42L`, `0`) by row, keyed by tile layer name.
+   * @param array<string, list<list<string>>> $tiles Tile layer entries (`42`, `0`) by row, keyed by tile layer name.
    * @param array<string, string> $shapes A connected piece's glyph for each shape.
    * @param array<string, array<string, string>> $shapeTiles A connected piece's tile entry for each shape, keyed by tile layer name.
    */

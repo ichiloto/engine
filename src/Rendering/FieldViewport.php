@@ -15,19 +15,16 @@ use Ichiloto\Engine\IO\Console\ConsolePresentationChanges;
 use InvalidArgumentException;
 
 /**
- * The graphical field's camera. One terminal cell draws as a CELL_WIDTH x
- * CELL_HEIGHT box, the terminal's own tall cell enlarged, so the field keeps
- * the terminal's grid and a step is one cell in both. RPG Maker's 48-pixel
- * tiles and character frames are two cells wide. Everything is
- * scaled by the display zoom; UI text keeps the session text grid.
+ * The graphical field's camera. One terminal cell draws as one RPG Maker
+ * tile, a TILE_SIZE square, so the field keeps the terminal's grid, a step
+ * is one cell either way, and a tile or character frame fills exactly its
+ * cell. Everything is scaled by the display zoom; UI text keeps the session
+ * text grid.
  */
 final readonly class FieldViewport
 {
-  /** RPG Maker's tile and character frame size, in logical pixels. */
+  /** RPG Maker's tile and character frame size, in logical pixels, and so one field cell's width and height. */
   public const int TILE_SIZE = 48;
-  /** One terminal cell: half a tile wide and a tile tall. */
-  public const int CELL_WIDTH = 24;
-  public const int CELL_HEIGHT = 48;
   public const float DEFAULT_ZOOM = 1.0;
   public const float MIN_ZOOM = 1.0;
   public const float MAX_ZOOM = PresentationViewport::MAX_SCALE;
@@ -41,8 +38,8 @@ final readonly class FieldViewport
     }
     // As many whole field cells as the session surface holds; the remainder is
     // split evenly around the field.
-    $this->columns = max(1, (int)floor($grid->columns * $grid->cellWidth / (self::CELL_WIDTH * $zoom)));
-    $this->rows = max(1, (int)floor($grid->rows * $grid->cellHeight / (self::CELL_HEIGHT * $zoom)));
+    $this->columns = max(1, (int)floor($grid->columns * $grid->cellWidth / (self::TILE_SIZE * $zoom)));
+    $this->rows = max(1, (int)floor($grid->rows * $grid->cellHeight / (self::TILE_SIZE * $zoom)));
   }
 
   /**
@@ -67,8 +64,8 @@ final readonly class FieldViewport
       ? new PresentationViewportFollow($followSpriteId, array_values(array_intersect([PresentationLayerPolicy::FIELD_PROMPT_ID], $textLayerIds)))
       : null;
     return new PresentationViewport($this->zoom,
-      max(0, ($width - $this->columns * self::CELL_WIDTH * $this->zoom) / 2),
-      max(0, ($height - $this->rows * self::CELL_HEIGHT * $this->zoom) / 2),
+      max(0, ($width - $this->columns * self::TILE_SIZE * $this->zoom) / 2),
+      max(0, ($height - $this->rows * self::TILE_SIZE * $this->zoom) / 2),
       new CanvasRectangle(0, 0, $width, $height), $textLayerIds, $spriteIds, array_column($tiles, 'id'),
       $worldId, $worldOrigin['x'], $worldOrigin['y'], $tileFrame, $follow);
   }

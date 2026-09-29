@@ -7,7 +7,7 @@ use Ichiloto\Engine\Field\MapLayerSet;
 use Ichiloto\Engine\IO\Console\SgrColorParser;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\FieldViewport;
-use Ichiloto\Engine\Rendering\Tilesets\CellTiles;
+use Ichiloto\Engine\Rendering\Tilesets\AutotileShape;
 use Ichiloto\Engine\Rendering\Tilesets\TileComposer;
 use Ichiloto\Engine\Rendering\Tilesets\TileId;
 use Ichiloto\Engine\Rendering\Tilesets\TilePiece;
@@ -15,13 +15,13 @@ use InvalidArgumentException;
 
 /**
  * Immutable, map-owned upload. Camera movement never visits its cells in PHP.
- * One wire cell is one terminal cell, drawn in the field as a
- * FieldViewport::CELL_WIDTH x CELL_HEIGHT box. A map with graphics also
- * carries its tileset: the sheets, and a catalog of the tile identities it
- * uses composed into generic pieces, so the renderer needs no RPG Maker
- * knowledge. Each cell's tile is a slice (CellTiles): an autotile column, a
- * tile half, or a whole tile centred on the cell. Tile layers draw at
- * -100 + NN, their `above` tiles at 900 + NN.
+ * One wire cell is one terminal cell, drawn in the field as one
+ * FieldViewport::TILE_SIZE square. A map with graphics also carries its
+ * tileset: the sheets, and a catalog of the tile identities it uses composed
+ * into generic pieces, so the renderer needs no RPG Maker knowledge. Each
+ * cell shows one whole tile: an autotile composed for the cell from its
+ * neighbours, or a plain tile. Tile layers draw at -100 + NN, their `above`
+ * tiles at 900 + NN.
  */
 final readonly class PresentationWorld
 {
@@ -85,8 +85,8 @@ final readonly class PresentationWorld
             $rows[] = ['op' => 'worldRows', 'id' => $id, 'rows' => [['row' => $y, 'cells' => $wire]]];
         }
         return new self($id, [['op' => 'put', 'kind' => 'world', 'id' => $id,
-            'value' => ['columns' => $width, 'rows' => $height, 'cellWidth' => FieldViewport::CELL_WIDTH,
-                'cellHeight' => FieldViewport::CELL_HEIGHT, 'layers' => $metadata,
+            'value' => ['columns' => $width, 'rows' => $height, 'cellWidth' => FieldViewport::TILE_SIZE,
+                'cellHeight' => FieldViewport::TILE_SIZE, 'layers' => $metadata,
                 ...($tiles === null ? [] : ['tileset' => $tiles['tileset']])]], ...$rows, ...($tiles['operations'] ?? [])],
             array_column(array_filter($metadata, static fn(array $layer): bool => $layer['kind'] !== 'tiles'), 'id'),
             $estimatedBytes, $tiles['animated'] ?? false);
@@ -114,16 +114,16 @@ final readonly class PresentationWorld
         $layers = $operations = [];
         foreach ($graphics->layers as $layer) {
             $bands = [];
-            // A layer offset in field cells: a cell is half a tile across and one tile down.
+            // A layer offset in field cells, each one tile.
             [$offsetX, $offsetY] = $graphics->offsets[$layer->name] ?? [0.0, 0.0];
-            $shiftX = (int)round($offsetX * $size / 2);
+            $shiftX = (int)round($offsetX * $size);
             $shiftY = (int)round($offsetY * $size);
-            foreach (CellTiles::resolveLayer($layer->tiles, $layer->halves) as $y => $cells) {
-                foreach ($cells as $x => [$tileId, $slice]) {
-                    if (!isset($sheetIndices[TileId::getSheet($tileId)?->value ?? ''])) {
+            foreach (AutotileShape::resolveLayer($layer->tiles) as $y => $cells) {
+                foreach ($cells as $x => $tileId) {
+                    if ($tileId === TileId::EMPTY || !isset($sheetIndices[TileId::getSheet($tileId)?->value ?? ''])) {
                         continue;
                     }
-                    $key = "{$tileId}:{$slice->value}:{$shiftX}:{$shiftY}";
+                    $key = "{$tileId}:{$shiftX}:{$shiftY}";
                     if (!isset($catalog[$key])) {
                         if (count($catalog) >= self::MAX_CATALOG_TILES) {
                             throw new InvalidArgumentException('Retained world exceeds the ' . self::MAX_CATALOG_TILES . '-tile catalog.');
@@ -132,15 +132,14 @@ final readonly class PresentationWorld
                         $animated = $animated || count($frames) > 1;
                         $catalog[$key] = count($tiles);
                         $tiles[] = [
-                            ...($slice->getWidth($size) === $size ? [] : ['width' => $slice->getWidth($size)]),
-                            ...($slice->getLeft($size) + $shiftX === 0 ? [] : ['left' => $slice->getLeft($size) + $shiftX]),
+                            ...($shiftX === 0 ? [] : ['left' => $shiftX]),
                             ...($shiftY === 0 ? [] : ['top' => $shiftY]),
                             'frames' => array_map(static fn(array $pieces): array => array_map(
                                 static function (TilePiece $piece) use ($sheetIndices, &$bytes): array {
                                     $bytes += self::PIECE_SOURCE_BYTES;
                                     return ['sheet' => $sheetIndices[$piece->sheet->value], 'x' => $piece->x, 'y' => $piece->y,
                                         'width' => $piece->width, 'height' => $piece->height, 'left' => $piece->left, 'top' => $piece->top];
-                                }, $slice->cut($pieces, $size)), $frames),
+                                }, $pieces), $frames),
                         ];
                     }
                     $band = $graphics->tileset->isAbove($tileId) ? 'above' : 'below';

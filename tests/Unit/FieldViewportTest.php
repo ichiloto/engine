@@ -62,8 +62,8 @@ it('centers a whole-cell field view without changing UI grid dimensions', functi
     $layout = new FieldViewport($grid, 2);
     $viewport = $layout->createViewport([new PresentationTextLayer('world', 0, []),
         new PresentationTextLayer('dialogue', 1000, [])], [], []);
-    // 1350 x 720 pixels hold 28 x 7 terminal cells of 24 x 48 pixels at 2x (48 x 96); the remainder is split evenly.
-    expect([$layout->columns, $layout->rows])->toBe([28, 7])
+    // 1350 x 720 pixels hold 14 x 7 terminal cells of 48 x 48 pixels at 2x (96 x 96); the remainder is split evenly.
+    expect([$layout->columns, $layout->rows])->toBe([14, 7])
         ->and([$viewport->x, $viewport->y])->toBe([3.0, 24.0])
         ->and($viewport->textLayerIds)->toBe(['world'])
         ->and($viewport->clipRect->toArray())->toBe(['x' => 0.0, 'y' => 0.0, 'width' => 1350.0, 'height' => 720.0])
@@ -71,16 +71,15 @@ it('centers a whole-cell field view without changing UI grid dimensions', functi
     $viewport->assertWithin($grid);
 });
 
-it('sizes the field in 24 x 48 terminal cells scaled by zoom, independent of the text cell size', function (int $cellWidth, int $cellHeight, float $zoom, array $expected) {
+it('sizes the field in square 48-pixel terminal cells scaled by zoom, independent of the text cell size', function (int $cellWidth, int $cellHeight, float $zoom, array $expected) {
     $layout = new FieldViewport(new RendererGridConfig(135, 36, $cellWidth, $cellHeight), $zoom);
-    // A terminal cell keeps its tall shape: half an RPG Maker tile wide and one tile tall.
-    expect([FieldViewport::CELL_WIDTH, FieldViewport::CELL_HEIGHT, FieldViewport::TILE_SIZE])
-        ->toBe([24, 48, 48])->and([$layout->columns, $layout->rows])->toBe($expected);
+    // A terminal cell is one RPG Maker tile, so the field shows fewer columns than the text grid's shape would.
+    expect(FieldViewport::TILE_SIZE)->toBe(48)->and([$layout->columns, $layout->rows])->toBe($expected);
 })->with([
-    '10 x 20 text cells at 1x' => [10, 20, 1.0, [56, 15]],
-    '10 x 20 text cells at 1.5x' => [10, 20, 1.5, [37, 10]],
-    '10 x 20 text cells at 2x' => [10, 20, 2.0, [28, 7]],
-    '16 x 24 text cells at 1x' => [16, 24, 1.0, [90, 18]],
+    '10 x 20 text cells at 1x' => [10, 20, 1.0, [28, 15]],
+    '10 x 20 text cells at 1.5x' => [10, 20, 1.5, [18, 10]],
+    '10 x 20 text cells at 2x' => [10, 20, 2.0, [14, 7]],
+    '16 x 24 text cells at 1x' => [16, 24, 1.0, [45, 18]],
     'a session smaller than one cell still shows one' => [1, 1, 8.0, [1, 1]],
 ]);
 
@@ -102,7 +101,7 @@ it('scales the above-sprite field prompt by identity without scaling HUD text at
 it('keeps small maps centered and applies one transform to terrain and actors', function (float $zoom) {
     $grid = new RendererGridConfig(135, 36, 10, 20);
     $layout = new FieldViewport($grid, $zoom);
-    // An 11 x 5 map is smaller than the field at every tested zoom (28 x 7 at 2x).
+    // An 11 x 5 map is smaller than the field at every tested zoom (14 x 7 at 2x).
     $camera = new Camera(makeCameraTestScene(), $layout->columns, $layout->rows,
         worldSpace: array_fill(0, 5, str_repeat('.', 11)));
     $position = $camera->getScreenSpacePosition(new Vector2(5, 2));
@@ -114,9 +113,8 @@ it('keeps small maps centered and applies one transform to terrain and actors', 
     expect($viewport->spriteIds)->toBe(['npc:fixture'])->and($viewport->tileBatchIds)->toBe(['map:floor']);
     $viewport->assertMembers([], [$sprite], [$tiles]);
     $origin = $camera->getScreenSpacePosition(new Vector2(0, 0));
-    // Terrain and actors share the field pitch: one 24 x 48 cell scaled by zoom.
-    $pitchX = FieldViewport::CELL_WIDTH * $zoom;
-    $pitchY = FieldViewport::CELL_HEIGHT * $zoom;
+    // Terrain and actors share the field pitch: one 48-pixel square cell scaled by zoom.
+    $pitchX = $pitchY = FieldViewport::TILE_SIZE * $zoom;
     $centerX = $viewport->x + ($origin->x + 11 / 2) * $pitchX;
     $centerY = $viewport->y + ($origin->y + 5 / 2) * $pitchY;
     expect($origin->x)->toBeGreaterThan(0)->and($origin->y)->toBeGreaterThan(0)
@@ -175,10 +173,10 @@ it('uses the reduced camera for real field projection while UI and menu frames s
     ConfigStore::put(ProjectConfig::class, new PlaySettings(['graphics' => ['field' => ['zoom' => 2.0]]]));
     $scene->synchronizeFieldViewport();
     // Retained presentation removes the old optional viewport-capability fallback.
-    expect([$camera->screen->getWidth(), $camera->screen->getHeight()])->toBe([28, 7]);
+    expect([$camera->screen->getWidth(), $camera->screen->getHeight()])->toBe([14, 7]);
     $camera->resetPosition($player);
     // The camera clamps to the 100 x 40 world's bottom-right corner.
-    expect([$camera->position->x, $camera->position->y])->toBe([72.0, 33.0]);
+    expect([$camera->position->x, $camera->position->y])->toBe([86.0, 33.0]);
     $screen = $camera->getScreenSpacePosition($player->position);
     expect($camera->getWorldSpacePosition($screen))->toEqual($player->position);
     Console::recomposeFrame(function () use ($camera) {
@@ -204,11 +202,11 @@ it('uses the reduced camera for real field projection while UI and menu frames s
     $this->runtime->present($scene);
     $frames = RetainedFrameState::replay($transport->sent);
     expect($frames[array_key_last($frames)]['viewport']['scale'])->toBe(2.0);
-    // At 1x a field cell is still 24 x 48 pixels, not a 10 x 20 text cell: the camera shows 56 x 15 cells
+    // At 1x a field cell is still 48 x 48 pixels, not a 10 x 20 text cell: the camera shows 28 x 15 cells
     // and the field text needs the viewport transform to be drawn at the field pitch.
     ConfigStore::put(ProjectConfig::class, new PlaySettings(['graphics' => ['field' => ['zoom' => 1.0]]]));
     $scene->synchronizeFieldViewport();
-    expect([$camera->screen->getWidth(), $camera->screen->getHeight()])->toBe([56, 15]);
+    expect([$camera->screen->getWidth(), $camera->screen->getHeight()])->toBe([28, 15]);
     Console::recomposeFrame($camera->renderMap(...));
     $this->runtime->present($scene);
     $frames = RetainedFrameState::replay($transport->sent);

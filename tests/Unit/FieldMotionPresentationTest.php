@@ -43,15 +43,16 @@ function fieldMotionPresentation(array $capabilities): array
 
 it('measures every step in logical field pixels so both axes walk at RPG Maker speed', function () {
   $metric = new FieldMetric();
+  // A field cell is one 48-pixel tile, so a step across or down is 48 pixels and 16/60 s.
   expect(FieldMetric::WALK_PIXELS_PER_SECOND)->toBe(180.0)
-    ->and($metric->getDistance(Vector2::right()))->toBe(24.0)
+    ->and($metric->getDistance(Vector2::right()))->toBe(48.0)
     ->and($metric->getDistance(Vector2::up()))->toBe(48.0)
-    ->and($metric->getWalkSeconds(Vector2::left()))->toBe(8 / 60)
+    ->and($metric->getWalkSeconds(Vector2::left()))->toBe(16 / 60)
     ->and($metric->getWalkSeconds(Vector2::down()))->toBe(16 / 60)
     // Field zoom, device scale and window size are applied after the metric; none are inputs to it.
-    ->and(new FieldMetric(48, 48)->getWalkSeconds(Vector2::right()))->toBe(16 / 60)
-    ->and(fn() => new FieldMetric(0, 48))->toThrow(InvalidArgumentException::class)
-    ->and(fn() => new FieldMetric(24, 48, INF))->toThrow(InvalidArgumentException::class);
+    ->and(new FieldMetric(24)->getWalkSeconds(Vector2::right()))->toBe(8 / 60)
+    ->and(fn() => new FieldMetric(0))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => new FieldMetric(48, INF))->toThrow(InvalidArgumentException::class);
 });
 
 it('describes a slide and a camera follow only as optional presentation fields', function () {

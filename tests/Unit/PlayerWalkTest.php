@@ -17,8 +17,8 @@ use Tests\Support\Input\FakeInputSource;
 require_once __DIR__ . '/../Support/Input/FakeHeldInputSource.php';
 require_once __DIR__ . '/../Support/Input/FakeInputSource.php';
 
-const WALK_VERTICAL = 16 / 60;
-const WALK_HORIZONTAL = 8 / 60;
+/** The field metric's step: one 48-pixel cell, across or down, at RPG Maker's 180 field pixels per second. */
+const WALK_STEP = 16 / 60;
 
 /** Drives PlayerWalk the way FieldState does: one input update, then one walk update per frame. */
 final class PlayerWalkDriver
@@ -104,18 +104,17 @@ it('walks while held, switches to the latest direction at the next step and resu
   expect($this->driver->getFrames())->toBe([0, 16, 32]);
   $this->source->press('right', KeyCode::RIGHT);
   $this->driver->run(26 / 60);
-  // Right waits for the step in progress: no free step at frame 40. Sideways steps take 8 frames.
-  expect($this->driver->getFrames())->toBe([0, 16, 32, 48, 56, 64])
-    ->and($this->driver->getDirections())->toBe(['down', 'down', 'down', 'right', 'right', 'right']);
+  // Right waits for the step in progress: no free step at frame 40. Sideways steps take 16 frames too.
+  expect($this->driver->getFrames())->toBe([0, 16, 32, 48, 64])
+    ->and($this->driver->getDirections())->toBe(['down', 'down', 'down', 'right', 'right']);
   $this->source->release('right');
-  $this->driver->run(24 / 60);
-  expect(array_slice($this->driver->getFrames(), 6))->toBe([72, 88])
-    ->and(array_slice($this->driver->getDirections(), 6))->toBe(['down', 'down']);
+  $this->driver->run(40 / 60);
+  expect(array_slice($this->driver->getFrames(), 5))->toBe([80, 96])
+    ->and(array_slice($this->driver->getDirections(), 5))->toBe(['down', 'down']);
   $this->source->release('down');
   $this->driver->run(1.0);
-  expect($this->driver->steps)->toHaveCount(8)
-    ->and(array_column($this->driver->steps, 3))->toBe([WALK_VERTICAL, WALK_VERTICAL, WALK_VERTICAL,
-      WALK_HORIZONTAL, WALK_HORIZONTAL, WALK_HORIZONTAL, WALK_VERTICAL, WALK_VERTICAL]);
+  expect($this->driver->steps)->toHaveCount(7)
+    ->and(array_column($this->driver->steps, 3))->toBe(array_fill(0, 7, WALK_STEP));
 });
 
 it('resolves opposing directions by recency and keeps an action held through another binding', function () {
@@ -153,19 +152,19 @@ it('keeps quick taps without letting them outrun walking', function () {
   $this->driver->frame();
   $this->source->press('right', KeyCode::RIGHT)->release('right');
   $this->driver->run(1.0);
-  expect($this->driver->getFrames())->toBe([0, 8]);
+  expect($this->driver->getFrames())->toBe([0, 16]);
   // A tap during a held walk is taken at the next step, then the held key resumes.
   $this->driver = new PlayerWalkDriver($this->source);
   $this->source->press('down', KeyCode::DOWN);
   $this->driver->run(4 / 60);
   $this->source->press('left', KeyCode::LEFT)->release('left');
-  $this->driver->run(40 / 60);
+  $this->driver->run(52 / 60);
   expect($this->driver->getDirections())->toBe(['down', 'left', 'down', 'down'])
-    ->and($this->driver->getFrames())->toBe([0, 16, 24, 40]);
+    ->and($this->driver->getFrames())->toBe([0, 16, 32, 48]);
 });
 
 it('walks equal distances in equal time at any update rate within one step', function (float|array $frames) {
-  foreach (['right' => [KeyCode::RIGHT, WALK_HORIZONTAL], 'down' => [KeyCode::DOWN, WALK_VERTICAL]] as $control => [$key, $step]) {
+  foreach (['right' => [KeyCode::RIGHT, WALK_STEP], 'down' => [KeyCode::DOWN, WALK_STEP]] as $control => [$key, $step]) {
     $source = new FakeHeldInputSource();
     InputManager::setInputSource($source);
     $driver = new PlayerWalkDriver($source);
@@ -183,7 +182,7 @@ it('walks equal distances in equal time at any update rate within one step', fun
   'irregular' => [[0.004, 0.021, 0.017, 0.033, 0.009, 0.016]],
 ]);
 
-it('gives both axes one apparent speed on the rectangular field and one cell rate on a square one', function () {
+it('walks both axes at one cell rate on the square field, from the metric alone', function () {
   $walked = static function (FieldMetric $metric, string $control, KeyCode $key, float $seconds): int {
     $source = new FakeHeldInputSource();
     InputManager::setInputSource($source);
@@ -194,21 +193,24 @@ it('gives both axes one apparent speed on the rectangular field and one cell rat
   };
   $field = new FieldMetric();
   $sideways = $walked($field, 'right', KeyCode::RIGHT, 4.0);
-  $vertical = $walked($field, 'down', KeyCode::DOWN, 4.0);
-  // RPG Maker's 180 field pixels per second: sideways steps are 24 pixels, vertical 48.
-  expect(abs($sideways * 24 - $vertical * 48))->toBeLessThanOrEqual(48)
-    ->and($sideways)->toBeGreaterThan($vertical * 1.9);
-  $square = new FieldMetric(48, 48);
-  expect(abs($walked($square, 'right', KeyCode::RIGHT, 4.0) - $walked($square, 'down', KeyCode::DOWN, 4.0)))->toBe(0);
+  // RPG Maker's 180 field pixels per second over 48-pixel cells: one step every 16/60 s on either axis.
+  expect($field->getWalkSeconds(Vector2::right()))->toBe(WALK_STEP)
+    ->and($field->getWalkSeconds(Vector2::down()))->toBe(WALK_STEP)
+    ->and($walked($field, 'down', KeyCode::DOWN, 4.0))->toBe($sideways)
+    ->and(abs($sideways - (floor(4.0 / WALK_STEP) + 1)))->toBeLessThanOrEqual(1);
+  // The pace follows the metric's cell size, never an axis.
+  $small = new FieldMetric(24);
+  expect($walked($small, 'right', KeyCode::RIGHT, 4.0))->toBe($walked($small, 'down', KeyCode::DOWN, 4.0))
+    ->and($walked($small, 'down', KeyCode::DOWN, 4.0))->toBeGreaterThan($sideways * 1.9);
 });
 
 it('banks no burst while blocked and catches up at most one step after a stall', function () {
   $this->driver->blocks = static fn(float $time): bool => $time < 1.0 - 1e-6;
   $this->source->press('right', KeyCode::RIGHT);
-  $this->driver->run(1.0 + 20 / 60);
+  $this->driver->run(1.0 + 36 / 60);
   // Blocked attempts face the wall each update; once clear, walking resumes at its pace.
   expect(count($this->driver->attempts))->toBeGreaterThan(55)
-    ->and($this->driver->getFrames())->toBe([60, 68, 76]);
+    ->and($this->driver->getFrames())->toBe([60, 76, 92]);
 
   $this->driver = new PlayerWalkDriver($this->source);
   $this->source->press('down', KeyCode::DOWN);
@@ -279,8 +281,8 @@ it('walks the field through the ordinary validated move with held input and step
     $this->source->press('down', KeyCode::DOWN);
     foreach (range(1, 20) as $_) { InputManager::handleInput(); $state->navigate($scene); }
     // Each step is one validated move, presented over the walking time of its axis.
-    expect($scene->player->moves)->toBe([[0, 1, WALK_VERTICAL], [0, 1, WALK_VERTICAL]])
-      ->and($scene->getStepSeconds(Vector2::right()))->toBe(WALK_HORIZONTAL);
+    expect($scene->player->moves)->toBe([[0, 1, WALK_STEP], [0, 1, WALK_STEP]])
+      ->and($scene->getStepSeconds(Vector2::right()))->toBe(WALK_STEP);
     $scene->player->moves = [];
     // Event-only input keeps its one step per key event, whatever the timing.
     InputManager::setInputSource(new FakeInputSource(KeyCode::DOWN, null, KeyCode::DOWN, KeyCode::RIGHT, null));

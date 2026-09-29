@@ -137,12 +137,12 @@ it('caches world uploads per successful installed map and width policy, preservi
     $paths = createRetainedMapSource($this->root, 'first', legacy: $legacy);
     $this->manager->readSource($paths);
     $world = $this->manager->getPresentationWorld();
-    // The world declares its field cell size, so the renderer draws every terminal cell as a
-    // 24 x 48 box: RPG Maker's 48-pixel tile covers two cells across.
+    // The world declares its field cell size, so the renderer draws every terminal cell as one
+    // square RPG Maker tile of 48 x 48 pixels.
     expect($world?->id)->toBe('map')
         ->and(array_keys($world->operations[0]['value']))->toBe(['columns', 'rows', 'cellWidth', 'cellHeight', 'layers'])
         ->and($world->operations[0]['value']['columns'])->toBe(4)
-        ->and([$world->operations[0]['value']['cellWidth'], $world->operations[0]['value']['cellHeight']])->toBe([24, 48])
+        ->and([$world->operations[0]['value']['cellWidth'], $world->operations[0]['value']['cellHeight']])->toBe([48, 48])
         ->and($world->operations[0]['value']['layers'][0])->not->toHaveKeys(['asset', 'sources']);
     $this->records = [];
     for ($index = 0; $index < 20; $index++) {
@@ -256,13 +256,13 @@ it('reports signed logical origins and keeps scale-one world viewports through u
 
 it('preserves snapshot tools and separates world origin from screen-projected sprite scaling', function () {
     Console::withLayer('npc:text', fn() => Console::write('N', 1, 1), 10);
-    $layout = new FieldViewport(new RendererGridConfig(8, 4, 10, 20), 2);
+    $layout = new FieldViewport(new RendererGridConfig(16, 4, 10, 20), 2);
     $sprite = new PresentationSprite('npc:sprite', 'npc.png', 2, 1, 16, 24);
     $snapshot = Console::presentationSnapshot();
     $viewport = $layout->createViewport($snapshot, [$sprite], worldId: 'map', worldOrigin: ['x' => -2, 'y' => 10]);
     $viewport->assertMembers($snapshot, [$sprite]);
-    // 80 pixels across hold one 48-pixel cell at 2x; the other 32 are split evenly.
-    expect($viewport->x)->toBe(16.0)->and($viewport->spriteIds)->toBe(['npc:sprite'])
+    // 160 pixels across hold one 48-pixel cell at 2x (96 pixels); the other 64 are split evenly.
+    expect($viewport->x)->toBe(32.0)->and($viewport->spriteIds)->toBe(['npc:sprite'])
         ->and($sprite->x)->toBe(2)->and($sprite->y)->toBe(1)
         ->and($viewport->toArray()['worldOrigin'])->toBe(['column' => -2, 'row' => 10]);
     $changes = Console::getRetainedPresentationChanges();
@@ -390,8 +390,8 @@ it('scrolls through the real field compositor and runtime without revisiting sta
         $shape['viewport']['clipRect']['height'] = 1000.0;
         $shape['viewport']['worldOrigin'] = ['column' => 10, 'row' => 10];
         // The field is centred in the session: half the pixels left over after whole field cells.
-        $origin = ['x' => ($columns * 10 - $layout->columns * FieldViewport::CELL_WIDTH) / 2.0,
-            'y' => ($rows * 20 - $layout->rows * FieldViewport::CELL_HEIGHT) / 2.0];
+        $origin = ['x' => ($columns * 10 - $layout->columns * FieldViewport::TILE_SIZE) / 2.0,
+            'y' => ($rows * 20 - $layout->rows * FieldViewport::TILE_SIZE) / 2.0];
         expect($shape)->toBe(['reset' => false, 'present' => true, 'operations' => [],
             'viewport' => ['scale' => 1.0, 'origin' => $origin,
                 'clipRect' => ['x' => 0.0, 'y' => 0.0, 'width' => 2000.0, 'height' => 1000.0],

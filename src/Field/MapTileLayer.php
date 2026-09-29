@@ -5,22 +5,19 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Field;
 
 use Ichiloto\Engine\Rendering\Tilesets\TileId;
-use Ichiloto\Engine\Rendering\Tilesets\TileSlice;
 use InvalidArgumentException;
 
 /**
  * One graphical tile layer: an RPG Maker tile identity per terminal cell, 0
- * for none. A field cell is half a tile wide. An autotile is composed for its
- * own cell from its neighbours. Any other tile is drawn whole and centred on
- * its cell, or, with an `L` or `R` suffix (`42L`), only its left or right
- * half fills the cell, so a tile can also lie across two cells exactly.
+ * for none. A field cell is one whole tile. An autotile is composed for its
+ * own cell from its neighbours; any other tile is drawn whole in its cell.
+ * A cell holds exactly one whole tile, so an entry naming part of a tile
+ * (`42L`) is refused rather than reinterpreted.
  */
 final readonly class MapTileLayer
 {
     /** @var list<list<int>> */
     public array $tiles;
-    /** @var array<int, array<int, TileSlice>> The halves named by suffixed entries, by row and cell. */
-    public array $halves;
 
     public function __construct(
         public string $name,
@@ -28,27 +25,21 @@ final readonly class MapTileLayer
         public string $path,
         string $text,
     ) {
-        $tiles = $halves = [];
+        $tiles = [];
         foreach (preg_split('/\r\n|\n|\r/', rtrim($text, "\r\n")) ?: [] as $y => $line) {
             $row = [];
             foreach (preg_split('/\s+/', trim($line), -1, PREG_SPLIT_NO_EMPTY) ?: [] as $x => $value) {
-                if (preg_match('/\A(?<id>\d+)(?<half>[LR])?\z/', $value, $match) !== 1
-                    || ((int)$match['id'] !== TileId::EMPTY && !TileId::isValid((int)$match['id']))) {
+                if (preg_match('/\A(?<id>\d+)[LR]\z/', $value, $match) === 1) {
+                    throw new InvalidArgumentException("Tile layer {$path} row {$y}, cell {$x}: '{$value}' names half of tile {$match['id']}, but each field cell holds one whole tile; use whole tiles, such as '{$match['id']}'.");
+                }
+                if (preg_match('/\A\d+\z/', $value) !== 1 || ((int)$value !== TileId::EMPTY && !TileId::isValid((int)$value))) {
                     throw new InvalidArgumentException("Tile layer {$path} row {$y}, cell {$x}: '{$value}' is not an RPG Maker tile identity.");
                 }
-                $id = (int)$match['id'];
-                if (($match['half'] ?? '') !== '') {
-                    if ($id === TileId::EMPTY || TileId::isAutotile($id)) {
-                        throw new InvalidArgumentException("Tile layer {$path} row {$y}, cell {$x}: '{$value}' names a half, but only plain tiles have halves; autotiles are composed per cell.");
-                    }
-                    $halves[$y][$x] = $match['half'] === 'L' ? TileSlice::LEFT : TileSlice::RIGHT;
-                }
-                $row[] = $id;
+                $row[] = (int)$value;
             }
             $tiles[] = $row;
         }
         $this->tiles = $tiles;
-        $this->halves = $halves;
     }
 
     /** Rows must match the map's cells exactly, as terminal layers do. */
@@ -65,15 +56,10 @@ final readonly class MapTileLayer
         }
     }
 
-    /** @return list<list<string>> Each cell's entry as authored: a tile identity with its half, if any. */
+    /** @return list<list<string>> Each cell's entry as a tile layer file writes it: its tile identity. */
     public function getEntries(): array
     {
-        return array_map(fn(array $row, int $y): array => array_map(
-            fn(int $id, int $x): string => $id . match ($this->halves[$y][$x] ?? null) {
-                TileSlice::LEFT => 'L',
-                TileSlice::RIGHT => 'R',
-                default => '',
-            }, $row, array_keys($row)), $this->tiles, array_keys($this->tiles));
+        return array_map(static fn(array $row): array => array_map(strval(...), $row), $this->tiles);
     }
 
     /** @return list<int> Every tile identity the layer paints. */

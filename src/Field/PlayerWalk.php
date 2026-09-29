@@ -14,8 +14,8 @@ use Ichiloto\Engine\Rendering\FieldMetric;
  * cell at a time through the ordinary validated step, so collision, gates,
  * triggers, encounters and events behave exactly as a single step does.
  * Steps are paced by the field metric: a step lasts as long as walking
- * speed takes to cover it, so vertical steps take twice as long as sideways
- * ones and both axes cover the field at one apparent speed.
+ * speed takes to cover it, so every step, across or down, takes the same
+ * time.
  *
  * - The most recently pressed held direction wins; releasing it falls back
  *   to the next most recent one still held. Opposing directions follow the

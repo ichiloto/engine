@@ -120,12 +120,14 @@ it('walks RPG Maker strides by distance so both axes animate at one pace and con
 
   $animation = new CharacterWalkAnimation($metric);
   expect($animation->getPattern())->toBe(1);
-  $animation->step(new CharacterStep(new Vector2(0, 0), new Vector2(1, 0), 8 / 60));
-  // Even one sideways step, half a tile, shows a stride.
+  $animation->step(new CharacterStep(new Vector2(0, 0), new Vector2(1, 0), 16 / 60));
+  // Even one step shows a stride, and the walk carries on through it until the step ends.
+  expect($animation->getPattern())->toBe(2);
+  $animation->advance(8 / 60);
   expect($animation->getPattern())->toBe(2);
   $animation->advance(8 / 60);
   $animation->advance(CharacterWalkAnimation::STOP_SECONDS / 2);
-  expect($animation->getPattern())->toBe(2);
+  expect($animation->getPattern())->toBe(1);
   $animation->advance(CharacterWalkAnimation::STOP_SECONDS / 2);
   expect($animation->getPattern())->toBe(1);
 

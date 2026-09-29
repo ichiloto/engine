@@ -300,17 +300,19 @@ it('runs NPC event routes with independent step timing facing collision and idle
   $npc = $this->manager->findById('guide');
   $route = new MovementRouteRunner($this->scene, ['subject' => 'npc', 'npcId' => 'guide',
     'steps' => [['direction' => 'right', 'count' => 3]], 'secondsPerStep' => 0.08]);
-  // Each step advances one stride through patterns 2, 1, 0 on the east row (row 2).
+  // On the east row (row 2), each 48-pixel step carries the cycle 1.6 patterns on (one per 30
+  // pixels): halfway through each step it shows patterns 2, 0, then 2.
   expect($route->update(0))->toBeFalse()->and($npc->position->x)->toBe(8.0);
-  $this->manager->advanceGraphicalAnimation(0.08);
+  $this->manager->advanceGraphicalAnimation(0.04);
   expect($npc->getGraphicalSpriteDefinition()->sourceRect->toArray())->toBe(['x' => 8, 'y' => 12, 'width' => 4, 'height' => 6])
     ->and($this->manager->findById('other')->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(4);
   expect($route->update(0.08))->toBeFalse()->and($npc->position->x)->toBe(9.0);
-  $this->manager->advanceGraphicalAnimation(0.08);
-  expect($npc->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(4);
-  expect($route->update(0.08))->toBeTrue()->and($npc->position->x)->toBe(10.0);
-  $this->manager->advanceGraphicalAnimation(0.08);
+  $this->manager->advanceGraphicalAnimation(0.04);
   expect($npc->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(0);
+  expect($route->update(0.08))->toBeTrue()->and($npc->position->x)->toBe(10.0);
+  $this->manager->advanceGraphicalAnimation(0.04);
+  expect($npc->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(8);
+  $this->manager->advanceGraphicalAnimation(0.04);
   $this->manager->advanceGraphicalAnimation(CharacterWalkAnimation::STOP_SECONDS);
   expect($npc->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(4)
     ->and($npc->heading)->toBe(MovementHeading::EAST)->and($npc->sprite)->toBe('E');
@@ -416,9 +418,9 @@ it('slides NPC steps at their route pace or walking time and sends slides only t
   // Facing is not a step: nothing slides.
   $this->manager->faceNpc('guide', Vector2::up());
   expect($npc->getGraphicalSpriteMotion())->toBeNull();
-  // Outside a route an NPC step walks at field speed: sideways is 8 frames.
+  // Outside a route an NPC step walks at field speed: 16 frames across or down.
   expect($this->manager->moveNpcById('guide', Vector2::right()))->toBeTrue()
-    ->and($npc->getGraphicalSpriteMotion()?->seconds)->toBe(8 / 60)
+    ->and($npc->getGraphicalSpriteMotion()?->seconds)->toBe(16 / 60)
     ->and($this->scene->getStepSeconds(Vector2::down()))->toBe(16 / 60);
 
   // This renderer advertised no field_motion, so its sprites are placed by whole cells.
@@ -436,7 +438,7 @@ it('slides NPC steps at their route pace or walking time and sends slides only t
     $runtime->start('NPC slides', 24, 8);
     $runtime->present($this->scene);
     $sprite = RetainedFrameState::replay($transport->sent)[0]['sprites'][0];
-    expect($sprite['motion'])->toBe(['duration' => 8 / 60]);
+    expect($sprite['motion'])->toBe(['duration' => 16 / 60]);
     putSceneAudioConfig(['accessibility' => ['reducedMotion' => true], 'ui' => ['hud' => ['location' => false]]]);
     expect($npc->getGraphicalSpriteMotion())->toBeNull();
   } finally {

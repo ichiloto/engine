@@ -124,7 +124,7 @@ beforeEach(function () {
     // Character frames are source rects; the renderer advertises sprite_source_rect as the native renderer does.
     $this->transport->batches[] = [RendererEvent::fromJson(
         '{"protocol":2,"type":"ready","capabilities":["sprite_source_rect","tile_batches"]}')];
-    // A 1920 x 1440 pixel session holds 40 x 15 field cells of 24 x 48 pixels at 2x zoom.
+    // A 1920 x 1440 pixel session holds 20 x 15 field cells of 48 x 48 pixels at 2x zoom.
     $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']),
         $this->root, cellWidth: 24, cellHeight: 36), $this->transport);
     $this->runtime->start('Player prompt', 80, 40);
@@ -196,11 +196,11 @@ it('keeps exactly one above-art prompt aligned with the player through real 2x m
             ->and($text['location-hud']['runs'][0]['row'])->toBe(38);
         $scale = $frame['viewport']['scale'];
         // Both anchors use the same field row pitch; the prompt's bottom is at or above the artwork's top.
-        $pitch = FieldViewport::CELL_HEIGHT * $scale;
-        expect(($row + 1) * $pitch)->toBeLessThanOrEqual((($sprite['y'] + 1) * FieldViewport::CELL_HEIGHT - $sprite['height']) * $scale);
+        $pitch = FieldViewport::TILE_SIZE * $scale;
+        expect(($row + 1) * $pitch)->toBeLessThanOrEqual((($sprite['y'] + 1) * FieldViewport::TILE_SIZE - $sprite['height']) * $scale);
     }
-    // Centre the player in the 40 x 15 camera so the next step scrolls it.
-    $this->player->position->x = 40;
+    // Centre the player in the 20 x 15 camera so the next step scrolls it.
+    $this->player->position->x = 30;
     $this->player->position->y = 22;
     $this->camera->moveTo(20, 15);
     $this->field->renderTheField();

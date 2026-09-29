@@ -70,14 +70,15 @@ it('projects staged sheets with independent identities and PHP-owned route anima
   $entry = ['id' => 'one', 'sprite' => '@', 'x' => 7, 'y' => 4, 'sprites2d' => characterSheetData()];
   $one = $this->stage->add($entry);
   $two = $this->stage->add(array_replace($entry, ['id' => 'two', 'x' => 9]));
-  // 48 x 48 frames: east is row 2; strides step through patterns 2 then 1 while the other actor stands on 1.
+  // 48 x 48 frames: east is row 2; strides step through patterns 2 then 0 (each 48-pixel step carries
+  // the cycle 1.6 patterns on) while the other actor stands on 1.
   $this->stage->move('one', Vector2::right());
   $this->stage->advanceGraphicalAnimation(0.08);
   expect($one->getGraphicalSpriteDefinition()->sourceRect->toArray())->toBe(['x' => 96, 'y' => 96, 'width' => 48, 'height' => 48])
     ->and($two->getGraphicalSpriteDefinition()->sourceRect->toArray())->toBe(['x' => 48, 'y' => 0, 'width' => 48, 'height' => 48]);
   $this->stage->move('one', Vector2::right());
   $this->stage->advanceGraphicalAnimation(0.08);
-  expect($one->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(48);
+  expect($one->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(0);
   $this->camera->moveTo(3, 2);
   $sprite = $this->projector->project($one, $this->camera);
   expect([$sprite->id, $sprite->x, $sprite->y, $sprite->asset])->toBe(['staged:one', 6, 2, characterSheetData()['sheet']])
@@ -189,7 +190,7 @@ it('slides staged steps at the pace that moves them and a pose image as well as 
     ->and($this->projector->project($sheet, $this->camera)->motion?->toArray())->toBe(['duration' => 16 / 60])
     ->and($pose->getGraphicalSpriteMotion()?->seconds)->toBe(0.5)
     // The pace belongs to that one move.
-    ->and($this->scene->getStepSeconds(Vector2::right()))->toBe(8 / 60);
+    ->and($this->scene->getStepSeconds(Vector2::right()))->toBe(16 / 60);
   $this->stage->move('walker', Vector2::up(), faceOnly: true);
   $pose->hide();
   expect($sheet->getGraphicalSpriteMotion())->toBeNull()->and($pose->getGraphicalSpriteMotion())->toBeNull();

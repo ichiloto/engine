@@ -14,10 +14,8 @@ use InvalidArgumentException;
  *
  * Presentation-only: it never infers held keys or moves anything. Walking
  * cycles the pattern 1, 2, 1, 0 around the standing frame, one pattern per
- * PATTERN_PIXELS of field travel, so a sideways step (half as far as a
- * vertical one) advances half as much and both axes animate at one pace.
- * A walk begins on its first stride, so even a single sideways step shows
- * one. Steps that follow each other keep the cycle going; once travel stops
+ * PATTERN_PIXELS of field travel, so every axis animates at one pace.
+ * A walk begins on its first stride, so even a single step shows one. Steps that follow each other keep the cycle going; once travel stops
  * for STOP_SECONDS the character stands again.
  *
  * It also remembers the latest step, so the renderer can slide the sprite
