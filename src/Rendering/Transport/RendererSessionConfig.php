@@ -17,6 +17,10 @@ final readonly class RendererSessionConfig
   public const string CANVAS_COMPOSITING = 'canvas_compositing';
   public const string WINDOW_ACTIVATION = 'window_activation';
   public const string FRAME_VIEWPORT = 'frame_viewport';
+  /** Event subscription: key press, release and reset transitions with a stable control identity. */
+  public const string KEY_TRANSITIONS = 'key_transitions';
+  /** Event extensions change the event stream, so a session receives them only by requiring them. */
+  public const array EVENT_SUBSCRIPTIONS = [self::WINDOW_ACTIVATION, self::KEY_TRANSITIONS];
   public string $assetRoot;
 
   /** Drawing features may be advertised without making them mandatory at startup. */
@@ -25,7 +29,7 @@ final readonly class RendererSessionConfig
     return $this->protocol === RendererProtocolVersion::V2
       ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_CLIP_OPACITY,
         self::CANVAS_GLYPH_EFFECTS, self::CANVAS_COMPOSITING, self::FRAME_VIEWPORT,
-        ...(in_array(self::WINDOW_ACTIVATION, $this->requiredCapabilities, true) ? [self::WINDOW_ACTIVATION] : [])]
+        ...array_values(array_intersect(self::EVENT_SUBSCRIPTIONS, $this->requiredCapabilities))]
       : $this->requiredCapabilities;
   }
 
@@ -45,7 +49,8 @@ final readonly class RendererSessionConfig
     if ($icon !== null) { ApplicationIcon::assertAssetPath($icon); }
     $allowed = $protocol === RendererProtocolVersion::V2
       ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_CLIP_OPACITY, self::CANVAS_GLYPH_EFFECTS,
-        self::CANVAS_COMPOSITING, self::WINDOW_ACTIVATION, self::FRAME_VIEWPORT] : [self::SPRITE_SOURCE_RECT];
+        self::CANVAS_COMPOSITING, self::WINDOW_ACTIVATION, self::FRAME_VIEWPORT, self::KEY_TRANSITIONS]
+      : [self::SPRITE_SOURCE_RECT];
     foreach ($requiredCapabilities as $capability) {
       if (!in_array($capability, $allowed, true)) {
         throw new InvalidArgumentException('Unsupported renderer capability for this protocol.');

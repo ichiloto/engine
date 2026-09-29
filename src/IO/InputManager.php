@@ -9,6 +9,7 @@ use Ichiloto\Engine\Events\KeyboardEvent;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
+use Ichiloto\Engine\IO\InputSources\HeldInputSourceInterface;
 use Ichiloto\Engine\IO\InputSources\InputSourceInterface;
 use Ichiloto\Engine\IO\InputSources\TerminalInputSource;
 use Ichiloto\Engine\Util\Config\ConfigStore;
@@ -16,6 +17,7 @@ use Ichiloto\Engine\Util\Config\InputConfig;
 use Ichiloto\Engine\Util\Config\PlayerSettings;
 use Ichiloto\Engine\Util\Debug;
 use RuntimeException;
+use Throwable;
 
 class InputManager
 {
@@ -37,6 +39,10 @@ class InputManager
    * Terminal input remains the default unless a caller explicitly installs a source.
    */
   private static ?InputSourceInterface $inputSource = null;
+  /** Held controls and press edges; populated only by sources that report releases. */
+  private static ?KeyHoldState $holds = null;
+  /** Completed input updates, so a consumer can tell it skipped one (a menu, a modal, a battle). */
+  private static int $inputUpdates = 0;
   /**
    * @var EventManager|null The event manager.
    */
@@ -177,6 +183,7 @@ class InputManager
   public static function consumeCurrentInput(): void
   {
     self::$previousKeyPress = self::$keyPress = null;
+    self::getHolds()->consumePresses();
   }
 
   /**
@@ -197,6 +204,7 @@ class InputManager
   public static function setInputSource(InputSourceInterface $source): void
   {
     self::$previousKeyPress = self::$keyPress = null;
+    self::getHolds()->clear();
     self::$inputSource = $source;
   }
 
@@ -240,8 +248,16 @@ class InputManager
   public static function handleInput(): void
   {
     LatencyTrace::beginPoll();
+    self::$inputUpdates++;
     self::$previousKeyPress = self::$keyPress;
-    self::$keyPress = self::getInputSource()->poll();
+    try {
+      self::$keyPress = self::getInputSource()->poll();
+      self::updateHeldState();
+    } catch (Throwable $error) {
+      // A failed or disconnected source can no longer vouch for any held key.
+      self::getHolds()->clear();
+      throw $error;
+    }
 
     if (self::$keyPress !== null) {
       LatencyTrace::accepted(self::$keyPress->value, self::getInputSource()::class);
@@ -263,6 +279,7 @@ class InputManager
   public static function resetState(bool $drainBufferedInput = false): void
   {
     self::$previousKeyPress = self::$keyPress = null;
+    self::getHolds()->clear();
     self::getInputSource()->reset($drainBufferedInput);
   }
 
@@ -376,6 +393,74 @@ class InputManager
   {
     $button = self::$config[$name] ?? [];
     return self::isAnyKeyPressed($button['keys'] ?? []);
+  }
+
+  /**
+   * Whether the current source reports physical key releases. The terminal
+   * cannot, so it stays event-only and nothing is ever held there.
+   */
+  public static function isHeldInputAvailable(): bool
+  {
+    $source = self::getInputSource();
+    return $source instanceof HeldInputSourceInterface && $source->canReportHeldState();
+  }
+
+  /** The number of input updates so far; each game loop iteration and modal poll is one. */
+  public static function getInputUpdateCount(): int
+  {
+    return self::$inputUpdates;
+  }
+
+  /**
+   * Whether any key bound to the action is physically held. Unlike
+   * isButtonDown(), which stays an edge of the event-only key stream, this
+   * is true for as long as the key is down. Always false in the terminal.
+   */
+  public static function isButtonHeld(string $name): bool
+  {
+    return array_any(self::$config[$name]['keys'] ?? [], static fn(KeyCode $key): bool => self::getHolds()->isKeyHeld($key));
+  }
+
+  /** Whether a key bound to the action was pressed during this input update, even if already released. */
+  public static function wasButtonPressed(string $name): bool
+  {
+    return array_any(self::$config[$name]['keys'] ?? [], static fn(KeyCode $key): bool => self::getHolds()->wasKeyPressed($key));
+  }
+
+  /**
+   * The press order of the action's most recently pressed key that is held
+   * or was pressed this update, or null. A larger order is a later press.
+   */
+  public static function getButtonPressOrder(string $name): ?int
+  {
+    $orders = array_filter(array_map(static fn(KeyCode $key): ?int => self::getHolds()->getKeyPressOrder($key),
+      self::$config[$name]['keys'] ?? []), static fn(?int $order): bool => $order !== null);
+    return $orders === [] ? null : max($orders);
+  }
+
+  /** The order of the latest press so far; presses at or below it are not newer. */
+  public static function getLatestPressOrder(): int
+  {
+    return self::getHolds()->getLatestPressOrder();
+  }
+
+  /** Apply this update's bounded transition batch before gameplay reads it. */
+  private static function updateHeldState(): void
+  {
+    $holds = self::getHolds();
+    $holds->beginUpdate();
+    $source = self::getInputSource();
+    if (! $source instanceof HeldInputSourceInterface) {
+      return;
+    }
+    foreach ($source->drainTransitions() as $transition) {
+      $holds->apply($transition);
+    }
+  }
+
+  private static function getHolds(): KeyHoldState
+  {
+    return self::$holds ??= new KeyHoldState();
   }
 
   public static function disableEcho(): void

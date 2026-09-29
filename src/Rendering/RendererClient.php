@@ -20,6 +20,8 @@ final class RendererClient
   private SplQueue $keys;
   /** @var SplQueue<RendererEvent> */
   private SplQueue $events;
+  /** @var SplQueue<RendererEvent> Negotiated presses, releases and resets, in arrival order; repeats stay keys only. */
+  private SplQueue $transitions;
   /** @var array<int, RendererEvent> Latest pending generation per staged/presented state; at most two. */
   private array $frameAcknowledgements = [];
   private int $queuedBytes = 0;
@@ -44,11 +46,13 @@ final class RendererClient
     }
     $this->keys = new SplQueue();
     $this->events = new SplQueue();
+    $this->transitions = new SplQueue();
   }
 
   public function start(RendererSessionConfig $session): void
   {
-    if (! $this->keys->isEmpty() || ! $this->events->isEmpty() || $this->frameAcknowledgements !== []) {
+    if (! $this->keys->isEmpty() || ! $this->events->isEmpty() || ! $this->transitions->isEmpty()
+      || $this->frameAcknowledgements !== []) {
       throw new RendererTransportException('Consume pending renderer events before starting another session.');
     }
     $this->capabilities = [];
@@ -72,6 +76,7 @@ final class RendererClient
     try {
       $batch = $this->transport->pollEvents();
       $keys = $this->keys->count();
+      $transitions = $this->transitions->count();
       $events = $this->events->count();
       $bytes = $this->queuedBytes;
       $capabilities = $this->capabilities;
@@ -85,8 +90,16 @@ final class RendererClient
           && !in_array(RendererSessionConfig::WINDOW_ACTIVATION, $capabilities, true)) {
           throw new RendererProtocolException('Window activation requires negotiated window_activation support.');
         }
-        if ($discardKeys && $event->type === RendererEventType::KEY) {
+        self::assertKeyTransitionContract($event, in_array(RendererSessionConfig::KEY_TRANSITIONS, $capabilities, true));
+        if ($discardKeys && ($event->type === RendererEventType::KEY || self::isKeyTransition($event))) {
           continue;
+        }
+        if (self::isKeyTransition($event)) {
+          $transitions++;
+          $bytes += self::eventBytes($event);
+          if ($event->type !== RendererEventType::KEY) {
+            continue;
+          }
         }
         if ($event->type === RendererEventType::FRAME_ACK) {
           $slot = (int) $event->presented;
@@ -100,12 +113,19 @@ final class RendererClient
         $event->type === RendererEventType::KEY ? $keys++ : $events++;
         $bytes += self::eventBytes($event);
       }
-      if ($keys > $this->maxPendingKeys || $events > $this->maxPendingEvents || $bytes > $this->maxQueuedBytes) {
+      if ($keys > $this->maxPendingKeys || $transitions > $this->maxPendingKeys || $events > $this->maxPendingEvents
+        || $bytes > $this->maxQueuedBytes) {
         throw new RendererTransportException('Renderer client queue capacity exceeded; incoming batch rejected.',
           $this->transport->getDiagnostics(), $this->transport->getExitCode());
       }
       foreach ($batch as $event) {
         if ($event->type === RendererEventType::FRAME_ACK) {
+          continue;
+        }
+        if (self::isKeyTransition($event) && ! $discardKeys) {
+          $this->transitions->enqueue($event);
+        }
+        if ($event->type === RendererEventType::KEY_RELEASE || $event->type === RendererEventType::INPUT_RESET) {
           continue;
         }
         if ($event->type === RendererEventType::KEY) {
@@ -177,6 +197,23 @@ final class RendererClient
     return $acknowledgements;
   }
 
+  /**
+   * Negotiated key presses, releases and resets received so far, in arrival order. No I/O:
+   * the caller pumps once per update and processes this bounded batch before gameplay.
+   *
+   * @return list<RendererEvent>
+   */
+  public function drainKeyTransitions(): array
+  {
+    $transitions = [];
+    while (! $this->transitions->isEmpty()) {
+      $event = $this->transitions->dequeue();
+      $this->queuedBytes -= self::eventBytes($event);
+      $transitions[] = $event;
+    }
+    return $transitions;
+  }
+
   /** Clear buffered gameplay keys, optionally including one bounded upstream pass. */
   public function resetKeys(bool $drainBufferedInput = false): void
   {
@@ -195,6 +232,7 @@ final class RendererClient
     while (! $this->keys->isEmpty()) {
       $this->queuedBytes -= self::eventBytes($this->keys->dequeue());
     }
+    $this->drainKeyTransitions();
     $this->traceQueue();
   }
 
@@ -239,12 +277,32 @@ final class RendererClient
     return $exitCode;
   }
 
+  /** A press (a key that repeats nothing), a release or a reset; never an OS repeat. */
+  private static function isKeyTransition(RendererEvent $event): bool
+  {
+    return ($event->type === RendererEventType::KEY && $event->repeat === false)
+      || $event->type === RendererEventType::KEY_RELEASE || $event->type === RendererEventType::INPUT_RESET;
+  }
+
+  /** Transitions are an explicit subscription; a subscribed session never receives an unidentified key. */
+  private static function assertKeyTransitionContract(RendererEvent $event, bool $negotiated): void
+  {
+    $transition = $event->type === RendererEventType::KEY_RELEASE || $event->type === RendererEventType::INPUT_RESET
+      || $event->control !== null;
+    if ($transition && ! $negotiated) {
+      throw new RendererProtocolException('Key transitions require negotiated key_transitions support.');
+    }
+    if ($negotiated && $event->type === RendererEventType::KEY && $event->control === null) {
+      throw new RendererProtocolException('A key_transitions session requires a control identity on every key.');
+    }
+  }
+
   private static function eventBytes(RendererEvent $event): int
   {
-    return strlen($event->key ?? '') + strlen($event->message ?? '')
+    return strlen($event->key ?? '') + strlen($event->control ?? '') + strlen($event->message ?? '')
       + array_sum(array_map(strlen(...), $event->capabilities)) + ($event->active === null ? 0 : 1)
       + ($event->generation === null ? 0 : 8) + ($event->frame === null ? 0 : 8)
       + ($event->expectedGeneration === null ? 0 : 8) + ($event->presented === null ? 0 : 1)
-      + ($event->resyncRequired === null ? 0 : 1);
+      + ($event->resyncRequired === null ? 0 : 1) + ($event->repeat === null ? 0 : 1);
   }
 }

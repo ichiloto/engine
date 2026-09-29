@@ -90,6 +90,8 @@ final class RendererRuntime
     finally {
       $this->client->drainEvents();
       $this->client->resetKeys();
+      // The new surface has seen no presses; nothing may stay held from the old one.
+      if (InputManager::getInputSource() === $this->input) { InputManager::resetState(); }
       $this->presentation?->invalidate(newSession: true);
       $this->resetText = true;
       $this->closeRequested = false;
