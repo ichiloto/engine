@@ -2,7 +2,30 @@
 
 ## Unreleased
 
+### Added
+
+- Held walking in the graphical field, following RPG Maker MZ: while a
+  direction is held the player keeps walking one committed cell at a time at
+  180 field pixels per second (8/60 s sideways, 16/60 s vertically), the most
+  recently pressed held direction winning. The renderer slides characters
+  between cells over each step and moves a following camera with the player.
+  The terminal keeps its event-only stepping unchanged.
+- The `key_transitions` renderer subscription (key presses with a stable
+  control identity, releases and input resets), bounded held state in
+  `InputManager` (`isButtonHeld()`, `wasButtonPressed()`,
+  `getButtonPressOrder()`), and the `field_motion` drawing feature (sprite
+  `motion` and viewport `follow`).
+
 ### Changed
+
+- The Game's GPUI session now requires `key_transitions`; install the updated
+  renderer with this Engine.
+- Field walking frames advance by distance travelled instead of one stride per
+  step, so both axes animate at one pace and continuous walking no longer
+  stands between steps. `CharacterWalkAnimation::STRIDE_SECONDS` is replaced
+  by `STOP_SECONDS`, and `step()` takes the `CharacterStep` it presents.
+- Under reduced motion the player and staged actors now show the standing
+  frame, as NPCs already did; previously they kept animating.
 
 - Standardized whole-image factories on `getFromPng`. Removed the former
   `CanvasNineSlice::fromPng` name; callers now use `CanvasNineSlice::getFromPng`,

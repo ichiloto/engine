@@ -57,7 +57,13 @@ editing surface is owned by the GUI Editor plan. Related docs:
   standard sheet holds 8 characters; a sheet whose name begins with `$`
   holds one.
 - Walking cycles frames in RPG Maker's pattern (1, 2, 1, 0 around the idle
-  middle frame); standing shows the middle frame.
+  middle frame) by distance travelled; standing shows the middle frame.
+- Characters walk at RPG Maker's default speed, 180 field pixels per second:
+  a sideways step (24 pixels) takes 8/60 s and a vertical one (48 pixels)
+  16/60 s, so both axes look equally fast. While a direction is held the
+  player keeps walking one committed cell at a time, and the renderer slides
+  each character between cells over its step, with the camera following the
+  player. The terminal keeps stepping once per key event, unchanged.
 - A character stands on its one cell: its 48 x 48 frame is bottom-centred
   on the cell and overhangs half a cell on each side, where RPG Maker's
   figures leave the frame transparent. There are no authored width, height

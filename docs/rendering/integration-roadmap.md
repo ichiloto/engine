@@ -217,16 +217,21 @@ are not end-to-end gameplay or GPU performance measurements.
 
 ## Controller-ready input and normalized movement
 
-Stateful input and normalized diagonal movement remain planned, not current
-event-only API behaviour. The [input contract](input-sources.md#planned-controller-ready-input-and-normalized-movement)
-owns requirements. Implement after cinematic movement/subject ownership and
-before whole-game input/platform qualification.
+The [input contract](input-sources.md#controller-ready-input-and-normalized-movement)
+owns requirements. PHP owns semantic actions, binding contexts, movement and
+timing; native sources report normalized key transitions and focus/reset events.
 
-PHP owns semantic actions, binding contexts, movement and timing. Native sources
-report normalized key transitions and focus/reset events. Preserve terminal
-event-only compatibility, route timing and retained-cell composition. Physical
-controllers, enhanced terminal reporting and continuous subcell motion are
-separate future work.
+Delivered: the negotiated `key_transitions` subscription, bounded held state
+in `InputManager`, RPG Maker MZ four-directional held walking (`PlayerWalk`)
+paced by the one `FieldMetric`, and `field_motion` presentation, in which the
+renderer slides field sprites between cells over each step's duration and
+moves a following camera with the player on one clock. Terminal event-only
+input, route timing and retained-cell composition are unchanged.
+
+Remaining: one bounded native acceptance pass of held walking in the ordinary
+Game; diagonal movement (four-directional movement is the current rule);
+physical controllers and analog magnitude; enhanced terminal reporting; and
+whole-game input/platform qualification.
 
 ## Battle presentation direction
 
@@ -263,8 +268,10 @@ interpreter, routes, camera, animation timing and cleanup, not a second runtime.
   collision. Do not hide art by filtering the NPC collision query. Paired poses
   suppress the ordinary player too; release re-evaluates current world state.
 - Field sprites, source rectangles, layers and complete snapshots support the
-  current cell-aligned slice. Subcell motion, precise attachment points,
-  per-instance alpha and canvas-over-field composition remain separate gaps.
+  current cell-aligned slice. Staged actors, NPCs and the player slide between
+  cells over their own step timing through `field_motion`; free subcell
+  placement, precise attachment points, per-instance alpha and
+  canvas-over-field composition remain separate gaps.
 - Completion, legal skip, partial start, failure, transfer and shutdown release
   owned cast/bindings/effects. Preserve guards and deferred autosave. Test resize,
   re-entry, repeated NPC IDs across maps, pause, reduced motion and exactly-once

@@ -314,9 +314,11 @@ Representative Game rescue staging and native acceptance remain separate gates.
 The existing renderer field contract supports multiple sheet-backed sprites,
 explicit layers, terrain and opaque text overlays in one complete snapshot.
 Engine must continue emitting the world in each snapshot; omitted collections
-are cleared. This path uses integral cell positions and bottom-centre anchors,
-not smooth pixel movement or per-instance opacity. The separate graphical
-battle canvas cannot be mixed with field sprites, tiles or text.
+are cleared. This path uses integral cell positions and bottom-centre anchors.
+With `field_motion` a staged actor's route step slides between cells over the
+route's `secondsPerStep`, and a bound visual slides with its real subject's
+step; there is no free pixel placement or per-instance opacity. The separate
+graphical battle canvas cannot be mixed with field sprites, tiles or text.
 
 The [integration roadmap](rendering/integration-roadmap.md) owns the graphical
 cinematic work queue. Extend the existing interpreter, provider and lifecycle

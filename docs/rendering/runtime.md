@@ -397,6 +397,17 @@ Console contributions, then presents changed rows, providers and any retained
 world. A valid retained world replaces Console map draws only in GPUI. Rust receives
 no movement, collision, event, heading, camera or save authority.
 
+The Game's GPUI session requires the `key_transitions` subscription, so the
+renderer also reports key presses, releases and resets; PHP applies them
+before each gameplay update and owns held walking and its timing (see
+[key transitions](input-sources.md#key-transitions-implemented)). When the
+renderer advertises `field_motion`, PHP marks each committed step with its
+duration and names the sprite the camera follows; the renderer slides between
+the committed cells on its own clock, requesting frames only while something
+slides. A renderer without `field_motion` receives neither field and places
+sprites by whole cells. An installed renderer that predates `key_transitions`
+rejects the session at startup; install the updated renderer.
+
 After enqueueing retained-update bytes, Runtime performs one bounded, zero-wait I/O
 pass before returning to Game/Timers' sleep. A writable small frame begins delivery
 in the same iteration. Large uploads resume over later presentation calls with

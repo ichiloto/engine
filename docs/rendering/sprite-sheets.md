@@ -41,12 +41,32 @@ failure. It never removes the character or stops the map.
 ## Walking
 
 `CharacterWalkAnimation` follows RPG Maker: the middle frame (1) is standing,
-and each successful step advances one stride through 1, 2, 1, 0. When no step
-arrives within one stride (16 frames at 60 frames per second, RPG Maker's
-default walking speed), the character stands again. Rejected movement, explicit
-facing, interaction and suspension stop walking. Under reduced motion, NPCs
-show the standing frame. Animation state is presentation only and is never
-saved.
+and walking cycles 1, 2, 1, 0 by distance travelled, one pattern per 30 field
+pixels (RPG Maker's 10 frames at 3 pixels per frame). A sideways step covers
+24 pixels and a vertical one 48, so both axes animate at one pace for one
+walking speed. A walk begins on its first stride, so even one sideways step
+shows one. Travel advances over the step's own duration; steps that follow
+each other keep the cycle going without a standing frame between them. Once
+travel stops for 15 frames (RPG Maker's animation tick) the character stands
+again. Rejected movement, explicit facing, interaction and suspension stop
+walking at once.
+
+The player walks at RPG Maker's default speed through the shared
+[field metric](input-sources.md#field-walking-implemented): 8/60 s for a
+sideways step and 16/60 s for a vertical one. An NPC or staged actor on a
+movement route steps at the route's own `secondsPerStep`; a wandering NPC's
+step walks at field speed, whatever its pause between steps.
+
+With `field_motion`, each committed step carries its duration to the
+renderer, which slides the sprite from the cell it left over that time on its
+own clock, and a camera following the player slides with it. The cell is
+already committed: collision, triggers and saves never see a partial cell,
+and the terminal ignores all of this. A placement that is not one step (a
+transfer, a restored cinematic transform) snaps.
+
+Under reduced motion every field character (player, NPCs and staged actors)
+shows the standing frame and positions snap without sliding. Animation state
+is presentation only and is never saved.
 
 ## Depth and prompts
 
@@ -72,5 +92,7 @@ The retained world carries `cellWidth` and `cellHeight`, and the renderer
 draws the field at that pitch: world cells, field text and the sprites the
 viewport names. Sprite positions are camera-screen cells; a character is sent
 at 48 x 48 and anchored at the bottom centre of its cell. Crops use the
-negotiated `sprite_source_rect` capability. See the renderer's documentation
-for the wire format.
+negotiated `sprite_source_rect` capability. A step's slide is an optional
+`motion: {"duration": seconds}` on the sprite and the followed sprite an
+optional viewport `follow`, both only for renderers advertising `field_motion`.
+See the renderer's documentation for the wire format.
