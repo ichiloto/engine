@@ -445,3 +445,33 @@ it('slides NPC steps at their route pace or walking time and sends slides only t
     $runtime->shutdown();
   }
 });
+
+it('lifts a character NPC for renderers that negotiated sprite_lift but never an object NPC', function () {
+  writeCharacterSheetPng($this->root . '/!Chest.png', 4, 6);
+  $this->manager->configure([getNpcTestEntry(), getNpcTestEntry(['id' => 'chest', 'x' => 10,
+    'sprites2d' => characterSheetData('!Chest.png')])]);
+  $lifts = static fn(array $frame): array => array_column(array_map(static fn(array $sprite): array
+    => ['asset' => $sprite['asset'], 'lift' => $sprite['lift'] ?? null], $frame['sprites']), 'lift', 'asset');
+
+  // This renderer advertised no sprite_lift: every sprite is placed exactly as before.
+  $this->runtime->start('NPC lift', 24, 8);
+  $this->runtime->present($this->scene);
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  expect($lifts($frames[array_key_last($frames)]))->toBe([NPC_TEST_SHEET => null, '!Chest.png' => null]);
+
+  $transport = new FakeRendererTransport();
+  $transport->batches[] = [RendererEvent::fromJson(
+    '{"protocol":2,"type":"ready","capabilities":["sprite_source_rect","tile_batches","sprite_lift"]}')];
+  $runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']),
+    $this->root, protocol: RendererProtocolVersion::V2), $transport);
+  try {
+    $runtime->start('NPC lift', 24, 8);
+    $runtime->present($this->scene);
+    $frame = RetainedFrameState::replay($transport->sent)[0];
+    // The lift draws the character higher; its cell, and so its terminal glyph and draw order, stay put.
+    expect($lifts($frame))->toBe([NPC_TEST_SHEET => 6, '!Chest.png' => null])
+      ->and(array_column($frame['sprites'], 'y', 'asset'))->toBe(array_column($frames[array_key_last($frames)]['sprites'], 'y', 'asset'));
+  } finally {
+    $runtime->shutdown();
+  }
+});

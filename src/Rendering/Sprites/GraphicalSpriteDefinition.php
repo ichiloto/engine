@@ -11,7 +11,8 @@ use InvalidArgumentException;
  * Immutable graphical intent, independent of world position, Camera and
  * transport. Field art is sized in whole character frames (FieldViewport::TILE_SIZE),
  * never authored pixels: width and height here are derived from them for the
- * presentation protocol.
+ * presentation protocol. A lift, in the same pixels, draws the art that far
+ * above its cell without moving the cell ({@see CharacterSheet::LIFT}).
  */
 final readonly class GraphicalSpriteDefinition
 {
@@ -22,9 +23,11 @@ final readonly class GraphicalSpriteDefinition
     public PresentationSpriteAnchor $anchor = PresentationSpriteAnchor::BOTTOM_CENTER,
     public int $layer = 0,
     public ?SpriteSourceRect $sourceRect = null,
+    public int $lift = 0,
   )
   {
     SpriteValidation::validateDefinition($asset, $width, $height, $layer);
+    SpriteValidation::validateLift($lift, $height);
   }
 
   /**

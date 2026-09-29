@@ -408,6 +408,10 @@ slides. A renderer without `field_motion` receives neither field and places
 sprites by whole cells. When the renderer advertises `tile_covers`, the
 retained world names the gameplay layer each tile layer belongs to, so a tile
 hides only that layer's glyphs; other renderers receive the world without it.
+When the renderer advertises `sprite_lift`, a field character's sprite names
+the lift its character sheet is drawn above its cell (see
+[field character sheets](sprite-sheets.md#lift)); other renderers receive
+the sprite without it and place it on its cell.
 An installed renderer that predates `key_transitions`
 rejects the session at startup; install the updated renderer.
 

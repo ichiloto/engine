@@ -24,7 +24,7 @@ final class GraphicalSpriteProjector
       $provider->getGraphicalSpriteId(), $definition->asset,
       (int) $screenPosition->x, (int) $screenPosition->y,
       $definition->width, $definition->height, $definition->anchor, $definition->layer,
-      $definition->sourceRect, $provider->getGraphicalSpriteMotion(),
+      $definition->sourceRect, $provider->getGraphicalSpriteMotion(), $definition->lift,
     );
   }
 }

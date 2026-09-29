@@ -175,3 +175,32 @@ it('presents the latest step as a slide only while the character stands where it
   expect($animation->getMotion(new Vector2(3, 7))?->seconds)->toBe(16 / 60);
 });
 
+
+it('lifts every character RPG Maker\'s 6 field pixels and leaves an object sheet on its tile', function (
+  string $asset, bool $single, bool $object, int $lift,
+) {
+  $sheet = new CharacterSheet($asset);
+  expect([$sheet->isSingleCharacter, $sheet->isObject, $sheet->lift])->toBe([$single, $object, $lift]);
+  // The lift comes from the sheet's name alone, whatever size its frames are drawn at.
+  foreach ([32, 48, 96] as $frame) {
+    $definition = $sheet->getFrame(MovementHeading::SOUTH, 1, ['width' => $frame, 'height' => $frame]);
+    expect($definition->lift)->toBe($lift)
+      ->and([$definition->width, $definition->height])->toBe([FieldViewport::TILE_SIZE, FieldViewport::TILE_SIZE]);
+  }
+})->with([
+  'a standard sheet' => ['Graphics/Characters/People.png', false, false, CharacterSheet::LIFT],
+  'a single character' => ['Graphics/Characters/$Hero.png', true, false, 6],
+  'an object sheet' => ['Graphics/Characters/!Doors.png', false, true, 0],
+  'a single object' => ['Graphics/Characters/!$Chest.png', true, true, 0],
+  'marks in either order' => ['Graphics/Characters/$!Chest.png', true, true, 0],
+  'a mark after the name is not a mark' => ['Graphics/Characters/Hero!.png', false, false, 6],
+  'a folder name is not the sheet name' => ['Graphics/!Objects/$Hero.png', true, false, 6],
+]);
+
+it('reads a single object sheet as holding one character', function () {
+  $sheet = new CharacterSheet('Graphics/Characters/!$Chest.png');
+  expect($sheet->getFrameSize(144, 192))->toBe(['width' => 48, 'height' => 48])
+    ->and($sheet->getFrame(MovementHeading::WEST, 0, ['width' => 48, 'height' => 48])->sourceRect->toArray())
+    ->toBe(['x' => 0, 'y' => 48, 'width' => 48, 'height' => 48])
+    ->and(fn() => new CharacterSheet('Graphics/Characters/!$Chest.png', 1))->toThrow(InvalidArgumentException::class);
+});

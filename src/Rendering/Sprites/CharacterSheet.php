@@ -12,9 +12,16 @@ use InvalidArgumentException;
  * A field character drawn from an RPG Maker character sheet.
  *
  * Each character is 3 walking frames by 4 direction rows (down, left, right,
- * up). A standard sheet holds 4 x 2 characters, selected by index; a sheet
- * whose file name begins with `$` holds one. Frame size comes from the image,
- * and a character always occupies exactly one field cell.
+ * up). A standard sheet holds 4 x 2 characters, selected by index. As in RPG
+ * Maker, the file name's leading run of `$` and `!` marks describe the sheet:
+ * `$` holds one character and `!` holds an object. Frame size comes from the
+ * image, and a character always occupies exactly one field cell.
+ *
+ * Artists draw an RPG Maker character's feet on its frame's bottom edge, and
+ * RPG Maker draws the frame {@see LIFT} pixels above its tile (Sprite_Character
+ * shiftY), so the character stands within its tile. An object, such as a door
+ * or chest, sits on its tile unlifted. The lift is a presentation of the
+ * character only: its cell, collision and draw order stay those of the field.
  */
 final readonly class CharacterSheet
 {
@@ -23,9 +30,16 @@ final readonly class CharacterSheet
   public const int SHEET_CHARACTER_COLUMNS = 4;
   public const int SHEET_CHARACTER_ROWS = 2;
   public const string SINGLE_CHARACTER_PREFIX = '$';
+  public const string OBJECT_PREFIX = '!';
   public const int DEFAULT_LAYER = 0;
+  /** RPG Maker MZ's character shiftY, in the sprite's field pixels (one field cell is FieldViewport::TILE_SIZE). */
+  public const int LIFT = 6;
 
   public bool $isSingleCharacter;
+  /** Whether the sheet is an RPG Maker object (`!`), drawn on its tile without the character lift. */
+  public bool $isObject;
+  /** Field pixels every frame of this sheet is drawn above its cell: {@see LIFT}, or 0 for an object. */
+  public int $lift;
 
   public function __construct(
     public string $asset,
@@ -34,7 +48,11 @@ final readonly class CharacterSheet
   )
   {
     SpriteValidation::validateDefinition($asset, FieldViewport::TILE_SIZE, FieldViewport::TILE_SIZE, $layer);
-    $this->isSingleCharacter = str_starts_with(basename($asset), self::SINGLE_CHARACTER_PREFIX);
+    // RPG Maker reads the marks from the name's leading run of `$` and `!`, in either order.
+    $marks = preg_match('/^[$!]+/', basename($asset), $match) === 1 ? $match[0] : '';
+    $this->isSingleCharacter = str_contains($marks, self::SINGLE_CHARACTER_PREFIX);
+    $this->isObject = str_contains($marks, self::OBJECT_PREFIX);
+    $this->lift = $this->isObject ? 0 : self::LIFT;
     $characters = $this->isSingleCharacter ? 1 : self::SHEET_CHARACTER_COLUMNS * self::SHEET_CHARACTER_ROWS;
     if ($index < 0 || $index >= $characters) {
       throw new InvalidArgumentException($this->isSingleCharacter
@@ -72,7 +90,7 @@ final readonly class CharacterSheet
 
   /**
    * The one-cell definition for a heading and walking pattern (0 to 2; 1 is
-   * the standing frame).
+   * the standing frame), lifted as this sheet is ({@see $lift}).
    *
    * @param array{width: int, height: int} $frameSize
    */
@@ -87,7 +105,7 @@ final readonly class CharacterSheet
     return new GraphicalSpriteDefinition($this->asset, FieldViewport::TILE_SIZE, FieldViewport::TILE_SIZE,
       PresentationSpriteAnchor::BOTTOM_CENTER, $this->layer, new SpriteSourceRect(
         $column * $frameSize['width'], $row * $frameSize['height'], $frameSize['width'], $frameSize['height'],
-      ));
+      ), $this->lift);
   }
 
   /** RPG Maker's direction rows: down, left, right, up. Facing nowhere shows down. */

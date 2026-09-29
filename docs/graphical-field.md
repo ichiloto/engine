@@ -55,8 +55,9 @@ editing surface is owned by the GUI Editor plan. Related docs:
 
 - Character art uses RPG Maker's character sheet layout: each character is
   3 frames by 4 directions (down, left, right, up) of 48 x 48 frames. A
-  standard sheet holds 8 characters; a sheet whose name begins with `$`
-  holds one.
+  standard sheet holds 8 characters. As in RPG Maker, the leading `$` and
+  `!` marks of the sheet's file name describe it: `$` holds one character,
+  and `!` holds an object, such as a door or chest.
 - Walking cycles frames in RPG Maker's pattern (1, 2, 1, 0 around the idle
   middle frame) by distance travelled; standing shows the middle frame.
 - Characters walk at RPG Maker's default speed, 180 field pixels per second:
@@ -68,8 +69,16 @@ editing surface is owned by the GUI Editor plan. Related docs:
   on the cell and fills it exactly, as in RPG Maker. There are no authored width, height
   or anchor values for field characters, and none are accepted. Field
   images such as cinematic poses are sized in whole character frames.
+- Like RPG Maker (Sprite_Character's shiftY), the field draws a character
+  6 field pixels above its cell, so art drawn with the feet on the frame's
+  bottom edge stands inside its tile. An object sheet (`!`) is not lifted,
+  and neither are single-image field art, battle or interface sprites. The
+  Engine derives the lift from the sheet's name, never from its image, and
+  sends it only to renderers advertising `sprite_lift`; other renderers
+  place the character on its cell exactly as before.
 - Depth is row order: within a draw band, a character in a lower row draws
-  in front of one above it, with stable ties.
+  in front of one above it, with stable ties. A lift never changes it: a
+  character is ordered by its cell, not by where it is drawn.
 
 ## Tilesets
 

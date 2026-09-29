@@ -191,6 +191,9 @@ it('slides staged steps at the pace that moves them and a pose image as well as 
     ->and($pose->getGraphicalSpriteMotion()?->seconds)->toBe(0.5)
     // The pace belongs to that one move.
     ->and($this->scene->getStepSeconds(Vector2::right()))->toBe(16 / 60);
+  // A staged sheet stands lifted like any field character; a pose image is drawn as authored.
+  expect($this->projector->project($sheet, $this->camera)->lift)->toBe(6)
+    ->and($this->projector->project($pose, $this->camera)->lift)->toBe(0);
   $this->stage->move('walker', Vector2::up(), faceOnly: true);
   $pose->hide();
   expect($sheet->getGraphicalSpriteMotion())->toBeNull()->and($pose->getGraphicalSpriteMotion())->toBeNull();

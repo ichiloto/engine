@@ -105,7 +105,8 @@ final class RetainedPresentation
             if ($world !== null) { array_push($this->operations, ...$this->getWorldOperations($world)); }
         }
         $this->updateText($text);
-        $this->replaceValues('sprite', array_map(static fn($sprite) => $sprite->toArray(), PresentationSprite::orderedList($sprites)));
+        $lift = $this->client->supports(RendererSessionConfig::SPRITE_LIFT);
+        $this->replaceValues('sprite', array_map(static fn($sprite) => $sprite->toArray($lift), PresentationSprite::orderedList($sprites)));
         $this->setViewport($viewport?->toArray());
         return $this->flush();
     }

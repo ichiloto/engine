@@ -118,6 +118,7 @@ it('preserves terminal configuration and resolves graphical art from the existin
   expect($definition->asset)->toBe($this->sheet)
     ->and($definition->sourceRect->toArray())->toBe(getPlayerStandingFrame($direction))
     ->and([$definition->width, $definition->height, $definition->layer])->toBe([48, 48, 100])
+    ->and($definition->lift)->toBe(6)
     ->and($graphical->heading)->toBe($plain->heading)
     ->and($graphical->sprite)->toBe($plain->sprite)->toBe($this->terminalSprites[$direction])
     ->and($graphical->getDirectionalSprites())->toBe($plain->getDirectionalSprites())->toBe($this->terminalSprites);

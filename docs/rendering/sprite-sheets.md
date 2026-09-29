@@ -19,6 +19,9 @@ Keep the terminal `sprites` entry. Add `sprites2d` naming a character sheet:
 
 // A sheet whose file name begins with `$` holds one character.
 'sprites2d' => ['sheet' => 'Graphics/Characters/$Kaelion.png', 'layer' => 100],
+
+// A sheet whose file name begins with `!` holds objects, drawn unlifted.
+'sprites2d' => ['sheet' => 'Graphics/Characters/!$Chest.png', 'layer' => 100],
 ```
 
 `sheet` is required; `index` defaults to 0 and `layer` to 0. Layers must lie in
@@ -33,6 +36,25 @@ down, left, right, up. A standard sheet arranges 4 x 2 characters, so it is
 12 frames wide and 8 tall; a `$` sheet is 3 wide and 4 tall. The frame size is
 read from the image: a standard sheet of 576 x 384 pixels has 48 x 48 frames.
 Frames of any size are scaled to fill the character's one cell.
+
+As in RPG Maker, the marks are the file name's leading run of `$` and `!`, in
+either order (`!$Chest.png` and `$!Chest.png` are the same kind of sheet); a
+mark later in the name, or in a folder name, is not a mark.
+
+## Lift
+
+RPG Maker draws a character's frame 6 pixels above its tile
+(Sprite_Character's shiftY), so artists draw the feet on the frame's bottom
+edge and the character stands within its tile. `CharacterSheet::LIFT` is that
+6, in the sprite's field pixels (one cell is 48). Every frame of a sheet
+carries its `lift`: `LIFT`, or 0 for an object sheet (`!`), which sits on
+its tile. The lift comes from the sheet's name alone, never from the image's
+size or contents, so replacing the art never changes it.
+
+The lift is presentation only. The character keeps its cell, so collision,
+events, saves, draw order and the terminal glyph are unchanged, and the
+renderer raises the drawn frame while it stands, slides or is followed by the
+camera. Single-image field art (below) is drawn as authored, without a lift.
 
 A sheet that is missing, corrupt, not a PNG or not divisible into its layout
 keeps the character's terminal glyph and is reported once per distinct
@@ -71,8 +93,9 @@ is presentation only and is never saved.
 ## Depth and prompts
 
 Within a draw layer, characters are ordered by row: a character lower on the
-field draws in front of one above it, with stable ties. Because a character is
-exactly one cell, the field action prompt sits in the cell directly above it.
+field draws in front of one above it, with stable ties. The order is by cell,
+so a lift never changes it. Because a character is exactly one cell, the field
+action prompt sits in the cell directly above it.
 
 ## Single-image field art
 
@@ -95,4 +118,7 @@ at 48 x 48 and anchored at the bottom centre of its cell. Crops use the
 negotiated `sprite_source_rect` capability. A step's slide is an optional
 `motion: {"duration": seconds}` on the sprite and the followed sprite an
 optional viewport `follow`, both only for renderers advertising `field_motion`.
+A lifted sprite carries an optional `lift` in logical pixels, 1 up to its
+height, only for renderers advertising `sprite_lift`; without it, the sprite's
+value is exactly the unlifted one.
 See the renderer's documentation for the wire format.
