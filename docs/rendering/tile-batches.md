@@ -26,7 +26,7 @@ removes it explicitly.
 The retained operations are:
 
 ```json
-{"op":"put","kind":"world","id":"map","value":{"columns":2,"rows":1,"cellWidth":24,"cellHeight":48,"layers":[{"id":"map:ground","layer":-100,"kind":"gameplay"}]}}
+{"op":"put","kind":"world","id":"map","value":{"columns":2,"rows":1,"cellWidth":48,"cellHeight":48,"layers":[{"id":"map:ground","layer":-100,"kind":"gameplay"}]}}
 {"op":"worldRows","id":"map","rows":[{"row":0,"cells":[{"glyph":".","foreground":null,"background":null,"ownerLayerId":"map:ground"},{"glyph":"#","foreground":null,"background":null,"ownerLayerId":"map:ground"}]}]}
 ```
 
@@ -34,8 +34,7 @@ These are members of a frame's `operations`, not separate message envelopes.
 World IDs and layer IDs are stable, control-free UTF-8 strings of at most 256
 bytes. Layers have signed i32 priority and `gameplay` or `decoration` kind.
 `cellWidth` and `cellHeight` are one terminal cell's size on the field in
-logical pixels (24 x 48: the terminal's own tall cell, half an RPG Maker tile
-wide).
+logical pixels (48 x 48: one RPG Maker tile).
 
 `worldRows` replaces complete authored rows: one cell per map cell, carrying the
 cell's text, its colours, and its owning gameplay layer, up to the declared
@@ -58,11 +57,10 @@ of pieces copied from a sheet into the tile. The Engine composes RPG Maker
 autotiles into these pieces; the renderer knows no sheet layouts. World
 layers of kind `tiles` own no glyphs, and `worldTiles` lists each row's
 `column` and catalog `tile`. A tile is one cell tall and may set its own
-`width` and `left` and `top` offsets from its cell's corner (in source pixels,
-`top` for a map's half-cell layer offsets), so the
-Engine sends a 24-pixel autotile column or tile half for one cell, or a whole
-48-pixel tile centred on its cell (`left` -12). A cell with an available tile
-shows no glyph; cells a tile only overhangs keep theirs. The viewport's optional
+`width` and `left` and `top` offsets from its cell's corner (in source pixels).
+The Engine sends every tile whole, one per cell, and uses `left` and `top`
+only for a map's half-cell layer offsets; it never sends `width`. A cell with
+an available tile shows no glyph; cells a tile only overhangs keep theirs. The viewport's optional
 `tileFrame` selects each tile's frame `tileFrame % frames`, so water animates
 with a camera-only update.
 

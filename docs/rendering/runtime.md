@@ -55,13 +55,13 @@ capability flag. Historical capability names do not enable stateless frames.
 
 ## Field zoom
 
-The graphical field keeps the terminal's grid: each terminal cell is drawn as a
-`FieldViewport::CELL_WIDTH` x `CELL_HEIGHT` (24 x 48) logical-pixel box, the
-terminal's own tall shape, so a step covers one cell in both. A cell shows one
-column of an autotile's quarters; RPG Maker's 48-pixel plain tiles and
-character frames are two cells wide, centred on their cell. A map without
-graphics shows each cell's text in its box. The camera shows as many whole
-field cells as the session surface holds, centred. See the
+The graphical field keeps the terminal's grid: each terminal cell is drawn as
+one RPG Maker tile, a `FieldViewport::TILE_SIZE` (48 x 48) logical-pixel
+square, so a step covers one cell in both. A cell shows one whole tile, and a
+48-pixel character frame fills its cell. A map without graphics shows each
+cell's text in its square. The camera shows as many whole field cells as the
+session surface holds, centred, so it shows fewer columns than the terminal's
+tall cells would. See the
 [graphical field plan](../graphical-field.md).
 
 Projects may set `graphics.field.zoom` in `config.php` to a number from 1 to 8

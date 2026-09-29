@@ -284,8 +284,8 @@ and saves behave exactly as a single step does, once per committed cell.
 
 `Rendering\FieldMetric` is the one field metric: RPG Maker's default walk of
 180 logical field pixels per second (48 pixels in 16 frames at 60 frames per
-second) over 24 x 48 cells. A vertical step takes 16/60 s and a sideways one
-8/60 s, one apparent speed rather than one cell frequency. It is measured
+second) over square 48-pixel cells, so every step, across or down, takes
+16/60 s. It is measured
 before field zoom, device scale and window fit, so none of those change
 gameplay speed. From standing, a press faces and steps at once. While a step
 is in progress a new direction waits for it: a direction change grants no free

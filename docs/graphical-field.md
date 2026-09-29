@@ -18,10 +18,9 @@ editing surface is owned by the GUI Editor plan. Related docs:
    graphical changes how the terminal looks or plays.
 2. **The terminal grid is the field's grid.** A map cell is one terminal
    character, and the player moves one cell per step, in every renderer. A
-   graphical renderer corrects for its own pixels: it draws each terminal
-   cell in the terminal's tall shape, so a map that looks right in the
-   terminal looks right graphically, with no conversion of maps,
-   coordinates or saves.
+   graphical renderer draws each terminal cell as one RPG Maker tile, with
+   no conversion of maps, coordinates or saves, so maps are laid out in
+   tiles: a bed one tile wide and two long is one glyph column and two rows.
 3. **RPG Maker's conventions, adopted outright.** Tile size, tileset sheet
    layouts, autotile composition, tile identities and character sheet
    layouts follow RPG Maker MZ. Only the conventions are adopted; no RPG
@@ -37,14 +36,16 @@ editing surface is owned by the GUI Editor plan. Related docs:
 
 ## The unit
 
-- A terminal character box is about twice as tall as it is wide. The
-  graphical field draws each terminal cell as a 24 x 48 logical-pixel box
-  (`FieldViewport::CELL_WIDTH` x `CELL_HEIGHT`): the same shape, enlarged.
-  A step moves 24 pixels across or 48 down, one cell either way, as in the
-  terminal.
-- RPG Maker's tile is 48 x 48, built from four 24 x 24 quarters, so one
-  terminal cell is exactly one column of quarters and a whole tile is two
-  cells wide. Character frames are 48 x 48 as well.
+- The graphical field draws each terminal cell as one RPG Maker tile, a
+  48 x 48 logical-pixel square (`FieldViewport::TILE_SIZE`). A step moves
+  48 pixels across or down, one cell either way, as in the terminal.
+- RPG Maker's tile is 48 x 48, built from four 24 x 24 quarters, and its
+  character frames are 48 x 48 as well, so a tile or a character frame fills
+  exactly its cell.
+- A terminal character box is about twice as tall as it is wide, so a map
+  laid out only for the terminal's proportions looks twice as wide
+  graphically as it does in the terminal. Maps meant to be seen graphically
+  are laid out in RPG Maker's proportions, one glyph per tile.
 - The number of visible cells follows from the window size divided by the
   cell size and the field zoom, not from the terminal's column count.
 - The field and the interface use separate grids. Dialogue, menus and the
@@ -59,14 +60,12 @@ editing surface is owned by the GUI Editor plan. Related docs:
 - Walking cycles frames in RPG Maker's pattern (1, 2, 1, 0 around the idle
   middle frame) by distance travelled; standing shows the middle frame.
 - Characters walk at RPG Maker's default speed, 180 field pixels per second:
-  a sideways step (24 pixels) takes 8/60 s and a vertical one (48 pixels)
-  16/60 s, so both axes look equally fast. While a direction is held the
+  every step, across or down, covers one 48-pixel cell in 16/60 s. While a direction is held the
   player keeps walking one committed cell at a time, and the renderer slides
   each character between cells over its step, with the camera following the
   player. The terminal keeps stepping once per key event, unchanged.
 - A character stands on its one cell: its 48 x 48 frame is bottom-centred
-  on the cell and overhangs half a cell on each side, where RPG Maker's
-  figures leave the frame transparent. There are no authored width, height
+  on the cell and fills it exactly, as in RPG Maker. There are no authored width, height
   or anchor values for field characters, and none are accepted. Field
   images such as cinematic poses are sized in whole character frames.
 - Depth is row order: within a draw band, a character in a lower row draws
@@ -108,7 +107,7 @@ editing surface is owned by the GUI Editor plan. Related docs:
   from, such as a bed, keyed by id. Each has a `name`, the gameplay `layer`
   its terminal `glyphs` go on (rows of one-cell characters), and optional
   `tiles` keyed by tile layer name, with rows of the same entries a tile
-  layer holds (`42`, `42L`, `0`) over the same footprint:
+  layer holds (`42`, `0`) over the same footprint, one whole tile per cell:
   `'bed' => ['name' => 'Bed', 'layer' => 'fixtures', 'glyphs' => ['=', '='], 'tiles' => ['furniture' => ['32', '40']]]`.
   A space glyph or a `0` tile leaves that cell as it was. An editor stamps
   a piece whole, writing its glyphs and its tiles together, so a map made
@@ -132,16 +131,12 @@ editing surface is owned by the GUI Editor plan. Related docs:
   terminal cell; `0` is empty (RPG Maker's first B tile). Rows match the
   map's cells exactly. Nothing in them is executed.
 - **Autotiles per cell.** Every cell of a floor, wall or water area holds
-  its autotile, and the engine composes it for that cell from its
-  neighbouring cells, as RPG Maker composes a tile from its neighbouring
-  tiles. The cell shows the quarter column facing the edge it borders: the
-  left half at a west edge or inner corner, the right half at an east one,
-  the outer half of each when it borders both (a wall one column thick),
-  and elsewhere the half matching its column's parity, so a texture keeps
-  one phase in every row. A wall is therefore exactly as thick as its
-  terminal column.
+  its autotile, and the engine composes that cell's whole tile from its four
+  quarters by the shape its neighbouring cells give it, exactly as RPG Maker
+  composes a tile from its neighbouring tiles. A wall one column thick is
+  one tile wide, with both its edges.
 - **Layer offsets.** The map data may shift a whole tile layer by half a
-  field cell across or down, like a Tiled layer offset:
+  field cell (half a tile) across or down, like a Tiled layer offset:
   `'tileLayers' => ['lounge' => ['offset' => [0, -0.5]]]`. Art can then sit
   between the cells its terminal footprint allows, such as a coffee table
   centred between a sofa and a television. Offsets are -0.5, 0 or 0.5 and
@@ -153,12 +148,10 @@ editing surface is owned by the GUI Editor plan. Related docs:
   is the gameplay layer whose tileset pieces write that tile layer, when
   exactly one does; a tile layer with neither stays where it is. The
   runtime only checks the setting names a gameplay layer.
-- **Plain tiles** (A5 and B to E) are drawn whole and centred on their cell,
-  like a character, so a chair on one column or a bed over an odd number of
-  columns sits centred on its footprint. An entry with an `L` or `R` suffix
-  (`42L`) fills its cell with only that half of the tile, so a tile can lie
-  exactly across two cells, and a wide object can be stretched with
-  repeated halves. Only a plain tile takes a suffix.
+- **Plain tiles** (A5 and B to E) are drawn whole in their cell, so an item
+  two tiles wide is two glyphs wide. A cell holds exactly one whole tile: an
+  entry naming half a tile (`42L`) is refused by the engine and the editor
+  validator with a message asking for whole tiles, never reinterpreted.
 - **Autotile shapes** are carried in the identity, as RPG Maker stores them.
   The engine resolves them from neighbouring cells of the same kind for
   authoring tools, and composes each shape from quarter tiles when
@@ -215,7 +208,7 @@ an older project, framework migrations, `ng update`):
 ### Phase 1 - The unit and characters
 
 1. Render the field on its own grid, separate from the interface's text
-   grid, one terminal cell per 24 x 48 field cell.
+   grid, one terminal cell per 48 x 48 field cell.
 2. RPG Maker character sheets for the player, NPCs and field creatures,
    bottom-centred on their cell, with the walking pattern and row-order
    depth.
@@ -227,7 +220,8 @@ an older project, framework migrations, `ng update`):
 1. Tileset resources with layout validation.
 2. Tile identities and autotile composition for A1 to A4.
 3. Graphical layer files, loading, validation and retained upload, with
-   autotiles composed per cell and plain tiles centred or halved.
+   one whole tile per cell: autotiles composed for their cell and plain
+   tiles drawn whole.
 4. Remove the glyph-keyed crop tables and cell overrides.
 
 ### Phase 3 - Last Legend Home proof
@@ -248,10 +242,9 @@ maps. The existing 16 x 32 art is not carried forward.
 - The terminal is the game; collision always derives from terminal layers.
 - Graphics never change terminal geometry, movement or authoring. A map
   cell is one terminal character in every renderer; the graphical field
-  draws it as a 24 x 48 box and corrects for its shape itself.
+  draws it as one 48 x 48 RPG Maker tile, and maps are laid out in tiles.
 - RPG Maker MZ's tile size, sheet layouts, autotiles, tile identities and
-  character sheets are adopted as the conventions. A cell shows one column
-  of an autotile's quarters; a whole tile or character frame is two cells
-  wide and centred on its cell.
+  character sheets are adopted as the conventions. A cell shows one whole
+  tile, and a character frame fills its cell.
 - Graphics are independent authored data, never keyed off glyphs.
 - Existing 16 x 32 art is recreated, not migrated.

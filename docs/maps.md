@@ -109,17 +109,18 @@ assets/Maps/village/harbour/
 
 return <<<'TILES'
 2816 2816 2816 2816   0   0
-2816 2816 2816 2816 42L 42R
+2816 2816 2816 2816  42  43
 TILES;
 ```
 
 Each tile layer is a literal nowdoc with one row per map row and one
 whitespace-separated RPG Maker tile identity per cell (`0` is empty); it is
-never executed. A field cell is half a tile wide. An autotile (such as floor
-2816) is composed for its own cell, so an area is painted in every cell. Any
-other tile is drawn whole and centred on its cell, or only its left or right
-half with an `L` or `R` suffix, as the table above. The map data may shift a
-whole tile layer by half a cell across or down
+never executed. A field cell is one whole RPG Maker tile. An autotile (such as
+floor 2816) is composed for its own cell from its neighbours, so an area is
+painted in every cell; any other tile, such as the table above, is drawn whole
+in its cell. An entry naming half a tile (`42L`) is refused, with a message
+asking for whole tiles. The map data may shift a whole tile layer by half a
+cell across or down
 (`'tileLayers' => ['lounge' => ['offset' => [0, -0.5]]]`) so art can sit between
 the cells its terminal footprint allows, and may name the gameplay layer a tile
 layer moves with in the editor (`'floor' => ['movesWith' => 'buildings']`).

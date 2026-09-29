@@ -329,7 +329,7 @@ Everything converts; the terminal game must play identically throughout.
 
 The [graphical field plan](graphical-field.md) supersedes Stages 1 to 3
 below: the terminal grid is unchanged, the graphical field draws each
-terminal cell as a 24 x 48 pixel box, and tilesets, autotiles and character
+terminal cell as one 48 x 48 pixel RPG Maker tile, and tilesets, autotiles and character
 sheets follow RPG Maker's conventions. Stages 1 to 3 remain as history only.
 
 All six stages below form the implementation roadmap. They are remaining

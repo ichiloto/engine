@@ -2,10 +2,10 @@
 
 Field characters (the player, NPCs and cinematic actors) use RPG Maker's
 character sheet layout. A character stands on exactly one field cell, as it
-occupies one terminal cell. The graphical field draws each terminal cell as a
-`FieldViewport::CELL_WIDTH` x `CELL_HEIGHT` (24 x 48) box, and a character is
-one `FieldViewport::TILE_SIZE` (48) frame, RPG Maker's size, bottom-centred on
-its cell, so it overhangs half a cell on each side. PHP owns direction, walking
+occupies one terminal cell. The graphical field draws each terminal cell as
+one RPG Maker tile, a `FieldViewport::TILE_SIZE` (48 x 48) square, and a
+character is one 48 x 48 frame, RPG Maker's size, bottom-centred on its cell,
+so it fills its cell exactly. PHP owns direction, walking
 pattern and frame selection; the renderer draws the selected crop. See the
 [graphical field plan](../graphical-field.md).
 
@@ -42,18 +42,18 @@ failure. It never removes the character or stops the map.
 
 `CharacterWalkAnimation` follows RPG Maker: the middle frame (1) is standing,
 and walking cycles 1, 2, 1, 0 by distance travelled, one pattern per 30 field
-pixels (RPG Maker's 10 frames at 3 pixels per frame). A sideways step covers
-24 pixels and a vertical one 48, so both axes animate at one pace for one
-walking speed. A walk begins on its first stride, so even one sideways step
-shows one. Travel advances over the step's own duration; steps that follow
+pixels (RPG Maker's 10 frames at 3 pixels per frame). Every step covers one
+48-pixel cell, so a step carries the cycle 1.6 patterns on and both axes
+animate at one pace. A walk begins on its first stride, so even one step shows
+one. Travel advances over the step's own duration; steps that follow
 each other keep the cycle going without a standing frame between them. Once
 travel stops for 15 frames (RPG Maker's animation tick) the character stands
 again. Rejected movement, explicit facing, interaction and suspension stop
 walking at once.
 
 The player walks at RPG Maker's default speed through the shared
-[field metric](input-sources.md#field-walking-implemented): 8/60 s for a
-sideways step and 16/60 s for a vertical one. An NPC or staged actor on a
+[field metric](input-sources.md#field-walking-implemented): 16/60 s for a
+step across or down. An NPC or staged actor on a
 movement route steps at the route's own `secondsPerStep`; a wandering NPC's
 step walks at field speed, whatever its pause between steps.
 
