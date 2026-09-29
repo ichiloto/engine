@@ -7,6 +7,7 @@ use Ichiloto\Engine\IO\Console\ConsolePresentationChanges;
 use Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\RendererClient;
+use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Util\Debug;
 use OverflowException;
 use Closure;
@@ -59,6 +60,16 @@ final class RetainedPresentation
         if ($this->acknowledgedGeneration === $this->generation) { $this->pendingSince = null; }
     }
 
+    /**
+     * A world's upload for this session: tile covers only for a renderer that negotiated them.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function getWorldOperations(PresentationWorld $world): array
+    {
+        return $world->getOperations($this->client->supports(RendererSessionConfig::TILE_COVERS));
+    }
+
     private function getTime(): float { return $this->clock === null ? hrtime(true) / 1_000_000_000 : ($this->clock)(); }
 
     /** Session loss, resize and rejected deltas all use the same reset transaction. */
@@ -91,7 +102,7 @@ final class RetainedPresentation
         if ($world !== $this->world) {
             if ($this->world !== null) { $this->operations[] = ['op' => 'remove', 'kind' => 'world', 'id' => $this->world->id]; }
             $this->world = $world;
-            if ($world !== null) { array_push($this->operations, ...$world->operations); }
+            if ($world !== null) { array_push($this->operations, ...$this->getWorldOperations($world)); }
         }
         $this->updateText($text);
         $this->replaceValues('sprite', array_map(static fn($sprite) => $sprite->toArray(), PresentationSprite::orderedList($sprites)));
@@ -227,7 +238,7 @@ final class RetainedPresentation
         }
         if ($this->upload === null && !$this->reset && $this->operations === [] && !$this->viewportChanged) { return false; }
         if ($this->upload === null && $this->reset) {
-            $this->operations = $this->world?->operations ?? [];
+            $this->operations = $this->world === null ? [] : $this->getWorldOperations($this->world);
             foreach ($this->values as $kind => $items) {
                 foreach ($items as $id => $value) {
                     if ($kind === 'text') { $this->putText((string)$id); }
@@ -316,7 +327,7 @@ final class RetainedPresentation
         $this->operations = [];
         if ($this->world !== $baseline->world) {
             if ($baseline->world !== null) { $this->operations[] = ['op' => 'remove', 'kind' => 'world', 'id' => $baseline->world->id]; }
-            if ($this->world !== null) { array_push($this->operations, ...$this->world->operations); }
+            if ($this->world !== null) { array_push($this->operations, ...$this->getWorldOperations($this->world)); }
         }
         foreach (array_unique([...array_keys($this->values), ...array_keys($baseline->values)]) as $kind) {
             foreach ($this->values[$kind] ?? [] as $id => $value) {

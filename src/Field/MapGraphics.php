@@ -31,8 +31,11 @@ final readonly class MapGraphics
     /**
      * @param list<MapTileLayer> $layers In drawing order.
      * @param array<string, array{float, float}> $offsets Each offset layer's shift across and down, in field cells.
+     * @param array<string, ?string> $owners The gameplay layer each tile layer belongs to, or null for none,
+     *     by tile layer name ({@see resolveLayerOwners()}). A tile layer left out belongs to none.
      */
-    public function __construct(public Tileset $tileset, public array $layers, public array $offsets = [])
+    public function __construct(public Tileset $tileset, public array $layers, public array $offsets = [],
+        public array $owners = [])
     {
     }
 
@@ -85,8 +88,8 @@ final readonly class MapGraphics
      * Reads which gameplay layer each tile layer moves with when authoring
      * tools move glyphs: `'tileLayers' => ['floor' => ['movesWith' =>
      * 'buildings']]`. Moving a block of that layer's glyphs carries this
-     * layer's tiles in the same cells. The runtime draws tiles where they
-     * are, so it only checks the setting.
+     * layer's tiles in the same cells. The setting is the explicit half of
+     * the gameplay layer a tile layer belongs to ({@see resolveLayerOwners()}).
      *
      * @param list<string> $names The map's tile layer names.
      * @param list<string> $gameplayNames The map's gameplay layer names.
@@ -108,6 +111,38 @@ final readonly class MapGraphics
             $movesWith[$name] = $layer[self::MOVES_WITH_KEY];
         }
         return $movesWith;
+    }
+
+    /**
+     * Resolves the gameplay layer each tile layer belongs to: the one its
+     * settings name it `movesWith`, and otherwise the gameplay layer whose
+     * tileset pieces write it, when exactly one piece layer does. A tile layer
+     * no piece writes, or that pieces of several layers write, belongs to
+     * none. Authoring tools move a layer's tiles with its glyphs, and the
+     * graphical field hides a glyph only under tiles of its own layer.
+     *
+     * @param list<string> $names The map's tile layer names.
+     * @param list<string> $gameplayNames The map's gameplay layer names.
+     * @param Tileset|null $tileset The map's tileset, or null when its pieces are unknown.
+     * @return array<string, ?string> Gameplay layer names, or null, by tile layer name in the order given.
+     * @throws InvalidArgumentException When the settings are invalid.
+     */
+    public static function resolveLayerOwners(mixed $settings, array $names, array $gameplayNames, ?Tileset $tileset,
+        string $displayDirectory): array
+    {
+        $named = self::readLayersMovingWith($settings, $names, $gameplayNames, $displayDirectory);
+        $writers = [];
+        foreach ($tileset?->pieces ?? [] as $piece) {
+            foreach (array_keys($piece->connects === null ? $piece->tiles : $piece->shapeTiles) as $name) {
+                $writers[$name][$piece->layer] = true;
+            }
+        }
+        $owners = [];
+        foreach ($names as $name) {
+            $written = count($writers[$name] ?? []) === 1 ? (string)array_key_first($writers[$name]) : null;
+            $owners[$name] = $named[$name] ?? (in_array($written, $gameplayNames, true) ? $written : null);
+        }
+        return $owners;
     }
 
     /**
@@ -147,8 +182,8 @@ final readonly class MapGraphics
         usort($tileLayers, static fn(MapTileLayer $a, MapTileLayer $b): int => $a->order <=> $b->order);
         $names = array_map(static fn(MapTileLayer $layer): string => $layer->name, $tileLayers);
         $offsets = self::readLayerOffsets($settings, $names, $displayDirectory);
-        self::readLayersMovingWith($settings, $names, array_values(array_map(static fn(MapLayer $layer): string => $layer->name,
-            array_filter($layers->layers, static fn(MapLayer $layer): bool => !$layer->decoration))), $displayDirectory);
-        return new self($tileset, $tileLayers, $offsets);
+        $owners = self::resolveLayerOwners($settings, $names, array_values(array_map(static fn(MapLayer $layer): string => $layer->name,
+            array_filter($layers->layers, static fn(MapLayer $layer): bool => !$layer->decoration))), $tileset, $displayDirectory);
+        return new self($tileset, $tileLayers, $offsets, $owners);
     }
 }

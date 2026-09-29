@@ -21,7 +21,8 @@ use InvalidArgumentException;
  * into generic pieces, so the renderer needs no RPG Maker knowledge. Each
  * cell shows one whole tile: an autotile composed for the cell from its
  * neighbours, or a plain tile. Tile layers draw at -100 + NN, their `above`
- * tiles at 900 + NN.
+ * tiles at 900 + NN. A tile layer that belongs to a gameplay layer covers
+ * only that layer's glyphs ({@see getOperations()}).
  */
 final readonly class PresentationWorld
 {
@@ -37,9 +38,31 @@ final readonly class PresentationWorld
     public const int BELOW_TILES = -100;
     public const int ABOVE_TILES = 900;
 
-    /** @param list<array<string, mixed>> $operations */
+    /**
+     * @param list<array<string, mixed>> $operations The upload every renderer accepts, without tile covers.
+     * @param array<string, string> $tileCovers The gameplay layer id each covering tile layer id belongs to.
+     */
     private function __construct(public string $id, public array $operations, public array $textLayerIds,
-        public int $estimatedSourceBytes, public bool $animated = false) {}
+        public int $estimatedSourceBytes, public bool $animated = false, public array $tileCovers = []) {}
+
+    /**
+     * The operations that upload this world. With tile covers, for a renderer
+     * that negotiated tile_covers, each tile layer that belongs to a gameplay
+     * layer names it as its `coversLayerId`: its tiles hide only that layer's
+     * glyphs. Without, every tile hides the glyph of its cell, as before.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function getOperations(bool $tileCovers): array
+    {
+        if (!$tileCovers || $this->tileCovers === []) {
+            return $this->operations;
+        }
+        $operations = $this->operations;
+        $operations[0]['value']['layers'] = array_map(fn(array $layer): array => isset($this->tileCovers[$layer['id']])
+            ? [...$layer, 'coversLayerId' => $this->tileCovers[$layer['id']]] : $layer, $operations[0]['value']['layers']);
+        return $operations;
+    }
 
     public static function getFromLayers(MapLayerSet $layers, string $id = 'map', ?MapGraphics $graphics = null,
         string $assetRoot = ''): self
@@ -69,7 +92,7 @@ final readonly class PresentationWorld
                 'layer' => PresentationLayerPolicy::getMapLayerOrder($layer),
                 'kind' => $layer->decoration ? 'decoration' : 'gameplay'];
         }
-        $tiles = $graphics === null ? null : self::getTilePresentation($graphics, $assetRoot, $id);
+        $tiles = $graphics === null ? null : self::getTilePresentation($graphics, $layers, $assetRoot, $id);
         if ($tiles !== null) {
             $metadata = [...$metadata, ...$tiles['layers']];
             $estimatedBytes += $tiles['bytes'];
@@ -89,18 +112,23 @@ final readonly class PresentationWorld
                 'cellHeight' => FieldViewport::TILE_SIZE, 'layers' => $metadata,
                 ...($tiles === null ? [] : ['tileset' => $tiles['tileset']])]], ...$rows, ...($tiles['operations'] ?? [])],
             array_column(array_filter($metadata, static fn(array $layer): bool => $layer['kind'] !== 'tiles'), 'id'),
-            $estimatedBytes, $tiles['animated'] ?? false);
+            $estimatedBytes, $tiles['animated'] ?? false, $tiles['covers'] ?? []);
     }
 
     /**
      * The tileset catalog, tile layers and their rows, or null when no sheet
      * is usable (the map then shows its terminal glyphs). Tiles whose sheet is
-     * unusable are left out, and their cells show glyphs.
+     * unusable are left out, and their cells show glyphs. Both draw bands of
+     * a tile layer cover the glyphs of the gameplay layer it belongs to.
      *
-     * @return array{tileset: array<string, mixed>, layers: list<array<string, mixed>>, operations: list<array<string, mixed>>, bytes: int, animated: bool}|null
+     * @return array{tileset: array<string, mixed>, layers: list<array<string, mixed>>, operations: list<array<string, mixed>>, bytes: int, animated: bool, covers: array<string, string>}|null
      */
-    private static function getTilePresentation(MapGraphics $graphics, string $assetRoot, string $id): ?array
+    private static function getTilePresentation(MapGraphics $graphics, MapLayerSet $mapLayers, string $assetRoot, string $id): ?array
     {
+        $gameplayIds = [];
+        foreach ($mapLayers->layers as $mapLayer) {
+            if (!$mapLayer->decoration) { $gameplayIds[$mapLayer->name] = PresentationLayerPolicy::getMapLayerId($mapLayer); }
+        }
         $usable = $graphics->tileset->getUsableSheets($assetRoot);
         if ($usable === null) {
             return null;
@@ -111,8 +139,9 @@ final readonly class PresentationWorld
         $catalog = $tiles = [];
         $bytes = array_sum(array_map(strlen(...), $usable['sheets']));
         $animated = false;
-        $layers = $operations = [];
+        $layers = $operations = $covers = [];
         foreach ($graphics->layers as $layer) {
+            $covered = $gameplayIds[$graphics->owners[$layer->name] ?? ''] ?? null;
             $bands = [];
             // A layer offset in field cells, each one tile.
             [$offsetX, $offsetY] = $graphics->offsets[$layer->name] ?? [0.0, 0.0];
@@ -151,6 +180,7 @@ final readonly class PresentationWorld
                 if (!isset($bands[$band])) { continue; }
                 $layerId = 'tiles:' . $layer->name . ($band === 'above' ? ':above' : '');
                 $layers[] = ['id' => $layerId, 'layer' => $base + $layer->order, 'kind' => 'tiles'];
+                if ($covered !== null) { $covers[$layerId] = $covered; }
                 foreach ($bands[$band] as $y => $cells) {
                     $operations[] = ['op' => 'worldTiles', 'id' => $id, 'layerId' => $layerId,
                         'rows' => [['row' => $y, 'cells' => $cells]]];
@@ -161,7 +191,7 @@ final readonly class PresentationWorld
             return null;
         }
         return ['tileset' => ['tileSize' => $usable['tileSize'], 'sheets' => array_values($usable['sheets']), 'tiles' => $tiles],
-            'layers' => $layers, 'operations' => $operations, 'bytes' => $bytes, 'animated' => $animated];
+            'layers' => $layers, 'operations' => $operations, 'bytes' => $bytes, 'animated' => $animated, 'covers' => $covers];
     }
 
     /**

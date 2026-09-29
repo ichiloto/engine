@@ -1,6 +1,14 @@
 <?php
 
 use Ichiloto\Engine\Field\MapGraphics;
+use Ichiloto\Engine\IO\Console\ConsolePresentationChanges;
+use Ichiloto\Engine\Rendering\Presentation\RetainedPresentation;
+use Ichiloto\Engine\Rendering\RendererClient;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
+use Ichiloto\Engine\Rendering\Transport\RendererEvent;
+use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
+use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
+use Tests\Support\Input\FakeRendererTransport;
 use Ichiloto\Engine\Field\MapGridSource;
 use Ichiloto\Engine\Field\MapLayer;
 use Ichiloto\Engine\Field\MapLayerSet;
@@ -21,6 +29,7 @@ use Ichiloto\Engine\Rendering\Tilesets\TilesetSheet;
 use function Tests\Support\Rendering\writeTestPng;
 
 require_once dirname(__DIR__) . '/Support/Rendering/GraphicalSpriteFixtures.php';
+require_once dirname(__DIR__) . '/Support/Input/FakeRendererTransport.php';
 
 /** @param list<TilePiece> $pieces @return list<array{int, int, int, int, int, int}> */
 function getPieceRects(array $pieces): array
@@ -257,6 +266,77 @@ it('reads the gameplay layer each tile layer moves with, and loads a map that na
     ->toThrow(InvalidArgumentException::class);
 });
 
+it('resolves the gameplay layer each tile layer belongs to from its setting, else its pieces', function () {
+  $tileset = Tileset::fromArray('home', ['name' => 'Home', 'sheets' => ['B' => 'b.png'], 'pieces' => [
+    'bed' => ['name' => 'Bed', 'layer' => 'fixtures', 'glyphs' => ['='], 'tiles' => ['furniture' => ['5'], 'floor' => ['1']]],
+    'wall' => ['name' => 'Wall', 'layer' => 'buildings', 'connects' => 'lines',
+      'glyphs' => ['horizontal' => '-', 'vertical' => '|', 'corner' => '+'], 'tiles' => ['walls' => '5888']],
+    'stool' => ['name' => 'Stool', 'layer' => 'terrain', 'glyphs' => ['o'], 'tiles' => ['shared' => ['2']]],
+    'lamp' => ['name' => 'Lamp', 'layer' => 'fixtures', 'glyphs' => ['i'], 'tiles' => ['shared' => ['3']]],
+    'trim' => ['name' => 'Trim', 'layer' => 'detail', 'glyphs' => ['~'], 'tiles' => ['trim' => ['4']]],
+  ]]);
+  $names = ['floor', 'walls', 'furniture', 'shared', 'trim', 'sky'];
+  $gameplay = ['terrain', 'buildings', 'fixtures'];
+  expect(MapGraphics::resolveLayerOwners(['floor' => ['movesWith' => 'buildings']], $names, $gameplay, $tileset, 'home'))->toBe([
+    // Named by the map data, although only fixtures pieces write it.
+    'floor' => 'buildings',
+    // Written only by pieces of one gameplay layer, a connected wall included.
+    'walls' => 'buildings',
+    'furniture' => 'fixtures',
+    // Written by pieces of two layers, by pieces of a decoration layer, or by none: it belongs to no layer.
+    'shared' => null,
+    'trim' => null,
+    'sky' => null,
+  ])
+    ->and(MapGraphics::resolveLayerOwners(null, $names, $gameplay, $tileset, 'home')['floor'])->toBe('fixtures')
+    // Without its pieces, only the named layers belong to one.
+    ->and(MapGraphics::resolveLayerOwners(['floor' => ['movesWith' => 'terrain']], ['floor', 'walls'], $gameplay, null, 'home'))
+    ->toBe(['floor' => 'terrain', 'walls' => null])
+    ->and(MapGraphics::resolveLayerOwners(null, [], $gameplay, $tileset, 'home'))->toBe([])
+    ->and(fn() => MapGraphics::resolveLayerOwners(['floor' => ['movesWith' => 'roof']], ['floor'], $gameplay, $tileset, 'home'))
+    ->toThrow(InvalidArgumentException::class);
+});
+
+it('names the gameplay layer each tile layer covers only for renderers that negotiated tile covers', function () {
+  $pieces = var_export([
+    'bed' => ['name' => 'Bed', 'layer' => 'fixtures', 'glyphs' => ['='], 'tiles' => ['furniture' => ['5']]],
+    'stool' => ['name' => 'Stool', 'layer' => 'terrain', 'glyphs' => ['o'], 'tiles' => ['shared' => ['2']]],
+    'lamp' => ['name' => 'Lamp', 'layer' => 'fixtures', 'glyphs' => ['i'], 'tiles' => ['shared' => ['3']]],
+  ], true);
+  writeTilesetProject($this->root, extra: ", 'above' => [5], 'pieces' => {$pieces}");
+  $map = $this->root . '/Maps/home';
+  mkdir($map . '/graphics', 0777, true);
+  file_put_contents($map . '/graphics/01.floor.tiles.php', MapGridSource::buildSource('2816 2816', 'TILES'));
+  file_put_contents($map . '/graphics/02.furniture.tiles.php', MapGridSource::buildSource('1 5', 'TILES'));
+  file_put_contents($map . '/graphics/03.shared.tiles.php', MapGridSource::buildSource('2 0', 'TILES'));
+  $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', '..'), new MapLayer('detail', 2, true, 'detail', '  '),
+    new MapLayer('fixtures', 3, false, 'fixtures', '=m')]);
+  $graphics = MapGraphics::loadFromDirectory($map, 'home', 'home', $layers, $this->root, ['floor' => ['movesWith' => 'terrain']]);
+  $world = PresentationWorld::getFromLayers($layers, 'map', $graphics, $this->root);
+  $covers = static fn(array $operations): array => array_map(static fn(array $layer): array => [$layer['id'], $layer['coversLayerId'] ?? null],
+    $operations[0]['value']['layers']);
+  expect($graphics->owners)->toBe(['floor' => 'terrain', 'furniture' => 'fixtures', 'shared' => null])
+    // Both draw bands of a tile layer cover its gameplay layer's glyphs; a layer that belongs to none covers every glyph.
+    ->and($covers($world->getOperations(true)))->toBe([
+      ['map:terrain', null], ['map:detail', null], ['map:fixtures', null],
+      ['tiles:floor', 'map:terrain'], ['tiles:furniture', 'map:fixtures'], ['tiles:furniture:above', 'map:fixtures'], ['tiles:shared', null],
+    ])
+    ->and($world->getOperations(false))->toBe($world->operations)
+    ->and(array_filter(array_column($world->operations[0]['value']['layers'], 'coversLayerId')))->toBe([])
+    ->and(array_slice($world->getOperations(true), 1))->toBe(array_slice($world->operations, 1));
+
+  foreach ([[['tile_covers'], 'map:fixtures'], [[], null]] as [$capabilities, $expected]) {
+    $transport = new FakeRendererTransport();
+    $client = new RendererClient($transport);
+    $client->start(new RendererSessionConfig('Covers', $this->root, new RendererGridConfig(20, 10), RendererProtocolVersion::V2));
+    $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready', 'capabilities' => $capabilities]))];
+    $client->pump();
+    new RetainedPresentation($client)->present(new ConsolePresentationChanges(20, 10, true, order: []), [], null, $world);
+    $put = array_values(array_filter(end($transport->sent)->payload['operations'],
+      static fn(array $operation): bool => $operation['op'] === 'put' && $operation['kind'] === 'world'));
+    expect(array_column($covers($put), 1, 0)['tiles:furniture'])->toBe($expected);
+  }
+});
 it('reads whole pieces from the tileset with glyphs and tiles over one footprint', function () {
   $tileset = Tileset::fromArray('home', ['name' => 'Home', 'sheets' => ['B' => 'Graphics/Tilesets/B.png'], 'pieces' => [
     'bed' => ['name' => 'Bed', 'layer' => 'fixtures', 'glyphs' => ['=', '='], 'tiles' => ['furniture' => ['32', '40']]],
