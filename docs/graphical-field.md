@@ -141,13 +141,16 @@ editing surface is owned by the GUI Editor plan. Related docs:
   between the cells its terminal footprint allows, such as a coffee table
   centred between a sofa and a television. Offsets are -0.5, 0 or 0.5 and
   never move collision or events.
-- **Tiles move with glyphs.** Each tile layer belongs to one gameplay layer,
-  so moving that layer's glyphs in an editor carries its tiles in the same
-  cells, and moving other layers leaves them. The map data may name it:
-  `'tileLayers' => ['floor' => ['movesWith' => 'buildings']]`. Otherwise it
-  is the gameplay layer whose tileset pieces write that tile layer, when
-  exactly one does; a tile layer with neither stays where it is. The
-  runtime only checks the setting names a gameplay layer.
+- **Tiles belong to a gameplay layer.** Each tile layer belongs to at most
+  one gameplay layer, so moving that layer's glyphs in an editor carries its
+  tiles in the same cells, moving other layers leaves them, and its tiles
+  hide only that layer's glyphs (see Glyph fallback). The map data may name
+  it: `'tileLayers' => ['floor' => ['movesWith' => 'buildings']]`, which
+  must name a gameplay layer. Otherwise it is the gameplay layer whose
+  tileset pieces write that tile layer, when exactly one does; a tile layer
+  with neither belongs to none and stays where it is.
+  `MapGraphics::resolveLayerOwners()` is the one resolution the runtime and
+  the editors share.
 - **Plain tiles** (A5 and B to E) are drawn whole in their cell, so an item
   two tiles wide is two glyphs wide. A cell holds exactly one whole tile: an
   entry naming half a tile (`42L`) is refused by the engine and the editor
@@ -159,9 +162,16 @@ editing surface is owned by the GUI Editor plan. Related docs:
 - **Draw bands.** Tile layer `NN` draws at `-100 + NN`, the same band as the
   terminal layers, below characters. Tiles listed in `above` draw at
   `900 + NN`, above characters and below the interface.
-- **Glyph fallback.** A cell with no tile of its own shows its terminal
-  glyph, even where a tile placed beside it overhangs; a cell with a tile
-  does not, even where its tile is transparent.
+- **Glyph fallback.** A cell shows the terminal glyph of the gameplay layer
+  that owns it, the topmost one with a glyph there, unless a tile of its own
+  covers that layer: a tile of a tile layer that belongs to that gameplay
+  layer, or of a tile layer that belongs to none. A covered glyph stays
+  hidden even where its tile is transparent, and a tile placed beside a cell
+  never hides its glyph, even where it overhangs. So a floor that belongs to
+  the buildings layer leaves visible the glyph of a fixture that has no tile
+  yet, while the fixture's own tile hides it. Renderers that do not
+  advertise `tile_covers` never learn which layer a tile layer belongs to,
+  and there every tile hides the glyph of its cell.
 - **Animation.** A1 water cycles RPG Maker's frames (water 0, 1, 2, 1;
   waterfalls 0, 1, 2) on one counter advancing every 30/60 seconds, as
   RPG Maker does. Reduced motion holds the first frame.
@@ -169,7 +179,8 @@ editing surface is owned by the GUI Editor plan. Related docs:
   its sheets, tile size and a catalog of the tile identities the map uses,
   each as frames of pieces copied from a sheet into the tile. Tile layers
   are world layers of kind `tiles` whose rows list cells and catalog
-  indices, uploaded once per map load. The viewport carries only the camera
+  indices, uploaded once per map load; with `tile_covers`, each names the
+  gameplay layer it belongs to in `coversLayerId`. The viewport carries only the camera
   and the animation frame. The renderer knows nothing of RPG Maker:
   composition rules stay in the engine.
 - **Terminal and editors.** None of this changes terminal geometry,

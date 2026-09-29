@@ -123,7 +123,10 @@ asking for whole tiles. The map data may shift a whole tile layer by half a
 cell across or down
 (`'tileLayers' => ['lounge' => ['offset' => [0, -0.5]]]`) so art can sit between
 the cells its terminal footprint allows, and may name the gameplay layer a tile
-layer moves with in the editor (`'floor' => ['movesWith' => 'buildings']`).
+layer belongs to (`'floor' => ['movesWith' => 'buildings']`): editors move its
+tiles with that layer's glyphs, and the graphical field hides only that layer's
+glyphs under its tiles. Without a setting, a tile layer belongs to the gameplay
+layer whose tileset pieces write it, when exactly one does.
 Graphics never change
 geometry, collision, events or saves, and unusable graphics or sheets are
 reported while the map shows its terminal glyphs. Autotile shapes are stored in the identities, as RPG Maker

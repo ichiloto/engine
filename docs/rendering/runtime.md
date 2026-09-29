@@ -405,7 +405,10 @@ renderer advertises `field_motion`, PHP marks each committed step with its
 duration and names the sprite the camera follows; the renderer slides between
 the committed cells on its own clock, requesting frames only while something
 slides. A renderer without `field_motion` receives neither field and places
-sprites by whole cells. An installed renderer that predates `key_transitions`
+sprites by whole cells. When the renderer advertises `tile_covers`, the
+retained world names the gameplay layer each tile layer belongs to, so a tile
+hides only that layer's glyphs; other renderers receive the world without it.
+An installed renderer that predates `key_transitions`
 rejects the session at startup; install the updated renderer.
 
 After enqueueing retained-update bytes, Runtime performs one bounded, zero-wait I/O

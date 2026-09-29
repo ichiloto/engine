@@ -59,8 +59,14 @@ layers of kind `tiles` own no glyphs, and `worldTiles` lists each row's
 `column` and catalog `tile`. A tile is one cell tall and may set its own
 `width` and `left` and `top` offsets from its cell's corner (in source pixels).
 The Engine sends every tile whole, one per cell, and uses `left` and `top`
-only for a map's half-cell layer offsets; it never sends `width`. A cell with
-an available tile shows no glyph; cells a tile only overhangs keep theirs. The viewport's optional
+only for a map's half-cell layer offsets; it never sends `width`. When the
+renderer advertises `tile_covers`, a `tiles` layer that belongs to a gameplay
+layer names it in `coversLayerId` (for example `"coversLayerId":"map:fixtures"`,
+on both draw bands of the tile layer); the Engine sends the field to no other
+renderer. A cell's glyph, owned by `ownerLayerId`, is hidden under an available
+tile of a layer covering that owner, or of a `tiles` layer without
+`coversLayerId`; without the capability every available tile hides its cell's
+glyph. Cells a tile only overhangs keep theirs. The viewport's optional
 `tileFrame` selects each tile's frame `tileFrame % frames`, so water animates
 with a camera-only update.
 
