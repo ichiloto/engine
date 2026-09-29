@@ -18,6 +18,8 @@ final readonly class PresentationSprite
     public PresentationSpriteAnchor $anchor = PresentationSpriteAnchor::BOTTOM_CENTER,
     public int $layer = 0,
     public ?SpriteSourceRect $sourceRect = null,
+    /** Field sprites only: how the sprite reached this cell. Requires negotiated field_motion. */
+    public ?PresentationSpriteMotion $motion = null,
   )
   {
     if ($id === '' || str_contains($id, "\0") || preg_match('//u', $id) !== 1) {
@@ -28,13 +30,21 @@ final readonly class PresentationSprite
     SpriteValidation::validateSigned32BitRange($y);
   }
 
-  /** @return array{id: string, asset: string, x: int, y: int, width: int, height: int, anchor: string, layer: int, sourceRect?: array{x: int, y: int, width: int, height: int}} */
+  /** @return array{id: string, asset: string, x: int, y: int, width: int, height: int, anchor: string, layer: int, sourceRect?: array{x: int, y: int, width: int, height: int}, motion?: array{duration: float}} */
   public function toArray(): array
   {
     $data = ['id' => $this->id, 'asset' => $this->asset, 'x' => $this->x, 'y' => $this->y,
       'width' => $this->width, 'height' => $this->height, 'anchor' => $this->anchor->value, 'layer' => $this->layer];
     if ($this->sourceRect !== null) { $data['sourceRect'] = $this->sourceRect->toArray(); }
+    if ($this->motion !== null) { $data['motion'] = $this->motion->toArray(); }
     return $data;
+  }
+
+  /** The same sprite placed without a slide, for renderers that cannot present one. */
+  public function withoutMotion(): self
+  {
+    return $this->motion === null ? $this : new self($this->id, $this->asset, $this->x, $this->y, $this->width,
+      $this->height, $this->anchor, $this->layer, $this->sourceRect);
   }
 
   /** @param list<PresentationSprite> $sprites @return list<PresentationSprite> */

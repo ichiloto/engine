@@ -11,6 +11,7 @@ use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
+use Ichiloto\Engine\Rendering\Sprites\CharacterStep;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use RuntimeException;
@@ -178,11 +179,12 @@ final class CinematicStageManager
     return false;
   }
 
-  public function subjectMoved(Player|Npc $subject): void
+  /** A bound visual presents its real subject's step exactly as the subject would. */
+  public function subjectMoved(Player|Npc $subject, CharacterStep $step): void
   {
     foreach ($this->actors as $actor) {
       if ($actor->subject?->subject === $subject) {
-        $actor->beginGraphicalStep();
+        $actor->beginGraphicalStep($step);
       }
     }
   }
@@ -360,7 +362,7 @@ final class CinematicStageManager
       }
     }
 
-    $actor->move($direction);
+    $actor->move($direction, $this->gameScene->getStepSeconds($direction));
     return true;
   }
 

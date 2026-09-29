@@ -27,6 +27,8 @@ final readonly class PresentationViewport
     public int $worldOriginY = 0,
     /** The world's tile animation counter; each animated tile shows frames[tileFrame % count]. */
     public int $tileFrame = 0,
+    /** The sprite the camera follows, for renderers that negotiated field_motion. */
+    public ?PresentationViewportFollow $follow = null,
   ) {
     if ($tileFrame < 0) {
       throw new InvalidArgumentException('Viewport tileFrame must be nonnegative.');
@@ -48,6 +50,10 @@ final readonly class PresentationViewport
     if (($worldId !== null && ($worldId === '' || strlen($worldId) > 256 || preg_match('//u', $worldId) !== 1))
       || ($worldId === null && ($worldOriginX !== 0 || $worldOriginY !== 0))) {
       throw new InvalidArgumentException('A signed world origin requires a nonempty UTF-8 world ID of at most 256 bytes.');
+    }
+    if ($follow !== null && ($worldId === null || !in_array($follow->spriteId, $spriteIds, true)
+      || array_diff($follow->textLayerIds, $textLayerIds) !== [])) {
+      throw new InvalidArgumentException('A camera follow requires a world and names only sprites and text layers the viewport presents.');
     }
   }
 
@@ -86,6 +92,15 @@ final readonly class PresentationViewport
       'spriteIds' => $this->spriteIds,
       ...($this->worldId === null ? [] : ['worldId' => $this->worldId,
         'worldOrigin' => ['column' => $this->worldOriginX, 'row' => $this->worldOriginY]]),
-      ...($this->tileFrame === 0 ? [] : ['tileFrame' => $this->tileFrame])];
+      ...($this->tileFrame === 0 ? [] : ['tileFrame' => $this->tileFrame]),
+      ...($this->follow === null ? [] : ['follow' => $this->follow->toArray()])];
+  }
+
+  /** The same viewport with a camera that snaps, for renderers that cannot slide it. */
+  public function withoutFollow(): self
+  {
+    return $this->follow === null ? $this : new self($this->scale, $this->x, $this->y, $this->clipRect,
+      $this->textLayerIds, $this->spriteIds, $this->tileBatchIds, $this->worldId, $this->worldOriginX,
+      $this->worldOriginY, $this->tileFrame);
   }
 }

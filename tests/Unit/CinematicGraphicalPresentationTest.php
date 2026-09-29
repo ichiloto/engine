@@ -91,7 +91,7 @@ it('projects staged sheets with independent identities and PHP-owned route anima
   $this->stage->move('one', Vector2::up());
   $this->stage->advanceGraphicalAnimation(0.08);
   expect($one->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(96);
-  $this->stage->advanceGraphicalAnimation(CharacterWalkAnimation::STRIDE_SECONDS);
+  $this->stage->advanceGraphicalAnimation(CharacterWalkAnimation::STOP_SECONDS);
   expect($one->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(48);
 });
 
@@ -178,3 +178,19 @@ it('rejects malformed staged graphics with an actionable cast path', function ($
   'sheet unsafe path' => [['sheet' => '../Heroes.png']],
   'sheet reserved UI layer' => [['sheet' => 'Graphics/Characters/Heroes.png', 'layer' => 1000]],
 ]);
+
+it('slides staged steps at the pace that moves them and a pose image as well as a sheet', function () {
+  $sheet = $this->stage->add(['id' => 'walker', 'sprite' => '@', 'x' => 7, 'y' => 4, 'sprites2d' => characterSheetData()]);
+  $pose = $this->stage->add(['id' => 'pose', 'sprite' => 'P', 'x' => 3, 'y' => 3,
+    'sprites2d' => ['asset' => 'pose.png', 'layer' => 100]]);
+  $this->stage->move('walker', Vector2::down());
+  $this->scene->moveAtPace(0.5, fn(): bool => $this->stage->move('pose', Vector2::right()));
+  expect($sheet->getGraphicalSpriteMotion()?->seconds)->toBe(16 / 60)
+    ->and($this->projector->project($sheet, $this->camera)->motion?->toArray())->toBe(['duration' => 16 / 60])
+    ->and($pose->getGraphicalSpriteMotion()?->seconds)->toBe(0.5)
+    // The pace belongs to that one move.
+    ->and($this->scene->getStepSeconds(Vector2::right()))->toBe(8 / 60);
+  $this->stage->move('walker', Vector2::up(), faceOnly: true);
+  $pose->hide();
+  expect($sheet->getGraphicalSpriteMotion())->toBeNull()->and($pose->getGraphicalSpriteMotion())->toBeNull();
+});

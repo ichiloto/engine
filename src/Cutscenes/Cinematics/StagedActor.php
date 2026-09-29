@@ -5,7 +5,10 @@ namespace Ichiloto\Engine\Cutscenes\Cinematics;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
+use Ichiloto\Engine\Rendering\FieldMetric;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteMotion;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheetAssetGuard;
+use Ichiloto\Engine\Rendering\Sprites\CharacterStep;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderInterface;
 use Ichiloto\Engine\Rendering\Sprites\CharacterWalkAnimation;
@@ -85,13 +88,16 @@ final class StagedActor implements GraphicalSpriteProviderInterface
     $this->setFacing($direction);
   }
 
-  public function move(Vector2 $direction): void
+  /** @param float|null $stepSeconds How long the step takes to show; the field walking time when null. */
+  public function move(Vector2 $direction, ?float $stepSeconds = null): void
   {
     $this->assertIndependentMotion();
     $this->setFacing($direction);
+    $origin = clone $this->position;
     $this->position->x += $direction->x;
     $this->position->y += $direction->y;
-    $this->beginGraphicalStep();
+    $this->beginGraphicalStep(new CharacterStep($origin, $this->position,
+      $stepSeconds ?? new FieldMetric()->getWalkSeconds($direction)));
   }
 
   private function setFacing(Vector2 $direction): void
@@ -120,10 +126,16 @@ final class StagedActor implements GraphicalSpriteProviderInterface
     return clone $this->position;
   }
 
-  public function beginGraphicalStep(): void
+  public function getGraphicalSpriteMotion(): ?PresentationSpriteMotion
   {
-    if ($this->isVisible && $this->graphicalSprites instanceof CharacterSheet) {
-      $this->walkAnimation->step();
+    return $this->isVisible ? $this->walkAnimation->getMotion($this->position) : null;
+  }
+
+  /** Any visible art slides; only a character sheet also walks through its frames. */
+  public function beginGraphicalStep(CharacterStep $step): void
+  {
+    if ($this->isVisible && $this->graphicalSprites !== null) {
+      $this->walkAnimation->step($step);
     }
   }
 

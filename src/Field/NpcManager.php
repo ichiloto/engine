@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Field;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Rendering\Sprites\CharacterStep;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Quests\QuestManager;
@@ -295,10 +296,11 @@ class NpcManager
 
     $this->eraseNpc($npc);
     $npc->face($direction);
+    $origin = clone $npc->position;
     $npc->position->x = $destinationX;
     $npc->position->y = $destinationY;
-    $this->beginGraphicalStep($npc);
-    $this->gameScene->cinematicStage?->subjectMoved($npc);
+    $this->beginGraphicalStep($npc, new CharacterStep($origin, $npc->position,
+      $this->gameScene->getStepSeconds($direction)));
     $this->renderNpc($npc);
 
     return true;
@@ -368,20 +370,23 @@ class NpcManager
 
     $this->eraseNpc($npc);
     $npc->face(new Vector2($dx, $dy));
+    $origin = clone $npc->position;
     $npc->position->x = $destinationX;
     $npc->position->y = $destinationY;
-    $this->beginGraphicalStep($npc);
-    $this->gameScene->cinematicStage?->subjectMoved($npc);
+    // A wander pause is not a pace: the step itself walks at field speed.
+    $this->beginGraphicalStep($npc, new CharacterStep($origin, $npc->position,
+      $this->gameScene->getStepSeconds(new Vector2($dx, $dy))));
     $this->renderNpc($npc);
   }
 
-  private function beginGraphicalStep(Npc $npc): void
+  private function beginGraphicalStep(Npc $npc, CharacterStep $step): void
   {
     if ($this->isPresentationVisible($npc)) {
-      $npc->beginGraphicalStep();
+      $npc->beginGraphicalStep($step);
     } else {
       $npc->stopGraphicalAnimation();
     }
+    $this->gameScene->cinematicStage?->subjectMoved($npc, $step);
   }
 
   /**

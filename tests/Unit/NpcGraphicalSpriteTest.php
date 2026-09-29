@@ -311,7 +311,7 @@ it('runs NPC event routes with independent step timing facing collision and idle
   expect($route->update(0.08))->toBeTrue()->and($npc->position->x)->toBe(10.0);
   $this->manager->advanceGraphicalAnimation(0.08);
   expect($npc->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(0);
-  $this->manager->advanceGraphicalAnimation(CharacterWalkAnimation::STRIDE_SECONDS);
+  $this->manager->advanceGraphicalAnimation(CharacterWalkAnimation::STOP_SECONDS);
   expect($npc->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(4)
     ->and($npc->heading)->toBe(MovementHeading::EAST)->and($npc->sprite)->toBe('E');
   $this->manager->moveNpcById('guide', Vector2::right());
@@ -405,4 +405,41 @@ it('prepares destinations transactionally and drops old providers and staging ac
     ->and($old->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(4);
   $this->manager->configure([]);
   expect(new GraphicalSpriteCollector()->collect($this->scene))->toBe([]);
+});
+
+it('slides NPC steps at their route pace or walking time and sends slides only to renderers that negotiated them', function () {
+  $npc = $this->npc;
+  $route = new MovementRouteRunner($this->scene, ['subject' => 'npc', 'npcId' => 'guide',
+    'steps' => [['direction' => 'right', 'count' => 2]], 'secondsPerStep' => 0.3]);
+  expect($route->update(0))->toBeFalse()
+    ->and($npc->getGraphicalSpriteMotion()?->seconds)->toBe(0.3);
+  // Facing is not a step: nothing slides.
+  $this->manager->faceNpc('guide', Vector2::up());
+  expect($npc->getGraphicalSpriteMotion())->toBeNull();
+  // Outside a route an NPC step walks at field speed: sideways is 8 frames.
+  expect($this->manager->moveNpcById('guide', Vector2::right()))->toBeTrue()
+    ->and($npc->getGraphicalSpriteMotion()?->seconds)->toBe(8 / 60)
+    ->and($this->scene->getStepSeconds(Vector2::down()))->toBe(16 / 60);
+
+  // This renderer advertised no field_motion, so its sprites are placed by whole cells.
+  $this->runtime->start('NPC slides', 24, 8);
+  $this->runtime->present($this->scene);
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  expect($frames[array_key_last($frames)]['sprites'][0])->not->toHaveKey('motion');
+
+  $transport = new FakeRendererTransport();
+  $transport->batches[] = [RendererEvent::fromJson(
+    '{"protocol":2,"type":"ready","capabilities":["sprite_source_rect","tile_batches","field_motion"]}')];
+  $runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']),
+    $this->root, protocol: RendererProtocolVersion::V2), $transport);
+  try {
+    $runtime->start('NPC slides', 24, 8);
+    $runtime->present($this->scene);
+    $sprite = RetainedFrameState::replay($transport->sent)[0]['sprites'][0];
+    expect($sprite['motion'])->toBe(['duration' => 8 / 60]);
+    putSceneAudioConfig(['accessibility' => ['reducedMotion' => true], 'ui' => ['hud' => ['location' => false]]]);
+    expect($npc->getGraphicalSpriteMotion())->toBeNull();
+  } finally {
+    $runtime->shutdown();
+  }
 });

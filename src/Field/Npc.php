@@ -11,11 +11,12 @@ use Ichiloto\Engine\Messaging\Dialogue\ConditionalDialogue;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheetAssetGuard;
+use Ichiloto\Engine\Rendering\Sprites\CharacterStep;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteMotion;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderInterface;
 use Ichiloto\Engine\Rendering\Sprites\CharacterWalkAnimation;
 use Ichiloto\Engine\Scenes\Game\GameScene;
-use Ichiloto\Engine\UI\Accessibility;
 
 /**
  * A field NPC: a sprite on the map the player can talk to.
@@ -110,8 +111,7 @@ class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProvi
     if ($frame === null) {
       return null;
     }
-    $pattern = Accessibility::prefersReducedMotion() ? CharacterWalkAnimation::PATTERNS[0] : $this->walkAnimation->getPattern();
-    return $this->graphicalSprites->getFrame($this->heading, $pattern, $frame);
+    return $this->graphicalSprites->getFrame($this->heading, $this->walkAnimation->getPattern(), $frame);
   }
 
   public function getGraphicalSpriteWorldPosition(): Vector2
@@ -119,10 +119,16 @@ class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProvi
     return clone $this->position;
   }
 
-  public function beginGraphicalStep(): void
+  public function getGraphicalSpriteMotion(): ?PresentationSpriteMotion
   {
-    if ($this->graphicalSprites !== null && !Accessibility::prefersReducedMotion()) {
-      $this->walkAnimation->step();
+    return $this->graphicalSprites === null ? null : $this->walkAnimation->getMotion($this->position);
+  }
+
+  /** @param CharacterStep|null $step The step taken; without one, one stride and no slide. */
+  public function beginGraphicalStep(?CharacterStep $step = null): void
+  {
+    if ($this->graphicalSprites !== null) {
+      $step === null ? $this->walkAnimation->stride() : $this->walkAnimation->step($step);
     } else {
       $this->stopGraphicalAnimation();
     }
@@ -131,9 +137,6 @@ class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProvi
   public function advanceGraphicalAnimation(float $seconds): void
   {
     $this->walkAnimation->advance($seconds);
-    if (Accessibility::prefersReducedMotion()) {
-      $this->stopGraphicalAnimation();
-    }
   }
 
   public function stopGraphicalAnimation(): void

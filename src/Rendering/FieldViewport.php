@@ -8,6 +8,7 @@ use Ichiloto\Engine\Rendering\Presentation\PresentationSprite;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextLayer;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTileBatch;
 use Ichiloto\Engine\Rendering\Presentation\PresentationViewport;
+use Ichiloto\Engine\Rendering\Presentation\PresentationViewportFollow;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot;
 use Ichiloto\Engine\IO\Console\ConsolePresentationChanges;
@@ -44,9 +45,13 @@ final readonly class FieldViewport
     $this->rows = max(1, (int)floor($grid->rows * $grid->cellHeight / (self::CELL_HEIGHT * $zoom)));
   }
 
-  /** @param list<PresentationTextLayer> $text @param list<PresentationSprite> $sprites @param list<PresentationTileBatch> $tiles */
+  /**
+   * @param list<PresentationTextLayer> $text @param list<PresentationSprite> $sprites @param list<PresentationTileBatch> $tiles
+   * @param string|null $followSpriteId The sprite the camera follows, when it is presented; its action prompt moves with it.
+   */
   public function createViewport(array|ConsolePresentationSnapshot|ConsolePresentationChanges $text, array $sprites, array $tiles = [],
-    ?string $worldId = null, array $worldOrigin = ['x' => 0, 'y' => 0], int $tileFrame = 0): PresentationViewport
+    ?string $worldId = null, array $worldOrigin = ['x' => 0, 'y' => 0], int $tileFrame = 0,
+    ?string $followSpriteId = null): PresentationViewport
   {
     if ($text instanceof ConsolePresentationSnapshot) { $text = $text->textLayers; }
     elseif ($text instanceof ConsolePresentationChanges) {
@@ -54,13 +59,17 @@ final readonly class FieldViewport
     }
     $width = $this->grid->columns * $this->grid->cellWidth;
     $height = $this->grid->rows * $this->grid->cellHeight;
+    $textLayerIds = array_values(array_map(static fn($layer) => $layer->id,
+      array_filter($text, static fn($layer) => $layer->layer < PresentationLayerPolicy::UI
+        || $layer->id === PresentationLayerPolicy::FIELD_PROMPT_ID)));
+    $spriteIds = array_column($sprites, 'id');
+    $follow = $worldId !== null && $followSpriteId !== null && in_array($followSpriteId, $spriteIds, true)
+      ? new PresentationViewportFollow($followSpriteId, array_values(array_intersect([PresentationLayerPolicy::FIELD_PROMPT_ID], $textLayerIds)))
+      : null;
     return new PresentationViewport($this->zoom,
       max(0, ($width - $this->columns * self::CELL_WIDTH * $this->zoom) / 2),
       max(0, ($height - $this->rows * self::CELL_HEIGHT * $this->zoom) / 2),
-      new CanvasRectangle(0, 0, $width, $height),
-      array_values(array_map(static fn($layer) => $layer->id,
-        array_filter($text, static fn($layer) => $layer->layer < PresentationLayerPolicy::UI
-          || $layer->id === PresentationLayerPolicy::FIELD_PROMPT_ID))),
-      array_column($sprites, 'id'), array_column($tiles, 'id'), $worldId, $worldOrigin['x'], $worldOrigin['y'], $tileFrame);
+      new CanvasRectangle(0, 0, $width, $height), $textLayerIds, $spriteIds, array_column($tiles, 'id'),
+      $worldId, $worldOrigin['x'], $worldOrigin['y'], $tileFrame, $follow);
   }
 }

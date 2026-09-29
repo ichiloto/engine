@@ -66,6 +66,8 @@ use Ichiloto\Engine\UI\Elements\LocationHUDWindow;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Debug;
+use Closure;
+use Ichiloto\Engine\Rendering\FieldMetric;
 use Override;
 use Throwable;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
@@ -87,6 +89,8 @@ use Ichiloto\Engine\Rendering\Presentation\RetainedWorldProviderInterface;
 class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInterface, CanvasProviderInterface, FrameViewportProviderInterface, RetainedWorldProviderInterface
 {
     private ?FieldViewport $fieldViewport = null;
+    /** Walking speed and step distances on the graphical field's grid. */
+    private ?FieldMetric $fieldMetric = null;
     private bool $reportedInvalidFieldZoom = false;
     /** @var array<string, PresentationTextLayer> Metadata only, never retained screen cells. */
     private array $viewportTextLayers = [];
@@ -153,8 +157,10 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         if ($world === null) { return null; }
         // Water animates on RPG Maker's counter; reduced motion holds the first frame.
         $tileFrame = $world->animated && !Accessibility::prefersReducedMotion() ? TileAnimation::getFrame(Time::getTime()) : 0;
+        // A camera that follows the player scrolls with the player's step, not after it.
         return $this->fieldViewport->createViewport(array_values($this->viewportTextLayers), $sprites, $tiles,
-            $world->id, $this->camera->getWorldOrigin(), $tileFrame);
+            $world->id, $this->camera->getWorldOrigin(), $tileFrame,
+            $this->camera->followsPlayer ? $this->player?->getGraphicalSpriteId() : null);
     }
 
     public function getPresentationWorld(): ?PresentationWorld
@@ -581,9 +587,38 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     {
         $prepared = $this->mapManager->prepareMap($mapFilename);
         $this->cinematicStage?->clear();
+        // A transfer ends walking; a key held through it must be pressed again.
+        $this->fieldState?->cancelWalking();
         // Field music and NPC diagnostics read this identity during commit.
         $this->currentMapId = preg_replace('/(\.(data|map|event))?\.php$/', '', $mapFilename) ?: $mapFilename;
         $this->mapManager->applyPreparedMap($prepared, $player);
+    }
+
+    /** A route's pace while one of its moves runs; null means field walking time. */
+    private ?float $stepPace = null;
+
+    /**
+     * Runs one move whose step shows over the given seconds (a route's own
+     * pace) instead of the field walking time. Only presentation reads it:
+     * the move itself is the ordinary validated one.
+     *
+     * @param Closure(): bool $move
+     */
+    public function moveAtPace(float $seconds, Closure $move): bool
+    {
+        $previous = $this->stepPace;
+        $this->stepPace = $seconds;
+        try {
+            return $move();
+        } finally {
+            $this->stepPace = $previous;
+        }
+    }
+
+    /** How long a step with this displacement takes to show: the current pace, or field walking time. */
+    public function getStepSeconds(Vector2 $displacement): float
+    {
+        return $this->stepPace ?? ($this->fieldMetric ??= new FieldMetric())->getWalkSeconds($displacement);
     }
 
     /**
@@ -594,6 +629,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
      */
     public function setState(GameSceneState $state): void
     {
+        $this->fieldState?->cancelWalking();
         $this->player?->stopGraphicalAnimation();
         $this->npcManager?->stopGraphicalAnimation();
         $this->sceneStateContext = new SceneStateContext($this, $this->sceneStateContext);
@@ -765,6 +801,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         // Staged actors are map-local presentation participants. A cinematic
         // that needs cast in the destination explicitly stages them there.
         $this->cinematicStage?->clear();
+        $this->fieldState?->cancelWalking();
 
         $transition = $useConfiguredTransition ? ScreenTransition::fromConfig() : null;
         $transition?->out();

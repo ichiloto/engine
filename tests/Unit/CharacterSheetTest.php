@@ -1,6 +1,9 @@
 <?php
 
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
+use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Rendering\FieldMetric;
+use Ichiloto\Engine\Rendering\Sprites\CharacterStep;
 use Ichiloto\Engine\Rendering\FieldViewport;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteAnchor;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
@@ -85,24 +88,88 @@ it('keeps the terminal glyph when a sheet is missing or the wrong shape', functi
   }
 });
 
-it('walks RPG Maker strides around the standing frame and stands again when steps stop', function () {
-  $walk = new CharacterWalkAnimation();
-  expect($walk->getPattern())->toBe(1);
+it('walks RPG Maker strides by distance so both axes animate at one pace and continuous walking never stands', function () {
+  putSceneAudioConfig([]);
+  $metric = new FieldMetric();
+  // Samples every 60th of a second of continuous walking along one axis.
+  $walk = static function (Vector2 $direction) use ($metric): array {
+    $animation = new CharacterWalkAnimation($metric);
+    $position = new Vector2(10, 10);
+    $patterns = [];
+    $untilNext = 0.0;
+    for ($frame = 0; $frame < 60; $frame++) {
+      if ($untilNext <= 1e-9) {
+        $from = clone $position;
+        $position = Vector2::sum($position, $direction);
+        $animation->step(new CharacterStep($from, $position, $metric->getWalkSeconds($direction)));
+        $untilNext += $metric->getWalkSeconds($direction);
+      }
+      $patterns[] = $animation->getPattern();
+      $animation->advance(1 / 60);
+      $untilNext -= 1 / 60;
+    }
+    return $patterns;
+  };
+  // One pattern per 30 field pixels at 180 pixels per second: every 10 frames,
+  // beginning on the first stride. A drop to standing would restart the cycle.
+  $expected = array_map(static fn(int $frame): int => CharacterWalkAnimation::PATTERNS[intdiv(30 + 3 * $frame, 30) % 4], range(0, 59));
+  expect($walk(Vector2::down()))->toBe($expected)
+    ->and($walk(Vector2::right()))->toBe($expected)
+    ->and($walk(Vector2::up()))->toBe($expected)
+    ->and($walk(Vector2::left()))->toBe($expected);
 
-  $patterns = [];
-  foreach (range(1, 5) as $step) {
-    $walk->step();
-    $patterns[] = $walk->getPattern();
-  }
-  expect($patterns)->toBe([2, 1, 0, 1, 2]);
+  $animation = new CharacterWalkAnimation($metric);
+  expect($animation->getPattern())->toBe(1);
+  $animation->step(new CharacterStep(new Vector2(0, 0), new Vector2(1, 0), 8 / 60));
+  // Even one sideways step, half a tile, shows a stride.
+  expect($animation->getPattern())->toBe(2);
+  $animation->advance(8 / 60);
+  $animation->advance(CharacterWalkAnimation::STOP_SECONDS / 2);
+  expect($animation->getPattern())->toBe(2);
+  $animation->advance(CharacterWalkAnimation::STOP_SECONDS / 2);
+  expect($animation->getPattern())->toBe(1);
 
-  $walk->advance(CharacterWalkAnimation::STRIDE_SECONDS / 2);
-  expect($walk->getPattern())->toBe(2);
-  $walk->advance(CharacterWalkAnimation::STRIDE_SECONDS);
-  expect($walk->getPattern())->toBe(1);
-
-  $walk->step();
-  $walk->stop();
-  expect($walk->getPattern())->toBe(1)
-    ->and(fn() => $walk->advance(-1))->toThrow(InvalidArgumentException::class);
+  $animation->step(new CharacterStep(new Vector2(1, 0), new Vector2(1, 1), 16 / 60));
+  $animation->stop();
+  expect($animation->getPattern())->toBe(1)
+    ->and($animation->getMotion(new Vector2(1, 1)))->toBeNull()
+    ->and(fn() => $animation->advance(-1))->toThrow(InvalidArgumentException::class);
 });
+
+it('keeps one stride per call for steps without known cells', function () {
+  putSceneAudioConfig([]);
+  $animation = new CharacterWalkAnimation();
+  $patterns = [];
+  foreach (range(1, 5) as $_) {
+    $animation->stride();
+    $patterns[] = $animation->getPattern();
+  }
+  expect($patterns)->toBe([2, 1, 0, 1, 2])
+    ->and($animation->getMotion(new Vector2(0, 0)))->toBeNull();
+  $animation->advance(CharacterWalkAnimation::STOP_SECONDS);
+  expect($animation->getPattern())->toBe(1);
+});
+
+it('presents the latest step as a slide only while the character stands where it ended', function () {
+  putSceneAudioConfig([]);
+  $animation = new CharacterWalkAnimation();
+  expect($animation->getMotion(new Vector2(3, 4)))->toBeNull();
+  $animation->step(new CharacterStep(new Vector2(3, 4), new Vector2(3, 5), 16 / 60));
+  expect($animation->getMotion(new Vector2(3, 5))?->toArray())->toBe(['duration' => 16 / 60])
+    // Placed anywhere else (a transfer, a restored transform) it snaps.
+    ->and($animation->getMotion(new Vector2(9, 9)))->toBeNull();
+  // Long after walking stopped the hint still describes how it got there.
+  $animation->advance(10.0);
+  expect($animation->getMotion(new Vector2(3, 5))?->seconds)->toBe(16 / 60)
+    ->and($animation->getPattern())->toBe(1);
+  // An instant step (a reduced-motion route) has nothing to slide.
+  $animation->step(new CharacterStep(new Vector2(3, 5), new Vector2(3, 6), 0.0));
+  expect($animation->getMotion(new Vector2(3, 6)))->toBeNull();
+
+  putSceneAudioConfig(['accessibility' => ['reducedMotion' => true]]);
+  $animation->step(new CharacterStep(new Vector2(3, 6), new Vector2(3, 7), 16 / 60));
+  expect($animation->getMotion(new Vector2(3, 7)))->toBeNull()->and($animation->getPattern())->toBe(1);
+  putSceneAudioConfig([]);
+  expect($animation->getMotion(new Vector2(3, 7))?->seconds)->toBe(16 / 60);
+});
+

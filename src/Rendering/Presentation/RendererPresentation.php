@@ -56,6 +56,10 @@ final class RendererPresentation
     if ($tileBatches !== []) {
       throw new RendererProtocolException('Stateless tile batches have been removed. Supply retained world layers instead.');
     }
+    $slides = $viewport?->follow !== null || array_any($sprites, static fn($sprite): bool => $sprite->motion !== null);
+    if ($slides && !$this->client->supports(RendererSessionConfig::FIELD_MOTION)) {
+      throw new RendererProtocolException('Sprite slides and camera follow require negotiated field_motion support.');
+    }
     if ($viewport !== null) {
       $viewport->assertWithin($this->grid);
     }

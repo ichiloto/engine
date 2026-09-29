@@ -157,6 +157,11 @@ final class RendererRuntime
     }
     $collection = LatencyTrace::getTimeNow();
     $sprites = $this->collector->collect($scene);
+    // Steps are committed either way; a renderer without field_motion places sprites by whole cells.
+    $slides = $this->client->supports(RendererSessionConfig::FIELD_MOTION);
+    if (!$slides) {
+      $sprites = array_map(static fn($sprite) => $sprite->withoutMotion(), $sprites);
+    }
     LatencyTrace::end('presentation.sprites', $collection, ['count' => count($sprites)]);
     if (LatencyTrace::enabled()) {
       LatencyTrace::record('presentation.sprite.positions', ['sprites' => array_map(
@@ -174,6 +179,9 @@ final class RendererRuntime
     LatencyTrace::end('presentation.snapshot', $snapshotStart);
     $viewport = $scene instanceof FrameViewportProviderInterface
       ? $scene->getPresentationViewport($snapshot, $sprites, []) : null;
+    if (!$slides) {
+      $viewport = $viewport?->withoutFollow();
+    }
     $this->resetText = false;
     try {
       $changed = $this->presentation->present($snapshot, $sprites, viewport: $viewport, world: $world);

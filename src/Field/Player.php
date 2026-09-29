@@ -22,6 +22,8 @@ use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Rendering\Camera;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteMotion;
+use Ichiloto\Engine\Rendering\Sprites\CharacterStep;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheetAssetGuard;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
@@ -202,6 +204,12 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     return clone $this->position;
   }
 
+  #[Override]
+  public function getGraphicalSpriteMotion(): ?PresentationSpriteMotion
+  {
+    return $this->isPresentationSuppressed() ? null : $this->walkAnimation?->getMotion($this->position);
+  }
+
   /**
    * @inheritDoc
    */
@@ -274,12 +282,10 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
 
     $this->handleCollision($collisionType);
     $fieldWasRecomposed = $this->updatePlayerPosition($direction, $camera, $previousSprite);
-    if ($this->walkAnimation !== null
-      && ($origin->x !== $this->position->x || $origin->y !== $this->position->y)) {
-      $this->walkAnimation->step();
-    }
     if ($origin->x !== $this->position->x || $origin->y !== $this->position->y) {
-      $this->getGameScene()->cinematicStage?->subjectMoved($this);
+      $step = new CharacterStep($origin, $this->position, $this->getGameScene()->getStepSeconds($direction));
+      $this->walkAnimation?->step($step);
+      $this->getGameScene()->cinematicStage?->subjectMoved($this, $step);
     }
     $this->handleTriggers($event);
     $this->getGameScene()->encounterManager?->registerStep($collisionType);
