@@ -82,6 +82,18 @@ final readonly class NormalizedRow
     return new self(array_slice($this->cells, $start, max(0, $end - $start)), []);
   }
 
+  /**
+   * The cells past the first display columns, for a write that starts left
+   * of the screen. A wide glyph the edge cuts is dropped whole, like one the
+   * right edge cuts ({@see clippedCells()}).
+   */
+  public function skipColumns(int $count): self
+  {
+    $start = min(count($this->cells), max(0, $count));
+    while ($start < count($this->cells) && $this->cells[$start] === self::CONTINUATION) { $start++; }
+    return new self(array_slice($this->cells, $start), []);
+  }
+
   /** @return list<string> A clipped write never paints half a wide glyph. */
   public function clippedCells(int $width): array
   {

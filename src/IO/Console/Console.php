@@ -1098,7 +1098,10 @@ class Console
     if (self::$terminalHandedBack) { return; }
     $textRows = is_string($message) ? explode("\n", $message) : $message;
     $y = (int)floor($y);
-    $x = max(0, min((int)floor($x), self::$width - 1));
+    // Text past an edge is clipped there, across as well as down, so a sprite
+    // that has left the screen is not drawn at its edge.
+    $x = (int)floor($x);
+    if ($x >= self::$width) { return; }
     foreach ($textRows as $rowIndex => $text) {
       $row = $y + $rowIndex;
       if ($row >= 0 && $row < self::$height) {
@@ -1112,8 +1115,13 @@ class Console
   {
     if (self::$terminalHandedBack) { return; }
     $y = (int)floor($y);
-    if ($y < 0 || $y >= self::$height) { return; }
-    $x = max(0, min((int)floor($x), self::$width - 1));
+    $x = (int)floor($x);
+    if ($y < 0 || $y >= self::$height || $x >= self::$width) { return; }
+    if ($x < 0) {
+      $visible = $row->skipColumns(-$x);
+      $x += count($row->cells) - count($visible->cells);
+      $row = $visible;
+    }
     $incoming = $row->clippedCells(self::$width - $x);
     $length = count($incoming);
     if ($length === 0) { return; }
