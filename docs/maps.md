@@ -93,12 +93,21 @@ with a warning and shows its terminal glyphs.
 
 A graphical renderer draws a map from its own tile layers, independent of
 its terminal glyphs. The map names an RPG Maker style tileset in its data
-file and keeps one tile identity per terminal cell in `graphics/`:
+file and keeps one tile identity per terminal cell in `graphics/`.
+
+Tilesets are grouped by the kind of setting they draw, as RPG Maker groups
+its own: one for overworld maps, one for exteriors (towns, fields, roads),
+one for interiors (homes, inns, offices) and one for dungeons (caves, ruins,
+crypts). Every map of that kind names the same tileset, so a tileset never
+belongs to one map or one place. Its sheets are sorted by kind too: A1 to A5
+for structure (water, ground, building exteriors, walls, plain floors), B for
+the main objects, and C to E for more. A tile's identity is its place on its
+sheet, so new art goes into free cells and existing art never moves.
 
 ```
-assets/Data/Tilesets/home.php          # name, sheets A1 to E, above, tables
+assets/Data/Tilesets/interior.php      # name, sheets A1 to E, above, tables
 assets/Maps/village/harbour/
-  harbour.data.php                      # 'tileset' => 'home'
+  harbour.data.php                      # 'tileset' => 'interior'
   graphics/
     01.floor.tiles.php
     02.furniture.tiles.php

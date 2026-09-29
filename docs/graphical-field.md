@@ -124,7 +124,9 @@ editing surface is owned by the GUI Editor plan. Related docs:
   are recognised by their glyphs. A wall's tile can be an A4 wall top: the
   autotile shapes its own edges.
 - **Map graphics.** A map names its tileset in its data file
-  (`'tileset' => 'home'`, like RPG Maker's map properties). Its tile layers
+  (`'tileset' => 'interior'`, like RPG Maker's map properties). Tilesets are
+  grouped by kind of setting, such as interiors, and shared by every map of
+  that kind ([maps](maps.md#graphics)). Its tile layers
   live in `graphics/` beside `layers/`, named `NN.name.tiles.php` and
   ordered by `NN` like terminal layers. Each returns a literal nowdoc with
   one row per map row and one whitespace-separated tile identity per
