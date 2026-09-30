@@ -31,6 +31,7 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
  *     'x' => 23, 'y' => 5,
  *     'movement' => 'fixed',                     // or 'wander'
  *     'wanderArea' => ['x' => 20, 'y' => 4, 'width' => 6, 'height' => 3],
+ *     'directionFix' => false,                   // true keeps its heading when talked to
  *     // Either a plain page list, or conditional variants where the first
  *     // matching entry is spoken (see ConditionalDialogue).
  *     'dialogue' => [['name' => 'Mom', 'text' => '…'], …],
@@ -74,6 +75,7 @@ class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProvi
    * @param CharacterSheet|null $graphicalSprites Optional RPG Maker character sheet.
    * @param string|null $graphicalSpriteId Map-scoped presentation identity, independent of script/save identity.
    * @param string|null $assetRoot Project asset root for graphical preflight.
+   * @param bool $directionFix True keeps the heading when the player talks to it (RPG Maker's Direction Fix).
    */
   public function __construct(
     protected(set) string $name,
@@ -90,6 +92,7 @@ class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProvi
     private readonly ?CharacterSheet $graphicalSprites = null,
     ?string $graphicalSpriteId = null,
     ?string $assetRoot = null,
+    protected(set) bool $directionFix = false,
   )
   {
     $this->id = $id !== null && trim($id) !== '' ? trim($id) : null;

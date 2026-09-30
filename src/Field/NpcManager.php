@@ -112,6 +112,7 @@ class NpcManager
           . ($id !== '' ? 'id:' . rawurlencode($id) : 'entry:' . $index),
         assetRoot: $graphicalSprites === null ? null
           : ($this->gameScene->getGame()->getRendererRuntime()?->getAssetRoot() ?? getcwd() . '/assets'),
+        directionFix: ($entry['directionFix'] ?? false) === true,
       );
     }
 
@@ -321,13 +322,48 @@ class NpcManager
       ));
     }
 
+    $this->turnNpc($npc, $direction);
+
+    return true;
+  }
+
+  /**
+   * Turns an NPC toward a position, as a JRPG NPC turns to the player who
+   * talks to it. It stays turned until something else turns it, such as its
+   * next wander step. A direction-fixed NPC, or one a cinematic has staged,
+   * keeps its heading.
+   *
+   * @param Npc $npc The NPC to turn.
+   * @param Vector2 $position The position to face, normally the player's.
+   * @return bool True when the NPC turned.
+   */
+  public function turnNpcToward(Npc $npc, Vector2 $position): bool
+  {
+    if ($npc->directionFix || ($this->gameScene->cinematicStage?->suppresses($npc) ?? false)) {
+      return false;
+    }
+
+    $dx = intval($position->x) - intval($npc->position->x);
+    $dy = intval($position->y) - intval($npc->position->y);
+
+    if ($dx === 0 && $dy === 0) {
+      return false;
+    }
+
+    // The dominant axis picks the cardinal heading; an adjacent talker is always on one axis.
+    $this->turnNpc($npc, abs($dx) >= abs($dy) ? new Vector2($dx <=> 0, 0) : new Vector2(0, $dy <=> 0));
+
+    return true;
+  }
+
+  /** Faces an NPC in place, redrawing its terminal glyph and settling its graphical frame. */
+  private function turnNpc(Npc $npc, Vector2 $direction): void
+  {
     $this->eraseNpc($npc);
     $npc->face($direction);
     $npc->stopGraphicalAnimation();
     $this->gameScene->cinematicStage?->subjectStopped($npc);
     $this->renderNpc($npc);
-
-    return true;
   }
 
   /**

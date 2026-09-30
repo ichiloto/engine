@@ -1051,7 +1051,8 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   }
 
   /**
-   * Talks to the NPC on the tile the player faces, when one is there.
+   * Talks to the NPC on the tile the player faces, when one is there. The
+   * NPC first turns to face the player unless it is direction-fixed.
    *
    * @return bool True when a conversation happened.
    */
@@ -1069,15 +1070,17 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
       return false;
     }
 
-    $npc = $this->getGameScene()->npcManager?->npcAt(
+    $npcManager = $this->getGameScene()->npcManager;
+    $npc = $npcManager?->npcAt(
       intval($this->position->x) + $dx,
       intval($this->position->y) + $dy
     );
 
-    if ($npc === null) {
+    if ($npcManager === null || $npc === null) {
       return false;
     }
 
+    $npcManager->turnNpcToward($npc, $this->position);
     $npc->talk($this->getGameScene());
 
     return true;

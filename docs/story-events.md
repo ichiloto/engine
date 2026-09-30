@@ -167,6 +167,16 @@ scripted NPC route requires an explicit stable ID. Optional cardinal sprites
 may be authored under `sprites` with `north`, `south`, `west`, and `east` keys;
 otherwise the existing sprite is retained while facing changes.
 
+When the player talks to an NPC, the NPC first turns to face the player, as in
+RPG Maker, and then speaks. It is not turned back afterwards: it keeps facing
+the player until something else turns it, such as its next wander step or a
+route. The turn uses the same facing path as routes, so the terminal glyph
+swaps to the authored directional sprite and the graphical sheet shows the
+matching row. Set `'directionFix' => true` (RPG Maker's Direction Fix; a bool,
+default `false`) to keep an NPC's heading when it is talked to. It governs the
+talk turn only: wander steps and `move_route` still turn a direction-fixed
+NPC. A cinematic's staged NPC is never turned by talking.
+
 Concurrent routes are authored as separate lanes in a cinematic `parallel`
 block. Pathfinding, diagonal movement, jumping, collision bypass, party
 followers, and NPC patrol profiles are not supplied by this command.

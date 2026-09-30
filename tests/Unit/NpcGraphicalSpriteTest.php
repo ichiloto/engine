@@ -475,3 +475,110 @@ it('lifts a character NPC for renderers that negotiated sprite_lift but never an
     $runtime->shutdown();
   }
 });
+
+/** Stands the player on a tile and faces it one way, as field movement leaves it. */
+function placeNpcTestPlayer(Player $player, int $x, int $y, Vector2 $facing): void
+{
+  $player->position->x = $x;
+  $player->position->y = $y;
+  $player->updatePlayerSprite($facing);
+}
+
+it('turns a talked-to NPC to face the player before it speaks', function (array $tile, string $facing, MovementHeading $heading, int $row) {
+  $this->manager->configure([getNpcTestEntry(['sets' => [['type' => 'switch', 'name' => 'talked', 'value' => true]]])]);
+  $npc = $this->manager->findById('guide');
+  $player = $this->scene->player;
+  // The NPC starts looking the way the player looks, so away from the player.
+  $this->manager->faceNpc('guide', MovementRouteRunner::directionVector($facing));
+  placeNpcTestPlayer($player, $tile[0], $tile[1], MovementRouteRunner::directionVector($facing));
+  $player->interact();
+  $definition = $npc->getGraphicalSpriteDefinition();
+  expect($npc->heading)->toBe($heading)
+    ->and($npc->sprite)->toBe($heading->name[0])
+    ->and(Console::charAt(7, 4))->toBe($heading->name[0])
+    ->and($definition->sourceRect->toArray())->toBe(['x' => 4, 'y' => $row * 6, 'width' => 4, 'height' => 6])
+    ->and($npc->getGraphicalSpriteMotion())->toBeNull()
+    ->and([$npc->position->x, $npc->position->y])->toBe([7.0, 4.0])
+    ->and($this->scene->gameState->getSwitch('talked'))->toBeTrue();
+  $this->scene->renderNpcField();
+  expect(Console::charAt(7, 4))->toBe($heading->name[0]);
+})->with([
+  // RPG Maker direction rows: down 0, left 1, right 2, up 3.
+  'player faces up' => [[7, 5], 'up', MovementHeading::SOUTH, 0],
+  'player faces down' => [[7, 3], 'down', MovementHeading::NORTH, 3],
+  'player faces right' => [[6, 4], 'right', MovementHeading::WEST, 1],
+  'player faces left' => [[8, 4], 'left', MovementHeading::EAST, 2],
+]);
+
+it('keeps a direction-fixed NPC heading while it still speaks', function () {
+  $this->manager->configure([getNpcTestEntry(['directionFix' => true,
+    'sets' => [['type' => 'switch', 'name' => 'talked', 'value' => true]]])]);
+  $npc = $this->manager->findById('guide');
+  $this->manager->faceNpc('guide', Vector2::left());
+  placeNpcTestPlayer($this->scene->player, 7, 5, Vector2::up());
+  $this->scene->player->interact();
+  expect($npc->directionFix)->toBeTrue()
+    ->and($npc->heading)->toBe(MovementHeading::WEST)->and($npc->sprite)->toBe('W')
+    ->and($npc->getGraphicalSpriteDefinition()->sourceRect->y)->toBe(6)
+    ->and($this->scene->gameState->getSwitch('talked'))->toBeTrue();
+  // Direction fix governs the talk turn only; an authored route still turns the NPC.
+  $this->manager->faceNpc('guide', Vector2::up());
+  expect($npc->heading)->toBe(MovementHeading::NORTH);
+});
+
+it('turns an NPC whose directionFix is not the boolean true', function (mixed $flag) {
+  $this->manager->configure([getNpcTestEntry(['directionFix' => $flag])]);
+  $npc = $this->manager->findById('guide');
+  placeNpcTestPlayer($this->scene->player, 6, 4, Vector2::right());
+  $this->scene->player->interact();
+  expect($npc->directionFix)->toBeFalse()->and($npc->heading)->toBe(MovementHeading::WEST);
+})->with(['false' => [false], 'string' => ['true'], 'integer' => [1], 'null' => [null]]);
+
+it('keeps the terminal glyph of an NPC without directional sprites while its heading turns', function () {
+  $entry = getNpcTestEntry();
+  unset($entry['sprites'], $entry['sprites2d']);
+  $this->manager->configure([$entry]);
+  $npc = $this->manager->findById('guide');
+  placeNpcTestPlayer($this->scene->player, 8, 4, Vector2::left());
+  $this->scene->player->interact();
+  expect($npc->heading)->toBe(MovementHeading::EAST)->and($npc->sprite)->toBe('G')
+    ->and(Console::charAt(7, 4))->toBe('G');
+});
+
+it('leaves a turned wanderer facing the player until its next step turns it', function () {
+  $this->manager->configure([getNpcTestEntry(['movement' => 'wander'])]);
+  $npc = $this->manager->findById('guide');
+  $npc->nextWanderTime = 5.0;
+  new ReflectionProperty(Time::class, 'time')->setValue(null, 1.0);
+  placeNpcTestPlayer($this->scene->player, 7, 5, Vector2::up());
+  $this->scene->player->interact();
+  $this->manager->update();
+  expect($npc->heading)->toBe(MovementHeading::SOUTH)->and([$npc->position->x, $npc->position->y])->toBe([7.0, 4.0]);
+  // Steps are random and the player blocks the south tile, so tick until one lands.
+  $time = 5.0;
+  for ($attempt = 0; $attempt < 200 && $npc->position->x === 7.0 && $npc->position->y === 4.0; $attempt++) {
+    $time += 10.0;
+    $npc->nextWanderTime = $time - 1.0;
+    new ReflectionProperty(Time::class, 'time')->setValue(null, $time);
+    $this->manager->update();
+  }
+  $step = new Vector2($npc->position->x - 7.0, $npc->position->y - 4.0);
+  $expected = match (true) {
+    $step->y < 0 => MovementHeading::NORTH,
+    $step->x < 0 => MovementHeading::WEST,
+    default => MovementHeading::EAST,
+  };
+  expect(abs($step->x) + abs($step->y))->toBe(1.0)->and($npc->heading)->toBe($expected);
+});
+
+it('does not turn an NPC a cinematic has staged', function () {
+  $this->manager->configure([getNpcTestEntry()]);
+  $npc = $this->manager->findById('guide');
+  $this->scene->cinematicStage->add(['id' => 'pose', 'sprite' => '@', 'subject' => ['kind' => 'npc', 'id' => 'guide']]);
+  placeNpcTestPlayer($this->scene->player, 7, 5, Vector2::up());
+  expect($this->manager->turnNpcToward($npc, $this->scene->player->position))->toBeFalse()
+    ->and($npc->heading)->toBe(MovementHeading::SOUTH);
+  $this->manager->faceNpc('guide', Vector2::left());
+  $this->scene->player->interact();
+  expect($npc->heading)->toBe(MovementHeading::WEST);
+});
