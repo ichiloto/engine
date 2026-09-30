@@ -329,9 +329,10 @@ class NpcManager
 
   /**
    * Turns an NPC toward a position, as a JRPG NPC turns to the player who
-   * talks to it. It stays turned until something else turns it, such as its
-   * next wander step. A direction-fixed NPC, or one a cinematic has staged,
-   * keeps its heading.
+   * talks to it, remembering its heading so the end of the conversation can
+   * turn it back (see restoreNpcHeadingAfterTalk()). A direction-fixed NPC,
+   * one already in a conversation, or one a cinematic has staged keeps its
+   * heading.
    *
    * @param Npc $npc The NPC to turn.
    * @param Vector2 $position The position to face, normally the player's.
@@ -339,7 +340,11 @@ class NpcManager
    */
   public function turnNpcToward(Npc $npc, Vector2 $position): bool
   {
-    if ($npc->directionFix || ($this->gameScene->cinematicStage?->suppresses($npc) ?? false)) {
+    if (
+      $npc->directionFix
+      || $npc->conversationIsActive
+      || ($this->gameScene->cinematicStage?->suppresses($npc) ?? false)
+    ) {
       return false;
     }
 
@@ -350,8 +355,41 @@ class NpcManager
       return false;
     }
 
+    $before = $npc->heading;
     // The dominant axis picks the cardinal heading; an adjacent talker is always on one axis.
     $this->turnNpc($npc, abs($dx) >= abs($dy) ? new Vector2($dx <=> 0, 0) : new Vector2(0, $dy <=> 0));
+
+    if ($npc->heading !== $before) {
+      $npc->rememberHeadingBeforeTalk($before);
+    }
+
+    return true;
+  }
+
+  /**
+   * Turns an NPC back to the heading it had before the player talked to it,
+   * as RPG Maker does when the event ends. Nothing happens when the talk
+   * did not turn it, when the conversation itself turned, moved or staged
+   * it (the NPC forgets the heading on any later face() or restored
+   * transform), when a cinematic still stages it, or when it has left the
+   * current map. A wanderer keeps its wander schedule.
+   *
+   * @param Npc $npc The NPC whose conversation ended.
+   * @return bool True when the NPC turned back.
+   */
+  public function restoreNpcHeadingAfterTalk(Npc $npc): bool
+  {
+    $heading = $npc->takeHeadingBeforeTalk();
+
+    if (
+      $heading === null
+      || ! in_array($npc, $this->npcs, true)
+      || ($this->gameScene->cinematicStage?->suppresses($npc) ?? false)
+    ) {
+      return false;
+    }
+
+    $this->turnNpc($npc, $heading->getDirection());
 
     return true;
   }

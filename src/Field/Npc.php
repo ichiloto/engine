@@ -31,7 +31,7 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
  *     'x' => 23, 'y' => 5,
  *     'movement' => 'fixed',                     // or 'wander'
  *     'wanderArea' => ['x' => 20, 'y' => 4, 'width' => 6, 'height' => 3],
- *     'directionFix' => false,                   // true keeps its heading when talked to
+ *     'directionFix' => false,                   // true: no turn to the player while talking
  *     // Either a plain page list, or conditional variants where the first
  *     // matching entry is spoken (see ConditionalDialogue).
  *     'dialogue' => [['name' => 'Mom', 'text' => '…'], …],
@@ -55,7 +55,14 @@ class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProvi
 
   /** @var array<int, array<string, mixed>> Variant writes awaiting script completion. */
   protected array $pendingConversationSets = [];
-  protected bool $conversationIsActive = false;
+  protected(set) bool $conversationIsActive = false;
+  /**
+   * The heading the talk turn replaced, restored when that conversation
+   * ends. Anything else that sets the heading or transform meanwhile (a
+   * route turn or step, restored cinematic staging) clears it, so an
+   * authored result is never snapped back.
+   */
+  private ?MovementHeading $headingBeforeTalk = null;
   private readonly string $graphicalSpriteId;
   private readonly CharacterWalkAnimation $walkAnimation;
   private readonly ?CharacterSheetAssetGuard $graphicalAssetGuard;
@@ -188,6 +195,32 @@ class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProvi
 
     $this->applySets($gameScene);
     QuestManager::current()?->recordTalkTo($this->name);
+    $this->endConversation($gameScene);
+  }
+
+  /**
+   * Remembers the heading a talk turn replaced, to restore when the
+   * conversation ends.
+   *
+   * @param MovementHeading $heading The heading before the turn.
+   * @return void
+   */
+  public function rememberHeadingBeforeTalk(MovementHeading $heading): void
+  {
+    $this->headingBeforeTalk = $heading;
+  }
+
+  /**
+   * Returns and forgets the heading to restore after a conversation.
+   *
+   * @return MovementHeading|null The heading, or null when nothing should be restored.
+   */
+  public function takeHeadingBeforeTalk(): ?MovementHeading
+  {
+    $heading = $this->headingBeforeTalk;
+    $this->headingBeforeTalk = null;
+
+    return $heading;
   }
 
   /**
@@ -198,6 +231,8 @@ class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProvi
    */
   public function face(Vector2 $direction): void
   {
+    // Whatever turns the NPC now owns its heading; the talk turn-back is forgotten.
+    $this->headingBeforeTalk = null;
     $this->heading = match (true) {
       $direction->y < 0 => MovementHeading::NORTH,
       $direction->y > 0 => MovementHeading::SOUTH,
@@ -215,6 +250,7 @@ class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProvi
   /** Restore staging only; eligibility and conversation/story state remain live. */
   public function restoreFieldTransform(Vector2 $position, MovementHeading $heading, string $sprite): void
   {
+    $this->headingBeforeTalk = null;
     $this->position->x = $position->x;
     $this->position->y = $position->y;
     $this->heading = $heading;
@@ -248,7 +284,14 @@ class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProvi
     if ($session === null) {
       $this->conversationIsActive = false;
       $this->pendingConversationSets = [];
+      $this->endConversation($gameScene);
     }
+  }
+
+  /** Turns the NPC back to the heading it had before the player talked to it. */
+  protected function endConversation(GameScene $gameScene): void
+  {
+    $gameScene->npcManager?->restoreNpcHeadingAfterTalk($this);
   }
 
   /** @inheritDoc */
@@ -259,6 +302,7 @@ class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProvi
     QuestManager::current()?->recordTalkTo($this->name);
     $this->pendingConversationSets = [];
     $this->conversationIsActive = false;
+    $this->endConversation($gameScene);
   }
 
   /** @inheritDoc */
@@ -266,6 +310,7 @@ class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProvi
   {
     $this->pendingConversationSets = [];
     $this->conversationIsActive = false;
+    $this->endConversation($gameScene);
   }
 
   /**

@@ -168,14 +168,25 @@ may be authored under `sprites` with `north`, `south`, `west`, and `east` keys;
 otherwise the existing sprite is retained while facing changes.
 
 When the player talks to an NPC, the NPC first turns to face the player, as in
-RPG Maker, and then speaks. It is not turned back afterwards: it keeps facing
-the player until something else turns it, such as its next wander step or a
-route. The turn uses the same facing path as routes, so the terminal glyph
-swaps to the authored directional sprite and the graphical sheet shows the
-matching row. Set `'directionFix' => true` (RPG Maker's Direction Fix; a bool,
-default `false`) to keep an NPC's heading when it is talked to. It governs the
-talk turn only: wander steps and `move_route` still turn a direction-fixed
-NPC. A cinematic's staged NPC is never turned by talking.
+RPG Maker, and then speaks. When the conversation ends it turns back to the
+heading it had before: after its last dialogue page, or when its script (or a
+dialogue variant's script) completes or fails. A wanderer then resumes its
+wander schedule unchanged. Both turns use the same facing path as routes, so
+the terminal glyph swaps to the authored directional sprite and the graphical
+sheet shows the matching row.
+
+Unlike RPG Maker, which restores the heading unconditionally, the turn-back
+never undoes the conversation's own staging. It is skipped when anything else
+set the NPC's heading or transform after the talk turn (a `move_route` turn or
+step, even one toward the player, or cinematic staging that was restored),
+when a cinematic still stages the NPC as the conversation ends, or when the
+NPC has left the current map.
+
+Set `'directionFix' => true` (RPG Maker's Direction Fix; a bool, default
+`false`) to keep an NPC's heading when it is talked to; it neither turns nor
+turns back. It governs the talk turn only: wander steps and `move_route` still
+turn a direction-fixed NPC. A cinematic's staged NPC is never turned by
+talking.
 
 Concurrent routes are authored as separate lanes in a cinematic `parallel`
 block. Pathfinding, diagonal movement, jumping, collision bypass, party

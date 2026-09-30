@@ -1052,19 +1052,16 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
 
   /**
    * Talks to the NPC on the tile the player faces, when one is there. The
-   * NPC first turns to face the player unless it is direction-fixed.
+   * NPC first turns to face the player unless it is direction-fixed, and
+   * turns back when the conversation ends.
    *
    * @return bool True when a conversation happened.
    */
   protected function talkToFacingNpc(): bool
   {
-    [$dx, $dy] = match ($this->heading) {
-      MovementHeading::NORTH => [0, -1],
-      MovementHeading::SOUTH => [0, 1],
-      MovementHeading::EAST => [1, 0],
-      MovementHeading::WEST => [-1, 0],
-      default => [0, 0],
-    };
+    $direction = $this->heading->getDirection();
+    $dx = intval($direction->x);
+    $dy = intval($direction->y);
 
     if ($dx === 0 && $dy === 0) {
       return false;
