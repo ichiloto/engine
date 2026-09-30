@@ -65,6 +65,11 @@ editing surface is owned by the GUI Editor plan. Related docs:
   player keeps walking one committed cell at a time, and the renderer slides
   each character between cells over its step, with the camera following the
   player. The terminal keeps stepping once per key event, unchanged.
+- As in RPG Maker, what reaching a cell does happens once the player is seen
+  to arrive: its touch events, encounter step, save point notice and movement
+  observers wait for the slide, so a dialogue, battle or transfer never cuts
+  it short. The step itself (position, collision) is committed at once, and a
+  step without a slide (the terminal, reduced motion) arrives immediately.
 - A character stands on its one cell: its 48 x 48 frame is bottom-centred
   on the cell and fills it exactly, as in RPG Maker. There are no authored width, height
   or anchor values for field characters, and none are accepted. Field

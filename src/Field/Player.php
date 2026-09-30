@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Field;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 
 use Assegai\Collections\ItemList;
+use Closure;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\GameObject;
 use Ichiloto\Engine\Core\Rect;
@@ -45,6 +46,12 @@ use RuntimeException;
 class Player extends GameObject implements GraphicalSpriteProviderInterface
 {
   private ?CharacterWalkAnimation $walkAnimation = null;
+  /**
+   * @var Closure(): void|null What a committed step does on arrival (its
+   *     triggers, encounter step, save point notice and movement observers),
+   *     held until the step's slide has shown.
+   */
+  private ?Closure $pendingArrival = null;
   private ?CharacterSheetAssetGuard $graphicalAssetGuard = null;
   /**
    * @var string[] $upSprite The sprite of the player when facing up.
@@ -175,6 +182,25 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     $this->walkAnimation?->advance($seconds);
   }
 
+  /**
+   * Runs the latest step's arrival once its slide has shown: at once for a
+   * step without a slide (the terminal, reduced motion, an instant route
+   * step), otherwise on the field frame the slide ends.
+   */
+  public function completeArrival(): void
+  {
+    if (!($this->walkAnimation?->isSliding ?? false)) {
+      $this->runPendingArrival();
+    }
+  }
+
+  private function runPendingArrival(): void
+  {
+    $arrival = $this->pendingArrival;
+    $this->pendingArrival = null;
+    $arrival?->__invoke();
+  }
+
   public function stopGraphicalAnimation(): void
   {
     $this->walkAnimation?->stop();
@@ -257,6 +283,9 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     // Clone: $this->position is mutated by the move below, so holding a
     // reference would make the movement event report an origin equal to its
     // destination.
+    // A step taken before the previous one was seen to arrive completes that
+    // arrival first, so no step's triggers are skipped or reordered.
+    $this->runPendingArrival();
     $origin = clone $this->position;
     $destination = Vector2::sum($origin, $direction);
     $collisionType = null;
@@ -287,9 +316,6 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
       $this->walkAnimation?->step($step);
       $this->getGameScene()->cinematicStage?->subjectMoved($this, $step);
     }
-    $this->handleTriggers($event);
-    $this->getGameScene()->encounterManager?->registerStep($collisionType);
-
     // An ordinary step can erase an NPC that occupied the player's previous
     // footprint, so refresh NPCs after the player moves. A scrolling step has
     // already rebuilt every field layer in canonical order and must not draw
@@ -298,10 +324,18 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
       $this->getGameScene()->npcManager?->render();
     }
 
-    if ($this->getGameScene()->mapManager->isAtSavePoint) {
-      alert("Access the Menu to save your progress.", 'Save Point');
-    }
-    $this->notify($this->getGameScene(), $event);
+    // The step is committed; what reaching the cell does waits until the
+    // player is seen to arrive, so a dialogue, notice, battle or transfer
+    // never cuts the slide short. Without a slide it happens at once.
+    $this->pendingArrival = function () use ($event, $collisionType): void {
+      $this->handleTriggers($event);
+      $this->getGameScene()->encounterManager?->registerStep($collisionType);
+      if ($this->getGameScene()->mapManager->isAtSavePoint) {
+        alert("Access the Menu to save your progress.", 'Save Point');
+      }
+      $this->notify($this->getGameScene(), $event);
+    };
+    $this->completeArrival();
 
     return true;
   }

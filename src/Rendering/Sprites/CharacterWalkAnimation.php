@@ -110,6 +110,11 @@ final class CharacterWalkAnimation
     $this->lastStep = null;
   }
 
+  /** Whether the latest step is still sliding into its cell on screen. */
+  public bool $isSliding {
+    get => $this->remainingPixels > 0.0 && !Accessibility::prefersReducedMotion();
+  }
+
   /** The frame (0 to 2) to draw now; 1 while standing. */
   public function getPattern(): int
   {

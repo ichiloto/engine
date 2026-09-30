@@ -97,6 +97,12 @@ class FieldState extends GameSceneState
             return;
         }
         $scene->reconcileFieldPresentation();
+        // The player's last step arrives once its slide has shown, here in
+        // the field and never under a menu opened while it slid.
+        $scene->player?->completeArrival();
+        if ($scene->isStopping || $scene->state !== $this) {
+            return;
+        }
 
         // A story event owns field input while it is running. Its pending
         // dialogue, timer, route, transfer, or battle continuation advances

@@ -239,3 +239,60 @@ it('observes a real blocked move as changed facing and unchanged graphical posit
     ->and($after->toArray())->toBe([...$before->toArray(), 'sourceRect' => getPlayerStandingFrame('north')])
     ->and($this->player->sprite)->toBe(['^^'])->and(Console::charAt(7, 4))->toBe('^');
 });
+
+it('arrives only once the step has slid into its cell, and at once without a slide', function () {
+  $map = (new ReflectionClass(MapManager::class))->newInstanceWithoutConstructor();
+  new ReflectionProperty(MapManager::class, 'gameScene')->setValue($map, $this->scene);
+  new ReflectionProperty(MapManager::class, 'collisionMap')->setValue($map, [3 => [7 => CollisionType::SAVE_POINT->value]]);
+  new ReflectionProperty(GameScene::class, 'mapManager')->setValue($this->scene, $map);
+  $arrivals = new class implements Ichiloto\Engine\Events\Interfaces\ObserverInterface {
+    public array $events = [];
+    public function onNotify(object $entity, Ichiloto\Engine\Events\Interfaces\EventInterface $event): void { $this->events[] = $event; }
+  };
+  $modals = $this->getMockBuilder(Ichiloto\Engine\UI\Modal\ModalManager::class)->disableOriginalConstructor()->onlyMethods(['alert'])->getMock();
+  $notices = [];
+  $modals->method('alert')->willReturnCallback(function (string $message, string $title) use (&$notices): void { $notices[] = $title; });
+  $modalState = new ReflectionProperty(Ichiloto\Engine\UI\Modal\ModalManager::class, 'instance')->getValue();
+  new ReflectionProperty(Ichiloto\Engine\UI\Modal\ModalManager::class, 'instance')->setValue(null, $modals);
+  new ReflectionProperty(Console::class, 'game')->setValue(null, new SpritePresentationTestGame());
+  try {
+    // A graphical step onto the save point: the notice and the observers wait for the slide.
+    $this->player->addObserver($arrivals);
+    expect($this->player->tryMove(Vector2::up(), $this->camera))->toBeTrue()
+      ->and([$this->player->position->x, $this->player->position->y])->toBe([7.0, 3.0])
+      ->and($arrivals->events)->toBe([])->and($notices)->toBe([]);
+    $this->player->advanceGraphicalAnimation(0.01);
+    $this->player->completeArrival();
+    expect($arrivals->events)->toBe([])->and($notices)->toBe([]);
+    $this->player->advanceGraphicalAnimation(1.0);
+    $this->player->completeArrival();
+    expect($arrivals->events)->toHaveCount(1)->and($notices)->toBe(['Save Point']);
+    $this->player->completeArrival();
+    expect($arrivals->events)->toHaveCount(1);
+
+    // A terminal player has no slide, so it arrives as it steps, as it always has.
+    $terminal = new Player($this->scene, 'Terminal hero', new Vector2(7, 4), new Rect(0, 0, 1, 1), ['vv'],
+      MovementHeading::SOUTH, $this->terminalSprites);
+    $terminal->addObserver($arrivals);
+    expect($terminal->tryMove(Vector2::up(), $this->camera))->toBeTrue()
+      ->and($arrivals->events)->toHaveCount(2)->and($notices)->toBe(['Save Point', 'Save Point']);
+  } finally {
+    new ReflectionProperty(Ichiloto\Engine\UI\Modal\ModalManager::class, 'instance')->setValue(null, $modalState);
+  }
+});
+
+it('completes a pending arrival before the next step so none is skipped', function () {
+  $map = (new ReflectionClass(MapManager::class))->newInstanceWithoutConstructor();
+  new ReflectionProperty(MapManager::class, 'gameScene')->setValue($map, $this->scene);
+  new ReflectionProperty(MapManager::class, 'collisionMap')->setValue($map, [2 => [7 => CollisionType::NONE->value], 3 => [7 => CollisionType::NONE->value]]);
+  new ReflectionProperty(GameScene::class, 'mapManager')->setValue($this->scene, $map);
+  $arrivals = new class implements Ichiloto\Engine\Events\Interfaces\ObserverInterface {
+    public array $events = [];
+    public function onNotify(object $entity, Ichiloto\Engine\Events\Interfaces\EventInterface $event): void { $this->events[] = $event; }
+  };
+  $this->player->addObserver($arrivals);
+  expect($this->player->tryMove(Vector2::up(), $this->camera))->toBeTrue()
+    ->and($this->player->tryMove(Vector2::up(), $this->camera))->toBeTrue()
+    ->and($arrivals->events)->toHaveCount(1)
+    ->and($arrivals->events[0]->destination->y)->toBe(3.0);
+});
