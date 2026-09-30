@@ -98,10 +98,16 @@ file and keeps one tile identity per terminal cell in `graphics/`.
 Tilesets are grouped by the kind of setting they draw, as RPG Maker groups
 its own: one for overworld maps, one for exteriors (towns, fields, roads),
 one for interiors (homes, inns, offices) and one for dungeons (caves, ruins,
-crypts). Every map of that kind names the same tileset, so a tileset never
-belongs to one map or one place. Its sheets are sorted by kind too: A1 to A5
-for structure (water, ground, building exteriors, walls, plain floors), B for
-the main objects, and C to E for more. A tile's identity is its place on its
+crypts). That setting is the map's kind: every map has one, chosen when the
+map is created, and every map of a kind names the same tileset, so a tileset
+never belongs to one map or one place. The tiles a map can use change only
+when its kind does. The Editor asks a new map's kind, shows it as the
+Inspector's Kind, and warns about a map without one in a project that has
+tilesets; `ichiloto generate:map` takes it as `--kind`.
+
+A tileset's sheets are sorted as RPG Maker sorts them: A1 to A5 for
+structure (water, ground, building exteriors, walls, plain floors), B for the
+main objects, and C to E for more. A tile's identity is its place on its
 sheet, so new art goes into free cells and existing art never moves.
 
 ```
