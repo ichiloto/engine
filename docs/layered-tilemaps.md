@@ -330,7 +330,8 @@ Everything converts; the terminal game must play identically throughout.
 The [graphical field plan](graphical-field.md) supersedes Stages 1 to 3
 below: the terminal grid is unchanged, the graphical field draws each
 terminal cell as one 48 x 48 pixel RPG Maker tile, and tilesets, autotiles and character
-sheets follow RPG Maker's conventions. Stages 1 to 3 remain as history only.
+sheets follow RPG Maker's conventions. Stages 1 to 3 remain as history only,
+and Stage 4 is superseded as it says.
 
 All six stages below form the implementation roadmap. They are remaining
 correction and verification work, not capabilities delivered by this document.
@@ -372,42 +373,14 @@ replaceable project resources; the Engine owns generic connection/composition
 rules, not Last Legend paths or visual style. Preserve existing artwork and
 bindings while assembling and checking the first representative kits.
 
-### Stage 4 - Named tile-family GUI authoring
+### Stage 4 - GUI authoring
 
-The GUI Editor plan owns the separate graphical
-frontend, shared Editor session and `ichiloto edit` TUI/GUI choice. This section
-owns its field-map dependencies, not a second GUI implementation plan.
-
-Provide a reusable GUI editor for named tile families, visual asset/atlas
-selection, connecting brushes and reusable stamps. These graphical tools are
-for GPUI and other richer renderers, not a graphical-marker grid or numeric
-crop-editing task imposed on the TUI. Passage settings and draw priority have
-distinct controls and data responsibilities: a visual priority edit must never
-silently make a tile solid, traversable or pass-through.
-
-Concrete remaining GUI gaps are:
-
-- A graphical map canvas using the independent ground scale, with layer
-  selection, visibility, composited preview and ground/footprint/pivot guides.
-- A named tile-family resource editor with constrained resource selectors,
-  visual atlas-region selection and connection/transition previews, reusing the
-  shared asset picker and asset-root-relative references.
-- Connecting paint/erase brushes that update neighbouring joins and reusable
-  multi-cell stamps with an accurate placement preview and undoable operations.
-- Separate passage and draw-priority authoring plus overlap/depth previews,
-  without treating decoration as gameplay or duplicating collision grids.
-- Safe persistence through existing source-preserving services, validation,
-  multi-file transactions and undo, including refusal of unsupported sources
-  before writes and preservation of untouched terminal/event/artwork data.
-- Removal of the graphical-marker/crop workflow from the TUI, including the
-  decoration-marker authoring canvas and selected-cell crop form. Preserve
-  terminal glyph, colour, gameplay-layer, event, selection, clipboard and
-  terminal-stamp editing; preserve existing graphical metadata on round trips.
-
-Existing runtime crop tables do not fill these GUI gaps. The TUI boundary
-correction removes decoration-marker painting, the selected-cell crop form
-and graphical NPC sprite dialogs. Shared artwork services and authored data
-remain; the GUI replacement is separate implementation work.
+Superseded. The [graphical field plan](graphical-field.md) replaced named
+tile families with RPG Maker MZ tilesets and tileset pieces, and the GUI
+Editor plan (`gui-editor/README.md`) owns the graphical frontend, the shared
+Editor session, the `ichiloto edit` TUI/GUI choice and the remaining GUI
+authoring gaps. The graphical-marker and crop workflow is removed from the
+TUI; shared artwork services and authored data remain.
 
 ### Stage 5 - Home proof, then wider conversion
 
