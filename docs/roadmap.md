@@ -854,7 +854,9 @@ not a default for future story stations.
 
 ### Planned — graphical cues and field navigation
 
-> Status: planned, September 2026. Not implemented.
+> Status: field-effect runtime slice in local implementation, October 2026.
+> Story/route classification and Claude's source-preserving Editor handoff are
+> pending. The minimap remains planned, not implemented.
 
 - **Every terminal glyph has graphical art.** In the graphical field, a cue
   draws as a slanted exclamation mark with a border, blue or yellow, from

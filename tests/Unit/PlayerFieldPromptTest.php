@@ -1,6 +1,7 @@
 <?php
 
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
+use Ichiloto\Engine\Animations\Field\FieldEffectManager;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Rect;
@@ -52,6 +53,7 @@ final class PlayerPromptMapManager extends MapManager
     {
         return $this->destination ?? throw new RuntimeException('Missing prompt-test destination.');
     }
+    public function unloadGeometry(): void { $this->clearMapGeometry(); }
     protected function applyMapBackgroundMusic(mixed $bgm, mixed $variants = []): void {}
 }
 
@@ -167,9 +169,8 @@ afterEach(function () {
     foreach ($this->states as $class => $state) {
         foreach ($state as $key => $value) { new ReflectionProperty($class, $key)->setValue(null, $value); }
     }
-    foreach (new DirectoryIterator($this->root) as $file) {
-        if (!$file->isDot()) { unlink($file->getPathname()); }
-    }
+    $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($this->root, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
+    foreach ($files as $file) { $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname()); }
     rmdir($this->root);
 });
 
@@ -279,6 +280,41 @@ it('retires the map-owned action and prompt on real map load and transfer while 
     $frame = presentPlayerPromptFrame($this->runtime, $this->scene, $this->transport);
     expect($this->player->canAct)->toBeFalse()->and(getPlayerPromptRuns($frame))->toBe([])
         ->and($frame['worlds']['map']['glyphRows']['map:terrain'][0][0]['glyph'])->toBe('x');
+})->with([false, true]);
+
+it('retires cue layers and effects on real map load or transfer and explicit map clear', function (bool $transfer) {
+    mkdir($this->root . '/Animations/light', 0777, true);
+    $timeline = ['fps' => 5, 'lengthFrames' => 2, 'playback' => 'loop', 'tracks' => [
+        ['id' => 'light', 'type' => 'image', 'asset' => 'Hero.png', 'sheet' => ['columns' => 3, 'rows' => 4],
+            'depth' => 'behind', 'keyframes' => [['frame' => 0, 'sourceFrame' => 1], ['frame' => 1, 'sourceFrame' => 2]]]]];
+    file_put_contents($this->root . '/Animations/light/light.timeline.php', '<?php return ' . var_export($timeline, true) . ';');
+    $effects = new FieldEffectManager($this->root);
+    new ReflectionProperty(GameScene::class, 'fieldEffects')->setValue($this->scene, $effects);
+    $entry = ['id' => 'save', 'effect' => 'light', 'anchor' => ['cell' => ['x' => 2, 'y' => 3]]];
+    $effects->installMap('before', [$entry], null, []);
+    $event = new \Ichiloto\Engine\Events\Triggers\ScriptEventTrigger(new Rect(4, 4, 1, 1),
+        ['mode' => 'action'], mapId: 'before', marker: 'E', cue: ['symbol' => '!', 'color' => 'bright-yellow']);
+    $event->bind($this->scene->gameState);
+    $this->player->addTrigger($event);
+    $this->player->renderEventCues();
+    expect(array_column(Console::presentationSnapshot()->textLayers, 'id'))->toContain('event-cue:before:E');
+    $effects->setCapabilities(true, true);
+    $oldId = $effects->getSprites([], null, ['x' => 0, 'y' => 0], false)[0]->getGraphicalSpriteId();
+    $destination = createPlayerPromptMap('x');
+    $this->manager->destination = new PreparedMap(['id' => 'after', 'fieldEffects' => [$entry]],
+        $destination->tiles, $destination->collisions, [], [], layers: $destination->layers);
+    if ($transfer) {
+        expect($this->scene->transferPlayer(new Location('next-map', new Vector2(7, 9), null), false))->toBeTrue();
+    } else {
+        $this->scene->loadMap('next-map', $this->player);
+    }
+    expect(array_column(Console::presentationSnapshot()->textLayers, 'id'))->not->toContain('event-cue:before:E')
+        ->and($effects->count)->toBe(1);
+    $effects->setCapabilities(true, true);
+    expect($effects->getSprites([], null, ['x' => 0, 'y' => 0], false)[0]->getGraphicalSpriteId())
+        ->not->toBe($oldId)->toContain('after');
+    $this->manager->unloadGeometry();
+    expect($effects->count)->toBe(0);
 })->with([false, true]);
 
 it('keeps terminal prompts above the terminal glyph even when graphical artwork and zoom are configured', function (string $draw) {

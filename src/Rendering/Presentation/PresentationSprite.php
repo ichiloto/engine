@@ -25,6 +25,7 @@ final readonly class PresentationSprite
      * Sent only to a renderer that negotiated sprite_lift ({@see toArray()}).
      */
     public int $lift = 0,
+    public int $quarterTurns = 0,
   )
   {
     if ($id === '' || str_contains($id, "\0") || preg_match('//u', $id) !== 1) {
@@ -34,6 +35,9 @@ final readonly class PresentationSprite
     SpriteValidation::validateSigned32BitRange($x);
     SpriteValidation::validateSigned32BitRange($y);
     SpriteValidation::validateLift($lift, $height);
+    if ($quarterTurns < 0 || $quarterTurns > 3) {
+      throw new InvalidArgumentException('Sprite quarterTurns must be an integer from 0 to 3.');
+    }
   }
 
   /**
@@ -41,15 +45,16 @@ final readonly class PresentationSprite
    * sprite_lift, a lifted sprite names its `lift`; without, the value is the
    * unlifted placement every renderer accepts.
    *
-   * @return array{id: string, asset: string, x: int, y: int, width: int, height: int, anchor: string, layer: int, sourceRect?: array{x: int, y: int, width: int, height: int}, motion?: array{duration: float}, lift?: int}
+   * @return array{id: string, asset: string, x: int, y: int, width: int, height: int, anchor: string, layer: int, sourceRect?: array{x: int, y: int, width: int, height: int}, motion?: array{duration: float}, lift?: int, quarterTurns?: int}
    */
-  public function toArray(bool $lift = false): array
+  public function toArray(bool $lift = false, bool $quarterTurns = false): array
   {
     $data = ['id' => $this->id, 'asset' => $this->asset, 'x' => $this->x, 'y' => $this->y,
       'width' => $this->width, 'height' => $this->height, 'anchor' => $this->anchor->value, 'layer' => $this->layer];
     if ($this->sourceRect !== null) { $data['sourceRect'] = $this->sourceRect->toArray(); }
     if ($this->motion !== null) { $data['motion'] = $this->motion->toArray(); }
     if ($lift && $this->lift > 0) { $data['lift'] = $this->lift; }
+    if ($quarterTurns && $this->quarterTurns > 0) { $data['quarterTurns'] = $this->quarterTurns; }
     return $data;
   }
 
@@ -57,7 +62,7 @@ final readonly class PresentationSprite
   public function withoutMotion(): self
   {
     return $this->motion === null ? $this : new self($this->id, $this->asset, $this->x, $this->y, $this->width,
-      $this->height, $this->anchor, $this->layer, $this->sourceRect, lift: $this->lift);
+      $this->height, $this->anchor, $this->layer, $this->sourceRect, lift: $this->lift, quarterTurns: $this->quarterTurns);
   }
 
   /** @param list<PresentationSprite> $sprites @return list<PresentationSprite> */

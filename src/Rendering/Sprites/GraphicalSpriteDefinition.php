@@ -24,10 +24,14 @@ final readonly class GraphicalSpriteDefinition
     public int $layer = 0,
     public ?SpriteSourceRect $sourceRect = null,
     public int $lift = 0,
+    public int $quarterTurns = 0,
   )
   {
     SpriteValidation::validateDefinition($asset, $width, $height, $layer);
     SpriteValidation::validateLift($lift, $height);
+    if ($quarterTurns < 0 || $quarterTurns > 3) {
+      throw new InvalidArgumentException('Sprite quarterTurns must be an integer from 0 to 3.');
+    }
   }
 
   /**

@@ -2,6 +2,10 @@
 
 namespace Ichiloto\Engine\Scenes\Game;
 
+use Ichiloto\Engine\Animations\Field\FieldEffectManager;
+use Ichiloto\Engine\Rendering\Sprites\ScreenSpaceSpriteProviderInterface;
+use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
+
 
 use Ichiloto\Engine\Audio\FieldMusicCatalog;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
@@ -94,12 +98,19 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     private bool $reportedInvalidFieldZoom = false;
     /** @var array<string, PresentationTextLayer> Metadata only, never retained screen cells. */
     private array $viewportTextLayers = [];
+    protected(set) ?FieldEffectManager $fieldEffects = null;
+    /** @var list<string> Sprite identities fixed to the screen, not camera follow. */
+    private array $fieldEdgeSpriteIds = [];
 
     /** Resolve camera dimensions before any field producer draws into Console. */
     public function synchronizeFieldViewport(): void
     {
         $runtime = isset($this->sceneManager) ? $this->getGame()->getRendererRuntime() : null;
         $grid = $runtime?->grid;
+        $this->fieldEffects?->setCapabilities(
+            $runtime?->supports(RendererSessionConfig::SPRITE_SOURCE_RECT) === true
+                && $runtime->supports(RendererSessionConfig::FRAME_VIEWPORT),
+            $runtime?->supports(RendererSessionConfig::SPRITE_QUARTER_TURNS) === true);
         $requested = ConfigStore::has(ProjectConfig::class)
             ? config(ProjectConfig::class, 'graphics.field.zoom', FieldViewport::DEFAULT_ZOOM) : FieldViewport::DEFAULT_ZOOM;
         $zoom = FieldViewport::DEFAULT_ZOOM;
@@ -160,7 +171,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         // A camera that follows the player scrolls with the player's step, not after it.
         return $this->fieldViewport->createViewport(array_values($this->viewportTextLayers), $sprites, $tiles,
             $world->id, $this->camera->getWorldOrigin(), $tileFrame,
-            $this->camera->followsPlayer ? $this->player?->getGraphicalSpriteId() : null);
+            $this->camera->followsPlayer ? $this->player?->getGraphicalSpriteId() : null, $this->fieldEdgeSpriteIds);
     }
 
     public function getPresentationWorld(): ?PresentationWorld
@@ -182,6 +193,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
 
     public function getGraphicalSpriteProviders(): iterable
     {
+        $this->fieldEdgeSpriteIds = [];
         if ($this->hasGraphicalFieldPresentation()) {
             // Dialogue borrows field input; it does not replace field presentation.
             if (!($this->cinematicStage?->suppresses($this->player) ?? false)) {
@@ -191,7 +203,21 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
                 yield $actor;
             }
             yield from $this->npcManager?->getGraphicalSpriteProviders() ?? [];
+            foreach ($this->fieldEffects?->getSprites($this->getFieldObjectSpriteProviders(), $this->fieldViewport,
+                $this->camera->getWorldOrigin(), Accessibility::prefersReducedMotion()) ?? [] as $effect) {
+                if ($effect instanceof ScreenSpaceSpriteProviderInterface) {
+                    $this->fieldEdgeSpriteIds[] = $effect->getGraphicalSpriteId();
+                }
+                yield $effect;
+            }
         }
+    }
+
+    private function getFieldObjectSpriteProviders(): iterable
+    {
+        if ($this->player !== null) { yield $this->player; }
+        yield from $this->cinematicStage?->all() ?? [];
+        yield from $this->npcManager?->getGraphicalSpriteProviders() ?? [];
     }
 
 
@@ -435,6 +461,8 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         $this->cinematicStage = new CinematicStageManager($this);
         $this->cinematicController = new CinematicController($this);
         $this->cinematicPresentation = new CinematicPresentationManager($this);
+        $this->fieldEffects?->clear();
+        $this->fieldEffects = new FieldEffectManager($this->getGame()->getRendererRuntime()?->getAssetRoot() ?? getcwd() . '/assets');
         $this->eventInterpreter = new EventInterpreter($this);
         $this->hasDeferredAutoSave = false;
         $this->hasPendingAutomaticTriggerEvaluation = false;
@@ -649,6 +677,8 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         $this->player?->advanceGraphicalAnimation(max(0.0, Time::getDeltaTime()));
         $this->npcManager?->advanceGraphicalAnimation(max(0.0, Time::getDeltaTime()));
         $this->cinematicStage?->advanceGraphicalAnimation(max(0.0, Time::getDeltaTime()));
+        $this->fieldEffects?->update(max(0.0, Time::getDeltaTime()), Accessibility::prefersReducedMotion(),
+            $this->getFieldObjectSpriteProviders());
         parent::update();
         if ($this->isStopping || $this->sceneManager->currentScene !== $this) {
             return;
@@ -709,6 +739,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
             fn() => $this->eventInterpreter?->failActiveSession('Event interrupted by field shutdown.'),
             fn() => $this->cinematicStage?->clear(),
             fn() => $this->cinematicPresentation?->clear(),
+            fn() => $this->fieldEffects?->clear(),
             fn() => parent::stop(),
         ] as $cleanup) {
             try {

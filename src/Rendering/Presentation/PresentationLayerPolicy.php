@@ -13,6 +13,10 @@ final class PresentationLayerPolicy
 {
   public const TERRAIN = -100;
   public const WORLD = 0;
+  /** Ambient ground light is above map layers and below all character layers. */
+  public const FIELD_EFFECT_BEHIND = -1;
+  /** Foreground effects stay below authored above-character tiles (900..). */
+  public const FIELD_EFFECT_FRONT = 899;
   public const FIELD_PROMPT_ID = 'field-prompt';
   public const UI = 1000;
   public const NOTIFICATIONS = 2000;
@@ -46,8 +50,8 @@ final class PresentationLayerPolicy
   public static function assertWorldSprites(array $sprites): void
   {
     foreach ($sprites as $sprite) {
-      if ($sprite->layer < self::WORLD || $sprite->layer >= self::UI) {
-        throw new InvalidArgumentException('Automatic Game world sprites require layers 0..999; UI layers are reserved.');
+      if ($sprite->layer < self::FIELD_EFFECT_BEHIND || $sprite->layer >= self::UI) {
+        throw new InvalidArgumentException('Automatic Game world sprites require layers -1..999; UI layers are reserved.');
       }
     }
   }

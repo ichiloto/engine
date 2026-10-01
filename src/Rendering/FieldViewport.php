@@ -48,7 +48,7 @@ final readonly class FieldViewport
    */
   public function createViewport(array|ConsolePresentationSnapshot|ConsolePresentationChanges $text, array $sprites, array $tiles = [],
     ?string $worldId = null, array $worldOrigin = ['x' => 0, 'y' => 0], int $tileFrame = 0,
-    ?string $followSpriteId = null): PresentationViewport
+    ?string $followSpriteId = null, array $screenSpriteIds = []): PresentationViewport
   {
     if ($text instanceof ConsolePresentationSnapshot) { $text = $text->textLayers; }
     elseif ($text instanceof ConsolePresentationChanges) {
@@ -59,7 +59,7 @@ final readonly class FieldViewport
     $textLayerIds = array_values(array_map(static fn($layer) => $layer->id,
       array_filter($text, static fn($layer) => $layer->layer < PresentationLayerPolicy::UI
         || $layer->id === PresentationLayerPolicy::FIELD_PROMPT_ID)));
-    $spriteIds = array_column($sprites, 'id');
+    $spriteIds = array_values(array_diff(array_column($sprites, 'id'), $screenSpriteIds));
     $follow = $worldId !== null && $followSpriteId !== null && in_array($followSpriteId, $spriteIds, true)
       ? new PresentationViewportFollow($followSpriteId, array_values(array_intersect([PresentationLayerPolicy::FIELD_PROMPT_ID], $textLayerIds)))
       : null;

@@ -357,6 +357,8 @@ class MapManager implements CanRenderAt
     $this->gameScene->skitManager?->announceAvailableSkits();
 
     $this->camera->resetPosition($player);
+    $this->gameScene->fieldEffects?->installMap($mapId, $map['fieldEffects'] ?? null, $prepared->graphics,
+      $prepared->eventTriggers);
   }
 
   /**
@@ -780,6 +782,7 @@ class MapManager implements CanRenderAt
   protected function readSplitMapDataFromFiles(array $paths): array
   {
     $prepared = $this->prepareSplitMapDataFromFiles($paths);
+    $this->gameScene->fieldEffects?->clear();
     $this->tileMap = $prepared['tiles'];
     $this->layers = $prepared['layers'];
     $this->graphics = $prepared['graphics'];
@@ -792,6 +795,7 @@ class MapManager implements CanRenderAt
   /** Clears loaded geometry and presentation together for map preview lifecycles. */
   protected function clearMapGeometry(): void
   {
+    $this->gameScene->fieldEffects?->clear();
     $this->tileMap = [];
     $this->collisionMap = [];
     $this->layers = null;

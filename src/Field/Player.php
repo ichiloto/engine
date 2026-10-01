@@ -790,6 +790,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     // destination map. Retire the active membership and prompt together with
     // the map-owned definitions.
     foreach ($this->events as $event) {
+      Console::removeLayer('event-cue:' . ($event->mapId ?? '') . ':' . ($event->marker ?? ''));
       if ($this->eventManager->activeEvents->contains($event)) {
         $this->eventManager->activeEvents->remove($event);
       }
@@ -824,14 +825,21 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   {
     /** @var EventTrigger $event */
     foreach ($this->events as $event) {
+      $cueLayer = 'event-cue:' . ($event->mapId ?? '') . ':' . ($event->marker ?? '');
       if (! $event->shouldRenderCue()) {
+        Console::removeLayer($cueLayer);
         continue;
       }
 
-      $this->scene->camera->renderOnScreen(
+      if ($this->getGameScene()->isGraphicalFieldPresented() && $this->getGameScene()->fieldEffects?->canPresentCue($event)) {
+        Console::removeLayer($cueLayer);
+        continue;
+      }
+
+      Console::withLayer($cueLayer, fn() => $this->scene->camera->renderOnScreen(
         [$event->cue->styledSymbol()],
         $event->cue->positionFor($event->area),
-      );
+      ), PresentationLayerPolicy::WORLD);
     }
   }
 

@@ -224,9 +224,13 @@ it('queues colour-only changes transactionally and compares layer identity order
 });
 
 it('reserves UI layers only in automatic runtime composition', function () {
-  foreach ([-1, 1000, 2000] as $layer) {
+  foreach ([-2, 1000, 2000] as $layer) {
     $sprite = new PresentationSprite('x', 'x.png', 0, 0, 1, 1, layer: $layer);
     expect(new StyledPresentationFrame(0, [], [$sprite])->sprites)->toBe([$sprite]);
     expect(fn() => PresentationLayerPolicy::assertWorldSprites([$sprite]))->toThrow(InvalidArgumentException::class);
   }
+  $ground = new PresentationSprite('light', 'light.png', 0, 0, 1, 1,
+    layer: PresentationLayerPolicy::FIELD_EFFECT_BEHIND);
+  PresentationLayerPolicy::assertWorldSprites([$ground]);
+  expect($ground->layer)->toBe(-1);
 });

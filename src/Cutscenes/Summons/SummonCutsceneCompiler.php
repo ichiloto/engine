@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Cutscenes\Summons;
 
 use JsonException;
+use Ichiloto\Engine\Animations\Timelines\EffectTimelineCompiler;
 use InvalidArgumentException;
 
 /**
@@ -28,48 +29,9 @@ final class SummonCutsceneCompiler
 
     $source = $definition->toSourceArray();
     $sourceHash = sha1(json_encode($source, JSON_THROW_ON_ERROR));
-    $segments = [];
-
-    foreach ($definition->getTracks() as $track) {
-      foreach ($track->getKeyframes() as $keyframe) {
-        $segments[] = [
-          'startFrame' => $keyframe->frame,
-          'endFrame' => $keyframe->frame + $keyframe->duration - 1,
-          'layer' => $track->type,
-          'drawCommands' => [[
-            'trackId' => $track->id,
-            'position' => $keyframe->position,
-            'content' => $keyframe->content,
-            'assetId' => $keyframe->assetId,
-            'color' => $keyframe->color,
-            'visible' => $keyframe->visible,
-            'zIndex' => $keyframe->zIndex,
-            'blendMode' => $keyframe->blendMode,
-            'easing' => $keyframe->easing,
-            'payload' => $keyframe->payload,
-          ]],
-          'clearBeforeDraw' => boolval($keyframe->payload['clearBeforeDraw'] ?? false),
-        ];
-      }
-    }
-
-    usort(
-      $segments,
-      static function (array $left, array $right): int {
-        if ($left['startFrame'] !== $right['startFrame']) {
-          return $left['startFrame'] <=> $right['startFrame'];
-        }
-
-        $leftZ = intval($left['drawCommands'][0]['zIndex'] ?? 0);
-        $rightZ = intval($right['drawCommands'][0]['zIndex'] ?? 0);
-
-        if ($leftZ !== $rightZ) {
-          return $leftZ <=> $rightZ;
-        }
-
-        return strval($left['layer']) <=> strval($right['layer']);
-      },
-    );
+    $segments = (new EffectTimelineCompiler())->compileTracks(array_map(
+      static fn(SummonCutsceneTrack $track): array => $track->toArray(), $definition->getTracks(),
+    ));
 
     $cueSchedule = array_map(
       static fn(SummonCue $cue): array => $cue->toArray(),

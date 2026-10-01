@@ -106,7 +106,8 @@ final class RetainedPresentation
         }
         $this->updateText($text);
         $lift = $this->client->supports(RendererSessionConfig::SPRITE_LIFT);
-        $this->replaceValues('sprite', array_map(static fn($sprite) => $sprite->toArray($lift), PresentationSprite::orderedList($sprites)));
+        $turns = $this->client->supports(RendererSessionConfig::SPRITE_QUARTER_TURNS);
+        $this->replaceValues('sprite', array_map(static fn($sprite) => $sprite->toArray($lift, $turns), PresentationSprite::orderedList($sprites)));
         $this->setViewport($viewport?->toArray());
         return $this->flush();
     }

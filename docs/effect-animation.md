@@ -112,6 +112,67 @@ One authored format, the summon timeline generalized:
 
 ## Field effects
 
+### First Field Slice (Local Implementation, October 2026)
+
+The summon compiler and playhead now delegate to shared
+`Animations/Timelines/EffectTimelineCompiler` and `EffectPlaybackSession`.
+Summon source, cache format, Editor inspection and playback APIs remain
+compatible. This is the field subset of Phase 1 items 1 and 6 and Phase 2
+item 4, not completion of those phases.
+
+`Animations/<id>/<id>.timeline.php` returns `fps` (1..120),
+`lengthFrames`, `playback` (`once` or `loop`), optional zero-based
+`restFrame` (default 0), and a list of image `tracks`. Each track has a
+stable `id`, `type => image`, asset-root-relative PNG `asset`, optional
+`sheet => ['columns' => 8, 'rows' => 1]`, optional
+`cells => ['width' => 2, 'height' => 2]` for its visual size in 48-pixel
+field cells, `depth => behind|front`, and `keyframes`. A keyframe names its
+zero-based `frame`, optional `duration` (default 1), `sourceFrame` (row-major
+sheet index, default 0), and optional cell offset `position => ['x' => 0,
+'y' => 0]`. Image dimensions come from the current file. Overlapping
+keyframes, invalid crops and missing rest frames are rejected.
+
+A map may declare `fieldEffects` as a list of `id`, `effect` (timeline id),
+and `anchor => ['cell' => ['x' => 3, 'y' => 5]]` or
+`anchor => ['object' => '<stable field sprite id>']`. Object anchors follow
+the player's, NPC's or staged actor's presentation and end on removal.
+Installed maps own all sessions and clear them on transfer, map clear and
+shutdown. IDs remain stable across frame changes. PHP selects the frame;
+the renderer receives ordinary retained sprites with source rectangles.
+
+A non-connected tileset piece may name `effect => '<timeline id>'`. Its
+nonzero graphical tiles identify stamped instances, including repeated save
+points, independently of terminal glyphs and collision. The effect is
+bottom-centred on the footprint's last row. No nonzero graphical tiles means
+the declaration is refused; legacy glyph-only sites use explicit map effects.
+
+Behind tracks use the shared ground-effect band, characters keep their
+existing row order, and front tracks remain below above-character tile layers.
+Reduced-motion field playback holds the authored rest frame. Loops stay still;
+once effects retire after their authored lifetime. This follows Andrew's
+October field brief and does not change summons' final-frame policy.
+Missing art or capabilities keep the
+original terminal glyph or static tile and log a diagnostic, not a gameplay
+failure.
+
+`Data/Presentation/field.php` owns `cues`, keyed by terminal color, each with
+an `effect` id and optional `edges` keyed by eight compass directions.
+Each edge names an asset-relative PNG and optional clockwise `quarterTurns`
+(0..3). These pinned sprites are excluded from camera follow. Quarter-turn
+support is an optional renderer drawing capability, not a native effect clock.
+An event's explicit `cue.kind` is `story` or `route`. Only story cues produce
+edge arrows; omitted kinds remain unclassified, physical-only, pending author
+review. Color never implies kind. Existing cue conditions and terminal styling
+remain authoritative and unchanged.
+
+Deferred in this plan: migrating cell-frame and battle-entry animations,
+battle image-track adapters and summon-image rendering, field glyph/text/flash/
+shake tracks and timeline cues, cinematic `field_animation` migration,
+connected-piece effects, fractional layer offsets for piece effect anchors,
+and the general timeline authoring/preview surface. Claude owns source-preserving
+Editor cue-kind, map-effect, piece-effect and binding authoring/validation;
+that handoff is pending and this runtime slice is not authoring completion.
+
 The field is a consumer of the same timelines, not a separate effect system.
 Effects there either play once, as a cinematic's `field_animation` does
 today, or live with the map:
@@ -136,9 +197,10 @@ today, or live with the map:
   terminal presentation; its timeline may add glyph or colour tracks, such
   as a flickering torch colour, but need not. Like decoration layers,
   graphical effects never change collision, events or saves.
-- **Reduced motion**: a looping effect shows its rest frame (its first
-  unless authored otherwise) without motion; a once effect follows the
-  existing rule (final frame, every cue, no motion).
+- **Reduced motion**: both looping and once field effects show their rest
+  frame (the first unless authored otherwise) without motion. Once effects
+  retire after their authored lifetime. Summons keep their existing final-frame
+  policy; the field policy follows Andrew's October field-effects brief.
 - **Boundaries**: terrain that animates per tile (RPG Maker's A1 water and
   waterfalls) stays tile animation on `TileAnimation`'s counter, cheap
   across whole maps; objects and magical or lighting effects are field

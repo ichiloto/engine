@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Rendering\Tilesets;
 
 use Ichiloto\Engine\Field\MapTileLayer;
+use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use InvalidArgumentException;
 
@@ -23,7 +24,7 @@ use InvalidArgumentException;
  */
 final readonly class TilesetPiece
 {
-  public const array FIELDS = ['name', 'layer', 'glyphs', 'tiles', 'connects'];
+  public const array FIELDS = ['name', 'layer', 'glyphs', 'tiles', 'connects', 'effect'];
   /** Cells join the cells beside them across and down, like a wall or fence. */
   public const string LINES = 'lines';
   /** A line cell's shapes: joined only across, only down, or both ways (corners, junctions and lone posts). */
@@ -50,6 +51,7 @@ final readonly class TilesetPiece
     public ?string $connects = null,
     public array $shapes = [],
     public array $shapeTiles = [],
+    public ?string $effect = null,
   ) {
     $this->height = count($glyphs);
     $this->width = count($glyphs[0] ?? []);
@@ -78,6 +80,12 @@ final readonly class TilesetPiece
       throw new InvalidArgumentException("{$context} needs the name of the gameplay layer its glyphs go on.");
     }
     $connects = $data['connects'] ?? null;
+    $effect = $data['effect'] ?? null;
+    if (array_key_exists('effect', $data)) {
+      if (!is_string($effect)) { throw new InvalidArgumentException("{$context} effect must name an effect timeline."); }
+      EffectTimelineLibrary::assertId($effect);
+      if ($connects !== null) { throw new InvalidArgumentException("{$context} connected pieces do not declare effects yet."); }
+    }
     if ($connects !== null && $connects !== self::LINES) {
       throw new InvalidArgumentException("{$context} connects must be '" . self::LINES . "'.");
     }
@@ -121,7 +129,11 @@ final readonly class TilesetPiece
       }
       $tiles[$layer] = $cells;
     }
-    return new self($id, $data['name'], $data['layer'], $glyphs, $tiles);
+    if ($effect !== null && ($tiles === [] || !array_any($tiles, static fn(array $rows): bool => array_any($rows,
+      static fn(array $row): bool => array_any($row, static fn(string $tile): bool => $tile !== '0'))))) {
+      throw new InvalidArgumentException("{$context} effect needs graphical tiles to identify its stamped instances.");
+    }
+    return new self($id, $data['name'], $data['layer'], $glyphs, $tiles, effect: $effect);
   }
 
   /** @param array<array-key, mixed> $data @param array<array-key, mixed> $layers */

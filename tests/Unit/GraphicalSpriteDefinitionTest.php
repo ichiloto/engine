@@ -9,11 +9,23 @@ it('holds only immutable sprite intent without reading assets or storing coordin
   expect(get_object_vars($definition))->toBe([
     'asset' => 'nonexistent/Hero.png', 'width' => 32, 'height' => 48,
     'anchor' => PresentationSpriteAnchor::BOTTOM_CENTER, 'layer' => 100, 'sourceRect' => null,
-    'lift' => 0,
+    'lift' => 0, 'quarterTurns' => 0,
   ]);
   foreach (get_object_vars($definition) as $property => $value) {
     expect(function () use ($definition, $property, $value) { $definition->$property = $value; })
       ->toThrow(Error::class);
+  }
+});
+
+it('validates optional quarter turns without changing unrotated sprite defaults', function () {
+  foreach (range(0, 3) as $turns) {
+    expect(new GraphicalSpriteDefinition('Arrow.png', 48, 48, quarterTurns: $turns)->quarterTurns)->toBe($turns);
+  }
+  foreach ([-1, 4] as $turns) {
+    expect(fn() => new GraphicalSpriteDefinition('Arrow.png', 48, 48, quarterTurns: $turns))
+      ->toThrow(InvalidArgumentException::class)
+      ->and(fn() => new PresentationSprite('edge', 'Arrow.png', 0, 0, 48, 48, quarterTurns: $turns))
+      ->toThrow(InvalidArgumentException::class);
   }
 });
 

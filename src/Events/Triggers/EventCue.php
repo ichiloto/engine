@@ -17,6 +17,8 @@ use Symfony\Component\Console\Formatter\OutputFormatterStyle;
  */
 final readonly class EventCue
 {
+  /** Null preserves older unclassified cues without inventing a story decision. */
+  public ?EventCueKind $kind;
   /**
    * @param array<int, array<string, mixed>> $conditions Optional world-state
    * conditions controlling presentation independently of trigger availability.
@@ -25,8 +27,13 @@ final readonly class EventCue
     public string $symbol = '!',
     public string $color = 'bright-yellow',
     public array $conditions = [],
+    ?string $kind = null,
   )
   {
+    $this->kind = $kind === null ? null : EventCueKind::tryFrom($kind);
+    if ($kind !== null && $this->kind === null) {
+      throw new InvalidArgumentException('Event cue kind must be story or route.');
+    }
     if (TerminalText::symbolCount($this->symbol) !== 1 || TerminalText::displayWidth($this->symbol) !== 1) {
       throw new InvalidArgumentException('Event cue symbols must occupy exactly one terminal cell.');
     }
@@ -44,11 +51,21 @@ final readonly class EventCue
     }
   }
 
-  /** @param array{symbol?: mixed, color?: mixed, conditions?: mixed}|null $data */
+  /** @param array{symbol?: mixed, color?: mixed, conditions?: mixed, kind?: mixed}|null $data */
   public static function fromArray(?array $data): ?self
   {
     if ($data === null) {
       return null;
+    }
+
+    if (isset($data['kind']) && !is_string($data['kind'])) {
+      throw new InvalidArgumentException('Event cue kind must be story or route.');
+    }
+    if (array_key_exists('kind', $data) && $data['kind'] === null) {
+      throw new InvalidArgumentException('An authored event cue kind must be story or route.');
+    }
+    if (isset($data['kind']) && EventCueKind::tryFrom($data['kind']) === null) {
+      throw new InvalidArgumentException('Event cue kind must be story or route.');
     }
 
     $symbol = trim(strval($data['symbol'] ?? ''));
@@ -60,6 +77,7 @@ final readonly class EventCue
       $symbol,
       trim(strval($data['color'] ?? 'bright-yellow')),
       array_values(array_filter((array) ($data['conditions'] ?? []), 'is_array')),
+      $data['kind'] ?? null,
     );
   }
 
