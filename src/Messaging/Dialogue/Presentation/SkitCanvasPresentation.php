@@ -57,7 +57,8 @@ final class SkitCanvasPresentation
         $count = count($participants);
         $slotWidth = ($view->width - 80) / max(1, $count);
         $stageTop = $title->y + $title->height + 12;
-        $stageBottom = $dialogue->y;
+        // Share one painted edge with the foreground panel instead of exposing a raster seam.
+        $stageBottom = $dialogue->y + 1;
         foreach ($participants as $index => $participant) {
             $id = $participant['actorId'];
             $asset = $catalogue->getArtwork($id, $participant['emotion'], 'bust');

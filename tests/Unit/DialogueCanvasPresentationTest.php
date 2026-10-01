@@ -190,11 +190,31 @@ it('stages borderless busts with contextual backgrounds and removes redundant ca
     $inactive = array_find($canvas->images, fn($image) => $image->id === 'skit-bust-1');
     expect($inactive->brightness)->toBe(0.60)->and($inactive->opacity)->toBe(1.0)
         ->and($inactive->destination->height / $bust->destination->height)->toEqualWithDelta(0.92, 0.000001);
+    $panel = array_find($canvas->images, fn($image) => $image->id === 'dialogue-body-0-1');
+    foreach ([$bust, $inactive] as $image) {
+        expect($image->destination->y + $image->destination->height)
+            ->toEqualWithDelta($panel->destination->y + 1, 0.000001);
+    }
     expect(array_column($canvas->textLayers, 'id'))->toContain('skit-title', 'skit-location');
     expect(array_any($canvas->textLayers, fn($layer) => preg_match('/^skit-(name|participant|active)-/', $layer->id) === 1))->toBeFalse();
     $speaker = array_find($canvas->textLayers, fn($layer) => $layer->id === 'dialogue-speaker');
     expect($speaker->runs[0]->text)->toBe('Hero');
 })->with([[1280, 720], [800, 480]]);
+
+it('joins busts to an unskinned dialogue panel without changing source artwork', function () {
+    $base = getDialogueTestCatalog($this->root);
+    $catalogue = new DialoguePresentationCatalog($base->actors,
+        new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1']), skits: $base->skits);
+    $context = new DialogueContext('hero', skitId: 'sample', participants: [
+        ['actorId' => 'hero', 'name' => 'Hero', 'emotion' => 'Neutral'],
+    ]);
+    $canvas = DialogueCanvasPresentation::compose(getDialogueTestLine('Hero', $context), $catalogue);
+    $bust = array_find($canvas->images, fn($image) => $image->id === 'skit-bust-0');
+    $panel = array_find($canvas->textLayers, fn($layer) => $layer->id === 'dialogue-body');
+    expect($bust->destination->y + $bust->destination->height)->toEqualWithDelta($panel->y + 1, 0.000001)
+        ->and($bust->sourceRect)->toBeNull()->and($bust->clipRect)->toBeNull()
+        ->and($bust->layer)->toBeLessThan($panel->layer);
+});
 
 it('changes active bust emphasis without moving centres baselines or assets', function (int $width, int $height) {
     $catalogue = getDialogueTestCatalog($this->root);

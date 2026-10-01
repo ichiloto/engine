@@ -135,6 +135,10 @@ brightness and contain-fit size. Inactive busts default to 92% of that size and
 centre. This is dimming, not translucency. Games may configure `skitStage`:
 `inactiveScale` is finite in 0.5..1; `inactiveBrightness` is finite in 0..1.
 The size difference provides a non-colour emphasis cue without extra labels.
+The shared baseline meets the dialogue panel, with one logical pixel of overlap
+behind its foreground border to avoid a raster seam. Active and inactive busts
+use that same edge; the composer does not crop, mask or scan their painted content.
+Source artwork must not carry empty rows beneath its intended lower cut.
 Protocol-2 `canvas_image_tone` negotiates opaque-preserving image brightness;
 older graphical renderers keep scaling without dimming and report that limitation.
 Larger casts use stable groups of three containing the active speaker rather
@@ -171,18 +175,32 @@ bust lower cuts are not repaired by renderer masks or crops; Art's rejected stri
 edits left the canonical images unchanged. The coordinator's initial choice of
 Kaelion's flat cut as the reference was an inference, not an accepted direction.
 After that was corrected, Andrew explicitly selected straight edges on October 1:
-"Proceed with the straight edges". Art is correcting the sources, preserving
+"Proceed with the straight edges". Art corrected the sources, preserving
 lower costume details, expressions and identity, rather than cropping them away
 or adding renderer masks. Neither cut shape is a renderer requirement. The
-completed source set returns through the coordinator before live replacement.
+completed source set returned through the coordinator before live replacement.
 
 On October 1 Andrew approved carrying the shown Liora costume correction across
 her menu portrait and eight dialogue expressions, without optional refinements.
-The costume-only set has returned to the coordinator and its nine live originals
-remain unchanged. Its corrected dialogue portraits are the bases for the newly
-authorized straight-edge correction; battle artwork is not changed. The stage
-contains the complete current sources and does not claim the source replacements
-are finished.
+The approved source corrections have now been installed in the normal Game
+checkout: 35 dialogue images plus Liora's menu portrait. Liora's eight corrected
+dialogue costumes are also the bases for her straight-edge sources; battle
+artwork is unchanged. One focused Seraphis Neutral correction preserved the
+original head tilt and expression before integration. All originals and raw
+proposals remain together in the existing shared comparison package, with the
+pre-integration files under `Before-integration`; there is no second runtime
+asset tree. Copy receipts are historical provenance, not permanent artwork gates.
+Game's dialogue, skit identity and main-menu checks passed 101 tests and 10,827
+assertions on both PHP 8.4.21 and 8.5.10 after installation. Current-file decode,
+contain-fit and memory checks also passed without freezing image bytes or sizes.
+The final Engine run passed 3,498 tests with 54,515 assertions and one existing
+skip, using CI's 1 GiB PHP memory limit; static analysis was clean. The focused
+dialogue run passed 78 tests with 814 assertions, including skinned and unskinned
+panel-edge attachment at desktop and compact sizes.
+The final macOS renderer-only runs acknowledged the installed sources and
+closed cleanly. The attempted new native screenshot capture timed out; these
+acknowledgements do not constitute a new pixel review. Earlier native pixel
+checks and the platform limitations above remain the visual evidence.
 
 ## The model
 
