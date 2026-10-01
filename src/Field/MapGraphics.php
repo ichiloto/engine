@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Field;
 
+use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\Rendering\Tilesets\TileId;
 use Ichiloto\Engine\Rendering\Tilesets\Tileset;
 use InvalidArgumentException;
 
@@ -143,6 +145,47 @@ final readonly class MapGraphics
             $owners[$name] = $named[$name] ?? (in_array($written, $gameplayNames, true) ? $written : null);
         }
         return $owners;
+    }
+
+    /**
+     * The cells whose terminal glyph the graphical field shows, by its glyph
+     * fallback rule: a cell shows the glyph of the gameplay layer that owns
+     * it unless a tile in that cell covers that layer, a tile of a tile layer
+     * that belongs to that gameplay layer or to none. A tile whose sheet the
+     * tileset cannot draw covers nothing, and a tile beside a cell never
+     * covers it, even with an offset. Renderers apply the same rule; tools
+     * use this to find glyphs that have no graphics yet.
+     *
+     * @return list<array{x: int, y: int, glyph: string, layer: string}> In row order, without blank cells.
+     */
+    public function getShownGlyphCells(MapLayerSet $layers, string $assetRoot): array
+    {
+        $usable = $this->tileset->getUsableSheets($assetRoot)['sheets'] ?? [];
+        $covers = [];
+        foreach ($this->layers as $layer) {
+            $owner = $this->owners[$layer->name] ?? null;
+            foreach ($layer->tiles as $y => $row) {
+                foreach ($row as $x => $tileId) {
+                    if ($tileId !== TileId::EMPTY && isset($usable[TileId::getSheet($tileId)?->value ?? ''])) {
+                        $covers[$y][$x][$owner ?? ''] = true;
+                    }
+                }
+            }
+        }
+        $shown = [];
+        foreach ($layers->getComposedGrid() as $y => $cells) {
+            foreach ($cells as $x => $cell) {
+                $glyph = TerminalText::stripAnsi($cell);
+                if (trim($glyph) === '') {
+                    continue;
+                }
+                $owner = $layers->getGameplayLayerAt($x, $y)->name;
+                if (!isset($covers[$y][$x][$owner]) && !isset($covers[$y][$x][''])) {
+                    $shown[] = ['x' => $x, 'y' => $y, 'glyph' => $glyph, 'layer' => $owner];
+                }
+            }
+        }
+        return $shown;
     }
 
     /**

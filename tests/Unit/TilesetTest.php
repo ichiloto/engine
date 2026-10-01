@@ -337,6 +337,35 @@ it('names the gameplay layer each tile layer covers only for renderers that nego
     expect(array_column($covers($put), 1, 0)['tiles:furniture'])->toBe($expected);
   }
 });
+it('finds the glyphs the graphical field still shows, by the layer each tile covers', function () {
+  $pieces = var_export([
+    'bed' => ['name' => 'Bed', 'layer' => 'fixtures', 'glyphs' => ['='], 'tiles' => ['furniture' => ['5']]],
+  ], true);
+  writeTilesetProject($this->root, extra: ", 'pieces' => {$pieces}");
+  $map = $this->root . '/Maps/home';
+  mkdir($map . '/graphics', 0777, true);
+  // The floor belongs to terrain; furniture to fixtures; the rug layer to
+  // none, so it covers any glyph. Its C tile names a sheet the tileset lacks.
+  file_put_contents($map . '/graphics/01.floor.tiles.php', MapGridSource::buildSource('2816 2816 2816 2816 0', 'TILES'));
+  file_put_contents($map . '/graphics/02.furniture.tiles.php', MapGridSource::buildSource('0 5 0 0 0', 'TILES'));
+  file_put_contents($map . '/graphics/03.rug.tiles.php', MapGridSource::buildSource('0 0 1 260 0', 'TILES'));
+  $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', '.... '),
+    new MapLayer('fixtures', 2, false, 'fixtures', '=====')]);
+  $graphics = MapGraphics::loadFromDirectory($map, 'home', 'home', $layers, $this->root, ['floor' => ['movesWith' => 'terrain']]);
+  $root = $this->root;
+  $cells = static fn(MapGraphics $graphics): array => array_map(static fn(array $cell): string =>
+    "{$cell['x']}:{$cell['glyph']}:{$cell['layer']}", $graphics->getShownGlyphCells($layers, $root));
+
+  // Cell 0: the terrain floor never covers the fixture above it. Cell 1: the
+  // bed covers it. Cell 2: the rug belongs to no layer, so covers it. Cell 3:
+  // the rug's tile has no sheet to draw from. Cell 4: nothing drawn at all.
+  expect($cells($graphics))->toBe(['0:=:fixtures', '3:=:fixtures', '4:=:fixtures'])
+    // Without tiles, every glyph shows; a blank cell is no glyph.
+    ->and($cells(new MapGraphics($graphics->tileset, [])))->toBe(['0:=:fixtures', '1:=:fixtures', '2:=:fixtures', '3:=:fixtures', '4:=:fixtures'])
+    ->and(new MapGraphics($graphics->tileset, [])->getShownGlyphCells(new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', ' .')]), $this->root))
+    ->toBe([['x' => 1, 'y' => 0, 'glyph' => '.', 'layer' => 'terrain']]);
+});
+
 it('reads whole pieces from the tileset with glyphs and tiles over one footprint', function () {
   $tileset = Tileset::fromArray('home', ['name' => 'Home', 'sheets' => ['B' => 'Graphics/Tilesets/B.png'], 'pieces' => [
     'bed' => ['name' => 'Bed', 'layer' => 'fixtures', 'glyphs' => ['=', '='], 'tiles' => ['furniture' => ['32', '40']]],

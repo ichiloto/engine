@@ -188,6 +188,8 @@ editing surface is owned by the GUI Editor plan. Related docs:
   yet, while the fixture's own tile hides it. Renderers that do not
   advertise `tile_covers` never learn which layer a tile layer belongs to,
   and there every tile hides the glyph of its cell.
+  `MapGraphics::getShownGlyphCells()` answers this rule for a whole map, so
+  authoring tools can report the glyphs that have no graphics yet.
 - **Animation.** A1 water cycles RPG Maker's frames (water 0, 1, 2, 1;
   waterfalls 0, 1, 2) on one counter advancing every 30/60 seconds, as
   RPG Maker does. Reduced motion holds the first frame.
