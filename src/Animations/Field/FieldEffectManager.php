@@ -154,16 +154,16 @@ final class FieldEffectManager
         && ($edge = FieldCueEdgePlacement::locate($position, $origin, $viewport)) !== null) {
         $image = $this->catalog->cues[$cue->cue->color]['edges'][$edge['direction']] ?? null;
         if ($image === null) {
-          $this->note('edge:' . $cue->cue->color, 'A story cue has no authored directional edge image.');
+          $this->note('edge:' . $cue->cue->color, 'A story cue has no directional edge image; its cue art remains at its cell.');
         } elseif (($image['quarterTurns'] ?? 0) > 0 && !$this->turnsSupported) {
-          $this->note('turns', 'This renderer cannot rotate field edge images; original cue glyphs remain at their cells.');
+          $this->note('turns', 'This renderer cannot rotate field edge images; cue art remains at its cell.');
         } else {
           $size = (int)round(FieldViewport::TILE_SIZE * $viewport->zoom);
           $sprites[] = new FieldEdgeSprite($session->id . ':edge', new GraphicalSpriteDefinition($image['asset'], $size, $size,
             PresentationSpriteAnchor::BOTTOM_CENTER, PresentationLayerPolicy::FIELD_EFFECT_FRONT,
             quarterTurns: $image['quarterTurns'] ?? 0), $edge['position']);
+          continue;
         }
-        continue;
       }
       array_push($sprites, ...$session->getSprites($position, $reducedMotion, $object?->getGraphicalSpriteMotion()));
     }

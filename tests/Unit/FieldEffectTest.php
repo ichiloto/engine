@@ -247,6 +247,24 @@ it('places straight and diagonal edge images in all eight directions', function 
 })->with([[100, 7, 'east'], [100, 100, 'southeast'], [13, 100, 'south'], [-100, 100, 'southwest'],
   [-100, 7, 'west'], [-100, -100, 'northwest'], [13, -100, 'north'], [100, -100, 'northeast']]);
 
+it('retains cell cue artwork when an edge image is missing or its rotation is unsupported', function (bool $missing) {
+  if ($missing) {
+    file_put_contents($this->root . '/Data/Presentation/field.php', '<?php return ' . var_export([
+      'cues' => ['bright-yellow' => ['effect' => 'energy', 'edges' => []]],
+    ], true) . ';');
+  }
+  $manager = new FieldEffectManager($this->root);
+  $manager->setCapabilities(true, false);
+  $cue = createFieldCue('story', 0, 7);
+  $manager->installMap('map', [], null, [$cue]);
+  $view = new FieldViewport(new RendererGridConfig(135, 36, 10, 20));
+  $sprites = $manager->getSprites([], $view, ['x' => 100, 'y' => 0], false);
+  expect($manager->canPresentCue($cue))->toBeTrue()->and($sprites)->toHaveCount(2)
+    ->and($sprites[0])->not->toBeInstanceOf(FieldEdgeSprite::class)
+    ->and($sprites[0]->getGraphicalSpriteWorldPosition())->toEqual(new Vector2(0, 7))
+    ->and(file_get_contents($this->root . '/warning.log'))->toContain('cue art remains at its cell');
+})->with([false, true]);
+
 it('keeps glyphs and static tiles usable when effect art or renderer capabilities are absent', function () {
   $manager = new FieldEffectManager($this->root);
   $cue = createFieldCue();

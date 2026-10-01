@@ -164,6 +164,8 @@ An event's explicit `cue.kind` is `story` or `route`. Only story cues produce
 edge arrows; omitted kinds remain unclassified, physical-only, pending author
 review. Color never implies kind. Existing cue conditions and terminal styling
 remain authoritative and unchanged.
+Unavailable edge images or quarter-turn support retain the cell's cue artwork
+and log a note; they do not suppress an otherwise usable cue effect.
 
 Deferred in this plan: migrating cell-frame and battle-entry animations,
 battle image-track adapters and summon-image rendering, field glyph/text/flash/
