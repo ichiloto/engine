@@ -865,6 +865,9 @@ not a default for future story stations.
   Only story cues do this; route cues show where they stand.
 - **Minimap.** A minimap overlay replaces the coordinate HUD in the graphical
   field, built from the same map, cue and NPC state the field draws.
+- **Built on field effects.** Cues are map-owned effects of the unified
+  effect timeline ([effect animation](effect-animation.md#field-effects)),
+  alongside the walk-on save point's energy, not a cue-specific animation.
 
 ## Production-hardening extension — scenario field music
 

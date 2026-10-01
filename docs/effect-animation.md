@@ -98,12 +98,56 @@ One authored format, the summon timeline generalized:
   positions, or GPUI arena slot geometry). This fixes resolution dependence
   for both presentations at once. Existing absolute summon timelines keep
   playing through a compatibility anchor (`screen` at the legacy offset)
-  until migrated.
+  until migrated. On the field, `cell` (a map cell) and `object` (a field
+  character or object, followed as it moves) are anchors too; see
+  [Field effects](#field-effects).
+- **Playback**: `once` (cue-driven; the session ends after its last frame)
+  or `loop` (an ambient effect that repeats until its owner ends it). Both
+  are the same session; looping is a mode, not a second runtime.
 - **Cues**: the existing vocabulary (`applyEffect`, `playSound`,
   `showMessage`, `flash`, `shake`), all honored at runtime.
 - **References, not names**: skills, items and (later) states carry an
   explicit animation id, selected in the editor through a reference picker,
   never typed. Name-matching remains only as a deprecation-period fallback.
+
+## Field effects
+
+The field is a consumer of the same timelines, not a separate effect system.
+Effects there either play once, as a cinematic's `field_animation` does
+today, or live with the map:
+
+- **Map-owned ambient effects**: a save point's energy, torch and brazier
+  flames, water sparkle, magic circles, and the planned graphical cues (the
+  blue and yellow `!` markers and their screen-edge arrows, see the roadmap's
+  graphical cues entry). They are declared in map data at a cell, or by a
+  tileset piece, so stamping a save point piece brings its effect with it.
+  They start when the map is shown and end with it: a transfer, a map clear
+  or shutdown removes them, as layered geometry is cleared today.
+- **Object-attached effects**: an aura, glow or status effect anchored to a
+  field character or object, following it as it moves and ending when it
+  leaves or is removed.
+- **Depth around characters**: each image track draws either behind the
+  characters on the effect's cell (a light pool, a rune ring) or in front of
+  them (rising motes, sparks), through the existing presentation layer
+  policy. A character standing in an effect is drawn between its two
+  layers.
+- **Terminal truth**: an ambient effect decorates a glyph the map already
+  shows (the save point's `?`, a torch's glyph), so that glyph is its
+  terminal presentation; its timeline may add glyph or colour tracks, such
+  as a flickering torch colour, but need not. Like decoration layers,
+  graphical effects never change collision, events or saves.
+- **Reduced motion**: a looping effect shows its rest frame (its first
+  unless authored otherwise) without motion; a once effect follows the
+  existing rule (final frame, every cue, no motion).
+- **Boundaries**: terrain that animates per tile (RPG Maker's A1 water and
+  waterfalls) stays tile animation on `TileAnimation`'s counter, cheap
+  across whole maps; objects and magical or lighting effects are field
+  effects. Character and object sheets animate through the character walk
+  animation (including standing in place), not effect timelines.
+- **One slot becomes many**: the field presentation manager's single
+  animation slot gives way to any number of sessions, each with a stable
+  entity identity, so a cinematic's effect and a map's ambient effects play
+  together.
 
 ## Battle command presentation sequence
 
@@ -256,6 +300,10 @@ prevents the item's or skill's gameplay effect.
 5. Migrate `assets/Data/Animations/explosion01/` (currently orphaned): each
    of its text files is one frame, becoming one glyph-track keyframe of a
    timeline.
+6. Run the session on the field too: cinematic `field_animation` plays
+   through it, and maps start and end their ambient effects (declared at
+   cells or by tileset pieces) with the map, with `loop` playback and the
+   `cell` and `object` anchors.
 
 ### Phase 2 - GPUI parity (feeds gates G2/G3)
 
@@ -275,6 +323,9 @@ prevents the item's or skill's gameplay effect.
    and GPUI through the same session with two presenters.
 3. Summons render graphically through the identical path - G3 is then a
    content and acceptance gate, not new machinery.
+4. Field effects present through the same adapter as sprites in the field's
+   retained world, behind or in front of characters by track, starting with
+   the walk-on save point and the graphical cues.
 
 ### Phase 3 - Authoring in the editor
 
@@ -338,3 +389,9 @@ this plan's Phases 1-4 follow it.
 - The G2 and G3 roadmap gates take this plan as their scoped brief.
 - `explosion01` migrates into the timeline library: each text file is one
   frame.
+- Field effects are timelines anchored to cells or objects, never a second
+  animation system: map-owned ambient effects loop with the map, object
+  effects follow their owner, and each image track draws behind or in front
+  of characters.
+- Per-tile terrain animation (A1) stays on the tile animation counter;
+  character and object sheets animate through the character walk animation.
