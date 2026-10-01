@@ -161,21 +161,28 @@ binding, with no preview override. Game's focused checks cover every beat of bot
 skits at 1280x720 and 800x480, including the real background and produced cast art.
 Linux, Windows, mobile and full interactive native-game playback were not
 exercised by this fixture pass.
+Final post-integration renderer-only runs on macOS acknowledged the bound skit
+at 1280x720 and portrait dialogue and a different active skit speaker at 800x480,
+then shut down cleanly. These runs verify presentation acceptance and process
+cleanup, not an additional pixel review or interactive gameplay coverage.
 
 Source-art acceptance remains separate from runtime composition. The inconsistent
 bust lower cuts are not repaired by renderer masks or crops; Art's rejected strip
-edits left the canonical images unchanged. Andrew requested consistent source
-cuts but did not select straight rather than curved edges. The coordinator's
-choice of Kaelion's flat cut as the reference was an inference, not an accepted
-direction; further lower-cut work is on hold while that direction is discussed.
-Neither cut shape is a renderer requirement.
+edits left the canonical images unchanged. The coordinator's initial choice of
+Kaelion's flat cut as the reference was an inference, not an accepted direction.
+After that was corrected, Andrew explicitly selected straight edges on October 1:
+"Proceed with the straight edges". Art is correcting the sources, preserving
+lower costume details, expressions and identity, rather than cropping them away
+or adding renderer masks. Neither cut shape is a renderer requirement. The
+completed source set returns through the coordinator before live replacement.
 
 On October 1 Andrew approved carrying the shown Liora costume correction across
 her menu portrait and eight dialogue expressions, without optional refinements.
-The completed set returns through the coordinator before live replacement; her
-existing lower cuts and battle artwork remain unchanged. The stage contains the
-complete current sources and does not claim these artwork corrections are
-finished.
+The costume-only set has returned to the coordinator and its nine live originals
+remain unchanged. Its corrected dialogue portraits are the bases for the newly
+authorized straight-edge correction; battle artwork is not changed. The stage
+contains the complete current sources and does not claim the source replacements
+are finished.
 
 ## The model
 
