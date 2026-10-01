@@ -164,9 +164,18 @@ exercised by this fixture pass.
 
 Source-art acceptance remains separate from runtime composition. The inconsistent
 bust lower cuts are not repaired by renderer masks or crops; Art's rejected strip
-edits left the canonical images unchanged. Liora's costume correction is also a
-review proposal, not a delivered replacement. The stage contains the complete
-current sources and does not claim these artwork corrections are finished.
+edits left the canonical images unchanged. Andrew requested consistent source
+cuts but did not select straight rather than curved edges. The coordinator's
+choice of Kaelion's flat cut as the reference was an inference, not an accepted
+direction; further lower-cut work is on hold while that direction is discussed.
+Neither cut shape is a renderer requirement.
+
+On October 1 Andrew approved carrying the shown Liora costume correction across
+her menu portrait and eight dialogue expressions, without optional refinements.
+The completed set returns through the coordinator before live replacement; her
+existing lower cuts and battle artwork remain unchanged. The stage contains the
+complete current sources and does not claim these artwork corrections are
+finished.
 
 ## The model
 
