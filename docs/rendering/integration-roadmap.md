@@ -12,7 +12,7 @@ and remaining engineering work, not release status.
 | G2 | Animated battlers and combat effects | Planned in [effect animation](../effect-animation.md), Phases 0-2. First battle slice after current field integration: [command poses, effects, reactions and return to formation](../effect-animation.md#battle-command-presentation-sequence). Static images do not complete this work. |
 | G3 | Graphical summon presentation | Planned through the same effect session, with terminal parity and outcome-timing checks. |
 | G4 | Field actors, objects and environment | Partial; needs complete asset-role coverage, [field-map corrections and GUI authoring](../layered-tilemaps.md#graphical-correction-roadmap), and [stateful input](#controller-ready-input-and-normalized-movement). |
-| G5 | Game-wide interface coverage | Shared adapters described below are implemented; complete screen coverage and Editor authoring remain outstanding. |
+| G5 | Game-wide interface coverage | Shared adapters and [safe graphical notifications](../notifications.md) are implemented; complete screen coverage and Editor authoring remain outstanding. |
 | G6 | Packaging and supported platforms | Console checks source-development renderer updates before normal play without building. Installation through the verified installer requires an explicit update choice or `renderer:update`. Prebuilt player distribution, installation dependencies and platform-specific validation remain unfinished. Native Windows also needs compatible process transport. |
 
 Headless PHP checks and macOS rendering checks do not establish Linux/WSLg or

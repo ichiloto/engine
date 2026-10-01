@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\UI\Presentation;
 
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
+use Ichiloto\Engine\Messaging\Notifications\Presentation\NotificationTheme;
 use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use InvalidArgumentException;
@@ -33,16 +34,20 @@ final readonly class MenuPresentationCatalog
   /** @var array<string, string> Stable actor IDs to relative PNG paths. */
   public array $portraits;
   public bool $showInputHints;
+  public NotificationTheme $notifications;
 
   public function __construct(public string $assetRoot, array $data)
   {
-    self::keys($data, ['schema', 'colors', 'metrics', 'rowMetrics', 'rowArtwork', 'frames', 'icons', 'cursor', 'portraits', 'showInputHints']);
+    self::keys($data, ['schema', 'colors', 'metrics', 'rowMetrics', 'rowArtwork', 'frames', 'icons', 'cursor', 'portraits', 'showInputHints', 'notifications']);
     if (($data['schema'] ?? null) !== 'ichiloto.menu/1') {
       throw new InvalidArgumentException('Menu catalog requires schema ichiloto.menu/1.');
     }
     $showInputHints = $data['showInputHints'] ?? true;
     if (!is_bool($showInputHints)) { throw new InvalidArgumentException('Menu showInputHints must be a boolean.'); }
     $this->showInputHints = $showInputHints;
+    $notificationData = self::map($data, 'notifications');
+    self::keys($notificationData, ['width', 'maxWidth', 'margin', 'padding', 'iconSize', 'iconGap', 'textGap', 'maxHeightRatio', 'colors']);
+    $this->notifications = new NotificationTheme(...$notificationData);
     $colors = self::map($data, 'colors');
     self::keys($colors, array_keys(self::DEFAULT_COLORS));
     $palette = [];

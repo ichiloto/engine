@@ -200,7 +200,8 @@ class FieldState extends GameSceneState
                     NotificationChannel::SYSTEM,
                     'Quick saved',
                     $scene->party?->location?->name ?? '',
-                    NotificationDuration::SHORT
+                    NotificationDuration::SHORT,
+                    presentationRole: 'save'
                 );
             } catch (\Throwable $exception) {
                 Debug::warn(sprintf('Quick save failed: %s', $exception->getMessage()));

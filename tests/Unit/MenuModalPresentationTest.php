@@ -17,6 +17,7 @@ use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
@@ -132,13 +133,14 @@ function modalMenuForeground(array $layers): array
 beforeEach(function () {
   $this->saved = [];
   foreach ([Console::class, ConfigStore::class, InputManager::class, ActionHints::class, Timers::class,
-    ModalManager::class, EventManager::class, AudioManager::class, Debug::class] as $class) {
+    ModalManager::class, EventManager::class, AudioManager::class, Debug::class, NotificationManager::class] as $class) {
     $this->saved[$class] = new ReflectionClass($class)->getStaticProperties();
   }
   Timers::setFrameTick(null);
   ActionHints::useProvider(null);
   new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, null);
   new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
+  new ReflectionProperty(NotificationManager::class, 'instance')->setValue(null, null);
   $this->root = sys_get_temp_dir() . '/ichiloto-menu-modal-' . bin2hex(random_bytes(5));
   mkdir($this->root . '/Data/Presentation', 0777, true);
   modalMenuPng($this->root . '/art.png');
@@ -149,6 +151,7 @@ beforeEach(function () {
   Console::syncDimensions(135, 36);
   Console::setTerminalOutputEnabled(false);
   $this->game = new ModalMenuGame();
+  new ReflectionProperty($this->game, 'notificationManager')->setValue($this->game, NotificationManager::getInstance($this->game));
   $audio = new class extends AudioManager {
     public array $sounds = [];
     public function __construct() {}

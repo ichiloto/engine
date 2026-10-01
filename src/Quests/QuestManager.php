@@ -436,7 +436,7 @@ class QuestManager
         $text .= sprintf("\nReward: %s", $rewards);
       }
 
-      $this->notifyQuest('Quest Complete', $text, NotificationDuration::LONG);
+      $this->notifyQuest('Quest Complete', $text, NotificationDuration::LONG, 'quest.complete');
       $this->notifyProgression($progressionResults);
     }
   }
@@ -502,7 +502,7 @@ class QuestManager
     }
 
     if ($lines !== []) {
-      $this->notifyQuest('Party Progress', implode("\n", $lines), NotificationDuration::LONG);
+      $this->notifyQuest('Party Progress', implode("\n", $lines), NotificationDuration::LONG, 'reward');
     }
   }
 
@@ -593,12 +593,13 @@ class QuestManager
    * @param string $title The notification title.
    * @param string $text The notification text.
    * @param NotificationDuration $duration The display duration.
+   * @param string|null $presentationRole Optional graphical meaning.
    * @return void
    */
-  protected function notifyQuest(string $title, string $text, NotificationDuration $duration): void
+  protected function notifyQuest(string $title, string $text, NotificationDuration $duration, ?string $presentationRole = null): void
   {
     try {
-      notify($this->game, NotificationChannel::QUEST, $title, $text, $duration);
+      notify($this->game, NotificationChannel::QUEST, $title, $text, $duration, presentationRole: $presentationRole);
     } catch (Throwable $exception) {
       Debug::warn(sprintf('Quest notification failed: %s', $exception->getMessage()));
     }

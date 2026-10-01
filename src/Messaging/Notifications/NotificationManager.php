@@ -4,6 +4,15 @@ namespace Ichiloto\Engine\Messaging\Notifications;
 
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
+use Ichiloto\Engine\Messaging\Notifications\Interfaces\GraphicalNotificationInterface;
+use Ichiloto\Engine\Messaging\Notifications\Presentation\NotificationCanvasPresentation;
+use Ichiloto\Engine\Messaging\Notifications\Presentation\NotificationContentOverflow;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
+use Ichiloto\Engine\UI\Presentation\MenuCanvas;
+use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
+use Throwable;
 
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 
@@ -67,6 +76,12 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
    * @var mixed $mapEventHandler The map event handler.
    */
   protected mixed $mapEventHandler = null;
+  private ?MenuPresentationCatalog $presentationTheme = null;
+  private bool $graphicalPresentation = false;
+  private bool $presentationDeferred = false;
+  private float $lastPresentationUpdate = 0;
+  private ?CanvasRectangle $presentationAnchor = null;
+  private array $presentationDiagnostics = [];
 
   /**
    * NotificationManager constructor.
@@ -131,6 +146,7 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
    */
   public function render(?int $x = null, ?int $y = null): void
   {
+    if ($this->graphicalPresentation) { return; }
     Console::withLayer('notifications', fn() => $this->getActiveNotification()?->render(
       ($x ?? 0) + $this->leftMargin,
       ($y ?? 0) + $this->topMargin
@@ -175,6 +191,15 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
       return;
     }
 
+    $now = Time::getTime();
+    $elapsed = max(0, $now - $this->lastPresentationUpdate);
+    $this->lastPresentationUpdate = $now;
+    if ($this->graphicalPresentation && $this->presentationDeferred) {
+      $this->nextNotificationShowTime += $elapsed;
+      if ($activeNotification instanceof GraphicalNotificationInterface) { $activeNotification->delayPresentation($elapsed); }
+      return;
+    }
+
     // Blocking UI (dialogue, alerts, shops) freezes engine time and then
     // releases it in one large jump. A notification issued during the stall
     // gets its deadline stamped with the frozen clock, so the jump would
@@ -205,7 +230,56 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
    */
   protected function getActiveNotification(): ?NotificationInterface
   {
-    return $this->notifications->peek();
+    return isset($this->notifications) ? $this->notifications->peek() : null;
+  }
+
+  public function hasGraphicalPresentation(): bool
+  {
+    return $this->graphicalPresentation && $this->getActiveNotification() !== null;
+  }
+
+  /** Renderer exclusions do not erase the terminal buffer or change other overlay owners. */
+  public function getExcludedPresentationLayers(): array
+  {
+    $notice = $this->getActiveNotification();
+    return $this->graphicalPresentation && $notice instanceof GraphicalNotificationInterface
+      ? [$notice->getPresentationId()] : [];
+  }
+
+  /** PHP queue ownership is retained; an unsafe area pauses delivery rather than consuming a notice unseen. */
+  public function composePresentation(?PresentationCanvas $base, int $width, int $height, array $protected): ?PresentationCanvas
+  {
+    $notice = $this->getActiveNotification();
+    if ($notice === null) { return $base; }
+    if (!$this->graphicalPresentation || !$notice instanceof GraphicalNotificationInterface || $this->presentationTheme === null) {
+      // An opaque graphical menu must not conceal the existing terminal fallback notification.
+      return null;
+    }
+    try {
+      $surface = NotificationCanvasPresentation::compose($notice, $this->presentationTheme,
+        $width, $height, $protected, $this->presentationAnchor);
+      $this->presentationDeferred = $surface === null;
+      if ($surface === null) { return $base; }
+      $this->presentationAnchor = $surface->bounds;
+      return $base === null ? $surface->canvas : MenuCanvas::overlay($base, $surface->canvas, $this->presentationTheme);
+    } catch (Throwable $error) {
+      $this->reportPresentationProblem($error->getMessage());
+      if ($error instanceof NotificationContentOverflow) {
+        $this->presentationDeferred = true;
+        return $base;
+      }
+      $this->graphicalPresentation = false;
+      $this->presentationDeferred = false;
+      return null;
+    }
+  }
+
+  private function reportPresentationProblem(string $message): void
+  {
+    if (!isset($this->presentationDiagnostics[$message])) {
+      Debug::warn('Notification presentation: ' . $message);
+      $this->presentationDiagnostics[$message] = true;
+    }
   }
 
   /**
@@ -218,9 +292,23 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
     $notification = $this->getActiveNotification();
 
     if (! $notification instanceof NotificationInterface) {
+      $this->graphicalPresentation = false;
       return;
     }
 
+    $this->graphicalPresentation = false;
+    $this->presentationDeferred = false;
+    $this->presentationAnchor = null;
+    $this->lastPresentationUpdate = Time::getTime();
+    $runtime = $this->game->getRendererRuntime();
+    if ($notification instanceof GraphicalNotificationInterface && $runtime !== null
+      && array_all([...MenuPresentationCatalog::CAPABILITIES, RendererSessionConfig::CANVAS_OVERLAY], $runtime->supports(...))) {
+      try {
+        $this->presentationTheme ??= MenuPresentationCatalog::load($runtime->getAssetRoot());
+        $this->graphicalPresentation = $this->presentationTheme !== null;
+        $this->presentationDeferred = $this->graphicalPresentation;
+      } catch (Throwable $error) { $this->reportPresentationProblem($error->getMessage()); }
+    }
     $notification->open();
     $this->nextNotificationShowTime = Time::getTime() + $notification->getAnimationDuration() + $notification->getDuration();
   }

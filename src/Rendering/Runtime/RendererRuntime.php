@@ -6,6 +6,8 @@ use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueScenePresentation;
+use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
+use Ichiloto\Engine\Messaging\Notifications\Presentation\NotificationPlacement;
 use Ichiloto\Engine\IO\InputSources\InputSourceInterface;
 use Ichiloto\Engine\IO\InputSources\RendererInputSource;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
@@ -141,7 +143,7 @@ final class RendererRuntime
     }
   }
 
-  public function present(?SceneInterface $scene): bool
+  public function present(?SceneInterface $scene, ?NotificationManager $notifications = null): bool
   {
     $started = LatencyTrace::getTimeNow();
     LatencyTrace::record('presentation.begin', ['scene' => $scene === null ? null : $scene::class]);
@@ -158,6 +160,12 @@ final class RendererRuntime
           && $this->supports(RendererSessionConfig::SPRITE_SOURCE_RECT),
         $this->supports(RendererSessionConfig::CANVAS_IMAGE_TONE));
     $canvas = $dialogue !== null ? $dialogue->canvas : $canvas;
+    if ($canvas !== null && !($dialogue?->isOverlay ?? false)) {
+      if ($notifications !== null) {
+        $protected = NotificationPlacement::getProtectedAreas($canvas, null, [], $this->grid);
+        $canvas = $notifications->composePresentation($canvas, $canvas->width, $canvas->height, $protected);
+      }
+    }
     if ($canvas !== null && !($dialogue?->isOverlay ?? false)) {
       $changed = $this->presentation->presentCanvas($canvas);
       $this->resetText = true;
@@ -184,6 +192,7 @@ final class RendererRuntime
       && $sprite->y >= 0 && $sprite->y < Console::getHeight());
     $excluded = array_map(static fn($sprite) => $sprite->id, $visible);
     if ($dialogue !== null) { array_push($excluded, ...$dialogue->excludedLayers); }
+    if ($notifications !== null) { array_push($excluded, ...$notifications->getExcludedPresentationLayers()); }
     $world = $scene instanceof RetainedWorldProviderInterface ? $scene->getPresentationWorld() : null;
     $snapshotStart = LatencyTrace::getTimeNow();
     $snapshot = Console::getRetainedPresentationChanges($excluded, $this->resetText, $world?->textLayerIds ?? []);
@@ -193,10 +202,18 @@ final class RendererRuntime
     if (!$slides) {
       $viewport = $viewport?->withoutFollow();
     }
+    $overlay = $dialogue?->isOverlay ? $dialogue->canvas : null;
+    if ($notifications !== null) {
+      $protected = $notifications->hasGraphicalPresentation()
+        ? NotificationPlacement::getProtectedAreas($overlay, Console::presentationSnapshot($excluded), $sprites, $this->grid, $viewport)
+        : [];
+      $overlay = $notifications->composePresentation($overlay,
+        $this->grid->columns * $this->grid->cellWidth, $this->grid->rows * $this->grid->cellHeight, $protected);
+    }
     $this->resetText = false;
     try {
       $changed = $this->presentation->present($snapshot, $sprites, viewport: $viewport, world: $world,
-        canvasOverlay: $dialogue?->isOverlay ? $dialogue->canvas : null);
+        canvasOverlay: $overlay);
     } catch (Throwable $error) {
       $this->resetText = true;
       throw $error;

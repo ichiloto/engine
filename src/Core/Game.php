@@ -1159,7 +1159,7 @@ SPLASH_SCREEN;
         $this->syncScreenSize(resizeLogicalViewport: false);
         if ($this->rendererRuntime !== null) {
             // Scene presentation ownership also applies during dialogue/timer waits.
-            $this->rendererRuntime->present($this->sceneManager->currentScene);
+            $this->rendererRuntime->present($this->sceneManager->currentScene, $this->notificationManager);
             LatencyTrace::flush();
         }
     }
@@ -1258,7 +1258,7 @@ SPLASH_SCREEN;
         }
 
         $this->notify($this, new GameEvent(GameEventType::RENDER));
-        $this->rendererRuntime?->present($this->sceneManager->currentScene);
+        $this->rendererRuntime?->present($this->sceneManager->currentScene, $this->notificationManager);
         LatencyTrace::end('game.render.end', $started);
     }
 

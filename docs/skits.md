@@ -143,8 +143,9 @@ Protocol-2 `canvas_image_tone` negotiates opaque-preserving image brightness;
 older graphical renderers keep scaling without dimming and report that limitation.
 Larger casts use stable groups of three containing the active speaker rather
 than endlessly shrinking portraits. Missing backgrounds use the theme backing
-with a diagnostic, not an unrelated battle arena. Ambient animation and
-notification projection above opaque panels remain concrete later gaps.
+with a diagnostic, not an unrelated battle arena. Shared graphical
+[notifications](notifications.md) defer with their queue time preserved when
+the stage has no safe space. Ambient animation remains a concrete later gap.
 
 `tools/gpui-dialogue-preview.php` opens a bounded, silent renderer-only preview
 from a JSON snapshot using the same composer and installed renderer. It does not
