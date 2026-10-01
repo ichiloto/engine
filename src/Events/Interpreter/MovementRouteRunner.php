@@ -139,7 +139,9 @@ final class MovementRouteRunner implements EventPendingOperationInterface
     $direction = self::directionVector($directionName);
     $faceOnly = $step['faceOnly'] ?? false;
     $subject = strtolower(trim(strval($this->command['subject'] ?? 'player')));
-    $succeeded = match ($subject) {
+    // The route keeps its own pace: a step shows over the time until the next one.
+    $stepSeconds = $this->stepDelay($step);
+    $succeeded = $this->gameScene->moveAtPace($stepSeconds, fn(): bool => match ($subject) {
       'player' => $faceOnly
         ? $this->facePlayer($direction)
         : ($this->gameScene->player?->tryMove($direction, $this->gameScene->camera) ?? false),
@@ -152,7 +154,7 @@ final class MovementRouteRunner implements EventPendingOperationInterface
         boolval($faceOnly),
       ) ?? false,
       default => false,
-    };
+    });
 
     if (! $succeeded) {
       $this->throwBlockedRoute($subject, $directionName, $direction);
@@ -174,7 +176,7 @@ final class MovementRouteRunner implements EventPendingOperationInterface
       $this->advanceStep();
     }
 
-    $this->remainingDelay = $this->stepDelay($step);
+    $this->remainingDelay = $stepSeconds;
 
     return $this->isComplete;
   }

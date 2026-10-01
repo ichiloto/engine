@@ -39,8 +39,10 @@ use Ichiloto\Engine\UI\Interfaces\LayeredPresentationInterface;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Tests\Support\Input\FakeRendererTransport;
+use Tests\Support\Rendering\RetainedFrameState;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
 /** Isolates target placement, while using production popup storage, formatting and drawing. */
 final class TransientBattleField extends BattleFieldWindow
@@ -141,11 +143,12 @@ it('presents real action stat popups with their colour during the hold and not a
     ->invoke($state, $context, $target, $previousHp, $previousMp, 0.002);
   $during = $this->transport->sent;
   expect($during)->not->toBeEmpty();
-  $runs = array_merge(...array_column($during[0]->payload['textLayers'], 'runs'));
+  $runs = array_merge(...array_column(RetainedFrameState::replay($during)[0]['textLayers'], 'runs'));
   expect(array_any($runs, fn($run) => $run['text'] === $text && $run['foreground'] === ['kind' => 'ansi16', 'index' => $index]))->toBeTrue();
   $this->presenter->present(Console::presentationSnapshot());
-  $last = end($this->transport->sent);
-  expect(implode('', array_column($last->payload['textLayers'][0]['runs'], 'text')))->not->toContain($text);
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  $last = end($frames);
+  expect(implode('', array_column($last['textLayers'][0]['runs'], 'text')))->not->toContain($text);
 })->with([
   [52, 100, 20, 20, '48', 9], [100, 52, 20, 20, '+48', 10], [100, 100, 52, 100, '-48 MP', 14],
 ]);
@@ -155,21 +158,66 @@ it('presents an announcement before its shared action pause clears it', function
   $context = new ReflectionClass(TurnStateExecutionContext::class)->newInstanceWithoutConstructor();
   new ReflectionProperty(TurnStateExecutionContext::class, 'ui')->setValue($context, new TransientBattleScreen());
   new ReflectionMethod(ActionExecutionState::class, 'displayPhase')->invoke($state, $context, 'Turn over!', 0.002, true);
-  expect($this->transport->sent[0]->payload['textLayers'][0]['runs'][0]['text'])->toStartWith('Turn over!')
+  expect(RetainedFrameState::replay($this->transport->sent)[0]['textLayers'][0]['runs'][0]['text'])->toStartWith('Turn over!')
     ->and(Console::snapshot()->rows[0])->not->toContain('Turn over!');
 });
 
 it('presents each authored animation frame before advancing', function () {
   new AnimationPlayer(0.01)->play(new Animation(1, 'Test', maxFrames: 3), fn($index) => Console::write((string)$index, 0, 0));
-  expect(array_map(fn($message) => $message->payload['textLayers'][0]['runs'][0]['text'][0], $this->transport->sent))->toBe(['1', '2', '3']);
+  expect(array_map(fn($frame) => $frame['textLayers'][0]['runs'][0]['text'][0], RetainedFrameState::replay($this->transport->sent)))->toBe(['1', '2', '3']);
 });
 
 it('presents each summon frame and retains PHP cue order', function () {
   $cues = [];
   $cutscene = new SummonCompiledCutscene('test', 'test', fps: 100, cueSchedule: [['frame' => 1]], defaults: ['lengthFrames' => 3]);
   new SummonCutscenePlayer()->play($cutscene, fn($index) => Console::write((string)$index, 0, 0), function ($cue, $index) use (&$cues) { $cues[] = $index; });
-  expect(array_map(fn($message) => $message->payload['textLayers'][0]['runs'][0]['text'][0], $this->transport->sent))->toBe(['0', '1', '2'])
+  expect(array_map(fn($frame) => $frame['textLayers'][0]['runs'][0]['text'][0], RetainedFrameState::replay($this->transport->sent)))->toBe(['0', '1', '2'])
     ->and($cues)->toBe([1]);
+});
+
+it('recolours the battlefield for the authored flash frames and restores its underlay', function () {
+  $field = new TransientBattleField();
+  Console::write('BASE', 2, 2);
+  $before = Console::getBuffer()[2];
+  $field->beginBattleFlash(new Character('Target', 0, new Stats()), true, 'red', 1, 2);
+  $render = new ReflectionMethod(BattleFieldWindow::class, 'renderBattleFlash');
+  $render->invoke($field, 1);
+  expect(Console::getBuffer()[2])->toContain("\033[41m");
+  expect(\Ichiloto\Engine\IO\Console\TerminalText::stripAnsi(Console::getBuffer()[2]))->toContain('BASE');
+  $render->invoke($field, 2);
+  expect(Console::getBuffer()[2])->toContain("\033[41m");
+  $render->invoke($field, 3);
+  expect(Console::getBuffer()[2])->toBe($before);
+});
+
+it('limits target flashes to the target and makes white visible on empty cells', function () {
+  $field = new TransientBattleField();
+  Console::write('OUTSIDE', 2, 2);
+  Console::write('TARGET', 9, 6);
+  $outside = Console::getBuffer()[2];
+  $target = Console::getBuffer()[6];
+  $field->beginBattleFlash(new Character('Target', 0, new Stats()), false, 'white', 0, 1);
+  new ReflectionMethod(BattleFieldWindow::class, 'renderBattleFlash')->invoke($field, 0);
+  expect(Console::getBuffer()[2])->toBe($outside)
+    ->and(Console::getBuffer()[6])->toContain('107m');
+  $field->clearBattleFlash();
+  expect(Console::getBuffer()[6])->toBe($target);
+});
+
+it('orders terminal summon art by z and clears lower layers before drawing', function () {
+  $screen = new TransientBattleScreen();
+  $field = $screen->fieldWindow;
+  new ReflectionProperty(BattleFieldWindow::class, 'battleScreen')->setValue($field, $screen);
+  $command = static fn(string $content, int $x, int $z): array =>
+    ['content' => $content, 'position' => [$x, 0], 'zIndex' => $z];
+  $cutscene = new SummonCompiledCutscene('layers', 'fixture', playbackSegments: [
+    ['startFrame' => 0, 'endFrame' => 0, 'drawCommands' => [$command('B', 2, 10)]],
+    ['startFrame' => 0, 'endFrame' => 0, 'drawCommands' => [$command('A', 0, 0)]],
+    ['startFrame' => 0, 'endFrame' => 0, 'clearBeforeDraw' => true, 'drawCommands' => [$command('C', 1, 5)]],
+  ]);
+  $field->showSummonCutsceneFrame($cutscene, 0);
+  $line = \Ichiloto\Engine\IO\Console\TerminalText::stripAnsi(Console::getBuffer()[1]);
+  expect(substr($line, 1, 3))->toBe(' CB');
 });
 
 it('presents transition cover above all UI and sprites before it is removed', function () {
@@ -177,9 +225,10 @@ it('presents transition cover above all UI and sprites before it is removed', fu
     public function isEnabled(): bool { return true; }
   };
   $transition->out();
-  $shades = array_map(fn($message) => mb_substr($message->payload['textLayers'][1]['runs'][0]['text'], 0, 1), $this->transport->sent);
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  $shades = array_map(fn($frame) => mb_substr($frame['textLayers'][1]['runs'][0]['text'], 0, 1), $frames);
   expect($shades)->toBe(['░', '▒', '▓', '█'])
-    ->and($this->transport->sent[0]->payload['textLayers'][1]['layer'])->toBe(3000);
+    ->and($frames[0]['textLayers'][1]['layer'])->toBe(3000);
   $transition->in();
   expect(Console::presentationSnapshot()->textLayers)->toHaveCount(1);
 });
@@ -195,9 +244,10 @@ it('presents battle intro frames before the next intro clear', function () {
   $advance = new ReflectionMethod($state, 'playIntroAnimation');
   $advance->invoke($state);
   $advance->invoke($state);
-  expect($this->transport->sent)->toHaveCount(2)
-    ->and($this->transport->sent[0]->payload['textLayers'][0]['runs'][0]['text'])->toStartWith('FIRST')
-    ->and($this->transport->sent[1]->payload['textLayers'][0]['runs'][0]['text'])->toStartWith('SECOND');
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  expect($frames)->toHaveCount(2)
+    ->and($frames[0]['textLayers'][0]['runs'][0]['text'])->toStartWith('FIRST')
+    ->and($frames[1]['textLayers'][0]['runs'][0]['text'])->toStartWith('SECOND');
 });
 
 it('presents fresh direct modal select and typewriter content in a sparse modal layer before dismissal', function ($kind, $expected) {
@@ -209,7 +259,7 @@ it('presents fresh direct modal select and typewriter content in a sparse modal 
   };
   $modal->open();
   expect($this->transport->sent)->not->toBeEmpty();
-  $layers = $this->transport->sent[0]->payload['textLayers'];
+  $layers = RetainedFrameState::replay($this->transport->sent)[0]['textLayers'];
   expect($layers)->toHaveCount(2)->and($layers[1]['layer'])->toBe(1020)
     ->and(implode('', array_column($layers[1]['runs'], 'text')))->toContain($expected);
   expect(Console::presentationSnapshot()->textLayers)->toHaveCount(1);

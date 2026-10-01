@@ -21,10 +21,8 @@ use RuntimeException;
 /** Engine-owned Equipment/Status composition over live owner data and one project theme. */
 final class CharacterMenuPresentation
 {
-  private const int LEFT = 125;
-  private const int TOP = 10;
-  private const int WIDTH = 1100;
-  private const int HEIGHT = 700;
+  private const int WIDTH = MenuLayout::MAX_WIDTH;
+  private const int HEIGHT = MenuLayout::MAX_HEIGHT;
   private const int PROFILE_WIDTH = 400;
 
   public static function equipment(EquipmentMenuState $state, ?EquipmentMenuMode $mode,
@@ -44,8 +42,8 @@ final class CharacterMenuPresentation
     $profile = self::box(0, 0, self::PROFILE_WIDTH, $bodyHeight);
     $view->frame('equipment-profile', $profile);
     $identityHeight = $view->prose('equipment-identity', $character->name . "\n" . $character->role->name, self::inset($profile, $p));
-    $portraitY = self::TOP + $p + $identityHeight + $m->sectionGap;
-    $view->portrait($character->actorId, new CanvasRectangle(self::LEFT + (self::PROFILE_WIDTH - $m->portraitSize) / 2,
+    $portraitY = $profile->y + $p + $identityHeight + $m->sectionGap;
+    $view->portrait($character->actorId, new CanvasRectangle($profile->x + ($profile->width - $m->portraitSize) / 2,
       $portraitY, $m->portraitSize, $m->portraitSize));
     $statsY = $portraitY + $m->portraitSize + $m->sectionGap;
     $statsBox = new CanvasRectangle($profile->x + $p, $statsY, $profile->width - 2 * $p,

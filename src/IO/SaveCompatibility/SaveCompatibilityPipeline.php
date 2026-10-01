@@ -132,20 +132,19 @@ final readonly class SaveCompatibilityPipeline
     $postResolutionMigrations = [];
 
     while ($contentVersion < $this->manifest->contentVersion) {
-      $migrationClass = $this->manifest->migrationFrom($contentVersion);
-
-      if ($migrationClass === null) {
-        throw new MissingSaveMigrationException(sprintf(
-          'Save %s requires missing content migration %d to %d for project %s.',
-          $savePath,
-          $contentVersion,
-          $contentVersion + 1,
-          $this->manifest->projectId
-        ));
-      }
-
       try {
-        $migration = new $migrationClass();
+        $migration = $this->manifest->createMigrationFrom($contentVersion);
+
+        if ($migration === null) {
+          throw new MissingSaveMigrationException(sprintf(
+            'Save %s requires missing content migration %d to %d for project %s.',
+            $savePath,
+            $contentVersion,
+            $contentVersion + 1,
+            $this->manifest->projectId
+          ));
+        }
+
         $payload = $migration->migrate($envelope['payload']);
 
         if ($migration instanceof PostResolutionContentMigrationInterface) {

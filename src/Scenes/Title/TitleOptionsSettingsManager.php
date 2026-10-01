@@ -22,8 +22,10 @@ class TitleOptionsSettingsManager extends SettingsManager
       'cursor_memory',
       'music',
       'sfx',
+      'voice',
       'transitions',
       'dialogue_speed',
+      'dialogue_auto',
       'notification_duration',
     ];
   }

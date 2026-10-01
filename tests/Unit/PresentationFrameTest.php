@@ -23,11 +23,15 @@ it('allows empty atomic replacements and PHP integer frame limits', function () 
   }
 });
 
-it('orders sprites by layer and preserves author order for ties', function () {
+it('orders sprites by layer, then by row so lower sprites draw in front, and preserves author order for ties', function () {
   $front = new PresentationSprite('front', 'front.png', 0, 0, 1, 1, layer: 100);
-  $first = new PresentationSprite('first', 'first.png', -1, -2, 4096, 4096, layer: -2);
-  $second = new PresentationSprite('second', 'second.png', 0, 0, 1, 1, layer: -2);
-  expect(new PresentationFrame(1, [], [$front, $first, $second])->sprites)->toBe([$first, $second, $front]);
+  $lower = new PresentationSprite('lower', 'lower.png', 0, 5, 48, 48, layer: -2);
+  $first = new PresentationSprite('first', 'first.png', -1, 2, 4096, 4096, layer: -2);
+  $upper = new PresentationSprite('upper', 'upper.png', 3, -2, 48, 48, layer: -2);
+  $second = new PresentationSprite('second', 'second.png', 0, 2, 1, 1, layer: -2);
+  // A higher layer wins regardless of row; within a layer, rows ascend; equal rows keep author order.
+  expect(new PresentationFrame(1, [], [$front, $lower, $first, $upper, $second])->sprites)
+    ->toBe([$upper, $first, $second, $lower, $front]);
 });
 
 it('rejects invalid sprite structure without filesystem access', function ($overrides) {

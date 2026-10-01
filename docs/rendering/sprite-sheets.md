@@ -1,119 +1,124 @@
-# Field Player sprite sheets (S8-A)
+# Field character sheets
 
-PHP owns direction, animation time and frame selection. GPUI receives a source
-rectangle and draws that crop; it does not run an animation or move the Player.
-This extends the existing graphical provider/projector path. Only the field
-Player is integrated; NPCs, battlers, tilemaps and animation scripting are out of scope.
+Field characters (the player, NPCs and cinematic actors) use RPG Maker's
+character sheet layout. A character stands on exactly one field cell, as it
+occupies one terminal cell. The graphical field draws each terminal cell as
+one RPG Maker tile, a `FieldViewport::TILE_SIZE` (48 x 48) square, and a
+character is one 48 x 48 frame, RPG Maker's size, bottom-centred on its cell,
+so it fills its cell exactly. PHP owns direction, walking
+pattern and frame selection; the renderer draws the selected crop. See the
+[graphical field plan](../graphical-field.md).
 
 ## Project metadata
 
-Keep the existing terminal `sprites` entry in `assets/Data/Entities/player.php`.
-Use this alternative `sprites2d` structure for a contiguous, row-major walk set:
+Keep the terminal `sprites` entry. Add `sprites2d` naming a character sheet:
 
 ```php
-'sprites2d' => [
-    'mode' => 'sheet',
-    'frameWidth' => 256,
-    'frameHeight' => 256,
-    'width' => 56,
-    'height' => 56,
-    'frameDurationMs' => 80,
-    'stepDurationMs' => 160,
-    'idleFrame' => 0,
-    'anchor' => 'bottom_center',
-    'layer' => 100,
-    'directions' => [
-        'south' => ['asset' => 'Graphics/Characters/Kaelion/Field/South.png', 'columns' => 5, 'rows' => 5, 'frames' => 22],
-        'east' => ['asset' => 'Graphics/Characters/Kaelion/Field/East.png', 'columns' => 5, 'rows' => 5, 'frames' => 21],
-        'north' => ['asset' => 'Graphics/Characters/Kaelion/Field/North.png', 'columns' => 5, 'rows' => 4, 'frames' => 17],
-        'west' => ['asset' => 'Graphics/Characters/Kaelion/Field/West.png', 'columns' => 5, 'rows' => 5, 'frames' => 21],
-    ],
-],
+// A standard sheet holds 8 characters; index selects one (0 to 7).
+'sprites2d' => ['sheet' => 'Graphics/Characters/People.png', 'index' => 2, 'layer' => 100],
+
+// A sheet whose file name begins with `$` holds one character.
+'sprites2d' => ['sheet' => 'Graphics/Characters/$Kaelion.png', 'layer' => 100],
+
+// A sheet whose file name begins with `!` holds objects, drawn unlifted.
+'sprites2d' => ['sheet' => 'Graphics/Characters/!$Chest.png', 'layer' => 100],
 ```
 
-These are the verified Kaelion counts, not four identical 22-frame grids. North
-is 1280x1024; the other sheets are 1280x1280. Unpopulated trailing cells are never
-selected. The supplied images are preserved byte-for-byte, including transparency
-and cell padding. No per-frame files or image generation are required.
+`sheet` is required; `index` defaults to 0 and `layer` to 0. Layers must lie in
+the world range 0 to 999. Nothing else is accepted: size, anchor, frame size,
+frame counts and timing are not authored, because the sheet and the cell
+already define them.
 
-Source cell dimensions are image pixels. Destination `width`/`height` are logical
-display pixels, independent of the source dimensions. Square 56x56 destinations
-preserve the 256x256 cells' proportions and give these padded resting frames
-roughly 43-46 visible pixels of height. Position remains PHP Camera-projected grid
-coordinates; anchor and layer semantics are unchanged.
+## Sheet layout
 
-All four directions and their asset/grid/frame-count fields are required. Shared
-source and destination dimensions are required. Defaults are `bottom_center`,
-layer 0, idle frame 0, 80 ms per frame and 160 ms per successful step. Integers
-must be integers, not numeric strings or floats. Unknown fields, invalid counts,
-out-of-range idle frames and durations outside 1-60000 ms fail validation.
-Source geometry must fit unsigned 32-bit image coordinates. PHP validates authored
-geometry without reading PNGs; GPUI validates each crop against the decoded image.
+Each character is 3 walking frames by 4 direction rows, in RPG Maker's order:
+down, left, right, up. A standard sheet arranges 4 x 2 characters, so it is
+12 frames wide and 8 tall; a `$` sheet is 3 wide and 4 tall. The frame size is
+read from the image: a standard sheet of 576 x 384 pixels has 48 x 48 frames.
+Frames of any size are scaled to fill the character's one cell.
 
-## Animation ownership
+As in RPG Maker, the marks are the file name's leading run of `$` and `!`, in
+either order (`!$Chest.png` and `$!Chest.png` are the same kind of sheet); a
+mark later in the name, or in a folder name, is not a mark.
 
-`SpriteSheet` maps a zero-based frame to its source rectangle. Immutable
-`GraphicalSpriteDefinition` carries the sheet and current crop; calling
-`atFrame()` produces another definition without changing gameplay state.
-`SpriteWalkAnimation` is the Player's small presentation-only state machine:
+## Lift
 
-- A successful position change starts or renews the authored walking interval.
-- Continued successful steps in the same direction preserve animation phase.
-- GameScene advances elapsed animation time once per normal update, independent
-  of how often presentation is collected. The presentation getter is read-only.
-- Frames advance sequentially and wrap at that direction's populated count.
-- A new direction or a new walk after idle starts at frame 0. On interval expiry,
-  the authored `idleFrame` is restored.
-- Rejected movement, explicit facing, interaction, event-session start, scene-state
-  changes and suspension stop walking. Facing a wall can still change the sheet,
-  but does not start animation or move the Player.
+RPG Maker draws a character's frame 6 pixels above its tile
+(Sprite_Character's shiftY), so artists draw the feet on the frame's bottom
+edge and the character stands within its tile. `CharacterSheet::LIFT` is that
+6, in the sprite's field pixels (one cell is 48). Every frame of a sheet
+carries its `lift`: `LIFT`, or 0 for an object sheet (`!`), which sits on
+its tile. The lift comes from the sheet's name alone, never from the image's
+size or contents, so replacing the art never changes it.
 
-The interval models successful grid steps, not key-down/key-up state. It does not
-add key-repeat handling, interpolate position, change movement speed or alter
-collision. Holding a key can keep animation running only when the existing input
-path produces successful steps frequently enough. Long stalls settle to idle
-rather than replaying old animation time. Existing S7 repeat/repaint limitations
-are not fixed or hidden by this slice.
+The lift is presentation only. The character keeps its cell, so collision,
+events, saves, draw order and the terminal glyph are unchanged, and the
+renderer raises the drawn frame while it stands, slides or is followed by the
+camera. Single-image field art (below) is drawn as authored, without a lift.
 
-Both new and restored Players load current project metadata. Animation state and
-graphical configuration are not added to saves. Whole-image directional sets and
-terminal-only projects retain their existing format and rendering behavior.
+A sheet that is missing, corrupt, not a PNG or not divisible into its layout
+keeps the character's terminal glyph and is reported once per distinct
+failure. It never removes the character or stops the map.
 
-## Negotiated renderer contract
+## Walking
 
-Protocol versions 1 and 2 both support the optional `sprite_source_rect`
-capability. There is no version 3. Before sending a cropped sprite, request:
+`CharacterWalkAnimation` follows RPG Maker: the middle frame (1) is standing,
+and walking cycles 1, 2, 1, 0 by distance travelled, one pattern per 30 field
+pixels (RPG Maker's 10 frames at 3 pixels per frame). Every step covers one
+48-pixel cell, so a step carries the cycle 1.6 patterns on and both axes
+animate at one pace. A walk begins on its first stride, so even one step shows
+one. Travel advances over the step's own duration; steps that follow
+each other keep the cycle going without a standing frame between them. Once
+travel stops for 15 frames (RPG Maker's animation tick) the character stands
+again. Rejected movement, explicit facing, interaction and suspension stop
+walking at once.
 
-```json
-"requiredCapabilities": ["sprite_source_rect"]
+The player walks at RPG Maker's default speed through the shared
+[field metric](input-sources.md#field-walking-implemented): 16/60 s for a
+step across or down. An NPC or staged actor on a
+movement route steps at the route's own `secondsPerStep`; a wandering NPC's
+step walks at field speed, whatever its pause between steps.
+
+With `field_motion`, each committed step carries its duration to the
+renderer, which slides the sprite from the cell it left over that time on its
+own clock, and a camera following the player slides with it. The cell is
+already committed: collision, triggers and saves never see a partial cell,
+and the terminal ignores all of this. A placement that is not one step (a
+transfer, a restored cinematic transform) snaps.
+
+Under reduced motion every field character (player, NPCs and staged actors)
+shows the standing frame and positions snap without sliding. Animation state
+is presentation only and is never saved.
+
+## Depth and prompts
+
+Within a draw layer, characters are ordered by row: a character lower on the
+field draws in front of one above it, with stable ties. The order is by cell,
+so a lift never changes it. Because a character is exactly one cell, the field
+action prompt sits in the cell directly above it.
+
+## Single-image field art
+
+A fixed pose (for example a cinematic embrace) uses `GraphicalSpriteDefinition`
+with `asset`, an optional `sourceRect` crop, an optional `layer`, and an
+optional size in whole character frames, `cells` (default one frame, 48 x 48).
+It is bottom-centred on its position's cell. Authored pixel sizes and anchors are rejected:
+
+```php
+'sprites2d' => ['asset' => 'Graphics/Poses/Embrace.png', 'cells' => ['width' => 2, 'height' => 1],
+    'sourceRect' => ['x' => 0, 'y' => 0, 'width' => 512, 'height' => 256], 'layer' => 100],
 ```
 
-The renderer must acknowledge it on `ready`:
+## Renderer contract
 
-```json
-"capabilities": ["sprite_source_rect"]
-```
-
-Missing acknowledgment fails startup. Engine presentation also rejects crops
-without a negotiated capability before enqueueing a frame. Automatic GPUI startup
-requests it; custom integrations can pass
-`requiredCapabilities: [RendererSessionConfig::SPRITE_SOURCE_RECT]` to
-`RendererRuntimeConfig` or a low-level `RendererSessionConfig`.
-
-`PresentationSprite` adds an optional field:
-
-```json
-"sourceRect": {"x": 512, "y": 256, "width": 256, "height": 256}
-```
-
-These are strict nonnegative integer origins and positive integer extents.
-Omission means the legacy full-image path; explicit null is invalid. Omitting
-capabilities preserves legacy hello/ready fields. Whole-image sprites also work
-in negotiated sessions. Crop changes participate in frame equality, so a new
-animation frame is sent even if the Player's position and asset are unchanged.
-
-GPUI reuses the decoded full sheet and clips the selected rectangle at draw time.
-It does not decode or allocate cropped images on each frame. Cache limits and
-image-lifetime details belong to the Renderer documentation.
-
-See [S8-A validation and handoff](s8-a-validation.md) for results and remaining checks.
+The retained world carries `cellWidth` and `cellHeight`, and the renderer
+draws the field at that pitch: world cells, field text and the sprites the
+viewport names. Sprite positions are camera-screen cells; a character is sent
+at 48 x 48 and anchored at the bottom centre of its cell. Crops use the
+negotiated `sprite_source_rect` capability. A step's slide is an optional
+`motion: {"duration": seconds}` on the sprite and the followed sprite an
+optional viewport `follow`, both only for renderers advertising `field_motion`.
+A lifted sprite carries an optional `lift` in logical pixels, 1 up to its
+height, only for renderers advertising `sprite_lift`; without it, the sprite's
+value is exactly the unlifted one.
+See the renderer's documentation for the wire format.

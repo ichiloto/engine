@@ -328,3 +328,23 @@ it('uses menu-only renderer capabilities and retains its canvas beneath alerts',
   $modal->hide();
   expect($this->state->getPresentationCanvas())->toEqual($before);
 })->with([true, false]);
+
+
+it('keeps inventory and healthy frames when one optional panel image is missing', function () {
+  $chunk = static fn(string $type, string $bytes) => pack('N', strlen($bytes)) . $type . $bytes . pack('N', crc32($type . $bytes));
+  file_put_contents($this->root . '/surface.png', "\x89PNG\r\n\x1a\n"
+    . $chunk('IHDR', pack('NNCCCCC', 4, 4, 8, 6, 0, 0, 0))
+    . $chunk('IDAT', gzcompress(str_repeat("\0" . str_repeat("\xAA\xBB\xCC\xFF", 4), 4))) . $chunk('IEND', ''));
+  $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1', 'showInputHints' => false,
+    'frames' => ['panel' => ['asset' => 'missing.png'], 'quiet' => ['asset' => 'surface.png']]]);
+  $items = itemMenuInventory($this->state, 3);
+  $mode = $this->state->mode;
+  $frame = ItemMenuPresentation::compose($this->state, $theme);
+  expect($frame)->toBeInstanceOf(PresentationCanvas::class)
+    ->and(itemMenuText($frame))->toContain('Use', 'Item 000', 'Item 002')
+    ->and(array_column($frame->images, 'asset'))->toContain('surface.png')->not->toContain('missing.png')
+    ->and($this->state->selectionPanel->items)->toBe($items)
+    ->and($this->state->mode)->toBe($mode)
+    ->and($items[0]->quantity)->toBe(1)
+    ->and(file_get_contents($this->root . '/warning.log'))->toContain('missing.png');
+});

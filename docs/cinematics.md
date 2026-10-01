@@ -207,10 +207,11 @@ does not affect field collision.
 Staged actors render through the field camera. Map transfer, normal
 completion, authored skip, and controlled failure remove temporary cast state.
 
-`sprites2d` accepts the Player's existing four-direction configuration, including
-`mode => sheet`, or a single pose with `asset`, `width`, `height`, optional
-`anchor` (only `bottom_center`), `layer` (0..999), and optional integer
-`sourceRect => ['x' => ..., 'y' => ..., 'width' => ..., 'height' => ...]`.
+`sprites2d` accepts an RPG Maker character sheet (`sheet`, optional `index`
+and `layer`), which walks and turns like the Player, or a single field image
+(`asset`, optional `sourceRect`, `layer` 0..999, and an optional footprint in
+whole `cells`), bottom-centred on the actor. See
+[field character sheets](rendering/sprite-sheets.md).
 The terminal `sprite` or `asset` remains required. Successful staged movement
 advances the existing PHP walk animation; facing-only, blocked movement, hiding
 and idle stop it. Definitions do not infer movement from input.
@@ -313,9 +314,11 @@ Representative Game rescue staging and native acceptance remain separate gates.
 The existing renderer field contract supports multiple sheet-backed sprites,
 explicit layers, terrain and opaque text overlays in one complete snapshot.
 Engine must continue emitting the world in each snapshot; omitted collections
-are cleared. This path uses integral cell positions and bottom-centre anchors,
-not smooth pixel movement or per-instance opacity. The separate graphical
-battle canvas cannot be mixed with field sprites, tiles or text.
+are cleared. This path uses integral cell positions and bottom-centre anchors.
+With `field_motion` a staged actor's route step slides between cells over the
+route's `secondsPerStep`, and a bound visual slides with its real subject's
+step; there is no free pixel placement or per-instance opacity. The separate
+graphical battle canvas cannot be mixed with field sprites, tiles or text.
 
 The [integration roadmap](rendering/integration-roadmap.md) owns the graphical
 cinematic work queue. Extend the existing interpreter, provider and lifecycle

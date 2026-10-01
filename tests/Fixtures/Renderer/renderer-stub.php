@@ -93,6 +93,7 @@ if ($scenario === 'exit_pending') {
   exit(7);
 }
 if ($scenario === 'slow_reader') { usleep(120000); }
+if ($scenario === 'retained_upload_slow') { usleep(150000); }
 
 $deadline = hrtime(true) + 7_000_000_000;
 while (hrtime(true) < $deadline && ($line = fgets(STDIN)) !== false) {
@@ -108,6 +109,55 @@ while (hrtime(true) < $deadline && ($line = fgets(STDIN)) !== false) {
     exit($scenario === 'shutdown_nonzero' ? 17 : 0);
   }
   switch ($scenario) {
+    case 'retained_upload_fast':
+    case 'retained_upload_slow':
+    case 'retained_upload_drop':
+      $acceptedGeneration ??= 0;
+      $receivedPackets = ($receivedPackets ?? 0) + 1;
+      if ($receivedPackets === 1) { rendererStubWrite(rendererStubEvent('key', ['key' => 'right'])); }
+      if ($scenario === 'retained_upload_slow') { usleep(1000); }
+      // Drop an actual packet and its first resulting NACK, not just its acknowledgement.
+      if ($scenario === 'retained_upload_drop' && $receivedPackets === 1) { break; }
+      if (!$message['reset'] && $message['baseGeneration'] !== $acceptedGeneration) {
+        if ($scenario !== 'retained_upload_drop' || $receivedPackets !== 2) {
+          rendererStubWrite(rendererStubEvent('frame_rejected', ['generation' => $message['generation'],
+            'expectedGeneration' => $acceptedGeneration, 'message' => 'Base generation was not accepted', 'resyncRequired' => true]));
+        }
+        break;
+      }
+      $acceptedGeneration = $message['generation'];
+      rendererStubWrite(rendererStubEvent('frame_ack', ['generation' => $acceptedGeneration,
+        'frame' => $message['frame'], 'presented' => $message['present']]));
+      if ($message['present']) { rendererStubWrite(rendererStubEvent('key', ['key' => 'enter'])); }
+      break;
+    case 'retained_smoke':
+    case 'retained_smoke_recovery':
+      if ($protocol !== 2 || !isset($message['operations'], $message['generation'], $message['baseGeneration'], $message['present'], $message['reset'])
+        || isset($message['text']) || isset($message['textLayers']) || isset($message['tileBatches'])) {
+        rendererStubWrite(rendererStubEvent('error', ['message' => 'Smoke tools must send retained protocol two operations']));
+        break;
+      }
+      if ($scenario === 'retained_smoke_recovery' && $message['generation'] === 1) {
+        rendererStubWrite(rendererStubEvent('frame_rejected', ['generation' => 1, 'expectedGeneration' => 0,
+          'message' => 'Simulated recoverable upload failure', 'resyncRequired' => true]) . rendererStubEvent('resized'));
+      } else {
+        rendererStubWrite(rendererStubEvent('frame_ack', ['generation' => $message['generation'],
+          'frame' => $message['frame'], 'presented' => $message['present']]));
+      }
+      break;
+    case 'retained_feedback':
+      if ($message['generation'] === 600) {
+        rendererStubWrite(rendererStubEvent('key', ['key' => 'up'])
+          . rendererStubEvent('frame_rejected', ['generation' => 0, 'expectedGeneration' => 0,
+            'message' => 'Recoverable rejected update', 'resyncRequired' => true])
+          . rendererStubEvent('resized'));
+        for ($generation = 1; $generation < 600; $generation++) {
+          rendererStubWrite(rendererStubEvent('frame_ack', ['generation' => $generation, 'frame' => 1, 'presented' => false]));
+        }
+      }
+      rendererStubWrite(rendererStubEvent('frame_ack', ['generation' => $message['generation'],
+        'frame' => $message['frame'], 'presented' => true]));
+      break;
     case 'v2_events':
       rendererStubWrite(rendererStubEvent('key', ['key' => 'up']) . rendererStubEvent('error', ['message' => 'recoverable']));
       break;

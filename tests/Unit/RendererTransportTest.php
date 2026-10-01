@@ -285,10 +285,15 @@ it('reports a full outbound queue without changing already accepted bytes', func
   $transport->start(s2Session()); $transport->pollEvents();
   $transport->send(s2ApplicationMessage('first', str_repeat('x', 700)));
   $pending = $transport->getPendingWriteBytes();
+  expect($transport->trySend(s2ApplicationMessage('second', str_repeat('y', 700))))->toBeFalse()
+    ->and($transport->getPendingWriteBytes())->toBe($pending)->and($transport->isRunning())->toBeTrue();
   expect(fn() => $transport->send(s2ApplicationMessage('second', str_repeat('y', 700))))->toThrow(RendererTransportException::class);
   expect($transport->getPendingWriteBytes())->toBe($pending);
   $events = s2Await($transport, fn($events) => count($events) === 1);
   expect($events[0]->key)->toStartWith('first:');
+  expect($transport->trySend(s2ApplicationMessage('second', str_repeat('y', 700))))->toBeTrue();
+  $events = s2Await($transport, fn($events) => count($events) === 1);
+  expect($events[0]->key)->toStartWith('second:');
 });
 
 it('rejects unencodable and overlarge outbound messages before queuing', function () {

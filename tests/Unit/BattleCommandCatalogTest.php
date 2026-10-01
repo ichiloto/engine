@@ -72,6 +72,20 @@ PHP);
   }
 }
 
+it('shares authored summon definitions during a battle and releases them afterward', function () {
+  withCatalogSummonProject(null, null, function (): void {
+    BattleCommandCatalog::beginBattle();
+    try {
+      expect(BattleCommandCatalog::isSummonActionId('Test Summon Action'))->toBeTrue();
+      $path = getcwd() . '/assets/Cutscenes/Summons/test-summon/test-summon.data.php';
+      file_put_contents($path, "<?php return ['id' => 'test-summon', 'name' => 'Changed', 'linkedActionId' => 'New Summon Action'];");
+      expect(BattleCommandCatalog::isSummonActionId('Test Summon Action'))->toBeTrue();
+    } finally { BattleCommandCatalog::endBattle(); }
+    expect(BattleCommandCatalog::isSummonActionId('Test Summon Action'))->toBeFalse()
+      ->and(BattleCommandCatalog::isSummonActionId('New Summon Action'))->toBeTrue();
+  });
+});
+
 it('builds battle magic options from a character spellbook', function () {
   $cure = new MagicSkill('Cure', 'Recover HP.', 'C', 3, 0, new ItemScope(ItemScopeSide::ALLY, ItemScopeNumber::ONE), Occasion::ALWAYS);
   $fire = new MagicSkill('Fire', 'Deal fire damage.', 'F', 4, 0, new ItemScope(ItemScopeSide::ENEMY, ItemScopeNumber::ONE), Occasion::BATTLE_SCREEN);

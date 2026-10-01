@@ -15,7 +15,7 @@ final readonly class SaveCompatibilityManifest
   /**
    * @param array<string, array<string, string>> $aliases
    * @param array<string, array<string, true>> $tombstones
-   * @param array<int, class-string<ContentMigrationInterface>> $migrations
+   * @param array<int, class-string<ContentMigrationInterface>|list<MapShift>> $migrations
    */
   private function __construct(
     public string $projectId,
@@ -119,11 +119,22 @@ final readonly class SaveCompatibilityManifest
   }
 
   /**
-   * @return class-string<ContentMigrationInterface>|null
+   * Creates the registered migration from one content version to the next:
+   * a project class, or the engine migration for declared map shifts.
    */
-  public function migrationFrom(int $version): ?string
+  public function createMigrationFrom(int $version): ?ContentMigrationInterface
   {
-    return $this->migrations[$version] ?? null;
+    $migration = $this->migrations[$version] ?? null;
+
+    if ($migration === null) {
+      return null;
+    }
+
+    if (is_array($migration)) {
+      return new MapShiftContentMigration($migration, $this->aliasesFor(ContentReferenceCategory::MAP));
+    }
+
+    return new $migration();
   }
 
   /**
@@ -361,7 +372,7 @@ final readonly class SaveCompatibilityManifest
 
   /**
    * @param mixed $rawMigrations
-   * @return array<int, class-string<ContentMigrationInterface>>
+   * @return array<int, class-string<ContentMigrationInterface>|list<MapShift>>
    */
   private static function normalizeMigrations(mixed $rawMigrations, int $contentVersion, string $source): array
   {
@@ -411,6 +422,24 @@ final readonly class SaveCompatibilityManifest
         ));
       }
 
+      $hasClass = array_key_exists('class', $entry);
+      $hasMapShifts = array_key_exists('mapShifts', $entry);
+
+      if ($hasClass === $hasMapShifts) {
+        throw new InvalidSaveCompatibilityManifestException(sprintf(
+          '%s migrations[%s] must declare exactly one of class or mapShifts.',
+          $source,
+          strval($index)
+        ));
+      }
+
+      if ($hasMapShifts) {
+        $normalized[$from] = self::normalizeMapShifts($entry['mapShifts'], "{$source} migrations[{$index}]");
+        $previousFrom = $from;
+
+        continue;
+      }
+
       if ($class === '' || ! is_subclass_of($class, ContentMigrationInterface::class)) {
         throw new InvalidSaveCompatibilityManifestException(sprintf(
           '%s migrations[%s] class "%s" must implement %s.',
@@ -434,6 +463,28 @@ final readonly class SaveCompatibilityManifest
     }
 
     return $normalized;
+  }
+
+  /**
+   * @param mixed $rawShifts
+   * @return list<MapShift>
+   */
+  private static function normalizeMapShifts(mixed $rawShifts, string $where): array
+  {
+    if (! is_array($rawShifts) || $rawShifts === [] || ! array_is_list($rawShifts)) {
+      throw new InvalidSaveCompatibilityManifestException(sprintf(
+        '%s mapShifts must be a non-empty list.',
+        $where
+      ));
+    }
+
+    $shifts = [];
+
+    foreach ($rawShifts as $index => $entry) {
+      $shifts[] = MapShift::fromArray($entry, "{$where} mapShifts[{$index}]");
+    }
+
+    return $shifts;
   }
 
   /** @return array{string, string} */

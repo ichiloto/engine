@@ -132,9 +132,10 @@ final class MenuRowPainter
   {
     $art = $skin->treatment($row->kind, $role);
     if ($art === null) { return false; }
-    array_push($this->images, ...$art->images($skin->assetRoot ?? throw new InvalidArgumentException('Menu artwork needs its asset root.'),
-      $id, $bounds, $layer));
-    return true;
+    $images = $art->images($skin->assetRoot ?? throw new InvalidArgumentException('Menu artwork needs its asset root.'),
+      $id, $bounds, $layer);
+    array_push($this->images, ...$images);
+    return $images !== [];
   }
 
   private function renderLabel(string $id, MenuRow $row, CanvasRectangle $bounds, MenuRowLayout $layout,
@@ -216,12 +217,12 @@ final class MenuRowPainter
   /** Canvas background runs are the existing flat-fill primitive. Clip rounding inside the original row. */
   private function fill(string $id, CanvasRectangle $rect, PresentationColor $color, int $layer, float $opacity = 1): void
   {
-    if ($rect->height > 256) {
-      $this->fill($id . '-top', new CanvasRectangle($rect->x, $rect->y, $rect->width, 256), $color, $layer, $opacity);
-      $this->fill($id . '-bottom', new CanvasRectangle($rect->x, $rect->y + 256, $rect->width, $rect->height - 256), $color, $layer, $opacity);
+    if ($rect->height > RendererGridConfig::MAX_CELL_SIZE) {
+      $this->fill($id . '-top', new CanvasRectangle($rect->x, $rect->y, $rect->width, RendererGridConfig::MAX_CELL_SIZE), $color, $layer, $opacity);
+      $this->fill($id . '-bottom', new CanvasRectangle($rect->x, $rect->y + RendererGridConfig::MAX_CELL_SIZE, $rect->width, $rect->height - RendererGridConfig::MAX_CELL_SIZE), $color, $layer, $opacity);
       return;
     }
-    $columns = (int)ceil($rect->width / 256);
+    $columns = (int)ceil($rect->width / RendererGridConfig::MAX_CELL_SIZE);
     $cellWidth = (int)ceil($rect->width / $columns);
     if ($columns * $cellWidth > $this->width) {
       $firstWidth = (int)floor($this->width / $columns) * $columns;

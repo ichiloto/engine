@@ -8,6 +8,7 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
+use Ichiloto\Engine\Field\PlayerWalk;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
@@ -37,6 +38,19 @@ use Ichiloto\Engine\Util\Debug;
  */
 class FieldState extends GameSceneState
 {
+    private ?PlayerWalk $walk = null;
+
+    /** Held walking, for input that reports held keys. */
+    protected PlayerWalk $playerWalk {
+        get => $this->walk ??= new PlayerWalk();
+    }
+
+    /** Stop held walking; keys pressed so far must be pressed again. */
+    public function cancelWalking(): void
+    {
+        $this->walk?->cancel();
+    }
+
     /**
      * @inheritDoc
      */
@@ -54,6 +68,7 @@ class FieldState extends GameSceneState
      */
     public function renderTheField(bool $forceFullRepaint = false): void
     {
+        $this->getGameScene()->synchronizeFieldViewport();
         Console::recomposeFrame(function (): void {
             $this->getGameScene()->mapManager->render();
             $this->getGameScene()->player->renderEventCues();
@@ -82,6 +97,12 @@ class FieldState extends GameSceneState
             return;
         }
         $scene->reconcileFieldPresentation();
+        // The player's last step arrives once its slide has shown, here in
+        // the field and never under a menu opened while it slid.
+        $scene->player?->completeArrival();
+        if ($scene->isStopping || $scene->state !== $this) {
+            return;
+        }
 
         // A story event owns field input while it is running. Its pending
         // dialogue, timer, route, transfer, or battle continuation advances
@@ -183,7 +204,7 @@ class FieldState extends GameSceneState
                 );
             } catch (\Throwable $exception) {
                 Debug::warn(sprintf('Quick save failed: %s', $exception->getMessage()));
-                alert($exception->getMessage(), 'Quick Save Unavailable');
+                alert('Saving is unavailable. Check storage permissions and try again.', 'Quick Save Unavailable');
             }
         }
 
@@ -213,6 +234,14 @@ class FieldState extends GameSceneState
      */
     protected function handleNavigation(GameScene $scene): void
     {
+        if (Input::isHeldInputAvailable()) {
+            // The walk's clock and the step's presentation share one duration.
+            $this->playerWalk->update(Time::getDeltaTime(), static fn(Vector2 $direction, float $seconds): bool
+                => $scene->moveAtPace($seconds, static fn(): bool => $scene->player->tryMove($direction, $scene->camera)));
+            return;
+        }
+
+        // Event-only input (the terminal) steps once per key event, as it always has.
         $h = Input::getAxis(AxisName::HORIZONTAL);
         $v = Input::getAxis(AxisName::VERTICAL);
 

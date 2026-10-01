@@ -99,4 +99,26 @@ class Input
   {
     return InputManager::isButtonDown($name);
   }
+
+  /**
+   * Checks if a key bound to the button is physically held. Only sources that
+   * report key releases (a native renderer) can hold; the terminal never does.
+   *
+   * @param string $name The name of the button to check.
+   * @return bool Returns true while the button is held, false otherwise.
+   */
+  public static function isButtonHeld(string $name): bool
+  {
+    return InputManager::isButtonHeld($name);
+  }
+
+  /**
+   * Checks if the current input source reports held keys at all.
+   *
+   * @return bool Returns true when key releases are reported, false for event-only input.
+   */
+  public static function isHeldInputAvailable(): bool
+  {
+    return InputManager::isHeldInputAvailable();
+  }
 }

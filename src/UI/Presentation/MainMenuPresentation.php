@@ -18,9 +18,8 @@ use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
 /** Main Menu layout over live owners, with no command, selection or party-order state of its own. */
 final class MainMenuPresentation
 {
-  private const int LEFT = 120;
-  private const int WIDTH = 1100;
-  private const int HEIGHT = 700;
+  private const int WIDTH = MenuLayout::MAX_WIDTH;
+  private const int HEIGHT = MenuLayout::MAX_HEIGHT;
   private const int COMMAND_WIDTH = 300;
   private const int PARTY_WIDTH = self::WIDTH - self::COMMAND_WIDTH;
 
@@ -98,7 +97,7 @@ final class MainMenuPresentation
     for ($index = 0; $index < max(4, count($members)); $index++) {
       $heights[] = self::recordHeight($members[$index] ?? null, $theme, $cardPadding);
     }
-    $partyBox = self::box(self::COMMAND_WIDTH, $infoHeight, self::PARTY_WIDTH, $footer->y - $infoHeight);
+    $partyBox = self::box(self::COMMAND_WIDTH, $infoHeight, self::PARTY_WIDTH, self::HEIGHT - $footerHeight - $infoHeight);
     [$first, $last] = $view->visibleRange('main-party', $heights, $partyBox, $commandsFocused ? 0 : $selection->getActivePanelIndex());
     $y = $partyBox->y;
     for ($index = $first; $index <= $last; $index++) {
@@ -190,7 +189,8 @@ final class MainMenuPresentation
 
   private static function box(float $x, float $y, float $width, float $height): CanvasRectangle
   {
-    return new CanvasRectangle(self::LEFT + $x, $y, $width, $height);
+    $host = MenuLayout::getBounds();
+    return new CanvasRectangle($host->x + $x, $host->y + $y, $width, $height);
   }
 
   private static function inset(CanvasRectangle $box, int $x, int $y): CanvasRectangle

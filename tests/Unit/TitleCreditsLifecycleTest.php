@@ -157,16 +157,17 @@ it('returns automatically after the last line leaves the viewport', function () 
   expect($property->getValue($this->scene))->toBeNull()->and($this->scene->getSelectedIndex())->toBe(3);
 });
 
-it('falls back when a menu-only renderer cannot report window activation', function () {
+it('keeps graphical credits when a renderer cannot report window activation', function () {
   $this->runtime = startCreditsTestRenderer($this->root, $this->game, caps: MenuPresentationCatalog::CAPABILITIES);
   $this->scene->openCredits($this->sections);
-  expect($this->game->modalManager->shown?->sections)->toBe($this->sections)
-    ->and(new ReflectionProperty(TitleScene::class, 'creditsPlayback')->getValue($this->scene))->toBeNull();
+  expect($this->game->modalManager->shown)->toBeNull()
+    ->and(new ReflectionProperty(TitleScene::class, 'creditsPlayback')->getValue($this->scene))->not->toBeNull();
 });
 
 it('pauses standalone credits on native focus loss and resumes without catching up', function () {
   $transport = new FakeRendererTransport();
-  $this->runtime = startCreditsTestRenderer($this->root, $this->game, $transport);
+  $this->runtime = startCreditsTestRenderer($this->root, $this->game, $transport,
+    caps: [...MenuPresentationCatalog::CAPABILITIES, 'window_activation']);
   $this->scene->openCredits($this->sections);
   $clock = new ReflectionProperty(TitleScene::class, 'creditsPlayback')->getValue($this->scene);
   $transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"window_activation","active":false}')];

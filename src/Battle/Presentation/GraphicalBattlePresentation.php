@@ -15,6 +15,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasIndicator;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasIndicatorKind;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextureFallback;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
@@ -28,10 +29,11 @@ use RuntimeException;
 /** Holds identity/layout, not combat state. Generating a frame has no gameplay effects. */
 final class GraphicalBattlePresentation
 {
-  /** @var array<int, array{battler: CharacterInterface, party: bool, image: CanvasImage, art: BattlerArtwork}> */
+  /** @var array<int, array{battler: CharacterInterface, party: bool, image: CanvasImage, art: BattlerArtwork, available: bool}> */
   private array $participants = [];
 
-  private function __construct(public readonly BattleArenaDefinition $arena, private readonly BattleConfig $battle) {}
+  private function __construct(public readonly BattleArenaDefinition $arena, private readonly BattleConfig $battle,
+    private readonly string $assetRoot) {}
 
   /** @return list<string> */
   public function requiredCapabilities(): array
@@ -48,27 +50,30 @@ final class GraphicalBattlePresentation
     $arena = $catalog->arenaFor($battle);
     if ($arena === null) { return null; }
     if ($catalog->ui !== null) { $arena = $arena->withDefaultUi($catalog->ui); }
-    $presentation = new self($arena, $battle);
-    $images = [$arena->background];
+    $presentation = new self($arena, $battle, $assetRoot);
+    $images = PngAssetPreflight::getAvailableSize($assetRoot, $arena->background->asset) === null ? [] : [$arena->background];
     foreach ([[$battle->party->members->toArray(), $arena->partySlots, true],
       [$battle->troop->members->toArray(), $arena->enemySlots, false]] as [$members, $slots, $party]) {
       foreach ($members as $index => $member) {
         $key = $member instanceof Character ? $member->actorId : $member->name;
         $art = ($party ? $catalog->actors : $catalog->enemies)[$key] ?? null;
         $slot = $slots[$party ? 0 : $index] ?? null;
-        if ($art === null || $slot === null) {
-          throw new RuntimeException("Graphical battle requires artwork and a formation slot for every participant: {$key}");
+        if ($slot === null) { throw new RuntimeException("Graphical battle requires a formation slot for every participant: {$key}"); }
+        if ($art === null) {
+          Debug::warn("No battler artwork registered; using a name fallback: {$key}");
         }
+        $probe = $art === null ? null : PngAssetPreflight::getAvailableSize($assetRoot, $art->asset);
+        $available = $probe !== null;
+        $art ??= new BattlerArtwork('unavailable-battler.png', 1, 1, 0.5, 1);
         // Artwork changes throughout development; the image on disk is this
         // moment's truth. Authored metadata reconciles to it and the battle
         // renders best-effort, with the mismatch logged for the author
         // rather than blocking play. Assets only fail here when missing,
         // not PNGs, or corrupt.
-        $probe = PngAssetPreflight::inspect($assetRoot, $art->asset);
-        $reconciled = $art->clampedTo($probe['width'], $probe['height']);
+        $reconciled = $probe === null ? $art : $art->clampedTo($probe['width'], $probe['height']);
         if ($reconciled !== $art) {
           Debug::warn(sprintf(
-            'Battler artwork changed under its authored metadata; rendering a best-effort clamped crop: %s (%s)',
+            'Battler artwork changed; rendering reconciled image bounds: %s (%s)',
             $key,
             $art->asset,
           ));
@@ -89,18 +94,11 @@ final class GraphicalBattlePresentation
             throw new RuntimeException('Battler images must cover at least one graphical unit in each dimension.');
           }
         }
-        $presentation->participants[$identity] = ['battler' => $member, 'party' => $party, 'image' => $image, 'art' => $art];
-        $images[] = $image;
+        $presentation->participants[$identity] = ['battler' => $member, 'party' => $party, 'image' => $image, 'art' => $art, 'available' => $available];
+        if ($available) { $images[] = $image; }
       }
     }
-    $hud = CanvasImagePreflight::textures(array_values([
-      ...($arena->skin?->textures ?? []), ...($arena->skin?->targetCursor?->textures ?? []),
-    ]));
-    CanvasImagePreflight::inspect([...$images, ...$hud], $assetRoot);
-    if ($catalog->results !== null) {
-      GraphicalBattleResults::preflight($catalog->results, $assetRoot, $images,
-        array_map(static fn(Character $member): string => $member->actorId, $battle->party->members->toArray()));
-    }
+    GraphicalBattleHud::preflight($arena, $assetRoot, $images);
     if (count($battle->party->battlers) > count($arena->partySlots)) {
       throw new RuntimeException('Graphical battle requires a slot for every active party member.');
     }
@@ -114,13 +112,15 @@ final class GraphicalBattlePresentation
     ?string $focus = null, ?float $now = null): PresentationCanvas
   {
     $now ??= hrtime(true) / 1_000_000_000;
-    $images = [$this->arena->background];
+    $images = PngAssetPreflight::getAvailableSize($this->assetRoot, $this->arena->background->asset) === null
+      ? [] : [$this->arena->background];
     $indicators = $text = $feedbackParticipants = [];
     $cursorBounds = [];
     $feedback = $field?->getFeedback() ?? [];
     $selected = $field?->getSelectedBattlers() ?? [];
     $skin = $this->arena->skin;
-    $composition = $skin !== null && $hud !== null ? GraphicalBattleHud::compose($this->arena, $hud, $focus, $now) : null;
+    $composition = $skin !== null && $hud !== null
+      ? GraphicalBattleHud::compose($this->arena, $hud, $focus, $now, $this->assetRoot) : null;
     $hudBounds = array_map(static fn(CanvasImage $image) => $image->destination, $composition?->images ?? []);
     $focused = $field?->getFocusedBattlers() ?? [];
     $queued = $field?->getQueuedBattlers() ?? [];
@@ -131,52 +131,65 @@ final class GraphicalBattlePresentation
       $image = $participant['image'];
       $index = array_search($battler, $participant['party'] ? $frontline : $enemies, true);
       if ($index === false) { continue; }
-      if ($participant['party']) {
-        $image = new CanvasImage($image->id, $image->asset, $this->arena->partySlots[$index]->place($participant['art']),
-          $image->layer, $image->sourceRect);
-      }
+      $size = PngAssetPreflight::getAvailableSize($this->assetRoot, $image->asset);
+      $participant['available'] = $size !== null;
+      $art = $size === null ? $participant['art'] : $participant['art']->clampedTo($size['width'], $size['height']);
+      $slot = ($participant['party'] ? $this->arena->partySlots : $this->arena->enemySlots)[$index];
+      $image = new CanvasImage($image->id, $image->asset, $slot->place($art), $image->layer, $art->sourceRect);
       $popups = array_filter($feedback, static fn(array $popup) => $popup['battler'] === $battler);
       if (!$participant['party'] && $battler->isKnockedOut && $popups === []) { continue; }
-      $images[] = new CanvasImage($image->id, $image->asset, $image->destination, $image->layer,
-        $image->sourceRect, $participant['party'] && $battler->isKnockedOut ? 0.4 : 1);
+      if ($participant['available']) {
+        $images[] = new CanvasImage($image->id, $image->asset, $image->destination, $image->layer,
+          $image->sourceRect, $participant['party'] && $battler->isKnockedOut ? 0.4 : 1);
+      }
       $bounds = $image->destination;
-      $lines = [];
+      $lines = $participant['available'] ? [] : [['text' => $battler->name, 'color' => null]];
       if (in_array($battler, $selected, true)) {
-        if ($skin === null) {
+        if ($skin === null && $participant['available']) {
           $indicators[] = new CanvasIndicator('selected-' . $identity, $image->id, CanvasIndicatorKind::OUTLINE,
             $bounds, (int)min(2, $bounds->width, $bounds->height), PresentationColor::ansi16(14), 200);
-        } else {
+        } elseif ($skin !== null) {
+          $hasSelectionArt = false;
           if ($skin->targetCursor !== null) {
             $cursor = $skin->targetCursor->layout($bounds, $this->arena->width, $this->arena->height, $now,
               $focus === 'target' && in_array($battler, $focused, true) && !\Ichiloto\Engine\UI\Accessibility::prefersReducedMotion(), $hudBounds);
-            if ($cursor !== null) {
+            if ($cursor !== null && CanvasTextureFallback::isAvailable($cursor['texture'], $this->assetRoot)) {
               array_push($images, ...$cursor['texture']->images('target-cursor-' . $identity, $cursor['bounds'], 202));
               $cursorBounds[] = $cursor['envelope'];
+              $hasSelectionArt = true;
             }
-          } else {
+          } elseif (CanvasTextureFallback::isAvailable($skin->textures['target'], $this->assetRoot)) {
             array_push($images, ...$skin->textures['target']->images('selected-' . $identity, $bounds, 200));
+            $hasSelectionArt = true;
+          }
+          if (!$hasSelectionArt && $participant['available']) {
+            $indicators[] = new CanvasIndicator('selected-' . $identity, $image->id, CanvasIndicatorKind::OUTLINE,
+              $bounds, (int)min(2, $bounds->width, $bounds->height), $skin->colors['focus'], 200);
           }
           if (in_array($battler, $queued, true)) {
-            array_push($images, ...$skin->textures['queued']->images('queued-' . $identity,
-              new CanvasRectangle(max(0, $bounds->x + $bounds->width - 32), $bounds->y, 32, 32), 201));
+            if (CanvasTextureFallback::isAvailable($skin->textures['queued'], $this->assetRoot)) {
+              array_push($images, ...$skin->textures['queued']->images('queued-' . $identity,
+                new CanvasRectangle(max(0, $bounds->x + $bounds->width - 32), $bounds->y, 32, 32), 201));
+            } else { $lines[] = ['text' => 'Queued', 'color' => $skin->colors['selected']]; }
           }
-          if ($skin->targetCursor === null && $focus === 'target' && $battler === ($focused[0] ?? null)) {
+          if ($skin->targetCursor === null && $focus === 'target' && $battler === ($focused[0] ?? null)
+            && CanvasTextureFallback::isAvailable($skin->textures['selector'], $this->assetRoot)) {
             $offset = GraphicalBattleHud::cursorOffset($now, \Ichiloto\Engine\UI\Accessibility::prefersReducedMotion());
             array_push($images, ...$skin->textures['selector']->images('field-cursor',
               new CanvasRectangle(max(0, min($this->arena->width - 20, $bounds->x - 24)) + $offset,
                 max(0, $bounds->y + ($bounds->height - 16) / 2), 16, 16), 202));
           }
         }
-        $lines[] = ['text' => $battler->name, 'color' => null];
+        if ($participant['available']) { $lines[] = ['text' => $battler->name, 'color' => null]; }
       }
       if ($field?->getActingBattler() === $battler) {
-        if ($skin === null) {
+        if ($skin === null && $participant['available']) {
           $indicators[] = new CanvasIndicator('acting-' . $identity, $image->id, CanvasIndicatorKind::UNDERLINE,
             $bounds, (int)min(4, $bounds->width, $bounds->height), PresentationColor::ansi16(11), 201);
-        } else {
+        } elseif ($skin !== null && CanvasTextureFallback::isAvailable($skin->textures['acting'], $this->assetRoot)) {
           array_push($images, ...$skin->textures['acting']->images('acting-' . $identity,
             new CanvasRectangle($bounds->x, min($this->arena->height - 6, $bounds->y + $bounds->height), $bounds->width, 6), 201));
-        }
+        } else { $lines[] = ['text' => 'Acting', 'color' => $skin?->colors['focus']]; }
       }
       if ($participant['party'] && $battler->isKnockedOut && $popups === []) {
         $lines[] = ['text' => 'KO', 'color' => null];

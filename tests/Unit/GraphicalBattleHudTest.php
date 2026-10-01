@@ -176,3 +176,46 @@ it('right aligns resource values at stable right edges as digits grow and shrink
     $previous = ['hp' => $layers['hud-hp-rows'], 'mp' => $layers['hud-mp-rows']];
   }
 });
+
+it('retains healthy HUD artwork and themed gauges when optional textures disappear and return', function () {
+  $root = sys_get_temp_dir() . '/ichiloto-hud-fallback-' . bin2hex(random_bytes(4));
+  mkdir($root);
+  $arena = hudTestArena();
+  $hud = new BattleHudSnapshot(hudTestList('Command', ['Attack']), status: new BattleHudStatusSnapshot('', '',
+    [new BattleHudStatusRow(0, 50, 100, 7, 10, 0.5)]));
+  try {
+    file_put_contents($root . '/panel.png', "\x89PNG\r\n\x1a\n\0\0\0\rIHDR" . pack('NN', 8, 8));
+    expect(GraphicalBattleHud::preflight($arena, $root))->toHaveCount(1);
+    $frame = GraphicalBattleHud::compose($arena, $hud, 'command', 0, $root);
+    expect(array_unique(array_column($frame->images, 'asset')))->toBe(['panel.png']);
+    $layers = array_column($frame->textLayers, null, 'id');
+    expect($layers)->toHaveKeys(['hud-command-rows', 'hud-hp-rows', 'hud-hp-unknown', 'hud-cursor-fallback'])
+      ->and($layers['hud-hp-unknown']->runs[0]->text)->toBe('50%')
+      ->and($layers['hud-hp-unknown']->runs[0]->background)->toBe($arena->skin->colors['ink']);
+    file_put_contents($root . '/hp.png', "\x89PNG\r\n\x1a\n\0\0\0\rIHDR" . pack('NN', 8, 8));
+    $repaired = GraphicalBattleHud::compose($arena, $hud, 'command', 0, $root);
+    expect(array_column($repaired->images, 'asset'))->toContain('hp.png')
+      ->and(array_column($repaired->textLayers, 'id'))->not->toContain('hud-hp-unknown');
+    unlink($root . '/panel.png');
+    $missingPanel = GraphicalBattleHud::compose($arena, $hud, 'command', 0, $root);
+    expect(array_column($missingPanel->textLayers, null, 'id')['hud-command-rows']->runs[0]->background)->toBe($arena->skin->colors['ink']);
+  } finally {
+    foreach (glob($root . '/*') ?: [] as $path) { unlink($path); }
+    rmdir($root);
+  }
+});
+
+it('keeps the combined battlefield and healthy HUD image budget strict', function () {
+  $root = sys_get_temp_dir() . '/ichiloto-hud-budget-' . bin2hex(random_bytes(4));
+  mkdir($root);
+  try {
+    foreach (['panel.png', 'arena.png'] as $asset) {
+      file_put_contents($root . '/' . $asset, "\x89PNG\r\n\x1a\n\0\0\0\rIHDR" . pack('NN', 3072, 3072));
+    }
+    expect(fn() => GraphicalBattleHud::preflight(hudTestArena(), $root,
+      [new CanvasImage('arena', 'arena.png', new CanvasRectangle(0, 0, 1350, 720))]))->toThrow(RuntimeException::class, '64 MiB');
+  } finally {
+    foreach (glob($root . '/*') ?: [] as $path) { unlink($path); }
+    rmdir($root);
+  }
+});

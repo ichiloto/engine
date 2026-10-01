@@ -20,10 +20,16 @@ final class RendererClient
   private SplQueue $keys;
   /** @var SplQueue<RendererEvent> */
   private SplQueue $events;
+  /** @var SplQueue<RendererEvent> Negotiated presses, releases and resets, in arrival order; repeats stay keys only. */
+  private SplQueue $transitions;
+  /** @var array<int, RendererEvent> Latest pending generation per staged/presented state; at most two. */
+  private array $frameAcknowledgements = [];
   private int $queuedBytes = 0;
   private ?RendererTransportException $failure = null;
   /** @var list<string> */
   private array $requiredCapabilities = [];
+  /** @var list<string> Drawing features plus explicitly subscribed event extensions. */
+  private array $negotiableCapabilities = [];
   /** @var list<string> */
   private array $capabilities = [];
 
@@ -40,15 +46,18 @@ final class RendererClient
     }
     $this->keys = new SplQueue();
     $this->events = new SplQueue();
+    $this->transitions = new SplQueue();
   }
 
   public function start(RendererSessionConfig $session): void
   {
-    if (! $this->keys->isEmpty() || ! $this->events->isEmpty()) {
+    if (! $this->keys->isEmpty() || ! $this->events->isEmpty() || ! $this->transitions->isEmpty()
+      || $this->frameAcknowledgements !== []) {
       throw new RendererTransportException('Consume pending renderer events before starting another session.');
     }
     $this->capabilities = [];
     $this->requiredCapabilities = $session->requiredCapabilities;
+    $this->negotiableCapabilities = $session->getNegotiableCapabilities();
     $this->transport->start($session);
     $this->failure = null;
   }
@@ -67,29 +76,58 @@ final class RendererClient
     try {
       $batch = $this->transport->pollEvents();
       $keys = $this->keys->count();
+      $transitions = $this->transitions->count();
       $events = $this->events->count();
       $bytes = $this->queuedBytes;
       $capabilities = $this->capabilities;
+      $acknowledgements = $this->frameAcknowledgements;
       foreach ($batch as $event) {
         if ($event->type === RendererEventType::READY) {
           $event->requireCapabilities($this->requiredCapabilities);
-          $capabilities = array_values(array_intersect($this->requiredCapabilities, $event->capabilities));
+          $capabilities = array_values(array_intersect($this->negotiableCapabilities, $event->capabilities));
         }
         if ($event->type === RendererEventType::WINDOW_ACTIVATION
           && !in_array(RendererSessionConfig::WINDOW_ACTIVATION, $capabilities, true)) {
           throw new RendererProtocolException('Window activation requires negotiated window_activation support.');
         }
-        if ($discardKeys && $event->type === RendererEventType::KEY) {
+        self::assertKeyTransitionContract($event, in_array(RendererSessionConfig::KEY_TRANSITIONS, $capabilities, true));
+        if ($discardKeys && ($event->type === RendererEventType::KEY || self::isKeyTransition($event))) {
+          continue;
+        }
+        if (self::isKeyTransition($event)) {
+          $transitions++;
+          $bytes += self::eventBytes($event);
+          if ($event->type !== RendererEventType::KEY) {
+            continue;
+          }
+        }
+        if ($event->type === RendererEventType::FRAME_ACK) {
+          $slot = (int) $event->presented;
+          $previous = $acknowledgements[$slot] ?? null;
+          if ($previous === null || $event->generation >= $previous->generation) {
+            $bytes += self::eventBytes($event) - ($previous === null ? 0 : self::eventBytes($previous));
+            $acknowledgements[$slot] = $event;
+          }
           continue;
         }
         $event->type === RendererEventType::KEY ? $keys++ : $events++;
         $bytes += self::eventBytes($event);
       }
-      if ($keys > $this->maxPendingKeys || $events > $this->maxPendingEvents || $bytes > $this->maxQueuedBytes) {
+      if ($keys > $this->maxPendingKeys || $transitions > $this->maxPendingKeys || $events > $this->maxPendingEvents
+        || $bytes > $this->maxQueuedBytes) {
         throw new RendererTransportException('Renderer client queue capacity exceeded; incoming batch rejected.',
           $this->transport->getDiagnostics(), $this->transport->getExitCode());
       }
       foreach ($batch as $event) {
+        if ($event->type === RendererEventType::FRAME_ACK) {
+          continue;
+        }
+        if (self::isKeyTransition($event) && ! $discardKeys) {
+          $this->transitions->enqueue($event);
+        }
+        if ($event->type === RendererEventType::KEY_RELEASE || $event->type === RendererEventType::INPUT_RESET) {
+          continue;
+        }
         if ($event->type === RendererEventType::KEY) {
           if (! $discardKeys) {
             $this->keys->enqueue($event);
@@ -97,12 +135,13 @@ final class RendererClient
           }
         } else {
           if ($event->type === RendererEventType::READY) {
-            $this->capabilities = array_values(array_intersect($this->requiredCapabilities, $event->capabilities));
+            $this->capabilities = array_values(array_intersect($this->negotiableCapabilities, $event->capabilities));
           }
           $this->events->enqueue($event);
         }
       }
       $this->queuedBytes = $bytes;
+      $this->frameAcknowledgements = $acknowledgements;
       $this->traceQueue();
     } catch (RendererTransportException $error) {
       $this->failure = $error;
@@ -125,16 +164,16 @@ final class RendererClient
     return $event->key;
   }
 
-  /** @return list<RendererEvent> Non-input events only; queued keys are untouched. */
+  /** @return list<RendererEvent> Non-input events, including coalesced ACK progress; keys are untouched. */
   public function pollEvents(): array
   {
-    if ($this->events->isEmpty()) {
+    if ($this->events->isEmpty() && $this->frameAcknowledgements === []) {
       $this->pump();
     }
     return $this->drainEvents();
   }
 
-  /** @return list<RendererEvent> Consume already-pumped lifecycle events without another I/O pass. */
+  /** @return list<RendererEvent> Ordered lifecycle events followed by coalesced ACK progress; no I/O. */
   public function drainEvents(): array
   {
     $events = [];
@@ -143,7 +182,36 @@ final class RendererClient
       $this->queuedBytes -= self::eventBytes($event);
       $events[] = $event;
     }
-    return $events;
+    return [...$events, ...$this->drainFrameAcknowledgements()];
+  }
+
+  /** @return list<RendererEvent> At most two latest ACKs in generation order; input/lifecycle queues untouched. */
+  public function drainFrameAcknowledgements(): array
+  {
+    $acknowledgements = array_values($this->frameAcknowledgements);
+    $this->frameAcknowledgements = [];
+    foreach ($acknowledgements as $event) {
+      $this->queuedBytes -= self::eventBytes($event);
+    }
+    usort($acknowledgements, static fn(RendererEvent $a, RendererEvent $b) => $a->generation <=> $b->generation);
+    return $acknowledgements;
+  }
+
+  /**
+   * Negotiated key presses, releases and resets received so far, in arrival order. No I/O:
+   * the caller pumps once per update and processes this bounded batch before gameplay.
+   *
+   * @return list<RendererEvent>
+   */
+  public function drainKeyTransitions(): array
+  {
+    $transitions = [];
+    while (! $this->transitions->isEmpty()) {
+      $event = $this->transitions->dequeue();
+      $this->queuedBytes -= self::eventBytes($event);
+      $transitions[] = $event;
+    }
+    return $transitions;
   }
 
   /** Clear buffered gameplay keys, optionally including one bounded upstream pass. */
@@ -164,6 +232,7 @@ final class RendererClient
     while (! $this->keys->isEmpty()) {
       $this->queuedBytes -= self::eventBytes($this->keys->dequeue());
     }
+    $this->drainKeyTransitions();
     $this->traceQueue();
   }
 
@@ -179,6 +248,14 @@ final class RendererClient
     }
     $this->transport->send($message);
   }
+
+  public function trySend(RendererMessage $message): bool
+  {
+    if ($this->failure !== null) { throw $this->failure; }
+    return $this->transport->trySend($message);
+  }
+
+  public function getPendingWriteBytes(): int { return $this->transport->getPendingWriteBytes(); }
 
   public function isRunning(): bool
   {
@@ -200,9 +277,32 @@ final class RendererClient
     return $exitCode;
   }
 
+  /** A press (a key that repeats nothing), a release or a reset; never an OS repeat. */
+  private static function isKeyTransition(RendererEvent $event): bool
+  {
+    return ($event->type === RendererEventType::KEY && $event->repeat === false)
+      || $event->type === RendererEventType::KEY_RELEASE || $event->type === RendererEventType::INPUT_RESET;
+  }
+
+  /** Transitions are an explicit subscription; a subscribed session never receives an unidentified key. */
+  private static function assertKeyTransitionContract(RendererEvent $event, bool $negotiated): void
+  {
+    $transition = $event->type === RendererEventType::KEY_RELEASE || $event->type === RendererEventType::INPUT_RESET
+      || $event->control !== null;
+    if ($transition && ! $negotiated) {
+      throw new RendererProtocolException('Key transitions require negotiated key_transitions support.');
+    }
+    if ($negotiated && $event->type === RendererEventType::KEY && $event->control === null) {
+      throw new RendererProtocolException('A key_transitions session requires a control identity on every key.');
+    }
+  }
+
   private static function eventBytes(RendererEvent $event): int
   {
-    return strlen($event->key ?? '') + strlen($event->message ?? '')
-      + array_sum(array_map(strlen(...), $event->capabilities)) + ($event->active === null ? 0 : 1);
+    return strlen($event->key ?? '') + strlen($event->control ?? '') + strlen($event->message ?? '')
+      + array_sum(array_map(strlen(...), $event->capabilities)) + ($event->active === null ? 0 : 1)
+      + ($event->generation === null ? 0 : 8) + ($event->frame === null ? 0 : 8)
+      + ($event->expectedGeneration === null ? 0 : 8) + ($event->presented === null ? 0 : 1)
+      + ($event->resyncRequired === null ? 0 : 1) + ($event->repeat === null ? 0 : 1);
   }
 }

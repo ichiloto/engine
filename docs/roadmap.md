@@ -852,6 +852,23 @@ Unavailable conditional triggers remain absent unless their author supplies
 `whenBlocked`; blocked text therefore remains a deliberate spatial-gate policy,
 not a default for future story stations.
 
+### Planned — graphical cues and field navigation
+
+> Status: planned, September 2026. Not implemented.
+
+- **Every terminal glyph has graphical art.** In the graphical field, a cue
+  draws as a slanted exclamation mark with a border, blue or yellow, from
+  replaceable cue artwork instead of its glyph; the terminal keeps its
+  coloured glyph.
+- **Story cues stay in view.** A story cue outside the viewport shows at the
+  screen edge in its direction, so the player always knows which way to head.
+  Only story cues do this; route cues show where they stand.
+- **Minimap.** A minimap overlay replaces the coordinate HUD in the graphical
+  field, built from the same map, cue and NPC state the field draws.
+- **Built on field effects.** Cues are map-owned effects of the unified
+  effect timeline ([effect animation](effect-animation.md#field-effects)),
+  alongside the walk-on save point's energy, not a cue-specific animation.
+
 ## Production-hardening extension — scenario field music
 
 > Status: implemented and regression-tested on a local feature branch,

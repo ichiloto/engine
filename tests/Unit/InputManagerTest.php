@@ -66,6 +66,20 @@ function inputCompatibilityStream(string $bytes)
 }
 
 // The original private-parser tests now exercise the extracted public source contract.
+it('decodes both SS3 and rxvt F1 through F4 from terminal bytes', function () {
+  $stream = inputCompatibilityStream("\033OP\033OQ\033OR\033OS\033[11~\033[12~\033[13~\033[14~");
+  try {
+    $source = new TerminalInputSource($stream);
+    $keys = [];
+    for ($i = 0; $i < 8; $i++) { $keys[] = $source->poll(); }
+    expect($keys)->toBe([KeyCode::F1, KeyCode::F2, KeyCode::F3, KeyCode::F4,
+      KeyCode::F1, KeyCode::F2, KeyCode::F3, KeyCode::F4])
+      ->and($source->poll())->toBeNull();
+  } finally {
+    fclose($stream);
+  }
+});
+
 it('maps macOS home and end escape sequences', function () {
   $stream = inputCompatibilityStream("\033[H\033OH\033[F\033OF");
   try {
@@ -182,7 +196,9 @@ it('adds a missing Info action using only unclaimed default keys', function (arr
 it('preserves an explicit Info entry including deliberate unbinding', function (array $entry) {
   $authored = ['info' => $entry, 'custom' => ['keys' => [KeyCode::F2]]];
   InputManager::setBindings($authored);
-  expect(InputManager::getBindings())->toBe($authored);
+  expect(InputManager::getBindings())->toBe([...$authored,
+    'dialogue_auto' => InputManager::getDefaultDialogueAutoBinding($authored),
+  ]);
   InputManager::setInputSource(new FakeInputSource(KeyCode::i));
   InputManager::handleInput();
   expect(Input::isButtonDown('info'))->toBeFalse();

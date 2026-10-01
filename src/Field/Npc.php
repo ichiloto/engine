@@ -9,6 +9,13 @@ use Ichiloto\Engine\Events\Interpreter\EventExecutionSession;
 use Ichiloto\Engine\Events\Interpreter\EventSessionCompletionTargetInterface;
 use Ichiloto\Engine\Messaging\Dialogue\ConditionalDialogue;
 use Ichiloto\Engine\Quests\QuestManager;
+use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
+use Ichiloto\Engine\Rendering\Sprites\CharacterSheetAssetGuard;
+use Ichiloto\Engine\Rendering\Sprites\CharacterStep;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteMotion;
+use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
+use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderInterface;
+use Ichiloto\Engine\Rendering\Sprites\CharacterWalkAnimation;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 
 /**
@@ -24,6 +31,7 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
  *     'x' => 23, 'y' => 5,
  *     'movement' => 'fixed',                     // or 'wander'
  *     'wanderArea' => ['x' => 20, 'y' => 4, 'width' => 6, 'height' => 3],
+ *     'directionFix' => false,                   // true: no turn to the player while talking
  *     // Either a plain page list, or conditional variants where the first
  *     // matching entry is spoken (see ConditionalDialogue).
  *     'dialogue' => [['name' => 'Mom', 'text' => '…'], …],
@@ -36,7 +44,7 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
  *
  * @package Ichiloto\Engine\Field
  */
-class Npc implements EventSessionCompletionTargetInterface
+class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProviderInterface
 {
   /**
    * @var float The next time this NPC may take a wander step.
@@ -47,7 +55,17 @@ class Npc implements EventSessionCompletionTargetInterface
 
   /** @var array<int, array<string, mixed>> Variant writes awaiting script completion. */
   protected array $pendingConversationSets = [];
-  protected bool $conversationIsActive = false;
+  protected(set) bool $conversationIsActive = false;
+  /**
+   * The heading the talk turn replaced, restored when that conversation
+   * ends. Anything else that sets the heading or transform meanwhile (a
+   * route turn or step, restored cinematic staging) clears it, so an
+   * authored result is never snapped back.
+   */
+  private ?MovementHeading $headingBeforeTalk = null;
+  private readonly string $graphicalSpriteId;
+  private readonly CharacterWalkAnimation $walkAnimation;
+  private readonly ?CharacterSheetAssetGuard $graphicalAssetGuard;
 
   /**
    * @param string $name The NPC's name (talk-to quests match it).
@@ -61,6 +79,10 @@ class Npc implements EventSessionCompletionTargetInterface
    * @param array<int, array<string, mixed>> $sets World-state writes applied after each conversation.
    * @param string|null $id Stable map-local script identity.
    * @param array<string, string> $directionalSprites Optional cardinal sprite glyphs.
+   * @param CharacterSheet|null $graphicalSprites Optional RPG Maker character sheet.
+   * @param string|null $graphicalSpriteId Map-scoped presentation identity, independent of script/save identity.
+   * @param string|null $assetRoot Project asset root for graphical preflight.
+   * @param bool $directionFix True keeps the heading when the player talks to it (RPG Maker's Direction Fix).
    */
   public function __construct(
     protected(set) string $name,
@@ -74,9 +96,62 @@ class Npc implements EventSessionCompletionTargetInterface
     protected(set) array $sets = [],
     protected(set) ?string $id = null,
     protected(set) array $directionalSprites = [],
+    private readonly ?CharacterSheet $graphicalSprites = null,
+    ?string $graphicalSpriteId = null,
+    ?string $assetRoot = null,
+    protected(set) bool $directionFix = false,
   )
   {
     $this->id = $id !== null && trim($id) !== '' ? trim($id) : null;
+    $this->graphicalSpriteId = $graphicalSpriteId ?? 'npc:object:' . spl_object_id($this);
+    $this->walkAnimation = new CharacterWalkAnimation();
+    $this->graphicalAssetGuard = $graphicalSprites === null ? null : new CharacterSheetAssetGuard(
+      $assetRoot ?? getcwd() . '/assets', $this->graphicalSpriteId,
+    );
+  }
+
+  public function getGraphicalSpriteId(): string
+  {
+    return $this->graphicalSpriteId;
+  }
+
+  public function getGraphicalSpriteDefinition(): ?GraphicalSpriteDefinition
+  {
+    $frame = $this->graphicalSprites === null ? null : $this->graphicalAssetGuard?->getFrameSize($this->graphicalSprites);
+    if ($frame === null) {
+      return null;
+    }
+    return $this->graphicalSprites->getFrame($this->heading, $this->walkAnimation->getPattern(), $frame);
+  }
+
+  public function getGraphicalSpriteWorldPosition(): Vector2
+  {
+    return clone $this->position;
+  }
+
+  public function getGraphicalSpriteMotion(): ?PresentationSpriteMotion
+  {
+    return $this->graphicalSprites === null ? null : $this->walkAnimation->getMotion($this->position);
+  }
+
+  /** @param CharacterStep|null $step The step taken; without one, one stride and no slide. */
+  public function beginGraphicalStep(?CharacterStep $step = null): void
+  {
+    if ($this->graphicalSprites !== null) {
+      $step === null ? $this->walkAnimation->stride() : $this->walkAnimation->step($step);
+    } else {
+      $this->stopGraphicalAnimation();
+    }
+  }
+
+  public function advanceGraphicalAnimation(float $seconds): void
+  {
+    $this->walkAnimation->advance($seconds);
+  }
+
+  public function stopGraphicalAnimation(): void
+  {
+    $this->walkAnimation->stop();
   }
 
   /**
@@ -120,6 +195,32 @@ class Npc implements EventSessionCompletionTargetInterface
 
     $this->applySets($gameScene);
     QuestManager::current()?->recordTalkTo($this->name);
+    $this->endConversation($gameScene);
+  }
+
+  /**
+   * Remembers the heading a talk turn replaced, to restore when the
+   * conversation ends.
+   *
+   * @param MovementHeading $heading The heading before the turn.
+   * @return void
+   */
+  public function rememberHeadingBeforeTalk(MovementHeading $heading): void
+  {
+    $this->headingBeforeTalk = $heading;
+  }
+
+  /**
+   * Returns and forgets the heading to restore after a conversation.
+   *
+   * @return MovementHeading|null The heading, or null when nothing should be restored.
+   */
+  public function takeHeadingBeforeTalk(): ?MovementHeading
+  {
+    $heading = $this->headingBeforeTalk;
+    $this->headingBeforeTalk = null;
+
+    return $heading;
   }
 
   /**
@@ -130,6 +231,8 @@ class Npc implements EventSessionCompletionTargetInterface
    */
   public function face(Vector2 $direction): void
   {
+    // Whatever turns the NPC now owns its heading; the talk turn-back is forgotten.
+    $this->headingBeforeTalk = null;
     $this->heading = match (true) {
       $direction->y < 0 => MovementHeading::NORTH,
       $direction->y > 0 => MovementHeading::SOUTH,
@@ -147,10 +250,12 @@ class Npc implements EventSessionCompletionTargetInterface
   /** Restore staging only; eligibility and conversation/story state remain live. */
   public function restoreFieldTransform(Vector2 $position, MovementHeading $heading, string $sprite): void
   {
+    $this->headingBeforeTalk = null;
     $this->position->x = $position->x;
     $this->position->y = $position->y;
     $this->heading = $heading;
     $this->sprite = $sprite;
+    $this->stopGraphicalAnimation();
   }
 
   /**
@@ -179,7 +284,14 @@ class Npc implements EventSessionCompletionTargetInterface
     if ($session === null) {
       $this->conversationIsActive = false;
       $this->pendingConversationSets = [];
+      $this->endConversation($gameScene);
     }
+  }
+
+  /** Turns the NPC back to the heading it had before the player talked to it. */
+  protected function endConversation(GameScene $gameScene): void
+  {
+    $gameScene->npcManager?->restoreNpcHeadingAfterTalk($this);
   }
 
   /** @inheritDoc */
@@ -190,6 +302,7 @@ class Npc implements EventSessionCompletionTargetInterface
     QuestManager::current()?->recordTalkTo($this->name);
     $this->pendingConversationSets = [];
     $this->conversationIsActive = false;
+    $this->endConversation($gameScene);
   }
 
   /** @inheritDoc */
@@ -197,6 +310,7 @@ class Npc implements EventSessionCompletionTargetInterface
   {
     $this->pendingConversationSets = [];
     $this->conversationIsActive = false;
+    $this->endConversation($gameScene);
   }
 
   /**

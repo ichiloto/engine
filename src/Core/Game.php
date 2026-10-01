@@ -34,6 +34,7 @@ use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalCapabilities;
 use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\Rendering\Launch\ApplicationIcon;
 use Ichiloto\Engine\Rendering\Launch\RendererLaunchIntent;
 use Ichiloto\Engine\Rendering\Launch\RendererRegistry;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
@@ -53,6 +54,7 @@ use Ichiloto\Engine\Util\Config\AppConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\InputConfig;
 use Ichiloto\Engine\Util\Config\PlaySettings;
+use Ichiloto\Engine\Util\Config\PlayerSettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Stores\EnemyStore;
@@ -498,6 +500,8 @@ class Game implements CanRun, SubjectInterface
         EquipmentOptimizationPolicyRegistry::configureFromProject();
         ConfigStore::put(PlaySettings::class, new PlaySettings($this->options));
         ConfigStore::put(AppConfig::class, new AppConfig());
+        ProjectFormat::assertSupported(config(AppConfig::class, ProjectFormat::KEY));
+        ConfigStore::put(PlayerSettings::class, new PlayerSettings());
         ConfigStore::put(ProjectConfig::class, new ProjectConfig());
         ConfigStore::put(FieldMusicCatalog::class, FieldMusicCatalog::fromProject());
 
@@ -858,7 +862,9 @@ class Game implements CanRun, SubjectInterface
         }
         TerminalCapabilities::reset();
         TerminalCapabilities::detect();
-        $this->rendererRuntime?->start($this->name, $this->width, $this->height);
+        $this->rendererRuntime?->start($this->name, $this->width, $this->height, $this->rendererRuntime === null ? null
+            : ApplicationIcon::getAssetPath(ConfigStore::has(AppConfig::class) ? config(AppConfig::class, ApplicationIcon::KEY) : null,
+                $this->rendererRuntime->getAssetRoot()));
         if (InputManager::requiresTerminalInput()) {
             Console::saveTerminalSettings();
             $this->terminalInputConfigured = true;

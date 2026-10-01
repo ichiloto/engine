@@ -9,22 +9,21 @@ use Ichiloto\Engine\IO\InputSources\InputSourceInterface;
 use Ichiloto\Engine\IO\InputSources\RendererInputSource;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
-use Ichiloto\Engine\Rendering\Presentation\PresentationTileBatch;
+use Ichiloto\Engine\Rendering\Presentation\FrameViewportProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\RendererPresentation;
+use Ichiloto\Engine\Rendering\Presentation\RetainedWorldProviderInterface;
 use Ichiloto\Engine\Rendering\RendererClient;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteCollector;
-use Ichiloto\Engine\Rendering\Tiles\GraphicalTileProviderHostInterface;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererEventType;
-use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException;
 use Ichiloto\Engine\Rendering\Transport\Interfaces\RendererTransportInterface;
 use Ichiloto\Engine\Rendering\Transport\ProcessRendererTransport;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
-use InvalidArgumentException;
 use LogicException;
 use Throwable;
+use Ichiloto\Engine\Util\Debug;
 
 /** Owns one explicit session; PHP Game owns simulation and frame cadence. */
 final class RendererRuntime
@@ -35,10 +34,13 @@ final class RendererRuntime
   private readonly GraphicalSpriteCollector $collector;
   private ?InputSourceInterface $previousInput = null;
   private ?RendererPresentation $presentation = null;
+  private ?RendererSessionConfig $session = null;
   private bool $started = false;
   private bool $closed = false;
   private bool $closeRequested = false;
+  private bool $resetText = true;
   public private(set) bool $windowActive = true;
+  public private(set) ?RendererGridConfig $grid = null;
 
   public function __construct(private readonly RendererRuntimeConfig $config, ?RendererTransportInterface $transport = null)
   {
@@ -48,32 +50,55 @@ final class RendererRuntime
     $this->collector = new GraphicalSpriteCollector();
   }
 
-  public function start(string $title, int $columns, int $rows): void
+  /** @param string|null $icon The game's application icon, relative to the asset root. */
+  public function start(string $title, int $columns, int $rows, ?string $icon = null): void
   {
     if ($this->started || $this->closed) {
       throw new LogicException('A RendererRuntime owns exactly one session.');
     }
     $grid = new RendererGridConfig($columns, $rows, $this->config->cellWidth, $this->config->cellHeight);
-    if (in_array(RendererSessionConfig::TILE_BATCHES, $this->config->requiredCapabilities, true)
-      && $columns * $rows > PresentationTileBatch::MAX_CELLS) {
-      throw new InvalidArgumentException(sprintf(
-        'Tile-enabled Engine viewports require at most %d cells; reduce the configured columns or rows.',
-        PresentationTileBatch::MAX_CELLS));
-    }
+    $this->grid = $grid;
     $session = new RendererSessionConfig($title, $this->config->assetRoot, $grid, $this->config->protocol,
-      $this->config->requiredCapabilities);
+      $this->config->requiredCapabilities, $icon);
+    $this->session = $session;
     $this->started = true;
     try {
       $this->client->start($session);
-      $this->presentation = new RendererPresentation($this->client, $grid);
+      $this->presentation = new RendererPresentation($this->client, $grid, $this->pump(...));
       $this->previousInput = InputManager::getInputSource();
       InputManager::setInputSource($this->input);
       Console::setLayerTracking(true);
+      Console::setRetainedWorldPresentation(true);
       $this->pump();
     } catch (Throwable $error) {
       try { $this->shutdown(); } catch (Throwable) { /* Preserve the startup failure. */ }
       throw $error;
     }
+  }
+
+  /** Restart the native surface without replacing gameplay, Console or desired presentation. */
+  public function restart(): void
+  {
+    if (!$this->started || $this->closed || $this->session === null) {
+      throw new LogicException('Renderer restart requires an active runtime.');
+    }
+    try { $this->client->shutdown(); }
+    catch (RendererTransportException $error) {
+      if ($this->client->isRunning()) { throw $error; }
+      Debug::warn('Renderer restart recovered a stopped peer: ' . $error->getMessage());
+    }
+    finally {
+      $this->client->drainEvents();
+      $this->client->resetKeys();
+      // The new surface has seen no presses; nothing may stay held from the old one.
+      if (InputManager::getInputSource() === $this->input) { InputManager::resetState(); }
+      $this->presentation?->invalidate(newSession: true);
+      $this->resetText = true;
+      $this->closeRequested = false;
+      $this->windowActive = true;
+    }
+    $this->client->start($this->session);
+    $this->pump();
   }
 
   public function pump(): void
@@ -85,15 +110,29 @@ final class RendererRuntime
       return;
     }
     $this->client->pump();
+    $invalidate = false;
+    $expectedGeneration = null;
     foreach ($this->client->drainEvents() as $event) {
       if ($event->type === RendererEventType::CLOSE_REQUESTED) {
         $this->closeRequested = true;
       } elseif ($event->type === RendererEventType::WINDOW_ACTIVATION) {
         $this->windowActive = $event->active ?? throw new LogicException('Window activation lacks its validated state.');
+      } elseif ($event->type === RendererEventType::FRAME_REJECTED) {
+        Debug::warn('Renderer rejected a presentation update: ' . $event->message . '. Retained state will be resynchronized.');
+        $invalidate = true;
+        $expectedGeneration = max($expectedGeneration ?? 0, $event->expectedGeneration ?? 0);
+      } elseif ($event->type === RendererEventType::RESIZED) {
+        $invalidate = true;
+      } elseif ($event->type === RendererEventType::FRAME_ACK) {
+        $this->presentation?->acknowledge($event->generation, $event->presented);
       } elseif ($event->type === RendererEventType::ERROR) {
         throw new RendererTransportException('Renderer error: ' . $event->message,
           $this->transport->getDiagnostics(), $this->transport->getExitCode());
       }
+    }
+    if ($invalidate) {
+      $this->presentation?->invalidate(expectedGeneration: $expectedGeneration);
+      $this->resetText = true;
     }
     if ($this->closeRequested) {
       throw new RendererWindowClosed('Renderer window closed.');
@@ -111,12 +150,18 @@ final class RendererRuntime
     $canvas = $scene instanceof CanvasProviderInterface ? $scene->getPresentationCanvas() : null;
     if ($canvas !== null) {
       $changed = $this->presentation->presentCanvas($canvas);
+      $this->resetText = true;
       if ($changed) { $this->pump(); }
       LatencyTrace::end('presentation.end', $started, ['changed' => $changed]);
       return $changed;
     }
     $collection = LatencyTrace::getTimeNow();
     $sprites = $this->collector->collect($scene);
+    // Steps are committed either way; a renderer without field_motion places sprites by whole cells.
+    $slides = $this->client->supports(RendererSessionConfig::FIELD_MOTION);
+    if (!$slides) {
+      $sprites = array_map(static fn($sprite) => $sprite->withoutMotion(), $sprites);
+    }
     LatencyTrace::end('presentation.sprites', $collection, ['count' => count($sprites)]);
     if (LatencyTrace::enabled()) {
       LatencyTrace::record('presentation.sprite.positions', ['sprites' => array_map(
@@ -128,23 +173,22 @@ final class RendererRuntime
     $visible = array_filter($sprites, static fn($sprite) => $sprite->x >= 0 && $sprite->x < Console::getWidth()
       && $sprite->y >= 0 && $sprite->y < Console::getHeight());
     $excluded = array_map(static fn($sprite) => $sprite->id, $visible);
-    $tilesStart = LatencyTrace::getTimeNow();
-    $tiles = $this->config->protocol === RendererProtocolVersion::V2 && $scene instanceof GraphicalTileProviderHostInterface
-      ? $scene->getGraphicalTileBatches() : [];
-    $replaced = [];
-    $tileCount = 0;
-    foreach ($tiles as $batch) {
-      foreach ($batch->cells as $cell) {
-        $replaced[$batch->id][$cell['row']][$cell['column']] = true;
-        $tileCount++;
-      }
-    }
-    LatencyTrace::end('presentation.tiles', $tilesStart, ['batches' => count($tiles), 'cells' => $tileCount]);
+    $world = $scene instanceof RetainedWorldProviderInterface ? $scene->getPresentationWorld() : null;
     $snapshotStart = LatencyTrace::getTimeNow();
-    $snapshot = $this->config->protocol === RendererProtocolVersion::V2
-      ? Console::presentationSnapshot($excluded, $replaced) : Console::snapshot($excluded);
+    $snapshot = Console::getRetainedPresentationChanges($excluded, $this->resetText, $world?->textLayerIds ?? []);
     LatencyTrace::end('presentation.snapshot', $snapshotStart);
-    $changed = $this->presentation->present($snapshot, $sprites, $tiles);
+    $viewport = $scene instanceof FrameViewportProviderInterface
+      ? $scene->getPresentationViewport($snapshot, $sprites, []) : null;
+    if (!$slides) {
+      $viewport = $viewport?->withoutFollow();
+    }
+    $this->resetText = false;
+    try {
+      $changed = $this->presentation->present($snapshot, $sprites, viewport: $viewport, world: $world);
+    } catch (Throwable $error) {
+      $this->resetText = true;
+      throw $error;
+    }
     if ($changed) {
       // Begin delivery at the presentation boundary, not after Game/Timers sleep.
       // This is one bounded zero-wait pass; partial writes retain their remainder.
@@ -168,6 +212,7 @@ final class RendererRuntime
         InputManager::setInputSource($this->previousInput);
       }
       Console::setLayerTracking(false);
+      Console::setRetainedWorldPresentation(false);
     }
     return $this->client->shutdown();
   }

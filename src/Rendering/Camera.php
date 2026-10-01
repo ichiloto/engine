@@ -35,6 +35,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   /** @var array<int, list<string>> String-authored rows are formatted once, before width policy. */
   private array $stringRowSymbols = [];
   private ?bool $normalizationPolicy = null;
+  private bool $retainedWorldAvailable = false;
   /**
    * @var Rect The drawable screen area.
    */
@@ -90,6 +91,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
       $this->normalizedRows = [];
       $this->stringRowSymbols = [];
       $this->normalizationPolicy = null;
+      $this->retainedWorldAvailable = false;
       $this->worldSpaceHeight = count($value);
       $this->worldSpaceWidth = 0;
       foreach ($this->worldSpace as $y => $source) {
@@ -164,8 +166,11 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
    */
   public function renderMap(): void
   {
+    if ($this->retainedWorldAvailable && Console::isRetainedWorldPresentation()) { return; }
     $renderOffset = $this->getRenderOffset();
     $visibleWidth = $this->getVisibleWorldWidth();
+    $worldX = (int)$this->screen->getX();
+    $worldY = (int)$this->screen->getY();
 
     // One terminal write for the whole map instead of one per row: the
     // difference is felt most while scrolling, and on consoles where each
@@ -174,8 +179,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
 
     for ($row = 0, $height = $this->getVisibleWorldHeight(); $row < $height; $row++) {
       $started = LatencyTrace::getTimeNow();
-      $content = $this->normalizedMapRow((int)$this->position->y + $row)
-        ->select((int)$this->position->x, $visibleWidth, $visibleWidth);
+      $content = $this->normalizedMapRow($worldY + $row)->select($worldX, $visibleWidth, $visibleWidth);
       LatencyTrace::end('terminal.select', $started);
       Console::writeNormalizedRow($content, $renderOffset->x, $renderOffset->y + $row);
     }
@@ -183,16 +187,19 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
     Console::endFrame();
   }
 
+
   /** @return iterable<int, list<string>> Visible authored symbols, without synthetic padding. */
   public function visibleMapRows(): iterable
   {
     $width = $this->getVisibleWorldWidth();
     $height = $this->getVisibleWorldHeight();
+    $worldX = (int)$this->screen->getX();
+    $worldY = (int)$this->screen->getY();
     for ($row = 0; $row < $height; $row++) {
-      $y = (int)$this->position->y + $row;
+      $y = $worldY + $row;
       $symbols = $this->worldSpace[$y] ?? [];
       if (!is_array($symbols)) { $symbols = $this->stringRowSymbols[$y]; }
-      yield $y => array_values(array_slice($symbols, (int)$this->position->x, $width));
+      yield $y => array_values(array_slice($symbols, $worldX, $width));
     }
   }
 
@@ -211,6 +218,11 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   /** Restore one logical tile through the same normalized write path as a pan. */
   public function renderBackgroundTile(int $x, int $y): void
   {
+    if ($this->retainedWorldAvailable && Console::isRetainedWorldPresentation()) {
+      $origin = $this->getWorldOrigin();
+      Console::removeWorldCellContributions($x - $origin['x'], $y - $origin['y']);
+      return;
+    }
     $position = $this->getScreenSpacePosition(new Vector2($x, $y));
     if ($position->x < 0 || $position->y < 0
       || $position->x >= $this->screen->getWidth() || $position->y >= $this->screen->getHeight()) { return; }
@@ -280,19 +292,20 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
    */
   public function canSee(GameObject $gameObject): bool
   {
-    if ($gameObject->position->x < $this->position->x) {
+    $position = $gameObject->position;
+    if ($position->x < $this->screen->getX()) {
       return false;
     }
 
-    if ($gameObject->position->x > $this->position->x + $this->width - 1) {
+    if ($position->x > $this->screen->getX() + $this->width - 1) {
       return false;
     }
 
-    if ($gameObject->position->y < $this->position->y) {
+    if ($position->y < $this->screen->getY()) {
       return false;
     }
 
-    if ($gameObject->position->y > $this->position->y + $this->height - 1) {
+    if ($position->y > $this->screen->getY() + $this->height - 1) {
       return false;
     }
 
@@ -447,9 +460,24 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
   public function getScreenSpacePosition(Vector2 $worldSpacePosition): Vector2
   {
     $renderOffset = $this->getRenderOffset();
-    $screenSpaceX = $worldSpacePosition->x - $this->position->x + $renderOffset->x;
-    $screenSpaceY = $worldSpacePosition->y - $this->position->y + $renderOffset->y;
+    $screenSpaceX = $worldSpacePosition->x - $this->screen->getX() + $renderOffset->x;
+    $screenSpaceY = $worldSpacePosition->y - $this->screen->getY() + $renderOffset->y;
     return new Vector2($screenSpaceX, $screenSpaceY);
+  }
+
+  /** Signed logical-cell origin; retained world projection needs no per-cell vectors. */
+  public function getWorldOrigin(): array
+  {
+    return [
+      'x' => (int)$this->screen->getX() - intdiv(max(0, (int)$this->screen->getWidth() - $this->worldSpaceWidth), 2),
+      'y' => (int)$this->screen->getY() - intdiv(max(0, (int)$this->screen->getHeight() - $this->worldSpaceHeight), 2),
+    ];
+  }
+
+  /** Map installation/provider validates this before bypassing terminal map drawing. */
+  public function setRetainedWorldAvailable(bool $available): void
+  {
+    $this->retainedWorldAvailable = $available;
   }
 
   /**
@@ -463,8 +491,8 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
     $renderOffset = $this->getRenderOffset();
 
     return new Vector2(
-      $screenSpacePosition->x - $renderOffset->x + $this->position->x,
-      $screenSpacePosition->y - $renderOffset->y + $this->position->y,
+      $screenSpacePosition->x - $renderOffset->x + $this->screen->getX(),
+      $screenSpacePosition->y - $renderOffset->y + $this->screen->getY(),
     );
   }
 
@@ -607,7 +635,7 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
    */
   protected function getVisibleWorldWidth(): int
   {
-    return min($this->screen->getWidth(), max(0, $this->worldSpaceWidth - $this->position->x));
+    return min($this->screen->getWidth(), max(0, $this->worldSpaceWidth - $this->screen->getX()));
   }
 
   /**
@@ -617,6 +645,6 @@ class Camera implements CanStart, CanResume, CanRender, CanUpdate
    */
   protected function getVisibleWorldHeight(): int
   {
-    return min($this->screen->getHeight(), max(0, $this->worldSpaceHeight - $this->position->y));
+    return min($this->screen->getHeight(), max(0, $this->worldSpaceHeight - $this->screen->getY()));
   }
 }

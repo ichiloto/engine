@@ -11,6 +11,8 @@ use InvalidArgumentException;
 final readonly class StyledPresentationFrame
 {
   public const int MAX_TEXT_LAYERS = 64;
+  public const int MAX_TEXT_RUNS = 32768;
+  public const int MAX_TEXT_SCALARS = 524288;
   /** @var list<PresentationTextLayer> */
   public array $textLayers;
   /** @var list<PresentationSprite> */
@@ -24,12 +26,12 @@ final readonly class StyledPresentationFrame
    * @param list<PresentationTileBatch> $tileBatches
    */
   public function __construct(public int $number, array $textLayers = [], array $sprites = [], array $tileBatches = [],
-    public ?PresentationCanvas $canvas = null)
+    public ?PresentationCanvas $canvas = null, public ?PresentationViewport $viewport = null)
   {
     if ($number < 0 || !array_is_list($textLayers) || count($textLayers) > self::MAX_TEXT_LAYERS) {
       throw new InvalidArgumentException('Styled frame requires a nonnegative number and at most 64 text layers.');
     }
-    if ($canvas !== null && ($textLayers !== [] || $sprites !== [] || $tileBatches !== [])) {
+    if ($canvas !== null && ($textLayers !== [] || $sprites !== [] || $tileBatches !== [] || $viewport !== null)) {
       throw new InvalidArgumentException('Canvas frames cannot mix legacy text, sprites or tiles.');
     }
     $ids = $copy = [];
@@ -43,7 +45,7 @@ final readonly class StyledPresentationFrame
       foreach ($layer->runs as $run) { $scalars += mb_strlen($run->text, 'UTF-8'); }
       $copy[] = $layer;
     }
-    if ($runs > 32768 || $scalars > 524288) {
+    if ($runs > self::MAX_TEXT_RUNS || $scalars > self::MAX_TEXT_SCALARS) {
       throw new InvalidArgumentException('Styled frame exceeds renderer run/scalar limits.');
     }
     // Stable sorting preserves the frame array order for equal numeric layers.
@@ -51,6 +53,7 @@ final readonly class StyledPresentationFrame
     $this->textLayers = $copy;
     $this->sprites = PresentationSprite::orderedList($sprites);
     $this->tileBatches = PresentationTileBatch::orderedList($tileBatches);
+    $viewport?->assertMembers($this->textLayers, $this->sprites, $this->tileBatches);
   }
 
   public function toRendererMessage(): RendererMessage
@@ -60,6 +63,7 @@ final readonly class StyledPresentationFrame
       'textLayers' => array_map(static fn(PresentationTextLayer $layer) => $layer->toArray(), $this->textLayers),
       'sprites' => array_map(static fn(PresentationSprite $sprite) => $sprite->toArray(), $this->sprites),
       ...($this->canvas === null ? [] : ['canvas' => $this->canvas->toArray()]),
+      ...($this->viewport === null ? [] : ['viewport' => $this->viewport->toArray()]),
       ...($this->tileBatches === [] ? [] : ['tileBatches' => array_map(
         static fn(PresentationTileBatch $batch) => $batch->toArray(), $this->tileBatches)]),
     ], RendererProtocolVersion::V2);

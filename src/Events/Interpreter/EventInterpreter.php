@@ -499,10 +499,13 @@ class EventInterpreter
         $session->suspendLane($lane, $command, ['kind' => 'transfer']);
         $spawn = new Vector2($destinationX, $destinationY);
         $sprite = (array) ($command['sprite'] ?? ($this->gameScene->player?->sprite ?? ['@']));
-        $this->gameScene->transferPlayer(
+        $transferred = $this->gameScene->transferPlayer(
           new Location($destinationMap, $spawn, $sprite),
           useConfiguredTransition: $session->cinematic === null,
         );
+        if (! $transferred) {
+          throw new RuntimeException(sprintf('Map transfer to "%s" was refused.', $destinationMap));
+        }
         return EventCommandResult::SUSPENDED;
 
       case 'start_battle':

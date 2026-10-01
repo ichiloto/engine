@@ -27,8 +27,10 @@ use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Tests\Support\Input\FakeRendererTransport;
+use Tests\Support\Rendering\RetainedFrameState;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
 function canvasImage(string $id = 'one', int $layer = 0, ?SpriteSourceRect $crop = null): CanvasImage
 {
@@ -51,15 +53,19 @@ function canvasPresenter(array $capabilities, ?RendererGridConfig $grid = null):
 it('submits free canvas geometry independently of terminal metrics and preserves fractions', function () {
   $canvas = new PresentationCanvas(1350, 720, [canvasImage()]);
   $messages = [];
+  $frames = [];
   foreach ([new RendererGridConfig(2, 1, 16, 24), new RendererGridConfig(135, 36, 10, 20)] as $grid) {
     [$presenter, $transport] = canvasPresenter(['graphical_canvas'], $grid);
     expect($presenter->presentCanvas($canvas))->toBeTrue();
     $messages[] = $transport->sent[0]->encode();
+    $frames[] = RetainedFrameState::replay($transport->sent)[0];
   }
   expect($messages[0])->toBe($messages[1]);
   $wire = json_decode($messages[0], true, flags: JSON_THROW_ON_ERROR);
-  expect($wire['canvas']['images'][0]['destination'])->toBe(['x' => 969.25, 'y' => 265.5, 'width' => 143, 'height' => 181])
-    ->and($wire['textLayers'])->toBe([])->and($wire['sprites'])->toBe([])->and($wire['protocol'])->toBe(2);
+  expect($frames[0])->toBe($frames[1])
+    ->and($frames[0]['canvas']['images'][0]['destination'])->toBe(['x' => 969.25, 'y' => 265.5, 'width' => 143.0, 'height' => 181.0])
+    ->and($frames[0]['textLayers'])->toBe([])->and($frames[0]['sprites'])->toBe([])->and($wire['protocol'])->toBe(2)
+    ->and($wire)->not->toHaveKeys(['canvas', 'textLayers', 'sprites']);
 });
 
 it('rejects invalid canvas rectangle values without clamping or cell snapping', function ($values) {
@@ -220,11 +226,14 @@ it('shares transactional deduplication and sequencing across canvas and field tr
     ->and($presenter->presentCanvas($canvas))->toBeFalse();
   $transport->sendFailure = new RendererTransportException('backpressure');
   expect(fn() => $presenter->presentCanvas(new PresentationCanvas(1350, 720)))->toThrow(RendererTransportException::class);
-  expect($presenter->presentCanvas($canvas))->toBeFalse();
+  expect(fn() => $presenter->presentCanvas($canvas))->toThrow(RendererTransportException::class);
   $transport->sendFailure = null;
   expect($presenter->presentCanvas(new PresentationCanvas(1350, 720)))->toBeTrue()
     ->and($presenter->present($field))->toBeTrue()->and($presenter->present($field))->toBeFalse();
+  $frames = RetainedFrameState::replay($transport->sent);
   expect(array_map(fn($m) => $m->payload['frame'], $transport->sent))->toBe([1, 2, 3, 4])
-    ->and($transport->sent[2]->payload['canvas']['images'])->toBe([])
-    ->and($transport->sent[3]->payload)->not->toHaveKey('canvas');
+    ->and($transport->sent[2]->payload['reset'])->toBeTrue()
+    ->and($frames[2]['canvas']['images'])->toBe([])
+    ->and($frames[3])->not->toHaveKey('canvas')
+    ->and($transport->sent[3]->payload['operations'])->toContain(['op' => 'remove', 'kind' => 'canvas', 'id' => 'canvas']);
 });

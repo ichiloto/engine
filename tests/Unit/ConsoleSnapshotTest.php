@@ -10,6 +10,7 @@ use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Tests\Support\Input\FakeRendererTransport;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
 beforeEach(function () {
   $this->consoleState = new ReflectionClass(Console::class)->getStaticProperties();
@@ -96,7 +97,8 @@ it('presents canonical Console cells while suppressing terminal-only style chang
   Console::write('<fg=green>@</>', 0, 0);
   expect($presentation->present(Console::snapshot()))->toBeFalse()
     ->and($transport->sent)->toHaveCount(1)
-    ->and($transport->sent[0]->payload['text'][0])->toBe('@' . str_repeat(' ', 17) . "\u{1F408} |   ");
+    ->and(Tests\Support\Rendering\RetainedFrameState::replay($transport->sent)[0]['textLayers'][0]['runs'][0]['text'])
+    ->toBe('@' . str_repeat(' ', 17) . "\u{1F408} |   ");
 });
 
 it('rejects capture inside nested frames without changing frame depth or flushing', function () {

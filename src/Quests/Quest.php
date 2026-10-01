@@ -2,10 +2,11 @@
 
 namespace Ichiloto\Engine\Quests;
 
-use Ichiloto\Engine\Exceptions\RequiredFieldException;
+use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 use InvalidArgumentException;
+use Ichiloto\Engine\Util\Debug;
 
 /**
  * An authored quest definition.
@@ -17,6 +18,8 @@ use InvalidArgumentException;
  */
 class Quest
 {
+  /** @var array<string, true> Avoid repeating content diagnostics on every journal tick. */
+  private array $reportedRewardReferences = [];
   /**
    * @param string $id The quest id.
    * @param string $name The quest name.
@@ -84,13 +87,9 @@ class Quest
 
     foreach ((array) ($this->rewards['items'] ?? []) as $itemReference) {
       if (is_array($itemReference)) {
-        if (!$itemStore instanceof ItemStore) {
-          throw new InvalidArgumentException(sprintf('Describing structured rewards for quest "%s" requires the project ItemStore.', $this->id));
-        }
-        $reference = strval($itemReference['item'] ?? throw new RequiredFieldException('item'));
+        $reference = is_string($itemReference['item'] ?? null) ? $itemReference['item'] : '';
         $quantity = max(0, intval($itemReference['quantity'] ?? 1));
-        // Granting validates identity even for zero copies; display never creates those copies.
-        $name = $itemStore->displayNameFor($reference, sprintf('describing rewards for quest "%s"', $this->id));
+        $name = $this->getRewardDisplayName($itemStore, $reference);
         if ($quantity > 0) {
           $parts[] = $name . ($quantity > 1 ? ' x' . $quantity : '');
         }
@@ -100,12 +99,23 @@ class Quest
         continue;
       }
 
-      $parts[] = $itemStore instanceof ItemStore
-        ? $itemStore->displayNameFor($itemReference, sprintf('describing rewards for quest "%s"', $this->id))
-        : $itemReference;
+      $parts[] = $this->getRewardDisplayName($itemStore, $itemReference);
     }
 
     return implode(', ', $parts);
+  }
+
+  private function getRewardDisplayName(?ItemStore $store, string $reference): string
+  {
+    if ($store !== null && $reference !== '') {
+      try { return $store->displayNameFor($reference, sprintf('describing rewards for quest "%s"', $this->id)); }
+      catch (NotFoundException) { /* Display is best-effort; granting retains strict validation. */ }
+    } elseif ($store === null && $reference !== '') { return $reference; }
+    if (!isset($this->reportedRewardReferences[$reference])) {
+      Debug::warn(sprintf('Quest "%s" has an unavailable reward reference: %s', $this->id, $reference ?: '(missing item)'));
+      $this->reportedRewardReferences[$reference] = true;
+    }
+    return $reference === '' ? 'Unknown item' : $reference . ' (unavailable)';
   }
 
   /**

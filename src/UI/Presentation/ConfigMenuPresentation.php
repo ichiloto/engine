@@ -10,7 +10,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 final class ConfigMenuPresentation
 {
   public static function compose(ConfigMenu $menu, MenuPresentationCatalog $theme, float $time = 0,
-    int $width = 1350, int $height = 720): PresentationCanvas
+    int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT): PresentationCanvas
   {
     $settings = $menu->selection->getSettings();
     return SettingsMenuPresentation::compose(new SettingsMenuContent('Config', $settings,

@@ -8,6 +8,7 @@ use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextureFallback;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
@@ -18,14 +19,19 @@ use Ichiloto\Engine\UI\Accessibility;
 final class GraphicalBattleHud
 {
   /** @return array<string, int> Decoded source costs, shared with arena preflight. */
-  public static function preflight(BattleCanvasLayout $layout, string $assetRoot): array
+  public static function preflight(BattleCanvasLayout $layout, string $assetRoot, array $battlefield = []): array
   {
-    return CanvasImagePreflight::inspect(CanvasImagePreflight::textures(array_values([
+    $textures = array_values([
       ...($layout->skin?->textures ?? []), ...($layout->skin?->targetCursor?->textures ?? []),
-    ])), $assetRoot)['sources'];
+    ]);
+    // Validate authored destinations independently of whether an optional file exists.
+    CanvasImagePreflight::textures($textures);
+    return CanvasImagePreflight::inspect([...$battlefield, ...CanvasImagePreflight::textures(
+      CanvasTextureFallback::getAvailableTextures($textures, $assetRoot))], $assetRoot)['sources'];
   }
 
-  public static function compose(BattleCanvasLayout $arena, BattleHudSnapshot $hud, ?string $focus, float $now): PresentationCanvas
+  public static function compose(BattleCanvasLayout $arena, BattleHudSnapshot $hud, ?string $focus, float $now,
+    ?string $assetRoot = null): PresentationCanvas
   {
     $skin = $arena->skin;
     if ($skin === null) { return new PresentationCanvas($arena->width, $arena->height); }
@@ -39,7 +45,7 @@ final class GraphicalBattleHud
       if ($list === null) { continue; }
       $x = $ox + $column * $pitch->cellWidth;
       $width = $columns * $pitch->cellWidth;
-      array_push($images, ...$skin->textures['panel']->images('hud-' . $id, new CanvasRectangle($x, $y, $width, $height), 1000));
+      self::renderImage($images, $text, $skin, 'panel', 'hud-' . $id, new CanvasRectangle($x, $y, $width, $height), 1000, $assetRoot);
       self::line($text, $id . '-title', $list->title, $x + 16, $y + 2, $width - 32, 16, $skin->colors['focus'], cellWidth: 8);
       self::line($text, $id . '-help', $list->help, $x + 16, $y + $height - 18, $width - 32, 16, $skin->colors['muted'], cellWidth: 8);
       $rowText = [];
@@ -52,8 +58,8 @@ final class GraphicalBattleHud
             $x + 8, $rowY, $width - 16, $pitch->cellHeight, $color, $background, $pitch->cellWidth);
           if ($focus === $id) {
             $offset = self::cursorOffset($now, Accessibility::prefersReducedMotion() || !$row->affordable);
-            array_push($images, ...$skin->textures['selector']->images('hud-cursor', new CanvasRectangle($x + 16 + $offset,
-              $rowY + ($pitch->cellHeight - 16) / 2, 16, 16), 1003));
+            self::renderImage($images, $text, $skin, 'selector', 'hud-cursor', new CanvasRectangle($x + 16 + $offset,
+              $rowY + ($pitch->cellHeight - 16) / 2, 16, 16), 1003, $assetRoot);
           }
           if (Accessibility::prefersHighContrast()) { $color = PresentationColor::rgb(255, 255, 255); }
         }
@@ -69,7 +75,7 @@ final class GraphicalBattleHud
     if ($hud->status !== null) {
       $x = $ox + 100 * $pitch->cellWidth;
       $width = 35 * $pitch->cellWidth;
-      array_push($images, ...$skin->textures['panel']->images('hud-stats', new CanvasRectangle($x, $y, $width, $height), 1000));
+      self::renderImage($images, $text, $skin, 'panel', 'hud-stats', new CanvasRectangle($x, $y, $width, $height), 1000, $assetRoot);
       $atb = array_any($hud->status->rows, static fn($row) => $row->atbRatio !== null);
       $hpWidth = $mpWidth = 4 * $pitch->cellWidth;
       foreach ($hud->status->rows as $row) {
@@ -90,32 +96,41 @@ final class GraphicalBattleHud
         self::line($text, 'stats-' . $label, $label, $labelX, $y + 2, $x + $width - 16 - $labelX, 16,
           $skin->colors['muted'], cellWidth: 8);
       }
-      $hpText = $mpText = $hpUnknown = $mpUnknown = [];
+      $hpText = $mpText = $hpUnknown = $mpUnknown = $atbFallback = [];
       foreach ($hud->status->rows as $index => $row) {
         $rowY = $y + ($index + 1) * $pitch->cellHeight;
         self::line($hpText, 'hp-' . $index, (string)$row->currentHp, $x + 16, $rowY, $hpWidth,
           $pitch->cellHeight, $skin->colors['text'], cellWidth: $pitch->cellWidth, rightAligned: true);
         self::line($mpText, 'mp-' . $index, (string)$row->currentMp, $mpX, $rowY, $mpWidth,
           $pitch->cellHeight, $skin->colors['text'], cellWidth: $pitch->cellWidth, rightAligned: true);
-        $hpUnknown[] = self::gauge($images, $skin, 'hp', $index, $hpTrackX, $rowY + 4, $hpTrackWidth,
-          $row->totalHp > 0 ? $row->hpRatio : null, $pitch->cellHeight);
-        $mpUnknown[] = self::gauge($images, $skin, 'mp', $index, $mpTrackX, $rowY + 4, $mpTrackWidth,
-          $row->totalMp > 0 ? $row->mpRatio : null, $pitch->cellHeight);
-        if ($row->atbRatio !== null) { self::gauge($images, $skin, 'atb', $index, $atbX, $rowY + 4, 40, $row->atbRatio); }
+        $hpUnknown[] = self::renderGauge($images, $skin, 'hp', $index, $hpTrackX, $rowY + 4, $hpTrackWidth,
+          $row->totalHp > 0 ? $row->hpRatio : null, $pitch->cellHeight, $assetRoot);
+        $mpUnknown[] = self::renderGauge($images, $skin, 'mp', $index, $mpTrackX, $rowY + 4, $mpTrackWidth,
+          $row->totalMp > 0 ? $row->mpRatio : null, $pitch->cellHeight, $assetRoot);
+        if ($row->atbRatio !== null) { $atbFallback[] = self::renderGauge($images, $skin, 'atb', $index, $atbX, $rowY + 4, 40, $row->atbRatio, 20, $assetRoot); }
       }
       self::column($text, 'hp-rows', $hpText);
       self::column($text, 'mp-rows', $mpText);
       self::column($text, 'hp-unknown', $hpUnknown);
       self::column($text, 'mp-unknown', $mpUnknown);
+      self::column($text, 'atb-fallback', $atbFallback);
     }
     if ($hud->message !== null) {
       $bounds = new CanvasRectangle($ox + 2 * $pitch->cellWidth, $oy + $pitch->cellHeight,
         131 * $pitch->cellWidth, min($arena->height - $oy - $pitch->cellHeight,
           (max(1, $hud->messageRows) + 2) * $pitch->cellHeight));
-      array_push($images, ...$skin->textures['quiet']->images('hud-message', $bounds, 1000));
+      self::renderImage($images, $text, $skin, 'quiet', 'hud-message', $bounds, 1000, $assetRoot);
       self::line($text, 'message', $hud->message, $bounds->x + 16, $bounds->y + $pitch->cellHeight,
         $bounds->width - 32, $pitch->cellHeight, $skin->colors['text'], cellWidth: $pitch->cellWidth,
         rows: max(1, (int)floor($bounds->height / $pitch->cellHeight) - 2), centered: true);
+    }
+    if (!CanvasTextureFallback::isAvailable($skin->textures['panel'], $assetRoot)
+      || !CanvasTextureFallback::isAvailable($skin->textures['quiet'], $assetRoot)) {
+      $text = array_map(static fn(CanvasTextLayer $layer): CanvasTextLayer => new CanvasTextLayer(
+        $layer->id, $layer->layer, $layer->x, $layer->y, $layer->grid,
+        array_map(static fn(PresentationTextRun $run): PresentationTextRun => new PresentationTextRun(
+          $run->row, $run->column, $run->text, $run->foreground, $run->background ?? $skin->colors['ink']), $layer->runs),
+        $layer->clipRect, $layer->opacity, $layer->glyphEffects), $text);
     }
     return new PresentationCanvas($arena->width, $arena->height, $images, textLayers: $text);
   }
@@ -125,21 +140,40 @@ final class GraphicalBattleHud
     return $reducedMotion ? 0.0 : 2 * (1 - cos(2 * M_PI * fmod($now, 1.2) / 1.2));
   }
 
-  private static function gauge(array &$images, BattleUiSkin $skin, string $role, int $index,
-    float $x, float $y, float $width, ?float $ratio, int $rowHeight = 20): ?CanvasTextLayer
+  private static function renderGauge(array &$images, BattleUiSkin $skin, string $role, int $index,
+    float $x, float $y, float $width, ?float $ratio, int $rowHeight = 20, ?string $assetRoot = null): ?CanvasTextLayer
   {
-    array_push($images, ...$skin->textures['track']->images("{$role}-track-{$index}", new CanvasRectangle($x, $y, $width, 12), 1001));
-    if ($ratio === null) {
-      return new CanvasTextLayer("{$role}-unknown-{$index}", 1002, $x + ($width - 8) / 2, $y - 4,
-        new RendererGridConfig(1, 1, 8, $rowHeight), [new PresentationTextRun(0, 0, '-', $skin->colors['muted'])],
-        new CanvasRectangle($x + ($width - 8) / 2, $y - 4, 8, $rowHeight));
+    $track = $skin->textures['track']->images("{$role}-track-{$index}", new CanvasRectangle($x, $y, $width, 12), 1001);
+    if (CanvasTextureFallback::isAvailable($skin->textures['track'], $assetRoot)) { array_push($images, ...$track); }
+    $inner = new CanvasRectangle($x + 2, $y + 2, $width - 4, 8);
+    $skin->textures[$role]->images("{$role}-fill-{$index}", $inner, 1002);
+    $available = CanvasTextureFallback::isAvailable($skin->textures[$role], $assetRoot);
+    if ($ratio === null || !$available) {
+      $label = $ratio === null ? '-' : (string)round(max(0, min(1, $ratio)) * 100) . '%';
+      $cw = max(1, min(8, (int)floor($width / 4)));
+      return new CanvasTextLayer("{$role}-unknown-{$index}", 1002, $x + ($width - 4 * $cw) / 2, $y - 4,
+        new RendererGridConfig(4, 1, $cw, $rowHeight), [new PresentationTextRun(0, 0, $label,
+          $skin->colors['text'], $skin->colors['ink'])],
+        new CanvasRectangle($x + ($width - 4 * $cw) / 2, $y - 4, 4 * $cw, $rowHeight));
     }
     $ratio = max(0, min(1, $ratio));
     if ($ratio <= 0) { return null; }
-    $inner = new CanvasRectangle($x + 2, $y + 2, $width - 4, 8);
     array_push($images, ...$skin->textures[$role]->images("{$role}-fill-{$index}", $inner, 1002,
       new CanvasRectangle($inner->x, $inner->y, $inner->width * $ratio, $inner->height)));
     return null;
+  }
+
+  private static function renderImage(array &$images, array &$text, BattleUiSkin $skin, string $role, string $id,
+    CanvasRectangle $bounds, int $layer, ?string $assetRoot, ?CanvasRectangle $clip = null): void
+  {
+    $color = match ($role) { 'hp' => 'healing', 'mp' => 'mp', 'atb', 'selector' => 'focus', 'track' => 'muted', default => 'ink' };
+    if (in_array($role, ['panel', 'quiet'], true) && !CanvasTextureFallback::isAvailable($skin->textures[$role], $assetRoot)) {
+      $skin->textures[$role]->images($id, $bounds, $layer, $clip);
+      return;
+    }
+    $parts = CanvasTextureFallback::render($skin->textures[$role], $id, $bounds, $layer, $skin->colors[$color], $assetRoot, $clip);
+    array_push($images, ...$parts['images']);
+    array_push($text, ...$parts['textLayers']);
   }
 
   private static function line(array &$layers, string $id, string $label, float $x, float $y, float $width, int $height,

@@ -196,10 +196,47 @@ A loop begins a new traversal cleanly, and restart returns to frame zero with
 the same one-time opening-cue behavior.
 
 The existing blocking `SummonCutscenePlayer::play()` API is source-compatible
-and delegates traversal to this session. Battle damage timing, MP spending,
-assignment rules, definition/compiler formats, and authored cue meaning are
-unchanged. Authoring tools should obtain preview and definition field names
-from `CinematicCommandSchema::export()` instead of copying them.
+and delegates traversal to this session. Battle now passes its frame and cue
+callbacks, so `effectTiming` determines when the skill's gameplay effect
+lands. `cue` requires an existing `cueId`; `frame`/`explicit_frame` requires
+a `frame` number; `end` resolves after the last frame and before the outgoing
+transition. Resolution happens once even when rendering fails or the host
+draws no summon art. A render failure still traverses remaining cues
+logically, reports the presentation error and restores the battlefield;
+gameplay failures propagate instead of being retried. MP spending, assignment
+rules and the authored data format are unchanged.
+
+If `effectTiming` or its mode is omitted, the effect resolves at `end`.
+Unknown modes produce a warning and use `end` rather than silently changing
+when combat resolves.
+
+Timeline cues use `id`, `frame`, `type`, and an optional `payload` map. Battle
+recognizes these payload keys:
+
+| Cue type | Payload keys | Behavior |
+| --- | --- | --- |
+| `applyEffect` | none | Its id can be selected by `effectTiming.cueId`; the timing gate resolves gameplay once. |
+| `showMessage` | `text` (or `message`) | Shows non-empty text in the battle message panel. |
+| `playSound` | `soundEffect` (or `sound`, `assetId`) | Plays the named effect through the game's audio manager. |
+| `flash` | `color`, `durationFrames` (or `duration`), `scope` | Flashes the `screen` (default) or `target`; default color is white and minimum duration is one frame. |
+| `shake` | `amplitude`, `durationFrames` (or `duration`) | Shakes the battlefield for at least one frame; default amplitude is one. |
+| `restoreBattlefield` | none | Clears flash, shake and effect art, then redraws the field. |
+
+Visual `flash` and `shake` cues are skipped in reduced motion. Other cues and
+their ordering remain active, and the final frame stays visible through the
+effect display phase before the battlefield returns.
+
+Reduced motion delivers every cue in authored order, applies the skill effect,
+and draws only the final frame. The battle skips summon title and transition
+motion as well as visual flash and shake. In terminal presentation, active
+segments draw by `zIndex`; `clearBeforeDraw` clears lower queued effect art.
+Flash cues can recolour the target area or battlefield for their authored
+frame duration. A battle uses one cached definition/compiled-timeline library
+until the scene stops; the next battle reads current assets. Invalid optional
+summon definitions are warned about individually so valid summons still appear
+in the command catalogue. Authoring tools should obtain preview and
+definition field names from `CinematicCommandSchema::export()` instead of
+copying them.
 
 ### The in-game Summons menu
 

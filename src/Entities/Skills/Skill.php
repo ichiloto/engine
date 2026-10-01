@@ -15,6 +15,8 @@ use Ichiloto\Engine\Entities\ItemScope as SkillScope;
  */
 abstract class Skill implements SkillInterface
 {
+  protected(set) ?int $animationId = null;
+
   /**
    * @var SkillEffect[] The effects of the skill.
    */
@@ -37,6 +39,7 @@ abstract class Skill implements SkillInterface
    * @param SkillInvocation $invocation The invocation of the skill.
    * @param SkillEffect[] $effects The effects of the skill.
    * @param Weapon[] $requiredWeapons The required weapons of the skill.
+   * @param int|null $animationId The stable animation id, or null for legacy selection.
    */
   public function __construct(
     protected(set) string $name,
@@ -49,8 +52,10 @@ abstract class Skill implements SkillInterface
     protected(set) SkillInvocation $invocation = new SkillInvocation(),
     array $effects = [],
     array $requiredWeapons = [],
+    ?int $animationId = null,
   )
   {
+    $this->animationId = $animationId;
     foreach ($effects as $effect) {
       if ($effect instanceof SkillEffect) {
         $this->effects[] = $effect;

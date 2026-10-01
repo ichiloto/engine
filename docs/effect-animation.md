@@ -33,7 +33,10 @@ replacing them. Related plans: [layered-tilemaps.md](layered-tilemaps.md); relat
    playback session, as the summon preview already does. Anything the preview
    fires, battle fires; anything battle honors, the preview shows.
 
-## Current state (audited 2026-09-20)
+## Baseline audit (2026-09-20)
+
+This records the behavior that motivated the phases below. The Phase 0 runtime
+contract follows the phase list.
 
 Two authored animation systems exist, plus one orphan:
 
@@ -95,12 +98,113 @@ One authored format, the summon timeline generalized:
   positions, or GPUI arena slot geometry). This fixes resolution dependence
   for both presentations at once. Existing absolute summon timelines keep
   playing through a compatibility anchor (`screen` at the legacy offset)
-  until migrated.
+  until migrated. On the field, `cell` (a map cell) and `object` (a field
+  character or object, followed as it moves) are anchors too; see
+  [Field effects](#field-effects).
+- **Playback**: `once` (cue-driven; the session ends after its last frame)
+  or `loop` (an ambient effect that repeats until its owner ends it). Both
+  are the same session; looping is a mode, not a second runtime.
 - **Cues**: the existing vocabulary (`applyEffect`, `playSound`,
   `showMessage`, `flash`, `shake`), all honored at runtime.
 - **References, not names**: skills, items and (later) states carry an
   explicit animation id, selected in the editor through a reference picker,
   never typed. Name-matching remains only as a deprecation-period fallback.
+
+## Field effects
+
+The field is a consumer of the same timelines, not a separate effect system.
+Effects there either play once, as a cinematic's `field_animation` does
+today, or live with the map:
+
+- **Map-owned ambient effects**: a save point's energy, torch and brazier
+  flames, water sparkle, magic circles, and the planned graphical cues (the
+  blue and yellow `!` markers and their screen-edge arrows, see the roadmap's
+  graphical cues entry). They are declared in map data at a cell, or by a
+  tileset piece, so stamping a save point piece brings its effect with it.
+  They start when the map is shown and end with it: a transfer, a map clear
+  or shutdown removes them, as layered geometry is cleared today.
+- **Object-attached effects**: an aura, glow or status effect anchored to a
+  field character or object, following it as it moves and ending when it
+  leaves or is removed.
+- **Depth around characters**: each image track draws either behind the
+  characters on the effect's cell (a light pool, a rune ring) or in front of
+  them (rising motes, sparks), through the existing presentation layer
+  policy. A character standing in an effect is drawn between its two
+  layers.
+- **Terminal truth**: an ambient effect decorates a glyph the map already
+  shows (the save point's `?`, a torch's glyph), so that glyph is its
+  terminal presentation; its timeline may add glyph or colour tracks, such
+  as a flickering torch colour, but need not. Like decoration layers,
+  graphical effects never change collision, events or saves.
+- **Reduced motion**: a looping effect shows its rest frame (its first
+  unless authored otherwise) without motion; a once effect follows the
+  existing rule (final frame, every cue, no motion).
+- **Boundaries**: terrain that animates per tile (RPG Maker's A1 water and
+  waterfalls) stays tile animation on `TileAnimation`'s counter, cheap
+  across whole maps; objects and magical or lighting effects are field
+  effects. Character and object sheets animate through the character walk
+  animation (including standing in place), not effect timelines.
+- **One slot becomes many**: the field presentation manager's single
+  animation slot gives way to any number of sessions, each with a stable
+  entity identity, so a cinematic's effect and a map's ambient effects play
+  together.
+
+## Battle command presentation sequence
+
+Planned G2 work, not current graphical behavior. This is the first battle
+presentation slice after the current graphical-field integration, built on the
+shared session work in Phases 1 and 2 below. Existing pose artwork alone does
+not implement this sequence.
+
+Once a confirmed command actually begins execution, present it in this order:
+
+1. Step the acting battler forward from its default formation position.
+2. Select the command's presentation pose, such as Attack, Casting Magic or
+   Using Item, through explicit project-owned role bindings.
+3. Announce the command or item use through the existing message surface.
+4. Play source effects, such as a caster's magic preparation.
+5. Play target effects, such as hit sparks, at the action's impact cues.
+6. Present each recipient's actual result: damage reaction pose/animation,
+   damage tint and shake, healing tint/aura, or the appropriate miss, block,
+   resistance, status or knockout feedback. Colour is not the only result cue.
+7. Finish command feedback and release action-owned transient effects.
+8. Step back to the default formation position and select the resulting
+   resting state, respecting guard, affliction and knockout rather than
+   unconditionally forcing an idle pose.
+
+Apply the same lifecycle to party and enemy actors, basic attacks, skills,
+items and summons. Selection or target preview never starts execution. The
+ordered stages may contain authored overlapping tracks; they are not eight
+unconditional delays. Multi-target and multi-hit reactions follow the actual
+combat result and its cues, not independently repeated action resolution.
+
+PHP owns sequence timing and exactly-once gameplay resolution at the authored
+effect cue. Rendering, dropped frames and unavailable artwork never determine
+damage, costs, targeting or completion. Reuse the shared playback session and
+existing pacing controls, with named/configurable timings and slot-relative
+motion rather than project-specific coordinates or another blocking loop.
+
+Pose roles reference replaceable assets by stable actor identity, not inferred
+filenames or display names. Single-pose images are a valid first treatment;
+animated poses and layered attachments must fit the same lifecycle. Keep the
+battle-art contract separate from the field's 48-pixel character sheets.
+Missing optional poses use the existing available battler representation with
+diagnostics; they do not cancel the command. Games supply pose choices, palette
+and effects while Engine owns reusable sequencing and safe cleanup.
+
+Terminal retains readable command/effect/result feedback. Reduced motion
+suppresses translation, shake and flashing while preserving pose/state changes,
+messages, logical cues and outcomes. On failure, interruption or battle exit,
+release only the action's visual state and restore surviving battlers' valid
+formation/resting state without replaying gameplay. Respect existing pause and
+legal-skip policies; presentation does not grant a new right to skip a command.
+
+Acceptance covers both battle engines, party and enemy actions, source/target
+effects, damage/healing/miss/KO, multi-hit and multi-target actions, counters,
+self-targeting, missing/replaced assets, reduced motion, pause and cleanup.
+Verify cue order and exactly-once results through real callers as well as the
+visible step/pose/feedback/return sequence. Share editor reference pickers and
+source-preserving role bindings; do not require every game to write drawing code.
 
 ## Phases
 
@@ -122,6 +226,63 @@ says.
 6. Add the explicit animation reference to skills and items (engine schema +
    editor picker), keeping the name fallback with a validator notice.
 
+#### Phase 0 runtime contract
+
+`ActionExecutionState` passes summon frame and cue callbacks into
+`SummonCutscenePlayer`. `effectTiming.mode` selects exactly one gameplay
+resolution: `cue` fires when the named `cueId` is crossed; `frame` (also
+accepted as `explicit_frame`) fires at the start of that frame; `end` fires
+after the last frame and before the outgoing transition. Frame-zero cues are
+delivered once. Presentation cues such as sound, message, flash, shake and
+restore are dispatched separately from combat resolution; an `applyEffect`
+cue does not override a different authored timing mode.
+
+If a frame renderer fails, the summon player traverses remaining frame and
+cue callbacks logically, while the cell-animation player delivers remaining
+cues; both rethrow the presentation failure. The battle state logs
+that failure, clears transient visuals and still resolves gameplay once. If a
+cue or frame cannot be reached because presentation setup fails, resolution
+falls back to once at cleanup. Gameplay callback failures propagate; they are
+not treated as render failures or retried. Missing explicit animation ids and
+malformed optional assets are diagnosed without suppressing the battle action.
+
+Under reduced motion, both players deliver cues in frame order and draw only
+the final frame. Summon title cards and transitions, and visual flash/shake
+motion are skipped. Cell-frame animations retain the old two-argument
+`AnimationPlayer::play()` callback in ordinary playback; reduced-motion
+callers must provide the separate cue callback when an earlier frame has a
+cue, rather than silently losing it.
+
+Terminal cell-animation flashes recolour the target sprite area or the whole
+battlefield, including empty cells, for `flashDurationFrames`; the underlying
+field returns when the pulse ends. Terminal summon segments draw in compiled
+`zIndex` order, and `clearBeforeDraw` removes lower queued art before the
+current segment draws. Graphical effect drawing remains a later phase; PHP cue
+traversal and combat resolution continue even when that presenter draws no
+effect art.
+
+Animation and summon definitions, including compiled summon timelines, stay
+stable for one battle. The scene releases the battle cache when it stops or
+fails to enter; a later battle reads current assets. Editor/default library
+instances continue to load live data. Malformed entries are warned about and
+skipped individually, so valid neighbouring assets remain usable.
+
+#### Explicit references
+
+`Skill` (including Basic, Magic and Special) and `Item` accept an optional
+`animationId: ?int`, identifying the numeric id in `Data/animations.php`.
+The Editor's Animation picker displays the name and id, stores the id, and
+supports clearing it. Skill Ctrl+G follows the explicit id even after a rename.
+Saved inventory instances resolve the current item definition's animation;
+the artwork binding is not frozen into a save.
+
+A null skill reference retains the deprecated name-based selection, including
+the existing Healing Aura/Hit Spark defaults. Project validation reports a
+notice when that fallback selects an animation. Legacy items retain their
+existing no-animation behavior. A missing explicit id reports a warning and
+omits only that animation; it never selects different artwork by name or
+prevents the item's or skill's gameplay effect.
+
 ### Phase 1 - One runtime
 
 1. Generalize the summon compiler/session into the effect-timeline library
@@ -139,21 +300,32 @@ says.
 5. Migrate `assets/Data/Animations/explosion01/` (currently orphaned): each
    of its text files is one frame, becoming one glyph-track keyframe of a
    timeline.
+6. Run the session on the field too: cinematic `field_animation` plays
+   through it, and maps start and end their ambient effects (declared at
+   cells or by tileset pieces) with the map, with `loop` playback and the
+   `cell` and `object` anchors.
 
 ### Phase 2 - GPUI parity (feeds gates G2/G3)
 
-1. A presentation adapter renders a playing session's frame to canvas
-   primitives, following the `GraphicalBattleFeedback` precedent of per-frame
-   re-emission: glyph/text tracks become `CanvasTextLayer` runs (with
-   glyph effects and opacity available), flash tracks become translucent
-   `CanvasRectangle` fills, image tracks become `CanvasImage`s with
-   sprite-sheet `sourceRect` progression, shake becomes a bounded offset on
-   the affected layers (zero under reduced motion). No renderer or protocol
-   changes: the canvas is already a stateless per-frame description.
+1. A presentation adapter maps a playing session to the existing retained
+   canvas contract: glyph/text tracks become `CanvasTextLayer` runs, image
+   tracks become `CanvasImage`s with pose or sprite-sheet `sourceRect`
+   progression, and shake becomes a bounded destination offset on affected
+   entities (zero under reduced motion). Keep stable entity IDs and emit
+   changed state through retained updates; remove action-owned entities on
+   completion. Do not revive the old stateless transport. Flash/tint/aura
+   treatments use available compositing with a readable lower-capability
+   fallback, not an assumed native image-tint operation or rectangle draw
+   primitive. Respect negotiated capabilities and composite/resource limits
+   across multi-target effects. PHP drives time and cues; the native renderer
+   does not infer poses, motion or combat outcomes.
 2. Remove the five `usesGraphicalField()` early-returns by routing terminal
    and GPUI through the same session with two presenters.
 3. Summons render graphically through the identical path - G3 is then a
    content and acceptance gate, not new machinery.
+4. Field effects present through the same adapter as sprites in the field's
+   retained world, behind or in front of characters by track, starting with
+   the walk-on save point and the graphical cues.
 
 ### Phase 3 - Authoring in the editor
 
@@ -172,8 +344,8 @@ The summon timeline surface generalizes into the animation editor:
 4. Cue authoring gains the pieces Phase 0 made real: flash parameters,
    effect timing against the cue lane, per-track mute/solo for isolating a
    layer while authoring.
-5. Skill and item forms gain the animation reference picker, and Ctrl+G
-   follows the reference instead of the name.
+5. Extend the Phase 0 skill/item reference picker and Ctrl+G navigation to
+   the unified timeline library.
 
 ### Phase 4 - The rich 2D editor (direction, scoped separately)
 
@@ -191,13 +363,13 @@ presentation. The staged route that reuses what exists:
    (which remains the always-available surface) are decided when Phase 4 is
    scoped, not preempted here.
 
-## Sequencing (decided 2026-09-20)
+## Implementation dependencies
 
 This plan's Phase 0 and the layered-tilemaps Phase 0 run simultaneously.
 After both Phase 0s, the layered-tilemaps implementation proceeds first;
 this plan's Phases 1-4 follow it.
 
-## Decisions already made (do not relitigate)
+## Technical constraints
 
 - The summon timeline model is the single effect-animation runtime;
   spectacles are data, not bespoke runtimes.
@@ -217,3 +389,9 @@ this plan's Phases 1-4 follow it.
 - The G2 and G3 roadmap gates take this plan as their scoped brief.
 - `explosion01` migrates into the timeline library: each text file is one
   frame.
+- Field effects are timelines anchored to cells or objects, never a second
+  animation system: map-owned ambient effects loop with the map, object
+  effects follow their owner, and each image track draws behind or in front
+  of characters.
+- Per-tile terrain animation (A1) stays on the tile animation counter;
+  character and object sheets animate through the character walk animation.

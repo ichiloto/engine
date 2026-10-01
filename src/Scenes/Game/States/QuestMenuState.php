@@ -174,7 +174,8 @@ class QuestMenuState extends GameSceneState implements CanvasProviderInterface
   {
     $width = min(self::MENU_WIDTH, max(20, get_screen_width()));
     $left = max(0, intdiv(get_screen_width() - $width, 2));
-    $top = max(0, intdiv(get_screen_height() - 35, 2));
+    $height = self::SUMMARY_PANEL_HEIGHT + self::LIST_PANEL_HEIGHT + self::INFO_PANEL_HEIGHT;
+    $top = max(0, intdiv(get_screen_height() - $height, 2));
     $border = new DefaultBorderPack();
     $this->summaryPanel = new MagicTabPanel('Quests', '', new Vector2($left, $top), $width, self::SUMMARY_PANEL_HEIGHT, $border, heightPolicy: WindowHeightPolicy::FIXED);
     $this->listPanel = new Window('', '', new Vector2($left, $top + self::SUMMARY_PANEL_HEIGHT), $width, self::LIST_PANEL_HEIGHT, $border, heightPolicy: WindowHeightPolicy::FIXED);

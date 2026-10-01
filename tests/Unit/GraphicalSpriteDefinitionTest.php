@@ -7,10 +7,9 @@ use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
 it('holds only immutable sprite intent without reading assets or storing coordinates', function () {
   $definition = new GraphicalSpriteDefinition('nonexistent/Hero.png', 32, 48, layer: 100);
   expect(get_object_vars($definition))->toBe([
-    'sourceRect' => null,
     'asset' => 'nonexistent/Hero.png', 'width' => 32, 'height' => 48,
-    'anchor' => PresentationSpriteAnchor::BOTTOM_CENTER, 'layer' => 100,
-    'sheet' => null,
+    'anchor' => PresentationSpriteAnchor::BOTTOM_CENTER, 'layer' => 100, 'sourceRect' => null,
+    'lift' => 0,
   ]);
   foreach (get_object_vars($definition) as $property => $value) {
     expect(function () use ($definition, $property, $value) { $definition->$property = $value; })
@@ -43,3 +42,17 @@ it('keeps graphical definitions and S4 presentation under the same structural va
   ['Hero.png', 32, 0, 0], ['Hero.png', 32, -1, 0], ['Hero.png', 32, 4097, 0],
   ['Hero.png', 32, 48, -2147483649], ['Hero.png', 32, 48, 2147483648],
 ]);
+
+it('sizes a field image in whole character frames, never authored pixels', function () {
+  $single = GraphicalSpriteDefinition::fromArray(['asset' => 'Graphics/Poses/Rest.png']);
+  $pair = GraphicalSpriteDefinition::fromArray(['asset' => 'Graphics/Poses/Embrace.png', 'layer' => 100,
+    'cells' => ['width' => 2, 'height' => 1], 'sourceRect' => ['x' => 0, 'y' => 0, 'width' => 512, 'height' => 256]]);
+
+  expect([$single->width, $single->height])->toBe([48, 48])
+    ->and([$pair->width, $pair->height])->toBe([96, 48])
+    ->and($pair->sourceRect?->width)->toBe(512)
+    ->and(fn() => GraphicalSpriteDefinition::fromArray(['asset' => 'Pose.png', 'width' => 56, 'height' => 56]))
+    ->toThrow(InvalidArgumentException::class)
+    ->and(fn() => GraphicalSpriteDefinition::fromArray(['asset' => 'Pose.png', 'cells' => ['width' => 0, 'height' => 1]]))
+    ->toThrow(InvalidArgumentException::class);
+});

@@ -15,6 +15,7 @@ use InvalidArgumentException;
  */
 final class ActorDefinition
 {
+  public readonly string $id;
   /** @var array<string, int> */
   private array $fixedNaturalAdjustments;
   /** @var array<string, array<string, int>> */
@@ -24,7 +25,7 @@ final class ActorDefinition
    * @param array<string, mixed> $data Canonical actor data block.
    */
   public function __construct(
-    public string $id,
+    string $id,
     private array $data,
     public ?string $defaultNaturalVariantId = null,
     array $fixedNaturalAdjustments = [],
@@ -80,7 +81,10 @@ final class ActorDefinition
   public static function fromArray(array $actorFile, string $source = 'project actor definition'): self
   {
     $data = is_array($actorFile['data'] ?? null) ? $actorFile['data'] : $actorFile;
-    $id = trim(strval($data['id'] ?? $data['name'] ?? ''));
+    $id = $data['id'] ?? null;
+    if (! is_string($id) || trim($id) === '') {
+      throw new InvalidArgumentException(sprintf('%s must declare an explicit non-empty actor id. Display names are not identities.', $source));
+    }
 
     return new self(
       $id,

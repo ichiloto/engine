@@ -45,9 +45,11 @@ final class MenuControls
   {
     $art = $this->theme->frames[$role] ?? null;
     if ($art === null) { $this->fill($id, $box, $fallback, $layer); return; }
-    array_push($this->images, ...($contain && $art->left + $art->top + $art->right + $art->bottom === 0
+    $images = $contain && $art->left + $art->top + $art->right + $art->bottom === 0
       ? MenuIconRegistry::containAsset($this->theme->assetRoot, $id, $art->asset, $box, $layer, $box)
-      : $art->images($this->theme->assetRoot, $id, $box, $layer)));
+      : $art->images($this->theme->assetRoot, $id, $box, $layer);
+    if ($images === []) { $this->fill($id, $box, $fallback, $layer); }
+    else { array_push($this->images, ...$images); }
   }
 
   public function renderLevel(string $id, CanvasRectangle $box, float $ratio, PresentationColor $color): void
@@ -112,8 +114,8 @@ final class MenuControls
 
   public function fill(string $id, CanvasRectangle $box, PresentationColor $color, int $layer = 40): void
   {
-    $columns = (int)ceil($box->width / 256);
-    $rows = (int)ceil($box->height / 256);
+    $columns = (int)ceil($box->width / RendererGridConfig::MAX_CELL_SIZE);
+    $rows = (int)ceil($box->height / RendererGridConfig::MAX_CELL_SIZE);
     $cw = (int)ceil($box->width / $columns);
     $ch = (int)ceil($box->height / $rows);
     $runs = [];

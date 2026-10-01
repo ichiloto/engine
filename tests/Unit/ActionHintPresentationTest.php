@@ -13,6 +13,7 @@ use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\UI\Presentation\MenuActionHints;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
+use Ichiloto\Engine\Util\Debug;
 use Tests\Support\Input\FakeInputSource;
 
 require_once __DIR__ . '/../Support/Input/FakeInputSource.php';
@@ -26,10 +27,11 @@ function actionHintPng(string $path, int $width, int $height): void
 
 beforeEach(function () {
   $this->saved = [];
-  foreach ([InputManager::class, ActionHints::class] as $class) { $this->saved[$class] = new ReflectionClass($class)->getStaticProperties(); }
+  foreach ([InputManager::class, ActionHints::class, Debug::class] as $class) { $this->saved[$class] = new ReflectionClass($class)->getStaticProperties(); }
   ActionHints::useProvider(null);
   $this->root = sys_get_temp_dir() . '/ichiloto-action-hints-' . bin2hex(random_bytes(5));
   mkdir($this->root);
+  Debug::configure(['log_directory' => $this->root]);
   actionHintPng($this->root . '/glyph.png', 81, 37);
   actionHintPng($this->root . '/unknown.png', 31, 73);
   InputManager::setBindings(['confirm' => ['keys' => [KeyCode::SPACE, KeyCode::ENTER]],
@@ -124,7 +126,7 @@ it('selects exact optional glyphs and falls back to readable controls for absent
     ->and($after->clipRect)->toBe($box);
 });
 
-it('accepts glyph-only registries without unrelated fallback art and still diagnoses invalid configured assets', function () {
+it('accepts glyph-only registries and leaves unused unavailable glyphs uninspected', function () {
   $data = ['schema' => 'ichiloto.menu/1', 'icons' => ['input.keyboard.ENTER' => 'glyph.png']];
   $theme = new MenuPresentationCatalog($this->root, $data);
   expect($theme->icons->asset('input.keyboard.ENTER'))->toBe('glyph.png')
@@ -139,7 +141,12 @@ it('accepts glyph-only registries without unrelated fallback art and still diagn
   file_put_contents($this->root . '/corrupt.png', 'not a PNG');
   foreach (['missing.png', 'corrupt.png'] as $asset) {
     $data['icons']['input.unused.control'] = $asset;
-    expect(fn() => new MenuPresentationCatalog($this->root, $data))->toThrow(RuntimeException::class);
+    $partial = new MenuPresentationCatalog($this->root, $data);
+    $after = MenuActionHints::compose(640, 48, 'hints',
+      [ActionHints::resolve('confirm', 'Confirm'), ActionHints::resolve('cancel', 'Cancel')], $partial,
+      new CanvasRectangle(0, 0, 640, 48));
+    expect($after)->toEqual($frame)
+      ->and(file_exists($this->root . '/warning.log'))->toBeFalse();
   }
 });
 
@@ -184,3 +191,21 @@ it('refreshes provider families on redraw without claiming or generating device 
   ActionHints::useProvider(null);
   expect(ActionHints::resolve('confirm', 'Confirm')->control->label)->toBe('Enter');
 });
+
+
+it('falls back to the active control label while retaining healthy glyphs and action bindings', function (string $asset) {
+  file_put_contents($this->root . '/corrupt.png', 'not a PNG');
+  $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1',
+    'icons' => ['input.keyboard.ENTER' => 'glyph.png', 'input.keyboard.ESCAPE' => $asset, 'unknown' => 'unknown.png']]);
+  expect(file_exists($this->root . '/warning.log'))->toBeFalse();
+  $bindings = InputManager::getBindings();
+  $hints = [ActionHints::resolve('confirm', 'Confirm'), ActionHints::resolve('cancel', 'Cancel')];
+  $box = new CanvasRectangle(0, 0, 640, 48);
+  $frame = MenuActionHints::compose(640, 48, 'hints', $hints, $theme, $box);
+  expect(array_column($frame->images, 'asset'))->toBe(['glyph.png'])
+    ->and(implode('', array_column($frame->textLayers[0]->runs, 'text')))->toBe(': Confirm   Escape : Cancel')
+    ->and(MenuActionHints::height($hints, $theme, $box->width))->toBe(24)
+    ->and(InputManager::getBindings())->toBe($bindings)
+    ->and(array_column($hints, 'action'))->toBe(['confirm', 'cancel'])
+    ->and(file_get_contents($this->root . '/warning.log'))->toContain($asset);
+})->with(['missing.png', 'corrupt.png']);

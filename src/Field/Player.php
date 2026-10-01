@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Field;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 
 use Assegai\Collections\ItemList;
+use Closure;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\GameObject;
 use Ichiloto\Engine\Core\Rect;
@@ -22,10 +23,13 @@ use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Rendering\Camera;
-use Ichiloto\Engine\Rendering\Sprites\DirectionalGraphicalSpriteSet;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteMotion;
+use Ichiloto\Engine\Rendering\Sprites\CharacterStep;
+use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
+use Ichiloto\Engine\Rendering\Sprites\CharacterSheetAssetGuard;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderInterface;
-use Ichiloto\Engine\Rendering\Sprites\SpriteWalkAnimation;
+use Ichiloto\Engine\Rendering\Sprites\CharacterWalkAnimation;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\UI\Elements\LocationHUDWindow;
@@ -41,7 +45,14 @@ use RuntimeException;
  */
 class Player extends GameObject implements GraphicalSpriteProviderInterface
 {
-  private ?SpriteWalkAnimation $walkAnimation = null;
+  private ?CharacterWalkAnimation $walkAnimation = null;
+  /**
+   * @var Closure(): void|null What a committed step does on arrival (its
+   *     triggers, encounter step, save point notice and movement observers),
+   *     held until the step's slide has shown.
+   */
+  private ?Closure $pendingArrival = null;
+  private ?CharacterSheetAssetGuard $graphicalAssetGuard = null;
   /**
    * @var string[] $upSprite The sprite of the player when facing up.
    */
@@ -85,7 +96,12 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   /**
    * @var ActionInterface|null $availableAction The available action.
    */
-  public ?ActionInterface $availableAction = null;
+  public ?ActionInterface $availableAction = null {
+    set {
+      $this->availableAction = $value;
+      if ($value === null) { $this->clearActionPrompt(); }
+    }
+  }
   /**
    * @var array<int, true> Blocked triggers already announced, keyed by object
    * id, so a locked door explains itself once per approach rather than on
@@ -111,7 +127,8 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    * @param string[] $sprite The active sprite of the player.
    * @param MovementHeading $heading The heading of the player.
    * @param array<string, string[]> $directionalSprites The configured directional sprite set.
-   * @param DirectionalGraphicalSpriteSet|null $graphicalSprites Optional graphical art, independent of terminal sprites.
+   * @param CharacterSheet|null $graphicalSprites Optional RPG Maker character sheet, independent of terminal sprites.
+   * @param string|null $assetRoot Project asset root for checking the sheet.
    */
   public function __construct(
     SceneInterface $scene,
@@ -121,7 +138,8 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     array $sprite,
     MovementHeading $heading = MovementHeading::NONE,
     array $directionalSprites = [],
-    private readonly ?DirectionalGraphicalSpriteSet $graphicalSprites = null,
+    private readonly ?CharacterSheet $graphicalSprites = null,
+    ?string $assetRoot = null,
   )
   {
     parent::__construct(
@@ -133,7 +151,8 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     );
 
     if ($graphicalSprites !== null) {
-      $this->walkAnimation = new SpriteWalkAnimation();
+      $this->walkAnimation = new CharacterWalkAnimation();
+      $this->graphicalAssetGuard = new CharacterSheetAssetGuard($assetRoot ?? getcwd() . '/assets', 'Player');
     }
     $this->configureDirectionalSprites($directionalSprites);
     $this->setFacingSprite($sprite, $heading === MovementHeading::NONE ? null : $heading);
@@ -153,13 +172,33 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     if ($this->isPresentationSuppressed()) {
       return null;
     }
-    $definition = $this->graphicalSprites?->getForHeading($this->heading);
-    return $definition === null ? null : ($this->walkAnimation?->present($definition) ?? $definition);
+    $frame = $this->graphicalSprites === null ? null : $this->graphicalAssetGuard?->getFrameSize($this->graphicalSprites);
+    return $frame === null ? null : $this->graphicalSprites->getFrame($this->heading,
+      $this->walkAnimation?->getPattern() ?? CharacterWalkAnimation::PATTERNS[0], $frame);
   }
 
   public function advanceGraphicalAnimation(float $seconds): void
   {
     $this->walkAnimation?->advance($seconds);
+  }
+
+  /**
+   * Runs the latest step's arrival once its slide has shown: at once for a
+   * step without a slide (the terminal, reduced motion, an instant route
+   * step), otherwise on the field frame the slide ends.
+   */
+  public function completeArrival(): void
+  {
+    if (!($this->walkAnimation?->isSliding ?? false)) {
+      $this->runPendingArrival();
+    }
+  }
+
+  private function runPendingArrival(): void
+  {
+    $arrival = $this->pendingArrival;
+    $this->pendingArrival = null;
+    $arrival?->__invoke();
   }
 
   public function stopGraphicalAnimation(): void
@@ -189,6 +228,12 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   public function getGraphicalSpriteWorldPosition(): Vector2
   {
     return clone $this->position;
+  }
+
+  #[Override]
+  public function getGraphicalSpriteMotion(): ?PresentationSpriteMotion
+  {
+    return $this->isPresentationSuppressed() ? null : $this->walkAnimation?->getMotion($this->position);
   }
 
   /**
@@ -238,6 +283,9 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     // Clone: $this->position is mutated by the move below, so holding a
     // reference would make the movement event report an origin equal to its
     // destination.
+    // A step taken before the previous one was seen to arrive completes that
+    // arrival first, so no step's triggers are skipped or reordered.
+    $this->runPendingArrival();
     $origin = clone $this->position;
     $destination = Vector2::sum($origin, $direction);
     $collisionType = null;
@@ -263,16 +311,11 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
 
     $this->handleCollision($collisionType);
     $fieldWasRecomposed = $this->updatePlayerPosition($direction, $camera, $previousSprite);
-    if ($this->walkAnimation !== null
-      && ($origin->x !== $this->position->x || $origin->y !== $this->position->y)) {
-      $this->walkAnimation->step($this->graphicalSprites->getForHeading($this->heading));
-    }
     if ($origin->x !== $this->position->x || $origin->y !== $this->position->y) {
-      $this->getGameScene()->cinematicStage?->subjectMoved($this);
+      $step = new CharacterStep($origin, $this->position, $this->getGameScene()->getStepSeconds($direction));
+      $this->walkAnimation?->step($step);
+      $this->getGameScene()->cinematicStage?->subjectMoved($this, $step);
     }
-    $this->handleTriggers($event);
-    $this->getGameScene()->encounterManager?->registerStep($collisionType);
-
     // An ordinary step can erase an NPC that occupied the player's previous
     // footprint, so refresh NPCs after the player moves. A scrolling step has
     // already rebuilt every field layer in canonical order and must not draw
@@ -281,10 +324,18 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
       $this->getGameScene()->npcManager?->render();
     }
 
-    if ($this->getGameScene()->mapManager->isAtSavePoint) {
-      alert("Access the Menu to save your progress.", 'Save Point');
-    }
-    $this->notify($this->getGameScene(), $event);
+    // The step is committed; what reaching the cell does waits until the
+    // player is seen to arrive, so a dialogue, notice, battle or transfer
+    // never cuts the slide short. Without a slide it happens at once.
+    $this->pendingArrival = function () use ($event, $collisionType): void {
+      $this->handleTriggers($event);
+      $this->getGameScene()->encounterManager?->registerStep($collisionType);
+      if ($this->getGameScene()->mapManager->isAtSavePoint) {
+        alert("Access the Menu to save your progress.", 'Save Point');
+      }
+      $this->notify($this->getGameScene(), $event);
+    };
+    $this->completeArrival();
 
     return true;
   }
@@ -820,24 +871,20 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   public function render(): void
   {
     if ($this->isPresentationSuppressed()) {
+      $this->clearActionPrompt();
       return;
     }
     Console::withLayer($this->getGraphicalSpriteId(), function (): void {
       $this->scene->camera->renderAtScreenPosition($this->sprite, $this->screenPosition);
     });
 
-    if ($this->canAct) {
-      PresentationLayerPolicy::fieldPrompt(fn() => $this->scene->camera->draw(
-        $this->actionSprite,
-        $this->screenPosition->x + $this->getActionSpriteHorizontalOffset(),
-        clamp($this->screenPosition->y - 1, 1, get_screen_height())
-      ));
-    }
+    $this->renderActionPrompt($this->screenPosition);
   }
 
   public function renderPlayer(?Vector2 $offset = null): void
   {
     if ($this->isPresentationSuppressed()) {
+      $this->clearActionPrompt();
       return;
     }
     $worldPosition = new Vector2(
@@ -846,14 +893,38 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     );
     $screenPosition = $this->getRenderScreenPosition($worldPosition);
 
-    for ($row = $this->shape->getY(); $row < $this->shape->getY() + $this->shape->getHeight(); $row++) {
-      $output = TerminalText::sliceSymbols($this->sprite[$row], $this->shape->getX(), $this->shape->getWidth());
-      $this->scene->camera->renderAtScreenPosition($output, new Vector2($screenPosition->x, $screenPosition->y + $row));
-    }
+    Console::withLayer($this->getGraphicalSpriteId(), function () use ($screenPosition): void {
+      for ($row = $this->shape->getY(); $row < $this->shape->getY() + $this->shape->getHeight(); $row++) {
+        $output = TerminalText::sliceSymbols($this->sprite[$row], $this->shape->getX(), $this->shape->getWidth());
+        $this->scene->camera->renderAtScreenPosition($output, new Vector2($screenPosition->x, $screenPosition->y + $row));
+      }
+    });
 
-    if ($this->canAct) {
-      PresentationLayerPolicy::fieldPrompt(fn() => $this->scene->camera->draw($this->actionSprite, $screenPosition->x + $this->getActionSpriteHorizontalOffset(), clamp($screenPosition->y - 1, 1, get_screen_height())));
+    $this->renderActionPrompt($screenPosition);
+  }
+
+  private function clearActionPrompt(): void
+  {
+    Console::removeLayer(PresentationLayerPolicy::FIELD_PROMPT_ID);
+  }
+
+  private function renderActionPrompt(Vector2 $screenPosition): void
+  {
+    $this->clearActionPrompt();
+    if (!$this->canAct) { return; }
+    $graphical = $this->scene instanceof GameScene && $this->scene->isGraphicalFieldPresented()
+      && $this->getGraphicalSpriteDefinition() !== null;
+    if ($graphical) {
+      // A field character occupies exactly its cell; the prompt sits in the cell above.
+      $column = (int)$screenPosition->x;
+      $row = (int)$screenPosition->y - 1;
+      if ($column < 0 || $row < 0 || $column >= $this->scene->camera->screen->getWidth()
+        || $row >= $this->scene->camera->screen->getHeight()) { return; }
+    } else {
+      $column = (int)$screenPosition->x + $this->getActionSpriteHorizontalOffset();
+      $row = (int)clamp($screenPosition->y - 1, 1, get_screen_height());
     }
+    PresentationLayerPolicy::fieldPrompt(fn() => $this->scene->camera->draw($this->actionSprite, $column, $row));
   }
 
   /**
@@ -861,6 +932,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    */
   public function erase(): void
   {
+    $this->clearActionPrompt();
     if ($this->isPresentationSuppressed()) {
       return;
     }
@@ -880,6 +952,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    */
   public function erasePlayer(Camera $camera, ?array $sprite = null): void
   {
+    $this->clearActionPrompt();
     if ($this->isPresentationSuppressed()) {
       return;
     }
@@ -1012,33 +1085,33 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   }
 
   /**
-   * Talks to the NPC on the tile the player faces, when one is there.
+   * Talks to the NPC on the tile the player faces, when one is there. The
+   * NPC first turns to face the player unless it is direction-fixed, and
+   * turns back when the conversation ends.
    *
    * @return bool True when a conversation happened.
    */
   protected function talkToFacingNpc(): bool
   {
-    [$dx, $dy] = match ($this->heading) {
-      MovementHeading::NORTH => [0, -1],
-      MovementHeading::SOUTH => [0, 1],
-      MovementHeading::EAST => [1, 0],
-      MovementHeading::WEST => [-1, 0],
-      default => [0, 0],
-    };
+    $direction = $this->heading->getDirection();
+    $dx = intval($direction->x);
+    $dy = intval($direction->y);
 
     if ($dx === 0 && $dy === 0) {
       return false;
     }
 
-    $npc = $this->getGameScene()->npcManager?->npcAt(
+    $npcManager = $this->getGameScene()->npcManager;
+    $npc = $npcManager?->npcAt(
       intval($this->position->x) + $dx,
       intval($this->position->y) + $dy
     );
 
-    if ($npc === null) {
+    if ($npcManager === null || $npc === null) {
       return false;
     }
 
+    $npcManager->turnNpcToward($npc, $this->position);
     $npc->talk($this->getGameScene());
 
     return true;

@@ -60,9 +60,11 @@ use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 use Tests\Support\Input\FakeInputSource;
 use Tests\Support\Input\FakeRendererTransport;
+use Tests\Support\Rendering\RetainedFrameState;
 
 require_once __DIR__ . '/../Support/Input/FakeInputSource.php';
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
 class SkillMenuPresentationGame extends Game
 {
@@ -383,8 +385,8 @@ it('submits an actual menu canvas with a supported modal and restores it without
   $state = skillMenuOwner($this, $magic);
   $before = $state->getPresentationContent();
   expect($this->runtime->present($this->scene))->toBeTrue();
-  $messages = array_filter($this->transport->sent, fn($message) => isset($message->payload['canvas']));
-  expect($messages)->not->toBeEmpty();
+  $frames = array_filter(RetainedFrameState::replay($this->transport->sent), fn($frame) => isset($frame['canvas']));
+  expect($frames)->not->toBeEmpty();
   $modal = new AlertModal($this->game, 'Owner notice.', 'Notice');
   $stack = new ReflectionProperty($this->game->modalManager, 'modals')->getValue($this->game->modalManager);
   $stack->push($modal);
@@ -409,7 +411,6 @@ it('submits an actual menu canvas with a supported modal and restores it without
 
 it('keeps terminal owners operational when theme or capabilities are unavailable', function (bool $magic, string $reason) {
   $theme = $reason === 'absent' ? null : skillMenuTheme();
-  if ($reason === 'invalid') { $theme['portraits']['actor.primary'] = 'missing.png'; }
   skillMenuRuntime($this, $theme, $reason === 'capabilities' ? [] : null);
   $state = skillMenuOwner($this, $magic);
   expect($this->scene->getPresentationCanvas())->toBeNull();
@@ -418,7 +419,7 @@ it('keeps terminal owners operational when theme or capabilities are unavailable
   $list = new ReflectionProperty($state, 'listPanel')->getValue($state);
   expect(implode('', $list->getContent()))->toContain($magic ? 'Zeta Spell' : 'Zeta Ability');
   if ($reason !== 'absent') { expect(file_get_contents($this->root . '/logs/error.log'))->toContain('Menu presentation degraded to terminal'); }
-})->with([false, true])->with(['absent', 'capabilities', 'invalid']);
+})->with([false, true])->with(['absent', 'capabilities']);
 
 it('keeps long lists source complete and follows the active row within a bounded canvas', function (bool $magic, bool $alternative) {
   $skills = [];
@@ -536,4 +537,22 @@ it('retains every occasion and cost including field-ineligible learned skills', 
   $occasions = array_map(fn($row) => $row->values[0]->text, $content->rows);
   expect($occasions)->toContain('Both')->toContain('Battle')->toContain('Field')->toContain('Locked');
   foreach ($content->rows as $row) { expect($row->values[1]->text)->toBe('9 MP'); }
+})->with([false, true]);
+
+
+it('keeps skill content and healthy artwork when only the actor portrait is unavailable', function (bool $magic) {
+  $theme = skillMenuTheme(true);
+  $theme['portraits']['actor.primary'] = 'missing.png';
+  skillMenuRuntime($this, $theme);
+  $state = skillMenuOwner($this, $magic);
+  $before = $state->getPresentationContent();
+  $frame = $this->scene->getPresentationCanvas();
+  expect($frame)->toBeInstanceOf(PresentationCanvas::class)
+    ->and(implode('', skillMenuText($frame)))->toContain($this->actor->name)
+    ->and(array_column($frame->images, 'asset'))->toContain('surface.png')->not->toContain('missing.png')
+    ->and($state->getPresentationContent())->toEqual($before)
+    ->and(file_get_contents($this->root . '/logs/warning.log'))->toContain('missing.png');
+  skillMenuKey($state, KeyCode::RIGHT);
+  expect($state->getPresentationContent()->tabIndex)->toBe(1)
+    ->and(implode('', skillMenuText($this->scene->getPresentationCanvas())))->toContain($magic ? 'Zeta Spell' : 'Zeta Ability');
 })->with([false, true]);

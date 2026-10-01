@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Rendering\Transport;
 
+use Ichiloto\Engine\Rendering\Launch\ApplicationIcon;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererMessageType;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
 use InvalidArgumentException;
@@ -15,20 +16,48 @@ final readonly class RendererSessionConfig
   public const string CANVAS_GLYPH_EFFECTS = 'canvas_glyph_effects';
   public const string CANVAS_COMPOSITING = 'canvas_compositing';
   public const string WINDOW_ACTIVATION = 'window_activation';
+  public const string FRAME_VIEWPORT = 'frame_viewport';
+  /** Retained field sprites may slide between cells and the camera may follow one of them. */
+  public const string FIELD_MOTION = 'field_motion';
+  /** A world's tile layers may name the gameplay layer whose glyphs they cover. */
+  public const string TILE_COVERS = 'tile_covers';
+  /** Retained field sprites may be drawn a lift above the cell that places and orders them. */
+  public const string SPRITE_LIFT = 'sprite_lift';
+  /** Event subscription: key press, release and reset transitions with a stable control identity. */
+  public const string KEY_TRANSITIONS = 'key_transitions';
+  /** Event extensions change the event stream, so a session receives them only by requiring them. */
+  public const array EVENT_SUBSCRIPTIONS = [self::WINDOW_ACTIVATION, self::KEY_TRANSITIONS];
   public string $assetRoot;
 
-  /** @param list<string> $requiredCapabilities */
+  /** Drawing features may be advertised without making them mandatory at startup. */
+  public function getNegotiableCapabilities(): array
+  {
+    return $this->protocol === RendererProtocolVersion::V2
+      ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_CLIP_OPACITY,
+        self::CANVAS_GLYPH_EFFECTS, self::CANVAS_COMPOSITING, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::TILE_COVERS,
+        self::SPRITE_LIFT, ...array_values(array_intersect(self::EVENT_SUBSCRIPTIONS, $this->requiredCapabilities))]
+      : $this->requiredCapabilities;
+  }
+
+  /**
+   * @param list<string> $requiredCapabilities
+   * @param string|null $icon The game's application icon, relative to the asset root.
+   */
   public function __construct(
     public string $title,
     string $assetRoot,
     public RendererGridConfig $grid = new RendererGridConfig(),
     public RendererProtocolVersion $protocol = RendererProtocolVersion::V1,
     public array $requiredCapabilities = [],
+    public ?string $icon = null,
   )
   {
+    if ($icon !== null) { ApplicationIcon::assertAssetPath($icon); }
     $allowed = $protocol === RendererProtocolVersion::V2
       ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_CLIP_OPACITY, self::CANVAS_GLYPH_EFFECTS,
-        self::CANVAS_COMPOSITING, self::WINDOW_ACTIVATION] : [self::SPRITE_SOURCE_RECT];
+        self::CANVAS_COMPOSITING, self::WINDOW_ACTIVATION, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::TILE_COVERS,
+        self::SPRITE_LIFT, self::KEY_TRANSITIONS]
+      : [self::SPRITE_SOURCE_RECT];
     foreach ($requiredCapabilities as $capability) {
       if (!in_array($capability, $allowed, true)) {
         throw new InvalidArgumentException('Unsupported renderer capability for this protocol.');
@@ -63,6 +92,7 @@ final readonly class RendererSessionConfig
       'assetRoot' => $this->assetRoot,
       'grid' => $this->grid->toArray(),
       ...($this->requiredCapabilities === [] ? [] : ['requiredCapabilities' => $this->requiredCapabilities]),
+      ...($this->icon === null ? [] : ['icon' => $this->icon]),
     ], $this->protocol);
   }
 }

@@ -211,3 +211,17 @@ it('reads no maps at all when a project has none', function () {
 
   expect(RegionMap::areas())->toBe([]);
 });
+
+it('does not execute an authored event grid while locating region doors', function (): void {
+  $root = writeTestMaps([
+    'town/square' => ['name' => 'Square', 'region' => 'Town', 'to' => ['town/shop' => [2, 2]]],
+    'town/shop' => ['name' => 'Shop', 'region' => 'Town'],
+  ]);
+  $eventPath = $root . '/town/square/square.event.php';
+  $marker = $root . '/executed';
+  file_put_contents($eventPath, "<?php file_put_contents(" . var_export($marker, true) . ", 'yes'); return 'A';");
+
+  RegionMap::loadFrom($root);
+
+  expect(is_file($marker))->toBeFalse();
+});

@@ -18,6 +18,7 @@ use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Tests\Support\Input\FakeRendererTransport;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
 function glyphEffectsTestArguments(array $overrides = []): array
 {
@@ -178,13 +179,19 @@ it('requires both protocol v2 and graphical canvas for glyph effects capability'
     ->and($session->hello()->payload['requiredCapabilities'])->toBe([$canvas, $effects]);
 });
 
-it('rejects unnegotiated glyph effects before enqueue without consuming frame state', function (bool $advertised) {
+it('uses advertised optional glyph effects and rejects unavailable effects before enqueue', function (bool $advertised) {
   $requested = [RendererSessionConfig::GRAPHICAL_CANVAS];
   $acknowledged = [...$requested, ...($advertised ? [RendererSessionConfig::CANVAS_GLYPH_EFFECTS] : [])];
   [$presenter, $transport, $client] = glyphEffectsTestPresenter($requested, $acknowledged);
   $plain = glyphEffectsTestCanvas(null);
   $effects = glyphEffectsTestCanvas(new CanvasGlyphEffects(...glyphEffectsTestArguments()));
   $polls = $transport->polls;
+  if ($advertised) {
+    expect($client->supports(RendererSessionConfig::CANVAS_GLYPH_EFFECTS))->toBeTrue()
+      ->and($presenter->presentCanvas($effects))->toBeTrue()
+      ->and($transport->sent)->toHaveCount(1);
+    return;
+  }
   expect($client->supports(RendererSessionConfig::CANVAS_GLYPH_EFFECTS))->toBeFalse();
   expect(fn() => $presenter->presentCanvas($effects))->toThrow(RendererProtocolException::class, 'canvas_glyph_effects');
   expect($transport->sent)->toBe([])->and($presenter->presentCanvas($plain))->toBeTrue();
@@ -218,7 +225,7 @@ it('rejects missing acknowledgement and only queues glyph frames after successfu
     ->and($presenter->presentCanvas($canvas))->toBeFalse()
     ->and($transport->sent[0]->payload['frame'])->toBe(1)
     ->and($transport->sent[0]->protocol)->toBe(RendererProtocolVersion::V2)
-    ->and($transport->sent[0]->payload['canvas'])->toBe($canvas->toArray());
+    ->and(Tests\Support\Rendering\RetainedFrameState::replay($transport->sent)[0]['canvas'])->toBe($canvas->toArray());
 })->with(['missing acknowledgement' => false, 'negotiated effects' => true]);
 
 it('negotiates glyph effects independently from clipping before enqueue', function (string $missing) {

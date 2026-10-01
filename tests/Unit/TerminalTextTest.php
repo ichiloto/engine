@@ -4,6 +4,15 @@ use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Console\SgrColorParser;
 use Ichiloto\Engine\IO\Enumerations\Color;
 
+it('derives contrasting terminal flash backgrounds from the canonical palette', function () {
+  $dark = SgrColorParser::parse(Color::BLUE->getContrastingBackgroundSequence() . 'X');
+  $bright = SgrColorParser::parse(Color::YELLOW->getContrastingBackgroundSequence() . 'X');
+  expect($dark['background']?->toArray())->toBe(['kind' => 'ansi16', 'index' => 4])
+    ->and($dark['foreground']?->toArray())->toBe(['kind' => 'ansi16', 'index' => 15])
+    ->and($bright['background']?->toArray())->toBe(['kind' => 'ansi16', 'index' => 11])
+    ->and($bright['foreground']?->toArray())->toBe(['kind' => 'ansi16', 'index' => 0]);
+});
+
 it('measures colored and emoji text without counting ansi sequences', function () {
   $text = Color::apply('Potion', Color::LIGHT_GREEN) . ' 🧪';
 

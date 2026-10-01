@@ -4,6 +4,8 @@ namespace Ichiloto\Engine\Cutscenes\Summons;
 
 use JsonException;
 use RuntimeException;
+use Throwable;
+use Ichiloto\Engine\Util\Debug;
 
 /**
  * Loads summon cutscenes from folder-based assets.
@@ -12,9 +14,15 @@ use RuntimeException;
  */
 final class SummonCutsceneLibrary
 {
+  /** @var SummonCutsceneDefinition[]|null */
+  private ?array $battleDefinitions = null;
+  /** @var array<string, SummonCompiledCutscene|null> */
+  private array $battleCompiled = [];
+
   public function __construct(
     protected string $assetPath = 'Cutscenes/Summons',
     protected ?SummonCutsceneCompiler $compiler = null,
+    protected bool $cacheForBattle = false,
   )
   {
     $this->compiler ??= new SummonCutsceneCompiler();
@@ -25,22 +33,36 @@ final class SummonCutsceneLibrary
    */
   public function load(): array
   {
+    if ($this->cacheForBattle && $this->battleDefinitions !== null) {
+      return $this->battleDefinitions;
+    }
     $definitions = [];
 
     foreach ($this->getCutsceneDirectories() as $directory) {
-      $definition = $this->loadFromDirectory($directory);
-      if ($definition instanceof SummonCutsceneDefinition) {
-        $definitions[] = $definition;
+      try {
+        $definition = $this->loadFromDirectory($directory);
+        if ($definition instanceof SummonCutsceneDefinition) {
+          $definitions[] = $definition;
+        }
+      } catch (Throwable $error) {
+        // A bad optional presentation must not hide valid summon commands.
+        Debug::warn(sprintf('Summon cutscene %s could not be loaded: %s', basename($directory), $error->getMessage()));
       }
     }
 
     usort($definitions, static fn(SummonCutsceneDefinition $left, SummonCutsceneDefinition $right): int => $left->name <=> $right->name);
 
-    return $definitions;
+    return $this->cacheForBattle ? ($this->battleDefinitions = $definitions) : $definitions;
   }
 
   public function findById(string $id): ?SummonCutsceneDefinition
   {
+    if ($this->cacheForBattle) {
+      foreach ($this->load() as $definition) {
+        if ($definition->id === trim($id)) { return $definition; }
+      }
+      return null;
+    }
     $directory = $this->resolveRootPath() . DIRECTORY_SEPARATOR . trim($id);
 
     return is_dir($directory)
@@ -74,27 +96,32 @@ final class SummonCutsceneLibrary
 
   public function loadCompiledOrCompile(string $id): ?SummonCompiledCutscene
   {
+    if ($this->cacheForBattle && array_key_exists($id, $this->battleCompiled)) {
+      return $this->battleCompiled[$id];
+    }
     $definition = $this->findById($id);
     if (! $definition instanceof SummonCutsceneDefinition) {
-      return null;
+      return $this->cacheForBattle ? ($this->battleCompiled[$id] = null) : null;
     }
 
     $compiled = $this->loadCompiled($id);
     if (! $compiled instanceof SummonCompiledCutscene) {
-      return $this->compiler->compile($definition);
+      $compiled = $this->compiler->compile($definition);
+      return $this->cacheForBattle ? ($this->battleCompiled[$id] = $compiled) : $compiled;
     }
 
     try {
       $expectedHash = sha1(json_encode($definition->toSourceArray(), JSON_THROW_ON_ERROR));
     } catch (JsonException) {
-      return $compiled;
+      return $this->cacheForBattle ? ($this->battleCompiled[$id] = $compiled) : $compiled;
     }
 
     if ($compiled->sourceHash !== $expectedHash) {
-      return $this->compiler->compile($definition);
+      $compiled = $this->compiler->compile($definition);
+      return $this->cacheForBattle ? ($this->battleCompiled[$id] = $compiled) : $compiled;
     }
 
-    return $compiled;
+    return $this->cacheForBattle ? ($this->battleCompiled[$id] = $compiled) : $compiled;
   }
 
   public function loadCompiled(string $id): ?SummonCompiledCutscene
