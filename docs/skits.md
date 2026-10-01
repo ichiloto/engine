@@ -38,22 +38,135 @@ this functionality. Last Legend is the reference consumer. Related docs:
   `assets/Data/Skits/*.php` (id, title, optional map gate, trigger
   conditions, beats of speaker + text, optional speed), announces
   availability by notification, plays beats through the standard dialogue
-  box (`show_text`), and records `skit_seen:<id>`. The engine roadmap
-  already defers "a dedicated compact skit overlay."
+  box (`show_text`), and records `skit_seen:<id>`. GPUI now composes a
+  dedicated graphical stage over the same read-only playback snapshot.
 - **Beats accept optional emotion and voice.** Phase 0 resolves these softly
   and plays voice through the existing dialogue box on either presentation.
 - **The bust art already exists.** Each Last Legend cast member ships eight
   emotional dialogue portraits (Angry, Concerned, Determined, Happy,
   Neutral, Sad, Surprised, Thinking), some with alternate sets (e.g. a
-  vampiric variant). Today only battle Results binds any of them; field
-  dialogue shows no portraits on either presentation.
-- **A dialogue presentation catalog is beginning.** The in-flight
-  `DialoguePresentationCatalog` (`Data/Presentation/dialogue.php`) is the
-  natural home for per-actor bust bindings shared by dialogue and skits.
+  vampiric variant). The dialogue catalogue binds the approved ordinary
+  expressions for both portrait docks and borderless skit busts.
+- **Dialogue artwork is shared and replaceable.**
+  `DialoguePresentationCatalog` (`Data/Presentation/dialogue.php`) binds
+  stable identities, explicit display-label aliases, artwork roles,
+  expression variants, a dialogue theme and per-skit contextual backgrounds.
 - **Audio owns one speech line independently of SFX.** Advance interrupts
   that line; optional BGM ducking uses seek-safe backend support.
 - **Shared Auto playback is available, with skits its first adopter.** Log,
-  Skip, the graphical stage and Editor emotion/voice authoring remain planned.
+  Skip, ambient lip/eye animation and Editor emotion/voice authoring remain
+  planned; the static graphical stage is implemented.
+
+### Graphical catalogue and ownership
+
+The plain PHP catalogue uses schema `ichiloto.dialogue/1`:
+
+```php
+return [
+  'schema' => 'ichiloto.dialogue/1',
+  'theme' => [
+    'schema' => 'ichiloto.menu/1',
+    // Shared palette, metrics, nine-slice frames and navigation.continue icon.
+  ],
+  'actors' => [
+    'hero-id' => [
+      'portrait' => 'Graphics/Characters/Hero/Portraits/Neutral.png',
+      'bust' => 'Graphics/Characters/Hero/Portraits/Neutral.png',
+      'emotions' => ['Happy' => [
+        'portrait' => 'Graphics/Characters/Hero/Portraits/Happy.png',
+        'bust' => 'Graphics/Characters/Hero/Portraits/Happy.png',
+      ]],
+    ],
+  ],
+  'resources' => [
+    'innkeeper-art' => ['portrait' => 'Graphics/Characters/Innkeeper/Neutral.png'],
+  ],
+  'speakers' => ['Authored display label' => 'hero-id', 'Innkeeper' => 'innkeeper-art'],
+  'skits' => ['conversation-id' => ['background' => 'Graphics/Skits/Town/Daytime.png']],
+  'skitStage' => ['inactiveScale' => 0.92, 'inactiveBrightness' => 0.60],
+];
+```
+
+Paths are relative to the shared asset root. There are no hashes, frozen
+dimensions or duplicated portrait crops. The same source may serve both roles;
+current decoded dimensions determine contain-fit. Resolution tries the requested
+expression, Neutral, then the base role. Missing optional art diagnoses and
+degrades without changing text or progression. Display-label aliases bridge
+existing ordinary dialogue; they are explicit author data, not directory or
+display-name inference. New `show_text` callers can pass a `DialogueContext`
+with stable identity and emotion. Skit contexts come from the authored beats,
+registered actors and live map metadata, not a second gameplay registry.
+
+`actors` keys reference the project's registered actor IDs. `resources` holds
+stable artwork identities for non-actor speakers such as NPCs; both collections
+use the same role/expression records and must have distinct keys. Explicit
+`speakers` aliases may select either collection. An artwork resource never
+creates a gameplay actor, NPC instance, party member or collision record.
+
+`TextBoxModal` owns pagination, typing, confirm/cancel, Auto and speech.
+`DialogueSnapshot` only exposes the current page and cursor. Graphical text wraps
+the complete page before revealing its prefix, so words do not shift during
+typing. Named dialogue has an independent wrapping nameplate and a portrait dock
+when artwork exists; narration and plain/missing-art speakers do not reserve a
+portrait gutter. Display whitespace normalization applies equally to the completed
+page and its owner-supplied visible prefix, including tabs and CR/CRLF paragraphs;
+it never advances or changes the terminal playback cursor. Explicit top, middle
+and bottom placement is preserved.
+Authored help is retained above the controls, and multi-page dialogue shows its
+owner's page count inside the panel rather than as floating field text.
+Auto and Continue hints use semantic actions and current control labels. Log and
+Skip are not displayed before their playback behavior exists.
+
+Ordinary field dialogue uses negotiated protocol-2 `canvas_overlay` plus
+`graphical_canvas`, clipping and source rectangles. Its transparent root matches
+the hello grid's logical pixel surface and paints above field/HUD layers.
+Opening and closing it preserves the world, camera, sprites and notifications;
+the terminal modal's layer is excluded only from that graphical snapshot.
+Older renderers retain terminal dialogue. Unsupported or oversized dialogue
+above a graphical menu also removes the opaque menu canvas, so it cannot hide
+the terminal fallback. Skits use the existing exclusive canvas surface.
+
+The skit stage cover-fits its explicitly bound scene background and contains
+full borderless busts without mirroring. Only the dialogue nameplate names the
+active speaker; the redundant above-bust names and active-marker labels were
+removed following Andrew's October 1 correction. Active artwork retains full
+brightness and contain-fit size. Inactive busts default to 92% of that size and
+60% RGB brightness, preserving their original alpha, shared baseline and slot
+centre. This is dimming, not translucency. Games may configure `skitStage`:
+`inactiveScale` is finite in 0.5..1; `inactiveBrightness` is finite in 0..1.
+The size difference provides a non-colour emphasis cue without extra labels.
+Protocol-2 `canvas_image_tone` negotiates opaque-preserving image brightness;
+older graphical renderers keep scaling without dimming and report that limitation.
+Larger casts use stable groups of three containing the active speaker rather
+than endlessly shrinking portraits. Missing backgrounds use the theme backing
+with a diagnostic, not an unrelated battle arena. Ambient animation and
+notification projection above opaque panels remain concrete later gaps.
+
+`tools/gpui-dialogue-preview.php` opens a bounded, silent renderer-only preview
+from a JSON snapshot using the same composer and installed renderer. It does not
+start Game or audio or read/write saves. It is composition evidence, not an
+editor playback preview or proof of a complete gameplay/controller lifecycle.
+Its optional `--background` takes an asset-root-relative PNG for a skit proposal;
+the override lives only in that process and never writes project bindings. This
+allows review of new scene artwork through the real renderer before approval.
+The October 1 local acceptance pass inspected actual macOS native pixels for
+Home's Mother dialogue at 1280x720 and 800x480, and a Breakfast Banter skit with
+the current cast busts. A subsequent native review preview cover-fitted the
+Town Center background proposal without changing project bindings. Andrew
+approved that artwork on October 1 for Breakfast Banter (`breakfast-banter`)
+and Still Standing (`after-the-practicum`), sharing the existing Game asset
+`Graphics/Skits/HappyvilleTownCenter/Daytime.proposal-v1.png` without a copy.
+The approved background was subsequently inspected through its normal Game
+binding, with no preview override. Game's focused checks cover every beat of both
+skits at 1280x720 and 800x480, including the real background and produced cast art.
+Linux, Windows, mobile and full interactive native-game playback were not
+exercised by this fixture pass.
+
+Source-art acceptance remains separate from runtime composition. The inconsistent
+bust lower cuts are not repaired by renderer masks or crops; Art's rejected strip
+edits left the canonical images unchanged. Liora's costume correction is also a
+review proposal, not a delivered replacement. The stage contains the complete
+current sources and does not claim these artwork corrections are finished.
 
 ## The model
 
@@ -107,8 +220,8 @@ before any graphical work lands.
 ### The graphical skit stage
 
 A dedicated full-screen presentation, canvas-emitted per frame exactly as
-graphical battle and the shared menus are (no renderer or protocol
-changes): skit title header, location plate, speaker nameplate, dialogue
+graphical battle and the shared menus are: contextual rendered background,
+skit title header, location plate, speaker nameplate, dialogue
 panel, and one bust per conversing character with the active speaker
 emphasized. The stage is deliberately not tied to the shared menu theme:
 it carries its own presentation data, and its contract leaves room to
@@ -224,6 +337,13 @@ preview remain Phase 4 work; runtime support is not full authoring completion.
    presentation data rather than the shared menu theme.
 3. Terminal keeps the standard dialogue flow, gaining only the skit title
    announcement; the deferred compact overlay remains a separate decision.
+
+The static stage and ordinary dialogue portrait docks are implemented locally.
+Last Legend supplies the approved dialogue kit and existing bust expressions;
+Andrew has approved the shared Town Center background for its two current skits.
+Additional contextual artwork requires his acceptance before integration.
+Native/platform evidence is recorded
+separately from headless composition tests and artwork previews.
 
 ### Phase 2 - Life
 

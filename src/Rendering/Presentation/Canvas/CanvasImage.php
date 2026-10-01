@@ -16,6 +16,7 @@ final readonly class CanvasImage
     public ?SpriteSourceRect $sourceRect = null,
     public float $opacity = 1,
     public ?CanvasRectangle $clipRect = null,
+    public float $brightness = 1,
   )
   {
     CanvasValidation::id($id);
@@ -23,6 +24,9 @@ final readonly class CanvasImage
     SpriteValidation::validateSigned32BitRange($layer);
     if (strlen($asset) > 4096 || !is_finite($opacity) || $opacity < 0 || $opacity > 1) {
       throw new InvalidArgumentException('Canvas assets are limited to 4096 bytes and opacity to finite values in 0..1.');
+    }
+    if (!is_finite($brightness) || $brightness < 0 || $brightness > 1) {
+      throw new InvalidArgumentException('Canvas image brightness must be finite and in 0..1.');
     }
   }
 
@@ -33,6 +37,7 @@ final readonly class CanvasImage
       'layer' => $this->layer,
       ...($this->sourceRect === null ? [] : ['sourceRect' => $this->sourceRect->toArray()]),
       ...($this->opacity === 1.0 ? [] : ['opacity' => $this->opacity]),
+      ...($this->brightness === 1.0 ? [] : ['brightness' => $this->brightness]),
       ...($this->clipRect === null ? [] : ['clipRect' => $this->clipRect->toArray()])];
   }
 }

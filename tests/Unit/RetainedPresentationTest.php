@@ -122,6 +122,29 @@ it('retains canvas elements through edits and removes field state across battle 
         ->and($operations[0])->toBe(['op' => 'remove', 'kind' => 'canvas', 'id' => 'canvas']);
 });
 
+it('retains a field world camera sprites and notifications while dialogue overlays change and close', function () {
+    $transport = new FakeRendererTransport();
+    $sender = new RetainedPresentation(new RendererClient($transport));
+    $world = retainedTestWorld();
+    $viewport = retainedTestViewport();
+    $sprite = new PresentationSprite('actor', 'actor.png', 0, 0, 10, 20);
+    $notice = ['id' => 'notice', 'layer' => 2000,
+        'rows' => [['row' => 0, 'runs' => [new PresentationTextRun(0, 0, 'Notice')]]]];
+    $sender->present(new ConsolePresentationChanges(20, 4, true, [$notice], order: ['notice']), [$sprite], $viewport, $world);
+    $transport->sent = [];
+    $canvas = new PresentationCanvas(200, 80, [new CanvasImage('dialogue-frame', 'frame.png', new CanvasRectangle(0, 40, 200, 40))]);
+    $sender->present(new ConsolePresentationChanges(20, 4, false), [$sprite], $viewport, $world, $canvas);
+    $operations = end($transport->sent)->payload['operations'];
+    expect(array_column($operations, 'kind'))->toBe(['canvas', 'canvas_image'])
+        ->and($operations[0]['value']['mode'])->toBe('overlay');
+    $transport->sent = [];
+    $sender->present(new ConsolePresentationChanges(20, 4, false), [$sprite], $viewport, $world);
+    expect(end($transport->sent)->payload['operations'])->toBe([
+        ['op' => 'remove', 'kind' => 'canvas', 'id' => 'canvas'],
+        ['op' => 'remove', 'kind' => 'canvas_image', 'id' => 'dialogue-frame'],
+    ]);
+});
+
 it('resends retained state once after rejection resize and a new renderer session', function () {
     $transport = new FakeRendererTransport();
     $sender = new RetainedPresentation(new RendererClient($transport));

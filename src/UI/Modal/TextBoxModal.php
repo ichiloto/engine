@@ -13,6 +13,9 @@ use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputBindings;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueSnapshot;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePresentationProviderInterface;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowHeightPolicy;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
@@ -25,7 +28,7 @@ use Ichiloto\Engine\UI\Windows\WindowAlignment;
  *
  * @package Ichiloto\Engine\UI\Modal
  */
-class TextBoxModal extends Modal
+class TextBoxModal extends Modal implements DialoguePresentationProviderInterface
 {
   /** Ordinary dialogue keeps a compact three-line footprint. */
   private const int DEFAULT_CONTENT_LINES = 3;
@@ -73,6 +76,7 @@ class TextBoxModal extends Modal
   protected int $currentPageIndex = 0;
   /** Help authored by the caller, restored while a new page is typing. */
   protected string $authoredHelp = '';
+  private WindowPosition $dialoguePosition;
 
   /**
    * TextBoxModal constructor.
@@ -94,6 +98,7 @@ class TextBoxModal extends Modal
     BorderPackInterface $borderPack = new DefaultBorderPack(),
     protected float $charactersPerSecond = self::DEFAULT_TYPING_SPEED,
     protected ?DialoguePlayback $playback = null,
+    protected DialogueContext $presentation = new DialogueContext(),
   )
   {
     $this->playback ??= new DialoguePlayback(isset($game->audioManager) ? $game->audioManager : null);
@@ -113,6 +118,7 @@ class TextBoxModal extends Modal
     );
     $height = $contentLines + 2;
     $position ??= trim($title) === '' ? WindowPosition::TOP : WindowPosition::BOTTOM;
+    $this->dialoguePosition = $position;
     $positionCoordinates = $position->getCoordinates($width, $height);
     $this->messageLength = mb_strlen($this->currentPageMessage());
     $this->authoredHelp = $help;
@@ -133,6 +139,14 @@ class TextBoxModal extends Modal
     );
 
     $this->rebuildWindow();
+  }
+
+  public function getDialogueSnapshot(): DialogueSnapshot
+  {
+    $page = $this->currentPageMessage();
+    return new DialogueSnapshot($this->title, $page, mb_substr($page, 0, $this->currentCharacterIndex),
+      $this->isPrinting, $this->currentPageIndex, count($this->messagePages), $this->playback?->auto ?? false,
+      $this->dialoguePosition, $this->presentation, $this->authoredHelp);
   }
 
   /**

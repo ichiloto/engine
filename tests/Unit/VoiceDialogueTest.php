@@ -379,6 +379,29 @@ it('preserves authored help while appending live rebound Auto hints without dupl
   $modal->hide();
 });
 
+it('exposes the current dialogue page and reveal cursor without changing its owner state', function () {
+  $context = new \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext('hero', 'Concerned');
+  $flow = new DialoguePlayback(auto: true);
+  $modal = new VoiceTestTextBox(new VoiceTestGame(), "Hello café.\nSecond line.", 'Renamed Hero', help: 'Authored help',
+    position: \Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition::MIDDLE, charactersPerSecond: 1,
+    playback: $flow, presentation: $context);
+  $modal->show();
+  $first = $modal->getDialogueSnapshot();
+  expect($first->speaker)->toBe('Renamed Hero')->and($first->visibleText)->toBe('H')
+    ->and($first->page)->toBe("Hello café.\nSecond line.")->and($first->context)->toBe($context)
+    ->and($first->auto)->toBeTrue()->and($first->isPrinting)->toBeTrue()
+    ->and($first->help)->toBe('Authored help')->and($first->pageCount)->toBe(1);
+  InputManager::setBindings(['confirm' => ['keys' => [KeyCode::ENTER]]]);
+  InputManager::setInputSource(new \Tests\Support\Input\FakeInputSource(KeyCode::ENTER));
+  InputManager::handleInput();
+  $modal->update();
+  $modal->updateContent();
+  $complete = $modal->getDialogueSnapshot();
+  expect($complete->visibleText)->toBe($first->page)->and($complete->isPrinting)->toBeFalse()
+    ->and($modal->isShowing())->toBeTrue()->and($complete->position)->toBe($first->position);
+  $modal->hide();
+});
+
 it('uses contextual Space Auto and consumes the opening edge without discarding the next press', function () {
   InputManager::setBindings(['action'=>['keys'=>[KeyCode::SPACE]], 'confirm'=>['keys'=>[KeyCode::ENTER]]]);
   expect(InputManager::getBindings()['dialogue_auto']['keys'])->toBe([KeyCode::SPACE])

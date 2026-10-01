@@ -233,9 +233,11 @@ class ModalManager implements CanUpdate, CanRender
     ?WindowPosition $position = null,
     float $charactersPerSecond = 1,
     ?\Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback $playback = null,
+    ?\Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext $presentation = null,
   ): void
   {
-    $this->modals->push(new TextBoxModal($this->game, $message, $title, $help, $position, charactersPerSecond: $charactersPerSecond, playback: $playback));
+    $this->modals->push(new TextBoxModal($this->game, $message, $title, $help, $position, charactersPerSecond: $charactersPerSecond,
+      playback: $playback, presentation: $presentation ?? new \Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext()));
     try {
       $this->modals->peek()->open();
     } finally {

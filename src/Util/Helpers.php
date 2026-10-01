@@ -202,9 +202,10 @@ if (! function_exists('show_text') ) {
     ?WindowPosition $position = null,
     float          $charactersPerSecond = 1,
     ?\Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback $playback = null,
+    ?\Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext $presentation = null,
   ): void
   {
-    Console::showText($message, $title, $help, $position, $charactersPerSecond, $playback);
+    Console::showText($message, $title, $help, $position, $charactersPerSecond, $playback, $presentation);
   }
 }
 

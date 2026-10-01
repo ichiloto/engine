@@ -57,7 +57,7 @@ final readonly class MenuPresentationCatalog
     $art = self::artwork(self::map($data, 'rowArtwork'), MenuRowSkin::ARTWORK);
     $this->rows = new MenuRowSkin(array_intersect_key($palette, array_flip(MenuRowSkin::COLORS)),
       new MenuRowMetrics(...self::map($data, 'rowMetrics')), $art, $assetRoot);
-    $this->frames = self::artwork(self::map($data, 'frames'), ['panel', 'quiet', 'portrait',
+    $this->frames = self::artwork(self::map($data, 'frames'), ['panel', 'quiet', 'portrait', 'dialogue', 'nameplate',
       'slider.track', 'slider.thumb', 'scroll.track', 'scroll.thumb']);
     $bindings = self::map($data, 'icons');
     $cursor = $data['cursor'] ?? null;

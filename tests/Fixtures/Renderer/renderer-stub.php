@@ -64,7 +64,7 @@ if ($scenario === 'startup_timeout') {
 if ($scenario === 'stderr_flood') {
   rendererStubWrite(str_repeat('diagnostic-', 100000) . 'STARTUP-TAIL', STDERR);
 }
-$ready = rendererStubEvent('ready', $scenario === 'capabilities' && isset($message['requiredCapabilities'])
+$ready = rendererStubEvent('ready', in_array($scenario, ['capabilities', 'dialogue_preview'], true) && isset($message['requiredCapabilities'])
   ? ['capabilities' => $message['requiredCapabilities']] : []);
 if ($scenario === 'ready_key') {
   $ready .= rendererStubEvent('key', ['key' => 'W']);
@@ -132,6 +132,7 @@ while (hrtime(true) < $deadline && ($line = fgets(STDIN)) !== false) {
       break;
     case 'retained_smoke':
     case 'retained_smoke_recovery':
+    case 'dialogue_preview':
       if ($protocol !== 2 || !isset($message['operations'], $message['generation'], $message['baseGeneration'], $message['present'], $message['reset'])
         || isset($message['text']) || isset($message['textLayers']) || isset($message['tileBatches'])) {
         rendererStubWrite(rendererStubEvent('error', ['message' => 'Smoke tools must send retained protocol two operations']));

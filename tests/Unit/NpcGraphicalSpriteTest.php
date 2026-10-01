@@ -509,6 +509,7 @@ final class NpcTalkProbeModalManager extends ModalManager
     ?WindowPosition $position = null,
     float $charactersPerSecond = 1,
     ?DialoguePlayback $playback = null,
+    ?\Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext $presentation = null,
   ): void
   {
     $npc = ($this->speaker)();

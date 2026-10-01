@@ -43,7 +43,7 @@ final class RendererPresentation
    */
   public function present(ConsoleFrameSnapshot|ConsolePresentationSnapshot|ConsolePresentationChanges $snapshot,
     array $sprites = [], array $tileBatches = [], ?PresentationViewport $viewport = null,
-    ?PresentationWorld $world = null): bool
+    ?PresentationWorld $world = null, ?PresentationCanvas $canvasOverlay = null): bool
   {
     if ($snapshot->width !== $this->grid->columns || $snapshot->height !== $this->grid->rows) {
       throw new InvalidArgumentException('Console snapshot dimensions must match the fixed renderer session grid.');
@@ -69,11 +69,27 @@ final class RendererPresentation
       $snapshot = new ConsolePresentationSnapshot($snapshot->width, $snapshot->height,
         [new PresentationTextLayer('world', PresentationLayerPolicy::WORLD, $runs)]);
     }
-    return $this->retained->present($snapshot, $sprites, $viewport, $world);
+    if ($canvasOverlay !== null) {
+      if (!$this->client->supports(RendererSessionConfig::CANVAS_OVERLAY)) {
+        throw new RendererProtocolException('Field canvas overlays require negotiated canvas_overlay support.');
+      }
+      if ($canvasOverlay->width !== $this->grid->columns * $this->grid->cellWidth
+        || $canvasOverlay->height !== $this->grid->rows * $this->grid->cellHeight) {
+        throw new RendererProtocolException('Canvas overlay must match the renderer session logical pixel surface.');
+      }
+      $this->validateCanvas($canvasOverlay);
+    }
+    return $this->retained->present($snapshot, $sprites, $viewport, $world, $canvasOverlay);
   }
 
   /** Graphical frames do not require a Console snapshot or use its cell dimensions. */
   public function presentCanvas(PresentationCanvas $canvas): bool
+  {
+    $this->validateCanvas($canvas);
+    return $this->retained->presentCanvas($canvas);
+  }
+
+  private function validateCanvas(PresentationCanvas $canvas): void
   {
     if (!$this->client->supports(RendererSessionConfig::GRAPHICAL_CANVAS)) {
       throw new RendererProtocolException('Canvas presentation requires negotiated graphical_canvas support.');
@@ -82,6 +98,9 @@ final class RendererPresentation
       throw new RendererProtocolException('Canvas raster operations require negotiated canvas_compositing support.');
     }
     foreach ($canvas->images as $image) {
+      if ($image->brightness !== 1.0 && !$this->client->supports(RendererSessionConfig::CANVAS_IMAGE_TONE)) {
+        throw new RendererProtocolException('Canvas image brightness requires negotiated canvas_image_tone support.');
+      }
       if ($image->sourceRect !== null && !$this->client->supports(RendererSessionConfig::SPRITE_SOURCE_RECT)) {
         throw new RendererProtocolException('Canvas image crops require negotiated sprite_source_rect support.');
       }
@@ -95,6 +114,5 @@ final class RendererPresentation
       && !$this->client->supports(RendererSessionConfig::CANVAS_GLYPH_EFFECTS)) {
       throw new RendererProtocolException('Canvas glyph contours require negotiated canvas_glyph_effects support.');
     }
-    return $this->retained->presentCanvas($canvas);
   }
 }

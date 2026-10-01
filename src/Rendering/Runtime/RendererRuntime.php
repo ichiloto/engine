@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Rendering\Runtime;
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueScenePresentation;
 use Ichiloto\Engine\IO\InputSources\InputSourceInterface;
 use Ichiloto\Engine\IO\InputSources\RendererInputSource;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
@@ -35,6 +36,7 @@ final class RendererRuntime
   private ?InputSourceInterface $previousInput = null;
   private ?RendererPresentation $presentation = null;
   private ?RendererSessionConfig $session = null;
+  private ?DialogueScenePresentation $dialoguePresentation = null;
   private bool $started = false;
   private bool $closed = false;
   private bool $closeRequested = false;
@@ -148,7 +150,15 @@ final class RendererRuntime
       throw new LogicException('Renderer presentation requires an active session.');
     }
     $canvas = $scene instanceof CanvasProviderInterface ? $scene->getPresentationCanvas() : null;
-    if ($canvas !== null) {
+    $dialogue = $scene === null ? null : ($this->dialoguePresentation ??= new DialogueScenePresentation($this->config->assetRoot))
+      ->compose($scene, $canvas, $this->grid->columns * $this->grid->cellWidth, $this->grid->rows * $this->grid->cellHeight,
+        $this->supports(RendererSessionConfig::CANVAS_OVERLAY) && $this->supports(RendererSessionConfig::GRAPHICAL_CANVAS)
+          && $this->supports(RendererSessionConfig::CANVAS_CLIP_OPACITY) && $this->supports(RendererSessionConfig::SPRITE_SOURCE_RECT),
+        $this->supports(RendererSessionConfig::GRAPHICAL_CANVAS) && $this->supports(RendererSessionConfig::CANVAS_CLIP_OPACITY)
+          && $this->supports(RendererSessionConfig::SPRITE_SOURCE_RECT),
+        $this->supports(RendererSessionConfig::CANVAS_IMAGE_TONE));
+    $canvas = $dialogue !== null ? $dialogue->canvas : $canvas;
+    if ($canvas !== null && !($dialogue?->isOverlay ?? false)) {
       $changed = $this->presentation->presentCanvas($canvas);
       $this->resetText = true;
       if ($changed) { $this->pump(); }
@@ -173,6 +183,7 @@ final class RendererRuntime
     $visible = array_filter($sprites, static fn($sprite) => $sprite->x >= 0 && $sprite->x < Console::getWidth()
       && $sprite->y >= 0 && $sprite->y < Console::getHeight());
     $excluded = array_map(static fn($sprite) => $sprite->id, $visible);
+    if ($dialogue !== null) { array_push($excluded, ...$dialogue->excludedLayers); }
     $world = $scene instanceof RetainedWorldProviderInterface ? $scene->getPresentationWorld() : null;
     $snapshotStart = LatencyTrace::getTimeNow();
     $snapshot = Console::getRetainedPresentationChanges($excluded, $this->resetText, $world?->textLayerIds ?? []);
@@ -184,7 +195,8 @@ final class RendererRuntime
     }
     $this->resetText = false;
     try {
-      $changed = $this->presentation->present($snapshot, $sprites, viewport: $viewport, world: $world);
+      $changed = $this->presentation->present($snapshot, $sprites, viewport: $viewport, world: $world,
+        canvasOverlay: $dialogue?->isOverlay ? $dialogue->canvas : null);
     } catch (Throwable $error) {
       $this->resetText = true;
       throw $error;

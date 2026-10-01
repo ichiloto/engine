@@ -2091,9 +2091,10 @@ class Console
     ?WindowPosition $position = null,
     float          $charactersPerSecond = 1,
     ?\Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback $playback = null,
+    ?\Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext $presentation = null,
   ): void
   {
-    ModalManager::getInstance(self::$game)->showText($message, $title, $help, $position, $charactersPerSecond, $playback);
+    ModalManager::getInstance(self::$game)->showText($message, $title, $help, $position, $charactersPerSecond, $playback, $presentation);
   }
 
   /**

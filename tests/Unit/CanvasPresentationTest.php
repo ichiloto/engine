@@ -123,6 +123,45 @@ it('rejects wrong typed geometry inputs at strict PHP construction boundaries', 
   expect(fn() => new CanvasImage('id', 'a.png', new CanvasRectangle(0, 0, 1, 1), opacity: null))->toThrow(TypeError::class);
 });
 
+it('validates optional image brightness without changing legacy opacity or wire defaults', function () {
+  $rect = new CanvasRectangle(0, 0, 20, 20);
+  foreach ([-0.01, 1.01, NAN, INF, -INF] as $brightness) {
+    expect(fn() => new CanvasImage('image', 'a.png', $rect, brightness: $brightness))->toThrow(InvalidArgumentException::class);
+  }
+  foreach ([null, '0.6', true, []] as $brightness) {
+    expect(fn() => new CanvasImage('image', 'a.png', $rect, brightness: $brightness))->toThrow(TypeError::class);
+  }
+  expect(new CanvasImage('image', 'a.png', $rect)->toArray())->not->toHaveKey('brightness');
+  expect(new CanvasImage('image', 'a.png', $rect, brightness: 0)->toArray()['brightness'])->toBe(0.0);
+  expect(new CanvasImage('image', 'a.png', $rect, brightness: 0.6)->opacity)->toBe(1.0);
+});
+
+it('negotiates image tone and updates retained brightness without resetting unrelated canvas entities', function () {
+  expect(fn() => new RendererSessionConfig('Tone', sys_get_temp_dir(), requiredCapabilities: ['canvas_image_tone']))
+    ->toThrow(InvalidArgumentException::class);
+  expect(fn() => new RendererSessionConfig('Tone', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+    requiredCapabilities: ['canvas_image_tone']))->toThrow(InvalidArgumentException::class);
+  $rect = new CanvasRectangle(20, 20, 40, 60);
+  $make = fn($brightness) => new PresentationCanvas(100, 100, [
+    new CanvasImage('bust', 'synthetic.png', $rect, brightness: $brightness),
+    new CanvasImage('other', 'synthetic.png', new CanvasRectangle(0, 0, 10, 10)),
+  ]);
+  [$legacy, $oldPeer] = canvasPresenter(['graphical_canvas']);
+  expect(fn() => $legacy->presentCanvas($make(0.6)))->toThrow(RendererProtocolException::class, 'canvas_image_tone');
+  expect($oldPeer->sent)->toBe([])->and($legacy->presentCanvas($make(1)))->toBeTrue();
+  [$presenter, $peer] = canvasPresenter(['graphical_canvas', 'canvas_image_tone']);
+  expect($presenter->presentCanvas($make(0.6)))->toBeTrue()
+    ->and($presenter->presentCanvas($make(0.6)))->toBeFalse()
+    ->and($presenter->presentCanvas($make(1)))->toBeTrue();
+  expect($peer->sent[1]->payload['reset'])->toBeFalse()
+    ->and($peer->sent[1]->payload['operations'])->toHaveCount(1)
+    ->and($peer->sent[1]->payload['operations'][0]['id'])->toBe('bust');
+  $frames = RetainedFrameState::replay($peer->sent);
+  expect($frames[0]['canvas']['images'][0]['brightness'])->toBe(0.6)
+    ->and($frames[1]['canvas']['images'][0])->not->toHaveKey('brightness')
+    ->and($frames[1]['canvas']['images'][1])->toEqual($frames[0]['canvas']['images'][1]);
+});
+
 it('preserves stable instance references and equal-layer order through replacement and removal', function () {
   $first = canvasImage('enemy-1');
   $second = canvasImage('enemy-2');

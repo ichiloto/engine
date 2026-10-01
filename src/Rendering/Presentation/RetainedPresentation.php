@@ -93,12 +93,10 @@ final class RetainedPresentation
 
     /** @param list<PresentationSprite> $sprites */
     public function present(ConsolePresentationChanges|ConsolePresentationSnapshot $text, array $sprites,
-        ?PresentationViewport $viewport, ?PresentationWorld $world = null): bool
+        ?PresentationViewport $viewport, ?PresentationWorld $world = null, ?PresentationCanvas $canvasOverlay = null): bool
     {
         $this->operations = [];
-        foreach (['canvas', 'canvas_image', 'canvas_indicator', 'canvas_text', 'canvas_composite'] as $kind) {
-            $this->replaceValues($kind, []);
-        }
+        $this->updateCanvas($canvasOverlay, true);
         if ($world !== $this->world) {
             if ($this->world !== null) { $this->operations[] = ['op' => 'remove', 'kind' => 'world', 'id' => $this->world->id]; }
             $this->world = $world;
@@ -122,13 +120,19 @@ final class RetainedPresentation
         $this->replaceValues('text', []);
         $this->textRows = [];
         $this->replaceValues('sprite', []);
-        $this->replaceValues('canvas', [['id' => 'canvas', 'width' => $canvas->width, 'height' => $canvas->height]]);
-        foreach (['canvas_image' => $canvas->images, 'canvas_indicator' => $canvas->indicators,
-            'canvas_text' => $canvas->textLayers, 'canvas_composite' => $canvas->composites] as $kind => $items) {
-            $this->replaceValues($kind, array_map(static fn($item) => $item->toArray(), $items));
-        }
+        $this->updateCanvas($canvas, false);
         $this->setViewport(null);
         return $this->flush();
+    }
+
+    private function updateCanvas(?PresentationCanvas $canvas, bool $overlay): void
+    {
+        $this->replaceValues('canvas', $canvas === null ? [] : [['id' => 'canvas', 'width' => $canvas->width,
+            'height' => $canvas->height, ...($overlay ? ['mode' => 'overlay'] : [])]]);
+        foreach (['canvas_image' => $canvas?->images ?? [], 'canvas_indicator' => $canvas?->indicators ?? [],
+            'canvas_text' => $canvas?->textLayers ?? [], 'canvas_composite' => $canvas?->composites ?? []] as $kind => $items) {
+            $this->replaceValues($kind, array_map(static fn($item) => $item->toArray(), $items));
+        }
     }
 
     private function setViewport(?array $viewport): void

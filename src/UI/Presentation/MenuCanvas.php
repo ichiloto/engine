@@ -95,7 +95,7 @@ final class MenuCanvas
     $view->images = $base->images;
     foreach ($overlay->images as $image) {
       $view->images[] = new CanvasImage($image->id, $image->asset, $image->destination, $offset + $image->layer,
-        $image->sourceRect, $image->opacity, $image->clipRect);
+        $image->sourceRect, $image->opacity, $image->clipRect, $image->brightness);
     }
     $view->text = $base->textLayers;
     foreach ($overlay->textLayers as $text) {

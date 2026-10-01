@@ -10,6 +10,7 @@ use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\IO\InputBindings;
 use Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePresentationCatalog;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Config\ConfigStore;
@@ -175,6 +176,19 @@ class SkitManager
       ? ConfigStore::get(ProjectConfig::class)->get('audio.voice_music_duck', 1.0) : 1.0;
     $duck = is_numeric($duck) ? (float) $duck : 1.0;
 
+    $participants = [];
+    foreach ((array) $skit['beats'] as $beat) {
+      if (!is_array($beat)) { continue; }
+      $speaker = SkitSpeaker::getFromBeat($beat, $actors);
+      if ($speaker->actorId !== null) {
+        $participants[$speaker->actorId] = ['actorId' => $speaker->actorId, 'name' => $speaker->name, 'emotion' => 'Neutral'];
+      }
+    }
+    $location = $this->gameScene->party->location;
+    $locationName = $location?->name ?? '';
+    $locationRegion = $location?->region ?? '';
+    $locationLabel = $locationName === $locationRegion || $locationRegion === '' ? $locationName : $locationName . ' - ' . $locationRegion;
+
     $playback->beginConversation();
     try {
       foreach ((array) $skit['beats'] as $beat) {
@@ -187,9 +201,12 @@ class SkitManager
             Debug::warn("Skit $skitId: $diagnostic");
           }
           $presentation = SkitBeatPresentation::getFromBeat($assets, $skitId, $beat, $catalogue, $speaker->actorId);
+          if ($speaker->actorId !== null) { $participants[$speaker->actorId]['emotion'] = $presentation->emotion; }
           $playback->beginLine($presentation->voicePath, $duck);
           try {
-            $this->showBeat([...$beat, 'speaker' => $speaker->name, 'emotion' => $presentation->emotion], $speed, $playback);
+            $this->showBeat([...$beat, 'speaker' => $speaker->name, 'emotion' => $presentation->emotion,
+              'presentation' => new DialogueContext($speaker->actorId, $presentation->emotion, $skitId,
+                strval($skit['title'] ?? $skitId), $locationLabel, array_values($participants))], $speed, $playback);
           } finally {
             $playback->finishLine();
           }
@@ -206,27 +223,13 @@ class SkitManager
   protected function showBeat(array $beat, float $speed, DialoguePlayback $playback): void
   {
     show_text(strval($beat['text'] ?? ''), strval($beat['speaker'] ?? ''),
-      charactersPerSecond: $speed, playback: $playback);
+      charactersPerSecond: $speed, playback: $playback, presentation: $beat['presentation'] ?? null);
   }
 
   protected function loadDialoguePresentation(string $assets): DialoguePresentationCatalog
   {
-    $filename = Path::join($assets, DialoguePresentationCatalog::FILE);
-    if (is_file($filename)) {
-      try {
-        $catalogue = require $filename;
-        if ($catalogue instanceof DialoguePresentationCatalog) {
-          return $catalogue;
-        }
-        // An empty PHP placeholder returns 1; an empty authored array is also valid.
-        if ($catalogue === 1 || $catalogue === null || $catalogue === []) {
-          return new DialoguePresentationCatalog();
-        }
-        Debug::warn('Invalid dialogue presentation catalogue; using Neutral skit emotions.');
-      } catch (Throwable $exception) {
-        Debug::warn('Dialogue presentation catalogue could not load: ' . $exception->getMessage());
-      }
-    }
+    try { return DialoguePresentationCatalog::load($assets); }
+    catch (Throwable $exception) { Debug::warn('Dialogue presentation catalogue could not load: ' . $exception->getMessage()); }
     return new DialoguePresentationCatalog();
   }
 

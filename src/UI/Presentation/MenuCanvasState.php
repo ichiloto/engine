@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\UI\Presentation;
 
 use Ichiloto\Engine\IO\Input;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePresentationProviderInterface;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePresentationCatalog;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\UI\Interfaces\ModalPresentationProviderInterface;
 use Ichiloto\Engine\UI\Text\MenuInfoText;
@@ -66,6 +68,8 @@ trait MenuCanvasState
       $modal = isset($game->modalManager) ? $game->modalManager->currentModal : null;
       if ($canvas === null || $modal === null) { return $canvas; }
       if (!$modal->isShowing()) { return $canvas; }
+      if ($modal instanceof DialoguePresentationProviderInterface
+        && file_exists($runtime->getAssetRoot() . '/' . DialoguePresentationCatalog::FILE)) { return $canvas; }
       $snapshot = $modal instanceof ModalPresentationProviderInterface ? $modal->getModalPresentation() : null;
       if ($snapshot === null) {
         throw new RuntimeException('Active modal ' . $modal::class . ' has no supported menu canvas presentation.');
