@@ -193,6 +193,13 @@ asset tree. Copy receipts are historical provenance, not permanent artwork gates
 Game's dialogue, skit identity and main-menu checks passed 101 tests and 10,827
 assertions on both PHP 8.4.21 and 8.5.10 after installation. Current-file decode,
 contain-fit and memory checks also passed without freezing image bytes or sizes.
+Andrew's subsequent no-gap correction required one lossless preparation:
+Kaelion Neutral's 30 fully transparent bottom rows were removed, with every
+retained RGBA pixel and colour metadata preserved. The other 75 bound images
+were unchanged; all 76 now have no empty bottom rows. The original remains in
+the same `Before-integration` directory. Those same 101 Game tests and 10,827
+assertions passed again on both PHP versions after this preparation. Game
+integrated the 37 corrected or prepared PNGs locally in `d91f0b3`.
 The final Engine run passed 3,498 tests with 54,515 assertions and one existing
 skip, using CI's 1 GiB PHP memory limit; static analysis was clean. The focused
 dialogue run passed 78 tests with 814 assertions, including skinned and unskinned
