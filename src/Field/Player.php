@@ -94,6 +94,13 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     }
   }
   /**
+   * Whether the player's action prompt belongs over its field sprite: it can
+   * act and is drawn as a sprite, not staged out of view by a cinematic.
+   */
+  public bool $isActionPromptOverSprite {
+    get => $this->canAct && $this->getGraphicalSpriteDefinition() !== null;
+  }
+  /**
    * @var ActionInterface|null $availableAction The available action.
    */
   public ?ActionInterface $availableAction = null {
@@ -923,6 +930,9 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     $graphical = $this->scene instanceof GameScene && $this->scene->isGraphicalFieldPresented()
       && $this->getGraphicalSpriteDefinition() !== null;
     if ($graphical) {
+      // The game's bound effect draws the prompt over the sprite; the glyph
+      // stays the terminal's, and the fallback where the effect cannot draw.
+      if ($this->scene->fieldEffects?->canPresentActionPrompt()) { return; }
       // A field character occupies exactly its cell; the prompt sits in the cell above.
       $column = (int)$screenPosition->x;
       $row = (int)$screenPosition->y - 1;

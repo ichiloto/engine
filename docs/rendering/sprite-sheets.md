@@ -95,7 +95,9 @@ is presentation only and is never saved.
 Within a draw layer, characters are ordered by row: a character lower on the
 field draws in front of one above it, with stable ties. The order is by cell,
 so a lift never changes it. Because a character is exactly one cell, the field
-action prompt sits in the cell directly above it.
+action prompt sits in the cell directly above it: the game's bound prompt
+effect where it has one, otherwise the prompt glyph (see
+[Field effects](../effect-animation.md#field-effects)).
 
 ## Single-image field art
 

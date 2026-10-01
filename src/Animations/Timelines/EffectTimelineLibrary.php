@@ -37,8 +37,8 @@ final class EffectTimelineLibrary
   public function compile(string $id, mixed $data): CompiledEffectTimeline
   {
     self::assertId($id);
-    if (!is_array($data) || array_diff(array_keys($data), ['fps', 'lengthFrames', 'playback', 'restFrame', 'tracks']) !== []) {
-      throw new InvalidArgumentException("Effect {$id} accepts fps, lengthFrames, playback, restFrame and tracks.");
+    if (!is_array($data) || array_diff(array_keys($data), ['fps', 'lengthFrames', 'playback', 'loopFrom', 'restFrame', 'tracks']) !== []) {
+      throw new InvalidArgumentException("Effect {$id} accepts fps, lengthFrames, playback, loopFrom, restFrame and tracks.");
     }
     $fps = $data['fps'] ?? null;
     $length = $data['lengthFrames'] ?? null;
@@ -47,6 +47,12 @@ final class EffectTimelineLibrary
     if (!is_int($fps) || $fps < 1 || $fps > 120 || !is_int($length) || $length < 1 || $length > 100000
       || !is_int($rest) || $rest < 0 || $rest >= $length || !in_array($playback, ['once', 'loop'], true)) {
       throw new InvalidArgumentException("Effect {$id} needs fps 1..120, lengthFrames 1..100000, a restFrame in that range and once or loop playback.");
+    }
+    // A loop may restart from a later frame, so the frames before it play
+    // once as an opening, as a balloon pops open and then idles.
+    $loopFrom = $data['loopFrom'] ?? 0;
+    if (!is_int($loopFrom) || $loopFrom < 0 || $loopFrom >= $length || ($loopFrom > 0 && $playback !== 'loop')) {
+      throw new InvalidArgumentException("Effect {$id} loopFrom must be a frame of a looping effect.");
     }
     $tracks = $data['tracks'] ?? null;
     if (!is_array($tracks) || !array_is_list($tracks) || $tracks === [] || count($tracks) > 32) {
@@ -114,6 +120,7 @@ final class EffectTimelineLibrary
     }
     return new CompiledEffectTimeline($id, sha1(json_encode($data, JSON_THROW_ON_ERROR)), fps: $fps,
       playbackSegments: (new EffectTimelineCompiler())->compileTracks($normalized),
-      defaults: ['lengthFrames' => $length, 'restFrame' => $rest, 'playback' => ['loop' => $playback === 'loop']]);
+      defaults: ['lengthFrames' => $length, 'restFrame' => $rest,
+        'playback' => ['loop' => $playback === 'loop', 'loopFrom' => $loopFrom]]);
   }
 }

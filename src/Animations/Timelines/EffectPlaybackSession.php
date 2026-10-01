@@ -28,6 +28,8 @@ class EffectPlaybackSession
   protected(set) int $traversal = 0;
 
   public readonly int $totalFrames;
+  /** The frame a loop restarts from; the frames before it play once. */
+  public readonly int $loopFrom;
   public readonly int $fps;
   public readonly float $effectiveSpeed;
 
@@ -55,6 +57,7 @@ class EffectPlaybackSession
     }
     $this->effectiveSpeed = max(0.01, $effectiveSpeed);
     $this->isLooping = $loop ?? boolval($playback['loop'] ?? false);
+    $this->loopFrom = clamp(intval($playback['loopFrom'] ?? 0), 0, $this->totalFrames - 1);
 
     foreach ($timeline->cueSchedule as $cue) {
       $frame = intval($cue['frame'] ?? -1);
@@ -166,7 +169,7 @@ class EffectPlaybackSession
           break;
         }
 
-        $this->currentFrame = 0;
+        $this->currentFrame = $this->loopFrom;
         $this->traversal++;
       } else {
         $this->currentFrame++;

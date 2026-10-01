@@ -677,6 +677,9 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         $this->player?->advanceGraphicalAnimation(max(0.0, Time::getDeltaTime()));
         $this->npcManager?->advanceGraphicalAnimation(max(0.0, Time::getDeltaTime()));
         $this->cinematicStage?->advanceGraphicalAnimation(max(0.0, Time::getDeltaTime()));
+        // The action prompt lasts while the player can act, so it opens once per approach.
+        $this->fieldEffects?->showActionPrompt(($this->player?->isActionPromptOverSprite ?? false)
+            ? $this->player->getGraphicalSpriteId() : null);
         $this->fieldEffects?->update(max(0.0, Time::getDeltaTime()), Accessibility::prefersReducedMotion(),
             $this->getFieldObjectSpriteProviders());
         parent::update();

@@ -338,6 +338,37 @@ it('anchors graphical prompts to the bottom-center tile rather than the terminal
     expect(getPlayerPromptRuns($frame))->toBe([['row' => 6, 'column' => 6, 'text' => '!']]);
 })->with(['render', 'renderPlayer']);
 
+it('lets the bound action prompt effect replace the graphical prompt glyph, never the terminal one', function () {
+    writeCharacterSheetPng($this->root . '/Graphics/Balloon.png', 48, 48);
+    @mkdir($this->root . '/Animations/balloon', 0777, true);
+    file_put_contents($this->root . '/Animations/balloon/balloon.timeline.php', '<?php return ' . var_export(['fps' => 5, 'lengthFrames' => 1,
+        'playback' => 'loop', 'tracks' => [['id' => 'balloon', 'type' => 'image', 'asset' => 'Graphics/Balloon.png',
+            'keyframes' => [['frame' => 0, 'sourceFrame' => 0, 'position' => ['x' => 0, 'y' => -1]]]]]], true) . ';');
+    @mkdir($this->root . '/Data/Presentation', 0777, true);
+    file_put_contents($this->root . '/Data/Presentation/field.php', '<?php return ' . var_export(['actionPrompt' => ['effect' => 'balloon']], true) . ';');
+    $effects = new FieldEffectManager($this->root);
+    new ReflectionProperty(GameScene::class, 'fieldEffects')->setValue($this->scene, $effects);
+
+    // A renderer that cannot draw effects keeps the glyph.
+    $effects->setCapabilities(false, false);
+    $this->player->render();
+    expect(getPlayerPromptRuns(presentPlayerPromptFrame($this->runtime, $this->scene, $this->transport)))
+        ->toBe([['row' => 6, 'column' => 6, 'text' => '!']]);
+
+    $effects->setCapabilities(true, false);
+    $this->player->render();
+    expect($this->player->isActionPromptOverSprite)->toBeTrue();
+    $effects->showActionPrompt($this->player->getGraphicalSpriteId());
+    $balloons = array_values(array_filter(iterator_to_array($this->scene->getGraphicalSpriteProviders(), false),
+        static fn($provider): bool => str_ends_with($provider->getGraphicalSpriteId(), ':balloon')));
+    expect(getPlayerPromptRuns(presentPlayerPromptFrame($this->runtime, $this->scene, $this->transport)))->toBe([])
+        ->and($balloons)->toHaveCount(1)
+        ->and($balloons[0]->getGraphicalSpriteWorldPosition())->toEqual(new Vector2(6, 7));
+
+    $this->player->availableAction = null;
+    expect($this->player->isActionPromptOverSprite)->toBeFalse();
+});
+
 it('clips a graphical prompt above an off-screen head instead of pinning it to a screen edge', function (int $x, int $y) {
     $this->field->renderTheField();
     presentPlayerPromptFrame($this->runtime, $this->scene, $this->transport);

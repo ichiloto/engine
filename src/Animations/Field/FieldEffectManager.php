@@ -20,6 +20,8 @@ use Throwable;
 /** Owns concurrent effect sessions for one installed map. No renderer-side clock. */
 final class FieldEffectManager
 {
+  /** The session id of the action prompt, of which there is at most one. */
+  public const string ACTION_PROMPT_ID = 'action-prompt';
   private readonly EffectTimelineLibrary $library;
   private FieldPresentationCatalog $catalog;
   /** @var array<string, FieldEffectSession> */
@@ -31,6 +33,7 @@ final class FieldEffectManager
   private string $mapId = '';
   private ?bool $supported = null;
   private bool $turnsSupported = false;
+  private ?bool $actionPromptUsable = null;
 
   public function __construct(string $assetRoot)
   {
@@ -108,6 +111,44 @@ final class FieldEffectManager
   public function canPresentCue(EventTrigger $event): bool
   {
     return $this->supported && isset($this->sessions[self::getCueId($event)]);
+  }
+
+  /**
+   * Whether the bound action prompt effect draws the prompt instead of its
+   * glyph: the game binds one, its timeline loads and this renderer draws
+   * field effects. An unusable binding is noted once and the glyph remains.
+   */
+  public function canPresentActionPrompt(): bool
+  {
+    if (!$this->supported || $this->catalog->actionPrompt === null) { return false; }
+    if ($this->actionPromptUsable === null) {
+      try {
+        $this->library->load($this->catalog->actionPrompt);
+        $this->actionPromptUsable = true;
+      } catch (Throwable $error) {
+        $this->actionPromptUsable = false;
+        $this->note('prompt', "Action prompt effect {$this->catalog->actionPrompt} is unusable; the prompt glyph remains: "
+          . $error->getMessage());
+      }
+    }
+    return $this->actionPromptUsable;
+  }
+
+  /**
+   * Shows the action prompt over a field object, or hides it given null.
+   * Showing it over the object it already marks keeps its playback running,
+   * so it opens once each time the object comes to be able to act and then
+   * idles, however often the object is redrawn.
+   */
+  public function showActionPrompt(?string $objectId): void
+  {
+    if ($objectId === null || $this->catalog->actionPrompt === null) {
+      $this->removeEffect(self::ACTION_PROMPT_ID);
+      return;
+    }
+    if (($this->sessions[self::ACTION_PROMPT_ID] ?? null)?->anchor->objectId !== $objectId) {
+      $this->startEffect(self::ACTION_PROMPT_ID, $this->catalog->actionPrompt, FieldEffectAnchor::fromArray(['object' => $objectId]));
+    }
   }
 
   public function startEffect(string $id, string $effect, FieldEffectAnchor $anchor): void

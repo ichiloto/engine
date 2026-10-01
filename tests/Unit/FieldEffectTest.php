@@ -301,6 +301,87 @@ it('validates explicit cue kinds without assigning older or disabled cues', func
     ->and(fn() => EventCue::fromArray(['symbol' => '!', 'kind' => true]))->toThrow(InvalidArgumentException::class);
 });
 
+/** Binds an action prompt timeline that opens over frames 0 to 2 and idles from frame 3, drawn a cell above its object. */
+function writeFieldActionPrompt(string $root): void
+{
+  $timeline = createFieldTimelineData(rest: 3);
+  $timeline['loopFrom'] = 3;
+  $timeline['tracks'] = [['id' => 'balloon', 'type' => 'image', 'asset' => 'Graphics/strip.png', 'sheet' => ['columns' => 8, 'rows' => 1],
+    'depth' => 'front', 'keyframes' => array_map(static fn(int $frame): array =>
+      ['frame' => $frame, 'sourceFrame' => $frame, 'position' => ['x' => 0, 'y' => -1]], range(0, 7))]];
+  mkdir($root . '/Animations/balloon', 0777, true);
+  file_put_contents($root . '/Animations/balloon/balloon.timeline.php', '<?php return ' . var_export($timeline, true) . ';');
+  file_put_contents($root . '/Data/Presentation/field.php', '<?php return ' . var_export(['actionPrompt' => ['effect' => 'balloon']], true) . ';');
+}
+
+it('opens a loop once, then repeats it from its loop frame', function () {
+  $timeline = createFieldTimelineData();
+  $timeline['loopFrom'] = 3;
+  $session = new FieldEffectSession('balloon', FieldEffectAnchor::fromArray(['object' => 'player']), $this->library->compile('balloon', $timeline));
+  $frames = [];
+  for ($step = 0; $step < 12; $step++) { $session->update(0.2, false); $frames[] = $session->playback->currentFrame; }
+  expect($frames)->toBe([1, 2, 3, 4, 5, 6, 7, 3, 4, 5, 6, 7])->and($session->playback->traversal)->toBe(1);
+  $session->playback->restart();
+  expect($session->playback->currentFrame)->toBe(0);
+
+  foreach ([['once', 3], ['loop', 8], ['loop', -1], ['loop', '3']] as [$playback, $loopFrom]) {
+    $invalid = createFieldTimelineData($playback);
+    $invalid['loopFrom'] = $loopFrom;
+    expect(fn() => $this->library->compile('bad', $invalid))->toThrow(InvalidArgumentException::class, 'loopFrom must be a frame of a looping effect');
+  }
+  expect(new FieldEffectSession('energy', FieldEffectAnchor::fromArray(['cell' => ['x' => 0, 'y' => 0]]),
+    $this->library->load('energy'))->playback->loopFrom)->toBe(0);
+});
+
+it('reads the action prompt binding beside the cue bindings', function () {
+  expect(FieldPresentationCatalog::fromArray(['actionPrompt' => ['effect' => 'balloon']], $this->root)->actionPrompt)->toBe('balloon')
+    ->and(FieldPresentationCatalog::fromArray(['cues' => []], $this->root)->actionPrompt)->toBeNull();
+  foreach ([['effect' => 'Balloon!'], ['effect' => 'balloon', 'asset' => 'x.png'], 'balloon', ['effect' => 3]] as $binding) {
+    expect(fn() => FieldPresentationCatalog::fromArray(['actionPrompt' => $binding], $this->root))->toThrow(InvalidArgumentException::class);
+  }
+});
+
+it('draws the action prompt over the object that can act, opening once however often it is shown', function () {
+  writeFieldActionPrompt($this->root);
+  $manager = new FieldEffectManager($this->root);
+  expect($manager->canPresentActionPrompt())->toBeFalse();
+  $manager->setCapabilities(true, false);
+  expect($manager->canPresentActionPrompt())->toBeTrue();
+
+  $player = new FieldEffectSprite('player', new GraphicalSpriteDefinition('Graphics/edge.png', 48, 48), new Vector2(4, 6));
+  $manager->showActionPrompt('player');
+  $manager->update(0.4, false, [$player]);
+  $manager->showActionPrompt('player');
+  $manager->update(0.2, false, [$player]);
+  $sprites = $manager->getSprites([$player], null, ['x' => 0, 'y' => 0], false);
+  // Redrawn while it lasts, it keeps playing: frame 3, a cell above the player, in front of characters.
+  expect($sprites)->toHaveCount(1)
+    ->and($sprites[0]->getGraphicalSpriteId())->toBe('field-effect::' . FieldEffectManager::ACTION_PROMPT_ID . ':balloon')
+    ->and($sprites[0]->getGraphicalSpriteWorldPosition())->toEqual(new Vector2(4, 5))
+    ->and($sprites[0]->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(6)
+    ->and($sprites[0]->getGraphicalSpriteDefinition()->layer)->toBe(PresentationLayerPolicy::FIELD_EFFECT_FRONT)
+    // Reduced motion shows the open balloon at rest.
+    ->and($manager->getSprites([$player], null, ['x' => 0, 'y' => 0], true)[0]->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(6);
+
+  $manager->showActionPrompt(null);
+  expect($manager->count)->toBe(0);
+  $manager->showActionPrompt('player');
+  expect($manager->getSprites([$player], null, ['x' => 0, 'y' => 0], false)[0]->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(0);
+});
+
+it('keeps the prompt glyph when the action prompt is unbound or its effect cannot load', function () {
+  $manager = new FieldEffectManager($this->root);
+  $manager->setCapabilities(true, true);
+  $manager->showActionPrompt('player');
+  expect($manager->canPresentActionPrompt())->toBeFalse()->and($manager->count)->toBe(0);
+
+  file_put_contents($this->root . '/Data/Presentation/field.php', '<?php return ' . var_export(['actionPrompt' => ['effect' => 'missing']], true) . ';');
+  $manager = new FieldEffectManager($this->root);
+  $manager->setCapabilities(true, true);
+  expect($manager->canPresentActionPrompt())->toBeFalse()->and($manager->canPresentActionPrompt())->toBeFalse()
+    ->and(substr_count(file_get_contents($this->root . '/warning.log'), 'Action prompt effect missing is unusable'))->toBe(1);
+});
+
 it('refuses invalid anchors, missing images, frame grids and overlapping tracks', function () {
   expect(fn() => FieldEffectAnchor::fromArray(['cell' => ['x' => -1, 'y' => 2]]))->toThrow(InvalidArgumentException::class)
     ->and(fn() => FieldEffectManager::readDeclarations([['id' => 'a', 'effect' => 'energy', 'anchor' => []]]))->toThrow(InvalidArgumentException::class);

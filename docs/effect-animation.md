@@ -103,7 +103,9 @@ One authored format, the summon timeline generalized:
   [Field effects](#field-effects).
 - **Playback**: `once` (cue-driven; the session ends after its last frame)
   or `loop` (an ambient effect that repeats until its owner ends it). Both
-  are the same session; looping is a mode, not a second runtime.
+  are the same session; looping is a mode, not a second runtime. A loop may
+  restart from a later frame (`loopFrom`), so the frames before it play
+  once as an opening, as a balloon pops open and then idles.
 - **Cues**: the existing vocabulary (`applyEffect`, `playSound`,
   `showMessage`, `flash`, `shake`), all honored at runtime.
 - **References, not names**: skills, items and (later) states carry an
@@ -189,6 +191,15 @@ today, or live with the map:
 - **Object-attached effects**: an aura, glow or status effect anchored to a
   field character or object, following it as it moves and ending when it
   leaves or is removed.
+- **The action prompt**: while the player can act, the game's bound effect
+  (`actionPrompt` in `Data/Presentation/field.php`, beside the cue bindings)
+  draws over the player, offset by its keyframes into the cell above, in
+  place of the prompt glyph. It opens once each time the player comes to be
+  able to act and idles while that lasts. Last Legend binds an RPG Maker
+  balloon icon in RPG Maker's `Balloon.png` layout, which would also suit a
+  show-balloon command for cinematics and events (not built). Without a
+  usable binding, or on a renderer that cannot draw effects, the glyph
+  remains.
 - **Depth around characters**: each image track draws either behind the
   characters on the effect's cell (a light pool, a rune ring) or in front of
   them (rising motes, sparks), through the existing presentation layer
