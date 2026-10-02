@@ -178,6 +178,14 @@ a result, the cell is solid; `PASS_THROUGH` is never a final collision value.
 Decoration is excluded entirely. Collision comes from authored symbols and the
 dictionary, never from colour, graphics or a separate stored collision grid.
 
+`CollisionType::COUNTER` marks a counter: solid to movement, but the player
+talks across it. Facing an NPC, the player reaches the faced cell and on across
+any number of counter cells in a straight line to the first NPC; anything else
+(floor, a wall, the map's edge) ends the reach, so walls stay opaque
+(`InteractionReach`). A counter is a gameplay type like any other: give the
+counter's glyph `COUNTER` in the flat dictionary or in the section of the
+layer it is drawn on, without changing how it looks.
+
 ## Reachability
 
 Maps, rooms and NPCs change throughout production, so nothing pins where
@@ -211,7 +219,8 @@ through. Each map's report lists:
   rather than a blocker (`ReachabilityProblemKind::isBlocking()` is false): a
   map kept for content still to come strands nobody;
 - an event or edge trigger with no reachable cell, which therefore never fires;
-- a talkable NPC with no reachable cell beside it, whose lines nobody can read;
+- a talkable NPC no reachable cell reaches, beside it or across counters by the
+  same rule the field talks by, whose lines nobody can read;
 - an arrival naming a map the project does not have, and a map the field
   cannot read.
 

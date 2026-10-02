@@ -144,6 +144,11 @@ class FieldState extends GameSceneState
         }
 
         $scene->npcManager?->update();
+
+        // After the player and NPCs have moved: who can be spoken to from here.
+        if (! $scene->isStopping && $scene->state === $this) {
+            $scene->player?->refreshTalkTarget();
+        }
     }
 
     /**

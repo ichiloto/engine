@@ -1,6 +1,8 @@
 <?php
 
 use Ichiloto\Engine\Core\Rect;
+use Ichiloto\Engine\Events\Enumerations\CollisionType;
+use Ichiloto\Engine\Field\InteractionReach;
 use Ichiloto\Engine\Events\Triggers\ChestEventTrigger;
 use Ichiloto\Engine\Events\Triggers\TransferPlayerTrigger;
 use Ichiloto\Engine\Field\NpcPlacement;
@@ -20,7 +22,11 @@ use Ichiloto\Engine\Field\Reachability\ReachabilityProblemKind;
 function reachabilityGrid(array $rows): array
 {
   return array_map(static fn(string $row): array => array_map(
-    static fn(string $cell): int => $cell === '#' ? 1 : 0,
+    static fn(string $cell): int => match ($cell) {
+      '#' => CollisionType::SOLID->value,
+      '=' => CollisionType::COUNTER->value,
+      default => CollisionType::NONE->value,
+    },
     str_split($row),
   ), $rows);
 }
@@ -88,8 +94,35 @@ it('reports a talkable NPC nobody can stand beside', function () {
   ]);
 
   expect(reachabilityProblems($map->analyze([new ReachabilityEntrance(0, 0, 'the door')])->problems))->toBe([
-    'unreachable_npc: NPC Keeper at (2, 2) has no reachable cell beside it, so it can never be spoken to.',
+    'unreachable_npc: NPC Keeper at (2, 2) can never be spoken to: no reachable cell is beside it or across a counter from it.',
   ]);
+});
+
+it('speaks to a keeper across a counter of any depth, as the field does', function (array $rows, bool $isSpokenTo) {
+  // The keeper stands at (2, 0); the player arrives at (2, 4).
+  $map = new MapReachability('shop', reachabilityGrid($rows), [], [], [reachabilityNpc(['name' => 'Keeper', 'x' => 2, 'y' => 0])]);
+  $report = $map->analyze([new ReachabilityEntrance(2, 4, 'the door')]);
+
+  expect($report->canSpeakTo(2, 0))->toBe($isSpokenTo)
+    ->and($report->problems === [])->toBe($isSpokenTo)
+    // The player never walks onto a counter.
+    ->and($report->isReachable(2, 1))->toBeFalse();
+})->with([
+  'one counter' => [['#...#', '##=##', '#...#', '#...#', '#...#'], true],
+  'three counters deep' => [['#...#', '##=##', '##=##', '##=##', '#...#'], true],
+  'a wall behind the counter' => [['#...#', '##=##', '##=##', '#####', '#...#'], false],
+]);
+
+it('stops the reach at another NPC standing on the counter', function () {
+  $map = new MapReachability('shop', reachabilityGrid(['#.#', '#=#', '#=#', '#.#']), [], [], [
+    reachabilityNpc(['name' => 'Keeper', 'x' => 1, 'y' => 0]),
+    reachabilityNpc(['name' => 'Cat', 'x' => 1, 'y' => 2, 'dialogue' => []]),
+  ]);
+
+  expect($map->analyze([new ReachabilityEntrance(1, 3, 'the door')])->canSpeakTo(1, 0))->toBeFalse()
+    ->and(InteractionReach::findTalkCell(1, 3, 0, -1,
+      static fn(int $x, int $y): bool => in_array([$x, $y], [[1, 1], [1, 2]], true),
+      static fn(int $x, int $y): bool => [$x, $y] === [1, 2] || [$x, $y] === [1, 0]))->toBe([1, 2]);
 });
 
 it('reaches a transfer but never walks through it', function () {

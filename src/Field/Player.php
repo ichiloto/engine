@@ -90,9 +90,14 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    */
   public bool $canAct {
     get {
-      return $this->availableAction !== null;
+      return $this->availableAction !== null || $this->talkTarget !== null;
     }
   }
+  /**
+   * @var Npc|null The talkable NPC the player reaches from where it stands
+   * and faces, refreshed as either moves.
+   */
+  protected(set) ?Npc $talkTarget = null;
   /**
    * Whether the player's action prompt belongs over its field sprite: it can
    * act and is drawn as a sprite, not staged out of view by a cinematic.
@@ -106,7 +111,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   public ?ActionInterface $availableAction = null {
     set {
       $this->availableAction = $value;
-      if ($value === null) { $this->clearActionPrompt(); }
+      if ($value === null && $this->talkTarget === null) { $this->clearActionPrompt(); }
     }
   }
   /**
@@ -804,6 +809,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     }
 
     $this->events->clear();
+    $this->talkTarget = null;
     $this->availableAction = null;
     $this->announcedBlockedEvents = [];
   }
@@ -1111,19 +1117,8 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    */
   protected function talkToFacingNpc(): bool
   {
-    $direction = $this->heading->getDirection();
-    $dx = intval($direction->x);
-    $dy = intval($direction->y);
-
-    if ($dx === 0 && $dy === 0) {
-      return false;
-    }
-
     $npcManager = $this->getGameScene()->npcManager;
-    $npc = $npcManager?->npcAt(
-      intval($this->position->x) + $dx,
-      intval($this->position->y) + $dy
-    );
+    $npc = $this->findFacingNpc();
 
     if ($npcManager === null || $npc === null) {
       return false;
@@ -1133,5 +1128,57 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     $npc->talk($this->getGameScene());
 
     return true;
+  }
+
+  /**
+   * Finds the NPC the player reaches from where it stands and faces: the
+   * faced cell, or across counters beyond it (InteractionReach).
+   *
+   * @return Npc|null The NPC, talkable or not, or null when none is reached.
+   */
+  public function findFacingNpc(): ?Npc
+  {
+    $direction = $this->heading->getDirection();
+    $scene = $this->getGameScene();
+    $npcManager = $scene->npcManager;
+
+    if ($npcManager === null) {
+      return null;
+    }
+
+    $cell = InteractionReach::findTalkCell(
+      intval($this->position->x),
+      intval($this->position->y),
+      intval($direction->x),
+      intval($direction->y),
+      static fn(int $x, int $y): bool => $scene->mapManager?->isCounterAt($x, $y) ?? false,
+      static fn(int $x, int $y): bool => $npcManager->npcAt($x, $y) !== null,
+    );
+
+    return $cell === null ? null : $npcManager->npcAt(...$cell);
+  }
+
+  /**
+   * Updates which talkable NPC the player can speak to, so the action prompt
+   * shows for it as for an event, and redraws the prompt when that changes.
+   */
+  public function refreshTalkTarget(): void
+  {
+    $npc = $this->findFacingNpc();
+    $target = $npc !== null && $npc->isTalkable ? $npc : null;
+
+    if ($target === $this->talkTarget) {
+      return;
+    }
+
+    $this->talkTarget = $target;
+
+    if ($target === null && $this->availableAction === null) {
+      $this->clearActionPrompt();
+
+      return;
+    }
+
+    $this->render();
   }
 }

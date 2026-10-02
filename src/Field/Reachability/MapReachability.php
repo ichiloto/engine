@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Field\Reachability;
 
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
+use Ichiloto\Engine\Field\InteractionReach;
 use Ichiloto\Engine\Field\MapTrigger;
 use Ichiloto\Engine\Field\NpcPlacement;
 
@@ -17,8 +18,9 @@ use Ichiloto\Engine\Field\NpcPlacement;
  * they never permanently block one. Stepping onto a transfer or edge trigger
  * takes the player off the map, so those cells are reached but not walked
  * through. An event fires while the player stands in its area, so it needs
- * one reachable cell; a talkable NPC is spoken to from a reachable cell
- * beside it (Player::talkToFacingNpc).
+ * one reachable cell; a talkable NPC is spoken to from a reachable cell that
+ * reaches it, beside it or across counters (InteractionReach, as the field
+ * talks).
  *
  * Story conditions are not evaluated. An NPC that only appears under
  * conditions is a story gate, like a conditional event: gates are assumed
@@ -125,7 +127,15 @@ final readonly class MapReachability
       array_push($problems, ...$this->findUnreachableTargets($reachable));
     }
 
-    return new MapReachabilityReport($this->mapId, $reachable, $problems);
+    $spokenTo = [];
+
+    foreach ($this->npcs as $npc) {
+      if ($this->isSpokenToFrom($npc, $reachable)) {
+        $spokenTo[self::key($npc->x, $npc->y)] = true;
+      }
+    }
+
+    return new MapReachabilityReport($this->mapId, $reachable, $problems, $spokenTo);
   }
 
   /** @return Rect[] Areas that take the player off the map. */
@@ -182,15 +192,9 @@ final readonly class MapReachability
         continue;
       }
 
-      $isBesideReachable = false;
-
-      foreach ([[0, -1], [1, 0], [0, 1], [-1, 0]] as [$dx, $dy]) {
-        $isBesideReachable = $isBesideReachable || isset($reachable[self::key($npc->x + $dx, $npc->y + $dy)]);
-      }
-
-      if (! $isBesideReachable) {
+      if (! $this->isSpokenToFrom($npc, $reachable)) {
         $problems[] = new ReachabilityProblem($this->mapId, ReachabilityProblemKind::UNREACHABLE_NPC,
-          sprintf('NPC %s at (%d, %d) has no reachable cell beside it, so it can never be spoken to.',
+          sprintf('NPC %s at (%d, %d) can never be spoken to: no reachable cell is beside it or across a counter from it.',
             $npc->name, $npc->x, $npc->y),
           $npc->x, $npc->y);
       }
@@ -199,13 +203,47 @@ final readonly class MapReachability
     return $problems;
   }
 
+  /**
+   * Whether a reachable cell reaches the NPC under the field's own rule: walk
+   * out from the NPC across counters to the first other cell, and ask
+   * InteractionReach from there, facing back, which NPC it finds.
+   *
+   * @param array<string, true> $reachable
+   */
+  private function isSpokenToFrom(NpcPlacement $npc, array $reachable): bool
+  {
+    $occupied = [];
+
+    foreach ($this->npcs as $other) {
+      $occupied[self::key($other->x, $other->y)] = true;
+    }
+
+    $isCounterAt = fn(int $x, int $y): bool => ($this->collisions[$y][$x] ?? null) === CollisionType::COUNTER->value;
+    $hasNpcAt = static fn(int $x, int $y): bool => isset($occupied[self::key($x, $y)]);
+
+    foreach ([[0, -1], [1, 0], [0, 1], [-1, 0]] as [$dx, $dy]) {
+      [$x, $y] = [$npc->x + $dx, $npc->y + $dy];
+
+      while ($isCounterAt($x, $y) && ! $hasNpcAt($x, $y)) {
+        [$x, $y] = [$x + $dx, $y + $dy];
+      }
+
+      if (isset($reachable[self::key($x, $y)])
+        && InteractionReach::findTalkCell($x, $y, -$dx, -$dy, $isCounterAt, $hasNpcAt) === [$npc->x, $npc->y]) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   /** @param array<string, true> $blocked */
   private function canStandOn(int $x, int $y, array $blocked): bool
   {
     $collision = $this->collisions[$y][$x] ?? null;
 
     return $collision !== null
-      && ! in_array($collision, [CollisionType::SOLID->value, CollisionType::NPC->value], true)
+      && ! in_array($collision, [CollisionType::SOLID->value, CollisionType::NPC->value, CollisionType::COUNTER->value], true)
       && ! isset($blocked[self::key($x, $y)]);
   }
 

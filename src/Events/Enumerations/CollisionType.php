@@ -19,4 +19,9 @@ enum CollisionType: int
   case ENCOUNTER = 7;
   case COLLECTABLE = 8;
   case PASS_THROUGH = 9;
+  /**
+   * Solid to movement, but the player talks across it to an NPC on the far
+   * side, as across a shop or inn counter, however deep.
+   */
+  case COUNTER = 10;
 }
