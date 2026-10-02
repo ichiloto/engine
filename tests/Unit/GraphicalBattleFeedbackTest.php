@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\ActionExecutionState;
 use Ichiloto\Engine\Battle\Presentation\BattleArenaDefinition;
+use Ichiloto\Engine\Battle\Presentation\BattleCanvasLayout;
 use Ichiloto\Engine\Battle\Presentation\BattleFeedbackPlacement;
 use Ichiloto\Engine\Battle\Presentation\BattleFeedbackRole;
 use Ichiloto\Engine\Battle\Presentation\BattleFeedbackTiming;
@@ -63,13 +64,11 @@ function graphicalFeedbackSkin(): BattleUiSkin
   return new BattleUiSkin($textures, $colors);
 }
 
-function graphicalFeedbackArena(?CanvasRectangle $area = null): BattleArenaDefinition
+function getGraphicalFeedbackLayout(?CanvasRectangle $area = null): BattleCanvasLayout
 {
-  return new BattleArenaDefinition(1350, 720,
-    new CanvasImage('arena', 'graphical-canvas/synthetic-320x180.png', new CanvasRectangle(0, 0, 1350, 720)),
-    [new BattlerSlot(969, 265, 143, 181)],
-    [new BattlerSlot(375, 467, 173, 197), new BattlerSlot(497, 233, 197, 119)],
-    skin: graphicalFeedbackSkin(), feedbackArea: $area ?? new CanvasRectangle(0, 80, 1350, 452));
+  return new BattleCanvasLayout(1350, 720,
+    skin: graphicalFeedbackSkin(), feedbackArea: $area ?? new CanvasRectangle(0, 80, 1350, 452),
+    partySlots: [new BattlerSlot(969, 265, 143, 181)]);
 }
 
 function graphicalFeedbackParticipant(int $id, array $lines, array $persistent = [], ?CanvasRectangle $bounds = null): array
@@ -92,10 +91,13 @@ function graphicalFeedbackFixture(string $name = 'Hero'): array
     }
     $enemies[] = $enemy;
   }
-  $battle = new BattleConfig($party, new Troop('Twins', $enemies));
+  $battle = new BattleConfig($party, new Troop('Twins', $enemies, graphicalFormation:
+    [new BattlerSlot(375, 467, 173, 197), new BattlerSlot(497, 233, 197, 119)]));
   $art = new BattlerArtwork('graphical-canvas/synthetic-143x181.png', 143, 181, 71.5, 181);
   $presentation = GraphicalBattlePresentation::prepare($battle,
-    new BattlePresentationCatalog(['Twins' => graphicalFeedbackArena()], [$hero->actorId => $art], ['Twin' => $art]),
+    new BattlePresentationCatalog(['arena.test' => new BattleArenaDefinition('Test scene',
+      new CanvasImage('arena', 'graphical-canvas/synthetic-320x180.png', new CanvasRectangle(0, 0, 1350, 720)))],
+      [$hero->actorId => $art], ['Twin' => $art], ui: getGraphicalFeedbackLayout(), defaultArena: 'arena.test'),
     __DIR__ . '/../Fixtures/Renderer');
   $scene = new ReflectionClass(BattleScene::class)->newInstanceWithoutConstructor();
   new ReflectionProperty(BattleScene::class, 'config')->setValue($scene, $battle);
@@ -137,7 +139,7 @@ afterEach(function () {
 });
 
 it('styles typed feedback roles without parsing literal labels or terminal colors', function ($role, $colorRole, $pitch, $height) {
-  $arena = graphicalFeedbackArena();
+  $arena = getGraphicalFeedbackLayout();
   $lines = [['text' => 'localized 48 MP', 'color' => Color::LIGHT_RED, 'role' => $role]];
   $layer = GraphicalBattleFeedback::compose($arena, [graphicalFeedbackParticipant(1, $lines)], [], 10)[0];
   expect($layer->runs[0]->text)->toBe('localized 48 MP')
@@ -195,11 +197,11 @@ it('wraps long authored multiline participant names without dropping text changi
     ->and(implode('', array_column($layers[0]->runs, 'text')))->toBe(str_replace(["\r", "\n"], '', $name))
     ->and(array_filter(array_column($layers[0]->runs, 'text'), fn($text) => $text === ''))->toHaveCount(1)
     ->and($layers[0]->grid->rows)->toBeGreaterThan(4);
-  assertGraphicalFeedbackInside($layers[0]->paintBounds, $presentation->arena->feedbackArea);
+  assertGraphicalFeedbackInside($layers[0]->paintBounds, $presentation->layout->feedbackArea);
 });
 
 it('keeps persistent names and KO stationary through transient appearance fade and clear', function () {
-  $arena = graphicalFeedbackArena();
+  $arena = getGraphicalFeedbackLayout();
   $persistent = [['text' => 'Selected name'], ['text' => 'KO']];
   $participant = graphicalFeedbackParticipant(1, [['text' => '48', 'role' => BattleFeedbackRole::DAMAGE]], $persistent);
   $initial = GraphicalBattleFeedback::compose($arena, [$participant], [], 10);
@@ -211,7 +213,7 @@ it('keeps persistent names and KO stationary through transient appearance fade a
 });
 
 it('bounds critical enlargement and falls back before wrapping a value or colliding', function ($area, $value, $occupied, $expectedPitch) {
-  $arena = graphicalFeedbackArena($area);
+  $arena = getGraphicalFeedbackLayout($area);
   $participant = graphicalFeedbackParticipant(1, [
     ['text' => 'CRITICAL', 'role' => BattleFeedbackRole::CRITICAL],
     ['text' => $value, 'role' => BattleFeedbackRole::DAMAGE],
@@ -233,7 +235,7 @@ it('bounds critical enlargement and falls back before wrapping a value or collid
 ]);
 
 it('reserves full padded travel envelopes for simultaneous recipient and same-recipient popups around grown HUD panels', function () {
-  $arena = graphicalFeedbackArena();
+  $arena = getGraphicalFeedbackLayout();
   $participants = [];
   foreach ([1, 2, 3] as $id) {
     $participants[] = graphicalFeedbackParticipant($id, [
@@ -282,7 +284,7 @@ it('reserves full padded travel envelopes for simultaneous recipient and same-re
 
 it('suppresses drift under reduced motion without restarting or extending the same fade', function () {
   ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => true]]));
-  $arena = graphicalFeedbackArena();
+  $arena = getGraphicalFeedbackLayout();
   $participants = [graphicalFeedbackParticipant(1, [['text' => 'MISS', 'role' => BattleFeedbackRole::MISS]])];
   $initial = GraphicalBattleFeedback::compose($arena, $participants, [], 10)[0];
   foreach ([10.2, 10.6, 11, 12, 15] as $now) {
@@ -304,7 +306,7 @@ it('keeps healing beside its recipient rather than below near another party memb
     graphicalFeedbackParticipant(3, [], [], $drazek),
   ];
   foreach ([10, 10.6, 11, 11.9] as $now) {
-    $layers = GraphicalBattleFeedback::compose(graphicalFeedbackArena(), $participants, [], $now);
+    $layers = GraphicalBattleFeedback::compose(getGraphicalFeedbackLayout(), $participants, [], $now);
     $heal = array_values(array_filter($layers, fn($layer) => str_starts_with($layer->id, 'result-1-')))[0];
     expect($heal->runs[0]->text)->toBe('+42')
       ->and($heal->paintBounds->x + $heal->paintBounds->width)->toBe($kaelion->x - 4)
@@ -318,7 +320,7 @@ it('keeps healing beside its recipient rather than below near another party memb
 it('omits nonpositive duration popups immediately without discarding persistent labels', function ($duration) {
   $participant = graphicalFeedbackParticipant(1, [['text' => 'MISS', 'role' => BattleFeedbackRole::MISS]], [['text' => 'Name']]);
   $participant['popups'][0]['durationSeconds'] = $duration;
-  $layers = GraphicalBattleFeedback::compose(graphicalFeedbackArena(), [$participant], [], 10);
+  $layers = GraphicalBattleFeedback::compose(getGraphicalFeedbackLayout(), [$participant], [], 10);
   expect($layers)->toHaveCount(1)->and($layers[0]->runs[0]->text)->toBe('Name');
 })->with([0.0, -1.0]);
 
@@ -336,7 +338,7 @@ it('finds free lateral slots for moving feedback while preserving legacy G1 plac
 });
 
 it('accounts for six full result blocks with four party HUD rows under the shared text layer budget', function () {
-  $arena = graphicalFeedbackArena();
+  $arena = getGraphicalFeedbackLayout();
   $list = static fn(string $title) => new BattleHudListSnapshot($title, 'Help',
     array_map(static fn(int $index) => new BattleHudRow($index, 'Row ' . $index, $index === 0), range(0, 3)),
     0, 0, 4, 4, 1, 1);

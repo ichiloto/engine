@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasNineSlice;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
+use Ichiloto\Engine\UI\Presentation\MenuIconRegistry;
 use InvalidArgumentException;
 
 /** Optional project-owned battle artwork and palette, never saved gameplay state. */
@@ -16,7 +17,8 @@ final readonly class BattleUiSkin
   /** @var array<string, PresentationColor> */
   public array $colors;
 
-  public function __construct(array $textures, array $colors, public ?BattleTargetCursor $targetCursor = null)
+  public function __construct(array $textures, array $colors, public ?BattleTargetCursor $targetCursor = null,
+    public ?MenuIconRegistry $icons = null)
   {
     $this->textures = self::roles($textures, CanvasNineSlice::class,
       ['panel', 'quiet', 'track', 'hp', 'mp', 'atb', 'selector', 'target', 'queued', 'acting']);

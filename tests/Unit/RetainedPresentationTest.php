@@ -17,6 +17,7 @@ use Tests\Support\Rendering\RetainedFrameState;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
 require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
+require_once __DIR__ . '/../Fixtures/Rendering/ScreenTransitions.php';
 
 function finishRetainedTestUpload(RetainedPresentation $sender, FakeRendererTransport $transport, Closure $present): void
 {
@@ -317,4 +318,68 @@ it('abandons an old staged transaction on session restart and starts generation 
     finishRetainedTestUpload($sender, $transport, fn() => $sender->present($text, [], null, $world));
     expect($transport->sent[0]->payload['generation'])->toBe(1)->and($transport->sent[0]->payload['reset'])->toBeTrue()
         ->and(RetainedFrameState::replay($transport->sent))->toHaveCount(1);
+});
+
+it('captures accumulated rows world camera and sprites without sending or advancing delivery', function () {
+    $transport = new FakeRendererTransport();
+    $sender = new RetainedPresentation(new RendererClient($transport));
+    $world = retainedTestWorld();
+    $text = fn(int $row, string $value, bool $reset = false) => new ConsolePresentationChanges(20, 4, $reset, [
+        ['id' => 'field-hud', 'layer' => 1000, 'rows' => [['row' => $row, 'runs' => [new PresentationTextRun($row, 0, $value)]]]],
+    ], order: ['field-hud']);
+    $sprite = new PresentationSprite('hero', 'hero.png', 2, 1, 10, 20);
+    $sender->present($text(0, 'Location', true), [$sprite], retainedTestViewport(), $world);
+    $sender->present($text(1, 'Gold'), [$sprite], retainedTestViewport(), $world);
+    $sent = count($transport->sent);
+    $frozen = $sender->captureFrame();
+    expect(count($transport->sent))->toBe($sent)->and($frozen->world)->toBe($world)
+        ->and(array_keys($frozen->textRows['field-hud']))->toBe([0, 1]);
+    $sender->present($text(0, 'Changed'), [], null);
+    $overlay = new \Ichiloto\Engine\Rendering\ScreenTransitionTreatment(getScreenTransitionFixture())
+        ->compose(\Ichiloto\Engine\Rendering\ScreenTransitionPhase::HOLD, 1, 200, 80);
+    $sender->presentFrame($frozen, $overlay);
+    $frame = RetainedFrameState::getLatestFrame($transport->sent);
+    expect(array_column($frame['textLayers'][0]['runs'], 'text'))->toBe(['Location', 'Gold'])
+        ->and($frame['sprites'][0]['id'])->toBe('hero')->and($frame['viewport']['worldId'])->toBe('map')
+        ->and($frame['worlds']['map']['glyphRows'])->not->toBeEmpty()
+        ->and($frame['canvas']['composites'][0]['operations'][0]['masks'])->toBe([]);
+    expect($sender->presentFrame($frozen, $overlay))->toBeFalse();
+    $sender->invalidate();
+    expect($sender->presentFrame($frozen, $overlay))->toBeTrue()->and(end($transport->sent)->payload['reset'])->toBeTrue();
+});
+
+it('prepares an incoming canvas without exposing it until the covered atomic replacement', function () {
+    $transport = new FakeRendererTransport();
+    $sender = new RetainedPresentation(new RendererClient($transport));
+    $sender->present(new ConsolePresentationChanges(20, 4, true, order: []), [], retainedTestViewport(), retainedTestWorld());
+    $outgoing = $sender->captureFrame();
+    $sent = count($transport->sent);
+    $incoming = $sender->prepareCanvas(new PresentationCanvas(200, 80, [new CanvasImage('battle', 'battle.png', new CanvasRectangle(0, 0, 200, 80))]));
+    expect(count($transport->sent))->toBe($sent)->and($sender->captureFrame())->toEqual($outgoing);
+    $overlay = new \Ichiloto\Engine\Rendering\ScreenTransitionTreatment(getScreenTransitionFixture())
+        ->compose(\Ichiloto\Engine\Rendering\ScreenTransitionPhase::HOLD, 1, 200, 80);
+    $sender->presentFrame($incoming, $overlay);
+    $frame = RetainedFrameState::getLatestFrame($transport->sent);
+    expect($frame['worlds'] ?? [])->toBe([])->and($frame['sprites'])->toBe([])->and($frame['textLayers'])->toBe([])
+        ->and($frame['canvas']['images'][0]['id'])->toBe('battle')
+        ->and($frame['canvas']['composites'][0]['operations'][0]['opacity'])->toBe(1.0);
+    $sender->presentFrame($incoming);
+    expect(RetainedFrameState::getLatestFrame($transport->sent)['canvas'])->not->toHaveKey('composites');
+    $foreign = new RetainedPresentation(new RendererClient(new FakeRendererTransport()));
+    expect(fn() => $foreign->presentFrame($incoming))->toThrow(LogicException::class, 'belongs');
+});
+
+it('prepares retained incoming rows without consuming the outgoing desired state', function () {
+    $transport = new FakeRendererTransport();
+    $sender = new RetainedPresentation(new RendererClient($transport));
+    $text = fn(string $value) => new ConsolePresentationChanges(20, 4, false, [
+        ['id' => 'incoming', 'layer' => 1000, 'rows' => [['row' => 1, 'runs' => [new PresentationTextRun(1, 0, $value)]]]],
+    ], order: ['incoming']);
+    $sender->present($text('Old'), [], null);
+    $outgoing = $sender->captureFrame();
+    $incoming = $sender->prepareFrame($text('New'), [new PresentationSprite('actor', 'actor.png', 0, 0, 10, 20)], null);
+    expect($sender->captureFrame())->toEqual($outgoing)->and($transport->sent)->toHaveCount(1);
+    $sender->presentFrame($incoming);
+    expect(RetainedFrameState::getLatestFrame($transport->sent)['textLayers'][0]['runs'][0]['text'])->toBe('New')
+        ->and($sender->presentFrame($incoming))->toBeFalse();
 });

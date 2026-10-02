@@ -107,17 +107,16 @@ final class GraphicalBattleResults
     if ($stage['kind'] === 'primary') { $view->primary(); } else { $view->event(); }
     $view->controls();
     return new PresentationCanvas(PresentationCanvas::DEFAULT_WIDTH, PresentationCanvas::DEFAULT_HEIGHT, [...$battlefield->images, ...$view->images],
-      $battlefield->indicators, [...$battlefield->textLayers, ...$view->text]);
+      $battlefield->indicators, [...$battlefield->textLayers, ...$view->text], $battlefield->composites,
+      [...$battlefield->getOverlayProtection(),
+        ...array_map(static fn(CanvasImage $image) => $image->clipRect ?? $image->destination, $view->images),
+        ...array_map(static fn(CanvasTextLayer $text) => $text->clipRect ?? $text->paintBounds, $view->text)]);
   }
 
   private function heading(string $title): void
   {
     $this->line('heading', $title, 80, 28, 1190, 36, 54, 'text', align: 'center');
     $this->renderImage('heading-divider', 'divider', new CanvasRectangle(455, 123, 440, 16));
-    $counter = $this->playback->eventCounter();
-    if ($counter['current'] > 0) {
-      $this->line('event-counter', $counter['current'] . '/' . $counter['total'], 1138, 90, 160, 11, 22, 'muted', align: 'right');
-    }
   }
 
   private function primary(): void
@@ -187,6 +186,11 @@ final class GraphicalBattleResults
   private function event(): void
   {
     $this->renderImage('event', 'panel', new CanvasRectangle(100, 146, 1150, 502));
+    $counter = $this->playback->eventCounter();
+    if ($counter['current'] > 0) {
+      $this->line('event-counter', $counter['current'] . '/' . $counter['total'],
+        538, 170, 650, 13, 26, 'accent', align: 'right');
+    }
     $stage = $this->playback->currentStage();
     $actor = $stage['actor'];
     if ($actor !== null) {
@@ -198,7 +202,7 @@ final class GraphicalBattleResults
     } else {
       $this->symbol('special', 'item', new CanvasRectangle(608, 212, 134, 134));
     }
-    foreach ($this->page(BattleResultsContent::eventLines($this->playback), BattleResultsContent::eventPageSize($this->playback)) as $index => $line) {
+    foreach ($this->page(BattleResultsContent::getEventLines($this->playback), BattleResultsContent::eventPageSize($this->playback)) as $index => $line) {
       $this->line('event-line-' . $index, $line['text'], $actor === null ? 350 : 538,
         ($actor === null ? 386 : 198) + $index * 32, 650, 13, 26,
         $line['tone'], $actor === null ? 'center' : 'left', $this->playback->reveal(0.12 + $index * 0.06, 0.28));
@@ -312,8 +316,8 @@ final class GraphicalBattleResults
     $column = $align === 'right' ? $columns - $length : 0;
     $effects = $id === 'heading' ? new CanvasGlyphEffects(1, $this->skin->colors['ink'],
       1, 2, 1, 0.8, $this->skin->colors['ink']) : null;
-    // Counters and navigation hints sit over arbitrary arena art, unlike panel text.
-    $background = in_array($id, ['event-counter', 'pages'], true) || str_ends_with($id, '-percentage')
+    // Navigation hints sit over arbitrary arena art, unlike panel text.
+    $background = $id === 'pages' || str_ends_with($id, '-percentage')
       || ($id === 'confirm' && !CanvasTextureFallback::isAvailable($this->skin->textures['button'], $this->skin->assetRoot))
       ? $this->skin->colors['ink'] : null;
     $this->text[] = new CanvasTextLayer('results-' . $id, self::BASE_LAYER + 3, $x, $y,

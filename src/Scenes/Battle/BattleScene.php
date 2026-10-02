@@ -67,7 +67,7 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
     $rewards = $this->result?->rewards;
     if ($rewards === null) { return; }
     $this->resultsPlayback = new BattleResultsPlayback($rewards, Accessibility::prefersReducedMotion());
-    $layout = $this->graphicalPresentation?->arena ?? $this->battleUiLayout;
+    $layout = $this->graphicalPresentation?->layout ?? $this->battleUiLayout;
     if ($this->resultsSkin !== null && $layout !== null) {
       $field = array_values(array_filter(BattleCanvasUiAdapter::collect($this, $layout, true),
         static fn($layer) => $layer->id === 'battle-field'));
@@ -86,7 +86,12 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
   public function stop(): void
   {
     try {
+      $game = $this->getGame();
+      if (isset($game->engine) && $game->engine instanceof TurnBasedEngine && $this->ui !== null) {
+        $game->engine->stopForScreen($this->ui);
+      }
       $this->ui?->resumeTiming(discard: true);
+      $this->startState?->exit();
       if ($this->pauseState?->hasOwnedResources()) { $this->pauseState->exit(); }
       $this->endResults();
     } finally {
@@ -106,8 +111,8 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
     if ($this->hasGraphicalResults()) {
       return GraphicalBattleResults::frame($this->resultsBattlefield, $this->resultsSkin, $this->resultsPlayback);
     }
-    $layout = $this->graphicalPresentation?->arena ?? $this->battleUiLayout;
-    if ($layout === null || $this->state instanceof BattleStartState) { return null; }
+    $layout = $this->graphicalPresentation?->layout ?? $this->battleUiLayout;
+    if ($layout === null) { return null; }
     $focus = null;
     if ($layout->skin !== null && $this->state instanceof BattleRunState) {
       $engine = $this->getGame()->engine;
@@ -124,6 +129,14 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
       hrtime(true) / 1_000_000_000, $this->getGame()->getRendererRuntime()?->getAssetRoot());
     return new PresentationCanvas($layout->width, $layout->height, $composition?->images ?? [],
       textLayers: [...$ui, ...($composition?->textLayers ?? [])]);
+  }
+
+  /** Combat starts only after the scene owner's reveal, or immediately for Off/reduced motion. */
+  public function completeGraphicalEntry(): void
+  {
+    if ($this->state instanceof BattleStartState && $this->getGame()->getRendererRuntime() !== null) {
+      $this->setState($this->runState);
+    }
   }
   /**
    * @var BattleConfig|null The configuration of the scene.
@@ -318,7 +331,7 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
       }
       if ($catalog !== null) {
         $presentation = GraphicalBattlePresentation::prepare($config, $catalog, $runtime->getAssetRoot());
-        $layout = $presentation?->arena ?? $catalog->ui;
+        $layout = $presentation?->layout ?? $catalog->ui;
         $resultsSkin = $catalog->results;
         $pauseSkin = $catalog->pause;
         if ($pauseSkin !== null) {
@@ -489,11 +502,12 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
 
     $this->ui->refreshLayout();
     $this->resultWindow?->refreshLayout();
-    Console::clear();
 
     if ($this->state instanceof BattleStartState) {
+      $this->state->refreshIntroPresentation();
       return;
     }
+    Console::clear();
 
     if ($this->state instanceof BattleVictoryState || $this->state instanceof BattleDefeatState) {
       $this->ui->renderField();

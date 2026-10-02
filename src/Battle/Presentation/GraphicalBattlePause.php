@@ -80,7 +80,8 @@ final class GraphicalBattlePause
       $view->line('label-' . $index, $label, $x, $y + ($rowHeight - 28) / 2, $rowWidth, 10, 28);
     }
     return new PresentationCanvas($battlefield->width, $battlefield->height,
-      [...$battlefield->images, ...$view->images], $battlefield->indicators, [...$battlefield->textLayers, ...$view->text]);
+      [...$battlefield->images, ...$view->images], $battlefield->indicators, [...$battlefield->textLayers, ...$view->text],
+      $battlefield->composites, [...$battlefield->getOverlayProtection(), $view->rect(0, 0, $width, $height)]);
   }
 
   private function renderImage(string $id, string $role, float $x, float $y, float $width, float $height): void

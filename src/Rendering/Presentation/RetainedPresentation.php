@@ -12,6 +12,7 @@ use Ichiloto\Engine\Util\Debug;
 use OverflowException;
 use Closure;
 use Throwable;
+use LogicException;
 
 /** Sender-owned desired state; delivery generations never depend on frame cadence. */
 final class RetainedPresentation
@@ -33,6 +34,9 @@ final class RetainedPresentation
     private array $textRows = [];
     private ?PresentationWorld $world = null;
     private ?array $viewport = null;
+    private ?PresentationCanvas $canvas = null;
+    private bool $canvasIsOverlay = true;
+    private readonly object $frameOwner;
     /** @var list<array<string, mixed>> */
     private array $operations = [];
     private bool $viewportChanged = false;
@@ -47,7 +51,84 @@ final class RetainedPresentation
     private int $pendingWriteBytes = 0;
 
     public function __construct(private readonly RendererClient $client, private readonly ?Closure $serviceTransport = null,
-        private readonly ?Closure $clock = null) {}
+        private readonly ?Closure $clock = null) { $this->frameOwner = new \stdClass(); }
+
+    public function captureFrame(): RetainedFrame
+    {
+        return new RetainedFrame($this->frameOwner, $this->values, $this->textRows, $this->world,
+            $this->viewport, $this->canvas, $this->canvasIsOverlay);
+    }
+
+    /** Prepare the incoming composition without sending an uncovered frame. */
+    public function prepareFrame(ConsolePresentationChanges|ConsolePresentationSnapshot $text, array $sprites,
+        ?PresentationViewport $viewport, ?PresentationWorld $world = null, ?PresentationCanvas $canvasOverlay = null): RetainedFrame
+    {
+        return $this->prepareRetainedFrame(fn() => $this->updateFrame($text, $sprites, $viewport, $world, $canvasOverlay));
+    }
+
+    public function prepareCanvas(PresentationCanvas $canvas): RetainedFrame
+    {
+        return $this->prepareRetainedFrame(fn() => $this->updateFullCanvas($canvas));
+    }
+
+    private function prepareRetainedFrame(Closure $prepare): RetainedFrame
+    {
+        $previous = $this->captureFrame();
+        $operations = $this->operations;
+        $viewportChanged = $this->viewportChanged;
+        try {
+            $prepare();
+            return $this->captureFrame();
+        } finally {
+            $this->values = $previous->values;
+            $this->textRows = $previous->textRows;
+            $this->world = $previous->world;
+            $this->viewport = $previous->viewport;
+            $this->canvas = $previous->canvas;
+            $this->canvasIsOverlay = $previous->canvasIsOverlay;
+            $this->operations = $operations;
+            $this->viewportChanged = $viewportChanged;
+        }
+    }
+
+    /** Reuses the retained world, viewport, text and sprites under one temporary screen overlay. */
+    public function presentFrame(RetainedFrame $frame, ?PresentationCanvas $screenOverlay = null): bool
+    {
+        if ($frame->owner !== $this->frameOwner) { throw new LogicException('A retained frame belongs to its renderer session.'); }
+        $canvas = $frame->canvas;
+        if ($screenOverlay !== null) {
+            if ($canvas !== null && ($canvas->width !== $screenOverlay->width || $canvas->height !== $screenOverlay->height)) {
+                throw new LogicException('A screen overlay must match its retained composition.');
+            }
+            $canvas = new PresentationCanvas($screenOverlay->width, $screenOverlay->height,
+                [...($canvas?->images ?? []), ...$screenOverlay->images],
+                [...($canvas?->indicators ?? []), ...$screenOverlay->indicators],
+                [...($canvas?->textLayers ?? []), ...$screenOverlay->textLayers],
+                [...($canvas?->composites ?? []), ...$screenOverlay->composites], $canvas?->protectedAreas);
+        }
+        $this->operations = [];
+        if ($this->world !== $frame->world) {
+            if ($this->world !== null) { $this->operations[] = ['op' => 'remove', 'kind' => 'world', 'id' => $this->world->id]; }
+            $this->world = $frame->world;
+            if ($this->world !== null) { array_push($this->operations, ...$this->getWorldOperations($this->world)); }
+        }
+        foreach ($this->values['text'] ?? [] as $id => $_) {
+            if (!isset($frame->values['text'][$id])) { $this->operations[] = ['op' => 'remove', 'kind' => 'text', 'id' => (string)$id]; }
+        }
+        $oldText = $this->values['text'] ?? [];
+        $oldRows = $this->textRows;
+        $this->values['text'] = $frame->values['text'] ?? [];
+        $this->textRows = $frame->textRows;
+        foreach ($this->values['text'] as $id => $value) {
+            if (($oldText[$id] ?? null) !== $value || ($oldRows[$id] ?? []) !== ($this->textRows[$id] ?? [])) {
+                $this->putText((string)$id);
+            }
+        }
+        $this->replaceValues('sprite', array_values($frame->values['sprite'] ?? []));
+        $this->updateCanvas($canvas, $frame->canvasIsOverlay);
+        $this->setViewport($frame->viewport);
+        return $this->flush();
+    }
 
     public function acknowledge(int $generation, bool $presented): void
     {
@@ -95,6 +176,13 @@ final class RetainedPresentation
     public function present(ConsolePresentationChanges|ConsolePresentationSnapshot $text, array $sprites,
         ?PresentationViewport $viewport, ?PresentationWorld $world = null, ?PresentationCanvas $canvasOverlay = null): bool
     {
+        $this->updateFrame($text, $sprites, $viewport, $world, $canvasOverlay);
+        return $this->flush();
+    }
+
+    private function updateFrame(ConsolePresentationChanges|ConsolePresentationSnapshot $text, array $sprites,
+        ?PresentationViewport $viewport, ?PresentationWorld $world, ?PresentationCanvas $canvasOverlay): void
+    {
         $this->operations = [];
         $this->updateCanvas($canvasOverlay, true);
         if ($world !== $this->world) {
@@ -107,10 +195,15 @@ final class RetainedPresentation
         $turns = $this->client->supports(RendererSessionConfig::SPRITE_QUARTER_TURNS);
         $this->replaceValues('sprite', array_map(static fn($sprite) => $sprite->toArray($lift, $turns), PresentationSprite::orderedList($sprites)));
         $this->setViewport($viewport?->toArray());
-        return $this->flush();
     }
 
     public function presentCanvas(PresentationCanvas $canvas): bool
+    {
+        $this->updateFullCanvas($canvas);
+        return $this->flush();
+    }
+
+    private function updateFullCanvas(PresentationCanvas $canvas): void
     {
         $this->operations = [];
         if ($this->world !== null) {
@@ -122,11 +215,12 @@ final class RetainedPresentation
         $this->replaceValues('sprite', []);
         $this->updateCanvas($canvas, false);
         $this->setViewport(null);
-        return $this->flush();
     }
 
     private function updateCanvas(?PresentationCanvas $canvas, bool $overlay): void
     {
+        $this->canvas = $canvas;
+        $this->canvasIsOverlay = $overlay;
         $this->replaceValues('canvas', $canvas === null ? [] : [['id' => 'canvas', 'width' => $canvas->width,
             'height' => $canvas->height, ...($overlay ? ['mode' => 'overlay'] : [])]]);
         foreach (['canvas_image' => $canvas?->images ?? [], 'canvas_indicator' => $canvas?->indicators ?? [],

@@ -17,7 +17,7 @@ final class GraphicalBattleFeedback
   /** @param list<\Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle> $occupied Actual opaque HUD surfaces.
    * @return list<CanvasTextLayer>
    */
-  public static function compose(BattleArenaDefinition $arena, array $participants, array $ui, float $now, array $occupied = []): array
+  public static function compose(BattleCanvasLayout $arena, array $participants, array $ui, float $now, array $occupied = []): array
   {
     if ($arena->skin === null || $arena->feedbackArea === null) { return []; }
     $skin = $arena->skin;

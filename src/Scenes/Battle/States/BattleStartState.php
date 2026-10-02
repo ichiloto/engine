@@ -2,44 +2,27 @@
 
 namespace Ichiloto\Engine\Scenes\Battle\States;
 
+use Ichiloto\Engine\Animations\Timelines\EffectPlaybackSession;
+use Ichiloto\Engine\Animations\Timelines\LegacyAnimationTimeline;
 use Ichiloto\Engine\Battle\UI\BattleResultWindow;
 use Ichiloto\Engine\Battle\UI\BattleScreen;
 use Ichiloto\Engine\Core\Time;
-use Ichiloto\Engine\Core\Timers;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\Util\Debug;
+use Ichiloto\Engine\UI\Accessibility;
 use Override;
 
 class BattleStartState extends BattleSceneState
 {
-  protected bool $isPlayingIntroAnimation = true;
-  protected float $introAnimationStartTime = 0;
-  /**
-   * @var string[] The frames of the intro animation.
-   */
-  protected array $frames = [];
-  /**
-   * @var int The total number of frames.
-   */
-  protected int $totalFrames = 0;
-  /**
-   * @var int The index of the current frame.
-   */
-  protected int $currentFrameIndex = 0;
-  /**
-   * @var float The duration of the animation.
-   */
-  protected float $animationDuration = 0.2; // seconds
-  /**
-   * @var int The time to sleep between frames.
-   */
-  protected int $sleepTime = 1000000;
-  /**
-   * @var string[] The clean slate to clear the screen.
-   */
-  protected array $cleanSlate = [];
+  protected ?EffectPlaybackSession $introPlayback = null;
+  protected float $lastIntroTime = 0;
+  protected float $animationDuration = 0.2;
+  private ?int $renderedIntroFrame = null;
+  private bool $reducedMotion = false;
 
   /**
    * @inheritDoc
@@ -58,8 +41,14 @@ class BattleStartState extends BattleSceneState
 
     $this->scene->ui = new BattleScreen($this->scene);
     $this->scene->resultWindow = new BattleResultWindow($this->scene->ui);
-    $this->cleanSlate = array_fill(0, $this->scene->ui->screenDimensions->getHeight(), str_repeat(' ', $this->scene->ui->screenDimensions->getWidth()));
-    Console::clear();
+    if ($this->scene->getGame()->getRendererRuntime() !== null) {
+      $characters = $this->scene->party->battlers->toArray();
+      $this->scene->ui->characterNameWindow->setNames(array_map(static fn($member): string => $member->name, $characters));
+      $this->scene->ui->characterStatusWindow->setCharacters($characters);
+      $this->scene->ui->characterStatusWindow->clearAtbPercentages();
+      $this->scene->ui->render();
+      return;
+    }
     $this->startTheIntroAnimation();
   }
 
@@ -68,17 +57,35 @@ class BattleStartState extends BattleSceneState
    */
   public function execute(?SceneStateContext $context = null): void
   {
+    if ($this->scene->getGame()->getRendererRuntime() !== null) {
+      $this->scene->completeGraphicalEntry();
+      return;
+    }
     $this->playIntroAnimation();
 
-    if (! $this->isPlayingIntroAnimation) {
-      $this->setState($this->scene->runState);
+    if ($this->introPlayback?->isCompleted) {
+      // Remove the cover and build the incoming battle in one visible frame.
+      Console::recomposeFrame(fn() => $this->setState($this->scene->runState));
     }
   }
 
   public function exit(): void
   {
-    $this->introAnimationStartTime = Time::getTime();
-    Console::clear();
+    Console::removeOverlay($this->getIntroLayerId());
+    $this->introPlayback = null;
+    $this->renderedIntroFrame = null;
+  }
+
+  public function suspend(): void
+  {
+    $this->introPlayback?->pause();
+  }
+
+  public function resume(): void
+  {
+    $this->lastIntroTime = Time::getTime();
+    $this->introPlayback?->resume();
+    $this->refreshIntroPresentation();
   }
 
   /**
@@ -89,18 +96,26 @@ class BattleStartState extends BattleSceneState
   protected function startTheIntroAnimation(): void
   {
     Debug::info('Playing intro animation...');
-    $this->isPlayingIntroAnimation = true;
-
-    $this->loadAnimationFrameData();
-    $this->playIntroAnimation();
+    if (!is_finite($this->animationDuration) || $this->animationDuration <= 0) {
+      throw new \InvalidArgumentException('Battle entry duration must be finite and positive.');
+    }
+    $frames = $this->loadAnimationFrameData();
+    $fps = min(120, max(1, (int)ceil(count($frames) / $this->animationDuration)));
+    $timeline = LegacyAnimationTimeline::compileTextFrames('battle-entry', $frames, $fps);
+    $this->introPlayback = new EffectPlaybackSession($timeline,
+      speed: count($frames) / ($fps * $this->animationDuration));
+    $this->lastIntroTime = Time::getTime();
+    $this->reducedMotion = Accessibility::prefersReducedMotion();
+    if ($this->reducedMotion) { $this->introPlayback->seek($timeline->defaults['restFrame']); }
+    $this->refreshIntroPresentation();
   }
 
   /**
    * Load the animation frame data.
    *
-   * @return void
+   * @return list<string>
    */
-  protected function loadAnimationFrameData(): void
+  protected function loadAnimationFrameData(): array
   {
     $frameSeparator = "@@---\n";
     try {
@@ -114,35 +129,33 @@ class BattleStartState extends BattleSceneState
 TXT;
     }
 
-    $this->frames = explode($frameSeparator, $animationData);
-    $this->totalFrames = count($this->frames);
-    $this->currentFrameIndex = 0;
-    $this->sleepTime = intval( (1000000 * $this->animationDuration) / $this->totalFrames );
+    return explode($frameSeparator, $animationData);
   }
 
   /**
-   * Render a frame.
-   *
-   * @param string $frame The frame to render.
-   * @param int $x The x-coordinate.
-   * @param int $y The y-coordinate.
-   * @return void
+   * Redraw the owned cover after a resize or resume without advancing playback.
    */
-  protected function renderFrame(string $frame, int $x = 0, int $y = 0): void
+  public function refreshIntroPresentation(): void
   {
-    $this->scene->camera->draw($frame, $x, $y);
+    if ($this->introPlayback === null) { return; }
+    $content = $this->introPlayback->getActiveSegments()[0]['drawCommands'][0]['content'] ?? '';
+    $frameLines = explode("\n", $content);
+    $bounds = $this->scene->ui->screenDimensions;
+    $lines = [];
+    for ($row = 0; $row < Console::getHeight(); $row++) {
+      $sourceRow = $row - $bounds->getTop();
+      $line = $sourceRow >= 0 && $sourceRow < $bounds->getHeight()
+        ? str_repeat(' ', max(0, $bounds->getLeft()))
+          . TerminalText::padRight($frameLines[$sourceRow] ?? '', $bounds->getWidth()) : '';
+      $lines[] = TerminalText::padRight($line, Console::getWidth());
+    }
+    Console::replaceOverlay($this->getIntroLayerId(), $lines, 0, 0, PresentationLayerPolicy::TRANSITION);
+    $this->renderedIntroFrame = $this->introPlayback->currentFrame;
   }
 
-  /**
-   * Clear the screen.
-   *
-   * @param int $x The x-coordinate.
-   * @param int $y The y-coordinate.
-   * @return void
-   */
-  protected function clearScreen(int $x = 0, int $y = 0): void
+  private function getIntroLayerId(): string
   {
-    Console::clear();
+    return 'battle-entry:' . spl_object_id($this);
   }
 
   /**
@@ -152,21 +165,13 @@ TXT;
    */
   protected function playIntroAnimation(): void
   {
-    $this->clearScreen(
-      $this->scene->ui->screenDimensions->getLeft(),
-      $this->scene->ui->screenDimensions->getTop()
-    );
-    $this->renderFrame(
-      $this->frames[$this->currentFrameIndex],
-      $this->scene->ui->screenDimensions->getLeft(),
-      $this->scene->ui->screenDimensions->getTop()
-    );
-    $this->currentFrameIndex++;
-
-    if ($this->currentFrameIndex >= $this->totalFrames) {
-      $this->isPlayingIntroAnimation = false;
+    if ($this->introPlayback === null) { return; }
+    $now = Time::getTime();
+    $elapsed = max(0.0, $now - $this->lastIntroTime);
+    $this->lastIntroTime = $now;
+    $this->introPlayback->update($this->reducedMotion ? $this->animationDuration : $elapsed);
+    if (!$this->introPlayback->isCompleted && $this->renderedIntroFrame !== $this->introPlayback->currentFrame) {
+      $this->refreshIntroPresentation();
     }
-
-    Timers::wait($this->sleepTime / 1_000_000);
   }
 }

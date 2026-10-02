@@ -14,6 +14,9 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\Presentation\FrameViewportProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\RendererPresentation;
+use Ichiloto\Engine\Rendering\Presentation\RetainedFrame;
+use Ichiloto\Engine\Rendering\ScreenTransitionPhase;
+use Ichiloto\Engine\Rendering\ScreenTransitionTreatment;
 use Ichiloto\Engine\Rendering\Presentation\RetainedWorldProviderInterface;
 use Ichiloto\Engine\Rendering\RendererClient;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteCollector;
@@ -43,6 +46,10 @@ final class RendererRuntime
   private bool $closed = false;
   private bool $closeRequested = false;
   private bool $resetText = true;
+  private ?ScreenTransitionTreatment $handoffTreatment = null;
+  private ?RetainedFrame $handoffFrame = null;
+  private ScreenTransitionPhase $handoffPhase = ScreenTransitionPhase::GATHER;
+  private float $handoffProgress = 0;
   public private(set) bool $windowActive = true;
   public private(set) ?RendererGridConfig $grid = null;
 
@@ -151,6 +158,12 @@ final class RendererRuntime
     if ($this->presentation === null || $this->closed) {
       throw new LogicException('Renderer presentation requires an active session.');
     }
+    if ($this->handoffTreatment !== null && $this->handoffFrame !== null) {
+      $changed = $this->presentHandoffFrame();
+      if ($changed) { $this->pump(); }
+      LatencyTrace::end('presentation.end', $started, ['changed' => $changed]);
+      return $changed;
+    }
     $canvas = $scene instanceof CanvasProviderInterface ? $scene->getPresentationCanvas() : null;
     $dialogue = $scene === null ? null : ($this->dialoguePresentation ??= new DialogueScenePresentation($this->config->assetRoot))
       ->compose($scene, $canvas, $this->grid->columns * $this->grid->cellWidth, $this->grid->rows * $this->grid->cellHeight,
@@ -167,7 +180,10 @@ final class RendererRuntime
       }
     }
     if ($canvas !== null && !($dialogue?->isOverlay ?? false)) {
-      $changed = $this->presentation->presentCanvas($canvas);
+      if ($this->handoffTreatment !== null) {
+        $this->handoffFrame = $this->presentation->prepareCanvas($canvas);
+        $changed = $this->presentHandoffFrame();
+      } else { $changed = $this->presentation->presentCanvas($canvas); }
       $this->resetText = true;
       if ($changed) { $this->pump(); }
       LatencyTrace::end('presentation.end', $started, ['changed' => $changed]);
@@ -212,8 +228,13 @@ final class RendererRuntime
     }
     $this->resetText = false;
     try {
-      $changed = $this->presentation->present($snapshot, $sprites, viewport: $viewport, world: $world,
-        canvasOverlay: $overlay);
+      if ($this->handoffTreatment !== null) {
+        $this->handoffFrame = $this->presentation->prepareFrame($snapshot, $sprites, $viewport, $world, $overlay);
+        $changed = $this->presentHandoffFrame();
+      } else {
+        $changed = $this->presentation->present($snapshot, $sprites, viewport: $viewport, world: $world,
+          canvasOverlay: $overlay);
+      }
     } catch (Throwable $error) {
       $this->resetText = true;
       throw $error;
@@ -227,12 +248,62 @@ final class RendererRuntime
     return $changed;
   }
 
+  /** PHP's scene owner controls timing. This renderer only retains and paints the composition. */
+  public function beginScreenHandoff(ScreenTransitionTreatment $treatment): void
+  {
+    if ($this->presentation === null || $this->closed || $this->handoffTreatment !== null) {
+      throw new LogicException('A screen handoff requires one active, unowned renderer session.');
+    }
+    foreach ([RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_COMPOSITING,
+      RendererSessionConfig::CANVAS_OVERLAY] as $capability) {
+      if (!$this->supports($capability)) { throw new LogicException('A screen handoff requires ' . $capability); }
+    }
+    $this->handoffFrame = $this->presentation->captureFrame();
+    $this->handoffTreatment = $treatment;
+    $this->handoffPhase = ScreenTransitionPhase::GATHER;
+    $this->handoffProgress = 0;
+  }
+
+  public function setScreenHandoffPhase(ScreenTransitionPhase $phase, float $progress): void
+  {
+    if ($this->handoffTreatment === null) { throw new LogicException('No screen handoff owns the renderer.'); }
+    $this->handoffPhase = $phase;
+    $this->handoffProgress = $progress;
+  }
+
+  /** The next presentation captures the prepared incoming scene under the same full cover. */
+  public function replaceScreenHandoff(): void
+  {
+    if ($this->handoffTreatment === null || $this->handoffPhase !== ScreenTransitionPhase::HOLD) {
+      throw new LogicException('Only a fully covered screen handoff may replace its scene.');
+    }
+    $this->handoffFrame = null;
+    $this->resetText = true;
+  }
+
+  public function endScreenHandoff(): void
+  {
+    $this->handoffTreatment = null;
+    $this->handoffFrame = null;
+    $this->resetText = true;
+  }
+
+  private function presentHandoffFrame(): bool
+  {
+    $frame = $this->handoffFrame ?? throw new LogicException('The handoff composition is not prepared.');
+    $width = $frame->canvas?->width ?? $this->grid->columns * $this->grid->cellWidth;
+    $height = $frame->canvas?->height ?? $this->grid->rows * $this->grid->cellHeight;
+    return $this->presentation->presentFrame($frame,
+      $this->handoffTreatment->compose($this->handoffPhase, $this->handoffProgress, $width, $height));
+  }
+
   public function shutdown(): ?int
   {
     if ($this->closed) {
       return $this->transport->getExitCode();
     }
     $this->closed = true;
+    $this->endScreenHandoff();
     if (!$this->started) {
       return null;
     }

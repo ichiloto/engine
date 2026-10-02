@@ -36,6 +36,33 @@ final class RendererPresentation
 
   public function acknowledge(int $generation, bool $presented): void { $this->retained->acknowledge($generation, $presented); }
 
+  public function captureFrame(): RetainedFrame { return $this->retained->captureFrame(); }
+
+  public function prepareFrame(ConsolePresentationSnapshot|ConsolePresentationChanges $snapshot, array $sprites = [],
+    ?PresentationViewport $viewport = null, ?PresentationWorld $world = null, ?PresentationCanvas $canvasOverlay = null): RetainedFrame
+  {
+    return $this->submitPresentation($snapshot, $sprites, [], $viewport, $world, $canvasOverlay, true);
+  }
+
+  public function prepareCanvas(PresentationCanvas $canvas): RetainedFrame
+  {
+    $this->validateCanvas($canvas);
+    return $this->retained->prepareCanvas($canvas);
+  }
+
+  public function presentFrame(RetainedFrame $frame, ?PresentationCanvas $screenOverlay = null): bool
+  {
+    if ($screenOverlay !== null) {
+      $this->validateCanvas($screenOverlay);
+      if ($frame->canvasIsOverlay && (!$this->client->supports(RendererSessionConfig::CANVAS_OVERLAY)
+        || $screenOverlay->width !== $this->grid->columns * $this->grid->cellWidth
+        || $screenOverlay->height !== $this->grid->rows * $this->grid->cellHeight)) {
+        throw new RendererProtocolException('Retained screen overlays require canvas_overlay and the session logical surface.');
+      }
+    }
+    return $this->retained->presentFrame($frame, $screenOverlay);
+  }
+
   /**
    * @param list<PresentationSprite> $sprites
    * @param list<PresentationTileBatch> $tileBatches
@@ -44,6 +71,13 @@ final class RendererPresentation
   public function present(ConsoleFrameSnapshot|ConsolePresentationSnapshot|ConsolePresentationChanges $snapshot,
     array $sprites = [], array $tileBatches = [], ?PresentationViewport $viewport = null,
     ?PresentationWorld $world = null, ?PresentationCanvas $canvasOverlay = null): bool
+  {
+    return $this->submitPresentation($snapshot, $sprites, $tileBatches, $viewport, $world, $canvasOverlay, false);
+  }
+
+  private function submitPresentation(ConsoleFrameSnapshot|ConsolePresentationSnapshot|ConsolePresentationChanges $snapshot,
+    array $sprites, array $tileBatches, ?PresentationViewport $viewport,
+    ?PresentationWorld $world, ?PresentationCanvas $canvasOverlay, bool $prepare): bool|RetainedFrame
   {
     if ($snapshot->width !== $this->grid->columns || $snapshot->height !== $this->grid->rows) {
       throw new InvalidArgumentException('Console snapshot dimensions must match the fixed renderer session grid.');
@@ -79,7 +113,8 @@ final class RendererPresentation
       }
       $this->validateCanvas($canvasOverlay);
     }
-    return $this->retained->present($snapshot, $sprites, $viewport, $world, $canvasOverlay);
+    return $prepare ? $this->retained->prepareFrame($snapshot, $sprites, $viewport, $world, $canvasOverlay)
+      : $this->retained->present($snapshot, $sprites, $viewport, $world, $canvasOverlay);
   }
 
   /** Graphical frames do not require a Console snapshot or use its cell dimensions. */

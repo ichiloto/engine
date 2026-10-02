@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Battle\Presentation;
 
+use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasNineSlice;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextureFallback;
@@ -13,7 +15,9 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\UI\Accessibility;
+use Ichiloto\Engine\UI\Presentation\MenuIconRegistry;
 
 /** Composes owned, live battle windows. It never selects or evaluates commands. */
 final class GraphicalBattleHud
@@ -24,6 +28,11 @@ final class GraphicalBattleHud
     $textures = array_values([
       ...($layout->skin?->textures ?? []), ...($layout->skin?->targetCursor?->textures ?? []),
     ]);
+    if ($layout->skin !== null) {
+      foreach (self::getCommandIcons($layout->skin, $assetRoot) as $asset) {
+        $textures[] = CanvasNineSlice::getFromPng($assetRoot, $asset);
+      }
+    }
     // Validate authored destinations independently of whether an optional file exists.
     CanvasImagePreflight::textures($textures);
     return CanvasImagePreflight::inspect([...$battlefield, ...CanvasImagePreflight::textures(
@@ -36,6 +45,8 @@ final class GraphicalBattleHud
     $skin = $arena->skin;
     if ($skin === null) { return new PresentationCanvas($arena->width, $arena->height); }
     $images = $text = [];
+    $iconRoot = $assetRoot ?? $skin->icons?->assetRoot;
+    $icons = $iconRoot === null ? [] : self::getCommandIcons($skin, $iconRoot);
     $pitch = $arena->uiGrid;
     $ox = ($arena->width - 135 * $pitch->cellWidth) / 2;
     $oy = ($arena->height - 36 * $pitch->cellHeight) / 2;
@@ -49,6 +60,9 @@ final class GraphicalBattleHud
       self::line($text, $id . '-title', $list->title, $x + 16, $y + 2, $width - 32, 16, $skin->colors['focus'], cellWidth: 8);
       self::line($text, $id . '-help', $list->help, $x + 16, $y + $height - 18, $width - 32, 16, $skin->colors['muted'], cellWidth: 8);
       $rowText = [];
+      // Keep one aligned text column even when some optional icons are unavailable.
+      $iconSpace = $id === 'submenu' && array_any($list->rows,
+        static fn(BattleHudRow $row): bool => isset($icons[$row->iconRole ?? ''])) ? 24 : 0;
       foreach ($list->rows as $rowIndex => $row) {
         $rowY = $y + ($rowIndex + 1) * $pitch->cellHeight;
         $color = $row->affordable ? $skin->colors['text'] : $skin->colors['disabled'];
@@ -63,8 +77,13 @@ final class GraphicalBattleHud
           }
           if (Accessibility::prefersHighContrast()) { $color = PresentationColor::rgb(255, 255, 255); }
         }
-        self::line($rowText, $id . '-row-' . $rowIndex, $row->label, $x + 40, $rowY,
-          $width - 48, $pitch->cellHeight, $color, cellWidth: $pitch->cellWidth);
+        if ($iconSpace > 0 && isset($icons[$row->iconRole ?? '']) && $iconRoot !== null) {
+          array_push($images, ...MenuIconRegistry::containAsset($iconRoot, 'hud-submenu-icon-' . $row->index,
+            $icons[$row->iconRole], new CanvasRectangle($x + 40, $rowY + ($pitch->cellHeight - 16) / 2, 16, 16),
+            1002, new CanvasRectangle($x + 40, $rowY, 16, $pitch->cellHeight)));
+        }
+        self::line($rowText, $id . '-row-' . $rowIndex, $row->label, $x + 40 + $iconSpace, $rowY,
+          $width - 48 - $iconSpace, $pitch->cellHeight, $color, cellWidth: $pitch->cellWidth);
       }
       self::column($text, $id . '-rows', $rowText);
       if ($list->rows === [] && $list->emptyMessage !== '') {
@@ -138,6 +157,22 @@ final class GraphicalBattleHud
   public static function cursorOffset(float $now, bool $reducedMotion): float
   {
     return $reducedMotion ? 0.0 : 2 * (1 - cos(2 * M_PI * fmod($now, 1.2) / 1.2));
+  }
+
+  /** Missing command artwork falls back to its plain label, not an unrelated unknown icon.
+   * @return array<string, string>
+   */
+  private static function getCommandIcons(BattleUiSkin $skin, string $root): array
+  {
+    $icons = [];
+    foreach (BattleCommandType::cases() as $type) {
+      $role = $type->getIconRole();
+      $asset = $skin->icons?->icons[$role] ?? null;
+      if ($asset !== null && PngAssetPreflight::getAvailableSize($root, $asset) !== null) {
+        $icons[$role] = $asset;
+      }
+    }
+    return $icons;
   }
 
   private static function renderGauge(array &$images, BattleUiSkin $skin, string $role, int $index,

@@ -14,37 +14,46 @@ use RuntimeException;
 final readonly class BattlePresentationCatalog
 {
   public const string FILE = 'Data/Presentation/battle.php';
-  /** @var array<string, BattleArenaDefinition> Authored arena keys; legacy entries use troop IDs/names. */
+  /** @var array<string, BattleArenaDefinition> Authored scene identities. */
   public array $arenas;
   /** @var array<string, BattlerArtwork> Actor IDs. */
   public array $actors;
   /** @var array<string, BattlerArtwork> Existing EnemyStore catalog keys. */
   public array $enemies;
+  /** @var array<string, BattlePoseSet> Stable actor IDs, separate from field art. */
+  public array $actorPoses;
+  /** @var array<string, BattlePoseSet> EnemyStore catalog keys. */
+  public array $enemyPoses;
 
   public function __construct(array $arenas, array $actors, array $enemies, public ?BattleCanvasLayout $ui = null,
-    public ?BattleResultsSkin $results = null, public ?BattlePauseSkin $pause = null)
+    public ?BattleResultsSkin $results = null, public ?BattlePauseSkin $pause = null,
+    array $actorPoses = [], array $enemyPoses = [], public ?string $defaultArena = null)
   {
-    if ($ui !== null && $ui->skin === null) {
-      throw new InvalidArgumentException('Project-wide battle UI requires a skin.');
-    }
     $this->arenas = self::catalog($arenas, BattleArenaDefinition::class);
+    if ($defaultArena !== null && !isset($this->arenas[$defaultArena])) {
+      throw new InvalidArgumentException("Unknown default battle arena: {$defaultArena}");
+    }
     $this->actors = self::catalog($actors, BattlerArtwork::class);
     $this->enemies = self::catalog($enemies, BattlerArtwork::class);
+    $this->actorPoses = self::catalog($actorPoses, BattlePoseSet::class);
+    $this->enemyPoses = self::catalog($enemyPoses, BattlePoseSet::class);
   }
 
-  public function arenaFor(BattleConfig $battle): ?BattleArenaDefinition
+  public function getArenaFor(BattleConfig $battle): ?BattleArenaDefinition
   {
-    $key = $battle->settings['battleArena'] ?? null;
-    $troopId = $battle->troop->definitionId ?? $battle->troop->name;
-    if ($key === null) {
-      return ($this->arenas[$troopId] ?? null)?->getForTroop($troopId);
-    }
+    $key = array_key_exists('battleArena', $battle->settings) ? $battle->settings['battleArena'] : $this->defaultArena;
+    if ($key === null && !array_key_exists('battleArena', $battle->settings)) { return null; }
     if (!is_string($key)) {
       throw new InvalidArgumentException('battleArena must be a string arena key.');
     }
     CanvasValidation::id($key);
-    $arena = $this->arenas[$key] ?? throw new RuntimeException("Unknown graphical battle arena: {$key}");
-    return $arena->getForTroop($troopId);
+    return $this->arenas[$key] ?? throw new RuntimeException("Unknown graphical battle arena: {$key}");
+  }
+
+  /** @return array<string, string> Scene key => display name, in authored order. */
+  public function getArenaChoices(): array
+  {
+    return array_map(static fn(BattleArenaDefinition $arena): string => $arena->name, $this->arenas);
   }
 
   public static function exists(string $assetRoot): bool
@@ -53,12 +62,13 @@ final readonly class BattlePresentationCatalog
     return file_exists($path) || is_link($path);
   }
 
-  /** Requested before renderer startup; absent skins keep the G1 capability set. */
+  /** Command effects may need crops and alpha even when no pose or skin is bound. */
   public function requiredCapabilities(): array
   {
-    return [RendererSessionConfig::GRAPHICAL_CANVAS,
-      ...($this->pause !== null || $this->results !== null || $this->ui !== null || array_any($this->arenas, static fn($arena) => $arena->skin !== null)
-        ? [RendererSessionConfig::CANVAS_CLIP_OPACITY, RendererSessionConfig::CANVAS_GLYPH_EFFECTS] : [])];
+    return [RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::SPRITE_SOURCE_RECT,
+      RendererSessionConfig::CANVAS_CLIP_OPACITY, RendererSessionConfig::CANVAS_COMPOSITING,
+      ...($this->pause !== null || $this->results !== null || $this->ui?->skin !== null || array_any($this->arenas, static fn($arena) => $arena->skin !== null)
+        ? [RendererSessionConfig::CANVAS_GLYPH_EFFECTS] : [])];
   }
 
   public static function load(string $assetRoot): ?self

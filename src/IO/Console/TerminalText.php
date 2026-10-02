@@ -259,6 +259,14 @@ final class TerminalText
     return $lines;
   }
 
+  /** Wrap each authored paragraph independently, retaining blank lines and explicit page content. */
+  public static function wrapParagraphsToWidth(string $text, int $width): array
+  {
+    $text = str_replace(["\r\n", "\r", "\t"], ["\n", "\n", '    '], $text);
+    return array_merge(...array_map(static fn(string $paragraph): array => self::wrapToWidth($paragraph, $width),
+      explode("\n", $text)));
+  }
+
   /**
    * Right-pads text to the requested display width.
    *

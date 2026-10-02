@@ -6,6 +6,8 @@ use Ichiloto\Engine\Battle\Presentation\BattlePauseSkin;
 use Ichiloto\Engine\Battle\Presentation\GraphicalBattlePause;
 use Ichiloto\Engine\Battle\Presentation\PauseAction;
 use Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog;
+use Ichiloto\Engine\Messaging\Notifications\Presentation\NotificationPlacement;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasComposite;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasNineSlice;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
@@ -101,6 +103,18 @@ it('composes centered independent labels over the unchanged scene at every appro
   }
   expect($menu->confirmation !== null)->toBe($confirm);
 })->with([[1350, 720], [960, 540], [736, 414]])->with([false, true]);
+
+it('preserves battlefield protection and composites while protecting the complete pause control', function () {
+  $effect = new CanvasComposite('battle-effect', 16, 16, new CanvasRectangle(900, 200, 16, 16), []);
+  $actor = new CanvasRectangle(900, 200, 100, 160);
+  $field = new PresentationCanvas(1350, 720, composites: [$effect], protectedAreas: [$actor]);
+  $menu = new BattlePauseMenu(true, static fn(): float => 0);
+  $menu->open();
+  $frame = GraphicalBattlePause::frame($field, pauseSkinFixture(), $menu);
+  expect($frame->composites)->toBe([$effect])->and($frame->getOverlayProtection())->toContain($actor)
+    ->and(NotificationPlacement::isClear(new CanvasRectangle(20, 20, 100, 80), $frame->getOverlayProtection()))->toBeTrue()
+    ->and(NotificationPlacement::isClear(new CanvasRectangle(670, 350, 10, 20), $frame->getOverlayProtection()))->toBeFalse();
+});
 
 it('reserves cursor motion for the root list while confirmation focus stays steady and returns intact', function (bool $reducedMotion, int $index) {
   $now = 0.0;

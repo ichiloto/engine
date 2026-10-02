@@ -76,6 +76,18 @@ it('rejects invalid canvas rectangle values without clamping or cell snapping', 
   [[16384, 0, 1, 1]], [[0, 0, 1, 16385]], [[PHP_FLOAT_MAX, 0, PHP_FLOAT_MAX, 1]],
 ]);
 
+it('validates and detaches PHP overlay protection without changing the renderer wire contract', function () {
+  $area = new CanvasRectangle(10, 10, 20, 20);
+  $areas = [&$area];
+  $canvas = new PresentationCanvas(100, 100, protectedAreas: $areas);
+  $area = new CanvasRectangle(0, 0, 100, 100);
+  expect($canvas->protectedAreas[0]->width)->toBe(20.0)
+    ->and($canvas->toArray())->toBe(new PresentationCanvas(100, 100)->toArray());
+  foreach ([[new CanvasRectangle(90, 0, 20, 10)], ['not a rectangle'], ['key' => $area], array_fill(0, 32769, $area)] as $invalid) {
+    expect(fn() => new PresentationCanvas(100, 100, protectedAreas: $invalid))->toThrow(InvalidArgumentException::class);
+  }
+});
+
 it('validates canvas extents and completely contained image indicator and text rectangles', function () {
   foreach ([[0, 1], [1, 0], [-1, 1], [16385, 1], [1, 16385]] as [$width, $height]) {
     expect(fn() => new PresentationCanvas($width, $height))->toThrow(InvalidArgumentException::class);

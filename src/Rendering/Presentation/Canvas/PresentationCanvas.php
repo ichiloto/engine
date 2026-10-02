@@ -20,6 +20,22 @@ final readonly class PresentationCanvas
   public array $textLayers;
   /** @var list<CanvasComposite> */
   public array $composites;
+  /** PHP-only overlay avoidance areas. Null retains conservative protection for unannotated canvases.
+   * @var list<CanvasRectangle>|null
+   */
+  public ?array $protectedAreas;
+
+  /** Resolve each source before stacking, so one unannotated overlay cannot erase another owner's safe areas.
+   * @return list<CanvasRectangle>
+   */
+  public function getOverlayProtection(): array
+  {
+    if ($this->protectedAreas !== null) { return $this->protectedAreas; }
+    return [...array_map(static fn(CanvasImage $image) => $image->clipRect ?? $image->destination, $this->images),
+      ...array_map(static fn(CanvasTextLayer $text) => $text->clipRect ?? $text->paintBounds, $this->textLayers),
+      ...array_map(static fn(CanvasComposite $composite) => $composite->clipRect ?? $composite->destination, $this->composites),
+      ...array_map(static fn(CanvasIndicator $indicator) => $indicator->bounds, $this->indicators)];
+  }
 
   /** @param list<CanvasImage> $images
    * @param list<CanvasIndicator> $indicators
@@ -32,6 +48,7 @@ final readonly class PresentationCanvas
     array $indicators = [],
     array $textLayers = [],
     array $composites = [],
+    ?array $protectedAreas = null,
   )
   {
     if ($width < 1 || $height < 1 || $width > CanvasValidation::MAX_EXTENT || $height > CanvasValidation::MAX_EXTENT) {
@@ -41,6 +58,21 @@ final readonly class PresentationCanvas
     $this->indicators = CanvasValidation::orderedList($indicators, CanvasIndicator::class, 2048);
     $this->textLayers = CanvasValidation::orderedList($textLayers, CanvasTextLayer::class, StyledPresentationFrame::MAX_TEXT_LAYERS);
     $this->composites = CanvasValidation::orderedList($composites, CanvasComposite::class, 8);
+    $areas = null;
+    if ($protectedAreas !== null) {
+      if (!array_is_list($protectedAreas) || count($protectedAreas) > 32768) {
+        throw new InvalidArgumentException('Canvas protection requires a bounded list of rectangles.');
+      }
+      $areas = [];
+      foreach ($protectedAreas as $area) {
+        if (!$area instanceof CanvasRectangle) {
+          throw new InvalidArgumentException('Canvas protection requires typed rectangles.');
+        }
+        $area->assertWithin($width, $height);
+        $areas[] = $area;
+      }
+    }
+    $this->protectedAreas = $areas;
     $pixels = $operations = $nodes = 0;
     foreach ($this->composites as $composite) {
       $composite->destination->assertWithin($width, $height);

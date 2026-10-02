@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Entities;
 use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Battle\BattleClassification;
 use Ichiloto\Engine\Battle\EscapePolicy;
+use Ichiloto\Engine\Battle\Presentation\BattlerSlot;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
@@ -13,6 +14,9 @@ use Ichiloto\Engine\Exceptions\RequiredFieldException;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Stores\EnemyStore;
+use InvalidArgumentException;
+use RuntimeException;
+use SplObjectStorage;
 
 /**
  * Represents a group of enemies in a battle.
@@ -44,6 +48,9 @@ class Troop extends BattleGroup
    * An optional authored retreat rule. Null preserves the project default.
    */
   protected(set) ?EscapePolicy $escapePolicy = null;
+  /** @var SplObjectStorage<Enemy, ?BattlerSlot> Placements follow instances, never names or mutable roster indices. */
+  private SplObjectStorage $graphicalFormation;
+  private ?string $graphicalFormationError = null;
 
   /**
    * Creates a new troop.
@@ -65,6 +72,7 @@ class Troop extends BattleGroup
     ?EscapePolicy $escapePolicy = null,
     ?string $definitionId = null,
     BattleClassification $classification = BattleClassification::ORDINARY,
+    array $graphicalFormation = [],
   )
   {
     $backgroundMusic = is_string($backgroundMusic) ? trim($backgroundMusic) : '';
@@ -85,6 +93,26 @@ class Troop extends BattleGroup
         }
       }
     }
+    if (!array_is_list($graphicalFormation) || count($graphicalFormation) > 64
+      || ($graphicalFormation !== [] && count($graphicalFormation) !== count($this->members))) {
+      throw new InvalidArgumentException('Troop graphical formation must provide one slot or null per enemy instance, at most 64.');
+    }
+    $this->graphicalFormation = new SplObjectStorage();
+    foreach ($this->members as $index => $enemy) {
+      $slot = $graphicalFormation[$index] ?? null;
+      if ($slot !== null && !$slot instanceof BattlerSlot) {
+        throw new InvalidArgumentException('Troop graphical placements must be BattlerSlot entries or null.');
+      }
+      $this->graphicalFormation[$enemy] = $slot;
+    }
+  }
+
+  public function getGraphicalSlot(Enemy $enemy): ?BattlerSlot
+  {
+    if ($this->graphicalFormationError !== null) {
+      throw new RuntimeException($this->graphicalFormationError);
+    }
+    return $this->graphicalFormation->offsetExists($enemy) ? $this->graphicalFormation[$enemy] : null;
   }
 
   /**
@@ -107,12 +135,25 @@ class Troop extends BattleGroup
     $enemiesStore = ConfigStore::get(EnemyStore::class);
 
     $name = $data['name'] ?? throw new RequiredFieldException('name');
+    if ($source === 'troop data') { $source .= sprintf(' troop "%s"', $name); }
     $enemyDataList = $data['enemies'] ?? throw new RequiredFieldException('enemies');
     $events = $data['events'] ?? [];
 
     $enemies = [];
+    $formation = [];
+    $formationErrors = [];
 
-    foreach ($enemyDataList as $enemyData) {
+    foreach ($enemyDataList as $index => $enemyData) {
+      $slot = null;
+      if (array_key_exists('graphicalPlacement', $enemyData)) {
+        try {
+          $slot = BattlerSlot::fromArray($enemyData['graphicalPlacement'], "{$source}.enemies[{$index}].graphicalPlacement");
+        } catch (InvalidArgumentException $error) {
+          // Refuse only optional graphics, preserving the authored combat and terminal positions.
+          $formationErrors[] = $error->getMessage();
+          Debug::warn('Invalid troop graphical formation: ' . $error->getMessage());
+        }
+      }
       $enemy = $enemiesStore->get($enemyData['enemy'] ?? throw new RequiredFieldException('enemy'));
       if (!$enemy instanceof Enemy) {
         continue;
@@ -124,6 +165,14 @@ class Troop extends BattleGroup
       $enemyClone->position->y = $enemyPosition->y;
 
       $enemies[] = $enemyClone;
+      $formation[] = $slot;
+    }
+
+    if (count($formation) > 64) {
+      $error = "{$source}: graphical formation exceeds 64 enemy placements; terminal troop preserved.";
+      $formationErrors[] = $error;
+      Debug::warn($error);
+      $formation = [];
     }
 
     $backgroundMusic = $data['bgm'] ?? null;
@@ -132,7 +181,7 @@ class Troop extends BattleGroup
       : null;
     $classification = BattleClassification::resolve($data['classification'] ?? null, $source);
 
-    return new self(
+    $troop = new self(
       $name,
       $enemies,
       $events,
@@ -140,6 +189,9 @@ class Troop extends BattleGroup
       escapePolicy: $escapePolicy,
       definitionId: is_string($data['id'] ?? null) ? $data['id'] : null,
       classification: $classification,
+      graphicalFormation: $formation,
     );
+    $troop->graphicalFormationError = $formationErrors === [] ? null : implode('; ', $formationErrors);
+    return $troop;
   }
 }

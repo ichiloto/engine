@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use Ichiloto\Engine\Battle\Presentation\BattleArenaDefinition;
+use Ichiloto\Engine\Battle\Presentation\BattleCanvasLayout;
 use Ichiloto\Engine\Battle\Presentation\BattleHudListSnapshot;
 use Ichiloto\Engine\Battle\Presentation\BattleHudRow;
 use Ichiloto\Engine\Battle\Presentation\BattleHudSnapshot;
@@ -18,8 +18,9 @@ use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\UI\Presentation\MenuIconRegistry;
 
-function hudTestSkin(): BattleUiSkin
+function hudTestSkin(?MenuIconRegistry $icons = null): BattleUiSkin
 {
   $textures = [];
   foreach (['panel', 'quiet', 'track', 'hp', 'mp', 'atb', 'selector', 'target', 'queued', 'acting'] as $role) {
@@ -29,15 +30,54 @@ function hudTestSkin(): BattleUiSkin
   foreach (['text', 'muted', 'selected', 'focus', 'disabled', 'damage', 'healing', 'mp', 'ink'] as $role) {
     $colors[$role] = PresentationColor::rgb(200, 200, 200);
   }
-  return new BattleUiSkin($textures, $colors);
+  return new BattleUiSkin($textures, $colors, icons: $icons);
 }
 
-function hudTestArena(): BattleArenaDefinition
+function getHudTestLayout(?MenuIconRegistry $icons = null): BattleCanvasLayout
 {
-  return new BattleArenaDefinition(1350, 720,
-    new CanvasImage('arena', 'arena.png', new CanvasRectangle(0, 0, 1350, 720)), [], [], skin: hudTestSkin(),
+  return new BattleCanvasLayout(1350, 720,
+    skin: hudTestSkin($icons),
     feedbackArea: new CanvasRectangle(0, 80, 1350, 452));
 }
+
+it('contains replaceable theme command icons and aligns labels independently of legacy abbreviations', function () {
+  $root = sys_get_temp_dir() . '/ichiloto-hud-icons-' . bin2hex(random_bytes(4));
+  mkdir($root);
+  $hud = new BattleHudSnapshot(context: new BattleHudListSnapshot('Attack', '', [
+    new BattleHudRow(0, 'Attack', true, iconRole: 'command.attack'),
+    new BattleHudRow(1, 'Custom strike (4 MP)', false),
+  ], 0, 0, 4, 2, 1, 1));
+  try {
+    foreach (['first.png', 'second.png'] as $asset) {
+      file_put_contents($root . '/' . $asset, "\x89PNG\r\n\x1a\n\0\0\0\rIHDR" . pack('NN', 32, 16));
+      $arena = getHudTestLayout(new MenuIconRegistry($root, ['command.attack' => $asset]));
+      $frame = GraphicalBattleHud::compose($arena, $hud, 'submenu', 0, $root);
+      expect(GraphicalBattleHud::preflight($arena, $root))->toBe([$asset => 32 * 16 * 4]);
+      $icons = array_values(array_filter($frame->images, fn($image) => str_starts_with($image->id, 'hud-submenu-icon-')));
+      expect($icons)->toHaveCount(1)
+        ->and($icons[0]->asset)->toBe($asset)
+        ->and($icons[0]->destination->width)->toBe(16.0)
+        ->and($icons[0]->destination->height)->toBe(8.0)
+        ->and($icons[0]->destination->x)->toBe(180.0);
+      $labels = array_column($frame->textLayers, null, 'id')['hud-submenu-rows'];
+      expect($labels->x)->toBe(204.0)
+        ->and(array_column($labels->runs, 'text'))->toBe(['Attack', 'Custom strike (4 MP)']);
+    }
+    unlink($root . '/first.png');
+    $arena = getHudTestLayout(new MenuIconRegistry($root, ['command.attack' => 'first.png', 'unknown' => 'second.png']));
+    $frame = GraphicalBattleHud::compose($arena, $hud, 'submenu', 0, $root);
+    expect(GraphicalBattleHud::preflight($arena, $root))->toBe([])
+      ->and(array_filter($frame->images, fn($image) => str_starts_with($image->id, 'hud-submenu-icon-')))->toBe([])
+      ->and(array_column($frame->textLayers, null, 'id')['hud-submenu-rows']->x)->toBe(180.0);
+    file_put_contents($root . '/first.png', "\x89PNG\r\n\x1a\n\0\0\0\rIHDR" . pack('NN', 16, 32));
+    $repaired = GraphicalBattleHud::compose($arena, $hud, 'submenu', 0, $root);
+    $icon = array_values(array_filter($repaired->images, fn($image) => str_starts_with($image->id, 'hud-submenu-icon-')))[0];
+    expect($icon->destination->width)->toBe(8.0)->and($icon->destination->height)->toBe(16.0);
+  } finally {
+    foreach (glob($root . '/*') ?: [] as $path) { unlink($path); }
+    rmdir($root);
+  }
+});
 
 function hudTestList(string $title, array $labels, int $selected = 0, string $help = ''): BattleHudListSnapshot
 {
@@ -50,7 +90,7 @@ it('preserves command context name and resource rows without terminal borders', 
     hudTestList('Magic', ['Cure  3 MP'], help: 'enter:Select i:Info c:Back'),
     hudTestList('Name', ['Hero', 'Oracle', 'Strider', 'Sentinel']),
     new BattleHudStatusSnapshot('', '', array_map(fn($index) => new BattleHudStatusRow($index, 1234 + $index, 2000, 19, 30, 0.5), range(0, 3))));
-  $frame = GraphicalBattleHud::compose(hudTestArena(), $hud, 'submenu', 0);
+  $frame = GraphicalBattleHud::compose(getHudTestLayout(), $hud, 'submenu', 0);
   $layers = array_column($frame->textLayers, null, 'id');
   expect($layers['hud-command-title']->runs[0]->text)->toBe('Command 1/2')
     ->and($layers['hud-submenu-rows']->runs[0]->text)->toBe('Cure  3 MP')
@@ -67,8 +107,8 @@ it('preserves command context name and resource rows without terminal borders', 
 
 it('moves only the input-owned cursor and keeps persistent selection stationary', function () {
   $hud = new BattleHudSnapshot(hudTestList('Command', ['Attack']), hudTestList('Attack', ['Strike']), hudTestList('Name', ['Hero']));
-  $first = GraphicalBattleHud::compose(hudTestArena(), $hud, 'command', 0);
-  $second = GraphicalBattleHud::compose(hudTestArena(), $hud, 'command', 0.6);
+  $first = GraphicalBattleHud::compose(getHudTestLayout(), $hud, 'command', 0);
+  $second = GraphicalBattleHud::compose(getHudTestLayout(), $hud, 'command', 0.6);
   expect($first->textLayers)->toEqual($second->textLayers);
   $moving = [];
   foreach ($first->images as $index => $image) {
@@ -77,14 +117,14 @@ it('moves only the input-owned cursor and keeps persistent selection stationary'
   expect($moving)->toBe(['hud-cursor-1-1'])
     ->and(GraphicalBattleHud::cursorOffset(0.6, false))->toBe(4.0)
     ->and(GraphicalBattleHud::cursorOffset(0.6, true))->toBe(0.0);
-  $target = GraphicalBattleHud::compose(hudTestArena(), $hud, 'target', 0.6);
+  $target = GraphicalBattleHud::compose(getHudTestLayout(), $hud, 'target', 0.6);
   expect(array_filter($target->images, fn($image) => str_starts_with($image->id, 'hud-cursor')))->toBe([]);
 });
 
 it('omits zero fills and absent ATB while values update immediately', function () {
   $snapshot = fn(int $hp) => new BattleHudSnapshot(status: new BattleHudStatusSnapshot('', '', [new BattleHudStatusRow(0, $hp, 100, 7, 10)]));
-  $empty = GraphicalBattleHud::compose(hudTestArena(), $snapshot(0), null, 0);
-  $full = GraphicalBattleHud::compose(hudTestArena(), $snapshot(100), null, 0);
+  $empty = GraphicalBattleHud::compose(getHudTestLayout(), $snapshot(0), null, 0);
+  $full = GraphicalBattleHud::compose(getHudTestLayout(), $snapshot(100), null, 0);
   expect(array_filter($empty->images, fn($image) => str_starts_with($image->id, 'hp-fill-')))->toBe([])
     ->and(array_filter($full->images, fn($image) => str_starts_with($image->id, 'atb-')))->toBe([]);
   $values = array_column($full->textLayers, null, 'id');
@@ -96,8 +136,8 @@ it('honors reduced motion without dropping highlights or changing author prefere
   try {
     ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => true]]));
     $hud = new BattleHudSnapshot(hudTestList('Command', ['Attack']));
-    expect(GraphicalBattleHud::compose(hudTestArena(), $hud, 'command', 0)->toArray())
-      ->toBe(GraphicalBattleHud::compose(hudTestArena(), $hud, 'command', 0.6)->toArray());
+    expect(GraphicalBattleHud::compose(getHudTestLayout(), $hud, 'command', 0)->toArray())
+      ->toBe(GraphicalBattleHud::compose(getHudTestLayout(), $hud, 'command', 0.6)->toArray());
   } finally {
     foreach ($previous as $name => $value) { new ReflectionProperty(ConfigStore::class, $name)->setValue(null, $value); }
   }
@@ -105,15 +145,15 @@ it('honors reduced motion without dropping highlights or changing author prefere
 
 it('keeps blank context visible and removes all hidden windows on replacement', function () {
   $context = hudTestList('', [], -1);
-  expect(GraphicalBattleHud::compose(hudTestArena(), new BattleHudSnapshot(context: $context), null, 0)->images)->toHaveCount(1);
-  $empty = GraphicalBattleHud::compose(hudTestArena(), new BattleHudSnapshot(), null, 0);
+  expect(GraphicalBattleHud::compose(getHudTestLayout(), new BattleHudSnapshot(context: $context), null, 0)->images)->toHaveCount(1);
+  $empty = GraphicalBattleHud::compose(getHudTestLayout(), new BattleHudSnapshot(), null, 0);
   expect($empty->images)->toBe([])->and($empty->textLayers)->toBe([]);
 });
 
 it('projects multiline messages inside the existing grown window without changing their source', function () {
   $source = "First line\nSecond line";
   $hud = new BattleHudSnapshot(message: $source, messageRows: 2);
-  $frame = GraphicalBattleHud::compose(hudTestArena(), $hud, null, 0);
+  $frame = GraphicalBattleHud::compose(getHudTestLayout(), $hud, null, 0);
   $message = array_column($frame->textLayers, null, 'id')['hud-message'];
   expect($hud->message)->toBe($source)
     ->and(array_column($message->runs, 'text'))->toBe(['First line', 'Second line'])
@@ -125,7 +165,7 @@ it('projects multiline messages inside the existing grown window without changin
 it('bounds visible text before transport while retaining long authored labels in snapshots', function () {
   $source = str_repeat('Long action ', 200) . '99 MP';
   $hud = new BattleHudSnapshot(context: hudTestList('Magic', [$source]), message: str_repeat('m', 2000));
-  $frame = GraphicalBattleHud::compose(hudTestArena(), $hud, 'submenu', 0);
+  $frame = GraphicalBattleHud::compose(getHudTestLayout(), $hud, 'submenu', 0);
   expect($hud->context->rows[0]->label)->toBe($source);
   foreach ($frame->textLayers as $layer) {
     $layer->bounds->assertWithin(1350, 720);
@@ -137,7 +177,7 @@ it('leaves canvas layer capacity for simultaneous results with four full HUD row
   $list = hudTestList('Title', ['First', 'Second', 'Third', 'Fourth'], help: 'Help');
   $hud = new BattleHudSnapshot($list, $list, $list, new BattleHudStatusSnapshot('', '',
     array_map(fn($i) => new BattleHudStatusRow($i, 1234, 2000, 19, 30, 0.5), range(0, 3))));
-  $frame = GraphicalBattleHud::compose(hudTestArena(), $hud, 'submenu', 0);
+  $frame = GraphicalBattleHud::compose(getHudTestLayout(), $hud, 'submenu', 0);
   expect($frame->textLayers)->toHaveCount(17);
   $columns = array_column($frame->textLayers, null, 'id');
   foreach (['names', 'command', 'submenu', 'hp', 'mp'] as $role) {
@@ -148,7 +188,7 @@ it('leaves canvas layer capacity for simultaneous results with four full HUD row
 it('marks invalid maxima with a dash instead of inventing a full or empty resource percentage', function () {
   $hud = new BattleHudSnapshot(status: new BattleHudStatusSnapshot('', '',
     array_map(fn($i) => new BattleHudStatusRow($i, 10, 0, 7, -1), range(0, 3))));
-  $frame = GraphicalBattleHud::compose(hudTestArena(), $hud, null, 0);
+  $frame = GraphicalBattleHud::compose(getHudTestLayout(), $hud, null, 0);
   $columns = array_column($frame->textLayers, null, 'id');
   expect(array_column($columns['hud-hp-rows']->runs, 'text'))->toBe(array_fill(0, 4, '10'))
     ->and(array_column($columns['hud-mp-rows']->runs, 'text'))->toBe(array_fill(0, 4, '7'))
@@ -162,7 +202,7 @@ it('right aligns resource values at stable right edges as digits grow and shrink
   foreach ([[9, 10, 999, 10000], [10, 9, 1000, 9999]] as $values) {
     $hud = new BattleHudSnapshot(status: new BattleHudStatusSnapshot('', '',
       array_map(fn($index) => new BattleHudStatusRow($index, $values[$index], 10000, $values[3 - $index], 10000, 0.5), range(0, 3))));
-    $frame = GraphicalBattleHud::compose(hudTestArena(), $hud, null, 0);
+    $frame = GraphicalBattleHud::compose(getHudTestLayout(), $hud, null, 0);
     $layers = array_column($frame->textLayers, null, 'id');
     foreach (['hp', 'mp'] as $resource) {
       $layer = $layers['hud-' . $resource . '-rows'];
@@ -180,7 +220,7 @@ it('right aligns resource values at stable right edges as digits grow and shrink
 it('retains healthy HUD artwork and themed gauges when optional textures disappear and return', function () {
   $root = sys_get_temp_dir() . '/ichiloto-hud-fallback-' . bin2hex(random_bytes(4));
   mkdir($root);
-  $arena = hudTestArena();
+  $arena = getHudTestLayout();
   $hud = new BattleHudSnapshot(hudTestList('Command', ['Attack']), status: new BattleHudStatusSnapshot('', '',
     [new BattleHudStatusRow(0, 50, 100, 7, 10, 0.5)]));
   try {
@@ -212,8 +252,11 @@ it('keeps the combined battlefield and healthy HUD image budget strict', functio
     foreach (['panel.png', 'arena.png'] as $asset) {
       file_put_contents($root . '/' . $asset, "\x89PNG\r\n\x1a\n\0\0\0\rIHDR" . pack('NN', 3072, 3072));
     }
-    expect(fn() => GraphicalBattleHud::preflight(hudTestArena(), $root,
+    expect(fn() => GraphicalBattleHud::preflight(getHudTestLayout(), $root,
       [new CanvasImage('arena', 'arena.png', new CanvasRectangle(0, 0, 1350, 720))]))->toThrow(RuntimeException::class, '64 MiB');
+    $icons = new MenuIconRegistry($root, ['command.attack' => 'arena.png']);
+    expect(fn() => GraphicalBattleHud::preflight(getHudTestLayout($icons), $root))
+      ->toThrow(RuntimeException::class, '64 MiB');
   } finally {
     foreach (glob($root . '/*') ?: [] as $path) { unlink($path); }
     rmdir($root);

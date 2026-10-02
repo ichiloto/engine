@@ -7,6 +7,8 @@ use Ichiloto\Engine\Battle\Presentation\BattleResultsPlayback;
 use Ichiloto\Engine\Battle\Presentation\BattleResultsText;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\UI\Windows\Enumerations\WindowHeightPolicy;
 use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\UI\Windows\WindowAlignment;
 
@@ -43,11 +45,8 @@ class BattleResultWindow extends Window
   /** Projects all structured facts through explicit pages rather than truncating rewards. */
   public function displayPlayback(BattleResultsPlayback $playback): void
   {
-    $wrapped = [];
-    foreach (BattleResultsText::lines($playback) as $line) {
-      array_push($wrapped, ...explode("\n", wrap_text($line, self::WIDTH - 4)));
-    }
-    $height = self::HEIGHT - 2;
+    $wrapped = BattleResultsText::getLines($playback, $this->getContentWidth());
+    $height = $this->getContentHeight();
     $pages = max(1, (int)ceil(count($wrapped) / $height));
     $playback->setScrollLimit($pages - 1);
     $page = min($pages - 1, $playback->scrollOffset);
@@ -72,7 +71,8 @@ class BattleResultWindow extends Window
       self::WIDTH,
       self::HEIGHT,
       $this->battleScreen->borderPack,
-      WindowAlignment::middleLeft()
+      WindowAlignment::middleLeft(),
+      heightPolicy: WindowHeightPolicy::FIXED,
     );
 
     $this->refreshLayout();
@@ -240,7 +240,7 @@ class BattleResultWindow extends Window
     $content = [];
 
     foreach ($lines as $line) {
-      $content = array_merge($content, explode("\n", wrap_text($line, self::WIDTH - 4)));
+      $content = array_merge($content, TerminalText::wrapParagraphsToWidth($line, $this->getContentWidth()));
     }
 
     $content = array_slice($content, 0, self::HEIGHT - 2);

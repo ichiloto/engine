@@ -7,7 +7,7 @@ use Ichiloto\Engine\Battle\Presentation\BattleResultsContent;
 use Ichiloto\Engine\Battle\Presentation\BattleResultsPlayback;
 use Ichiloto\Engine\Battle\Presentation\BattleResultsSkin;
 use Ichiloto\Engine\Battle\Presentation\BattleRewards;
-use Ichiloto\Engine\Battle\Presentation\BattleArenaDefinition;
+use Ichiloto\Engine\Battle\Presentation\BattleCanvasLayout;
 use Ichiloto\Engine\Battle\Presentation\BattleHudListSnapshot;
 use Ichiloto\Engine\Battle\Presentation\BattleHudRow;
 use Ichiloto\Engine\Battle\Presentation\BattleHudSnapshot;
@@ -17,6 +17,8 @@ use Ichiloto\Engine\Battle\Presentation\BattleUiSkin;
 use Ichiloto\Engine\Battle\Presentation\GraphicalBattleHud;
 use Ichiloto\Engine\Battle\Presentation\GraphicalBattleResults;
 use Ichiloto\Engine\Progression\ProgressionSnapshot;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasComposite;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasCompositeOperation;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasNineSlice;
@@ -67,6 +69,22 @@ function resultsFrameText(PresentationCanvas $frame): string
 {
   return implode("\n", array_merge(...array_map(fn($layer) => array_column($layer->runs, 'text'), $frame->textLayers)));
 }
+
+it('retains battlefield composites and each owners overlay protection through results', function () {
+  $effect = new CanvasComposite('battle-effect', 16, 16, new CanvasRectangle(900, 200, 16, 16),
+    [new CanvasCompositeOperation(['type' => 'fill', 'destination' => ['x' => 0, 'y' => 0, 'width' => 16, 'height' => 16],
+      'brush' => ['type' => 'solid', 'color' => PresentationColor::rgb(0, 128, 255)->toArray()], 'opacity' => 0.5])]);
+  $base = new PresentationCanvas(1350, 720, composites: [$effect],
+    protectedAreas: [new CanvasRectangle(900, 200, 100, 160)]);
+  $playback = new BattleResultsPlayback(new BattleRewards(0, 0, []), true);
+  $frame = GraphicalBattleResults::frame($base, resultsSkinFixture(), $playback);
+  expect($frame->composites)->toBe([$effect])->and($frame->protectedAreas)->not->toBeNull()
+    ->and($frame->getOverlayProtection())->toContain($base->getOverlayProtection()[0]);
+  foreach ($frame->images as $image) {
+    expect(\Ichiloto\Engine\Messaging\Notifications\Presentation\NotificationPlacement::isClear(
+      $image->destination, $frame->getOverlayProtection()))->toBeFalse();
+  }
+});
 
 it('keeps results portraits on the actor id while displaying a renamed actor', function () {
   $data = (require dirname(__DIR__) . '/Fixtures/Actors/FoundationHero.php')['data'];
@@ -184,13 +202,39 @@ it('keeps outside-panel hints readable and fits all nine level-up stats on one o
   expect($playback->pageCount())->toBe(1)->and(resultsFrameText($frame))->toContain('Evasion', "1  \u{2192}  2", "5 \u{2192} 5")
     ->not->toContain('->');
   $counter = array_column($frame->textLayers, null, 'id')['results-event-counter'];
-  expect($counter->runs[0]->background)->toBe($skin->colors['ink']);
+  expect($counter->runs[0]->background)->toBeNull();
 
   $overflow = new BattleResultsPlayback(resultsGraphicalFacts(drops: 12), true);
   $frame = GraphicalBattleResults::frame(resultsBattlefield(), $skin, $overflow);
   $pages = array_column($frame->textLayers, null, 'id')['results-pages'];
   expect($pages->runs[0]->background)->toBe($skin->colors['ink']);
 });
+
+it('incorporates the event count into each results panel with the heading text treatment', function (string $kind) {
+  $playback = new BattleResultsPlayback(resultsGraphicalFacts(1), true);
+  while ($playback->currentStage()['kind'] !== $kind) {
+    $playback->update(1);
+    $playback->confirm();
+  }
+  $skin = resultsSkinFixture();
+  $frame = GraphicalBattleResults::frame(resultsBattlefield(), $skin, $playback);
+  $layers = array_column($frame->textLayers, null, 'id');
+  $counter = $layers['results-event-counter'];
+  $panel = array_column($frame->images, null, 'id')['results-event-1-1']->destination;
+  $heading = $layers['results-event-line-0'];
+  $count = $playback->eventCounter();
+
+  expect($counter->runs[0]->text)->toBe($count['current'] . '/' . $count['total'])
+    ->and($counter->runs[0]->background)->toBeNull()
+    ->and($counter->runs[0]->foreground)->toBe($skin->colors['accent'])
+    ->and($counter->grid->cellWidth)->toBe($heading->grid->cellWidth)
+    ->and($counter->grid->cellHeight)->toBe($heading->grid->cellHeight)
+    ->and($counter->bounds->x)->toBeGreaterThan($panel->x)
+    ->and($counter->bounds->y)->toBeGreaterThan($panel->y)
+    ->and($counter->bounds->x + $counter->bounds->width)->toBeLessThan($panel->x + $panel->width)
+    ->and($counter->bounds->y + $counter->bounds->height)->toBeLessThanOrEqual($heading->bounds->y)
+    ->and($counter->runs[0]->column + mb_strlen($counter->runs[0]->text))->toBe($counter->grid->columns);
+})->with(['level', 'ability', 'special']);
 
 it('preserves the real battlefield and approved primary geometry with independent values and neutral portraits', function () {
   $field = resultsBattlefield();
@@ -462,8 +506,7 @@ it('fits all-missing Results textures over a full four-member HUD without droppi
       $textures[$role] = new CanvasNineSlice($role . '.png', new SpriteSourceRect(0, 0, 8, 8));
     }
     $palette = array_fill_keys(['text', 'muted', 'selected', 'focus', 'disabled', 'damage', 'healing', 'mp', 'ink'], PresentationColor::rgb(200, 200, 200));
-    $arena = new BattleArenaDefinition(1350, 720, new CanvasImage('field', 'arena.png', new CanvasRectangle(0, 0, 1350, 720)),
-      [], [], skin: new BattleUiSkin($textures, $palette), feedbackArea: new CanvasRectangle(0, 80, 1350, 452));
+    $arena = new BattleCanvasLayout(1350, 720, skin: new BattleUiSkin($textures, $palette), feedbackArea: new CanvasRectangle(0, 80, 1350, 452));
     $field = GraphicalBattleHud::compose($arena, $hud, 'submenu', 0, $root);
     $skin = GraphicalBattleResults::prepare(resultsSkinFixture(), $root);
     $frame = GraphicalBattleResults::frame($field, $skin, new BattleResultsPlayback(resultsGraphicalFacts(), true));

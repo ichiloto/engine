@@ -29,6 +29,13 @@ final class RetainedFrameState
     return $frames;
   }
 
+  /** @param list<RendererMessage> $messages @return array<string, mixed> */
+  public static function getLatestFrame(array $messages): array
+  {
+    $frames = self::replay($messages);
+    return $frames[array_key_last($frames)] ?? throw new RuntimeException('No retained frame was presented.');
+  }
+
   /** Returns whether this transaction is ready to display, not merely staged. */
   public function applyMessage(RendererMessage $message): bool
   {

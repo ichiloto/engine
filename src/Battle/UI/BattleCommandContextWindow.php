@@ -145,7 +145,7 @@ class BattleCommandContextWindow extends Window implements CanFocus, CanChangeSe
     foreach (array_slice($this->items, $this->scrollOffset, $visibleRowCount, true) as $index => $item) {
       $rows[] = new BattleHudRow(
         $index, $item->label, $this->activeIndex === $index, $this->isAffordable($item),
-        $item->description, $item->mpCost,
+        $item->description, $item->mpCost, $item->type?->getIconRole(),
       );
     }
     [$currentPage, $totalPages] = $this->getPagination();
