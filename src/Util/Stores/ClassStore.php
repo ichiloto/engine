@@ -12,8 +12,8 @@ use Ichiloto\Engine\Entities\Roles\ExperienceCurveGenerator;
 use Ichiloto\Engine\Entities\Roles\ParameterCurveGenerator;
 use Ichiloto\Engine\Entities\Roles\SkillToLearn;
 use Ichiloto\Engine\Entities\Skills\Skill;
+use Ichiloto\Engine\Entities\Skills\SkillCatalog;
 use Ichiloto\Engine\Util\Debug;
-use Throwable;
 
 /**
  * Loads the project's character classes from `assets/Data/classes.php`.
@@ -248,7 +248,8 @@ class ClassStore
   /**
    * Resolves the class's level-gated skill grants.
    *
-   * Entries name a skill from `assets/Data/skills.php`:
+   * Entries name a skill in the project's skill catalogue, whichever data
+   * file authors it:
    * `['level' => 4, 'skill' => 'Dual Slash', 'note' => '']`.
    *
    * @param mixed $entries The authored `skillsToLearn` entries.
@@ -260,7 +261,7 @@ class ClassStore
       return [];
     }
 
-    $skillsByName = self::loadSkillsByName();
+    $catalog = SkillCatalog::getProjectCatalog();
     $grants = [];
 
     foreach ($entries as $entry) {
@@ -274,7 +275,7 @@ class ClassStore
       }
 
       $skillName = trim(strval($entry['skill'] ?? ''));
-      $skill = $skillsByName[$skillName] ?? null;
+      $skill = $catalog->findSkill($skillName);
 
       if (! $skill instanceof Skill) {
         Debug::warn(sprintf('Class references unknown skill: %s', $skillName));
@@ -289,38 +290,5 @@ class ClassStore
     }
 
     return $grants;
-  }
-
-  /**
-   * Loads the project's battle skills, keyed by name.
-   *
-   * @return array<string, Skill> The skills.
-   */
-  protected static function loadSkillsByName(): array
-  {
-    static $skills = null;
-
-    if ($skills !== null) {
-      return $skills;
-    }
-
-    $skills = [];
-    $filename = Path::join(Path::getCurrentWorkingDirectory(), 'assets', 'Data', 'skills.php');
-
-    if (! file_exists($filename)) {
-      return $skills;
-    }
-
-    try {
-      foreach ((array) require $filename as $skill) {
-        if ($skill instanceof Skill) {
-          $skills[$skill->name] = $skill;
-        }
-      }
-    } catch (Throwable $exception) {
-      Debug::warn(sprintf('Could not load skills for class grants: %s', $exception->getMessage()));
-    }
-
-    return $skills;
   }
 }
