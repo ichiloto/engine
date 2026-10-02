@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Cutscenes\Summons;
 
+use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
+
 /**
  * Represents one track in the authored summon cutscene timeline.
  *
@@ -21,10 +23,12 @@ final class SummonCutsceneTrack
     public string $type,
     public string $id,
     array $keyframes = [],
+    public string $presentation = 'all',
   )
   {
     $this->type = trim($type) !== '' ? trim($type) : 'glyph';
     $this->id = trim($id);
+    $this->presentation = EffectPresentation::validateTrack($presentation);
 
     foreach ($keyframes as $keyframe) {
       if ($keyframe instanceof SummonCutsceneKeyframe) {
@@ -48,6 +52,7 @@ final class SummonCutsceneTrack
       strval($data['type'] ?? 'glyph'),
       strval($data['id'] ?? ''),
       $keyframes,
+      EffectPresentation::validateTrack($data['presentation'] ?? 'all'),
     );
   }
 
@@ -76,6 +81,7 @@ final class SummonCutsceneTrack
     return [
       'type' => $this->type,
       'id' => $this->id,
+      ...($this->presentation === 'all' ? [] : ['presentation' => $this->presentation]),
       'keyframes' => array_map(
         static fn(SummonCutsceneKeyframe $keyframe): array => $keyframe->toArray(),
         $this->getKeyframes(),

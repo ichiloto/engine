@@ -12,12 +12,14 @@ final class EffectTimelineCompiler
   {
     $segments = [];
     foreach ($tracks as $track) {
+      $presentation = EffectPresentation::validateTrack($track['presentation'] ?? 'all');
       foreach ($track['keyframes'] as $keyframe) {
         $payload = $keyframe['payload'] ?? [];
         $segments[] = [
           'startFrame' => $keyframe['frame'],
           'endFrame' => $keyframe['frame'] + ($keyframe['duration'] ?? 1) - 1,
           'layer' => $track['type'],
+          'presentation' => $presentation,
           'drawCommands' => [[
             'trackId' => $track['id'],
             'position' => $keyframe['position'] ?? null,
