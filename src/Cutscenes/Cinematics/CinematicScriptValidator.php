@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Cutscenes\Cinematics;
 
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
 use InvalidArgumentException;
 use Ichiloto\Engine\Events\Interpreter\MovementRouteRunner;
 
@@ -41,7 +42,15 @@ final class CinematicScriptValidator
       }
 
       if (! in_array($type, CinematicCommandSchema::COMMAND_TYPES, true)) {
-        throw self::failure($cinematicId, $commandPath, sprintf('unknown command type "%s".', $type));
+        $definition = ScriptCommandRegistry::getCatalog()->findDefinition($type)
+          ?? throw self::failure($cinematicId, $commandPath, sprintf('unknown command type "%s".', $type));
+        $problems = $definition->findProblems($command);
+
+        if ($problems !== []) {
+          throw self::failure($cinematicId, $commandPath, implode(' ', $problems));
+        }
+
+        continue;
       }
 
       match ($type) {

@@ -143,25 +143,25 @@ final class ProjectReachability
       foreach ((array) ($map['data']['npcs'] ?? []) as $entry) {
         $npc = NpcPlacement::fromArray($entry);
 
-        foreach ($npc === null ? [] : self::findScriptedTransfers($entry) as $transfer) {
-          $addArrival($mapId, $transfer['map'], $transfer['x'], $transfer['y'],
-            "a scripted transfer by NPC {$npc->name} on {$mapId}", $besideNpc($npc));
+        foreach ($npc === null ? [] : self::findScriptedArrivals($entry, $mapId) as $arrival) {
+          $addArrival($mapId, $arrival['map'], $arrival['x'], $arrival['y'],
+            "a scripted {$arrival['kind']} by NPC {$npc->name} on {$mapId}", $besideNpc($npc));
         }
       }
 
       foreach ($map['data']['events'] as $definition) {
         $event = ReachabilityEvent::fromDefinition($definition);
 
-        foreach (self::findScriptedTransfers($definition['data'] ?? []) as $transfer) {
-          $addArrival($mapId, $transfer['map'], $transfer['x'], $transfer['y'],
-            sprintf('a scripted transfer in event %s on %s', $event->marker ?? '?', $mapId), $standingIn($event->area));
+        foreach (self::findScriptedArrivals($definition['data'] ?? [], $mapId) as $arrival) {
+          $addArrival($mapId, $arrival['map'], $arrival['x'], $arrival['y'],
+            sprintf('a scripted %s in event %s on %s', $arrival['kind'], $event->marker ?? '?', $mapId), $standingIn($event->area));
         }
       }
 
       $mapLevel = array_diff_key($map['data'], ['npcs' => true, 'events' => true]);
 
-      foreach (self::findScriptedTransfers($mapLevel) as $transfer) {
-        $addArrival($mapId, $transfer['map'], $transfer['x'], $transfer['y'], "a scripted transfer on {$mapId}",
+      foreach (self::findScriptedArrivals($mapLevel, $mapId) as $arrival) {
+        $addArrival($mapId, $arrival['map'], $arrival['x'], $arrival['y'], "a scripted {$arrival['kind']} on {$mapId}",
           static fn(): bool => true);
       }
     }
@@ -169,8 +169,10 @@ final class ProjectReachability
     foreach (self::findAuthoredScriptFiles($assetRoot) as $relative => $file) {
       $commands = self::requireIsolated($file);
 
-      foreach (self::findScriptedTransfers($commands) as $transfer) {
-        $addArrival($relative, $transfer['map'], $transfer['x'], $transfer['y'], "a scripted transfer in {$relative}", null);
+      // A shared script runs on whichever map calls it, so only its
+      // transfers name the map they arrive on.
+      foreach (self::findScriptedArrivals($commands, null) as $arrival) {
+        $addArrival($relative, $arrival['map'], $arrival['x'], $arrival['y'], "a scripted {$arrival['kind']} in {$relative}", null);
       }
     }
 
@@ -279,29 +281,38 @@ final class ProjectReachability
   }
 
   /**
-   * Finds every `transfer` command in an authored command structure,
-   * however deeply it is nested in branches, choices and dialogue.
+   * Finds every place an authored command structure puts the player,
+   * however deeply it is nested in branches, choices and dialogue: each
+   * `transfer`, and each `inn` stay that wakes the party elsewhere on the
+   * map running the script.
    *
-   * @return list<array{map: string, x: int, y: int}>
+   * @param string|null $currentMap The map the script runs on, when it is known.
+   * @return list<array{kind: string, map: string, x: int, y: int}>
    */
-  private static function findScriptedTransfers(mixed $node): array
+  private static function findScriptedArrivals(mixed $node, ?string $currentMap): array
   {
     if (! is_array($node)) {
       return [];
     }
 
-    $transfers = [];
+    $arrivals = [];
+    $type = $node['type'] ?? null;
 
-    if (($node['type'] ?? null) === 'transfer' && is_string($node['map'] ?? null)
+    if ($type === 'transfer' && is_string($node['map'] ?? null)
       && is_int($node['x'] ?? null) && is_int($node['y'] ?? null)) {
-      $transfers[] = ['map' => trim($node['map']), 'x' => $node['x'], 'y' => $node['y']];
+      $arrivals[] = ['kind' => 'transfer', 'map' => trim($node['map']), 'x' => $node['x'], 'y' => $node['y']];
+    }
+
+    if ($type === 'inn' && $currentMap !== null
+      && is_int($node['spawnPoint']['x'] ?? null) && is_int($node['spawnPoint']['y'] ?? null)) {
+      $arrivals[] = ['kind' => 'inn stay', 'map' => $currentMap, 'x' => $node['spawnPoint']['x'], 'y' => $node['spawnPoint']['y']];
     }
 
     foreach ($node as $child) {
-      array_push($transfers, ...self::findScriptedTransfers($child));
+      array_push($arrivals, ...self::findScriptedArrivals($child, $currentMap));
     }
 
-    return $transfers;
+    return $arrivals;
   }
 
   /** @return array{map: string, x: int, y: int}|null */

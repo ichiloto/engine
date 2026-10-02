@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Cutscenes\Cinematics;
 
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
 use InvalidArgumentException;
 
 /** Semantic safety rules shared by cinematic hydration and authoring tools. */
@@ -46,6 +47,13 @@ final class CinematicCommandPolicy
       if (in_array($type, CinematicCommandSchema::UNSAFE_AUTHORED_SKIP_COMMAND_TYPES, true)) {
         throw self::failure($cinematicId, $commandPath, sprintf(
           'authored skipping cannot reach irreversible command "%s".',
+          $type,
+        ));
+      }
+
+      if (ScriptCommandRegistry::getCatalog()->isRegistered($type)) {
+        throw self::failure($cinematicId, $commandPath, sprintf(
+          'authored skipping cannot prove registered command "%s" safe; registered commands are rejected conservatively.',
           $type,
         ));
       }

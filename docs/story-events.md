@@ -5,11 +5,12 @@ Ichiloto story events are ordered command lists executed by
 terminal is the rendering surface, not a replacement for field maps.
 
 Scripts live in `assets/Events/<script-id>.php` and are started from a map
-`ScriptEventTrigger`, an NPC conversation, or another engine call site. The
-interpreter owns one `EventExecutionSession` at a time. Immediate commands run
-in order, while dialogue, choices, waits, movement routes, transfers, and
-battles yield or suspend the session and continue it through the regular game
-loop.
+`ScriptEventTrigger`, an NPC conversation, or another engine call site.
+The Engine and projects can add commands; see
+[Registered commands](#registered-commands). The interpreter owns one
+`EventExecutionSession` at a time. Immediate commands run in order, while
+dialogue, choices, waits, movement routes, transfers, and battles yield or
+suspend the session and continue it through the regular game loop.
 
 These scripts are story events or reusable Common Events. First-class
 Cinematics add cast, camera, presentation, safe-skip, and final-state metadata
@@ -249,6 +250,100 @@ are omitted, escape remains allowed for backward compatibility. A forbidden
 battle omits the Escape command and rechecks the rule at resolution, so stale
 or directly queued input cannot produce an escaped result. Malformed values
 fail closed at validation and produce a controlled runtime event failure.
+
+## Registered commands
+
+Beside the built-in vocabulary (`CinematicCommandSchema::COMMAND_TYPES`), the
+interpreter runs commands registered in `ScriptCommandRegistry`: the Engine's
+own, and any a project declares. A registered command works wherever a script
+does: map triggers, NPC conversations, Common Events and cinematics.
+
+The Engine registers two services, so an NPC can own the interaction a
+trigger tile used to stand in for:
+
+```php
+// A shopkeeper's script: the script continues once the player leaves.
+['type' => 'text', 'name' => 'Shopkeeper', 'text' => 'Have a look.'],
+[
+  'type' => 'shop',
+  'items' => [['item' => 'Potion'], ['item' => 'Ether', 'price' => 120]],
+  'buyRate' => 1.0,  // optional
+  'sellRate' => 0.5, // optional
+],
+
+// An innkeeper's script.
+[
+  'type' => 'inn',
+  'confirmDialogue' => ['name' => 'Innkeeper', 'text' => 'A bed for 30 G?'],
+  'cost' => 30,                         // optional; 0
+  'spawnPoint' => ['x' => 4, 'y' => 2], // optional; the party wakes where they stand
+  'spawnSprite' => ['South'],           // optional; the current sprite
+  'bgm' => 'Inn Lullaby',               // optional; the project's sleep theme
+  'resultVariable' => 'inn_result',     // optional: stayed, declined or unaffordable
+],
+```
+
+These read the same data, through the same `ShopOffer` and `InnOffer`, as
+`ShopEventTrigger` and `SleepEventTrigger`, and run the same shop state and
+`InnStay` those triggers run. The stay's question and rest are shown
+synchronously, as the sleep trigger has always shown them. A stay's
+`spawnPoint` is an arrival on the map running the script, so
+[reachability](maps.md#reachability) checks it like any other.
+
+A project declares its own commands in `assets/Data/script-commands.php`, a
+file returning a list. Each declaration names its type, its handler class and
+the fields authors give it:
+
+```php
+use MyGame\Commands\HireCarriage;
+
+return [
+  [
+    'type' => 'hire_carriage',
+    'class' => HireCarriage::class,
+    'label' => 'Hire Carriage',
+    'description' => 'Takes the party along a road for a fare.',
+    'fields' => [
+      ['key' => 'destination', 'label' => 'Destination', 'kind' => 'reference', 'reference' => 'map', 'required' => true],
+      ['key' => 'arrival', 'label' => 'Arrival', 'kind' => 'position', 'required' => true],
+      ['key' => 'fare', 'label' => 'Fare', 'kind' => 'integer', 'minimum' => 0],
+    ],
+  ],
+];
+```
+
+Types are lower-case words joined by underscores, and may not reuse a
+built-in or already registered type. Field kinds are `text`, `integer`,
+`number`, `boolean`, `option` (with `options`), `reference` (with a
+`reference` of `item`, `music`, `sound`, `map`, `troop`, `quest` or `actor`),
+`position` (`x` and `y`) and `list` (with the `fields` of each entry; a list
+cannot hold another list). A key may be a dotted path into nested data, such
+as `confirmDialogue.text`. Because declarations are plain data, authoring
+tools read and validate them without loading project code.
+
+The handler implements `ScriptCommandHandlerInterface`, takes no constructor
+arguments, and returns `ScriptCommandOutcome::complete()` to continue in the
+same frame or `ScriptCommandOutcome::waitFor($operation)` to wait, one field
+tick at a time, on an `EventPendingOperationInterface`:
+
+```php
+final class HireCarriage implements ScriptCommandHandlerInterface
+{
+  public function execute(ScriptCommandContext $context, array $command): ScriptCommandOutcome
+  {
+    // $context->scene is the GameScene: party, player, world state.
+    return ScriptCommandOutcome::complete();
+  }
+}
+```
+
+The game reads the declarations at startup and refuses to start when one is
+malformed or names a handler that does not exist or implement the contract.
+Before a handler runs, the interpreter checks the command against its fields
+and fails the script closed with every problem and the command path; script
+validation applies the same checks. Authored cinematic skips reject
+registered commands conservatively, as they do Common Events, since the
+Engine cannot prove a project command safe to skip.
 
 ## Save safety
 

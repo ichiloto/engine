@@ -30,6 +30,7 @@ use Ichiloto\Engine\Events\Interfaces\StaticObserverInterface;
 use Ichiloto\Engine\Events\Interfaces\SubjectInterface;
 use Ichiloto\Engine\Entities\Elements\ElementRegistry;
 use Ichiloto\Engine\Entities\EquipmentOptimization\EquipmentOptimizationPolicyRegistry;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalCapabilities;
@@ -498,6 +499,7 @@ class Game implements CanRun, SubjectInterface
     private function initializeConfigStore(): void
     {
         EquipmentOptimizationPolicyRegistry::configureFromProject();
+        ScriptCommandRegistry::configureFromProject();
         ConfigStore::put(PlaySettings::class, new PlaySettings($this->options));
         ConfigStore::put(AppConfig::class, new AppConfig());
         ProjectFormat::assertSupported(config(AppConfig::class, ProjectFormat::KEY));

@@ -52,6 +52,19 @@ use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Stores\EnemyStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 use Assegai\Collections\ItemList;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandCatalog;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandContext;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandHandlerInterface;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandOutcome;
+use Ichiloto\Engine\Events\Interpreter\EventPendingOperationInterface;
+use Ichiloto\Engine\Inn\InnOffer;
+use Ichiloto\Engine\Inn\InnStay;
+use Ichiloto\Engine\Inn\InnStayOutcome;
+use Ichiloto\Engine\Messaging\Dialogue\ConfirmDialogue;
+use Ichiloto\Engine\Scenes\Game\States\FieldState;
+use Ichiloto\Engine\Scenes\Game\States\GameSceneState;
+use Ichiloto\Engine\Scenes\Game\States\ShopState;
+use Ichiloto\Engine\Scenes\SceneStateContext;
 
 final class EventTestPresentation implements EventPresentationInterface
 {
@@ -1931,7 +1944,7 @@ it('runs the original cinematic fixture to deterministic cleanup and save availa
   chdir($projectRoot);
   putSceneAudioConfig(['accessibility' => ['reducedMotion' => false]]);
   ConfigStore::put(PlaySettings::class, new SceneAudioConfigStub([
-    'screen' => ['width' => 20, 'height' => 10],
+    'screen' => ['screen' => ['width' => 20, 'height' => 10]],
   ]));
 
   try {
@@ -1988,7 +2001,7 @@ it('uses the same authored finalizer for skips before and after transfer', funct
   chdir($projectRoot);
   putSceneAudioConfig(['accessibility' => ['reducedMotion' => true]]);
   ConfigStore::put(PlaySettings::class, new SceneAudioConfigStub([
-    'screen' => ['width' => 20, 'height' => 10],
+    'screen' => ['screen' => ['width' => 20, 'height' => 10]],
   ]));
 
   try {
@@ -2047,7 +2060,7 @@ it('launches a stable cinematic id from an action trigger and completes after tr
     'save' => ['autosave' => true],
   ]);
   ConfigStore::put(PlaySettings::class, new SceneAudioConfigStub([
-    'screen' => ['width' => 20, 'height' => 10],
+    'screen' => ['screen' => ['width' => 20, 'height' => 10]],
   ]));
 
   try {
@@ -2373,7 +2386,7 @@ it('does not let a second skip cancel an active authored finalizer', function ()
 it('uses cinematic transition coverage without the legacy blocking transfer transition', function (bool $reducedMotion) {
   putSceneAudioConfig(['accessibility' => ['reducedMotion' => $reducedMotion]]);
   ConfigStore::put(PlaySettings::class, new SceneAudioConfigStub([
-    'screen' => ['width' => 20, 'height' => 10],
+    'screen' => ['screen' => ['width' => 20, 'height' => 10]],
   ]));
 
   try {
@@ -2767,4 +2780,208 @@ it('enforces and diagnoses the complete staged-actor collision policy', function
   expect($scene->cinematicStage?->move('ghost-route', new Vector2(1, 0)))->toBeTrue()
     ->and([$ghost?->position->x, $ghost?->position->y])->toBe([2.0, 1.0])
     ->and($scene->cinematicStage?->lastMoveFailure)->toBeNull();
+});
+
+final class RegisteredTestCarriageCommand implements ScriptCommandHandlerInterface
+{
+  /** @var list<array{?string, mixed, mixed}> */
+  public static array $calls = [];
+  public static ?RegisteredTestJourney $journey = null;
+
+  public function execute(ScriptCommandContext $context, array $command): ScriptCommandOutcome
+  {
+    self::$calls[] = [$context->scriptId, $context->origin['npc'] ?? null, $command['destination'] ?? null];
+    $context->scene->gameState->setSwitch('carriage_hired', true);
+
+    return self::$journey === null ? ScriptCommandOutcome::complete() : ScriptCommandOutcome::waitFor(self::$journey);
+  }
+}
+
+final class RegisteredTestJourney implements EventPendingOperationInterface
+{
+  public bool $hasArrived = false;
+  public float $elapsed = 0.0;
+
+  public function update(float $deltaSeconds): bool
+  {
+    $this->elapsed += $deltaSeconds;
+
+    return $this->hasArrived;
+  }
+
+  public function cancel(): void
+  {
+  }
+}
+
+/** A scene whose state changes are recorded rather than entered, as the shop's screens need a terminal. */
+final class ScriptCommandTestGameScene extends EventTestGameScene
+{
+  public function installFieldState(): FieldState
+  {
+    return $this->fieldState = new FieldState(new SceneStateContext($this));
+  }
+
+  public function setState(GameSceneState $state): void
+  {
+    $this->state = $state;
+  }
+}
+
+final class InnTestConfirmDialogue extends ConfirmDialogue
+{
+  public int $shown = 0;
+
+  public function __construct(private readonly int $answer)
+  {
+    parent::__construct('Keeper', 'Rest for 30 G?');
+  }
+
+  public function show(): void
+  {
+    $this->shown++;
+    $this->selectedChoice = $this->answer;
+  }
+}
+
+/** @return array{EventTestGameScene, EventInterpreter} */
+function makeRegisteredCommandRuntime(): array
+{
+  $catalog = ScriptCommandCatalog::fromDeclarations([[
+    'type' => 'hire_carriage',
+    'class' => RegisteredTestCarriageCommand::class,
+    'label' => 'Hire Carriage',
+    'fields' => [['key' => 'destination', 'label' => 'Destination', 'kind' => 'reference', 'reference' => 'map', 'required' => true]],
+  ]], 'test project');
+  $scene = new EventTestGameScene();
+  $interpreter = new EventInterpreter($scene, new EventTestPresentation(), $catalog);
+  $scene->installInterpreter($interpreter);
+  RegisteredTestCarriageCommand::$calls = [];
+  RegisteredTestCarriageCommand::$journey = null;
+
+  return [$scene, $interpreter];
+}
+
+it('runs a project command with its script context and continues in the same frame', function () {
+  [$scene, $interpreter] = makeRegisteredCommandRuntime();
+
+  $session = $interpreter->run([
+    ['type' => 'hire_carriage', 'destination' => 'harbour'],
+    ['type' => 'record_event', 'name' => 'carriage_left'],
+  ], 'npc:map-a:driver', null, ['npc' => 'driver']);
+
+  expect($session?->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and(RegisteredTestCarriageCommand::$calls)->toBe([['npc:map-a:driver', 'driver', 'harbour']])
+    ->and($scene->gameState->getSwitch('carriage_hired'))->toBeTrue()
+    ->and($scene->gameState->hasStoryEvent('carriage_left'))->toBeTrue();
+});
+
+it('waits on a project command operation one field tick at a time', function () {
+  [$scene, $interpreter] = makeRegisteredCommandRuntime();
+  RegisteredTestCarriageCommand::$journey = $journey = new RegisteredTestJourney();
+
+  $session = $interpreter->run([
+    ['type' => 'hire_carriage', 'destination' => 'harbour'],
+    ['type' => 'record_event', 'name' => 'carriage_arrived'],
+  ], 'carriage');
+  $interpreter->update(0.25);
+
+  expect($session?->status)->toBe(EventExecutionStatus::YIELDED)
+    ->and($journey->elapsed)->toBe(0.25)
+    ->and($scene->gameState->hasStoryEvent('carriage_arrived'))->toBeFalse();
+
+  $journey->hasArrived = true;
+  $interpreter->update(0.1);
+
+  expect($session?->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and($scene->gameState->hasStoryEvent('carriage_arrived'))->toBeTrue()
+    ->and(RegisteredTestCarriageCommand::$calls)->toHaveCount(1);
+});
+
+it('fails a project command closed before its handler runs when a field is wrong', function () {
+  [$scene, $interpreter] = makeRegisteredCommandRuntime();
+
+  $session = $interpreter->run([
+    ['type' => 'hire_carriage'],
+    ['type' => 'record_event', 'name' => 'must_not_run'],
+  ], 'carriage');
+
+  expect($session?->status)->toBe(EventExecutionStatus::FAILED)
+    ->and($session?->failureMessage)->toContain('type "hire_carriage"')
+    ->and($session?->failureMessage)->toContain('"destination" is required.')
+    ->and(RegisteredTestCarriageCommand::$calls)->toBe([])
+    ->and($scene->gameState->hasStoryEvent('must_not_run'))->toBeFalse();
+});
+
+it('opens a shop from a script and continues once the player leaves it', function () {
+  $store = (new ReflectionClass(ItemStore::class))->newInstanceWithoutConstructor();
+  $store->set('Test Blade', new Ichiloto\Engine\Entities\Inventory\Weapons\Weapon('Test Blade', 'A test weapon.', '/', 10));
+  ConfigStore::put(ItemStore::class, $store);
+
+  try {
+    $scene = new ScriptCommandTestGameScene();
+    $field = $scene->installFieldState();
+    $scene->setState($field);
+    $interpreter = new EventInterpreter($scene, new EventTestPresentation());
+    $scene->installInterpreter($interpreter);
+
+    $session = $interpreter->run([
+      ['type' => 'shop', 'items' => [['item' => 'Test Blade', 'price' => 7]], 'sellRate' => 0.25],
+      ['type' => 'record_event', 'name' => 'left_shop'],
+    ], 'npc:map-a:smith');
+    $shop = $scene->state;
+
+    expect($shop)->toBeInstanceOf(ShopState::class)
+      ->and(array_map(static fn($item): array => [$item->name, $item->price], $shop->merchandise))->toBe([['Test Blade', 7]])
+      ->and([$shop->traderBuyRate, $shop->traderSellRate])->toBe([1.0, 0.25])
+      ->and($session?->status)->toBe(EventExecutionStatus::YIELDED);
+
+    $interpreter->update(0.1);
+    expect($scene->gameState->hasStoryEvent('left_shop'))->toBeFalse();
+
+    $scene->setState($field);
+    $interpreter->update(0.1);
+
+    expect($session?->status)->toBe(EventExecutionStatus::COMPLETED)
+      ->and($scene->gameState->hasStoryEvent('left_shop'))->toBeTrue()
+      ->and($store->get('Test Blade')?->price)->toBe(10);
+  } finally {
+    ConfigStore::remove(ItemStore::class);
+  }
+});
+
+it('leaves the party unrested and unpaid when they decline a stay', function () {
+  [$scene] = makeEventRuntime();
+  $scene->party->credit(50);
+  $dialogue = new InnTestConfirmDialogue(1);
+
+  expect(new InnStay(new InnOffer($dialogue, cost: 30))->perform($scene))->toBe(InnStayOutcome::DECLINED)
+    ->and($dialogue->shown)->toBe(1)
+    ->and($scene->party->accountBalance)->toBe(50);
+});
+
+it('rests the party where they stand when the inn names no place to wake', function () {
+  $before = new ReflectionClass(ConfigStore::class)->getStaticProperties();
+  putSceneAudioConfig(['inn' => ['sleep_time' => 1]]);
+  ConfigStore::put(PlaySettings::class, new SceneAudioConfigStub(['screen' => ['width' => 20, 'height' => 10]]));
+
+  try {
+    [$scene] = makeEventRuntime();
+    $scene->installPlayer($player = new EventTestPlayer(new Vector2(3, 2)));
+    $member = new Character('Weary', 0, new Stats(currentHp: 5, currentMp: 1, totalHp: 100, totalMp: 20));
+    $scene->party->addMember($member);
+    $scene->party->credit(50);
+
+    $outcome = new InnStay(new InnOffer(new InnTestConfirmDialogue(InnStay::CONFIRM_CHOICE), cost: 30))->perform($scene);
+
+    expect($outcome)->toBe(InnStayOutcome::STAYED)
+      ->and($scene->party->accountBalance)->toBe(20)
+      ->and([$member->stats->currentHp, $member->stats->currentMp])->toBe([100, 20])
+      ->and([$player->position->x, $player->position->y])->toEqual([3, 2])
+      ->and($scene->mapManager->renderCount)->toBe(1);
+  } finally {
+    foreach ($before as $name => $value) {
+      new ReflectionProperty(ConfigStore::class, $name)->setValue(null, $value);
+    }
+  }
 });

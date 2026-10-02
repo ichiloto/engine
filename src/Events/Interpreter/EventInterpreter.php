@@ -21,6 +21,9 @@ use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
 use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
 use Ichiloto\Engine\Audio\CinematicMusicOperation;
 use Ichiloto\Engine\Audio\CinematicMusicRequest;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandCatalog;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandContext;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
 use Ichiloto\Engine\Field\Location;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Game\GameScene;
@@ -41,15 +44,22 @@ use Throwable;
  */
 class EventInterpreter
 {
-  /** The single runtime/editor command vocabulary. */
+  /**
+   * The built-in command vocabulary. Commands the Engine and the project
+   * register run through ScriptCommandRegistry beside these.
+   */
   public const array COMMAND_TYPES = CinematicCommandSchema::COMMAND_TYPES;
 
   protected ?EventExecutionSession $activeSession = null;
   protected(set) ?EventExecutionSession $lastSession = null;
 
+  /**
+   * @param ScriptCommandCatalog|null $scriptCommands The registered commands; the project's when omitted.
+   */
   public function __construct(
     protected GameScene $gameScene,
     protected ?EventPresentationInterface $presentation = null,
+    protected ?ScriptCommandCatalog $scriptCommands = null,
   )
   {
     $this->presentation ??= new ModalEventPresentation($gameScene);
@@ -781,8 +791,41 @@ class EventInterpreter
         return EventCommandResult::YIELDED;
 
       default:
-        throw new RuntimeException($this->unknownCommandDiagnostic($session, $lane, $type));
+        return $this->executeRegisteredCommand($session, $lane, $command, $type);
     }
+  }
+
+  /**
+   * Runs a command registered by the Engine or the project, failing closed
+   * when the type is unknown or the command does not match its definition.
+   */
+  protected function executeRegisteredCommand(
+    EventExecutionSession $session,
+    EventExecutionLane $lane,
+    array $command,
+    string $type,
+  ): EventCommandResult
+  {
+    $catalog = $this->scriptCommands ?? ScriptCommandRegistry::getCatalog();
+    $definition = $catalog->findDefinition($type)
+      ?? throw new RuntimeException($this->unknownCommandDiagnostic($session, $lane, $type));
+    $problems = $definition->findProblems($command);
+
+    if ($problems !== []) {
+      throw new RuntimeException(implode(' ', $problems));
+    }
+
+    $outcome = $catalog->createHandler($type)->execute(
+      new ScriptCommandContext($this->gameScene, $session->scriptId, $session->origin),
+      $command,
+    );
+
+    if ($outcome->operation === null) {
+      return EventCommandResult::COMPLETED;
+    }
+
+    $lane->yieldFor($command, ['kind' => 'registered'], $outcome->operation);
+    return EventCommandResult::YIELDED;
   }
 
   /**

@@ -245,3 +245,33 @@ it('reaches maps only through arrivals the player can get to from the start', fu
     removeReachabilityProject($root);
   }
 });
+
+it('wakes the party where an innkeeper script says, on the map running it', function () {
+  $root = sys_get_temp_dir() . '/ichiloto-reachability-' . bin2hex(random_bytes(4));
+  $assets = "{$root}/assets";
+  mkdir("{$assets}/Data", 0777, true);
+  mkdir("{$assets}/Events", 0777, true);
+  $inn = static fn(array $spawnPoint): array => ['type' => 'inn', 'confirmDialogue' => ['text' => 'Rest?'], 'spawnPoint' => $spawnPoint];
+  // The wall seals the east strip; only the stay wakes the party there.
+  writeReachabilityMap($assets, 'inn', ['...#.', '...#.'], ['     ', '     '], [
+    'npcs' => [
+      ['name' => 'Keeper', 'x' => 1, 'y' => 0, 'script' => [$inn(['x' => 4, 'y' => 1])]],
+      ['name' => 'Porter', 'x' => 2, 'y' => 0, 'script' => [['type' => 'inn', 'confirmDialogue' => ['text' => 'Rest?']], $inn(['x' => 3, 'y' => 1])]],
+    ],
+  ]);
+  file_put_contents("{$assets}/Maps/collisions.php", "<?php\nuse Ichiloto\\Engine\\Events\\Enumerations\\CollisionType;\nreturn ['.' => CollisionType::NONE, '#' => CollisionType::SOLID, ' ' => CollisionType::NONE];\n");
+  file_put_contents("{$assets}/Data/system.php", "<?php\nreturn ['startingPositions' => ['player' => ['destinationMap' => 'inn', 'spawnPoint' => ['x' => 0, 'y' => 1], 'spawnSprite' => ['South']]]];\n");
+  // A shared script runs on whichever map calls it, so its stay names no map.
+  file_put_contents("{$assets}/Events/rest.php", '<?php return ' . var_export([$inn(['x' => 9, 'y' => 9])], true) . ';');
+
+  try {
+    $project = ProjectReachability::analyze($assets);
+
+    expect($project->reports['inn']->isReachable(4, 0))->toBeTrue()
+      ->and(reachabilityProblems($project->getAllProblems()))->toBe([
+        'blocked_entrance: The player arrives at (3, 1) from a scripted inn stay by NPC Porter on inn, on a cell the player cannot stand on.',
+      ]);
+  } finally {
+    removeReachabilityProject($root);
+  }
+});

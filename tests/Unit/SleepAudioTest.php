@@ -1,20 +1,16 @@
 <?php
 
 use Ichiloto\Engine\Audio\AudioManager;
-use Ichiloto\Engine\Entities\Actions\SleepAction;
-use Ichiloto\Engine\Events\Triggers\SleepEventTrigger;
-use Ichiloto\Engine\Util\Config\ConfigStore;
-use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Inn\InnOffer;
+use Ichiloto\Engine\Inn\InnStay;
+use Ichiloto\Engine\Messaging\Dialogue\ConfirmDialogue;
 
 /**
- * Builds a sleep trigger without running its data-driven configuration.
+ * Builds the stay an inn offers, as the sleep trigger and the inn command do.
  */
-function makeSleepTrigger(?string $backgroundMusic = null): SleepEventTrigger
+function makeInnStay(?string $backgroundMusic = null): InnStay
 {
-  $trigger = (new ReflectionClass(SleepEventTrigger::class))->newInstanceWithoutConstructor();
-  new ReflectionProperty(SleepEventTrigger::class, 'backgroundMusic')->setValue($trigger, $backgroundMusic);
-
-  return $trigger;
+  return new InnStay(new InnOffer(new ConfirmDialogue('', 'Rest here?'), backgroundMusic: $backgroundMusic));
 }
 
 /**
@@ -44,10 +40,10 @@ afterEach(function () {
 
 it('plays the configured sleep theme while the party rests', function () {
   putSceneAudioConfig(['audio' => ['bgm' => ['sleep' => 'moonlit-pillow']]]);
-  $action = new SleepAction(makeSleepTrigger());
+  $stay = makeInnStay();
 
-  $calls = captureSleepAudioCalls(function () use ($action) {
-    $started = new ReflectionMethod(SleepAction::class, 'playSleepMusic')->invoke($action);
+  $calls = captureSleepAudioCalls(function () use ($stay) {
+    $started = new ReflectionMethod(InnStay::class, 'playSleepMusic')->invoke($stay);
     expect($started)->toBeTrue();
   });
 
@@ -56,10 +52,10 @@ it('plays the configured sleep theme while the party rests', function () {
 
 it('lets an inn declare its own rest theme', function () {
   putSceneAudioConfig(['audio' => ['bgm' => ['sleep' => 'moonlit-pillow']]]);
-  $action = new SleepAction(makeSleepTrigger('grand-suite-lullaby'));
+  $stay = makeInnStay('grand-suite-lullaby');
 
-  $calls = captureSleepAudioCalls(function () use ($action) {
-    new ReflectionMethod(SleepAction::class, 'playSleepMusic')->invoke($action);
+  $calls = captureSleepAudioCalls(function () use ($stay) {
+    new ReflectionMethod(InnStay::class, 'playSleepMusic')->invoke($stay);
   });
 
   expect($calls)->toBe([['playBackgroundMusic', 'grand-suite-lullaby']]);
@@ -67,10 +63,10 @@ it('lets an inn declare its own rest theme', function () {
 
 it('leaves the music alone when no sleep theme is configured', function () {
   putSceneAudioConfig([]);
-  $action = new SleepAction(makeSleepTrigger());
+  $stay = makeInnStay();
 
-  $calls = captureSleepAudioCalls(function () use ($action) {
-    $started = new ReflectionMethod(SleepAction::class, 'playSleepMusic')->invoke($action);
+  $calls = captureSleepAudioCalls(function () use ($stay) {
+    $started = new ReflectionMethod(InnStay::class, 'playSleepMusic')->invoke($stay);
     expect($started)->toBeFalse();
   });
 
@@ -78,46 +74,41 @@ it('leaves the music alone when no sleep theme is configured', function () {
 });
 
 it('restores the track that was playing before the rest', function () {
-  $action = new SleepAction(makeSleepTrigger());
+  $stay = makeInnStay();
 
-  $calls = captureSleepAudioCalls(function () use ($action) {
-    new ReflectionMethod(SleepAction::class, 'restoreMusic')->invoke($action, 'town-theme', true);
+  $calls = captureSleepAudioCalls(function () use ($stay) {
+    new ReflectionMethod(InnStay::class, 'restoreMusic')->invoke($stay, 'town-theme', true);
   });
 
   expect($calls)->toBe([['playBackgroundMusic', 'town-theme']]);
 });
 
 it('returns to silence when nothing was playing before the rest', function () {
-  $action = new SleepAction(makeSleepTrigger());
+  $stay = makeInnStay();
 
-  $calls = captureSleepAudioCalls(function () use ($action) {
-    new ReflectionMethod(SleepAction::class, 'restoreMusic')->invoke($action, null, true);
+  $calls = captureSleepAudioCalls(function () use ($stay) {
+    new ReflectionMethod(InnStay::class, 'restoreMusic')->invoke($stay, null, true);
   });
 
   expect($calls)->toBe([['stopBackgroundMusic', null]]);
 });
 
 it('does not touch the music when the rest never interrupted it', function () {
-  $action = new SleepAction(makeSleepTrigger());
+  $stay = makeInnStay();
 
-  $calls = captureSleepAudioCalls(function () use ($action) {
-    new ReflectionMethod(SleepAction::class, 'restoreMusic')->invoke($action, 'town-theme', false);
+  $calls = captureSleepAudioCalls(function () use ($stay) {
+    new ReflectionMethod(InnStay::class, 'restoreMusic')->invoke($stay, 'town-theme', false);
   });
 
   expect($calls)->toBeEmpty();
 });
 
-it('reads the inn theme from trigger data', function () {
-  $trigger = (new ReflectionClass(SleepEventTrigger::class))->newInstanceWithoutConstructor();
-  new ReflectionProperty(SleepEventTrigger::class, 'data')
-    ->setValue($trigger, (object) ['bgm' => '  grand-suite-lullaby  ']);
-
-  // configure() also reads required fields, so exercise just the music parse
-  // by re-running the trimming rule it applies.
-  $raw = trim(strval($trigger->data->bgm ?? ''));
-
-  expect($raw)->toBe('grand-suite-lullaby');
-});
+it('reads the inn theme from the shared inn data', function (array|object $data) {
+  expect(InnOffer::fromData($data)->backgroundMusic)->toBe('grand-suite-lullaby');
+})->with([
+  'script command array' => [['confirmDialogue' => ['text' => 'Rest here?'], 'bgm' => '  grand-suite-lullaby  ']],
+  'decoded trigger data' => [(object) ['confirmDialogue' => (object) ['text' => 'Rest here?'], 'bgm' => 'grand-suite-lullaby']],
+]);
 
 it('exposes the current background music for callers that interrupt it', function () {
   [, $audioManager] = makeSceneAudioGame();
