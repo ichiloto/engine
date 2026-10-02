@@ -130,6 +130,15 @@ class Spellbook
     ));
   }
 
+  /** @return MagicSkill[] The learned spells usable during combat. */
+  public function getBattleUsableSpells(): array
+  {
+    return array_values(array_filter(
+      $this->getLearnedSpells(),
+      static fn(MagicSkill $spell): bool => in_array($spell->occasion, [Occasion::ALWAYS, Occasion::BATTLE_SCREEN], true)
+    ));
+  }
+
   /**
    * Adds a learned spell to the spellbook.
    *

@@ -20,6 +20,7 @@ use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Stores\ActorStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
+use Ichiloto\Engine\Battle\BattleCommandType;
 use Throwable;
 
 /**
@@ -243,6 +244,7 @@ class ArenaScene extends AbstractScene
   {
     try {
       $actors = ConfigStore::get(ActorStore::class);
+      $loadouts = BattleTestLoadoutCatalog::getProjectCatalog();
       $setup = $this->getGame()->options[self::SETUP_OPTION] ?? null;
       $setup = $setup instanceof BattleTestSetup
         ? $setup
@@ -255,12 +257,40 @@ class ArenaScene extends AbstractScene
         fn(string $actorId): array => array_map(static fn($slot): string => $slot->name, $this->createProbe($actorId)->equipment),
         fn(string $actorId, string $slotName): array => $this->getEquipmentChoices($actorId, $slotName),
         fn(string $actorId): int => $this->createProbe($actorId)->maxLevel,
+        fn(BattleTestMember $member, string $field): array => $this->getLoadoutChoices($loadouts, $member, $field),
       );
     } catch (Throwable $exception) {
       Debug::error(sprintf('The arena could not set up a party: %s', $exception->getMessage()));
 
       return null;
     }
+  }
+
+  /** @return list<array{id: ?string, name: string}> */
+  protected function getLoadoutChoices(BattleTestLoadoutCatalog $catalog, BattleTestMember $member, string $field): array
+  {
+    if ($field === 'commands') {
+      return [['id' => null, 'name' => 'Normal commands'], ...array_map(
+        fn(BattleCommandType $type): array => ['id' => $type->value, 'name' => $type->labelForRole($this->createProbe($member->actorId)->role->name)],
+        BattleCommandType::cases(),
+      )];
+    }
+    $choices = match ($field) {
+      'skills' => $catalog->getSkillChoices(false),
+      'magic' => $catalog->getSkillChoices(true),
+      'summons' => $catalog->getSummonChoices($this->createProbe($member->actorId)),
+      default => [],
+    };
+    if ($field === 'summons') {
+      $choices = array_values(array_filter($choices, function ($choice) use ($member): bool {
+        if (in_array($choice['id'], $member->summons, true)) { return true; }
+        $candidate = $this->editor?->setup->withMember($this->editor->memberIndex, $member->withSummons(
+          array_values(array_unique([...$member->summons, $choice['id']])),
+        ));
+        return $candidate?->getProblems(ConfigStore::get(ActorStore::class), ConfigStore::get(ItemStore::class)) === [];
+      }));
+    }
+    return [['id' => null, 'name' => 'Clear extra grants'], ...$choices];
   }
 
   /** A character of the actor as authored, to read its slots and limits. */
@@ -432,6 +462,9 @@ class ArenaScene extends AbstractScene
         $field === 'actor' => sprintf('%-12s< %s >', 'Actor', $this->getActorName($member->actorId)),
         $field === 'level' => sprintf('%-12s< %d >', 'Level', $member->level),
         $field === 'remove' => 'Remove from the party',
+        $field === 'commands' => sprintf('%-12s%s', 'Commands', $member->commands === null ? '(Normal)' : implode(', ', array_column($member->commands, 'value'))),
+        $field === 'skills' || $field === 'magic' => sprintf('%-12s%s', ucfirst($field), 'Choose extra learned actions'),
+        $field === 'summons' => sprintf('%-12s%s', 'Summons', $member->summons === [] ? '(No extra grants)' : implode(', ', $member->summons)),
         default => sprintf('%-12s%s', substr($field, 5),
           ($id = $member->equipment[substr($field, 5)] ?? null) === null ? '(None)' : $items->displayNameFor($id)),
       };
@@ -449,9 +482,12 @@ class ArenaScene extends AbstractScene
   {
     $editor = $this->editor;
     $field = $editor?->fields[$editor->fieldIndex] ?? '';
-
-    return [sprintf('%s for %s', substr($field, 5), $this->getActorName($editor?->member?->actorId ?? '')),
-      'enter:Equip  esc:Back', array_column($editor?->getChoices() ?? [], 'name'), $editor?->choiceIndex];
+    $equipment = str_starts_with($field, 'slot:');
+    $choices = $editor?->getChoices() ?? [];
+    $rows = array_map(static fn($choice): string => $equipment ? $choice['name']
+      : (($editor?->isChoiceSelected($choice['id']) ? '[x] ' : '[ ] ') . $choice['name']), $choices);
+    return [sprintf('%s for %s', $equipment ? substr($field, 5) : ucfirst($field), $this->getActorName($editor?->member?->actorId ?? '')),
+      $equipment ? 'enter:Equip  esc:Back' : 'enter:Toggle  esc:Done  test grants only', $rows, $editor?->choiceIndex];
   }
 
   protected function getActorName(string $actorId): string

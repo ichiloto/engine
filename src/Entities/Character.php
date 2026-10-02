@@ -6,6 +6,7 @@ use Exception;
 use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Battle\BattleAction;
 use Ichiloto\Engine\Battle\BattleCommandType;
+use Ichiloto\Engine\Battle\BattleCommandLoadout;
 use Ichiloto\Engine\Battle\Resolution\ElementalAffinityResolver;
 use Ichiloto\Engine\Entities\Abilities\AbilityBook;
 use Ichiloto\Engine\Entities\Interfaces\CanEquip;
@@ -179,6 +180,8 @@ class Character implements CharacterInterface, CanEquip
       ];
     }
   }
+  /** Only fresh sandbox characters receive this; serialization deliberately excludes it. */
+  public ?BattleCommandLoadout $battleCommandLoadout = null;
   /**
    * @var array The character's equipment.
    */
@@ -1151,11 +1154,12 @@ class Character implements CharacterInterface, CanEquip
    */
   protected function bindDataToProperties(array $data): void
   {
+    $this->battleCommandLoadout = null;
     $persistentStates = is_array($data['states'] ?? null) ? $data['states'] : [];
     $roleName = null;
 
     foreach ($data as $key => $value) {
-      if ($key === 'states') {
+      if ($key === 'states' || $key === 'battleCommandLoadout') {
         continue;
       }
 

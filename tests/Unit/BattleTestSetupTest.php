@@ -8,6 +8,11 @@ use Ichiloto\Engine\Scenes\Arena\BattleTestSetup;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Stores\ActorStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
+use Ichiloto\Engine\Battle\BattleCommandCatalog;
+use Ichiloto\Engine\Battle\BattleCommandType;
+use Ichiloto\Engine\Scenes\Arena\BattleTestLoadoutCatalog;
+use Ichiloto\Engine\Entities\Skills\SkillCatalog;
+use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 
 function battleTestActor(string $id, int $currentExp = 0): ActorDefinition
 {
@@ -44,6 +49,149 @@ afterEach(function () {
     RecursiveIteratorIterator::CHILD_FIRST);
   foreach ($files as $file) { $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname()); }
   rmdir($this->root);
+});
+
+function writeBattleLoadoutSources(string $root): void
+{
+  file_put_contents($root . '/assets/Data/abilities.php', <<<'PHP'
+  <?php
+  use Ichiloto\Engine\Entities\Skills\SpecialSkill;
+  use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDamageSkillEffect;
+  return [
+    new SpecialSkill('Test Strike', '', '', 2, 0),
+    new SpecialSkill('Test Call', '', '', 4, 0, effects: [new HPDamageSkillEffect('12', variance: 0)]),
+    new SpecialSkill('Test Open Call', '', '', 4, 0),
+  ];
+  PHP);
+  file_put_contents($root . '/assets/Data/magic.php', <<<'PHP'
+  <?php
+  use Ichiloto\Engine\Entities\Skills\MagicSkill;
+  use Ichiloto\Engine\Entities\Enumerations\Occasion;
+  return [new MagicSkill('Test Flame', '', '', 3, 0), new MagicSkill('Test Travel', '', '', 0, 0, occasion: Occasion::MENU_SCREEN)];
+  PHP);
+  foreach (['test-call', 'open-call', 'broken-call'] as $id) {
+    $directory = $root . '/assets/Cutscenes/Summons/' . $id;
+    mkdir($directory, 0777, true);
+    $data = ['id' => $id, 'name' => ucfirst($id), 'linkedActionId' => match ($id) {
+      'broken-call' => 'Missing action', 'open-call' => 'Test Open Call', default => 'Test Call',
+    },
+      'availability' => ['conditions' => [['type' => 'event', 'name' => 'unearned_story_unlock']]]];
+    if ($id === 'test-call') {
+      $data['wielders'] = ['mode' => 'characters', 'characters' => ['Hero'], 'tenancy' => 'exclusive'];
+    }
+    file_put_contents($directory . '/' . $id . '.data.php', '<?php return ' . var_export($data, true) . ';');
+    file_put_contents($directory . '/' . $id . '.timeline.php', "<?php return ['fps' => 12, 'lengthFrames' => 2, 'tracks' => [], 'cues' => []];");
+  }
+}
+
+it('grants isolated battle commands, abilities and spells without modifying actor definitions', function () {
+  writeBattleLoadoutSources($this->root);
+  $member = new BattleTestMember('hero', 1, commands: [BattleCommandType::SKILL, BattleCommandType::MAGIC],
+    skills: ['Test Strike', 'Test Flame']);
+  $setup = new BattleTestSetup([$member]);
+  $party = $setup->createParty($this->actors, $this->items);
+  $hero = $party->leader;
+  expect(array_column(BattleCommandCatalog::buildCommands($hero, $party), 'name'))->toBe(['Skill', 'Magic'])
+    ->and(array_column(BattleCommandCatalog::buildOptions($hero, $party, 'Skill'), 'label'))->toBe(['Test Strike (2 MP)'])
+    ->and(array_column(BattleCommandCatalog::buildOptions($hero, $party, 'Magic'), 'label'))->toBe(['Test Flame (3 MP)'])
+    ->and(BattleCommandCatalog::buildOptions($hero, $party, 'Attack'))->toBe([])
+    ->and($this->actors->require('hero', 'test')->createCharacter()->battleCommandLoadout)->toBeNull()
+    ->and($this->actors->require('hero', 'test')->createCharacter()->spellbook->getLearnedSpells())->toBe([])
+    ->and($setup->createParty($this->actors, $this->items)->leader)->not->toBe($hero)
+    ->and(BattleTestSetup::getFromParty($party)->members[0]->skills)->toBe($member->skills);
+});
+
+it('makes an explicitly selected gated summon usable at menu and resolution with normal cost and effect', function () {
+  writeBattleLoadoutSources($this->root);
+  // One action per summon, as authored projects require.
+  unlink($this->root . '/assets/Cutscenes/Summons/open-call/open-call.data.php');
+  $party = new BattleTestSetup([new BattleTestMember('hero', 1, summons: ['test-call'])])->createParty($this->actors, $this->items);
+  $hero = $party->leader;
+  $option = BattleCommandCatalog::buildOptions($hero, $party, 'Summon')[0];
+  expect($hero->hasSummon('test-call'))->toBeTrue()
+    ->and($option->type)->toBe(BattleCommandType::SUMMON)
+    ->and(BattleCommandCatalog::canUseSummonAction($hero, $party, 'Test Call'))->toBeTrue()
+    ->and(new SummonCutsceneLibrary()->loadCompiledOrCompileByLinkedActionId('Test Call'))->not->toBeNull();
+  $target = battleTestActor('target')->createCharacter();
+  $before = $hero->stats->currentMp;
+  $option->action->execute($hero, [$target]);
+  expect($hero->stats->currentMp)->toBe($before - 4)
+    ->and($option->action->lastResult)->not->toBeNull()
+    ->and($target->stats->currentHp)->toBeLessThan(40);
+  $hero->unassignSummon('test-call');
+  expect(BattleCommandCatalog::canUseSummonAction($hero, $party, 'Test Call'))->toBeFalse()
+    ->and(BattleCommandCatalog::buildOptions($hero, $party, 'Summon'))->toBe([]);
+});
+
+it('does not leak sandbox story access into ordinary parties or restored characters', function () {
+  writeBattleLoadoutSources($this->root);
+  unlink($this->root . '/assets/Cutscenes/Summons/open-call/open-call.data.php');
+  $party = new BattleTestSetup([new BattleTestMember('hero', 1, summons: ['test-call'])])->createParty($this->actors, $this->items);
+  $restored = unserialize(serialize($party->leader));
+  $ordinary = new \Ichiloto\Engine\Entities\Party();
+  $ordinary->addMember($restored);
+  expect($party->leader->toArray())->not->toHaveKey('battleCommandLoadout')
+    ->and($restored->battleCommandLoadout)->toBeNull()
+    ->and(BattleCommandCatalog::canUseSummonAction($restored, $ordinary, 'Test Call'))->toBeFalse()
+    ->and(BattleCommandCatalog::buildOptions($restored, $ordinary, 'Summon'))->toBe([])
+    ->and(new BattleTestSetup([new BattleTestMember('hero', 1)])->createParty($this->actors, $this->items)->leader->summons)->toBe([]);
+  $party->leader->__unserialize($party->leader->__serialize());
+  expect($party->leader->battleCommandLoadout)->toBeNull();
+});
+
+it('refuses unknown, field-only or wrongly routed skills and ineligible, unlinked or exclusive summons', function () {
+  writeBattleLoadoutSources($this->root);
+  $setup = new BattleTestSetup([
+    new BattleTestMember('hero', 1, skills: ['Missing', 'Test Travel', 'Test Call'], summons: ['missing', 'broken-call', 'test-call']),
+    new BattleTestMember('veteran', 1, summons: ['test-call']),
+  ]);
+  $problems = $setup->getProblems($this->actors, $this->items);
+  expect(implode('\n', $problems))->toContain('no skill Missing', 'Test Travel cannot be used in battle', 'select its summon instead',
+    'no summon missing', 'no valid linked action', 'not eligible', 'choose one holder')
+    ->and(fn() => $setup->createParty($this->actors, $this->items))->toThrow(InvalidArgumentException::class);
+});
+
+it('preserves loadouts on level and equipment changes and clears them when the actor changes', function () {
+  $member = new BattleTestMember('hero', 1, commands: [BattleCommandType::SUMMON], skills: ['Test Strike'], summons: ['test-call']);
+  $changed = $member->withLevel(4)->withEquipment('Weapon', 'equipment.sword');
+  expect([$changed->commands, $changed->skills, $changed->summons])->toBe([$member->commands, $member->skills, $member->summons])
+    ->and([$changed->withActor('veteran')->commands, $changed->withActor('veteran')->skills, $changed->withActor('veteran')->summons])->toBe([null, [], []])
+    ->and(fn() => new BattleTestMember('hero', 1, commands: []))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => new BattleTestMember('hero', 1, skills: ['A', 'A']))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => new BattleTestMember('hero', 1, summons: ['']))->toThrow(InvalidArgumentException::class);
+});
+
+it('offers real battle resources independently of story gates and excludes invalid choices', function () {
+  writeBattleLoadoutSources($this->root);
+  $catalog = BattleTestLoadoutCatalog::getProjectCatalog();
+  expect(array_column($catalog->getSkillChoices(false), 'id'))->toBe(['Test Strike'])
+    ->and(array_column($catalog->getSkillChoices(true), 'id'))->toBe(['Test Flame'])
+    ->and(array_column($catalog->getSummonChoices($this->actors->require('hero', 'test')->createCharacter()), 'id'))->toBe(['open-call', 'test-call'])
+    ->and(array_column($catalog->getSummonChoices($this->actors->require('veteran', 'test')->createCharacter()), 'id'))->toBe(['open-call']);
+});
+
+it('retains MP affordability and command restrictions for explicitly available summons', function () {
+  writeBattleLoadoutSources($this->root);
+  $party = new BattleTestSetup([new BattleTestMember('hero', 1, summons: ['test-call'])])->createParty($this->actors, $this->items);
+  $hero = $party->leader;
+  $option = BattleCommandCatalog::buildOptions($hero, $party, 'Summon')[0];
+  $target = battleTestActor('target')->createCharacter();
+  $hero->stats->currentMp = 3;
+  $option->action->execute($hero, [$target]);
+  expect($hero->stats->currentMp)->toBe(3)->and($target->stats->currentHp)->toBe(40);
+  $hero->battleCommandLoadout = new \Ichiloto\Engine\Battle\BattleCommandLoadout([BattleCommandType::ATTACK], ['test-call']);
+  expect(BattleCommandCatalog::buildOptions($hero, $party, 'Summon'))->toBe([])
+    ->and(BattleCommandCatalog::canUseSummonAction($hero, $party, 'Test Call'))->toBeFalse();
+});
+
+it('refuses ambiguous summon action identities instead of granting the wrong cutscene', function () {
+  writeBattleLoadoutSources($this->root);
+  $file = $this->root . '/assets/Cutscenes/Summons/open-call/open-call.data.php';
+  $data = require $file;
+  $data['linkedActionId'] = 'Test Call';
+  file_put_contents($file, '<?php return ' . var_export($data, true) . ';');
+  $setup = new BattleTestSetup([new BattleTestMember('hero', 1, summons: ['test-call'])]);
+  expect(implode('\n', $setup->getProblems($this->actors, $this->items)))->toContain('action must be unambiguous');
 });
 
 it('builds each member at its chosen level, below its starting level too, with health full', function () {

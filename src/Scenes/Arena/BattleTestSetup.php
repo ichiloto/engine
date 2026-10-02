@@ -8,6 +8,8 @@ use Ichiloto\Engine\Core\SystemData;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Inventory\Equipment;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Entities\Skills\SkillCatalog;
+use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\Progression\ExperienceAwarder;
 use Ichiloto\Engine\Util\Stores\ActorStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
@@ -67,7 +69,9 @@ final readonly class BattleTestSetup
       $equipment[$slot->name] = $slot->equipment?->id;
     }
 
-    return new BattleTestMember($character->actorId, $character->level, $equipment);
+    return new BattleTestMember($character->actorId, $character->level, $equipment,
+      $character->battleCommandLoadout?->commands,
+      $character->battleCommandLoadout?->additionalSkills ?? [], $character->battleCommandLoadout?->availableSummons ?? []);
   }
 
   /**
@@ -78,9 +82,11 @@ final readonly class BattleTestSetup
    *
    * @return list<string> The problems, each naming its member; empty when the setup can be built.
    */
-  public function getProblems(ActorStore $actors, ItemStore $items): array
+  public function getProblems(ActorStore $actors, ItemStore $items, ?SkillCatalog $skills = null, ?SummonCutsceneLibrary $summons = null): array
   {
+    $loadouts = $this->createLoadoutCatalog($skills, $summons);
     $problems = [];
+    $characters = [];
     foreach ($this->members as $number => $member) {
       $place = sprintf('Member %d (%s)', $number + 1, $member->actorId);
       $definition = $actors->get($member->actorId);
@@ -89,6 +95,7 @@ final readonly class BattleTestSetup
         continue;
       }
       $character = $definition->createCharacter();
+      $characters[$member->actorId] = $character;
       if ($member->level > $character->maxLevel) {
         $problems[] = sprintf('%s: level %d is beyond its highest, %d.', $place, $member->level, $character->maxLevel);
       }
@@ -109,7 +116,12 @@ final readonly class BattleTestSetup
           $problems[] = "{$place}: {$problem}";
         }
       }
+      foreach ($loadouts?->getProblems($member, $character) ?? [] as $problem) {
+        $problems[] = "{$place}: {$problem}";
+      }
     }
+
+    $problems = [...$problems, ...($loadouts?->getTenancyProblems($this->members, $characters) ?? [])];
 
     return $problems;
   }
@@ -141,15 +153,18 @@ final readonly class BattleTestSetup
    *
    * @throws InvalidArgumentException When the setup has problems ({@see getProblems()}); nothing is left out quietly.
    */
-  public function createParty(ActorStore $actors, ItemStore $items): Party
+  public function createParty(ActorStore $actors, ItemStore $items, ?SkillCatalog $skills = null, ?SummonCutsceneLibrary $summons = null): Party
   {
-    $problems = $this->getProblems($actors, $items);
+    $problems = $this->getProblems($actors, $items, $skills, $summons);
     if ($problems !== []) {
       throw new InvalidArgumentException("The battle test party cannot be built:\n" . implode("\n", $problems));
     }
     $party = new Party();
+    $loadouts = $this->createLoadoutCatalog($skills, $summons);
     foreach ($this->members as $member) {
-      $party->addMember($this->createCharacter($member, $actors, $items));
+      $character = $this->createCharacter($member, $actors, $items);
+      $loadouts?->applyToCharacter($member, $character);
+      $party->addMember($character);
     }
     foreach ($items->getItemIds() as $id) {
       $item = $items->get($id);
@@ -159,6 +174,14 @@ final readonly class BattleTestSetup
     }
 
     return $party;
+  }
+
+  private function createLoadoutCatalog(?SkillCatalog $skills, ?SummonCutsceneLibrary $summons): ?BattleTestLoadoutCatalog
+  {
+    if (array_any($this->members, static fn($member): bool => $member->commands !== null || $member->skills !== [] || $member->summons !== [])) {
+      return new BattleTestLoadoutCatalog($skills ?? SkillCatalog::getProjectCatalog(), $summons ?? new SummonCutsceneLibrary());
+    }
+    return null;
   }
 
   private function createCharacter(BattleTestMember $member, ActorStore $actors, ItemStore $items): Character

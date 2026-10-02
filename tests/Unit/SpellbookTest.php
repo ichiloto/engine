@@ -67,3 +67,17 @@ it('filters field-usable spells from the learned list', function () {
   expect(array_map(static fn(MagicSkill $spell): string => $spell->name, $spellbook->getFieldUsableSpells()))
     ->toBe(['Cure', 'Regen']);
 });
+
+it('filters battle-usable spells without granting learnable or field-only spells', function () {
+  $field = new MagicSkill('Travel', '', '', 0, 0, occasion: Occasion::MENU_SCREEN);
+  $battle = new MagicSkill('Bolt', '', '', 2, 0, occasion: Occasion::BATTLE_SCREEN);
+  $always = new MagicSkill('Mend', '', '', 1, 0, occasion: Occasion::ALWAYS);
+  $unlearned = new LearnableSpell(new MagicSkill('Storm', '', '', 8, 0, occasion: Occasion::BATTLE_SCREEN));
+  $book = new Spellbook([$field, $always, $battle], [$unlearned]);
+
+  expect(array_map(static fn(MagicSkill $spell): string => $spell->name, $book->getBattleUsableSpells()))
+    ->toBe(['Bolt', 'Mend']);
+  $book->sortLearnedSpells(SpellSortOrder::Z_TO_A);
+  expect(array_map(static fn(MagicSkill $spell): string => $spell->name, $book->getBattleUsableSpells()))
+    ->toBe(['Mend', 'Bolt']);
+});

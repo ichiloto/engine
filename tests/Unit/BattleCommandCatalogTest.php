@@ -10,6 +10,7 @@ use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
 use Ichiloto\Engine\Entities\Enumerations\Occasion;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\ItemScope;
+use Ichiloto\Engine\Entities\Magic\LearnableSpell;
 use Ichiloto\Engine\Entities\Magic\Spellbook;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
@@ -86,6 +87,26 @@ it('shares authored summon definitions during a battle and releases them afterwa
   });
 });
 
+it('shares semantic command categories with battle pose playback including authored summons and petitions', function () {
+  withCatalogSummonProject(null, null, function (): void {
+    BattleCommandCatalog::beginBattle();
+    try {
+      $actor = new Character('Caller', 1, new Stats(currentMp: 10, totalMp: 10));
+      $party = new Party();
+      $party->addMember($actor);
+      $option = BattleCommandCatalog::buildOptions($actor, $party, BattleCommandType::SUMMON->value)[0];
+      expect($option->type)->toBe(BattleCommandType::SUMMON)
+        ->and(BattleCommandCatalog::getActionType($option->action))->toBe($option->type)
+        ->and(\Ichiloto\Engine\Battle\Presentation\BattlePoseRole::getForAction($option->action))
+        ->toBe(\Ichiloto\Engine\Battle\Presentation\BattlePoseRole::SUMMON);
+      $ordinary = new \Ichiloto\Engine\Battle\Actions\SkillBattleAction(new SpecialSkill('Summon', '', '', 0, 0));
+      expect(BattleCommandCatalog::getActionType($ordinary))->toBe(BattleCommandType::SKILL)
+        ->and(\Ichiloto\Engine\Battle\Presentation\BattlePoseRole::getForAction($ordinary))
+        ->toBe(\Ichiloto\Engine\Battle\Presentation\BattlePoseRole::SKILL);
+    } finally { BattleCommandCatalog::endBattle(); }
+  });
+});
+
 it('builds battle magic options from a character spellbook', function () {
   $cure = new MagicSkill('Cure', 'Recover HP.', 'C', 3, 0, new ItemScope(ItemScopeSide::ALLY, ItemScopeNumber::ONE), Occasion::ALWAYS);
   $fire = new MagicSkill('Fire', 'Deal fire damage.', 'F', 4, 0, new ItemScope(ItemScopeSide::ENEMY, ItemScopeNumber::ONE), Occasion::BATTLE_SCREEN);
@@ -97,7 +118,25 @@ it('builds battle magic options from a character spellbook', function () {
   $options = BattleCommandCatalog::buildOptions($character, $party, 'Magic');
 
   expect(array_map(static fn($option) => $option->action->name, $options))
-    ->toBe(['Cure', 'Fire']);
+    ->toBe(['Cure', 'Fire'])
+    ->and(array_column($options, 'label'))->toBe(['Cure (3 MP)', 'Fire (4 MP)'])
+    ->and(array_column($options, 'type'))->toBe([BattleCommandType::MAGIC, BattleCommandType::MAGIC]);
+});
+
+it('does not grant database magic when no learned spell is battle usable', function () {
+  withCatalogSummonProject(null, null, function (): void {
+    file_put_contents(getcwd() . '/assets/Data/skills.php', <<<'PHP'
+<?php
+return [new \Ichiloto\Engine\Entities\Skills\MagicSkill('Unlearned spell', '', '', 4, 0)];
+PHP);
+    $field = new MagicSkill('Travel', '', '', 0, 0, occasion: Occasion::MENU_SCREEN);
+    $learnable = new LearnableSpell(new MagicSkill('Future spell', '', '', 4, 0));
+
+    foreach ([new Spellbook(), new Spellbook([$field]), new Spellbook([], [$learnable])] as $book) {
+      $character = new Character('Caster', 0, new Stats(), spellbook: $book);
+      expect(BattleCommandCatalog::buildOptions($character, new Party(), 'Magic'))->toBe([]);
+    }
+  });
 });
 
 it('builds battle skill options from a character ability book', function () {
@@ -110,7 +149,9 @@ it('builds battle skill options from a character ability book', function () {
   $options = BattleCommandCatalog::buildOptions($character, $party, 'Skill');
 
   expect(array_map(static fn($option) => $option->action->name, $options))
-    ->toBe(['Guardian Vow', 'Radiant Slash']);
+    ->toBe(['Guardian Vow', 'Radiant Slash'])
+    ->and(array_column($options, 'label'))->toBe(['Guardian Vow (4 MP)', 'Radiant Slash (3 MP)'])
+    ->and(array_column($options, 'type'))->toBe([BattleCommandType::SKILL, BattleCommandType::SKILL]);
 });
 
 it('builds battle item options from the shared field inventory', function () {
@@ -126,7 +167,9 @@ it('builds battle item options from the shared field inventory', function () {
 
   expect(array_map(static fn($option) => $option->action->name, $options))
     ->toBe(['Potion'])
-    ->and($options[0]->label)->toContain('x2');
+    ->and($options[0]->label)->toBe('Potion x2')
+    ->and($options[0]->source)->toBe($potion)
+    ->and($options[0]->type)->toBe(BattleCommandType::ITEM);
 });
 
 it('preserves open summon commands for generic projects', function () {
@@ -140,6 +183,9 @@ it('preserves open summon commands for generic projects', function () {
 
     expect($labels)->toContain(BattleCommandType::SUMMON->label())
       ->and(BattleCommandCatalog::buildOptions($character, $party, 'Summon', [], new GameState()))->toHaveCount(1);
+    $option = BattleCommandCatalog::buildOptions($character, $party, 'Summon', [], new GameState())[0];
+    expect($option->label)->toBe('Test Summon Action (4 MP)')
+      ->and($option->type)->toBe(BattleCommandType::SUMMON);
   });
 });
 

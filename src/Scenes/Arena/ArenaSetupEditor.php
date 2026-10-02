@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Scenes\Arena;
 
 use Closure;
+use Ichiloto\Engine\Battle\BattleCommandType;
 
 /**
  * Where the arena's setup is and what each move does, apart from drawing and
@@ -35,6 +36,7 @@ final class ArenaSetupEditor
    * @param Closure(string): list<string> $slotsFor The equipment slot names of an actor.
    * @param Closure(string, string): list<array{id: ?string, name: string}> $choicesFor What an actor can wear in a slot, None first.
    * @param Closure(string): int $maxLevelFor An actor's highest level.
+   * @param Closure(BattleTestMember, string): list<array{id: ?string, name: string}>|null $loadoutChoicesFor Shared resource pickers.
    */
   public function __construct(
     public private(set) BattleTestSetup $setup,
@@ -43,6 +45,7 @@ final class ArenaSetupEditor
     private readonly Closure $slotsFor,
     private readonly Closure $choicesFor,
     private readonly Closure $maxLevelFor,
+    private readonly ?Closure $loadoutChoicesFor = null,
   ) {}
 
   /** The member being edited, or null outside a member. */
@@ -57,6 +60,7 @@ final class ArenaSetupEditor
       if ($member === null) { return []; }
 
       return ['actor', 'level', ...array_map(static fn(string $slot): string => "slot:{$slot}", ($this->slotsFor)($member->actorId)),
+        ...($this->loadoutChoicesFor === null ? [] : ['commands', 'skills', 'magic', 'summons']),
         ...(count($this->setup->members) > 1 ? ['remove'] : [])];
     }
   }
@@ -66,8 +70,24 @@ final class ArenaSetupEditor
   {
     $field = $this->fields[$this->fieldIndex] ?? '';
 
-    return $this->member !== null && str_starts_with($field, 'slot:')
-      ? ($this->choicesFor)($this->member->actorId, substr($field, 5)) : [];
+    if ($this->member === null) { return []; }
+    return str_starts_with($field, 'slot:')
+      ? ($this->choicesFor)($this->member->actorId, substr($field, 5))
+      : ($this->loadoutChoicesFor === null ? [] : ($this->loadoutChoicesFor)($this->member, $field));
+  }
+
+  public function isChoiceSelected(?string $id): bool
+  {
+    $member = $this->member;
+    $field = $this->fields[$this->fieldIndex] ?? '';
+    if ($member === null) { return false; }
+    return match ($field) {
+      'commands' => $id === null ? $member->commands === null
+        : in_array(BattleCommandType::tryFrom($id), $member->commands ?? BattleCommandType::cases(), true),
+      'skills', 'magic' => $id !== null && in_array($id, $member->skills, true),
+      'summons' => $id !== null && in_array($id, $member->summons, true),
+      default => $id === ($member->equipment[substr($field, 5)] ?? null),
+    };
   }
 
   public function moveVertical(int $step): void
@@ -133,12 +153,20 @@ final class ArenaSetupEditor
           $current = $this->member?->equipment[substr($field, 5)] ?? null;
           $this->choiceIndex = max(0, (int) array_search($current, array_column($this->getChoices(), 'id'), true));
           $this->focus = self::CHOOSER;
+        } elseif (in_array($field, ['commands', 'skills', 'magic', 'summons'], true)) {
+          $this->choiceIndex = 0;
+          $this->focus = self::CHOOSER;
         }
         return null;
       case self::CHOOSER:
         $choice = $this->getChoices()[$this->choiceIndex] ?? null;
         $member = $this->member;
         if ($choice !== null && $member !== null) {
+          $field = $this->fields[$this->fieldIndex];
+          if (!str_starts_with($field, 'slot:')) {
+            $this->toggleLoadoutChoice($member, $field, $choice['id']);
+            return null;
+          }
           $this->setup = $this->setup->withMember($this->memberIndex,
             $member->withEquipment(substr($this->fields[$this->fieldIndex], 5), $choice['id']));
         }
@@ -180,6 +208,30 @@ final class ArenaSetupEditor
   {
     $this->focus = self::PARTY;
     $this->memberIndex = 0;
+  }
+
+  private function toggleLoadoutChoice(BattleTestMember $member, string $field, ?string $id): void
+  {
+    if ($field === 'commands') {
+      $commands = $member->commands ?? BattleCommandType::cases();
+      $type = $id === null ? null : BattleCommandType::tryFrom($id);
+      if ($type !== null) {
+        $commands = in_array($type, $commands, true)
+          ? array_values(array_filter($commands, static fn($command): bool => $command !== $type)) : [...$commands, $type];
+        if ($commands === []) { return; }
+      }
+      $member = $member->withCommands($id === null ? null : $commands);
+    } else {
+      $selected = $field === 'summons' ? $member->summons : $member->skills;
+      if ($id === null) {
+        $selected = $field === 'summons' ? [] : array_values(array_diff($selected, array_column($this->getChoices(), 'id')));
+      } else {
+        $selected = in_array($id, $selected, true)
+          ? array_values(array_diff($selected, [$id])) : [...$selected, $id];
+      }
+      $member = $field === 'summons' ? $member->withSummons($selected) : $member->withSkills($selected);
+    }
+    $this->setup = $this->setup->withMember($this->memberIndex, $member);
   }
 
   private function changeActor(BattleTestMember $member, int $step): void

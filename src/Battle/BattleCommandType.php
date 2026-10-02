@@ -23,6 +23,12 @@ enum BattleCommandType: string
   case GUARD = 'guard';
   case ESCAPE = 'escape';
 
+  /** Shared theme role; never inferred from a skill's legacy textual icon. */
+  public function getIconRole(): string
+  {
+    return 'command.' . $this->value;
+  }
+
   /**
    * Resolves a command type from a visible command label or command id.
    *

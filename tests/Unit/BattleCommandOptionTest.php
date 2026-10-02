@@ -2,6 +2,7 @@
 
 use Ichiloto\Engine\Battle\BattleCommandCatalog;
 use Ichiloto\Engine\Battle\BattleCommandOption;
+use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\Entities\ItemScope;
 use Ichiloto\Engine\Entities\Enumerations\Occasion;
 use Ichiloto\Engine\Entities\Skills\BasicSkill;
@@ -27,7 +28,17 @@ it('carries the skill MP cost onto the battle option', function () {
 
   expect($option)->toBeInstanceOf(BattleCommandOption::class)
     ->and($option->mpCost)->toBe(12)
-    ->and($option->label)->toContain('(12 MP)');
+    ->and($option->label)->toBe('Fireball (12 MP)')
+    ->and($option->type)->toBe(BattleCommandType::ATTACK);
+});
+
+it('removes legacy icon prefixes without stripping words from authored skill names', function () {
+  $skill = new BasicSkill('ATK Training Strike', 'Authored name.', 'ATK', 0, 1);
+  $option = new ReflectionMethod(BattleCommandCatalog::class, 'createSkillOption')->invoke(null, $skill);
+  expect($option->label)->toBe('ATK Training Strike')
+    ->and($option->action->name)->toBe($skill->name)
+    ->and($option->source)->toBe($skill)
+    ->and($option->type->getIconRole())->toBe('command.attack');
 });
 
 it('never reports a negative MP cost', function () {

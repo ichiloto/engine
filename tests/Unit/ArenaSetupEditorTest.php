@@ -3,6 +3,7 @@
 use Ichiloto\Engine\Scenes\Arena\ArenaSetupEditor;
 use Ichiloto\Engine\Scenes\Arena\BattleTestMember;
 use Ichiloto\Engine\Scenes\Arena\BattleTestSetup;
+use Ichiloto\Engine\Battle\BattleCommandType;
 
 function arenaSetupEditor(array $members = [['hero', 5]], int $troops = 3): ArenaSetupEditor
 {
@@ -93,4 +94,43 @@ it('adds a member in an empty place and removes one, keeping the last', function
   $editor->moveVertical(3);
   $editor->confirm();
   expect($editor->fields)->not->toContain('remove');
+});
+
+it('toggles command and resource selections through constrained pickers without changing other setup fields', function () {
+  $editor = new ArenaSetupEditor(new BattleTestSetup([new BattleTestMember('hero', 5)]), 1, ['hero'],
+    static fn() => [], static fn() => [], static fn() => 99,
+    static fn($member, $field) => match ($field) {
+      'commands' => [['id' => null, 'name' => 'Normal'], ['id' => 'magic', 'name' => 'Magic']],
+      'skills' => [['id' => null, 'name' => 'Clear'], ['id' => 'Test Strike', 'name' => 'Test Strike']],
+      'magic' => [['id' => null, 'name' => 'Clear'], ['id' => 'Test Flame', 'name' => 'Test Flame']],
+      'summons' => [['id' => null, 'name' => 'Clear'], ['id' => 'test-call', 'name' => 'Test Call']],
+    });
+  $editor->moveVertical(1);
+  $editor->confirm();
+  expect($editor->fields)->toBe(['actor', 'level', 'commands', 'skills', 'magic', 'summons']);
+  $editor->moveVertical(2);
+  $editor->confirm();
+  $editor->moveVertical(1);
+  $editor->confirm();
+  expect($editor->member->commands)->not->toContain(BattleCommandType::MAGIC)
+    ->and($editor->isChoiceSelected('magic'))->toBeFalse()
+    ->and($editor->focus)->toBe(ArenaSetupEditor::CHOOSER);
+  $editor->confirm();
+  expect($editor->member->commands)->toContain(BattleCommandType::MAGIC);
+  $editor->moveVertical(-1);
+  $editor->confirm();
+  expect($editor->member->commands)->toBeNull();
+  foreach (['skills' => 'Test Strike', 'magic' => 'Test Flame', 'summons' => 'test-call'] as $field => $id) {
+    $editor->cancel();
+    $editor->moveVertical(1);
+    $editor->confirm();
+    $editor->moveVertical(1);
+    $editor->confirm();
+    expect($editor->isChoiceSelected($id))->toBeTrue();
+  }
+  expect($editor->member->skills)->toBe(['Test Strike', 'Test Flame'])
+    ->and($editor->member->summons)->toBe(['test-call'])->and($editor->member->level)->toBe(5);
+  $editor->moveVertical(-1);
+  $editor->confirm();
+  expect($editor->member->summons)->toBe([])->and($editor->member->skills)->toBe(['Test Strike', 'Test Flame']);
 });
