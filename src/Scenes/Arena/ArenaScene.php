@@ -13,7 +13,6 @@ use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Scenes\AbstractScene;
-use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Window;
@@ -247,7 +246,7 @@ class ArenaScene extends AbstractScene
       $setup = $this->getGame()->options[self::SETUP_OPTION] ?? null;
       $setup = $setup instanceof BattleTestSetup
         ? $setup
-        : BattleTestSetup::getFromParty(GameLoader::getInstance($this->getGame())->loadNewGame()->party);
+        : BattleTestSetup::getFromStartingParty($actors);
 
       return new ArenaSetupEditor(
         $setup,

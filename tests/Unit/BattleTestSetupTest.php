@@ -57,14 +57,42 @@ it('builds each member at its chosen level, below its starting level too, with h
     ->and($hero->stats->currentMp)->toBe($hero->stats->totalMp);
 });
 
-it('equips what fits a slot and leaves off what does not', function () {
-  $member = new BattleTestMember('hero', 1, ['Weapon' => 'equipment.sword', 'Body' => 'equipment.sword', 'Head' => 'item.potion']);
+it('equips what fits a slot', function () {
+  $member = new BattleTestMember('hero', 1, ['Weapon' => 'equipment.sword', 'Body' => null]);
   $hero = new BattleTestSetup([$member])->createParty($this->actors, $this->items)->members->toArray()[0];
   $equipped = array_column(array_map(static fn($slot): array => ['slot' => $slot->name, 'item' => $slot->equipment?->id], $hero->equipment), 'item', 'slot');
 
   expect($equipped['Weapon'])->toBe('equipment.sword')
-    ->and($equipped['Body'])->toBeNull()
-    ->and($equipped['Head'])->toBeNull();
+    ->and($equipped['Body'])->toBeNull();
+});
+
+it('names every problem with a setup and refuses to build it, rather than leaving parts out', function () {
+  $setup = new BattleTestSetup([
+    new BattleTestMember('hero', 1, ['Body' => 'equipment.sword', 'Head' => 'item.potion', 'Cape' => null, 'Weapon' => 'equipment.missing']),
+    new BattleTestMember('ghost', 1),
+    new BattleTestMember('veteran', 500),
+  ]);
+
+  expect($setup->getProblems($this->actors, $this->items))->toBe([
+    'Member 1 (hero): Sword does not go in the Body slot.',
+    'Member 1 (hero): Potion is not equipment.',
+    'Member 1 (hero): has no Cape slot (its slots: Weapon, Shield, Head, Body, Accessory).',
+    'Member 1 (hero): the project has no item equipment.missing.',
+    'Member 2 (ghost): the project has no such actor.',
+    'Member 3 (veteran): level 500 is beyond its highest, 100.',
+  ])->and(fn() => $setup->createParty($this->actors, $this->items))
+    ->toThrow(InvalidArgumentException::class, 'Member 2 (ghost): the project has no such actor.')
+    ->and(new BattleTestSetup([new BattleTestMember('hero', 3)])->getProblems($this->actors, $this->items))->toBe([]);
+});
+
+it('sets up the starting party, each actor at its authored level and equipment', function () {
+  file_put_contents($this->root . '/assets/Data/system.php', "<?php return ['title' => 'Test', 'currency' => [], 'startingPositions' => ['player' => []],
+    'startingParty' => ['veteran', 'hero']];");
+  $setup = BattleTestSetup::getFromStartingParty($this->actors);
+
+  expect(array_map(static fn(BattleTestMember $member): array => [$member->actorId, $member->level], $setup->members))
+    ->toBe([['veteran', $this->actors->get('veteran')->createCharacter()->level], ['hero', 1]])
+    ->and($setup->members[1]->equipment)->toBe(['Weapon' => null, 'Shield' => null, 'Head' => null, 'Body' => null, 'Accessory' => null]);
 });
 
 it('stocks 99 of every item that is not equipment, as RPG Maker\'s Battle Test does', function () {

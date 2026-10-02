@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Scenes\Arena;
 
+use Ichiloto\Engine\Core\SystemData;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Inventory\Equipment;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Progression\ExperienceAwarder;
-use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Stores\ActorStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 use InvalidArgumentException;
@@ -35,19 +35,83 @@ final readonly class BattleTestSetup
     }
   }
 
+  /**
+   * The setup a new game starts with: the system's starting party, each
+   * actor at its authored level and wearing its authored equipment.
+   */
+  public static function getFromStartingParty(ActorStore $actors): self
+  {
+    $system = asset('Data/system.php', true);
+    $members = [];
+    foreach (SystemData::fromArray(is_array($system) ? $system : [])->startingParty as $reference) {
+      $definition = $actors->requireStartingPartyActor(strval($reference));
+      $members[] = self::describeCharacter($definition->createCharacter());
+    }
+    if ($members === []) {
+      throw new InvalidArgumentException('The project has no starting party to set up a battle test from.');
+    }
+
+    return new self(array_slice($members, 0, self::MAX_MEMBERS));
+  }
+
   /** The setup a party describes: its members, their levels and what they wear. */
   public static function getFromParty(Party $party): self
   {
-    $members = [];
-    foreach (array_slice($party->members->toArray(), 0, self::MAX_MEMBERS) as $character) {
-      $equipment = [];
-      foreach ($character->equipment as $slot) {
-        $equipment[$slot->name] = $slot->equipment?->id;
-      }
-      $members[] = new BattleTestMember($character->actorId, $character->level, $equipment);
+    return new self(array_map(self::describeCharacter(...), array_slice($party->members->toArray(), 0, self::MAX_MEMBERS)));
+  }
+
+  private static function describeCharacter(Character $character): BattleTestMember
+  {
+    $equipment = [];
+    foreach ($character->equipment as $slot) {
+      $equipment[$slot->name] = $slot->equipment?->id;
     }
 
-    return new self($members);
+    return new BattleTestMember($character->actorId, $character->level, $equipment);
+  }
+
+  /**
+   * Everything that stops the party being built as set up: an actor the
+   * project does not have, a level beyond its actor's highest, a slot the
+   * actor does not have, or equipment that is not equipment, does not fit
+   * its slot or cannot be worn by the actor.
+   *
+   * @return list<string> The problems, each naming its member; empty when the setup can be built.
+   */
+  public function getProblems(ActorStore $actors, ItemStore $items): array
+  {
+    $problems = [];
+    foreach ($this->members as $number => $member) {
+      $place = sprintf('Member %d (%s)', $number + 1, $member->actorId);
+      $definition = $actors->get($member->actorId);
+      if ($definition === null) {
+        $problems[] = "{$place}: the project has no such actor.";
+        continue;
+      }
+      $character = $definition->createCharacter();
+      if ($member->level > $character->maxLevel) {
+        $problems[] = sprintf('%s: level %d is beyond its highest, %d.', $place, $member->level, $character->maxLevel);
+      }
+      foreach ($member->equipment as $slotName => $itemId) {
+        $slot = array_find($character->equipment, static fn($slot): bool => $slot->name === $slotName);
+        $item = $itemId === null ? null : $items->get($itemId);
+        $problem = match (true) {
+          $slot === null => sprintf('has no %s slot (its slots: %s).', $slotName,
+            implode(', ', array_map(static fn($slot): string => $slot->name, $character->equipment))),
+          $itemId === null => null,
+          $item === null => "the project has no item {$itemId}.",
+          ! $item instanceof Equipment => "{$item->name} is not equipment.",
+          $slot->acceptsType !== $item::class || $slot->semanticSlot !== $item->semanticSlot => "{$item->name} does not go in the {$slotName} slot.",
+          ! $character->canEquip($item) => "it cannot equip {$item->name}.",
+          default => null,
+        };
+        if ($problem !== null) {
+          $problems[] = "{$place}: {$problem}";
+        }
+      }
+    }
+
+    return $problems;
   }
 
   /** The setup with a member placed, replaced or, given null, removed; the last member stays. */
@@ -74,10 +138,15 @@ final readonly class BattleTestSetup
    * Builds a fresh party: each actor as authored, at its chosen level (any
    * from 1 to its maximum) with its class's skills for that level learned
    * and its health full, wearing its equipment, and holding every item.
-   * Equipment it cannot wear is left off with a logged note.
+   *
+   * @throws InvalidArgumentException When the setup has problems ({@see getProblems()}); nothing is left out quietly.
    */
   public function createParty(ActorStore $actors, ItemStore $items): Party
   {
+    $problems = $this->getProblems($actors, $items);
+    if ($problems !== []) {
+      throw new InvalidArgumentException("The battle test party cannot be built:\n" . implode("\n", $problems));
+    }
     $party = new Party();
     foreach ($this->members as $member) {
       $party->addMember($this->createCharacter($member, $actors, $items));
@@ -104,13 +173,8 @@ final readonly class BattleTestSetup
     $character = $definition->createCharacter([...$definition->data(), 'currentExp' => max(0, $experience)]);
     ExperienceAwarder::reconcileAutomaticRoleSkills($character);
     foreach ($member->equipment as $slotName => $itemId) {
-      if ($itemId === null) {
-        continue;
-      }
-      $equipment = $items->get($itemId);
-      if (! $equipment instanceof Equipment || ! $character->assignEquipment($slotName, $equipment)) {
-        Debug::warn(sprintf('The battle test left %s off %s: it is not equipment that fits the %s slot.', $itemId, $member->actorId, $slotName));
-      }
+      $equipment = $itemId === null ? null : $items->get($itemId);
+      $character->assignEquipment($slotName, $equipment instanceof Equipment ? $equipment : null);
     }
     $character->restoreVitals();
 
