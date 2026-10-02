@@ -178,6 +178,46 @@ a result, the cell is solid; `PASS_THROUGH` is never a final collision value.
 Decoration is excluded entirely. Collision comes from authored symbols and the
 dictionary, never from colour, graphics or a separate stored collision grid.
 
+## Reachability
+
+Maps, rooms and NPCs change throughout production, so nothing pins where
+content stands. What must hold is that the player is never blocked:
+`Ichiloto\Engine\Field\Reachability\ProjectReachability::analyze($assetRoot)`
+reads every map as the field does (`MapSourceReader` and the collision
+dictionary) and floods it from every place the project brings the player onto
+it, starting from where the game starts:
+
+- the system starting position, and scripted `transfer` commands in common
+  events and cinematics, which can run from anywhere;
+- transfer events, edge triggers and sleep events, once the player can reach
+  the cell that triggers them;
+- scripted transfers in an NPC's lines, once the player can stand beside it,
+  and in an event's data, once the event can fire.
+
+An arrival counts only once the player can reach its source, and the spread
+repeats until nothing new is reached, so a door from a map nobody can reach
+leads nowhere.
+
+The flood follows the field's movement rules: one cell at a time in the four
+headings, onto any cell whose collision is not solid and that no NPC stands on.
+Fixed NPCs block their cell; wanderers and NPCs that only appear under
+conditions do not, since story gates are assumed open. Stepping onto a transfer
+or edge trigger leaves the map, so those cells are reached but not walked
+through. Each map's report lists:
+
+- an arrival outside the map, or on a solid or occupied cell (the player can
+  step off a blocked cell, but arrives overlapping it);
+- a map nothing the player can reach brings them onto yet, which is information
+  rather than a blocker (`ReachabilityProblemKind::isBlocking()` is false): a
+  map kept for content still to come strands nobody;
+- an event or edge trigger with no reachable cell, which therefore never fires;
+- a talkable NPC with no reachable cell beside it, whose lines nobody can read;
+- an arrival naming a map the project does not have, and a map the field
+  cannot read.
+
+`MapReachability` runs the same analysis on one map's collision grid, events
+and NPCs, for tests with synthetic maps.
+
 ## Editing and migration
 
 The Editor cycles through gameplay, decoration and event layers with independent

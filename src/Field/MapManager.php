@@ -264,27 +264,8 @@ class MapManager implements CanRenderAt
    */
   public function loadCollisionDictionary(string $filename): array
   {
-    $dictionary = [];
-
-    if (! file_exists($filename) ) {
-      throw new NotFoundException("File $filename not found.");
-    }
-
-    $dictionary = $this->requirePhpFile($filename);
-
-    if (! is_array($dictionary)) {
-      throw new NotFoundException("File $filename does not return an array.");
-    }
-
-    try {
-      MapCollisionResolver::validateDictionary($dictionary);
-    } catch (InvalidArgumentException $error) {
-      throw new NotFoundException($error->getMessage(), previous: $error);
-    }
-
-    return $dictionary;
+    return MapSourceReader::loadCollisionDictionary($filename);
   }
-
   /**
    * Loads the tile map from a file.
    *
@@ -759,19 +740,8 @@ class MapManager implements CanRenderAt
    */
   protected function resolveMapPaths(string $filename): array
   {
-    $assetsDirectory = Path::join(Path::getCurrentWorkingDirectory(), 'assets', 'Maps');
-    $mapId = preg_replace('/(\.(data|map|event))?\.php$/', '', $filename) ?: $filename;
-    $mapLeafName = basename(str_replace('\\', '/', $mapId));
-    $directory = Path::join($assetsDirectory, $mapId);
-
-    return [
-      'id' => $mapId,
-      'data' => Path::join($directory, "{$mapLeafName}.data.php"),
-      'map' => Path::join($directory, "{$mapLeafName}.map.php"),
-      'event' => Path::join($directory, "{$mapLeafName}.event.php"),
-    ];
+    return MapSourceReader::resolvePaths(Path::join(Path::getCurrentWorkingDirectory(), 'assets', 'Maps'), $filename);
   }
-
   /**
    * Reads a split map definition from `.data.php`, `.map.php`, and `.event.php` files.
    *
@@ -811,95 +781,30 @@ class MapManager implements CanRenderAt
    */
   protected function prepareSplitMapDataFromFiles(array $paths): array
   {
-    $displayPaths = [];
-    foreach (['data', 'event'] as $type) {
-      $displayPaths[$type] = $paths['id'] . '/' . basename($paths[$type]);
-      if (! file_exists($paths[$type])) {
-        throw new NotFoundException("File {$displayPaths[$type]} not found.");
-      }
-    }
-
-    $layers = MapLayerSource::loadFromDirectory(dirname($paths['data']), $paths['id'], $paths['map']);
-    $eventText = MapGridSource::readFile($paths['event'], $displayPaths['event']);
-    $eventLayer = $this->parseMapLayer($eventText, $displayPaths['event'], 'event');
-    $layers->assertMatchingGrid($eventLayer, "Event map {$displayPaths['event']}");
-    $map = $this->requirePhpFile($paths['data']);
-
-    if (! is_array($map)) {
-      throw new NotFoundException("File {$displayPaths['data']} does not return an array.");
-    }
-
-    $map['id'] ??= $paths['id'];
+    $source = MapSourceReader::readFiles($paths);
+    $map = $source['data'];
 
     if (array_key_exists('tiles2d', $map)) {
       // Glyph-keyed crops are retired; a map draws graphics from its tileset.
-      Debug::warn("{$displayPaths['data']} tiles2d is no longer read; its map shows terminal glyphs until it has a tileset.");
+      Debug::warn("{$paths['id']}/" . basename($paths['data']) . " tiles2d is no longer read; its map shows terminal glyphs until it has a tileset.");
     }
 
     $graphics = null;
     try {
       $graphics = MapGraphics::loadFromDirectory(dirname($paths['data']), $paths['id'], $map['tileset'] ?? null,
-        $layers, $this->getAssetRoot(), $map[MapGraphics::SETTINGS_KEY] ?? null);
+        $source['layers'], $this->getAssetRoot(), $map[MapGraphics::SETTINGS_KEY] ?? null);
     } catch (\Throwable $error) {
       // Graphics never decide whether a map loads: it shows its terminal glyphs instead.
       Debug::warn("Map {$paths['id']} graphics are unusable; showing terminal glyphs: " . $error->getMessage());
     }
 
-    $tileMap = $layers->getComposedGrid();
-    $map['events'] = $this->resolveEventDefinitions($map['events'] ?? [], $eventLayer, $displayPaths['event']);
-
-    return ['data' => $map, 'tiles' => $tileMap, 'layers' => $layers, 'graphics' => $graphics];
+    return [...$source, 'graphics' => $graphics];
   }
 
   /** The project's asset root, where tilesets and their sheets live. */
   private function getAssetRoot(): string
   {
     return Path::join(Path::getCurrentWorkingDirectory(), 'assets');
-  }
-
-  /**
-   * Requires an authored PHP asset without exposing the caller's local scope.
-   *
-   * The data member may contain authored PHP. Loading it inside a dedicated
-   * static closure prevents its local variables from replacing loader state.
-   * Grid members are parsed as literal nowdocs and are never required.
-   *
-   * @param string $filename The PHP asset to load.
-   * @return mixed The value returned by the asset.
-   */
-  protected function requirePhpFile(string $filename): mixed
-  {
-    return (static function (string $isolatedFilename): mixed {
-      return require $isolatedFilename;
-    })($filename);
-  }
-
-  /**
-   * Parses a text-based map layer into symbol rows.
-   *
-   * @param string $layer The raw layer content.
-   * @param string $filename The source filename.
-   * @param string $fieldName The layer label used in validation errors.
-   * @return array<int, string[]> The parsed symbol grid.
-   */
-  protected function parseMapLayer(string $layer, string $filename, string $fieldName): array
-  {
-    $rows = preg_split('/\r\n|\n|\r/', rtrim($layer, "\r\n")) ?: [];
-
-    if ($rows === []) {
-      return [];
-    }
-
-    foreach ($rows as $rowIndex => $row) {
-      if (! is_string($row)) {
-        throw new InvalidArgumentException("{$fieldName} row {$rowIndex} in {$filename} must be a string.");
-      }
-    }
-
-    return array_map(
-      static fn(string $row): array => TerminalText::visibleSymbols($row),
-      $rows
-    );
   }
 
   /**
@@ -923,118 +828,5 @@ class MapManager implements CanRenderAt
         throw new InvalidArgumentException("Event map {$filename} row {$rowIndex} must be " . count($tileRow) . " tiles wide.");
       }
     }
-  }
-
-  /**
-   * Resolves event definitions against the event overlay.
-   *
-   * @param array<int|string, array<string, mixed>> $events The map event definitions.
-   * @param array<int, string[]> $eventLayer The parsed event overlay.
-   * @param string $filename The event-layer filename.
-   * @return array<int, array<string, mixed>> The resolved runtime event data.
-   */
-  protected function resolveEventDefinitions(array $events, array $eventLayer, string $filename): array
-  {
-    $areas = $this->extractEventAreas($eventLayer, $filename);
-
-    if ($events === []) {
-      if ($areas !== []) {
-        throw new InvalidArgumentException("Event markers were found in {$filename}, but no event definitions exist in the map data.");
-      }
-
-      return [];
-    }
-
-    $resolvedEvents = [];
-
-    foreach ($events as $marker => $eventDefinition) {
-      if (! is_array($eventDefinition)) {
-        throw new InvalidArgumentException("Invalid event definition found in {$filename}.");
-      }
-
-      if (isset($eventDefinition['area']) && ! is_string($marker)) {
-        $resolvedEvents[] = $eventDefinition;
-        continue;
-      }
-
-      $resolvedMarker = is_string($marker) ? $marker : ($eventDefinition['marker'] ?? null);
-
-      if (! is_string($resolvedMarker) || TerminalText::displayWidth($resolvedMarker) !== 1) {
-        throw new InvalidArgumentException("Events in split map data must be keyed by a single-character marker or declare one explicitly.");
-      }
-
-      $area = $areas[$resolvedMarker] ?? throw new InvalidArgumentException("Event marker '{$resolvedMarker}' was not found in {$filename}.");
-      unset($areas[$resolvedMarker]);
-      $eventDefinition['area'] = $area;
-      $eventDefinition['marker'] = $resolvedMarker;
-      $resolvedEvents[] = $eventDefinition;
-    }
-
-    if ($areas !== []) {
-      $unusedMarkers = implode(', ', array_keys($areas));
-      throw new InvalidArgumentException("Unmapped event markers found in {$filename}: {$unusedMarkers}.");
-    }
-
-    return $resolvedEvents;
-  }
-
-  /**
-   * Extracts rectangular event areas from the event overlay.
-   *
-   * @param array<int, string[]> $eventLayer The parsed event overlay.
-   * @param string $filename The event-layer filename.
-   * @return array<string, array{x: int, y: int, width: int, height: int}> The resolved areas keyed by marker.
-   */
-  protected function extractEventAreas(array $eventLayer, string $filename): array
-  {
-    $bounds = [];
-
-    foreach ($eventLayer as $y => $row) {
-      foreach ($row as $x => $tile) {
-        $marker = TerminalText::stripAnsi($tile);
-
-        if (trim($marker) === '') {
-          continue;
-        }
-
-        if (! isset($bounds[$marker])) {
-          $bounds[$marker] = [
-            'minX' => $x,
-            'maxX' => $x,
-            'minY' => $y,
-            'maxY' => $y,
-          ];
-          continue;
-        }
-
-        $bounds[$marker]['minX'] = min($bounds[$marker]['minX'], $x);
-        $bounds[$marker]['maxX'] = max($bounds[$marker]['maxX'], $x);
-        $bounds[$marker]['minY'] = min($bounds[$marker]['minY'], $y);
-        $bounds[$marker]['maxY'] = max($bounds[$marker]['maxY'], $y);
-      }
-    }
-
-    $areas = [];
-
-    foreach ($bounds as $marker => $markerBounds) {
-      for ($y = $markerBounds['minY']; $y <= $markerBounds['maxY']; $y++) {
-        for ($x = $markerBounds['minX']; $x <= $markerBounds['maxX']; $x++) {
-          $cell = TerminalText::stripAnsi($eventLayer[$y][$x] ?? ' ');
-
-          if ($cell !== $marker) {
-            throw new InvalidArgumentException("Event marker '{$marker}' in {$filename} must occupy a solid rectangle.");
-          }
-        }
-      }
-
-      $areas[$marker] = [
-        'x' => $markerBounds['minX'],
-        'y' => $markerBounds['minY'],
-        'width' => $markerBounds['maxX'] - $markerBounds['minX'] + 1,
-        'height' => $markerBounds['maxY'] - $markerBounds['minY'] + 1,
-      ];
-    }
-
-    return $areas;
   }
 }
