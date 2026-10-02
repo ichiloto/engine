@@ -66,9 +66,18 @@ it('keeps ascii width measurement equivalent to the styled grapheme path', funct
   $width = array_sum(array_map(TerminalText::getSymbolWidth(...), TerminalText::visibleSymbols($text)));
   expect(TerminalText::displayWidth($text))->toBe($width);
 })->with([
-  '', 'plain ASCII', '<fg=red>styled</> text', "\e[31mred\e[0mplain", "\e[31m\e[999mX\e[0m",
-  "\e[38;2;1;;3mX", "a\nb\tc", "a\r\nb", '\\<info>literal</info>',
-  "\e[38;2;0;0;128mblue\e[0m", "\e[2JX", "\e[31m\e[0m",
+  'empty' => '',
+  'plain ASCII' => 'plain ASCII',
+  'formatter colour' => '<fg=red>styled</> text',
+  'ANSI colour reset' => "\e[31mred\e[0mplain",
+  'unknown control' => "\e[31m\e[999mX\e[0m",
+  'malformed RGB' => "\e[38;2;1;;3mX",
+  'newline and tab' => "a\nb\tc",
+  'CRLF' => "a\r\nb",
+  'escaped formatter tag' => '\\<info>literal</info>',
+  'RGB zero components' => "\e[38;2;0;0;128mblue\e[0m",
+  'erase screen' => "\e[2JX",
+  'only ANSI formatting' => "\e[31m\e[0m",
 ]);
 
 it('does not apply an open formatter tag twice when measuring a control character', function (string $control) {
