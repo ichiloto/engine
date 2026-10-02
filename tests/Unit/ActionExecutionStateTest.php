@@ -15,7 +15,6 @@ use Ichiloto\Engine\Battle\Resolution\CombatTargetResult;
 use Ichiloto\Engine\Battle\Resolution\ElementalOutcome;
 use Ichiloto\Engine\Battle\Resolution\ResolutionKind;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\ActionExecutionState;
-use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnResolutionState;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnStateExecutionContext;
 use Ichiloto\Engine\Battle\UI\BattleFieldWindow;
 use Ichiloto\Engine\Battle\UI\BattleScreen;
@@ -29,6 +28,7 @@ use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\Magic\MagicEffectType;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
+use Ichiloto\Engine\Entities\Skills\BasicSkill;
 use Ichiloto\Engine\Entities\Skills\SpecialSkill;
 use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Entities\Troop;
@@ -419,14 +419,24 @@ it('lets authored animation and summon audio override generic battle cues', func
     ->and(invokeActionPresentationSoundResolver($state, $action, isSummonAction: true))->toBeNull();
 });
 
-it('resolves explicit skill and item animation ids without falling back by name', function () {
+it('lets loaded source and target effect audio override generic cues but not silent effects', function () {
+  $state = makeActionExecutionStateForTest();
+  $effect = new \Ichiloto\Engine\Animations\Timelines\CompiledEffectTimeline('cast', '',
+    cueSchedule: [['type' => 'playSound', 'payload' => ['sound' => 'custom-cast']]]);
+  expect(invokeActionPresentationSoundResolver($state, new AttackAction('Attack'), effects: [$effect]))->toBeNull();
+  $effect->cueSchedule = [['type' => 'applyEffect', 'payload' => []]];
+  expect(invokeActionPresentationSoundResolver($state, new AttackAction('Attack'), effects: [$effect]))
+    ->toBe(SystemSound::BATTLE_ATTACK);
+});
+
+it('resolves explicit animation ids and removes implicit display-name selection', function () {
   $previous = getcwd();
   $root = sys_get_temp_dir() . '/ichiloto-action-animation-' . uniqid();
   mkdir($root . '/assets/Data', 0777, true);
   $path = $root . '/assets/Data/animations.php';
   try {
     chdir($root);
-    file_put_contents($path, "<?php return [['id' => 7, 'name' => 'Named Skill'], ['id' => 8, 'name' => 'Selected']];");
+    file_put_contents($path, "<?php return [['id' => 7, 'name' => 'Named Skill'], ['id' => 8, 'name' => 'Selected'], ['id' => 9, 'name' => 'Renamed default', 'roles' => ['attack', 'skill']]];");
     $resolve = new ReflectionMethod(ActionExecutionState::class, 'resolveActionAnimation');
     $state = makeActionExecutionStateForTest();
     $selectedSkill = new SpecialSkill('Named Skill', '', '*', 0, 0, animationId: 8);
@@ -437,13 +447,37 @@ it('resolves explicit skill and item animation ids without falling back by name'
     expect($resolve->invoke($state, new SkillBattleAction($selectedSkill))?->id)->toBe(8)
       ->and($resolve->invoke($state, new ItemBattleAction($item))?->id)->toBe(8)
       ->and($resolve->invoke($state, new SkillBattleAction($missingSkill)))->toBeNull()
-      ->and($resolve->invoke($state, new SkillBattleAction($legacySkill))?->id)->toBe(7)
+      ->and($resolve->invoke($state, new SkillBattleAction($legacySkill))?->id)->toBe(9)
+      ->and($resolve->invoke($state, new AttackAction('Localized attack'))?->id)->toBe(9)
       ->and($resolve->invoke($state, new ItemBattleAction($legacyItem)))->toBeNull();
   } finally {
     chdir($previous);
     $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
     foreach ($files as $file) { $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname()); }
     rmdir($root);
+  }
+});
+
+it('uses attack effects for typed basic skills and preserves an explicit effect override', function () {
+  $previous = getcwd();
+  $root = sys_get_temp_dir() . '/ichiloto-basic-attack-effect-' . uniqid();
+  mkdir($root . '/assets/Data', 0777, true);
+  $path = $root . '/assets/Data/animations.php';
+  try {
+    chdir($root);
+    file_put_contents($path, "<?php return [['id' => 1, 'name' => 'Physical', 'roles' => ['attack']], ['id' => 2, 'name' => 'Technique', 'roles' => ['skill']]];");
+    $resolve = new ReflectionMethod(ActionExecutionState::class, 'resolveActionAnimation');
+    $state = makeActionExecutionStateForTest();
+    $basic = new BasicSkill('Not named Attack', '', '', 0, 0);
+    $special = new SpecialSkill('Attack', '', '', 0, 0);
+    $override = new BasicSkill('Alternate strike', '', '', 0, 0, animationId: 2);
+    expect($resolve->invoke($state, new SkillBattleAction($basic))?->id)->toBe(1)
+      ->and($resolve->invoke($state, new SkillBattleAction($special))?->id)->toBe(2)
+      ->and($resolve->invoke($state, new SkillBattleAction($override))?->id)->toBe(2);
+  } finally {
+    chdir($previous);
+    unlink($path);
+    rmdir($root . '/assets/Data'); rmdir($root . '/assets'); rmdir($root);
   }
 });
 
@@ -461,7 +495,7 @@ it('treats battle as concluded when a side has no living battlers', function () 
 });
 
 it('builds typed popup lines for damaging and restorative state ticks', function () {
-  $state = (new ReflectionClass(TurnResolutionState::class))->newInstanceWithoutConstructor();
+  $state = makeActionExecutionStateForTest();
   $battler = new Character('Kaelion', 0, new Stats(currentHp: 100, totalHp: 100));
   $poison = Ichiloto\Engine\Entities\States\State::fromArray([
     'id' => 'poison',
@@ -550,11 +584,12 @@ function invokeActionPresentationSoundResolver(
   ?BattleAction $action,
   ?Animation $animation = null,
   bool $isSummonAction = false,
+  array $effects = [],
 ): ?SystemSound
 {
   $method = new ReflectionMethod(ActionExecutionState::class, 'resolveActionPresentationSound');
 
-  return $method->invoke($state, $action, $animation, $isSummonAction);
+  return $method->invoke($state, $action, $animation, $isSummonAction, $effects);
 }
 
 /**
@@ -596,13 +631,13 @@ function invokeBattleConclusionChecker(
 /**
  * Produces the same popup payload used by turn resolution from real tick events.
  *
- * @param TurnResolutionState $state The turn-resolution state.
+ * @param ActionExecutionState $state The turn execution state.
  * @param array<int, array{state: object, hpDelta: int, expired: bool}> $events State tick events.
  * @return array<int, array{text: string, color: Color}>
  */
-function invokeStateTickPopupBuilder(TurnResolutionState $state, array $events): array
+function invokeStateTickPopupBuilder(ActionExecutionState $state, array $events): array
 {
-  $method = new ReflectionMethod(TurnResolutionState::class, 'buildStateTickPopupLines');
+  $method = new ReflectionMethod(ActionExecutionState::class, 'buildStateTickPopupLines');
 
   return $method->invoke($state, $events);
 }

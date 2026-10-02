@@ -34,6 +34,8 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
   /** @var array<int, float> Simulated time each battler crossed the ready threshold. */
   protected array $readyTimes = [];
   protected float $gaugeTime = 0.0;
+  /** @var array<int, true> Battlers that completed a turn in the current ATB round. */
+  private array $roundParticipants = [];
 
   /**
    * @var CharacterInterface[] Battlers whose gauges have filled and are ready to act.
@@ -122,6 +124,7 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
     $this->initiativeSeeds = [];
     $this->readyTimes = [];
     $this->gaugeTime = 0.0;
+    $this->roundParticipants = [];
     $this->encounterAdvantage = EncounterAdvantage::NORMAL;
     $this->openingAlertPending = null;
   }
@@ -249,6 +252,17 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
     $this->setState($this->actionExecutionState);
   }
 
+  public function recordTurnCompletion(TurnStateExecutionContext $context, Turn $turn): void
+  {
+    $this->roundParticipants[spl_object_id($turn->battler)] = true;
+    $living = [...$context->getLivingPartyBattlers(), ...$context->getLivingTroopBattlers()];
+    if ($living !== [] && array_all($living,
+      fn(CharacterInterface $battler): bool => isset($this->roundParticipants[spl_object_id($battler)]))) {
+      $context->roundNumber = max(1, $context->roundNumber) + 1;
+      $this->roundParticipants = [];
+    }
+  }
+
   /**
    * Updates the battle status window to show HP, MP, and ATB.
    *
@@ -311,6 +325,8 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
    */
   protected function resetBattleState(TurnStateExecutionContext $context): void
   {
+    $this->roundParticipants = [];
+    $context->roundNumber = 0;
     $this->readyBattlers = [];
     $this->gaugeValues = [];
     $this->initiativeSeeds = [];

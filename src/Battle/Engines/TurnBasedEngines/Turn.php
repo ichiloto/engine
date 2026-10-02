@@ -12,6 +12,8 @@ use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
  */
 class Turn
 {
+  /** @var array<int, array{state: \Ichiloto\Engine\Entities\States\State, hpDelta: int, expired: bool}>|null */
+  private ?array $endStateEvents = null;
   /**
    * @var bool Whether the turn is completed.
    */
@@ -44,6 +46,7 @@ class Turn
   public function start(): void
   {
     $this->isCompleted = false;
+    $this->endStateEvents = null;
   }
 
   /**
@@ -72,5 +75,17 @@ class Turn
   public function complete(): void
   {
     $this->isCompleted = true;
+  }
+
+  /** State duration and damage belong to this battler's completed turn, not a round or redraw. */
+  public function resolveEndStateTicks(): array
+  {
+    if ($this->endStateEvents !== null) { return $this->endStateEvents; }
+    $this->endStateEvents = [];
+    if (!$this->battler->isKnockedOut && method_exists($this->battler, 'tickStates')) {
+      $this->endStateEvents = $this->battler->tickStates();
+    }
+    $this->complete();
+    return $this->endStateEvents;
   }
 }

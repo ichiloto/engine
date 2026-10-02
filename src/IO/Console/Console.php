@@ -747,11 +747,23 @@ class Console
    */
   public static function recomposeFrame(callable $renderer, bool $forceFullRepaint = false): void
   {
+    self::composeFrame($renderer, $forceFullRepaint, false);
+  }
+
+  /** Update part of a screen atomically, keeping unrelated cells and emitting only final differences. */
+  public static function updateFrame(callable $renderer): void
+  {
+    if (self::isComposing()) { $renderer(); return; }
+    self::composeFrame($renderer, false, true);
+  }
+
+  private static function composeFrame(callable $renderer, bool $forceFullRepaint, bool $retainContents): void
+  {
     if (self::$frameDepth !== 0) {
       throw new \RuntimeException('A complete screen cannot be recomposed inside an active console frame.');
     }
     if (self::isRetainedTracking()) {
-      self::recomposeRetainedFrame($renderer);
+      self::recomposeRetainedFrame($renderer, $retainContents);
       return;
     }
 
@@ -766,10 +778,12 @@ class Console
     $previousBaseCells = self::$presentationBaseCells;
     $previousRetained = self::$retainedPresentation === null ? null : clone self::$retainedPresentation;
 
-    self::$buffer = self::getEmptyBuffer();
-    self::$presentationBaseCells = [];
-    self::$layerCells = [];
-    self::$layerPriorities = [];
+    if (!$retainContents) {
+      self::$buffer = self::getEmptyBuffer();
+      self::$presentationBaseCells = [];
+      self::$layerCells = [];
+      self::$layerPriorities = [];
+    }
     self::$frameRows = [];
     self::$recomposeRepaintRows = [];
     self::$isRecomposing = true;
@@ -840,12 +854,12 @@ class Console
   }
 
   /** GPUI builds only authored rows; implicit empty rows never enter the hot loop. */
-  private static function recomposeRetainedFrame(callable $renderer): void
+  private static function recomposeRetainedFrame(callable $renderer, bool $retainContents): void
   {
     $saved = [self::$buffer, self::$layerCells, self::$layerPriorities, self::$overlays,
       self::$presentationBaseCells, self::$frameRows, self::$recomposeRepaintRows, self::$isRecomposing];
     $tracker = self::$retainedPresentation === null ? null : clone self::$retainedPresentation;
-    self::$buffer = self::$layerCells = self::$layerPriorities = self::$presentationBaseCells = [];
+    if (!$retainContents) { self::$buffer = self::$layerCells = self::$layerPriorities = self::$presentationBaseCells = []; }
     self::$frameRows = self::$recomposeRepaintRows = [];
     self::$isRecomposing = true;
     self::beginFrame();

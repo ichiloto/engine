@@ -15,6 +15,7 @@ use Ichiloto\Engine\Battle\Resolution\CombatRandomSource;
 use Ichiloto\Engine\Battle\Resolution\NativeCombatRandomSource;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Scenes\Battle\BattleConfig;
+use Ichiloto\Engine\Battle\UI\BattleScreen;
 
 /**
  * Class TurnBasedEngine. A base class for turn-based battle engines.
@@ -97,11 +98,23 @@ abstract class TurnBasedEngine implements BattleEngineInterface
    */
   public function stop(): void
   {
+    if ($this->turnStateExecutionContext !== null) {
+      $this->state?->exit($this->turnStateExecutionContext);
+    }
     $this->turnQueue->clear();
     $this->state = null;
     $this->turnStateExecutionContext = null;
     $this->battleConfig = null;
   }
+
+  /** A stale scene must not stop an engine now serving a different screen. */
+  public function stopForScreen(BattleScreen $ui): void
+  {
+    if ($this->turnStateExecutionContext?->ui === $ui) { $this->stop(); }
+  }
+
+  /** Traditional rounds are counted by TurnInitState; ATB supplies its own completion boundary. */
+  public function recordTurnCompletion(TurnStateExecutionContext $context, Turn $turn): void {}
 
   /**
    * Sets the state of the engine.

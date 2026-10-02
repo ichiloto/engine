@@ -28,7 +28,7 @@ class ActiveTimeFlowState extends PlayerActionState
    */
   public function enter(TurnStateExecutionContext $context): void
   {
-    $context->roundNumber++;
+    $context->roundNumber = max(1, $context->roundNumber);
     $context->ui->setState($context->ui->playerActionState);
     $this->menuStack = new Stack(MenuInterface::class);
     $this->activeCharacterIndex = -1;

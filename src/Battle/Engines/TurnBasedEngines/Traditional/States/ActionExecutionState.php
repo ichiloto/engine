@@ -5,6 +5,9 @@ namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States;
 use Ichiloto\Engine\Animations\Animation;
 use Ichiloto\Engine\Animations\ActionAnimationResolver;
 use Ichiloto\Engine\Core\Timers;
+use Ichiloto\Engine\Core\Time;
+use Ichiloto\Engine\Animations\Timelines\LegacyAnimationTimeline;
+use Ichiloto\Engine\Battle\Presentation\BattleCommandRunner;
 use Ichiloto\Engine\Animations\AnimationCue;
 use Ichiloto\Engine\Animations\AnimationLibrary;
 use Ichiloto\Engine\Animations\AnimationPlayer;
@@ -21,6 +24,7 @@ use Ichiloto\Engine\Battle\BattleAction;
 use Ichiloto\Engine\Battle\BattleCommandCatalog;
 use Ichiloto\Engine\Battle\BattleTurnTimings;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnExecutionContext;
+use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Turn;
 use Ichiloto\Engine\Battle\Presentation\BattleFeedbackRole;
 use Ichiloto\Engine\Battle\Resolution\CombatTargetResult;
 use Ichiloto\Engine\Battle\Resolution\CombatResolver;
@@ -36,16 +40,22 @@ use Ichiloto\Engine\Entities\Magic\MagicEffectType;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
 use Ichiloto\Engine\Entities\Skills\Skill;
 use Ichiloto\Engine\IO\Enumerations\Color;
+use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\UI\Accessibility;
 use Ichiloto\Engine\Util\Debug;
 
 class ActionExecutionState extends TurnState
 {
+  private bool $endingTurn = false;
+  private ?BattleCommandRunner $command = null;
+
   /**
    * @inheritDoc
    */
   public function enter(TurnStateExecutionContext $context): void
   {
+    $this->disposeCommand($context);
+    $this->endingTurn = false;
     $context->resetTurnCursor();
     $context->ui->commandWindow->blur();
     $context->ui->characterNameWindow->setActiveSelection(-1);
@@ -62,6 +72,26 @@ class ActionExecutionState extends TurnState
    */
   public function update(TurnStateExecutionContext $context): void
   {
+    Console::updateFrame(fn() => $this->updateTurn($context));
+  }
+
+  private function updateTurn(TurnStateExecutionContext $context): void
+  {
+    if ($this->command !== null) {
+      try {
+        $this->command->update(max(0, Time::getDeltaTime()));
+      } catch (\Throwable $error) {
+        $this->disposeCommand($context);
+        throw $error;
+      }
+      $this->refreshCommandField($context);
+      if ($this->command->playback->isCompleted) {
+        $this->disposeCommand($context);
+        if ($this->endingTurn) { $this->finishTurn($context); }
+        elseif (($turn = $context->getCurrentTurn()) !== null) { $this->beginTurnEnd($context, $turn); }
+      }
+      return;
+    }
     $turn = $context->getCurrentTurn();
 
     if ($turn === null || $this->battleHasConcluded($context)) {
@@ -85,8 +115,7 @@ class ActionExecutionState extends TurnState
       && ($blockingState = $turn->battler->getActionBlockingState()) !== null
     ) {
       $context->ui->alert(sprintf('%s is down with %s and cannot act!', $turn->battler->name, $blockingState->name));
-      $context->advanceTurn();
-      $this->transitionToResolutionIfNeeded($context);
+      $this->beginTurnEnd($context, $turn);
       return;
     }
 
@@ -101,8 +130,7 @@ class ActionExecutionState extends TurnState
         ))
     ) {
       $context->ui->alert('That summon is no longer available to this character.');
-      $context->advanceTurn();
-      $this->transitionToResolutionIfNeeded($context);
+      $this->beginTurnEnd($context, $turn);
       return;
     }
 
@@ -116,8 +144,7 @@ class ActionExecutionState extends TurnState
     }
 
     if (empty($targets)) {
-      $context->advanceTurn();
-      $this->transitionToResolutionIfNeeded($context);
+      $this->beginTurnEnd($context, $turn);
       return;
     }
 
@@ -138,13 +165,78 @@ class ActionExecutionState extends TurnState
       }
     );
 
-    if ($this->battleHasConcluded($context)) {
-      $this->setState($this->engine->turnResolutionState);
+  }
+
+  public function exit(TurnStateExecutionContext $context): void
+  {
+    $this->disposeCommand($context);
+  }
+
+  /** A separate result beat prevents turn-end KO from being hidden by battle completion. */
+  protected function beginTurnEnd(TurnStateExecutionContext $context, Turn $turn): void
+  {
+    $this->endingTurn = true;
+    $battler = $turn->battler;
+    if (!method_exists($battler, 'tickStates') || $battler->states === [] || $battler->isKnockedOut) {
+      $turn->resolveEndStateTicks();
+      $this->finishTurn($context);
       return;
     }
+    $events = [];
+    $this->command = new BattleCommandRunner($context, $battler, [$battler], null, '',
+      $context->ui->getPacing()->getTurnTimings(null), null, null,
+      function () use ($turn, &$events): void { $events = $turn->resolveEndStateTicks(); },
+      function () use (&$events, $battler): array {
+        $lines = $this->buildStateTickPopupLines($events);
+        if ($battler->isKnockedOut) { $lines[] = ['text' => 'KO', 'color' => Color::LIGHT_RED]; }
+        return $lines;
+      },
+      function (array $cue) use ($context, $battler, &$events): void {
+        if ($cue['type'] !== 'commandResult') { return; }
+        $this->playDamageFeedbackSound($context, $battler, $cue['payload']['previousHp']);
+        $expired = array_filter($events, static fn(array $event): bool => $event['expired']);
+        if ($expired !== []) {
+          $context->ui->showMessage(implode(' ', array_map(static fn(array $event): string =>
+            sprintf('%s recovered from %s.', $battler->name, $event['state']->name), $expired)));
+        }
+      }, resultsOnly: true);
+    $this->command->begin();
+    $this->refreshCommandField($context);
+  }
 
+  protected function finishTurn(TurnStateExecutionContext $context): void
+  {
+    if (($turn = $context->getCurrentTurn()) !== null) { $this->engine->recordTurnCompletion($context, $turn); }
+    $this->endingTurn = false;
     $context->advanceTurn();
     $this->transitionToResolutionIfNeeded($context);
+  }
+
+  /** @param array<int, array{state: object, hpDelta: int, expired: bool}> $events */
+  protected function buildStateTickPopupLines(array $events): array
+  {
+    return array_values(array_map(static fn(array $event): array => [
+      'text' => sprintf('%+d %s', $event['hpDelta'], $event['state']->name),
+      'color' => $event['hpDelta'] < 0 ? Color::LIGHT_RED : Color::LIGHT_GREEN,
+    ], array_filter($events, static fn(array $event): bool => $event['hpDelta'] !== 0)));
+  }
+
+  private function disposeCommand(TurnStateExecutionContext $context): void
+  {
+    $command = $this->command;
+    $this->command = null;
+    if ($command === null) { return; }
+    $command->dispose();
+    $context->ui->characterNameWindow->setActiveSelection(-1);
+  }
+
+  private function refreshCommandField(TurnStateExecutionContext $context): void
+  {
+    try { $context->ui->refreshField(); }
+    catch (\Throwable $error) {
+      $this->command?->playback->recordPresentationFailure($error);
+      Debug::warn('Battle command redraw failed: ' . $error->getMessage());
+    }
   }
 
   /**
@@ -172,7 +264,7 @@ class ActionExecutionState extends TurnState
   }
 
   /**
-   * Performs the staged turn sequence for the acting battler.
+   * Starts a staged command. Subsequent updates advance its shared playhead.
    *
    * @param TurnStateExecutionContext $context The turn context.
    * @param CharacterInterface $actor The acting battler.
@@ -196,65 +288,51 @@ class ActionExecutionState extends TurnState
 
     $this->highlightActor($context, $actor);
     $this->highlightTarget($context, $focusTarget);
-    $this->stepActorForward($context, $actor);
-    $this->pause($timings->stepForward);
     $summonCutscene = $action !== null ? $this->resolveSummonCutscene($action) : null;
     $announcement = $summonCutscene instanceof SummonCompiledCutscene
       ? (trim(strval($summonCutscene->defaults['moveName'] ?? '')) ?: $actionName)
       : sprintf("%s uses %s!", $actor->name, $actionName);
-    $this->displayAnnouncementPhase($context, $announcement, $timings->announcement);
     $actionAnimation = $summonCutscene instanceof SummonCompiledCutscene
       ? null
       : $this->resolveActionAnimation($action);
-    $presentationSound = $this->resolveActionPresentationSound(
-      $action,
-      $actionAnimation,
-      $summonCutscene instanceof SummonCompiledCutscene,
-    );
-
-    if ($presentationSound instanceof SystemSound) {
-      $context->game->audioManager->playSystemSound($presentationSound);
+    $legacyTarget = $actionAnimation === null ? null
+      : LegacyAnimationTimeline::compile($actionAnimation,
+        max(1, min(120, (int)round($actionAnimation->maxFrames / max(.01, $timings->effectAnimation)))));
+    $targetEffect = $summonCutscene ?? $legacyTarget;
+    $sourceEffect = null;
+    if ($actionAnimation !== null) {
+      $library = $context->getEffectTimelineLibrary();
+      foreach (['source' => $actionAnimation->sourceEffect, 'target' => $actionAnimation->targetEffect] as $stage => $id) {
+        if ($id === null) { continue; }
+        try {
+          $effect = $library->load($id, true, $context->ui->usesGraphicalField()
+            ? \Ichiloto\Engine\Animations\Timelines\EffectPresentation::GRAPHICAL
+            : \Ichiloto\Engine\Animations\Timelines\EffectPresentation::TERMINAL);
+          if ($effect->playbackSegments === [] && $effect->cueSchedule === []) { continue; }
+          if ($stage === 'source') { $sourceEffect = $effect; }
+          else { $targetEffect = $effect; }
+        } catch (\Throwable $error) {
+          Debug::warn('Battle effect could not be loaded; retaining legacy presentation: ' . $id . ': ' . $error->getMessage());
+        }
+      }
     }
-
-    $previousVitals = [];
-    foreach ($targets as $index => $target) {
-      $previousVitals[$index] = [$target->stats->currentHp, $target->stats->currentMp];
-    }
-    $this->resolvePresentedAction($context, $actor, $focusTarget, $action, $timings,
-      $summonCutscene, $actionAnimation, $resolveAction);
-
-    $this->stepActorBack($context, $actor);
-    $this->pause($timings->stepBack);
-
-    $context->ui->characterStatusWindow->setCharacters($context->party->battlers->toArray());
-    $typedTargetResults = [];
-    foreach ($targets as $target) {
-      $targetId = CombatResolver::identity($target);
-      $typedTargetResults[] = array_find(
-        $action?->lastResult?->targets ?? [],
-        static fn(CombatTargetResult $result): bool => $result->targetId === $targetId,
-      );
-    }
-
-    $this->playDamageFeedbackSound(
-      $context,
-      $focusTarget,
-      $previousVitals[0][0],
-      $typedTargetResults[0] ?? null,
-    );
-    $this->displayStatChangesForTargets(
-      $context,
-      $targets,
-      $previousVitals,
-      $timings->statChanges,
-      $typedTargetResults,
-    );
-    $this->displayPhase($context, 'Turn over.', $timings->turnOver, hideAfter: true);
-    $context->ui->characterNameWindow->setActiveSelection(-1);
-    $context->ui->fieldWindow->clearTargetIndicators();
-    $context->ui->fieldWindow->clearMagicCastEffects();
-    $context->ui->fieldWindow->clearStatChangePopups();
-    $context->ui->refreshField();
+    $presentationSound = $this->resolveActionPresentationSound($action,
+      $actionAnimation?->targetEffect === null ? $actionAnimation : null,
+      $summonCutscene instanceof SummonCompiledCutscene, array_filter([$sourceEffect, $targetEffect]));
+    $this->command = new BattleCommandRunner($context, $actor, $targets, $action, $announcement,
+      $timings, $sourceEffect, $targetEffect, $resolveAction, $this->buildStatChangePopupLines(...),
+      function (array $cue) use ($context, $focusTarget, $presentationSound): void {
+        if ($cue['type'] === 'commandPhase' && $cue['payload']['phase'] === 'source'
+          && $presentationSound instanceof SystemSound) {
+          $context->game->audioManager->playSystemSound($presentationSound);
+        } elseif ($cue['type'] === 'commandResult') {
+          $this->playDamageFeedbackSound($context, $cue['payload']['target'],
+            $cue['payload']['previousHp'], $cue['payload']['result']);
+        } elseif ($cue['type'] !== 'commandPhase') {
+          $this->handleSummonCue($context, $focusTarget, $cue, $cue['frame'], Accessibility::prefersReducedMotion());
+        }
+      }, terminalTarget: $targetEffect !== $legacyTarget ? $legacyTarget : null);
+    $this->command->begin();
   }
 
   /** Resolve gameplay once while the authored presentation advances or fails. */
@@ -558,15 +636,20 @@ class ActionExecutionState extends TurnState
    * @param BattleAction|null $action The action being presented.
    * @param Animation|null $animation The resolved ordinary action animation.
    * @param bool $isSummonAction Whether the action uses a summon timeline.
+   * @param array<\Ichiloto\Engine\Animations\Timelines\CompiledEffectTimeline> $effects Loaded effects whose authored audio takes priority.
    * @return SystemSound|null The generic action cue, or null when presentation owns it.
    */
   protected function resolveActionPresentationSound(
     ?BattleAction $action,
     ?Animation $animation = null,
     bool $isSummonAction = false,
+    array $effects = [],
   ): ?SystemSound
   {
-    if ($action === null || $isSummonAction || $this->animationHasSoundCue($animation)) {
+    $authoredSound = array_any($effects, static fn($effect): bool => array_any($effect->cueSchedule,
+      static fn(array $cue): bool => in_array(strtolower($cue['type']), ['playsound', 'sound'], true)
+        && trim(strval($cue['payload']['soundEffect'] ?? $cue['payload']['sound'] ?? $cue['payload']['assetId'] ?? '')) !== ''));
+    if ($action === null || $isSummonAction || $authoredSound || $this->animationHasSoundCue($animation)) {
       return null;
     }
 
@@ -741,6 +824,10 @@ class ActionExecutionState extends TurnState
   {
     $payload = is_array($cue['payload'] ?? null) ? $cue['payload'] : [];
     $type = strtolower(trim(strval($cue['type'] ?? '')));
+    // Live command presenters own visual tracks; imperative cues serve legacy blocking previews only.
+    if (in_array($type, ['flash', 'shake'], true) && $context->ui->fieldWindow->getCommandPlayback() !== null) {
+      return;
+    }
     switch ($type) {
       case 'applyeffect':
         // The authored effectTiming gate decides whether this cue resolves combat.
@@ -880,18 +967,13 @@ class ActionExecutionState extends TurnState
     if ($action instanceof ItemBattleAction) { return null; }
 
     if ($action instanceof SkillBattleAction) {
-      foreach (ActionAnimationResolver::getSkillCandidateNames(
-        $action->skill->name,
-        $action->skill instanceof MagicSkill ? $action->skill->effectType : null,
-      ) as $name) {
-        $animation = $animationLibrary->findByName($name);
-        if ($animation instanceof Animation) { return $animation; }
-      }
-      return null;
+      return $animationLibrary->findByRole(ActionAnimationResolver::getSkillRole(
+        $action->skill,
+      ));
     }
 
     if ($action instanceof AttackAction) {
-      return $animationLibrary->findByName('Hit Spark');
+      return $animationLibrary->findByRole('attack');
     }
 
     return null;

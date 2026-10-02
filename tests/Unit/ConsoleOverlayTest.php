@@ -207,3 +207,58 @@ it('rejects an overflowing parent layer write after a nested layer consumes the 
     ->and(array_column($snapshot->textLayers, 'id'))->not->toContain('outer')
     ->and(Console::snapshot()->rows[0])->toStartWith('I ');
 });
+
+it('emits no terminal output for an unchanged partial erase and redraw', function () {
+  Console::write('Battlefield', 2, 1);
+  Console::write('HP 100', 2, 6);
+  $before = Console::snapshot();
+  ob_clean();
+  Console::updateFrame(function (): void {
+    Console::write(str_repeat(' ', 36), 0, 1);
+    Console::write('Battlefield', 2, 1);
+  });
+  expect(ob_get_contents())->toBe('')->and(Console::snapshot())->toEqual($before);
+});
+
+it('emits only final changed cells for nested partial updates without blank intermediate frames', function () {
+  Console::write('Actor', 10, 2);
+  Console::write('HP 100', 2, 6);
+  Console::replaceOverlay('notice', ['Toast'], 30, 0, 2000);
+  ob_clean();
+  Console::updateFrame(function (): void {
+    Console::write(str_repeat(' ', 30), 0, 2);
+    Console::updateFrame(fn() => Console::write('Actor', 7, 2));
+    expect(ob_get_contents())->toBe('');
+  });
+  $output = ob_get_contents();
+  expect($output)->toContain('Actor')->not->toContain(str_repeat(' ', 30), 'HP 100', 'Toast', "\e[2J")
+    ->and(Console::snapshot()->rows[2])->toBe(str_repeat(' ', 7) . 'Actor' . str_repeat(' ', 28))
+    ->and(Console::snapshot()->rows[6])->toContain('HP 100')
+    ->and(Console::snapshot()->rows[0])->toContain('Toast');
+});
+
+it('rolls failed partial composition back without emitting writes or losing pending overlays', function () {
+  Console::write('Old field', 1, 1);
+  Console::replaceOverlay('notice', ['Old toast'], 2, 6, 2000);
+  $before = Console::presentationSnapshot();
+  ob_clean();
+  expect(fn() => Console::updateFrame(function (): void {
+    Console::write('Broken field', 1, 1);
+    Console::replaceOverlay('notice', ['New toast'], 2, 6, 2000);
+    throw new RuntimeException('partial failure');
+  }))->toThrow(RuntimeException::class, 'partial failure');
+  expect(ob_get_contents())->toBe('')->and(Console::presentationSnapshot())->toEqual($before)
+    ->and(Console::isComposing())->toBeFalse();
+});
+
+it('preserves styled wide glyphs and higher overlays across partial screen updates', function () {
+  Console::write("\e[34m界\e[0m", 2, 2);
+  Console::replaceOverlay('notice', ['Notice'], 10, 2, 2000);
+  $before = Console::presentationSnapshot();
+  ob_clean();
+  Console::updateFrame(function (): void {
+    Console::write(str_repeat(' ', 20), 0, 2);
+    Console::write("\e[34m界\e[0m", 2, 2);
+  });
+  expect(ob_get_contents())->toBe('')->and(Console::presentationSnapshot())->toEqual($before);
+});

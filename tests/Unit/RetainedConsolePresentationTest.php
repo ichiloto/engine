@@ -238,6 +238,30 @@ it('rolls back failed sparse composition including pending changes and overlays'
   expect(Console::presentationSnapshot())->toEqual($before);
 });
 
+it('retains unrelated rows and discards unchanged partial redraws in sparse presentation', function () {
+  Console::setRetainedWorldPresentation(true);
+  Console::write('field', 0, 1);
+  Console::withLayer('hud', fn() => Console::write('HP', 0, 4), 1000);
+  Console::replaceOverlay('notice', ['Toast'], 7, 0, 2000);
+  applyConsoleRowChanges($this, Console::getRetainedPresentationChanges());
+  Console::updateFrame(function (): void {
+    Console::write('     ', 0, 1);
+    Console::write('field', 0, 1);
+  });
+  expect(Console::getRetainedPresentationChanges()->layers)->toBe([]);
+  Console::updateFrame(fn() => Console::write('spell', 0, 1));
+  $changes = Console::getRetainedPresentationChanges();
+  $state = applyConsoleRowChanges($this, $changes);
+  expect(array_column($changes->layers, 'id'))->toBe(['world'])
+    ->and(array_column($changes->layers[0]['rows'], 'row'))->toBe([1])
+    ->and(array_column($state->textLayers, 'id'))->toBe(['world', 'hud', 'notice'])
+    ->and($state->textLayers[0]->runs)->toEqual([new PresentationTextRun(1, 0, 'spell')])
+    ->and($state->textLayers[1]->runs)->toEqual([new PresentationTextRun(4, 0, 'HP')])
+    ->and($state->textLayers[2]->runs)->toEqual([new PresentationTextRun(0, 7, 'Toast')])
+    ->and(Console::snapshot()->rows[4])->toStartWith('HP')
+    ->and(Console::snapshot()->rows[0])->toContain('Toast');
+});
+
 it('preserves overlays during clear and resets current state after resize or rejected delivery', function () {
   Console::withLayer('old', fn() => Console::write('old', 0, 1), 100);
   Console::replaceOverlay('notice', ['stay'], 0, 0, 2000);

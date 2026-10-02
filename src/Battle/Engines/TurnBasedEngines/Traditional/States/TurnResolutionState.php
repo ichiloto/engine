@@ -5,7 +5,6 @@ namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Battle\BattleResult;
 use Ichiloto\Engine\Battle\Presentation\BattleRewards;
-use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\Scenes\Game\GameScene;
@@ -28,8 +27,6 @@ class TurnResolutionState extends TurnState
     if (! $scene instanceof BattleScene) {
       return;
     }
-
-    $this->applyStateTicks($context);
 
     if (empty($context->getLivingPartyBattlers())) {
       $scene->result = new BattleResult('Defeat', [
@@ -133,62 +130,4 @@ class TurnResolutionState extends TurnState
     $this->setState($this->engine->turnInitState);
   }
 
-  /**
-   * Applies one round of state ticks to every living battler: HP deltas
-   * (with popups) and duration expiry (with a summary alert).
-   *
-   * @param TurnStateExecutionContext $context The turn context.
-   * @return void
-   */
-  protected function applyStateTicks(TurnStateExecutionContext $context): void
-  {
-    $announcements = [];
-
-    foreach ([...$context->getLivingPartyBattlers(), ...$context->getLivingTroopBattlers()] as $battler) {
-      if (! method_exists($battler, 'tickStates')) {
-        continue;
-      }
-
-      $events = $battler->tickStates();
-      $popupLines = $this->buildStateTickPopupLines($events);
-
-      foreach ($events as $event) {
-        if ($event['expired']) {
-          $announcements[] = sprintf('%s recovered from %s.', $battler->name, $event['state']->name);
-        }
-      }
-
-      if (! empty($popupLines)) {
-        $context->ui->fieldWindow->showStatChangePopup($battler, $popupLines);
-      }
-    }
-
-    if (! empty($announcements)) {
-      $context->ui->alert(implode(' ', $announcements));
-    }
-  }
-
-  /**
-   * Converts state ticks into the same typed popup payload used by actions.
-   *
-   * @param array<int, array{state: object, hpDelta: int, expired: bool}> $events State tick events.
-   * @return array<int, array{text: string, color: Color}> Popup lines.
-   */
-  protected function buildStateTickPopupLines(array $events): array
-  {
-    $lines = [];
-
-    foreach ($events as $event) {
-      if ($event['hpDelta'] === 0) {
-        continue;
-      }
-
-      $lines[] = [
-        'text' => sprintf('%+d %s', $event['hpDelta'], $event['state']->name),
-        'color' => $event['hpDelta'] < 0 ? Color::LIGHT_RED : Color::LIGHT_GREEN,
-      ];
-    }
-
-    return $lines;
-  }
 }

@@ -477,7 +477,7 @@ class ActiveTimeFlowStateTestProxy extends ActiveTimeFlowState
   }
 }
 
-it('advances active-time rounds whenever the flow cycles', function () {
+it('keeps the active-time round stable while returning to command flow', function () {
   $game = (new ReflectionClass(GameTargetingTestProxy::class))->newInstanceWithoutConstructor();
   $party = new Party();
   $party->addMember(new Character('Kaelion', 0, new Stats(currentHp: 120, speed: 8)));
@@ -491,7 +491,7 @@ it('advances active-time rounds whenever the flow cycles', function () {
   $state->enter($context);
   $state->enter($context);
 
-  expect($context->roundNumber)->toBe(2);
+  expect($context->roundNumber)->toBe(1);
 });
 
 it('queues Guard immediately for a ready active-time battler', function () {

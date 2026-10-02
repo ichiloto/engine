@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States;
 
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Turn;
 use Ichiloto\Engine\Battle\UI\BattleScreen;
+use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
@@ -18,6 +19,7 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
  */
 class TurnStateExecutionContext
 {
+  private ?EffectTimelineLibrary $effectTimelines = null;
   /**
    * @var int The 1-based battle round, advanced at each round's init.
    */
@@ -70,6 +72,13 @@ class TurnStateExecutionContext
   public function getTurns(): array
   {
     return $this->turns;
+  }
+
+  /** The battle owns compiled effect data; artwork remains replaceable during playback. */
+  public function getEffectTimelineLibrary(): EffectTimelineLibrary
+  {
+    return $this->effectTimelines ??= new EffectTimelineLibrary(
+      $this->game->getRendererRuntime()?->getAssetRoot() ?? getcwd() . '/assets');
   }
 
   /**
