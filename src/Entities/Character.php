@@ -443,16 +443,39 @@ class Character implements CharacterInterface, CanEquip
       return;
     }
 
-    foreach ($this->equipment as $equipmentSlot) {
-      if ($equipmentSlot->name !== $slot->name) {
+    if ($this->assignEquipment($slot->name, $equipment)) {
+      alert(sprintf("Equipped %s on %s", $equipment->name, $this->name));
+    }
+  }
+
+  /**
+   * Puts equipment in one of the character's slots, or empties the slot
+   * given null, without announcing it: the slot must accept the equipment
+   * and the character must be able to equip it. Callers that speak to the
+   * player announce the change themselves.
+   *
+   * @param string $slotName The slot's name, such as `Weapon`.
+   * @param Equipment|null $equipment The equipment, or null to empty the slot.
+   * @return bool Whether the slot now holds what was asked.
+   */
+  public function assignEquipment(string $slotName, ?Equipment $equipment): bool
+  {
+    foreach ($this->equipment as $slot) {
+      if ($slot->name !== $slotName) {
         continue;
       }
+      if ($equipment !== null && (! $this->canEquip($equipment) || $slot->acceptsType !== $equipment::class
+        || $slot->semanticSlot !== $equipment->semanticSlot)) {
+        return false;
+      }
 
-      $equipmentSlot->equipment = $equipment;
+      $slot->equipment = $equipment;
       $this->adjustStatTotals();
-      alert(sprintf("Equipped %s on %s", $equipment->name, $this->name));
-      return;
+
+      return true;
     }
+
+    return false;
   }
 
   /**

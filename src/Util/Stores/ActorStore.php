@@ -50,6 +50,12 @@ final class ActorStore implements ConfigInterface
     }
   }
 
+  /** @return list<string> The id of every actor, in the order their files were read. */
+  public function getActorIds(): array
+  {
+    return array_values(array_map(static fn(ActorDefinition $definition): string => $definition->id, $this->definitions));
+  }
+
   public function get(string $path, mixed $default = null): ?ActorDefinition
   {
     $id = $this->resolveId($path);

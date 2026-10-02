@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\Scenes\Arena;
 
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Entities\Inventory\Equipment;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\IO\Console\Console;
@@ -15,16 +17,22 @@ use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Window;
+use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Debug;
+use Ichiloto\Engine\Util\Stores\ActorStore;
+use Ichiloto\Engine\Util\Stores\ItemStore;
 use Throwable;
 
 /**
- * A room with nothing in it but the project's troops.
+ * The battle test, as RPG Maker's Battle Test: pick a troop, set up the
+ * party (its members, their levels and equipment), and fight it for real
+ * with the game's own battle system. Every fight starts from the setup with
+ * a fresh party and a fresh troop, so nothing one battle does (experience,
+ * levels, gold, items, states, defeated enemies) carries into the next.
  *
- * Testing a battle by playing to it costs a walk, an encounter roll, and
- * whatever the party picked up on the way. The arena is the fight on its own:
- * pick a troop, fight it for real with the game's own battle system, and land
- * back here afterwards with the party restored, ready to try the next one.
+ * Down from the troop list moves into the party; confirm edits a member;
+ * left and right change its actor and level (a page step changes the level
+ * by ten); confirm on a slot chooses its equipment; cancel steps back out.
  *
  * @package Ichiloto\Engine\Scenes\Arena
  */
@@ -32,28 +40,25 @@ class ArenaScene extends AbstractScene
 {
   protected const int PANEL_WIDTH = 60;
   protected const int LIST_HEIGHT = 18;
-  protected const int INFO_HEIGHT = 5;
+  protected const int INFO_HEIGHT = BattleTestSetup::MAX_MEMBERS + 2;
+  /** The setup option a caller may start the arena with, a {@see BattleTestSetup}. */
+  public const string SETUP_OPTION = 'arena_setup';
 
   /**
-   * @var Troop[] The troops that can be fought.
+   * @var list<array<string, mixed>> Each troop's data, built into a fresh troop for every fight.
+   */
+  protected array $troopData = [];
+  /**
+   * @var Troop[] The troops, built once for the list.
    */
   protected array $troops = [];
+  protected ?ArenaSetupEditor $editor = null;
   /**
-   * @var Party|null The party doing the fighting.
+   * @var Party|null The party the setup describes, for the party panel; never the one that fights.
    */
-  protected ?Party $party = null;
-  /**
-   * @var array<string, array{0: int, 1: int}> The health the party started with, by member name.
-   */
-  protected array $fullHealth = [];
-  /**
-   * @var int The selected troop.
-   */
-  protected int $activeIndex = 0;
-  /**
-   * @var int The scroll offset.
-   */
-  protected int $scrollOffset = 0;
+  protected ?Party $previewParty = null;
+  /** @var array<string, int> Each list's scroll offset, by focus. */
+  protected array $scrollOffsets = [];
   protected int $leftMargin = 0;
   protected int $topMargin = 0;
   protected ?Window $listPanel = null;
@@ -74,9 +79,9 @@ class ArenaScene extends AbstractScene
   {
     parent::start();
 
-    $this->troops = $this->loadTroops();
-    $this->party ??= $this->loadParty();
-    $this->rememberHealth();
+    $this->loadTroops();
+    $this->editor = $this->createEditor();
+    $this->refreshPreview();
     $this->buildPanels();
 
     Console::clear();
@@ -97,9 +102,8 @@ class ArenaScene extends AbstractScene
   {
     parent::resume();
 
-    // Back from a fight: the party is patched up so the next troop is fought
-    // by a fresh party rather than whatever the last one left.
-    $this->restoreHealth();
+    // Back from a fight: the setup is unchanged, and the next fight builds
+    // its own party and troop from it.
     Console::clear();
     $this->render();
   }
@@ -111,7 +115,9 @@ class ArenaScene extends AbstractScene
   {
     parent::update();
 
-    if ($this->troops === []) {
+    $editor = $this->editor;
+
+    if ($this->troops === [] || $editor === null) {
       if (Input::isButtonDown('quit') || Input::isButtonDown('cancel')) {
         $this->getGame()->quit();
       }
@@ -119,35 +125,42 @@ class ArenaScene extends AbstractScene
       return;
     }
 
+    $setup = $editor->setup;
     $vertical = Input::getAxis(AxisName::VERTICAL);
+    $horizontal = Input::getAxis(AxisName::HORIZONTAL);
+    $request = null;
 
     if (abs($vertical) > 0.1) {
-      $this->activeIndex = wrap($this->activeIndex + ($vertical > 0 ? 1 : -1), 0, count($this->troops) - 1);
-      $this->scrollToActive();
-      $this->render();
-    }
-
-    if (Input::isButtonDown('confirm') || Input::isButtonDown('action')) {
-      $this->fight($this->troops[$this->activeIndex]);
-
+      $editor->moveVertical($vertical > 0 ? 1 : -1);
+    } elseif (abs($horizontal) > 0.1) {
+      $editor->moveHorizontal($horizontal > 0 ? 1 : -1);
+    } elseif (Input::isButtonDown('menu_page_next')) {
+      $editor->stepLevel(10);
+    } elseif (Input::isButtonDown('menu_page_previous')) {
+      $editor->stepLevel(-10);
+    } elseif (Input::isButtonDown('confirm') || Input::isButtonDown('action')) {
+      $request = $editor->confirm();
+    } elseif (Input::isButtonDown('cancel')
+      || ($editor->focus === ArenaSetupEditor::TROOPS && Input::isAnyKeyPressed([KeyCode::Q, KeyCode::q]))) {
+      $request = $editor->cancel();
+    } else {
       return;
     }
 
-    if (Input::isAnyKeyPressed([KeyCode::Q, KeyCode::q]) || Input::isButtonDown('cancel')) {
+    if ($request === ArenaSetupEditor::QUIT) {
       $this->getGame()->quit();
-    }
-  }
 
-  /**
-   * Sets the party the arena fights with.
-   *
-   * @param Party $party The party.
-   * @return void
-   */
-  public function useParty(Party $party): void
-  {
-    $this->party = $party;
-    $this->rememberHealth();
+      return;
+    }
+    if ($request === ArenaSetupEditor::FIGHT) {
+      $this->fight($editor->troopIndex);
+
+      return;
+    }
+    if ($editor->setup !== $setup) {
+      $this->refreshPreview();
+    }
+    $this->render();
   }
 
   /**
@@ -162,8 +175,8 @@ class ArenaScene extends AbstractScene
   {
     foreach ($this->troops as $index => $troop) {
       if (strcasecmp($troop->name, $troopName) === 0) {
-        $this->activeIndex = $index;
-        $this->fight($troop);
+        $this->editor?->selectTroop($index);
+        $this->fight($index);
 
         return true;
       }
@@ -173,34 +186,39 @@ class ArenaScene extends AbstractScene
   }
 
   /**
-   * Fights a troop for real.
+   * Fights a troop for real, with a fresh party and troop built from the setup.
    *
-   * @param Troop $troop The troop to fight.
+   * @param int $index The troop's place in the list.
    * @return void
    */
-  protected function fight(Troop $troop): void
+  protected function fight(int $index): void
   {
-    if (! $this->party instanceof Party) {
+    $setup = $this->editor?->setup;
+    $data = $this->troopData[$index] ?? null;
+
+    if ($setup === null || $data === null) {
       return;
     }
 
-    $this->restoreHealth();
-
     try {
-      $this->getGame()->sceneManager->loadBattleScene($this->party, clone $troop);
+      $this->getGame()->sceneManager->loadBattleScene(
+        $setup->createParty(ConfigStore::get(ActorStore::class), ConfigStore::get(ItemStore::class)),
+        Troop::fromArray($data),
+      );
     } catch (Throwable $exception) {
       Debug::error(sprintf('The arena could not start a battle: %s', $exception->getMessage()));
     }
   }
 
   /**
-   * Loads the project's troops.
+   * Loads the project's troops: their data for fights, and each built once for the list.
    *
-   * @return Troop[] The troops.
+   * @return void
    */
-  protected function loadTroops(): array
+  protected function loadTroops(): void
   {
-    $troops = [];
+    $this->troopData = [];
+    $this->troops = [];
 
     foreach ((array) asset('Data/troops.php', true) as $data) {
       if (! is_array($data)) {
@@ -208,55 +226,86 @@ class ArenaScene extends AbstractScene
       }
 
       try {
-        $troops[] = Troop::fromArray($data);
+        $this->troops[] = Troop::fromArray($data);
+        $this->troopData[] = $data;
       } catch (Throwable $exception) {
         Debug::warn(sprintf('The arena skipped a troop: %s', $exception->getMessage()));
       }
     }
-
-    return $troops;
   }
 
   /**
-   * Builds the party the arena fights with.
+   * The setup editor, starting from the setup a caller passed or else the
+   * project's starting party.
    *
-   * @return Party|null The project's starting party.
+   * @return ArenaSetupEditor|null Null when no party can be built.
    */
-  protected function loadParty(): ?Party
+  protected function createEditor(): ?ArenaSetupEditor
   {
     try {
-      return GameLoader::getInstance($this->getGame())->loadNewGame()->party;
+      $actors = ConfigStore::get(ActorStore::class);
+      $setup = $this->getGame()->options[self::SETUP_OPTION] ?? null;
+      $setup = $setup instanceof BattleTestSetup
+        ? $setup
+        : BattleTestSetup::getFromParty(GameLoader::getInstance($this->getGame())->loadNewGame()->party);
+
+      return new ArenaSetupEditor(
+        $setup,
+        count($this->troops),
+        $actors->getActorIds(),
+        fn(string $actorId): array => array_map(static fn($slot): string => $slot->name, $this->createProbe($actorId)->equipment),
+        fn(string $actorId, string $slotName): array => $this->getEquipmentChoices($actorId, $slotName),
+        fn(string $actorId): int => $this->createProbe($actorId)->maxLevel,
+      );
     } catch (Throwable $exception) {
-      Debug::error(sprintf('The arena could not build a party: %s', $exception->getMessage()));
+      Debug::error(sprintf('The arena could not set up a party: %s', $exception->getMessage()));
 
       return null;
     }
   }
 
-  /**
-   * Records the party's health, so it can be put back between fights.
-   *
-   * @return void
-   */
-  protected function rememberHealth(): void
+  /** A character of the actor as authored, to read its slots and limits. */
+  protected function createProbe(string $actorId): Character
   {
-    foreach ($this->party?->battlers?->toArray() ?? [] as $battler) {
-      $this->fullHealth[$battler->name] ??= [$battler->stats->currentHp, $battler->stats->currentMp];
-    }
+    return ConfigStore::get(ActorStore::class)->require($actorId, 'the battle test setup')->createCharacter();
   }
 
   /**
-   * Patches the party up.
+   * What an actor can wear in a slot: nothing, then every equipment item
+   * the slot accepts and the actor can equip, in authored order.
+   *
+   * @return list<array{id: ?string, name: string}>
+   */
+  protected function getEquipmentChoices(string $actorId, string $slotName): array
+  {
+    $character = $this->createProbe($actorId);
+    $slot = array_find($character->equipment, static fn($slot): bool => $slot->name === $slotName);
+    $items = ConfigStore::get(ItemStore::class);
+    $choices = [['id' => null, 'name' => '(None)']];
+
+    foreach ($slot === null ? [] : $items->getItemIds() as $id) {
+      $item = $items->get($id);
+      if ($item instanceof Equipment && $slot->acceptsType === $item::class && $slot->semanticSlot === $item->semanticSlot
+        && $character->canEquip($item)) {
+        $choices[] = ['id' => $id, 'name' => $item->name];
+      }
+    }
+
+    return $choices;
+  }
+
+  /**
+   * Rebuilds the party the panel shows from the setup.
    *
    * @return void
    */
-  protected function restoreHealth(): void
+  protected function refreshPreview(): void
   {
-    foreach ($this->party?->battlers?->toArray() ?? [] as $battler) {
-      [$hp, $mp] = $this->fullHealth[$battler->name] ?? [$battler->stats->totalHp, $battler->stats->totalMp];
-
-      $battler->stats->currentHp = $hp;
-      $battler->stats->currentMp = $mp;
+    try {
+      $this->previewParty = $this->editor?->setup->createParty(ConfigStore::get(ActorStore::class), ConfigStore::get(ItemStore::class));
+    } catch (Throwable $exception) {
+      Debug::error(sprintf('The arena could not build its party: %s', $exception->getMessage()));
+      $this->previewParty = null;
     }
   }
 
@@ -274,7 +323,7 @@ class ArenaScene extends AbstractScene
     // The list is of the troops to fight, so it says so.
     $this->listPanel = new Window(
       'Troop',
-      'enter:Fight  q:Quit',
+      '',
       new Vector2($this->leftMargin, $this->topMargin),
       self::PANEL_WIDTH,
       self::LIST_HEIGHT,
@@ -292,49 +341,57 @@ class ArenaScene extends AbstractScene
   }
 
   /**
-   * Keeps the selection on screen.
-   *
-   * @return void
-   */
-  protected function scrollToActive(): void
-  {
-    $visibleRows = self::LIST_HEIGHT - 2;
-
-    if ($this->activeIndex < $this->scrollOffset) {
-      $this->scrollOffset = $this->activeIndex;
-    } elseif ($this->activeIndex >= $this->scrollOffset + $visibleRows) {
-      $this->scrollOffset = $this->activeIndex - $visibleRows + 1;
-    }
-  }
-
-  /**
    * @inheritDoc
    */
   public function render(): void
   {
     $innerWidth = self::PANEL_WIDTH - 4;
-    $visibleRows = self::LIST_HEIGHT - 2;
-    $content = [];
+    $editor = $this->editor;
+    $focus = $editor?->focus ?? ArenaSetupEditor::TROOPS;
 
-    if ($this->troops === []) {
-      $content[] = ' This project has no troops to fight.';
-    }
-
-    foreach (array_slice($this->troops, $this->scrollOffset, $visibleRows, true) as $index => $troop) {
-      $prefix = $index === $this->activeIndex ? '>' : ' ';
-      $line = TerminalText::padRight(
-        sprintf(' %s %s', $prefix, $this->describeTroop($troop)),
-        $innerWidth
-      );
-
-      $content[] = $index === $this->activeIndex ? SelectionStyle::apply($line) : $line;
-    }
-
-    $this->listPanel?->setContent(array_pad($content, $visibleRows, ''));
+    [$title, $help, $rows, $selected] = match ($focus) {
+      ArenaSetupEditor::MEMBER => $this->describeMember($innerWidth),
+      ArenaSetupEditor::CHOOSER => $this->describeChoices(),
+      default => ['Troop', $focus === ArenaSetupEditor::TROOPS ? 'enter:Fight  down:Party  q:Quit' : '',
+        $this->troops === [] ? [' This project has no troops to fight.'] : array_map($this->describeTroop(...), $this->troops),
+        $focus === ArenaSetupEditor::TROOPS ? ($editor?->troopIndex ?? 0) : null],
+    };
+    $this->listPanel?->setTitle($title);
+    $this->listPanel?->setHelp($help);
+    $this->listPanel?->setContent($this->formatList($rows, $selected, $innerWidth, self::LIST_HEIGHT - 2,
+      $focus === ArenaSetupEditor::PARTY ? ArenaSetupEditor::TROOPS : $focus));
     $this->listPanel?->render();
 
+    $this->infoPanel?->setHelp($focus === ArenaSetupEditor::PARTY ? 'enter:Edit  esc:Back' : '');
     $this->infoPanel?->setContent($this->describeParty($innerWidth));
     $this->infoPanel?->render();
+  }
+
+  /**
+   * Fits a list into a panel: the selected row highlighted and kept in
+   * view, each list keeping its own scroll position.
+   *
+   * @param list<string> $rows The rows.
+   * @param int|null $selected The selected row, or null.
+   * @param string $list Which list it is, for its scroll position.
+   * @return list<string> The visible rows, padded to the panel's height.
+   */
+  protected function formatList(array $rows, ?int $selected, int $width, int $visibleRows, string $list): array
+  {
+    $offset = min($this->scrollOffsets[$list] ?? 0, max(0, count($rows) - $visibleRows));
+    if ($selected !== null && $selected < $offset) {
+      $offset = $selected;
+    } elseif ($selected !== null && $selected >= $offset + $visibleRows) {
+      $offset = $selected - $visibleRows + 1;
+    }
+    $this->scrollOffsets[$list] = $offset;
+    $content = [];
+    foreach (array_slice($rows, $offset, $visibleRows, true) as $index => $row) {
+      $line = TerminalText::padRight(sprintf(' %s %s', $index === $selected ? '>' : ' ', $row), $width);
+      $content[] = $index === $selected ? SelectionStyle::apply($line) : $line;
+    }
+
+    return array_pad($content, $visibleRows, '');
   }
 
   /**
@@ -358,7 +415,54 @@ class ArenaScene extends AbstractScene
   }
 
   /**
-   * Describes the party for the info panel.
+   * The member being edited: its actor, level, equipment and removal.
+   *
+   * @return array{0: string, 1: string, 2: list<string>, 3: int|null}
+   */
+  protected function describeMember(int $width): array
+  {
+    $editor = $this->editor;
+    $member = $editor?->member;
+    if ($editor === null || $member === null) {
+      return ['Member', '', [], null];
+    }
+    $items = ConfigStore::get(ItemStore::class);
+    $rows = [];
+    foreach ($editor->fields as $field) {
+      $rows[] = match (true) {
+        $field === 'actor' => sprintf('%-12s< %s >', 'Actor', $this->getActorName($member->actorId)),
+        $field === 'level' => sprintf('%-12s< %d >', 'Level', $member->level),
+        $field === 'remove' => 'Remove from the party',
+        default => sprintf('%-12s%s', substr($field, 5),
+          ($id = $member->equipment[substr($field, 5)] ?? null) === null ? '(None)' : $items->displayNameFor($id)),
+      };
+    }
+
+    return [$this->getActorName($member->actorId), 'left/right:Change  enter:Choose  esc:Done', $rows, $editor->fieldIndex];
+  }
+
+  /**
+   * What the selected slot can hold.
+   *
+   * @return array{0: string, 1: string, 2: list<string>, 3: int|null}
+   */
+  protected function describeChoices(): array
+  {
+    $editor = $this->editor;
+    $field = $editor?->fields[$editor->fieldIndex] ?? '';
+
+    return [sprintf('%s for %s', substr($field, 5), $this->getActorName($editor?->member?->actorId ?? '')),
+      'enter:Equip  esc:Back', array_column($editor?->getChoices() ?? [], 'name'), $editor?->choiceIndex];
+  }
+
+  protected function getActorName(string $actorId): string
+  {
+    return ConfigStore::get(ActorStore::class)->get($actorId)?->data()['name'] ?? $actorId;
+  }
+
+  /**
+   * Describes the party for the info panel, an empty row for each place
+   * the party has left.
    *
    * @param int $width The panel's inner width.
    * @return string[] The rows.
@@ -367,15 +471,27 @@ class ArenaScene extends AbstractScene
   {
     $members = [];
 
-    foreach ($this->party?->battlers?->toArray() ?? [] as $battler) {
-      $members[] = [$battler->name, [
-        'Lv' => (string) $battler->level,
-        'HP' => "{$battler->stats->currentHp}/{$battler->stats->totalHp}",
-        'MP' => "{$battler->stats->currentMp}/{$battler->stats->totalMp}",
+    foreach ($this->previewParty?->members?->toArray() ?? [] as $character) {
+      $members[] = [$character->name, [
+        'Lv' => (string) $character->level,
+        'HP' => "{$character->stats->currentHp}/{$character->stats->totalHp}",
+        'MP' => "{$character->stats->currentMp}/{$character->stats->totalMp}",
       ]];
     }
 
-    return $members === [] ? [' No party could be built from this project.'] : self::formatPartyRows($members, $width);
+    if ($members === []) {
+      return [' No party could be built from this project.'];
+    }
+    $rows = self::formatPartyRows($members, $width);
+    while (count($rows) < BattleTestSetup::MAX_MEMBERS) {
+      $rows[] = TerminalText::padRight(' (empty)', $width);
+    }
+    $editor = $this->editor;
+    if ($editor !== null && $editor->focus !== ArenaSetupEditor::TROOPS && isset($rows[$editor->memberIndex])) {
+      $rows[$editor->memberIndex] = SelectionStyle::apply($rows[$editor->memberIndex]);
+    }
+
+    return $rows;
   }
 
   /**
