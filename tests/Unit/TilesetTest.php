@@ -366,6 +366,17 @@ it('finds the glyphs the graphical field still shows, by the layer each tile cov
     ->toBe([['x' => 1, 'y' => 0, 'glyph' => '.', 'layer' => 'terrain']]);
 });
 
+it('names the plain tile that marks missing art, from one of its own sheets', function () {
+  $sheets = ['name' => 'Home', 'sheets' => ['A2' => 'Graphics/Tilesets/A2.png', 'B' => 'Graphics/Tilesets/B.png']];
+  expect(Tileset::fromArray('home', [...$sheets, 'missingArt' => 255])->missingArt)->toBe(255)
+    ->and(Tileset::fromArray('home', $sheets)->missingArt)->toBeNull();
+  // An autotile, a sheet the tileset lacks (C), the empty tile and a non-identity are refused.
+  foreach ([2816, 300, 0, '255', 99999] as $invalid) {
+    expect(fn() => Tileset::fromArray('home', [...$sheets, 'missingArt' => $invalid]))
+      ->toThrow(InvalidArgumentException::class, 'missingArt must be a plain tile from one of its sheets');
+  }
+});
+
 it('reads whole pieces from the tileset with glyphs and tiles over one footprint', function () {
   $tileset = Tileset::fromArray('home', ['name' => 'Home', 'sheets' => ['B' => 'Graphics/Tilesets/B.png'], 'pieces' => [
     'bed' => ['name' => 'Bed', 'layer' => 'fixtures', 'glyphs' => ['=', '='], 'tiles' => ['furniture' => ['32', '40']]],

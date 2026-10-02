@@ -19,13 +19,14 @@ use RuntimeException;
 final readonly class Tileset
 {
   public const string DIRECTORY = 'Data/Tilesets';
-  private const array FIELDS = ['name', 'sheets', 'above', 'tables', 'pieces'];
+  private const array FIELDS = ['name', 'sheets', 'above', 'tables', 'pieces', 'missingArt'];
 
   /**
    * @param array<string, string> $sheets Asset-relative PNG paths keyed by sheet name.
    * @param list<int> $above Tile identities drawn above characters (every shape of an autotile kind).
    * @param list<int> $tables A2 autotile identities drawn as tables.
    * @param array<string, TilesetPiece> $pieces Whole items, keyed by piece id, in authored order.
+   * @param int|null $missingArt The plain tile that marks a cell whose art is still to do, or null.
    */
   public function __construct(
     public string $id,
@@ -34,6 +35,7 @@ final readonly class Tileset
     public array $above = [],
     public array $tables = [],
     public array $pieces = [],
+    public ?int $missingArt = null,
   ) {}
 
   public static function load(string $assetRoot, string $id): self
@@ -84,7 +86,14 @@ final readonly class Tileset
     foreach ($pieces as $pieceId => $piece) {
       $pieces[$pieceId] = TilesetPiece::fromArray((string)$pieceId, $piece, $context);
     }
-    return new self($id, $data['name'], $sheets, $above, $tables, $pieces);
+    // The placeholder is drawn whole in its cell, so it is a plain tile
+    // from one of the tileset's own sheets.
+    $missingArt = $data['missingArt'] ?? null;
+    if ($missingArt !== null && (!is_int($missingArt) || $missingArt === TileId::EMPTY || !TileId::isValid($missingArt)
+      || TileId::isAutotile($missingArt) || !isset($sheets[TileId::getSheet($missingArt)?->value ?? '']))) {
+      throw new InvalidArgumentException("{$context}: missingArt must be a plain tile from one of its sheets.");
+    }
+    return new self($id, $data['name'], $sheets, $above, $tables, $pieces, $missingArt);
   }
 
   /** @return list<int> Flag identities, one per autotile kind. */

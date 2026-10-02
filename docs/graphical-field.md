@@ -100,6 +100,9 @@ editing surface is owned by the GUI Editor plan. Related docs:
 - RPG Maker's per-tile passage settings do not apply: passage comes from
   the terminal. Its "above characters" priority is kept as a purely
   graphical draw band.
+- A tileset may name its missing-art tile (`missingArt`), a plain tile on
+  one of its sheets that marks a cell whose art nobody can yet infer. It
+  draws like any tile; tools report the cells that show it as art to do.
 
 ## Graphical map data
 
