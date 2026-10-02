@@ -132,7 +132,7 @@ it('notes a map nothing brings the player onto yet, without calling it a blocker
   $problems = new MapReachability('vestige', reachabilityGrid(['..']))->analyze([])->problems;
 
   expect(reachabilityProblems($problems))->toBe([
-    'no_entrance: No transfer, edge trigger, scripted transfer, sleep spawn or starting position brings the player onto it yet.',
+    'no_entrance: Nothing the player can reach from the start brings them onto it yet.',
   ])->and($problems[0]->kind->isBlocking())->toBeFalse()
     ->and(ReachabilityProblemKind::UNREACHABLE_EVENT->isBlocking())->toBeTrue();
 });
@@ -163,12 +163,12 @@ function removeReachabilityProject(string $directory): void
   rmdir($directory);
 }
 
-it('collects every way onto each map from the project itself', function () {
+it('reaches maps only through arrivals the player can get to from the start', function () {
   $root = sys_get_temp_dir() . '/ichiloto-reachability-' . bin2hex(random_bytes(4));
   $assets = "{$root}/assets";
   mkdir("{$assets}/Data", 0777, true);
   mkdir("{$assets}/Events", 0777, true);
-  writeReachabilityMap($assets, 'town', ['.....', '..#..'], ['A    ', '   S '], [
+  writeReachabilityMap($assets, 'town', ['.....#.', '..#..#.'], ['A      ', ' S     '], [
     'events' => [
       'A' => ['class' => TransferPlayerTrigger::class, 'data' => ['destinationMap' => 'town/house', 'spawnPoint' => ['x' => 1, 'y' => 1], 'spawnSprite' => ['South']]],
       'S' => ['class' => \Ichiloto\Engine\Events\Triggers\SleepEventTrigger::class, 'data' => [
@@ -179,6 +179,10 @@ it('collects every way onto each map from the project itself', function () {
   ]);
   writeReachabilityMap($assets, 'town/house', ['...', '...'], ['   ', '   '], []);
   writeReachabilityMap($assets, 'ruins', ['..'], ['  '], []);
+  // An island: its door leads into town, but nothing leads to it.
+  writeReachabilityMap($assets, 'island', ['..'], ['A '], ['events' => [
+    'A' => ['class' => TransferPlayerTrigger::class, 'data' => ['destinationMap' => 'town', 'spawnPoint' => ['x' => 6, 'y' => 0], 'spawnSprite' => ['South']]],
+  ]]);
   file_put_contents("{$assets}/Maps/collisions.php", "<?php\nuse Ichiloto\\Engine\\Events\\Enumerations\\CollisionType;\nreturn ['.' => CollisionType::NONE, '#' => CollisionType::SOLID, ' ' => CollisionType::NONE];\n");
   file_put_contents("{$assets}/Data/system.php", "<?php\nreturn ['startingPositions' => ['player' => ['destinationMap' => 'town', 'spawnPoint' => ['x' => 0, 'y' => 1], 'spawnSprite' => ['South']]]];\n");
   file_put_contents("{$assets}/Events/return-home.php", "<?php\nreturn [['type' => 'text', 'text' => 'Home.'], ['type' => 'branch', 'then' => [['type' => 'transfer', 'map' => 'ruins', 'x' => 0, 'y' => 0]]]];\n");
@@ -186,12 +190,17 @@ it('collects every way onto each map from the project itself', function () {
   try {
     $project = ProjectReachability::analyze($assets);
 
-    expect(array_keys($project->reports))->toBe(['ruins', 'town', 'town/house'])
+    expect(array_keys($project->reports))->toBe(['island', 'ruins', 'town', 'town/house'])
       ->and(reachabilityProblems($project->getAllProblems()))->toBe([
-        'unknown_destination: a scripted transfer on town sends the player to map "nowhere", which the project does not have or cannot read.',
+        'unknown_destination: a scripted transfer by NPC Guide on town sends the player to map "nowhere", which the project does not have or cannot read.',
+        'no_entrance: Nothing the player can reach from the start brings them onto it yet.',
       ])
-      // The guide and the wall cut the town in two; its sleep spawn is the way onto the east side.
+      ->and($project->getAllProblems()[1]->mapId)->toBe('island')
+      // The guide and the wall cut the town in two: the island's door into the
+      // east side does not count, but the reachable sleep event's spawn does.
       ->and($project->reports['town']->isReachable(4, 1))->toBeTrue()
+      // The sealed strip only the island's door leads into stays out of reach.
+      ->and($project->reports['town']->isReachable(6, 0))->toBeFalse()
       ->and($project->reports['town/house']->isReachable(2, 1))->toBeTrue()
       ->and($project->reports['ruins']->isReachable(1, 0))->toBeTrue();
 

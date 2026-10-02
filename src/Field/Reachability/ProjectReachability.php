@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\Field\Reachability;
 
 use Assegai\Util\Path;
+use Closure;
+use Ichiloto\Engine\Core\Rect;
 use FilesystemIterator;
 use Ichiloto\Engine\Events\Triggers\EventTrigger;
 use Ichiloto\Engine\Events\Triggers\EventTriggerFactory;
@@ -98,9 +100,11 @@ final class ProjectReachability
       }
     }
 
-    $entrances = array_fill_keys(array_keys($maps), []);
-    $addArrival = static function (string $from, string $to, int $x, int $y, string $source)
-      use (&$entrances, &$problems, $maps): void {
+    // Every arrival, with what the player must reach for it to happen: null
+    // for one that can happen anywhere (the start, common events, cinematics).
+    $arrivals = [];
+    $addArrival = static function (string $from, string $to, int $x, int $y, string $source, ?Closure $requires)
+      use (&$arrivals, &$problems, $maps): void {
       if (! isset($maps[$to])) {
         $problems[] = new ReachabilityProblem($from, ReachabilityProblemKind::UNKNOWN_DESTINATION,
           sprintf('%s sends the player to map "%s", which the project does not have or cannot read.', $source, $to));
@@ -108,8 +112,12 @@ final class ProjectReachability
         return;
       }
 
-      $entrances[$to][] = new ReachabilityEntrance($x, $y, $source);
+      $arrivals[] = ['from' => $requires === null ? null : $from, 'to' => $to,
+        'entrance' => new ReachabilityEntrance($x, $y, $source), 'requires' => $requires];
     };
+    $standingIn = static fn(Rect $area): Closure => static fn(MapReachabilityReport $report): bool => $report->isAnyReachable($area);
+    $besideNpc = static fn(NpcPlacement $npc): Closure => static fn(MapReachabilityReport $report): bool =>
+      $report->isBesideReachable($npc->x, $npc->y);
 
     foreach ($maps as $mapId => $map) {
       foreach ($map['arrivals'] as $event) {
@@ -117,20 +125,44 @@ final class ProjectReachability
 
         if ($event instanceof TransferPlayerTrigger) {
           $addArrival($mapId, $event->destinationMap, intval($event->spawnPoint->x), intval($event->spawnPoint->y),
-            "transfer {$marker} on {$mapId}");
+            "transfer {$marker} on {$mapId}", $standingIn($event->area));
         } elseif ($event instanceof SleepEventTrigger) {
           $addArrival($mapId, $mapId, intval($event->spawnPoint->x), intval($event->spawnPoint->y),
-            "sleep event {$marker} on {$mapId}");
+            "sleep event {$marker} on {$mapId}", $standingIn($event->area));
         }
       }
 
       foreach ($map['edgeTriggers'] as $trigger) {
         $addArrival($mapId, $trigger->destinationMap, intval($trigger->spawnPoint->x), intval($trigger->spawnPoint->y),
-          "an edge trigger on {$mapId}");
+          "an edge trigger on {$mapId}", $standingIn($trigger->area));
       }
 
-      foreach (self::findScriptedTransfers($map['data']) as $transfer) {
-        $addArrival($mapId, $transfer['map'], $transfer['x'], $transfer['y'], "a scripted transfer on {$mapId}");
+      // A scripted transfer in an NPC's lines happens when it is spoken to;
+      // one in an event's data, when the event fires; anywhere else in the
+      // map's data, once the player is on the map.
+      foreach ((array) ($map['data']['npcs'] ?? []) as $entry) {
+        $npc = NpcPlacement::fromArray($entry);
+
+        foreach ($npc === null ? [] : self::findScriptedTransfers($entry) as $transfer) {
+          $addArrival($mapId, $transfer['map'], $transfer['x'], $transfer['y'],
+            "a scripted transfer by NPC {$npc->name} on {$mapId}", $besideNpc($npc));
+        }
+      }
+
+      foreach ($map['data']['events'] as $definition) {
+        $event = ReachabilityEvent::fromDefinition($definition);
+
+        foreach (self::findScriptedTransfers($definition['data'] ?? []) as $transfer) {
+          $addArrival($mapId, $transfer['map'], $transfer['x'], $transfer['y'],
+            sprintf('a scripted transfer in event %s on %s', $event->marker ?? '?', $mapId), $standingIn($event->area));
+        }
+      }
+
+      $mapLevel = array_diff_key($map['data'], ['npcs' => true, 'events' => true]);
+
+      foreach (self::findScriptedTransfers($mapLevel) as $transfer) {
+        $addArrival($mapId, $transfer['map'], $transfer['x'], $transfer['y'], "a scripted transfer on {$mapId}",
+          static fn(): bool => true);
       }
     }
 
@@ -138,22 +170,47 @@ final class ProjectReachability
       $commands = self::requireIsolated($file);
 
       foreach (self::findScriptedTransfers($commands) as $transfer) {
-        $addArrival($relative, $transfer['map'], $transfer['x'], $transfer['y'], "a scripted transfer in {$relative}");
+        $addArrival($relative, $transfer['map'], $transfer['x'], $transfer['y'], "a scripted transfer in {$relative}", null);
       }
     }
 
     $start = self::readStartingPosition($assetRoot);
 
     if ($start !== null) {
-      $addArrival('Data/system.php', $start['map'], $start['x'], $start['y'], 'the starting position');
+      $addArrival('Data/system.php', $start['map'], $start['x'], $start['y'], 'the starting position', null);
     }
 
+    // Spread from the arrivals that can happen anywhere until nothing new is
+    // reached: an arrival counts only once the player can reach its source.
+    $entrances = array_fill_keys(array_keys($maps), []);
     $reports = [];
 
+    do {
+      $changed = false;
+
+      foreach ($arrivals as $index => $arrival) {
+        $from = $arrival['from'];
+
+        if ($from !== null && ! isset($reports[$from])) {
+          continue;
+        }
+
+        if ($from !== null && ! ($arrival['requires'])($reports[$from])) {
+          continue;
+        }
+
+        $entrances[$arrival['to']][] = $arrival['entrance'];
+        unset($arrivals[$index]);
+        $reports[$arrival['to']] = $maps[$arrival['to']]['map']->analyze($entrances[$arrival['to']]);
+        $changed = true;
+      }
+    } while ($changed);
+
     foreach ($maps as $mapId => $map) {
-      $reports[$mapId] = $map['map']->analyze($entrances[$mapId]);
+      $reports[$mapId] ??= $map['map']->analyze([]);
     }
 
+    ksort($reports);
     return new self($reports, $problems);
   }
 

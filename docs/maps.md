@@ -185,12 +185,18 @@ content stands. What must hold is that the player is never blocked:
 `Ichiloto\Engine\Field\Reachability\ProjectReachability::analyze($assetRoot)`
 reads every map as the field does (`MapSourceReader` and the collision
 dictionary) and floods it from every place the project brings the player onto
-it:
+it, starting from where the game starts:
 
-- transfer events and edge triggers into the map;
-- scripted `transfer` commands in common events, cinematics and map data;
-- sleep spawn points;
-- the system starting position.
+- the system starting position, and scripted `transfer` commands in common
+  events and cinematics, which can run from anywhere;
+- transfer events, edge triggers and sleep events, once the player can reach
+  the cell that triggers them;
+- scripted transfers in an NPC's lines, once the player can stand beside it,
+  and in an event's data, once the event can fire.
+
+An arrival counts only once the player can reach its source, and the spread
+repeats until nothing new is reached, so a door from a map nobody can reach
+leads nowhere.
 
 The flood follows the field's movement rules: one cell at a time in the four
 headings, onto any cell whose collision is not solid and that no NPC stands on.
@@ -201,9 +207,9 @@ through. Each map's report lists:
 
 - an arrival outside the map, or on a solid or occupied cell (the player can
   step off a blocked cell, but arrives overlapping it);
-- a map nothing brings the player onto yet, which is information rather than a
-  blocker (`ReachabilityProblemKind::isBlocking()` is false): a map kept for
-  content still to come strands nobody;
+- a map nothing the player can reach brings them onto yet, which is information
+  rather than a blocker (`ReachabilityProblemKind::isBlocking()` is false): a
+  map kept for content still to come strands nobody;
 - an event or edge trigger with no reachable cell, which therefore never fires;
 - a talkable NPC with no reachable cell beside it, whose lines nobody can read;
 - an arrival naming a map the project does not have, and a map the field

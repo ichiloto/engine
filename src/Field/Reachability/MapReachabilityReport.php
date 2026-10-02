@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Field\Reachability;
 
+use Ichiloto\Engine\Core\Rect;
+
 /**
  * The cells a player can reach on one map and the problems that leaves.
  *
@@ -25,5 +27,26 @@ final readonly class MapReachabilityReport
   public function isReachable(int $x, int $y): bool
   {
     return isset($this->reachableCells["{$x},{$y}"]);
+  }
+
+  /** Whether the player can stand on any cell of an area. */
+  public function isAnyReachable(Rect $area): bool
+  {
+    for ($y = $area->getY(); $y < $area->getY() + $area->getHeight(); $y++) {
+      for ($x = $area->getX(); $x < $area->getX() + $area->getWidth(); $x++) {
+        if ($this->isReachable($x, $y)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /** Whether the player can stand beside a cell, as they must to speak to an NPC on it. */
+  public function isBesideReachable(int $x, int $y): bool
+  {
+    return $this->isReachable($x, $y - 1) || $this->isReachable($x + 1, $y)
+      || $this->isReachable($x, $y + 1) || $this->isReachable($x - 1, $y);
   }
 }
