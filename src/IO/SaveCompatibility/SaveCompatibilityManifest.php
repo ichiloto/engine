@@ -12,10 +12,13 @@ use Throwable;
  */
 final readonly class SaveCompatibilityManifest
 {
+  /** Declarative position edit keys of a migration step, in the order they apply. */
+  private const array DECLARED_POSITION_EDITS = ['mapShifts', 'relocations'];
+
   /**
    * @param array<string, array<string, string>> $aliases
    * @param array<string, array<string, true>> $tombstones
-   * @param array<int, class-string<ContentMigrationInterface>|list<MapShift>> $migrations
+   * @param array<int, class-string<ContentMigrationInterface>|list<SavedPositionEdit>> $migrations
    */
   private function __construct(
     public string $projectId,
@@ -120,7 +123,7 @@ final readonly class SaveCompatibilityManifest
 
   /**
    * Creates the registered migration from one content version to the next:
-   * a project class, or the engine migration for declared map shifts.
+   * a project class, or the engine migration for declared position edits.
    */
   public function createMigrationFrom(int $version): ?ContentMigrationInterface
   {
@@ -131,7 +134,7 @@ final readonly class SaveCompatibilityManifest
     }
 
     if (is_array($migration)) {
-      return new MapShiftContentMigration($migration, $this->aliasesFor(ContentReferenceCategory::MAP));
+      return new DeclaredPositionContentMigration($migration, $this->aliasesFor(ContentReferenceCategory::MAP));
     }
 
     return new $migration();
@@ -372,7 +375,7 @@ final readonly class SaveCompatibilityManifest
 
   /**
    * @param mixed $rawMigrations
-   * @return array<int, class-string<ContentMigrationInterface>|list<MapShift>>
+   * @return array<int, class-string<ContentMigrationInterface>|list<SavedPositionEdit>>
    */
   private static function normalizeMigrations(mixed $rawMigrations, int $contentVersion, string $source): array
   {
@@ -422,19 +425,10 @@ final readonly class SaveCompatibilityManifest
         ));
       }
 
-      $hasClass = array_key_exists('class', $entry);
-      $hasMapShifts = array_key_exists('mapShifts', $entry);
+      $edits = self::readDeclaredPositionEdits($entry, "{$source} migrations[{$index}]");
 
-      if ($hasClass === $hasMapShifts) {
-        throw new InvalidSaveCompatibilityManifestException(sprintf(
-          '%s migrations[%s] must declare exactly one of class or mapShifts.',
-          $source,
-          strval($index)
-        ));
-      }
-
-      if ($hasMapShifts) {
-        $normalized[$from] = self::normalizeMapShifts($entry['mapShifts'], "{$source} migrations[{$index}]");
+      if ($edits !== null) {
+        $normalized[$from] = $edits;
         $previousFrom = $from;
 
         continue;
@@ -466,25 +460,54 @@ final readonly class SaveCompatibilityManifest
   }
 
   /**
-   * @param mixed $rawShifts
-   * @return list<MapShift>
+   * Reads a migration step's declarative position edits, the one reading
+   * the runtime and the Editor's validation share.
+   *
+   * A step declares a project migration `class`, or `mapShifts` and/or
+   * `relocations`, never both kinds. Map shifts apply before relocations,
+   * each in authored order.
+   *
+   * @param array<mixed> $entry The migration step.
+   * @param string $where Where the step is, for error messages.
+   * @return list<SavedPositionEdit>|null The edits, or null for a class step.
+   * @throws InvalidSaveCompatibilityManifestException When the step is malformed.
    */
-  private static function normalizeMapShifts(mixed $rawShifts, string $where): array
+  public static function readDeclaredPositionEdits(array $entry, string $where): ?array
   {
-    if (! is_array($rawShifts) || $rawShifts === [] || ! array_is_list($rawShifts)) {
+    $hasClass = array_key_exists('class', $entry);
+    $declared = array_values(array_filter(
+      self::DECLARED_POSITION_EDITS,
+      static fn(string $key): bool => array_key_exists($key, $entry),
+    ));
+
+    if ($hasClass === ($declared !== [])) {
       throw new InvalidSaveCompatibilityManifestException(sprintf(
-        '%s mapShifts must be a non-empty list.',
+        '%s must declare either a class or declared position edits (mapShifts, relocations), not both or neither.',
         $where
       ));
     }
 
-    $shifts = [];
-
-    foreach ($rawShifts as $index => $entry) {
-      $shifts[] = MapShift::fromArray($entry, "{$where} mapShifts[{$index}]");
+    if ($hasClass) {
+      return null;
     }
 
-    return $shifts;
+    $edits = [];
+
+    foreach ($declared as $key) {
+      $rawEdits = $entry[$key];
+
+      if (! is_array($rawEdits) || $rawEdits === [] || ! array_is_list($rawEdits)) {
+        throw new InvalidSaveCompatibilityManifestException(sprintf('%s %s must be a non-empty list.', $where, $key));
+      }
+
+      foreach ($rawEdits as $index => $rawEdit) {
+        $edits[] = $key === 'mapShifts'
+          ? MapShift::fromArray($rawEdit, "{$where} mapShifts[{$index}]")
+          : PositionRelocation::fromArray($rawEdit, "{$where} relocations[{$index}]");
+      }
+    }
+
+    return $edits;
   }
 
   /** @return array{string, string} */

@@ -484,9 +484,9 @@ it('rejects malformed declarative map shift migrations', function (array $entry,
 })->with([
   'both kinds' => [
     ['class' => RecordingContentVersion0To1::class, 'mapShifts' => [['map' => 'a', 'axis' => 'y', 'at' => 0, 'by' => 1]]],
-    'exactly one of class or mapShifts',
+    'must declare either a class or declared position edits',
   ],
-  'neither kind' => [[], 'exactly one of class or mapShifts'],
+  'neither kind' => [[], 'must declare either a class or declared position edits'],
   'empty list' => [['mapShifts' => []], 'mapShifts must be a non-empty list'],
   'keyed list' => [['mapShifts' => ['a' => ['map' => 'a', 'axis' => 'y', 'at' => 0, 'by' => 1]]], 'non-empty list'],
   'not an array' => [['mapShifts' => ['y']], 'must be an array with map, axis, at and by'],
@@ -495,6 +495,90 @@ it('rejects malformed declarative map shift migrations', function (array $entry,
   'negative line' => [['mapShifts' => [['map' => 'a', 'axis' => 'x', 'at' => -1, 'by' => 1]]], 'at must be a non-negative integer'],
   'string line' => [['mapShifts' => [['map' => 'a', 'axis' => 'x', 'at' => '2', 'by' => 1]]], 'at must be a non-negative integer'],
   'zero count' => [['mapShifts' => [['map' => 'a', 'axis' => 'x', 'at' => 0, 'by' => 0]]], 'by must be a positive integer'],
+]);
+
+it('moves a saved player off declared relocated cells after the step map shifts', function (string $mapId, array $position, array $expected) {
+  $manifest = makeCompatibilityManifest([
+    'contentVersion' => 2,
+    'migrations' => [
+      [
+        'from' => 0,
+        'to' => 1,
+        'mapShifts' => [['map' => 'town', 'axis' => 'y', 'at' => 4, 'by' => 2]],
+        'relocations' => [
+          ['map' => 'town', 'cells' => [[3, 8], [4, 8]], 'to' => [3, 9]],
+        ],
+      ],
+      [
+        'from' => 1,
+        'to' => 2,
+        'relocations' => [['map' => 'town', 'cells' => [[3, 9]], 'to' => [5, 9]]],
+      ],
+    ],
+    'aliases' => ['maps' => [['from' => 'old-town', 'to' => 'town']]],
+  ]);
+  $path = '/tmp/ichiloto-relocation.iedata';
+  $config = makeCompatibilityConfig($mapId);
+  $data = $config->getSaveCompatibilityData();
+  $data['playerPosition'] = new Vector2(...$position);
+  $config->applySaveCompatibilityData($data);
+  $legacy = serialize(['slot' => makeCompatibilitySlot($path), 'config' => $config]);
+
+  $loaded = new SaveCompatibilityPipeline($manifest)->load($legacy, $path)->config;
+
+  expect([$loaded->playerPosition->x, $loaded->playerPosition->y])->toEqual($expected);
+})->with([
+  // (4, 6) shifts down to (4, 8), a relocated cell, then on through both steps.
+  'shifted onto a relocated cell' => ['town', [4, 6], [5, 9]],
+  'a listed cell that no shift reaches' => ['town', [3, 2], [3, 2]],
+  'a later step moves an earlier landing' => ['town', [3, 7], [5, 9]],
+  'an unlisted cell is untouched' => ['town', [6, 8], [6, 10]],
+  'a fractional position is not a cell' => ['town', [3.5, 8], [3.5, 10]],
+  'a renamed map follows its alias' => ['old-town', [4, 6], [5, 9]],
+  'another map is untouched' => ['forest', [3, 8], [3, 8]],
+]);
+
+it('relocates a save once, so loading it again changes nothing', function () {
+  $manifest = makeCompatibilityManifest([
+    'contentVersion' => 1,
+    'migrations' => [
+      ['from' => 0, 'to' => 1, 'relocations' => [['map' => 'town', 'cells' => [[2, 2]], 'to' => [2, 3]]]],
+    ],
+  ]);
+  $path = '/tmp/ichiloto-relocation-once.iedata';
+  $config = makeCompatibilityConfig('town');
+  $data = $config->getSaveCompatibilityData();
+  $data['playerPosition'] = new Vector2(2, 2);
+  $config->applySaveCompatibilityData($data);
+  $legacy = serialize(['slot' => makeCompatibilitySlot($path), 'config' => $config]);
+  $migration = $manifest->createMigrationFrom(0);
+
+  $loaded = new SaveCompatibilityPipeline($manifest)->load($legacy, $path)->config;
+  $payload = ['config' => $loaded];
+  $migration?->migrate($payload);
+
+  expect([$loaded->playerPosition->x, $loaded->playerPosition->y])->toEqual([2, 3]);
+});
+
+it('rejects malformed declarative relocation migrations', function (array $entry, string $message) {
+  expect(fn() => makeCompatibilityManifest([
+    'contentVersion' => 1,
+    'migrations' => [array_replace(['from' => 0, 'to' => 1], $entry)],
+  ]))->toThrow(InvalidSaveCompatibilityManifestException::class, $message);
+})->with([
+  'with a class' => [
+    ['class' => RecordingContentVersion0To1::class, 'relocations' => [['map' => 'a', 'cells' => [[1, 1]], 'to' => [1, 2]]]],
+    'must declare either a class or declared position edits',
+  ],
+  'empty list' => [['relocations' => []], 'relocations must be a non-empty list'],
+  'not an array' => [['relocations' => ['a']], 'must be an array with map, cells and to'],
+  'empty map' => [['relocations' => [['map' => '', 'cells' => [[1, 1]], 'to' => [1, 2]]]], 'map must be a non-empty string'],
+  'no cells' => [['relocations' => [['map' => 'a', 'cells' => [], 'to' => [1, 2]]]], 'cells must be a non-empty list'],
+  'a malformed cell' => [['relocations' => [['map' => 'a', 'cells' => [[1]], 'to' => [1, 2]]]], 'cells[0] must be [x, y]'],
+  'a negative cell' => [['relocations' => [['map' => 'a', 'cells' => [[-1, 1]], 'to' => [1, 2]]]], 'non-negative integers'],
+  'a repeated cell' => [['relocations' => [['map' => 'a', 'cells' => [[1, 1], [1, 1]], 'to' => [1, 2]]]], 'cells[1] repeats [1, 1]'],
+  'a string landing' => [['relocations' => [['map' => 'a', 'cells' => [[1, 1]], 'to' => ['1', 2]]]], 'to must be [x, y]'],
+  'a landing on a moved cell' => [['relocations' => [['map' => 'a', 'cells' => [[1, 1]], 'to' => [1, 1]]]], 'is one of the cells it moves players off'],
 ]);
 
 it('resolves actor aliases before reconstructing current project definitions', function () {

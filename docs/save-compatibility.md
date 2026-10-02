@@ -142,7 +142,8 @@ to 2, add exactly one `1 -> 2` step, retain all older steps, then raise
 
 ### Declared map shifts
 
-A step may declare `mapShifts` instead of `class` (exactly one of the two).
+A step may declare declared position edits, `mapShifts` and/or `relocations`,
+instead of `class` (a class or declared edits, never both).
 It records blank rows or columns inserted into a map, so no generated PHP
 class is needed:
 
@@ -165,6 +166,36 @@ position: when the save's map is `map` and its coordinate on `axis` is at or
 beyond `at`, that coordinate grows by `by`. Map aliases apply to both the save
 and the entry, so a renamed map still matches. The Editor's row and column
 insert command appends such a step and raises `contentVersion`.
+
+### Declared relocations
+
+When authored content (an NPC, furniture, a wall) comes to occupy cells a
+player could have saved on, a step declares `relocations` instead of a
+project class:
+
+```php
+[
+  'from' => 16,
+  'to' => 17,
+  'relocations' => [
+    ['map' => 'town', 'cells' => [[34, 5]], 'to' => [35, 6]],
+    ['map' => 'town', 'cells' => [[55, 8], [56, 8]], 'to' => [55, 6]],
+  ],
+]
+```
+
+`map` is a non-empty map ID, `cells` a non-empty list of distinct `[x, y]`
+cells and `to` the `[x, y]` landing, all non-negative integers; the landing
+may not be one of the cells. A saved player position exactly on a listed cell
+moves to the landing; every other position, including a fractional one, keeps
+its coordinates. Map aliases apply as for shifts. The cells and landing are
+frozen in the manifest: choose a landing that is open floor, free of events and
+NPCs and reachable, because loading a save never consults the mutable map.
+
+A step may declare both `mapShifts` and `relocations`; its shifts apply first,
+then its relocations, each in authored order. A move belongs to the step that
+introduced it: never add cells to an earlier step, since saves already past
+that version will not run it again.
 
 `ContentReferenceCategory` is the shared runtime/editor vocabulary: maps,
 one-shot events, quests, actors, items, equipment, abilities, spells,

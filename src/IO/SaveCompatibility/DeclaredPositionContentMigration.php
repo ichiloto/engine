@@ -6,19 +6,19 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
 
 /**
- * Applies a manifest step's declarative map shifts to the saved player
- * position, so projects need no generated PHP class for inserted rows or
- * columns.
+ * Applies a manifest step's declarative position edits (map shifts, then
+ * relocations) to the saved player position, so projects need no generated
+ * PHP class for inserted rows or columns or for newly occupied cells.
  */
-final readonly class MapShiftContentMigration implements ContentMigrationInterface
+final readonly class DeclaredPositionContentMigration implements ContentMigrationInterface
 {
   /**
-   * @param list<MapShift> $shifts Applied in order.
+   * @param list<SavedPositionEdit> $edits Applied in order.
    * @param array<string, string> $mapAliases Declared map aliases, so a save
-   * or shift naming a renamed map still matches.
+   * or edit naming a renamed map still matches.
    */
   public function __construct(
-    private array $shifts,
+    private array $edits,
     private array $mapAliases = [],
   )
   {
@@ -40,16 +40,16 @@ final readonly class MapShiftContentMigration implements ContentMigrationInterfa
       return $payload;
     }
 
-    $shifted = $position;
+    $moved = $position;
 
-    foreach ($this->shifts as $shift) {
-      if ($this->getCurrentMapId($shift->map) === $mapId) {
-        $shifted = $shift->applyTo($shifted);
+    foreach ($this->edits as $edit) {
+      if ($this->getCurrentMapId($edit->map) === $mapId) {
+        $moved = $edit->applyTo($moved);
       }
     }
 
-    if ($shifted !== $position) {
-      $data['playerPosition'] = $shifted;
+    if ($moved !== $position) {
+      $data['playerPosition'] = $moved;
       $config->applySaveCompatibilityData($data);
     }
 

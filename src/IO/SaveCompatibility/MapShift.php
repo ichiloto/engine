@@ -10,7 +10,7 @@ use Ichiloto\Engine\Exceptions\InvalidSaveCompatibilityManifestException;
  * inserted into a map, so every saved coordinate at or beyond the insertion
  * line on that axis moved by the inserted count.
  */
-final readonly class MapShift
+final readonly class MapShift implements SavedPositionEdit
 {
   private function __construct(
     public string $map,
