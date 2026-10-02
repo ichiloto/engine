@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\Animations\Field;
 
 use Ichiloto\Engine\Animations\Timelines\CompiledEffectTimeline;
 use Ichiloto\Engine\Animations\Timelines\EffectPlaybackSession;
+use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Rendering\FieldViewport;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
@@ -39,6 +40,7 @@ final class FieldEffectSession
       : $this->playback->currentFrame;
     $sprites = [];
     foreach ($this->playback->getActiveSegments($frame) as $segment) {
+      if (!EffectPresentation::GRAPHICAL->acceptsSegment($segment)) { continue; }
       foreach ($segment['drawCommands'] as $command) {
         if ($segment['layer'] !== 'image' || !($command['visible'] ?? true)) { continue; }
         $data = $command['payload'];

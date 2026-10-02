@@ -32,30 +32,26 @@ class EffectPlaybackSession
   public readonly int $loopFrom;
   public readonly int $fps;
   public readonly float $effectiveSpeed;
+  public readonly EffectPlaybackTiming $timing;
 
   public float $secondsPerFrame {
-    get => 1.0 / ($this->fps * $this->effectiveSpeed);
+    get => $this->timing->secondsPerFrame;
   }
 
   public function __construct(
     public readonly CompiledEffectTimeline $timeline,
     ?bool $loop = null,
     ?float $speed = null,
+    ?float $secondsPerFrame = null,
   )
   {
-    if ($speed !== null && !is_finite($speed)) {
-      throw new InvalidArgumentException('Effect playback speed must be finite.');
-    }
     $playback = is_array($timeline->defaults['playback'] ?? null)
       ? $timeline->defaults['playback']
       : [];
-    $this->totalFrames = max(1, intval($timeline->defaults['lengthFrames'] ?? 1));
-    $this->fps = max(1, $timeline->fps);
-    $effectiveSpeed = $speed ?? floatval($playback['defaultSpeed'] ?? 1.0);
-    if (!is_finite($effectiveSpeed)) {
-      throw new InvalidArgumentException('Effect playback speed must be finite.');
-    }
-    $this->effectiveSpeed = max(0.01, $effectiveSpeed);
+    $this->timing = new EffectPlaybackTiming($timeline, $speed, $secondsPerFrame);
+    $this->totalFrames = $this->timing->totalFrames;
+    $this->fps = $this->timing->fps;
+    $this->effectiveSpeed = $this->timing->effectiveSpeed;
     $this->isLooping = $loop ?? boolval($playback['loop'] ?? false);
     $this->loopFrom = clamp(intval($playback['loopFrom'] ?? 0), 0, $this->totalFrames - 1);
 
@@ -159,8 +155,11 @@ class EffectPlaybackSession
     $crossedCues = $this->takeCurrentFrameCues();
     $frameDuration = $this->secondsPerFrame;
 
-    while ($this->accumulatedSeconds + PHP_FLOAT_EPSILON >= $frameDuration) {
-      $this->accumulatedSeconds = max(0.0, $this->accumulatedSeconds - $frameDuration);
+    // Count crossed frames before traversing them. Repeated subtraction drifts
+    // below exact boundaries at higher frame rates, delaying cues by a frame.
+    $frameCount = $this->timing->getFrameCountAt($this->accumulatedSeconds);
+    $this->accumulatedSeconds = max(0.0, $this->accumulatedSeconds - $frameCount * $frameDuration);
+    for ($step = 0; $step < $frameCount; $step++) {
 
       if ($this->currentFrame >= $this->totalFrames - 1) {
         if (! $this->isLooping) {
