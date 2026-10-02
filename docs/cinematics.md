@@ -342,9 +342,10 @@ dialogue progression must not assume a fixed recording length. Suspension,
 cancellation, transfer and shutdown must also govern external audio playback,
 not merely stop advancing the interpreter's clock.
 
-These are implementation constraints, not delivered capabilities. Currently the
-field presentation manager has one animation slot, staged graphics support
-explicit replacement and optional walk playback, and sound effects are fire-and-forget
+These are implementation constraints, not delivered capabilities. The field
+presentation manager now owns independent effect sessions rather than one
+animation slot. Staged graphics support explicit replacement and optional walk
+playback, and sound effects are fire-and-forget
 without a caller-owned playback handle. Resolve those boundaries as their
 consumers are implemented; do not encode scene-specific workarounds or introduce
 an unused animation/voice framework. Keep PHP responsible for scene semantics
@@ -357,7 +358,7 @@ Cinematics may compose existing Engine presentation systems with:
 - `field_animation` at a subject, map position, or screen position;
 - `title_card` and `narration` timed overlays;
 - `transition` for Engine-supported fades and wipes;
-- `clear_presentation` for temporary overlays;
+- `clear_presentation` for all cinematic-owned effects, overlays and covers;
 - `cinematic_music` for a non-blocking music transition.
 
 Narration overlays appear in full rather than using dialogue's progressive
@@ -379,6 +380,29 @@ failure.
 Field animation and transition sessions advance from elapsed time and do not
 sleep the game loop. Reduced-motion mode preserves command ordering and final
 presentation state while omitting unnecessary intermediate motion.
+
+`field_animation` accepts `effect => '<timeline-id>'` and the existing `target`
+subject reference. The timeline in `Animations/<id>/<id>.timeline.php` owns its
+frame rate; `animation`, `id` and `secondsPerFrame` cannot accompany `effect`.
+Shared validation applies to ordinary event scripts as well as Cinematics.
+Legacy `animation`/`id` records remain accepted with their exact consumer-owned
+`secondsPerFrame` (0.12 by default), including blank frames and the last frame's
+full hold. These compatibility records are not retired yet.
+
+Each command owns one session. Parallel commands compose with one another and
+with map effects; completing or cancelling one removes only its effects.
+Finishing a timed narration/title clears its overlay, not sibling effects or a
+transition cover. Explicit clear, failure, transfer and shutdown release owned
+sessions. Cinematic commands reject looping timelines, whose lifetime belongs
+to the map rather than a blocking command lane.
+
+Field timelines currently present glyph/text/image tracks and `playSound` cues.
+Terminal and graphical sequences may have independent timing, selected before
+image inspection. Both use the shared depth/clear composition rule. Reduced
+motion holds the field's authored rest frame while a once effect keeps its
+logical lifetime and sound cues; it no longer skips the effect. Field flash,
+shake, message and gameplay cues remain unsupported and are refused rather
+than silently ignored. See [the effect contract](effect-animation.md#field-effects).
 
 ## Transfer and battle continuation
 

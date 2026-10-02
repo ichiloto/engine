@@ -5,9 +5,12 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Animations\Field;
 
 use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
+use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
 use Ichiloto\Engine\Events\Triggers\EventCueKind;
 use Ichiloto\Engine\Events\Triggers\EventTrigger;
 use Ichiloto\Engine\Field\MapGraphics;
+use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Rendering\FieldViewport;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteAnchor;
@@ -35,10 +38,10 @@ final class FieldEffectManager
   private bool $turnsSupported = false;
   private ?bool $actionPromptUsable = null;
 
-  public function __construct(string $assetRoot)
+  public function __construct(string $assetRoot, private readonly EffectPresentation $presentation = EffectPresentation::GRAPHICAL)
   {
     $this->library = new EffectTimelineLibrary($assetRoot);
-    try { $this->catalog = FieldPresentationCatalog::load($assetRoot); }
+    try { $this->catalog = FieldPresentationCatalog::load($assetRoot, $presentation); }
     catch (Throwable $error) {
       $this->catalog = new FieldPresentationCatalog();
       $this->note('catalog', 'Field cue bindings are unusable; original glyphs remain: ' . $error->getMessage());
@@ -110,7 +113,9 @@ final class FieldEffectManager
 
   public function canPresentCue(EventTrigger $event): bool
   {
-    return $this->supported && isset($this->sessions[self::getCueId($event)]);
+    $session = $this->sessions[self::getCueId($event)] ?? null;
+    return $this->supported && $this->presentation === EffectPresentation::GRAPHICAL && $session !== null
+      && array_any($session->playback->timeline->playbackSegments, static fn(array $segment): bool => $segment['layer'] === 'image');
   }
 
   /**
@@ -120,11 +125,15 @@ final class FieldEffectManager
    */
   public function canPresentActionPrompt(): bool
   {
-    if (!$this->supported || $this->catalog->actionPrompt === null) { return false; }
+    if (!$this->supported || $this->presentation !== EffectPresentation::GRAPHICAL || $this->catalog->actionPrompt === null) { return false; }
     if ($this->actionPromptUsable === null) {
       try {
-        $this->library->load($this->catalog->actionPrompt);
-        $this->actionPromptUsable = true;
+        $timeline = $this->library->load($this->catalog->actionPrompt, presentation: $this->presentation);
+        $this->actionPromptUsable = array_any($timeline->playbackSegments,
+          static fn(array $segment): bool => $segment['layer'] === 'image');
+        if (!$this->actionPromptUsable) {
+          $this->note('prompt', 'Action prompt effect has no graphical image; the prompt glyph remains.');
+        }
       } catch (Throwable $error) {
         $this->actionPromptUsable = false;
         $this->note('prompt', "Action prompt effect {$this->catalog->actionPrompt} is unusable; the prompt glyph remains: "
@@ -154,7 +163,10 @@ final class FieldEffectManager
   public function startEffect(string $id, string $effect, FieldEffectAnchor $anchor): void
   {
     try {
-      $this->sessions[$id] = new FieldEffectSession('field-effect:' . $this->mapId . ':' . $id, $anchor, $this->library->load($effect));
+      $timeline = $this->library->load($effect, presentation: $this->presentation);
+      if (isset($this->sessions[$id])) { $this->sessions[$id]->playback->pause(); }
+      $this->sessions[$id] = new FieldEffectSession('field-effect:' . $this->mapId . ':' . $id, $anchor,
+        $timeline);
       if ($this->supported === false) {
         $this->note('capability', 'This renderer cannot draw field effects; the original glyphs and tiles remain.');
       }
@@ -163,8 +175,16 @@ final class FieldEffectManager
     }
   }
 
-  public function removeEffect(string $id): void { unset($this->sessions[$id], $this->cues[$id]); }
-  public function clear(): void { $this->sessions = $this->cues = []; $this->mapId = ''; }
+  public function removeEffect(string $id): void
+  {
+    if (isset($this->sessions[$id])) { $this->sessions[$id]->playback->pause(); }
+    unset($this->sessions[$id], $this->cues[$id]);
+  }
+  public function clear(): void
+  {
+    foreach (array_keys($this->sessions) as $id) { $this->removeEffect($id); }
+    $this->cues = []; $this->mapId = '';
+  }
   public int $count { get => count($this->sessions); }
 
   /** @param iterable<GraphicalSpriteProviderInterface>|null $objects */
@@ -173,8 +193,24 @@ final class FieldEffectManager
     if ($objects !== null) { $this->reconcileObjects($objects); }
     foreach ($this->sessions as $id => $session) {
       if (isset($this->cues[$id]) && !$this->cues[$id]->shouldRenderCue()) { continue; }
-      $session->update($seconds, $reducedMotion);
+      FieldEffectSession::playCues($session->update($seconds, $reducedMotion)->crossedCues);
       if ($session->playback->isCompleted) { unset($this->sessions[$id]); }
+    }
+  }
+
+  /** @param iterable<GraphicalSpriteProviderInterface> $objects */
+  public function renderText(Camera $camera, iterable $objects, bool $reducedMotion): void
+  {
+    $indexed = $this->reconcileObjects($objects);
+    foreach ($this->sessions as $id => $session) {
+      // Prompt and cue glyphs already have their authoritative terminal presenters.
+      if ($id === self::ACTION_PROMPT_ID || isset($this->cues[$id])) { continue; }
+      $position = $session->anchor->objectId === null ? $session->anchor->cell
+        : ($indexed[$session->anchor->objectId] ?? null)?->getGraphicalSpriteWorldPosition();
+      if ($position === null) { continue; }
+      Console::withLayer($session->id, fn() => $session->renderText($camera,
+        $camera->getScreenSpacePosition($position), $this->presentation, $reducedMotion),
+        PresentationLayerPolicy::FIELD_EFFECT_FRONT);
     }
   }
 

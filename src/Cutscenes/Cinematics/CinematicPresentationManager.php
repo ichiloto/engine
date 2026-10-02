@@ -2,22 +2,27 @@
 
 namespace Ichiloto\Engine\Cutscenes\Cinematics;
 
-use Ichiloto\Engine\Animations\AnimationFrame;
+use Ichiloto\Engine\Animations\Field\FieldEffectSession;
+use Ichiloto\Engine\Animations\Field\FieldEffectSprite;
+use Ichiloto\Engine\Animations\Field\FieldScreenSprite;
+use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\Rendering\FieldViewport;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\ScreenTransitionSession;
+use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\UI\Enumerations\PresentationPriority;
+use Ichiloto\Engine\UI\Accessibility;
 
 /** Renders temporary cinematic overlays and reusable field animation frames. */
 final class CinematicPresentationManager
 {
   protected ?array $overlay = null;
-  protected ?AnimationFrame $animationFrame = null;
-  protected ?Vector2 $animationPosition = null;
-  protected bool $animationUsesScreenSpace = false;
+  /** @var array<string, array{session: FieldEffectSession, screenSpace: bool}> */
+  private array $effects = [];
   protected ?ScreenTransitionSession $transitionSession = null;
   protected ?string $fieldCover = null;
 
@@ -30,17 +35,50 @@ final class CinematicPresentationManager
     $this->overlay = ['kind' => $kind, 'text' => $text, 'title' => $title];
   }
 
-  public function showAnimationFrame(AnimationFrame $frame, Vector2 $position, bool $screenSpace = false): void
+  public function clearOverlay(): void { $this->overlay = null; }
+
+  public function presentEffect(FieldEffectSession $session, bool $screenSpace = false): void
   {
-    $this->animationFrame = $frame;
-    $this->animationPosition = $position;
-    $this->animationUsesScreenSpace = $screenSpace;
+    if (isset($this->effects[$session->id])) { $this->effects[$session->id]['session']->playback->pause(); }
+    $this->effects[$session->id] = ['session' => $session, 'screenSpace' => $screenSpace];
   }
 
-  public function clearAnimation(): void
+  public function hasEffect(string $id): bool { return isset($this->effects[$id]); }
+
+  public function removeEffect(string $id): void
   {
-    $this->animationFrame = null;
-    $this->animationPosition = null;
+    if (isset($this->effects[$id])) { $this->effects[$id]['session']->playback->pause(); }
+    unset($this->effects[$id]);
+  }
+
+  public int $effectCount { get => count($this->effects); }
+
+  /** @return list<FieldEffectSprite> */
+  public function getEffectSprites(?FieldViewport $viewport): array
+  {
+    if ($viewport === null) { return []; }
+    $sprites = [];
+    foreach ($this->effects as $effect) {
+      $position = $effect['session']->anchor->cell;
+      if ($position === null) { continue; }
+      foreach ($effect['session']->getSprites($position, Accessibility::prefersReducedMotion()) as $sprite) {
+        if (!$effect['screenSpace']) { $sprites[] = $sprite; continue; }
+        $definition = $sprite->getGraphicalSpriteDefinition();
+        $point = $sprite->getGraphicalSpriteWorldPosition();
+        $size = FieldViewport::TILE_SIZE * $viewport->zoom;
+        $width = $viewport->grid->columns * $viewport->grid->cellWidth;
+        $height = $viewport->grid->rows * $viewport->grid->cellHeight;
+        $sprites[] = new FieldScreenSprite($sprite->getGraphicalSpriteId(),
+          new GraphicalSpriteDefinition($definition->asset, (int)round($definition->width * $viewport->zoom),
+            (int)round($definition->height * $viewport->zoom), $definition->anchor, $definition->layer,
+            $definition->sourceRect),
+          new Vector2((int)round((($width - $viewport->columns * $size) / 2 + ($point->x + .5) * $size)
+              / $viewport->grid->cellWidth - .5),
+            (int)round((($height - $viewport->rows * $size) / 2 + ($point->y + 1) * $size)
+              / $viewport->grid->cellHeight - 1)));
+      }
+    }
+    return $sprites;
   }
 
   public function hideField(string $fill = '█'): void
@@ -77,34 +115,30 @@ final class CinematicPresentationManager
 
   public function clear(): void
   {
-    $this->overlay = null;
-    $this->clearAnimation();
+    $this->clearOverlay();
+    foreach (array_keys($this->effects) as $id) { $this->removeEffect($id); }
     $this->clearTransition();
   }
 
   public function render(): void
   {
-    Console::withLayer('cinematic-animation', fn() => $this->renderAnimation(), PresentationLayerPolicy::UI);
+    $this->gameScene->renderFieldEffects();
+    $this->renderEffects();
     Console::withLayer('cinematic-overlay', fn() => $this->renderOverlay(),
       PresentationLayerPolicy::UI + PresentationPriority::MODAL->value);
     Console::withLayer('cinematic-cover', fn() => $this->renderTransition(), PresentationLayerPolicy::TRANSITION);
   }
 
-  protected function renderAnimation(): void
+  protected function renderEffects(): void
   {
-    if ($this->animationFrame === null || $this->animationPosition === null) {
-      return;
-    }
-
-    $origin = $this->animationUsesScreenSpace
-      ? $this->animationPosition
-      : $this->gameScene->camera->getScreenSpacePosition($this->animationPosition);
-
-    foreach ($this->animationFrame->getCells() as $cell) {
-      $symbol = $cell->color !== null && $cell->color !== ''
-        ? sprintf('<fg=%s>%s</>', $cell->color, $cell->symbol)
-        : $cell->symbol;
-      $this->gameScene->camera->draw($symbol, intval($origin->x) + $cell->x, intval($origin->y) + $cell->y);
+    $presentation = $this->gameScene->isGraphicalFieldPresented() ? EffectPresentation::GRAPHICAL : EffectPresentation::TERMINAL;
+    foreach ($this->effects as $effect) {
+      $position = $effect['session']->anchor->cell;
+      if ($position === null) { continue; }
+      $origin = $effect['screenSpace'] ? $position : $this->gameScene->camera->getScreenSpacePosition($position);
+      Console::withLayer($effect['session']->id, fn() => $effect['session']->renderText(
+        $this->gameScene->camera, $origin, $presentation, Accessibility::prefersReducedMotion()),
+        $effect['screenSpace'] ? PresentationLayerPolicy::UI : PresentationLayerPolicy::FIELD_EFFECT_FRONT);
     }
   }
 

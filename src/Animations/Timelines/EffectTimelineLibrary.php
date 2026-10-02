@@ -55,9 +55,9 @@ final class EffectTimelineLibrary
       }
       $data = $variants[$presentation->value];
     }
-    if (!is_array($data) || array_diff(array_keys($data), ['fps', 'lengthFrames', 'playback', 'loopFrom', 'restFrame', 'tracks',
-      ...($forBattle ? ['cues', 'effectTiming'] : [])]) !== []) {
-      throw new InvalidArgumentException("Effect {$id} accepts fps, lengthFrames, playback, loopFrom, restFrame and tracks.");
+    if (!is_array($data) || array_diff(array_keys($data), ['fps', 'lengthFrames', 'playback', 'loopFrom', 'restFrame', 'tracks', 'cues',
+      ...($forBattle ? ['effectTiming'] : [])]) !== []) {
+      throw new InvalidArgumentException("Effect {$id} accepts fps, lengthFrames, playback, loopFrom, restFrame, tracks and presentation cues.");
     }
     $fps = $data['fps'] ?? null;
     $length = $data['lengthFrames'] ?? null;
@@ -81,7 +81,7 @@ final class EffectTimelineLibrary
     $hasImages = $imageRestCovered = false;
     foreach ($tracks as $track) {
       if (!is_array($track) || !is_string($track['id'] ?? null) || isset($ids[$track['id']])
-        || !in_array($track['type'] ?? null, ['image', ...($forBattle ? ['glyph', 'text', 'flash', 'shake'] : [])], true)) {
+        || !in_array($track['type'] ?? null, ['image', 'glyph', 'text', ...($forBattle ? ['flash', 'shake'] : [])], true)) {
         throw new InvalidArgumentException("Effect {$id} has an invalid or duplicate track.");
       }
       self::assertId($track['id']);
@@ -89,27 +89,27 @@ final class EffectTimelineLibrary
       $ids[$track['id']] = true;
       // Unselected graphical resources are not dependencies of terminal playback.
       if (!$presentation->acceptsSegment(['layer' => $track['type'], 'presentation' => $scope])) { continue; }
-      if ($forBattle && is_array($track) && in_array($track['type'] ?? '', ['glyph', 'text', 'flash', 'shake'], true)) {
+      if (in_array($track['type'] ?? '', ['glyph', 'text', 'flash', 'shake'], true)) {
         if (array_diff(array_keys($track), ['id', 'type', 'anchor', 'keyframes', 'presentation']) !== []
           || !in_array($track['anchor'] ?? 'target', ['caster', 'target', 'screen'], true)
           || !is_array($track['keyframes'] ?? null) || !array_is_list($track['keyframes'])
           || $track['keyframes'] === [] || count($track['keyframes']) > 10000) {
-          throw new InvalidArgumentException("Effect {$id} has an invalid battle track.");
+          throw new InvalidArgumentException("Effect {$id} has an invalid presentation track.");
         }
         foreach ($track['keyframes'] as &$keyframe) {
           if (!is_array($keyframe) || !is_int($keyframe['frame'] ?? null) || $keyframe['frame'] < 0
             || !is_int($keyframe['duration'] ?? 1) || ($keyframe['duration'] ?? 1) < 1
             || $keyframe['frame'] + ($keyframe['duration'] ?? 1) > $length) {
-            throw new InvalidArgumentException("Effect {$id} has an invalid battle keyframe range.");
+            throw new InvalidArgumentException("Effect {$id} has an invalid presentation keyframe range.");
           }
-          self::validateBattleKeyframe($id, $keyframe);
+          self::validateKeyframe($id, $keyframe);
           if (isset($track['anchor'])) { $keyframe['payload']['anchor'] = $track['anchor']; }
         }
         unset($keyframe);
         usort($track['keyframes'], static fn(array $a, array $b): int => $a['frame'] <=> $b['frame']);
         $end = -1;
         foreach ($track['keyframes'] as $keyframe) {
-          if ($keyframe['frame'] <= $end) { throw new InvalidArgumentException("Effect {$id} battle track has overlapping keyframes."); }
+          if ($keyframe['frame'] <= $end) { throw new InvalidArgumentException("Effect {$id} presentation track has overlapping keyframes."); }
           $end = $keyframe['frame'] + ($keyframe['duration'] ?? 1) - 1;
         }
         $normalized[] = \Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneTrack::fromArray($track)->toArray();
@@ -186,12 +186,13 @@ final class EffectTimelineLibrary
       if (!is_array($cue) || array_diff(array_keys($cue), ['id', 'frame', 'type', 'payload']) !== []
         || !is_string($cue['id'] ?? null) || isset($cueIds[$cue['id']])
         || !is_int($cue['frame'] ?? null) || $cue['frame'] < 0 || $cue['frame'] >= $length
-        || !in_array($cue['type'] ?? '', ['applyEffect', 'playSound', 'showMessage', 'flash', 'shake'], true)
+        || !in_array($cue['type'] ?? '', $forBattle
+          ? ['applyEffect', 'playSound', 'showMessage', 'flash', 'shake'] : ['playSound'], true)
         || !is_array($cue['payload'] ?? [])) {
-        throw new InvalidArgumentException("Effect {$id} has an invalid battle cue.");
+        throw new InvalidArgumentException("Effect {$id} has an invalid " . ($forBattle ? 'battle' : 'field presentation') . ' cue.');
       }
       self::assertId($cue['id']);
-      self::validateBattlePayload($id, $cue['payload'] ?? []);
+      self::validatePayload($id, $cue['payload'] ?? []);
       $cueIds[$cue['id']] = true;
     }
     usort($cues, static fn(array $a, array $b): int => $a['frame'] <=> $b['frame']);
@@ -212,31 +213,31 @@ final class EffectTimelineLibrary
         'playback' => ['loop' => $playback === 'loop', 'loopFrom' => $loopFrom]]);
   }
 
-  private static function validateBattleKeyframe(string $id, array $frame): void
+  private static function validateKeyframe(string $id, array $frame): void
   {
     if (array_diff(array_keys($frame), ['frame', 'duration', 'position', 'content', 'assetId', 'color',
       'visible', 'zIndex', 'payload']) !== [] || !is_array($frame['payload'] ?? [])) {
-      throw new InvalidArgumentException("Effect {$id} has an invalid battle keyframe payload.");
+      throw new InvalidArgumentException("Effect {$id} has an invalid presentation keyframe payload.");
     }
     foreach (['content', 'assetId', 'color'] as $key) {
       if (isset($frame[$key]) && (!is_string($frame[$key]) || strlen($frame[$key]) > 65536)) {
-        throw new InvalidArgumentException("Effect {$id} battle keyframe {$key} must be bounded text.");
+        throw new InvalidArgumentException("Effect {$id} presentation keyframe {$key} must be bounded text.");
       }
     }
     if ((isset($frame['visible']) && !is_bool($frame['visible']))
       || (isset($frame['zIndex']) && (!is_int($frame['zIndex']) || abs($frame['zIndex']) > 10000))) {
-      throw new InvalidArgumentException("Effect {$id} has invalid battle visibility or depth.");
+      throw new InvalidArgumentException("Effect {$id} has invalid presentation visibility or depth.");
     }
     if (isset($frame['position']) && (!is_array($frame['position'])
       || array_diff(array_keys($frame['position']), ['x', 'y']) !== []
       || !is_int($frame['position']['x'] ?? null) || !is_int($frame['position']['y'] ?? null)
       || abs($frame['position']['x']) > 16384 || abs($frame['position']['y']) > 16384)) {
-      throw new InvalidArgumentException("Effect {$id} battle positions require bounded integer cell offsets.");
+      throw new InvalidArgumentException("Effect {$id} presentation positions require bounded integer cell offsets.");
     }
-    self::validateBattlePayload($id, $frame['payload'] ?? []);
+    self::validatePayload($id, $frame['payload'] ?? []);
   }
 
-  private static function validateBattlePayload(string $id, array $payload): void
+  private static function validatePayload(string $id, array $payload): void
   {
     foreach (['anchor' => ['caster', 'target', 'screen'], 'scope' => ['target', 'screen'],
       'legacyPosition' => ['head', 'center', 'feet', 'screen']] as $key => $values) {

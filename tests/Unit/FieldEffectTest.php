@@ -9,6 +9,7 @@ use Ichiloto\Engine\Animations\Field\FieldEffectSprite;
 use Ichiloto\Engine\Animations\Field\FieldPieceEffects;
 use Ichiloto\Engine\Animations\Field\FieldPresentationCatalog;
 use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
+use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
@@ -137,6 +138,71 @@ it('starts concurrent map effects and clears the previous map on transfer and ex
   $manager->installMap('second', [$entry], null, []);
   $manager->clear();
   expect($manager->count)->toBe(0);
+});
+
+it('renders terminal map effects without opening their graphical images or changing ground occupancy', function () {
+  $data = ['presentations' => [
+    'terminal' => ['fps' => 5, 'lengthFrames' => 2, 'restFrame' => 0, 'tracks' => [[
+      'id' => 'glyph', 'type' => 'glyph', 'keyframes' => [
+        ['frame' => 0, 'content' => '*', 'color' => 'cyan'], ['frame' => 1, 'content' => '+'],
+      ],
+    ]]],
+    'graphical' => [...createFieldTimelineData(), 'tracks' => [[
+      'id' => 'image', 'type' => 'image', 'asset' => 'Graphics/missing.png',
+      'keyframes' => [['frame' => 0, 'duration' => 8]],
+    ]]],
+  ]];
+  file_put_contents($this->root . '/Animations/energy/energy.timeline.php', '<?php return ' . var_export($data, true) . ';');
+  $manager = new FieldEffectManager($this->root, EffectPresentation::TERMINAL);
+  $manager->setCapabilities(false, false);
+  $anchor = ['cell' => ['x' => 2, 'y' => 3]];
+  $manager->installMap('terminal', [['id' => 'aura', 'effect' => 'energy', 'anchor' => $anchor]], null, []);
+  $draws = [];
+  $camera = $this->getMockBuilder(Camera::class)->disableOriginalConstructor()->onlyMethods(['getScreenSpacePosition', 'draw'])->getMock();
+  new ReflectionProperty(Camera::class, 'screen')->setValue($camera, new Rect(0, 0, 20, 10));
+  $camera->method('getScreenSpacePosition')->willReturnCallback(static fn(Vector2 $point): Vector2 => clone $point);
+  $camera->method('draw')->willReturnCallback(static function ($content, $x, $y) use (&$draws): void { $draws[] = [$content, $x, $y]; });
+  expect($manager->count)->toBe(1);
+  $manager->renderText($camera, [], false);
+  expect($draws)->toBe([['<fg=cyan>*</>', 2, 3]])
+    ->and($manager->getSprites([], null, ['x' => 0, 'y' => 0], false))->toBeEmpty();
+  $manager->update(.2, false);
+  $draws = [];
+  $manager->renderText($camera, [], false);
+  expect($draws)->toBe([['+', 2, 3]]);
+  $draws = [];
+  $manager->renderText($camera, [], true);
+  expect($draws)->toBe([['<fg=cyan>*</>', 2, 3]]);
+  $manager->clear();
+  $draws = [];
+  $manager->update(100, false);
+  $manager->renderText($camera, [], false);
+  expect($manager->count)->toBe(0)->and($draws)->toBeEmpty()
+    ->and($anchor)->toBe(['cell' => ['x' => 2, 'y' => 3]]);
+});
+
+it('retains authoritative prompt and cue glyphs when a bound timeline has no graphical images', function () {
+  $data = ['fps' => 5, 'lengthFrames' => 1, 'tracks' => [[
+    'id' => 'glyph', 'type' => 'glyph', 'keyframes' => [['frame' => 0, 'content' => '*']],
+  ]]];
+  file_put_contents($this->root . '/Animations/energy/energy.timeline.php', '<?php return ' . var_export($data, true) . ';');
+  file_put_contents($this->root . '/Data/Presentation/field.php', '<?php return ' . var_export([
+    'actionPrompt' => ['effect' => 'energy'], 'cues' => ['bright-yellow' => ['effect' => 'energy']],
+  ], true) . ';');
+  $manager = new FieldEffectManager($this->root);
+  $manager->setCapabilities(true, true);
+  $cue = createFieldCue();
+  $manager->installMap('glyph-only', [], null, [$cue]);
+  expect($manager->count)->toBe(1)->and($manager->canPresentCue($cue))->toBeFalse()
+    ->and($manager->canPresentActionPrompt())->toBeFalse();
+});
+
+it('does not make directional edge PNGs dependencies of terminal cue bindings', function () {
+  unlink($this->root . '/Graphics/edge.png');
+  $catalog = FieldPresentationCatalog::load($this->root, EffectPresentation::TERMINAL);
+  expect($catalog->cues['bright-yellow']['effect'])->toBe('energy')
+    ->and($catalog->cues['bright-yellow']['edges']['west']['quarterTurns'])->toBe(2);
+  expect(fn() => FieldPresentationCatalog::load($this->root))->toThrow(RuntimeException::class);
 });
 
 it('follows a stable object anchor and retires it when its object leaves', function () {

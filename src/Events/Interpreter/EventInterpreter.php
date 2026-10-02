@@ -17,6 +17,8 @@ use Ichiloto\Engine\Cutscenes\Cinematics\FieldAnimationOperation;
 use Ichiloto\Engine\Cutscenes\Cinematics\TimedPresentationOperation;
 use Ichiloto\Engine\Cutscenes\Cinematics\TransitionOperation;
 use Ichiloto\Engine\Animations\AnimationLibrary;
+use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
+use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
 use Ichiloto\Engine\Audio\CinematicMusicOperation;
 use Ichiloto\Engine\Audio\CinematicMusicRequest;
 use Ichiloto\Engine\Field\Location;
@@ -684,7 +686,7 @@ class EventInterpreter
         }
 
         if ($duration <= 0.0) {
-          $presentation->clear();
+          $presentation->clearOverlay();
           return EventCommandResult::COMPLETED;
         }
 
@@ -696,14 +698,22 @@ class EventInterpreter
         return EventCommandResult::YIELDED;
 
       case 'field_animation':
-        $reference = $command['animation'] ?? $command['id'] ?? null;
-        $library = new AnimationLibrary();
-        $animation = is_numeric($reference)
-          ? $library->findById(intval($reference))
-          : $library->findByName(strval($reference));
+        CinematicScriptValidator::validateFieldAnimation($command, $session->scriptId ?? 'event', $lane->path);
+        if (array_key_exists('effect', $command)) {
+          $library = new EffectTimelineLibrary($this->gameScene->getGame()->getRendererRuntime()?->getAssetRoot()
+            ?? getcwd() . '/assets');
+          $animation = $library->load($command['effect'], presentation: $this->gameScene->isGraphicalFieldPresented()
+            ? EffectPresentation::GRAPHICAL : EffectPresentation::TERMINAL);
+        } else {
+          $reference = $command['animation'] ?? $command['id'] ?? null;
+          $library = new AnimationLibrary();
+          $animation = is_numeric($reference)
+            ? $library->findById(intval($reference))
+            : $library->findByName(strval($reference));
 
-        if ($animation === null) {
-          throw new RuntimeException(sprintf('Field animation "%s" was not found.', strval($reference)));
+          if ($animation === null) {
+            throw new RuntimeException(sprintf('Field animation "%s" was not found.', strval($reference)));
+          }
         }
 
         $target = is_array($command['target'] ?? null) ? $command['target'] : [];
@@ -717,7 +727,7 @@ class EventInterpreter
             ?? throw new RuntimeException('Cinematic presentation host is not configured.'),
           $position,
           $screenSpace,
-          max(0.01, floatval($command['secondsPerFrame'] ?? 0.12)),
+          isset($command['effect']) ? null : max(0.01, floatval($command['secondsPerFrame'] ?? 0.12)),
         );
 
         if ($operation->isComplete) {

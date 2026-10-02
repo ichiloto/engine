@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Scenes\Game;
 
 use Ichiloto\Engine\Animations\Field\FieldEffectManager;
 use Ichiloto\Engine\Rendering\Sprites\ScreenSpaceSpriteProviderInterface;
+use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 
 
@@ -203,8 +204,9 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
                 yield $actor;
             }
             yield from $this->npcManager?->getGraphicalSpriteProviders() ?? [];
-            foreach ($this->fieldEffects?->getSprites($this->getFieldObjectSpriteProviders(), $this->fieldViewport,
-                $this->camera->getWorldOrigin(), Accessibility::prefersReducedMotion()) ?? [] as $effect) {
+            foreach ([...($this->fieldEffects?->getSprites($this->getFieldObjectSpriteProviders(), $this->fieldViewport,
+                $this->camera->getWorldOrigin(), Accessibility::prefersReducedMotion()) ?? []),
+                ...($this->cinematicPresentation?->getEffectSprites($this->fieldViewport) ?? [])] as $effect) {
                 if ($effect instanceof ScreenSpaceSpriteProviderInterface) {
                     $this->fieldEdgeSpriteIds[] = $effect->getGraphicalSpriteId();
                 }
@@ -218,6 +220,11 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         if ($this->player !== null) { yield $this->player; }
         yield from $this->cinematicStage?->all() ?? [];
         yield from $this->npcManager?->getGraphicalSpriteProviders() ?? [];
+    }
+
+    public function renderFieldEffects(): void
+    {
+        $this->fieldEffects?->renderText($this->camera, $this->getFieldObjectSpriteProviders(), Accessibility::prefersReducedMotion());
     }
 
 
@@ -462,7 +469,8 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         $this->cinematicController = new CinematicController($this);
         $this->cinematicPresentation = new CinematicPresentationManager($this);
         $this->fieldEffects?->clear();
-        $this->fieldEffects = new FieldEffectManager($this->getGame()->getRendererRuntime()?->getAssetRoot() ?? getcwd() . '/assets');
+        $this->fieldEffects = new FieldEffectManager($this->getGame()->getRendererRuntime()?->getAssetRoot() ?? getcwd() . '/assets',
+            Console::isTerminalOutputEnabled() ? EffectPresentation::TERMINAL : EffectPresentation::GRAPHICAL);
         $this->eventInterpreter = new EventInterpreter($this);
         $this->hasDeferredAutoSave = false;
         $this->hasPendingAutomaticTriggerEvaluation = false;

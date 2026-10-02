@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Animations\Field;
 
 use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
+use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
 use InvalidArgumentException;
@@ -24,13 +25,13 @@ final readonly class FieldPresentationCatalog
    */
   public function __construct(public array $cues = [], public ?string $actionPrompt = null) {}
 
-  public static function load(string $assetRoot): self
+  public static function load(string $assetRoot, EffectPresentation $presentation = EffectPresentation::GRAPHICAL): self
   {
     $path = $assetRoot . '/' . self::FILE;
-    return is_file($path) ? self::fromArray((static fn(string $file): mixed => require $file)($path), $assetRoot) : new self();
+    return is_file($path) ? self::fromArray((static fn(string $file): mixed => require $file)($path), $assetRoot, $presentation) : new self();
   }
 
-  public static function fromArray(mixed $data, string $assetRoot): self
+  public static function fromArray(mixed $data, string $assetRoot, EffectPresentation $presentation = EffectPresentation::GRAPHICAL): self
   {
     if (!is_array($data) || array_diff(array_keys($data), ['cues', 'actionPrompt']) !== [] || !is_array($data['cues'] ?? [])) {
       throw new InvalidArgumentException('Field presentation accepts cue bindings keyed by terminal color and an action prompt binding.');
@@ -58,7 +59,7 @@ final readonly class FieldPresentationCatalog
           throw new InvalidArgumentException('Cue edge images need asset and optional quarterTurns 0..3.');
         }
         SpriteValidation::validateAssetPath($image['asset']);
-        PngAssetPreflight::inspect($assetRoot, $image['asset']);
+        if ($presentation === EffectPresentation::GRAPHICAL) { PngAssetPreflight::inspect($assetRoot, $image['asset']); }
       }
     }
     return new self($cues, $prompt['effect'] ?? null);

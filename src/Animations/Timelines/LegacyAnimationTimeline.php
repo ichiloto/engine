@@ -24,7 +24,7 @@ final class LegacyAnimationTimeline
     ], forBattle: true);
   }
 
-  public static function compile(Animation $animation, int $fps = 10): CompiledEffectTimeline
+  public static function compile(Animation $animation, int $fps = 10, bool $includeFlash = true): CompiledEffectTimeline
   {
     $segments = $cues = [];
     foreach ($animation->getFrames() as $frame) {
@@ -41,7 +41,7 @@ final class LegacyAnimationTimeline
         $cues[] = ['id' => 'sound-' . $frame->index, 'frame' => $frame->index - 1,
           'type' => 'playSound', 'payload' => ['sound' => $cue->soundEffect]];
       }
-      if ($cue?->flashColor !== null && $cue->flashDurationFrames > 0) {
+      if ($includeFlash && $cue?->flashColor !== null && $cue->flashDurationFrames > 0) {
         $segments[] = ['startFrame' => $frame->index - 1,
           'endFrame' => $frame->index + $cue->flashDurationFrames - 2,
           'layer' => 'flash', 'drawCommands' => [[

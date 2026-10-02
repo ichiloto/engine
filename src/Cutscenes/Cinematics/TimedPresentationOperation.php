@@ -22,7 +22,7 @@ final class TimedPresentationOperation implements EventPendingOperationInterface
     $this->remaining = max(0.0, $this->remaining - max(0.0, $deltaSeconds));
 
     if ($this->remaining <= 0.0) {
-      $this->presentation->clear();
+      $this->presentation->clearOverlay();
       return true;
     }
 
@@ -32,6 +32,6 @@ final class TimedPresentationOperation implements EventPendingOperationInterface
   public function cancel(): void
   {
     $this->remaining = 0.0;
-    $this->presentation->clear();
+    $this->presentation->clearOverlay();
   }
 }

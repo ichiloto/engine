@@ -124,7 +124,7 @@ item 4, not completion of those phases.
 
 `Animations/<id>/<id>.timeline.php` returns `fps` (1..120),
 `lengthFrames`, `playback` (`once` or `loop`), optional zero-based
-`restFrame` (default 0), and a list of image `tracks`. Each track has a
+`restFrame` (default 0), and a list of `tracks`. Image tracks have a
 stable `id`, `type => image`, asset-root-relative PNG `asset`, optional
 `sheet => ['columns' => 8, 'rows' => 1]`, optional
 `cells => ['width' => 2, 'height' => 2]` for its visual size in 48-pixel
@@ -132,7 +132,13 @@ field cells, `depth => behind|front`, and `keyframes`. A keyframe names its
 zero-based `frame`, optional `duration` (default 1), `sourceFrame` (row-major
 sheet index, default 0), and optional cell offset `position => ['x' => 0,
 'y' => 0]`. Image dimensions come from the current file. Overlapping
-keyframes, invalid crops and missing rest frames are rejected.
+keyframes, invalid crops and missing rest frames are rejected. Field timelines
+also accept `glyph` and `text` tracks with the shared keyframe schema described
+under the battle runtime below, plus presentation-only `playSound` cues.
+Independent terminal/graphical sequences and per-track capability selection
+apply to field playback too; unselected image and edge PNGs are not terminal
+dependencies. The shared segment composition filters capabilities before
+depth ordering and `clearBeforeDraw`, without clearing another session's art.
 
 A map may declare `fieldEffects` as a list of `id`, `effect` (timeline id),
 and `anchor => ['cell' => ['x' => 3, 'y' => 5]]` or
@@ -171,12 +177,29 @@ and log a note; they do not suppress an otherwise usable cue effect.
 
 The initial field subset did not include battle playback; its current shared
 runtime and outstanding acceptance are recorded below. Still outstanding for
-the field: glyph/text/flash/shake tracks and timeline cues, cinematic
-`field_animation` migration,
+the field: flash/shake tracks and message cues, authored legacy
+`field_animation` record migration,
 connected-piece effects, fractional layer offsets for piece effect anchors,
 and the general timeline authoring/preview surface. Claude owns source-preserving
 Editor cue-kind, map-effect, piece-effect and binding authoring/validation;
-that handoff is pending and this runtime slice is not authoring completion.
+that validation/binding work has landed, but standalone timeline authoring
+remains outstanding. This runtime slice is not authoring completion.
+
+The cinematic `field_animation` consumer now accepts an explicit `effect` id
+alongside its unchanged `target` shape. Timelines own their fps; mixing that
+reference with legacy `animation`/`id` or `secondsPerFrame` is refused by shared
+runtime/authoring validation. Existing numeric/name Animation records compile
+into this field session without changing their exact frame duration, colours,
+offsets, blank frames or last-frame hold. One-shot commands reject loops;
+map-owned ambient sessions retain loop ownership.
+
+The old manager-wide animation slot and reduced-motion effect skip are removed.
+Each command has an independently owned session; finishing a timed overlay no
+longer clears sibling effects or transition covers. Map and cinematic effects
+are published through ordinary field sprite providers and retained text layers.
+Cancellation, failure and host cleanup pause and remove owned sessions so they
+cannot reappear or emit later sounds. Reduced-motion once effects hold their
+rest art until their logical lifetime ends, preserving sound cue traversal.
 
 The field is a consumer of the same timelines, not a separate effect system.
 Effects there either play once, as a cinematic's `field_animation` does
@@ -345,8 +368,10 @@ including 0.12 seconds, blank frame slots and the final frame's full hold.
 Delayed updates still deliver every entered frame to existing cue hosts,
 while pause and cancellation use the shared playhead. Blocking preview hosts
 remain available, but no longer own a second traversal clock. This is clock
-unification, not authored-format retirement or completion of field timeline
-presentation. The numeric records are not retired yet. Terminal battle entry now
+unification, not authored-format retirement. Field glyph/text/image playback
+now uses the same session with independent ownership and sound cues, but its
+flash/shake/message tracks remain outstanding. The numeric records are not
+retired yet. Terminal battle entry now
 uses the shared session as described below; graphical entry still needs silent
 native acceptance. Orphaned explosion migration remains outstanding.
 
@@ -664,19 +689,20 @@ updated, not treated as runtime authority.
    Hit Spark's battle rate is derived from turn pacing, not an authored
    constant. Preserve those consumer contracts during migration; do not replace
    the cinematic with the battle timeline or invent 10 fps from a helper default.
-   The field consumer still resolves numeric/name Animation records and skips
-   its legacy effect under reduced motion; field timeline loading currently
-   refuses glyph tracks. Migrate that shared consumer/schema before removing
-   the cells, retaining exact colours/offsets, pause/cancellation and a useful
-   reduced-motion treatment. The cinematic cadence is representable exactly
+   The field consumer now accepts explicit timeline identities and preserves
+   numeric/name Animation compatibility. Its glyph/text/image tracks, sound
+   cues and independently owned sessions retain exact colours/offsets,
+   pause/cancellation and an authored reduced-motion rest treatment. Migrate
+   the authored records before retiring their format. The cinematic cadence is
+   representable exactly
    as 25 fps with three ticks per original frame, without changing the battle
    healing timeline's six frames at 10 fps. The remaining migration must also
    establish timing ownership for paced compatibility effects and safe Editor
    round trips, rather than treating it as a Game-only file replacement.
    The compatibility traversal now uses `EffectPlaybackSession` with an exact
    frame-duration override instead of rounding that duration to integer fps.
-   This removes the legacy clock while leaving authored frames, field loading,
-   the existing reduced-motion gap and source-preserving migration outstanding.
+   This removes the legacy clock and field reduced-motion skip while leaving
+   authored-record retirement and source-preserving migration outstanding.
 4. Fold the battle-entry frame file into a timeline played by the same
    session. Local graphical entry now uses the shared retained outgoing
    composition and cover/readiness/handoff/reveal lifecycle, not translated

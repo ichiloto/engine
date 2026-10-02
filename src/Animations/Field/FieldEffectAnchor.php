@@ -12,6 +12,15 @@ final readonly class FieldEffectAnchor
 {
   private function __construct(public ?Vector2 $cell, public ?string $objectId) {}
 
+  /** Runtime cinematic positions can be off-map; authored map cells remain strict. */
+  public static function createAtPosition(Vector2 $position): self
+  {
+    if (!is_finite((float)$position->x) || !is_finite((float)$position->y)) {
+      throw new InvalidArgumentException('A field effect position must be finite.');
+    }
+    return new self(clone $position, null);
+  }
+
   public static function fromArray(mixed $data): self
   {
     if (!is_array($data) || count($data) !== 1) {

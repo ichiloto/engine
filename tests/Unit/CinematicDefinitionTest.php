@@ -66,6 +66,27 @@ it('exports one authoritative runtime and authoring vocabulary', function () {
     ->and($schema['summonPlaybackFields'])->toContain('currentFrame', 'isPaused', 'isCompleted', 'isLooping');
 });
 
+it('accepts a field timeline reference without changing legacy field-animation authoring', function () {
+  $target = ['kind' => 'position', 'x' => 2, 'y' => 3];
+  $commands = [
+    ['type' => 'field_animation', 'effect' => 'field-aura', 'target' => $target],
+    ['type' => 'field_animation', 'animation' => 'Legacy Aura', 'secondsPerFrame' => .12, 'target' => $target],
+  ];
+  $definition = CinematicDefinition::fromArrays(['id' => 'field-timelines', 'name' => 'Field Timelines'], $commands);
+  expect($definition->commands)->toBe($commands);
+});
+
+it('rejects competing field timeline identity or cadence while hydrating cinematics', function (array $reference) {
+  expect(fn() => CinematicDefinition::fromArrays(['id' => 'invalid-field', 'name' => 'Invalid Field'], [[
+    'type' => 'field_animation', ...$reference, 'target' => ['kind' => 'position', 'x' => 2, 'y' => 3],
+  ]]))->toThrow(InvalidArgumentException::class, 'stable timeline identity');
+})->with([
+  'null' => [['effect' => null]],
+  'unsafe' => [['effect' => '../aura']],
+  'legacy reference' => [['effect' => 'aura', 'animation' => 1]],
+  'legacy tempo' => [['effect' => 'aura', 'secondsPerFrame' => .12]],
+]);
+
 it('rejects authored skipping when any reachable command is irreversible', function (array $commands, string $needle) {
   expect(fn() => CinematicDefinition::fromArrays([
     'id' => 'unsafe-skip-tree',

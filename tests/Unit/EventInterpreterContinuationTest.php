@@ -1720,6 +1720,108 @@ it('advances nested parallel lanes deterministically with lane-local pending sta
     ]);
 });
 
+describe('shared field effect event commands', function () {
+  beforeEach(function () {
+    $this->effectProjectCwd = getcwd();
+    $this->effectProjectConfig = ConfigStore::has(ProjectConfig::class) ? ConfigStore::get(ProjectConfig::class) : null;
+    $this->effectProject = sys_get_temp_dir() . '/ichiloto-event-effects-' . bin2hex(random_bytes(6));
+    foreach (['short' => 2, 'long' => 8] as $id => $length) {
+      $path = $this->effectProject . '/assets/Animations/' . $id;
+      mkdir($path, 0777, true);
+      $data = ['presentations' => [
+        'terminal' => ['fps' => 10, 'lengthFrames' => $length, 'restFrame' => 0, 'tracks' => [[
+          'id' => 'text', 'type' => 'glyph',
+          'keyframes' => [['frame' => 0, 'duration' => $length, 'content' => '*', 'color' => 'cyan']],
+        ]]],
+        'graphical' => ['fps' => 5, 'lengthFrames' => 1, 'tracks' => [[
+          'id' => 'image', 'type' => 'image', 'asset' => 'Graphics/deliberately-missing.png',
+          'keyframes' => [['frame' => 0]],
+        ]]],
+      ]];
+      file_put_contents($path . '/' . $id . '.timeline.php', '<?php return ' . var_export($data, true) . ';');
+    }
+    chdir($this->effectProject);
+  });
+
+  afterEach(function () {
+    chdir($this->effectProjectCwd);
+    $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($this->effectProject, FilesystemIterator::SKIP_DOTS),
+      RecursiveIteratorIterator::CHILD_FIRST);
+    foreach ($files as $file) { $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname()); }
+    rmdir($this->effectProject);
+    if ($this->effectProjectConfig === null) { ConfigStore::remove(ProjectConfig::class); }
+    else { ConfigStore::put(ProjectConfig::class, $this->effectProjectConfig); }
+  });
+
+  it('runs parallel effects at their selected cadence without a title clearing its siblings or loading terminal PNGs', function (bool $reduced) {
+    putSceneAudioConfig(['accessibility' => ['reducedMotion' => $reduced]]);
+    [$scene, $interpreter] = makeEventRuntime();
+    $scene->installCinematicRuntime();
+    $target = ['kind' => 'position', 'x' => 2, 'y' => 3];
+    $session = $interpreter->run([
+      ['type' => 'parallel', 'lanes' => [
+        ['id' => 'short', 'commands' => [['type' => 'field_animation', 'effect' => 'short', 'target' => $target]]],
+        ['id' => 'long', 'commands' => [['type' => 'field_animation', 'effect' => 'long', 'target' => $target]]],
+        ['id' => 'overlay', 'commands' => [['type' => 'title_card', 'text' => 'Separate', 'seconds' => .1]]],
+      ]],
+      ['type' => 'record_event', 'name' => 'effects_completed'],
+    ], 'field-parallel');
+    $interpreter->update(0.0);
+    expect($session?->status)->toBe(EventExecutionStatus::YIELDED)
+      ->and($scene->cinematicPresentation?->effectCount)->toBe(2);
+    $interpreter->update(.1);
+    expect($scene->cinematicPresentation?->effectCount)->toBe(2)
+      ->and(new ReflectionProperty(CinematicPresentationManager::class, 'overlay')->getValue($scene->cinematicPresentation))->toBeNull();
+    $interpreter->update(.1);
+    expect($scene->cinematicPresentation?->effectCount)->toBe(1)
+      ->and($session?->status)->toBe(EventExecutionStatus::YIELDED)
+      ->and($scene->gameState->storyEvents)->toBeEmpty();
+    $interpreter->update(.6);
+    $interpreter->update(100);
+    expect($session?->status)->toBe(EventExecutionStatus::COMPLETED)
+      ->and($scene->cinematicPresentation?->effectCount)->toBe(0)
+      ->and($scene->gameState->storyEvents)->toBe(['effects_completed']);
+  })->with(['ordinary' => false, 'reduced' => true]);
+
+  it('cancels and releases every owned effect before a failed event can write its completion', function () {
+    [$scene, $interpreter] = makeEventRuntime();
+    $scene->installCinematicRuntime();
+    $session = $interpreter->run([
+      ['type' => 'field_animation', 'effect' => 'long', 'target' => ['kind' => 'screen_position', 'x' => 2, 'y' => 3]],
+      ['type' => 'record_event', 'name' => 'must_not_complete'],
+    ], 'cancel-field');
+    $effects = new ReflectionProperty(CinematicPresentationManager::class, 'effects')->getValue($scene->cinematicPresentation);
+    $effect = array_values($effects)[0]['session'];
+    $interpreter->update(.1);
+    $interpreter->failActiveSession('Test transfer cancellation');
+    $interpreter->update(100);
+    expect($session?->status)->toBe(EventExecutionStatus::FAILED)
+      ->and($effect->playback->isPaused)->toBeTrue()
+      ->and($scene->cinematicPresentation?->effectCount)->toBe(0)
+      ->and($scene->gameState->storyEvents)->toBeEmpty();
+  });
+
+  it('refuses invalid effect references and competing timing ownership even in ordinary event scripts', function (array $reference) {
+    [$scene, $interpreter] = makeEventRuntime();
+    $scene->installCinematicRuntime();
+    $session = $interpreter->run([
+      ['type' => 'field_animation', ...$reference, 'target' => ['kind' => 'position', 'x' => 2, 'y' => 3]],
+      ['type' => 'record_event', 'name' => 'invalid_effect_must_not_complete'],
+    ], 'invalid-field');
+    expect($session?->status)->toBe(EventExecutionStatus::FAILED)
+      ->and($session?->failureMessage)->toContain('stable timeline identity')
+      ->and($scene->cinematicPresentation?->effectCount)->toBe(0)
+      ->and($scene->gameState->storyEvents)->toBeEmpty();
+  })->with([
+    'null' => [['effect' => null]],
+    'non-string' => [['effect' => 1]],
+    'unsafe' => [['effect' => '../long']],
+    'legacy id' => [['effect' => 'long', 'id' => 1]],
+    'legacy name' => [['effect' => 'long', 'animation' => 'Legacy']],
+    'tempo override' => [['effect' => 'long', 'secondsPerFrame' => .12]],
+  ]);
+});
+
 it('handles empty sequential blocks and fails malformed parallel blocks when validation is skipped', function () {
   [$scene, $interpreter] = makeEventRuntime();
   $emptySequence = $interpreter->run([

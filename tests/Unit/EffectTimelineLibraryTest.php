@@ -117,3 +117,27 @@ it('refuses a timeline symlink escaping the asset root without evaluating it', f
     unlink($outside);
   }
 });
+
+it('loads field glyphs text and sound cues independently of missing graphical art', function () {
+  $terminal = ['fps' => 25, 'lengthFrames' => 18, 'tracks' => [
+    ['id' => 'glyph', 'type' => 'glyph', 'keyframes' => [['frame' => 0, 'duration' => 3, 'content' => "* *\n\n + ", 'color' => 'cyan']]],
+    ['id' => 'label', 'type' => 'text', 'anchor' => 'screen', 'keyframes' => [['frame' => 3, 'content' => 'Aura']]],
+  ], 'cues' => [['id' => 'sound', 'frame' => 3, 'type' => 'playSound', 'payload' => ['sound' => 'aura']]]];
+  $image = $this->imageSequence;
+  $image['tracks'][0]['asset'] = 'missing.png';
+  $data = ['presentations' => ['terminal' => $terminal, 'graphical' => $image]];
+  $compiled = $this->effects->compile('field', $data, presentation: EffectPresentation::TERMINAL);
+  expect($compiled->fps)->toBe(25)->and($compiled->defaults['lengthFrames'])->toBe(18)
+    ->and(array_column($compiled->playbackSegments, 'layer'))->toBe(['glyph', 'text'])
+    ->and($compiled->playbackSegments[0]['drawCommands'][0]['content'])->toBe("* *\n\n + ")
+    ->and($compiled->cueSchedule)->toBe($terminal['cues']);
+  expect(fn() => $this->effects->compile('field', $data))->toThrow(RuntimeException::class);
+});
+
+it('refuses unsupported or gameplay-owning field cues rather than silently dropping them', function (string $type) {
+  $data = ['fps' => 5, 'lengthFrames' => 1, 'tracks' => [[
+    'id' => 'glyph', 'type' => 'glyph', 'keyframes' => [['frame' => 0, 'content' => '*']],
+  ]], 'cues' => [['id' => 'unsupported', 'frame' => 0, 'type' => $type]]];
+  expect(fn() => $this->effects->compile('field', $data))
+    ->toThrow(InvalidArgumentException::class, 'field presentation cue');
+})->with(['impact' => 'applyEffect', 'message' => 'showMessage', 'flash' => 'flash', 'shake' => 'shake']);

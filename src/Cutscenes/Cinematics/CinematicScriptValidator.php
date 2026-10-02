@@ -271,12 +271,20 @@ final class CinematicScriptValidator
   }
 
   /** @param array<string, mixed> $command */
-  protected static function validateFieldAnimation(array $command, string $cinematicId, string $path): void
+  public static function validateFieldAnimation(array $command, string $cinematicId, string $path): void
   {
-    $reference = $command['animation'] ?? $command['id'] ?? null;
+    if (array_key_exists('effect', $command)) {
+      if (!is_string($command['effect']) || preg_match('/\A[a-z0-9][a-z0-9_-]*\z/', $command['effect']) !== 1
+        || array_key_exists('animation', $command) || array_key_exists('id', $command)
+        || array_key_exists('secondsPerFrame', $command)) {
+        throw self::failure($cinematicId, $path, 'field effect requires one stable timeline identity and uses its authored frame rate.');
+      }
+    } else {
+      $reference = $command['animation'] ?? $command['id'] ?? null;
 
-    if (! is_scalar($reference) || trim(strval($reference)) === '') {
-      throw self::failure($cinematicId, $path, 'field animation reference is required.');
+      if (! is_scalar($reference) || trim(strval($reference)) === '') {
+        throw self::failure($cinematicId, $path, 'field animation reference is required.');
+      }
     }
 
     $target = $command['target'] ?? null;

@@ -101,14 +101,7 @@ final class BattleCommandPlayback
         }
       }
     }
-    usort($segments, static fn(array $a, array $b): int => ($a['drawCommands'][0]['zIndex'] ?? 0)
-      <=> ($b['drawCommands'][0]['zIndex'] ?? 0));
-    $visible = [];
-    foreach ($segments as $segment) {
-      if ($segment['clearBeforeDraw'] ?? false) { $visible = []; }
-      $visible[] = $segment;
-    }
-    return $visible;
+    return \Ichiloto\Engine\Animations\Timelines\EffectSegmentComposition::compose($segments, $presentation);
   }
 
   public function getAdvanceFraction(): float
