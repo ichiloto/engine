@@ -124,6 +124,14 @@ class ScreenTransition
     return new ScreenTransitionSession($this, $frames);
   }
 
+  /** Graphical appearance is authored data; lifecycle and reduced motion remain shared engine policy. */
+  public static function startHandoff(ScreenTransitionTreatment $treatment, callable $present,
+    callable $handoff, callable $ready, callable $cleanup, bool $enabled = true): ScreenTransitionSession
+  {
+    return new ScreenTransitionSession($treatment, present: $present, handoff: $handoff, ready: $ready,
+      cleanup: $cleanup, enabled: $enabled && !Accessibility::prefersReducedMotion());
+  }
+
   public function renderFrame(string $fill, int $columns): void
   {
     $this->drawFrame($fill, $columns);
