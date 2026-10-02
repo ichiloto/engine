@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Cutscenes\Cinematics;
 
+use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
 use InvalidArgumentException;
 use Ichiloto\Engine\Events\Interpreter\MovementRouteRunner;
@@ -283,7 +284,7 @@ final class CinematicScriptValidator
   public static function validateFieldAnimation(array $command, string $cinematicId, string $path): void
   {
     if (array_key_exists('effect', $command)) {
-      if (!is_string($command['effect']) || preg_match('/\A[a-z0-9][a-z0-9_-]*\z/', $command['effect']) !== 1
+      if (!is_string($command['effect']) || preg_match(EffectTimelineLibrary::ID_PATTERN, $command['effect']) !== 1
         || array_key_exists('animation', $command) || array_key_exists('id', $command)
         || array_key_exists('secondsPerFrame', $command)) {
         throw self::failure($cinematicId, $path, 'field effect requires one stable timeline identity and uses its authored frame rate.');

@@ -118,6 +118,25 @@ it('refuses a timeline symlink escaping the asset root without evaluating it', f
   }
 });
 
+it('lists the timelines an asset root holds by identity, without reading them', function () {
+  foreach (['wave', 'ember-burst', 'Bad Id', 'misnamed'] as $folder) {
+    mkdir($this->effectRoot . "/Animations/{$folder}", 0777, true);
+  }
+  file_put_contents($this->effectRoot . '/Animations/wave/wave.timeline.php', '<?php throw new LogicException("must not execute");');
+  file_put_contents($this->effectRoot . '/Animations/ember-burst/ember-burst.timeline.php', '<?php return [];');
+  file_put_contents($this->effectRoot . '/Animations/Bad Id/Bad Id.timeline.php', '<?php return [];');
+  file_put_contents($this->effectRoot . '/Animations/misnamed/other.timeline.php', '<?php return [];');
+  $outside = tempnam(sys_get_temp_dir(), 'ichiloto-effect-escape-');
+  mkdir($this->effectRoot . '/Animations/escape');
+  symlink($outside, $this->effectRoot . '/Animations/escape/escape.timeline.php');
+
+  try {
+    expect($this->effects->findTimelineIds())->toBe(['ember-burst', 'wave'])
+      ->and(new EffectTimelineLibrary($this->effectRoot . '/missing')->findTimelineIds())->toBe([]);
+  } finally {
+    unlink($outside);
+  }
+});
 it('loads field glyphs text and sound cues independently of missing graphical art', function () {
   $terminal = ['fps' => 25, 'lengthFrames' => 18, 'tracks' => [
     ['id' => 'glyph', 'type' => 'glyph', 'keyframes' => [['frame' => 0, 'duration' => 3, 'content' => "* *\n\n + ", 'color' => 'cyan']]],

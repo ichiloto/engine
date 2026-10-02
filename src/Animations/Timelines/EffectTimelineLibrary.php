@@ -12,6 +12,8 @@ use InvalidArgumentException;
 final class EffectTimelineLibrary
 {
   public const string DIRECTORY = 'Animations';
+  /** A timeline's stable identity: lowercase letters, digits, hyphens and underscores. */
+  public const string ID_PATTERN = '/\A[a-z0-9][a-z0-9_-]*\z/';
   /** @var array<string, CompiledEffectTimeline> */
   private array $cache = [];
 
@@ -34,9 +36,36 @@ final class EffectTimelineLibrary
     return $this->cache[$key] = $this->compile($id, $data, $forBattle, $presentation);
   }
 
+  /**
+   * Lists the timelines this asset root holds by stable identity, sorted:
+   * every `Animations/<id>/<id>.timeline.php` with a valid id, inside the
+   * asset root as load() requires. Listing reads no timeline; load() still
+   * decides whether one can play.
+   *
+   * @return list<string>
+   */
+  public function findTimelineIds(): array
+  {
+    $root = realpath($this->assetRoot);
+    $ids = [];
+
+    foreach ($root === false ? [] : (glob($this->assetRoot . '/' . self::DIRECTORY . '/*/*.timeline.php') ?: []) as $path) {
+      $id = basename(dirname($path));
+      $file = realpath($path);
+
+      if ($id === basename($path, '.timeline.php') && preg_match(self::ID_PATTERN, $id) === 1
+        && $file !== false && is_file($file) && str_starts_with($file, $root . DIRECTORY_SEPARATOR)) {
+        $ids[] = $id;
+      }
+    }
+
+    sort($ids);
+    return $ids;
+  }
+
   public static function assertId(string $id): void
   {
-    if (preg_match('/\A[a-z0-9][a-z0-9_-]*\z/', $id) !== 1) {
+    if (preg_match(self::ID_PATTERN, $id) !== 1) {
       throw new InvalidArgumentException('Effect identities use lowercase letters, digits, hyphens and underscores.');
     }
   }
