@@ -128,10 +128,13 @@ it('reports arrivals outside the map or on a blocked cell, and floods from a blo
     ])->and($onWall->isReachable(2, 1))->toBeTrue();
 });
 
-it('reports a map nothing brings the player onto', function () {
-  expect(reachabilityProblems(new MapReachability('lost', reachabilityGrid(['..']))->analyze([])->problems))->toBe([
-    'no_entrance: No transfer, edge trigger, scripted transfer, sleep spawn or starting position brings the player onto it.',
-  ]);
+it('notes a map nothing brings the player onto yet, without calling it a blocker', function () {
+  $problems = new MapReachability('vestige', reachabilityGrid(['..']))->analyze([])->problems;
+
+  expect(reachabilityProblems($problems))->toBe([
+    'no_entrance: No transfer, edge trigger, scripted transfer, sleep spawn or starting position brings the player onto it yet.',
+  ])->and($problems[0]->kind->isBlocking())->toBeFalse()
+    ->and(ReachabilityProblemKind::UNREACHABLE_EVENT->isBlocking())->toBeTrue();
 });
 
 /**

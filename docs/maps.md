@@ -201,7 +201,9 @@ through. Each map's report lists:
 
 - an arrival outside the map, or on a solid or occupied cell (the player can
   step off a blocked cell, but arrives overlapping it);
-- a map nothing brings the player onto;
+- a map nothing brings the player onto yet, which is information rather than a
+  blocker (`ReachabilityProblemKind::isBlocking()` is false): a map kept for
+  content still to come strands nobody;
 - an event or edge trigger with no reachable cell, which therefore never fires;
 - a talkable NPC with no reachable cell beside it, whose lines nobody can read;
 - an arrival naming a map the project does not have, and a map the field

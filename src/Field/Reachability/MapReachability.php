@@ -76,7 +76,7 @@ final readonly class MapReachability
 
     if ($entrances === []) {
       $problems[] = new ReachabilityProblem($this->mapId, ReachabilityProblemKind::NO_ENTRANCE,
-        'No transfer, edge trigger, scripted transfer, sleep spawn or starting position brings the player onto it.');
+        'No transfer, edge trigger, scripted transfer, sleep spawn or starting position brings the player onto it yet.');
     }
 
     foreach ($entrances as $entrance) {
