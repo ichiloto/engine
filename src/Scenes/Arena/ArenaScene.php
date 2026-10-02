@@ -271,8 +271,9 @@ class ArenaScene extends AbstractScene
     $this->leftMargin = max(0, intdiv(get_screen_width() - self::PANEL_WIDTH, 2));
     $this->topMargin = max(0, intdiv(get_screen_height() - (self::LIST_HEIGHT + self::INFO_HEIGHT), 2));
 
+    // The list is of the troops to fight, so it says so.
     $this->listPanel = new Window(
-      'Arena',
+      'Troop',
       'enter:Fight  q:Quit',
       new Vector2($this->leftMargin, $this->topMargin),
       self::PANEL_WIDTH,
@@ -332,7 +333,7 @@ class ArenaScene extends AbstractScene
     $this->listPanel?->setContent(array_pad($content, $visibleRows, ''));
     $this->listPanel?->render();
 
-    $this->infoPanel?->setContent($this->describeParty());
+    $this->infoPanel?->setContent($this->describeParty($innerWidth));
     $this->infoPanel?->render();
   }
 
@@ -359,24 +360,54 @@ class ArenaScene extends AbstractScene
   /**
    * Describes the party for the info panel.
    *
+   * @param int $width The panel's inner width.
    * @return string[] The rows.
    */
-  protected function describeParty(): array
+  protected function describeParty(int $width): array
   {
-    $rows = [];
+    $members = [];
 
     foreach ($this->party?->battlers?->toArray() ?? [] as $battler) {
-      $rows[] = sprintf(
-        ' %-14s Lv %-3d HP %d/%d  MP %d/%d',
-        $battler->name,
-        $battler->level,
-        $battler->stats->currentHp,
-        $battler->stats->totalHp,
-        $battler->stats->currentMp,
-        $battler->stats->totalMp
-      );
+      $members[] = [$battler->name, [
+        'Lv' => (string) $battler->level,
+        'HP' => "{$battler->stats->currentHp}/{$battler->stats->totalHp}",
+        'MP' => "{$battler->stats->currentMp}/{$battler->stats->totalMp}",
+      ]];
     }
 
-    return $rows === [] ? [' No party could be built from this project.'] : $rows;
+    return $members === [] ? [' No party could be built from this project.'] : self::formatPartyRows($members, $width);
+  }
+
+  /**
+   * Lays the party out in justified rows: each name on the left, and the
+   * stats on the right, ending at the panel's edge. Every stat keeps its
+   * label in place and right-aligns its figure to the widest of its
+   * column, so the figures line up from row to row.
+   *
+   * @param list<array{0: string, 1: array<string, string>}> $members Each member's name and stats, figures by label.
+   * @param int $width The panel's inner width.
+   * @return list<string> The rows, each exactly the width.
+   */
+  public static function formatPartyRows(array $members, int $width): array
+  {
+    $widths = [];
+    foreach ($members as [, $stats]) {
+      foreach ($stats as $label => $figure) {
+        $widths[$label] = max($widths[$label] ?? 0, TerminalText::displayWidth($figure));
+      }
+    }
+
+    $rows = [];
+    foreach ($members as [$name, $stats]) {
+      $columns = [];
+      foreach ($stats as $label => $figure) {
+        $columns[] = $label . ' ' . TerminalText::padLeft($figure, $widths[$label]);
+      }
+      $right = implode('  ', $columns) . ' ';
+      $rows[] = TerminalText::padRight(' ' . $name, max(TerminalText::displayWidth(' ' . $name) + 1,
+        $width - TerminalText::displayWidth($right))) . $right;
+    }
+
+    return $rows;
   }
 }
