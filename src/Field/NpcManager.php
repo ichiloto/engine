@@ -60,28 +60,15 @@ class NpcManager
     $ids = [];
 
     foreach (array_values($entries) as $index => $entry) {
-      if (! is_array($entry)) {
+      $placement = NpcPlacement::fromArray($entry);
+
+      if ($placement === null) {
         continue;
       }
 
-      $name = trim(strval($entry['name'] ?? ''));
-
-      if ($name === '' || ! isset($entry['x'], $entry['y'])) {
-        continue;
-      }
-
-      $wanderArea = null;
-
-      if (is_array($entry['wanderArea'] ?? null)) {
-        $wanderArea = [
-          'x' => intval($entry['wanderArea']['x'] ?? 0),
-          'y' => intval($entry['wanderArea']['y'] ?? 0),
-          'width' => max(1, intval($entry['wanderArea']['width'] ?? 1)),
-          'height' => max(1, intval($entry['wanderArea']['height'] ?? 1)),
-        ];
-      }
-
-      $id = trim(strval($entry['id'] ?? ''));
+      $name = $placement->name;
+      $wanderArea = $placement->wanderArea;
+      $id = $placement->id ?? '';
 
       if ($id !== '' && isset($ids[$id])) {
         throw new RuntimeException(sprintf(
@@ -98,8 +85,8 @@ class NpcManager
       $npcs[] = new Npc(
         name: $name,
         sprite: strval($entry['sprite'] ?? '@'),
-        position: new Vector2(intval($entry['x']), intval($entry['y'])),
-        wanders: strval($entry['movement'] ?? 'fixed') === 'wander',
+        position: new Vector2($placement->x, $placement->y),
+        wanders: $placement->wanders,
         wanderArea: $wanderArea,
         dialogue: array_values(array_filter((array) ($entry['dialogue'] ?? []), is_array(...))),
         script: array_values(array_filter((array) ($entry['script'] ?? []), is_array(...))),

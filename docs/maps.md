@@ -178,6 +178,38 @@ a result, the cell is solid; `PASS_THROUGH` is never a final collision value.
 Decoration is excluded entirely. Collision comes from authored symbols and the
 dictionary, never from colour, graphics or a separate stored collision grid.
 
+## Reachability
+
+Maps, rooms and NPCs change throughout production, so nothing pins where
+content stands. What must hold is that the player is never blocked:
+`Ichiloto\Engine\Field\Reachability\ProjectReachability::analyze($assetRoot)`
+reads every map as the field does (`MapSourceReader` and the collision
+dictionary) and floods it from every place the project brings the player onto
+it:
+
+- transfer events and edge triggers into the map;
+- scripted `transfer` commands in common events, cinematics and map data;
+- sleep spawn points;
+- the system starting position.
+
+The flood follows the field's movement rules: one cell at a time in the four
+headings, onto any cell whose collision is not solid and that no NPC stands on.
+Fixed NPCs block their cell; wanderers and NPCs that only appear under
+conditions do not, since story gates are assumed open. Stepping onto a transfer
+or edge trigger leaves the map, so those cells are reached but not walked
+through. Each map's report lists:
+
+- an arrival outside the map, or on a solid or occupied cell (the player can
+  step off a blocked cell, but arrives overlapping it);
+- a map nothing brings the player onto;
+- an event or edge trigger with no reachable cell, which therefore never fires;
+- a talkable NPC with no reachable cell beside it, whose lines nobody can read;
+- an arrival naming a map the project does not have, and a map the field
+  cannot read.
+
+`MapReachability` runs the same analysis on one map's collision grid, events
+and NPCs, for tests with synthetic maps.
+
 ## Editing and migration
 
 The Editor cycles through gameplay, decoration and event layers with independent

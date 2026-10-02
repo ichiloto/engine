@@ -20,11 +20,11 @@ class TransferPlayerTrigger extends EventTrigger
   /**
    * @var string The destination map.
    */
-  protected string $destinationMap = '';
+  protected(set) string $destinationMap = '';
   /**
    * @var Vector2 The spawn point.
    */
-  protected Vector2 $spawnPoint;
+  protected(set) Vector2 $spawnPoint;
   /**
    * @var string[] The spawn sprite.
    */
