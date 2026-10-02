@@ -15,6 +15,8 @@ final class AnimationLibrary
 {
   /** @var Animation[]|null */
   private ?array $battleAnimations = null;
+  /** @var array<string, true> */
+  private array $reportedRoles = [];
 
   /**
    * @param string $assetPath The asset path relative to assets/.
@@ -75,6 +77,17 @@ final class AnimationLibrary
       }
     }
 
+    return null;
+  }
+
+  public function findByRole(string $role): ?Animation
+  {
+    $matches = array_values(array_filter($this->load(), static fn(Animation $animation): bool => in_array($role, $animation->roles, true)));
+    if (count($matches) === 1) { return $matches[0]; }
+    if (!isset($this->reportedRoles[$role])) {
+      $this->reportedRoles[$role] = true;
+      Debug::warn(sprintf('Animation role %s must have exactly one binding; found %d. No name fallback used.', $role, count($matches)));
+    }
     return null;
   }
 
