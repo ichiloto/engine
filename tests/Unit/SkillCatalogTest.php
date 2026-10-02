@@ -168,3 +168,22 @@ it('reports a data file that fails to load', function () {
     removeSkillCatalogProject($root);
   }
 });
+
+it('keeps each project root its own catalogue', function () {
+  $header = "<?php\nuse Ichiloto\\Engine\\Entities\\Skills\\MagicSkill;\nreturn [\n";
+  $first = writeSkillCatalogProject(['magic.php' => $header . "  new MagicSkill('Ember', 'Burns.', '', 5, 0),\n];\n"]);
+  $second = writeSkillCatalogProject(['skills.php' => $header . "  new MagicSkill('Frost', 'Chills.', '', 5, 0),\n];\n"]);
+
+  try {
+    $firstSpells = runInSkillCatalogProject($first, static fn(): array => array_keys(MagicLibrary::all()));
+    $secondSpells = runInSkillCatalogProject($second, static fn(): array => array_keys(MagicLibrary::all()));
+    $firstAgain = runInSkillCatalogProject($first, static fn(): ?string => MagicLibrary::find('Frost')?->name);
+
+    expect($firstSpells)->toBe(['Ember'])
+      ->and($secondSpells)->toBe(['Frost'])
+      ->and($firstAgain)->toBeNull();
+  } finally {
+    removeSkillCatalogProject($first);
+    removeSkillCatalogProject($second);
+  }
+});
