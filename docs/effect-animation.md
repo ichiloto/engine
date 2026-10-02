@@ -177,9 +177,8 @@ and log a note; they do not suppress an otherwise usable cue effect.
 
 The initial field subset did not include battle playback; its current shared
 runtime and outstanding acceptance are recorded below. Still outstanding for
-the field: flash/shake tracks and message cues, authored legacy
-`field_animation` record migration,
-connected-piece effects, fractional layer offsets for piece effect anchors,
+the field: flash/shake tracks and message cues, general authored-record
+retirement, connected-piece effects, fractional layer offsets for piece effect anchors,
 and the general timeline authoring/preview surface. Claude owns source-preserving
 Editor cue-kind, map-effect, piece-effect and binding authoring/validation;
 that validation/binding work has landed, but standalone timeline authoring
@@ -192,6 +191,16 @@ runtime/authoring validation. Existing numeric/name Animation records compile
 into this field session without changing their exact frame duration, colours,
 offsets, blank frames or last-frame hold. One-shot commands reject loops;
 map-owned ambient sessions retain loop ownership.
+
+Last Legend's Listening Stone rite now references `field-healing-aura`:
+25 fps, 18 ticks, three ticks per original frame, preserving its full 0.72
+seconds independently of battle healing. No authored legacy `field_animation`
+commands remain in that Game tree. Numeric records remain for battle/default
+and compatibility consumers; this is not format retirement. Editor's effect
+picker and source-preserving field references are locally integrated, including
+exclusive legacy/timeline fields and shared loading/loop validation. Standalone
+timeline editing/preview remains a separate unstarted authoring scope awaiting
+Andrew's go.
 
 The old manager-wide animation slot and reduced-motion effect skip are removed.
 Each command has an independently owned session; finishing a timed overlay no
@@ -663,6 +672,30 @@ with lint of 443 files and validation at zero errors / 30 existing warnings.
 Silent native acceptance remains G2 work; these CPU checks are not a claim
 that the final artwork has been reviewed in the native runtime.
 
+October 3 acceptance checks against live Engine `5cdaf1f`: the full Engine
+suite passed 4,167 tests with one skip and 84,998 assertions; full PHPStan
+passed. Disposable production-presenter previews exercised all eight actors'
+80 role views, 40 resting views and eight exactly-once inspection sequences,
+returning to formation in normal and reduced-motion modes. Both silent macOS
+native runs closed cleanly, with 745 and 602 presented acknowledgements.
+The six-effect normal native run covered 80 image-frame views and closed with
+680 presented acknowledgements; the reduced-motion native run held nine authored
+rest segments and closed with 387 presented acknowledgements. Both CPU modes
+also passed. These fixtures count presentation beats, not real combat
+outcomes. Acknowledgements are not visual or timing acceptance: the inspection
+tool selected an existing Game window rather than the separate preview. No
+user session was closed or altered to obtain a screenshot. Native visual
+acceptance, actual encounter acceptance and non-macOS platforms remain open.
+
+The current full Game CI run has 1,834 passes and three failures across 1,837
+tests, with 833,927 assertions, excluding battle simulations. Two tests still
+compare current authored Apthia geometry with older layouts; the reachability
+test reports three inaccessible NPCs in Apthia's Garden Route Control,
+Happyville's inn and its shop. Do not rebaseline live layouts or weaken
+reachability to hide these. Validation reports zero errors and 45 warnings.
+These results supersede the earlier Game totals above, not the accepted-art
+review. Art's source shadow audit is in progress independently of pose wiring.
+
 Runtime skill-name and hardcoded animation-name selection are removed. Legacy
 items without a binding retain their existing no-animation behavior. A missing explicit id
 reports a warning and never substitutes a default. No presentation reference
@@ -696,9 +729,14 @@ updated, not treated as runtime authority.
    the authored records before retiring their format. The cinematic cadence is
    representable exactly
    as 25 fps with three ticks per original frame, without changing the battle
-   healing timeline's six frames at 10 fps. The remaining migration must also
-   establish timing ownership for paced compatibility effects and safe Editor
-   round trips, rather than treating it as a Game-only file replacement.
+   healing timeline's six frames at 10 fps. Last Legend's sole authored field
+   consumer has now migrated to the distinct `field-healing-aura` timeline at
+   that exact cadence, verified through real event and cinematic callers in
+   terminal/graphical and normal/reduced modes (41 targeted tests, 3,300
+   assertions). Its legacy name/timing fields were removed; numeric records
+   remain. The remaining record migration must establish timing ownership for
+   paced compatibility effects and safe Editor standalone authoring, rather
+   than treating it as a Game-only file replacement.
    The compatibility traversal now uses `EffectPlaybackSession` with an exact
    frame-duration override instead of rounding that duration to integer fps.
    This removes the legacy clock and field reduced-motion skip while leaving
