@@ -36,6 +36,7 @@ use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Modal\ModalManager;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
 use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Debug;
 use Tests\Support\Input\FakeRendererTransport;
 use Tests\Support\Rendering\RetainedFrameState;
@@ -730,4 +731,59 @@ it('does not turn an NPC a cinematic has staged', function () {
   $this->manager->faceNpc('guide', Vector2::left());
   $this->scene->player->interact();
   expect($npc->heading)->toBe(MovementHeading::WEST);
+});
+
+/** Sets the collision of field cells in the test scene. */
+function setNpcTestCollision(GameScene $scene, array $cells, CollisionType $type): void
+{
+  $property = new ReflectionProperty(MapManager::class, 'collisionMap');
+  $map = $property->getValue($scene->mapManager);
+  foreach ($cells as [$x, $y]) { $map[$y][$x] = $type->value; }
+  $property->setValue($scene->mapManager, $map);
+}
+
+it('talks across any depth of counter to the NPC behind it, and never through a wall', function () {
+  ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 24, 'height' => 8]));
+  $this->manager->configure([getNpcTestEntry(['dialogue' => [['text' => 'Welcome.']]])]);
+  $probe = installNpcTalkProbe($this);
+  $player = $this->scene->player;
+  // The guide stands at (7, 4) behind a counter two cells deep.
+  setNpcTestCollision($this->scene, [[7, 5], [7, 6]], CollisionType::COUNTER);
+  placeNpcTestPlayer($player, 7, 7, MovementRouteRunner::directionVector('up'));
+
+  $player->refreshTalkTarget();
+  expect($player->talkTarget)->toBe($this->manager->findById('guide'))->and($player->canAct)->toBeTrue();
+  $player->interact();
+  expect($probe->pages)->toHaveCount(1);
+
+  // A counter cannot be walked onto.
+  expect($this->scene->mapManager->canMoveTo(7, 6))->toBeFalse();
+
+  // A wall in the line ends the reach.
+  setNpcTestCollision($this->scene, [[7, 6]], CollisionType::SOLID);
+  $player->refreshTalkTarget();
+  expect($player->talkTarget)->toBeNull()->and($player->canAct)->toBeFalse();
+  $player->interact();
+  expect($probe->pages)->toHaveCount(1);
+});
+
+it('shows the action prompt only for an NPC that has something to say', function () {
+  ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 24, 'height' => 8]));
+  $this->manager->configure([getNpcTestEntry(['dialogue' => []])]);
+  $player = $this->scene->player;
+  placeNpcTestPlayer($player, 7, 5, MovementRouteRunner::directionVector('up'));
+
+  $player->refreshTalkTarget();
+  expect($player->findFacingNpc())->toBe($this->manager->findById('guide'))
+    ->and($player->talkTarget)->toBeNull()
+    ->and($player->canAct)->toBeFalse();
+
+  $this->manager->configure([getNpcTestEntry(['dialogue' => [['text' => 'Hello.']]])]);
+  $player->refreshTalkTarget();
+  expect($player->canAct)->toBeTrue();
+
+  // Turning away clears it.
+  $player->updatePlayerSprite(MovementRouteRunner::directionVector('down'));
+  $player->refreshTalkTarget();
+  expect($player->canAct)->toBeFalse();
 });

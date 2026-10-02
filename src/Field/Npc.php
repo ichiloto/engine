@@ -154,6 +154,11 @@ class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProvi
     $this->walkAnimation->stop();
   }
 
+  /** Whether speaking to this NPC does anything: it has lines or a script. */
+  public bool $isTalkable {
+    get => $this->dialogue !== [] || $this->script !== [];
+  }
+
   /**
    * Talks to the NPC: plays its script or dialogue, applies its `sets`,
    * and records the conversation for talk-to quests.

@@ -191,7 +191,8 @@ today, or live with the map:
 - **Object-attached effects**: an aura, glow or status effect anchored to a
   field character or object, following it as it moves and ending when it
   leaves or is removed.
-- **The action prompt**: while the player can act, the game's bound effect
+- **The action prompt**: while the player can act (an event offers an action, or
+  the player faces a talkable NPC, beside it or across a counter), the game's bound effect
   (`actionPrompt` in `Data/Presentation/field.php`, beside the cue bindings)
   draws over the player, offset by its keyframes into the cell above, in
   place of the prompt glyph. It opens once each time the player comes to be

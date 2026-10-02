@@ -202,7 +202,13 @@ class MapManager implements CanRenderAt
     }
 
     $collisionType = $this->getCollision($x, $y);
-    return !in_array($collisionType, [CollisionType::SOLID, CollisionType::NPC]);
+    return !in_array($collisionType, [CollisionType::SOLID, CollisionType::NPC, CollisionType::COUNTER]);
+  }
+
+  /** Whether a cell is a counter the player can talk across; false outside the map. */
+  public function isCounterAt(int $x, int $y): bool
+  {
+    return ($this->collisionMap[$y][$x] ?? null) === CollisionType::COUNTER->value;
   }
 
   /**

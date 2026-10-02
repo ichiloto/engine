@@ -14,11 +14,13 @@ final readonly class MapReachabilityReport
   /**
    * @param array<string, true> $reachableCells Reachable cells keyed "x,y".
    * @param ReachabilityProblem[] $problems
+   * @param array<string, true> $spokenToCells Cells of NPCs the player can speak to, keyed "x,y".
    */
   public function __construct(
     public string $mapId,
     private array $reachableCells,
     public array $problems,
+    private array $spokenToCells = [],
   )
   {
   }
@@ -43,10 +45,9 @@ final readonly class MapReachabilityReport
     return false;
   }
 
-  /** Whether the player can stand beside a cell, as they must to speak to an NPC on it. */
-  public function isBesideReachable(int $x, int $y): bool
+  /** Whether the player can speak to the NPC on a cell, beside it or across counters. */
+  public function canSpeakTo(int $x, int $y): bool
   {
-    return $this->isReachable($x, $y - 1) || $this->isReachable($x + 1, $y)
-      || $this->isReachable($x, $y + 1) || $this->isReachable($x - 1, $y);
+    return isset($this->spokenToCells["{$x},{$y}"]);
   }
 }

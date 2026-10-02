@@ -117,7 +117,7 @@ final class ProjectReachability
     };
     $standingIn = static fn(Rect $area): Closure => static fn(MapReachabilityReport $report): bool => $report->isAnyReachable($area);
     $besideNpc = static fn(NpcPlacement $npc): Closure => static fn(MapReachabilityReport $report): bool =>
-      $report->isBesideReachable($npc->x, $npc->y);
+      $report->canSpeakTo($npc->x, $npc->y);
 
     foreach ($maps as $mapId => $map) {
       foreach ($map['arrivals'] as $event) {
