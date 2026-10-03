@@ -6,6 +6,7 @@ use Ichiloto\Engine\Battle\BattleAction;
 use Ichiloto\Engine\Battle\Resolution\CombatRandomSource;
 use Ichiloto\Engine\Battle\Resolution\CombatResolver;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface as Actor;
+use Ichiloto\Engine\Entities\ItemScope;
 use Ichiloto\Engine\Entities\Skills\Skill;
 use Ichiloto\Engine\Entities\Skills\SkillEffectExecutor;
 
@@ -17,6 +18,9 @@ use Ichiloto\Engine\Entities\Skills\SkillEffectExecutor;
 class SkillBattleAction extends BattleAction
 {
   private SkillEffectExecutor $effectExecutor;
+  public ItemScope $targetScope {
+    get { return clone $this->skill->scope; }
+  }
 
   /**
    * @param Skill $skill The skill wrapped by this battle action.

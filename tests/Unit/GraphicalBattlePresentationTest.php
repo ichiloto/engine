@@ -487,6 +487,7 @@ it('presents actual multi-hit multi-target results and misses without repeating 
   $turn->targets[0]->stats->currentHp = 15;
   $turn->action = new \Ichiloto\Engine\Battle\Actions\SkillBattleAction(new \Ichiloto\Engine\Entities\Skills\SpecialSkill(
     'Three strikes', '', '*', 4, 0,
+    scope: new \Ichiloto\Engine\Entities\ItemScope(number: \Ichiloto\Engine\Entities\Enumerations\ItemScopeNumber::ALL),
     invocation: new \Ichiloto\Engine\Entities\Skills\SkillInvocation(accuracy: $miss ? 1 : 0, repeat: 3),
     effects: [new \Ichiloto\Engine\Entities\Effects\SkillEffects\HPDamageSkillEffect('10', variance: 0)]),
     random: new class implements CombatRandomSource {

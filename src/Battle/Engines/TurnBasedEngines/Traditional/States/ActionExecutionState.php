@@ -22,6 +22,7 @@ use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Battle\Actions\ItemBattleAction;
 use Ichiloto\Engine\Battle\BattleAction;
 use Ichiloto\Engine\Battle\BattleCommandCatalog;
+use Ichiloto\Engine\Battle\BattleTargetPolicy;
 use Ichiloto\Engine\Battle\BattleTurnTimings;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnExecutionContext;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Turn;
@@ -134,14 +135,17 @@ class ActionExecutionState extends TurnState
       return;
     }
 
-    $targets = array_values(array_filter(
+    $party = $context->party->battlers->toArray();
+    $troop = $context->troop->members->toArray();
+    $isPartyActor = in_array($turn->battler, $party, true);
+    $targets = BattleTargetPolicy::resolveTargets(
+      $turn->action?->targetScope ?? new \Ichiloto\Engine\Entities\ItemScope(),
+      $turn->battler,
+      $isPartyActor ? $party : $troop,
+      $isPartyActor ? $troop : $party,
       $turn->targets,
-      fn(CharacterInterface $target) => ! $target->isKnockedOut
-    ));
-
-    if (empty($targets)) {
-      $targets = $context->getLivingOpponents($turn->battler);
-    }
+      $this->engine->random,
+    );
 
     if (empty($targets)) {
       $this->beginTurnEnd($context, $turn);

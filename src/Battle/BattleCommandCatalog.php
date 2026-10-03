@@ -11,11 +11,6 @@ use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneDefinition;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Entities\Character;
-use Ichiloto\Engine\Entities\Effects\HPRecoveryEffect;
-use Ichiloto\Engine\Entities\Effects\MPRecoveryEffect;
-use Ichiloto\Engine\Entities\Effects\ResurrectionEffect;
-use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
-use Ichiloto\Engine\Entities\Enumerations\ItemScopeStatus;
 use Ichiloto\Engine\Entities\Enumerations\Occasion;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\Party;
@@ -359,16 +354,17 @@ final class BattleCommandCatalog
   {
     $costLabel = $skill->cost > 0 ? sprintf(' (%d MP)', $skill->cost) : '';
     $action = new SkillBattleAction($skill);
+    $scope = $action->targetScope;
 
     return new BattleCommandOption(
       $skill->name . $costLabel,
       $skill->description,
       $action,
-      $skill->scope->side,
-      $skill->scope->status,
+      $scope->side,
+      $scope->status,
       $skill,
       max(0, $skill->cost),
-      $skill->scope->number,
+      $scope->number,
       self::getActionType($action),
     );
   }
@@ -407,41 +403,21 @@ final class BattleCommandCatalog
         continue;
       }
 
-      [$targetSide, $targetStatus] = self::resolveItemTargeting($item);
+      $action = new ItemBattleAction($item, $party->inventory);
+      $scope = $action->targetScope;
       $options[] = new BattleCommandOption(
         sprintf('%s x%d', $item->name, $availableQuantity),
         $item->description,
-        new ItemBattleAction($item, $party->inventory),
-        $targetSide,
-        $targetStatus,
+        $action,
+        $scope->side,
+        $scope->status,
         $item,
-        targetNumber: $item->scope->number,
+        targetNumber: $scope->number,
         type: BattleCommandType::ITEM,
       );
     }
 
     return $options;
-  }
-
-  /**
-   * Infers a sensible targeting side and status for the given item.
-   *
-   * @param Item $item The item being inspected.
-   * @return array{0: ItemScopeSide, 1: ItemScopeStatus} The inferred target side and status.
-   */
-  protected static function resolveItemTargeting(Item $item): array
-  {
-    foreach ($item->effects as $effect) {
-      if ($effect instanceof ResurrectionEffect) {
-        return [ItemScopeSide::ALLY, ItemScopeStatus::DEAD];
-      }
-
-      if ($effect instanceof HPRecoveryEffect || $effect instanceof MPRecoveryEffect) {
-        return [ItemScopeSide::ALLY, ItemScopeStatus::ALIVE];
-      }
-    }
-
-    return [$item->scope->side, $item->scope->status];
   }
 
   /**

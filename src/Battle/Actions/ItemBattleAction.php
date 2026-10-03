@@ -4,6 +4,12 @@ namespace Ichiloto\Engine\Battle\Actions;
 
 use Ichiloto\Engine\Battle\BattleAction;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface as Actor;
+use Ichiloto\Engine\Entities\Effects\HPRecoveryEffect;
+use Ichiloto\Engine\Entities\Effects\MPRecoveryEffect;
+use Ichiloto\Engine\Entities\Effects\ResurrectionEffect;
+use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
+use Ichiloto\Engine\Entities\Enumerations\ItemScopeStatus;
+use Ichiloto\Engine\Entities\ItemScope;
 use Ichiloto\Engine\Entities\Inventory\Inventory;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
 
@@ -14,6 +20,29 @@ use Ichiloto\Engine\Entities\Inventory\Items\Item;
  */
 class ItemBattleAction extends BattleAction
 {
+  public ItemScope $targetScope {
+    get {
+      $scope = new ItemScope($this->item->scope->side, $this->item->scope->number,
+        $this->item->scope->status, $this->item->scope->randomNumber);
+      if ($scope->side !== ItemScopeSide::NONE) { return $scope; }
+
+      // Legacy recovery items omitted a scope. Explicit authored scopes win.
+      foreach ($this->item->effects as $effect) {
+        if ($effect instanceof ResurrectionEffect) {
+          $scope->side = ItemScopeSide::ALLY;
+          $scope->status = ItemScopeStatus::DEAD;
+          break;
+        }
+        if ($effect instanceof HPRecoveryEffect || $effect instanceof MPRecoveryEffect) {
+          $scope->side = ItemScopeSide::ALLY;
+          $scope->status = ItemScopeStatus::ALIVE;
+          break;
+        }
+      }
+      return $scope;
+    }
+  }
+
   /**
    * @param Item $item The inventory item represented by this action.
    * @param Inventory|null $inventory The inventory the item is drawn from.

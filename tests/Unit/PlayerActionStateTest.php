@@ -550,9 +550,9 @@ it('requires separate target confirmation for submenu commands and allows cancel
   $game = (new ReflectionClass(GameTargetingTestProxy::class))->newInstanceWithoutConstructor();
   $audio = $this->createMock(AudioManager::class);
   setTestProperty($game, 'audioManager', $audio);
-  $skill = new MagicSkill('Targeted Magic', 'Affects the confirmed targets.', '', 5, 0, new ItemScope($side, $number, $status));
-  $ability = new SpecialSkill('Targeted Skill', 'Affects the confirmed targets.', '', 5, 0, new ItemScope($side, $number, $status));
-  $item = new Item('Targeted Item', 'Affects the confirmed targets.', '!', 10, 2, scope: new InventoryItemScope($side, $number, $status));
+  $skill = new MagicSkill('Targeted Magic', 'Affects the confirmed targets.', '', 5, 0, new ItemScope($side, $number, $status, 2));
+  $ability = new SpecialSkill('Targeted Skill', 'Affects the confirmed targets.', '', 5, 0, new ItemScope($side, $number, $status, 2));
+  $item = new Item('Targeted Item', 'Affects the confirmed targets.', '!', 10, 2, scope: new InventoryItemScope($side, $number, $status, 2));
   $party = new Party();
   foreach (['Caster', 'Ally', 'Fallen Ally'] as $name) {
     $party->addMember(new Character($name, 0, new Stats(currentHp: 120, currentMp: 30),
@@ -612,12 +612,25 @@ it('requires separate target confirmation for submenu commands and allows cancel
     $press(KeyCode::ENTER);
     $assertUncommitted();
     $focusSide = $side === ItemScopeSide::USER ? ItemScopeSide::ALLY : $side;
-    $pool = $focusSide === ItemScopeSide::ALLY ? $members : $enemies;
+    $pool = match ($focusSide) {
+      ItemScopeSide::ALLY => $members,
+      ItemScopeSide::ENEMY_ALLY => [...$members, ...$enemies],
+      default => $enemies,
+    };
     $expected = array_map(fn(int $index) => $pool[$index], $indexes);
+    $partyFocus = $troopFocus = [];
+    foreach ($expected as $target) {
+      $partyIndex = array_search($target, $members, true);
+      $troopIndex = array_search($target, $enemies, true);
+      if (is_int($partyIndex)) { $partyFocus[] = $partyIndex; }
+      if (is_int($troopIndex)) { $troopFocus[] = $troopIndex; }
+    }
     $screen->fieldWindow->renderTargetIndicators();
     expect(new ReflectionProperty($state, 'selectionMode')->getValue($state))->toBe('target')
-      ->and($screen->fieldWindow->getFocusedIndexes($focusSide))->toBe($indexes)
-      ->and($screen->fieldWindow->renderedFocus)->toBe($expected);
+      ->and($screen->fieldWindow->getFocusedIndexes(ItemScopeSide::ALLY))->toBe($partyFocus)
+      ->and($screen->fieldWindow->getFocusedIndexes(ItemScopeSide::ENEMY))->toBe($troopFocus)
+      ->and(array_map(spl_object_id(...), $screen->fieldWindow->renderedFocus))
+      ->toEqualCanonicalizing(array_map(spl_object_id(...), $expected));
     if ($side === ItemScopeSide::USER) {
       foreach ([-1, 1] as $step) {
         new ReflectionMethod($state, 'cycleTarget')->invoke($state, $context, $step);
@@ -630,13 +643,21 @@ it('requires separate target confirmation for submenu commands and allows cancel
     $assertUncommitted();
     expect(new ReflectionProperty($state, 'selectionMode')->getValue($state))->toBe('submenu')
       ->and($screen->commandContextWindow->getActiveItem())->toBe($option)
-      ->and($screen->fieldWindow->getFocusedIndexes($focusSide))->toBe([]);
+      ->and($screen->fieldWindow->getFocusedIndexes(ItemScopeSide::ALLY))->toBe([])
+      ->and($screen->fieldWindow->getFocusedIndexes(ItemScopeSide::ENEMY))->toBe([]);
 
     $press(KeyCode::ENTER);
     $assertUncommitted();
     $press(KeyCode::ENTER);
-    expect($activeTime ? $engine->capturedAction : $turn->action)->toBe($action)
-      ->and($activeTime ? $engine->capturedTargets : $turn->targets)->toBe($expected);
+    $queued = $activeTime ? $engine->capturedTargets : $turn->targets;
+    expect($activeTime ? $engine->capturedAction : $turn->action)->toBe($action);
+    if ($number === ItemScopeNumber::RANDOM) {
+      expect($queued)->toHaveCount(min(2, count($expected)))
+        ->and(count(array_unique(array_map(spl_object_id(...), $queued))))->toBe(count($queued));
+      foreach ($queued as $target) { expect(in_array($target, $expected, true))->toBeTrue(); }
+    } else {
+      expect($queued)->toBe($expected);
+    }
   } finally {
     InputManager::setInputSource($oldSource);
     InputManager::setBindings($oldBindings);
@@ -652,4 +673,10 @@ it('requires separate target confirmation for submenu commands and allows cancel
   'one ally' => [ItemScopeSide::ALLY, ItemScopeNumber::ONE, ItemScopeStatus::ALIVE, [0]],
   'one enemy' => [ItemScopeSide::ENEMY, ItemScopeNumber::ONE, ItemScopeStatus::ALIVE, [0]],
   'caster only' => [ItemScopeSide::USER, ItemScopeNumber::ONE, ItemScopeStatus::ALIVE, [1]],
+  'living either side' => [ItemScopeSide::ENEMY_ALLY, ItemScopeNumber::ALL, ItemScopeStatus::ALIVE, [0, 1, 3, 4]],
+  'fallen either side' => [ItemScopeSide::ENEMY_ALLY, ItemScopeNumber::ALL, ItemScopeStatus::DEAD, [2, 5]],
+  'any either side' => [ItemScopeSide::ENEMY_ALLY, ItemScopeNumber::ALL, ItemScopeStatus::ANY, [0, 1, 2, 3, 4, 5]],
+  'random living allies' => [ItemScopeSide::ALLY, ItemScopeNumber::RANDOM, ItemScopeStatus::ALIVE, [0, 1]],
+  'random any enemies' => [ItemScopeSide::ENEMY, ItemScopeNumber::RANDOM, ItemScopeStatus::ANY, [0, 1, 2]],
+  'random living either side' => [ItemScopeSide::ENEMY_ALLY, ItemScopeNumber::RANDOM, ItemScopeStatus::ALIVE, [0, 1, 3, 4]],
 ])->with(['magic', 'skill', 'item']);

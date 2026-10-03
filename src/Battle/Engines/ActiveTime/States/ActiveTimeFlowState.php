@@ -227,11 +227,12 @@ class ActiveTimeFlowState extends PlayerActionState
 
     [$action, $resolvedTargets] = EnemyActionEvaluator::chooseAction(
       $enemy,
-      $targets,
-      $context->getLivingTroopBattlers(),
+      $context->party->battlers->toArray(),
+      $context->troop->members->toArray(),
       max(1, $context->roundNumber),
       $maxPartyLevel,
       $gameState === null ? null : $gameState->getSwitch(...),
+      $this->engine->random,
     );
 
     $this->getAtbEngine()->queueImmediateTurn(

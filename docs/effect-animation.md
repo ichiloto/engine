@@ -287,6 +287,25 @@ ordered stages may contain authored overlapping tracks; they are not eight
 unconditional delays. Multi-target and multi-hit reactions follow the actual
 combat result and its cues, not independently repeated action resolution.
 
+Recipient identity is owned by each action's scope, not by its presentation.
+Player selection, enemy AI and queued execution now share `BattleTargetPolicy`
+for side, alive/dead/any status and one/all/random counts. Execution revalidates
+the confirmed recipients without crossing sides or widening one recipient to
+all opponents; valid random recipients retain their identities. Explicit item
+scopes are preserved, with recovery compatibility only for default-NONE items.
+The living-only execution filter, all-opponents fallback and AI self-target
+fallback are removed. With no eligible recipient, the turn is consumed without
+starting presentation or charging a command cost. Synthetic real-caller tests
+cover revival and group healing in both battle engines, terminal/graphical and
+normal/reduced modes, including pause, exactly-once impact/cost and cleanup.
+Those CPU checks do not replace native visual acceptance.
+
+October 3 combined Engine verification after exact trigger-cell integration:
+4,264 tests passed, one skipped, 86,800 assertions; full PHPStan passed.
+The targeted selection, AI, command-execution and graphical-presentation run
+passed 305 tests with 5,677 assertions. These results include the preserved
+local UI work; they are not an isolated clean-commit or non-macOS native run.
+
 State duration and damage ticks belong to the affected battler's own turn end,
 including a consumed turn when sleep or another state prevents an action.
 They do not tick after somebody else's command or once for the whole round.
