@@ -199,18 +199,41 @@ final readonly class MapGraphics
         if ($tilesetId === null && !is_dir($directory)) {
             return null;
         }
-        if (!is_string($tilesetId)) {
-            throw new InvalidArgumentException("Map {$displayDirectory} has graphics but names no tileset in its data file.");
-        }
-        $tileset = Tileset::load($assetRoot, $tilesetId);
+        self::assertTilesetNamed($tilesetId, $displayDirectory);
         $files = is_dir($directory) ? (glob($directory . '/*.tiles.php') ?: []) : [];
-        if (count($files) > self::MAX_LAYERS) {
-            throw new InvalidArgumentException("Map {$displayDirectory} has more than " . self::MAX_LAYERS . ' tile layers.');
-        }
-        $tileLayers = $orders = [];
+        $sources = [];
         foreach ($files as $path) {
-            $filename = basename($path);
-            $displayPath = "{$displayDirectory}/" . self::DIRECTORY . "/{$filename}";
+            $source = @file_get_contents($path);
+            if ($source === false) {
+                throw new InvalidArgumentException('Grid source ' . self::getLayerDisplayPath($path, $displayDirectory) . ' could not be read.');
+            }
+            $sources[$path] = $source;
+        }
+        return self::fromSources($sources, $displayDirectory, $tilesetId, $layers, $assetRoot, $settings);
+    }
+
+    /**
+     * Reads a map's graphics from its tile layer sources rather than its
+     * `graphics/` directory, so authoring tools can draw tile layers they
+     * have not saved yet. Each source is parsed and validated exactly as
+     * {@see loadFromDirectory()} reads it from disk, and never executed.
+     * Null when the map names no tileset and has no tile layers.
+     *
+     * @param array<string, string> $sources Source bytes keyed by the layer file's path; only its file name is read.
+     */
+    public static function fromSources(array $sources, string $displayDirectory, mixed $tilesetId, MapLayerSet $layers,
+        string $assetRoot, mixed $settings = null): ?self
+    {
+        if ($tilesetId === null && $sources === []) {
+            return null;
+        }
+        self::assertTilesetNamed($tilesetId, $displayDirectory);
+        $tileset = Tileset::load($assetRoot, $tilesetId);
+        self::assertLayerCount(count($sources), $displayDirectory);
+        $tileLayers = $orders = [];
+        foreach ($sources as $path => $source) {
+            $filename = basename((string)$path);
+            $displayPath = self::getLayerDisplayPath($filename, $displayDirectory);
             if (preg_match(self::FILENAME_PATTERN, $filename, $matches) !== 1) {
                 throw new InvalidArgumentException("Tile layer {$displayPath} must be named NN.name.tiles.php.");
             }
@@ -218,7 +241,7 @@ final readonly class MapGraphics
                 throw new InvalidArgumentException("Tile layer {$displayPath} repeats order {$matches['order']}.");
             }
             $orders[$matches['order']] = true;
-            $layer = new MapTileLayer($matches['name'], (int)$matches['order'], $displayPath, MapGridSource::readFile($path, $displayPath));
+            $layer = new MapTileLayer($matches['name'], (int)$matches['order'], $displayPath, MapGridSource::parseSource($source, $displayPath));
             $layer->assertMatches($layers);
             $tileLayers[] = $layer;
         }
@@ -228,5 +251,25 @@ final readonly class MapGraphics
         $owners = self::resolveLayerOwners($settings, $names, array_values(array_map(static fn(MapLayer $layer): string => $layer->name,
             array_filter($layers->layers, static fn(MapLayer $layer): bool => !$layer->decoration))), $tileset, $displayDirectory);
         return new self($tileset, $tileLayers, $offsets, $owners);
+    }
+
+    /** @phpstan-assert string $tilesetId */
+    private static function assertTilesetNamed(mixed $tilesetId, string $displayDirectory): void
+    {
+        if (!is_string($tilesetId)) {
+            throw new InvalidArgumentException("Map {$displayDirectory} has graphics but names no tileset in its data file.");
+        }
+    }
+
+    private static function assertLayerCount(int $count, string $displayDirectory): void
+    {
+        if ($count > self::MAX_LAYERS) {
+            throw new InvalidArgumentException("Map {$displayDirectory} has more than " . self::MAX_LAYERS . ' tile layers.');
+        }
+    }
+
+    private static function getLayerDisplayPath(string $path, string $displayDirectory): string
+    {
+        return "{$displayDirectory}/" . self::DIRECTORY . '/' . basename($path);
     }
 }
