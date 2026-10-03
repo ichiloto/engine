@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Field\Reachability;
 
 use Assegai\Util\Path;
 use Closure;
+use Ichiloto\Engine\Core\CellArea;
 use Ichiloto\Engine\Core\Rect;
 use FilesystemIterator;
 use Ichiloto\Engine\Events\Triggers\EventTrigger;
@@ -115,7 +116,7 @@ final class ProjectReachability
       $arrivals[] = ['from' => $requires === null ? null : $from, 'to' => $to,
         'entrance' => new ReachabilityEntrance($x, $y, $source), 'requires' => $requires];
     };
-    $standingIn = static fn(Rect $area): Closure => static fn(MapReachabilityReport $report): bool => $report->isAnyReachable($area);
+    $standingIn = static fn(Rect|CellArea $area): Closure => static fn(MapReachabilityReport $report): bool => $report->isAnyReachable($area);
     $besideNpc = static fn(NpcPlacement $npc): Closure => static fn(MapReachabilityReport $report): bool =>
       $report->canSpeakTo($npc->x, $npc->y);
 

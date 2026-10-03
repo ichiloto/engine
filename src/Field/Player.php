@@ -814,14 +814,17 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     $this->announcedBlockedEvents = [];
   }
 
-  /** Returns the top-left position of a stable current-map event marker. */
+  /**
+   * Returns where a stable current-map event marker is: its first cell in
+   * reading order, the top-left of a rectangular marker.
+   */
   public function findEventMarkerPosition(string $marker): ?Vector2
   {
     $marker = trim($marker);
 
     foreach ($this->events as $event) {
       if ($event->marker === $marker) {
-        return new Vector2($event->area->getX(), $event->area->getY());
+        return $event->area->firstCell;
       }
     }
 
@@ -849,10 +852,11 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
         continue;
       }
 
-      Console::withLayer($cueLayer, fn() => $this->scene->camera->renderOnScreen(
-        [$event->cue->styledSymbol()],
-        $event->cue->positionFor($event->area),
-      ), PresentationLayerPolicy::WORLD);
+      Console::withLayer($cueLayer, function () use ($event): void {
+        foreach ($event->cue->findPositions($event->area) as $position) {
+          $this->scene->camera->renderOnScreen([$event->cue->styledSymbol()], $position);
+        }
+      }, PresentationLayerPolicy::WORLD);
     }
   }
 

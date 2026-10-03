@@ -75,15 +75,16 @@ final class FieldEffectManager
     }
     foreach ($events as $event) {
       if ($event->cue === null) { continue; }
-      $id = self::getCueId($event);
-      $this->cues[$id] = $event;
       $binding = $this->catalog->cues[$event->cue->color] ?? null;
       if ($binding === null) {
         $this->note('binding:' . $event->cue->color, 'No graphical binding for cue color ' . $event->cue->color . '; its original glyph remains.');
         continue;
       }
-      $cell = $event->cue->positionFor($event->area);
-      $this->startEffect($id, $binding['effect'], FieldEffectAnchor::fromArray(['cell' => ['x' => (int)$cell->x, 'y' => (int)$cell->y]]));
+      // One cue per separate placement of the trigger, as the terminal shows it.
+      foreach (array_combine(self::getCueIds($event), $event->cue->findPositions($event->area)) as $id => $cell) {
+        $this->cues[$id] = $event;
+        $this->startEffect($id, $binding['effect'], FieldEffectAnchor::fromArray(['cell' => ['x' => (int)$cell->x, 'y' => (int)$cell->y]]));
+      }
     }
   }
 
@@ -109,13 +110,32 @@ final class FieldEffectManager
     return $declarations;
   }
 
-  public static function getCueId(EventTrigger $event): string { return 'cue-' . ($event->marker ?? ''); }
+  /**
+   * The cue session ids of an event, one per separate placement of its
+   * trigger: `cue-<marker>` for the first, then `cue-<marker>-2` and on.
+   *
+   * @return list<string>
+   */
+  public static function getCueIds(EventTrigger $event): array
+  {
+    $base = 'cue-' . ($event->marker ?? '');
+    $count = $event->cue === null ? 1 : count($event->cue->findPositions($event->area));
 
+    return array_map(static fn(int $index): string => $index === 0 ? $base : $base . '-' . ($index + 1), range(0, max(1, $count) - 1));
+  }
+
+  /** Whether graphical cue art draws every placement's cue, so its glyphs stand down. */
   public function canPresentCue(EventTrigger $event): bool
   {
-    $session = $this->sessions[self::getCueId($event)] ?? null;
-    return $this->supported && $this->presentation === EffectPresentation::GRAPHICAL && $session !== null
-      && array_any($session->playback->timeline->playbackSegments, static fn(array $segment): bool => $segment['layer'] === 'image');
+    if (!$this->supported || $this->presentation !== EffectPresentation::GRAPHICAL) { return false; }
+    foreach (self::getCueIds($event) as $id) {
+      $session = $this->sessions[$id] ?? null;
+      if ($session === null
+        || !array_any($session->playback->timeline->playbackSegments, static fn(array $segment): bool => $segment['layer'] === 'image')) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**

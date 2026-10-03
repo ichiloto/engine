@@ -1171,6 +1171,32 @@ it('rejects unavailable field gates before movement advances any field state', f
     ->and($player->movementNotifications)->toBe(3);
 });
 
+it('gates exactly the cells of an event painted in two places, never the floor between them', function () {
+  [$scene] = makeEventRuntime();
+  $player = new EventTestPlayer(new Vector2(2, 0));
+  $scene->installPlayer($player);
+  $trigger = new \Ichiloto\Engine\Events\Triggers\DialogueEventTrigger(
+    \Ichiloto\Engine\Core\CellArea::fromCells([[1, 0], [3, 0]]),
+    ['dialogue' => [['name' => '', 'text' => 'The route is open.']]],
+    conditions: [['type' => 'switch', 'name' => 'gate_open']],
+    whenBlocked: 'The route is locked.',
+  );
+  $trigger->bind($scene->gameState, $scene->party);
+  $player->addTrigger($trigger);
+
+  // Standing between the placements is not standing in the event, so both
+  // placements are approaches from outside and both are gated.
+  expect($player->tryFieldMove(Vector2::left(), $scene->camera))->toBeFalse()
+    ->and($player->tryFieldMove(Vector2::right(), $scene->camera))->toBeFalse()
+    ->and($player->position->x)->toBe(2.0)
+    ->and($player->tryFieldMove(Vector2::down(), $scene->camera))->toBeTrue();
+
+  $scene->gameState->setSwitch('gate_open', true);
+
+  expect($player->tryFieldMove(Vector2::up(), $scene->camera))->toBeTrue()
+    ->and($player->tryFieldMove(Vector2::right(), $scene->camera))->toBeTrue()
+    ->and($player->position->x)->toBe(3.0);
+});
 it('lets a loaded player already inside a newly locked event area move out', function () {
   [$scene] = makeEventRuntime();
   $player = new EventTestPlayer(new Vector2(2, 0));

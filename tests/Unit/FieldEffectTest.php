@@ -461,3 +461,19 @@ it('refuses invalid anchors, missing images, frame grids and overlapping tracks'
   $invalid['tracks'][0]['asset'] = 'Graphics/missing.png';
   expect(fn() => $this->library->compile('bad', $invalid))->toThrow(RuntimeException::class);
 });
+
+it('draws a route cue at each separate placement of its trigger', function () {
+  $manager = new FieldEffectManager($this->root);
+  $manager->setCapabilities(true, false);
+  $cue = new ScriptEventTrigger(\Ichiloto\Engine\Core\CellArea::fromCells([[2, 7], [9, 3], [9, 4]]), ['mode' => 'action', 'reusable' => false],
+    mapId: 'test-map', marker: 'D', cue: ['symbol' => '!', 'color' => 'bright-yellow', 'kind' => 'route']);
+  $manager->installMap('map', [], null, [$cue]);
+  $view = new FieldViewport(new RendererGridConfig(135, 36, 10, 20));
+  $positions = array_map(static fn($sprite): Vector2 => $sprite->getGraphicalSpriteWorldPosition(),
+    $manager->getSprites([], $view, ['x' => 0, 'y' => 0], false));
+
+  expect(FieldEffectManager::getCueIds($cue))->toBe(['cue-D', 'cue-D-2'])
+    ->and($manager->count)->toBe(2)
+    ->and($manager->canPresentCue($cue))->toBeTrue()
+    ->and(array_values(array_unique(array_map(static fn(Vector2 $at): string => "{$at->x},{$at->y}", $positions))))->toBe(['9,3', '2,7']);
+});

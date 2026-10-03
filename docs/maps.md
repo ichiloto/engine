@@ -59,6 +59,18 @@ Executable PHP and `string[]` grid values are no longer supported. Map metadata
 in `.data.php` and the project's `collisions.php` remain executable PHP data
 sources; they are not grid files.
 
+### Event markers
+
+An event is placed by painting its marker character on the `.event.php` layer
+and defined under that marker in `.data.php`. The event occupies exactly the
+cells showing its marker, in any shape: a line, an L, or separate placements
+such as a town exit on the east edge and another on the south side, which
+are one event with one identity, conditions and completion. Cells between
+two placements are not part of it, so standing there triggers nothing and an
+unavailable event's `whenBlocked` gate only stops steps onto its own cells.
+A cue shows on each separate placement. Cinematics that name a marker as a
+subject use its first cell in reading order, the top-left of a rectangle.
+
 ## Layer order and composition
 
 Layer filenames have the form `NN.name.map.php` for gameplay or

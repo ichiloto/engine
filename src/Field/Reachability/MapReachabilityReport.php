@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Field\Reachability;
 
+use Ichiloto\Engine\Core\CellArea;
 use Ichiloto\Engine\Core\Rect;
 
 /**
@@ -32,13 +33,13 @@ final readonly class MapReachabilityReport
   }
 
   /** Whether the player can stand on any cell of an area. */
-  public function isAnyReachable(Rect $area): bool
+  public function isAnyReachable(Rect|CellArea $area): bool
   {
-    for ($y = $area->getY(); $y < $area->getY() + $area->getHeight(); $y++) {
-      for ($x = $area->getX(); $x < $area->getX() + $area->getWidth(); $x++) {
-        if ($this->isReachable($x, $y)) {
-          return true;
-        }
+    $area = $area instanceof Rect ? CellArea::fromRect($area) : $area;
+
+    foreach ($area->cells as [$x, $y]) {
+      if ($this->isReachable($x, $y)) {
+        return true;
       }
     }
 

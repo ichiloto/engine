@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Events\Triggers;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Core\WorldStateWriter;
+use Ichiloto\Engine\Core\CellArea;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Events\Interfaces\EventTriggerContextInterface;
@@ -22,6 +23,11 @@ use RuntimeException;
  */
 abstract class EventTrigger implements EventTriggerInterface
 {
+  /**
+   * @var CellArea The cells the player stands on to trigger the event: exactly
+   * the cells its marker occupies, in any shape, connected or not.
+   */
+  protected(set) CellArea $area;
   /**
    * @var object The data.
    */
@@ -74,7 +80,7 @@ abstract class EventTrigger implements EventTriggerInterface
   /**
    * EventTrigger constructor.
    *
-   * @param Rect $area The trigger area. The area on the map where the trigger is activated.
+   * @param Rect|CellArea $area The cells on the map where the trigger is activated; a rectangle covers all of its cells.
    * @param array $data The data.
    * @param array<int, array<string, mixed>> $conditions World-state conditions that must hold for the trigger to be active.
    * @param array<int, array<string, mixed>> $sets World-state writes applied when the trigger completes.
@@ -89,7 +95,7 @@ abstract class EventTrigger implements EventTriggerInterface
    * @throws JsonException If the data cannot be serialized.
    */
   final public function __construct(
-    protected(set) Rect $area,
+    Rect|CellArea $area,
     array $data = [],
     array $conditions = [],
     array $sets = [],
@@ -99,6 +105,7 @@ abstract class EventTrigger implements EventTriggerInterface
     ?array $cue = null,
   )
   {
+    $this->area = $area instanceof Rect ? CellArea::fromRect($area) : $area;
     $serializedData = json_encode($data, JSON_THROW_ON_ERROR);
     $this->data = json_decode($serializedData) ?? throw new RuntimeException('Failed to parse trigger data.');
     $this->conditions = array_values(array_filter($conditions, 'is_array'));

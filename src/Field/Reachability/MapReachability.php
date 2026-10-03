@@ -2,7 +2,7 @@
 
 namespace Ichiloto\Engine\Field\Reachability;
 
-use Ichiloto\Engine\Core\Rect;
+use Ichiloto\Engine\Core\CellArea;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Field\InteractionReach;
 use Ichiloto\Engine\Field\MapTrigger;
@@ -67,7 +67,7 @@ final readonly class MapReachability
     $exits = [];
 
     foreach ($this->getExitAreas() as $area) {
-      foreach (self::cellsOf($area) as [$x, $y]) {
+      foreach ($area->cells as [$x, $y]) {
         $exits[self::key($x, $y)] = true;
       }
     }
@@ -138,10 +138,10 @@ final readonly class MapReachability
     return new MapReachabilityReport($this->mapId, $reachable, $problems, $spokenTo);
   }
 
-  /** @return Rect[] Areas that take the player off the map. */
+  /** @return CellArea[] Areas that take the player off the map. */
   private function getExitAreas(): array
   {
-    $areas = array_map(static fn(MapTrigger $trigger): Rect => $trigger->area, $this->edgeTriggers);
+    $areas = array_map(static fn(MapTrigger $trigger): CellArea => CellArea::fromRect($trigger->area), $this->edgeTriggers);
 
     foreach ($this->events as $event) {
       if ($event->isExit) {
@@ -159,8 +159,8 @@ final readonly class MapReachability
   private function findUnreachableTargets(array $reachable): array
   {
     $problems = [];
-    $isAnyReachable = static function (Rect $area) use ($reachable): bool {
-      foreach (self::cellsOf($area) as [$x, $y]) {
+    $isAnyReachable = static function (CellArea $area) use ($reachable): bool {
+      foreach ($area->cells as [$x, $y]) {
         if (isset($reachable[self::key($x, $y)])) {
           return true;
         }
@@ -171,15 +171,16 @@ final readonly class MapReachability
 
     foreach ($this->events as $event) {
       if (! $isAnyReachable($event->area)) {
+        $at = $event->area->firstCell;
         $problems[] = new ReachabilityProblem($this->mapId, ReachabilityProblemKind::UNREACHABLE_EVENT,
           sprintf('No cell of event %s (%s) at (%d, %d) can be reached, so it never fires.',
-            $event->marker ?? '?', basename(str_replace('\\', '/', $event->class)), $event->area->getX(), $event->area->getY()),
-          $event->area->getX(), $event->area->getY());
+            $event->marker ?? '?', basename(str_replace('\\', '/', $event->class)), $at->x, $at->y),
+          (int) $at->x, (int) $at->y);
       }
     }
 
     foreach ($this->edgeTriggers as $trigger) {
-      if (! $isAnyReachable($trigger->area)) {
+      if (! $isAnyReachable(CellArea::fromRect($trigger->area))) {
         $problems[] = new ReachabilityProblem($this->mapId, ReachabilityProblemKind::UNREACHABLE_EVENT,
           sprintf('No cell of the edge trigger to %s at (%d, %d) can be reached.',
             $trigger->destinationMap, $trigger->area->getX(), $trigger->area->getY()),
@@ -269,15 +270,6 @@ final readonly class MapReachability
     return false;
   }
 
-  /** @return iterable<array{int, int}> */
-  private static function cellsOf(Rect $area): iterable
-  {
-    for ($y = $area->getY(); $y < $area->getY() + $area->getHeight(); $y++) {
-      for ($x = $area->getX(); $x < $area->getX() + $area->getWidth(); $x++) {
-        yield [$x, $y];
-      }
-    }
-  }
 
   private static function key(int $x, int $y): string
   {

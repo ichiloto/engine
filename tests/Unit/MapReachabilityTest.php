@@ -1,10 +1,12 @@
 <?php
 
+use Ichiloto\Engine\Core\CellArea;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Field\InteractionReach;
 use Ichiloto\Engine\Events\Triggers\ChestEventTrigger;
 use Ichiloto\Engine\Events\Triggers\TransferPlayerTrigger;
+use Ichiloto\Engine\Field\MapSourceReader;
 use Ichiloto\Engine\Field\NpcPlacement;
 use Ichiloto\Engine\Field\Reachability\MapReachability;
 use Ichiloto\Engine\Field\Reachability\ProjectReachability;
@@ -54,7 +56,7 @@ function reachabilityRoom(array $npcs): MapReachability
   return new MapReachability(
     'room',
     reachabilityGrid(['#####', '....#', '##.##', '#...#', '#####']),
-    [new ReachabilityEvent(new Rect(2, 3, 1, 1), ChestEventTrigger::class, 'E')],
+    [new ReachabilityEvent(CellArea::fromRect(new Rect(2, 3, 1, 1)), ChestEventTrigger::class, 'E')],
     [],
     $npcs,
   );
@@ -78,7 +80,7 @@ it('lets an NPC stand on an event that keeps a free cell', function () {
   $map = new MapReachability(
     'shop',
     reachabilityGrid(['.....', '.....']),
-    [new ReachabilityEvent(new Rect(1, 1, 3, 1), ChestEventTrigger::class, 'B')],
+    [new ReachabilityEvent(CellArea::fromRect(new Rect(1, 1, 3, 1)), ChestEventTrigger::class, 'B')],
     [],
     [reachabilityNpc(['x' => 2, 'y' => 1])],
   );
@@ -131,8 +133,8 @@ it('reaches a transfer but never walks through it', function () {
     'hall',
     reachabilityGrid(['.....']),
     [
-      new ReachabilityEvent(new Rect(2, 0, 1, 1), TransferPlayerTrigger::class, 'A'),
-      new ReachabilityEvent(new Rect(4, 0, 1, 1), ChestEventTrigger::class, 'C'),
+      new ReachabilityEvent(CellArea::fromRect(new Rect(2, 0, 1, 1)), TransferPlayerTrigger::class, 'A'),
+      new ReachabilityEvent(CellArea::fromRect(new Rect(4, 0, 1, 1)), ChestEventTrigger::class, 'C'),
     ],
   );
   $report = $map->analyze([new ReachabilityEntrance(0, 0, 'the west door')]);
@@ -271,6 +273,35 @@ it('wakes the party where an innkeeper script says, on the map running it', func
       ->and(reachabilityProblems($project->getAllProblems()))->toBe([
         'blocked_entrance: The player arrives at (3, 1) from a scripted inn stay by NPC Porter on inn, on a cell the player cannot stand on.',
       ]);
+  } finally {
+    removeReachabilityProject($root);
+  }
+});
+
+it('reads a door marker painted in two places as one event on exactly those cells', function () {
+  $root = sys_get_temp_dir() . '/ichiloto-reachability-' . bin2hex(random_bytes(4));
+  $assets = "{$root}/assets";
+  mkdir("{$assets}/Data", 0777, true);
+  // D leaves the town by the east edge and again by a south gap; the walled
+  // cells between them are not part of the door.
+  writeReachabilityMap($assets, 'town', ['.....', '.#..D', '.#...', '##.##'], ['     ', '    D', '     ', '  D  '], [
+    'events' => ['D' => ['class' => TransferPlayerTrigger::class, 'data' => ['destinationMap' => 'field', 'spawnPoint' => ['x' => 0, 'y' => 0], 'spawnSprite' => ['South']]]],
+  ]);
+  writeReachabilityMap($assets, 'field', ['..'], ['  '], []);
+  file_put_contents("{$assets}/Maps/collisions.php", "<?php\nuse Ichiloto\\Engine\\Events\\Enumerations\\CollisionType;\nreturn ['.' => CollisionType::NONE, '#' => CollisionType::SOLID, 'D' => CollisionType::NONE, ' ' => CollisionType::NONE];\n");
+  file_put_contents("{$assets}/Data/system.php", "<?php\nreturn ['startingPositions' => ['player' => ['destinationMap' => 'town', 'spawnPoint' => ['x' => 0, 'y' => 0], 'spawnSprite' => ['South']]]];\n");
+
+  try {
+    $source = MapSourceReader::readFiles(MapSourceReader::resolvePaths("{$assets}/Maps", 'town'));
+    $project = ProjectReachability::analyze($assets);
+
+    expect($source['data']['events'][0]['area'])->toBe(['cells' => [[4, 1], [2, 3]]])
+      ->and(reachabilityProblems($project->getAllProblems()))->toBe([])
+      ->and($project->reports['field']->isReachable(1, 0))->toBeTrue()
+      // A door cell is reached but not walked through; the cells between the
+      // two placements are ordinary floor.
+      ->and($project->reports['town']->isReachable(4, 1))->toBeTrue()
+      ->and($project->reports['town']->isReachable(3, 2))->toBeTrue();
   } finally {
     removeReachabilityProject($root);
   }

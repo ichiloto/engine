@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Field;
 
 use Assegai\Util\Path;
+use Ichiloto\Engine\Core\CellArea;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\IO\Console\TerminalText;
@@ -168,7 +169,7 @@ final class MapSourceReader
    */
   private static function resolveEventDefinitions(array $events, array $eventLayer, string $filename): array
   {
-    $areas = self::extractEventAreas($eventLayer, $filename);
+    $areas = self::extractEventAreas($eventLayer);
 
     if ($events === []) {
       if ($areas !== []) {
@@ -212,62 +213,27 @@ final class MapSourceReader
   }
 
   /**
-   * Extracts rectangular event areas from the event overlay.
+   * Extracts each event's exact cells from the event overlay: every cell
+   * showing its marker, in any shape, connected or not. Cells between two
+   * placements are not part of the event.
    *
    * @param array<int, string[]> $eventLayer The parsed event overlay.
-   * @param string $filename The event-layer filename.
-   * @return array<string, array{x: int, y: int, width: int, height: int}> The resolved areas keyed by marker.
+   * @return array<string, array{cells: list<array{int, int}>}> The resolved areas keyed by marker.
    */
-  private static function extractEventAreas(array $eventLayer, string $filename): array
+  private static function extractEventAreas(array $eventLayer): array
   {
-    $bounds = [];
+    $cells = [];
 
     foreach ($eventLayer as $y => $row) {
       foreach ($row as $x => $tile) {
         $marker = TerminalText::stripAnsi($tile);
 
-        if (trim($marker) === '') {
-          continue;
+        if (trim($marker) !== '') {
+          $cells[$marker][] = [$x, $y];
         }
-
-        if (! isset($bounds[$marker])) {
-          $bounds[$marker] = [
-            'minX' => $x,
-            'maxX' => $x,
-            'minY' => $y,
-            'maxY' => $y,
-          ];
-          continue;
-        }
-
-        $bounds[$marker]['minX'] = min($bounds[$marker]['minX'], $x);
-        $bounds[$marker]['maxX'] = max($bounds[$marker]['maxX'], $x);
-        $bounds[$marker]['minY'] = min($bounds[$marker]['minY'], $y);
-        $bounds[$marker]['maxY'] = max($bounds[$marker]['maxY'], $y);
       }
     }
 
-    $areas = [];
-
-    foreach ($bounds as $marker => $markerBounds) {
-      for ($y = $markerBounds['minY']; $y <= $markerBounds['maxY']; $y++) {
-        for ($x = $markerBounds['minX']; $x <= $markerBounds['maxX']; $x++) {
-          $cell = TerminalText::stripAnsi($eventLayer[$y][$x] ?? ' ');
-
-          if ($cell !== $marker) {
-            throw new InvalidArgumentException("Event marker '{$marker}' in {$filename} must occupy a solid rectangle.");
-          }
-        }
-      }
-
-      $areas[$marker] = [
-        'x' => $markerBounds['minX'],
-        'y' => $markerBounds['minY'],
-        'width' => $markerBounds['maxX'] - $markerBounds['minX'] + 1,
-        'height' => $markerBounds['maxY'] - $markerBounds['minY'] + 1,
-      ];
-    }
-
-    return $areas;
+    return array_map(static fn(array $markerCells): array => CellArea::fromCells($markerCells)->toArray(), $cells);
   }
 }

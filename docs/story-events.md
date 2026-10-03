@@ -49,6 +49,8 @@ requiring the player to step out and back in.
 
 When the conditions fail, a non-empty `whenBlocked` makes entry into the event
 area fail closed and presents that message without advancing field movement.
+The area is exactly the cells the marker occupies, however they are placed
+(see [Event markers](maps.md#event-markers)).
 Omit it when the unavailable event should be absent rather than act as a gate.
 
 ## Cinematic map trigger

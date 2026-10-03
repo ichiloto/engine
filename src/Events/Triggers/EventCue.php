@@ -2,7 +2,7 @@
 
 namespace Ichiloto\Engine\Events\Triggers;
 
-use Ichiloto\Engine\Core\Rect;
+use Ichiloto\Engine\Core\CellArea;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use InvalidArgumentException;
@@ -81,13 +81,16 @@ final readonly class EventCue
     );
   }
 
-  /** Returns the world-space cell centered inside the trigger area. */
-  public function positionFor(Rect $area): Vector2
+  /**
+   * Returns the world-space cells the cue shows on: one per separate
+   * placement of the trigger, at the middle of that placement's own cells,
+   * so a marker painted in two places is cued in both.
+   *
+   * @return list<Vector2>
+   */
+  public function findPositions(CellArea $area): array
   {
-    return new Vector2(
-      $area->getX() + intdiv(max(1, $area->getWidth()) - 1, 2),
-      $area->getY() + intdiv(max(1, $area->getHeight()) - 1, 2),
-    );
+    return array_map(static fn(CellArea $piece): Vector2 => $piece->findCenterCell(), $area->findPieces());
   }
 
   /** Returns Symfony Console formatter markup understood by TerminalText. */
