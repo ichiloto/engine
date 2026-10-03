@@ -45,8 +45,8 @@ final class Animation
     }
     $validatedRoles = [];
     foreach ($roles as $role) {
-      if (!is_string($role) || !in_array($role, ['attack', 'skill', 'restorative'], true)) {
-        throw new \InvalidArgumentException('Animation roles must be attack, skill or restorative.');
+      if (!is_string($role) || !in_array($role, ActionAnimationResolver::getSupportedRoles(), true)) {
+        throw new \InvalidArgumentException('Animation roles must be attack, a supported attack weapon role, skill or restorative.');
       }
       $validatedRoles[] = $role;
     }
