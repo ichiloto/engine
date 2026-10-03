@@ -133,6 +133,9 @@ final class RendererPresentation
       throw new RendererProtocolException('Canvas raster operations require negotiated canvas_compositing support.');
     }
     foreach ($canvas->images as $image) {
+      if (($image->flipX || $image->flipY) && !$this->client->supports(RendererSessionConfig::CANVAS_IMAGE_FLIP)) {
+        throw new RendererProtocolException('Canvas image mirroring requires negotiated canvas_image_flip support.');
+      }
       if ($image->brightness !== 1.0 && !$this->client->supports(RendererSessionConfig::CANVAS_IMAGE_TONE)) {
         throw new RendererProtocolException('Canvas image brightness requires negotiated canvas_image_tone support.');
       }

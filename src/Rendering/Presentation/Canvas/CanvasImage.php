@@ -17,6 +17,8 @@ final readonly class CanvasImage
     public float $opacity = 1,
     public ?CanvasRectangle $clipRect = null,
     public float $brightness = 1,
+    public bool $flipX = false,
+    public bool $flipY = false,
   )
   {
     CanvasValidation::id($id);
@@ -38,6 +40,8 @@ final readonly class CanvasImage
       ...($this->sourceRect === null ? [] : ['sourceRect' => $this->sourceRect->toArray()]),
       ...($this->opacity === 1.0 ? [] : ['opacity' => $this->opacity]),
       ...($this->brightness === 1.0 ? [] : ['brightness' => $this->brightness]),
+      ...($this->flipX ? ['flipX' => true] : []),
+      ...($this->flipY ? ['flipY' => true] : []),
       ...($this->clipRect === null ? [] : ['clipRect' => $this->clipRect->toArray()])];
   }
 }

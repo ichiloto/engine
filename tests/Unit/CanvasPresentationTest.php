@@ -174,6 +174,26 @@ it('negotiates image tone and updates retained brightness without resetting unre
     ->and($frames[1]['canvas']['images'][1])->toEqual($frames[0]['canvas']['images'][1]);
 });
 
+it('negotiates independent image flips and removes them on retained replacement', function () {
+  $rect = new CanvasRectangle(20, 20, 40, 60);
+  $make = fn(bool $flip) => new PresentationCanvas(100, 100, [
+    new CanvasImage('stroke', 'synthetic.png', $rect, flipX: $flip, flipY: $flip),
+  ]);
+  expect(fn() => new RendererSessionConfig('Flip', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+    requiredCapabilities: ['canvas_image_flip']))->toThrow(InvalidArgumentException::class);
+  [$legacy, $oldPeer] = canvasPresenter(['graphical_canvas']);
+  expect(fn() => $legacy->presentCanvas($make(true)))->toThrow(RendererProtocolException::class, 'canvas_image_flip');
+  expect($oldPeer->sent)->toBeEmpty()->and($legacy->presentCanvas($make(false)))->toBeTrue();
+  [$presenter, $peer] = canvasPresenter(['graphical_canvas', 'canvas_image_flip']);
+  expect($presenter->presentCanvas($make(true)))->toBeTrue()
+    ->and($presenter->presentCanvas($make(true)))->toBeFalse()
+    ->and($presenter->presentCanvas($make(false)))->toBeTrue();
+  $frames = RetainedFrameState::replay($peer->sent);
+  expect($frames[0]['canvas']['images'][0])->toMatchArray(['flipX' => true, 'flipY' => true])
+    ->and($frames[1]['canvas']['images'][0])->not->toHaveKeys(['flipX', 'flipY'])
+    ->and($peer->sent[1]->payload['reset'])->toBeFalse();
+});
+
 it('preserves stable instance references and equal-layer order through replacement and removal', function () {
   $first = canvasImage('enemy-1');
   $second = canvasImage('enemy-2');

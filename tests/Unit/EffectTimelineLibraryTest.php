@@ -49,6 +49,37 @@ it('preserves independent sequences under the same effect identity', function ()
     ->and($graphical->playbackSegments[1]['drawCommands'][0]['payload']['sourceFrame'])->toBe(1);
 });
 
+it('compiles battle direction and independent image flips through the shared timeline', function () {
+  $this->imageSequence['tracks'][0]['facing'] = 'west';
+  $this->imageSequence['tracks'][0]['anchor'] = 'target';
+  $this->imageSequence['tracks'][0]['keyframes'][1]['flipY'] = true;
+  $image = $this->effects->compile('direction', $this->imageSequence, true);
+  expect($image->playbackSegments[1]['drawCommands'][0]['payload'])
+    ->toMatchArray(['facing' => 'west', 'flipY' => true, 'sourceFrame' => 1]);
+  $this->terminalSequence['tracks'][0]['facing'] = 'east';
+  $glyph = $this->effects->compile('direction', $this->terminalSequence, true, EffectPresentation::TERMINAL);
+  expect($glyph->playbackSegments[0]['drawCommands'][0]['payload']['facing'])->toBe('east');
+  expect(fn() => $this->effects->compile('field-direction', $this->imageSequence))
+    ->toThrow(InvalidArgumentException::class, 'facing');
+});
+
+it('rejects invalid or screen-relative direction and nonboolean image flips', function () {
+  foreach (['north', '', null, 1] as $facing) {
+    $bad = $this->imageSequence;
+    $bad['tracks'][0]['facing'] = $facing;
+    expect(fn() => $this->effects->compile('bad-direction', $bad, true))->toThrow(InvalidArgumentException::class);
+  }
+  $bad = $this->imageSequence;
+  $bad['tracks'][0]['facing'] = 'west';
+  $bad['tracks'][0]['anchor'] = 'screen';
+  expect(fn() => $this->effects->compile('bad-direction', $bad, true))->toThrow(InvalidArgumentException::class);
+  foreach (['true', 1, null] as $flip) {
+    $bad = $this->imageSequence;
+    $bad['tracks'][0]['keyframes'][0]['flipX'] = $flip;
+    expect(fn() => $this->effects->compile('bad-flip', $bad, true))->toThrow(InvalidArgumentException::class);
+  }
+});
+
 it('filters mixed tracks by capability while preserving shared text', function () {
   $tracks = [...$this->imageSequence['tracks'],
     ['id' => 'terminal', 'type' => 'glyph', 'presentation' => 'terminal', 'keyframes' => [['frame' => 0, 'content' => '/']]],

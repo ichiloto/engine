@@ -118,8 +118,14 @@ final class EffectTimelineLibrary
       $ids[$track['id']] = true;
       // Unselected graphical resources are not dependencies of terminal playback.
       if (!$presentation->acceptsSegment(['layer' => $track['type'], 'presentation' => $scope])) { continue; }
+      if (array_key_exists('facing', $track) && (!$forBattle
+        || !in_array($track['type'], ['image', 'glyph'], true)
+        || !in_array($track['facing'], ['east', 'west'], true)
+        || ($track['anchor'] ?? 'target') === 'screen')) {
+        throw new InvalidArgumentException("Effect {$id} facing requires an east/west battle image or glyph anchored to a battler.");
+      }
       if (in_array($track['type'] ?? '', ['glyph', 'text', 'flash', 'shake'], true)) {
-        if (array_diff(array_keys($track), ['id', 'type', 'anchor', 'keyframes', 'presentation']) !== []
+        if (array_diff(array_keys($track), ['id', 'type', 'anchor', 'keyframes', 'presentation', ...($forBattle ? ['facing'] : [])]) !== []
           || !in_array($track['anchor'] ?? 'target', ['caster', 'target', 'screen'], true)
           || !is_array($track['keyframes'] ?? null) || !array_is_list($track['keyframes'])
           || $track['keyframes'] === [] || count($track['keyframes']) > 10000) {
@@ -133,6 +139,7 @@ final class EffectTimelineLibrary
           }
           self::validateKeyframe($id, $keyframe);
           if (isset($track['anchor'])) { $keyframe['payload']['anchor'] = $track['anchor']; }
+          if (isset($track['facing'])) { $keyframe['payload']['facing'] = $track['facing']; }
         }
         unset($keyframe);
         usort($track['keyframes'], static fn(array $a, array $b): int => $a['frame'] <=> $b['frame']);
@@ -141,11 +148,12 @@ final class EffectTimelineLibrary
           if ($keyframe['frame'] <= $end) { throw new InvalidArgumentException("Effect {$id} presentation track has overlapping keyframes."); }
           $end = $keyframe['frame'] + ($keyframe['duration'] ?? 1) - 1;
         }
+        unset($track['facing']);
         $normalized[] = \Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneTrack::fromArray($track)->toArray();
         continue;
       }
       if (!is_array($track) || array_diff(array_keys($track), ['id', 'type', 'asset', 'sheet', 'cells', 'depth', 'keyframes',
-        'presentation', ...($forBattle ? ['anchor'] : [])]) !== []
+        'presentation', ...($forBattle ? ['anchor', 'facing'] : [])]) !== []
         || ($track['type'] ?? null) !== 'image' || !is_string($track['id'] ?? null)) {
         throw new InvalidArgumentException("Effect {$id} currently accepts image tracks with id, asset, sheet, cells, depth and keyframes.");
       }
@@ -175,8 +183,10 @@ final class EffectTimelineLibrary
       }
       $keyframes = [];
       foreach ($frames as $frame) {
-        if (!is_array($frame) || array_diff(array_keys($frame), ['frame', 'duration', 'sourceFrame', 'position']) !== []) {
-          throw new InvalidArgumentException("Effect {$id} keyframes accept frame, duration, sourceFrame and position.");
+        if (!is_array($frame) || array_diff(array_keys($frame), ['frame', 'duration', 'sourceFrame', 'position', ...($forBattle ? ['flipX', 'flipY'] : [])]) !== []
+          || (array_key_exists('flipX', $frame) && !is_bool($frame['flipX']))
+          || (array_key_exists('flipY', $frame) && !is_bool($frame['flipY']))) {
+          throw new InvalidArgumentException("Effect {$id} keyframes accept frame, duration, sourceFrame, position and boolean flipX/flipY.");
         }
         $at = $frame['frame'] ?? null;
         $duration = $frame['duration'] ?? 1;
@@ -191,7 +201,10 @@ final class EffectTimelineLibrary
         $keyframes[] = ['frame' => $at, 'duration' => $duration, 'assetId' => $track['asset'], 'position' => $position,
           'payload' => ['sourceFrame' => $source, 'columns' => $sheet['columns'], 'rows' => $sheet['rows'],
             'frameWidth' => intdiv($size['width'], $sheet['columns']), 'frameHeight' => intdiv($size['height'], $sheet['rows']),
-            'cells' => $cells, 'depth' => $depth, ...(!isset($track['anchor']) ? [] : ['anchor' => $track['anchor']])]];
+            'cells' => $cells, 'depth' => $depth, ...(!isset($track['anchor']) ? [] : ['anchor' => $track['anchor']]),
+            ...(!isset($track['facing']) ? [] : ['facing' => $track['facing']]),
+            ...(!array_key_exists('flipX', $frame) ? [] : ['flipX' => $frame['flipX']]),
+            ...(!array_key_exists('flipY', $frame) ? [] : ['flipY' => $frame['flipY']])]];
       }
       usort($keyframes, static fn(array $a, array $b): int => $a['frame'] <=> $b['frame']);
       $end = -1;
@@ -247,6 +260,9 @@ final class EffectTimelineLibrary
     if (array_diff(array_keys($frame), ['frame', 'duration', 'position', 'content', 'assetId', 'color',
       'visible', 'zIndex', 'payload']) !== [] || !is_array($frame['payload'] ?? [])) {
       throw new InvalidArgumentException("Effect {$id} has an invalid presentation keyframe payload.");
+    }
+    if (array_intersect(array_keys($frame['payload'] ?? []), ['facing', 'flipX', 'flipY']) !== []) {
+      throw new InvalidArgumentException("Effect {$id} orientation belongs to the track, not an untyped glyph payload.");
     }
     foreach (['content', 'assetId', 'color'] as $key) {
       if (isset($frame[$key]) && (!is_string($frame[$key]) || strlen($frame[$key]) > 65536)) {

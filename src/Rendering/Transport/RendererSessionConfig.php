@@ -15,6 +15,7 @@ final readonly class RendererSessionConfig
   public const string GRAPHICAL_CANVAS = 'graphical_canvas';
   public const string CANVAS_OVERLAY = 'canvas_overlay';
   public const string CANVAS_IMAGE_TONE = 'canvas_image_tone';
+  public const string CANVAS_IMAGE_FLIP = 'canvas_image_flip';
   public const string CANVAS_CLIP_OPACITY = 'canvas_clip_opacity';
   public const string CANVAS_GLYPH_EFFECTS = 'canvas_glyph_effects';
   public const string CANVAS_COMPOSITING = 'canvas_compositing';
@@ -38,7 +39,7 @@ final readonly class RendererSessionConfig
     return $this->protocol === RendererProtocolVersion::V2
       ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_CLIP_OPACITY,
         self::CANVAS_GLYPH_EFFECTS, self::CANVAS_COMPOSITING, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::TILE_COVERS,
-        self::SPRITE_LIFT, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::SPRITE_QUARTER_TURNS,
+        self::SPRITE_LIFT, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::SPRITE_QUARTER_TURNS,
         ...array_values(array_intersect(self::EVENT_SUBSCRIPTIONS, $this->requiredCapabilities))]
       : $this->requiredCapabilities;
   }
@@ -60,7 +61,7 @@ final readonly class RendererSessionConfig
     $allowed = $protocol === RendererProtocolVersion::V2
       ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_CLIP_OPACITY, self::CANVAS_GLYPH_EFFECTS,
         self::CANVAS_COMPOSITING, self::WINDOW_ACTIVATION, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::TILE_COVERS,
-        self::SPRITE_LIFT, self::KEY_TRANSITIONS, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::SPRITE_QUARTER_TURNS]
+        self::SPRITE_LIFT, self::KEY_TRANSITIONS, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::SPRITE_QUARTER_TURNS]
       : [self::SPRITE_SOURCE_RECT];
     foreach ($requiredCapabilities as $capability) {
       if (!in_array($capability, $allowed, true)) {
@@ -69,7 +70,7 @@ final readonly class RendererSessionConfig
     }
     if ((in_array(self::CANVAS_CLIP_OPACITY, $requiredCapabilities, true) || in_array(self::CANVAS_GLYPH_EFFECTS, $requiredCapabilities, true)
       || in_array(self::CANVAS_COMPOSITING, $requiredCapabilities, true) || in_array(self::CANVAS_OVERLAY, $requiredCapabilities, true)
-      || in_array(self::CANVAS_IMAGE_TONE, $requiredCapabilities, true))
+      || in_array(self::CANVAS_IMAGE_TONE, $requiredCapabilities, true) || in_array(self::CANVAS_IMAGE_FLIP, $requiredCapabilities, true))
       && !in_array(self::GRAPHICAL_CANVAS, $requiredCapabilities, true)) {
       throw new InvalidArgumentException('Canvas compositing capabilities require graphical_canvas.');
     }
