@@ -687,14 +687,30 @@ tool selected an existing Game window rather than the separate preview. No
 user session was closed or altered to obtain a screenshot. Native visual
 acceptance, actual encounter acceptance and non-macOS platforms remain open.
 
-The current full Game CI run has 1,834 passes and three failures across 1,837
-tests, with 833,927 assertions, excluding battle simulations. Two tests still
-compare current authored Apthia geometry with older layouts; the reachability
-test reports three inaccessible NPCs in Apthia's Garden Route Control,
-Happyville's inn and its shop. Do not rebaseline live layouts or weaken
-reachability to hide these. Validation reports zero errors and 45 warnings.
-These results supersede the earlier Game totals above, not the accepted-art
-review. Art's source shadow audit is in progress independently of pose wiring.
+After Claude separated historical layer-split proof from mutable live maps,
+the October 3 full Game CI run has 1,840 passes and one failure across 1,841
+tests, with 833,951 assertions, excluding battle simulations. The remaining
+reachability failure reports three inaccessible NPCs in Apthia's Garden Route
+Control, Happyville's inn and its shop. Do not weaken reachability to hide
+these; the counter/service decision remains with Andrew. Validation reports
+zero errors and 45 warnings. These results supersede the earlier Game totals
+above, not the accepted-art review.
+
+Art's source shadow audit inspected all 112 current battle PNGs at registered
+display size, or an explicitly labelled reference size for unbound art. It
+replaced 97 locally: all 80 party role images, Aeryn's Victory image and 16
+enemy images. The other 15 retain readable existing shadows. The weak party
+source shadow layer was retuned and recomposited once under the same body;
+KO contact shadows were registered to the lying figure rather than its weapon.
+Originals and editable shadow layers are preserved in Game's existing shared
+`Graphics/Comparison/BattleShadowAudit-20261003/` tree. No bindings, pivots,
+canvas dimensions, maps or gameplay changed, and rejected historical costumes
+were not restored. Four glyph-only summons have no graphical battler raster
+to audit. The coordinator verified all 112 current PNG dimensions and delivery
+receipts, all 97 preserved originals, and the production-presenter CPU fixture's
+80 role views, 40 resting views and eight exactly-once inspection sequences
+after replacement. These are source/raster and CPU checks, not native visual
+acceptance of the revised shadows. The corrected art remains uncommitted.
 
 Runtime skill-name and hardcoded animation-name selection are removed. Legacy
 items without a binding retain their existing no-animation behavior. A missing explicit id
