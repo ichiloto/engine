@@ -706,13 +706,17 @@ tool selected an existing Game window rather than the separate preview. No
 user session was closed or altered to obtain a screenshot. Native visual
 acceptance, actual encounter acceptance and non-macOS platforms remain open.
 
-After Claude separated historical layer-split proof from mutable live maps,
-the October 3 full Game CI run has 1,840 passes and one failure across 1,841
-tests, with 833,951 assertions, excluding battle simulations. The remaining
+After exact trigger-cell integration and the shared targeting correction,
+the latest October 3 full Game CI run has 1,838 passes and three failures across
+1,841 tests, with 833,991 assertions, excluding battle simulations. One
 reachability failure reports three inaccessible NPCs in Apthia's Garden Route
 Control, Happyville's inn and its shop. Do not weaken reachability to hide
-these; the counter/service decision remains with Andrew. Validation reports
-zero errors and 45 warnings. These results supersede the earlier Game totals
+these; the counter/service decision remains with Andrew. Two Home tests still
+pin mutable authored data: a historical live-content fingerprint and a fixed
+transfer spawn coordinate. Claude owns their conversion to invariant or frozen
+fixture coverage; current map edits must not be reverted to satisfy them.
+The prior validation run reported zero errors and 45 warnings; validation was
+not rerun for this CI result. These results supersede the earlier Game totals
 above, not the accepted-art review.
 
 Art's source shadow audit inspected all 112 current battle PNGs at registered
