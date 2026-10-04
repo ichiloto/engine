@@ -523,10 +523,15 @@ it('reads the shadow a tileset casts from its raised tiles and refuses an unusab
     ->and($tileset->shadows->isCaster(2816 + 46))->toBeTrue()->and($tileset->shadows->isCaster(3))->toBeTrue()
     ->and($tileset->shadows->isCaster(4))->toBeFalse()
     ->and(Tileset::fromArray('home', $sheets)->shadows)->toBeNull();
+  // A whole sheet casts, so a wall kind painted later casts with no list to keep up to date.
+  $walls = Tileset::fromArray('home', [...$sheets, 'shadows' => ['casters' => ['A2'], 'width' => 0.5, 'opacity' => 0.4]])->shadows;
+  expect($walls->isCaster(2816))->toBeTrue()->and($walls->isCaster(3104 + 12))->toBeTrue()->and($walls->isCaster(3))->toBeFalse()
+    ->and($walls->isCaster(0))->toBeFalse();
   foreach ([['casters' => [], 'width' => 0.5, 'opacity' => 0.4], ['casters' => [3], 'width' => 0, 'opacity' => 0.4],
     ['casters' => [3], 'width' => 1.5, 'opacity' => 0.4], ['casters' => [3], 'width' => 0.5, 'opacity' => 0],
     ['casters' => [3], 'width' => 0.5, 'opacity' => '0.4'], ['casters' => [3], 'width' => 0.5],
     ['casters' => [3], 'width' => 0.5, 'opacity' => 0.4, 'colour' => 'red'], ['casters' => [0], 'width' => 0.5, 'opacity' => 0.4],
+    ['casters' => ['Z9'], 'width' => 0.5, 'opacity' => 0.4], ['casters' => ['walls' => 'A4'], 'width' => 0.5, 'opacity' => 0.4],
     'walls'] as $invalid) {
     expect(fn() => Tileset::fromArray('home', [...$sheets, 'shadows' => $invalid]))->toThrow(InvalidArgumentException::class);
   }

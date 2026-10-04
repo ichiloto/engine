@@ -104,8 +104,10 @@ editing surface is owned by the GUI Editor plan. Related docs:
   one of its sheets that marks a cell whose art nobody can yet infer. It
   draws like any tile; tools report the cells that show it as art to do.
 - A tileset may give its raised tiles a shadow (`shadows`): the tiles that
-  cast (`casters`, flag identities like `above`, so every shape of an
-  autotile kind casts), the band's `width` as a fraction of a cell and its
+  cast (`casters`: whole sheets such as `'A3'` and `'A4'`, RPG Maker's
+  raised buildings and walls, so a wall kind painted later casts too, or
+  flag identities like `above`, so every shape of an autotile kind casts),
+  the band's `width` as a fraction of a cell and its
   `opacity`. Its look belongs to the tileset because it matches that art's
   lighting. A tileset without `shadows` casts none.
 
