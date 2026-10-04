@@ -53,22 +53,14 @@ afterEach(function () {
 
 function writeBattleLoadoutSources(string $root): void
 {
-  file_put_contents($root . '/assets/Data/abilities.php', <<<'PHP'
-  <?php
-  use Ichiloto\Engine\Entities\Skills\SpecialSkill;
-  use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDamageSkillEffect;
-  return [
-    new SpecialSkill('Test Strike', '', '', 2, 0),
-    new SpecialSkill('Test Call', '', '', 4, 0, effects: [new HPDamageSkillEffect('12', variance: 0)]),
-    new SpecialSkill('Test Open Call', '', '', 4, 0),
-  ];
-  PHP);
-  file_put_contents($root . '/assets/Data/magic.php', <<<'PHP'
-  <?php
-  use Ichiloto\Engine\Entities\Skills\MagicSkill;
-  use Ichiloto\Engine\Entities\Enumerations\Occasion;
-  return [new MagicSkill('Test Flame', '', '', 3, 0), new MagicSkill('Test Travel', '', '', 0, 0, occasion: Occasion::MENU_SCREEN)];
-  PHP);
+  writeSkillRecords(
+    $root,
+    new \Ichiloto\Engine\Entities\Skills\SpecialSkill('Test Strike', '', '', 2, 0),
+    new \Ichiloto\Engine\Entities\Skills\SpecialSkill('Test Call', '', '', 4, 0, effects: [new \Ichiloto\Engine\Entities\Effects\SkillEffects\HPDamageSkillEffect('12', variance: 0)]),
+    new \Ichiloto\Engine\Entities\Skills\SpecialSkill('Test Open Call', '', '', 4, 0),
+    new \Ichiloto\Engine\Entities\Skills\MagicSkill('Test Flame', '', '', 3, 0),
+    new \Ichiloto\Engine\Entities\Skills\MagicSkill('Test Travel', '', '', 0, 0, occasion: \Ichiloto\Engine\Entities\Enumerations\Occasion::MENU_SCREEN),
+  );
   foreach (['test-call', 'open-call', 'broken-call'] as $id) {
     $directory = $root . '/assets/Cutscenes/Summons/' . $id;
     mkdir($directory, 0777, true);

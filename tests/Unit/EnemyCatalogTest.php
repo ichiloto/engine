@@ -21,8 +21,7 @@ function writeEnemyCatalogProject(array $records): string
   mkdir($root . '/assets/Data/Enemies', 0777, true);
   mkdir($root . '/assets/Graphics/Enemies', 0777, true);
   file_put_contents($root . '/assets/Graphics/Enemies/blob.txt', " (o) \n/   \\\n");
-  file_put_contents($root . '/assets/Data/skills.php', "<?php\nuse Ichiloto\\Engine\\Entities\\Skills\\BasicSkill;\n"
-    . "return [\n  new BasicSkill('Nip', 'A small bite.', '', 0, 0),\n  new BasicSkill('Brace', 'Holds firm.', '', 0, 0),\n];\n");
+  writeSkillRecords($root, new \Ichiloto\Engine\Entities\Skills\BasicSkill('Nip', 'A small bite.', '', 0, 0), new \Ichiloto\Engine\Entities\Skills\BasicSkill('Brace', 'Holds firm.', '', 0, 0));
 
   foreach ($records as $file => $contents) {
     file_put_contents($root . '/assets/Data/Enemies/' . $file, $contents);

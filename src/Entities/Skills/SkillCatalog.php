@@ -4,16 +4,20 @@ namespace Ichiloto\Engine\Entities\Skills;
 
 use Assegai\Util\Path;
 use Ichiloto\Engine\Util\Debug;
+use InvalidArgumentException;
 use Throwable;
 
 /**
  * The project's skill catalogue: every skill the project authors, in one
  * identity space.
  *
- * A project may author skills across several data files. Which file a skill
- * lives in is authoring organisation only: a skill is identified by its name
- * across all of them, and its kind comes from its class (a MagicSkill is a
- * spell, a SpecialSkill an ability, a BasicSkill an attack). Every consumer
+ * A project authors each skill in a record file of its own under
+ * `assets/Data/Skills`, returning `['class' => Skill::class, 'data' => [...]]`,
+ * the data in the form {@see SkillRecord} reads; `skills.php` is the barrel
+ * that returns them. Which file a skill lives in is authoring organisation
+ * only: a skill is identified by its name across all of them, and its kind
+ * comes from its record (a spell builds a MagicSkill, an ability a
+ * SpecialSkill, an attack a BasicSkill). Every consumer
  * that resolves a skill by name reads this catalogue, so a skill is found the
  * same way wherever it is authored.
  *
@@ -21,11 +25,8 @@ use Throwable;
  */
 final class SkillCatalog
 {
-  /**
-   * The data files a project authors skills in, relative to `assets/Data`,
-   * in the order their skills are listed.
-   */
-  public const array DATA_FILES = ['skills.php', 'abilities.php', 'magic.php'];
+  /** The record folder, relative to `assets/Data`. */
+  public const string DIRECTORY = 'Skills';
 
   /**
    * @var array<string, self> The running project's catalogue, keyed by asset root.
@@ -70,87 +71,87 @@ final class SkillCatalog
   }
 
   /**
-   * Reads the catalogue from a project's asset root.
+   * Reads a project's skill records, reporting each problem as a warning,
+   * and returns the skills. This is what a project's `skills.php` barrel
+   * returns.
+   *
+   * @param string $assetRoot The project's `assets` directory.
+   * @return list<Skill> The skills, in file order.
+   */
+  public static function loadProjectSkills(string $assetRoot): array
+  {
+    $catalog = self::load($assetRoot);
+
+    foreach ($catalog->getProblems() as $problem) {
+      Debug::warn(sprintf('Skill records: %s', $problem));
+    }
+
+    return array_values($catalog->getSkills());
+  }
+
+  /**
+   * Reads the catalogue from a project's asset root: every record file under
+   * `Data/Skills`, in file name order, which is the order menus list skills
+   * in (record files are numbered for it, as `0001-attack.php`). A file that
+   * cannot be read is reported against that file and leaves the other skills
+   * loaded.
    *
    * @param string $assetRoot The project's `assets` directory.
    * @return self The catalogue.
    */
   public static function load(string $assetRoot): self
   {
-    $payloads = [];
+    $skills = [];
     $problems = [];
+    $filenames = glob(Path::join($assetRoot, 'Data', self::DIRECTORY, '*.php')) ?: [];
+    sort($filenames, SORT_STRING);
 
-    foreach (self::DATA_FILES as $file) {
-      $filename = Path::join($assetRoot, 'Data', $file);
-
-      if (! is_file($filename)) {
-        continue;
-      }
+    foreach ($filenames as $filename) {
+      $file = self::DIRECTORY . '/' . basename($filename);
 
       try {
-        $payloads[$file] = require $filename;
+        $skills[$file] = self::readRecord($filename);
       } catch (Throwable $exception) {
-        $problems[] = sprintf('%s could not be read: %s', $file, $exception->getMessage());
+        $problems[] = sprintf('%s: %s', $file, $exception->getMessage());
       }
     }
 
-    return self::fromFiles($payloads, $problems);
+    return self::fromSkills($skills, $problems);
   }
 
   /**
-   * Builds the catalogue from the loaded contents of its data files.
+   * Builds the catalogue from skills keyed by the file that authors each, in
+   * order. A name already taken is reported against the later file, which is
+   * skipped.
    *
-   * @param array<string, mixed> $payloads Each data file's returned value, keyed by file name.
+   * @param array<string, Skill> $skills The skills, keyed by their file relative to `assets/Data`.
    * @param list<string> $problems Problems already found while reading the files.
    * @return self The catalogue.
    */
-  public static function fromFiles(array $payloads, array $problems = []): self
+  public static function fromSkills(array $skills, array $problems = []): self
   {
-    $skills = [];
+    $byName = [];
     $sourceFiles = [];
 
-    foreach ($payloads as $file => $payload) {
-      if (! is_array($payload)) {
-        $problems[] = sprintf('%s must return an array of skills.', $file);
+    foreach ($skills as $file => $skill) {
+      if (isset($byName[$skill->name])) {
+        $problems[] = sprintf(
+          '%s: "%s" is already defined by %s; skill names must be unique, so this file is skipped.',
+          $file,
+          $skill->name,
+          $sourceFiles[$skill->name],
+        );
         continue;
       }
 
-      foreach ($payload as $key => $skill) {
-        if (! $skill instanceof Skill) {
-          $problems[] = sprintf('%s entry %s is not a skill.', $file, var_export($key, true));
-          continue;
-        }
-
-        if (is_string($key) && $key !== $skill->name) {
-          $problems[] = sprintf(
-            '%s registers "%s" under the key "%s"; a skill is found by its name, so the key must match it.',
-            $file,
-            $skill->name,
-            $key,
-          );
-        }
-
-        if (isset($skills[$skill->name])) {
-          $problems[] = sprintf(
-            '"%s" is defined in both %s and %s; skill names must be unique, so the one in %s is used.',
-            $skill->name,
-            $sourceFiles[$skill->name],
-            $file,
-            $sourceFiles[$skill->name],
-          );
-          continue;
-        }
-
-        $skills[$skill->name] = $skill;
-        $sourceFiles[$skill->name] = $file;
-      }
+      $byName[$skill->name] = $skill;
+      $sourceFiles[$skill->name] = $file;
     }
 
-    return new self($skills, $sourceFiles, $problems);
+    return new self($byName, $sourceFiles, $problems);
   }
-
   /**
-   * Returns every skill, keyed by name, in authored order.
+   * Returns every skill, keyed by name, in file order.
    *
    * @return array<string, Skill> The skills.
    */
@@ -191,7 +192,7 @@ final class SkillCatalog
   }
 
   /**
-   * Returns the data file a skill is authored in.
+   * Returns the record file a skill is authored in.
    *
    * @param string $name The skill name.
    * @return string|null The file name, relative to `assets/Data`.
@@ -199,6 +200,22 @@ final class SkillCatalog
   public function getSourceFile(string $name): ?string
   {
     return $this->sourceFiles[$name] ?? null;
+  }
+
+  /**
+   * Reads one record file.
+   *
+   * @throws InvalidArgumentException When the file is not a skill record.
+   */
+  private static function readRecord(string $filename): Skill
+  {
+    $payload = require $filename;
+
+    if (! is_array($payload) || ($payload['class'] ?? null) !== Skill::class || ! is_array($payload['data'] ?? null)) {
+      throw new InvalidArgumentException("a skill record returns ['class' => Skill::class, 'data' => [...]].");
+    }
+
+    return SkillRecord::readSkill($payload['data']);
   }
 
   /**

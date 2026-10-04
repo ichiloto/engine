@@ -11,15 +11,15 @@ use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Util\Stores\ClassStore;
 
 /**
- * Writes a project whose skills are spread across every catalogue file.
+ * Writes a project with the given data files.
  *
- * @param array<string, string> $files Data file contents, keyed by file name.
+ * @param array<string, string> $files File contents, keyed by path under `assets/Data`.
  * @return string The project root.
  */
 function writeSkillCatalogProject(array $files): string
 {
   $root = sys_get_temp_dir() . '/ichiloto-skill-catalog-' . bin2hex(random_bytes(4));
-  mkdir($root . '/assets/Data', 0777, true);
+  mkdir($root . '/assets/Data/' . SkillCatalog::DIRECTORY, 0777, true);
 
   foreach ($files as $file => $contents) {
     file_put_contents($root . '/assets/Data/' . $file, $contents);
@@ -30,43 +30,55 @@ function writeSkillCatalogProject(array $files): string
 
 function removeSkillCatalogProject(string $root): void
 {
-  foreach (glob($root . '/assets/Data/*') ?: [] as $file) {
-    unlink($file);
+  $entries = new RecursiveIteratorIterator(
+    new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+    RecursiveIteratorIterator::CHILD_FIRST,
+  );
+
+  foreach ($entries as $entry) {
+    $entry->isDir() ? rmdir($entry->getPathname()) : unlink($entry->getPathname());
   }
 
-  rmdir($root . '/assets/Data');
-  rmdir($root . '/assets');
   rmdir($root);
 }
 
 /**
- * The same catalogue, authored the way a project spreads it: a spell and an
- * ability in skills.php alongside the attack, more abilities and spells in
- * their own files.
+ * One skill record file, as a project authors it.
+ */
+function skillRecordFile(string $kind, string $name, string $description, int $cost): string
+{
+  $data = var_export([
+    'kind' => $kind,
+    'name' => $name,
+    'description' => $description,
+    'icon' => '',
+    'cost' => $cost,
+    'cooldown' => 0,
+    'occasion' => 'Always',
+    'scope' => ['side' => 'Enemy', 'number' => 'One', 'status' => 'Alive'],
+    'invocation' => ['message' => '$1 casts $2!', 'speed' => 0, 'accuracy' => 0, 'repeat' => 1, 'apGain' => 10],
+    'effects' => [],
+  ], true);
+
+  return "<?php\nuse Ichiloto\\Engine\\Entities\\Skills\\Skill;\nreturn ['class' => Skill::class, 'data' => {$data}];\n";
+}
+
+/**
+ * The same catalogue a project authors one record per skill, numbered in
+ * the order its menus list them: the attack, abilities and spells.
  *
  * @return array<string, string>
  */
 function spreadSkillCatalogFiles(): array
 {
-  $header = "<?php\nuse Ichiloto\\Engine\\Entities\\Skills\\BasicSkill;\n"
-    . "use Ichiloto\\Engine\\Entities\\Skills\\MagicSkill;\n"
-    . "use Ichiloto\\Engine\\Entities\\Skills\\SpecialSkill;\n";
-
   return [
-    'skills.php' => $header . "return [\n"
-      . "  new BasicSkill('Attack', 'Strikes.', '', 0, 0),\n"
-      . "  new SpecialSkill('Lunge', 'Strikes far.', '', 4, 0),\n"
-      . "  new MagicSkill('Purify', 'Lifts a poison.', '', 3, 0),\n"
-      . "];\n",
-    'abilities.php' => $header . "return [\n"
-      . "  'Ward' => new SpecialSkill('Ward', 'Guards.', '', 2, 0),\n"
-      . "];\n",
-    'magic.php' => $header . "return [\n"
-      . "  'Ember' => new MagicSkill('Ember', 'Burns.', '', 5, 0),\n"
-      . "];\n",
+    'Skills/0001-attack.php' => skillRecordFile('basic', 'Attack', 'Strikes.', 0),
+    'Skills/0002-lunge.php' => skillRecordFile('special', 'Lunge', 'Strikes far.', 4),
+    'Skills/0003-purify.php' => skillRecordFile('magic', 'Purify', 'Lifts a poison.', 3),
+    'Skills/0004-ward.php' => skillRecordFile('special', 'Ward', 'Guards.', 2),
+    'Skills/0005-ember.php' => skillRecordFile('magic', 'Ember', 'Burns.', 5),
   ];
 }
-
 /**
  * Runs a callback as the running project at the given root.
  */
@@ -95,8 +107,8 @@ it('identifies every skill by name, whichever file authors it', function () {
       ->and(array_keys($catalog->getSpells()))->toBe(['Purify', 'Ember'])
       ->and(array_keys($catalog->getAbilities()))->toBe(['Lunge', 'Ward'])
       ->and($catalog->findSkill('Attack'))->toBeInstanceOf(BasicSkill::class)
-      ->and($catalog->getSourceFile('Purify'))->toBe('skills.php')
-      ->and($catalog->getSourceFile('Ember'))->toBe('magic.php')
+      ->and($catalog->getSourceFile('Purify'))->toBe('Skills/0003-purify.php')
+      ->and($catalog->getSourceFile('Ember'))->toBe('Skills/0005-ember.php')
       ->and($catalog->getProblems())->toBe([]);
   } finally {
     removeSkillCatalogProject($root);
@@ -133,46 +145,54 @@ it('gives the spellbook, the ability book and class grants the same catalogue', 
 });
 
 it('reports a name defined twice and keeps the first definition', function () {
-  $catalog = SkillCatalog::fromFiles([
-    'skills.php' => [new MagicSkill('Ember', 'First.', '', 5, 0)],
-    'magic.php' => ['Ember' => new MagicSkill('Ember', 'Second.', '', 5, 0)],
+  $catalog = SkillCatalog::fromSkills([
+    'Skills/0001-ember.php' => new MagicSkill('Ember', 'First.', '', 5, 0),
+    'Skills/0002-ember-again.php' => new MagicSkill('Ember', 'Second.', '', 5, 0),
   ]);
 
   expect($catalog->findSkill('Ember')?->description)->toBe('First.')
     ->and($catalog->getProblems())->toBe([
-      '"Ember" is defined in both skills.php and magic.php; skill names must be unique, so the one in skills.php is used.',
+      'Skills/0002-ember-again.php: "Ember" is already defined by Skills/0001-ember.php; skill names must be unique, so this file is skipped.',
     ]);
 });
 
-it('reports entries it cannot identify instead of hiding them', function () {
-  $catalog = SkillCatalog::fromFiles([
-    'skills.php' => ['Attack', new SpecialSkill('Lunge', 'Strikes far.', '', 4, 0)],
-    'abilities.php' => 'not a list',
-    'magic.php' => ['Fire' => new MagicSkill('Burn I', 'Burns.', '', 5, 0)],
+it('reports record files it cannot read instead of hiding them, keeping the others', function () {
+  $root = writeSkillCatalogProject([
+    'Skills/0001-lunge.php' => skillRecordFile('special', 'Lunge', 'Strikes far.', 4),
+    'Skills/0002-loose.php' => "<?php\nreturn ['name' => 'Loose'];\n",
+    'Skills/0003-odd.php' => skillRecordFile('summon', 'Odd', 'Unknown kind.', 0),
+    'Skills/0004-broken.php' => "<?php\nthrow new RuntimeException('broken');\n",
   ]);
 
-  expect(array_keys($catalog->getSkills()))->toBe(['Lunge', 'Burn I'])
-    ->and($catalog->getProblems())->toBe([
-      'skills.php entry 0 is not a skill.',
-      'abilities.php must return an array of skills.',
-      'magic.php registers "Burn I" under the key "Fire"; a skill is found by its name, so the key must match it.',
-    ]);
+  try {
+    $catalog = SkillCatalog::load($root . '/assets');
+
+    expect(array_keys($catalog->getSkills()))->toBe(['Lunge'])
+      ->and($catalog->getProblems())->toBe([
+        "Skills/0002-loose.php: a skill record returns ['class' => Skill::class, 'data' => [...]].",
+        'Skills/0003-odd.php: kind "summon" is not one of basic, special, magic.',
+        'Skills/0004-broken.php: broken',
+      ]);
+  } finally {
+    removeSkillCatalogProject($root);
+  }
 });
 
-it('reports a data file that fails to load', function () {
-  $root = writeSkillCatalogProject(['magic.php' => "<?php\nthrow new RuntimeException('broken');\n"]);
+it('is what a project\'s skills.php barrel returns', function () {
+  $root = writeSkillCatalogProject(spreadSkillCatalogFiles());
 
   try {
-    expect(SkillCatalog::load($root . '/assets')->getProblems())->toBe(['magic.php could not be read: broken']);
+    $skills = SkillCatalog::loadProjectSkills($root . '/assets');
+
+    expect(array_map(static fn($skill): string => $skill->name, $skills))->toBe(['Attack', 'Lunge', 'Purify', 'Ward', 'Ember']);
   } finally {
     removeSkillCatalogProject($root);
   }
 });
 
 it('keeps each project root its own catalogue', function () {
-  $header = "<?php\nuse Ichiloto\\Engine\\Entities\\Skills\\MagicSkill;\nreturn [\n";
-  $first = writeSkillCatalogProject(['magic.php' => $header . "  new MagicSkill('Ember', 'Burns.', '', 5, 0),\n];\n"]);
-  $second = writeSkillCatalogProject(['skills.php' => $header . "  new MagicSkill('Frost', 'Chills.', '', 5, 0),\n];\n"]);
+  $first = writeSkillCatalogProject(['Skills/0001-ember.php' => skillRecordFile('magic', 'Ember', 'Burns.', 5)]);
+  $second = writeSkillCatalogProject(['Skills/0001-frost.php' => skillRecordFile('magic', 'Frost', 'Chills.', 5)]);
 
   try {
     $firstSpells = runInSkillCatalogProject($first, static fn(): array => array_keys(MagicLibrary::all()));
