@@ -180,6 +180,47 @@ it('reads map tile layers as literal cells matching the map and refuses anything
     ->and(fn() => (new MapTileLayer('floor', 1, 'floor', "0 0 0\n0 0"))->assertMatches($layers))->toThrow(InvalidArgumentException::class);
 });
 
+it('reads unsaved tile layer sources through the same parser and diagnostics as the files on disk', function () {
+  writeTilesetProject($this->root, extra: ", 'above' => [5]");
+  $map = $this->root . '/Maps/home';
+  mkdir($map . '/graphics', 0777, true);
+  $floor = MapGridSource::buildSource("2816 2816 2816 2816\n2816 2816 0 0", 'TILES');
+  $furniture = MapGridSource::buildSource("0 0 5 5\n1 0 0 0", 'TILES');
+  file_put_contents($map . '/graphics/01.floor.tiles.php', $floor);
+  file_put_contents($map . '/graphics/05.furniture.tiles.php', $furniture);
+  $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', "....\n....")]);
+  $settings = ['furniture' => ['offset' => [0.5, 0]]];
+  $root = $this->root;
+  $read = static fn(array $sources): ?MapGraphics => MapGraphics::fromSources($sources, 'home', 'home', $layers, $root, $settings);
+  // An unsaved edit is drawn from its source; the file on disk stays as it was.
+  $edited = $read([$map . '/graphics/05.furniture.tiles.php' => MapGridSource::buildSource("5 0 0 0\n0 0 0 1", 'TILES'),
+    $map . '/graphics/01.floor.tiles.php' => $floor]);
+
+  expect($read([$map . '/graphics/01.floor.tiles.php' => $floor, $map . '/graphics/05.furniture.tiles.php' => $furniture]))
+    ->toEqual(MapGraphics::loadFromDirectory($map, 'home', 'home', $layers, $this->root, $settings))
+    ->and(array_map(static fn(MapTileLayer $layer): array => [$layer->name, $layer->path, $layer->tiles], $edited->layers))->toBe([
+      ['floor', 'home/graphics/01.floor.tiles.php', [[2816, 2816, 2816, 2816], [2816, 2816, 0, 0]]],
+      ['furniture', 'home/graphics/05.furniture.tiles.php', [[5, 0, 0, 0], [0, 0, 0, 1]]],
+    ])
+    ->and($edited->offsets)->toBe(['furniture' => [0.5, 0.0]])
+    ->and(file_get_contents($map . '/graphics/05.furniture.tiles.php'))->toBe($furniture)
+    ->and(MapGraphics::fromSources([], 'home', null, $layers, $this->root))->toBeNull()
+    ->and(fn() => MapGraphics::fromSources(['01.floor.tiles.php' => $floor], 'home', null, $layers, $this->root))
+    ->toThrow(InvalidArgumentException::class, 'Map home has graphics but names no tileset in its data file.')
+    ->and(fn() => $read(['graphics/floor.tiles.php' => $floor]))
+    ->toThrow(InvalidArgumentException::class, 'Tile layer home/graphics/floor.tiles.php must be named NN.name.tiles.php.')
+    ->and(fn() => $read(['01.floor.tiles.php' => $floor, '01.rug.tiles.php' => $floor]))
+    ->toThrow(InvalidArgumentException::class, 'Tile layer home/graphics/01.rug.tiles.php repeats order 01.')
+    // Sources are parsed as literal nowdocs, never executed, and refusals name the layer's file.
+    ->and(fn() => $read(['01.floor.tiles.php' => "<?php\n\nreturn exec('ls');\n"]))
+    ->toThrow(InvalidArgumentException::class, 'home/graphics/01.floor.tiles.php')
+    ->and(fn() => $read(['01.floor.tiles.php' => MapGridSource::buildSource("2816 2816", 'TILES')]))
+    ->toThrow(InvalidArgumentException::class)
+    ->and(fn() => $read(array_combine(array_map(static fn(int $order): string => sprintf('%02d.layer%d.tiles.php', $order, $order),
+      range(1, MapGraphics::MAX_LAYERS + 1)), array_fill(0, MapGraphics::MAX_LAYERS + 1, $floor))))
+    ->toThrow(InvalidArgumentException::class, 'Map home has more than ' . MapGraphics::MAX_LAYERS . ' tile layers.');
+});
+
 it('uploads the tileset, tile layers in their draw bands and glyph-free rows with the world', function () {
   writeTilesetProject($this->root, extra: ", 'above' => [5]");
   $map = $this->root . '/Maps/home';
