@@ -514,3 +514,91 @@ it('sends the tile animation frame only when it moves', function () {
     ->and($viewport(3)->toArray()['tileFrame'])->toBe(3)
     ->and(fn() => $viewport(-1))->toThrow(InvalidArgumentException::class);
 });
+
+it('reads the shadow a tileset casts from its raised tiles and refuses an unusable one', function () {
+  $sheets = ['name' => 'Home', 'sheets' => ['A2' => 'Graphics/Tilesets/A2.png', 'B' => 'Graphics/Tilesets/B.png']];
+  $tileset = Tileset::fromArray('home', [...$sheets, 'shadows' => ['casters' => [2816, 3], 'width' => 0.5, 'opacity' => 0.4]]);
+  // Every shape of a casting autotile kind casts, as `above` and `tables` flag kinds.
+  expect($tileset->shadows->width)->toBe(0.5)->and($tileset->shadows->opacity)->toBe(0.4)
+    ->and($tileset->shadows->isCaster(2816 + 46))->toBeTrue()->and($tileset->shadows->isCaster(3))->toBeTrue()
+    ->and($tileset->shadows->isCaster(4))->toBeFalse()
+    ->and(Tileset::fromArray('home', $sheets)->shadows)->toBeNull();
+  foreach ([['casters' => [], 'width' => 0.5, 'opacity' => 0.4], ['casters' => [3], 'width' => 0, 'opacity' => 0.4],
+    ['casters' => [3], 'width' => 1.5, 'opacity' => 0.4], ['casters' => [3], 'width' => 0.5, 'opacity' => 0],
+    ['casters' => [3], 'width' => 0.5, 'opacity' => '0.4'], ['casters' => [3], 'width' => 0.5],
+    ['casters' => [3], 'width' => 0.5, 'opacity' => 0.4, 'colour' => 'red'], ['casters' => [0], 'width' => 0.5, 'opacity' => 0.4],
+    'walls'] as $invalid) {
+    expect(fn() => Tileset::fromArray('home', [...$sheets, 'shadows' => $invalid]))->toThrow(InvalidArgumentException::class);
+  }
+});
+
+it('derives wall shadows on the cell to the right from the current tiles, never from authored shadow data', function () {
+  writeTilesetProject($this->root, extra: ", 'above' => [7], 'shadows' => ['casters' => [1, 7], 'width' => 0.5, 'opacity' => 0.4]");
+  $map = $this->root . '/Maps/home';
+  mkdir($map . '/graphics', 0777, true);
+  file_put_contents($map . '/graphics/01.floor.tiles.php', MapGridSource::buildSource("2816 2816 2816 2816 2816\n2816 2816 2816 0 2816", 'TILES'));
+  $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', ".....\n.....")]);
+  $shadowsOf = function (string $walls) use ($map, $layers): array {
+    file_put_contents($map . '/graphics/03.walls.tiles.php', MapGridSource::buildSource($walls, 'TILES'));
+    $world = PresentationWorld::getFromLayers($layers, 'map', MapGraphics::loadFromDirectory($map, 'home', 'home', $layers, $this->root), $this->root);
+    $cells = [];
+    foreach ($world->getOperations(true, true) as $operation) {
+      if ($operation['op'] === 'worldTiles' && $operation['layerId'] === 'tiles:walls:shadows') {
+        $cells[$operation['rows'][0]['row']] = array_column($operation['rows'][0]['cells'], 'column');
+      }
+    }
+    return [$world, $cells];
+  };
+  // A wall run shades only the floor at its open right edge. A wall beside a gap in the floor, a wall at
+  // the map edge and a wall tile drawn above characters throw nothing that the floor below does not take.
+  [$world, $cells] = $shadowsOf("1 1 0 0 0\n0 0 1 0 1");
+  expect($cells)->toBe([0 => [2]]);
+  // Painting the run one cell further, or erasing it, moves or removes its shadow with no other edit.
+  expect($shadowsOf("1 1 1 0 0\n0 0 1 0 1")[1])->toBe([0 => [3]])
+    ->and($shadowsOf("0 0 0 0 0\n7 0 0 0 0")[1])->toBe([1 => [1]])
+    ->and($shadowsOf("0 0 0 0 0\n0 0 0 0 0")[0]->tileShadows)->toBeNull();
+  $operations = $world->getOperations(true, true);
+  $value = $operations[0]['value'];
+  $shadow = $value['tileset']['tiles'][array_key_last($value['tileset']['tiles'])];
+  // One band per casting layer, numbered as that layer and listed last, so it paints over that layer's
+  // tiles and under later layers and characters; its fill tile follows the catalog without moving any index.
+  expect(end($value['layers']))->toBe(['id' => 'tiles:walls:shadows', 'layer' => -97, 'kind' => 'shadows'])
+    ->and($shadow)->toBe(['width' => 24, 'frames' => [[['fill' => [0, 0, 0, 102], 'width' => 24, 'height' => 48, 'left' => 0, 'top' => 0]]]])
+    ->and(array_slice($value['tileset']['tiles'], 0, -1))->toBe($world->operations[0]['value']['tileset']['tiles']);
+  // A renderer that did not negotiate shadows receives exactly the world it always did.
+  expect($world->getOperations(true))->toBe($world->getOperations(true, false))
+    ->and(json_encode($world->getOperations(false)))->not->toContain('shadows')
+    ->and($world->textLayerIds)->toBe(['map:terrain']);
+});
+
+it('keeps a shifted casting layer\'s offset on its shadow', function () {
+  writeTilesetProject($this->root, extra: ", 'shadows' => ['casters' => [1], 'width' => 0.25, 'opacity' => 1]");
+  $map = $this->root . '/Maps/home';
+  mkdir($map . '/graphics', 0777, true);
+  file_put_contents($map . '/graphics/01.floor.tiles.php', MapGridSource::buildSource('2816 2816', 'TILES'));
+  file_put_contents($map . '/graphics/02.walls.tiles.php', MapGridSource::buildSource('1 0', 'TILES'));
+  $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', '..')]);
+  $graphics = MapGraphics::loadFromDirectory($map, 'home', 'home', $layers, $this->root, ['walls' => ['offset' => [0, -0.5]]]);
+  $tiles = PresentationWorld::getFromLayers($layers, 'map', $graphics, $this->root)->getOperations(false, true)[0]['value']['tileset']['tiles'];
+  expect(end($tiles))->toBe(['width' => 12, 'top' => -24, 'frames' => [[['fill' => [0, 0, 0, 255], 'width' => 12, 'height' => 48, 'left' => 0, 'top' => 0]]]]);
+});
+
+it('sends shadows only to a renderer that negotiated tile shadows', function () {
+  writeTilesetProject($this->root, extra: ", 'shadows' => ['casters' => [1], 'width' => 0.5, 'opacity' => 0.4]");
+  $map = $this->root . '/Maps/home';
+  mkdir($map . '/graphics', 0777, true);
+  file_put_contents($map . '/graphics/01.floor.tiles.php', MapGridSource::buildSource('2816 2816', 'TILES'));
+  file_put_contents($map . '/graphics/02.walls.tiles.php', MapGridSource::buildSource('1 0', 'TILES'));
+  $layers = new MapLayerSet([new MapLayer('terrain', 1, false, 'terrain', '..')]);
+  $world = PresentationWorld::getFromLayers($layers, 'map', MapGraphics::loadFromDirectory($map, 'home', 'home', $layers, $this->root), $this->root);
+  foreach ([[['tile_shadows'], true], [['tile_covers'], false], [[], false]] as [$capabilities, $expected]) {
+    $transport = new FakeRendererTransport();
+    $client = new RendererClient($transport);
+    $client->start(new RendererSessionConfig('Shadows', $this->root, new RendererGridConfig(20, 10), RendererProtocolVersion::V2));
+    $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready', 'capabilities' => $capabilities]))];
+    $client->pump();
+    new RetainedPresentation($client)->present(new ConsolePresentationChanges(20, 10, true, order: []), [], null, $world);
+    $sent = json_encode(end($transport->sent)->payload['operations']);
+    expect(str_contains($sent, 'tiles:walls:shadows'))->toBe($expected)->and(str_contains($sent, '"fill"'))->toBe($expected);
+  }
+});

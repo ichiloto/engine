@@ -66,7 +66,15 @@ on both draw bands of the tile layer); the Engine sends the field to no other
 renderer. A cell's glyph, owned by `ownerLayerId`, is hidden under an available
 tile of a layer covering that owner, or of a `tiles` layer without
 `coversLayerId`; without the capability every available tile hides its cell's
-glyph. Cells a tile only overhangs keep theirs. The viewport's optional
+glyph. Cells a tile only overhangs keep theirs. When the renderer advertises
+`tile_shadows`, the Engine also sends the shadows a tileset's raised tiles cast
+(see `graphical-field.md`): catalog tiles made of one `fill` piece
+(`{"fill":[0,0,0,alpha],"width","height","left","top"}`, straight RGBA),
+appended after the other tiles so no index moves, in one world layer of kind
+`shadows` per casting tile layer. That layer has its tile layer's `layer`
+number and is listed after it; layers of equal number paint in the order
+listed. A `shadows` layer paints like `tiles` but never hides a glyph. Other
+renderers receive none of it. The viewport's optional
 `tileFrame` selects each tile's frame `tileFrame % frames`, so water animates
 with a camera-only update.
 

@@ -19,7 +19,7 @@ use RuntimeException;
 final readonly class Tileset
 {
   public const string DIRECTORY = 'Data/Tilesets';
-  private const array FIELDS = ['name', 'sheets', 'above', 'tables', 'pieces', 'missingArt'];
+  private const array FIELDS = ['name', 'sheets', 'above', 'tables', 'pieces', 'missingArt', 'shadows'];
 
   /**
    * @param array<string, string> $sheets Asset-relative PNG paths keyed by sheet name.
@@ -27,6 +27,7 @@ final readonly class Tileset
    * @param list<int> $tables A2 autotile identities drawn as tables.
    * @param array<string, TilesetPiece> $pieces Whole items, keyed by piece id, in authored order.
    * @param int|null $missingArt The plain tile that marks a cell whose art is still to do, or null.
+   * @param TilesetShadows|null $shadows The shadow its raised tiles cast, or null when none do.
    */
   public function __construct(
     public string $id,
@@ -36,6 +37,7 @@ final readonly class Tileset
     public array $tables = [],
     public array $pieces = [],
     public ?int $missingArt = null,
+    public ?TilesetShadows $shadows = null,
   ) {}
 
   public static function load(string $assetRoot, string $id): self
@@ -93,7 +95,9 @@ final readonly class Tileset
       || TileId::isAutotile($missingArt) || !isset($sheets[TileId::getSheet($missingArt)?->value ?? '']))) {
       throw new InvalidArgumentException("{$context}: missingArt must be a plain tile from one of its sheets.");
     }
-    return new self($id, $data['name'], $sheets, $above, $tables, $pieces, $missingArt);
+    $shadows = array_key_exists('shadows', $data)
+      ? TilesetShadows::fromArray($data['shadows'], $context, self::getIdentityList(...)) : null;
+    return new self($id, $data['name'], $sheets, $above, $tables, $pieces, $missingArt, $shadows);
   }
 
   /** @return list<int> Flag identities, one per autotile kind. */

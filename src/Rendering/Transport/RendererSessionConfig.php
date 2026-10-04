@@ -25,6 +25,8 @@ final readonly class RendererSessionConfig
   public const string FIELD_MOTION = 'field_motion';
   /** A world's tile layers may name the gameplay layer whose glyphs they cover. */
   public const string TILE_COVERS = 'tile_covers';
+  /** A world's tiles may be filled shapes, and its `shadows` layers paint them without hiding glyphs. */
+  public const string TILE_SHADOWS = 'tile_shadows';
   /** Retained field sprites may be drawn a lift above the cell that places and orders them. */
   public const string SPRITE_LIFT = 'sprite_lift';
   /** Event subscription: key press, release and reset transitions with a stable control identity. */
@@ -38,7 +40,7 @@ final readonly class RendererSessionConfig
   {
     return $this->protocol === RendererProtocolVersion::V2
       ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_CLIP_OPACITY,
-        self::CANVAS_GLYPH_EFFECTS, self::CANVAS_COMPOSITING, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::TILE_COVERS,
+        self::CANVAS_GLYPH_EFFECTS, self::CANVAS_COMPOSITING, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::TILE_COVERS, self::TILE_SHADOWS,
         self::SPRITE_LIFT, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::SPRITE_QUARTER_TURNS,
         ...array_values(array_intersect(self::EVENT_SUBSCRIPTIONS, $this->requiredCapabilities))]
       : $this->requiredCapabilities;
@@ -60,7 +62,7 @@ final readonly class RendererSessionConfig
     if ($icon !== null) { ApplicationIcon::assertAssetPath($icon); }
     $allowed = $protocol === RendererProtocolVersion::V2
       ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_CLIP_OPACITY, self::CANVAS_GLYPH_EFFECTS,
-        self::CANVAS_COMPOSITING, self::WINDOW_ACTIVATION, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::TILE_COVERS,
+        self::CANVAS_COMPOSITING, self::WINDOW_ACTIVATION, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::TILE_COVERS, self::TILE_SHADOWS,
         self::SPRITE_LIFT, self::KEY_TRANSITIONS, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::SPRITE_QUARTER_TURNS]
       : [self::SPRITE_SOURCE_RECT];
     foreach ($requiredCapabilities as $capability) {

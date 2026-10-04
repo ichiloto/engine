@@ -22,7 +22,10 @@ use InvalidArgumentException;
  * cell shows one whole tile: an autotile composed for the cell from its
  * neighbours, or a plain tile. Tile layers draw at -100 + NN, their `above`
  * tiles at 900 + NN. A tile layer that belongs to a gameplay layer covers
- * only that layer's glyphs ({@see getOperations()}).
+ * only that layer's glyphs ({@see getOperations()}). A tileset with shadows
+ * adds, for a renderer that negotiated them, the bands its raised tiles cast
+ * on the cells to their right: derived from the tiles here on every upload,
+ * never authored or stored.
  */
 final readonly class PresentationWorld
 {
@@ -41,9 +44,12 @@ final readonly class PresentationWorld
     /**
      * @param list<array<string, mixed>> $operations The upload every renderer accepts, without tile covers.
      * @param array<string, string> $tileCovers The gameplay layer id each covering tile layer id belongs to.
+     * @param array{tiles: list<array<string, mixed>>, layers: list<array<string, mixed>>, operations: list<array<string, mixed>>}|null $tileShadows
+     *   The shadow catalog tiles, layers and rows, sent only with tile shadows.
      */
     private function __construct(public string $id, public array $operations, public array $textLayerIds,
-        public int $estimatedSourceBytes, public bool $animated = false, public array $tileCovers = []) {}
+        public int $estimatedSourceBytes, public bool $animated = false, public array $tileCovers = [],
+        public ?array $tileShadows = null) {}
 
     /**
      * The operations that upload this world. With tile covers, for a renderer
@@ -51,16 +57,28 @@ final readonly class PresentationWorld
      * layer names it as its `coversLayerId`: its tiles hide only that layer's
      * glyphs. Without, every tile hides the glyph of its cell, as before.
      *
+     * With tile shadows, for a renderer that negotiated tile_shadows, the
+     * shadow bands follow: their fill tiles after the catalog, so no other
+     * tile's index moves, and one `shadows` layer per casting tile layer with
+     * that layer's number. Layers of equal number paint in the order listed,
+     * so each band paints over the tiles of its own and earlier layers and
+     * under later layers and every character. A shadows layer never hides a
+     * glyph. Without, nothing of the shadows is sent.
+     *
      * @return list<array<string, mixed>>
      */
-    public function getOperations(bool $tileCovers): array
+    public function getOperations(bool $tileCovers, bool $tileShadows = false): array
     {
-        if (!$tileCovers || $this->tileCovers === []) {
-            return $this->operations;
-        }
         $operations = $this->operations;
-        $operations[0]['value']['layers'] = array_map(fn(array $layer): array => isset($this->tileCovers[$layer['id']])
-            ? [...$layer, 'coversLayerId' => $this->tileCovers[$layer['id']]] : $layer, $operations[0]['value']['layers']);
+        if ($tileCovers && $this->tileCovers !== []) {
+            $operations[0]['value']['layers'] = array_map(fn(array $layer): array => isset($this->tileCovers[$layer['id']])
+                ? [...$layer, 'coversLayerId' => $this->tileCovers[$layer['id']]] : $layer, $operations[0]['value']['layers']);
+        }
+        if ($tileShadows && $this->tileShadows !== null) {
+            $operations[0]['value']['layers'] = [...$operations[0]['value']['layers'], ...$this->tileShadows['layers']];
+            $operations[0]['value']['tileset']['tiles'] = [...$operations[0]['value']['tileset']['tiles'], ...$this->tileShadows['tiles']];
+            $operations = [...$operations, ...$this->tileShadows['operations']];
+        }
         return $operations;
     }
 
@@ -96,7 +114,8 @@ final readonly class PresentationWorld
         if ($tiles !== null) {
             $metadata = [...$metadata, ...$tiles['layers']];
             $estimatedBytes += $tiles['bytes'];
-            if (count($metadata) > self::MAX_LAYERS || $estimatedBytes > self::MAX_SOURCE_BYTES) {
+            if (count($metadata) + count($tiles['shadows']['layers'] ?? []) > self::MAX_LAYERS
+                || $estimatedBytes > self::MAX_SOURCE_BYTES) {
                 throw new InvalidArgumentException('Retained world exceeds the bounded layer or source-memory budget with its tiles.');
             }
         }
@@ -112,7 +131,7 @@ final readonly class PresentationWorld
                 'cellHeight' => FieldViewport::TILE_SIZE, 'layers' => $metadata,
                 ...($tiles === null ? [] : ['tileset' => $tiles['tileset']])]], ...$rows, ...($tiles['operations'] ?? [])],
             array_column(array_filter($metadata, static fn(array $layer): bool => $layer['kind'] !== 'tiles'), 'id'),
-            $estimatedBytes, $tiles['animated'] ?? false, $tiles['covers'] ?? []);
+            $estimatedBytes, $tiles['animated'] ?? false, $tiles['covers'] ?? [], $tiles['shadows'] ?? null);
     }
 
     /**
@@ -121,7 +140,7 @@ final readonly class PresentationWorld
      * unusable are left out, and their cells show glyphs. Both draw bands of
      * a tile layer cover the glyphs of the gameplay layer it belongs to.
      *
-     * @return array{tileset: array<string, mixed>, layers: list<array<string, mixed>>, operations: list<array<string, mixed>>, bytes: int, animated: bool, covers: array<string, string>}|null
+     * @return array{tileset: array<string, mixed>, layers: list<array<string, mixed>>, operations: list<array<string, mixed>>, bytes: int, animated: bool, covers: array<string, string>, shadows: array{tiles: list<array<string, mixed>>, layers: list<array<string, mixed>>, operations: list<array<string, mixed>>}|null}|null
      */
     private static function getTilePresentation(MapGraphics $graphics, MapLayerSet $mapLayers, string $assetRoot, string $id): ?array
     {
@@ -140,14 +159,15 @@ final readonly class PresentationWorld
         $bytes = array_sum(array_map(strlen(...), $usable['sheets']));
         $animated = false;
         $layers = $operations = $covers = [];
-        foreach ($graphics->layers as $layer) {
+        $resolved = array_map(static fn($layer): array => AutotileShape::resolveLayer($layer->tiles), $graphics->layers);
+        foreach ($graphics->layers as $index => $layer) {
             $covered = $gameplayIds[$graphics->owners[$layer->name] ?? ''] ?? null;
             $bands = [];
             // A layer offset in field cells, each one tile.
             [$offsetX, $offsetY] = $graphics->offsets[$layer->name] ?? [0.0, 0.0];
             $shiftX = (int)round($offsetX * $size);
             $shiftY = (int)round($offsetY * $size);
-            foreach (AutotileShape::resolveLayer($layer->tiles) as $y => $cells) {
+            foreach ($resolved[$index] as $y => $cells) {
                 foreach ($cells as $x => $tileId) {
                     if ($tileId === TileId::EMPTY || !isset($sheetIndices[TileId::getSheet($tileId)?->value ?? ''])) {
                         continue;
@@ -190,8 +210,92 @@ final readonly class PresentationWorld
         if ($tiles === []) {
             return null;
         }
+        $shadows = self::getTileShadows($graphics, $resolved, $sheetIndices, $size, count($tiles), $id, $bytes);
+        if (count($tiles) + count($shadows['tiles'] ?? []) > self::MAX_CATALOG_TILES) {
+            throw new InvalidArgumentException('Retained world exceeds the ' . self::MAX_CATALOG_TILES . '-tile catalog.');
+        }
         return ['tileset' => ['tileSize' => $usable['tileSize'], 'sheets' => array_values($usable['sheets']), 'tiles' => $tiles],
-            'layers' => $layers, 'operations' => $operations, 'bytes' => $bytes, 'animated' => $animated, 'covers' => $covers];
+            'layers' => $layers, 'operations' => $operations, 'bytes' => $bytes, 'animated' => $animated, 'covers' => $covers,
+            'shadows' => $shadows];
+    }
+
+    /**
+     * The bands the tileset's casters throw on the cells to their right, as
+     * RPG Maker's auto-shadow does, read from the tiles every upload: a cell
+     * is shaded when a caster in any tile layer stands to its left, it shows
+     * a tile below the characters itself, and it holds no caster. So painting
+     * or erasing either neighbour needs nothing else to keep them true. Each
+     * band belongs to the highest layer whose caster throws it and keeps that
+     * layer's offset.
+     *
+     * @param list<array<int, array<int, int>>> $resolved Each tile layer's cells, shaped.
+     * @param array<string, int> $sheetIndices The usable sheets.
+     * @param int $tileCount Catalog tiles before the bands' fill tiles.
+     * @return array{tiles: list<array<string, mixed>>, layers: list<array<string, mixed>>, operations: list<array<string, mixed>>}|null
+     */
+    private static function getTileShadows(MapGraphics $graphics, array $resolved, array $sheetIndices, int $size,
+        int $tileCount, string $id, int &$bytes): ?array
+    {
+        $style = $graphics->tileset->shadows;
+        if ($style === null) {
+            return null;
+        }
+        $casters = $ground = [];
+        foreach ($graphics->layers as $index => $layer) {
+            foreach ($resolved[$index] as $y => $cells) {
+                foreach ($cells as $x => $tileId) {
+                    if ($tileId === TileId::EMPTY || !isset($sheetIndices[TileId::getSheet($tileId)?->value ?? ''])) {
+                        continue;
+                    }
+                    if ($style->isCaster($tileId)
+                        && (!isset($casters[$y][$x]) || $graphics->layers[$casters[$y][$x]]->order <= $layer->order)) {
+                        $casters[$y][$x] = $index;
+                    }
+                    if (!$graphics->tileset->isAbove($tileId)) {
+                        $ground[$y][$x] = true;
+                    }
+                }
+            }
+        }
+        $cast = [];
+        foreach ($casters as $y => $cells) {
+            foreach ($cells as $x => $index) {
+                if (isset($ground[$y][$x + 1]) && !isset($casters[$y][$x + 1])) {
+                    $cast[$index][$y][] = $x + 1;
+                }
+            }
+        }
+        if ($cast === []) {
+            return null;
+        }
+        $width = max(1, (int)round($style->width * $size));
+        $fill = [0, 0, 0, max(1, (int)round($style->opacity * 255))];
+        $tiles = $layers = $operations = $catalog = [];
+        ksort($cast);
+        foreach ($cast as $index => $rows) {
+            $layer = $graphics->layers[$index];
+            [$offsetX, $offsetY] = $graphics->offsets[$layer->name] ?? [0.0, 0.0];
+            $shiftX = (int)round($offsetX * $size);
+            $shiftY = (int)round($offsetY * $size);
+            $key = "{$shiftX}:{$shiftY}";
+            if (!isset($catalog[$key])) {
+                $catalog[$key] = $tileCount + count($tiles);
+                $tiles[] = ['width' => $width, ...($shiftX === 0 ? [] : ['left' => $shiftX]), ...($shiftY === 0 ? [] : ['top' => $shiftY]),
+                    'frames' => [[['fill' => $fill, 'width' => $width, 'height' => $size, 'left' => 0, 'top' => 0]]]];
+                $bytes += self::PIECE_SOURCE_BYTES;
+            }
+            $layerId = 'tiles:' . $layer->name . ':shadows';
+            $layers[] = ['id' => $layerId, 'layer' => self::BELOW_TILES + $layer->order, 'kind' => 'shadows'];
+            $bytes += self::LAYER_SOURCE_BYTES;
+            ksort($rows);
+            foreach ($rows as $y => $columns) {
+                sort($columns);
+                $operations[] = ['op' => 'worldTiles', 'id' => $id, 'layerId' => $layerId, 'rows' => [['row' => $y,
+                    'cells' => array_map(static fn(int $column): array => ['column' => $column, 'tile' => $catalog[$key]], $columns)]]];
+                $bytes += count($columns) * self::TILE_CELL_SOURCE_BYTES;
+            }
+        }
+        return ['tiles' => $tiles, 'layers' => $layers, 'operations' => $operations];
     }
 
     /**

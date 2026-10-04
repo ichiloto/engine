@@ -103,6 +103,11 @@ editing surface is owned by the GUI Editor plan. Related docs:
 - A tileset may name its missing-art tile (`missingArt`), a plain tile on
   one of its sheets that marks a cell whose art nobody can yet infer. It
   draws like any tile; tools report the cells that show it as art to do.
+- A tileset may give its raised tiles a shadow (`shadows`): the tiles that
+  cast (`casters`, flag identities like `above`, so every shape of an
+  autotile kind casts), the band's `width` as a fraction of a cell and its
+  `opacity`. Its look belongs to the tileset because it matches that art's
+  lighting. A tileset without `shadows` casts none.
 
 ## Graphical map data
 
@@ -193,6 +198,23 @@ editing surface is owned by the GUI Editor plan. Related docs:
   and there every tile hides the glyph of its cell.
   `MapGraphics::getShownGlyphCells()` answers this rule for a whole map, so
   authoring tools can report the glyphs that have no graphics yet.
+- **Shadows (ambient occlusion).** As RPG Maker's auto-shadow, a caster
+  throws a translucent black band over the left of the cell to its right.
+  The Engine derives the bands from the tiles on every upload; they are never
+  authored, stamped or saved. A cell is shaded when a caster in any tile
+  layer stands to its left, it shows a tile below the characters, and it
+  holds no caster itself. So a wall run shades only the floor at its open
+  right edge, and painting, stamping, dragging or erasing either neighbour,
+  in the GUI editor or anywhere else, needs nothing more to keep the
+  shadows true. Each band belongs to the highest tile layer whose caster
+  throws it, keeps that layer's offset, and paints right after that layer's
+  tiles: over the floor and wall beneath and under later layers (furniture)
+  and every character. Bands never hide a glyph, and never touch terminal
+  geometry, collision, events or saves. They reach only renderers that
+  advertise `tile_shadows`; others receive exactly the world they always
+  did. The tile palette shows loose tiles without neighbours, so it never
+  asks for shadows. Per-cell author overrides (RPG Maker's shadow pen) are
+  not part of this; add them only if an authored exception is ever needed.
 - **Animation.** A1 water cycles RPG Maker's frames (water 0, 1, 2, 1;
   waterfalls 0, 1, 2) on one counter advancing every 30/60 seconds, as
   RPG Maker does. Reduced motion holds the first frame.
@@ -201,7 +223,8 @@ editing surface is owned by the GUI Editor plan. Related docs:
   each as frames of pieces copied from a sheet into the tile. Tile layers
   are world layers of kind `tiles` whose rows list cells and catalog
   indices, uploaded once per map load; with `tile_covers`, each names the
-  gameplay layer it belongs to in `coversLayerId`. The viewport carries only the camera
+  gameplay layer it belongs to in `coversLayerId`. With `tile_shadows`,
+  shadow bands follow as fill tiles in world layers of kind `shadows`. The viewport carries only the camera
   and the animation frame. The renderer knows nothing of RPG Maker:
   composition rules stay in the engine.
 - **Terminal and editors.** None of this changes terminal geometry,

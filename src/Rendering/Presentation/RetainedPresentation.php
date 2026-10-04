@@ -142,13 +142,14 @@ final class RetainedPresentation
     }
 
     /**
-     * A world's upload for this session: tile covers only for a renderer that negotiated them.
+     * A world's upload for this session: tile covers and shadows only for a renderer that negotiated them.
      *
      * @return list<array<string, mixed>>
      */
     private function getWorldOperations(PresentationWorld $world): array
     {
-        return $world->getOperations($this->client->supports(RendererSessionConfig::TILE_COVERS));
+        return $world->getOperations($this->client->supports(RendererSessionConfig::TILE_COVERS),
+            $this->client->supports(RendererSessionConfig::TILE_SHADOWS));
     }
 
     private function getTime(): float { return $this->clock === null ? hrtime(true) / 1_000_000_000 : ($this->clock)(); }
