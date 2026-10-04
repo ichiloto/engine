@@ -16,9 +16,11 @@ use Throwable;
  * {@see ItemRecord} reads. The folders are read in that order and each in
  * file name order, which is the order shops and menus list them in, so
  * record files are numbered (`0001-potion.php`). A file that cannot be read
- * is reported against that file and leaves the others loaded; a second file
- * using an id already taken is reported and skipped. `items.php` is the
- * barrel that returns them to the item store.
+ * is reported against that file and leaves the others loaded. Every record
+ * that reads is returned, a second one claiming an id included: the item
+ * store refuses a catalogue in which two definitions answer to one
+ * reference, and that refusal stays the store's. `items.php` is the barrel
+ * that returns them to the item store.
  *
  * @package Ichiloto\Engine\Entities\Inventory
  */
@@ -28,13 +30,11 @@ final class ItemCatalog
   public const array DIRECTORIES = ['Items', 'Weapons', 'Armors'];
 
   /**
-   * @param array<string, InventoryItem> $items The definitions, keyed by id, in file order.
-   * @param array<string, string> $sourceFiles Each definition's record file, relative to `assets/Data`, keyed by id.
+   * @param array<string, InventoryItem> $items The definitions, keyed by their record file relative to `assets/Data`, in file order.
    * @param list<string> $problems The authoring problems found while reading the records.
    */
   private function __construct(
     private readonly array $items,
-    private readonly array $sourceFiles,
     private readonly array $problems,
   )
   {
@@ -68,7 +68,6 @@ final class ItemCatalog
   public static function load(string $assetRoot): self
   {
     $items = [];
-    $sourceFiles = [];
     $problems = [];
 
     foreach (self::DIRECTORIES as $directory) {
@@ -79,32 +78,19 @@ final class ItemCatalog
         $file = $directory . '/' . basename($filename);
 
         try {
-          $item = self::readRecord($filename);
+          $items[$file] = self::readRecord($filename);
         } catch (Throwable $exception) {
           $problems[] = sprintf('%s: %s', $file, $exception->getMessage());
-          continue;
         }
-
-        if (isset($items[$item->id])) {
-          $problems[] = sprintf(
-            '%s: id "%s" is already defined by %s; inventory ids must be unique, so this file is skipped.',
-            $file,
-            $item->id,
-            $sourceFiles[$item->id],
-          );
-          continue;
-        }
-
-        $items[$item->id] = $item;
-        $sourceFiles[$item->id] = $file;
       }
     }
 
-    return new self($items, $sourceFiles, $problems);
+    return new self($items, $problems);
   }
 
   /**
-   * Returns every definition, keyed by id, in file order.
+   * Returns every definition, keyed by its record file relative to
+   * `assets/Data`, in file order.
    *
    * @return array<string, InventoryItem> The definitions.
    */
@@ -121,7 +107,7 @@ final class ItemCatalog
    */
   public function getSourceFile(string $id): ?string
   {
-    return $this->sourceFiles[$id] ?? null;
+    return array_find_key($this->items, static fn(InventoryItem $item): bool => $item->id === $id);
   }
 
   /**

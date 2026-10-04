@@ -103,7 +103,7 @@ it('refuses data that is not an inventory record, saying where', function (array
   'type on an accessory' => [['kind' => 'accessory', 'id' => 'x', 'name' => 'X', 'description' => '', 'icon' => '', 'price' => 0, 'equipmentType' => 'Sword'], 'An accessory has no equipment type.'],
 ]);
 
-it('reads items, then weapons, then armors, each folder in file order, reporting files it cannot read', function () {
+it('reads items, then weapons, then armors, each folder in file order, leaving a repeated id to the store', function () {
   $root = sys_get_temp_dir() . '/ichiloto-item-catalog-' . bin2hex(random_bytes(4));
   $write = static function (string $file, InventoryItem $item) use ($root): void {
     is_dir(dirname($root . '/assets/Data/' . $file)) || mkdir(dirname($root . '/assets/Data/' . $file), 0777, true);
@@ -120,10 +120,11 @@ it('reads items, then weapons, then armors, each folder in file order, reporting
     file_put_contents($root . '/assets/Data/Items/0004-loose.php', "<?php\nreturn ['name' => 'Loose'];\n");
     $catalog = ItemCatalog::load($root . '/assets');
 
-    expect(array_keys($catalog->getItems()))->toBe(['item.tonic', 'item.ether', 'equipment.blade', 'equipment.charm'])
+    expect(array_map(static fn(InventoryItem $item): string => $item->id, array_values($catalog->getItems())))
+      ->toBe(['item.tonic', 'item.ether', 'item.tonic', 'equipment.blade', 'equipment.charm'])
       ->and($catalog->getSourceFile('equipment.charm'))->toBe('Armors/0001-charm.php')
+      ->and($catalog->getSourceFile('item.tonic'))->toBe('Items/0001-tonic.php')
       ->and($catalog->getProblems())->toBe([
-        'Items/0003-tonic-again.php: id "item.tonic" is already defined by Items/0001-tonic.php; inventory ids must be unique, so this file is skipped.',
         "Items/0004-loose.php: an inventory record returns ['class' => InventoryItem::class, 'data' => [...]].",
       ]);
 
