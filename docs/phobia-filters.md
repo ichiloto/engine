@@ -33,8 +33,9 @@ them, and each game declares which phobias it offers. Related docs:
 
 ## Current state
 
-- Enemies are constructed in the game's `enemies.php`; troops in
-  `troops.php` list enemies by name. There is no tagging of any kind.
+- Enemies are authored one record per file under the game's
+  `assets/Data/Enemies/`, read by `EnemyCatalog`; troops in `troops.php`
+  list enemies by name. There is no tagging of any kind.
 - Random encounters come from a map's weighted troop table, rolled by
   `EncounterManager::pickTroopName`. Scripted battles start troops by name
   through the `start_battle` command.
