@@ -13,7 +13,9 @@ use Ichiloto\Engine\Battle\BattleCommandType;
  * page step, confirm, cancel) and passes them here, and draws what this
  * says. Focus moves from the troop list down into the party, into one
  * member's actor, level and equipment, and into a list of what a slot can
- * hold, and back out again with cancel.
+ * hold, and back out again with cancel. Where arenas are offered (a
+ * graphical renderer draws them), left and right on the troop list choose
+ * the one fights take place in.
  */
 final class ArenaSetupEditor
 {
@@ -37,6 +39,7 @@ final class ArenaSetupEditor
    * @param Closure(string, string): list<array{id: ?string, name: string}> $choicesFor What an actor can wear in a slot, None first.
    * @param Closure(string): int $maxLevelFor An actor's highest level.
    * @param Closure(BattleTestMember, string): list<array{id: ?string, name: string}>|null $loadoutChoicesFor Shared resource pickers.
+   * @param list<string> $arenaKeys The arenas fights may take place in, by key; none when nothing draws them.
    */
   public function __construct(
     public private(set) BattleTestSetup $setup,
@@ -46,7 +49,13 @@ final class ArenaSetupEditor
     private readonly Closure $choicesFor,
     private readonly Closure $maxLevelFor,
     private readonly ?Closure $loadoutChoicesFor = null,
+    private readonly array $arenaKeys = [],
   ) {}
+
+  /** Whether fights here may be given an arena. */
+  public bool $offersArenas {
+    get => $this->arenaKeys !== [];
+  }
 
   /** The member being edited, or null outside a member. */
   public ?BattleTestMember $member {
@@ -104,9 +113,15 @@ final class ArenaSetupEditor
     };
   }
 
-  /** Left and right change the member's actor or level. */
+  /** Left and right change the arena on the troop list, and the member's actor or level. */
   public function moveHorizontal(int $step): void
   {
+    if ($this->focus === self::TROOPS) {
+      $this->stepArena($step);
+
+      return;
+    }
+
     $member = $this->member;
     if ($this->focus !== self::MEMBER || $member === null) { return; }
     match ($this->fields[$this->fieldIndex] ?? '') {
@@ -202,6 +217,16 @@ final class ArenaSetupEditor
   {
     $this->troopIndex = max(0, min($this->troopCount - 1, $index));
     $this->focus = self::TROOPS;
+  }
+
+  /** Steps through the arenas, the presentation's default first. */
+  private function stepArena(int $step): void
+  {
+    if ($this->arenaKeys === []) { return; }
+    $choices = [null, ...$this->arenaKeys];
+    $index = array_search($this->setup->arena, $choices, true);
+    $next = $choices[((($index === false ? 0 : $index) + $step) % count($choices) + count($choices)) % count($choices)];
+    $this->setup = $this->setup->withArena($next);
   }
 
   private function enterParty(): void

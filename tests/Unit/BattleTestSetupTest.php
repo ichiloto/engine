@@ -321,3 +321,50 @@ it('fights every battle with a fresh party and troop, so a beaten troop and a le
     ->and($secondParty)->not->toBe($firstParty)
     ->and($secondLevel)->toBe(3);
 });
+
+it('fights in the chosen arena, as a battle setting, and in the default without one', function () {
+  $setup = new BattleTestSetup([new BattleTestMember('hero', 3)]);
+
+  expect($setup->getBattleSettings())->toBe([])
+    ->and($setup->withArena('arena.lake')->getBattleSettings())->toBe(['battleArena' => 'arena.lake'])
+    ->and($setup->withArena('arena.lake')->withMember(1, new BattleTestMember('hero', 1))->arena)->toBe('arena.lake')
+    ->and($setup->withArena('arena.lake')->withMember(1, new BattleTestMember('hero', 1))->withMember(1, null)->arena)->toBe('arena.lake')
+    ->and($setup->withArena('arena.lake')->withArena('')->arena)->toBeNull();
+
+  mkdir($this->root . '/assets/Graphics/Enemies', 0777, true);
+  file_put_contents($this->root . '/assets/Graphics/Enemies/rat.txt', "r\n");
+  $rat = new Ichiloto\Engine\Entities\Enemies\Enemy('Rat', 1, new Ichiloto\Engine\Entities\Stats(currentHp: 30, totalHp: 30), 'rat',
+    new Ichiloto\Engine\Battle\BattleRewards(50, 5, []), []);
+  $enemies = (new ReflectionClass(Ichiloto\Engine\Util\Stores\EnemyStore::class))->newInstanceWithoutConstructor();
+  new ReflectionProperty(Ichiloto\Engine\Util\Stores\EnemyStore::class, 'enemies')->setValue($enemies, ['Rat' => $rat]);
+  ConfigStore::put(Ichiloto\Engine\Util\Stores\EnemyStore::class, $enemies);
+  ConfigStore::put(ActorStore::class, $this->actors);
+  ConfigStore::put(ItemStore::class, $this->items);
+
+  $settings = [];
+  $manager = $this->getMockBuilder(Ichiloto\Engine\Scenes\SceneManager::class)->disableOriginalConstructor()
+    ->onlyMethods(['loadBattleScene'])->getMock();
+  $manager->method('loadBattleScene')->willReturnCallback(function ($party, $troop, array $events = [], array $extraSettings = []) use (&$settings): void {
+    $settings[] = $extraSettings;
+  });
+  $game = new class extends Ichiloto\Engine\Core\Game {
+    public function __construct() {}
+    public function __destruct() {}
+  };
+  new ReflectionProperty(Ichiloto\Engine\Core\Game::class, 'sceneManager')->setValue($game, $manager);
+  $scene = new class($game) extends Ichiloto\Engine\Scenes\Arena\ArenaScene {
+    public function __construct(private Ichiloto\Engine\Core\Game $testGame) {}
+    public function getGame(): Ichiloto\Engine\Core\Game { return $this->testGame; }
+  };
+  new ReflectionProperty(Ichiloto\Engine\Scenes\Arena\ArenaScene::class, 'troopData')
+    ->setValue($scene, [['name' => 'Rats', 'enemies' => [['enemy' => 'Rat', 'position' => [1, 1]]]]]);
+  $fight = new ReflectionMethod(Ichiloto\Engine\Scenes\Arena\ArenaScene::class, 'fight');
+
+  foreach ([$setup, $setup->withArena('arena.lake')] as $fighting) {
+    new ReflectionProperty(Ichiloto\Engine\Scenes\Arena\ArenaScene::class, 'editor')->setValue($scene,
+      new Ichiloto\Engine\Scenes\Arena\ArenaSetupEditor($fighting, 1, ['hero'], static fn() => [], static fn() => [], static fn() => 99));
+    $fight->invoke($scene, 0);
+  }
+
+  expect($settings)->toBe([[], ['battleArena' => 'arena.lake']]);
+});

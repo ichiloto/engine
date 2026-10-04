@@ -134,3 +134,30 @@ it('toggles command and resource selections through constrained pickers without 
   $editor->confirm();
   expect($editor->member->summons)->toBe([])->and($editor->member->skills)->toBe(['Test Strike', 'Test Flame']);
 });
+
+it('chooses the arena with left and right on the troop list, the default first, where arenas are offered', function () {
+  $offered = new ArenaSetupEditor(new BattleTestSetup([new BattleTestMember('hero', 5)]), 3, ['hero'],
+    static fn(): array => [], static fn(): array => [], static fn(): int => 99, null, ['arena.road', 'arena.lake']);
+
+  expect($offered->offersArenas)->toBeTrue()->and($offered->setup->arena)->toBeNull();
+  $offered->moveHorizontal(1);
+  expect($offered->setup->arena)->toBe('arena.road');
+  $offered->moveHorizontal(1);
+  expect($offered->setup->arena)->toBe('arena.lake');
+  $offered->moveHorizontal(1);
+  expect($offered->setup->arena)->toBeNull();
+  $offered->moveHorizontal(-1);
+  expect($offered->setup->arena)->toBe('arena.lake');
+
+  // Editing the party keeps the arena chosen.
+  $offered->moveVertical(5);
+  $offered->confirm();
+  $offered->moveVertical(1);
+  $offered->moveHorizontal(1);
+  expect($offered->setup->members[0]->level)->toBe(6)->and($offered->setup->arena)->toBe('arena.lake');
+
+  // Where nothing draws an arena, left and right on the list change nothing.
+  $plain = arenaSetupEditor();
+  $plain->moveHorizontal(1);
+  expect($plain->offersArenas)->toBeFalse()->and($plain->setup->arena)->toBeNull();
+});

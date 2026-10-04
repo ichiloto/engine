@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Scenes\Arena;
 
+use Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Inventory\Equipment;
@@ -33,6 +34,8 @@ use Throwable;
  * Down from the troop list moves into the party; confirm edits a member;
  * left and right change its actor and level (a page step changes the level
  * by ten); confirm on a slot chooses its equipment; cancel steps back out.
+ * In a graphical renderer, left and right on the troop list choose the
+ * battle presentation's arena the fights take place in.
  *
  * @package Ichiloto\Engine\Scenes\Arena
  */
@@ -63,6 +66,10 @@ class ArenaScene extends AbstractScene
   protected int $topMargin = 0;
   protected ?Window $listPanel = null;
   protected ?Window $infoPanel = null;
+  /** @var array<string, string> The arenas a fight may take place in, key => name; none when nothing draws them. */
+  protected array $arenaChoices = [];
+  /** The name of the arena a fight takes place in when none is chosen, if the presentation names one. */
+  protected ?string $defaultArenaName = null;
 
   /**
    * @inheritDoc
@@ -204,6 +211,7 @@ class ArenaScene extends AbstractScene
       $this->getGame()->sceneManager->loadBattleScene(
         $setup->createParty(ConfigStore::get(ActorStore::class), ConfigStore::get(ItemStore::class)),
         Troop::fromArray($data),
+        extraSettings: $setup->getBattleSettings(),
       );
     } catch (Throwable $exception) {
       Debug::error(sprintf('The arena could not start a battle: %s', $exception->getMessage()));
@@ -242,6 +250,8 @@ class ArenaScene extends AbstractScene
    */
   protected function createEditor(): ?ArenaSetupEditor
   {
+    $this->loadArenaChoices();
+
     try {
       $actors = ConfigStore::get(ActorStore::class);
       $loadouts = BattleTestLoadoutCatalog::getProjectCatalog();
@@ -258,12 +268,39 @@ class ArenaScene extends AbstractScene
         fn(string $actorId, string $slotName): array => $this->getEquipmentChoices($actorId, $slotName),
         fn(string $actorId): int => $this->createProbe($actorId)->maxLevel,
         fn(BattleTestMember $member, string $field): array => $this->getLoadoutChoices($loadouts, $member, $field),
+        array_map(strval(...), array_keys($this->arenaChoices)),
       );
     } catch (Throwable $exception) {
       Debug::error(sprintf('The arena could not set up a party: %s', $exception->getMessage()));
 
       return null;
     }
+  }
+
+  /**
+   * Reads the arenas a graphical renderer can draw a fight in. A terminal
+   * renderer draws none, so it is offered none.
+   */
+  protected function loadArenaChoices(): void
+  {
+    $this->arenaChoices = [];
+    $this->defaultArenaName = null;
+    $runtime = $this->getGame()->getRendererRuntime();
+
+    if ($runtime === null) {
+      return;
+    }
+
+    try {
+      $catalog = BattlePresentationCatalog::load($runtime->getAssetRoot());
+    } catch (Throwable $exception) {
+      Debug::error(sprintf('The arena could not read the battle presentation: %s', $exception->getMessage()));
+
+      return;
+    }
+
+    $this->arenaChoices = $catalog?->getArenaChoices() ?? [];
+    $this->defaultArenaName = $catalog?->defaultArena === null ? null : ($this->arenaChoices[$catalog->defaultArena] ?? null);
   }
 
   /** @return list<array{id: ?string, name: string}> */
@@ -381,7 +418,8 @@ class ArenaScene extends AbstractScene
     [$title, $help, $rows, $selected] = match ($focus) {
       ArenaSetupEditor::MEMBER => $this->describeMember($innerWidth),
       ArenaSetupEditor::CHOOSER => $this->describeChoices(),
-      default => ['Troop', $focus === ArenaSetupEditor::TROOPS ? 'enter:Fight  down:Party  q:Quit' : '',
+      default => [$this->describeTroopTitle(), $focus === ArenaSetupEditor::TROOPS
+          ? ($editor?->offersArenas ?? false ? 'enter:Fight  left/right:Arena  down:Party  q:Quit' : 'enter:Fight  down:Party  q:Quit') : '',
         $this->troops === [] ? [' This project has no troops to fight.'] : array_map($this->describeTroop(...), $this->troops),
         $focus === ArenaSetupEditor::TROOPS ? ($editor?->troopIndex ?? 0) : null],
     };
@@ -394,6 +432,24 @@ class ArenaScene extends AbstractScene
     $this->infoPanel?->setHelp($focus === ArenaSetupEditor::PARTY ? 'enter:Edit  esc:Back' : '');
     $this->infoPanel?->setContent($this->describeParty($innerWidth));
     $this->infoPanel?->render();
+  }
+
+  /**
+   * The troop list's title, naming the arena fights take place in where
+   * arenas are offered.
+   */
+  protected function describeTroopTitle(): string
+  {
+    if ($this->editor === null || ! $this->editor->offersArenas) {
+      return 'Troop';
+    }
+
+    $arena = $this->editor->setup->arena;
+    $name = $arena === null
+      ? ($this->defaultArenaName === null ? 'Default' : $this->defaultArenaName . ' (default)')
+      : ($this->arenaChoices[$arena] ?? $arena);
+
+    return sprintf('Troop · Arena: < %s >', $name);
   }
 
   /**

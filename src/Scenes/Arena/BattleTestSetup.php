@@ -29,8 +29,12 @@ final readonly class BattleTestSetup
   /** How many of each item the party holds. */
   public const int ITEM_QUANTITY = 99;
 
-  /** @param list<BattleTestMember> $members */
-  public function __construct(public array $members)
+  /**
+   * @param list<BattleTestMember> $members
+   * @param string|null $arena The battle presentation's arena to fight in, by key; null for its default.
+   *   Graphical presentation only: it changes nothing a fight does.
+   */
+  public function __construct(public array $members, public ?string $arena = null)
   {
     if ($members === [] || count($members) > self::MAX_MEMBERS || !array_is_list($members)) {
       throw new InvalidArgumentException(sprintf('A battle test party has 1 to %d members.', self::MAX_MEMBERS));
@@ -135,7 +139,7 @@ final readonly class BattleTestSetup
         array_splice($members, $index, 1);
       }
 
-      return new self($members);
+      return new self($members, $this->arena);
     }
     if ($index >= count($members)) {
       $members[] = $member;
@@ -143,7 +147,24 @@ final readonly class BattleTestSetup
       $members[$index] = $member;
     }
 
-    return new self(array_slice($members, 0, self::MAX_MEMBERS));
+    return new self(array_slice($members, 0, self::MAX_MEMBERS), $this->arena);
+  }
+
+  /** The setup fighting in an arena of the battle presentation, by key; null for its default. */
+  public function withArena(?string $arena): self
+  {
+    return new self($this->members, $arena === null || trim($arena) === '' ? null : $arena);
+  }
+
+  /**
+   * The settings a fight from this setup passes its battle: the arena,
+   * when one is chosen.
+   *
+   * @return array<string, string>
+   */
+  public function getBattleSettings(): array
+  {
+    return $this->arena === null ? [] : ['battleArena' => $this->arena];
   }
 
   /**
