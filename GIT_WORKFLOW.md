@@ -81,12 +81,16 @@ implicitly authorized.
 
 ## Shared policy maintenance
 
-The portable policy and guard kit are maintained together in `ichiloto/.github`
-and mirrored identically in active repositories so standalone clones retain
-Andrew's rules. Governance changes must audit and update all mirrors through
-`develop` and develop-to-main PRs. GitHub does not automatically inherit agent
-instructions, Git hooks or workflows from the organization `.github` repository.
-Do not assume a parent-directory policy exists in another checkout.
+Andrew owns the binding workflow; the original canonical policy and his current
+direct instructions define its authority. The portable policy and guard kit are
+mirrored identically in participating repositories so standalone clones retain
+his rules. Governance changes must audit and update the authorized mirrors
+through `develop` and develop-to-main PRs. Repositories without remote `develop`
+are excluded from this remediation at Andrew's direction; do not create that
+branch or treat their default branch as an integration substitute. GitHub does
+not automatically inherit agent instructions, Git hooks or workflows from an
+organization `.github` repository. No dependency on publishing such a shared
+repository is required. Do not assume a parent-directory policy exists elsewhere.
 
 ## Engineering and handovers
 
