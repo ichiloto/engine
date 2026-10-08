@@ -1,10 +1,16 @@
 # Ichiloto Git workflow
 
-Andrew's binding rule applies to every Ichiloto repository, including private
-story documentation, agent coordination, organization templates and websites:
+Andrew's develop-to-main rule applies only to repositories in which he has
+created a `develop` branch. This repository has that existing branch, so:
 **NEVER commit directly to `main`. All changes integrate into `develop`.
 `main` changes ONLY through a GitHub pull request from the same repository's
-`develop`.** There is no documentation, private-repository or minor-change exception.
+`develop`.** Within that scope, there is no documentation, private-repository
+or minor-change exception.
+
+Repositories found without an Andrew-created `develop` branch are outside this
+remediation and must be left alone. Do not create `develop` or infer direct-main
+publishing permission from that exclusion. Check Andrew's current scoped
+instructions rather than inventing a workflow for those repositories.
 
 ## Authority and preflight
 
@@ -13,8 +19,9 @@ before publishing. On Andrew's workstation, also read the original
 `/Users/andrewmasiye/.codex/AGENTS.md`; a summary or handover is insufficient.
 Andrew's current direct instructions take precedence. Historical approvals,
 agent-written policies and old handoffs cannot grant a standing exception.
-The 2026-10-08 absolute rule supersedes previous claims allowing private-docs
-or `ichiloto/docs` direct-main publication. Preserve those records as history.
+Within the scope above, Andrew's 2026-10-08 rule supersedes previous claims
+allowing private-documentation direct-main publication. Preserve those records
+as history; they do not authorize future publication.
 
 Record repository, current branch, local/remote heads and dirty state before
 writing. Coordinate with the responsible repository task and preserve its
@@ -66,8 +73,9 @@ Hooks do not run for every ref manipulation, fast-forward merge, API or browser
 operation. They are a local guard, not a server security boundary. Instructions
 remain binding for all of those paths. Every new clone needs installation.
 
-For public repositories on the current Free organization plan, `main` has a
-separate update restriction with PR-only merger bypass, plus a no-bypass ruleset
+For participating public repositories with Andrew-created `develop` on the
+current Free organization plan, `main` has a separate update restriction with
+PR-only merger bypass, plus a no-bypass ruleset
 requiring PRs and preventing deletion and history rewrites. Do not weaken them.
 A trusted `pull_request_target` workflow validates that main PRs come from the
 same repository's `develop`; it never checks out or executes PR code. Its status
@@ -85,9 +93,11 @@ Andrew owns the binding workflow; the original canonical policy and his current
 direct instructions define its authority. The portable policy and guard kit are
 mirrored identically in participating repositories so standalone clones retain
 his rules. Governance changes must audit and update the authorized mirrors
-through `develop` and develop-to-main PRs. Repositories without remote `develop`
-are excluded from this remediation at Andrew's direction; do not create that
-branch or treat their default branch as an integration substitute. GitHub does
+through `develop` and develop-to-main PRs where Andrew has created `develop`.
+His develop-to-main rule applies only to those repositories. Repositories found
+without that branch are excluded from this remediation at Andrew's direction;
+leave them alone, do not create `develop`, and do not treat their default branch
+as an integration substitute or infer authority to publish it. GitHub does
 not automatically inherit agent instructions, Git hooks or workflows from an
 organization `.github` repository. No dependency on publishing such a shared
 repository is required. Do not assume a parent-directory policy exists elsewhere.
