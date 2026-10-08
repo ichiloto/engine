@@ -71,3 +71,9 @@ work from remaining animation, effects, graphical UI and platform delivery.
 - [Presentation frames and Console snapshots (S4)](docs/rendering/presentation.md)
 - [Optional graphical sprite intent and Player projection (S5)](docs/rendering/graphical-sprites.md)
 - [Optional Game renderer runtime and project artwork (S6)](docs/rendering/runtime.md)
+
+## Contributing and Git workflow
+
+Read [GIT_WORKFLOW.md](GIT_WORKFLOW.md) and install the Git guards with
+`sh scripts/install-git-guards.sh` before contributing. All changes integrate
+into `develop`; `main` is updated only by a PR from this repository's `develop`.
