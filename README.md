@@ -57,6 +57,26 @@ platform support.
 The [integration roadmap](docs/rendering/integration-roadmap.md) separates accepted
 work from remaining animation, effects, graphical UI and platform delivery.
 
+## Project Vocabulary
+
+Runtime menus and battle results read developer-owned display terms from
+`vocab` in the project configuration. `currency.name` and `currency.symbol`
+apply to balances, purchases, rewards and learning costs in both Terminal and
+graphical presentation. An explicitly empty currency symbol is supported.
+The `game`, `shop` and `command` groups rename controls; `stats` and `battle`
+provide optional stat and battle headings. Omitted terms retain existing defaults.
+
+Locale-specific entries at `vocab.<locale>` override base terms. Maps such as
+`command.summon_by_role` merge translated entries with the base map. Full authored
+sentences remain in the separate message catalog; vocabulary does not rewrite
+story text, stored data keys or gameplay identity.
+
+Battle menus carry `BattleCommand` descriptors with a stable `type` and a
+display `name`, replacing the former executable-attack placeholders.
+`BattleCommandCatalog::buildOptions()` accepts a `BattleCommandType`; legacy
+name/id strings are still accepted at that API boundary. Renaming a command
+does not change its targeting, availability, action category or icon role.
+
 ## Documentation
 
 - [Continuous integration and local checks](docs/continuous-integration.md)
@@ -71,3 +91,9 @@ work from remaining animation, effects, graphical UI and platform delivery.
 - [Presentation frames and Console snapshots (S4)](docs/rendering/presentation.md)
 - [Optional graphical sprite intent and Player projection (S5)](docs/rendering/graphical-sprites.md)
 - [Optional Game renderer runtime and project artwork (S6)](docs/rendering/runtime.md)
+
+## Contributing and Git workflow
+
+Read [GIT_WORKFLOW.md](GIT_WORKFLOW.md) and install the Git guards with
+`sh scripts/install-git-guards.sh` before contributing. All changes integrate
+into `develop`; `main` is updated only by a PR from this repository's `develop`.
