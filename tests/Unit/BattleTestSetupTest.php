@@ -368,3 +368,117 @@ it('fights in the chosen arena, as a battle setting, and in the default without 
 
   expect($settings)->toBe([[], ['battleArena' => 'arena.lake']]);
 });
+
+it('writes a member and a setup as project data and reads them back exactly, leaving defaults out', function () {
+  $member = new BattleTestMember('hero', 7, ['Weapon' => 'equipment.sword', 'Shield' => null],
+    [BattleCommandType::ATTACK, BattleCommandType::MAGIC], ['Test Flame'], ['test-call']);
+  $setup = new BattleTestSetup([$member, new BattleTestMember('veteran', 2)], 'arena.lake');
+
+  expect($member->toArray())->toBe(['actor' => 'hero', 'level' => 7, 'equipment' => ['Weapon' => 'equipment.sword', 'Shield' => null],
+      'commands' => ['attack', 'magic'], 'skills' => ['Test Flame'], 'summons' => ['test-call']])
+    ->and(new BattleTestMember('veteran', 2)->toArray())->toBe(['actor' => 'veteran', 'level' => 2])
+    ->and(BattleTestMember::fromArray($member->toArray()))->toEqual($member)
+    ->and($setup->toArray()['arena'])->toBe('arena.lake')
+    ->and(BattleTestSetup::fromArray($setup->toArray()))->toEqual($setup)
+    ->and(new BattleTestSetup([new BattleTestMember('hero', 1)])->toArray())->toBe(['members' => [['actor' => 'hero', 'level' => 1]]]);
+});
+
+it('refuses malformed members and setups instead of ignoring what it does not understand', function (array $data, string $message) {
+  expect(fn() => isset($data['members']) || isset($data['party']) ? BattleTestSetup::fromArray($data) : BattleTestMember::fromArray($data))
+    ->toThrow(InvalidArgumentException::class, $message);
+})->with([
+  'unknown member field' => [['actor' => 'hero', 'level' => 1, 'class' => 'x'], 'has no class'],
+  'missing level' => [['actor' => 'hero'], 'whole-number level'],
+  'equipment not by slot' => [['actor' => 'hero', 'level' => 1, 'equipment' => ['equipment.sword']], 'slot names'],
+  'unknown command' => [['actor' => 'hero', 'level' => 1, 'commands' => ['dance']], 'command types'],
+  'unknown setup field' => [['members' => [['actor' => 'hero', 'level' => 1]], 'party' => []], 'has no party'],
+  'members not a list' => [['members' => ['hero' => ['actor' => 'hero', 'level' => 1]]], 'list of members'],
+  'no members' => [['members' => []], '1 to 4 members'],
+]);
+
+it('takes a project\'s battle test from system data, the starting party when it keeps none, and never swaps a bad one', function () {
+  $system = static fn(?array $battleTest): string => "<?php return " . var_export(['title' => 'Test', 'currency' => [],
+    'startingPositions' => ['player' => []], 'startingParty' => ['veteran'],
+    ...($battleTest === null ? [] : [Ichiloto\Engine\Scenes\Arena\ProjectBattleTest::SYSTEM_KEY => $battleTest])], true) . ';';
+  $path = $this->root . '/assets/Data/system.php';
+
+  file_put_contents($path, $system(null));
+  $absent = Ichiloto\Engine\Scenes\Arena\ProjectBattleTest::loadFromProject();
+  expect($absent->troop)->toBeNull()
+    ->and(array_column($absent->createSetup($this->actors)->members, 'actorId'))->toBe(['veteran']);
+
+  file_put_contents($path, $system(['troop' => 'Rats', 'arena' => 'arena.lake']));
+  $arenaOnly = Ichiloto\Engine\Scenes\Arena\ProjectBattleTest::loadFromProject();
+  expect($arenaOnly->troop)->toBe('Rats')
+    ->and(array_column($arenaOnly->createSetup($this->actors)->members, 'actorId'))->toBe(['veteran'])
+    ->and($arenaOnly->createSetup($this->actors)->arena)->toBe('arena.lake')
+    ->and($arenaOnly->toArray())->toBe(['troop' => 'Rats', 'arena' => 'arena.lake']);
+
+  $kept = ['troop' => 'Rats', 'members' => [['actor' => 'hero', 'level' => 4]], 'arena' => 'arena.lake'];
+  file_put_contents($path, $system($kept));
+  $explicit = Ichiloto\Engine\Scenes\Arena\ProjectBattleTest::loadFromProject();
+  expect(array_column($explicit->createSetup($this->actors)->members, 'actorId'))->toBe(['hero'])
+    ->and($explicit->createSetup($this->actors)->arena)->toBe('arena.lake')
+    ->and($explicit->toArray())->toBe($kept);
+
+  // A party that names a missing actor is the author's to fix: it is reported, not replaced by the starting party.
+  file_put_contents($path, $system(['members' => [['actor' => 'nobody', 'level' => 1]]]));
+  expect(Ichiloto\Engine\Scenes\Arena\ProjectBattleTest::loadFromProject()->createSetup($this->actors)
+      ->getProblems($this->actors, $this->items))->toBe(['Member 1 (nobody): the project has no such actor.']);
+
+  file_put_contents($path, $system(['members' => 'hero']));
+  expect(fn() => Ichiloto\Engine\Scenes\Arena\ProjectBattleTest::loadFromProject())->toThrow(InvalidArgumentException::class, 'list of members');
+});
+
+it('opens the arena on the project\'s battle test party and puts the list on its troop without fighting', function () {
+  file_put_contents($this->root . '/assets/Data/system.php', "<?php return " . var_export(['title' => 'Test', 'currency' => [],
+    'startingPositions' => ['player' => []], 'startingParty' => ['veteran'],
+    'battleTest' => ['troop' => 'bats', 'members' => [['actor' => 'hero', 'level' => 4]]]], true) . ';');
+  ConfigStore::put(ActorStore::class, $this->actors);
+  ConfigStore::put(ItemStore::class, $this->items);
+  $game = new class extends Ichiloto\Engine\Core\Game {
+    public function __construct() { $this->options = []; }
+    public function __destruct() {}
+  };
+  $scene = new class($game) extends Ichiloto\Engine\Scenes\Arena\ArenaScene {
+    public function __construct(private Ichiloto\Engine\Core\Game $testGame) {}
+    public function getGame(): Ichiloto\Engine\Core\Game { return $this->testGame; }
+  };
+  $troop = static fn(string $name): object => (object) ['name' => $name];
+  new ReflectionProperty(Ichiloto\Engine\Scenes\Arena\ArenaScene::class, 'troops')->setValue($scene, [$troop('Rats'), $troop('Bats')]);
+  $editor = new ReflectionMethod(Ichiloto\Engine\Scenes\Arena\ArenaScene::class, 'createEditor')->invoke($scene);
+  new ReflectionProperty(Ichiloto\Engine\Scenes\Arena\ArenaScene::class, 'editor')->setValue($scene, $editor);
+  $selected = new ReflectionMethod(Ichiloto\Engine\Scenes\Arena\ArenaScene::class, 'selectTroopByName')->invoke($scene, 'bats');
+
+  expect(array_column($editor->setup->members, 'actorId'))->toBe(['hero'])
+    ->and($editor->setup->members[0]->level)->toBe(4)
+    ->and($selected)->toBeTrue()
+    ->and($editor->troopIndex)->toBe(1)
+    ->and($editor->focus)->toBe(Ichiloto\Engine\Scenes\Arena\ArenaSetupEditor::TROOPS);
+});
+
+it('offers each member only what the setup would accept, the same choices for the arena and the editors', function () {
+  writeBattleLoadoutSources($this->root);
+  $choices = new Ichiloto\Engine\Scenes\Arena\BattleTestChoices($this->actors, $this->items, BattleTestLoadoutCatalog::getProjectCatalog());
+  $setup = new BattleTestSetup([new BattleTestMember('hero', 1, summons: ['test-call']), new BattleTestMember('hero', 1)]);
+
+  expect($choices->getSlotNames('hero'))->toBe(['Weapon', 'Shield', 'Head', 'Body', 'Accessory'])
+    ->and($choices->getEquipmentChoices('hero', 'Weapon'))->toBe([['id' => null, 'name' => '(None)'], ['id' => 'equipment.sword', 'name' => 'Sword']])
+    ->and($choices->getEquipmentChoices('hero', 'Shield'))->toBe([['id' => null, 'name' => '(None)']])
+    ->and($choices->getMaxLevel('hero'))->toBe($this->actors->get('hero')->createCharacter()->maxLevel)
+    ->and(array_column($choices->getLoadoutChoices($setup, 0, 'commands'), 'id'))
+    ->toBe([null, ...array_column(BattleCommandType::cases(), 'value')])
+    ->and(array_column($choices->getLoadoutChoices($setup, 0, 'magic'), 'id'))->toContain('Test Flame')
+    // The first member holds the exclusive summon, so the second is never offered it.
+    ->and(array_column($choices->getLoadoutChoices($setup, 0, 'summons'), 'id'))->toContain('test-call')
+    ->and(array_column($choices->getLoadoutChoices($setup, 1, 'summons'), 'id'))->not->toContain('test-call')
+    ->and($choices->getLoadoutChoices($setup, 5, 'skills'))->toBe([]);
+});
+
+it('sets up the starting party an editor passes as it stands, the same way as the saved one', function () {
+  $test = new Ichiloto\Engine\Scenes\Arena\ProjectBattleTest(arena: 'arena.lake');
+
+  expect(array_column($test->createSetup($this->actors, ['hero', 'veteran'])->members, 'actorId'))->toBe(['hero', 'veteran'])
+    ->and($test->createSetup($this->actors, ['hero'])->arena)->toBe('arena.lake')
+    ->and(fn() => $test->createSetup($this->actors, []))->toThrow(InvalidArgumentException::class, 'no starting party');
+});

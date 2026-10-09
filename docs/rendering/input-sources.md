@@ -38,6 +38,16 @@ it does not change selection. Boot captures these effective bindings for Restore
 Defaults. Loading never writes configuration; the existing explicit Controls
 rebind/restore workflow retains persistence ownership.
 
+Missing `menu_page_previous` and `menu_page_next` actions similarly offer
+Page Up and Page Down only when those keys are not already authored elsewhere.
+Explicit bindings, empty keys and controller metadata are preserved. The graphical
+Main Menu consumes these semantic actions through its PHP owner, not through the
+renderer. They browse measured whole-character pages, retain relative position
+where the destination page allows it, and stop at the first/last page. Terminal
+navigation and menus without a usable graphical presentation are unchanged.
+Control hints use the shared provider and live bindings. Physical gamepad,
+pointer and touch delivery are not implemented by adding these actions.
+
 Controls stores changed keyboard keys under `input.bindings` in the player's
 `.data/player-settings.json`. The authored `input.php` supplies action identities,
 descriptions, controller metadata and default keys. At boot, the Engine applies
@@ -273,6 +283,16 @@ navigation repeat are unchanged. Held state is cleared by `input_reset`,
 `resetState()`, source replacement, renderer restart and any input failure or
 disconnect; elapsed silence is never release evidence.
 
+Every held-state clear also retains a monotonic press-order cutoff through
+`InputManager::getLatestResetPressOrder()`. Consumers with pending intent must
+discard presses at or before that boundary, without discarding fresh presses
+received after a reset in the same update. `PlayerWalk` uses that cutoff to
+clear its queued tap and step clock: clearing only the manager's held controls
+would otherwise leave stale movement queued outside the input owner. Source
+replacement, polling/transition failure and renderer restart/shutdown use the
+same boundary; no renderer-specific walking reset or Terminal release inference
+is added.
+
 ### Field walking (implemented)
 
 With held input, `FieldState` walks through `PlayerWalk`, RPG Maker MZ's
@@ -327,10 +347,17 @@ metrics; blocked and stalled timing; terminal and menu edges. Retain keyboard
 menu, terminal, cinematic route, T1 composition and graphical exclusion
 regression coverage.
 
+October 8 lifecycle regressions prove queued-tap/clock invalidation at reset,
+fresh post-reset presses, renderer restart/shutdown, immediate menu return and
+yielded dialogue/cinematic return. Synthetic blocked corners cover walls, NPC
+occupancy and counters, with triggers, encounter steps and observer events only
+on committed cells and exactly once. The four focused input/walking families
+pass 92 tests / 504 assertions; these checks do not replace physical native
+held-key acceptance.
+
 Native acceptance uses one bounded ordinary-Game GPUI pass: simultaneous keys,
 partial and complete release, unobstructed horizontal and vertical travel,
 corners, scrolling, focus loss and dialogue/menu/cinematic entry and return.
 Measure travel relative to the field, not only a camera-followed on-screen
 Player. Preserve user audio settings, saves and configuration during
 validation. State tested platforms explicitly.
-

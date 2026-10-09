@@ -1,5 +1,7 @@
 <?php
 
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasComposite;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasCompositeOperation;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageTint;
@@ -49,6 +51,62 @@ it('reads current replacement dimensions instead of retaining a stale normalized
   expect($first->operations[0]->data['masks'][0]['source']['x'])->toBe(.5)
     ->and($second->operations[0]->data['masks'][0]['source'])->toBe(['x' => .25, 'y' => .125, 'width' => .25, 'height' => .25]);
 });
+
+it('combines cropped masks at fractional placements with each subjects clip and tint order', function () {
+  $layers = [['color' => PresentationColor::ansi16(1), 'strength' => .2],
+    ['color' => PresentationColor::ansi16(2), 'strength' => .3]];
+  $first = new CanvasImage('first', 'pose.png', new CanvasRectangle(10.25, 20.5, 31.5, 45.75), 100,
+    new SpriteSourceRect(8, 3, 8, 6), clipRect: new CanvasRectangle(12, 25, 20, 30));
+  $second = new CanvasImage('second', 'pose.png', new CanvasRectangle(80.75, 40.25, 20.25, 25.5), 100);
+  $group = CanvasImageTint::combine('group', [
+    CanvasImageTint::composeLayers('first-tint', $first, $layers, $this->root),
+    CanvasImageTint::composeLayers('second-tint', $second, $layers, $this->root),
+  ]);
+  expect($group->destination)->toEqual(new CanvasRectangle(10, 20, 91, 47))
+    ->and($group->operations)->toHaveCount(4)->and($group->clipRect)->toBeNull()
+    ->and($group->layer)->toBe(101)->and($group->opacity)->toBe(1.0)
+    ->and(array_column(array_column($group->operations, 'data'), 'opacity'))->toBe([.2, .3, .2, .3]);
+  $firstFill = $group->operations[0]->data;
+  $secondFill = $group->operations[2]->data;
+  expect($firstFill['destination'])->toBe(['x' => .25, 'y' => .5, 'width' => 31.5, 'height' => 45.75])
+    ->and($firstFill['masks'][0]['destination'])->toBe($firstFill['destination'])
+    ->and($firstFill['masks'][0]['source'])->toBe(['x' => .5, 'y' => .25, 'width' => .5, 'height' => .5])
+    ->and($firstFill['masks'][1]['contours'])->toBe([[[2.0, 5.0], [22.0, 5.0], [22.0, 35.0], [2.0, 35.0]]])
+    ->and($secondFill['destination'])->toBe(['x' => 70.75, 'y' => 20.25, 'width' => 20.25, 'height' => 25.5])
+    ->and($secondFill['masks'])->toHaveCount(1)
+    ->and(CanvasImagePreflight::inspect([$first, $second], $this->root, [$group])['sources'])->toHaveCount(1);
+});
+
+it('preserves an individual surface exactly when it needs no batching', function () {
+  $image = new CanvasImage('actor', 'pose.png', new CanvasRectangle(10.25, 20.5, 31.5, 45.75), 100,
+    new SpriteSourceRect(8, 3, 8, 6), clipRect: new CanvasRectangle(12, 25, 20, 30));
+  $tint = CanvasImageTint::compose('tint', $image, PresentationColor::ansi16(1), .2, $this->root);
+  expect(CanvasImageTint::combine('group', [$tint])->toArray())->toBe([...$tint->toArray(), 'id' => 'group']);
+});
+
+it('refuses batching that changes alpha or depth or exceeds normal resource limits', function (string $case) {
+  $image = new CanvasImage('actor', 'pose.png', new CanvasRectangle(10, 20, 32, 48), 100);
+  $tint = CanvasImageTint::compose('tint', $image, PresentationColor::ansi16(1), .2, $this->root);
+  $tints = match ($case) {
+    'empty' => [],
+    'untyped' => ['not a surface'],
+    'faded' => [CanvasImageTint::compose('faded', new CanvasImage('actor', 'pose.png', $image->destination,
+      100, opacity: .4), PresentationColor::ansi16(1), .2, $this->root)],
+    'depth' => [$tint, new CanvasComposite('other', 32, 48, $image->destination, $tint->operations, 102)],
+    'list count' => array_fill(0, 257, $tint),
+    'operation count' => [new CanvasComposite('many-first', 32, 48, $image->destination,
+      array_fill(0, 129, $tint->operations[0]), 101), new CanvasComposite('many-second', 32, 48,
+      $image->destination, array_fill(0, 129, $tint->operations[0]), 101)],
+    'raster' => [$tint, new CanvasComposite('far', 32, 48, new CanvasRectangle(8000, 20, 32, 48), $tint->operations, 101)],
+    'image operation' => [new CanvasComposite('image', 32, 48, $image->destination,
+      [new CanvasCompositeOperation(['type' => 'image', 'asset' => 'pose.png',
+        'destination' => ['x' => 0, 'y' => 0, 'width' => 32, 'height' => 48]])], 101)],
+    'unmasked fill' => [new CanvasComposite('fill', 32, 48, $image->destination,
+      [new CanvasCompositeOperation(['type' => 'fill', 'brush' => ['type' => 'solid', 'color' => PresentationColor::ansi16(1)->toArray()],
+        'destination' => ['x' => 0, 'y' => 0, 'width' => 32, 'height' => 48]])], 101)],
+  };
+  expect(fn() => CanvasImageTint::combine('group', $tints))->toThrow(InvalidArgumentException::class);
+})->with(['empty', 'untyped', 'faded', 'depth', 'list count', 'operation count', 'raster', 'image operation', 'unmasked fill']);
 
 it('samples whole-image alpha when no frame crop is selected', function () {
   $image = new CanvasImage('actor', 'pose.png', new CanvasRectangle(0, 0, 48, 96));

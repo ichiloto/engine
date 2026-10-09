@@ -19,7 +19,8 @@ final class PresentationLayerPolicy
   public const FIELD_EFFECT_FRONT = 899;
   public const FIELD_PROMPT_ID = 'field-prompt';
   public const UI = 1000;
-  public const NOTIFICATIONS = 2000;
+  public const CINEMATIC = 2000;
+  public const NOTIFICATIONS = 4000;
   public const TRANSITION = 3000;
 
 

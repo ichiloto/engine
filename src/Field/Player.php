@@ -178,6 +178,12 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     return 'player';
   }
 
+  /** Authored graphical role remains available while a staged visual owns presentation. */
+  public function getGraphicalCharacterSheet(): ?CharacterSheet
+  {
+    return $this->graphicalSprites;
+  }
+
   #[Override]
   public function getGraphicalSpriteDefinition(): ?GraphicalSpriteDefinition
   {
@@ -224,6 +230,16 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   private function isPresentationSuppressed(): bool
   {
     return ($this->scene ?? null) instanceof GameScene && ($this->scene->cinematicStage?->suppresses($this) ?? false);
+  }
+
+  /** Immediately place the player without a walking step or its arrival outcomes. */
+  public function relocateTo(Vector2 $position): void
+  {
+    $this->pendingArrival = null;
+    $this->position->x = $position->x;
+    $this->position->y = $position->y;
+    $this->stopGraphicalAnimation();
+    $this->renderLocationHUDWindow();
   }
 
   /** Restore owned temporary staging without movement triggers or outcome writes. */
@@ -1136,7 +1152,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
 
   /**
    * Finds the NPC the player reaches from where it stands and faces: the
-   * faced cell, or across counters beyond it (InteractionReach).
+   * faced cell, or directly behind one faced counter cell (InteractionReach).
    *
    * @return Npc|null The NPC, talkable or not, or null when none is reached.
    */

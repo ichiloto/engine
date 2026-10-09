@@ -3,6 +3,10 @@
 namespace Ichiloto\Engine\Battle\Simulation;
 
 use Ichiloto\Engine\Battle\Actions\AttackAction;
+use Ichiloto\Engine\Battle\BattlePartyRoster;
+use Ichiloto\Engine\Battle\CounterAttackResolver;
+use Ichiloto\Engine\Entities\Skills\SkillCatalog;
+use Ichiloto\Engine\Battle\ReservePolicy;
 use Ichiloto\Engine\Battle\BattlerBattleView;
 use Ichiloto\Engine\Battle\Resolution\CombatResolver;
 use Ichiloto\Engine\Battle\Resolution\CombatActionResult;
@@ -37,6 +41,7 @@ class BattleSimulator
   public function __construct(
     protected int $turnLimit = self::DEFAULT_TURN_LIMIT,
     protected int $seed = 1,
+    private readonly ?SkillCatalog $skills = null,
   )
   {
   }
@@ -44,24 +49,21 @@ class BattleSimulator
   /**
    * Fights the troop repeatedly and reports what happened.
    *
-   * The party and troop are restored to full between runs, so every battle is
-   * the one a player walks into rather than the one after the last.
+   * Each run uses independent battler instances from the caller's starting
+   * state. Damage, costs, afflictions and exceptions cannot alter the live party.
    *
    * @param Party $party The party.
    * @param Troop $troop The troop.
    * @param int $runs How many battles to fight.
+   * @param array<string, mixed> $settings Per-battle settings, including reservePolicy.
    * @return SimulationReport What happened.
    */
-  public function simulate(Party $party, Troop $troop, int $runs = 100): SimulationReport
+  public function simulate(Party $party, Troop $troop, int $runs = 100, array $settings = []): SimulationReport
   {
     $runs = max(1, $runs);
-    $allies = $this->battlersOf($party->battlers->toArray());
+    $policy = ReservePolicy::resolve($settings['reservePolicy'] ?? null);
+    $allies = $this->battlersOf($party->members->toArray());
     $enemies = $this->battlersOf($troop->members->toArray());
-
-    $fullHealth = [
-      ...$this->healthOf($allies),
-      ...$this->healthOf($enemies),
-    ];
 
     $victories = 0;
     $defeats = 0;
@@ -74,11 +76,16 @@ class BattleSimulator
     $healing = [];
     $mitigation = [];
     $random = new SeededCombatRandomSource($this->seed);
+    new CounterAttackResolver($this->skills, $random)->validateBattlers([...$allies, ...$enemies]);
 
     for ($run = 0; $run < $runs; $run++) {
-      $this->restore([...$allies, ...$enemies], $fullHealth);
-
-      $outcome = $this->fight($allies, $enemies, $damage, $hpLoss, $healing, $mitigation, $random);
+      $runParty = new Party();
+      foreach ($allies as $ally) { $runParty->addMember(clone $ally); }
+      $runEnemies = array_map(static fn(CharacterInterface $enemy): CharacterInterface => clone $enemy, $enemies);
+      $runAllies = $runParty->members->toArray();
+      $fullHealth = $this->healthOf([...$runAllies, ...$runEnemies]);
+      $roster = new BattlePartyRoster($runParty, $policy);
+      $outcome = $this->fight($roster, $runEnemies, $damage, $hpLoss, $healing, $mitigation, $random);
       $totalTurns += $outcome['turns'];
 
       match ($outcome['result']) {
@@ -88,18 +95,15 @@ class BattleSimulator
       };
 
       if ($outcome['result'] === 'victory') {
-        $totalHpShare += $this->healthShare($allies, $fullHealth);
+        $totalHpShare += $this->healthShare($roster->battlers, $fullHealth);
       }
 
-      foreach ($allies as $ally) {
+      foreach ($runAllies as $ally) {
         if ($ally->stats->currentHp <= 0) {
           $deaths[$ally->name] = ($deaths[$ally->name] ?? 0) + 1;
         }
       }
     }
-
-    // Leave the party as the caller handed it over.
-    $this->restore([...$allies, ...$enemies], $fullHealth);
 
     return new SimulationReport(
       $troop->name,
@@ -143,13 +147,13 @@ class BattleSimulator
   /**
    * Fights one battle.
    *
-   * @param CharacterInterface[] $allies The party.
+   * @param BattlePartyRoster $roster The battle's active party.
    * @param CharacterInterface[] $enemies The troop.
    * @param array<string, float> $damage Running damage totals, by name.
    * @return array{result: string, turns: int} How it went.
    */
   protected function fight(
-    array $allies,
+    BattlePartyRoster $roster,
     array $enemies,
     array &$damage,
     array &$hpLoss,
@@ -159,9 +163,14 @@ class BattleSimulator
   ): array
   {
     $attack = new AttackAction('Attack', new CombatResolver(), $random);
+    $counters = new CounterAttackResolver($this->skills, $random);
     $turns = 0;
 
     while ($turns < $this->turnLimit) {
+      if ($roster->battlers === [] || ($roster->isDefeated && !$roster->promoteReservesAfterWipeout())) {
+        return ['result' => 'defeat', 'turns' => $turns];
+      }
+      $allies = $roster->battlers;
       $turns++;
 
       // Faster battlers act first, as they do in a real turn.
@@ -198,25 +207,36 @@ class BattleSimulator
           continue;
         }
 
-        if ($isAlly) {
-          $damage[$battler->name] = ($damage[$battler->name] ?? 0.0) + $result->actualHpLost();
+        $this->recordResult($result, $battler, $target, $isAlly, $damage, $hpLoss, $healing, $mitigation);
+        foreach ($counters->resolveResponses($result, $battler, [$target], $allies, $enemies) as $response) {
+          if (!$counters->canExecute($response, $allies, $enemies)) { continue; }
+          $response->action->execute($response->actor, [$response->target]);
+          if (($counterResult = $response->action->lastResult) !== null) {
+            $this->recordResult($counterResult, $response->actor, $response->target, !$isAlly,
+              $damage, $hpLoss, $healing, $mitigation);
+          }
         }
-
-        $hpLoss[$target->name] = ($hpLoss[$target->name] ?? 0.0) + $result->actualHpLost();
-        $healing[$battler->name] = ($healing[$battler->name] ?? 0.0) + $result->actualHpRestored();
-        $mitigation[$target->name] = ($mitigation[$target->name] ?? 0.0) + $result->mitigation();
       }
 
       if ($this->living($enemies) === []) {
         return ['result' => 'victory', 'turns' => $turns];
       }
 
-      if ($this->living($allies) === []) {
+      if ($roster->isDefeated && !$roster->promoteReservesAfterWipeout()) {
         return ['result' => 'defeat', 'turns' => $turns];
       }
     }
 
     return ['result' => 'stalemate', 'turns' => $turns];
+  }
+
+  private function recordResult(CombatActionResult $result, CharacterInterface $actor, CharacterInterface $target,
+    bool $isAlly, array &$damage, array &$hpLoss, array &$healing, array &$mitigation): void
+  {
+    if ($isAlly) { $damage[$actor->name] = ($damage[$actor->name] ?? 0.0) + $result->actualHpLost(); }
+    $hpLoss[$target->name] = ($hpLoss[$target->name] ?? 0.0) + $result->actualHpLost();
+    $healing[$actor->name] = ($healing[$actor->name] ?? 0.0) + $result->actualHpRestored();
+    $mitigation[$target->name] = ($mitigation[$target->name] ?? 0.0) + $result->mitigation();
   }
 
   /**

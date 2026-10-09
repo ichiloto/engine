@@ -41,14 +41,22 @@ final class PngAssetPreflight
     $canonicalRoot = realpath($root);
     $path = realpath($key);
     $stat = $path === false ? false : @stat($path);
+    $header = null;
+    $readError = null;
+    // Stat timestamps can collide during in-place edits. Probe only the 24
+    // header bytes owning dimensions, never the full image or decoded pixels.
+    try { $header = self::readHeader($canonicalRoot, $path, $asset); }
+    catch (RuntimeException $failure) { $readError = $failure->getMessage(); }
     $version = [$canonicalRoot, $path, $stat['mtime'] ?? null, $stat['ctime'] ?? null,
-      $stat['size'] ?? null, $stat['ino'] ?? null, $stat['mode'] ?? null];
+      $stat['size'] ?? null, $stat['ino'] ?? null, $stat['mode'] ?? null, $header, $readError];
     if (!isset(self::$cache[$key]) || self::$cache[$key]['version'] !== $version) {
       if (count(self::$cache) >= self::MAX_CACHE_ENTRIES) { array_shift(self::$cache); }
       $size = null;
-      $error = null;
-      try { $size = self::readSize($canonicalRoot, $path, $asset); }
-      catch (RuntimeException $failure) { $error = $failure->getMessage(); }
+      $error = $readError;
+      if ($error === null) {
+        try { $size = self::readSize($header, $asset); }
+        catch (RuntimeException $failure) { $error = $failure->getMessage(); }
+      }
       self::$cache[$key] = ['version' => $version, 'size' => $size, 'error' => $error, 'reported' => false];
     }
     $entry = self::$cache[$key];
@@ -60,8 +68,8 @@ final class PngAssetPreflight
     return ['width' => $crop?->width ?? $size['width'], 'height' => $crop?->height ?? $size['height']];
   }
 
-  /** File reads are shared by icons, frames, portraits and canvas budget checks. */
-  private static function readSize(string|false $root, string|false $path, string $asset): array
+  /** Safe, bounded freshness probe shared by icons, frames, portraits and canvas budgets. */
+  private static function readHeader(string|false $root, string|false $path, string $asset): string
   {
     if ($root === false || $path === false || !str_starts_with($path, $root . DIRECTORY_SEPARATOR)
       || !is_file($path) || !is_readable($path) || strtolower(pathinfo($path, PATHINFO_EXTENSION)) !== 'png'
@@ -69,7 +77,14 @@ final class PngAssetPreflight
       throw new RuntimeException("Graphical asset must be a readable PNG inside assets, at most 16 MiB: {$asset}");
     }
     $header = @file_get_contents($path, false, null, 0, 24);
-    if ($header === false || strlen($header) !== 24 || substr($header, 0, 16) !== "\x89PNG\r\n\x1a\n\0\0\0\rIHDR") {
+    if ($header === false) { throw new RuntimeException("Invalid PNG header: {$asset}"); }
+    return $header;
+  }
+
+  /** Parsing and diagnostics are reused only while the current header and file facts agree. */
+  private static function readSize(string $header, string $asset): array
+  {
+    if (strlen($header) !== 24 || substr($header, 0, 16) !== "\x89PNG\r\n\x1a\n\0\0\0\rIHDR") {
       throw new RuntimeException("Invalid PNG header: {$asset}");
     }
     $size = unpack('Nwidth/Nheight', substr($header, 16));

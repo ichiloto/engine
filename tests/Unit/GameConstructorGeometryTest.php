@@ -1,7 +1,7 @@
 <?php
 
 it('resolves real Game constructor geometry without mistaking injected defaults for caller intent', function (array $arguments, array $expected, array $scenario = []) {
-  $root = sys_get_temp_dir() . '/ichiloto-game-constructor-' . uniqid();
+  $root = createTestDirectory('ichiloto-game-constructor-');
   mkdir($root . '/assets/Data', 0777, true);
   file_put_contents($root . '/ichiloto.json', '{"id":"constructor-geometry-fixture","format":1,"debug":{"skip_splash":true},"splash_screen":{"enabled":false}}');
   file_put_contents($root . '/assets/Data/save-compatibility.php', '<?php return ["contentVersion" => 0];');

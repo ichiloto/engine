@@ -9,6 +9,7 @@ use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Progression\ExperienceAwarder;
+use Ichiloto\Engine\Localization\Vocabulary;
 
 /**
  * Represents the turn resolution state.
@@ -26,6 +27,10 @@ class TurnResolutionState extends TurnState
 
     if (! $scene instanceof BattleScene) {
       return;
+    }
+
+    if ($context->getLivingTroopBattlers() !== [] && $context->partyRoster->promoteReservesAfterWipeout()) {
+      $this->engine->handlePartyRosterChange($context);
     }
 
     if (empty($context->getLivingPartyBattlers())) {
@@ -73,7 +78,10 @@ class TurnResolutionState extends TurnState
       unset($rewardItem);
       $rewardSummary = ['Enemies defeated' => (string)count($context->troop->members->toArray())];
       $goldReceived = $context->party->accountBalance - $goldBefore;
-      if ($goldReceived !== $gold) { $rewardSummary['Gold at capacity'] = (string)($gold - $goldReceived); }
+      if ($goldReceived !== $gold) {
+        $rewardSummary[get_message('battle.currency_at_capacity', '%1 at capacity',
+          Vocabulary::getTerm('currency.name', 'Gold'))] = (string)($gold - $goldReceived);
+      }
 
       $questManager = QuestManager::current();
       $gameScene = $context->game->sceneManager->findScene(GameScene::class);
@@ -85,12 +93,13 @@ class TurnResolutionState extends TurnState
       }
 
       $lines = [
-        sprintf('Experience gained: %d', $experience),
-        sprintf('Gold found: %dG', $gold),
+        get_message('obtained_exp', '%1 %2 obtained!', $experience, Vocabulary::getTerm('stats.exp', 'EXP')),
+        get_message('obtained_gold', '%1 %2 found!', $gold, Vocabulary::getTerm('currency.symbol', 'G')),
       ];
       $entries = [
-        ['label' => 'Experience gained:', 'value' => (string)$experience],
-        ['label' => 'Gold found:', 'value' => sprintf('%dG', $gold)],
+        ['label' => Vocabulary::getTerm('stats.exp', 'EXP') . ':', 'value' => (string)$experience],
+        ['label' => Vocabulary::getTerm('currency.name', 'Gold') . ':',
+          'value' => trim(sprintf('%d %s', $gold, Vocabulary::getTerm('currency.symbol', 'G')))],
       ];
 
       if (! empty($items)) {
@@ -106,10 +115,11 @@ class TurnResolutionState extends TurnState
       }
 
       foreach ($levelUps as $levelUp) {
-        $lines[] = sprintf('%s grew to level %d!', $levelUp->character->name, $levelUp->newLevel);
+        $lines[] = get_message('battle.level_gained', '%1 grew to %2 %3!', $levelUp->character->name,
+          Vocabulary::getTerm('stats.level', 'level'), $levelUp->newLevel);
         $entries[] = [
           'label' => sprintf('%s:', $levelUp->character->name),
-          'value' => sprintf('Level %d!', $levelUp->newLevel),
+          'value' => sprintf('%s %d!', Vocabulary::getTerm('stats.level', 'Level'), $levelUp->newLevel),
         ];
 
         foreach ($levelUp->learnedSkills() as $skillName) {

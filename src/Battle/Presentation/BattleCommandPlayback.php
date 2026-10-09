@@ -11,7 +11,7 @@ use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Throwable;
 
 /** Combat resolves once at impact; inspection and rendering are side-effect free. */
-final class BattleCommandPlayback
+final class BattleCommandPlayback implements BattleEffectPlayback
 {
   public readonly EffectPlaybackSession $session;
   private Closure $resolve;
@@ -24,13 +24,20 @@ final class BattleCommandPlayback
   private array $reactions = [];
   private array $reactionFrames = [];
   private ?int $impactFrame = null;
+  private float $elapsedSeconds = 0;
+  private bool $paused = false;
+  /** @var array<int, array{battler: \Ichiloto\Engine\Entities\Enemies\Enemy, start: float, cleared: bool}> */
+  private array $defeats = [];
 
-  public bool $isCompleted { get => $this->cancelled || $this->session->isCompleted; }
+  public bool $isCompleted { get => $this->cancelled || ($this->session->isCompleted
+    && !array_any($this->defeats, static fn(array $defeat): bool => !$defeat['cleared'])); }
+  public bool $isCancelled { get => $this->cancelled; }
 
   /** @param list<CharacterInterface> $targets */
   public function __construct(public readonly BattleCommandTimeline $plan,
     public readonly CharacterInterface $actor, public readonly array $targets,
-    public readonly BattlePoseRole $pose, callable $resolve, callable $presentCue)
+    public readonly BattlePoseRole $pose, callable $resolve, callable $presentCue,
+    public readonly EnemyDefeatStyle $defeatStyle = new EnemyDefeatStyle())
   {
     $this->session = new EffectPlaybackSession($plan->timeline, false);
     $this->resolve = Closure::fromCallable($resolve);
@@ -41,26 +48,57 @@ final class BattleCommandPlayback
 
   public function update(float $seconds): void
   {
+    if (!is_finite($seconds)) { throw new \InvalidArgumentException('Battle elapsed time must be finite.'); }
+    // A completed effect session cannot resume; the command still owns its defeat hold.
+    if ($this->paused || ($this->session->isPaused && !$this->session->isCompleted)) { return; }
     if ($this->isCompleted) { return; }
-    $update = $this->session->update($seconds);
+    $duration = $this->session->timing->durationSeconds;
+    $this->elapsedSeconds = min($duration + $this->defeatStyle->getDurationSeconds(),
+      $this->elapsedSeconds + max(0, $seconds));
+    $update = $this->session->update(min(max(0, $seconds), $duration));
     $this->dispatch($update->crossedCues);
     if ($this->session->isCompleted) { $this->resolveOnce(); }
+    foreach ($this->defeats as $identity => $defeat) {
+      if ($this->cancelled) { return; }
+      if (!$defeat['battler']->isKnockedOut) { unset($this->defeats[$identity]); continue; }
+      if (!$defeat['cleared'] && $this->elapsedSeconds >= $defeat['start'] + $this->defeatStyle->getDurationSeconds()) {
+        // Mark before delivery: a failed or reentrant audio sink is never retried.
+        $this->defeats[$identity]['cleared'] = true;
+        $this->presentCue(['type' => 'enemyDefeated', 'frame' => $this->session->currentFrame,
+          'payload' => ['target' => $defeat['battler']]]);
+      }
+    }
   }
 
   /** Abandonment removes visuals, never executes a command that has not hit. */
-  public function cancel(): void { $this->cancelled = true; }
-  public function pause(): void { $this->session->pause(); }
-  public function resume(): void { $this->session->resume(); }
+  public function cancel(): void { $this->cancelled = true; $this->defeats = []; }
+  public function pause(): void { $this->paused = true; $this->session->pause(); }
+  public function resume(): void { $this->paused = false; $this->session->resume(); }
+
+  public function beginEnemyDefeat(\Ichiloto\Engine\Entities\Enemies\Enemy $battler): void
+  {
+    if ($this->cancelled || !$battler->isKnockedOut
+      || ($battler !== $this->actor && !in_array($battler, $this->targets, true))) { return; }
+    $this->defeats[spl_object_id($battler)] ??= ['battler' => $battler,
+      'start' => $this->plan->phases['return']['start'] / BattleCommandTimeline::FPS, 'cleared' => false];
+  }
+
+  public function getEnemyDefeatTreatment(CharacterInterface $battler, bool $reducedMotion = false): ?array
+  {
+    $defeat = $this->defeats[spl_object_id($battler)] ?? null;
+    return $defeat === null || !$battler->isKnockedOut ? null
+      : $this->defeatStyle->getTreatment($this->elapsedSeconds - $defeat['start'], $reducedMotion);
+  }
 
   public function recordPresentationFailure(Throwable $failure): void
   {
     $this->presentationFailure ??= $failure;
   }
 
-  public function setReaction(CharacterInterface $battler, BattlePoseRole $role): void
+  public function setReaction(CharacterInterface $battler, BattlePoseRole $role, ?int $startFrame = null): void
   {
     $this->reactions[spl_object_id($battler)] = $role;
-    $this->reactionFrames[spl_object_id($battler)] = $this->impactFrame ?? $this->session->currentFrame;
+    $this->reactionFrames[spl_object_id($battler)] = $startFrame ?? $this->impactFrame ?? $this->session->currentFrame;
   }
 
   public function getPoseRole(CharacterInterface $battler): BattlePoseRole
@@ -94,7 +132,7 @@ final class BattleCommandPlayback
       $sourceFrame = $reducedMotion ? ($fallback->defaults['restFrame'] ?? 0)
         : min(max(0, (int)($fallback->defaults['lengthFrames'] ?? 1) - 1),
           $this->plan->terminalTiming->getFrameCountAt(($frame - $this->plan->phases['target']['start']) / BattleCommandTimeline::FPS));
-      foreach ($fallback->playbackSegments as $segment) {
+      foreach ($this->plan->terminalSegments as $segment) {
         if ($presentation->acceptsSegment($segment) && in_array($segment['layer'], ['glyph', 'text'], true)
           && $segment['startFrame'] <= $sourceFrame && $sourceFrame <= $segment['endFrame']) {
           $segments[] = $segment;
@@ -134,6 +172,7 @@ final class BattleCommandPlayback
     foreach ($this->getActiveSegments() as $segment) {
       if ($segment['layer'] !== 'shake') { continue; }
       foreach ($segment['drawCommands'] as $command) {
+        if (!($command['visible'] ?? true)) { continue; }
         $data = $command['payload'] ?? [];
         $matches = match ($data['anchor'] ?? 'target') {
           'caster' => $battler === $this->actor,

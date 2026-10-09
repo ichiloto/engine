@@ -33,20 +33,22 @@ final class DialogueCanvasPresentation
         $m = $theme->metrics;
         $compact = $width < 1000;
         $skit = $line->context->skitId !== null;
-        $margin = $compact ? 20 : ($skit ? 72 : 40);
+        $layout = new DialoguePageLayout($catalogue, $line->speaker, $line->context, $line->help, $width, $line->interactive);
+        $margin = $layout->margin;
         $padding = $m->panelPadding;
-        $speakerId = $catalogue->resolveSpeakerId($line->context->actorId, $line->speaker);
-        $portrait = !$skit && $line->speaker !== '' ? $catalogue->getArtwork($speakerId, $line->context->emotion, 'portrait') : null;
-        $gutter = $portrait === null ? 0 : ($compact ? 132 : 200);
+        $portrait = $layout->portrait;
+        $gutter = $layout->gutter;
         $textWidth = $width - 2 * ($margin + $padding) - $gutter;
-        $columns = (int)floor($textWidth / $m->cellWidth);
-        $textHeight = max($compact ? 2 : 3, count(MenuCanvas::wrap($line->page, $columns))) * $m->cellHeight;
+        $columns = $layout->columns;
+        if (count(MenuCanvas::wrap($line->page, $columns)) > $layout->proseRows) {
+            throw new RuntimeException('Dialogue page exceeds its fixed reading area; the owner must paginate it.');
+        }
+        $textHeight = $layout->proseRows * $m->cellHeight;
         $nameLines = $line->speaker === '' ? [] : MenuCanvas::wrap($line->speaker,
             (int)floor(($textWidth - 32) / $m->cellWidth));
         $nameHeight = count($nameLines) * $m->cellHeight + ($nameLines === [] ? 0 : 24);
-        $helpHeight = $line->help === '' ? 0 : count(MenuCanvas::wrap($line->help, $columns)) * $m->cellHeight + 8;
-        $footerHeight = $m->rowHeight + 12;
-        $bodyHeight = $textHeight + $helpHeight + 2 * $padding + $footerHeight;
+        $helpHeight = $layout->helpHeight;
+        $bodyHeight = $layout->bodyHeight;
         $bottom = $skit ? 24 : 28;
         $top = match ($skit ? WindowPosition::BOTTOM : $line->position) {
             WindowPosition::TOP => 32 + max(0, $nameHeight - 12),
@@ -59,11 +61,13 @@ final class DialogueCanvasPresentation
         $box = new CanvasRectangle($margin, $top, $width - 2 * $margin, $bodyHeight);
         $images = $skit ? SkitCanvasPresentation::renderStage($view, $line, $catalogue, $box, $supportsImageTone) : [];
         $view->frame('dialogue-body', $box, 'dialogue');
+        $view->protect($box);
         $x = $margin + $padding + $gutter;
         if ($nameLines !== []) {
             $nameWidth = min($textWidth, max(128, max(array_map(mb_strlen(...), $nameLines)) * $m->cellWidth + 32));
             $plate = new CanvasRectangle($x, $top - $nameHeight + 12, $nameWidth, $nameHeight);
             $view->frame('dialogue-nameplate', $plate, 'nameplate', 21);
+            $view->protect($plate);
             $view->prose('dialogue-speaker', $line->speaker,
                 new CanvasRectangle($x + 16, $plate->y + 12, $nameWidth - 32, $nameHeight - 24), 'focus', HorizontalAlignment::CENTER);
         }
@@ -73,6 +77,7 @@ final class DialogueCanvasPresentation
             $view->surface('dialogue-portrait-backing', new CanvasRectangle($dock->x + 8, $dock->y + 8,
                 $dock->width - 16, $dock->height - 16), 'panel', 20);
             $view->frame('dialogue-portrait-frame', $dock, 'portrait', 21);
+            $view->protect($dock);
             array_push($images, ...MenuIconRegistry::containAsset($theme->assetRoot, 'dialogue-portrait', $portrait,
                 new CanvasRectangle($dock->x + 8, $dock->y + 8, $dock->width - 16, $dock->height - 16), 22, $dock));
         }
@@ -81,39 +86,42 @@ final class DialogueCanvasPresentation
         $footerY = $top + $bodyHeight - $padding - $m->rowHeight;
         if ($line->help !== '') {
             $view->prose('dialogue-authored-help', $line->help,
-                new CanvasRectangle($x, $footerY - $helpHeight - 8, $textWidth, $helpHeight - 8), 'disabled');
+                new CanvasRectangle($x, $top + $padding + $textHeight, $textWidth, $helpHeight), 'disabled');
         }
-        $view->surface('dialogue-footer-rule', new CanvasRectangle($x, $footerY - 8, $textWidth, 1), 'edge', 20);
         if ($line->pageCount > 1) {
             $view->renderBorderCaption('dialogue-page', ($line->pageIndex + 1) . ' / ' . $line->pageCount,
                 new CanvasRectangle($x, $top + $bodyHeight - 20, $textWidth, 16));
         }
-        $bindings = new InputBindings();
-        $autoWidth = max(120, 9 * $m->cellWidth + 2 * $theme->rows->metrics->padding);
-        $view->rows('dialogue-auto', [new MenuRow('auto', 'Auto ' . ($line->auto ? 'On' : 'Off'), kind: MenuRowKind::BUTTON,
-            selected: $line->auto, showCursor: false)],
-            new MenuRowLayout(new CanvasRectangle($x, $footerY, $autoWidth, $m->rowHeight),
-                rowHeight: $m->rowHeight, cellWidth: $m->cellWidth, cellHeight: $m->cellHeight));
-        $autoHint = $bindings->controlForAction('dialogue_auto')?->label ?? 'Unbound';
-        $autoHintWidth = mb_strlen($autoHint) * $m->cellWidth;
-        $view->prose('dialogue-auto-hint', $autoHint,
-            new CanvasRectangle($x + $autoWidth + 8, $footerY, $autoHintWidth, $m->rowHeight), 'disabled');
-        $hint = $line->isPrinting ? 'Reveal' : 'Continue';
-        $label = ($bindings->controlForAction('confirm')?->label ?? 'Unbound') . ' ' . $hint;
-        $view->prose('dialogue-advance', $label,
-            new CanvasRectangle($x + $autoWidth + $autoHintWidth + 16, $footerY,
-                $textWidth - $autoWidth - $autoHintWidth - 40, $m->rowHeight),
-            'text', HorizontalAlignment::RIGHT);
-        if (!$line->isPrinting) {
-            $view->icon('dialogue-ready', 'navigation.continue', new CanvasRectangle($width - $margin - $padding - 18,
-                $footerY + ($m->rowHeight - 18) / 2, 18, 18));
+        if ($line->interactive) {
+            $view->surface('dialogue-footer-rule', new CanvasRectangle($x, $footerY - 8, $textWidth, 1), 'edge', 20);
+            $bindings = new InputBindings();
+            $autoWidth = max(120, 9 * $m->cellWidth + 2 * $theme->rows->metrics->padding);
+            $view->rows('dialogue-auto', [new MenuRow('auto', 'Auto ' . ($line->auto ? 'On' : 'Off'), kind: MenuRowKind::BUTTON,
+                selected: $line->auto, showCursor: false)],
+                new MenuRowLayout(new CanvasRectangle($x, $footerY, $autoWidth, $m->rowHeight),
+                    rowHeight: $m->rowHeight, cellWidth: $m->cellWidth, cellHeight: $m->cellHeight));
+            $autoHint = $bindings->controlForAction('dialogue_auto')?->label ?? 'Unbound';
+            $autoHintWidth = mb_strlen($autoHint) * $m->cellWidth;
+            $view->prose('dialogue-auto-hint', $autoHint,
+                new CanvasRectangle($x + $autoWidth + 8, $footerY, $autoHintWidth, $m->rowHeight), 'disabled');
+            $hint = $line->isPrinting ? 'Reveal' : 'Continue';
+            $label = ($bindings->controlForAction('confirm')?->label ?? 'Unbound') . ' ' . $hint;
+            $view->prose('dialogue-advance', $label,
+                new CanvasRectangle($x + $autoWidth + $autoHintWidth + 16, $footerY,
+                    $textWidth - $autoWidth - $autoHintWidth - 40, $m->rowHeight),
+                'text', HorizontalAlignment::RIGHT);
+            if (!$line->isPrinting) {
+                $view->icon('dialogue-ready', 'navigation.continue', new CanvasRectangle($width - $margin - $padding - 18,
+                    $footerY + ($m->rowHeight - 18) / 2, 18, 18));
+            }
         }
         $canvas = $view->finish();
         \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight::inspect([...$images, ...$canvas->images], $theme->assetRoot);
         // An ordinary dialogue has no whole-scene fill; skits own a full scene surface.
         $text = $skit ? $canvas->textLayers : array_values(array_filter($canvas->textLayers,
             static fn($layer) => $layer->id !== 'menu-background' && !str_starts_with($layer->id, 'menu-background-part-')));
-        return new PresentationCanvas($width, $height, [...$images, ...$canvas->images], textLayers: [...$text, $prose]);
+        return new PresentationCanvas($width, $height, [...$images, ...$canvas->images], textLayers: [...$text, $prose],
+            protectedAreas: $canvas->getOverlayProtection());
     }
 
     /** Wrap the completed page once, then reveal its prefix without moving partially typed words. */
@@ -127,7 +135,12 @@ final class DialogueCanvasPresentation
         foreach (explode("\n", MenuTextWrap::normalizeText($line->page)) as $paragraph) {
             foreach (MenuCanvas::wrap($paragraph, $columns) as $wrapped) {
                 $text = mb_substr($wrapped, 0, max(0, $remaining));
-                if ($text !== '') { $runs[] = new PresentationTextRun($row, 0, $text, $color); }
+                $column = match ($line->textAlignment) {
+                    HorizontalAlignment::LEFT => 0,
+                    HorizontalAlignment::CENTER => max(0, intdiv($columns - mb_strlen($wrapped), 2)),
+                    HorizontalAlignment::RIGHT => max(0, $columns - mb_strlen($wrapped)),
+                };
+                if ($text !== '') { $runs[] = new PresentationTextRun($row, $column, $text, $color); }
                 $remaining -= mb_strlen($wrapped);
                 $row++;
             }

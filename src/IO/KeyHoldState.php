@@ -24,6 +24,8 @@ final class KeyHoldState
   /** @var list<array{key: KeyCode, order: int}> Presses applied since beginUpdate(). */
   private array $pressed = [];
   private int $order = 0;
+  /** Presses at or before the last reset cannot survive in a consumer's pending intent. */
+  private int $resetThrough = 0;
 
   /** Start a new input update: previous press edges are no longer edges. */
   public function beginUpdate(): void
@@ -55,6 +57,7 @@ final class KeyHoldState
   {
     $this->held = [];
     $this->pressed = [];
+    $this->resetThrough = $this->order;
   }
 
   /** Consume only this update's press edges; controls stay held. */
@@ -89,5 +92,11 @@ final class KeyHoldState
   public function getLatestPressOrder(): int
   {
     return $this->order;
+  }
+
+  /** The last reset's cutoff; later presses in the same update remain fresh. */
+  public function getLatestResetPressOrder(): int
+  {
+    return $this->resetThrough;
   }
 }

@@ -70,6 +70,7 @@ final class CreditsMenuPresentation
     $text = new CanvasTextLayer('credits-roll', 30,
       $viewport->x + ($viewport->width - $columns * $m->cellWidth) / 2, $origin + $first * $m->cellHeight,
       new RendererGridConfig($columns, $end - $first, $m->cellWidth, $m->cellHeight), $runs, $viewport);
-    return new PresentationCanvas($base->width, $base->height, $base->images, $base->indicators, [...$base->textLayers, $text]);
+    return new PresentationCanvas($base->width, $base->height, $base->images, $base->indicators, [...$base->textLayers, $text],
+      $base->composites, [...$base->getOverlayProtection(), $viewport]);
   }
 }

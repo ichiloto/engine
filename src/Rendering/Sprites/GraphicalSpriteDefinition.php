@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Rendering\Sprites;
 
 use Ichiloto\Engine\Rendering\FieldViewport;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteAnchor;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot;
 use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 use InvalidArgumentException;
 
@@ -25,6 +26,7 @@ final readonly class GraphicalSpriteDefinition
     public ?SpriteSourceRect $sourceRect = null,
     public int $lift = 0,
     public int $quarterTurns = 0,
+    public ?PresentationSpritePivot $pivot = null,
   )
   {
     SpriteValidation::validateDefinition($asset, $width, $height, $layer);

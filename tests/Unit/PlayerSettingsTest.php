@@ -72,6 +72,24 @@ it('reloads every player-facing setting without rewriting authored project defau
     ->and($catalog->read('selection_color'))->toBe(Color::WHITE);
 });
 
+it('persists battle Off independently without changing doorway transitions or muted audio', function () {
+  $source = "<?php return ['ui' => ['transitions' => ['style' => 'none', 'battle' => true]], 'audio' => ['music' => false, 'sfx' => false]];\n";
+  file_put_contents($this->projectRoot . '/config.php', $source);
+  ConfigStore::put(PlayerSettings::class, new PlayerSettings($this->projectRoot));
+  ConfigStore::put(ProjectConfig::class, new ProjectConfig());
+  $catalogue = new SettingsCatalog();
+  expect($catalogue->read('battle_transitions'))->toBeTrue();
+  $catalogue->write('battle_transitions', false);
+  $catalogue->persist();
+  ConfigStore::put(PlayerSettings::class, new PlayerSettings($this->projectRoot));
+  ConfigStore::put(ProjectConfig::class, new ProjectConfig());
+  expect($catalogue->read('battle_transitions'))->toBeFalse()
+    ->and($catalogue->read('transitions'))->toBe(\Ichiloto\Engine\Rendering\Enumerations\TransitionStyle::NONE)
+    ->and(ConfigStore::get(ProjectConfig::class)->get('audio.music'))->toBeFalse()
+    ->and(ConfigStore::get(ProjectConfig::class)->get('audio.sfx'))->toBeFalse()
+    ->and(file_get_contents($this->projectRoot . '/config.php'))->toBe($source);
+});
+
 it('limits player overrides to settings owned by the shared catalog', function () {
   file_put_contents($this->projectRoot . '/config.php',
     "<?php return ['save' => ['autosave' => true], 'audio' => ['music' => true]];\n");

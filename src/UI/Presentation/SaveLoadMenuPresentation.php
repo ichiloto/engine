@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\UI\Presentation;
 
 use Ichiloto\Engine\IO\Saves\SaveSlot;
+use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\UI\Text\MenuInfoText;
@@ -17,9 +18,11 @@ final class SaveLoadMenuPresentation
   private const float DETAIL_WIDTH_SHARE = 0.7;
   /** @param list<SaveSlot> $slots */
   public static function compose(array $slots, int $activeIndex, MenuPresentationCatalog $theme,
-    MenuInfoText $info, ?string $status = null, float $time = 0, string $title = 'Continue',
-    string $prompt = 'Choose a save file to continue from.', string $statusColor = 'decrease'): PresentationCanvas
+    MenuInfoText $info, ?string $status = null, float $time = 0, ?string $title = null,
+    ?string $prompt = null, string $statusColor = 'decrease'): PresentationCanvas
   {
+    $title ??= Vocabulary::getTerm('game.load', Vocabulary::getTerm('game.continue', Vocabulary::getTerm('command.continue', 'Continue')));
+    $prompt ??= get_message('prompt.load', 'Choose a save file to continue from.');
     $view = new MenuCanvas($theme, time: $time);
     $box = MenuLayout::getBounds();
     $m = $theme->metrics;
@@ -59,7 +62,7 @@ final class SaveLoadMenuPresentation
       $edges = ($theme->frames['panel'] ?? null)?->borderInsets($theme->assetRoot, $card) ?? [4, 4, 4, 4];
       $treatment = new CanvasRectangle($card->x + $edges[0], $card->y + $edges[1],
         $card->width - $edges[0] - $edges[2], $card->height - $edges[1] - $edges[3]);
-      $view->prose($id . '-title', 'File ' . $slot->slot,
+      $view->prose($id . '-title', get_message('file', 'File') . ' ' . $slot->slot,
         new CanvasRectangle($card->x + $p, $card->y + 4, $card->width - 2 * $p, $m->cellHeight), 'accent');
       $identity = new MenuRow('location', $slot->isEmpty ? 'Empty File' : $slot->locationName,
         selected: $index === $activeIndex, focused: $index === $activeIndex);

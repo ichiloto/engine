@@ -3,13 +3,11 @@
 namespace Ichiloto\Engine\IO\Console;
 
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
-use RuntimeException;
 
 /** Row-local counterpart of the full reference projection; never reads other rows. */
 final class ConsolePresentationRowComposer
 {
-  private const int MAX_CACHED_CELLS = 4096;
-  private array $parsedCells = [];
+  private ?TerminalPresentationComposer $textComposer = null;
 
   /** @return array<string, list<PresentationTextRun>> */
   public function composeRow(int $row, int $width, array $world, array $entries, array $priorities,
@@ -67,7 +65,7 @@ final class ConsolePresentationRowComposer
     }
     $result = [];
     foreach ($planes as $id => $cells) {
-      $result[$id] = $this->createRuns($row, $cells);
+      $result[$id] = ($this->textComposer ??= new TerminalPresentationComposer())->createRunsForRow($row, $cells);
     }
     return $result;
   }
@@ -106,36 +104,4 @@ final class ConsolePresentationRowComposer
     return $column >= 0 ? $column : null;
   }
 
-  /** @return list<PresentationTextRun> */
-  private function createRuns(int $row, array $cells): array
-  {
-    ksort($cells, SORT_NUMERIC);
-    $runs = [];
-    $text = '';
-    $start = $previous = -1;
-    $style = ['foreground' => null, 'background' => null];
-    foreach ($cells as $x => $cell) {
-      if ($cell === NormalizedRow::CONTINUATION) {
-        $next = $previous === $x - 1 ? $style : ['foreground' => null, 'background' => null];
-        $glyph = ' ';
-      } else {
-        if (!isset($this->parsedCells[$cell])) {
-          if (preg_match('//u', $cell) !== 1) { throw new RuntimeException("Console row {$row} must contain valid UTF-8 text."); }
-          if (count($this->parsedCells) >= self::MAX_CACHED_CELLS) { unset($this->parsedCells[array_key_first($this->parsedCells)]); }
-          $this->parsedCells[$cell] = [SgrColorParser::parse($cell), TerminalText::rendererScalar($cell)];
-        }
-        [$next, $glyph] = $this->parsedCells[$cell];
-      }
-      if ($text !== '' && ($x !== $previous + 1 || $next != $style)) {
-        $runs[] = new PresentationTextRun($row, $start, $text, $style['foreground'], $style['background']);
-        $text = '';
-      }
-      if ($text === '') { $start = $x; }
-      $text .= $glyph;
-      $style = $next;
-      $previous = $x;
-    }
-    if ($text !== '') { $runs[] = new PresentationTextRun($row, $start, $text, $style['foreground'], $style['background']); }
-    return $runs;
-  }
 }

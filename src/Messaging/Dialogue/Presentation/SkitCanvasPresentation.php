@@ -39,6 +39,7 @@ final class SkitCanvasPresentation
         $titleHeight = ($titleLines + $locationLines) * $m->cellHeight + 24;
         $title = new CanvasRectangle(($view->width - $titleWidth) / 2, 24, $titleWidth, $titleHeight);
         $view->frame('skit-title-frame', $title, 'quiet');
+        $view->protect($title);
         $view->prose('skit-title', $context->skitTitle,
             new CanvasRectangle($title->x + 16, $title->y + 12, $titleWidth - 32, $titleLines * $m->cellHeight),
             'text', HorizontalAlignment::CENTER);
@@ -74,6 +75,7 @@ final class SkitCanvasPresentation
                 $images[] = new CanvasImage('skit-bust-' . $index, $asset,
                     new CanvasRectangle($x + ($slotWidth - $w) / 2, $stageBottom - $h, $w, $h), 5,
                     brightness: $active || !$supportsImageTone ? 1 : $catalogue->skitStage->inactiveBrightness);
+                $view->protect($images[array_key_last($images)]->destination);
             }
         }
         return $images;

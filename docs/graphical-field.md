@@ -53,6 +53,11 @@ editing surface is owned by the GUI Editor plan. Related docs:
 
 ## Characters
 
+- NPC visibility is reconciled at the field presentation boundary, including
+  while a story event still owns dialogue or waits after battle. The shared
+  field compositor redraws both sprite providers and terminal layers together,
+  preserving active overlays; a hidden NPC must not leave a fallback glyph.
+  Gameplay event-exit callbacks still wait for the event to release ownership.
 - Character art uses RPG Maker's character sheet layout: each character is
   3 frames by 4 directions (down, left, right, up) of 48 x 48 frames. A
   standard sheet holds 8 characters. As in RPG Maker, the leading `$` and
@@ -138,6 +143,51 @@ editing surface is owned by the GUI Editor plan. Related docs:
   in the terminal draws correctly graphically without a second pass; the
   terminal editor never asks for or shows the tiles. Collision still comes
   from the glyphs alone. A map offers the pieces of the tileset it names.
+- **Independent underlays.** A stamped piece may declare `keeps`, a list of
+  tile layers whose existing tiles remain beneath it, for example
+  `'keeps' => ['walls']` for a window that can sit on any wall material.
+  The shared `TilesetPiece` parser exposes this readonly list. Names must be
+  valid, distinct tile layer names and cannot also be layers the piece writes.
+  Omission means no retained layers. Nonempty `keeps` is refused on connected
+  pieces until their reshape/erase ownership is defined. Retention describes
+  graphical authoring only; gameplay footprint and collision still come from
+  glyphs. The Engine contract is implemented; the corresponding Editor
+  placement/coverage behavior and Game bindings are being integrated by their
+  owner, not implied by parsing this field alone.
+- **Piece cell styles.** Existing `glyphs` rows may use the same terminal
+  markup as map layers, for example `'<fg=green>ab</><fg=yellow>c</>'`.
+  Parsing uses shared `TerminalText` rules, including nested styles, ANSI,
+  background and truecolour. `TilesetPiece::grid` contains independently
+  renderable styled cells, just like `MapLayer::grid`; `glyphs` contains
+  only their plain symbols. Editors use the authored cell style when present
+  and keep their brush-style fallback for unstyled cells (`grid[y][x]` equals
+  `glyphs[y][x]`). Style does not change piece geometry, tiles, collision or
+  identity; even a styled space leaves the destination cell as it was.
+  These are derived presentation values, not extra authored metadata: keep
+  source-preserving edits in the original `glyphs` rows. Each cell must still
+  be one terminal cell wide; non-visible control characters are rejected.
+  `getSourceGrid()` is the source-writing counterpart: independent authored cells,
+  such as `'<info>a</info>'`, with the original tag spelling and grapheme bytes.
+  Row-spanning/nested wrappers are repeated around each cell, not reconstructed
+  from display ANSI. Plain cells remain plain. `TerminalText::getSourceSymbols`
+  owns this shared source projection. `TerminalText::parseSourceCells` returns
+  exact `{symbol, prefix, suffix}` parts for source-cell consumers, including
+  named closing tags and raw grapheme bytes. Editors use these parts in their
+  existing source-cell/transaction path rather than maintaining another style
+  parser or normalising named closers to `</>`. Keep brush fallback on unstyled
+  cells; styled spaces still do not stamp. Never write `grid` display ANSI as new source
+  or use concatenated source cells to rewrite the original piece rows.
+  Existing closing tags keep their spelling (including named closers);
+  missing per-cell closing boundaries are materialised. Authored legacy ANSI
+  stays ANSI source, never converted to markup; ordinary markup never gains
+  display escape codes. Fetch the source grid once per placement operation,
+  not once per cell or gameplay frame: this is an uncached authoring projection.
+  Source projection is requested separately from runtime display. It refuses
+  a row whose independent cells would change geometry or presentation (for
+  example some context-dependent mixtures of legacy ANSI and markup, or
+  formatter-escaped tag literals), before
+  producing cells. Runtime loading/display remains supported and unchanged;
+  editors must refuse that placement before a transaction writes anything.
 - **Connected pieces.** A piece with `'connects' => 'lines'`, such as a
   wall or fence, is drawn cell by cell and joins the cells of the same
   piece beside it. Its `glyphs` name one glyph for each shape (`horizontal`,
@@ -147,6 +197,15 @@ editing surface is owned by the GUI Editor plan. Related docs:
   Drawing or erasing a cell reshapes the cells of the piece beside it, which
   are recognised by their glyphs. A wall's tile can be an A4 wall top: the
   autotile shapes its own edges.
+  Connected shape strings may carry styles too: `shapeGrid` exposes each
+  styled display cell while `shapes` stays plain. Membership and distinct-shape
+  validation compare plain symbols, so recolouring a cell cannot disconnect
+  it and differently coloured copies of one symbol cannot be different
+  shapes. Blank shapes, including styled spaces, are rejected. The connected
+  piece's one-cell `grid`/`glyphs` uses its corner shape.
+  `getSourceShapeGrid()` retains each authored shape string; the one-cell
+  `getSourceGrid()` uses its authored corner. Source spelling never changes plain
+  connected membership, collision or graphical tile entries.
 - **Map graphics.** A map names its tileset in its data file
   (`'tileset' => 'interior'`, like RPG Maker's map properties). Tilesets are
   grouped by kind of setting, such as interiors, and shared by every map of
@@ -161,6 +220,25 @@ editing surface is owned by the GUI Editor plan. Related docs:
   quarters by the shape its neighbouring cells give it, exactly as RPG Maker
   composes a tile from its neighbouring tiles. A wall one column thick is
   one tile wide, with both its edges.
+- **Floor source corners.** A floor autotile block is two tiles wide and
+  three tiles high. Its upper-left tile is the isolated preview; its
+  upper-right four quarters are inward (concave) corners, not four miniature
+  isolated tiles. The bottom two tile rows supply outer edges and interior
+  quarters. `TileComposer` lists source quarters in destination order: top
+  left, top right, bottom left, bottom right. `AutotileShape` chooses them
+  independently for each tile layer, joining only the same kind on that
+  layer. Check assembled concave, convex, stair-step and junction shapes,
+  not just the atlas preview, when preparing replacement artwork.
+- **Transparent terrain boundaries.** Transparent edge and corner pixels
+  reveal already-drawn lower tile layers; they do not sample neighbouring
+  materials or acquire a ground colour automatically. Author a continuous
+  opaque substrate beneath transparent terrain overlays wherever ground
+  should remain visible. Two different transparent autotile kinds placed
+  side by side on one layer do not provide backing for each other's edges.
+  Substrate selection and coverage belong to the game's graphical map data
+  and reusable pieces, not terminal glyphs, collision or renderer defaults.
+  Intentional voids remain empty. Material changes and inner-corner alpha
+  must be inspected together in the composed result.
 - **Layer offsets.** The map data may shift a whole tile layer by half a
   field cell (half a tile) across or down, like a Tiled layer offset:
   `'tileLayers' => ['lounge' => ['offset' => [0, -0.5]]]`. Art can then sit

@@ -253,7 +253,7 @@ it('only supplies ATB when the status window owns an ATB layout and keeps four r
   $snapshot = $window->presentationSnapshot();
   expect(array_column($snapshot->rows, 'atbRatio'))->toBe([0.5, 1.0, 0.0, 0.0])
     ->and($snapshot->title)->toBe($window->getTitle())
-    ->and($snapshot->title)->toContain('ATB')
+    ->and($snapshot->title)->toContain('Time')->not->toContain('ATB')
     ->and($window->recordedState())->toBe($before);
   $window->clearAtbPercentages();
   expect(array_column($window->presentationSnapshot()->rows, 'atbRatio'))->toBe([null, null, null, null]);

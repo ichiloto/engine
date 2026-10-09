@@ -10,6 +10,10 @@ use InvalidArgumentException;
 
 final readonly class RendererRuntimeConfig
 {
+  /** The GPUI field text grid; the independent map ground cells retain their authored size. */
+  public const int GPUI_CELL_WIDTH = 10;
+  public const int GPUI_CELL_HEIGHT = 20;
+
   public string $assetRoot;
 
   /** @param list<string> $requiredCapabilities */

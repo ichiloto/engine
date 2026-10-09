@@ -77,6 +77,8 @@ class BattleScreen implements CanRender, CanUpdate
       return $this->battleScene->party ?? throw new RuntimeException('The party is not set in the battle scene.');
     }
   }
+  /** @var list<CharacterInterface> */
+  public array $partyBattlers { get => $this->battleScene->partyBattlers; }
   /**
    * @var Troop The troop in the battle scene.
    */
@@ -191,6 +193,9 @@ class BattleScreen implements CanRender, CanUpdate
   protected function initializeWindows(): void
   {
     $this->fieldWindow = new BattleFieldWindow($this);
+    $this->fieldWindow->setConditionEffects(\Ichiloto\Engine\Battle\Presentation\BattleConditionEffects::createFromConfig(
+      new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary(
+        $this->battleScene->getGame()->getRendererRuntime()?->getAssetRoot() ?? getcwd() . '/assets')));
     $this->messageWindow = new BattleMessageWindow($this);
     $this->commandWindow = new BattleCommandWindow($this);
     $this->commandContextWindow = new BattleCommandContextWindow($this);

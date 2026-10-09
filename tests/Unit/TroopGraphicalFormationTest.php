@@ -80,6 +80,26 @@ it('does not infer placements from terminal coordinates when optional graphical 
   expect($troop->getGraphicalSlot($troop->members[0]))->toBeNull();
 });
 
+it('loads optional authored slot depth without changing terminal positions or old default slots', function () {
+  $placement = ['x' => 260, 'y' => 300, 'width' => 275, 'height' => 190];
+  $troop = Troop::fromArray(['name' => 'Depth', 'enemies' => [
+    ['enemy' => 'Twin', 'position' => [15, 7], 'graphicalPlacement' => $placement],
+    ['enemy' => 'Twin', 'position' => [50, 20], 'graphicalPlacement' => [...$placement, 'displayScale' => 1.05]],
+  ]]);
+  expect($troop->getGraphicalSlot($troop->members[0])->displayScale)->toBe(1.0)
+    ->and($troop->getGraphicalSlot($troop->members[1])->displayScale)->toBe(1.05)
+    ->and([$troop->members[0]->position->x, $troop->members[0]->position->y])->toBe([15.0, 7.0])
+    ->and([$troop->members[1]->position->x, $troop->members[1]->position->y])->toBe([50.0, 20.0]);
+  $restored = unserialize(serialize($troop));
+  expect($restored->getGraphicalSlot($restored->members[1])->displayScale)->toBe(1.05);
+});
+
+it('refuses malformed optional slot depth with source context', function (mixed $scale) {
+  expect(fn() => BattlerSlot::fromArray(['x' => 260, 'y' => 300, 'width' => 275, 'height' => 190,
+    'displayScale' => $scale], 'synthetic placement'))
+    ->toThrow(InvalidArgumentException::class, 'synthetic placement');
+})->with([['1.05'], [null], [false], [0.0], [-1.0], [INF], [NAN], [64.1]]);
+
 it('copies authored slots without retaining mutable array references', function () {
   $enemy = ConfigStore::get(EnemyStore::class)->get('Twin');
   $slot = new BattlerSlot(350, 400, 100, 100);

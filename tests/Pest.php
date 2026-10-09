@@ -40,6 +40,13 @@ uses()->beforeEach(function () {
     Ichiloto\Engine\IO\Console\TerminalCapabilities::reset();
 })->in(__DIR__);
 
+uses()->afterEach(function () {
+    cleanUpTestDirectories();
+})->in(__DIR__);
+
+// Fatal process exits cannot run per-test teardown.
+register_shutdown_function('cleanUpTestDirectories');
+
 /*
 |--------------------------------------------------------------------------
 | Expectations
@@ -65,6 +72,41 @@ expect()->extend('toBeOne', function () {
 | global functions to help you to reduce the number of lines of code in your test files.
 |
 */
+
+/** Creates a fixture directory owned by the current test's teardown. */
+function createTestDirectory(string $prefix): string
+{
+    $root = sys_get_temp_dir() . DIRECTORY_SEPARATOR . uniqid($prefix, true);
+    mkdir($root, 0700, true);
+    $GLOBALS['ichilotoTestDirectories'][$root] = $root;
+
+    return $root;
+}
+
+/** Removes registered fixtures, including when a test fails before its last line. */
+function cleanUpTestDirectories(): void
+{
+    foreach ($GLOBALS['ichilotoTestDirectories'] ?? [] as $root) {
+        if (! is_dir($root) || is_link($root)) {
+            continue;
+        }
+
+        $files = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::CHILD_FIRST,
+        );
+
+        foreach ($files as $file) {
+            $file->isDir() && ! $file->isLink()
+                ? rmdir($file->getPathname())
+                : unlink($file->getPathname());
+        }
+
+        rmdir($root);
+    }
+
+    $GLOBALS['ichilotoTestDirectories'] = [];
+}
 
 /**
  * Creates a lightweight scene stub for camera-oriented unit tests.
@@ -153,7 +195,7 @@ function makeCameraTestScene(): SceneInterface
  */
 function writeTestMaps(array $maps): string
 {
-  $root = sys_get_temp_dir() . DIRECTORY_SEPARATOR . uniqid('ichiloto-region-', true);
+  $root = createTestDirectory('ichiloto-region-');
 
   foreach ($maps as $id => $map) {
     $directory = $root . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $id);

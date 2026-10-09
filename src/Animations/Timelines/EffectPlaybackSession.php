@@ -43,12 +43,13 @@ class EffectPlaybackSession
     ?bool $loop = null,
     ?float $speed = null,
     ?float $secondsPerFrame = null,
+    ?float $phaseDurationSeconds = null,
   )
   {
     $playback = is_array($timeline->defaults['playback'] ?? null)
       ? $timeline->defaults['playback']
       : [];
-    $this->timing = new EffectPlaybackTiming($timeline, $speed, $secondsPerFrame);
+    $this->timing = new EffectPlaybackTiming($timeline, $speed, $secondsPerFrame, $phaseDurationSeconds);
     $this->totalFrames = $this->timing->totalFrames;
     $this->fps = $this->timing->fps;
     $this->effectiveSpeed = $this->timing->effectiveSpeed;

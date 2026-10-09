@@ -158,6 +158,22 @@ it('draws a screen-anchored image once instead of once per target', function () 
     ->toBe(['x' => 216.0, 'y' => 116.0, 'width' => 48.0, 'height' => 48.0]);
 });
 
+it('diagnoses an omitted subject ground point without changing command resolution', function () {
+  $data = battleImageEffectData('target');
+  $data['tracks'][0]['attachment'] = 'ground';
+  $data['tracks'][0]['pivot'] = ['x' => .5, 'y' => .75];
+  $effect = $this->library->compile('spark', $data, true);
+  $hits = 0;
+  $playback = new BattleCommandPlayback(new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1),
+    target: $effect), $this->actor, $this->targets, BattlePoseRole::MAGIC,
+    function () use (&$hits) { $hits++; }, static fn() => null);
+  $playback->update($playback->plan->phases['target']['start'] / 120);
+  $canvas = GraphicalBattleEffects::compose($playback, $this->layout, $this->bounds, $this->root, false, groundAnchors: []);
+  expect($canvas->images)->toBeEmpty()->and($playback->presentationFailure)->not->toBeNull()->and($hits)->toBe(0);
+  $playback->update(10);
+  expect($hits)->toBe(1)->and($playback->isCompleted)->toBeTrue();
+});
+
 it('supports bounded glyph flash and shake tracks without enabling gameplay cues in ambient effects', function () {
   $data = ['fps' => 10, 'lengthFrames' => 3, 'tracks' => [
     ['id' => 'spark', 'type' => 'glyph', 'anchor' => 'caster', 'keyframes' => [['frame' => 0, 'duration' => 3, 'content' => '*']]],
@@ -173,6 +189,61 @@ it('supports bounded glyph flash and shake tracks without enabling gameplay cues
   $calm = GraphicalBattleEffects::compose($playback, $this->layout, $this->bounds, $this->root, true);
   expect($normal->textLayers)->toHaveCount(5)->and($normal->textLayers[0]->runs[0]->text)->toBe('*')
     ->and($calm->textLayers)->toHaveCount(1)->and($playback->getShakeFraction($this->targets[0], false))->not->toBe(0.0);
+});
+
+it('honors shake visibility and anchors on the paused command playhead without hiding impact', function (string $anchor, string $stage) {
+  $effect = $this->library->compile('shake-visibility', ['fps' => 10, 'lengthFrames' => 3, 'tracks' => [[
+    'id' => 'shake', 'type' => 'shake', 'anchor' => $anchor,
+    'keyframes' => array_map(static fn(int $frame): array => ['frame' => $frame, 'visible' => $frame === 1,
+      'payload' => ['amplitude' => 2]], range(0, 2)),
+  ]], 'cues' => [['id' => 'impact', 'type' => 'applyEffect', 'frame' => 2]]], true);
+  $hits = 0;
+  $playback = new BattleCommandPlayback(new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1),
+    source: $stage === 'source' ? $effect : null, target: $stage === 'target' ? $effect : null),
+    $this->actor, [...$this->targets, $this->targets[0]], BattlePoseRole::MAGIC,
+    function () use (&$hits) { $hits++; }, static fn() => null);
+  $unrelated = new Character('Twin', 1, new Stats(currentHp: 100, totalHp: 100));
+  $subjects = [$this->actor, ...$this->targets, $unrelated];
+  $previous = 0;
+  foreach ([3 => false, 15 => true, 27 => false] as $tick => $visible) {
+    $at = $playback->plan->phases[$stage]['start'] + $tick;
+    $playback->update(($at - $previous) / BattleCommandTimeline::FPS);
+    $previous = $at;
+    expect($playback->phase)->toBe($stage)->and($playback->session->currentFrame)->toBe($at)
+      ->and($hits)->toBe($stage === 'target' && $tick >= 24 ? 1 : 0);
+    foreach ($subjects as $subject) {
+      $affected = match ($anchor) {
+        'caster' => $subject === $this->actor,
+        'target' => in_array($subject, $this->targets, true),
+        'screen' => true,
+      };
+      $offset = $playback->getShakeFraction($subject, false);
+      expect(abs($offset) > 0)->toBe($visible && $affected)
+        ->and(abs($offset))->toBeLessThanOrEqual(.2)
+        ->and($playback->getShakeFraction($subject, true))->toBe(0.0)
+        ->and($subject->stats->currentHp)->toBe(100);
+      $playback->pause();
+      $playback->update(5);
+      expect($playback->getShakeFraction($subject, false))->toBe($offset)
+        ->and($playback->session->currentFrame)->toBe($at);
+      $playback->resume();
+    }
+  }
+  $playback->update(10);
+  expect($hits)->toBe(1)->and($playback->isCompleted)->toBeTrue()
+    ->and($playback->getShakeFraction($this->actor, false))->toBe(0.0);
+})->with(['caster', 'target', 'screen'])->with(['source', 'target']);
+
+it('keeps terminal-only shake tracks out of graphical battler motion', function () {
+  $effect = $this->library->compile('terminal-shake', ['fps' => 10, 'lengthFrames' => 3, 'tracks' => [[
+    'id' => 'shake', 'type' => 'shake', 'presentation' => 'terminal',
+    'keyframes' => [['frame' => 0, 'duration' => 3, 'payload' => ['amplitude' => 2]]],
+  ]]], true, EffectPresentation::TERMINAL);
+  $playback = new BattleCommandPlayback(new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1),
+    target: $effect), $this->actor, $this->targets, BattlePoseRole::MAGIC, static fn() => null, static fn() => null);
+  $playback->update(($playback->plan->phases['target']['start'] + 3) / BattleCommandTimeline::FPS);
+  expect($playback->getActiveSegments(false, true))->toHaveCount(1)
+    ->and($playback->getShakeFraction($this->targets[0], false))->toBe(0.0);
 });
 
 it('masks target flashes to each current pose instead of painting rectangular battler washes', function () {
@@ -236,10 +307,12 @@ it('shares concurrent flash and reaction tints per recipient within the canvas c
     }, static fn() => null);
   $playback->update($playback->plan->phases['target']['start'] / 120);
   $frame = GraphicalBattleEffects::compose($playback, $this->layout, $bounds, $this->root, false, $images);
-  expect($frame->composites)->toHaveCount(5)->and($frame->textLayers)->toBeEmpty()->and($hits)->toBe(1);
-  foreach ($frame->composites as $tint) {
-    expect($tint->operations)->toHaveCount(2)
-      ->and(array_column(array_column($tint->operations, 'data'), 'opacity'))->toBe([.22, .16]);
+  expect($frame->composites)->toHaveCount(1)->and($frame->composites[0]->operations)->toHaveCount(10)
+    ->and($frame->textLayers)->toBeEmpty()->and($hits)->toBe(1);
+  foreach (array_chunk($frame->composites[0]->operations, 2) as $index => $operations) {
+    expect(array_column(array_column($operations, 'data'), 'opacity'))->toBe([.22, .16])
+      ->and($operations[0]->data['destination']['x'])->toBe($index * 80.0)
+      ->and($operations[1]->data['masks'][0]['destination'])->toBe($operations[0]->data['destination']);
   }
   $calm = GraphicalBattleEffects::compose($playback, $this->layout, $bounds, $this->root, true, $images);
   expect($calm->composites)->toBeEmpty()->and($hits)->toBe(1)->and($playback->presentationFailure)->toBeNull();
@@ -261,12 +334,83 @@ it('does not load a timeline symlink outside its asset root', function () {
   finally { unlink($outside); }
 });
 
+it('retains every recipient and effect when group tinting exceeds the per-image surface count', function (bool $reduced) {
+  $effect = $this->library->compile('group-impact', ['fps' => 10, 'lengthFrames' => 10, 'tracks' => [
+    ['id' => 'flash', 'type' => 'flash', 'keyframes' => [['frame' => 0, 'duration' => 10, 'color' => 'white']]],
+    ['id' => 'impact', 'type' => 'image', 'asset' => 'spark.png', 'sheet' => ['columns' => 2, 'rows' => 1],
+      'cells' => ['width' => 1, 'height' => 1], 'keyframes' => [['frame' => 0, 'duration' => 10, 'sourceFrame' => 1]]],
+  ], 'cues' => [['id' => 'hit', 'type' => 'applyEffect', 'frame' => 0]],
+    'effectTiming' => ['mode' => 'cue', 'cueId' => 'hit']], true);
+  $recipients = $images = $bounds = [];
+  foreach (range(0, 11) as $index) {
+    $recipient = $recipients[] = new Character('Twin', 1, new Stats(currentHp: 100, totalHp: 100));
+    $identity = spl_object_id($recipient);
+    $bounds[$identity] = new CanvasRectangle(($index % 6) * 70 + .25, intdiv($index, 6) * 100 + .5, 48, 96);
+    $images[$identity] = new CanvasImage('pose-' . $identity, 'spark.png', $bounds[$identity], 100,
+      new SpriteSourceRect(8, 0, 8, 2));
+  }
+  $hits = 0;
+  $playback = null;
+  $playback = new BattleCommandPlayback(new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1),
+    target: $effect), $this->actor, $recipients, BattlePoseRole::ATTACK,
+    function () use (&$hits, &$playback, $recipients) {
+      $hits++;
+      foreach ($recipients as $recipient) { $playback->setReaction($recipient, BattlePoseRole::DAMAGE); }
+    }, static fn() => null);
+  $playback->update($playback->plan->phases['target']['start'] / 120);
+  $frame = GraphicalBattleEffects::compose($playback, $this->layout, $bounds, $this->root, $reduced, $images);
+  expect($frame->images)->toHaveCount(12)->and($hits)->toBe(1)->and($playback->presentationFailure)->toBeNull();
+  if ($reduced) { expect($frame->composites)->toBeEmpty(); }
+  else {
+    expect($frame->composites)->toHaveCount(1)->and($frame->composites[0]->operations)->toHaveCount(24);
+    foreach ($frame->composites[0]->operations as $index => $operation) {
+      expect($operation->data['masks'][0]['source']['x'])->toBe(.5)
+        ->and($operation->data['destination']['width'])->toBe(48.0)
+        ->and($operation->data['destination']['x'])->toBe((intdiv($index, 2) % 6) * 70 + .25);
+    }
+    // A batching surface must not protect its empty gaps as if they were art.
+    expect(\Ichiloto\Engine\Messaging\Notifications\Presentation\NotificationPlacement::isClear(
+      new CanvasRectangle(49, 1, 20, 80), $frame->getOverlayProtection()))->toBeTrue();
+  }
+  $playback->update(100);
+  $finished = GraphicalBattleEffects::compose($playback, $this->layout, $bounds, $this->root, $reduced, $images);
+  expect($finished->images)->toBeEmpty()->and($finished->composites)->toBeEmpty()->and($hits)->toBe(1);
+})->with([false, true]);
+
 it('refuses overlapping non-image keyframes before they can produce duplicate canvas identities', function () {
   $data = ['fps' => 10, 'lengthFrames' => 4, 'tracks' => [['id' => 'overlap', 'type' => 'text',
     'keyframes' => [['frame' => 0, 'duration' => 3, 'content' => 'old'], ['frame' => 2, 'content' => 'new']]]]];
   expect(fn() => $this->library->compile('overlap', $data, true))
     ->toThrow(InvalidArgumentException::class, 'overlapping keyframes');
 });
+
+it('omits only optional tints when faded surfaces exceed the shared raster count', function (bool $reduced) {
+  $effect = $this->library->compile('faded-impact', ['fps' => 10, 'lengthFrames' => 10, 'tracks' => [
+    ['id' => 'flash', 'type' => 'flash', 'keyframes' => [['frame' => 0, 'duration' => 10, 'color' => 'white']]],
+    ['id' => 'impact', 'type' => 'image', 'asset' => 'spark.png', 'sheet' => ['columns' => 2, 'rows' => 1],
+      'keyframes' => [['frame' => 0, 'duration' => 10, 'sourceFrame' => 1]]],
+  ]], true);
+  $recipients = $images = $bounds = [];
+  foreach (range(0, 8) as $index) {
+    $recipient = $recipients[] = new Character('Twin', 1, new Stats(currentHp: 100, totalHp: 100));
+    $identity = spl_object_id($recipient);
+    $bounds[$identity] = new CanvasRectangle($index * 48, 40, 32, 48);
+    $images[$identity] = new CanvasImage('pose-' . $identity, 'spark.png', $bounds[$identity], 100,
+      new SpriteSourceRect(8, 0, 8, 2), opacity: .4);
+  }
+  $hits = 0;
+  $playback = new BattleCommandPlayback(new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1),
+    target: $effect), $this->actor, $recipients, BattlePoseRole::ATTACK,
+    function () use (&$hits) { $hits++; }, static fn() => null);
+  $playback->update($playback->plan->phases['target']['start'] / 120 + .01);
+  $frame = GraphicalBattleEffects::compose($playback, $this->layout, $bounds, $this->root, $reduced, $images);
+  expect($frame->images)->toHaveCount(9)->and($frame->composites)->toBeEmpty();
+  if ($reduced) { expect($playback->presentationFailure)->toBeNull(); }
+  else { expect($playback->presentationFailure?->getMessage())->toContain('at most 8 entries'); }
+  $playback->update(100);
+  $playback->update(100);
+  expect($hits)->toBe(1)->and($playback->isCompleted)->toBeTrue();
+})->with([false, true]);
 
 it('honors clear-before-draw and authored depth in both presenters', function () {
   $data = ['fps' => 10, 'lengthFrames' => 3, 'tracks' => [

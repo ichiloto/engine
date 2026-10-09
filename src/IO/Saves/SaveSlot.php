@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\IO\Saves;
 
+use Ichiloto\Engine\Localization\Vocabulary;
+
 /**
  * Describes a save slot shown in save/load menus.
  *
@@ -86,7 +88,7 @@ readonly class SaveSlot
       return '';
     }
 
-    return sprintf('%s Lv %d', $this->leaderName, $this->leaderLevel);
+    return sprintf('%s %s %d', $this->leaderName, Vocabulary::getTerm('stats.level', 'Lv'), $this->leaderLevel);
   }
 
   /**

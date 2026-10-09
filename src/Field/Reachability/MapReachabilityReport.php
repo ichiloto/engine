@@ -46,7 +46,7 @@ final readonly class MapReachabilityReport
     return false;
   }
 
-  /** Whether the player can speak to the NPC on a cell, beside it or across counters. */
+  /** Whether the player can speak to the NPC on a cell, beside it or across one counter cell. */
   public function canSpeakTo(int $x, int $y): bool
   {
     return isset($this->spokenToCells["{$x},{$y}"]);

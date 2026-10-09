@@ -13,9 +13,11 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Rendering\FieldViewport;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageFit;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteAnchor;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteMotion;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot;
 use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
 
@@ -96,12 +98,15 @@ final class FieldEffectSession
         if ($segment['layer'] !== 'image' || !($command['visible'] ?? true)) { continue; }
         $data = $command['payload'];
         $source = $data['sourceFrame'];
+        $size = CanvasImageFit::parse($data['fit'] ?? 'stretch')->getSize($data['frameWidth'], $data['frameHeight'],
+          $data['cells']['width'] * FieldViewport::TILE_SIZE, $data['cells']['height'] * FieldViewport::TILE_SIZE);
         $definition = new GraphicalSpriteDefinition($command['assetId'],
-          $data['cells']['width'] * FieldViewport::TILE_SIZE, $data['cells']['height'] * FieldViewport::TILE_SIZE,
+          max(1, (int)round($size['width'])), max(1, (int)round($size['height'])),
           PresentationSpriteAnchor::BOTTOM_CENTER,
           $data['depth'] === 'behind' ? PresentationLayerPolicy::FIELD_EFFECT_BEHIND : PresentationLayerPolicy::FIELD_EFFECT_FRONT,
           new SpriteSourceRect(($source % $data['columns']) * $data['frameWidth'],
-            intdiv($source, $data['columns']) * $data['frameHeight'], $data['frameWidth'], $data['frameHeight']));
+            intdiv($source, $data['columns']) * $data['frameHeight'], $data['frameWidth'], $data['frameHeight']),
+          pivot: isset($data['pivot']) ? PresentationSpritePivot::fromArray($data['pivot']) : null);
         $offset = $command['position'] ?? ['x' => 0, 'y' => 0];
         $sprites[] = new FieldEffectSprite($this->id . ':' . $command['trackId'], $definition,
           new Vector2($position->x + $offset['x'], $position->y + $offset['y']), $motion);

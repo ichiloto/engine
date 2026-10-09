@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States;
 
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Turn;
+use Ichiloto\Engine\Battle\BattlePartyRoster;
 use Ichiloto\Engine\Battle\UI\BattleScreen;
 use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
 use Ichiloto\Engine\Core\Game;
@@ -20,6 +21,7 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
 class TurnStateExecutionContext
 {
   private ?EffectTimelineLibrary $effectTimelines = null;
+  public readonly BattlePartyRoster $partyRoster;
   /**
    * @var int The 1-based battle round, advanced at each round's init.
    */
@@ -47,9 +49,14 @@ class TurnStateExecutionContext
     protected(set) Party $party,
     protected(set) Troop $troop,
     protected(set) BattleScreen $ui,
-    protected(set) array $args
+    protected(set) array $args,
+    ?BattlePartyRoster $partyRoster = null,
   )
   {
+    if ($partyRoster !== null && $partyRoster->party !== $party) {
+      throw new \InvalidArgumentException('The turn roster must belong to this party.');
+    }
+    $this->partyRoster = $partyRoster ?? new BattlePartyRoster($party);
   }
 
   /**
@@ -136,7 +143,7 @@ class TurnStateExecutionContext
   public function getLivingPartyBattlers(): array
   {
     return array_values(array_filter(
-      $this->party->battlers->toArray(),
+      $this->partyRoster->battlers,
       fn(CharacterInterface $battler) => ! $battler->isKnockedOut
     ));
   }
@@ -177,7 +184,7 @@ class TurnStateExecutionContext
    */
   public function getLivingOpponents(CharacterInterface $battler): array
   {
-    $partyBattlers = $this->party->battlers->toArray();
+    $partyBattlers = $this->partyRoster->battlers;
     $isPartyBattler = in_array($battler, $partyBattlers, true);
 
     return $isPartyBattler

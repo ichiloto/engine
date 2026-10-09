@@ -63,6 +63,11 @@ final class PlayerWalk
    */
   public function update(float $deltaSeconds, Closure $step): void
   {
+    $resetThrough = InputManager::getLatestResetPressOrder();
+    if ($resetThrough > $this->staleThrough) {
+      // A reset also invalidates a tap and clock retained outside InputManager.
+      $this->cancelThrough($resetThrough);
+    }
     $inputUpdate = InputManager::getInputUpdateCount();
     if ($this->lastInputUpdate !== null && $inputUpdate !== $this->lastInputUpdate + 1) {
       $this->cancel();
@@ -101,9 +106,14 @@ final class PlayerWalk
   /** Stop walking and treat every press so far as stale. */
   public function cancel(): void
   {
+    $this->cancelThrough(InputManager::getLatestPressOrder());
+  }
+
+  private function cancelThrough(int $order): void
+  {
     $this->remaining = 0.0;
     $this->tap = null;
-    $this->staleThrough = InputManager::getLatestPressOrder();
+    $this->staleThrough = $order;
     $this->cancellations++;
   }
 

@@ -52,7 +52,6 @@ final class CinematicController implements EventSessionCompletionTargetInterface
         $cinematic->cast,
         static fn(array $entry): bool =>
           strtolower(strval($entry['kind'] ?? 'staged_actor')) === 'staged_actor'
-          && (isset($entry['sprite']) || isset($entry['asset']))
       ));
       $this->gameScene->cinematicStage?->configure($staged);
       $session = $this->gameScene->eventInterpreter?->runCinematic($cinematic, $this);

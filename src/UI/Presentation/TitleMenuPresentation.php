@@ -23,6 +23,7 @@ final class TitleMenuPresentation
     $bounds = new CanvasRectangle(0, 0, PresentationCanvas::DEFAULT_WIDTH, PresentationCanvas::DEFAULT_HEIGHT);
     $images = [];
     $composites = [];
+    $protected = [];
     $mix = $playback->nightWeight;
     foreach (['day' => 1.0, 'night' => $mix] as $name => $opacity) {
       if ($opacity <= 0 || ($name === 'day' && $mix >= 1)) { continue; }
@@ -44,11 +45,13 @@ final class TitleMenuPresentation
         if ($image !== null) {
           $images[] = new CanvasImage($image->id, $image->asset, $image->destination, $layer + 1,
             $image->sourceRect, $image->opacity, $image->clipRect);
+          $protected[] = $image->clipRect ?? $image->destination;
         }
       }
     }
     CanvasImagePreflight::inspect($images, $catalog->assetRoot, $composites);
-    $base = new PresentationCanvas(PresentationCanvas::DEFAULT_WIDTH, PresentationCanvas::DEFAULT_HEIGHT, $images, composites: $composites);
+    $base = new PresentationCanvas(PresentationCanvas::DEFAULT_WIDTH, PresentationCanvas::DEFAULT_HEIGHT, $images,
+      composites: $composites, protectedAreas: $protected);
     if (!$showMenu) { return $base; }
     [$x, $y, $width] = $catalog->logoPlacement;
     $size = PngAssetPreflight::getAvailableSize($catalog->assetRoot, $catalog->logo);
@@ -62,11 +65,13 @@ final class TitleMenuPresentation
       }
       $opacity = $playback->entryOpacity;
       $logo = new CanvasImage('title-logo', $catalog->logo, new CanvasRectangle($x, $y, $width, $height), 4, opacity: $opacity);
+      $protected[] = $logo->destination;
       $gleam = $catalog->gleam === null ? null : TitleGleamPresentation::getComposite($logo, $catalog->gleam, $playback->elapsed, $playback->reducedMotion);
       if ($gleam === null) { $images[] = $logo; } else { $composites[] = $gleam; }
     }
     $opacity = $playback->entryOpacity;
-    $base = new PresentationCanvas(PresentationCanvas::DEFAULT_WIDTH, PresentationCanvas::DEFAULT_HEIGHT, $images, composites: $composites);
+    $base = new PresentationCanvas(PresentationCanvas::DEFAULT_WIDTH, PresentationCanvas::DEFAULT_HEIGHT, $images,
+      composites: $composites, protectedAreas: $protected);
     $view = new MenuCanvas($catalog->theme);
     $view->frame('title-panel', $catalog->menu);
     [$bx, $by, $bw, $bh, $gap] = $catalog->buttons;
@@ -82,7 +87,8 @@ final class TitleMenuPresentation
       array_map(static fn(CanvasImage $image) => new CanvasImage($image->id, $image->asset, $image->destination,
         $image->layer, $image->sourceRect, $image->opacity * $opacity, $image->clipRect), $ui->images),
       textLayers: array_map(static fn(CanvasTextLayer $text) => new CanvasTextLayer($text->id, $text->layer,
-        $text->x, $text->y, $text->grid, $text->runs, $text->clipRect, $text->opacity * $opacity, $text->glyphEffects), $ui->textLayers));
+        $text->x, $text->y, $text->grid, $text->runs, $text->clipRect, $text->opacity * $opacity, $text->glyphEffects), $ui->textLayers),
+      protectedAreas: $ui->getOverlayProtection());
     return MenuCanvas::overlay($base, $ui, $catalog->theme);
   }
 }

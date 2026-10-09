@@ -2,17 +2,15 @@
 
 declare(strict_types=1);
 
-namespace Ichiloto\Engine\UI\Presentation;
+namespace Ichiloto\Engine\Rendering\Presentation\Canvas;
 
 use Ichiloto\Engine\Rendering\Presentation\StyledPresentationFrame;
 
-use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
-use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 
 /** Sparse batching of fully visible, nonoverlapping text on identical font-cell lattices. */
-final class MenuCanvasTextBatch
+final class CanvasTextBatch
 {
   /** @param list<CanvasTextLayer> $layers @return list<CanvasTextLayer> */
   public static function compact(array $layers): array

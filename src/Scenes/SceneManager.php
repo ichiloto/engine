@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Scenes;
 
+use Ichiloto\Engine\IO\Console\Console;
+
 use Assegai\Collections\ItemList;
 use Exception;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
@@ -417,21 +419,22 @@ class SceneManager implements CanStart, CanRender, CanUpdate
       throw new \LogicException('A battle already owns the scene transition.');
     }
 
-    if ($party->isDefeated()) {
+    $config = $this->battleLoader->newConfig($party, $troop, $events, $extraSettings);
+    $config->partyRoster->promoteReservesAfterWipeout();
+    if ($config->partyRoster->isDefeated) {
       $this->loadGameOverScene();
       return;
     }
 
     $this->game->audioManager->playSystemSound(SystemSound::BATTLE_START);
 
-    $config = $this->battleLoader->newConfig($party, $troop, $events, $extraSettings);
     $this->game->useBattleEngineType(BattleEngineType::fromValue($config->settings['engine'] ?? null));
     // Only acquire the return owner after configuration preparation succeeds.
     $this->sceneBeforeBattle = $this->currentScene === null ? null : $this->currentScene::class;
     $runtime = $this->game->getRendererRuntime();
     $treatment = null;
     if ($runtime !== null && !Accessibility::prefersReducedMotion()
-      && config(ProjectConfig::class, ScreenTransition::CONFIG_STYLE) !== 'none') {
+      && ScreenTransition::isBattleEnabled()) {
       try {
         $treatment = ScreenTransitionCatalog::load($runtime->getAssetRoot())?->getBattleTreatment();
         if ($treatment !== null) {
@@ -475,18 +478,17 @@ class SceneManager implements CanStart, CanRender, CanUpdate
   /** The scene swap is owned here, never by native animation completion or a battle state. */
   protected function enterBattleScene(BattleConfig $config): void
   {
-    $currentScene = $this->loadScene(BattleScene::class, suspendCurrent: true)->currentScene;
-
-    if (! $currentScene instanceof BattleScene) {
-      throw new NotFoundException('The current scene is not a battle scene.');
-    }
-
-    $currentScene->configure($config);
-
-    // The battle's runtime settings may override the battle theme, and they
-    // only become known during configure(), after the scene transition has
-    // already applied music. Re-applying here is a no-op for the common case.
-    $this->applySceneBackgroundMusic($currentScene);
+    // Replace outgoing field text even when artwork makes the incoming battlefield Console-free.
+    // Game-owned overlays remain live; no partially cleared screen reaches either renderer.
+    Console::recomposeFrame(function () use ($config): void {
+      $currentScene = $this->loadScene(BattleScene::class, suspendCurrent: true)->currentScene;
+      if (! $currentScene instanceof BattleScene) {
+        throw new NotFoundException('The current scene is not a battle scene.');
+      }
+      $currentScene->configure($config);
+      // Configuration may select a different battle theme after scene loading.
+      $this->applySceneBackgroundMusic($currentScene);
+    });
   }
 
   /**

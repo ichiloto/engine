@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\Scenes\Game\States;
 
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
+use Ichiloto\Engine\Battle\BattleCommandType;
+use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Core\Menu\AbilityMenu\Windows\AbilityListPanel;
 use Ichiloto\Engine\Core\Menu\AbilityMenu\Windows\AbilityTabPanel;
 use Ichiloto\Engine\Core\Time;
@@ -11,7 +13,7 @@ use Ichiloto\Engine\Entities\Abilities\AbilitySortOrder;
 use Ichiloto\Engine\Entities\Abilities\LearnableAbility;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enumerations\Occasion;
-use Ichiloto\Engine\Entities\Skills\SpecialSkill;
+use Ichiloto\Engine\Entities\Skills\Skill;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
@@ -65,7 +67,7 @@ class AbilityMenuState extends GameSceneState implements CanvasProviderInterface
                 $skill = $entry instanceof LearnableAbility ? $entry->skill : $entry;
                 $values = $entry instanceof LearnableAbility
                     ? [new MenuRowValue($entry->getStatusLabel($actor, $this->party, $events, $time))]
-                    : [new MenuRowValue($this->formatOccasionLabel($skill->occasion)), new MenuRowValue($skill->cost . ' MP')];
+                    : [new MenuRowValue($this->formatOccasionLabel($skill->occasion)), new MenuRowValue($skill->cost . ' ' . Vocabulary::getTerm('stats.mp', 'MP'))];
                 $rows[] = new MenuRow((string)$i, $skill->name, $values, icon: 'skill.ability',
                     selected: $i === $index, focused: $i === $index);
             }
@@ -74,7 +76,9 @@ class AbilityMenuState extends GameSceneState implements CanvasProviderInterface
         $skill = $tab === 'Learn' ? $learnable?->skill : ($tab === 'Ready' ? $this->getActiveReadyAbility() : null);
         $fields = [];
         $detail = '';
-        $empty = $tab === 'Learn' ? 'No discovered abilities.' : 'No learned abilities.';
+        $empty = $tab === 'Learn'
+            ? get_message('ability.empty_discovered', 'No discovered %1.', Vocabulary::getTerm('command.' . BattleCommandType::SKILL->value, 'abilities'))
+            : get_message('ability.empty_learned', 'No learned %1.', Vocabulary::getTerm('command.' . BattleCommandType::SKILL->value, 'abilities'));
         if ($skill !== null) {
             $fields = ['MP Cost' => (string)$skill->cost, 'Occasion' => $this->formatOccasionLabel($skill->occasion),
                 'Scope' => $skill->scope->side->value];
@@ -91,11 +95,11 @@ class AbilityMenuState extends GameSceneState implements CanvasProviderInterface
             $detail = $tab === 'Learn' ? 'Discovered abilities and their unlock requirements will appear here.'
                 : 'Battle abilities will appear here once this character has unlocked or learned them.';
         }
-        return new SkillMenuContent($actor, 'Abilities', $this->tabs, $this->activeTabIndex,
-            ['Learned Abilities' => (string)count($book->getLearnedAbilities()),
+        return new SkillMenuContent($actor, Vocabulary::getTerm('command.' . BattleCommandType::SKILL->value, 'Abilities'), $this->tabs, $this->activeTabIndex,
+            ['Learned ' . Vocabulary::getTerm('command.' . BattleCommandType::SKILL->value, 'Abilities') => (string)count($book->getLearnedAbilities()),
                 'Ready to Learn' => (string)$book->getReadyToLearnCount($actor, $this->party, $events, $time),
                 'Current Order' => $book->getSortOrder()->value],
-            $skill?->name ?? ($tab === 'Sort' ? 'Ability Order' : $empty), $fields, $detail, $rows,
+            $skill?->name ?? ($tab === 'Sort' ? Vocabulary::getTerm('command.' . BattleCommandType::SKILL->value, 'Ability') . ' Order' : $empty), $fields, $detail, $rows,
             $this->getListPanelTitle(), $index, $empty, $this->getPresentationDescription(), $this->statusMessage,
             match ($tab) { 'Learn' => 'Learn', 'Sort' => 'Apply', default => 'View' }, infoModel: $this->menuInfoText);
     }
@@ -213,7 +217,7 @@ class AbilityMenuState extends GameSceneState implements CanvasProviderInterface
         $this->borderPack = new DefaultBorderPack();
 
         $this->summaryPanel = new Window(
-            'Abilities',
+            Vocabulary::getTerm('command.' . BattleCommandType::SKILL->value, 'Abilities'),
             '',
             new Vector2($this->leftMargin, $this->topMargin),
             self::ABILITY_MENU_WIDTH,
@@ -240,7 +244,7 @@ class AbilityMenuState extends GameSceneState implements CanvasProviderInterface
         );
 
         $this->listPanel = new AbilityListPanel(
-            'Ready Abilities',
+            $this->getListPanelTitle(),
             '',
             new Vector2($this->leftMargin + self::DETAIL_PANEL_WIDTH, $this->topMargin + self::SUMMARY_PANEL_HEIGHT + self::TAB_PANEL_HEIGHT),
             self::LIST_PANEL_WIDTH,
@@ -319,14 +323,17 @@ class AbilityMenuState extends GameSceneState implements CanvasProviderInterface
         return [
             sprintf(' %s', $this->character->name),
             sprintf(
-                ' Lv %-3d  HP %9s / %-9s  MP %5s / %-5s',
+                ' %s %-3d  %s %9s / %-9s  %s %5s / %-5s',
+                Vocabulary::getTerm('stats.level', 'Lv'),
                 $this->character->level,
+                Vocabulary::getTerm('stats.hp', 'HP'),
                 number_format($this->character->effectiveStats->currentHp),
                 number_format($this->character->effectiveStats->totalHp),
+                Vocabulary::getTerm('stats.mp', 'MP'),
                 number_format($this->character->effectiveStats->currentMp),
                 number_format($this->character->effectiveStats->totalMp),
             ),
-            sprintf(' Learned Abilities: %-3d  Ready to Learn: %-3d', $learnedCount, $readyCount),
+            sprintf(' Learned %s: %-3d  Ready to Learn: %-3d', Vocabulary::getTerm('command.' . BattleCommandType::SKILL->value, 'Abilities'), $learnedCount, $readyCount),
             sprintf(' Current Order: %s', $this->character->abilityBook->getSortOrder()->value),
             ' ',
         ];
@@ -368,17 +375,17 @@ class AbilityMenuState extends GameSceneState implements CanvasProviderInterface
     {
         $ability = $this->getActiveReadyAbility();
 
-        if (!$ability instanceof SpecialSkill) {
+        if (!$ability instanceof Skill) {
             return [
-                'No learned abilities.',
+                get_message('ability.empty_learned', 'No learned %1.', Vocabulary::getTerm('command.' . BattleCommandType::SKILL->value, 'abilities')),
                 '',
                 'Battle abilities will appear here once this character has unlocked or learned them.',
             ];
         }
 
         return [
-            sprintf('%s %s', $ability->icon, $ability->name),
-            sprintf('MP Cost : %d', $ability->cost),
+            $ability->name,
+            sprintf('%s Cost : %d', Vocabulary::getTerm('stats.mp', 'MP'), $ability->cost),
             sprintf('Occasion: %s', $this->formatOccasionLabel($ability->occasion)),
             sprintf('Scope   : %s', $ability->scope->side->value),
             '',
@@ -389,9 +396,9 @@ class AbilityMenuState extends GameSceneState implements CanvasProviderInterface
     /**
      * Returns the selected learned ability, if any.
      *
-     * @return SpecialSkill|null The selected ability.
+     * @return Skill|null The selected ability.
      */
-    protected function getActiveReadyAbility(): ?SpecialSkill
+    protected function getActiveReadyAbility(): ?Skill
     {
         return $this->character?->abilityBook->getLearnedAbilities()[$this->activeReadyIndex] ?? null;
     }
@@ -423,7 +430,7 @@ class AbilityMenuState extends GameSceneState implements CanvasProviderInterface
 
         if (!$learnableAbility instanceof LearnableAbility || !$this->character instanceof Character) {
             return [
-                'No discovered abilities.',
+                get_message('ability.empty_discovered', 'No discovered %1.', Vocabulary::getTerm('command.' . BattleCommandType::SKILL->value, 'abilities')),
                 '',
                 'Discovered abilities and their unlock requirements will appear here.',
             ];
@@ -437,7 +444,7 @@ class AbilityMenuState extends GameSceneState implements CanvasProviderInterface
         );
 
         return [
-            sprintf('%s %s', $learnableAbility->skill->icon, $learnableAbility->skill->name),
+            $learnableAbility->skill->name,
             sprintf(
                 'Status  : %s',
                 $learnableAbility->getStatusLabel(
@@ -474,7 +481,7 @@ class AbilityMenuState extends GameSceneState implements CanvasProviderInterface
     protected function buildSortDetailLines(): array
     {
         return [
-            'Ability Order',
+            Vocabulary::getTerm('command.' . BattleCommandType::SKILL->value, 'Ability') . ' Order',
             '',
             sprintf('Current: %s', $this->character?->abilityBook->getSortOrder()->value ?? AbilitySortOrder::A_TO_Z->value),
             '',
@@ -492,11 +499,12 @@ class AbilityMenuState extends GameSceneState implements CanvasProviderInterface
      */
     protected function getListPanelTitle(): string
     {
+        $term = Vocabulary::getTerm('command.' . BattleCommandType::SKILL->value, 'Abilities');
         return match ($this->tabs[$this->activeTabIndex] ?? 'Ready') {
-            'Ready' => 'Ready Abilities',
-            'Learn' => 'Learn Abilities',
-            'Sort' => 'Sort Learned Abilities',
-            default => 'Abilities',
+            'Ready' => 'Ready ' . $term,
+            'Learn' => 'Learn ' . $term,
+            'Sort' => 'Sort Learned ' . $term,
+            default => $term,
         };
     }
 
@@ -526,9 +534,9 @@ class AbilityMenuState extends GameSceneState implements CanvasProviderInterface
         $entries = [];
 
         foreach ($this->character?->abilityBook->getLearnedAbilities() ?? [] as $ability) {
-            $label = TerminalText::padRight(sprintf('%s %s', $ability->icon, $ability->name), 44);
+            $label = TerminalText::padRight($ability->name, 44);
             $occasion = TerminalText::padRight($this->formatOccasionLabel($ability->occasion), 8);
-            $cost = TerminalText::padLeft(sprintf('%d MP', $ability->cost), 6);
+            $cost = TerminalText::padLeft(sprintf('%d %s', $ability->cost, Vocabulary::getTerm('stats.mp', 'MP')), 6);
             $entries[] = TerminalText::padRight(
                 TerminalText::truncateToWidth(" {$label} {$occasion} {$cost}", $availableWidth),
                 $availableWidth
@@ -557,7 +565,7 @@ class AbilityMenuState extends GameSceneState implements CanvasProviderInterface
                     $this->getElapsedPlayTime()
                 )
                 : 'Unknown';
-            $label = TerminalText::padRight(sprintf('%s %s', $learnableAbility->skill->icon, $learnableAbility->skill->name), 44);
+            $label = TerminalText::padRight($learnableAbility->skill->name, 44);
             $statusText = TerminalText::padLeft($status, 12);
             $entries[] = TerminalText::padRight(
                 TerminalText::truncateToWidth(" {$label} {$statusText}", $availableWidth),
@@ -846,7 +854,7 @@ class AbilityMenuState extends GameSceneState implements CanvasProviderInterface
     {
         $ability = $this->getActiveReadyAbility();
 
-        if (!$ability instanceof SpecialSkill) {
+        if (!$ability instanceof Skill) {
             $this->statusMessage = 'No learned abilities are available.';
             return;
         }

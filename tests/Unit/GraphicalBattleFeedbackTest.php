@@ -26,6 +26,7 @@ use Ichiloto\Engine\Battle\Resolution\ElementalOutcome;
 use Ichiloto\Engine\Battle\Resolution\ResolutionKind;
 use Ichiloto\Engine\Battle\UI\BattleFieldWindow;
 use Ichiloto\Engine\Battle\UI\BattleScreen;
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
@@ -47,6 +48,7 @@ use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Scenes\AbstractScene;
 use Ichiloto\Engine\Scenes\Battle\BattleConfig;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
+use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
@@ -55,7 +57,7 @@ use Ichiloto\Engine\Util\Config\ProjectConfig;
 function graphicalFeedbackSkin(): BattleUiSkin
 {
   $textures = $colors = [];
-  foreach (['panel', 'quiet', 'track', 'hp', 'mp', 'atb', 'selector', 'target', 'queued', 'acting'] as $role) {
+  foreach (['panel', 'quiet', 'track', 'hp', 'mp', 'atb', 'selector', 'target', 'queued'] as $role) {
     $textures[$role] = new CanvasNineSlice('graphical-canvas/synthetic-320x180.png', new SpriteSourceRect(0, 0, 8, 8));
   }
   foreach (['text', 'muted', 'selected', 'focus', 'disabled', 'damage', 'healing', 'mp', 'ink'] as $index => $role) {
@@ -100,6 +102,13 @@ function graphicalFeedbackFixture(string $name = 'Hero'): array
       [$hero->actorId => $art], ['Twin' => $art], ui: getGraphicalFeedbackLayout(), defaultArena: 'arena.test'),
     __DIR__ . '/../Fixtures/Renderer');
   $scene = new ReflectionClass(BattleScene::class)->newInstanceWithoutConstructor();
+  $game = new class extends Game {
+    public function __construct() {}
+    public function __destruct() {}
+  };
+  $manager = new ReflectionClass(SceneManager::class)->newInstanceWithoutConstructor();
+  new ReflectionProperty(SceneManager::class, 'game')->setValue($manager, $game);
+  new ReflectionProperty(AbstractScene::class, 'sceneManager')->setValue($scene, $manager);
   new ReflectionProperty(BattleScene::class, 'config')->setValue($scene, $battle);
   new ReflectionProperty(BattleScene::class, 'graphicalPresentation')->setValue($scene, $presentation);
   new ReflectionProperty(AbstractScene::class, 'camera')->setValue($scene, new Camera($scene, 135, 36));
@@ -151,7 +160,7 @@ it('styles typed feedback roles without parsing literal labels or terminal color
   [BattleFeedbackRole::NULL, 'mp', 11, 22], [BattleFeedbackRole::ABSORB, 'healing', 11, 22],
   [BattleFeedbackRole::CRITICAL, 'focus', 11, 22], [BattleFeedbackRole::DAMAGE, 'damage', 20, 40],
   [BattleFeedbackRole::HEAL, 'healing', 20, 40], [BattleFeedbackRole::MP_LOSS, 'mp', 20, 40],
-  [BattleFeedbackRole::MP_GAIN, 'mp', 20, 40], [BattleFeedbackRole::KO, 'focus', 13, 26],
+  [BattleFeedbackRole::MP_GAIN, 'mp', 20, 40],
   [BattleFeedbackRole::MISS, 'text', 17, 34], [BattleFeedbackRole::ZERO, 'text', 20, 40],
 ]);
 
@@ -173,7 +182,7 @@ it('integrates real typed formatter lines and feedback identity without lifetime
   $results = static fn($frame) => array_values(array_filter($frame->textLayers, static fn($layer) => str_starts_with($layer->id, $id)));
   $first = $results($presentation->frame($field, now: 10));
   $middle = $results($presentation->frame($field, now: 11));
-  expect(array_map(fn($layer) => $layer->runs[0]->text, $first))->toBe(['WEAK!', 'CRITICAL', '30', '-8 MP', 'KO'])
+  expect(array_map(fn($layer) => $layer->runs[0]->text, $first))->toBe(['WEAK!', 'CRITICAL', '500', '-8 MP'])
     ->and($field->getFeedback())->toBe($original)->and($target->stats->currentHp)->toBe(0)
     ->and($target->stats->currentMp)->toBe(12)->and($hero->stats->currentHp)->toBe(100);
   foreach ($first as $index => $layer) {
@@ -200,16 +209,27 @@ it('wraps long authored multiline participant names without dropping text changi
   assertGraphicalFeedbackInside($layers[0]->paintBounds, $presentation->layout->feedbackArea);
 });
 
-it('keeps persistent names and KO stationary through transient appearance fade and clear', function () {
+it('removes persistent KO captions while keeping names stationary through transient appearance fade and clear', function () {
   $arena = getGraphicalFeedbackLayout();
-  $persistent = [['text' => 'Selected name'], ['text' => 'KO']];
+  $persistent = [['text' => 'Selected name'], ['text' => 'KO', 'role' => BattleFeedbackRole::KO]];
   $participant = graphicalFeedbackParticipant(1, [['text' => '48', 'role' => BattleFeedbackRole::DAMAGE]], $persistent);
   $initial = GraphicalBattleFeedback::compose($arena, [$participant], [], 10);
   $middle = GraphicalBattleFeedback::compose($arena, [$participant], [], 11);
   $participant['popups'] = [];
   $cleared = GraphicalBattleFeedback::compose($arena, [$participant], [], 11);
-  expect(array_slice($initial, 0, 2))->toEqual(array_slice($middle, 0, 2))->toEqual($cleared)
-    ->and($cleared[0]->opacity)->toBe(1.0)->and($cleared[1]->opacity)->toBe(1.0);
+  expect(array_slice($initial, 0, 1))->toEqual(array_slice($middle, 0, 1))->toEqual($cleared)
+    ->and($cleared)->toHaveCount(1)->and($cleared[0]->opacity)->toBe(1.0)
+    ->and($cleared[0]->runs[0]->text)->toBe('Selected name');
+});
+
+it('removes localized KO-only graphical popups without mutating feedback or parsing literal text', function () {
+  $lines = [['text' => 'Fallen', 'role' => BattleFeedbackRole::KO]];
+  $participant = graphicalFeedbackParticipant(1, $lines);
+  expect(GraphicalBattleFeedback::compose(getGraphicalFeedbackLayout(), [$participant], [], 10))->toBeEmpty()
+    ->and($participant['popups'][0]['lines'])->toBe($lines)
+    ->and(GraphicalBattleFeedback::getVisibleLines([
+      ...$lines, ['text' => 'KO', 'role' => BattleFeedbackRole::DAMAGE], ['text' => 'Authored name'],
+    ]))->toBe([['text' => 'KO', 'role' => BattleFeedbackRole::DAMAGE], ['text' => 'Authored name']]);
 });
 
 it('bounds critical enlargement and falls back before wrapping a value or colliding', function ($area, $value, $occupied, $expectedPitch) {
@@ -356,7 +376,7 @@ it('accounts for six full result blocks with four party HUD rows under the share
   $participants = array_map(static fn(int $id) => graphicalFeedbackParticipant($id, $lines, [['text' => 'Name ' . $id]],
     new CanvasRectangle(100 + $id * 160, 300, 100, 120)), range(0, 5));
   $feedback = GraphicalBattleFeedback::compose($arena, $participants, [], 10, array_map(static fn($image) => $image->destination, $hud->images));
-  expect($feedback)->toHaveCount(42)->and($hud->textLayers)->toHaveCount(18);
+  expect($feedback)->toHaveCount(36)->and($hud->textLayers)->toHaveCount(18);
   expect(count($hud->textLayers) + count($feedback))->toBeLessThanOrEqual(64);
   new PresentationCanvas(1350, 720, $hud->images, textLayers: [...$hud->textLayers, ...$feedback]);
 });

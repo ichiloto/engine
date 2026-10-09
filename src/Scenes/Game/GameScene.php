@@ -76,6 +76,7 @@ use Ichiloto\Engine\Rendering\FieldMetric;
 use Override;
 use Throwable;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasOverlayProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot;
 use Ichiloto\Engine\IO\Console\ConsolePresentationChanges;
@@ -85,15 +86,20 @@ use Ichiloto\Engine\Rendering\Presentation\PresentationViewport;
 use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextLayer;
 use Ichiloto\Engine\Rendering\Presentation\RetainedWorldProviderInterface;
+use Ichiloto\Engine\Rendering\Presentation\ScenePresentationContext;
+use Ichiloto\Engine\Rendering\Presentation\ScenePresentationContextProviderInterface;
 
 /**
  * Class GameScene. Represents the game scene.
  *
  * @package Ichiloto\Engine\Scenes\Game
  */
-class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInterface, CanvasProviderInterface, FrameViewportProviderInterface, RetainedWorldProviderInterface
+class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInterface, CanvasProviderInterface, CanvasOverlayProviderInterface, FrameViewportProviderInterface, RetainedWorldProviderInterface, ScenePresentationContextProviderInterface
 {
     private ?FieldViewport $fieldViewport = null;
+    private ?ScenePresentationContext $presentationContext = null;
+    /** @var array{columns: int, rows: int}|null Camera geometry before an isolated presentation was attached. */
+    private ?array $presentationCameraSize = null;
     /** Walking speed and step distances on the graphical field's grid. */
     private ?FieldMetric $fieldMetric = null;
     private bool $reportedInvalidFieldZoom = false;
@@ -103,15 +109,50 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     /** @var list<string> Sprite identities fixed to the screen, not camera follow. */
     private array $fieldEdgeSpriteIds = [];
 
+    /** Attach an isolated host's presentation selection without acquiring runtime input, UI or a renderer process. */
+    public function setPresentationContext(?ScenePresentationContext $context): void
+    {
+        if ($this->presentationContext === $context) { return; }
+        if ($this->presentationContext === null && $context !== null) {
+            $this->presentationCameraSize = ['columns' => $this->camera->screen->getWidth(),
+                'rows' => $this->camera->screen->getHeight()];
+        }
+        $this->presentationContext = $context;
+        $this->viewportTextLayers = [];
+        $this->fieldEdgeSpriteIds = [];
+        if ($context === null) {
+            $this->fieldViewport = null;
+            $this->fieldEffects?->setCapabilities(false, false);
+            if ($this->presentationCameraSize !== null) {
+                $this->camera->resizeViewport($this->presentationCameraSize['columns'], $this->presentationCameraSize['rows']);
+            }
+            $this->presentationCameraSize = null;
+        } else {
+            $this->synchronizeFieldViewport();
+        }
+    }
+
+    public function getPresentationContext(): ?ScenePresentationContext
+    {
+        return $this->presentationContext;
+    }
+
+    private function supportsScenePresentation(string $capability): bool
+    {
+        return $this->presentationContext !== null ? $this->presentationContext->supports($capability)
+            : (isset($this->sceneManager) && $this->getGame()->getRendererRuntime()?->supports($capability) === true);
+    }
+
     /** Resolve camera dimensions before any field producer draws into Console. */
     public function synchronizeFieldViewport(): void
     {
-        $runtime = isset($this->sceneManager) ? $this->getGame()->getRendererRuntime() : null;
-        $grid = $runtime?->grid;
+        $context = $this->presentationContext;
+        $runtime = $context === null && isset($this->sceneManager) ? $this->getGame()->getRendererRuntime() : null;
+        $grid = $context !== null ? ($context->graphical ? $context->grid : null) : $runtime?->grid;
         $this->fieldEffects?->setCapabilities(
-            $runtime?->supports(RendererSessionConfig::SPRITE_SOURCE_RECT) === true
-                && $runtime->supports(RendererSessionConfig::FRAME_VIEWPORT),
-            $runtime?->supports(RendererSessionConfig::SPRITE_QUARTER_TURNS) === true);
+            $this->supportsScenePresentation(RendererSessionConfig::SPRITE_SOURCE_RECT)
+                && $this->supportsScenePresentation(RendererSessionConfig::FRAME_VIEWPORT),
+            $this->supportsScenePresentation(RendererSessionConfig::SPRITE_QUARTER_TURNS));
         $requested = ConfigStore::has(ProjectConfig::class)
             ? config(ProjectConfig::class, 'graphics.field.zoom', FieldViewport::DEFAULT_ZOOM) : FieldViewport::DEFAULT_ZOOM;
         $zoom = FieldViewport::DEFAULT_ZOOM;
@@ -128,11 +169,11 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         // text grid, exactly as the terminal draws it.
         $this->fieldViewport = $grid !== null && $this->getPresentationWorld() !== null
             ? new FieldViewport($grid, $zoom) : null;
-        if ($this->fieldViewport === null && $previous === null) {
+        if ($context === null && $this->fieldViewport === null && $previous === null) {
             return;
         }
-        $columns = $this->fieldViewport?->columns ?? Console::getWidth();
-        $rows = $this->fieldViewport?->rows ?? Console::getHeight();
+        $columns = $this->fieldViewport?->columns ?? $context?->grid->columns ?? Console::getWidth();
+        $rows = $this->fieldViewport?->rows ?? $context?->grid->rows ?? Console::getHeight();
         if ($this->camera->screen->getWidth() !== $columns || $this->camera->screen->getHeight() !== $rows) {
             $this->camera->resizeViewport($columns, $rows);
             if ($this->player !== null && $this->camera->followsPlayer) {
@@ -144,7 +185,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     /** True while a graphical renderer presents the field instead of the terminal. */
     public function isGraphicalFieldPresented(): bool
     {
-        return !Console::isTerminalOutputEnabled() && $this->hasGraphicalFieldPresentation()
+        return ($this->presentationContext?->graphical ?? !Console::isTerminalOutputEnabled()) && $this->hasGraphicalFieldPresentation()
             && $this->fieldViewport !== null;
     }
 
@@ -168,7 +209,8 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         $world = $this->getPresentationWorld();
         if ($world === null) { return null; }
         // Water animates on RPG Maker's counter; reduced motion holds the first frame.
-        $tileFrame = $world->animated && !Accessibility::prefersReducedMotion() ? TileAnimation::getFrame(Time::getTime()) : 0;
+        $tileFrame = $world->animated && !Accessibility::prefersReducedMotion()
+            ? TileAnimation::getFrame($this->presentationContext?->getPresentationTime() ?? Time::getTime()) : 0;
         // A camera that follows the player scrolls with the player's step, not after it.
         return $this->fieldViewport->createViewport(array_values($this->viewportTextLayers), $sprites, $tiles,
             $world->id, $this->camera->getWorldOrigin(), $tileFrame,
@@ -182,7 +224,66 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
 
     public function getPresentationCanvas(): ?PresentationCanvas
     {
+        if ($this->presentationContext !== null && !$this->presentationContext->graphical) { return null; }
         return $this->state instanceof CanvasProviderInterface ? $this->state->getPresentationCanvas() : null;
+    }
+
+    public function getPresentationOverlay(int $width, int $height): ?PresentationCanvas
+    {
+        if ($this->presentationContext !== null && !$this->presentationContext->graphical) { return null; }
+        $overlay = $this->state instanceof CanvasOverlayProviderInterface ? $this->state->getPresentationOverlay($width, $height) : null;
+        $cover = $this->canPresentCinematicCover() ? $this->cinematicPresentation?->getTransitionCanvas($width, $height) : null;
+        if ($cover !== null) { $overlay = PresentationCanvas::composeOverlay($overlay, $cover); }
+        $stage = $this->canPresentCinematicStage() ? $this->cinematicPresentation?->getStageCanvas($width, $height,
+            $this->supportsScenePresentation(RendererSessionConfig::CANVAS_IMAGE_FLIP)) : null;
+        if ($stage !== null) { $overlay = PresentationCanvas::composeOverlay($overlay, $stage); }
+        $assetRoot = $this->presentationContext !== null ? $this->presentationContext->assetRoot
+            : (isset($this->sceneManager) ? $this->getGame()->getRendererRuntime()?->getAssetRoot() : null);
+        $text = $this->cinematicPresentation?->getOverlayCanvas($width, $height,
+            $this->canPresentCinematicText() ? $assetRoot : null);
+        return $text === null ? $overlay : PresentationCanvas::composeOverlay($overlay, $text);
+    }
+
+    public function renderPresentationOverlay(): void
+    {
+        if ($this->fieldState !== null) { $this->reconcileFieldPresentation(); }
+        if ($this->state instanceof CanvasOverlayProviderInterface) { $this->state->renderPresentationOverlay(); }
+    }
+
+    public function getExcludedOverlayLayers(): array
+    {
+        if ($this->presentationContext !== null && !$this->presentationContext->graphical) { return []; }
+        $layers = $this->state instanceof CanvasOverlayProviderInterface ? $this->state->getExcludedOverlayLayers() : [];
+        if ($this->canPresentCinematicCover()) { array_push($layers, 'cinematic-cover', 'transition'); }
+        if ($this->canPresentCinematicText()) {
+            array_push($layers, ...($this->cinematicPresentation?->getOverlayExcludedLayers() ?? []));
+        }
+        return $this->canPresentCinematicStage() ? [...$layers, ...($this->cinematicPresentation?->getStageExcludedLayers() ?? [])] : $layers;
+    }
+
+    private function canPresentCinematicText(): bool
+    {
+        return !$this->isStopping && $this->supportsScenePresentation(RendererSessionConfig::GRAPHICAL_CANVAS)
+            && $this->supportsScenePresentation(RendererSessionConfig::CANVAS_OVERLAY)
+            && $this->supportsScenePresentation(RendererSessionConfig::CANVAS_CLIP_OPACITY)
+            && $this->supportsScenePresentation(RendererSessionConfig::SPRITE_SOURCE_RECT);
+    }
+
+    public function canPresentCinematicStage(): bool
+    {
+        return !$this->isStopping && $this->supportsScenePresentation(RendererSessionConfig::GRAPHICAL_CANVAS)
+            && $this->supportsScenePresentation(RendererSessionConfig::CANVAS_OVERLAY)
+            && $this->supportsScenePresentation(RendererSessionConfig::CANVAS_COMPOSITING)
+            && $this->supportsScenePresentation(RendererSessionConfig::CANVAS_CLIP_OPACITY)
+            && $this->supportsScenePresentation(RendererSessionConfig::SPRITE_SOURCE_RECT);
+    }
+
+    private function canPresentCinematicCover(): bool
+    {
+        if ($this->cinematicPresentation?->hasTransitionCover() !== true) { return false; }
+        return $this->supportsScenePresentation(RendererSessionConfig::GRAPHICAL_CANVAS)
+            && $this->supportsScenePresentation(RendererSessionConfig::CANVAS_OVERLAY)
+            && $this->supportsScenePresentation(RendererSessionConfig::CANVAS_COMPOSITING);
     }
 
     private ?string $inheritedMapMusic = null;
@@ -197,7 +298,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         $this->fieldEdgeSpriteIds = [];
         if ($this->hasGraphicalFieldPresentation()) {
             // Dialogue borrows field input; it does not replace field presentation.
-            if (!($this->cinematicStage?->suppresses($this->player) ?? false)) {
+            if ($this->player !== null && !($this->cinematicStage?->suppresses($this->player) ?? false)) {
                 yield $this->player;
             }
             foreach ($this->cinematicStage?->all() ?? [] as $actor) {
@@ -230,6 +331,9 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
 
     private function hasGraphicalFieldPresentation(): bool
     {
+        if ($this->presentationContext !== null) {
+            return !$this->isStopping && $this->presentationContext->graphical && $this->presentationContext->fieldActive;
+        }
         return $this->state instanceof FieldState && $this->state === $this->fieldState
             && (bool)$this->player?->isActive;
     }
@@ -449,7 +553,6 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
                 $this->questManager?->recordFlag($name);
             }
 
-            $this->skitManager?->announceAvailableSkits();
             $this->achievementManager?->evaluateConditionalAchievements();
         };
 
@@ -682,23 +785,33 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         if ($this->isStopping) {
             return;
         }
-        $this->player?->advanceGraphicalAnimation(max(0.0, Time::getDeltaTime()));
-        $this->npcManager?->advanceGraphicalAnimation(max(0.0, Time::getDeltaTime()));
-        $this->cinematicStage?->advanceGraphicalAnimation(max(0.0, Time::getDeltaTime()));
-        // The action prompt lasts while the player can act, so it opens once per approach.
-        $this->fieldEffects?->showActionPrompt(($this->player?->isActionPromptOverSprite ?? false)
-            ? $this->player->getGraphicalSpriteId() : null);
-        $this->fieldEffects?->update(max(0.0, Time::getDeltaTime()), Accessibility::prefersReducedMotion(),
-            $this->getFieldObjectSpriteProviders());
+        $this->advanceFieldPresentation(max(0.0, Time::getDeltaTime()));
         parent::update();
-        if ($this->isStopping || $this->sceneManager->currentScene !== $this) {
+        if ($this->isStopping || $this->sceneManager->currentScene !== $this || $this->sceneManager->hasSceneTransition()) {
             return;
         }
         $this->state->execute($this->sceneStateContext);
-        if ($this->isStopping || $this->sceneManager->currentScene !== $this) {
+        if ($this->isStopping || $this->sceneManager->currentScene !== $this || $this->sceneManager->hasSceneTransition()) {
             return;
         }
         $this->refreshFieldMusic();
+    }
+
+    /** Advances field visuals on the caller's clock, without executing gameplay or input. */
+    public function advanceFieldPresentation(float $seconds): void
+    {
+        if (!is_finite($seconds) || $seconds < 0.0) {
+            throw new \InvalidArgumentException('Field presentation seconds must be finite and nonnegative.');
+        }
+        if ($this->isStopping) { return; }
+        $this->player?->advanceGraphicalAnimation($seconds);
+        $this->npcManager?->advanceGraphicalAnimation($seconds);
+        $this->cinematicStage?->advanceGraphicalAnimation($seconds);
+        // The action prompt lasts while the player can act, so it opens once per approach.
+        $this->fieldEffects?->showActionPrompt(($this->player?->isActionPromptOverSprite ?? false)
+            ? $this->player->getGraphicalSpriteId() : null);
+        $this->fieldEffects?->update($seconds, Accessibility::prefersReducedMotion(),
+            $this->getFieldObjectSpriteProviders());
     }
 
     /**
@@ -712,6 +825,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         }
 
         parent::resume();
+        $this->cinematicStage?->resumeGraphicalAnimation();
         $this->state->resume();
     }
 
@@ -723,6 +837,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     {
         $this->player?->stopGraphicalAnimation();
         $this->npcManager?->stopGraphicalAnimation();
+        $this->cinematicStage?->pauseGraphicalAnimation();
         parent::suspend();
         $this->state->suspend();
     }
@@ -751,6 +866,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
             fn() => $this->cinematicStage?->clear(),
             fn() => $this->cinematicPresentation?->clear(),
             fn() => $this->fieldEffects?->clear(),
+            fn() => $this->setPresentationContext(null),
             fn() => parent::stop(),
         ] as $cleanup) {
             try {
@@ -818,6 +934,29 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     public function recordStoryEvent(string $eventName): void
     {
         $this->gameState->recordStoryEvent($eventName);
+    }
+
+    /** Same-map immediate placement; map transfers and temporary leases retain their own boundaries. */
+    public function relocatePlayer(Vector2 $position): void
+    {
+        $player = $this->player;
+        if ($player === null) { return; }
+
+        $this->fieldState?->cancelWalking();
+        $player->relocateTo($position);
+        $this->synchronizeFieldViewport();
+        if ($this->camera->followsPlayer) {
+            $this->camera->resetPosition($player);
+        }
+
+        if ($this->recomposeFieldAfterCameraScroll()) { return; }
+
+        // Lightweight hosts have no FieldState, as with the ordinary walking fallback.
+        $this->mapManager->render();
+        $player->renderEventCues();
+        $this->npcManager?->render();
+        $this->cinematicStage?->render();
+        $player->render();
     }
 
     /**
@@ -1023,6 +1162,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
      */
     public function onEventSessionStarted(EventExecutionSession $session): void
     {
+        $this->fieldState?->cancelWalking();
         $this->player?->stopGraphicalAnimation();
         Debug::info(sprintf(
             'Event session %d started (%s).',
@@ -1115,9 +1255,10 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     /**
      * Rebuilds the field once after dynamic visibility changed.
      *
-     * Writes can arrive in batches during scripts. Deferring while a session
-     * owns input prevents repainting over dialogue and collapses the batch to
-     * one canonical map/cue/NPC/player/HUD composition.
+     * Writes can arrive in batches during scripts. The presentation boundary
+     * collapses them into one canonical composition, which also restores the
+     * active dialogue. Deferring the visual change until script completion
+     * would leave retained glyphs behind after their sprite providers vanish.
      */
     public function reconcileFieldPresentation(): void
     {
@@ -1125,13 +1266,15 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
             $this->isStopping
             || ! $this->fieldPresentationIsDirty
             || $this->state !== $this->fieldState
-            || $this->hasUnstableEventSession()
+            || (isset($this->sceneManager) && $this->sceneManager->currentScene !== $this)
         ) {
             return;
         }
 
         $this->fieldPresentationIsDirty = false;
-        $this->player?->reconcileActiveEventState();
+        // Presentation may update under dialogue, but event exit callbacks
+        // remain deferred until that event relinquishes gameplay ownership.
+        if (! $this->hasUnstableEventSession()) { $this->player?->reconcileActiveEventState(); }
         $this->fieldState?->renderTheField();
     }
 

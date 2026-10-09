@@ -6,6 +6,7 @@ use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Stats;
+use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\UI\Presentation\MenuDirection;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
@@ -113,15 +114,15 @@ class CharacterDetailPanel extends Window
       "",
       "",
       "",
-      $this->formatStatLine('HP', $this->character?->effectiveStats->totalHp, $totalHp),
-      $this->formatStatLine('MP', $this->character?->effectiveStats->totalMp, $totalMp),
-      $this->formatStatLine('Attack', $this->character?->effectiveStats->attack, $attack),
-      $this->formatStatLine('Defence', $this->character?->effectiveStats->defence, $defence),
-      $this->formatStatLine('M.Attack', $this->character?->effectiveStats->magicAttack, $magicAttack),
-      $this->formatStatLine('M.Defence', $this->character?->effectiveStats->magicDefence, $magicDefence),
-      $this->formatStatLine('Evasion', $this->character?->effectiveStats->evasion, $evasion),
-      $this->formatStatLine('Speed', $this->character?->effectiveStats->speed, $speed),
-      $this->formatStatLine('Grace', $this->character?->effectiveStats->grace, $grace),
+      $this->formatStatLine(Vocabulary::getTerm('stats.hp', 'HP'), $this->character?->effectiveStats->totalHp, $totalHp),
+      $this->formatStatLine(Vocabulary::getTerm('stats.mp', 'MP'), $this->character?->effectiveStats->totalMp, $totalMp),
+      $this->formatStatLine(Vocabulary::getTerm('stats.attack', 'Attack'), $this->character?->effectiveStats->attack, $attack),
+      $this->formatStatLine(Vocabulary::getTerm('stats.defence', 'Defence'), $this->character?->effectiveStats->defence, $defence),
+      $this->formatStatLine(Vocabulary::getTerm('stats.magicAttack', 'M.Attack'), $this->character?->effectiveStats->magicAttack, $magicAttack),
+      $this->formatStatLine(Vocabulary::getTerm('stats.magicDefence', 'M.Defence'), $this->character?->effectiveStats->magicDefence, $magicDefence),
+      $this->formatStatLine(Vocabulary::getTerm('stats.evasion', 'Evasion'), $this->character?->effectiveStats->evasion, $evasion),
+      $this->formatStatLine(Vocabulary::getTerm('stats.speed', 'Speed'), $this->character?->effectiveStats->speed, $speed),
+      $this->formatStatLine(Vocabulary::getTerm('stats.grace', 'Grace'), $this->character?->effectiveStats->grace, $grace),
     ];
   }
 

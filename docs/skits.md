@@ -36,8 +36,8 @@ this functionality. Last Legend is the reference consumer. Related docs:
 
 - **The skit system is real and shipping.** `Field\SkitManager` loads
   `assets/Data/Skits/*.php` (id, title, optional map gate, trigger
-  conditions, beats of speaker + text, optional speed), announces
-  availability by notification, plays beats through the standard dialogue
+  conditions, beats of speaker + text, optional speed), exposes
+  availability through a persistent field cue, plays beats through the standard dialogue
   box (`show_text`), and records `skit_seen:<id>`. GPUI now composes a
   dedicated graphical stage over the same read-only playback snapshot.
 - **Beats accept optional emotion and voice.** Phase 0 resolves these softly
@@ -57,7 +57,26 @@ this functionality. Last Legend is the reference consumer. Related docs:
   Skip, ambient lip/eye animation and Editor emotion/voice authoring remain
   planned; the static graphical stage is implemented.
 
-### Graphical catalogue and ownership
+### Availability Cue (Decided 2026-10-06)
+
+Timed skit-availability notifications and their announcement sound are removed.
+The field shows the next playable skit's title and a live semantic `skit`
+control hint in the bottom-right until it is played or its conditions stop
+holding. There is no expiry timer or second availability queue. The same
+`SkitManager` order, map gates, conditions and seen flags select both cue and
+playback; merely showing the cue never marks a skit seen.
+
+The cue is hidden during playback, menus, dialogue, active story/cinematic
+sessions and scene transitions, then returns when field control resumes if
+the skit is still available. Leaving the field removes its contribution.
+GPUI uses the shared menu theme as a compact overlay on the retained world;
+Terminal uses a persistent named bottom-right text overlay. No world redraw
+or timed notification is needed to keep it visible. The hint follows remapping
+and supports device-specific glyph roles through `ActionHints`; Triangle is
+not hardcoded, and an unbound action is labelled explicitly. This essential
+affordance remains visible even when optional menu input hints are disabled.
+
+### Graphical Catalogue And Ownership
 
 The plain PHP catalogue uses schema `ichiloto.dialogue/1`:
 
@@ -105,6 +124,19 @@ creates a gameplay actor, NPC instance, party member or collision record.
 
 `TextBoxModal` owns pagination, typing, confirm/cancel, Auto and speech.
 `DialogueSnapshot` only exposes the current page and cursor. Graphical text wraps
+within a fixed three-row reading area: dialogue height no longer grows for a
+fourth line or shrinks for a shorter beat, a missing portrait or a compact
+viewport. Overflow continues on the next owner-managed page. Authored help uses
+rows within this same area instead of increasing the panel height. Before
+typing starts, the owner negotiates available columns and rows using the shared
+`DialoguePageLayout`, including portrait gutters and the graphical theme. The
+graphical reading width is not capped by the legacy Terminal modal default.
+Its same-page Terminal fallback window grows within the screen's available
+columns; Terminal-only dialogue retains its established default width. Pages
+fit the terminal fallback too. Pagination never restarts the line's voice or
+creates a renderer-owned page/input lifecycle.
+
+Graphical text wraps
 the complete page before revealing its prefix, so words do not shift during
 typing. Named dialogue has an independent wrapping nameplate and a portrait dock
 when artwork exists; narration and plain/missing-art speakers do not reserve a
@@ -144,8 +176,9 @@ older graphical renderers keep scaling without dimming and report that limitatio
 Larger casts use stable groups of three containing the active speaker rather
 than endlessly shrinking portraits. Missing backgrounds use the theme backing
 with a diagnostic, not an unrelated battle arena. Shared graphical
-[notifications](notifications.md) defer with their queue time preserved when
-the stage has no safe space. Ambient animation remains a concrete later gap.
+[notifications](notifications.md) remain live above the stage at their fixed
+top-right anchor; the previous safe-space deferral is removed. Ambient animation
+remains a concrete later gap.
 
 `tools/gpui-dialogue-preview.php` opens a bounded, silent renderer-only preview
 from a JSON snapshot using the same composer and installed renderer. It does not
@@ -377,8 +410,8 @@ preview remain Phase 4 work; runtime support is not full authoring completion.
 2. Implement the skit stage as a canvas presentation (title, location,
    nameplate, panel, static busts, active-speaker emphasis), with its own
    presentation data rather than the shared menu theme.
-3. Terminal keeps the standard dialogue flow, gaining only the skit title
-   announcement; the deferred compact overlay remains a separate decision.
+3. Terminal keeps the standard dialogue flow and the persistent availability
+   cue described above; the full graphical stage is separate.
 
 The static stage and ordinary dialogue portrait docks are implemented locally.
 Last Legend supplies the approved dialogue kit and existing bust expressions;

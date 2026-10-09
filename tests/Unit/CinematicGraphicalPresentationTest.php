@@ -7,6 +7,11 @@ use Ichiloto\Engine\Cutscenes\Cinematics\CinematicStageManager;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\Cursor;
 use Ichiloto\Engine\Rendering\Camera;
+use Ichiloto\Engine\Rendering\Enumerations\TransitionStyle;
+use Ichiloto\Engine\Rendering\ScreenTransition;
+use Ichiloto\Engine\Cutscenes\Cinematics\TransitionOperation;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Rendering\FieldViewport;
 use Ichiloto\Engine\Rendering\Presentation\RendererPresentation;
 use Ichiloto\Engine\Rendering\RendererClient;
@@ -27,6 +32,8 @@ require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 
 beforeEach(function () {
+  $this->configBefore = new ReflectionClass(ConfigStore::class)->getStaticProperties();
+  ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 24, 'height' => 8]));
   $this->consoleBefore = new ReflectionClass(Console::class)->getStaticProperties();
   $this->cursorBefore = new ReflectionClass(Cursor::class)->getStaticProperties();
   foreach (['frameDepth' => 0, 'isRecomposing' => false, 'terminalHandedBack' => false,
@@ -55,7 +62,8 @@ beforeEach(function () {
 
 afterEach(function () {
   ob_end_clean();
-  foreach ([Console::class => $this->consoleBefore, Cursor::class => $this->cursorBefore] as $class => $state) {
+  foreach ([Console::class => $this->consoleBefore, Cursor::class => $this->cursorBefore,
+    ConfigStore::class => $this->configBefore] as $class => $state) {
     foreach ($state as $name => $value) {
       new ReflectionProperty($class, $name)->setValue(null, $value);
     }
@@ -149,6 +157,33 @@ it('emits opaque cinematic overlays and covers above world sprites and clears th
     ->and($restored['sprites'])->toBe($frame['sprites'])
     ->and(array_column($transport->sent[1]->payload['operations'], 'kind'))->not->toContain('sprite');
 });
+
+it('holds a graphical cinematic cover across transfer and clears it on reveal or cancellation', function (bool $reduced) {
+  $configs = new ReflectionClass(ConfigStore::class)->getStaticProperties();
+  putSceneAudioConfig(['accessibility' => ['reducedMotion' => $reduced]]);
+  try {
+    $out = new TransitionOperation(new ScreenTransition(TransitionStyle::FADE, 400)->session('out'), $this->presentation, 'out');
+    $out->update(0.4);
+    $held = $this->presentation->getTransitionCanvas(1350, 720);
+    expect($held->composites[0]->opacity)->toBe(1.0)
+      ->and($held->presentationOwners)->toBe(['cinematic-cover', 'transition']);
+    $in = new TransitionOperation(new ScreenTransition(TransitionStyle::FADE, 400)->session('in'), $this->presentation, 'in');
+    if (!$reduced) {
+      expect($this->presentation->getTransitionCanvas(1350, 720)->composites[0]->opacity)->toBe(1.0);
+      $in->update(0.2);
+      expect($this->presentation->getTransitionCanvas(1350, 720)->composites[0]->opacity)->toBe(0.5);
+    }
+    $in->update(0.2);
+    expect($this->presentation->getTransitionCanvas(1350, 720))->toBeNull()
+      ->and($this->presentation->hasTransitionCover())->toBeFalse();
+    $this->presentation->hideField('#');
+    $cancel = new TransitionOperation(new ScreenTransition(TransitionStyle::FADE, 400)->session(), $this->presentation, 'out');
+    $cancel->cancel();
+    expect($this->presentation->getTransitionCanvas(1350, 720))->toBeNull();
+  } finally {
+    foreach ($configs as $name => $value) { new ReflectionProperty(ConfigStore::class, $name)->setValue(null, $value); }
+  }
+})->with([false, true]);
 
 it('validates staged graphics at authoring boundaries without requiring an asset on disk', function () {
   $sheet = characterSheetData('Graphics/Characters/Absent.png', 3);

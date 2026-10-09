@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Entities\Skills;
 
 use Ichiloto\Engine\Entities\Effects\SkillEffects\SkillEffect;
+use Ichiloto\Engine\Battle\CounterAttackRule;
 use Ichiloto\Engine\Entities\Enumerations\Occasion;
 use Ichiloto\Engine\Entities\Interfaces\SkillInterface;
 use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
@@ -53,6 +54,7 @@ abstract class Skill implements SkillInterface
     array $effects = [],
     array $requiredWeapons = [],
     ?int $animationId = null,
+    protected(set) ?CounterAttackRule $counterAttack = null,
   )
   {
     $this->animationId = $animationId;

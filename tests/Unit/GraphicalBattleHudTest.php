@@ -23,7 +23,7 @@ use Ichiloto\Engine\UI\Presentation\MenuIconRegistry;
 function hudTestSkin(?MenuIconRegistry $icons = null): BattleUiSkin
 {
   $textures = [];
-  foreach (['panel', 'quiet', 'track', 'hp', 'mp', 'atb', 'selector', 'target', 'queued', 'acting'] as $role) {
+  foreach (['panel', 'quiet', 'track', 'hp', 'mp', 'atb', 'selector', 'target', 'queued'] as $role) {
     $textures[$role] = new CanvasNineSlice($role . '.png', new SpriteSourceRect(0, 0, 8, 8));
   }
   $colors = [];
@@ -121,6 +121,14 @@ it('moves only the input-owned cursor and keeps persistent selection stationary'
   expect(array_filter($target->images, fn($image) => str_starts_with($image->id, 'hud-cursor')))->toBe([]);
 });
 
+it('labels the player-facing gauge Time without changing its ATB value or texture role', function () {
+  $hud = new BattleHudSnapshot(status: new BattleHudStatusSnapshot('', '', [new BattleHudStatusRow(0, 100, 100, 7, 10, .5)]));
+  $frame = GraphicalBattleHud::compose(getHudTestLayout(), $hud, null, 0);
+  $layers = array_column($frame->textLayers, null, 'id');
+  expect($layers['hud-stats-Time']->runs[0]->text)->toBe('Time')->and($layers)->not->toHaveKey('hud-stats-ATB')
+    ->and(array_filter($frame->images, static fn($image) => str_contains($image->id, 'atb')))->not->toBeEmpty();
+});
+
 it('omits zero fills and absent ATB while values update immediately', function () {
   $snapshot = fn(int $hp) => new BattleHudSnapshot(status: new BattleHudStatusSnapshot('', '', [new BattleHudStatusRow(0, $hp, 100, 7, 10)]));
   $empty = GraphicalBattleHud::compose(getHudTestLayout(), $snapshot(0), null, 0);
@@ -128,7 +136,7 @@ it('omits zero fills and absent ATB while values update immediately', function (
   expect(array_filter($empty->images, fn($image) => str_starts_with($image->id, 'hp-fill-')))->toBe([])
     ->and(array_filter($full->images, fn($image) => str_starts_with($image->id, 'atb-')))->toBe([]);
   $values = array_column($full->textLayers, null, 'id');
-  expect($values['hud-hp-rows']->runs[0]->text)->toBe('100')->and($values)->not->toHaveKey('hud-stats-ATB');
+  expect($values['hud-hp-rows']->runs[0]->text)->toBe('100')->and($values)->not->toHaveKey('hud-stats-Time');
 });
 
 it('honors reduced motion without dropping highlights or changing author preferences', function () {

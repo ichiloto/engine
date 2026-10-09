@@ -91,6 +91,7 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
       $this->battleConfig->troop,
       $this->battleConfig->ui,
       [],
+      $this->battleConfig->partyRoster,
     );
     $this->resetBattleState($this->turnStateExecutionContext);
     $this->refreshStatusWindow($this->turnStateExecutionContext);
@@ -263,6 +264,25 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
     }
   }
 
+  public function handlePartyRosterChange(TurnStateExecutionContext $context): void
+  {
+    $participants = $this->getBattleParticipants($context);
+    $ids = array_fill_keys(array_map(spl_object_id(...), $participants), true);
+    $this->readyBattlers = array_values(array_filter($this->readyBattlers,
+      static fn(CharacterInterface $member): bool => isset($ids[spl_object_id($member)])));
+    $this->gaugeValues = array_intersect_key($this->gaugeValues, $ids);
+    $this->initiativeSeeds = array_intersect_key($this->initiativeSeeds, $ids);
+    $this->readyTimes = array_intersect_key($this->readyTimes, $ids);
+    $this->roundParticipants = [];
+    foreach ($context->partyRoster->battlers as $member) {
+      $id = spl_object_id($member);
+      $this->gaugeValues[$id] = 0.0;
+      $this->initiativeSeeds[$id] = $this->randomFloat(0.0, 1.0);
+    }
+    parent::handlePartyRosterChange($context);
+    $this->refreshStatusWindow($context);
+  }
+
   /**
    * Updates the battle status window to show HP, MP, and ATB.
    *
@@ -273,7 +293,7 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
   {
     $context->ui->characterStatusWindow->setAtbPercentages(array_map(
       fn(CharacterInterface $battler): float => $this->getGaugePercentage($battler),
-      $context->party->battlers->toArray(),
+      $context->partyRoster->battlers,
     ));
   }
 
@@ -312,7 +332,7 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
   protected function getBattleParticipants(TurnStateExecutionContext $context): array
   {
     return array_merge(
-      $context->party->battlers->toArray(),
+      $context->partyRoster->battlers,
       $context->troop->members->toArray(),
     );
   }
@@ -473,7 +493,7 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
    */
   protected function isPartyBattler(TurnStateExecutionContext $context, CharacterInterface $battler): bool
   {
-    return in_array($battler, $context->party->battlers->toArray(), true);
+    return in_array($battler, $context->partyRoster->battlers, true);
   }
 
   /**

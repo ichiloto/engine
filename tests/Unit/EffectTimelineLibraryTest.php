@@ -49,6 +49,48 @@ it('preserves independent sequences under the same effect identity', function ()
     ->and($graphical->playbackSegments[1]['drawCommands'][0]['payload']['sourceFrame'])->toBe(1);
 });
 
+it('preserves explicit image fitting without adding a new default to existing sources', function (bool $battle) {
+  $legacy = $this->effects->compile('legacy-fit', $this->imageSequence, $battle);
+  expect($legacy->playbackSegments[0]['drawCommands'][0]['payload'])->not->toHaveKey('fit');
+  foreach (['contain', 'stretch'] as $fit) {
+    $source = $this->imageSequence;
+    $source['tracks'][0]['fit'] = $fit;
+    $compiled = $this->effects->compile('explicit-fit', $source, $battle);
+    expect($compiled->playbackSegments[0]['drawCommands'][0]['payload']['fit'])->toBe($fit);
+  }
+})->with([false, true]);
+
+it('refuses invalid image fitting at the shared authored boundary', function (mixed $fit) {
+  $this->imageSequence['tracks'][0]['fit'] = $fit;
+  foreach ([false, true] as $battle) {
+    expect(fn() => $this->effects->compile('bad-fit', $this->imageSequence, $battle))
+      ->toThrow(InvalidArgumentException::class, 'Image fit');
+  }
+})->with(['unknown' => 'cover', 'null' => null, 'numeric' => 1, 'descriptor' => [[]]]);
+
+it('keeps battle phase cadence independently authored per presentation', function () {
+  $terminal = [...$this->terminalSequence, 'cadence' => 'battle_phase'];
+  unset($terminal['fps']);
+  $data = ['presentations' => ['terminal' => $terminal, 'graphical' => $this->imageSequence]];
+  $compiled = $this->effects->compile('phase-cadence', $data, true, EffectPresentation::TERMINAL);
+  expect($compiled->defaults['cadence'])->toBe('battle_phase')
+    ->and($this->effects->compile('phase-cadence', $data, true)->cadence->value)->toBe('fixed');
+  expect(fn() => $this->effects->compile('field-cadence', [...$this->imageSequence, 'cadence' => 'battle_phase']))
+    ->toThrow(InvalidArgumentException::class);
+  expect(fn() => $this->effects->compile('loop-cadence', [...$terminal, 'playback' => 'loop'], true))
+    ->toThrow(InvalidArgumentException::class);
+});
+
+it('refuses two authored timing authorities for battle phase cadence', function () {
+  expect(fn() => $this->effects->compile('two-clocks', [...$this->terminalSequence, 'cadence' => 'battle_phase'], true))
+    ->toThrow(InvalidArgumentException::class);
+});
+
+it('rejects invalid cadence values at the authored boundary', function (mixed $cadence) {
+  expect(fn() => $this->effects->compile('invalid-cadence', [...$this->imageSequence, 'cadence' => $cadence], true))
+    ->toThrow(InvalidArgumentException::class);
+})->with(['unknown' => 'paced', 'empty' => '', 'null' => null, 'number' => 1, 'descriptor' => [[]]]);
+
 it('compiles battle direction and independent image flips through the shared timeline', function () {
   $this->imageSequence['tracks'][0]['facing'] = 'west';
   $this->imageSequence['tracks'][0]['anchor'] = 'target';
@@ -61,6 +103,59 @@ it('compiles battle direction and independent image flips through the shared tim
   expect($glyph->playbackSegments[0]['drawCommands'][0]['payload']['facing'])->toBe('east');
   expect(fn() => $this->effects->compile('field-direction', $this->imageSequence))
     ->toThrow(InvalidArgumentException::class, 'facing');
+});
+
+it('shares normalized image pivots while keeping battler attachments out of field geometry', function () {
+  expect($this->effects->compile('default-pivot', $this->imageSequence)->playbackSegments[0]['drawCommands'][0]['payload'])
+    ->not->toHaveKey('pivot');
+  $this->imageSequence['tracks'][0]['pivot'] = ['x' => .2, 'y' => .75];
+  $field = $this->effects->compile('field-pivot', $this->imageSequence);
+  expect($field->playbackSegments[1]['drawCommands'][0]['payload']['pivot'])->toBe(['x' => .2, 'y' => .75]);
+  $this->imageSequence['tracks'][0]['attachment'] = 'ground';
+  $battle = $this->effects->compile('ground', $this->imageSequence, true);
+  expect($battle->playbackSegments[1]['drawCommands'][0]['payload'])
+    ->toMatchArray(['pivot' => ['x' => .2, 'y' => .75], 'attachment' => 'ground']);
+  expect(fn() => $this->effects->compile('field-attachment', $this->imageSequence))
+    ->toThrow(InvalidArgumentException::class);
+});
+
+it('refuses malformed or nonfinite normalized image pivots', function (mixed $pivot) {
+  $this->imageSequence['tracks'][0]['pivot'] = $pivot;
+  foreach ([false, true] as $battle) {
+    expect(fn() => $this->effects->compile('bad-pivot', $this->imageSequence, $battle))
+      ->toThrow(InvalidArgumentException::class);
+  }
+})->with(['null' => null, 'missing axis' => [['x' => .5]], 'extra key' => [['x' => .5, 'y' => .75, 'z' => 0]],
+  'text' => [['x' => '0.5', 'y' => 1]], 'negative' => [['x' => -.1, 'y' => .5]],
+  'outside' => [['x' => .5, 'y' => 1.1]], 'infinite' => [['x' => .5, 'y' => INF]],
+  'nan' => [['x' => NAN, 'y' => .5]]]);
+
+it('accepts image pivot boundaries without admitting battle placement or image flips on the field', function () {
+  foreach ([['x' => 0, 'y' => 1], ['x' => 1, 'y' => 0]] as $pivot) {
+    $source = $this->imageSequence;
+    $source['tracks'][0]['pivot'] = $pivot;
+    expect($this->effects->compile('boundary-pivot', $source)->playbackSegments[0]['drawCommands'][0]['payload']['pivot'])
+      ->toBe($pivot);
+    foreach (['anchor' => 'target', 'attachment' => 'ground', 'facing' => 'west'] as $key => $value) {
+      $bad = $source;
+      $bad['tracks'][0][$key] = $value;
+      expect(fn() => $this->effects->compile('battle-only', $bad))->toThrow(InvalidArgumentException::class);
+    }
+    $source['tracks'][0]['keyframes'][0]['flipX'] = true;
+    expect(fn() => $this->effects->compile('battle-flip', $source))->toThrow(InvalidArgumentException::class);
+  }
+});
+
+it('refuses invalid or screen-relative battler attachments', function () {
+  foreach (['feet', 'unknown', '', null, 1] as $attachment) {
+    $bad = $this->imageSequence;
+    $bad['tracks'][0]['attachment'] = $attachment;
+    expect(fn() => $this->effects->compile('bad-attachment', $bad, true))->toThrow(InvalidArgumentException::class);
+  }
+  $this->imageSequence['tracks'][0]['attachment'] = 'ground';
+  $this->imageSequence['tracks'][0]['anchor'] = 'screen';
+  expect(fn() => $this->effects->compile('screen-attachment', $this->imageSequence, true))
+    ->toThrow(InvalidArgumentException::class);
 });
 
 it('rejects invalid or screen-relative direction and nonboolean image flips', function () {

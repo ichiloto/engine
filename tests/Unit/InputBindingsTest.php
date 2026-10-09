@@ -99,7 +99,7 @@ it('lists the rebindable actions with their keys', function () {
 
   // Back is deliberately absent: escape is how every screen is left,
   // including the rebinding screen.
-  expect($actions)->toBe(['action', 'up', 'info', 'dialogue_auto'])
+  expect($actions)->toBe(['action', 'up', 'info', 'menu_page_previous', 'menu_page_next', 'dialogue_auto'])
     ->and($bindings->describeKeys('action'))->toBe('SPACE, ENTER')
     ->and($bindings->describeKeys('up'))->toBe('UP, W')
     ->and($bindings->describeKeys('info'))->toBe('i, I');
@@ -207,7 +207,7 @@ it('discovers a fully conflicted Info default as unbound and permits an explicit
   $authored = ['custom' => ['description' => 'Custom action.', 'keys' => [KeyCode::i, KeyCode::I]]];
   $config = installBindings($authored);
   $bindings = new InputBindings();
-  expect(array_column($bindings->all(), 'action'))->toBe(['custom', 'info', 'dialogue_auto'])
+  expect(array_column($bindings->all(), 'action'))->toBe(['custom', 'info', 'menu_page_previous', 'menu_page_next', 'dialogue_auto'])
     ->and($bindings->describeKeys('info'))->toBe('Unbound')
     ->and($bindings->controlForAction('info'))->toBeNull()
     ->and($config->all())->toBe($authored)->and($config->written)->toBeEmpty();
@@ -216,6 +216,27 @@ it('discovers a fully conflicted Info default as unbound and permits an explicit
     ->and(InputManager::getBindings()['custom'])->toBe($authored['custom'])
     ->and($config->written)->toBeEmpty()
     ->and(savedBindingValues($this->playerRoot, 'info'))->toBe([KeyCode::F2->value]);
+});
+
+it('supplies discoverable page actions without claiming authored keys or rewriting source', function () {
+  $authored = ['custom' => ['description' => 'Custom action.', 'keys' => [KeyCode::PAGE_UP, KeyCode::PAGE_DOWN]]];
+  $config = installBindings($authored);
+  $bindings = new InputBindings();
+  expect($bindings->describeKeys('menu_page_previous'))->toBe('Unbound')
+    ->and($bindings->describeKeys('menu_page_next'))->toBe('Unbound')
+    ->and(InputManager::getBindings()['custom'])->toBe($authored['custom'])
+    ->and($config->all())->toBe($authored)->and($config->written)->toBeEmpty();
+  expect($bindings->rebind('menu_page_next', KeyCode::F1))->toBeTrue()
+    ->and(savedBindingValues($this->playerRoot, 'menu_page_next'))->toBe([KeyCode::F1->value]);
+  expect($bindings->restoreDefaults())->toBeTrue()
+    ->and($bindings->describeKeys('menu_page_next'))->toBe('Unbound');
+  $authored['menu_page_previous'] = ['description' => 'Authored previous page.', 'keys' => []];
+  $authored['menu_page_next'] = ['description' => 'Authored next page.', 'keys' => [KeyCode::F2],
+    'controllers' => [['family' => 'gamepad.xbox', 'control' => 'right_shoulder', 'label' => 'RB']]];
+  installBindings($authored);
+  foreach (['menu_page_previous', 'menu_page_next'] as $action) {
+    expect(InputManager::getBindings()[$action])->toBe($authored[$action]);
+  }
 });
 
 it('loads player keys over authored defaults and restores defaults without editing input.php', function () {

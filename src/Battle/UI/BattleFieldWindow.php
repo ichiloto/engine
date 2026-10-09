@@ -9,6 +9,8 @@ use Ichiloto\Engine\Battle\PartyBattlerPositions;
 use Ichiloto\Engine\Battle\Presentation\BattleFeedbackRole;
 use Ichiloto\Engine\Battle\Presentation\BattleFeedbackTiming;
 use Ichiloto\Engine\Battle\Presentation\BattleCommandPlayback;
+use Ichiloto\Engine\Battle\Presentation\TerminalBattleEffects;
+use Ichiloto\Engine\Battle\Presentation\TerminalBattlePresentation;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
@@ -17,7 +19,6 @@ use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
-use Ichiloto\Engine\IO\Console\NormalizedRow;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\UI\Enumerations\PresentationPriority;
@@ -31,14 +32,21 @@ use RuntimeException;
  *
  * @package Ichiloto\Engine\Battle\UI
  */
-class BattleFieldWindow extends Window
+class BattleFieldWindow extends Window implements \Ichiloto\Engine\Battle\Presentation\BattlePresentationState
 {
   private ?CharacterInterface $actingBattler = null;
   private ?BattleCommandPlayback $commandPlayback = null;
   private float $poseSeconds = 0;
+  private ?\Ichiloto\Engine\Battle\Presentation\BattleConditionEffects $conditionEffects = null;
+
+  public function setConditionEffects(\Ichiloto\Engine\Battle\Presentation\BattleConditionEffects $effects): void
+  {
+    $this->conditionEffects = $effects;
+  }
 
   public function advancePoseTime(float $seconds): void
   {
+    if (!is_finite($seconds)) { throw new InvalidArgumentException('Battle pose time must be finite.'); }
     if ($this->pausedAt === null) { $this->poseSeconds += max(0, $seconds); }
   }
 
@@ -48,6 +56,8 @@ class BattleFieldWindow extends Window
 
   public function setCommandPlayback(?BattleCommandPlayback $playback): void
   {
+    // Binding lifetime is independent of the next field redraw or terminal output.
+    if ($this->commandPlayback !== $playback) { $this->clearBattleFlashState(repaint: false); }
     $this->commandPlayback = $playback;
     $this->actingBattler = $playback?->actor;
   }
@@ -65,6 +75,7 @@ class BattleFieldWindow extends Window
 
   public function resumeTiming(bool $discard = false): void
   {
+    if ($discard) { $this->commandPlayback?->cancel(); $this->conditionEffects = null; }
     if ($this->pausedAt !== null && !$discard) {
       $elapsed = max(0, ($this->feedbackTiming ??= new BattleFeedbackTiming())->now() - $this->pausedAt);
       foreach ($this->feedback as &$feedback) { $feedback['shownAt'] += $elapsed; }
@@ -109,7 +120,7 @@ class BattleFieldWindow extends Window
   private function getBattlersAtIndexes(array $partyIndexes, array $troopIndexes, bool $includeKnockedOut): array
   {
     $battlers = [];
-    foreach ([[$this->battleScreen->party->battlers->toArray(), $partyIndexes],
+    foreach ([[$this->battleScreen->partyBattlers, $partyIndexes],
       [$this->battleScreen->troop->members->toArray(), $troopIndexes]] as [$members, $indexes]) {
       foreach ($indexes as $index) {
         $member = $members[$index] ?? null;
@@ -125,7 +136,7 @@ class BattleFieldWindow extends Window
   public function getSelectedBattlers(): array
   {
     $selected = [];
-    foreach ([[$this->battleScreen->party->battlers->toArray(), $this->focusedPartyIndexes, $this->queuedPartyTargets],
+    foreach ([[$this->battleScreen->partyBattlers, $this->focusedPartyIndexes, $this->queuedPartyTargets],
       [$this->battleScreen->troop->members->toArray(), $this->focusedTroopIndexes, $this->queuedTroopTargets]] as [$members, $focus, $queue]) {
       foreach (array_unique([...$focus, ...array_keys($queue)]) as $index) {
         $member = $members[$index] ?? null;
@@ -277,7 +288,8 @@ class BattleFieldWindow extends Window
   protected function renderTroopBattler(Enemy $battler): void
   {
     if ($this->battleScreen->usesGraphicalField()) { return; }
-    $spriteData = $battler->image;
+    $spriteData = \Ichiloto\Engine\Battle\Presentation\EnemyDefeatStyle::applyTerminalTreatment($battler->image,
+      $this->commandPlayback?->getEnemyDefeatTreatment($battler, \Ichiloto\Engine\UI\Accessibility::prefersReducedMotion()));
     $position = $this->getTroopPresentedPosition($battler);
     $x = $this->position->x + $position->x;
     $y = $this->position->y + $position->y;
@@ -360,17 +372,20 @@ class BattleFieldWindow extends Window
     ?int $maxWidth = null,
   ): void
   {
-    foreach ($spriteData as $rowIndex => $row) {
-      $output = $maxWidth === null
-        ? $row
-        : TerminalText::truncateToWidth($row, max(0, $maxWidth));
-
-      Console::write(
-        TerminalText::stabilize($output),
-        max(0, (int)floor($x) - 1),
-        max(0, (int)floor($y) + $rowIndex - 1),
-      );
+    foreach (TerminalBattlePresentation::getSpriteDraws($spriteData, $x, $y, $maxWidth) as $draw) {
+      $position = TerminalBattlePresentation::getDrawPosition($draw['x'], $draw['y']);
+      Console::write($draw['text'], $position['x'], $position['y']);
     }
+  }
+
+  private function getTerminalEffects(): TerminalBattleEffects
+  {
+    return new TerminalBattleEffects($this->partyBattlerPositions, $this->position, $this->width, $this->height);
+  }
+
+  private function getTerminalGeometry(): TerminalBattleEffects
+  {
+    return new TerminalBattleEffects($this->partyBattlerPositions);
   }
 
   /**
@@ -381,7 +396,7 @@ class BattleFieldWindow extends Window
    */
   protected function getPartyIdlePosition(int $index): Vector2
   {
-    return $this->partyBattlerPositions->idlePositions[$index] ?? throw new RuntimeException('Invalid party battler position.');
+    return $this->getTerminalGeometry()->getPartyIdlePosition($index);
   }
 
   /**
@@ -392,12 +407,12 @@ class BattleFieldWindow extends Window
    */
   protected function getPartyActivePosition(int $index): Vector2
   {
-    return $this->partyBattlerPositions->activePositions[$index] ?? throw new RuntimeException('Invalid party battler active position.');
+    return $this->getTerminalGeometry()->getPartyActivePosition($index);
   }
 
   private function getPartyPresentedPosition(int $index): Vector2
   {
-    return $this->isCommandAdvanced($this->battleScreen->party->battlers->toArray()[$index])
+    return $this->isCommandAdvanced($this->battleScreen->partyBattlers[$index])
       ? $this->getPartyActivePosition($index) : $this->getPartyIdlePosition($index);
   }
 
@@ -408,10 +423,8 @@ class BattleFieldWindow extends Window
 
   private function isCommandAdvanced(CharacterInterface $battler): bool
   {
-    return $this->commandPlayback?->actor === $battler && !$this->commandPlayback->isCompleted
-      && !$this->commandPlayback->plan->resultsOnly
-      && !in_array($this->commandPlayback->phase, ['return', 'finish'], true)
-      && !\Ichiloto\Engine\UI\Accessibility::prefersReducedMotion();
+    return TerminalBattleEffects::isCommandAdvanced($battler, $this->commandPlayback,
+      \Ichiloto\Engine\UI\Accessibility::prefersReducedMotion());
   }
 
   /**
@@ -422,9 +435,7 @@ class BattleFieldWindow extends Window
    */
   protected function getTroopActivePosition(Enemy $battler): Vector2
   {
-    $position = $this->getTroopIdlePosition($battler);
-
-    return new Vector2($position->x + self::TROOP_STEP_X_OFFSET, $position->y);
+    return $this->getTerminalGeometry()->getTroopActivePosition($battler);
   }
 
   /**
@@ -439,19 +450,7 @@ class BattleFieldWindow extends Window
    */
   protected function getTroopIdlePosition(Enemy $battler): Vector2
   {
-    $spriteWidth = max(1, $this->getSpriteWidth($battler->image));
-    $maximumX = max(
-      self::TROOP_ZONE_LEFT,
-      $this->getPartyZoneLeft()
-        - self::BATTLE_SIDE_GAP
-        - self::TROOP_STEP_X_OFFSET
-        - $spriteWidth,
-    );
-
-    return new Vector2(
-      clamp(intval($battler->position->x), self::TROOP_ZONE_LEFT, $maximumX),
-      $battler->position->y,
-    );
+    return $this->getTerminalGeometry()->getTroopIdlePosition($battler);
   }
 
   /**
@@ -464,16 +463,7 @@ class BattleFieldWindow extends Window
    */
   protected function getPartyZoneLeft(): int
   {
-    $positions = [
-      ...$this->partyBattlerPositions->idlePositions,
-      ...$this->partyBattlerPositions->activePositions,
-    ];
-    $xCoordinates = array_map(
-      static fn(Vector2 $position): int => intval($position->x),
-      $positions,
-    );
-
-    return min($xCoordinates);
+    return $this->getTerminalGeometry()->getPartyZoneLeft();
   }
 
   /**
@@ -487,10 +477,7 @@ class BattleFieldWindow extends Window
    */
   protected function getTroopAvailableWidth(Vector2 $position): int
   {
-    return max(
-      0,
-      $this->getPartyZoneLeft() - self::BATTLE_SIDE_GAP - intval($position->x),
-    );
+    return $this->getTerminalGeometry()->getTroopAvailableWidth($position);
   }
 
   /**
@@ -502,10 +489,7 @@ class BattleFieldWindow extends Window
    */
   protected function getTroopVisibleSpriteWidth(Enemy $battler, Vector2 $position): int
   {
-    return min(
-      $this->getSpriteWidth($battler->image),
-      $this->getTroopAvailableWidth($position),
-    );
+    return $this->getTerminalGeometry()->getTroopVisibleSpriteWidth($battler, $position);
   }
 
   /**
@@ -517,7 +501,7 @@ class BattleFieldWindow extends Window
   public function renderParty(Party $party): void
   {
     if ($this->battleScreen->usesGraphicalField()) { return; }
-    foreach ($party->battlers->toArray() as $index => $battler) {
+    foreach ($this->battleScreen->partyBattlers as $index => $battler) {
       if ($battler->isKnockedOut && ! in_array($index, $this->popupPartyIndices, true)) {
         continue;
       }
@@ -539,7 +523,8 @@ class BattleFieldWindow extends Window
   {
     if ($this->battleScreen->usesGraphicalField()) { return; }
     foreach ($troop->members->toArray() as $index => $battler) {
-      if ($battler->isKnockedOut && ! in_array($index, $this->popupTroopIndices, true)) {
+      $defeat = $this->commandPlayback?->getEnemyDefeatTreatment($battler, \Ichiloto\Engine\UI\Accessibility::prefersReducedMotion());
+      if ($battler->isKnockedOut && ($defeat !== null ? !$defeat['visible'] : !in_array($index, $this->popupTroopIndices, true))) {
         continue;
       }
 
@@ -560,7 +545,7 @@ class BattleFieldWindow extends Window
     if ($this->battleScreen->usesGraphicalField()) { return; }
 
     $this->renderedTargetIndicators = [];
-    $partyBattlers = $this->battleScreen->party->battlers->toArray();
+    $partyBattlers = $this->battleScreen->partyBattlers;
     $troopMembers = $this->battleScreen->troop->members->toArray();
 
     foreach ($this->queuedPartyTargets as $index => $count) {
@@ -630,54 +615,34 @@ class BattleFieldWindow extends Window
    */
   public function renderMagicCastEffects(): void
   {
+    $flashes = null;
     if ($this->commandPlayback !== null && !$this->battleScreen->usesGraphicalField()) {
-      $this->renderCommandEffects();
+      $flashes = $this->renderCommandEffects();
     }
     foreach ($this->magicCastEffects as $effect) {
       $this->renderIndicator($effect['text'], $effect['x'], $effect['y']);
     }
-  }
-
-  private function renderCommandEffects(): void
-  {
-    $this->magicCastEffects = [];
-    $reduced = \Ichiloto\Engine\UI\Accessibility::prefersReducedMotion();
-    if ($reduced) { $this->clearBattleFlash(); }
-    // Terminal effects remain anchored and quiet; cinematic motion belongs to the graphical presenter.
-    $offset = ['x' => 0, 'y' => 0];
-    foreach ($this->commandPlayback->getActiveSegments($reduced, true) as $segment) {
-      if ($segment['layer'] === 'flash' && !$reduced) {
-        foreach ($segment['drawCommands'] as $command) {
-          $data = $command['payload'] ?? [];
-          if (($data['anchor'] ?? '') === 'screen' || ($data['scope'] ?? '') === 'screen') { continue; }
-          $target = ($data['anchor'] ?? '') === 'caster' ? $this->commandPlayback->actor : $this->commandPlayback->targets[0];
-          $this->beginBattleFlash($target, false,
-            $data['color'] ?? $command['color'] ?? 'white', $segment['startFrame'], $segment['endFrame'] - $segment['startFrame'] + 1);
-        }
-      }
-      if (!in_array($segment['layer'], ['glyph', 'text'], true)) { continue; }
-      foreach ($segment['drawCommands'] as $command) {
-        if (($command['payload']['anchor'] ?? '') === 'legacy-screen') {
-          $this->queueSummonDrawCommand($command, $offset);
-          continue;
-        }
-        $targets = ($command['payload']['anchor'] ?? '') === 'caster'
-          ? [$this->commandPlayback->actor] : $this->commandPlayback->targets;
-        foreach ($targets as $target) {
-          $origin = $this->resolveActionAnimationOrigin($target,
-            AnimationTargetPosition::tryFrom($command['payload']['legacyPosition'] ?? 'center')
-              ?? AnimationTargetPosition::CENTER);
-          if ($origin === null || !($command['visible'] ?? true)) { continue; }
-          foreach ($this->resolveSummonDrawCommandLines($command) as $row => $line) {
-            $this->magicCastEffects[] = ['text' => $this->formatSummonDrawCommandLine($line,
-              $this->resolveSummonDrawCommandColor($command)),
-              'x' => $origin['x'] + ($command['position']['x'] ?? 0),
-              'y' => $origin['y'] + ($command['position']['y'] ?? 0) + $row];
-          }
-        }
+    if (!$this->battleScreen->usesGraphicalField() && $this->conditionEffects !== null) {
+      $effects = new TerminalBattleEffects(origin: $this->position, width: $this->width, height: $this->height);
+      foreach ([...$this->battleScreen->partyBattlers, ...$this->battleScreen->troop->members->toArray()] as $battler) {
+        $condition = $this->conditionEffects->createPlayback($battler, $this->poseSeconds);
+        if ($condition === null) { continue; }
+        $frame = $effects->compose($condition, $this->resolveActionAnimationOrigin(...),
+          \Ichiloto\Engine\UI\Accessibility::prefersReducedMotion());
+        foreach ($frame['draws'] as $draw) { $this->renderIndicator($draw['text'], $draw['x'], $draw['y']); }
       }
     }
-    if (!$reduced) { $this->renderBattleFlash($this->commandPlayback->session->currentFrame); }
+    if ($flashes !== null) { $this->renderBattleFlashes($flashes); }
+  }
+
+  /** @return list<array{target: CharacterInterface, screen: bool, color: Color}> */
+  private function renderCommandEffects(): array
+  {
+    $effects = new TerminalBattleEffects(origin: $this->position, width: $this->width, height: $this->height);
+    $frame = $effects->compose($this->commandPlayback, $this->resolveActionAnimationOrigin(...),
+      \Ichiloto\Engine\UI\Accessibility::prefersReducedMotion());
+    $this->magicCastEffects = $frame['draws'];
+    return $frame['flashes'];
   }
 
   /**
@@ -718,6 +683,8 @@ class BattleFieldWindow extends Window
     ];
     if ($graphical) { return; }
 
+    $formattedLines = array_values(array_filter($formattedLines,
+      static fn(array $line): bool => ($line['role'] ?? null) !== BattleFeedbackRole::KO));
     $startY = $anchor['y'] - max(0, count($formattedLines) - 1);
 
     foreach ($formattedLines as $index => $line) {
@@ -842,11 +809,11 @@ class BattleFieldWindow extends Window
    */
   public function clearMagicCastEffects(): void
   {
-    foreach ($this->magicCastEffects as $effect) {
+    $effects = $this->magicCastEffects;
+    $this->magicCastEffects = [];
+    foreach ($effects as $effect) {
       $this->eraseIndicator($effect['text'], $effect['x'], $effect['y']);
     }
-
-    $this->magicCastEffects = [];
   }
 
   /**
@@ -1000,11 +967,11 @@ class BattleFieldWindow extends Window
    */
   public function clearTargetIndicators(): void
   {
-    $this->clearRenderedTargetIndicators();
     $this->queuedPartyTargets = [];
     $this->queuedTroopTargets = [];
     $this->clearPartyFocus();
     $this->clearTroopFocus();
+    $this->clearRenderedTargetIndicators();
   }
 
   /**
@@ -1157,11 +1124,11 @@ class BattleFieldWindow extends Window
    */
   protected function clearRenderedTargetIndicators(): void
   {
-    foreach ($this->renderedTargetIndicators as $indicator) {
+    $indicators = $this->renderedTargetIndicators;
+    $this->renderedTargetIndicators = [];
+    foreach ($indicators as $indicator) {
       $this->eraseIndicator($indicator['text'], $indicator['x'], $indicator['y']);
     }
-
-    $this->renderedTargetIndicators = [];
   }
 
   /**
@@ -1245,43 +1212,9 @@ class BattleFieldWindow extends Window
    */
   protected function resolveStatChangePopupAnchor(CharacterInterface $battler): ?array
   {
-    if ($battler instanceof Character) {
-      $partyBattlers = $this->battleScreen->party->battlers->toArray();
-      $index = array_search($battler, $partyBattlers, true);
-
-      if (! is_int($index)) {
-        return null;
-      }
-
-      $position = $this->getPartyPresentedPosition($index);
-      $spriteWidth = $this->getSpriteWidth($battler->images->battle);
-
-      return [
-        'x' => $this->position->x + $position->x + intdiv(max(1, $spriteWidth), 2),
-        'y' => $this->position->y + $position->y - 1,
-        'partyIndex' => $index,
-      ];
-    }
-
-    if ($battler instanceof Enemy) {
-      $troopMembers = $this->battleScreen->troop->members->toArray();
-      $index = array_search($battler, $troopMembers, true);
-
-      if (! is_int($index)) {
-        return null;
-      }
-
-      $position = $this->getTroopPresentedPosition($battler);
-      $spriteWidth = $this->getTroopVisibleSpriteWidth($battler, $position);
-
-      return [
-        'x' => $this->position->x + $position->x + intdiv(max(1, $spriteWidth), 2),
-        'y' => $this->position->y + $position->y - 1,
-        'troopIndex' => $index,
-      ];
-    }
-
-    return null;
+    return $this->getTerminalEffects()->getBattlerAnchor($battler, $this->battleScreen->partyBattlers,
+      $this->battleScreen->troop->members->toArray(), $this->commandPlayback,
+      \Ichiloto\Engine\UI\Accessibility::prefersReducedMotion());
   }
 
   /**
@@ -1294,16 +1227,8 @@ class BattleFieldWindow extends Window
    */
   protected function resolveIndicatorPosition(string $text, int $x, int $y): array
   {
-    $indicatorWidth = TerminalText::displayWidth($text);
-    $minX = $this->position->x + 1;
-    $maxX = $this->position->x + $this->width - $indicatorWidth - 1;
-    $minY = $this->position->y + 1;
-    $maxY = $this->position->y + $this->height - 2;
-
-    return [
-      'x' => clamp($x, $minX, max($minX, $maxX)),
-      'y' => clamp($y, $minY, max($minY, $maxY)),
-    ];
+    return new TerminalBattleEffects(origin: $this->position, width: $this->width, height: $this->height)
+      ->getIndicatorPosition($text, $x, $y);
   }
 
   /**
@@ -1410,8 +1335,13 @@ class BattleFieldWindow extends Window
 
   public function clearBattleFlash(): void
   {
+    $this->clearBattleFlashState();
+  }
+
+  private function clearBattleFlashState(bool $repaint = true): void
+  {
     $this->battleFlash = null;
-    Console::removeOverlay(self::FLASH_OVERLAY_ID);
+    Console::removeOverlay(self::FLASH_OVERLAY_ID, $repaint);
   }
 
   /** Timeline shakes shift effect art only, keeping combatants and controls stable. */
@@ -1443,42 +1373,23 @@ class BattleFieldWindow extends Window
     if ($frame >= $flash['end']) { $this->clearBattleFlash(); return; }
     if ($frame < $flash['start']) { return; }
 
-    // Read the live underlay without removing and re-adding the visible colour pulse.
-    $x = $this->position->x + 1;
-    $y = $this->position->y + 1;
-    $width = max(1, $this->width - 2);
-    $height = max(1, $this->height - 2);
-    if (!$flash['screen']) {
-      $anchor = $this->resolveStatChangePopupAnchor($flash['target']);
-      if ($anchor === null) { return; }
-      $sprite = $flash['target'] instanceof Character
-        ? $flash['target']->images->battle : $flash['target']->image;
-      $width = max(1, $this->getSpriteWidth($sprite));
-      $height = max(1, count($sprite));
-      $x = $anchor['x'] - intdiv($width, 2);
-      $y = $anchor['y'] + 1;
-    }
-    $buffer = Console::snapshot([self::FLASH_OVERLAY_ID])->rows;
-    $lines = [];
-    $flashStyle = $flash['color']->value;
-    for ($row = max(0, $y); $row < min(count($buffer), $y + $height); $row++) {
-      $cells = NormalizedRow::fromText($buffer[$row])->cells;
-      $plain = '';
-      for ($column = max(0, $x); $column < min(count($cells), $x + $width); $column++) {
-        $cell = $cells[$column];
-        if ($cell === NormalizedRow::CONTINUATION) {
-          if ($column === max(0, $x)) { $plain .= ' '; }
-          continue;
-        }
-        $cellWidth = TerminalText::getSymbolWidth($cell);
-        $plain .= $column + $cellWidth > $x + $width
-          ? str_repeat(' ', max(1, $x + $width - $column))
-          : TerminalText::stripAnsi($cell);
-      }
-      // Foreground recolouring leaves empty space dark instead of painting a solid block around the sprite.
-      $lines[] = $flashStyle . $plain . Color::RESET->value;
-    }
-    Console::replaceOverlay(self::FLASH_OVERLAY_ID, $lines, max(0, $x), max(0, $y), self::FLASH_LAYER);
+    $this->renderBattleFlashes([$flash]);
+  }
+
+  /** @param list<array{target: CharacterInterface, screen: bool, color: Color}> $flashes */
+  private function renderBattleFlashes(array $flashes): void
+  {
+    $effects = new TerminalBattleEffects(origin: $this->position, width: $this->width, height: $this->height);
+    $regions = $effects->getFlashRegions($flashes, $this->resolveStatChangePopupAnchor(...),
+      fn(CharacterInterface $target): int => $target instanceof Enemy
+        ? $this->getTroopVisibleSpriteWidth($target, $this->getTroopPresentedPosition($target))
+        : $this->getSpriteWidth($target->images->battle));
+    // Read the live underlay, not a previous frame or the flash overlay itself.
+    $overlay = TerminalBattleEffects::composeFlashOverlay(Console::getBuffer([self::FLASH_OVERLAY_ID]),
+      $regions, Console::getWidth(), Console::getHeight());
+    if ($overlay === null) { Console::removeOverlay(self::FLASH_OVERLAY_ID); return; }
+    // One foreground-only layer preserves styled gaps and avoids per-recipient layer-budget growth.
+    Console::replaceOverlay(self::FLASH_OVERLAY_ID, $overlay['lines'], $overlay['x'], $overlay['y'], self::FLASH_LAYER);
   }
 
   /**
@@ -1594,17 +1505,7 @@ class BattleFieldWindow extends Window
    */
   protected function resolveNamedColor(?string $colorName): ?Color
   {
-    if ($colorName === null || trim($colorName) === "") {
-      return null;
-    }
-
-    foreach (Color::cases() as $color) {
-      if (strtolower($color->name) === strtolower(trim($colorName))) {
-        return $color;
-      }
-    }
-
-    return null;
+    return TerminalBattleEffects::resolveNamedColor($colorName);
   }
   /**
    * Queues a summon draw command for the overlay renderer.
@@ -1614,27 +1515,8 @@ class BattleFieldWindow extends Window
    */
   protected function queueSummonDrawCommand(array $drawCommand, array $offset = ['x' => 0, 'y' => 0]): void
   {
-    if (($drawCommand['visible'] ?? true) === false) {
-      return;
-    }
-
-    $position = $drawCommand['position'] ?? [];
-    $x = intval($position['x'] ?? $position[0] ?? 0);
-    $y = intval($position['y'] ?? $position[1] ?? 0);
-    $lines = $this->resolveSummonDrawCommandLines($drawCommand);
-    $color = $this->resolveSummonDrawCommandColor($drawCommand);
-
-    foreach ($lines as $lineIndex => $line) {
-      if ($line === '') {
-        continue;
-      }
-
-      $this->magicCastEffects[] = [
-        'text' => $this->formatSummonDrawCommandLine($line, $color),
-        'x' => $this->position->x + self::SUMMON_CUTSCENE_OFFSET_X + $x + $offset['x'],
-        'y' => $this->position->y + self::SUMMON_CUTSCENE_OFFSET_Y + $y + $lineIndex + $offset['y'],
-      ];
-    }
+    $effects = new TerminalBattleEffects(origin: $this->position, width: $this->width, height: $this->height);
+    array_push($this->magicCastEffects, ...$effects->getLegacyDraws($drawCommand, $offset));
   }
 
   /**
@@ -1643,16 +1525,7 @@ class BattleFieldWindow extends Window
    */
   protected function resolveSummonDrawCommandLines(array $drawCommand): array
   {
-    // Trim surrounding blank lines only — leading spaces are significant in
-    // multi-line ASCII art and must survive to keep the art aligned.
-    $content = trim(strval($drawCommand['content'] ?? ''), "\r\n");
-
-    if (trim($content) === '') {
-      $assetId = trim(strval($drawCommand['assetId'] ?? ''));
-      $content = $assetId !== '' ? '[' . strtoupper($assetId) . ']' : '';
-    }
-
-    return preg_split('/\r?\n/', $content) ?: [];
+    return TerminalBattleEffects::getCommandLines($drawCommand);
   }
 
   /**
@@ -1661,19 +1534,7 @@ class BattleFieldWindow extends Window
    */
   protected function resolveSummonDrawCommandColor(array $drawCommand): ?Color
   {
-    $colorName = trim(strval($drawCommand['color'] ?? ''));
-
-    if ($colorName === '') {
-      return null;
-    }
-
-    foreach (Color::cases() as $color) {
-      if (strtolower($color->name) === strtolower($colorName)) {
-        return $color;
-      }
-    }
-
-    return null;
+    return TerminalBattleEffects::resolveNamedColor($drawCommand['color'] ?? null);
   }
 
   /**
@@ -1685,9 +1546,7 @@ class BattleFieldWindow extends Window
    */
   protected function formatSummonDrawCommandLine(string $line, ?Color $color): string
   {
-    return $color instanceof Color
-      ? $color->value . $line . Color::RESET->value
-      : $line;
+    return TerminalBattleEffects::formatLine($line, $color);
   }
 
   /**
@@ -1702,44 +1561,9 @@ class BattleFieldWindow extends Window
     AnimationTargetPosition $position,
   ): ?array
   {
-    if ($position === AnimationTargetPosition::SCREEN) {
-      return [
-        'x' => $this->position->x + intdiv($this->width, 2),
-        'y' => $this->position->y + intdiv($this->height, 2),
-      ];
-    }
-
-    $anchor = $this->resolveStatChangePopupAnchor($battler);
-
-    if ($anchor === null) {
-      return null;
-    }
-
-    $baseY = $anchor['y'] + 1;
-    $spriteHeight = 5;
-
-    if ($battler instanceof Character) {
-      $partyBattlers = $this->battleScreen->party->battlers->toArray();
-      $index = array_search($battler, $partyBattlers, true);
-
-      if (is_int($index)) {
-        $baseY = $this->position->y + $this->getPartyPresentedPosition($index)->y;
-      }
-
-      $spriteHeight = max(1, count($battler->images->battle));
-    }
-
-    if ($battler instanceof Enemy) {
-      $baseY = $this->position->y + $this->getTroopPresentedPosition($battler)->y;
-      $spriteHeight = max(1, count($battler->image));
-    }
-
-    return match ($position) {
-      AnimationTargetPosition::HEAD => ['x' => $anchor['x'], 'y' => $baseY],
-      AnimationTargetPosition::FEET => ['x' => $anchor['x'], 'y' => $baseY + max(0, $spriteHeight - 1)],
-      AnimationTargetPosition::SCREEN,
-      AnimationTargetPosition::CENTER => ['x' => $anchor['x'], 'y' => $baseY + intdiv(max(1, $spriteHeight), 2)],
-    };
+    return $this->getTerminalEffects()->getAnimationOrigin($battler, $position, $this->battleScreen->partyBattlers,
+      $this->battleScreen->troop->members->toArray(), $this->commandPlayback,
+      \Ichiloto\Engine\UI\Accessibility::prefersReducedMotion());
   }
 
   /**
@@ -1771,12 +1595,6 @@ class BattleFieldWindow extends Window
    */
   protected function getSpriteWidth(array $spriteData): int
   {
-    $width = 0;
-
-    foreach ($spriteData as $row) {
-      $width = max($width, TerminalText::displayWidth($row));
-    }
-
-    return $width;
+    return TerminalBattleEffects::getSpriteWidth($spriteData);
   }
 }

@@ -144,6 +144,8 @@ class InputManager
   {
     foreach ([
       'info' => ['Read the next Info page; wrap to the first.', [KeyCode::i, KeyCode::I]],
+      'menu_page_previous' => ['Show the previous menu page.', [KeyCode::PAGE_UP]],
+      'menu_page_next' => ['Show the next menu page.', [KeyCode::PAGE_DOWN]],
     ] as $action => [$description, $candidates]) {
       if (array_key_exists($action, $bindings)) {
         continue;
@@ -442,6 +444,12 @@ class InputManager
   public static function getLatestPressOrder(): int
   {
     return self::getHolds()->getLatestPressOrder();
+  }
+
+  /** Presses through this order were invalidated by focus, reset, source change or failure. */
+  public static function getLatestResetPressOrder(): int
+  {
+    return self::getHolds()->getLatestResetPressOrder();
   }
 
   /** Apply this update's bounded transition batch before gameplay reads it. */

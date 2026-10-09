@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\UI\Presentation;
 
 use Ichiloto\Engine\Core\Menu\MainMenu\ConfigMenu;
+use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 
 final class ConfigMenuPresentation
@@ -13,7 +14,7 @@ final class ConfigMenuPresentation
     int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT): PresentationCanvas
   {
     $settings = $menu->selection->getSettings();
-    return SettingsMenuPresentation::compose(new SettingsMenuContent('Config', $settings,
+    return SettingsMenuPresentation::compose(new SettingsMenuContent(Vocabulary::getTerm('game.options', Vocabulary::getTerm('command.options', 'Config')), $settings,
       array_map($menu->getChoiceIndex(...), $settings), $menu->selection->getActiveIndex(),
       $menu->menuInfoText, $menu->getStatusMessage(), $menu->hasStatusError()), $theme, $time, $width, $height);
   }

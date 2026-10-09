@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Core\Menu\ItemMenu\Windows;
 use Ichiloto\Engine\Core\Interfaces\CanFocus;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
+use Ichiloto\Engine\Entities\Inventory\EquipmentIcon;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Scenes\Game\States\ItemMenuState;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
@@ -178,7 +179,7 @@ class ItemSelectionPanel extends Window implements CanFocus
     foreach (array_slice($this->items, $first, $this->pageSize) as $row => $item) {
       $index = $first + $row;
       $prefix = $index === $this->activeIndex ? '>' : ' ';
-      $itemName = TerminalText::padRight($item->name, 60);
+      $itemName = TerminalText::padRight(EquipmentIcon::getItemLabel($item), 60);
       $quantity = TerminalText::padLeft((string)$item->quantity, 2);
       $content[$row] = " {$prefix} {$itemName} {$quantity}";
     }

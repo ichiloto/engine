@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\Localization\Vocabulary;
 
 /** Shared measured pages keep navigation and native composition in agreement. */
 final class BattleResultsContent
@@ -113,7 +114,7 @@ final class BattleResultsContent
     assert($before !== null && $after !== null);
     $add($after->name, 'accent');
     if ($stage['kind'] === 'level') {
-      $add('Level ' . $before->level . "  \u{2192}  " . $after->level, 'accent');
+      $add(Vocabulary::getTerm('stats.level', 'Level') . ' ' . $before->level . "  \u{2192}  " . $after->level, 'accent');
       foreach ($after->stats as $stat => $value) {
         if (!array_key_exists($stat, $before->stats)) { continue; }
         $old = $before->stats[$stat];
@@ -122,6 +123,9 @@ final class BattleResultsContent
           'maxHp' => 'HP', 'maxMp' => 'MP',
           default => ucfirst((string)preg_replace('/([a-z])([A-Z])/', '$1 $2', $stat)),
         };
+        $label = Vocabulary::getTerm('stats.' . match ($stat) {
+          'maxHp' => 'hp', 'maxMp' => 'mp', default => $stat,
+        }, $label);
         $numbers = $old . " \u{2192} " . $value . ' (' . ($delta > 0 ? '+' : '') . $delta . ')';
         $tone = $delta > 0 ? 'positive' : ($delta < 0 ? 'negative' : 'muted');
         $lines[] = ['text' => $label, 'value' => $numbers, 'tone' => $tone];
@@ -130,9 +134,11 @@ final class BattleResultsContent
       $entries = $playback->abilities($actor);
       $entry = $entries[$stage['detail']];
       $add($entry['name'], 'accent');
-      $add(ucfirst($entry['kind']) . '  ' . ($stage['detail'] + 1) . '/' . count($entries), 'muted');
+      $kind = strtolower($entry['kind']);
+      $add(Vocabulary::getTerm('command.' . ($kind === 'ability' ? 'skill' : $kind), ucfirst($entry['kind']))
+        . '  ' . ($stage['detail'] + 1) . '/' . count($entries), 'muted');
       if (isset($entry['cost'])) {
-        $add('Cost: ' . $entry['cost'] . ' MP');
+        $add('Cost: ' . $entry['cost'] . ' ' . Vocabulary::getTerm('stats.mp', 'MP'));
       }
       $add($entry['description']);
     }

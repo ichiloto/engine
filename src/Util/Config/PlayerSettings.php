@@ -22,7 +22,7 @@ final class PlayerSettings extends AbstractConfig
     'accessibility.notificationDurationScale', 'ui.cursor.memory',
     'ui.battle.message_pace', 'ui.battle.animation_pace',
     'ui.menu.selection_color', 'ui.battle.selection_color',
-    'ui.hud.location', 'ui.transitions.style',
+    'ui.hud.location', 'ui.transitions.style', 'ui.transitions.battle',
   ];
 
   private readonly string $filename;

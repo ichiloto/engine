@@ -5,13 +5,16 @@ use Ichiloto\Engine\Field\MapLayerSet;
 use Ichiloto\Engine\IO\Console\ConsolePresentationChanges;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSprite;
+use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Presentation\PresentationViewport;
 use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
 use Ichiloto\Engine\Rendering\Presentation\RetainedPresentation;
 use Ichiloto\Engine\Rendering\RendererClient;
+use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Tests\Support\Input\FakeRendererTransport;
 use Tests\Support\Rendering\RetainedFrameState;
 
@@ -144,6 +147,41 @@ it('retains a field world camera sprites and notifications while dialogue overla
         ['op' => 'remove', 'kind' => 'canvas', 'id' => 'canvas'],
         ['op' => 'remove', 'kind' => 'canvas_image', 'id' => 'dialogue-frame'],
     ]);
+});
+
+it('batches dense scene text with a live notice without accumulating overlays or losing retained content', function () {
+    $transport = new FakeRendererTransport();
+    $sender = new RetainedPresentation(new RendererClient($transport));
+    $grid = new RendererGridConfig(12, 1, 8, 8);
+    $layers = array_map(fn($i) => new CanvasTextLayer('scene-' . $i, 30,
+        ($i % 8) * 100, intdiv($i, 8) * 16, $grid,
+        [new PresentationTextRun(0, 0, 'Record ' . $i, PresentationColor::rgb(255, 255, 255))]), range(0, 63));
+    $scene = $sender->prepareCanvas(new PresentationCanvas(800, 200, textLayers: $layers));
+    $notice = new PresentationCanvas(800, 200, textLayers: [
+        new CanvasTextLayer('notice-title', 30, 0, 160, $grid,
+            [new PresentationTextRun(0, 0, 'Achievement', PresentationColor::rgb(255, 255, 0))]),
+        new CanvasTextLayer('notice-body', 30, 0, 176, $grid,
+            [new PresentationTextRun(0, 0, 'Unlocked', PresentationColor::rgb(255, 255, 255))]),
+    ]);
+    expect($sender->presentFrame($scene, $notice))->toBeTrue();
+    $frame = RetainedFrameState::getLatestFrame($transport->sent);
+    $text = $frame['canvas']['textLayers'];
+    expect(count($text))->toBeLessThanOrEqual(64);
+    $visible = [];
+    foreach ($text as $layer) {
+        foreach ($layer['runs'] as $run) {
+            $visible[$run['text']] = [$layer['origin']['x'] + $run['column'] * $layer['grid']['cellWidth'],
+                $layer['origin']['y'] + $run['row'] * $layer['grid']['cellHeight']];
+        }
+    }
+    foreach (range(0, 63) as $i) {
+        expect($visible['Record ' . $i])->toEqual([($i % 8) * 100, intdiv($i, 8) * 16]);
+    }
+    expect($visible['Achievement'])->toEqual([0, 160])->and($visible['Unlocked'])->toEqual([0, 176])
+        ->and($sender->captureFrame()->canvas->textLayers)->toHaveCount(64)
+        ->and($sender->presentFrame($scene, $notice))->toBeFalse();
+    $sender->presentFrame($scene);
+    expect(RetainedFrameState::getLatestFrame($transport->sent)['canvas']['textLayers'])->toHaveCount(64);
 });
 
 it('resends retained state once after rejection resize and a new renderer session', function () {

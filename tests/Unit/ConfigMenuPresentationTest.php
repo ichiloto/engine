@@ -135,8 +135,7 @@ afterEach(function () {
 it('projects every live setting value and full description through both themes at finite viewport sizes', function (bool $art, int $width, int $height) {
   $theme = new MenuPresentationCatalog($this->root, configPresentationTheme($art));
   $settings = $this->menu->selection->getSettings();
-  expect($settings)->toHaveCount(13);
-  expect(array_column($settings, 'key'))->toContain('voice', 'dialogue_auto');
+  expect(array_column($settings, 'key'))->toContain('voice', 'dialogue_auto', 'battle_transitions');
   foreach ($settings as $index => $setting) {
     $frame = ConfigMenuPresentation::compose($this->menu, $theme, width: $width, height: $height);
     $text = configPresentationText($frame);

@@ -63,8 +63,8 @@ Indicator fields: `id`, `imageId`, `kind`, `bounds`, `strokeWidth`, `color`, i32
 `layer`. `imageId` must identify an image in the same snapshot. `kind` is
 `outline` or `underline`. Strokes are integer 1..16, no larger than either bound
 dimension, drawn inside the bounds. Underline fills the inside bottom strip.
-`color` is a required nonnull existing ColorSpec. Selection and acting state can
-use different shapes on the same image; native code does not choose targets.
+`color` is a required nonnull existing ColorSpec. Native code renders submitted
+indicators; it does not choose targets or add an acting marker.
 
 IDs are nonempty UTF-8 without control characters, at most 256 bytes and unique
 within their collection. Repeated enemy definitions require different stable
@@ -151,6 +151,17 @@ readiness and skipped time boundaries, and release its layer/input ownership
 exactly once. Off and reduced motion add no animation delay. Battle clocks
 and commands begin only after entry completes. Cancellation, focus changes,
 resize and failed preparation must not leave a curtain or input lock behind.
+
+Battle entry uses the independent `ui.transitions.battle` boolean and the
+Battle Transitions setting. It can be enabled while ordinary doorway
+`ui.transitions.style` remains `none`. Omission preserves existing projects'
+shared style gate; reduced motion still skips animation. The authored catalogue
+continues to select the treatment, independently of that enablement policy.
+At the hidden field-to-battle boundary, `Console::recomposeFrame` atomically
+replaces scene-owned text. Untiled field glyphs must not leak into a graphical
+battle that draws no terminal background. Game-owned overlays survive the
+replacement. Headless entry tests cover text/graphical fields with transitions
+on, off and reduced motion; these do not establish native pixel acceptance.
 
 Optional `Data/Presentation/transitions.php` returns `ScreenTransitionCatalog`,
 whose stable treatment ids and optional battle selection are project-owned.
@@ -272,6 +283,28 @@ An optional `battleArena` key in a map's `encounters` block or a scripted
 can pass the same key through `SceneManager::loadBattleScene`'s `extraSettings`.
 Use this for location-specific backgrounds: the same troop can appear in several
 settings. Formation does not change when the background changes.
+Mixed random tables can select a scene on an individual map-owned choice:
+
+```php
+'encounters' => [
+  'troops' => [
+    'Cave Creatures' => 5,
+    'Lake Creature' => ['weight' => 1, 'battleArena' => 'arena.lake'],
+  ],
+  'battleArena' => 'arena.cave',
+  'rate' => 22,
+],
+```
+
+`Field\EncounterEntry::getFromValue()` reads numeric legacy weights and structured
+rows; `getBattleSettings($mapSettings)` selects entry settings over common map
+settings. Unreadable/nonpositive weights are skipped as before. Optional invalid
+arena data is retained for graphical diagnostics, never used to discard a
+playable encounter. The table's weights, random selection and troop identities
+are unchanged. The same troop may use a different scene in another map row,
+scripted battle or battle test. Source-preserving structured-row edits and arena
+pickers are Editor-owned; they must retain unowned row fields and not rewrite
+the row to an integer when changing its weight or name.
 The binding belongs to this encounter, not global or inferred map state; map
 encounter reconfiguration clears any previous binding. An explicit invalid or
 missing arena/catalog is diagnosed before battle-entry effects, and combat
@@ -423,17 +456,52 @@ remains intact. Editor work and native cross-platform acceptance remain separate
 
 Whole-image `BattlerArtwork` dimensions come from the current PNG and pivots
 scale with replacement dimensions. Explicit atlas regions retain source-pixel
-geometry relative to their crop. `BattlerSlot(x, y, width, height)` gives the
-graphical pivot
-destination and maximum contain dimensions. PHP uniformly scales the selected
-source to those limits, then subtracts the scaled pivot to resolve the destination
-rectangle. No snapping to terminal cells occurs. Art-supplied shadows belong to
-the image and receive no extra runtime shadow.
+geometry relative to their crop. `BattlerSlot(x, y, width, height, displayScale: 1.0)` gives the
+graphical pivot destination and movement/legacy contain dimensions. The catalog's
+optional `BattleScale` owns a shared reference actor, reference body height and
+identity-keyed actor/enemy proportions. `BattlerScale` calibrates that body unit
+against normalized source frame height or width; a pose may supply `scaleSpan`
+when its source density/composition differs. Current image or animation-cell
+dimensions determine uniform pixel scale, not the formation box or pose silhouette.
+Every registered battler, including an identity registered only through pose
+artwork, requires a profile in reference mode; competing legacy `displayWidth`
+values are rejected. The October 4 coverage correction rejects uncalibrated
+pose-only registrations and competing pose-only widths, rather than silently
+letting them bypass the shared scale. Calibrated pose-only artwork remains usable
+without a base registration. Catalogs without the reference contract retain
+legacy width/contain behavior. Last Legend uses Kaelion's standing reference for
+every registered actor and creature, including base-only degradation and previews.
+Source anatomy and pivots remain Art-owned; opaque extents include weapons,
+robes and shadows and are never an automatic anatomical measurement.
+An optional slot-owned `displayScale` applies uniform perspective depth once,
+after body calibration or legacy fitting, about the same ground pivot. It follows
+the current slot occupant for base artwork and every still/animated pose. It
+does not redefine actor anatomy or change movement space, terminal geometry,
+combat or saves. `placeAtScale` accepts the pre-slot pixel scale; previews expose
+the depth-adjusted `bodySpan`. Optional numeric `displayScale` in authored troop
+placements defaults to 1.0; party slots use the same typed contract.
+No snapping to terminal cells occurs. Art-supplied shadows belong to the image and receive no extra runtime
+shadow. See the [pose scale contract](../effect-animation.md#local-battle-runtime-october-2026).
+
+Missing pixels are not a tiny image with a huge body scale: shared placement
+retains only the name anchor, while valid pose-only artwork uses its own
+calibration or legacy contain fit. Canvas-edge name footprints remain bounded
+without changing the authored ground anchor; selected/queued missing-art
+members use text feedback, not image cursors anchored to absent pixels.
+Optional explicit `battlerArea`, `enemyArea` and `partyArea` regions support
+shared read-only current-pixel clearance diagnostics
+for formation previews, validation and runtime preparation. The regions are
+not inferred from terminal coordinates, a canvas half or `feedbackArea`.
+Diagnostics report overlap, out-of-region art and unavailable cursor space;
+side regions may be anywhere on the canvas, including mirrored formations.
+they never move or shrink authored battlers. Optional PNG inspection support
+is reported when unavailable and is not a new runtime decoding requirement.
 
 Supply shared-layout party slots for the configured active formation and each
-troop enemy's graphicalPlacement. The existing Party reserve fallback remains live:
-all roster images and their possible party-slot placements are preflighted, but
-only the actual frontline is drawn. Enemy removal never renumbers a surviving
+troop enemy's graphicalPlacement. The battle-owned active roster is drawn;
+automatic reserve fallback is removed by default. Per-battle
+`reservePolicy => replace_after_wipeout` is an explicit opt-in applied after
+the final KO presentation, never by drawing or asset reads. Enemy removal never renumbers a surviving
 instance's authored slot. Unavailable participant images use a local text
 fallback; other participants
 retain their art and stable slots. Invalid formation geometry or exceeded frame
@@ -464,19 +532,77 @@ footprints. Authored safe areas must cover those real footprints. Window cells
 have an explicit opaque dark background; cells outside windows are absent.
 Arena and battler coordinates are independent of this temporary grid.
 
-Focused/queued target instances have an outline and target-name label. The
-existing forward/back presentation calls identify the acting instance with a
-distinct underline without adding movement or delays. Without a usable KO pose,
-party KO uses dimmed standing artwork with a KO label. The shared G2 role path
+Focused/queued target instances have an outline and target-name label. Andrew
+removed the acting underline on October 4: the shared command advance/action/
+return presentation identifies the actor without an additional marker or
+"Acting" fallback label. The obsolete `acting` battle-skin texture role is
+removed; themes declare only panel, quiet, track, hp, mp, atb, selector, target
+and queued textures. Target selection and acting identity remain independent.
+Without a usable KO pose,
+party KO uses dimmed standing artwork without a KO label. The shared G2 role path
 instead displays a registered KO pose at normal opacity and its authored ground
 anchor, and restores the current resting pose after revival. Missing non-idle
 bindings are diagnosed rather than treated as finished art. Defeated enemies
-remain through their existing popup hold, then are
-removed. `BattleFieldWindow` retains recipient, sequence and existing formatted
+remain through their existing popup hold, then perform the bounded shared defeat
+treatment described below before removal. `BattleFieldWindow` retains recipient, sequence and existing formatted
 result lines; graphical placement uses the recipient's image bounds, not ASCII
 placement or damage-string parsing. Clearing the existing popup also clears its
 canvas feedback. Static poses and these text adapters are G1, not G2/G3 or a
 completed graphical UI.
+
+### Battlefield Conditions And Enemy Defeat
+
+This October 7 slice is independent of G3 and does not close it. Runtime gauge
+headers are **Time** in both presentations; internal ATB fields and texture roles
+are unchanged. No legal/trademark claim is made.
+
+`HasStates`/`HasStatStages` own live gameplay. `BattlerConditions` projects their
+current identities, names and descriptions for the existing Info action: the
+active actor during command/submenu selection and focused recipients during
+target selection. No HUD state icons are introduced. Condition effects are field
+layers through the same `BattleEffectPlayback`, `GraphicalBattleEffects` and
+`TerminalBattleEffects` paths as commands; details and authoring are in
+[effect-animation.md](../effect-animation.md#battlefield-condition-effects).
+
+`BattleCommandRunner` registers only newly defeated enemies from actual result
+vitals, including simultaneous targets and lethal self/poison results.
+`BattleCommandPlayback` owns their delta-driven clock, begins treatment at the
+existing feedback/return boundary, and holds completion until every treatment
+has cleared. It does not change HP, combat outcome, state duration or rewards.
+Pause freezes it even after the effect session has ended. Cancellation/disposal
+abandons visuals and pending cues; revival removes that enemy from the hold.
+Result holds, counter sequencing and battle cleanup remain the existing owners.
+Large updates cross the bounded lifetime without looping or replaying cues.
+
+Project/theme `config.php` may set `ui.battle.defeat`:
+
+```php
+['pulses' => 3, 'pulseSeconds' => 0.12, 'fadeSeconds' => 0.25,
+ 'color' => [255, 64, 64], 'audio' => true]
+```
+
+These are defaults; omission needs no assets. Validation requires 1..8 pulses,
+0.05..0.5 seconds per pulse, 0.05..2 seconds fade and three integer RGB components
+in 0..255. Normal motion alternates a masked color pulse for each half-period,
+then fades the current image. Reduced motion uses one plain fade for the same
+bounded duration, with no pulse. Without compositing, fade/clear remain and the
+missing pulse capability is diagnosed. Terminal uses the configured pulse color,
+then a steady dim/disappear equivalent because terminal cells have no alpha.
+Missing battler artwork retains the readable name until clear, not finished art.
+
+The former impact-time `ENEMY_COLLAPSE` sound is removed/moved: impact now uses
+ordinary `ENEMY_DAMAGE`, and each cleared enemy emits `ENEMY_COLLAPSE` exactly
+once through the existing battle audio owner, never through rendering. A failed
+audio sink is not retried. `audio => false` omits this cue; unbound
+`audio.sounds.enemy_collapse` remains silent through the existing AudioManager.
+No sound or art is generated/admitted by Engine. KO-role feedback remains typed
+inspection data, but its label is removed from both graphical and terminal
+painting; ordinary damage/healing feedback is retained.
+
+Headless tests establish these contracts only. Game owns art/audio bindings;
+Editor/GUI own selectors and safe source-preserving configuration round trips.
+Native pixels/audio, production admission, other platforms and integration
+acceptance remain separate owner work.
 
 Target names and all current result lines for one participant form one ordered
 text block. `BattleFeedbackPlacement` positions that block around the image,
@@ -646,9 +772,20 @@ catalogue union. Future crossfades must account for both stages.
 Per-snapshot source and region limits remain 64 MiB independently, with 1024
 sources and 4096 regions. Cache eviction removes cache ownership, not live
 queued/displayed snapshot references; these are not total process-memory limits.
-Header/preflight results are cached by path and modification time so unchanged
-images are not reopened every frame and replacements are observed. Native
-decoding remains the final pixel-validation boundary.
+Header/preflight success, failure and diagnostics are cached by path, filesystem
+facts and the current 24-byte PNG header (at most 1024 entries). Each probe checks
+safe root containment, readability and resource limits before reading that
+bounded header. Parsed dimensions are reused only while those facts agree;
+rapid in-place edits refresh immediately even if inode, encoded size and
+second-resolution mtime/ctime collide. Atomic replacement, deletion and repair
+use the same boundary. Every crop is checked against current dimensions.
+
+This removes the former stat-only freshness assumption. A probe opens the PNG
+for its header, not a full-file hash or PHP image decode; repeated consumers
+share the parsed result and diagnostic de-duplication. There is no TTL or
+authored hash/dimension requirement. Native decoding remains the final
+compressed-pixel-validation boundary: an unchanged valid header with corrupt
+IDAT data still requires decoder validation.
 
 Coverage must include replacement art, missing unused and visible assets,
 sliding portrait pages, budget overflow, reordering, normal/reduced motion,

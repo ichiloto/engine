@@ -25,9 +25,15 @@ readonly class BattleCanvasLayout
     public ?BattleUiSkin $skin = null,
     public ?CanvasRectangle $feedbackArea = null,
     array $partySlots = [],
+    public ?CanvasRectangle $battlerArea = null,
+    public ?CanvasRectangle $enemyArea = null,
+    public ?CanvasRectangle $partyArea = null,
   ) {
     new PresentationCanvas($width, $height);
     $feedbackArea?->assertWithin($width, $height);
+    $battlerArea?->assertWithin($width, $height);
+    $enemyArea?->assertWithin($width, $height);
+    $partyArea?->assertWithin($width, $height);
     if ($skin !== null && $feedbackArea === null) {
       throw new InvalidArgumentException('A skinned battle requires an explicit feedback safe area.');
     }
@@ -47,6 +53,6 @@ readonly class BattleCanvasLayout
   {
     return $arena->skin === null || $arena->skin === $this->skin ? $this
       : new self($this->width, $this->height, $this->uiGrid->cellWidth, $this->uiGrid->cellHeight,
-        $arena->skin, $this->feedbackArea, $this->partySlots);
+        $arena->skin, $this->feedbackArea, $this->partySlots, $this->battlerArea, $this->enemyArea, $this->partyArea);
   }
 }

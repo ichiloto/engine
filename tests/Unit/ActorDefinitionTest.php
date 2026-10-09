@@ -1,6 +1,9 @@
 <?php
 
 use Ichiloto\Engine\Entities\Actors\ActorDefinition;
+use Ichiloto\Engine\Animations\ActionAnimationResolver;
+use Ichiloto\Engine\Entities\Enumerations\WeaponType;
+use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
 use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\Exceptions\UnresolvedSaveReferenceException;
 use Ichiloto\Engine\Util\Stores\ActorStore;
@@ -11,6 +14,52 @@ function foundationActorDefinition(): ActorDefinition
 
   return $store->require('actor.hero', 'loading the project-backed actor test fixture');
 }
+
+it('hydrates every authored attack style without changing stats or equipment', function (WeaponType $type) {
+  $data = foundationActorDefinition()->data();
+  $baseline = ActorDefinition::fromArray($data)->createCharacter();
+  foreach ([$type, $type->value, strtolower($type->value)] as $value) {
+    $actor = ActorDefinition::fromArray([...$data, 'attackStyle' => $value])->createCharacter();
+    expect($actor->attackStyle)->toBe($type)
+      ->and($actor->stats->jsonSerialize())->toBe($baseline->stats->jsonSerialize())
+      ->and(array_all($actor->equipment, static fn($slot): bool => $slot->equipment === null))->toBeTrue()
+      ->and($actor->toArray())->not->toHaveKey('attackStyle')
+      ->and($actor->__serialize())->not->toHaveKey('attackStyle');
+  }
+})->with(WeaponType::cases());
+
+it('rebuilds base attack style from current actor definitions while preserving saved upgrades and resources', function () {
+  $data = foundationActorDefinition()->data();
+  $original = ActorDefinition::fromArray([...$data, 'attackStyle' => 'Sword'])->createCharacter();
+  $saved = $original->toArray();
+  $saved['stats']['currentHp'] = 23;
+  $saved['attackStyle'] = 'invalid historical value';
+  $current = ActorDefinition::fromArray([...$data, 'attackStyle' => 'Dagger']);
+  $restored = $current->createCharacter($saved);
+  expect($restored->attackStyle)->toBe(WeaponType::DAGGER)
+    ->and(ActionAnimationResolver::getAttackRole($restored))->toBe('attack-dagger')
+    ->and($restored->stats->currentHp)->toBe(23)
+    ->and($restored->stats->totalAttack)->toBe($original->stats->totalAttack);
+  expect($restored->assignEquipment('Weapon', new Weapon('Upgrade', '', '', 0, equipmentType: WeaponType::STAFF)))->toBeTrue();
+  $restored = $current->createCharacter($restored->toArray());
+  expect(ActionAnimationResolver::getAttackRole($restored))->toBe('attack-staff')
+    ->and($restored->stats->currentHp)->toBe(23);
+  $restored->assignEquipment('Weapon', null);
+  expect(ActionAnimationResolver::getAttackRole($restored))->toBe('attack-dagger');
+});
+
+it('defaults absent base style to unarmed and rejects invalid authored styles with source context', function () {
+  $data = foundationActorDefinition()->data();
+  foreach ([null, 'Sword-like', '', 1, [], false] as $value) {
+    if ($value === null) {
+      expect(ActorDefinition::fromArray([...$data, 'attackStyle' => null])->createCharacter()->attackStyle)->toBeNull();
+      continue;
+    }
+    expect(fn() => ActorDefinition::fromArray([...$data, 'attackStyle' => $value], 'Actors/Example.php'))
+      ->toThrow(InvalidArgumentException::class, 'Actors/Example.php attackStyle');
+  }
+  expect(ActionAnimationResolver::getAttackRole(ActorDefinition::fromArray($data)->createCharacter()))->toBe('attack-unarmed');
+});
 
 it('requires explicit actor identities and refuses to mutate an established identity', function () {
   foreach ([['name' => 'Hero'], ['id' => '', 'name' => 'Hero'], ['id' => 42, 'name' => 'Hero']] as $data) {

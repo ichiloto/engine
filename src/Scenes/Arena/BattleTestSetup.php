@@ -48,8 +48,22 @@ final readonly class BattleTestSetup
   public static function getFromStartingParty(ActorStore $actors): self
   {
     $system = asset('Data/system.php', true);
+
+    return self::getFromPartyReferences($actors, SystemData::fromArray(is_array($system) ? $system : [])->startingParty);
+  }
+
+  /**
+   * The setup a starting-party list describes, as system data writes one
+   * (actor ids, or the older actor file references): each actor at its
+   * authored level and wearing its authored equipment. An editor passes the
+   * list as it stands, unsaved edits included.
+   *
+   * @param list<mixed> $references
+   */
+  public static function getFromPartyReferences(ActorStore $actors, array $references): self
+  {
     $members = [];
-    foreach (SystemData::fromArray(is_array($system) ? $system : [])->startingParty as $reference) {
+    foreach ($references as $reference) {
       $definition = $actors->requireStartingPartyActor(strval($reference));
       $members[] = self::describeCharacter($definition->createCharacter());
     }
@@ -58,6 +72,45 @@ final readonly class BattleTestSetup
     }
 
     return new self(array_slice($members, 0, self::MAX_MEMBERS));
+  }
+
+  /**
+   * A setup as project data writes one: `members`, a list of
+   * {@see BattleTestMember::fromArray()} entries, and optionally `arena`.
+   * Anything else is refused, never ignored.
+   *
+   * @param array<string, mixed> $data
+   * @throws InvalidArgumentException When the data is not a setup.
+   */
+  public static function fromArray(array $data): self
+  {
+    $unknown = array_diff(array_keys($data), ['members', 'arena']);
+    if ($unknown !== []) {
+      throw new InvalidArgumentException('A battle test setup has no ' . implode(', ', $unknown) . '.');
+    }
+    $members = $data['members'] ?? null;
+    if (!is_array($members) || !array_is_list($members) || array_any($members, static fn(mixed $member): bool => !is_array($member))) {
+      throw new InvalidArgumentException('A battle test setup\'s members are a list of members.');
+    }
+    $arena = $data['arena'] ?? null;
+    if ($arena !== null && (!is_string($arena) || trim($arena) === '')) {
+      throw new InvalidArgumentException('A battle test setup\'s arena is an arena key.');
+    }
+
+    return new self(array_map(BattleTestMember::fromArray(...), $members), $arena);
+  }
+
+  /**
+   * The setup as project data writes it; the arena only when one is chosen.
+   *
+   * @return array<string, mixed>
+   */
+  public function toArray(): array
+  {
+    return [
+      'members' => array_map(static fn(BattleTestMember $member): array => $member->toArray(), $this->members),
+      ...($this->arena === null ? [] : ['arena' => $this->arena]),
+    ];
   }
 
   /** The setup a party describes: its members, their levels and what they wear. */

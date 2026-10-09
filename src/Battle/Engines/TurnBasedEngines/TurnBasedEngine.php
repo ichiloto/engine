@@ -116,6 +116,17 @@ abstract class TurnBasedEngine implements BattleEngineInterface
   /** Traditional rounds are counted by TurnInitState; ATB supplies its own completion boundary. */
   public function recordTurnCompletion(TurnStateExecutionContext $context, Turn $turn): void {}
 
+  public function handlePartyRosterChange(TurnStateExecutionContext $context): void
+  {
+    $this->turnQueue->clear();
+    $context->setTurns([]);
+    $context->ui->characterNameWindow->setNames(array_map(
+      static fn($member): string => $member->name, $context->partyRoster->battlers));
+    $context->ui->characterStatusWindow->setCharacters($context->partyRoster->battlers);
+    $context->ui->fieldWindow->clearTargetIndicators();
+    $context->ui->refreshField();
+  }
+
   /**
    * Sets the state of the engine.
    *

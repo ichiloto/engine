@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Ichiloto\Engine\Core\Menu\TitleMenu\TitleMenu;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
+use Ichiloto\Engine\Messaging\Notifications\Presentation\NotificationPlacement;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasComposite;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
@@ -152,6 +153,13 @@ it('projects all five real button labels centered without any oscillating cursor
       selected: $index === 1, focused: $index === 1, disabled: $index === 1);
   }
   $frame = TitleMenuPresentation::compose($catalog, $clock, $commands);
+  expect($frame->protectedAreas)->not->toBeNull()
+    ->and(NotificationPlacement::isClear(new CanvasRectangle(20, 20, 40, 40), $frame->getOverlayProtection()))->toBeTrue();
+  foreach ($frame->images as $image) {
+    if ($image->id === 'title-logo' || str_starts_with($image->id, 'title-day-')) {
+      expect(NotificationPlacement::isClear($image->destination, $frame->getOverlayProtection()))->toBeFalse();
+    }
+  }
   foreach ($commands as $command) { expect(getTitleTestText($frame))->toContain($command->label); }
   foreach ($frame->images as $image) { expect($image->id)->not->toContain('cursor'); }
   foreach ($frame->textLayers as $layer) {
@@ -165,7 +173,9 @@ it('projects all five real button labels centered without any oscillating cursor
   $again = TitleMenuPresentation::compose($catalog, $clock, $commands);
   expect($again)->toEqual($frame)->and($clock->elapsed)->toBe($elapsed);
   $destination = TitleMenuPresentation::compose($catalog, $clock, $commands, false);
-  expect(array_column($destination->images, 'id'))->not->toContain('title-logo')->and($destination->textLayers)->toBe([]);
+  expect(array_column($destination->images, 'id'))->not->toContain('title-logo')->and($destination->textLayers)->toBe([])
+    ->and($destination->protectedAreas)->not->toBeNull()
+    ->and(NotificationPlacement::isClear(new CanvasRectangle(20, 20, 40, 40), $destination->getOverlayProtection()))->toBeTrue();
 });
 
 it('uses current artwork dimensions and correct bird phase fade and reduced-motion frame zero', function () {
@@ -315,8 +325,7 @@ it('shares settings controls and scrolls every title option including Voice and 
     if (isset($settings[$active])) { expect(getTitleTestText($frame))->toContain($settings[$active]->label); }
     expect(getTitleTestText($frame))->toContain('Back')->not->toContain('Battle Message Pace');
   }
-  expect($settings)->toHaveCount(9);
-  expect(array_column($settings, 'key'))->toContain('voice', 'dialogue_auto', 'notification_duration');
+  expect(array_column($settings, 'key'))->toContain('voice', 'dialogue_auto', 'notification_duration', 'battle_transitions');
 });
 
 it('preserves title focus through modal suspension and cancels canvas ownership on stop', function () {

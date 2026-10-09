@@ -6,6 +6,7 @@ use Exception;
 use Ichiloto\Engine\Core\Timers;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\Inn\Presentation\InnRestPresentation;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 
@@ -64,6 +65,7 @@ class InnStay
     // left off: sleeping never changes maps, so nothing else restores it.
     $previousTrack = current_music();
     $restMusicStarted = false;
+    $restPresentation = null;
     $scene->holdFieldMusic();
     try {
       $restMusicStarted = $this->playSleepMusic();
@@ -78,19 +80,34 @@ class InnStay
       $sleepAnimationFrameCount = count($sleepFrames);
       $sleepTime = config(ProjectConfig::class, 'inn.sleep_time', self::SLEEP_TIME);
       $sleepInterval = intval((clamp($sleepTime, 1, 10) * 1000000) / $sleepAnimationFrameCount);
+      $intervalSeconds = $sleepInterval / 1_000_000;
+      $restPresentation = new InnRestPresentation($scene,
+        $this->offer->presentation ?? config(ProjectConfig::class, 'graphics.inn.presentation'),
+        $intervalSeconds * $sleepAnimationFrameCount);
 
       $leftMargin = intdiv(get_screen_width(), 2) - 2;
       $topMargin = intdiv(get_screen_height(), 2) - 1;
       for ($index = 0; $index < $sleepAnimationFrameCount; $index++) {
+        $restPresentation->advanceTo($index * $intervalSeconds);
         Console::clear();
-        Console::write($sleepFrames[$index], $leftMargin, $topMargin);
-        Timers::wait($sleepInterval / 1_000_000);
+        Console::withLayer(InnRestPresentation::TERMINAL_LAYER,
+          fn() => Console::write($sleepFrames[$index], $leftMargin, $topMargin));
+        Timers::wait($intervalSeconds,
+          fn(float $progress) => $restPresentation->advanceTo(($index + $progress) * $intervalSeconds));
       }
+      // The final presentation pump can also transfer or stop the originating scene.
+      $restPresentation->advanceTo($intervalSeconds * $sleepAnimationFrameCount);
     } finally {
+      $restoreOriginMusic = $restPresentation === null || $restPresentation->isOriginCurrent;
       try {
-        $this->restoreMusic($previousTrack, $restMusicStarted);
+        $restPresentation?->release();
       } finally {
-        $scene->releaseFieldMusic();
+        try {
+          // A transfer or shutdown has handed music ownership away from this rest.
+          if ($restoreOriginMusic) { $this->restoreMusic($previousTrack, $restMusicStarted); }
+        } finally {
+          $scene->releaseFieldMusic();
+        }
       }
     }
 
@@ -103,8 +120,6 @@ class InnStay
 
     if ($this->offer->spawnPoint !== null) {
       $player->availableAction = null;
-      $player->position->x = $this->offer->spawnPoint->x;
-      $player->position->y = $this->offer->spawnPoint->y;
     }
 
     if ($this->offer->spawnSprite !== null) {
@@ -112,8 +127,7 @@ class InnStay
     }
 
     Console::clear();
-    $scene->mapManager->render();
-    $player->render();
+    $scene->relocatePlayer($this->offer->spawnPoint ?? clone $player->position);
 
     return InnStayOutcome::STAYED;
   }

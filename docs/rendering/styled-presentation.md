@@ -32,6 +32,17 @@ cells represented by spaces, and `?` for incompatible multi-scalar graphemes or
 controls after existing stabilization. This is not a second width model. Wide
 continuations carry the anchor's colours, preserving coloured blank coverage.
 
+`TerminalPresentationComposer` owns this conversion for full Console snapshots,
+incremental rows and isolated Editor previews. `createRunsFromLines($lines, $grid)`
+normalizes ANSI-formatted rows through the existing terminal cell model before
+clipping to the logical grid. `createCanvasFromLines($lines, $grid)` wraps those
+typed runs in one `CanvasTextLayer` at the supplied cell dimensions. It leaves the
+source lines unchanged and does not write to the live Console. GUI previews
+paint the structured canvas, not raw escape sequences or their byte lengths;
+Terminal/TUI consumers continue using the original formatted lines. The same
+conversion handles sparse gaps, wide continuations, intensity and partial colour
+resets across these consumers, with a bounded style cache.
+
 ## Existing colour authoring
 
 Keep using `Color` enum sequences and Symfony formatter markup. The focused

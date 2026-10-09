@@ -28,6 +28,17 @@ final class AnimationLibrary
   {
   }
 
+  /** Explicit snapshots let authoring inspect unsaved records without loading the running project. */
+  public static function createFromAnimations(array $animations): self
+  {
+    if (!array_is_list($animations) || !array_all($animations, static fn($entry): bool => $entry instanceof Animation)) {
+      throw new \InvalidArgumentException('An animation snapshot must be a list of Animation records.');
+    }
+    $library = new self(cacheForBattle: true);
+    $library->battleAnimations = $animations;
+    return $library;
+  }
+
   /**
    * Loads all configured animations.
    *

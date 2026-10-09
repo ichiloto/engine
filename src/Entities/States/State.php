@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Entities\States;
 
 use InvalidArgumentException;
+use Ichiloto\Engine\Battle\CounterAttackRule;
 
 /**
  * An authored battler state (poison, sleep, guard-up, …).
@@ -36,6 +37,7 @@ class State
     protected(set) bool $preventsAction = false,
     protected(set) bool $persistsAfterBattle = false,
     protected(set) StateDisposition $disposition = StateDisposition::HARMFUL,
+    protected(set) ?CounterAttackRule $counterAttack = null,
   )
   {
   }
@@ -73,6 +75,7 @@ class State
       (bool) ($data['preventsAction'] ?? false),
       (bool) ($data['persistsAfterBattle'] ?? false),
       $disposition,
+      CounterAttackRule::fromArray($data['counterAttack'] ?? null),
     );
   }
 }

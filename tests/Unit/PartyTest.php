@@ -64,16 +64,18 @@ it('hydrates members from an array without treating the location entry as a memb
     ->and($party->location?->region)->toBe('The Meadows');
 });
 
-it('falls back to living party members when the frontline is fully knocked out', function () {
+it('removes automatic reserve fallback and keeps the wiped frontline selected', function () {
   $party = new Party();
-  $party->addMember(new Character('Kaelion', 1, new Stats(currentHp: 0, currentMp: 10)));
-  $party->addMember(new Character('Liora', 1, new Stats(currentHp: 0, currentMp: 10)));
-  $party->addMember(new Character('Drazek', 1, new Stats(currentHp: 0, currentMp: 10)));
-  $party->addMember(new Character('Seraphis', 1, new Stats(currentHp: 250, currentMp: 50)));
+  foreach (['First', 'Second', 'Third'] as $name) {
+    $party->addMember(new Character($name, 1, new Stats(currentHp: 0, currentMp: 10)));
+  }
+  $reserve = new Character('Reserve', 1, new Stats(currentHp: 250, currentMp: 50));
+  $party->addMember($reserve);
 
   $battlers = $party->battlers->toArray();
 
-  expect($battlers)->toHaveCount(1)
-    ->and($battlers[0]->name)->toBe('Seraphis')
-    ->and($battlers[0]->isKnockedOut)->toBeFalse();
+  expect($battlers)->toHaveCount(3)
+    ->and(array_column($battlers, 'name'))->toBe(['First', 'Second', 'Third'])
+    ->and($party->isDefeated())->toBeTrue()
+    ->and($reserve->isKnockedOut)->toBeFalse();
 });

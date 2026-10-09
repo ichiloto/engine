@@ -62,7 +62,7 @@ class SaveSlotWindow extends Window
     // apply the shared menu selection style to the record itself. This
     // component is shared by both Save and Title Continue.
     $this->foregroundColor = null;
-    $this->title = $this->styleSelection(sprintf('File %d', $slot->slot), $isSelected);
+    $this->title = $this->styleSelection(get_message('file', 'File') . ' ' . $slot->slot, $isSelected);
     $this->setContent([
       $this->styleSelection($slot->isEmpty ? 'Empty File' : $slot->locationName, $isSelected),
       $this->styleSelection($this->buildFooterLine($slot), $isSelected),

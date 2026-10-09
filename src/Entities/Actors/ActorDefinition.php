@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\Entities\Actors;
 
 use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Battle\CounterAttackRule;
+use Ichiloto\Engine\Entities\Enumerations\WeaponType;
 use Ichiloto\Engine\Entities\Stats\StatKey;
 use Ichiloto\Engine\Exceptions\UnresolvedSaveReferenceException;
 use InvalidArgumentException;
@@ -40,6 +42,14 @@ final class ActorDefinition
     }
 
     $this->id = $id;
+    CounterAttackRule::fromArray($data['counterAttack'] ?? null);
+    if (($data['attackStyle'] ?? null) !== null) {
+      try {
+        WeaponType::require($data['attackStyle']);
+      } catch (InvalidArgumentException $error) {
+        throw new InvalidArgumentException(sprintf('%s attackStyle: %s', $source, $error->getMessage()), previous: $error);
+      }
+    }
 
     $this->fixedNaturalAdjustments = self::normalizeAdjustments($fixedNaturalAdjustments, $source);
     $this->naturalVariants = [];

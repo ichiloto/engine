@@ -341,7 +341,6 @@ class MapManager implements CanRenderAt
       is_array($map['encounters'] ?? null) ? $map['encounters'] : null
     );
     $this->gameScene->npcManager?->applyPreparedNpcs($prepared->npcs ?? []);
-    $this->gameScene->skitManager?->announceAvailableSkits();
 
     $this->camera->resetPosition($player);
     $this->gameScene->fieldEffects?->installMap($mapId, $map['fieldEffects'] ?? null, $prepared->graphics,

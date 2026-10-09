@@ -161,7 +161,7 @@ class UIManager implements CanRender, CanUpdate, CanResume, CanStart
   /** Read-only access also covers event-owned modals which do not use ModalManager's stack. */
   public function getActivePresentations(): array
   {
-    $active = array_filter($this->presentations, static fn($item) =>
+    $active = array_filter(array_reverse($this->presentations, true), static fn($item) =>
       !$item instanceof \Ichiloto\Engine\UI\Interfaces\ModalInterface || $item->isShowing());
     uasort($active, static fn($a, $b) => $b->getPresentationPriority()->value <=> $a->getPresentationPriority()->value);
     return array_values($active);

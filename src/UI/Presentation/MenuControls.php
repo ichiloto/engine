@@ -18,12 +18,14 @@ final class MenuControls
 {
   private array $images = [];
   private array $text = [];
+  private array $protectedAreas = [];
 
   public function __construct(private MenuPresentationCatalog $theme) {}
 
   public function renderChevron(string $id, string $direction, CanvasRectangle $box, bool $enabled): void
   {
     $symbol = MenuDirection::from($direction);
+    $this->protectedAreas[] = $box;
     $images = $symbol->getImages($this->theme->icons, $id, $box, 40, chevron: true);
     $opacity = $enabled ? 1.0 : 0.35;
     if ($images !== []) {
@@ -43,6 +45,7 @@ final class MenuControls
   public function renderSurface(string $id, string $role, CanvasRectangle $box, PresentationColor $fallback,
     bool $contain = false, int $layer = 40): void
   {
+    $this->protectedAreas[] = $box;
     $art = $this->theme->frames[$role] ?? null;
     if ($art === null) { $this->fill($id, $box, $fallback, $layer); return; }
     $images = $contain && $art->left + $art->top + $art->right + $art->bottom === 0
@@ -114,6 +117,7 @@ final class MenuControls
 
   public function fill(string $id, CanvasRectangle $box, PresentationColor $color, int $layer = 40): void
   {
+    $this->protectedAreas[] = $box;
     $columns = (int)ceil($box->width / RendererGridConfig::MAX_CELL_SIZE);
     $rows = (int)ceil($box->height / RendererGridConfig::MAX_CELL_SIZE);
     $cw = (int)ceil($box->width / $columns);
@@ -128,6 +132,7 @@ final class MenuControls
 
   public function finish(int $width, int $height): PresentationCanvas
   {
-    return new PresentationCanvas($width, $height, $this->images, textLayers: $this->text);
+    return new PresentationCanvas($width, $height, $this->images, textLayers: $this->text,
+      protectedAreas: $this->protectedAreas);
   }
 }

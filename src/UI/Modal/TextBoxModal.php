@@ -14,6 +14,7 @@ use Ichiloto\Engine\IO\InputBindings;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePaginationBuilder;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueSnapshot;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePresentationProviderInterface;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
@@ -30,10 +31,6 @@ use Ichiloto\Engine\UI\Windows\WindowAlignment;
  */
 class TextBoxModal extends Modal implements DialoguePresentationProviderInterface
 {
-  /** Ordinary dialogue keeps a compact three-line footprint. */
-  private const int DEFAULT_CONTENT_LINES = 3;
-  /** A fourth wrapped line may grow the box; longer dialogue is paginated. */
-  private const int MAX_CONTENT_LINES_PER_PAGE = 4;
   private const float DEFAULT_TYPING_SPEED = 60.0;
   /**
    * @var string|null $help The help text to display.
@@ -102,22 +99,13 @@ class TextBoxModal extends Modal implements DialoguePresentationProviderInterfac
   )
   {
     $this->playback ??= new DialoguePlayback(isset($game->audioManager) ? $game->audioManager : null);
-    $width = min(DEFAULT_DIALOG_WIDTH, max(4, get_screen_width()));
-    $contentWidth = max(1, $width - 4); // borders and Window's default horizontal padding
-    $wrappedLines = $this->wrapMessageIntoLines($message, $contentWidth);
-    $screenContentLines = max(1, get_screen_height() - 2);
-    $linesPerPage = min(self::MAX_CONTENT_LINES_PER_PAGE, $screenContentLines);
-    $this->messagePages = array_map(
-      static fn(array $page): string => implode("\n", $page),
-      array_chunk($wrappedLines, $linesPerPage),
-    );
-    $this->messagePages = $this->messagePages ?: [''];
-    $contentLines = min(
-      $screenContentLines,
-      max(self::DEFAULT_CONTENT_LINES, min(count($wrappedLines), $linesPerPage)),
-    );
-    $height = $contentLines + 2;
-    $position ??= trim($title) === '' ? WindowPosition::TOP : WindowPosition::BOTTOM;
+    $pagination = DialoguePaginationBuilder::buildPagination($message, $title, $help, $presentation,
+      get_screen_width(), get_screen_height(),
+      $game->getRendererRuntime()?->getDialoguePageLayout($title, $presentation, $help), $position);
+    $this->messagePages = $pagination->pages;
+    $width = $pagination->windowWidth;
+    $height = $pagination->windowHeight;
+    $position = $pagination->position;
     $this->dialoguePosition = $position;
     $positionCoordinates = $position->getCoordinates($width, $height);
     $this->messageLength = mb_strlen($this->currentPageMessage());
@@ -344,22 +332,14 @@ class TextBoxModal extends Modal implements DialoguePresentationProviderInterfac
     // Split the message into lines. The cursor counts characters, so the
     // slice must too — byte slicing would cut a multibyte character in half
     // and stop short of the end on any message containing one.
-    $contentString = wordwrap($message, max(1, $this->window->getContentWidth()), "\n", true);
+    $contentString = implode("\n", $this->wrapMessageIntoLines($message, max(1, $this->window->getContentWidth())));
     return explode("\n", mb_substr($contentString, 0, $this->currentCharacterIndex));
   }
 
   /** @return string[] Message lines wrapped to the terminal content width. */
   protected function wrapMessageIntoLines(string $message, int $contentWidth): array
   {
-    $lines = [];
-
-    foreach (explode("\n", $message) as $paragraph) {
-      foreach (explode("\n", wordwrap($paragraph, max(1, $contentWidth), "\n", true)) as $line) {
-        $lines[] = $line;
-      }
-    }
-
-    return $lines ?: [''];
+    return DialoguePaginationBuilder::wrapMessageIntoLines($message, $contentWidth);
   }
 
   /** Returns the already-wrapped text for the active dialogue page. */

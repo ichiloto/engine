@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Core\Menu\Commands;
 
+use Ichiloto\Engine\Localization\Vocabulary;
+
 use Exception;
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
@@ -27,7 +29,7 @@ class OpenEquipmentMenuCommand extends MenuItem
    */
   public function __construct(MenuInterface $menu)
   {
-    parent::__construct($menu, 'Equipment', "View a character's equipment.");
+    parent::__construct($menu, Vocabulary::getTerm('command.equip', 'Equipment'), "View a character's equipment.");
   }
 
   /**

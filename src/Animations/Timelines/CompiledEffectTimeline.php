@@ -9,6 +9,15 @@ namespace Ichiloto\Engine\Animations\Timelines;
  */
 class CompiledEffectTimeline
 {
+  public EffectCadence $cadence {
+    get => EffectCadence::parse(array_key_exists('cadence', $this->defaults) ? $this->defaults['cadence'] : 'fixed');
+  }
+
+  public bool $hasTerminalContent {
+    get => array_any($this->playbackSegments, static fn(array $segment): bool =>
+      EffectPresentation::TERMINAL->acceptsSegment($segment) && in_array($segment['layer'], ['glyph', 'text'], true));
+  }
+
   /**
    * @param array<int, array<string, mixed>> $playbackSegments
    * @param array<int, array<string, mixed>> $cueSchedule

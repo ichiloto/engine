@@ -53,6 +53,25 @@ it('keeps elapsed inspection side-effect free and rejects non-finite time', func
     ->and(fn() => $timing->getFrameCountAt(INF))->toThrow(InvalidArgumentException::class);
 });
 
+it('uses the same exact frame boundaries for pose sampling and timeline traversal', function (int $fps) {
+  $timing = new EffectPlaybackTiming(new CompiledEffectTimeline('shared-frame-clock', '', fps: $fps));
+  for ($tick = 0; $tick <= 360; $tick++) {
+    $seconds = $tick / 120;
+    $expected = intdiv($tick * $fps, 120);
+    expect(EffectPlaybackTiming::getFrameCountForElapsed($seconds, 1 / $fps))->toBe($expected)
+      ->and($timing->getFrameCountAt($seconds))->toBe($expected);
+  }
+  for ($frame = 1; $frame <= 3; $frame++) {
+    expect(EffectPlaybackTiming::getFrameCountForElapsed(($frame - 1e-8) / $fps, 1 / $fps))->toBe($frame - 1)
+      ->and(EffectPlaybackTiming::getFrameCountForElapsed($frame / $fps, 1 / $fps))->toBe($frame);
+  }
+})->with(range(1, 120));
+
+it('refuses invalid frame durations in shared stateless sampling', function (float $secondsPerFrame) {
+  expect(fn() => EffectPlaybackTiming::getFrameCountForElapsed(1.0, $secondsPerFrame))
+    ->toThrow(InvalidArgumentException::class, 'Frame duration must be finite and positive.');
+})->with([0.0, -1.0, INF, -INF, NAN]);
+
 it('preserves consumer-owned legacy frame durations without changing authored-speed behavior', function (float $seconds) {
   $timeline = new CompiledEffectTimeline('legacy-cadence', '', fps: 25, defaults: ['lengthFrames' => 6]);
   $timing = new EffectPlaybackTiming($timeline, secondsPerFrame: $seconds);
@@ -75,4 +94,38 @@ it('refuses two competing timing authorities for one effect session', function (
   $timeline = new CompiledEffectTimeline('conflicting-clock', '');
   expect(fn() => new EffectPlaybackTiming($timeline, 2.0, .12))->toThrow(InvalidArgumentException::class)
     ->and(fn() => new EffectPlaybackSession($timeline, false, 2.0, .12))->toThrow(InvalidArgumentException::class);
+});
+
+it('uses an explicit phase budget for paced timelines in runtime and standalone inspection', function (float $duration) {
+  $timeline = new CompiledEffectTimeline('phase-cadence', '', fps: 25,
+    defaults: ['lengthFrames' => 6, 'cadence' => 'battle_phase']);
+  $timing = EffectPlaybackTiming::createForBattlePhase($timeline, $duration);
+  $session = new EffectPlaybackSession($timeline, false, phaseDurationSeconds: max(.01, $duration));
+  expect($timing->secondsPerFrame)->toBe($session->secondsPerFrame)->toBe(max(.01, $duration) / 6)
+    ->and($timing->durationSeconds)->toEqualWithDelta(max(.01, $duration), .000001)
+    ->and($timing->getFrameBoundary(3, 120))->toBe((int)ceil(max(.01, $duration) * 60 - 1e-9));
+  $session->update(max(.01, $duration));
+  expect($session->isCompleted)->toBeTrue();
+  $fixed = new CompiledEffectTimeline('fixed-cadence', '', fps: 25, defaults: ['lengthFrames' => 6]);
+  expect(EffectPlaybackTiming::createForBattlePhase($fixed, $duration)->durationSeconds)->toBe(6 / 25);
+})->with([0.0, .173, .72, 3.0]);
+
+it('requires one explicit timing authority for paced standalone timelines', function () {
+  $timeline = new CompiledEffectTimeline('phase-cadence', '', defaults: ['lengthFrames' => 6, 'cadence' => 'battle_phase']);
+  expect(fn() => new EffectPlaybackTiming($timeline))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => new EffectPlaybackSession($timeline))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => new EffectPlaybackTiming($timeline, secondsPerFrame: .12, phaseDurationSeconds: .72))
+    ->toThrow(InvalidArgumentException::class)
+    ->and(new EffectPlaybackSession($timeline, false, 2.0, phaseDurationSeconds: .72)->secondsPerFrame)->toBe(.06);
+});
+
+it('refuses invalid phase budgets instead of inventing an authored rate', function (float $duration) {
+  $timeline = new CompiledEffectTimeline('phase-cadence', '', defaults: ['cadence' => 'battle_phase']);
+  expect(fn() => EffectPlaybackTiming::createForBattlePhase($timeline, $duration))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => new EffectPlaybackTiming($timeline, phaseDurationSeconds: $duration))->toThrow(InvalidArgumentException::class);
+})->with([-1.0, INF, -INF, NAN]);
+
+it('refuses a phase budget for a fixed timeline', function () {
+  $timeline = new CompiledEffectTimeline('fixed-cadence', '');
+  expect(fn() => new EffectPlaybackTiming($timeline, phaseDurationSeconds: .72))->toThrow(InvalidArgumentException::class);
 });

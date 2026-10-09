@@ -27,6 +27,8 @@ class ModalManager implements CanUpdate, CanRender
    * @var Stack<ModalInterface> $modals The stack of modals.
    */
   protected Stack $modals;
+  /** @var list<array{message: string, title: string}> */
+  protected array $pendingAlerts = [];
   /**
    * @var ModalInterface|null $currentModal The current modal.
    */
@@ -68,6 +70,32 @@ class ModalManager implements CanUpdate, CanRender
   public function update(): void
   {
     $this->currentModal?->update();
+  }
+
+  /** Producers may request attention without re-entering scene or modal input. */
+  public function queueAlert(string $message, string $title = ''): void
+  {
+    $this->pendingAlerts[] = ['message' => $message, 'title' => $title];
+  }
+
+  /** Called only at a normal frame boundary, never from the blocked-frame pump. */
+  public function processPendingAlerts(): void
+  {
+    if ($this->currentModal !== null || $this->pendingAlerts === []) { return; }
+    $alert = array_shift($this->pendingAlerts);
+    try { $this->showPendingAlert($alert['message'], $alert['title']); }
+    catch (\Throwable $error) {
+      array_unshift($this->pendingAlerts, $alert);
+      throw $error;
+    }
+  }
+
+  protected function showPendingAlert(string $message, string $title): void
+  {
+    $modal = new PagedAlertModal($this->game, $message, $title);
+    $this->modals->push($modal);
+    try { $modal->open(); }
+    finally { $this->modals->pop(); }
   }
 
   /**

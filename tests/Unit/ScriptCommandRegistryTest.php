@@ -10,6 +10,8 @@ use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandOutcome;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandReference;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
 use Ichiloto\Engine\Events\Interpreter\Commands\ShopCommand;
+use Ichiloto\Engine\Inn\InnOffer;
+use Ichiloto\Engine\Cutscenes\Presentation\PartyStageSelection;
 
 final class RegistryTestCarriageCommand implements ScriptCommandHandlerInterface
 {
@@ -54,7 +56,7 @@ function makeCarriageDeclaration(array $overrides = []): array
 /** Writes a disposable asset root holding the given declaration file source. */
 function makeScriptCommandProject(?string $source): string
 {
-  $root = sys_get_temp_dir() . '/script-commands-' . uniqid();
+  $root = createTestDirectory('script-commands-');
   mkdir($root . '/Data', 0o777, true);
 
   if ($source !== null) {
@@ -79,6 +81,92 @@ it('registers the Engine shop and inn for every project', function () {
     ->and(ScriptCommandRegistry::getCatalog()->types)->toBe(['shop', 'inn']);
   $catalog->assertHandlersLoadable();
 });
+
+it('declares the inns optional presentation as a generic stage timeline reference', function () {
+  $definition = ScriptCommandCatalog::createEngineCatalog()->findDefinition('inn');
+  $field = array_find($definition->fields, static fn($field): bool => $field->key === 'presentation');
+
+  expect($field?->kind)->toBe(ScriptCommandFieldKind::REFERENCE)
+    ->and($field?->reference)->toBe(ScriptCommandReference::STAGE_TIMELINE)
+    ->and($field?->reference->value)->toBe('stage_timeline')
+    ->and($field?->required)->toBeFalse()
+    ->and($field?->label)->toBe('Rest Presentation')
+    ->and($field?->description)->toContain('graphics.inn.presentation');
+});
+
+it('shares optional inn presentation values with the runtime offer', function (array $optional, ?string $expected) {
+  $definition = ScriptCommandCatalog::createEngineCatalog()->findDefinition('inn');
+  $command = ['type' => 'inn', 'confirmDialogue' => ['text' => 'Synthetic rest?'], ...$optional];
+
+  expect($definition->findProblems($command))->toBeEmpty()
+    ->and(InnOffer::fromData($command)->presentation)->toBe($expected)
+    ->and(InnOffer::fromData((object) $command)->presentation)->toBe($expected);
+})->with([
+  'omitted' => [[], null],
+  'unset' => [['presentation' => null], null],
+  'selected' => [['presentation' => 'quiet-night'], 'quiet-night'],
+  'trimmed' => [['presentation' => ' quiet-night '], 'quiet-night'],
+]);
+
+it('refuses nontext stage references before running an inn command', function (mixed $reference) {
+  $definition = ScriptCommandCatalog::createEngineCatalog()->findDefinition('inn');
+  $command = ['type' => 'inn', 'confirmDialogue' => ['text' => 'Synthetic rest?'], 'presentation' => $reference];
+
+  expect($definition->findProblems($command))->toHaveCount(1)
+    ->and($definition->findProblems($command)[0])->toStartWith(is_array($reference)
+      ? '"presentation" has an invalid party stage selection:' : '"presentation" must be text.')
+    ->and(fn() => InnOffer::fromData($command))->toThrow(InvalidArgumentException::class);
+})->with([
+  'integer' => [23],
+  'boolean' => [false],
+  'list' => [['quiet-night']],
+]);
+
+it('lets project commands reference standalone stages without acquiring summon semantics', function () {
+  $declaration = makeCarriageDeclaration(['fields' => [[
+    'key' => 'presentation', 'label' => 'Presentation', 'kind' => 'reference', 'reference' => 'stage_timeline',
+  ]]]);
+  $definition = ScriptCommandCatalog::fromDeclarations([$declaration], 'test project')->findDefinition('hire_carriage');
+
+  expect($definition->fields[0]->reference)->toBe(ScriptCommandReference::STAGE_TIMELINE)
+    ->and($definition->findProblems(['presentation' => 'quiet-night']))->toBeEmpty();
+});
+
+it('shares the explicit party stage union between registered inn and project commands', function (array $descriptor) {
+  $inn = ScriptCommandCatalog::createEngineCatalog()->findDefinition('inn');
+  $project = ScriptCommandCatalog::fromDeclarations([makeCarriageDeclaration(['fields' => [[
+    'key' => 'presentation', 'label' => 'Presentation', 'kind' => 'reference', 'reference' => 'stage_timeline',
+  ]]])], 'synthetic project')->findDefinition('hire_carriage');
+  foreach ([$descriptor, PartyStageSelection::fromArray($descriptor)] as $reference) {
+    $command = ['type' => 'inn', 'confirmDialogue' => ['text' => 'Rest?'], 'presentation' => $reference];
+    expect($inn->findProblems($command))->toBeEmpty()->and($project->findProblems($command))->toBeEmpty()
+      ->and(InnOffer::fromData($command)->presentation->toArray())->toBe(PartyStageSelection::fromArray($descriptor)->toArray());
+  }
+})->with([
+  'leader' => [['treatment' => 'leader', 'leaders' => ['alpha' => 'alpha-rest', 'beta' => 'beta-rest']]],
+  'party' => [['treatment' => 'party', 'parties' => [['actors' => ['beta', 'alpha'], 'timeline' => 'pair-rest']]]],
+  'empty explicit selection' => [['treatment' => 'party']],
+]);
+
+it('rejects malformed stage descriptors without broadening ordinary resource reference fields', function (array $descriptor) {
+  $inn = ScriptCommandCatalog::createEngineCatalog()->findDefinition('inn');
+  $command = ['type' => 'inn', 'confirmDialogue' => ['text' => 'Rest?'], 'presentation' => $descriptor];
+  expect($inn->findProblems($command))->toHaveCount(1)
+    ->and($inn->findProblems($command)[0])->toStartWith('"presentation" has an invalid party stage selection:')
+    ->and(fn() => InnOffer::fromData($command))->toThrow(InvalidArgumentException::class);
+  $ordinary = ScriptCommandDefinition::fromArray(makeCarriageDeclaration(), 'synthetic');
+  expect($ordinary->findProblems(['destination' => $descriptor, 'arrival' => ['x' => 0, 'y' => 0]]))
+    ->toBe(['"destination" must be text.']);
+})->with([
+  'implicit treatment' => [['leaders' => ['alpha' => 'alpha-rest']]],
+  'unknown treatment' => [['treatment' => 'automatic']],
+  'mixed bindings' => [['treatment' => 'party', 'leaders' => ['alpha' => 'alpha-rest']]],
+  'unsafe identity' => [['treatment' => 'leader', 'leaders' => ['alpha' => '../rest']]],
+  'duplicate composition' => [['treatment' => 'party', 'parties' => [
+    ['actors' => ['alpha', 'beta'], 'timeline' => 'pair-rest'],
+    ['actors' => ['beta', 'alpha'], 'timeline' => 'another-rest'],
+  ]]],
+]);
 
 it('adds project commands after the Engine commands with their declared fields', function () {
   $catalog = ScriptCommandCatalog::fromDeclarations([makeCarriageDeclaration()], 'test project');
@@ -215,6 +303,20 @@ it('validates registered commands in authored scripts through their definitions'
     'Cinematic "registered" is invalid at command path "script[1]": "confirmDialogue.text" is required. "cost" must be at least 0.',
   );
 });
+
+it('validates nested registered inn descriptors through the same cinematic command schema', function (array $descriptor) {
+  $script = [['type' => 'branch', 'conditions' => [], 'then' => [[
+    'type' => 'inn', 'confirmDialogue' => ['text' => 'Rest?'], 'presentation' => $descriptor,
+  ]]]];
+  Ichiloto\Engine\Cutscenes\Cinematics\CinematicScriptValidator::validate($script, 'synthetic-rest');
+  expect($script[0]['then'][0]['presentation'])->toBe($descriptor);
+  $script[0]['then'][0]['presentation']['treatment'] = 'automatic';
+  expect(fn() => Ichiloto\Engine\Cutscenes\Cinematics\CinematicScriptValidator::validate($script, 'synthetic-rest'))
+    ->toThrow(InvalidArgumentException::class, 'invalid party stage selection');
+})->with([
+  'leader' => [['treatment' => 'leader', 'leaders' => ['alpha' => 'alpha-rest']]],
+  'party' => [['treatment' => 'party', 'parties' => [['actors' => ['alpha', 'beta'], 'timeline' => 'pair-rest']]]],
+]);
 
 it('refuses authored skipping across a registered command', function () {
   expect(fn() => Ichiloto\Engine\Cutscenes\Cinematics\CinematicCommandPolicy::assertAuthoredSkipSafe([

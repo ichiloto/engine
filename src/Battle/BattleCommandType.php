@@ -2,8 +2,7 @@
 
 namespace Ichiloto\Engine\Battle;
 
-use Ichiloto\Engine\Util\Config\ConfigStore;
-use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Localization\Vocabulary;
 
 /**
  * Stable semantic ids for top-level battle commands.
@@ -38,10 +37,10 @@ enum BattleCommandType: string
   public static function fromCommandName(string $commandName): ?self
   {
     $normalized = self::normalize($commandName);
+    if ($type = self::tryFrom($normalized)) { return $type; }
 
     foreach (self::cases() as $type) {
       if (
-        $normalized === $type->value ||
         $normalized === self::normalize($type->defaultLabel()) ||
         $normalized === self::normalize($type->label())
       ) {
@@ -65,9 +64,7 @@ enum BattleCommandType: string
    */
   public function label(): string
   {
-    $label = ConfigStore::has(ProjectConfig::class)
-      ? config(ProjectConfig::class, 'vocab.command.' . $this->value, $this->defaultLabel())
-      : $this->defaultLabel();
+    $label = Vocabulary::getTerm('command.' . $this->value, $this->defaultLabel());
 
     $label = is_string($label) ? trim($label) : '';
 
@@ -119,19 +116,9 @@ enum BattleCommandType: string
    */
   public function roleLabels(): array
   {
-    if (! ConfigStore::has(ProjectConfig::class)) {
-      return [];
-    }
-
-    $labels = config(ProjectConfig::class, 'vocab.command.' . $this->value . '_by_role', []);
-
-    if (! is_array($labels)) {
-      return [];
-    }
-
     $normalized = [];
 
-    foreach ($labels as $roleName => $label) {
+    foreach (Vocabulary::getTerms('command.' . $this->value . '_by_role') as $roleName => $label) {
       if (is_string($label) && trim($label) !== '') {
         $normalized[(string)$roleName] = trim($label);
       }

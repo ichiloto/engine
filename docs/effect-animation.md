@@ -9,6 +9,13 @@ replacing them. Related plans: [layered-tilemaps.md](layered-tilemaps.md); relat
 [summons.md](summons.md), [cinematics.md](cinematics.md),
 [rendering/sprite-sheets.md](rendering/sprite-sheets.md).
 
+The [fixed G2 acceptance checklist](rendering/integration-roadmap.md#g2-acceptance-checklist)
+is the current verification record. Dated implementation reports below are
+historical evidence, not a second list of pending decisions. Completed sequence,
+counter and authoring checks are not reopened by their earlier partial reports.
+Current-major compatibility support and separately scoped field/summon work do
+not add new G2 release gates.
+
 ## Principles
 
 1. **Useful independent presentations.** Terminal glyphs and graphical assets
@@ -131,7 +138,13 @@ stable `id`, `type => image`, asset-root-relative PNG `asset`, optional
 field cells, `depth => behind|front`, and `keyframes`. A keyframe names its
 zero-based `frame`, optional `duration` (default 1), `sourceFrame` (row-major
 sheet index, default 0), and optional cell offset `position => ['x' => 0,
-'y' => 0]`. Image dimensions come from the current file. Overlapping
+'y' => 0]`. Optional `fit => contain` preserves the current source-frame aspect
+ratio inside the authored cells box; omission or `fit => stretch` preserves
+existing independent width/height sizing. Containment uses the frame crop, not
+the complete atlas, and retains the drawing anchor. Field transport rounds the
+fitted dimensions once to whole pixels; this never changes ground occupancy.
+Battle playback also contains inside the available canvas before applying its
+pivot, direction and edge clipping. Image dimensions come from the current file. Overlapping
 keyframes, invalid crops and missing rest frames are rejected. Field timelines
 also accept `glyph` and `text` tracks with the shared keyframe schema described
 under the battle runtime below, plus presentation-only `playSound` cues.
@@ -178,11 +191,13 @@ and log a note; they do not suppress an otherwise usable cue effect.
 The initial field subset did not include battle playback; its current shared
 runtime and outstanding acceptance are recorded below. Still outstanding for
 the field: flash/shake tracks and message cues, general authored-record
-retirement, connected-piece effects, fractional layer offsets for piece effect anchors,
-and the general timeline authoring/preview surface. Claude owns source-preserving
-Editor cue-kind, map-effect, piece-effect and binding authoring/validation;
-that validation/binding work has landed, but standalone timeline authoring
-remains outstanding. This runtime slice is not authoring completion.
+retirement, connected-piece effects and fractional layer offsets for piece effect anchors.
+Claude owns
+source-preserving Editor cue-kind, map-effect, piece-effect and binding
+authoring/validation; that validation/binding work has landed. Standalone
+timeline authoring and preview are integrated on local Editor develop `9fd749f`,
+using the committed directional Engine contract described below. This does not
+complete the remaining field presentation features.
 
 The cinematic `field_animation` consumer now accepts an explicit `effect` id
 alongside its unchanged `target` shape. Timelines own their fps; mixing that
@@ -198,9 +213,9 @@ seconds independently of battle healing. No authored legacy `field_animation`
 commands remain in that Game tree. Numeric records remain for battle/default
 and compatibility consumers; this is not format retirement. Editor's effect
 picker and source-preserving field references are locally integrated, including
-exclusive legacy/timeline fields and shared loading/loop validation. Standalone
-timeline editing/preview remains a separate unstarted authoring scope awaiting
-Andrew's go.
+exclusive legacy/timeline fields and shared loading/loop validation. Andrew
+has authorized standalone timeline editing/preview; it is integrated on local
+Editor develop `9fd749f` against Engine `7db56dc`.
 
 The old manager-wide animation slot and reduced-motion effect skip are removed.
 Each command has an independently owned session; finishing a timed overlay no
@@ -261,9 +276,14 @@ today, or live with the map:
 ## Battle command presentation sequence
 
 The local G2 runtime now implements this sequence through the shared session
-work in Phases 1 and 2 below. Production artwork bindings, native visual
-acceptance and the remaining phase migrations are not complete. Existing pose
-artwork alone does not implement this sequence.
+work in Phases 1 and 2 below. Production artwork bindings are locally integrated;
+the fixed checklist records completed native command/result checks and the
+unobserved live Terminal and walking-triggered entry checks. Those limitations
+are recorded without another delivery-blocking inspection loop under Andrew's
+October 6 shipping instruction. Last Legend's record and
+field-consumer migrations are complete; retiring the current-major compatibility
+reader is not a G2 requirement.
+Existing pose artwork alone does not implement this sequence.
 
 Once a confirmed command actually begins execution, present it in this order:
 
@@ -300,6 +320,29 @@ cover revival and group healing in both battle engines, terminal/graphical and
 normal/reduced modes, including pause, exactly-once impact/cost and cleanup.
 Those CPU checks do not replace native visual acceptance.
 
+HP and MP feedback belongs to the actual effect application, not to the net
+change across an entire command. The shared skill executor and item action
+record clamped resource losses and restorations separately for each recipient,
+including the caster when a drain restores them. Command MP cost is excluded
+from those effect results. Opposed effects remain visible even when the final
+resource value is unchanged; typed HP hit results retain their internal drain,
+critical and elemental outcomes. Both battle engines, terminal and graphical
+presentations, and reduced motion use this same result contract. The command
+runner captures only a result produced by its own resolution, so a reused
+action that cannot execute does not replay historical damage, healing or
+reactions. Gameplay amounts, scope and cost rules are unchanged.
+
+HP damage feedback shows the full resolved damage, including overkill, rather
+than the target's remaining HP. `CombatTargetResult::getResolvedHpDamage()`
+sums actual hit loss plus overkill without counting the same resource
+measurement twice. It uses measured loss when no typed HP hits exist. The
+shared formatter consumes this value for both engines and renderers; it does
+not use raw magnitude before defence, Critical, guard or elemental resolution.
+Healing and MP feedback remain actual resource changes. Drain, defeat checks
+and simulation statistics continue to consume actual HP loss, not overkill.
+Queued attack, physical/magic skill, item, drain, repeated-hit and group-action
+regressions preserve costs, reaction roles and cleanup in normal/reduced modes.
+
 October 3 combined Engine verification after exact trigger-cell integration:
 4,264 tests passed, one skipped, 86,800 assertions; full PHPStan passed.
 The targeted selection, AI, command-execution and graphical-presentation run
@@ -334,12 +377,27 @@ at normal opacity with its authored ground anchor; only the base standing-art
 fallback is dimmed. Revival selects the current resting role on the next frame,
 without a renderer-owned health or revival state.
 
+Graphical battles omit KO captions and KO result text: the fallen pose identifies
+the state. This removal applies to themed and unthemed presentation, normal and
+reduced motion, attacks, counters and own-turn state ticks. The shared graphical
+feedback projection filters the typed KO role without parsing localized text or
+mutating the original results. Terminal KO feedback, damage numbers, gameplay
+state, reaction duration and the hold before victory/defeat remain unchanged.
+
 Terminal uses a deliberately simpler presentation: one step forward, an
 announcement, small anchored source/target glyph effects and foreground colour,
 readable results, then one step back. It does not animate battle character poses
 or interpolate their movement. Graphical recoil, shaking effects, fullscreen
 flashes, summon title cards and fades are removed from the terminal command
 presenter, not from graphical presentation or the shared logical cue lane.
+Concurrent terminal pulses cover every distinct caster/target instance in one
+foreground-only overlay, not just the first recipient or last segment. The
+shared live-buffer read can exclude that overlay during atomic composition;
+completed-frame snapshot gates remain intact. Glyph effects are drawn before
+the pulse reads its underlay, so they are not replaced by old battler text.
+Styled gaps and whole wide glyphs are preserved, unchanged redraws emit no
+terminal output, and changing/cancelling the command removes its pulse. Screen
+pulses and invisible commands remain suppressed by this simpler presenter.
 Reduced motion
 suppresses translation, shake and flashing while preserving pose/state changes,
 messages, logical cues and outcomes. On failure, interruption or battle exit,
@@ -354,13 +412,40 @@ Verify cue order and exactly-once results through real callers as well as the
 visible step/pose/feedback/return sequence. Share editor reference pickers and
 source-preserving role bindings; do not require every game to write drawing code.
 
+Andrew approved explicit opt-in counterattacks on October 5. Actor/enemy,
+state and learned nonmagic-ability records may declare
+`'counterAttack' => ['skill' => 'Catalogue Skill Name']`; null/omitted remains
+off. `CounterAttackRule` validates the same project-bound skill catalog used
+by runtime and Editor: a battle-usable basic/special action for one living
+opponent, without summon or required-weapon conditions. Summon eligibility
+comes from that project's authored cutscenes, not a battle-global registry or
+the current working directory. No Last Legend counters are enabled by default.
+
+`CounterAttackResolver` uses typed landed physical-damage results and active
+combatant identity. Each distinct living, action-capable recipient can respond
+once, after the original attacker's complete return. Innate, applied-state and
+stable-name-ordered learned-ability rules select the first affordable response.
+Life, membership, the granting rule, action blocking and resource affordability
+are rechecked before execution and at impact. Both battle engines enqueue the
+response through the ordinary command timeline, including poses, results,
+reactions and return; response results never create counter chains. A counter
+does not consume the responder's normal turn/gauge, clear guarding or tick its
+state durations. Cancellation, exceptions and scene exit clear owned response
+work. Simulation uses the same resolver and isolated battler clones, preserving
+caller HP/MP, stat stages, guarding and live state durations on success/failure.
+Synthetic normal/reduced/terminal, multi-hit/target, KO, affordability, invalid
+catalog, cancellation and cleanup checks pass. Continuous native counter checks
+are complete in normal and reduced motion for both engines, including original
+return before response, lethal fallen art and cleanup. No rates or balance
+defaults were invented.
+
 ### Local Battle Runtime (October 2026)
 
 `ActionExecutionState` starts a `BattleCommandRunner` instead of running a
 blocking effect loop. Both Traditional and ATB advance its
 `BattleCommandPlayback` from the PHP battle update. `BattleCommandTimeline`
 owns advance, announcement, source, target, reaction, return and finish on
-one 120 fps cue lane. Authored effect frames retain their original cadence;
+one 120 fps cue lane. Effects retain their declared timing authority;
 summons retain their cue/frame/end impact policy, title and fade phases.
 Effect intervals use the same half-open boundary conversion for their start
 and end. At rates that do not divide 120, the first command tick at or after
@@ -381,15 +466,18 @@ The existing numeric animation record may add `sourceEffect` and `targetEffect`
 timeline identities. Skills/items still reference that record by `animationId`.
 Timelines are loaded once per battle context from
 `Animations/<id>/<id>.timeline.php`; failed loads retain the legacy treatment.
-An image-only target timeline retains the numeric animation's glyph treatment
-for terminal playback. An authored glyph/text track supersedes that fallback;
+An image-only graphical target loads the explicit terminal sequence from the
+same timeline identity; meaningful legacy cells remain its compatibility
+fallback. An authored glyph/text track supersedes that fallback;
 neither inspection path can fire extra cues or resolve combat again. The target
 stage lasts long enough for both the graphical effect and any retained terminal
 treatment at their own authored frame rates. A shorter image sequence must not
 truncate later terminal strokes. Explicit target impact cues keep their authored
 time; absent a cue, resolution occurs after the complete shared target stage.
 Legacy cell-frame records are imported into the shared playhead without
-rewriting their source. `AnimationPlaybackSession` now delegates traversal to
+rewriting their source. Timeline-only numeric bindings no longer manufacture an
+empty one-frame compatibility delay. Authored blank multi-frame holds, populated
+cells and cue-only compatibility records remain. `AnimationPlaybackSession` now delegates traversal to
 `EffectPlaybackSession`; its separate accumulation loop is removed. The
 one-based compatibility API retains exact consumer-owned frame durations,
 including 0.12 seconds, blank frame slots and the final frame's full hold.
@@ -401,7 +489,8 @@ now uses the same session with independent ownership and sound cues, but its
 flash/shake/message tracks remain outstanding. The numeric records are not
 retired yet. Terminal battle entry now
 uses the shared session as described below; graphical entry still needs silent
-native acceptance. Orphaned explosion migration remains outstanding.
+native acceptance. The previously orphaned explosion has migrated to a shared
+timeline, retaining its original source files and remaining unbound to combat.
 
 Battle timelines use the field image-track schema above, with an optional
 `anchor => caster|target|screen`. Their default anchor is the source caster or
@@ -414,6 +503,85 @@ keyframes accept `frame`, `duration`, integer cell-offset `position`,
 Overlapping keyframes within a track are refused. Both battle presentations
 apply segment depth ordering and `clearBeforeDraw` before drawing.
 Named-slot anchors are still future work.
+
+Battle image tracks also accept `attachment => center|head|ground` and
+`pivot => ['x' => .5, 'y' => .5]`, both at track level, not per keyframe.
+`EffectImageAttachment::cases()` is the shared authoring option inventory.
+Omission preserves the image-centre pivot and current artwork-centre attachment.
+The pivot is a finite normalized point in the selected sheet cell (0..1 on
+each axis), independent of the PNG's current resolution. `ground` attaches
+that point to the subject's stable ground pivot, following actual advance,
+recoil and shake, rather than the current posed rectangle or its transparency.
+`head` uses the current artwork's top centre. Explicit attachment is refused
+on screen anchors; the image pivot remains usable there. Mirroring reflects
+the pivot too. Viewport boundaries crop source pixels at unchanged density
+instead of translating the image away from its attachment.
+
+Last Legend's approved blue preparation and green healing sheets use their
+ring centres as pivots and `ground` attachment on caster and target respectively.
+No art or terminal sequence was changed. Field image tracks now accept the same
+finite normalized `pivot` point, with bottom-centre `{x:.5,y:1}` when omitted.
+The selected image point meets the target cell's ground anchor after fit/crop,
+movement and camera projection. Gameplay cell positions, collision and ground-Y
+ordering stay independent of that image point. Field tracks still refuse battle
+`attachment` and `facing` semantics. Fractional gameplay cell offsets are not a
+substitute for image placement.
+
+Protocol 2 negotiates field sprite pivots through optional `sprite_pivot`.
+Supported renderers receive the point with the sprite; older renderers keep
+bottom-centre placement with a once-per-session diagnostic for other pivots.
+Omitted points retain existing wire data. The GUI's shared image picker edits
+the authored point through source-preserving records and undo; field and battle
+defaults differ without being written into the source.
+
+Battle sequences may declare `cadence => fixed|battle_phase`, independently
+in each presentation variant. Omission means `fixed`: authored fps/defaultSpeed
+continues to own timing. `battle_phase` spreads the sequence's `lengthFrames`
+over the consumer's source `BattleTurnTimings::actionAnimation` or target
+`effectAnimation` budget, honoring defaultSpeed. Battle pacing already applies
+the selected battle speed. The existing compatibility floor for a zero budget
+is 0.01 seconds for the complete beat, not a new fixed frame rate. This choice
+is valid only for battle, once-only playback; field loading and loops refuse it.
+Paced source omits `fps`; supplying it is refused because it would introduce a
+second, irrelevant timing authority. The compiled nominal rate is internal,
+not an authored rate. Fixed source still requires its explicit `fps`.
+`EffectCadence::cases()` supplies constrained authoring choices.
+`EffectPlaybackTiming::createForBattlePhase` supplies the owning phase budget.
+Standalone `EffectPlaybackSession` inspection of a paced sequence must supply
+positive `phaseDurationSeconds`; absent timing is refused, not inferred from
+fps. Preview speed scales that supplied budget without rewriting the source.
+`BattlePacing::fromBattleUiConfig` and `getAnimationPace` share project pacing
+resolution with standalone Editor previews without mutating global configuration.
+Glyph tracks anchored to `target` default to its centre, preserving legacy
+centre offsets without embedding legacy geometry in the new source.
+
+Battle image and glyph tracks may declare `facing => east|west`: the direction
+for which their art, glyphs and horizontal offsets were authored. Playback
+mirrors a directional track toward each actual recipient using current caster
+and recipient ground placement, including command advance, recoil and shake.
+The posed-battler presenter supplies those ground anchors explicitly: transparent
+padding, asymmetric pose canvases and extended weapons cannot decide facing.
+Rectangle-only hosts retain their rectangle-centre placement contract and
+bottom-centre ground point. Image attachment is independent of direction;
+legacy glyph anchors retain their current artwork head, centre or feet geometry.
+Caster-anchored tracks face the first distinct target;
+self-targets and coincident horizontal positions preserve authored orientation.
+Screen anchors and non-directional track types refuse `facing`. Radial impacts,
+healing and other undirected effects omit it. No actor-name or artwork-path
+inference is involved. Terminal playback mirrors its small glyph strokes and
+offsets, not graphical poses or full-screen flourishes.
+
+Battle image keyframes additionally accept boolean `flipX` and `flipY`. These
+mirror the selected source cell, not the entire sheet or its destination. The
+automatic horizontal mirror combines with the authored `flipX` (two mirrors
+cancel), allowing a second slash to reverse the first while both adapt to the
+attack direction. Frame order, holds, crop selection and combat cues do not
+change. Field tracks currently reject these fields rather than silently
+ignoring unsupported transforms. GPUI negotiates `canvas_image_flip` under
+protocol v2 with `graphical_canvas`; its bounded image-variant cache preserves
+alpha and shares brightness preparation. A backend without that capability
+diagnoses and omits only an unsupported mirrored image, retaining the
+battlefield, poses, command/result feedback and combat lifecycle.
 
 An effect identity may instead contain only `presentations`, with complete
 `terminal` and `graphical` sequences, each using the same schema above. Each
@@ -445,6 +613,19 @@ identity and `enemyPoses` keyed by the existing enemy identity. Each set maps
 sheet `columns`/`rows`, ordered `frames`, `fps`, `loop`, `restFrame` and
 normalized `pivotX`/`pivotY`, collected in a `BattlePoseSet`. Omitted roles use
 the existing available battler art.
+Editable projects instead declare `Data/Presentation/battlers.php` as literal
+data shared by actors and enemies. `BattlerBindings` validates explicit
+identities, base `artwork`, named `poses`, normalized `pivot` values, animated
+sheet intent and the same `scale` profiles/reference described below. It
+constructs the existing typed values, not a second sizing model. Image paths
+are asset-root relative and dimensions are read from current files. Code-owned
+and data-owned bindings for one identity, or two scale-reference owners, are
+refused instead of silently overriding each other. `BattlePresentationCatalog::load`
+combines them; `loadCode` performs the same path/type validation but lets Editor
+bind proposed unsaved data before preview/save. Last Legend has moved all eight
+actors, fifteen enemies and eighty party roles into this file, with a one-off
+value-equivalence check confirming unchanged artwork, pivots, scale and UI.
+This mechanical migration does not accept or integrate pending art revisions.
 `BattleCommandCatalog::getActionType` is the shared semantic owner used by
 command selection and pose playback. An authored summon's linked action selects
 `summon`, regardless of its display label. A separately authored `petition`
@@ -462,21 +643,191 @@ omitted. Names, descriptions and HP formulas are not classifiers. Cures, expiry,
 revival and battle cleanup reselect from current combat state without a cached
 renderer-owned status. Editor must expose the disposition as a constrained
 choice and preserve it in safe round trips.
+### Battlefield Condition Badges And Effects
+
+Current state/stat-stage identity stays on each battler. Badge bindings and
+geometry belong to the theme in `Data/Presentation/battle.php`; optional animated
+effect bindings remain in `config.php`. Neither is another gameplay state
+catalog, per-character drawing code or saved artwork. Persistent graphical
+condition badges and optional animated effects are independent consumers of
+`BattlerConditions::getEntries`; `HasStates` and `HasStatStages` remain the only
+gameplay owners. Missing animation must never turn a buff into white field text
+or hide its identity, polarity or magnitude.
+
+The battle skin's existing `MenuIconRegistry` accepts dedicated semantic keys:
+
+```php
+'status.stat.attack.positive' => 'Icons/attack-up.png',
+'status.stat.attack.negative' => 'Icons/attack-down.png',
+'status.state.poison' => 'Icons/poison.png',
+'status.state.stun' => 'Icons/stun.png',
+```
+
+All seven stat identities (`attack`, `defence`, `magicAttack`, `magicDefence`,
+`speed`, `grace`, `evasion`) have independent `positive` and `negative` keys.
+States use `status.state.<State::id>`, never display names, glyphs or directories;
+poison and stun therefore retain their dedicated identity after a rename.
+Procedural badges include an up/down arrow (or neutral marker); dedicated
+positive/negative artwork owns its own polarity treatment. A readable signed
+stage number remains outside every stat icon. State polarity comes from authored
+`StateDisposition`, not a name or formula. Stat footers show only the signed
+stage (for example `+2` or `-3`), leaving the pictogram to identify the stat.
+State artwork has no redundant footer; procedural states retain PSN/STN for
+poison/stun, or a compact authored name for other states.
+The existing Info action retains full condition names and descriptions.
+
+Icons are optional asset-root-relative bindings. Exact keys are required;
+the registry's unrelated `unknown` icon is never used for a known condition.
+Current PNG dimensions are contained inside the icon viewport, with no authored
+hash, duplicated size, stretched icon or gameplay identity change. Missing or
+invalid bound art is diagnosed through shared preflight and replaced by a
+procedural pictogram, not accepted as production artwork. Unbound art has a
+useful default: distinct sword, shield, wand, ward, boot, sparkle and eye
+pictograms, plus poison skull and stun stars, on opaque framed badges. Bound
+semantic art is a complete icon, including its own frame and color-independent
+polarity symbol; the Engine does not paint a second frame or arrow over it.
+Signed magnitude remains visible beneath the artwork, never over its symbol.
+Color is supplementary, not the only distinction. Procedural drawing uses
+existing canvas background spans, needs no composite capability or raster cache,
+and batches primitive fills and footer font lattices to respect the existing
+canvas layer budget.
+
+`BattleUiSkin::conditionBadges` defaults to `BattleConditionBadgeStyle(pixelSize: 2,
+gap: 4, maxColumns: 3)`: a restrained 32px-square icon, not a half-width
+pictogram slot. Artwork is contained across the full 32px viewport without
+extra Engine decoration. The procedural pictogram has a 28px content area
+inside its 32px frame, with its polarity marker in the upper corner.
+The opaque signed-stage footer sits below the icon in a separate 12px row;
+the default stack cell is therefore 32px wide by 44px high. State art needs no
+footer, but shares this cell geometry so stacks remain aligned and protected.
+Nine concurrent conditions therefore form a compact 3x3 stack, without
+shrinking the individual icons to fit.
+Footer cells are at least 6px wide and 12px high rather than shrinking the font
+along with the procedural pixels. Each tile is 16 logical pixels square at the
+configured pixel size; pixel size supports 2..8, gap 0..32 and columns 1..8.
+The project catalogue loads typed PHP objects directly, including the trailing
+named `conditionBadges: new BattleConditionBadgeStyle(...)` argument on its
+`BattleUiSkin`; it is not an array-only or constructor-only setting. Palette
+comes from the skin's existing text/ink/healing/damage/focus roles. Badge groups wrap at the configured
+column limit, stay attached to the currently presented combatant instance, and
+use shared battlefield placement around battler, UI, cursor and badge obstacles.
+Their actual bounds protect them from notification and feedback overlays.
+Insufficient space uses the shared least-overlap placement policy without
+dropping badges; geometry that cannot fit the canvas is an explicit error.
+These are battlefield badges, not extra icons in the cramped status HUD.
+
+Badges project live state on every frame, including reduced-motion and
+lower-capability frames. Optional animation gaps, missing variants, failures,
+pause-clock phase and pose changes do not control badge visibility. Cure, expiry,
+zero-stage reset, KO, revival and reserve replacement use current gameplay and
+roster identity; no second status store or renderer-owned expiry timer exists.
+KO badges are not drawn and no KO label is restored. Authored artwork remains
+separate Art work, not generated or admitted by this Engine implementation.
+
+Optional animation bindings remain:
+
+```php
+'ui' => ['battle' => ['conditions' => [
+  'states' => ['state-id' => 'state-aura'],
+  'statStages' => ['speed' => ['positive' => 'speed-up', 'negative' => 'speed-down']],
+]]],
+```
+
+State keys are existing authored `State::id` values, independent of display name;
+stat keys are `HasStatStages::buffableStats()` and roles are positive/negative.
+Effect values use the existing `EffectTimelineLibrary` stable IDs and
+`Animations/<id>/<id>.timeline.php` resources. Unknown configuration keys,
+invalid groups/roles and unsafe timeline references are refused by the shared
+binding boundary. Editor/GUI must select states, stat roles and timelines from
+their catalogs, preserve unrelated source and refuse unsupported edits before
+writing. This Engine slice does not implement those editors or admit assets.
+
+A condition timeline uses fixed authored fps, `playback => 'loop'`, optional
+`loopFrom`, a visible static `restFrame`, and battler-attached image/glyph/text
+tracks. Existing target/caster anchors refer to the affected battler, with image
+head/center/feet/ground attachments and pivots unchanged. Screen/stage anchors,
+flash, shake and all cues (including audio and applyEffect) are rejected for
+persistent conditions. This prevents repeated gameplay/audio and flashing at
+rest. Multiple conditions compose independently, including clear-before-draw
+inside each condition, rather than erasing another condition's layers.
+
+The field's existing pause-aware pose clock supplies elapsed time. Conditions
+join its current loop phase when applied; sampling does not restart a private
+clock on application or redraw. Sampling uses
+`EffectPlaybackTiming` and bounded modulo arithmetic, not frame-by-frame loop
+traversal, restaging or a renderer timer. Reduced motion samples only the authored
+rest frame. Removal, expiry, KO and stage reset immediately re-project current
+gameplay; no renderer-owned condition cache must be synchronized. Owned discard
+releases the field binding without curing persistent gameplay states.
+
+Terminal and graphical variants use the existing `presentations` contract and
+compile independently. Terminal never loads an unselected graphical PNG. Omitted
+bindings, missing variants or diagnosed invalid art retain useful terminal
+state glyph/name or signed stat-stage text. Graphical animation-owned white-text
+fallbacks are removed; static semantic badges remain independently visible.
+Explicit gaps in an otherwise valid authored loop remain animation gaps, never
+badge gaps. No status-panel icon is added. Missing graphical resources are
+diagnosed, not treated as completed production art. PNG dimensions/crops are read
+through the existing shared asset preflight, not duplicated in state definitions.
+Atomic and rapid in-place same-path replacements use the same shared freshness
+check: current 24-byte header plus filesystem facts. Colliding inode, encoded
+size and second-resolution timestamps cannot retain old dimensions. This
+bounded internal cache check is not an authored asset identity or import hash;
+compressed-pixel validation remains the native decoder's responsibility.
+
+Info exposes current authored names/descriptions and signed stat stages through
+the existing battle selection action. These contracts and the bounded enemy
+defeat ceremony are independent of G3; headless API acceptance is not native
+visual/audio or production-art acceptance. See
+[graphical-battle-g1.md](rendering/graphical-battle-g1.md#battlefield-conditions-and-enemy-defeat).
+
 The catalog's `ui` owns shared canvas dimensions, party slots and feedback
 safe area; each troop enemy's `graphicalPlacement` owns its slot. Arena scenes
 own only a display name, background and optional skin. Effects follow the
 actual combatant instance, not an arena-side troop override; see the
 [formation contract and ownership audit](rendering/graphical-battle-g1.md#troop-owned-graphical-formation).
-For artwork registered on matching frame cells, the set may specify
-`displayWidth` in arena units. All roles then share that full-frame width and
-their aspect ratio instead of individually fitting the old idle contain box.
-This registration also places and preflights base artwork, including frames
-that omit optional poses/effects after a composition failure. A registered base
-does not revert to an independently scaled contain box. Unusable optional
-registration that cannot fit the base image is diagnosed and retains a valid
-contain placement; catalogs without a pose set retain historical contain sizing.
-This is presentation intent, not a copy of PNG dimensions; replacing a file
-still reads its current dimensions. Unregistered or unusable optional roles
+The catalog may declare one `BattleScale(referenceActorId, referenceHeight,
+actors, enemies)`. Identity-keyed `BattlerScale(relativeSize, sourceSpan,
+horizontal: false)` profiles express a body unit relative to that reference.
+For Last Legend, Kaelion's approved standing body is the unit. Party profiles
+use standing height; creatures may use shoulder height, torso length or wingspan.
+Formation slots own position, movement space and optional perspective depth,
+not the underlying body proportions in reference mode.
+The reference remains valid when its actor is absent from the active party.
+
+`sourceSpan` is an authored normalized calibration of that standing/body unit
+against the artwork frame's height (or width with `horizontal: true`). It is
+not the selected pose's opaque height: weapons, hair, shadows, lying bodies and
+transparent padding never automatically redefine anatomy. Rendering reads the
+current PNG/cell dimensions and uniformly scales both axes so the calibrated
+unit occupies `referenceHeight * relativeSize` canvas units. A resolution-only
+replacement therefore needs no copied dimensions, hash or profile update.
+Pose frames with a different source composition/density may explicitly declare
+`BattlerPose::scaleSpan`; cropped frames may require a span greater than one.
+Changing source anatomy still requires an Art correction, not nonuniform scaling.
+Artists retain ground pivots and consistent body proportions across poses.
+
+`BattlerSlot::displayScale` defaults to 1.0 and uniformly applies authored
+slot depth exactly once after that calibration, preserving the ground point.
+The displayed body unit is `referenceHeight * relativeSize * displayScale`.
+This belongs to the current slot, not a character profile: reordering the party
+or explicitly replacing a frontline member carries the treatment to the new
+occupant. Base art, every static/animated pose and formation previews share the
+placement path; legacy width/contain placements use the same last depth step.
+`placeAtScale` receives pre-slot pixel density. Missing pixels still retain the
+unscaled name anchor. Ground-attached effects use the unchanged authored ground
+point plus actual movement, never a depth-scaled transparent image edge.
+The October 5 front-party-slot treatment is authored as 1.05 in Last Legend;
+the Engine does not infer a front slot or bake in that game's 5% choice.
+
+Reference catalogs require a profile for every registered battler and reject
+competing `BattlePoseSet::displayWidth` registrations. They do not silently
+shrink invalid placements into formation boxes. Catalogs without `scale` retain
+legacy base `displayWidth`/contain behavior for compatibility; Last Legend has
+removed those individual-width authorities, including empty enemy pose sets.
+This same reference contract applies to resting/command roles, animated cells,
+base-only degradation, previews and reduced motion. Gameplay, terminal geometry,
+target identity and effect timing do not depend on it. Unregistered or unusable optional roles
 retain available registered resting/idle artwork, preserving its scale and
 pivot, before falling back to base artwork with diagnostics. Damage and heal
 may use that resting image with actual-result tint/recoil when reaction art
@@ -485,6 +836,35 @@ Only a true knockout image is shown at full opacity for a defeated actor.
 Dimensions and source crops come from the current file, not an art receipt
 or frozen production hash. Missing/invalid optional art is diagnosed and
 does not alter command outcomes.
+
+Unavailable base pixels have no source calibration. The shared
+`BattleFormationLayout::getBasePlacement` receives null and retains only a
+1x1 name-fallback anchor; it never scales that anchor against a real image's
+body profile or legacy display width. A valid pose-only image still uses its
+real profile, or contain/display-width fit in an uncalibrated catalog. Runtime
+and Editor preview use this same path. File loss/replacement remains local to
+the artwork and does not freeze availability or corrupt combat state.
+The name-only footprint stays within the canvas even at an edge anchor;
+authored ground coordinates remain unchanged. Selection and queued feedback
+use text when pixels are absent, rather than attaching image-based cursors or
+focus textures to that one-pixel metadata footprint.
+
+`BattleCanvasLayout` may explicitly supply `battlerArea`, `enemyArea` and
+`partyArea`; none is inferred from canvas halves or repurposed from the feedback
+region. Party and enemy regions can be authored on either side. Cursor checks
+respect both the common field and the battler's side region.
+`BattleFormationLayout::getClearanceDiagnostics(assetRoot)` reports member-order
+party/enemy diagnostics through shared `BattleFormationClearance`. The check
+reads current visible pixel envelopes, respects crops/flips/clips, checks
+field/side containment, pairwise overlap and cursor clearance, and never moves,
+clamps or resizes artwork. Runtime preparation logs the same diagnostics once
+when regions are authored; authoring/validation can expose them before play.
+`PngAssetBounds` uses optional GD PNG inspection with a bounded cache invalidated
+by current content, not an import-integrity identity gate. Missing/corrupt art
+and unavailable inspection support are explicit diagnostics, not a falsely
+successful pixel check. GD is not a new required runtime dependency; native
+decoding remains rendering authority. Regions and warnings are graphical only
+and never change terminal geometry, collision, gameplay or saves.
 
 `GraphicalBattleEffects` presents current image/glyph/text segments through
 retained canvas layers, follows combatant-instance bounds and draws a screen
@@ -498,12 +878,20 @@ battler art never receives a stand-in rectangle. Screen-scope tracks draw once
 even when the command has several targets. Current PNG dimensions normalize
 the crop, so replacement art does not leave a frozen mask. Tint overlays keep
 the pose's motion, clipping and opacity and disappear with the command.
-Concurrent flash/reaction tints share one owned surface per combatant instead
-of multiplying composite count; combined raster and operation budgets still
-apply to the complete frame.
-Graphical battle now requires negotiated compositing, source rectangles and clip/opacity
-support in addition to the canvas capability; less-capable backends retain
-terminal battle rather than entering a partially supported graphical mode.
+Concurrent flash/reaction tints share one surface across opaque subjects at
+the same depth, with each subject's current alpha crop, placement and clip
+retained. This removes per-recipient opaque raster allocation, which exceeded
+the eight-surface limit in larger multi-target commands. Faded subjects remain
+separate so overlapping tint layers preserve group-opacity semantics. Combined
+raster and operation budgets still apply unchanged to the complete frame;
+overlay protection covers subject bounds, not transparent gaps in the union.
+The mandatory graphical-battle compositing requirement is removed. Canvas,
+source rectangles and clip/opacity remain required, as do glyph effects for a
+skinned UI. Negotiated compositing is optional for battler tints: unsupported
+or over-budget tinting is diagnosed and omitted without dropping valid poses,
+effect images, result feedback or gameplay. The protocol still refuses
+unnegotiated composite packets; screen handoffs retain their own compositing
+requirement.
 The complete frame checks the shared image/region and canvas collection
 budgets, including UI, battlers and effects together. An unusable optional
 pose/effect composition is diagnosed and omitted for that frame, retaining
@@ -544,10 +932,17 @@ and missing sheets, reduced-motion rest art, audio precedence and invalid
 definition boundaries. Actual multi-hit/multi-target skills, misses, knockout
 and self-targeted guard commands retain exact costs and typed results. Combined
 image/region and text-layer overflow keeps the base frame without repeating
-impact. This does not yet establish native pixels, all counter combinations,
-total-resident resource budgets,
-Editor source-preserving authoring, or Linux/Windows support. Production
-effect integration and a silent native sequence playtest remain acceptance work.
+impact. Those original headless checks alone did not establish native pixels,
+total-resident resource budgets, complete Editor source-preserving authoring
+or Linux/Windows support. They are not the current completion state.
+The fixed G2 checklist now records completed native command/effect/counter
+sequences, real-scene victory/defeat ordering and source-preserving authoring
+checks. Native normal/reduced real-scene runs also show victory/level-up pages
+and graphical Game Over; the intermediate defeat message's terminal styling is
+a separate shared UI coverage gap. Live Terminal and ordinary walking-triggered
+entry observations remain explicit testing limitations, not claimed passes or
+an indefinite delivery-blocking loop. Total-resident resource
+budgets and non-macOS qualification are not established by those checks.
 Andrew's 2 October KO screenshot exposed a missing end-to-end Game pose library,
 not a KO-only defect. Andrew has approved all seven standing replacements;
 Game now binds all eight approved ten-role sets through explicit actor-role
@@ -574,9 +969,9 @@ timeline source playback remains once/loop, not a new speed-authoring schema.
 The first-party legacy PNG delivery
 uses the established native approval, provenance and image checks, not the
 unrelated Game Development Studio catalog-vendoring workflow. No applicable
-integrity or authorization gate may be bypassed. Approved effect wiring and a
-silent native sequence playtest remain unfinished, so shared-folder delivery
-alone is not an in-game fix.
+integrity or authorization gate may be bypassed. Approved effect wiring is now
+integrated locally and its normal/reduced native sequence checks are complete;
+shared-folder delivery alone was not its acceptance.
 The trusted Game pose-preview factory accepts an explicit stable-actor selection
 for bounded inspection of an active complete set. Its omitted/null selection
 retains the all-eight acceptance gate, and the Engine driver refuses empty,
@@ -588,12 +983,17 @@ frozen registration-number assertions under Andrew's mutable-content test rule.
 Game's broader pose/command/preview coverage passed 542 tests / 59,278 assertions;
 its full pose snapshot suite passed 1,778 tests / 849,095 assertions. These results
 precede final effect wiring and are not its effect-integrated acceptance run.
-No native preview window has been launched for the complete accepted set;
-silent visual inspection remains required.
-The Last Legend graphical integration fixture now advertises the updated
-compositing capability contract and retains explicit capability checks. Keep
-missing-compositing fallback coverage; do not remove the runtime capability gate
-to make old graphical expectations pass.
+Native previews for the complete accepted set have since closed cleanly,
+and the fixed checklist records native observation of all 80 roles, 40 resting
+views and eight complete attacks. That current static-art acceptance is not a
+claim of future animated character artwork or remaining entry/results checks.
+The Last Legend graphical integration fixture advertises optional compositing
+and checks the remaining mandatory capabilities explicitly. Engine coverage
+now exercises real Traditional/ATB scenes with and without compositing in
+normal and reduced motion: missing tint support retains the graphical battle,
+poses, actual-result feedback and exactly-once outcomes, with a diagnostic.
+This corrects the former whole-battle fallback requirement; it does not weaken
+the composite protocol gate, screen-handoff requirements or resource budgets.
 
 ## Phases
 
@@ -613,34 +1013,45 @@ says.
 5. Cache animation and summon libraries for the battle's lifetime; stop
    re-reading files per action.
 6. Add the explicit animation reference to skills and items (engine schema +
-   editor picker), keeping the name fallback with a validator notice.
+   editor picker). Runtime name-based selection has since been removed in
+   favor of semantic role defaults; migration diagnostics are not runtime fallback.
 
 #### Phase 0 runtime contract
 
-`ActionExecutionState` passes summon frame and cue callbacks into
-`SummonCutscenePlayer`. `effectTiming.mode` selects exactly one gameplay
-resolution: `cue` fires when the named `cueId` is crossed; `frame` (also
-accepted as `explicit_frame`) fires at the start of that frame; `end` fires
-after the last frame and before the outgoing transition. Frame-zero cues are
-delivered once. Presentation cues such as sound, message, flash, shake and
-restore are dispatched separately from combat resolution; an `applyEffect`
-cue does not override a different authored timing mode.
+The live action state now consumes Phase 0 through `BattleCommandRunner` and
+the shared command session described above, not through `AnimationPlayer` or
+`SummonCutscenePlayer`. The unused protected blocking battle methods
+`resolvePresentedAction`, `playActionAnimation`, `playSummonCutscene`,
+`displaySummonTitleCard` and `playSummonTransition` are removed. Standalone
+preview players remain available and use the shared effect traversal.
 
-If a frame renderer fails, the summon player traverses remaining frame and
-cue callbacks logically, while the cell-animation player delivers remaining
-cues; both rethrow the presentation failure. The battle state logs
-that failure, clears transient visuals and still resolves gameplay once. If a
-cue or frame cannot be reached because presentation setup fails, resolution
-falls back to once at cleanup. Gameplay callback failures propagate; they are
-not treated as render failures or retried. Missing explicit animation ids and
-malformed optional assets are diagnosed without suppressing the battle action.
+`effectTiming.mode` selects exactly one gameplay resolution: `cue` fires when
+the named `cueId` is crossed; `frame` (also accepted as `explicit_frame`) fires
+at the start of that frame; `end` fires after the last frame and before the
+outgoing transition. Frame-zero cues are delivered once. Presentation cues are
+separate from combat resolution; `applyEffect` does not override a different
+authored timing mode. Render failures, including renderer type errors, are
+diagnosed without stopping the logical cue clock or losing the command. The
+removed blocking path's renderer-type-error abort policy is not retained in
+live combat. Gameplay failures propagate without retry; failing cleanup cannot
+replace the original gameplay exception. Missing explicit ids and malformed
+optional assets are diagnosed without suppressing gameplay.
 
-Under reduced motion, both players deliver cues in frame order and draw only
-the final frame. Summon title cards and transitions, and visual flash/shake
-motion are skipped. Cell-frame animations retain the old two-argument
-`AnimationPlayer::play()` callback in ordinary playback; reduced-motion
-callers must provide the separate cue callback when an earlier frame has a
-cue, rather than silently losing it.
+Logical command retirement is independent of output success. Normal completion,
+cancellation and failures detach playback after Console's atomic frame either
+succeeds or rolls back, so rollback cannot resurrect a retired command's flash.
+The field releases owned state before any erase writes; cleanup continues through
+individual presentation errors. Non-painting overlay removal retires only the
+command's overlay without using a failed or handed-back terminal sink. Ordinary
+overlay updates retain atomic repaint and rollback. An obsolete command never
+clears presentation owned by its replacement.
+
+Reduced motion holds the authored rest frame for the complete effect stage,
+while logical cues retain their authored times. A legacy cell import defaults
+to its final frame. Flash, shake, translation, summon title and fade motion are
+suppressed by the presenter rather than changing combat timing. Fresh action-
+state checks exercise cue/frame/end timing in graphical and terminal modes,
+rest-frame holds, renderer failure and cleanup: 37 passed / 245 assertions.
 
 Terminal cell-animation flashes now recolour foreground glyphs for
 `flashDurationFrames`; coloured background washes, including coloured empty
@@ -667,19 +1078,276 @@ supports clearing it. Skill Ctrl+G follows the explicit id even after a rename.
 Saved inventory instances resolve the current item definition's animation;
 the artwork binding is not frozen into a save.
 
-A null skill reference now uses an explicitly declared semantic animation
-default, not its display name. Animation records may declare `roles` as a
-unique list of `attack`, `skill`, and `restorative`: basic AttackAction uses
-`attack`; skills use `restorative` for restorative/buff magic and `skill`
-otherwise. Each role must have exactly one record. Missing or duplicate role
-bindings are diagnosed and omit only that default effect. Last Legend binds
-id 3 to attack, id 1 to skill and id 2 to restorative. Generic Hit Spark is
-removed as the attack default, but its existing record remains available for
-compatibility and generic skills. The physical default is a stylized strike,
-not a claim about a character's weapon or a creature's anatomy.
+A null skill reference uses an explicitly declared semantic animation default,
+not its display name. `ActionAnimationResolver::getSupportedRoles()` supplies
+the closed role list for validation and Editor selectors: `attack`, `skill`,
+`restorative`, `attack-unarmed`, and `attack-<type>` for every `WeaponType`.
+Both AttackAction and BasicSkill without an explicit id use the actor's current
+equipped weapon type, otherwise the actor's authored `attackStyle`, otherwise
+`attack-unarmed`. Actor data may declare `attackStyle` as a `WeaponType` or its
+string value (case-insensitive); invalid values are rejected with source context.
+This describes the character's basic weapon, not an inventory item or a stat
+bonus. It is rebuilt from current actor data when loading saves, never serialized
+as mutable state. Equipping a different weapon type overrides it; removing that
+upgrade restores the base style. Unclassified equipped weapons and non-equipment
+creatures use neutral `attack`, not an inferred blade. No class/name inference.
+Other skills retain restorative/buff-magic or generic-skill defaults. Explicit
+skill/item ids remain authoritative. Missing or duplicate role bindings are
+diagnosed and omit only that effect; they never silently substitute a slash.
+
+Runtime and Editor inspection now share `ActionAnimationResolver::resolveForAction`
+and `findEffectBindings`. The latter receives actual candidate commands on the
+ordinary animation route and returns their source/target effect bindings; resolved
+summons retain their own choreography. No match means unbound, not necessarily
+field-only. `AnimationLibrary::createFromAnimations` accepts an explicit snapshot
+of unsaved records without reading another running project's assets. Editor
+battle-effect previews keep the selected animation's paired effects, action pose,
+target policy and pacing, and use the production command's authored-frame mapping
+for seek and tab changes. They grant no abilities and execute no combat or audio.
+
+#### Temporary Cinematic Stage (Local G3 Foundation, October 6)
+
+Graphical summons may own a temporary presentation space rather than stretching
+an effect around a battler. It is not a map, combatant, target or global camera.
+`CinematicStage` validates the space; `CinematicStageFrame` projects all layers
+and attachments through one camera; `CinematicStagePresentation` composes retained
+images/covers through existing canvas primitives. Production battle and seekable
+preview consume the same frame. Claude's local Editor/GUI stage authoring is
+implemented; native authoring and battle acceptance remain open.
+
+In a paired timeline, `stage` belongs only to `presentations.graphical`. The
+Terminal sequence retains its own timing, glyphs and contact cue and acquires
+no graphical assets. A legacy single sequence may contain `stage`; Terminal
+does not parse or draw it. New authoring should use the paired shape. The shared
+timeline-field schema includes `restFrame`, `presentations` and `stage`, so new
+fields are not accidentally written to the definition data file.
+Editor consumers read `SummonCutsceneDefinition::PAIRED_TIMELINE_FIELDS` for
+the paired wrapper and `CinematicStage::EASINGS` for camera/cover options;
+validation and authoring must not maintain competing vocabularies.
+
+Stage fields use one shape each, with defaults only when a field is absent:
+
+| Field | Contract |
+| --- | --- |
+| `canvas` | Required `{width, height}` integer stage units, each 1..4096. |
+| `startFrame`, `restoreFrame` | Required authored frames, `0 <= startFrame < restoreFrame < lengthFrames`. Stage replacement is active from start inclusively to restore exclusively. |
+| `background` | Optional `black`, `white` or `#RRGGBB`; absent means black. |
+| `subjects` | Optional list, absent means empty, at most 32 records: `{id, position:{x,y}, size:{width,height}, pivot?, attachments?}`. Size is a registered presentation box, not duplicate PNG dimensions. |
+| Subject `pivot` | Normalized `{x,y}` in 0..1; absent means `{x:.5,y:1}`. |
+| Subject `attachments` | Optional list of at most 32 unique `{id,x,y}` normalized points in that same registered cell; absent means empty. Use existing image-point pickers for ground/chest anchors. |
+| `camera` | Required ordered key list, first key at frame 0: `{id, frame, focus:{x,y}, zoom, easing?}`. Zoom is .125..4. |
+| `covers` | Optional ordered key list, absent means none: `{id,frame,color,opacity,easing?}`. Opacity is 0..1. Nonempty covers start at frame 0 and end at `lengthFrames-1` with opacity 0. |
+
+Camera/cover lists allow at most 10,000 keys, unique stable IDs and strictly
+increasing frames. Optional easing defaults to `linear`; `hold` and `smoothstep`
+are also supported. The outgoing key owns interpolation. Cover color changes at
+the next key; opacity interpolates. Points in stage units are finite numbers in
+-32768..32768; presentation sizes are 1..4096. Explicit null is not absence.
+
+Stage image tracks reuse `asset`, `sheet`, `fit`, normalized `pivot`, flips and
+keyframe crops. Set `anchor: stage` and a `placement` map. Placement has optional
+`position:{x,y}` (absent means zero offset), `subject` and `attachment` references,
+and `size:{width,height}`. Without a subject, size is required; with one, absent
+size inherits its registered box. An attachment requires its subject. References
+must use selectors, not typed names. Named points remain stable across body poses.
+Track `zIndex` defaults to 0 and is bounded to -500..500. Keyframe `position`
+defaults to zero and means stage-unit offset; `opacity` defaults to 1. Ordinary
+battler `cells`, `attachment` and `facing` are not stage geometry. The image pivot
+retains its existing absent center default. Read current PNG dimensions at draw
+time; replacing supported art does not change stage identity or require hashes.
+
+The existing sequence `restFrame` is also the reduced-motion stage view, not a
+second frame setting. For summons its absent default remains the final sequence
+frame; stage authors must select a rest frame inside the active interval with
+image coverage. Reduced motion holds that view and its camera, suppresses covers,
+and restores at the same logical boundary. The stage requires fixed cadence.
+
+Stage covers replace the legacy summon-in/title/out presentation phases for
+stage-owned summons only; ordinary summons keep them. Nonzero legacy transitions
+with stage covers are rejected as conflicting ownership, not silently ignored.
+On restoration the original arena, formation and current battler state return;
+foreground image tracks may continue for their independently authored duration
+over that live arena, and the white cover can continue fading. This permits a
+cut from a close cinematic view to side-profile battle at release without
+baking the current arena/enemies into artwork or erasing the beam on the cut.
+End the scenery track at restoration, author the release view and camera for
+that shot, and retain only the intended foreground layers. Reduced motion
+returns directly to the arena without those continuing stage layers.
+Combat resolves once at its authored cue,
+but graphical damage/reaction feedback starts after the target sequence clears.
+Terminal feedback keeps its own ordinary cue timing. Cleanup/cancellation release
+the stage without mutating the world camera or replaying combat. Notifications
+retain their higher application-owned priority above stage images and covers.
+
+#### Caller-Owned Rest Stages (Local G4 Foundation, October 7)
+
+`EffectTimelineLibrary::loadStage` and `compileStage` admit standalone graphical
+stages independently of battle/summon profiles. They require fixed, once-only
+playback, stage-image tracks, no cues and a safe reduced-motion rest frame.
+`CinematicStageSession` takes an explicit asset root and consumer duration;
+`advanceTo` accepts monotonic elapsed time, while `getCanvas` is read-only.
+Backward preview seek requires a fresh session or pure stage projection.
+
+An inn may select a stable timeline ID through `InnOffer::presentation`; absent
+or null uses the optional `graphics.inn.presentation` project setting. The
+shared asset picker must select references, not infer filenames or duplicate
+artwork metadata. Timelines remain `Animations/<id>/<id>.timeline.php`.
+
+`PartyStageSelection` also admits a project-owned descriptor with a required,
+explicit treatment. The shared project default can serve every inn:
+
+```php
+// Intentional single-leader shot, not a complete-party montage.
+['treatment' => 'leader', 'leaders' => [
+  'actor-id' => 'leader-rest-stage',
+  'another-actor-id' => 'another-leader-rest-stage',
+]]
+
+// Optional exact-membership scenes, only for the compositions actually authored.
+['treatment' => 'party', 'parties' => [
+  ['actors' => ['actor-id', 'another-actor-id'], 'timeline' => 'pair-rest-stage'],
+]]
+```
+
+The API is `new PartyStageSelection(string $treatment, array $leaders = [],
+array $parties = [])`, `fromArray(array): self`, `toArray(): array` and
+`selectTimeline(Party): ?string`; constants `LEADER` and `PARTY` name the two
+treatments. `toArray` returns `treatment`, `leaders` and `parties`, with the
+unused binding collection empty. `getTimelineIds(): list<string>` enumerates all
+distinct bound stage identities without a live party for reference validation.
+`InnOffer::fromData` accepts these descriptors
+or the readonly selection object, as does `InnRestPresentation` for the project
+default. Unknown keys/treatments, mixed nonempty binding sets, invalid IDs,
+repeated actors/compositions and oversized collections are refused. Collections
+are bounded to 1024 leaders, compositions and actors per composition.
+
+Only current `Party::leader->actorId` selects a leader shot. Exact scenes match
+the entire current `Party::members` set, including reserves, independent of
+ordering, battle slots, display names or artwork. No bound leader/exact lineup
+means no optional stage with a diagnostic; it never substitutes a different
+guest. Removed from the interrupted draft: implicit exact-party-to-leader
+fallback. Leader treatment must be an intentional Game-authored choice. It
+requires only per-actor shots, not a combinatorial scene library. Exact scenes
+are optional explicitly authored compositions, not a requirement to cover every
+possible lineup. Game owns all timeline, subject/role and art bindings and must
+depict only the selected leader or declared party. Legacy string references
+retain their previous caller-selected stage semantics, without inferred guests.
+
+Selection refreshes against the actual party during the rest. A changed lineup
+or leader replaces only this rest's handle and seeks to the current elapsed
+time on the same full caller duration. Reordering an exact lineup retains its
+handle. Unavailable selections can acquire a later valid binding; a missing
+timeline is attempted once per selected identity, without per-frame retries or
+repeated warnings. Monotonic finite progress is enforced even during graphical
+absence. Cleanup goes through the originating presentation manager once per
+owned handle, preserves sibling stages/covers and never restarts gameplay time.
+
+The generic `inn` command declares optional `presentation` through
+`ScriptCommandReference::STAGE_TIMELINE` (`stage_timeline`). Project commands
+can reuse the same resource kind without acquiring summon semantics. Editor's
+Sleep-event and project-default pickers admit stage timelines, preserve an
+unset key's absence and support clear/undo/source round trips. The corresponding
+script-command reference-category mapping and actual Game artwork binding remain
+outstanding; the Engine declaration requires no release before local integration.
+
+The registered `inn` command and any project-declared `STAGE_TIMELINE` reference
+accept the same descriptor through shared `ScriptCommandField` validation, as
+well as scalar/null values and the validated selection object. Invalid
+descriptors report the command field path; other resource reference kinds retain
+their existing scalar validation. Nested cinematic commands use that same
+contract. No gameplay or Terminal behavior is introduced by reference validation.
+
+Structured authoring is a separate, outstanding contract. Existing Editor config
+validation and scalar reference paths do not safely author descriptors;
+configuration leaf flattening
+must not turn actor/timeline bindings into ordinary text or allow a scalar edit
+to overwrite a descriptor. The Editor owner must preserve the source structure,
+validate through `PartyStageSelection`, enumerate `leaders` values and
+`parties[].timeline` as stage references and `parties[].actors` as actor references,
+and use shared resource pickers with clear/undo/source round trips. Unsupported
+source edits must be refused before writing, not flattened. Richer authoring
+belongs to the GUI; no graphical TUI controls are required. Runtime support and
+DTO round trips are not claims that those Editor capabilities are complete.
+
+`InnStay` owns payment, recovery, audio, wake and the existing five Terminal Z
+beats. Its waiting callbacks advance the graphical stage over exactly that
+existing rest duration; a blocked gameplay update cannot freeze it. The
+presentation manager owns independent handles and composes them through the
+existing overlay path. Releasing one rest preserves sibling stages and parent
+covers. Transfer, same-map teardown or shutdown invalidates the originating
+handle and prevents stale recovery/wake. Removed behavior: interrupted stays no
+longer restore originating music over the destination scene. Already accepted
+payment remains debited; interruption does not report a completed recovery.
+Invalid optional assets/capabilities retain Terminal presentation with diagnostics.
+
+Earlier foundation receipts were 44 inn tests / 523 assertions, 875 related
+regressions / 136,789 assertions and 90 optional-command/lifecycle tests / 615
+assertions. After explicit party treatment and registered-union implementation,
+the focused selection, inn, sleep/scene audio, stage and command-registry run
+passes 233 tests / 1,442 assertions; focused changed-source PHPStan at level 2
+reports no errors. All fixtures/analysis data are on secondary-drive scratch.
+The whole-Engine 6,538 / 440,122 receipt predates these edits and was not rerun.
+These checks are not Editor source-round-trip completion, artwork acceptance,
+native visual proof or Linux/WSLg validation. Sleep proposals remain unadmitted
+until approval is established.
+
+The compiler version is 3. Invalid optional artwork/capability failures produce
+diagnostics while preserving gameplay; they are not claims that the cinematic
+was shown. Path-specific validation identifies stable subject/camera/cover rows
+and image-placement/keyframe fields for the existing Editor record panes.
+Paired and flat summon sequences both normalize glyph positions and cues
+through the existing summon DTOs before shared compilation; separating a source
+preserves its authored `[x,y]` positions without an Editor-side rewrite. Only
+the selected sequence is normalized/validated, so the Terminal path never
+parses an unselected graphical image sequence.
+Typed image-keyframe reads and construction no longer truncate fractional
+stage offsets or drop opacity/atlas-flip fields. `fromImageArray` preserves
+image values, while the legacy glyph/text `fromArray` keeps integer cell
+normalization. Tracks initialize image storage before adding typed frames;
+raw source remains uncoerced until shared validation. Synthetic read/edit/add
+checks include zero, partial and full opacity and compile through the stage
+boundary. A read-only round trip of Art's proposed D'jin sequence also produces
+identical runtime segments, defaults and cues without admitting any assets.
+
+October 6 actual-engine checks cover staged summons in Traditional and ATB,
+Graphical and Terminal, normal and reduced motion, and lethal/nonlethal casts.
+A lethal outcome does not end execution before the restoration, whiteout and
+recipient-feedback intervals finish. Graphical feedback begins after the
+sequence clears; the Terminal sequence retains its independent contact timing
+without a PNG. Pause freezes the presentation before contact. Interruption
+before contact spends nothing; interruption afterward preserves completed
+combat without replaying costs, damage or pending feedback. These are headless
+production-engine checks, not native D'jin motion acceptance. The queued-command
+suite passes 150 tests / 3,039 assertions. A fresh full Engine Unit run covering
+these cases and the latest stage/parser/vocabulary/image-record changes passes
+5,940 tests / 390,822 assertions with one existing skip. The four focused
+summon/stage/real-engine suites pass 239 tests / 3,325 assertions; scoped source
+static analysis is clean.
+
+Command ownership is independent of the skill catalogue and artwork. Actor
+definitions may select `attackSkill` by catalogue reference: it must be a
+battle-usable `BasicSkill`. The actor's current definition owns that inherent
+attack, including after restoring an old save; it is not mutable save data.
+Absence uses the Engine's built-in `AttackAction`, not an arbitrary catalogue
+entry or a name-based guess. Additional attacks must be learned BasicSkills.
+The Skill menu contains only learned, battle-usable special abilities; summon
+actions stay in Summon/Petition, and spells in Magic. Defining a skill never
+grants it to actors. Enemy action patterns and explicit sandbox loadouts retain
+their own grants. The old all-catalogue Attack and empty-book Skill grants have
+been removed for both terminal and graphical battle menus.
+
+Last Legend removes the universal Blade Slash id from generic Attack. It binds
+sword, dagger and axe attacks to id 3 Blade Slash; staff, flail, glove, unarmed,
+neutral attack and generic skill to id 1 PhysicalImpact; restorative to id 2.
+The blade's two presentations declare west-facing source art. Dual Slash has
+two independently timed strokes; the second graphical stroke reverses the
+first with `flipX`, matching the existing crossing terminal strokes. Enemy
+Burn explicitly uses its existing fire effect, not a physical attack default.
+Unused thrust, ranged, lash, claw and wand weapon roles remain unbound art
+gaps, not aliases to the sword. No formulas, hit counts or availability change.
 This is default presentation, not inference of a specific named attack's art;
-Last Legend now explicitly binds its 24 battle-capable non-summon skills and 11
-effect-bearing restorative items to distinct shared glyph timelines. These
+Last Legend explicitly binds battle-capable named skills and effect-bearing
+restorative items to distinct shared glyph timelines. These
 separate single and dual strokes, magic preparation, magic burst, Burn and
 healing. They do not change action formulas, hit counts, costs or availability.
 Andrew has accepted BladeSlash, PhysicalImpact, MagicPreparation, Burn,
@@ -707,17 +1375,149 @@ user session was closed or altered to obtain a screenshot. Native visual
 acceptance, actual encounter acceptance and non-macOS platforms remain open.
 
 After exact trigger-cell integration and the shared targeting correction,
-the latest October 3 full Game CI run has 1,838 passes and three failures across
-1,841 tests, with 833,991 assertions, excluding battle simulations. One
+the October 3 Game CI run after the Home fixture correction has 1,841 passes
+and one failure across 1,842 tests, with 833,992 assertions, excluding battle
+simulations. The
 reachability failure reports three inaccessible NPCs in Apthia's Garden Route
 Control, Happyville's inn and its shop. Do not weaken reachability to hide
-these; the counter/service decision remains with Andrew. Two Home tests still
-pin mutable authored data: a historical live-content fingerprint and a fixed
-transfer spawn coordinate. Claude owns their conversion to invariant or frozen
-fixture coverage; current map edits must not be reverted to satisfy them.
+these; the counter/service decision remains with Andrew. The two Home tests
+now use frozen historical-save fixtures and current-content invariants, not
+immutable live-content fingerprints or fixed transfer coordinates. No current
+map was reverted to satisfy them.
 The prior validation run reported zero errors and 45 warnings; validation was
 not rerun for this CI result. These results supersede the earlier Game totals
 above, not the accepted-art review.
+
+After direction-aware weapon bindings, the October 3 Engine suite passed
+4,284 tests with one skip and 86,934 assertions, with PHPStan clean. GPUI's
+headless macOS suite passed 196 tests with four existing ignored native/platform
+checks. Full Game CI passed 1,846 of 1,847 tests (834,029 assertions); the sole
+failure remains the three unreachable NPCs above, with no new warnings.
+Synthetic checks cover every weapon role, explicit skill overrides, missing
+role diagnostics, independently oriented recipients, two complete strokes,
+reduced-motion rest, exactly-once resolution and retained flip replacement.
+The verified local native package is installed with its predecessor backed up
+by the normal Console installer. Both CPU effect inspections pass, covering
+80 image-frame views normally and nine reduced-motion rest segments. A silent
+normal macOS native inspection closed cleanly with 696 presented acknowledgements;
+the reduced-motion inspection closed cleanly with 438. Both verified muted
+music/SFX, presentation cleanup and unchanged isolated combat state.
+The Mac was locked, preventing visual inspection; acknowledgements still are
+not native visual acceptance, actual encounter acceptance or non-macOS coverage.
+
+The queued-command regression pass exercises the actual Traditional and
+ATB action states with disposable authored resources, rather than manually
+changing HP in an inspection callback. Its 128 combinations cover sword,
+staff, flail, glove, unarmed and an explicitly bound double slash overriding
+the weapon default, plus enemy neutral-default and explicit double-slash
+commands; both attack directions; terminal/graphical presentation;
+and normal/reduced motion. Source and target tracks, directional crops/glyphs,
+both visible strokes in normal motion, pause before impact, actual one/two-hit
+damage, one MP charge, reaction and return/cleanup all pass. The six-file
+regression group passes 348 tests with 85,339 assertions and no warnings.
+The updated full Engine suite, including base-attack-style regressions, passes
+4,468 tests with one existing skip and 174,833 assertions, using CI's 1 GB PHP
+memory limit; full PHPStan passes (single-process mode where sandbox loopback
+prevents worker startup).
+This follows correction of a nondeterministic critical-hit test and an existing expectation of the
+old rounded legacy duration; neither test was removed or renamed. Subsequent
+shared Party/Troop fixture extraction passes the targeting/preview group with
+179 tests and 87,855 assertions. The earlier local run at 128 MB exhausted its
+memory allowance and is not counted as a pass.
+This strengthens real-caller CPU evidence; it does not replace a native
+visual playtest of an actual encounter or complete Editor authoring. The
+native preview driver now queues real commands through both production
+engines, with an owned cleanup callback that restores fixture state and fails
+the driver on cleanup failure. Its supplied Party/Troop seam lets Game test
+current actors, equipment, commands and troop formation without duplicating
+combat setup or manually simulating results. The Game-owned actual-content
+fixture can be inspected through `tools/gpui-battle-preview.php --inspect`.
+Inspection starts paused; stdin accepts `play`, `pause`, `step SECONDS` and
+`quit`. The configured simulation duration is still bounded to 1..60 seconds;
+the owned native window also accepts Space to play/pause, Right to step one
+second, Down to step one tenth of a second, and Escape to quit unsuccessfully.
+These are developer-inspector controls, not gameplay bindings. They use the
+same PHP-owned clock and allow native observation without stdin round trips.
+Inspection has a separate thirty-minute wall limit and owns window cleanup.
+Steps traverse every simulation frame, while paused redraws retain the existing
+canvas without calling the fixture again. Only reaching the full configured
+duration runs verification; quit, incomplete closed input and wall expiry are
+failures, not acceptance. This test-driver clock does not change battle timing
+or move gameplay into rendering. Held native pixels prove the inspected states,
+not uninterrupted animation cadence. The Game-owned actual-content
+fixture is now ready and independently verified on CPU: twelve queued
+commands cover both engines, weapon attack, an MP skill, offensive magic,
+enemy attack/party knockout, inventory-backed revival and healing. That initial
+fixture manually equipped a starter sword; it did not test the empty upgrade
+slots of the normal new-game party. The October 3 slash report exposed the
+missing distinction between a character's basic weapon and stat-bearing
+equipment. The shared actor-owned `attackStyle` contract above removes the
+assumption that an empty upgrade slot always means unarmed. Game now authors
+the four established base styles without granting items or bonuses. Read-only
+loading of both a new game and the latest autosave confirms sword/dagger
+slash and staff/flail impact selection, with empty equipment preserved. The
+Game-owned queued fixture now removes its artificial sword loadout in the
+Traditional case and tests a different-type equipped override in ATB. Both
+normal and reduced-motion CPU runs pass all twelve commands in 54.58 seconds;
+the Game binding, equipment/save and acceptance regressions pass 109 tests
+with 27,550 assertions. Menu command data and an
+authored graphical troop supply the data; combat outcomes are never simulated
+by the preview. Costs, actual outcomes, effect assets, reaction roles, return
+and cleanup passed in the initial fixture. A fully muted 60-second macOS native run completed the same
+commands and closed cleanly, but the locked Mac prevented pixel inspection.
+No user game, save, audio preference or lock setting was changed. This is
+real-command verification, not native visual acceptance or a complete campaign
+encounter playtest. Game reports 1,855 CI passes and the same one reachability
+failure; its three new acceptance tests pass. Battle simulations remain excluded.
+
+Fresh October 3 checks after the blocking-path removal and equipment type-icon
+changes: full live Engine suite 4,538 passed / one skipped / 176,247 assertions;
+full Engine static analysis reports no errors. Both normal and reduced-motion
+current-content CPU previews verify
+all twelve queued commands; the reduced run completes them in 54.58 seconds.
+The normal muted 60-second macOS native run closes cleanly with the same command
+verification, but selecting its exact preview app timed out after bundle-id
+selection found multiple installed copies. No pixels were inspected in that run,
+and no further acknowledgement-only launches were repeated. No test window is
+left open; no game settings or saves were written. Native visual and ordinary
+encounter acceptance, non-macOS qualification and authored-format retirement
+remain outstanding.
+
+The shared weapon-role API is committed locally as `bf2f0d6` under Andrew's
+scoped approval. Editor's role picker is integrated on local develop
+`27703f6`. Its standalone effect timeline authoring, including sequence
+preservation and directional preview, is integrated on local Editor develop
+`9fd749f` against the committed Engine contract. Claude reports 1,433 Editor
+tests passed, 55 skipped and clean static analysis. Andrew approved the
+second scoped local-only commit on October 3: "Regarding the two decisions,
+both recommended steps are approved." The eight-file compiler/direction/canvas-
+flip contract and its tests are committed on Engine develop as `7db56dc`;
+51 focused tests pass. Untyped orientation payloads are no longer accepted:
+facing belongs to the typed track and image flips to typed keyframes. That
+one-time commit approval is consumed; it does not authorize committing other
+G2 work. Nothing is pushed or published.
+The actor base-attack-style contract remains uncommitted in the live Engine.
+Claude's source-preserving Actor Attack Style selector (`b17aaaf`) is now
+integrated on local Editor develop `ab2dd9c`, together with the equipment
+type-icon schema. It does not wait on an Engine commit or release. Attack Style
+is an optional actor field, not graphical authoring in the TUI; equipment
+permissions and gameplay values remain independent. Equipment-specific icons
+are no longer editable in the database: weapons/armor retain their old icon as
+read-only legacy data and consumables retain editable icons. Read-only rows
+keep their field key so GUI identity consumers can still name them; edit
+services still refuse writes. Claude reports 1,447 Editor tests passed and 55
+skipped against the live Engine, with no attack-style, icon or shadow validation
+issue and no Game writes. The coordinator verified those integrated commits
+and a clean Editor checkout; this is not a native Editor playtest or permission
+to publish.
+On resumption at 08:55 CAT, the Mac was available again, but the inspection
+tool selected Andrew's running Last Legend battle rather than a separate
+preview. A read-only screenshot visibly confirms the current three active
+party standing replacements and their ground shadows in that battle. It does
+not verify other poses, command effects or the complete sequence. No controls
+were pressed and no user game session was closed or changed. The separate
+silent previews have already closed themselves; their remaining visual check
+requires the inspection tool to select the preview instead of the user game.
 
 Art's source shadow audit inspected all 112 current battle PNGs at registered
 display size, or an explicitly labelled reference size for unbound art. It
@@ -735,6 +1535,265 @@ receipts, all 97 preserved originals, and the production-presenter CPU fixture's
 after replacement. These are source/raster and CPU checks, not native visual
 acceptance of the revised shadows. The corrected art remains uncommitted.
 
+Andrew watched the October 3 muted queued-command native run and surfaced
+inconsistent battler proportions, so visual acceptance remains open. On his
+explicit approval, the existing Art producer audited 112 current battle PNGs,
+preserving accepted designs, opaque chest coverage and the repaired shadows.
+Game's catalog carries provisional per-identity display widths for all eight
+bound actors and twelve bound creature/human-enemy source identities. These
+offline Art proposals were applied before native visual acceptance; they are
+not accepted canonical heights or proof of consistent party anatomy. Andrew's
+October 3 screenshots showed tiny bats and inconsistent party poses. The
+coordinator removed Regular Bat's erroneous 65px whole-image override,
+restoring authored encounter containment sizing without changing formations.
+Art rechecked all 80 party roles: Kaelion KO has an approximately 20% longer
+collar-to-belt proxy than Idle but nearly the same facial scale. Its body volume
+cannot be faithfully corrected by a verified uniform resize. Attack's compact
+lunge is not evidence of an independent renderer scale change. The new
+technical package supplies evidence, preserved originals and zero ready
+replacements; its 0.90 KO diagnostic must not enter runtime. Andrew clarified
+on October 4 that his existing instructions already authorize source-proportion
+corrections, including repaint where uniform resizing is insufficient. The
+coordinator's repeated permission request was unnecessary and is withdrawn.
+The existing Art owner is producing the needed party corrections using each
+approved Idle as authority, without costume/weapon/identity redesign, starting
+with Kaelion KO. Replacements and comparisons are not yet delivered.
+Equal renderer pixel scale cannot repair inconsistent source anatomy, and
+uniform resizing must not disguise incompatible anatomical ratios. The initial
+package supplied one correction, Aeryn's skill pose: uniform 0.85 scaling around
+its existing ground pivot, including its repaired shadow. The other 111 PNGs
+were unchanged; before-images and receipts are preserved in the Art package.
+Regular Bat's pivot now uses its projected ground shadow instead of its flying
+body. No troop formation or terminal geometry was changed. Unbound creature
+size proposals were not added to encounters. Aeryn's unbound Victory image
+has conflicting face/torso proportions and a low neckline inconsistent with
+Andrew's coverage rule. It is rejected design material, not costume authority,
+and needs a separate author-directed correction using her covered Idle design;
+it is not one of the ten current runtime roles. Andrew authorized the separate
+corrective proposal on October 3: "Yes, produce the corrected proposal".
+Art delivered an inspected 800x800 transparent corrective proposal, with
+same-source-scale Idle/Victory comparisons and preserved generated masters,
+in its isolated `aeryn-victory-corrected-proposal-20261003` package. The
+coordinator checked its costume coverage, anatomy comparison, dimensions
+and transfer receipt. It awaits Andrew's review; the rejected unused source
+is unchanged and no new battle role, runtime replacement or publication is
+authorized by producing the proposal.
+The October 3 change removed independent per-pose contain/full-width fitting.
+The October 4 reference-scale contract above supersedes its individual base
+width registrations: all registered party and creature profiles now share
+Kaelion's standing reference. Poses/cells use normalized body-unit calibration
+and their own ground pivots, not their selected silhouette or formation extent.
+The Game inspection fixture and placement checks consume the same catalog scale.
+Synthetic coverage checks reference presence/absence, different formation boxes,
+animated cell calibration, normal/reduced motion and resolution replacements.
+All roles need coherent source anatomy; uniform rendering cannot repair it.
+The following October 3 counts are historical evidence, not a full-suite claim
+for the later reference-scale change.
+The focused Engine checks pass 166 tests/2,791 assertions; the full live Engine
+suite passes 4,552 tests, one skipped/177,009 assertions. Current Game
+presentation and queued-command checks pass 494 tests/86,993 assertions;
+focused static analysis is clean. Visible-overlap checks read the current
+image's alpha extent; they no longer treat transparent canvas padding as a
+UI collision or freeze authored bat formation coordinates. Alpha measurements
+never drive anatomical scale, gameplay collision or runtime fitting.
+The calibrated muted macOS queued preview completed all twelve commands in
+54.67 seconds, with 960 presented-frame acknowledgements, and closed cleanly.
+The screen-inspection tool timed out, so this is execution evidence, not native
+visual acceptance. Fresh visual and actual-encounter acceptance remain open;
+Linux/WSLg were not tested. Nothing in this correction changes terminal
+geometry, collision, gameplay, saves or the accepted costume designs.
+
+The subsequent multi-target tint correction passes 228 focused Engine tests /
+6,917 assertions and the full live Engine suite: 4,572 passed, one skipped /
+177,230 assertions. Full PHPStan passes using its sequential debug mode after
+the sandbox refused the parallel worker's loopback socket. The Game owner
+updated only the two affected presentation test files and verified 494 battle
+tests / 87,377 assertions; this is not full Game CI. Ten native CPU compositor
+tests pass, with two intentionally ignored by that run. The existing ignored
+packet-replay test was then run explicitly and passed with an Engine-composed
+twelve-subject tint packet: one surface, 24 operations, current alpha crops,
+per-subject clips and transparent gaps. Its offscreen raster was inspected;
+no game window or audio was launched. This verifies packet/raster compatibility,
+not campaign visual acceptance or Windows/Linux/WSLg behavior. The remaining
+visual checks and Phases 0-2 migrations are still open. Nothing was staged,
+committed or published in this correction.
+
+After Andrew reported "The Mac is unlocked. Proceed", two further fully muted
+60-second macOS previews completed and closed cleanly. The real queued fixture
+verified twelve commands across Traditional/ATB with 919 native presented-frame
+acknowledgements; the six-effect inspection fixture verified 80 image-frame
+views with 877 acknowledgements. Exact-app selection initially found the silent
+preview window, but screenshots timed out; a second exact-app selection also
+timed out. Unlocking did not resolve the inspection-service failure. Neither
+run establishes native visual or campaign acceptance; no user session was
+closed, and game settings/saves were not written.
+
+The follow-up terminal correction removes first-recipient-only pulse handling,
+concurrent-pulse overwriting and use of completed snapshots inside atomic battle
+composition. Ten new synthetic cases cover tracked/untracked live underlay
+reads, simultaneous recipients, retained redraws, pause/resume, cancellation,
+reduced motion, a full shared overlay budget, current glyph ordering and wide
+Unicode boundaries. Fresh focused Console/battle checks pass 294 tests / 22,389
+assertions; full live Engine passes 4,582 tests, one existing skip / 177,329
+assertions. Full sequential PHPStan reports no errors. The current ten Game
+battle/presentation test files pass 686 tests / 107,449 assertions; this is not
+full Game CI. No graphical animation flair was added to terminal battles, and
+no gameplay, geometry, art, bindings or resource limits changed. Visual/campaign
+acceptance, remaining migrations and non-macOS qualification remain open.
+Nothing was staged, committed or published in this follow-up.
+
+The subsequent motion/direction correction honors shake keyframe visibility
+without suppressing impact cues, and removes pose-canvas centres as the source
+of graphical attack facing. Fifteen red-first synthetic cases cover caster,
+target and screen shakes, independent presentation selection, paused/reduced
+playback, asymmetric animated poses on either side and authored second-stroke
+mirrors. Fresh checks pass 462 focused tests / 29,853 assertions; full Engine
+passes 4,597 tests, one existing skip / 178,094 assertions. Full sequential
+PHPStan is clean and the ten Game battle files pass 686 tests / 107,449
+assertions. No art, formation, gameplay or terminal geometry changed. Native
+visual acceptance and the migration/permission gaps above remain open; nothing
+was staged, committed or published.
+
+Current verification (4 October, after shared ground attachment and pose frame
+boundaries): full Engine passes 5,123 tests, one existing skip / 350,990 assertions.
+Animated poses now use the timeline's stateless half-open boundary calculation,
+so floating-point rounding does not leave them on a previous cell at an exact
+playhead boundary. Synthetic checks cover all supported rates (1-120 fps) against
+independent integer expectations, including samples before the boundary, looping,
+final holds and reduced-motion rest cells. Authored cadence and session traversal
+are unchanged. Ten focused pose/effect/terminal/field/summon files pass 938 tests /
+207,003 assertions, and full sequential source analysis is clean.
+Four focused Game battle files pass 550 tests / 71,407
+assertions, including authored sheet frames, normalized pivots, independent
+subject ground points and unchanged exactly-once outcomes/cleanup. Sixteen
+real queued-command cases additionally hold lethal own-turn poison and KO before
+resolution in both battle engines and both presentation/motion policies.
+Full Game CI now completes after migrating the simulator subclass
+to the shared roster contract: 1,856 passed, one failed / 856,042 assertions,
+simulations excluded. Its remaining current-content reachability check reports
+the Garden Route Controller, Happyville Innkeeper and Happyville Shopkeeper
+cannot be spoken to, the same outstanding trio reported before this G2 slice.
+The Game owner confirms the shared counter lookup works, but Game maps no glyph
+to COUNTER, leaving its counter boxes solid. Their content authoring/decision
+remains separate; no positions are restored or checks weakened. Full Game CI
+is not green.
+Normal and reduced
+CPU queued fixtures each finish twelve real Traditional/ATB commands, three
+defeats, exact costs/outcomes and cleanup at 52.95 seconds after removing the
+empty compatibility delay. Before that timing change, fresh muted native runs
+completed twelve commands in both policies with 884/404 presented-frame
+acknowledgements; those acknowledgements do not establish pixel cadence.
+Inspected pixels include Seraphis's real queued ATB knockout and the supplied
+single slash. A corrected temporary helper selects exact command track IDs,
+not shared PNG paths, to hold unchanged production canvases: the first dual
+stroke and Drazek's attack pose were captured, as was Burn with Liora's casting
+pose in the preceding held run. Later captures timed out. The second mirrored
+stroke, continuous effect cadence, complete pose sequence and ordinary field
+encounter entry remain unaccepted. Held pixels are not runtime timing evidence.
+Previews are muted, auto-close, and never write game saves/settings. No claim of
+Linux/WSLg or Windows validation follows from these macOS checks.
+
+After the ground-attachment correction, desktop inventory and a read-only
+screenshot of Andrew's running game became available again. No controls were
+sent to that game. A default-sandbox native attempt failed desktop-service
+initialization before ready; it is not a successful preview. Two subsequent
+fully muted, disposable macOS command runs completed all twelve commands and
+closed cleanly, with 964/962 presented-frame acknowledgements. The inspector
+selected the user game instead of the raw preview; selecting a temporary test
+app identity pointing to the same binary then hung and returned no pixels.
+The ring placement, continuous cadence and ordinary handoff remain visually
+unaccepted. The temporary wrapper is removed after its renderer has closed;
+there is no copied runtime or installed-game change. No further
+acknowledgement-only run is planned.
+
+Three synthetic entry cases each repeat three encounter/return cycles under
+normal transitions, transitions off and reduced motion. They protect fresh
+battle/result state, reveal before combat updates, owned transition cleanup
+and resuming the same field composition. The entry suite passes 10 tests / 207
+assertions; this is not native or real Game encounter acceptance. Separate
+independent Game CPU runs now drive actual field input through EncounterManager,
+SceneManager, BattleScene and menus without assigning results or replacing the
+outgoing field composition. Normal motion completes two actual encounters in
+58.69 seconds / 1,775 frames, reduced motion in 35.63 seconds / 1,161 frames.
+Each battle returns the same GameScene and cell, with zero saves written and
+unchanged player settings. Maps, routes and troops come from current authored
+data rather than pinned layouts. Without a renderer both runs use a direct cut;
+they do not establish native pixels or graphical handoff timing. No-PTY runs
+emitted terminal-size probe warnings on stderr, recorded separately from their
+passing lifecycle checks.
+
+`tools/gpui-scene-preview.php` is the shared real-scene driver. Its trusted
+factory accepts the asset root, reduced-motion flag and optional subject IDs,
+and returns a Game, RendererGridConfig, start/advance/isComplete/verify/dispose
+callbacks, declared capabilities and an optional `realtime` policy. It attaches
+the production RendererRuntime before starting any scene, presents the actual
+scene/world and notifications, and leaves focus/transition policy with Game.
+Effective ProjectConfig and PlaySettings music/sfx mute and zero master volume
+are required before process creation and every step. Sessions are bounded to
+1..300 seconds, close automatically, and report success only after scene,
+runtime and isolated fixture cleanup all succeed. Fixtures using the production
+wall clock declare `realtime => true` for CPU runs as well. The Game factory
+owns temporary saves, a no-backend audio manager, refusal of project-config
+writes, its own Game autoload registration and restoration of process state.
+With a renderer it additionally requires negotiated capabilities, actual battle
+canvases and handoff activity appropriate to the effective transition setting.
+Native startup uses Game's logical viewport after runtime attachment rather than
+the fixture's earlier terminal grid. The optional fourth factory argument is
+`project`, `on` or `off`: `--transitions` requests this isolated policy and the
+fixture must acknowledge it before any scene/native launch. Default project mode
+does not require legacy three-argument fixtures to implement a new option.
+Driver and related runtime/entry checks pass 113 tests / 779 assertions;
+four Game configuration-isolation checks pass / 31 assertions. Scoped sequential
+driver/fixture static analysis is clean.
+
+Use `php tools/gpui-scene-preview.php --asset-root=PATH --fixture=PHP
+--subjects=field-encounter --duration=180 --transitions=on --no-launch` for the Game CPU fixture;
+use `--transitions=off` to check direct cuts, or `--reduced-motion` with on to
+check the accessibility policy. Omitting transitions preserves the project's
+effective preference. For native verification omit
+`--no-launch` and supply `--renderer=PATH` to the installed executable. Never
+launch before effective mute verification, or substitute a fake outgoing canvas.
+The canvas-only battle preview uses a separate client and cannot capture the
+real field handoff. The corrected CPU fixture completed two real encounters;
+three silent macOS native runs completed six victories in total and returned to
+the same field/cell. On observed 20 handoff frames per battle; off and reduced
+motion observed zero, and every battle presented a graphical canvas. Saves and
+settings remained unchanged; the owned previews closed cleanly. These functional
+results do not prove pixel appearance or complete pose/effect-sequence acceptance:
+CUA app selection timed out during the off run. No locked-Mac diagnosis follows
+from that timeout. The ring correction still has no new native pixel acceptance.
+
+Andrew removed the acting marker on October 4: the command's step forward and
+action pose already identify who acts. Shared graphical composition no longer
+draws an underline, a textured marker or an "Acting" fallback label in either
+skinned or primitive presentation. The obsolete `acting` BattleUiSkin role and
+Game binding are removed, not replaced by another indicator. Existing artwork
+files are preserved. Ten red-first cases cover both sides, skins, motion policies,
+advance/return and missing artwork; target selection and combat identity remain.
+Focused removal/regression verification passes 547 Engine tests /32,896
+assertions and 96 Game graphical-battle/results tests /40,850 assertions.
+Analysis of the changed renderer and skin is clean. These are headless checks;
+no new native visual acceptance, full Game CI pass or publication is claimed.
+
+The 4 October 10:15-10:17 screenshots reopen battle contact-shadow acceptance:
+Drazek's rear sole still visibly separates from its shadow, and Andrew reports
+the same problem across other battlers. Art has both exact examples and the
+full-set correction. Protected body pixels, pivots and scale are necessary
+preservation checks, not proof of convincing contact. The runtime draws this
+idle's entire PNG without a crop; each intended grounded sole needs visible
+source contact at its own screen-space depth, not a universal lowest-foot line.
+That historical shadow package was superseded by the completed October 5
+revision, which Andrew approved and Game integrated. Live sequence inspection
+remains separate from artwork approval and headless contact checks.
+
+Desktop app selection responded again during this turn. The current native
+source was built and installed through Console's verified source updater;
+the real queued-command CPU preflight and muted 60-second native run passed.
+Both native screenshot calls failed with `timeoutReached`, so the complete
+sequence remains visually unaccepted. The disposable preview closed cleanly;
+no further acknowledgement-only launch is planned. No user game, save or normal
+audio settings were changed, and no publishing action occurred.
+
 Runtime skill-name and hardcoded animation-name selection are removed. Legacy
 items without a binding retain their existing no-animation behavior. A missing explicit id
 reports a warning and never substitutes a default. No presentation reference
@@ -742,6 +1801,39 @@ prevents the item's or skill's gameplay effect. Claude owns Editor role
 round trips, pickers and duplicate-role/reference validation; its old
 name-candidate diagnostic helper remains for migration only and must be
 updated, not treated as runtime authority.
+
+### Compatibility Policy (Approved October 5, 2026)
+
+Andrew approved retaining the existing cell-animation compatibility reader in
+the current major version, documenting deprecation and migration now, and
+removing that reader only in the next major version. His exact answer was
+"Approve that compatibility policy". The deprecated part is the cell-based
+authoring format, not numeric animation identities or role/effect bindings.
+New effects use the shared timeline; supported existing projects continue to
+load their authored cells through that same playback session.
+
+Reader removal belongs to a deliberate next-major migration, not G2 acceptance.
+Last Legend's current records and field consumer have already migrated. Other
+projects are not automatically rewritten, and native conversion usability
+still needs acceptance. No release date is set, and this policy grants no
+commit, push, branch, tag or release permission.
+
+Migration uses the existing shared converter and transactional Editor workflow:
+
+1. Inventory each numeric record's battle and field consumers. Preserve their
+   actual timing, offsets, colours, sound cues, flash policy and rest treatment;
+   consumers with different contracts need distinct timelines.
+2. Select the actual cadence, explicit fixed rate where applicable, tick
+   multiplier and rest frame. Review the complete proposed sources before
+   confirming; do not infer a rate from a helper default.
+3. Apply the held source-preserving conversion plan. Numeric IDs, unknown data
+   and source comments remain; stale files or changed choices invalidate the
+   plan before writing. Use the existing grouped undo/redo transaction.
+4. Repoint field consumers explicitly through their effect picker; conversion
+   inventories them but does not silently change their references.
+5. Save and reopen, then verify battle and field consumers in terminal,
+   graphical and reduced-motion presentations. Reader removal must not strand
+   supported projects or change their gameplay.
 
 ### Phase 1 - One runtime
 
@@ -752,8 +1844,9 @@ updated, not treated as runtime authority.
    completion or the effect cue instead of squeezing frames into a fixed
    turn slice. Authored fps is honored everywhere, as summons already do.
 3. Migrate the two cell-frame animations to timelines (a cell frame is a
-   one-glyph content grid); retire the cell-frame runtime after a
-   deprecation window. The editor migrates its bespoke animation database to
+   one-glyph content grid); retain the compatibility reader in the current
+   major and remove it only in the next major under the approved policy above,
+   not as a G2 gate. The editor migrates its bespoke animation database to
    the schema-driven record path the summons already use.
    Game's current read-only audit identifies two consumers of Healing Aura:
    its accepted battle-healing target timeline and the Listening Stone
@@ -773,13 +1866,81 @@ updated, not treated as runtime authority.
    that exact cadence, verified through real event and cinematic callers in
    terminal/graphical and normal/reduced modes (41 targeted tests, 3,300
    assertions). Its legacy name/timing fields were removed; numeric records
-   remain. The remaining record migration must establish timing ownership for
-   paced compatibility effects and safe Editor standalone authoring, rather
-   than treating it as a Game-only file replacement.
-   The compatibility traversal now uses `EffectPlaybackSession` with an exact
+   remain. Battle-only `cadence => battle_phase` and explicit standalone preview
+   budgets now establish timing ownership for paced compatibility effects.
+   The runtime also loads the matching authored terminal sequence when GPUI
+   selects an image-only target. Game's Hit Spark now declares independent
+   terminal and graphical timelines: its terminal timeline is battle-paced,
+   omits fps and preserves the five original cell states and flash. Both
+   Hit Spark and Healing Aura have removed their legacy record cells/cues;
+   their numeric records now only bind roles and effect timelines. Healing
+   Aura's accepted fixed-rate terminal treatment remains unchanged, with no
+   added flash. Both numeric IDs and role/effect bindings remain. All seven
+   current numeric animations load with no legacy presentation, and their
+   declared effects compile for both terminal and graphical presentation.
+   This finishes Last Legend's record migration, not retirement of the reader
+   still needed by other supported projects. Historical field-equivalence tests
+   now read a labelled, frozen six-cell fixture, not mutable live animation
+   records. Independent
+   affected Game verification passes 187 tests / 50,717 assertions.
+   Constrained Editor authoring, source-preserving round trips and preview
+   pacing are integrated on local Editor develop `57e21b1`, tested against the
+   shared live Engine tree. Andrew rejected delaying development on another
+   repository's commit or release. The timing-API commit request is withdrawn
+   as a dependency gate; no Engine commit or publication is implied. Format
+   retirement is deliberately deferred to the next major, not unfinished G2 work.
+   The standalone compatibility traversal now uses `EffectPlaybackSession` with an exact
    frame-duration override instead of rounding that duration to integer fps.
    This removes the legacy clock and field reduced-motion skip while leaving
-   authored-record retirement and source-preserving migration outstanding.
+   the current-major compatibility reader supported. Its removal requires
+   deliberate existing-project migration in the next major.
+   Editor's animation-record migration is now integrated on local develop
+   `a152ac5`: animations use the shared record schema, effect pickers and
+   supported role list. The bespoke `ProjectAnimationDatabase`, terminal
+   frame-grid painter and frame/cue preview workflow were removed, not merely
+   hidden. Legacy frames/cues remain preserved and read-only; numeric IDs,
+   effect references, unknown fields and interior source comments survive edits,
+   with no invented frame rate. New effect authoring uses timelines. The
+   coordinator's bounded second review found numeric allocation and
+   duplicate-record role-uniqueness gaps. Editor corrected both in `a0c6d7a`:
+   numeric creation/copy uses the next maximum ID, including IDs retired in
+   the session; structural creation/copy omits exclusive members already held
+   by another record, rather than duplicating runtime role ownership. The
+   independent gap probe and eight role/round-trip tests pass (51 assertions).
+   Removing the Engine compatibility importer in the current major would break
+   supported projects and violate the approved policy, not complete G2.
+   Numeric battle imports now project their consumer-owned frame duration
+   through `EffectPlaybackTiming` onto the 120 FPS command lane, removing
+   whole-number FPS rounding. Cells, blank slots, sound cues and flash tails
+   retain half-open boundaries, with at most one output tick of quantization.
+   New authored effect fps/defaultSpeed and Editor source format are unchanged.
+   Existing-project conversion now has a pure shared source API:
+   `LegacyAnimationMigration::getTimelineData(id, animation, cadence,
+   ticksPerFrame, restFrame, fps, includeFlash)`. Callers must select the actual
+   consumer cadence; fixed timing requires an explicit rate, battle-phase
+   timing omits it. An integer tick multiplier preserves exact intervals such
+   as 0.12 seconds (three ticks at 25 fps). The rest frame is an explicit
+   zero-based original frame, including any flash tail. Original cell paint
+   order, moving offsets, colours, blank frames, sounds and overlapping flash
+   tails survive conversion. Field callers explicitly omit flashes, preserving
+   their existing consumer policy. Oversized or invalid conversions fail
+   before writes rather than discarding source data. The converter neither
+   rewrites files nor chooses record references: transactional, source-preserving
+   migration and undo belong to the Editor/application service, including
+   distinguishing consumers that need different timelines for one old record.
+   Fourteen synthetic conversion tests pass; 513 related runtime tests / 115,299
+   assertions pass on each of PHP 8.4 and 8.5, with scoped source analysis clean.
+   No compatibility reader was removed, no existing project was automatically
+   rewritten, and no release/deprecation date is inferred from these checks.
+   Editor `b06ef53` now exposes terminal conversion choices and complete
+   proposed-file review through shared scrolling. Exact held-plan writes,
+   stale-file refusal, changed-choice invalidation and grouped undo pass
+   independent checks. Editor `e6591e1` also corrects shared wrapping when source
+   indentation exceeds a narrow pane; all non-whitespace source content stays
+   visible without changing the held source bytes. The affected checks now pass
+   42 tests / 345 assertions at three terminal sizes. Native interactive
+   usability remains open. The approved compatibility policy settles the
+   deprecation/removal boundary; G2 does not wait for a future release.
 4. Fold the battle-entry frame file into a timeline played by the same
    session. Local graphical entry now uses the shared retained outgoing
    composition and cover/readiness/handoff/reveal lifecycle, not translated
@@ -790,13 +1951,18 @@ updated, not treated as runtime authority.
    handoff, including captured terminal output in both tracking modes.
    Silent native visual acceptance remains pending. See
    [the current boundary and acceptance](rendering/graphical-battle-g1.md#graphical-entry-handoff).
-5. Migrate `assets/Data/Animations/explosion01/` (currently orphaned): each
+5. Migrate `assets/Data/Animations/explosion01/` (previously orphaned): each
    of its text files is one frame, becoming one glyph-track keyframe of a
    timeline. Game's source/history audit confirms seven orphaned frames, but
    no authored frame rate or durations. The coordinator has requested a
-   once-only 10 fps treatment (0.7 seconds); until Andrew chooses the timing,
-   no content is migrated, removed or bound to combat. Preserve the blank rows
-   and the distinct frame slots even where frames 6 and 7 are identical.
+   once-only 10 fps treatment (0.7 seconds), which Andrew approved on October 3
+   together with the scoped local directional contract commit. Game owns the
+   conversion and delivered `Animations/explosion01/explosion01.timeline.php`
+   locally, uncommitted and unbound to combat. Independent shared-library and
+   session checks pass for battle/field and terminal/graphical: all seven
+   source frames match byte-for-byte, blank rows and duplicate frame slots are
+   preserved, the final frame holds fully, and completion is exactly 0.7 seconds
+   without looping. Rest frame 3 shows the full burst. The originals are unchanged.
 6. Run the session on the field too: cinematic `field_animation` plays
    through it, and maps start and end their ambient effects (declared at
    cells or by tileset pieces) with the map, with `loop` playback and the
@@ -818,8 +1984,15 @@ updated, not treated as runtime authority.
    does not infer poses, motion or combat outcomes.
 2. Remove the five `usesGraphicalField()` early-returns by routing terminal
    and GPUI through the same session with two presenters.
-3. Summons render graphically through the identical path - G3 is then a
-   content and acceptance gate, not new machinery.
+3. Summons must render graphically through the identical path. The October 6
+   G3 audit found that the earlier summon DTO/compiler dropped image-track
+   fields; common playback alone did not establish image parity. Summon tracks
+   now pass through EffectTimelineValidator, retaining image geometry,
+   battler/screen anchors, pivots, direction and rest coverage, while keeping
+   legacy glyph/text behavior. BattleCommandPreview consumes real playback
+   and production graphical/Terminal composition without combat or audio
+   side effects. GUI consumption, moving-art acceptance and integrated D'jin
+   battle observation remain in the [G3 checklist](rendering/integration-roadmap.md#g3-acceptance-checklist).
 4. Field effects present through the same adapter as sprites in the field's
    retained world, behind or in front of characters by track, starting with
    the walk-on save point and the graphical cues.
@@ -827,6 +2000,16 @@ updated, not treated as runtime authority.
 ### Phase 3 - Authoring in the editor
 
 The summon timeline surface generalizes into the animation editor:
+
+Current boundary, October 6: items 1 and 5, flash/cue fields, independent
+presentation sequences, direction fields and shared preview controls are
+implemented. Items 2 and 3 and per-track mute/solo in item 4 remain planned:
+the current terminal preview uses relative caster/target markers, not real
+arena silhouettes, and glyph content is edited as keyframe data rather than
+through an onion-skinned painter. The legacy cell-frame painter was removed
+during record migration; it is not completion of item 2. G2's original roadmap
+scope is Phases 0-2 plus the battle command lifecycle; its completed record
+does not claim all authoring enhancements in this later phase are delivered.
 
 1. Effect timelines join the Cutscenes-style authoring path: track list,
    keyframe fields, cue lane, and the existing preview session controls
@@ -879,8 +2062,9 @@ this plan's Phases 1-4 follow it.
   a structural property, not a testing goal.
 - Reduced motion, skip, and no-render paths always apply the gameplay
   result; presentation never changes combat identity or outcomes.
-- The cell-frame animation format retires after migration; the timeline is
-  the only authored format.
+- New effect authoring uses timelines. The deprecated cell-frame format keeps
+  its supported compatibility reader throughout the current major; removal
+  follows deliberate migration only in the next major, not as a G2 gate.
 - Flash is a brief foreground-colour pulse of the target in terminal commands,
   and sprite-alpha-masked battler tint (or an explicitly authored full-screen
   wash) in GPUI, for the authored duration. Never a rectangular battler wash.

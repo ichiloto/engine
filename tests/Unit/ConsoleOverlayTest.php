@@ -22,6 +22,56 @@ afterEach(function () {
   }
 });
 
+it('retires an overlay without output while preserving other owners even after terminal handback', function (bool $handedBack) {
+  Console::write('underlay', 0, 0);
+  Console::replaceOverlay('retired', ['OLD'], 0, 0, 1000);
+  Console::replaceOverlay('other', ['NEW'], 4, 0, 2000);
+  new ReflectionProperty(Console::class, 'terminalHandedBack')->setValue(null, $handedBack);
+  ob_clean();
+  Console::removeOverlay('retired', repaint: false);
+  expect(ob_get_contents())->toBe('')
+    ->and(Console::snapshot()->rows[0])->toStartWith('undeNEWy')
+    ->and(array_column(Console::presentationSnapshot()->textLayers, 'id'))->not->toContain('retired')->toContain('other');
+})->with([false, true]);
+
+it('preserves atomic overlay repaint rollback when output fails', function () {
+  Console::replaceOverlay('owned', ['OLD'], 0, 0, 1000);
+  $before = Console::presentationSnapshot();
+  $output = new class extends \Symfony\Component\Console\Output\ConsoleOutput {
+    public function __construct() {}
+    public function getStream() { throw new RuntimeException('Overlay sink failed'); }
+  };
+  new ReflectionProperty(Console::class, 'output')->setValue(null, $output);
+  expect(fn() => Console::removeOverlay('owned'))->toThrow(RuntimeException::class, 'Overlay sink failed');
+  expect(Console::presentationSnapshot())->toEqual($before)->and(Console::isComposing())->toBeFalse();
+  Console::removeOverlay('owned', repaint: false);
+  expect(array_column(Console::presentationSnapshot()->textLayers, 'id'))->not->toContain('owned');
+});
+
+it('reads the live underlay during atomic composition without exposing unfinished snapshots or removing overlays', function (bool $tracked) {
+  Console::setLayerTracking($tracked);
+  Console::write('Old', 2, 2);
+  Console::replaceOverlay('pulse', ['RED'], 2, 2, 1000);
+  Console::replaceOverlay('notice', ['NOTICE'], 20, 2, 2000);
+  ob_clean();
+  Console::updateFrame(function (): void {
+    Console::withLayer('actor', fn() => Console::write("\e[32mNew\e[0m", 2, 2), 100);
+    $underlay = Console::getBuffer(['pulse']);
+    expect(TerminalText::stripAnsi($underlay[2]))->toContain('New', 'NOTICE')
+      ->and($underlay[2])->toContain("\e[32m")
+      ->and(Console::getBuffer(["unknown"]))->toBe(Console::getBuffer())
+      ->and(TerminalText::stripAnsi(Console::getBuffer()[2]))->toContain('RED')
+      ->and(ob_get_contents())->toBe('');
+    expect(fn() => Console::snapshot(['pulse']))->toThrow(RuntimeException::class);
+    expect(fn() => Console::presentationSnapshot())->toThrow(RuntimeException::class);
+  });
+  expect(TerminalText::stripAnsi(Console::getBuffer()[2]))->toContain('RED', 'NOTICE')
+    ->and(array_column(Console::presentationSnapshot()->textLayers, 'id'))->toContain('pulse', 'notice');
+  Console::removeOverlay('pulse');
+  expect(Console::getBuffer()[2])->toContain("\e[32m")
+    ->and(TerminalText::stripAnsi(Console::getBuffer()[2]))->toContain('New', 'NOTICE');
+})->with([false, true]);
+
 it('removes an opaque overlay to reveal live styled content without repainting the scene', function (bool $output) {
   Console::setTerminalOutputEnabled($output);
   Console::write("\e[31mOld map\e[0m", 2, 2);

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageFit;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImageTint;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
@@ -14,6 +15,7 @@ use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
+use Ichiloto\Engine\Core\Vector2;
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -22,13 +24,18 @@ final class GraphicalBattleEffects
 {
   /** @param array<int, CanvasRectangle> $bounds Combatant instance identities.
    * @param array<int, CanvasImage> $battlerImages Current visible poses, including crop, motion and opacity.
+   * @param array<int, Vector2>|null $groundAnchors Current posed ground points; rectangle-only hosts use bottom centres.
    */
-  public static function compose(BattleCommandPlayback $playback, BattleCanvasLayout $arena,
-    array $bounds, string $assetRoot, bool $reducedMotion, array $battlerImages = []): PresentationCanvas
+  public static function compose(BattleEffectPlayback $playback, BattleCanvasLayout $arena,
+    array $bounds, string $assetRoot, bool $reducedMotion, array $battlerImages = [], bool $imageFlips = true,
+    bool $compositing = true, ?array $groundAnchors = null): PresentationCanvas
   {
+    $groundAnchors ??= array_map(static fn(CanvasRectangle $box): Vector2 =>
+      new Vector2($box->x + $box->width / 2, $box->y + $box->height), $bounds);
+    $hadConditionFailure = $playback instanceof BattlerConditionEffect && $playback->hasPresentationFailure;
     $images = $text = $composites = [];
     $tints = [];
-    $summon = $playback->plan->summon;
+    $summon = $playback instanceof BattleCommandPlayback ? $playback->plan->summon : null;
     if ($summon !== null && !$reducedMotion) {
       if (in_array($playback->phase, ['summon-in', 'summon-out'], true)) {
         $direction = $playback->phase === 'summon-in' ? 'in' : 'out';
@@ -55,6 +62,7 @@ final class GraphicalBattleEffects
         if (!($command['visible'] ?? true)) { continue; }
         $data = $command['payload'] ?? [];
         $anchor = $data['anchor'] ?? 'target';
+        if ($anchor === 'stage') { continue; }
         $subjects = [];
         foreach ($anchor === 'caster' ? [$playback->actor] : $playback->targets as $subject) {
           $subjects[spl_object_id($subject)] = $subject;
@@ -64,20 +72,38 @@ final class GraphicalBattleEffects
         foreach ($subjects as $subject) {
           $box = $subject === null ? null : ($bounds[spl_object_id($subject)] ?? null);
           if ($subject !== null && $box === null) { continue; }
-          $id = 'command-effect-' . $command['trackId'] . '-' . ($subject === null ? 'screen' : spl_object_id($subject));
-          $position = $command['position'] ?? ['x' => 0, 'y' => 0];
-          $x = $box === null ? ($anchor === 'legacy-screen' ? 2 * $arena->uiGrid->cellWidth : $arena->width / 2)
-            : $box->x + $box->width / 2;
-          $y = $box === null ? ($anchor === 'legacy-screen' ? 2 * $arena->uiGrid->cellHeight : $arena->height / 2)
-            : match ($data['legacyPosition'] ?? 'center') {
-              'head' => $box->y, 'feet' => $box->y + $box->height, default => $box->y + $box->height / 2,
-            };
-          $x += ($position['x'] ?? 0) * $arena->uiGrid->cellWidth;
-          $y += ($position['y'] ?? 0) * $arena->uiGrid->cellHeight;
+          $oriented = $command;
+          $recipient = $anchor === 'caster'
+            ? array_find($playback->targets, static fn($target): bool => $target !== $playback->actor) : $subject;
+          $casterX = ($groundAnchors[spl_object_id($playback->actor)] ?? null)?->x;
+          $recipientX = $recipient === null ? null : ($groundAnchors[spl_object_id($recipient)] ?? null)?->x;
+          if ($casterX !== null && $recipientX !== null) {
+            $oriented = BattleEffectDirection::orientCommand($command, $casterX, $recipientX);
+          }
+          $data = $oriented['payload'] ?? [];
+          $id = 'command-effect-' . $oriented['trackId'] . '-' . ($subject === null ? 'screen' : spl_object_id($subject));
+          $position = $oriented['position'] ?? ['x' => 0, 'y' => 0];
+          $attachment = $data['attachment'] ?? $data['legacyPosition'] ?? 'center';
+          $ground = $subject === null ? null : ($groundAnchors[spl_object_id($subject)] ?? null);
           try {
+            if ($attachment === 'ground' && $ground === null) {
+              throw new InvalidArgumentException('Battle effect ground attachment requires the subject ground point.');
+            }
+            $x = $box === null ? ($anchor === 'legacy-screen' ? 2 * $arena->uiGrid->cellWidth : $arena->width / 2)
+              : ($attachment === 'ground' ? $ground->x : $box->x + $box->width / 2);
+            $y = $box === null ? ($anchor === 'legacy-screen' ? 2 * $arena->uiGrid->cellHeight : $arena->height / 2)
+              : match ($attachment) {
+                'ground' => $ground->y,
+                'head' => $box->y, 'feet' => $box->y + $box->height, default => $box->y + $box->height / 2,
+              };
+            $x += ($position['x'] ?? 0) * $arena->uiGrid->cellWidth;
+            $y += ($position['y'] ?? 0) * $arena->uiGrid->cellHeight;
             switch ($segment['layer']) {
               case 'image':
-                $asset = $command['assetId'] ?? '';
+                if (!$imageFlips && (($data['flipX'] ?? false) || ($data['flipY'] ?? false))) {
+                  throw new InvalidArgumentException('Renderer cannot mirror this battle effect image.');
+                }
+                $asset = $oriented['assetId'] ?? '';
                 $size = PngAssetPreflight::getAvailableSize($assetRoot, $asset);
                 if ($size === null) { throw new InvalidArgumentException('Battle effect PNG is unavailable: ' . $asset); }
                 $columns = max(1, (int)($data['columns'] ?? 1));
@@ -95,16 +121,23 @@ final class GraphicalBattleEffects
                   ? $frameWidth : $data['cells']['width'] * 48);
                 $height = min($arena->height, ($data['cells']['height'] ?? null) === null
                   ? $frameHeight : $data['cells']['height'] * 48);
-                $destination = new CanvasRectangle(clamp($x - $width / 2, 0, $arena->width - $width),
-                  clamp($y - $height / 2, 0, $arena->height - $height), $width, $height);
-                $images[] = new CanvasImage($id, $asset, $destination,
+                $fitted = CanvasImageFit::parse($data['fit'] ?? 'stretch')->getSize($frameWidth, $frameHeight, $width, $height);
+                $width = $fitted['width'];
+                $height = $fitted['height'];
+                $pivot = $data['pivot'] ?? ['x' => .5, 'y' => .5];
+                if ($data['flipX'] ?? false) { $pivot['x'] = 1 - $pivot['x']; }
+                if ($data['flipY'] ?? false) { $pivot['y'] = 1 - $pivot['y']; }
+                $image = CanvasImage::createClipped($id, $asset, $x - $width * $pivot['x'], $y - $height * $pivot['y'],
+                  $width, $height, $arena->width, $arena->height,
                   ($data['depth'] ?? 'front') === 'behind' ? 90 : 180,
-                  $columns * $rows === 1 ? null : new SpriteSourceRect(($source % $columns) * $frameWidth,
-                    intdiv($source, $columns) * $frameHeight, $frameWidth, $frameHeight));
+                  new SpriteSourceRect(($source % $columns) * $frameWidth,
+                    intdiv($source, $columns) * $frameHeight, $frameWidth, $frameHeight),
+                  flipX: $data['flipX'] ?? false, flipY: $data['flipY'] ?? false);
+                if ($image !== null) { $images[] = $image; }
                 break;
               case 'glyph':
               case 'text':
-                $content = trim(strval($command['content'] ?? ''), "\r\n");
+                $content = trim(strval($oriented['content'] ?? ''), "\r\n");
                 if (trim($content) === '') {
                   $assetId = trim(strval($command['assetId'] ?? ''));
                   $content = $assetId === '' ? '' : '[' . strtoupper($assetId) . ']';
@@ -139,7 +172,7 @@ final class GraphicalBattleEffects
         }
       }
     }
-    if (!$reducedMotion) {
+    if (!$reducedMotion && $playback instanceof BattleCommandPlayback) {
       $reacted = [];
       foreach ([$playback->actor, ...$playback->targets] as $subject) {
         $identity = spl_object_id($subject);
@@ -152,14 +185,42 @@ final class GraphicalBattleEffects
         }
       }
     }
+    $groups = $tintAreas = [];
     foreach ($tints as $identity => $layers) {
+      if (!$compositing) { continue; }
       try {
-        $composites[] = CanvasImageTint::composeLayers('command-tint-' . $identity, $battlerImages[$identity], $layers, $assetRoot);
+        $tint = CanvasImageTint::composeLayers('command-tint-' . $identity, $battlerImages[$identity], $layers, $assetRoot);
+        $tintAreas[] = $tint->clipRect ?? $tint->destination;
+        // Surface opacity cannot be distributed through overlapping operations.
+        // Keep faded subjects separate; ordinary subjects share a depth surface.
+        if ($tint->opacity === 1.0) { $groups[$tint->layer][] = $tint; }
+        else { $composites[] = $tint; }
       } catch (InvalidArgumentException|RuntimeException $error) {
         $playback->recordPresentationFailure($error);
       }
     }
-    return new PresentationCanvas($arena->width, $arena->height, $images, textLayers: $text, composites: $composites);
+    if (!$compositing && $tints !== []) {
+      $playback->recordPresentationFailure(new InvalidArgumentException(
+        'Renderer cannot composite battle tints; poses, effects and result feedback remain.'));
+    }
+    foreach ($groups as $layer => $group) {
+      try { $composites[] = CanvasImageTint::combine('command-tints-layer-' . $layer, $group); }
+      catch (InvalidArgumentException|RuntimeException $error) { $playback->recordPresentationFailure($error); }
+    }
+    try { new PresentationCanvas($arena->width, $arena->height, composites: $composites); }
+    catch (InvalidArgumentException $error) {
+      // Optional raster work never takes otherwise valid poses or effects with it.
+      $playback->recordPresentationFailure($error);
+      $composites = [];
+    }
+    if ($playback instanceof BattlerConditionEffect && !$hadConditionFailure && $playback->hasPresentationFailure) {
+      return self::compose($playback, $arena, $bounds, $assetRoot, $reducedMotion, $battlerImages,
+        $imageFlips, $compositing, $groundAnchors);
+    }
+    return new PresentationCanvas($arena->width, $arena->height, $images, textLayers: $text, composites: $composites,
+      protectedAreas: [...$tintAreas,
+        ...array_map(static fn(CanvasImage $image) => $image->clipRect ?? $image->destination, $images),
+        ...array_map(static fn(CanvasTextLayer $layer) => $layer->clipRect ?? $layer->paintBounds, $text)]);
   }
 
   /** Only deliberate full-screen fades/flashes use rectangular washes. Battlers use their image alpha. */

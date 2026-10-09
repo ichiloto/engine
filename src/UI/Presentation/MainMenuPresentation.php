@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\UI\Presentation;
 
+use Ichiloto\Engine\Localization\Vocabulary;
+
 use Ichiloto\Engine\Core\Menu\MainMenu\CharacterSelectionMenu;
 use Ichiloto\Engine\Core\Menu\MainMenu\Modes\MainMenuCharacterSelectionMode;
 use Ichiloto\Engine\Core\Menu\MainMenu\Modes\MainMenuCommandSelectionMode;
@@ -22,6 +24,7 @@ final class MainMenuPresentation
   private const int HEIGHT = MenuLayout::MAX_HEIGHT;
   private const int COMMAND_WIDTH = 300;
   private const int PARTY_WIDTH = self::WIDTH - self::COMMAND_WIDTH;
+  private const int RESOURCE_WIDTH = 410;
 
   public static function compose(MainMenuState $state, MenuPresentationCatalog $theme, float $time = 0): ?PresentationCanvas
   {
@@ -33,31 +36,19 @@ final class MainMenuPresentation
     $view = new MenuCanvas($theme, time: $time);
     $m = $theme->metrics;
     $p = $m->panelPadding;
-    $verticalPadding = (int)min($p, floor($m->sectionGap / 3));
+    $layout = self::getLayout($state, $theme);
+    $verticalPadding = $layout['verticalPadding'];
     $info = implode("\n", $state->infoPanel?->getContent() ?? []);
-    $infoHeight = max(60, 2 * $verticalPadding + $m->cellHeight + self::textHeight($info, self::WIDTH - 2 * $p, $theme));
+    $infoHeight = $layout['infoHeight'];
     self::summary($view, 'main-info', $state->infoPanel?->getTitle() ?? '', $info,
       self::box(0, 0, self::WIDTH, $infoHeight), $verticalPadding);
 
     $summaries = $state->getPresentationSummaries();
-    $summaryHeights = [];
-    foreach ($summaries as $id => $summary) {
-      $summaryHeights[$id] = max($id === 'location' ? 80 : 60, 2 * $verticalPadding
-        + self::textHeight($summary['title'], self::COMMAND_WIDTH - 2 * $p, $theme)
-        + self::textHeight(implode("\n", $summary['lines']), self::COMMAND_WIDTH - 2 * $p, $theme));
-    }
+    $summaryHeights = $layout['summaryHeights'];
     $selection = $state->characterSelectionMenu;
-    $help = $selection->getHelpText();
-    if ($help === CharacterSelectionMenu::DEFAULT_HELP_TEXT) {
-      $help = $commandsFocused ? 'Select a command.' : 'Select a character.';
-    }
-    $hints = [ActionHints::resolve('confirm', 'Confirm'), ActionHints::resolve('cancel', 'Cancel')];
-    $helpHeight = self::textHeight($help, self::PARTY_WIDTH - 2 * $p, $theme);
-    $hintHeight = MenuActionHints::height($hints, $theme, self::PARTY_WIDTH - 2 * $p);
-    // Location and help occupy one shared bottom row, regardless of hint visibility.
-    $footerHeight = max($summaryHeights['location'] ?? 80,
-      2 * $verticalPadding + $helpHeight + ($hintHeight > 0 ? $m->sectionGap + $hintHeight : 0));
-    if (isset($summaryHeights['location'])) { $summaryHeights['location'] = $footerHeight; }
+    $helpHeight = $layout['helpHeight'];
+    $hintHeight = $layout['hintHeight'];
+    $footerHeight = $layout['footerHeight'];
 
     $commandsHeight = self::HEIGHT - $infoHeight - array_sum($summaryHeights);
     $commandBox = self::box(0, $infoHeight, self::COMMAND_WIDTH, $commandsHeight);
@@ -81,24 +72,29 @@ final class MainMenuPresentation
 
     $footer = self::box(self::COMMAND_WIDTH, self::HEIGHT - $footerHeight, self::PARTY_WIDTH, $footerHeight);
     $view->frame('main-help', $footer, 'quiet');
-    $view->prose('main-help-text', $help, new CanvasRectangle($footer->x + $p,
-      $footer->y + ($hintHeight > 0 ? $verticalPadding : ($footerHeight - $helpHeight) / 2),
-      $footer->width - 2 * $p, $helpHeight));
+    $upperHeight = max($helpHeight, $layout['pagerWidth'] > 0 ? MenuPager::getHeight($theme) : 0);
+    $upperY = $footer->y + ($hintHeight > 0 ? $layout['footerPadding'] : ($footerHeight - $upperHeight) / 2);
+    $footerHorizontalPadding = $layout['footerHorizontalPadding'];
+    $view->prose('main-help-text', $layout['help'], new CanvasRectangle($footer->x + $footerHorizontalPadding,
+      $upperY + ($upperHeight - $helpHeight) / 2, $layout['helpWidth'], $helpHeight));
     if ($hintHeight > 0) {
-      $view->hints('main-hints', $hints, new CanvasRectangle($footer->x + $p,
-        $footer->y + $footer->height - $verticalPadding - $hintHeight, $footer->width - 2 * $p, $hintHeight));
+      $view->hints('main-hints', $layout['hints'], new CanvasRectangle($footer->x + $footerHorizontalPadding,
+        $footer->y + $footer->height - $layout['footerPadding'] - $hintHeight,
+        $footer->width - 2 * $footerHorizontalPadding, $hintHeight));
     }
 
     $members = $state->party->members->toArray();
-    $cardInsets = ($theme->frames['panel'] ?? null)?->borderInsets($theme->assetRoot,
-      new CanvasRectangle(0, 0, self::PARTY_WIDTH, 140));
-    $cardPadding = $cardInsets === null ? $verticalPadding : (int)ceil(max($verticalPadding, $cardInsets[1], $cardInsets[3]));
-    $heights = [];
-    for ($index = 0; $index < max(4, count($members)); $index++) {
-      $heights[] = self::recordHeight($members[$index] ?? null, $theme, $cardPadding);
+    $cardPadding = $layout['cardPadding'];
+    $heights = $layout['heights'];
+    $pages = $layout['pagination'];
+    $pageIndex = $pages->getPageIndex($state->getPartyPresentationIndex());
+    if ($layout['pagerWidth'] > 0) {
+      MenuPager::render($view, 'main-party-pager', $pages, $pageIndex,
+        new CanvasRectangle($footer->x + $footer->width - $footerHorizontalPadding - $layout['pagerWidth'],
+          $upperY + ($upperHeight - MenuPager::getHeight($theme)) / 2, $layout['pagerWidth'], MenuPager::getHeight($theme)));
     }
     $partyBox = self::box(self::COMMAND_WIDTH, $infoHeight, self::PARTY_WIDTH, self::HEIGHT - $footerHeight - $infoHeight);
-    [$first, $last] = $view->visibleRange('main-party', $heights, $partyBox, $commandsFocused ? 0 : $selection->getActivePanelIndex());
+    ['first' => $first, 'last' => $last] = $pages->pages[$pageIndex];
     $y = $partyBox->y;
     for ($index = $first; $index <= $last; $index++) {
       $box = new CanvasRectangle($partyBox->x, $y, $partyBox->width, $heights[$index]);
@@ -114,6 +110,75 @@ final class MainMenuPresentation
     return $view->finish();
   }
 
+  public static function getPartyPagination(MainMenuState $state, MenuPresentationCatalog $theme): MenuPagination
+  {
+    return self::getLayout($state, $theme)['pagination'];
+  }
+
+  /** Measurement is shared by semantic page navigation and painting; neither mutates the party.
+   * @return array{verticalPadding:int, infoHeight:int, summaryHeights:array<string,int>, help:string,
+   *   helpHeight:int, helpWidth:int, hints:list<\Ichiloto\Engine\IO\ActionHint>, hintHeight:int,
+   *   footerHeight:int, footerPadding:int, footerHorizontalPadding:int, pagerWidth:int, cardPadding:int,
+   *   heights:non-empty-list<int>, pagination:MenuPagination}
+   */
+  private static function getLayout(MainMenuState $state, MenuPresentationCatalog $theme): array
+  {
+    $m = $theme->metrics;
+    $p = $m->panelPadding;
+    $verticalPadding = (int)min($p, floor($m->sectionGap / 3));
+    $info = implode("\n", $state->infoPanel?->getContent() ?? []);
+    $infoHeight = max(60, 2 * $verticalPadding + $m->cellHeight + self::textHeight($info, self::WIDTH - 2 * $p, $theme));
+    $summaryHeights = [];
+    foreach ($state->getPresentationSummaries() as $id => $summary) {
+      $summaryHeights[$id] = max($id === 'location' ? 80 : 60, 2 * $verticalPadding
+        + self::textHeight($summary['title'], self::COMMAND_WIDTH - 2 * $p, $theme)
+        + self::textHeight(implode("\n", $summary['lines']), self::COMMAND_WIDTH - 2 * $p, $theme));
+    }
+    $help = $state->characterSelectionMenu?->getHelpText() ?? CharacterSelectionMenu::DEFAULT_HELP_TEXT;
+    if ($help === CharacterSelectionMenu::DEFAULT_HELP_TEXT) {
+      $help = $state->getPresentationMode() instanceof MainMenuCommandSelectionMode ? 'Select a command.' : 'Select a character.';
+    }
+    $helpWidth = self::PARTY_WIDTH - 2 * $p;
+    $helpHeight = self::textHeight($help, $helpWidth, $theme);
+    $hints = [ActionHints::resolve('confirm', 'Confirm'), ActionHints::resolve('cancel', 'Cancel')];
+    $hintHeight = MenuActionHints::height($hints, $theme, self::PARTY_WIDTH - 2 * $p);
+    $footerPadding = $verticalPadding;
+    $footerHorizontalPadding = $p;
+    $footerHeight = max($summaryHeights['location'] ?? 80,
+      2 * $footerPadding + $helpHeight + ($hintHeight > 0 ? $m->sectionGap + $hintHeight : 0));
+    $cardInsets = ($theme->frames['panel'] ?? null)?->borderInsets($theme->assetRoot,
+      new CanvasRectangle(0, 0, self::PARTY_WIDTH, 140));
+    $cardPadding = $cardInsets === null ? $verticalPadding : (int)ceil(max($verticalPadding, $cardInsets[1], $cardInsets[3]));
+    $members = $state->party->members->toArray();
+    $heights = [];
+    for ($index = 0; $index < max(4, count($members)); $index++) {
+      $heights[] = self::recordHeight($members[$index] ?? null, $theme, $cardPadding);
+    }
+    if ($members !== [] && count($members) < 4 && array_sum($heights) > self::HEIGHT - $footerHeight - $infoHeight) {
+      $heights = array_slice($heights, 0, count($members));
+    }
+    $pagerWidth = 0;
+    if (array_sum($heights) > self::HEIGHT - $footerHeight - $infoHeight) {
+      $pagerWidth = MenuPager::getWidth($theme, count($heights));
+      $footerInsets = ($theme->frames['quiet'] ?? $theme->frames['panel'] ?? null)?->borderInsets($theme->assetRoot,
+        new CanvasRectangle(0, 0, self::PARTY_WIDTH, $footerHeight));
+      if ($footerInsets !== null) {
+        $footerPadding = (int)ceil(max($footerPadding, $footerInsets[1], $footerInsets[3]));
+        $footerHorizontalPadding = (int)ceil(max($p, $footerInsets[0], $footerInsets[2]));
+      }
+      $helpWidth = self::PARTY_WIDTH - 2 * $footerHorizontalPadding - $pagerWidth - $m->sectionGap;
+      $helpHeight = self::textHeight($help, $helpWidth, $theme);
+      $hints = [...$hints, ActionHints::resolve(MenuPager::PREVIOUS_ACTION, 'Prev'), ActionHints::resolve(MenuPager::NEXT_ACTION, 'Next')];
+      $hintHeight = MenuActionHints::height($hints, $theme, self::PARTY_WIDTH - 2 * $footerHorizontalPadding);
+      $footerHeight = max($footerHeight, 2 * $footerPadding + max($helpHeight, MenuPager::getHeight($theme))
+        + ($hintHeight > 0 ? $m->sectionGap + $hintHeight : 0));
+    }
+    if (isset($summaryHeights['location'])) { $summaryHeights['location'] = $footerHeight; }
+    $pagination = new MenuPagination($heights, self::HEIGHT - $footerHeight - $infoHeight);
+    return compact('verticalPadding', 'infoHeight', 'summaryHeights', 'help', 'helpHeight', 'helpWidth',
+      'hints', 'hintHeight', 'footerHeight', 'footerPadding', 'footerHorizontalPadding', 'pagerWidth', 'cardPadding', 'heights', 'pagination');
+  }
+
   private static function character(MenuCanvas $view, string $id, Character $member, CanvasRectangle $box,
     int $verticalPadding, bool $marked, bool $focused): void
   {
@@ -124,25 +189,18 @@ final class MainMenuPresentation
       $box->y + ($box->height - $portraitSize) / 2, $portraitSize, $portraitSize), $id . '-portrait');
     $identity = new MenuRow('identity', $member->name, selected: $marked || $focused, focused: $focused, showCursor: false);
     $identityBox = self::identityBox($box, $theme, $verticalPadding);
-    $layout = self::recordLayout($theme, $identityBox);
+    $layout = self::getRecordLayout($theme, $identityBox, separateTreatment: true);
     $nameHeight = $layout->heightFor($identity, $theme->rows->metrics, false);
     $insets = ($theme->frames['panel'] ?? null)?->borderInsets($theme->assetRoot, $box);
     $treatment = $insets === null ? self::inset($box, $m->sectionGap, $verticalPadding)
       : new CanvasRectangle($box->x + $insets[0], $box->y + $insets[1],
         $box->width - $insets[0] - $insets[2], $box->height - $insets[1] - $insets[3]);
     $view->record($id, $identity, $layout, $treatment);
-    $roleBox = new CanvasRectangle($identityBox->x + $theme->rows->metrics->padding, $identityBox->y + $nameHeight,
-      $identityBox->width - 2 * $theme->rows->metrics->padding, $box->height - $nameHeight - 2 * $verticalPadding);
-    $roleHeight = $view->prose($id . '-role', 'Role: ' . $member->role->name, $roleBox);
-    $stats = $member->effectiveStats;
-    $rows = [new MenuRow('level', 'Lv', [new MenuRowValue((string)$member->level)]),
-      new MenuRow('hp', 'HP', [new MenuRowValue($stats->currentHp . ' / ' . $stats->totalHp)]),
-      new MenuRow('mp', 'MP', [new MenuRowValue($stats->currentMp . ' / ' . $stats->totalMp)])];
-    $valueWidth = max(array_map(fn(MenuRow $row) => mb_strlen($row->values[0]->text, 'UTF-8'), $rows));
-    $resourceY = $roleBox->y + $roleHeight;
-    $view->rows($id . '-resources', $rows, self::recordLayout($theme,
-      new CanvasRectangle($identityBox->x, $resourceY, min(410, $identityBox->width), $box->y + $box->height - $verticalPadding - $resourceY),
-      [new MenuRowColumn($valueWidth)]));
+    $rows = self::getResourceRows($member);
+    $resourceY = $identityBox->y + $nameHeight;
+    $view->rows($id . '-resources', $rows, self::getResourceLayout($theme,
+      new CanvasRectangle($identityBox->x, $resourceY, $identityBox->width,
+        $box->y + $box->height - $verticalPadding - $resourceY), $rows));
   }
 
   private static function recordHeight(?Character $member, MenuPresentationCatalog $theme, int $verticalPadding): int
@@ -150,11 +208,34 @@ final class MainMenuPresentation
     if ($member === null) { return 140; }
     $m = $theme->metrics;
     $box = self::identityBox(new CanvasRectangle(0, 0, self::PARTY_WIDTH, self::HEIGHT), $theme, $verticalPadding);
-    $layout = self::recordLayout($theme, $box);
+    $layout = self::getRecordLayout($theme, $box, separateTreatment: true);
     $nameHeight = $layout->heightFor(new MenuRow('identity', $member->name), $theme->rows->metrics, false);
-    $roleHeight = self::textHeight('Role: ' . $member->role->name, $box->width - 2 * $theme->rows->metrics->padding, $theme);
+    $rows = self::getResourceRows($member);
+    $resources = self::getResourceLayout($theme, $box, $rows);
+    $resourceHeight = array_sum(array_map(fn(MenuRow $row) => $resources->heightFor($row, $theme->rows->metrics, false), $rows));
     return max(140, $m->portraitSize + 2 * $m->sectionGap,
-      2 * $verticalPadding + $nameHeight + $roleHeight + 3 * $layout->rowHeight);
+      2 * $verticalPadding + $nameHeight + $resourceHeight);
+  }
+
+  /** @return list<MenuRow> */
+  private static function getResourceRows(Character $member): array
+  {
+    $stats = $member->effectiveStats;
+    return [new MenuRow('role', 'Role', [new MenuRowValue($member->role->name)]),
+      new MenuRow('level', Vocabulary::getTerm('stats.level', 'Lv'), [new MenuRowValue((string)$member->level)]),
+      new MenuRow('hp', Vocabulary::getTerm('stats.hp', 'HP'), [new MenuRowValue($stats->currentHp . ' / ' . $stats->totalHp)]),
+      new MenuRow('mp', Vocabulary::getTerm('stats.mp', 'MP'), [new MenuRowValue($stats->currentMp . ' / ' . $stats->totalMp)])];
+  }
+
+  /** @param list<MenuRow> $rows */
+  private static function getResourceLayout(MenuPresentationCatalog $theme, CanvasRectangle $box, array $rows): MenuRowLayout
+  {
+    $viewport = new CanvasRectangle($box->x, $box->y, min(self::RESOURCE_WIDTH, $box->width), $box->height);
+    $layout = self::getRecordLayout($theme, $viewport);
+    $labelWidth = max(array_map(fn(MenuRow $row) => mb_strlen($row->label, 'UTF-8'), $rows));
+    $valueWidth = max(array_map(fn(MenuRow $row) => mb_strlen($row->values[0]->text, 'UTF-8'), $rows));
+    $valueWidth = min($valueWidth, $layout->textCells($theme->rows->metrics) - $labelWidth - $theme->rows->metrics->gapCells);
+    return self::getRecordLayout($theme, $viewport, [new MenuRowColumn($valueWidth)]);
   }
 
   private static function identityBox(CanvasRectangle $box, MenuPresentationCatalog $theme, int $verticalPadding): CanvasRectangle
@@ -165,10 +246,12 @@ final class MainMenuPresentation
       $box->width - $offset - $m->panelPadding, $box->height - 2 * $verticalPadding);
   }
 
-  private static function recordLayout(MenuPresentationCatalog $theme, CanvasRectangle $box, array $columns = []): MenuRowLayout
+  private static function getRecordLayout(MenuPresentationCatalog $theme, CanvasRectangle $box, array $columns = [],
+    bool $separateTreatment = false): MenuRowLayout
   {
     $m = $theme->metrics;
-    return new MenuRowLayout($box, $columns, (int)ceil(max($m->cellHeight + $theme->rows->metrics->separatorWidth,
+    $separator = $separateTreatment ? 0 : $theme->rows->metrics->separatorWidth;
+    return new MenuRowLayout($box, $columns, (int)ceil(max($m->cellHeight + $separator,
       $theme->rows->metrics->cursorHeight)), $m->cellWidth, $m->cellHeight, true);
   }
 

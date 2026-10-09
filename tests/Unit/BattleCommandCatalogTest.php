@@ -2,8 +2,11 @@
 
 use Ichiloto\Engine\Battle\BattleCommandCatalog;
 use Ichiloto\Engine\Battle\BattleCommandType;
+use Ichiloto\Engine\Battle\Actions\AttackAction;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Entities\Abilities\AbilityBook;
+use Ichiloto\Engine\Entities\Abilities\LearnableAbility;
+use Ichiloto\Engine\Entities\Actors\ActorDefinition;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeNumber;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
@@ -14,6 +17,8 @@ use Ichiloto\Engine\Entities\Magic\LearnableSpell;
 use Ichiloto\Engine\Entities\Magic\Spellbook;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
+use Ichiloto\Engine\Entities\Skills\BasicSkill;
+use Ichiloto\Engine\Entities\Skills\SkillCatalog;
 use Ichiloto\Engine\Entities\Skills\SpecialSkill;
 use Ichiloto\Engine\Entities\Stats;
 
@@ -21,7 +26,7 @@ use Ichiloto\Engine\Entities\Stats;
 function withCatalogSummonProject(?array $availability, ?array $wielders, callable $assertion): void
 {
   $previous = getcwd();
-  $root = sys_get_temp_dir() . '/ichiloto-command-summon-' . uniqid();
+  $root = createTestDirectory('ichiloto-command-summon-');
   $directory = $root . '/assets/Cutscenes/Summons/test-summon';
   mkdir($directory, 0777, true);
   mkdir($root . '/assets/Data', 0777, true);
@@ -48,27 +53,20 @@ function withCatalogSummonProject(?array $availability, ?array $wielders, callab
     $directory . '/test-summon.timeline.php',
     "<?php\n\nreturn ['fps' => 12, 'lengthFrames' => 1, 'tracks' => [], 'cues' => []];\n",
   );
-  file_put_contents($root . '/assets/Data/skills.php', <<<'PHP'
-<?php
-
-use Ichiloto\Engine\Entities\Skills\SpecialSkill;
-
-return [new SpecialSkill('Test Summon Action', 'Test action.', '', 4, 0)];
-PHP);
+  writeSkillRecords($root, ...[new SpecialSkill('Test Summon Action', 'Test action.', '', 4, 0)]);
 
   try {
     chdir($root);
     $assertion();
   } finally {
     chdir($previous);
-    unlink($directory . '/test-summon.data.php');
-    unlink($directory . '/test-summon.timeline.php');
-    unlink($root . '/assets/Data/skills.php');
-    rmdir($directory);
-    rmdir(dirname($directory));
-    rmdir(dirname(dirname($directory)));
-    rmdir($root . '/assets/Data');
-    rmdir($root . '/assets');
+    $files = new RecursiveIteratorIterator(
+      new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+      RecursiveIteratorIterator::CHILD_FIRST,
+    );
+    foreach ($files as $file) {
+      $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname());
+    }
     rmdir($root);
   }
 }
@@ -125,10 +123,7 @@ it('builds battle magic options from a character spellbook', function () {
 
 it('does not grant database magic when no learned spell is battle usable', function () {
   withCatalogSummonProject(null, null, function (): void {
-    file_put_contents(getcwd() . '/assets/Data/skills.php', <<<'PHP'
-<?php
-return [new \Ichiloto\Engine\Entities\Skills\MagicSkill('Unlearned spell', '', '', 4, 0)];
-PHP);
+    writeSkillRecords(getcwd(), ...[new \Ichiloto\Engine\Entities\Skills\MagicSkill('Unlearned spell', '', '', 4, 0)]);
     $field = new MagicSkill('Travel', '', '', 0, 0, occasion: Occasion::MENU_SCREEN);
     $learnable = new LearnableSpell(new MagicSkill('Future spell', '', '', 4, 0));
 
@@ -152,6 +147,102 @@ it('builds battle skill options from a character ability book', function () {
     ->toBe(['Guardian Vow', 'Radiant Slash'])
     ->and(array_column($options, 'label'))->toBe(['Guardian Vow (4 MP)', 'Radiant Slash (3 MP)'])
     ->and(array_column($options, 'type'))->toBe([BattleCommandType::SKILL, BattleCommandType::SKILL]);
+});
+
+it('never grants catalogue attacks skills or spells to any member of a party', function () {
+  withCatalogSummonProject(null, null, function (): void {
+    writeSkillRecords(getcwd(), ...[
+  new \Ichiloto\Engine\Entities\Skills\BasicSkill('Enemy strike', '', '', 0, 0),
+  new \Ichiloto\Engine\Entities\Skills\SpecialSkill('Unowned technique', '', '', 0, 0),
+  new \Ichiloto\Engine\Entities\Skills\MagicSkill('Unowned spell', '', '', 0, 0),
+]);
+    $party = new Party();
+    for ($index = 0; $index < 8; $index++) {
+      $actor = new Character("Actor {$index}", 0, new Stats());
+      $party->addMember($actor);
+      $attacks = BattleCommandCatalog::buildOptions($actor, $party, 'Attack');
+      expect($attacks)->toHaveCount(1)
+        ->and($attacks[0]->action)->toBeInstanceOf(AttackAction::class)
+        ->and($attacks[0]->source)->toBeNull()
+        ->and(BattleCommandCatalog::buildOptions($actor, $party, 'Skill'))->toBe([])
+        ->and(BattleCommandCatalog::buildOptions($actor, $party, 'Magic'))->toBe([]);
+    }
+  });
+});
+
+it('partitions owned commands by category without leaking other actors or future grants', function () {
+  withCatalogSummonProject(null, null, function (): void {
+    $catalog = SkillCatalog::getProjectCatalog();
+    $primary = new BasicSkill('Renamed primary strike', '', '', 0, 0);
+    $extra = new BasicSkill('Learned alternate strike', '', '', 0, 0);
+    $technique = new SpecialSkill('Owned technique', '', '', 0, 0);
+    $field = new SpecialSkill('Field technique', '', '', 0, 0, occasion: Occasion::MENU_SCREEN);
+    $future = new LearnableAbility(new SpecialSkill('Future technique', '', '', 0, 0));
+    $caller = $catalog->findSkill('Test Summon Action');
+    $actor = new Character('First actor', 0, new Stats(),
+      abilityBook: new AbilityBook([$primary, $extra, $technique, $field, $caller], [$future]),
+      attackSkill: $primary);
+    $other = new Character('Second actor', 0, new Stats(),
+      abilityBook: new AbilityBook([], [$future]));
+    $party = new Party();
+    $party->addMember($actor);
+    $party->addMember($other);
+    $attacks = BattleCommandCatalog::buildOptions($actor, $party, 'Attack');
+    expect(array_column($attacks, 'source'))->toBe([$primary, $extra])
+      ->and(array_column($attacks, 'type'))->toBe([BattleCommandType::ATTACK, BattleCommandType::ATTACK])
+      ->and(array_column(BattleCommandCatalog::buildOptions($actor, $party, 'Skill'), 'source'))->toBe([$technique])
+      ->and(BattleCommandCatalog::buildOptions($other, $party, 'Skill'))->toBe([])
+      ->and(BattleCommandCatalog::buildOptions($other, $party, 'Attack')[0]->source)->toBeNull();
+    $other->learnSkill($extra);
+    expect(array_column(BattleCommandCatalog::buildOptions($other, $party, 'Attack'), 'source'))->toBe([null, $extra]);
+  });
+});
+
+it('restores learned basic attacks and current actor attack definitions without saving implicit catalogue grants', function () {
+  withCatalogSummonProject(null, null, function (): void {
+    writeSkillRecords(getcwd(), ...[
+  new \Ichiloto\Engine\Entities\Skills\BasicSkill('Primary strike', '', '', 0, 0),
+  new \Ichiloto\Engine\Entities\Skills\BasicSkill('Alternate strike', '', '', 0, 0),
+  new \Ichiloto\Engine\Entities\Skills\BasicSkill('Enemy strike', '', '', 0, 0),
+  new \Ichiloto\Engine\Entities\Skills\SpecialSkill('Owned technique', '', '', 0, 0),
+  new \Ichiloto\Engine\Entities\Skills\MagicSkill('Spell', '', '', 0, 0),
+]);
+    $definition = ActorDefinition::fromArray(['id' => 'actor.synthetic', 'name' => 'Actor',
+      'currentExp' => 0, 'stats' => new Stats()->jsonSerialize(), 'attackSkill' => 'Primary strike',
+      'abilities' => ['learned' => ['Alternate strike', 'Owned technique']]]);
+    $actor = $definition->createCharacter();
+    $saved = $actor->toArray();
+    expect($saved)->not->toHaveKey('attackSkill')
+      ->and($actor->__serialize())->not->toHaveKey('attackSkill');
+    $saved['attackSkill'] = 'Enemy strike';
+    $restored = $definition->createCharacter($saved);
+    expect(array_column(BattleCommandCatalog::buildOptions($restored, new Party(), 'Attack'), 'label'))
+      ->toBe(['Primary strike', 'Alternate strike'])
+      ->and(array_column(BattleCommandCatalog::buildOptions($restored, new Party(), 'Skill'), 'label'))
+      ->toBe(['Owned technique']);
+    $saved['abilities'] = [];
+    $restored = $definition->createCharacter($saved);
+    expect(array_column(BattleCommandCatalog::buildOptions($restored, new Party(), 'Attack'), 'label'))->toBe(['Primary strike'])
+      ->and(BattleCommandCatalog::buildOptions($restored, new Party(), 'Skill'))->toBe([]);
+    $book = AbilityBook::fromArray(['learned' => ['Alternate strike', 'Spell', 'Missing']]);
+    expect(array_column($book->getLearnedAbilities(), 'name'))->toBe(['Alternate strike']);
+  });
+});
+
+it('rejects invalid configured attacks rather than replacing them with an unrelated catalogue action', function () {
+  withCatalogSummonProject(null, null, function (): void {
+    writeSkillRecords(getcwd(), ...[
+  new \Ichiloto\Engine\Entities\Skills\SpecialSkill('Technique', '', '', 0, 0),
+  new \Ichiloto\Engine\Entities\Skills\MagicSkill('Spell', '', '', 0, 0),
+  new \Ichiloto\Engine\Entities\Skills\BasicSkill('Field only', '', '', 0, 0,
+    occasion: \Ichiloto\Engine\Entities\Enumerations\Occasion::MENU_SCREEN),
+]);
+    $data = ['id' => 'actor.synthetic', 'name' => 'Actor', 'currentExp' => 0, 'stats' => new Stats()->jsonSerialize()];
+    foreach (['', 42, [], false, 'Missing', 'Technique', 'Spell', 'Field only'] as $reference) {
+      expect(fn() => ActorDefinition::fromArray([...$data, 'attackSkill' => $reference])->createCharacter())
+        ->toThrow(InvalidArgumentException::class, 'attackSkill');
+    }
+  });
 });
 
 it('builds battle item options from the shared field inventory', function () {

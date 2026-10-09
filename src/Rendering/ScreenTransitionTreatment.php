@@ -120,7 +120,8 @@ final readonly class ScreenTransitionTreatment
     }
     if ($operations === []) { return new PresentationCanvas($width, $height); }
     return new PresentationCanvas($width, $height, composites: [new CanvasComposite('screen-transition',
-      $this->width, $this->height, new CanvasRectangle(0, 0, $width, $height), $operations, 2147483647)]);
+      $this->width, $this->height, new CanvasRectangle(0, 0, $width, $height), $operations,
+      \Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy::TRANSITION)]);
   }
 
   /** Uses the same replaceable PNG/path/resource boundary as other canvas artwork. */

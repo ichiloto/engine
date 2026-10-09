@@ -1,7 +1,9 @@
 <?php
 
 use Ichiloto\Engine\Entities\Abilities\AbilityLibrary;
+use Ichiloto\Engine\Battle\BattleCommandCatalog;
 use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Magic\MagicLibrary;
 use Ichiloto\Engine\Entities\Skills\BasicSkill;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
@@ -139,6 +141,33 @@ it('gives the spellbook, the ability book and class grants the same catalogue', 
     expect($result['spells'])->toBe(['Purify', 'Ember'])
       ->and($result['abilities'])->toBe(['Lunge', 'Ward'])
       ->and($result['grants'])->toBe(['Purify', 'Ember', 'Ward']);
+  } finally {
+    removeSkillCatalogProject($root);
+  }
+});
+
+it('resolves battle commands from the same catalogue without unlocking unlearned magic', function () {
+  $root = writeSkillCatalogProject(spreadSkillCatalogFiles());
+  try {
+    runInSkillCatalogProject($root, static function (): void {
+      $character = Character::fromArray(['name' => 'Adept', 'currentExp' => 0,
+        'stats' => new Stats()->jsonSerialize(), 'attackSkill' => 'Attack']);
+      $party = new Party();
+      $getNames = static fn($command) => array_map(static fn($option) => $option->action->name,
+        BattleCommandCatalog::buildOptions($character, $party, $command));
+      expect($getNames('Attack'))->toBe(['Attack'])
+        ->and($getNames('Skill'))->toBe([])
+        ->and($getNames('Magic'))->toBe([]);
+      $catalog = SkillCatalog::getProjectCatalog();
+      foreach (['Lunge', 'Ward', 'Ember'] as $name) {
+        $character->learnSkill($catalog->findSkill($name));
+      }
+      $attacks = BattleCommandCatalog::buildOptions($character, $party, 'Attack');
+      expect($getNames('Attack'))->toBe(['Attack'])
+        ->and($attacks[0]->source)->toBe($catalog->findSkill('Attack'))
+        ->and($getNames('Skill'))->toBe(['Lunge', 'Ward'])
+        ->and($getNames('Magic'))->toBe(['Ember']);
+    });
   } finally {
     removeSkillCatalogProject($root);
   }

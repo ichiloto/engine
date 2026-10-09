@@ -10,7 +10,7 @@ use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Title\TitleScene;
-use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Util\Debug;
 use Throwable;
 
@@ -32,7 +32,7 @@ class NewGameCommand extends MenuItem
     protected GameLoader $gameLoader
   )
   {
-    $label = config(ProjectConfig::class, 'vocab.game.new_game') ?? 'New Game';
+    $label = Vocabulary::getTerm('game.new_game', Vocabulary::getTerm('command.new_game', 'New Game'));
     parent::__construct($menu, $label, 'Start a new game.');
   }
 
@@ -58,7 +58,7 @@ class NewGameCommand extends MenuItem
     } catch (Throwable $error) {
       Debug::warn('New game could not start: ' . $error->getMessage());
       $sceneManager->loadScene(TitleScene::class);
-      alert($error->getMessage(), 'New Game Unavailable');
+      alert($error->getMessage(), get_message('new_game.unavailable_title', '%1 Unavailable', $this->getLabel()));
       return self::FAILURE;
     }
 

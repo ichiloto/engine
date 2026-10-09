@@ -6,7 +6,7 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
-use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Localization\Vocabulary;
 
 /**
  * AccountBalanceWindow is the window that displays the player's account balance.
@@ -39,7 +39,7 @@ class AccountBalancePanel extends Window
     BorderPackInterface $borderPack = new DefaultBorderPack()
   )
   {
-    $title = config(ProjectConfig::class, 'vocab.currency.name', 'Gold');
+    $title = Vocabulary::getTerm('currency.name', 'Gold');
     parent::__construct(
       $title,
       '',
@@ -60,7 +60,7 @@ class AccountBalancePanel extends Window
    */
   public function setAmount(int $amount): void
   {
-    $symbol = config(ProjectConfig::class, 'vocab.currency.symbol', 'G');
+    $symbol = Vocabulary::getTerm('currency.symbol', 'G');
     $paddedAmount = sprintf("%{$this->contentWidth}s", number_format($amount) . " {$symbol}");
     $this->setContent([$paddedAmount]);
     $this->render();

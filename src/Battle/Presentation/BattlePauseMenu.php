@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Battle\Presentation;
 
 use Closure;
+use Ichiloto\Engine\Localization\Vocabulary;
 
 /** Local focus and motion only. The pause state executes the returned action once. */
 final class BattlePauseMenu
@@ -65,14 +66,16 @@ final class BattlePauseMenu
   public function labels(): array
   {
     return $this->confirmation === null
-      ? array_map(static fn(PauseAction $action): string => $action->value, PauseAction::cases())
-      : ['Cancel', $this->confirmation->value];
+      ? array_map(static fn(PauseAction $action): string => $action->getLabel(), PauseAction::cases())
+      : [Vocabulary::getTerm('command.cancel', Vocabulary::getTerm('shop.cancel', 'Cancel')), $this->confirmation->getLabel()];
   }
 
   public function heading(): string
   {
     return match ($this->confirmation) {
-      PauseAction::TITLE => 'Return to title?', PauseAction::EXIT => 'Exit the game?', default => 'PAUSED',
+      PauseAction::TITLE => get_message('confirm.to_title', 'Return to title?'),
+      PauseAction::EXIT => get_message('confirm.quit', 'Exit the game?'),
+      default => Vocabulary::getTerm('battle.paused', 'PAUSED'),
     };
   }
 

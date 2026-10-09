@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasNineSlice;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
@@ -111,8 +112,9 @@ final class GraphicalBattleHud
       $mpX = $hpTrackX + $hpTrackWidth + 12;
       $mpTrackX = $mpX + $mpWidth + 8;
       $atbX = $mpTrackX + $mpTrackWidth + 12;
-      foreach ([['HP', $hpTrackX], ['MP', $mpTrackX], ...($atb ? [['ATB', $atbX]] : [])] as [$label, $labelX]) {
-        self::line($text, 'stats-' . $label, $label, $labelX, $y + 2, $x + $width - 16 - $labelX, 16,
+      foreach ([['HP', 'stats.hp', $hpTrackX], ['MP', 'stats.mp', $mpTrackX],
+        ...($atb ? [['Time', 'battle.atb', $atbX]] : [])] as [$id, $term, $labelX]) {
+        self::line($text, 'stats-' . $id, Vocabulary::getTerm($term, $id), $labelX, $y + 2, $x + $width - 16 - $labelX, 16,
           $skin->colors['muted'], cellWidth: 8);
       }
       $hpText = $mpText = $hpUnknown = $mpUnknown = $atbFallback = [];

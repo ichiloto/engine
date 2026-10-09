@@ -4,6 +4,7 @@ use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Rect;
+use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicController;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
@@ -41,12 +42,20 @@ use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\UIManager;
 use Ichiloto\Engine\UI\Elements\LocationHUDWindow;
 use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Debug;
 use Tests\Support\Input\FakeRendererTransport;
 use function Tests\Support\Rendering\characterSheetData;
 use function Tests\Support\Rendering\writeCharacterSheetPng;
+use function Tests\Support\Rendering\writeTestPng;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
+
+final class SubjectOwnershipTestGame extends Game
+{
+  public function __construct() { $this->audioManager = new RecordingAudioManager($this); }
+  public function __destruct() {}
+}
 
 final class SubjectOwnershipMap extends MapManager
 {
@@ -79,6 +88,7 @@ final class SubjectOwnershipMap extends MapManager
     return !$this->blocked && ($this->passable === null || ($this->passable)($x, $y));
   }
   public function scrollMap(Player $player, Vector2 $moveDirection): bool { return false; }
+  public function render(?int $x = null, ?int $y = null): void {}
 }
 
 final class SubjectOwnershipPlayer extends Player
@@ -109,7 +119,7 @@ final class SubjectOwnershipScene extends GameScene
 
   public function __construct(string $assetRoot)
   {
-    [$this->testGame] = makeSceneAudioGame();
+    $this->testGame = new SubjectOwnershipTestGame();
     // Staged actors check their character sheet against the running renderer's asset root.
     $this->testGame->useRendererRuntime(new RendererRuntime(new RendererRuntimeConfig(
       new RendererProcessConfig(['fixture']), $assetRoot), new FakeRendererTransport()));
@@ -207,9 +217,16 @@ function subjectOwnershipDefinition(array $commands = [], array $data = []): Cin
     $commands ?: [['type' => 'wait', 'seconds' => 10]]);
 }
 
+function makeSubjectOwnershipLoopCast(array $extra = []): array
+{
+  return array_replace(['id' => 'pulse', 'sprite' => 'P', 'subject' => ['kind' => 'npc', 'id' => 'guide'],
+    'sprites2d' => ['asset' => 'Loop.png', 'animation' => ['columns' => 3,
+      'frames' => [0, 1, 2], 'fps' => 10, 'restFrame' => 2]]], $extra);
+}
+
 beforeEach(function () {
   $this->staticBefore = [];
-  foreach ([Console::class, Cursor::class, EventManager::class, ConfigStore::class] as $class) {
+  foreach ([Console::class, Cursor::class, EventManager::class, ConfigStore::class, Time::class, Debug::class] as $class) {
     $this->staticBefore[$class] = new ReflectionClass($class)->getStaticProperties();
   }
   foreach (['frameDepth' => 0, 'isRecomposing' => false, 'terminalHandedBack' => false,
@@ -223,6 +240,8 @@ beforeEach(function () {
   $this->assetRoot = sys_get_temp_dir() . '/ichiloto-subject-ownership-' . bin2hex(random_bytes(4));
   // 48 x 48 frames: a standard sheet's frame rects are whole multiples of 48.
   writeCharacterSheetPng($this->assetRoot . '/' . characterSheetData()['sheet'], 48, 48);
+  writeTestPng($this->assetRoot . '/Loop.png', 24, 10);
+  Debug::configure(['log_directory' => $this->assetRoot . '/logs']);
   $this->scene = new SubjectOwnershipScene($this->assetRoot);
   $this->stage = $this->scene->cinematicStage;
   $this->npc = $this->scene->npcManager->findById('guide');
@@ -241,6 +260,100 @@ afterEach(function () {
   foreach ($paths as $path) { $path->isDir() ? rmdir($path->getPathname()) : unlink($path->getPathname()); }
   rmdir($this->assetRoot);
 });
+
+it('advances a field pose through the real scene clock while dialogue or a choice remains yielded', function (array $command) {
+  $this->scene->installField();
+  $session = $this->scene->startCinematic(subjectOwnershipDefinition([$command], ['cast' => [makeSubjectOwnershipLoopCast()]]));
+  $actor = $this->stage->require('pulse');
+  $position = clone $this->npc->position;
+  $generation = $this->stage->generation;
+  new ReflectionProperty(Time::class, 'deltaTime')->setValue(null, .1);
+  foreach ([8, 16, 0, 8] as $x) {
+    $this->scene->update();
+    expect($actor->getGraphicalSpriteDefinition()->sourceRect->x)->toBe($x)
+      ->and($this->stage->require('pulse'))->toBe($actor)->and($this->stage->generation)->toBe($generation)
+      ->and($session->status)->toBe(EventExecutionStatus::YIELDED)
+      ->and([$this->npc->position->x, $this->npc->position->y])->toBe([$position->x, $position->y])
+      ->and($actor->sprite)->toBe(['P']);
+  }
+})->with([
+  'dialogue' => [['type' => 'text', 'text' => 'Synthetic held dialogue.']],
+  'choice' => [['type' => 'choice', 'prompt' => 'Synthetic choice.', 'options' => [['text' => 'Continue', 'then' => []]]]],
+]);
+
+it('freezes pose time across scene suspension, hiding and subject ineligibility without wall-time catchup', function () {
+  $this->scene->installField();
+  $actor = $this->stage->add(makeSubjectOwnershipLoopCast());
+  $this->stage->advanceGraphicalAnimation(.1);
+  $this->scene->suspend(); $this->stage->advanceGraphicalAnimation(100);
+  $this->scene->resume();
+  expect($actor->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(8);
+  $this->stage->hide('pulse'); $this->stage->advanceGraphicalAnimation(100);
+  expect($actor->getGraphicalSpriteDefinition())->toBeNull();
+  $this->stage->show('pulse');
+  expect($actor->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(8);
+  $this->scene->gameState->setSwitch('departed', true); $this->stage->advanceGraphicalAnimation(100);
+  expect($actor->getGraphicalSpriteDefinition())->toBeNull();
+  $this->scene->suspend(); $this->scene->resume();
+  $this->scene->gameState->setSwitch('departed', false);
+  $this->stage->advanceGraphicalAnimation(.1);
+  expect($actor->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(16);
+});
+
+it('uses the authored reduced-motion rest cell and keeps turning or blocked movement separate from pose playback', function () {
+  $actor = $this->stage->add(makeSubjectOwnershipLoopCast());
+  $this->stage->advanceGraphicalAnimation(.1);
+  putSceneAudioConfig(['accessibility' => ['reducedMotion' => true], 'ui' => ['hud' => ['location' => false]]]);
+  $this->stage->advanceGraphicalAnimation(100);
+  expect($actor->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(16);
+  putSceneAudioConfig(['ui' => ['hud' => ['location' => false]]]);
+  expect($actor->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(8);
+  $this->scene->npcManager->faceNpc('guide', Vector2::right());
+  $this->scene->mapManager->blocked = true;
+  $this->scene->npcManager->moveNpcById('guide', Vector2::right());
+  $this->stage->advanceGraphicalAnimation(.1);
+  expect($actor->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(16)
+    ->and($actor->facing)->toBe(MovementHeading::EAST)->and($actor->hasCollision)->toBeFalse();
+  $this->scene->mapManager->blocked = false;
+  $this->scene->npcManager->moveNpcById('guide', Vector2::right());
+  expect($actor->getGraphicalSpriteMotion())->not->toBeNull();
+  $this->stage->advanceGraphicalAnimation(.1);
+  expect($actor->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(0);
+});
+
+it('releases replaced and removed loop visuals and keeps new visuals paused if the scene is suspended', function () {
+  $actor = $this->stage->add(makeSubjectOwnershipLoopCast());
+  $this->stage->pauseGraphicalAnimation();
+  $replacement = $this->stage->add(makeSubjectOwnershipLoopCast(['replace' => true]));
+  $replacement->show(); $this->stage->advanceGraphicalAnimation(.1);
+  expect($replacement->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(0);
+  $this->stage->resumeGraphicalAnimation(); $this->stage->advanceGraphicalAnimation(.1);
+  expect($replacement->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(8);
+  $actor->show(); $actor->resumeGraphicalAnimation(); $actor->advanceGraphicalAnimation(.1);
+  expect($actor->getGraphicalSpriteDefinition())->toBeNull();
+  $this->stage->remove('pulse');
+  $replacement->show(); $replacement->resumeGraphicalAnimation(); $replacement->advanceGraphicalAnimation(.1);
+  expect($replacement->getGraphicalSpriteDefinition())->toBeNull()->and($this->stage->all())->toBe([]);
+});
+
+it('releases pose playback on cinematic completion, failure, authored skip, transfer and shutdown', function (string $ending) {
+  $session = $this->scene->startCinematic(subjectOwnershipDefinition(data: [
+    'cast' => [makeSubjectOwnershipLoopCast()], 'skip' => ['policy' => 'authored'],
+    'finalizer' => [['type' => 'set_switch', 'name' => 'finished', 'value' => true]],
+  ]));
+  $actor = $this->stage->require('pulse');
+  $this->stage->advanceGraphicalAnimation(.1);
+  match ($ending) {
+    'complete' => $this->scene->updateEventSession(10),
+    'failure' => $this->scene->eventInterpreter->failActiveSession('Synthetic interruption.'),
+    'skip' => $this->scene->skipCinematic(),
+    'transfer' => $this->scene->loadMap('map-b', $this->player),
+    'shutdown' => $this->scene->cinematicController->shutdown(),
+  };
+  $actor->show(); $actor->resumeGraphicalAnimation(); $actor->advanceGraphicalAnimation(10);
+  expect($actor->getGraphicalSpriteDefinition())->toBeNull()->and($this->stage->all())->toBe([])
+    ->and($this->scene->hasUnstableEventSession())->toBe($ending === 'transfer');
+})->with(['complete', 'failure', 'skip', 'transfer', 'shutdown']);
 
 it('suppresses paired ordinary art and direct redraws without hiding collision or authored wandering', function () {
   $this->scene->camera->moveTo(0, 0);
@@ -316,6 +429,135 @@ it('replaces sheets with cropped poses without resetting the subject or entry sn
   $this->stage->clear();
   expect($this->npc->position->x)->toBe(7.0)->and($this->npc->heading)->toBe(MovementHeading::SOUTH)
     ->and($this->npc->sprite)->toBe('N')->and($pose->isVisible)->toBeFalse();
+});
+
+it('preserves each omitted independent transform and collision field when replacing a staged actor', function (array $overrides) {
+  $old = $this->stage->add(['id' => 'independent', 'sprite' => 'A', 'x' => 12, 'y' => 6,
+    'facing' => 'North', 'collision' => true]);
+  $this->stage->move($old->id, Vector2::left());
+  $this->stage->move($old->id, new Vector2(-.25, -.5));
+  $position = clone $old->position;
+  $facing = $old->facing;
+  $collision = $old->hasCollision;
+  $replacement = $this->stage->add(['id' => $old->id, 'replace' => true, 'sprite' => 'B', ...$overrides]);
+  expect($replacement->position->x)->toBe((float)($overrides['x'] ?? $position->x))
+    ->and($replacement->position->y)->toBe((float)($overrides['y'] ?? $position->y))
+    ->and($replacement->facing)->toBe(isset($overrides['facing']) ? MovementHeading::from($overrides['facing']) : $facing)
+    ->and($replacement->hasCollision)->toBe($overrides['collision'] ?? $collision)
+    ->and($old->isVisible)->toBeFalse()->and($this->stage->all())->toBe([$replacement])
+    ->and($replacement->position)->not->toBe($old->position)
+    ->and($replacement->getGraphicalSpriteId())->toBe($old->getGraphicalSpriteId());
+  $replacement->move(Vector2::right());
+  expect($old->position)->toEqual($position);
+})->with([
+  'no transform fields' => [[]],
+  'only x, including zero' => [['x' => 0]],
+  'only y, including zero' => [['y' => 0]],
+  'only facing' => [['facing' => 'South']],
+  'explicitly remove collision' => [['collision' => false]],
+  'all transform fields' => [['x' => 5, 'y' => 2, 'facing' => 'East', 'collision' => false]],
+]);
+
+it('inherits each omitted renderer role independently from its real subject', function (string $kind, array $overrides) {
+  $npcSheet = characterSheetData('Graphics/Characters/Npc.png');
+  writeCharacterSheetPng($this->assetRoot . '/' . $npcSheet['sheet'], 48, 48);
+  writeTestPng($this->assetRoot . '/pose.png', 32, 48);
+  $this->scene->npcManager->configure([['id' => 'guide', 'name' => 'Guide', 'sprite' => 'N', 'x' => 7, 'y' => 4,
+    'sprites' => ['east' => 'E', 'south' => 'S'], 'sprites2d' => $npcSheet]]);
+  $subject = $kind === 'player' ? $this->player : $this->scene->npcManager->findById('guide');
+  $ordinaryGraphics = $subject->getGraphicalSpriteDefinition();
+  $entry = ['id' => 'inherited', 'subject' => ['kind' => $kind, 'id' => 'guide'], ...$overrides];
+  expect(subjectOwnershipDefinition(data: ['cast' => [$entry]])->cast)->toBe([$entry]);
+  CinematicScriptValidator::validate([['type' => 'stage_actor', ...$entry]]);
+  $actor = $this->stage->add($entry);
+  $expectedTerminal = isset($overrides['sprite']) ? [$overrides['sprite']] : (array)$subject->sprite;
+  expect($actor->sprite)->toBe($expectedTerminal)->and($actor->position)->toEqual($subject->position)
+    ->and($actor->hasCollision)->toBeFalse()->and($this->stage->suppresses($subject))->toBeTrue();
+  if (isset($overrides['sprites2d'])) {
+    expect($actor->getGraphicalSpriteDefinition()->asset)->toBe('pose.png');
+  } else {
+    expect($actor->getGraphicalSpriteDefinition())->toEqual($ordinaryGraphics);
+  }
+  $kind === 'player' ? $this->player->tryMove(Vector2::right(), $this->scene->camera)
+    : $this->scene->npcManager->moveNpcById('guide', Vector2::right());
+  $this->stage->advanceGraphicalAnimation(0.08);
+  $expectedTerminal = $overrides['sprites']['east'] ?? (isset($overrides['sprite']) ? [$overrides['sprite']] : (array)$subject->sprite);
+  expect($actor->sprite)->toBe($expectedTerminal)->and($actor->facing)->toBe(MovementHeading::EAST)
+    ->and($actor->getGraphicalSpriteMotion())->not->toBeNull();
+  if (!isset($overrides['sprites2d'])) {
+    expect($actor->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(96)
+      ->and($actor->getGraphicalSpriteDefinition()->sourceRect->y)->toBe(96);
+  }
+  $this->scene->camera->moveTo(0, 0);
+  Console::recomposeFrame(fn() => $this->stage->render());
+  expect(Console::charAt((int)$subject->position->x, (int)$subject->position->y))->toBe($expectedTerminal[0]);
+  $this->stage->hide($actor->id);
+  expect($actor->getGraphicalSpriteDefinition())->toBeNull()->and($this->stage->suppresses($subject))->toBeTrue();
+  $this->stage->show($actor->id);
+  expect($actor->getGraphicalSpriteDefinition())->not->toBeNull();
+  $this->stage->remove($actor->id);
+  expect($actor->getGraphicalSpriteDefinition())->toBeNull()->and($this->stage->suppresses($subject))->toBeFalse();
+})->with(['player', 'npc'])->with([
+  'no explicit roles' => [[]],
+  'terminal glyph only' => [['sprite' => 'T']],
+  'terminal directions only' => [['sprites' => ['east' => ['>']]]],
+  'graphical pose only' => [['sprites2d' => ['asset' => 'pose.png']]],
+  'both roles' => [['sprite' => 'T', 'sprites2d' => ['asset' => 'pose.png']]],
+]);
+
+it('replaces explicit bound roles with live subject inheritance without discarding its recovery lease', function () {
+  $position = clone $this->player->position;
+  writeTestPng($this->assetRoot . '/pose.png', 32, 48);
+  $old = $this->stage->add(subjectOwnershipCast(['subject' => ['kind' => 'player'], 'sprite' => 'P',
+    'sprites2d' => ['asset' => 'pose.png']]));
+  $this->player->tryMove(Vector2::right(), $this->scene->camera);
+  $inherited = $this->stage->add(['id' => $old->id, 'replace' => true, 'subject' => ['kind' => 'player']]);
+  expect($inherited->subject)->toBe($old->subject)->and($old->isVisible)->toBeFalse()
+    ->and($inherited->sprite)->toBe($this->player->sprite)
+    ->and($inherited->position)->toEqual($this->player->position)
+    ->and($inherited->getGraphicalSpriteDefinition()->asset)->toBe(characterSheetData()['sheet']);
+  // Replacing the file does not require rebinding the subject or storing new dimensions.
+  writeCharacterSheetPng($this->assetRoot . '/' . characterSheetData()['sheet'], 64, 56);
+  expect($inherited->getGraphicalSpriteDefinition()->sourceRect->width)->toBe(64)
+    ->and($inherited->getGraphicalSpriteDefinition()->sourceRect->height)->toBe(56)
+    ->and($inherited->position)->toEqual($this->player->position);
+  $this->stage->clear();
+  expect($this->player->position)->toEqual($position)->and($inherited->isVisible)->toBeFalse();
+});
+
+it('keeps a routed unbound actor in place through the stage_actor interpreter command', function () {
+  $this->scene->startCinematic(subjectOwnershipDefinition([
+    ['type' => 'move_route', 'subject' => 'staged_actor', 'actorId' => 'independent', 'secondsPerStep' => .1,
+      'steps' => [['direction' => 'left']]],
+    ['type' => 'stage_actor', 'id' => 'independent', 'replace' => true, 'sprite' => 'B'],
+    ['type' => 'wait', 'seconds' => 10],
+  ], ['cast' => [['id' => 'independent', 'sprite' => 'A', 'x' => 12, 'y' => 6, 'collision' => true]]]));
+  $old = $this->stage->require('independent');
+  for ($tick = 0; $tick < 4; $tick++) {
+    $this->scene->eventInterpreter->update(.1);
+  }
+  $replacement = $this->stage->require('independent');
+  expect($replacement)->not->toBe($old)->and($old->isVisible)->toBeFalse()
+    ->and($replacement->sprite)->toBe(['B'])
+    ->and([$replacement->position->x, $replacement->position->y])->toBe([$old->position->x, $old->position->y])
+    ->and($replacement->facing)->toBe($old->facing)->and($replacement->hasCollision)->toBeTrue()
+    ->and($this->scene->hasUnstableEventSession())->toBeTrue();
+});
+
+it('keeps inherited graphical art when the interpreter applies a terminal-only bound replacement', function () {
+  $this->scene->startCinematic(subjectOwnershipDefinition([
+    ['type' => 'stage_actor', 'id' => 'inherited', 'replace' => true, 'subject' => ['kind' => 'player'], 'sprite' => 'T'],
+    ['type' => 'move_route', 'secondsPerStep' => .5, 'steps' => [['direction' => 'right']]],
+    ['type' => 'wait', 'seconds' => 10],
+  ], ['cast' => [['id' => 'inherited', 'subject' => ['kind' => 'player']]]]));
+  $actor = $this->stage->require('inherited');
+  $this->scene->eventInterpreter->update(.1);
+  $this->stage->advanceGraphicalAnimation(.08);
+  expect($actor->sprite)->toBe(['T'])->and($actor->position)->toEqual($this->player->position)
+    ->and($actor->getGraphicalSpriteDefinition()->asset)->toBe(characterSheetData()['sheet'])
+    ->and($actor->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(96)
+    ->and($actor->getGraphicalSpriteMotion()?->seconds)->toBe(.5)
+    ->and($this->player->getGraphicalSpriteDefinition())->toBeNull();
 });
 
 it('releases a replaced paired participant while retaining its failure recovery', function () {
@@ -816,3 +1058,139 @@ it('validates bound ownership fields before runtime', function (array $invalid) 
   'bad suppression list' => [['suppress' => ['kind' => 'player']]],
   'bad replacement flag' => [['replace' => 'yes']],
 ]);
+
+it('records and retraces real subjects in ordinary execution sessions without acquiring cinematic rollback', function (bool $npc, bool $reduced) {
+  putSceneAudioConfig(['accessibility' => ['reducedMotion' => $reduced]]);
+  $subject = $npc ? $this->npc : $this->player;
+  $start = clone $subject->position;
+  $heading = $subject->heading;
+  $binding = $npc ? ['subject' => 'npc', 'npcId' => 'guide'] : ['subject' => 'player'];
+  $generation = $this->stage->generation;
+  $this->scene->mapManager->passable = static fn(int $x, int $y): bool => $x !== intval($start->x) + 1 || $y !== intval($start->y);
+  $commands = [
+    ['type' => 'move_route', ...$binding, 'remember' => 'outbound', 'secondsPerStep' => .1,
+      'waypoints' => [['x' => intval($start->x) + 2], ['y' => intval($start->y) + 1]]],
+    ['type' => 'move_route', ...$binding, 'retrace' => 'outbound', 'secondsPerStep' => .1],
+    ['type' => 'wait', 'seconds' => 1],
+  ];
+  $session = $this->scene->eventInterpreter->run($commands, $npc ? 'npc:guide' : 'map:event');
+  $positions = [[$start->x, $start->y]];
+  for ($tick = 0; $tick < 60 && ($session->pendingCommand['type'] ?? '') !== 'wait'; ++$tick) {
+    $this->scene->eventInterpreter->update(.1);
+    $position = [$subject->position->x, $subject->position->y];
+    if ($positions[array_key_last($positions)] !== $position) { $positions[] = $position; }
+  }
+  expect($session->cinematic)->toBeNull()->and($session->failureMessage)->toBeNull()
+    ->and($session->pendingCommand['type'])->toBe('wait')->and($session->movementRoute('outbound')->complete)->toBeTrue()
+    ->and([$subject->position->x, $subject->position->y])->toBe([$start->x, $start->y])
+    ->and($subject->heading)->toBe($heading)->and($this->stage->generation)->toBe($generation);
+  if (!$reduced) {
+    $middle = intdiv(count($positions), 2);
+    expect(array_slice($positions, $middle + 1))->toBe(array_slice(array_reverse(array_slice($positions, 0, $middle + 1)), 1));
+  }
+  expect(fn() => new MovementRouteRunner($this->scene, [...$binding, 'retrace' => 'outbound'], $session))
+    ->toThrow(RuntimeException::class, 'only be retraced once');
+  $this->scene->eventInterpreter->update(2);
+  expect($session->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and(fn() => $session->movementRoute('outbound'))->toThrow(RuntimeException::class, 'was not recorded in this session');
+  $next = $this->scene->eventInterpreter->run($commands, 'new invocation');
+  expect($next->id)->not->toBe($session->id)->and($next->failureMessage)->toBeNull();
+  $next->cancelLanes();
+  expect(fn() => $next->movementRoute('outbound'))->toThrow(RuntimeException::class, 'was not recorded in this session');
+})->with([false, true])->with([false, true]);
+
+it('retains recorded-route identity and consumption guards in non-cinematic sessions', function (string $case) {
+  $session = new EventExecutionSession([]);
+  if ($case === 'missing') {
+    expect(fn() => new MovementRouteRunner($this->scene, ['retrace' => 'entry'], $session))->toThrow(RuntimeException::class);
+    return;
+  }
+  $route = new MovementRouteRunner($this->scene, ['remember' => 'entry', 'steps' => [['direction' => 'right']]], $session);
+  if ($case === 'duplicate' || $case === 'incomplete' || $case === 'claim') {
+    $command = match ($case) {
+      'duplicate' => ['remember' => 'entry', 'steps' => [['direction' => 'right']]],
+      'claim' => ['steps' => [['direction' => 'right']]],
+      default => ['retrace' => 'entry'],
+    };
+  } else {
+    $route->update(1);
+    $command = ['retrace' => 'entry'];
+    match ($case) {
+      'map' => $this->scene->changeMapIdentity('map-b'),
+      'generation' => $this->stage->clear(false),
+      'displaced' => $this->player->position->x = 9,
+      'subject' => $command += ['subject' => 'npc', 'npcId' => 'guide'],
+      'replaced' => new ReflectionProperty(GameScene::class, 'player')->setValue($this->scene, clone $this->player),
+      'consumed' => (new MovementRouteRunner($this->scene, $command, $session))->cancel(),
+    };
+  }
+  expect(fn() => new MovementRouteRunner($this->scene, $command, $session))->toThrow(RuntimeException::class);
+})->with(['missing', 'duplicate', 'incomplete', 'claim', 'map', 'generation', 'displaced', 'subject', 'replaced', 'consumed']);
+
+it('keeps ordinary replay collision-aware and retains only successful units before cleanup', function () {
+  $session = new EventExecutionSession([]);
+  $outbound = new MovementRouteRunner($this->scene, ['remember' => 'entry', 'steps' => [['direction' => 'right', 'count' => 2]]], $session);
+  $outbound->update(1);
+  $this->scene->mapManager->blocked = true;
+  expect(fn() => $outbound->update(1))->toThrow(RuntimeException::class, 'was blocked')
+    ->and($this->player->position->x)->toBe(4.0)->and($session->movementRoute('entry')->complete)->toBeFalse();
+  $outbound->cancel();
+  $session->cancelLanes();
+  expect(fn() => $session->movementRoute('entry'))->toThrow(RuntimeException::class);
+  $this->scene->mapManager->blocked = false;
+  $session = new EventExecutionSession([]);
+  (new MovementRouteRunner($this->scene, ['remember' => 'entry', 'steps' => [['direction' => 'right']]], $session))->update(1);
+  $return = new MovementRouteRunner($this->scene, ['retrace' => 'entry'], $session);
+  $this->scene->mapManager->blocked = true;
+  expect(fn() => $return->update(1))->toThrow(RuntimeException::class, 'was blocked')->and($this->player->position->x)->toBe(5.0);
+  $return->cancel();
+  $session->cancelLanes();
+  expect(fn() => $session->movementRoute('entry'))->toThrow(RuntimeException::class);
+});
+
+it('still refuses recorded routes without a session or for staged actors', function () {
+  expect(fn() => new MovementRouteRunner($this->scene, ['remember' => 'entry', 'steps' => [['direction' => 'right']]]))
+    ->toThrow(RuntimeException::class, 'event execution session');
+  $this->stage->add(subjectOwnershipCast());
+  foreach (['remember' => 'entry', 'retrace' => 'entry'] as $key => $id) {
+    $command = ['subject' => 'staged_actor', 'actorId' => 'pose', $key => $id];
+    if ($key === 'remember') { $command['steps'] = [['direction' => 'right']]; }
+    expect(fn() => new MovementRouteRunner($this->scene, $command, new EventExecutionSession([])))->toThrow(RuntimeException::class);
+  }
+});
+
+it('uses ordinary recording through actual NPC talk and map trigger entry points', function (bool $npc) {
+  $binding = $npc ? ['subject' => 'npc', 'npcId' => 'guide'] : ['subject' => 'player'];
+  $commands = [
+    ['type' => 'move_route', ...$binding, 'remember' => 'approach', 'secondsPerStep' => 0,
+      'steps' => [['direction' => 'right']]],
+    ['type' => 'move_route', ...$binding, 'retrace' => 'approach', 'secondsPerStep' => 0],
+    ['type' => 'wait', 'seconds' => 1],
+  ];
+  if ($npc) {
+    $this->scene->npcManager->configure([['id' => 'guide', 'name' => 'Guide', 'sprite' => 'G',
+      'x' => 7, 'y' => 4, 'script' => $commands]]);
+    $subject = $this->scene->npcManager->findById('guide');
+    $subject->talk($this->scene);
+    $subject->talk($this->scene);
+    $session = $this->scene->eventInterpreter->activeSession();
+    expect($session->origin['npc'])->toBe('guide');
+  } else {
+    $subject = $this->player;
+    $trigger = new \Ichiloto\Engine\Events\Triggers\ScriptEventTrigger(new Rect(0, 0, 1, 1),
+      ['script' => $commands], mapId: 'map-a', marker: 'E');
+    $trigger->bind($this->scene->gameState, $this->scene->party);
+    $session = $trigger->startSession($this->scene);
+    expect($trigger->startSession($this->scene))->toBeNull()->and($session->origin['marker'])->toBe('E');
+  }
+  $start = clone $subject->position;
+  for ($tick = 0; $tick < 10 && ($session->pendingCommand['type'] ?? '') !== 'wait'; ++$tick) {
+    $this->scene->eventInterpreter->update(0);
+  }
+  expect($session->cinematic)->toBeNull()->and($session->failureMessage)->toBeNull()
+    ->and($session->pendingCommand['type'])->toBe('wait')
+    ->and([$subject->position->x, $subject->position->y])->toBe([$start->x, $start->y]);
+  $this->scene->eventInterpreter->update(2);
+  expect($session->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and(fn() => $session->movementRoute('approach'))->toThrow(RuntimeException::class);
+})->with([false, true]);

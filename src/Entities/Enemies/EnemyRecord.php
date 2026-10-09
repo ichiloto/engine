@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Entities\Enemies;
 
 use Ichiloto\Engine\Battle\BattleRewards;
+use Ichiloto\Engine\Battle\CounterAttackRule;
 use Ichiloto\Engine\Battle\DropItem;
 use Ichiloto\Engine\Core\Range;
 use Ichiloto\Engine\Core\Vector2;
@@ -34,6 +35,7 @@ final class EnemyRecord
   public const array KEYS = [
     'name', 'level', 'imagePath', 'stats', 'rewards', 'actionPatterns', 'position',
     'battleAnimation', 'stateResistances', 'elementAffinities', 'knowledgeSubjectId',
+    'counterAttack',
   ];
 
   /**
@@ -54,6 +56,8 @@ final class EnemyRecord
 
     $name = self::requireString($data, 'name');
     $rewards = self::requireArray($data, 'rewards');
+    $counterAttack = CounterAttackRule::fromArray($data['counterAttack'] ?? null);
+    $counterAttack?->resolveSkill($skills);
 
     return new Enemy(
       $name,
@@ -71,6 +75,7 @@ final class EnemyRecord
       self::readMultipliers($data['stateResistances'] ?? [], 'stateResistances'),
       self::readMultipliers($data['elementAffinities'] ?? [], 'elementAffinities'),
       self::readOptionalString($data['knowledgeSubjectId'] ?? null, 'knowledgeSubjectId'),
+      $counterAttack,
     );
   }
 
@@ -120,6 +125,7 @@ final class EnemyRecord
       $data['knowledgeSubjectId'] = $enemy->knowledgeSubjectId;
     }
 
+    if ($enemy->counterAttack !== null) { $data['counterAttack'] = $enemy->counterAttack->toArray(); }
     return $data;
   }
 

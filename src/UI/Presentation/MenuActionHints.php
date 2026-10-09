@@ -18,17 +18,17 @@ use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 final class MenuActionHints
 {
   /** @param list<ActionHint> $hints */
-  public static function height(array $hints, MenuPresentationCatalog $theme, float $width): int
+  public static function height(array $hints, MenuPresentationCatalog $theme, float $width, bool $required = false): int
   {
-    if (!$theme->showInputHints) { return 0; }
+    if (!$required && !$theme->showInputHints) { return 0; }
     return self::layout($hints, $theme, $width)['rows'] * $theme->metrics->cellHeight;
   }
 
   /** @param list<ActionHint> $hints */
   public static function compose(int $width, int $height, string $id, array $hints,
-    MenuPresentationCatalog $theme, CanvasRectangle $bounds): PresentationCanvas
+    MenuPresentationCatalog $theme, CanvasRectangle $bounds, bool $required = false): PresentationCanvas
   {
-    if (!$theme->showInputHints) { return new PresentationCanvas($width, $height); }
+    if (!$required && !$theme->showInputHints) { return new PresentationCanvas($width, $height); }
     $layout = self::layout($hints, $theme, $bounds->width);
     $m = $theme->metrics;
     if ($layout['rows'] * $m->cellHeight > $bounds->height) {

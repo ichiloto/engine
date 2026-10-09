@@ -20,6 +20,11 @@ final class Animation
    */
   protected array $cues = [];
 
+  public bool $hasLegacyPresentation {
+    get => $this->maxFrames > 1 || $this->cues !== []
+      || array_any($this->frames, static fn(AnimationFrame $frame): bool => $frame->getCells() !== []);
+  }
+
   /**
    * @param int $id The animation id.
    * @param string $name The animation name.

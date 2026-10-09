@@ -44,7 +44,7 @@ use Ichiloto\Engine\UI\Modal\TextBoxModal;
 use Ichiloto\Engine\UI\Presentation\MenuModalPresentation;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\Presentation\MenuCanvas;
-use Ichiloto\Engine\UI\Presentation\MenuCanvasTextBatch;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextBatch;
 use Ichiloto\Engine\UI\Presentation\MenuRow;
 use Ichiloto\Engine\UI\Presentation\MenuRowKind;
 use Ichiloto\Engine\UI\Presentation\MenuRowLayout;
@@ -205,14 +205,25 @@ beforeEach(function () {
 });
 
 afterEach(function () {
+  $menu = WeakReference::create($this->state->mainMenu);
   $this->runtime?->shutdown();
-  ob_end_clean();
+  unset($this->runtime, $this->state, $this->scene, $this->game, $this->party,
+    $this->manager, $this->audio, $this->startCanvas, $this->transport);
   foreach ($this->saved as $class => $properties) {
+    if ($class === Console::class) { continue; }
     foreach ($properties as $name => $value) { new ReflectionProperty($class, $name)->setValue(null, $value); }
   }
+  new ReflectionProperty(Console::class, 'game')->setValue(null, $this->saved[Console::class]['game']);
+  // Menu destructors clear Console; collect the fixture before returning that shared surface.
+  gc_collect_cycles();
+  foreach ($this->saved[Console::class] as $name => $value) {
+    new ReflectionProperty(Console::class, $name)->setValue(null, $value);
+  }
+  ob_end_clean();
   $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($this->root, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
   foreach ($files as $file) { $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname()); }
   rmdir($this->root);
+  expect($menu->get())->toBeNull();
 });
 
 it('layers supported modals above the complete four-party menu through either theme', function (bool $art, string $type) {
@@ -517,13 +528,13 @@ it('batches only fully visible nonoverlapping text without changing paint positi
     $layers[] = new CanvasTextLayer('text-' . $i, 30, 5, $i * 10, new RendererGridConfig(4, 1, 10, 10),
       [new PresentationTextRun(0, 0, (string)$i, $theme->colors['text'])], new CanvasRectangle(5, $i * 10, 40, 10));
   }
-  $batched = MenuCanvasTextBatch::compact($layers);
+  $batched = CanvasTextBatch::compact($layers);
   expect($batched)->toHaveCount(64)->and(modalMenuForeground($batched))->toBe(modalMenuForeground($layers));
   $clipped = array_map(fn($text) => new CanvasTextLayer($text->id, $text->layer, $text->x, $text->y,
     $text->grid, $text->runs, new CanvasRectangle($text->x, $text->y, 10, 10)), $layers);
-  expect(MenuCanvasTextBatch::compact($clipped))->toBe($clipped);
+  expect(CanvasTextBatch::compact($clipped))->toBe($clipped);
   $overlapping = array_map(fn($text) => new CanvasTextLayer($text->id, $text->layer, 0, 0, $text->grid, $text->runs), $layers);
-  expect(MenuCanvasTextBatch::compact($overlapping))->toBe($overlapping);
+  expect(CanvasTextBatch::compact($overlapping))->toBe($overlapping);
 });
 
 it('stacks quantity chevrons to the right while independently centering the value and Continue', function (bool $art, int $amount) {
@@ -579,17 +590,25 @@ it('fits the complete largest integer quantity without widening beyond the modal
   }
 });
 
-it('batches default focus edges without changing any filled pixel or the centered command label', function () {
+it('batches default focus and primitive outline edges without changing any filled pixel or the centered command label', function (bool $primitive) {
   $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1']);
   $base = new PresentationCanvas(450, 100, textLayers: array_map(fn($i) => new CanvasTextLayer('base-' . $i, 0, 0, 0,
     new RendererGridConfig(1, 1, 10, 10), [new PresentationTextRun(0, 0, 'A', $theme->colors['text'])]), range(0, 60)));
-  $overlay = MenuRowPainter::compose(450, 100, 'menu-modal-choice', [new MenuRow('0', 'OK', kind: MenuRowKind::COMMAND, focused: true)],
-    new MenuRowLayout(new CanvasRectangle(10, 10, 360, 40)), $theme->rows);
+  $bounds = new CanvasRectangle(10, 10, 360, 40);
+  if ($primitive) {
+    $view = new MenuCanvas($theme, 450, 100);
+    $view->renderOutline('menu-modal-choice', $bounds, 'edge', 2);
+    $view->rows('menu-modal-choice', [new MenuRow('0', 'OK', kind: MenuRowKind::BUTTON)], new MenuRowLayout($bounds));
+    $overlay = $view->finish();
+  } else {
+    $overlay = MenuRowPainter::compose(450, 100, 'menu-modal-choice', [new MenuRow('0', 'OK', kind: MenuRowKind::COMMAND, focused: true)],
+      new MenuRowLayout($bounds), $theme->rows);
+  }
   $frame = MenuCanvas::overlay($base, $overlay, $theme);
   $pixels = static function (array $layers): array {
     $pixels = [];
     foreach ($layers as $layer) {
-      if (!str_contains($layer->id, '-focus')) { continue; }
+      if (!str_contains($layer->id, '-focus') && !str_contains($layer->id, '-outline')) { continue; }
       foreach ($layer->runs as $run) {
         for ($x = 0; $x < mb_strlen($run->text) * $layer->grid->cellWidth; $x++) {
           for ($y = 0; $y < $layer->grid->cellHeight; $y++) {
@@ -605,4 +624,4 @@ it('batches default focus edges without changing any filled pixel or the centere
   expect($pixels($frame->textLayers))->toBe($pixels($overlay->textLayers))->and(count($frame->textLayers))->toBeLessThanOrEqual(64);
   $label = array_find($frame->textLayers, fn($text) => $text->id === 'menu-modal-choice-0-text');
   expect($label->x + $label->bounds->width / 2)->toBe(190.0);
-});
+})->with([false, true]);

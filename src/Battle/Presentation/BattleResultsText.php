@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\Localization\Vocabulary;
 use InvalidArgumentException;
 
 /** Terminal projection of the same facts and stage order as the graphical view. */
@@ -28,14 +29,19 @@ final class BattleResultsText
     }
     switch ($stage['kind']) {
       case 'primary':
-        $lines = [sprintf('EXP per member: %d   Gold: %d G', $rewards->experiencePerMember, $rewards->gold), 'Party Progress'];
+        $lines = [sprintf('%s: %d   %s: %d %s',
+          Vocabulary::getTerm('battle.experience_per_member', Vocabulary::getTerm('stats.exp', 'EXP') . ' per member'),
+          $rewards->experiencePerMember, Vocabulary::getTerm('currency.name', 'Gold'),
+          $rewards->gold, Vocabulary::getTerm('currency.symbol', 'G')),
+          Vocabulary::getTerm('battle.party_progress', 'Party Progress')];
         foreach ($rewards->progression as $member) {
           if ($member->after === null) { continue; }
           array_push($lines, ...self::formatLabelValue($member->after->name . ':',
-            sprintf('Lv %d -> %d  +%d EXP', $member->oldLevel, $member->newLevel, $member->experienceAwarded),
+            sprintf('%s %d -> %d  +%d %s', Vocabulary::getTerm('stats.level_short', Vocabulary::getTerm('stats.level', 'Lv')),
+              $member->oldLevel, $member->newLevel, $member->experienceAwarded, Vocabulary::getTerm('stats.exp', 'EXP')),
             $width));
         }
-        $lines[] = 'Rewards';
+        $lines[] = Vocabulary::getTerm('battle.rewards', 'Rewards');
         foreach ($rewards->items as $item) {
           $lines[] = sprintf('%s x%d', $item['name'], $item['quantity'])
             . (isset($item['received']) && $item['received'] !== $item['quantity']

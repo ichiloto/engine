@@ -9,7 +9,7 @@ it('holds only immutable sprite intent without reading assets or storing coordin
   expect(get_object_vars($definition))->toBe([
     'asset' => 'nonexistent/Hero.png', 'width' => 32, 'height' => 48,
     'anchor' => PresentationSpriteAnchor::BOTTOM_CENTER, 'layer' => 100, 'sourceRect' => null,
-    'lift' => 0, 'quarterTurns' => 0,
+    'lift' => 0, 'quarterTurns' => 0, 'pivot' => null,
   ]);
   foreach (get_object_vars($definition) as $property => $value) {
     expect(function () use ($definition, $property, $value) { $definition->$property = $value; })

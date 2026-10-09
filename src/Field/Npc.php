@@ -8,6 +8,7 @@ use Ichiloto\Engine\Core\WorldStateWriter;
 use Ichiloto\Engine\Events\Interpreter\EventExecutionSession;
 use Ichiloto\Engine\Events\Interpreter\EventSessionCompletionTargetInterface;
 use Ichiloto\Engine\Messaging\Dialogue\ConditionalDialogue;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheetAssetGuard;
@@ -115,6 +116,12 @@ class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProvi
     return $this->graphicalSpriteId;
   }
 
+  /** Authored graphical role remains available while a staged visual owns presentation. */
+  public function getGraphicalCharacterSheet(): ?CharacterSheet
+  {
+    return $this->graphicalSprites;
+  }
+
   public function getGraphicalSpriteDefinition(): ?GraphicalSpriteDefinition
   {
     $frame = $this->graphicalSprites === null ? null : $this->graphicalAssetGuard?->getFrameSize($this->graphicalSprites);
@@ -184,7 +191,8 @@ class Npc implements EventSessionCompletionTargetInterface, GraphicalSpriteProvi
         show_text(
           strval($page['text'] ?? ''),
           strval($page['name'] ?? $this->name),
-          charactersPerSecond: dialogue_speed()
+          charactersPerSecond: dialogue_speed(),
+          presentation: DialogueContext::getFromText($page),
         );
       }
 

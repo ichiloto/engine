@@ -191,12 +191,19 @@ Decoration is excluded entirely. Collision comes from authored symbols and the
 dictionary, never from colour, graphics or a separate stored collision grid.
 
 `CollisionType::COUNTER` marks a counter: solid to movement, but the player
-talks across it. Facing an NPC, the player reaches the faced cell and on across
-any number of counter cells in a straight line to the first NPC; anything else
-(floor, a wall, the map's edge) ends the reach, so walls stay opaque
-(`InteractionReach`). A counter is a gameplay type like any other: give the
-counter's glyph `COUNTER` in the flat dictionary or in the section of the
-layer it is drawn on, without changing how it looks.
+talks across one cell. A directly faced NPC is still reachable. Otherwise the
+faced cell must be `COUNTER` and the NPC must stand immediately behind it in
+the same cardinal heading. Floor, ordinary walls, the map's edge and a second
+counter cell without an NPC end the reach. An intervening NPC keeps priority;
+the player cannot reach a farther NPC through it (`InteractionReach`).
+
+Multi-cell-counter reach has been removed: the historical any-depth rule is
+superseded by Andrew's 2026-10-07 one-cell instruction. Counters are authored
+one gameplay row deep; wider art or an overhanging front face must not introduce
+another physical counter row. A counter is a gameplay type like any other:
+give the counter's glyph `COUNTER` in the flat dictionary or in the section of
+the layer it is drawn on, without changing how it looks. Graphical tile identity
+and visual offsets do not change collision or talk reach.
 
 ## Reachability
 
@@ -211,7 +218,8 @@ it, starting from where the game starts:
   events and cinematics, which can run from anywhere;
 - transfer events, edge triggers and sleep events, once the player can reach
   the cell that triggers them;
-- scripted transfers in an NPC's lines, once the player can stand beside it,
+- scripted transfers in an NPC's lines, once the player can speak to it directly
+  or across one counter cell,
   and in an event's data, once the event can fire.
 
 An arrival counts only once the player can reach its source, and the spread
@@ -231,13 +239,18 @@ through. Each map's report lists:
   rather than a blocker (`ReachabilityProblemKind::isBlocking()` is false): a
   map kept for content still to come strands nobody;
 - an event or edge trigger with no reachable cell, which therefore never fires;
-- a talkable NPC no reachable cell reaches, beside it or across counters by the
+- a talkable NPC no reachable cell reaches, beside it or across one counter cell by the
   same rule the field talks by, whose lines nobody can read;
 - an arrival naming a map the project does not have, and a map the field
   cannot read.
 
 `MapReachability` runs the same analysis on one map's collision grid, events
-and NPCs, for tests with synthetic maps.
+and NPCs, for tests with synthetic maps. Its bounded candidate cells use
+`InteractionReach::MAX_COUNTER_CELLS` and `findTalkCell`, the same authority as
+runtime interaction and the action prompt. The Editor's `ReachabilityValidator`
+delegates to `ProjectReachability`; authoring validation therefore uses the same
+one-cell rule, including whether an NPC's scripted transfer can run. This does
+not rewrite existing layouts or make graphical counter art a collision source.
 
 ## Editing and migration
 

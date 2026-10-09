@@ -95,6 +95,44 @@ gate; the runtime and exported Engine schema do not imply that it has shipped.
 
 ## Execution lifecycle
 
+### Text expressions
+
+Event and cinematic `text` commands may supply an optional `emotion`:
+
+```php
+['type' => 'text', 'name' => 'Authored Speaker', 'emotion' => 'Concerned',
+ 'text' => 'A line with an authored expression.'],
+```
+
+The same field works on ordinary NPC/dialogue pages, including conditional
+variants. Omission keeps `Neutral`; an explicit value must be a non-empty string.
+Keys are case-sensitive and project-owned, not a fixed Engine emotion enum.
+`name` remains the display speaker. Its existing `DialoguePresentationCatalog`
+speaker alias selects a stable actor or artwork resource, and `emotion` selects
+that identity's portrait role. No image path, filename inference, gameplay actor
+mutation or alternate speaker identity is stored in a line. Unknown expressions
+and missing art keep the catalog's existing Neutral/base-role fallback; text and
+terminal presentation do not require any portrait.
+
+The interpreter passes the existing `DialogueContext` to context-aware adapters
+through `EventDialoguePresentationInterface::beginDialogue`. The default modal
+uses that context for every page/typing snapshot. Legacy `EventPresentationInterface`
+adapters still receive their original text/speaker call and continuation behavior;
+they may opt into the additional capability without breaking terminal previews.
+Each line gets a fresh context, so an omitted expression never inherits the
+previous line's emotion. Choice, timed narration and title-card contracts are
+unchanged.
+
+The Engine exports this vocabulary as
+`CinematicCommandSchema::export()['textPresentation']`. Editor/GUI emotion pickers
+must use the selected speaker's catalog keys, offer omission, preserve authored
+values through source-preserving edits/undo (including unknown current bindings),
+and retain nested command/page data. Those controls and round-trip acceptance are
+not delivered by this runtime slice. Existing artwork replacement remains owned
+by the shared catalog and PNG checks, without frozen hashes or dimensions.
+
+### Session states
+
 `EventExecutionStatus` distinguishes:
 
 - `RUNNING`: the interpreter may execute the next command.
@@ -195,6 +233,22 @@ Concurrent routes are authored as separate lanes in a cinematic `parallel`
 block. Pathfinding, diagonal movement, jumping, collision bypass, party
 followers, and NPC patrol profiles are not supplied by this command.
 
+## Immediate player placement
+
+`move_player` places the player immediately on the current map; it is not a
+walking route or map transfer. `GameScene::relocatePlayer()` owns the shared
+handoff, also used by inn wake-up placement: cancel held walking, discard old
+sprite interpolation and pending arrival, synchronize the field viewport, snap
+an attached camera to the destination with normal map-edge clamping, and rebuild
+the complete field through its existing compositor. Deliberately detached
+cinematic cameras keep their framing and ownership.
+
+Placement does not trigger walking arrivals, encounters, transfer autosaves or
+event re-entry. Authored cinematic finalizers retain their existing subject
+transform commit boundary. Cross-map transfers still load destination geometry
+before positioning their camera; temporary cinematic rollback retains its
+separate lease boundary.
+
 ## Transfers and battles
 
 A transfer suspends the session before using the existing
@@ -212,6 +266,7 @@ path:
   'resultVariable' => 'training_result', // optional
   'defeatPolicy' => 'game_over',         // default; or continue
   'escapePolicy' => 'forbidden',         // optional; allowed or forbidden
+  'reservePolicy' => 'none',             // default; or replace_after_wipeout
   'firstStrike' => 'normal',             // optional; normal, party, or troop
 ],
 ```
@@ -252,6 +307,32 @@ are omitted, escape remains allowed for backward compatibility. A forbidden
 battle omits the Escape command and rechecks the rule at resolution, so stale
 or directly queued input cannot produce an escaped result. Malformed values
 fail closed at validation and produce a controlled runtime event failure.
+
+`reservePolicy` is a per-battle participation choice, shared by Traditional,
+ATB, terminal and graphical play. The default `none` removes the former
+automatic reserve fallback: the first three ordered party members remain
+active, including KO members, and their complete wipeout ends the battle in
+defeat even when reserves are healthy. Normal defeat leads to Game Over;
+the separately authored `defeatPolicy => continue` remains a deliberate
+story-event exception, not reserve replacement.
+
+Only `replace_after_wipeout` brings the next living members forward, up to
+three, after the outgoing wave's final damage/KO presentation has completed.
+It does not replace individual KO members while an active member survives.
+Each wave stays stable through redraws and revival; no rendering read can
+promote a reserve or silently change the active lineup. Reordering the travelling
+party applies when the next battle captures its roster, not during a redraw of
+the current battle. Turn order, targeting, names/status and battlefield art
+share that battle's roster. New ATB participants start at zero gauge; enemy
+gauges are retained. Once no living replacement remains, defeat proceeds
+normally. Party order and saves are unchanged and the option does not carry
+into subsequent battles. Entry rules capture the actual starting roster.
+
+Direct developers opt in through `SceneManager::loadBattleScene(...,
+extraSettings: ['reservePolicy' => 'replace_after_wipeout'])` or
+`BattleConfig`'s `settings`. `BattleSimulator::simulate` accepts the same
+per-battle `settings` for balancing. Invalid policy values are rejected rather
+than silently enabling replacement. This setting is not a project-wide default.
 
 ## Registered commands
 

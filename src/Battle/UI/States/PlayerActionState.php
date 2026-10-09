@@ -28,7 +28,7 @@ class PlayerActionState extends BattleScreenState
     // Select the current command.
     if (($activeIndex = $this->battleScreen->commandWindow->activeCommandIndex)> -1) {
       $activeCommandName = $this->battleScreen->commandWindow->commands[$activeIndex];
-      $this->battleScreen->alert($activeCommandName);
+      $this->battleScreen->alert((string) $activeCommandName);
     }
   }
 

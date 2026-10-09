@@ -3,8 +3,13 @@
 namespace Ichiloto\Engine\Battle\Actions;
 
 use Ichiloto\Engine\Battle\BattleAction;
+use Ichiloto\Engine\Battle\Resolution\CombatActionResult;
+use Ichiloto\Engine\Battle\Resolution\CombatResolver;
+use Ichiloto\Engine\Battle\Resolution\CombatResourceChange;
+use Ichiloto\Engine\Battle\Resolution\CombatTargetResult;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface as Actor;
 use Ichiloto\Engine\Entities\Effects\HPRecoveryEffect;
+use Ichiloto\Engine\Entities\Effects\BaseEffect;
 use Ichiloto\Engine\Entities\Effects\MPRecoveryEffect;
 use Ichiloto\Engine\Entities\Effects\ResurrectionEffect;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
@@ -18,7 +23,7 @@ use Ichiloto\Engine\Entities\Inventory\Items\Item;
  *
  * @package Ichiloto\Engine\Battle\Actions
  */
-class ItemBattleAction extends BattleAction
+class ItemBattleAction extends BattleAction implements ExecutionEligibility
 {
   public ItemScope $targetScope {
     get {
@@ -57,31 +62,55 @@ class ItemBattleAction extends BattleAction
     parent::__construct($item->name);
   }
 
+  public function getExecutionRefusal(Actor $actor): ?string
+  {
+    if ($actor->isKnockedOut) {
+      return sprintf('%s cannot act while knocked out.', $actor->name);
+    }
+    $quantity = $this->inventory?->getQuantityById($this->item->id) ?? $this->item->quantity;
+    return $quantity < 1
+      ? sprintf('%s cannot use %s: none left.', $actor->name, $this->name)
+      : null;
+  }
+
   /**
    * @inheritDoc
    */
   public function execute(Actor $actor, array $targets): void
   {
-    if ($actor->isKnockedOut || $this->item->quantity < 1) {
+    if ($this->getExecutionRefusal($actor) !== null) {
       return;
     }
 
-    $didApply = false;
+    // Spend through the resource owner before effects can change that inventory.
+    if ($this->item->consumable && $this->item->effects !== []
+      && array_any($targets, static fn($target): bool => $target instanceof Actor)) {
+      $this->consumeOne();
+    }
+    $results = [];
 
     foreach ($targets as $target) {
       if (! $target instanceof Actor) {
         continue;
       }
 
+      $change = new CombatResourceChange();
+      $hits = [];
       foreach ($this->item->effects as $effect) {
+        $hp = $target->stats->currentHp;
+        $mp = $target->stats->currentMp;
+        $previousResult = $effect instanceof BaseEffect ? $effect->lastResult : null;
         $effect->apply($target);
-        $didApply = true;
+        $change = $change->accumulate(CombatResourceChange::measure($target, $hp, $mp));
+        if ($effect instanceof BaseEffect && $effect->lastResult !== null && $effect->lastResult !== $previousResult) {
+          $hits[] = $effect->lastResult;
+        }
       }
+      $results[] = new CombatTargetResult(CombatResolver::identity($target), $hits, resourceChange: $change);
     }
 
-    if ($didApply && $this->item->consumable) {
-      $this->consumeOne();
-    }
+    $this->lastResult = new CombatActionResult('item.' . $this->item->id, $this->nextExecutionId(),
+      CombatResolver::identity($actor), $results);
   }
 
   /**
@@ -96,7 +125,10 @@ class ItemBattleAction extends BattleAction
    */
   protected function consumeOne(): void
   {
-    if ($this->inventory?->consumeReference($this->item->id, 1, 'consuming a battle item')) {
+    if ($this->inventory !== null) {
+      if (!$this->inventory->consumeReference($this->item->id, 1, 'consuming a battle item')) {
+        throw new \LogicException('An eligible battle item could not be consumed from its inventory.');
+      }
       return;
     }
 

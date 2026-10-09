@@ -8,6 +8,7 @@ use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Battle\Actions\ItemBattleAction;
 use Ichiloto\Engine\Battle\BattleCommandCatalog;
 use Ichiloto\Engine\Battle\BattleAction;
+use Ichiloto\Engine\Battle\BattlePartyRoster;
 use Ichiloto\Engine\Battle\BattleTurnTimings;
 use Ichiloto\Engine\Battle\Presentation\BattleFeedbackRole;
 use Ichiloto\Engine\Battle\Resolution\CombatHitResult;
@@ -23,8 +24,10 @@ use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\HPRecoverSkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDamageSkillEffect;
 use Ichiloto\Engine\Entities\Enumerations\Occasion;
+use Ichiloto\Engine\Entities\Enumerations\WeaponType;
 use Ichiloto\Engine\Entities\ItemScope;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
+use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
 use Ichiloto\Engine\Entities\Magic\MagicEffectType;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
@@ -37,27 +40,37 @@ use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 
+use Ichiloto\Engine\Audio\AudioManager;
+use Ichiloto\Engine\Battle\BattlePacing;
+use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\TurnBasedEngine;
+use Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline;
+use Ichiloto\Engine\Core\Time;
+use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
+use Ichiloto\Engine\UI\Accessibility;
+use function Tests\Support\Battle\createTargetExecutionFixture;
+
+require_once __DIR__ . '/../Support/Battle/QueuedCommandFixture.php';
+
 final class ActionEffectTrace
 {
   public array $events = [];
   public array $frames = [];
+  public array $targetFrames = [];
+  public bool $renderFailed = false;
 
   public function __construct(public string $renderMode) {}
 }
 
 final class ActionEffectField extends BattleFieldWindow
 {
-  public function __construct(private ActionEffectTrace $trace) {}
-  public function erase(?int $x = null, ?int $y = null): void {}
-  public function render(?int $x = null, ?int $y = null): void {}
-  public function showActionAnimationFrame(\Ichiloto\Engine\Entities\Interfaces\CharacterInterface $battler, Animation $animation, int $frameIndex): void
-  {
-    $this->trace->events[] = 'render:' . $frameIndex;
-    if ($this->trace->renderMode === 'type-error') { throw new TypeError('invalid cell renderer'); }
-  }
+  public function __construct(BattleScreen $screen, private ActionEffectTrace $trace) { $this->battleScreen = $screen; }
+  public function focusPartyBattler(int $index, bool $blink = false): void {}
+  public function focusOnTroopBattler(int $index, bool $blink = false): void {}
   public function clearTargetIndicators(): void {}
   public function clearMagicCastEffects(): void {}
   public function clearStatChangePopups(): void {}
+  public function showStatChangePopup(CharacterInterface $battler, array $lines, bool $clearExisting = true,
+    float $durationSeconds = 0.0): void {}
   public function clearBattleFlash(): void
   {
     $this->trace->events[] = 'clear-flash';
@@ -67,69 +80,109 @@ final class ActionEffectField extends BattleFieldWindow
     }
   }
   public function clearSummonShake(): void {}
-  public function showSummonCutsceneFrame(SummonCompiledCutscene $cutscene, int $frameIndex): void
-  {
-    if ($this->trace->renderMode === 'none') { return; }
-    $this->trace->frames[] = $frameIndex;
-    $this->trace->events[] = 'render:' . $frameIndex;
-    if ($this->trace->renderMode === 'fail' && $frameIndex === 0) {
-      throw new RuntimeException('display offline');
-    }
-  }
 }
 
 final class ActionEffectScreen extends BattleScreen
 {
-  public function __construct(private ActionEffectTrace $trace)
+  public function __construct(private ActionEffectTrace $trace, BattleScreen $prototype,
+    private bool $graphical, private BattleTurnTimings $timings)
   {
-    $this->fieldWindow = new ActionEffectField($trace);
+    $this->fieldWindow = new ActionEffectField($this, $trace);
+    $this->commandWindow = $prototype->commandWindow;
+    $this->characterNameWindow = $prototype->characterNameWindow;
+    $this->characterStatusWindow = $prototype->characterStatusWindow;
+    $this->commandContextWindow = $prototype->commandContextWindow;
   }
+  public function getPacing(): BattlePacing
+  {
+    return new class($this->timings) extends BattlePacing {
+      public function __construct(private BattleTurnTimings $timings) {}
+      public function getTurnTimings(?BattleAction $action): BattleTurnTimings { return $this->timings; }
+    };
+  }
+  public function usesGraphicalField(): bool { return $this->graphical; }
   public function hideMessage(): void {}
   public function hideControls(): void {}
   public function showControls(): void {}
-  public function refreshField(): void {}
   public function showMessage(string $text): void { $this->trace->events[] = $text; }
-}
-
-final class ActionEffectHoldState extends ActionExecutionState
-{
-  public function __construct(private ActionEffectTrace $trace) {}
-
-  protected function pause(float $seconds): void
+  public function refreshField(): void
   {
-    $this->trace->events[] = 'hold:' . $seconds;
+    $playback = $this->fieldWindow->getCommandPlayback();
+    if ($playback === null || $playback->phase !== 'target' || $this->trace->renderMode === 'none'
+      || $this->trace->renderFailed) { return; }
+    foreach ($playback->getActiveSegments(Accessibility::prefersReducedMotion(), terminal: !$this->graphical) as $segment) {
+      foreach ($segment['drawCommands'] as $command) {
+        if (!isset($command['content'])) { continue; }
+        $frame = (int)$command['content'];
+        $this->trace->targetFrames[] = [$playback->session->currentFrame, $frame];
+        if (!in_array($frame, $this->trace->frames, true)) {
+          $this->trace->frames[] = $frame;
+          $this->trace->events[] = 'render:' . $frame;
+        }
+        if (in_array($this->trace->renderMode, ['fail', 'type-error'], true)) {
+          $this->trace->renderFailed = true;
+          throw $this->trace->renderMode === 'type-error'
+            ? new TypeError('invalid cell renderer') : new RuntimeException('display offline');
+        }
+      }
+    }
   }
 }
 
-/** Exercise the action state's real presentation-to-resolution boundary without audio or a native window. */
+final class ActionEffectState extends ActionExecutionState
+{
+  public function __construct(TurnBasedEngine $engine, private ?SummonCompiledCutscene $cutscene,
+    private ?Animation $animation)
+  {
+    parent::__construct($engine);
+  }
+  protected function resolveSummonCutscene(?BattleAction $action): ?SummonCompiledCutscene { return $this->cutscene; }
+  protected function resolveActionAnimation(?BattleAction $action, CharacterInterface $actor): ?Animation { return $this->animation; }
+}
+
+/** Advance the production action state and shared command clock, without audio or a native window. */
 function runActionEffectPlayback(
   array $timing,
   string $renderMode,
   bool $reducedMotion,
   ?ActionEffectTrace $trace = null,
   ?callable $afterResolution = null,
-  float $effectDisplaySeconds = 0.0,
+  float $effectDisplaySeconds = 0.25,
+  ?Animation $animation = null,
+  bool $graphical = true,
 ): array
 {
   $previousConfig = ConfigStore::has(ProjectConfig::class) ? ConfigStore::get(ProjectConfig::class) : null;
+  $previousDelta = new ReflectionProperty(Time::class, 'deltaTime')->getValue();
   ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reducedMotion]]));
   try {
     $trace ??= new ActionEffectTrace($renderMode);
-    $context = (new ReflectionClass(TurnStateExecutionContext::class))->newInstanceWithoutConstructor();
-    new ReflectionProperty(TurnStateExecutionContext::class, 'ui')->setValue($context, new ActionEffectScreen($trace));
-    $actor = new Character('Caster', 0, new Stats());
-    $target = new Character('Target', 0, new Stats(currentHp: 100, totalHp: 100));
-    $cutscene = new SummonCompiledCutscene('', 'fixture', fps: 1000,
+    $audio = new class extends AudioManager {
+      public function __construct() {}
+      public function playSystemSound(SystemSound $sound): void {}
+      public function playSoundEffect(string $path): void {}
+    };
+    [$engine, $context, $prototype, $actor, , $enemies] = createTargetExecutionFixture(false, $graphical, $audio);
+    $target = $enemies[0];
+    $screen = new ActionEffectScreen($trace, $prototype, $graphical,
+      new BattleTurnTimings(0, 0, 0, $effectDisplaySeconds, 0, 0, 0));
+    new ReflectionProperty(TurnStateExecutionContext::class, 'ui')->setValue($context, $screen);
+    $cutscene = $animation !== null ? null : new SummonCompiledCutscene('', 'fixture', fps: 16,
+      playbackSegments: array_map(static fn(int $frame): array => [
+        'startFrame' => $frame, 'endFrame' => $frame, 'layer' => 'glyph',
+        'drawCommands' => [['trackId' => 'frame', 'content' => (string)$frame, 'payload' => ['anchor' => 'target']]],
+      ], range(0, 3)),
       cueSchedule: [
         ['id' => 'before', 'frame' => 1, 'type' => 'showMessage', 'payload' => ['text' => 'before']],
-        ['id' => 'impact', 'frame' => 2, 'type' => 'applyEffect'],
+        ['id' => 'impact', 'frame' => 2, 'type' => 'applyEffect', 'payload' => []],
         ['id' => 'after', 'frame' => 3, 'type' => 'showMessage', 'payload' => ['text' => 'after']],
       ],
       defaults: ['name' => '', 'lengthFrames' => 4, 'effectTiming' => $timing]);
+    $state = new ActionEffectState($engine, $cutscene, $animation);
     $resolutions = 0;
-    new ReflectionMethod(ActionExecutionState::class, 'resolvePresentedAction')->invoke(
-      new ActionEffectHoldState($trace), $context, $actor, $target, null,
-      new BattleTurnTimings(0, 0, 0, $effectDisplaySeconds, 0, 0, 0), $cutscene, null,
+    new ReflectionMethod(ActionExecutionState::class, 'performTurnSequence')->invoke(
+      $state, $context, $actor, [$target], $cutscene === null ? null
+        : new SkillBattleAction(new SpecialSkill('Fixture', '', '', 0, 0)), 'Fixture',
       function () use ($target, $trace, $afterResolution, &$resolutions): void {
         $resolutions++;
         $target->stats->currentHp -= 7;
@@ -137,16 +190,23 @@ function runActionEffectPlayback(
         if ($afterResolution !== null) { $afterResolution(); }
       },
     );
-    return ['events' => $trace->events, 'frames' => $trace->frames,
-      'resolutions' => $resolutions, 'hp' => $target->stats->currentHp];
+    $playback = $screen->fieldWindow->getCommandPlayback();
+    new ReflectionProperty(Time::class, 'deltaTime')->setValue(null, 1 / BattleCommandTimeline::FPS);
+    for ($tick = 0; $tick < 240 && $screen->fieldWindow->getCommandPlayback() !== null; $tick++) {
+      $state->update($context);
+    }
+    expect($screen->fieldWindow->getCommandPlayback())->toBeNull();
+    return ['events' => $trace->events, 'frames' => $trace->frames, 'targetFrames' => $trace->targetFrames,
+      'resolutions' => $resolutions, 'hp' => $target->stats->currentHp, 'playback' => $playback];
   } finally {
+    new ReflectionProperty(Time::class, 'deltaTime')->setValue(null, $previousDelta);
     $previousConfig === null ? ConfigStore::remove(ProjectConfig::class)
       : ConfigStore::put(ProjectConfig::class, $previousConfig);
   }
 }
 
-it('resolves an authored summon once at cue, frame or end through the action state', function ($timing, $renderMode, $reducedMotion, $expectedFrames) {
-  $result = runActionEffectPlayback($timing, $renderMode, $reducedMotion);
+it('resolves an authored summon once at cue, frame or end through the action state', function ($timing, $renderMode, $reducedMotion, $expectedFrames, bool $graphical) {
+  $result = runActionEffectPlayback($timing, $renderMode, $reducedMotion, graphical: $graphical);
   $events = $result['events'];
   $resolution = array_search('resolve', $events, true);
   $before = array_search('before', $events, true);
@@ -160,6 +220,9 @@ it('resolves an authored summon once at cue, frame or end through the action sta
     ->and($resolution)->toBeInt()
     ->and($resolution > $before)->toBeTrue()
     ->and($timing['mode'] === 'end' ? $resolution > $after : $resolution < $after)->toBeTrue();
+  if ($renderMode === 'fail') {
+    expect($result['playback']->presentationFailure)->toBeInstanceOf(RuntimeException::class);
+  }
 })->with([
   'cue' => [['mode' => 'cue', 'cueId' => 'impact'], 'normal', false, [0, 1, 2, 3]],
   'frame' => [['mode' => 'frame', 'frame' => 2], 'normal', false, [0, 1, 2, 3]],
@@ -171,7 +234,7 @@ it('resolves an authored summon once at cue, frame or end through the action sta
   'cue reduced motion' => [['mode' => 'cue', 'cueId' => 'impact'], 'normal', true, [3]],
   'frame reduced motion' => [['mode' => 'frame', 'frame' => 2], 'normal', true, [3]],
   'end reduced motion' => [['mode' => 'end'], 'normal', true, [3]],
-]);
+])->with([true, false]);
 
 it('preserves a gameplay failure when summon cleanup also fails', function () {
   $trace = new ActionEffectTrace('cleanup-fail');
@@ -189,55 +252,29 @@ it('preserves a gameplay failure when summon cleanup also fails', function () {
 });
 
 it('holds the final summon frame through the reduced-motion effect beat before cleanup', function () {
-  $result = runActionEffectPlayback(['mode' => 'end'], 'normal', true, effectDisplaySeconds: 0.25);
-  $events = $result['events'];
-  expect(array_search('render:3', $events, true))->toBeLessThan(array_search('hold:0.25', $events, true))
-    ->and(array_search('hold:0.25', $events, true))->toBeLessThan(array_search('clear-flash', $events, true));
+  $result = runActionEffectPlayback(['mode' => 'end'], 'normal', true);
+  expect($result['targetFrames'])->toHaveCount(30)
+    ->and(array_unique(array_column($result['targetFrames'], 1)))->toBe([3])
+    ->and(array_search('render:3', $result['events'], true))->toBeLessThan(array_search('clear-flash', $result['events'], true));
 });
 
 it('holds the final cell animation frame through the reduced-motion effect beat before cleanup', function () {
-  $previousConfig = ConfigStore::has(ProjectConfig::class) ? ConfigStore::get(ProjectConfig::class) : null;
-  ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => true]]));
-  try {
-    $trace = new ActionEffectTrace('normal');
-    $context = (new ReflectionClass(TurnStateExecutionContext::class))->newInstanceWithoutConstructor();
-    new ReflectionProperty(TurnStateExecutionContext::class, 'ui')->setValue($context, new ActionEffectScreen($trace));
-    $actor = new Character('Caster', 0, new Stats());
-    $target = new Character('Target', 0, new Stats());
-    new ReflectionMethod(ActionExecutionState::class, 'resolvePresentedAction')->invoke(
-      new ActionEffectHoldState($trace), $context, $actor, $target, null,
-      new BattleTurnTimings(0, 0, 0, 0.25, 0, 0, 0), null,
-      new Animation(1, 'Effect', maxFrames: 3), static function (): void {},
-    );
-    expect(array_search('render:3', $trace->events, true))->toBeLessThan(array_search('hold:0.25', $trace->events, true))
-      ->and(array_search('hold:0.25', $trace->events, true))->toBeLessThan(array_search('clear-flash', $trace->events, true));
-  } finally {
-    $previousConfig === null ? ConfigStore::remove(ProjectConfig::class)
-      : ConfigStore::put(ProjectConfig::class, $previousConfig);
-  }
+  $animation = new Animation(1, 'Effect', maxFrames: 3);
+  foreach (range(1, 3) as $frame) { $animation->setCell($frame, 0, 0, (string)$frame); }
+  $result = runActionEffectPlayback(['mode' => 'end'], 'normal', true, animation: $animation);
+  expect($result['targetFrames'])->toHaveCount(30)
+    ->and(array_unique(array_column($result['targetFrames'], 1)))->toBe([3])
+    ->and(array_search('render:3', $result['events'], true))->toBeLessThan(array_search('clear-flash', $result['events'], true));
 });
 
-it('surfaces a cell renderer type error instead of treating it as an optional presentation failure', function () {
-  $previousConfig = ConfigStore::has(ProjectConfig::class) ? ConfigStore::get(ProjectConfig::class) : null;
-  ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => true]]));
-  try {
-    $trace = new ActionEffectTrace('type-error');
-    $context = (new ReflectionClass(TurnStateExecutionContext::class))->newInstanceWithoutConstructor();
-    new ReflectionProperty(TurnStateExecutionContext::class, 'ui')->setValue($context, new ActionEffectScreen($trace));
-    $actor = new Character('Caster', 0, new Stats());
-    $target = new Character('Target', 0, new Stats());
-    expect(static function () use ($trace, $context, $actor, $target): void {
-      new ReflectionMethod(ActionExecutionState::class, 'resolvePresentedAction')->invoke(
-        new ActionEffectHoldState($trace), $context, $actor, $target, null,
-        new BattleTurnTimings(0, 0, 0, 0, 0, 0, 0), null,
-        new Animation(1, 'Effect', maxFrames: 1), static function (): void {},
-      );
-    })->toThrow(TypeError::class, 'invalid cell renderer');
-    expect($trace->events)->not->toContain('clear-flash');
-  } finally {
-    $previousConfig === null ? ConfigStore::remove(ProjectConfig::class)
-      : ConfigStore::put(ProjectConfig::class, $previousConfig);
-  }
+it('diagnoses renderer type errors without restoring the removed blocking battle abort behavior', function () {
+  $animation = new Animation(1, 'Effect');
+  $animation->setCell(1, 0, 0, '1');
+  $result = runActionEffectPlayback(['mode' => 'end'], 'type-error', true, animation: $animation);
+  expect($result['playback']->presentationFailure)->toBeInstanceOf(TypeError::class)
+    ->and($result['playback']->presentationFailure->getMessage())->toBe('invalid cell renderer')
+    ->and($result['resolutions'])->toBe(1)->and($result['hp'])->toBe(93)
+    ->and($result['events'])->toContain('clear-flash');
 });
 
 it('replaces scene-owned summon assets between battles even when the action state survives', function () {
@@ -251,7 +288,8 @@ it('replaces scene-owned summon assets between battles even when the action stat
     chdir($root);
     file_put_contents($data, "<?php return ['id' => 'call', 'name' => 'Before', 'linkedActionId' => 'Call'];");
     file_put_contents($timeline, "<?php return ['fps' => 12, 'lengthFrames' => 1, 'tracks' => [], 'cues' => []];");
-    $state = makeActionExecutionStateForTest();
+    [$engine] = createTargetExecutionFixture(false, false, $this->createMock(AudioManager::class));
+    $state = $engine->actionExecutionState;
     $resolve = new ReflectionMethod(ActionExecutionState::class, 'resolveSummonCutscene');
     $action = new SkillBattleAction(new SpecialSkill('Call', '', '', 0, 0));
     BattleCommandCatalog::beginBattle();
@@ -436,7 +474,7 @@ it('resolves explicit animation ids and removes implicit display-name selection'
   $path = $root . '/assets/Data/animations.php';
   try {
     chdir($root);
-    file_put_contents($path, "<?php return [['id' => 7, 'name' => 'Named Skill'], ['id' => 8, 'name' => 'Selected'], ['id' => 9, 'name' => 'Renamed default', 'roles' => ['attack', 'skill']]];");
+    file_put_contents($path, "<?php return [['id' => 7, 'name' => 'Named Skill'], ['id' => 8, 'name' => 'Selected'], ['id' => 9, 'name' => 'Renamed default', 'roles' => ['attack', 'attack-unarmed', 'skill']]];");
     $resolve = new ReflectionMethod(ActionExecutionState::class, 'resolveActionAnimation');
     $state = makeActionExecutionStateForTest();
     $selectedSkill = new SpecialSkill('Named Skill', '', '*', 0, 0, animationId: 8);
@@ -444,12 +482,13 @@ it('resolves explicit animation ids and removes implicit display-name selection'
     $legacySkill = new SpecialSkill('Named Skill', '', '*', 0, 0);
     $item = new Item('Potion', '', '*', 0, animationId: 8);
     $legacyItem = new Item('Potion', '', '*', 0);
-    expect($resolve->invoke($state, new SkillBattleAction($selectedSkill))?->id)->toBe(8)
-      ->and($resolve->invoke($state, new ItemBattleAction($item))?->id)->toBe(8)
-      ->and($resolve->invoke($state, new SkillBattleAction($missingSkill)))->toBeNull()
-      ->and($resolve->invoke($state, new SkillBattleAction($legacySkill))?->id)->toBe(9)
-      ->and($resolve->invoke($state, new AttackAction('Localized attack'))?->id)->toBe(9)
-      ->and($resolve->invoke($state, new ItemBattleAction($legacyItem)))->toBeNull();
+    $actor = new Character('Actor', 1, new Stats());
+    expect($resolve->invoke($state, new SkillBattleAction($selectedSkill), $actor)?->id)->toBe(8)
+      ->and($resolve->invoke($state, new ItemBattleAction($item), $actor)?->id)->toBe(8)
+      ->and($resolve->invoke($state, new SkillBattleAction($missingSkill), $actor))->toBeNull()
+      ->and($resolve->invoke($state, new SkillBattleAction($legacySkill), $actor)?->id)->toBe(9)
+      ->and($resolve->invoke($state, new AttackAction('Localized attack'), $actor)?->id)->toBe(9)
+      ->and($resolve->invoke($state, new ItemBattleAction($legacyItem), $actor))->toBeNull();
   } finally {
     chdir($previous);
     $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
@@ -465,19 +504,27 @@ it('uses attack effects for typed basic skills and preserves an explicit effect 
   $path = $root . '/assets/Data/animations.php';
   try {
     chdir($root);
-    file_put_contents($path, "<?php return [['id' => 1, 'name' => 'Physical', 'roles' => ['attack']], ['id' => 2, 'name' => 'Technique', 'roles' => ['skill']]];");
+    file_put_contents($path, "<?php return [['id' => 1, 'name' => 'Physical', 'roles' => ['attack-unarmed', 'attack-staff']], ['id' => 2, 'name' => 'Technique', 'roles' => ['skill']], ['id' => 3, 'name' => 'Blade', 'roles' => ['attack-sword']]];");
     $resolve = new ReflectionMethod(ActionExecutionState::class, 'resolveActionAnimation');
     $state = makeActionExecutionStateForTest();
     $basic = new BasicSkill('Not named Attack', '', '', 0, 0);
     $special = new SpecialSkill('Attack', '', '', 0, 0);
     $override = new BasicSkill('Alternate strike', '', '', 0, 0, animationId: 2);
-    expect($resolve->invoke($state, new SkillBattleAction($basic))?->id)->toBe(1)
-      ->and($resolve->invoke($state, new SkillBattleAction($special))?->id)->toBe(2)
-      ->and($resolve->invoke($state, new SkillBattleAction($override))?->id)->toBe(2);
+    $actor = new Character('Actor', 1, new Stats());
+    $slots = $actor->equipment;
+    expect($resolve->invoke($state, new SkillBattleAction($basic), $actor)?->id)->toBe(1);
+    foreach ([[WeaponType::STAFF, 1], [WeaponType::SWORD, 3], [WeaponType::BOW, null]] as [$type, $expected]) {
+      $slots[0]->equipment = new Weapon('Weapon', '', '', 1, equipmentType: $type);
+      expect($resolve->invoke($state, new SkillBattleAction($basic), $actor)?->id)->toBe($expected)
+        ->and($resolve->invoke($state, new AttackAction('Renamed attack'), $actor)?->id)->toBe($expected)
+        ->and($resolve->invoke($state, new SkillBattleAction($special), $actor)?->id)->toBe(2)
+        ->and($resolve->invoke($state, new SkillBattleAction($override), $actor)?->id)->toBe(2);
+    }
   } finally {
     chdir($previous);
-    unlink($path);
-    rmdir($root . '/assets/Data'); rmdir($root . '/assets'); rmdir($root);
+    $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
+    foreach ($files as $file) { $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname()); }
+    rmdir($root);
   }
 });
 
@@ -603,7 +650,7 @@ function makeActionExecutionContextForTest(Party $party, Troop $troop): TurnStat
 {
   $context = (new ReflectionClass(TurnStateExecutionContext::class))->newInstanceWithoutConstructor();
 
-  foreach (['party' => $party, 'troop' => $troop] as $property => $value) {
+  foreach (['party' => $party, 'troop' => $troop, 'partyRoster' => new BattlePartyRoster($party)] as $property => $value) {
     $reflectionProperty = new ReflectionProperty(TurnStateExecutionContext::class, $property);
     $reflectionProperty->setValue($context, $value);
   }

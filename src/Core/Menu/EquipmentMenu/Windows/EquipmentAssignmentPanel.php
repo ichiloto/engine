@@ -6,6 +6,9 @@ use Ichiloto\Engine\Core\Area;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Entities\EquipmentSlot;
+use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Entities\Inventory\EquipmentIcon;
+use Ichiloto\Engine\UI\Presentation\CharacterMenuRows;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
@@ -34,6 +37,7 @@ class EquipmentAssignmentPanel extends Window
    * @var EquipmentSlot[] The slots to display in the panel.
    */
   protected array $slots = [];
+  protected ?Character $character = null;
   /**
    * @var int The total number of slots.
    */
@@ -68,9 +72,10 @@ class EquipmentAssignmentPanel extends Window
    * @param EquipmentSlot[] $slots The slots to display in the panel.
    * @return void
    */
-  public function setSlots(array $slots): void
+  public function setSlots(array $slots, ?Character $character = null): void
   {
     $this->slots = $slots;
+    $this->character = $character;
     $this->totalSlots = count($slots);
     $this->updateContent();
   }
@@ -84,8 +89,10 @@ class EquipmentAssignmentPanel extends Window
 
     foreach ($this->slots as $index => $slot) {
       $prefix = $index === $this->activeSlotIndex ? '>' : ' ';
-      $slotName = TerminalText::padRight("{$slot->name}:", 20);
-      $equippedItem = trim("{$slot->equipment?->icon} {$slot->equipment?->name}");
+      $type = $this->character === null ? $slot->semanticSlot : CharacterMenuRows::getSlotIcon($this->character, $slot);
+      $icon = TerminalText::padRight(EquipmentIcon::getTerminalGlyph($type), 2);
+      $slotName = TerminalText::padRight("{$icon} {$slot->name}:", 20);
+      $equippedItem = $slot->equipment?->name ?? '';
       $content[] = " {$prefix} {$slotName} {$equippedItem}";
     }
 

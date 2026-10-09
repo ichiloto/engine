@@ -2,10 +2,14 @@
 
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueCanvasPresentation;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePageLayout;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePaginationBuilder;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePresentationCatalog;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueSnapshot;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueScenePresentation;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\SkitStageStyle;
+use Ichiloto\Engine\Messaging\Notifications\Presentation\NotificationLayout;
+use Ichiloto\Engine\Messaging\Notifications\Presentation\NotificationPlacement;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
@@ -90,6 +94,23 @@ it('uses independent themes and actor roles without a whole-scene dialogue backi
     expect($backing)->not->toBeNull()->and($backing->layer)->toBe(20);
 })->with([false, true]);
 
+it('preserves real dialogue and skit protection without treating the backdrop as a full-screen obstruction', function (bool $skit) {
+    $catalogue = getDialogueTestCatalog($this->root);
+    $context = $skit ? new DialogueContext(actorId: 'hero', skitId: 'sample', skitTitle: 'Short title',
+        participants: [['actorId' => 'hero', 'name' => 'Hero', 'emotion' => 'Neutral']]) : new DialogueContext();
+    $canvas = DialogueCanvasPresentation::compose(getDialogueTestLine(context: $context), $catalogue);
+    $layout = new NotificationLayout($catalogue->theme, $canvas->width, $canvas->height);
+    $anchor = $layout->getBounds($layout->widths[0], $layout->getHeight(1, 1));
+    expect($canvas->protectedAreas)->not->toBeNull()
+        ->and(NotificationPlacement::isClear($anchor, $canvas->getOverlayProtection()))->toBeTrue();
+    $dialogue = array_find($canvas->textLayers, fn($layer) => $layer->id === 'dialogue-text');
+    expect(NotificationPlacement::isClear($dialogue->clipRect, $canvas->getOverlayProtection()))->toBeFalse();
+    if ($skit) {
+        $bust = array_find($canvas->images, fn($image) => $image->id === 'skit-bust-0');
+        expect(NotificationPlacement::isClear($bust->destination, $canvas->getOverlayProtection()))->toBeFalse();
+    }
+})->with([false, true]);
+
 it('loads non-actor speaker artwork without adding gameplay actor references', function () {
     mkdir($this->root . '/Data/Presentation', 0777, true);
     file_put_contents($this->root . '/Data/Presentation/dialogue.php', '<?php return ' . var_export([
@@ -138,6 +159,73 @@ it('keeps typing layout stable and only shows the ready cue after typing', funct
         ->and(array_column($typing->images, 'id'))->not->toContain('dialogue-ready-1-1')
         ->and(array_column($complete->images, 'id'))->toContain('dialogue-ready-1-1');
 });
+
+it('removes content-driven height changes across pages speakers help and portrait availability', function (int $width, int $height) {
+    $catalogue = getDialogueTestCatalog($this->root);
+    $bounds = [];
+    foreach (['Display Hero', 'Plain speaker', ''] as $speaker) {
+        foreach ([['Short.', ''], ["First\nSecond\nThird", ''], ['Short.', 'A short hint.']] as [$page, $help]) {
+            $line = new DialogueSnapshot($speaker, $page, $page, false, 0, 2, false,
+                WindowPosition::BOTTOM, new DialogueContext(), $help);
+            $canvas = DialogueCanvasPresentation::compose($line, $catalogue, $width, $height);
+            $bounds[] = array_find($canvas->images, fn($image) => $image->id === 'dialogue-body-0-0')->destination;
+        }
+    }
+    foreach ($bounds as $box) { expect($box)->toEqual($bounds[0]); }
+})->with([[1280, 720], [800, 480]]);
+
+it('refuses a fourth graphical row instead of growing or silently clipping the owner page', function () {
+    $line = new DialogueSnapshot('Plain speaker', "One\nTwo\nThree\nFour", '', true, 0, 1, false,
+        WindowPosition::BOTTOM, new DialogueContext());
+    expect(fn() => DialogueCanvasPresentation::compose($line, getDialogueTestCatalog($this->root)))
+        ->toThrow(RuntimeException::class, 'owner must paginate');
+});
+
+it('negotiates narrow portrait pages before typing and keeps all text in the same owner', function (string $sentence) {
+    $config = new ReflectionClass(\Ichiloto\Engine\Util\Config\ConfigStore::class)->getStaticProperties();
+    $events = new ReflectionClass(\Ichiloto\Engine\Events\EventManager::class)->getStaticProperties();
+    \Ichiloto\Engine\Util\Config\ConfigStore::put(\Ichiloto\Engine\Util\Config\PlaySettings::class,
+        new \Ichiloto\Engine\Util\Config\PlaySettings(['width' => 70, 'height' => 30]));
+    mkdir($this->root . '/Data/Presentation', 0777, true);
+    file_put_contents($this->root . '/Data/Presentation/dialogue.php', '<?php return ' . var_export([
+        'schema' => 'ichiloto.dialogue/1',
+        'theme' => ['schema' => 'ichiloto.menu/1', 'metrics' => ['cellWidth' => 10, 'cellHeight' => 28]],
+        'actors' => ['hero' => ['portrait' => 'hero.png']],
+    ], true) . ';');
+    $caps = [...MenuPresentationCatalog::CAPABILITIES, 'canvas_overlay'];
+    $transport = new FakeRendererTransport();
+    $transport->batches = [[RendererEvent::fromJson(json_encode(['type' => 'ready', 'protocol' => 2, 'capabilities' => $caps]))]];
+    $runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['not-launched']),
+        $this->root, cellWidth: 10, cellHeight: 20, requiredCapabilities: $caps), $transport);
+    $game = new class extends \Ichiloto\Engine\Core\Game {
+        public function __construct() {}
+        public function __destruct() {}
+    };
+    $runtime->start('Page capacity', 70, 30);
+    $game->useRendererRuntime($runtime);
+    $context = new DialogueContext(actorId: 'hero');
+    $message = str_repeat($sentence . ' ', 20);
+    $modal = new class($game, $message, 'Hero', presentation: $context) extends TextBoxModal {
+        public function getPages(): array { return $this->messagePages; }
+    };
+    try {
+        $layout = $runtime->getDialoguePageLayout('Hero', $context, '');
+        $catalogue = DialoguePresentationCatalog::load($this->root);
+        expect(count($modal->getPages()))->toBeGreaterThan(1)
+            ->and(trim(preg_replace('/\s+/', ' ', implode(' ', $modal->getPages()))))->toBe(trim($message));
+        foreach ($modal->getPages() as $index => $page) {
+            $line = new DialogueSnapshot('Hero', $page, $page, false, $index, count($modal->getPages()), false,
+                WindowPosition::BOTTOM, $context);
+            $canvas = DialogueCanvasPresentation::compose($line, $catalogue, 700, 600);
+            $text = array_find($canvas->textLayers, fn($layer) => $layer->id === 'dialogue-text');
+            expect($text->grid->rows)->toBeLessThanOrEqual($layout->proseRows);
+        }
+    } finally {
+        $runtime->shutdown();
+        foreach ($config as $key => $value) { new ReflectionProperty(\Ichiloto\Engine\Util\Config\ConfigStore::class, $key)->setValue(null, $value); }
+        foreach ($events as $key => $value) { new ReflectionProperty(\Ichiloto\Engine\Events\EventManager::class, $key)->setValue(null, $value); }
+    }
+})->with(['A whole sentence remains available.', "Bonjour café e\u{301}. Complete sentence."]);
 
 it('removes the portrait gutter for plain speakers missing art and narration', function () {
     $catalogue = getDialogueTestCatalog($this->root);
@@ -350,6 +438,77 @@ it('drops an opaque base canvas rather than hiding terminal dialogue when option
         ->and(file_get_contents($this->root . '/warning.log'))->toContain('terminal');
 })->with([true, false]);
 
+it('composes nested reward alerts above dialogue and excludes every converted terminal owner', function (bool $withBase) {
+    mkdir($this->root . '/Data/Presentation', 0777, true);
+    file_put_contents($this->root . '/Data/Presentation/dialogue.php', '<?php return ' . var_export([
+        'schema' => 'ichiloto.dialogue/1', 'theme' => ['schema' => 'ichiloto.menu/1'],
+        'actors' => ['hero' => ['portrait' => 'hero.png']],
+    ], true) . ';');
+    $dialogue = $this->getMockBuilder(TextBoxModal::class)->disableOriginalConstructor()
+        ->onlyMethods(['getDialogueSnapshot', 'isShowing'])->getMock();
+    $dialogue->method('getDialogueSnapshot')->willReturn(getDialogueTestLine('Hero'));
+    $dialogue->method('isShowing')->willReturn(true);
+    $alerts = [];
+    foreach (['First reward', 'Second reward'] as $title) {
+        $alert = $this->getMockBuilder(\Ichiloto\Engine\UI\Modal\AlertModal::class)->disableOriginalConstructor()
+            ->onlyMethods(['getModalPresentation', 'isShowing'])->getMock();
+        $alert->method('getModalPresentation')->willReturn(new \Ichiloto\Engine\UI\Modal\ModalPresentation(
+            $title, 'Rewards granted.', ['OK'], 0, singleConfirmation: true));
+        $alert->method('isShowing')->willReturn(true);
+        $alerts[] = $alert;
+    }
+    $ui = new ReflectionClass(UIManager::class)->newInstanceWithoutConstructor();
+    new ReflectionProperty(UIManager::class, 'uiElements')->setValue($ui,
+        new \Assegai\Collections\ItemList(\Ichiloto\Engine\UI\Interfaces\UIElementInterface::class));
+    foreach ([$dialogue, ...$alerts] as $owner) { $ui->present($owner); }
+    expect($ui->getActivePresentations())->toBe([$alerts[1], $alerts[0], $dialogue]);
+    $scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()->onlyMethods(['getUI'])->getMock();
+    $scene->method('getUI')->willReturn($ui);
+    $surface = new DialogueScenePresentation($this->root)->compose($scene,
+        $withBase ? new PresentationCanvas(1280, 720) : null, 1280, 720, true);
+    expect($surface)->not->toBeNull()->and($surface->isOverlay)->toBe(!$withBase)
+        ->and($surface->excludedLayers)->toHaveCount(3);
+    foreach ([$dialogue, ...$alerts] as $owner) {
+        expect($surface->excludedLayers)->toContain('ui:' . spl_object_id($owner));
+    }
+    $layers = $surface->canvas->textLayers;
+    $find = fn(string $text) => array_find($layers,
+        fn($layer) => array_any($layer->runs, fn($run) => str_contains($run->text, $text)));
+    expect($find('A complete page.'))->not->toBeNull()
+        ->and($find('First reward'))->not->toBeNull()->and($find('Second reward'))->not->toBeNull()
+        ->and($find('First reward')->layer)->toBeGreaterThan($find('A complete page.')->layer)
+        ->and($find('Second reward')->layer)->toBeGreaterThan($find('First reward')->layer);
+    foreach (array_reverse($alerts) as $alert) {
+        $ui->dismiss($alert);
+        $ui->commitPresentationChanges();
+    }
+    $remaining = new DialogueScenePresentation($this->root)->compose($scene,
+        $withBase ? new PresentationCanvas(1280, 720) : null, 1280, 720, true);
+    expect($remaining->excludedLayers)->toBe(['ui:' . spl_object_id($dialogue)])
+        ->and(json_encode($remaining->canvas->toArray()))->toContain('A complete page.')
+        ->not->toContain('First reward', 'Second reward');
+})->with([false, true]);
+
+it('does not duplicate a menu-owned modal when the shared scene composer sees the same owner', function () {
+    mkdir($this->root . '/Data/Presentation', 0777, true);
+    file_put_contents($this->root . '/Data/Presentation/dialogue.php', '<?php return ' . var_export([
+        'schema' => 'ichiloto.dialogue/1', 'theme' => ['schema' => 'ichiloto.menu/1'],
+    ], true) . ';');
+    $alert = $this->getMockBuilder(\Ichiloto\Engine\UI\Modal\AlertModal::class)->disableOriginalConstructor()
+        ->onlyMethods(['getModalPresentation'])->getMock();
+    $alert->expects($this->never())->method('getModalPresentation');
+    $ui = $this->getMockBuilder(UIManager::class)->disableOriginalConstructor()->onlyMethods(['getActivePresentations'])->getMock();
+    $ui->method('getActivePresentations')->willReturn([$alert]);
+    $scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()->onlyMethods(['getUI'])->getMock();
+    $scene->method('getUI')->willReturn($ui);
+    $ownerId = 'ui:' . spl_object_id($alert);
+    $base = \Ichiloto\Engine\UI\Presentation\MenuModalPresentation::compose(new PresentationCanvas(1280, 720),
+        new \Ichiloto\Engine\UI\Modal\ModalPresentation('Confirm', 'Still visible.', ['OK'], 0),
+        new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1']), ownerLayerId: $ownerId);
+    expect($base->presentationOwners)->toBe([$ownerId])
+        ->and(new DialogueScenePresentation($this->root)->compose($scene, $base, 1280, 720, true))->toBeNull();
+});
+
 it('reveals words at their final wrapped positions without reflowing during typing', function () {
     $catalogue = getDialogueTestCatalog($this->root);
     $page = str_repeat('a', 44) . ' ' . 'wrappingword' . "\nNext paragraph";
@@ -363,6 +522,55 @@ it('reveals words at their final wrapped positions without reflowing during typi
         ->and($complete->runs[1]->row)->toBe(1)
         ->and($complete->runs[2]->text)->toBe('Next paragraph');
 });
+
+it('keeps wider owner pages authored newlines and typing prefixes in their final canvas positions', function (int $width,
+    bool $portrait) {
+    $catalogue = getDialogueTestCatalog($this->root);
+    $speaker = $portrait ? 'Display Hero' : 'Plain speaker';
+    $context = new DialogueContext();
+    $layout = new DialoguePageLayout($catalogue, $speaker, $context, '', $width);
+    $message = str_repeat('a', $layout->columns - 2) . " wrappingword\n\nNext paragraph\n"
+        . str_repeat('Final words remain available. ', 8);
+    $pagination = DialoguePaginationBuilder::buildPagination($message, $speaker, '', $context, 135, 36, $layout);
+    expect($pagination->contentWidth)->toBe($layout->columns)->toBeGreaterThan(DEFAULT_DIALOG_WIDTH - 4)
+        ->and(count($pagination->pages))->toBeGreaterThan(1)
+        ->and($pagination->pages[0])->toBe(str_repeat('a', $layout->columns - 2) . "\nwrappingword\n")
+        ->and($pagination->pages[1])->toStartWith('Next paragraph');
+    foreach ($pagination->pages as $index => $page) {
+        $make = fn($count) => DialogueCanvasPresentation::compose(
+            $pagination->getSnapshot($index, $count, isPrinting: true), $catalogue, $width, 720);
+        $prose = fn($canvas) => array_find($canvas->textLayers, fn($layer) => $layer->id === 'dialogue-text');
+        $complete = $prose($make(mb_strlen($page)));
+        expect($complete->grid->columns)->toBe($layout->columns)
+            ->and($complete->grid->rows)->toBe(count(explode("\n", $page)))
+            ->and(implode('', array_column($complete->runs, 'text')))->toBe(str_replace("\n", '', $page));
+        foreach ([0, 48, $layout->columns + 2, mb_strlen($page)] as $count) {
+            $typing = $prose($make($count));
+            expect($typing->grid)->toEqual($complete->grid)
+                ->and($typing->clipRect)->toEqual($complete->clipRect)
+                ->and([$typing->x, $typing->y])->toBe([$complete->x, $complete->y])
+                ->and(implode('', array_column($typing->runs, 'text')))
+                ->toBe(str_replace("\n", '', mb_substr($page, 0, $count)));
+            foreach ($typing->runs as $run) {
+                $final = array_find($complete->runs, fn($candidate) => $candidate->row === $run->row);
+                expect($final)->not->toBeNull()->and($final->text)->toStartWith($run->text)
+                    ->and($run->column)->toBe($final->column);
+            }
+        }
+        if ($index === 0) {
+            $typing = $prose($make($layout->columns + 2));
+            expect($typing->runs[1]->row)->toBe(1)->and($typing->runs[1]->text)->toBe('wra')
+                ->and(array_column($complete->runs, 'row'))->toBe([0, 1]);
+        }
+    }
+    expect(trim(preg_replace('/\s+/', ' ', implode(' ', $pagination->pages))))
+        ->toBe(trim(preg_replace('/\s+/', ' ', $message)));
+})->with([
+    'compact plain' => [800, false],
+    'compact portrait' => [800, true],
+    'wide plain' => [1280, false],
+    'wide portrait' => [1280, true],
+]);
 
 it('reveals only the owner prefix after graphical whitespace normalization', function (string $page) {
     $catalogue = getDialogueTestCatalog($this->root);

@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Cutscenes\Cinematics;
 
+use Ichiloto\Engine\Animations\Field\FieldPoseAnimation;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
@@ -23,6 +24,7 @@ final class CinematicStageManager
   protected array $actors = [];
   /** @var array<int, CinematicSubjectLease> Transform ownership outlives a visual replacement/removal. */
   private array $subjects = [];
+  private bool $animationPaused = false;
   protected(set) ?string $lastMoveFailure = null;
   public private(set) int $generation = 0;
 
@@ -67,10 +69,14 @@ final class CinematicStageManager
       throw new \InvalidArgumentException('Staged actor sprites2d must be an array.');
     }
 
+    $subject = isset($entry['subject']) ? $this->resolveSubject($entry['subject']) : null;
+    $previous = $this->actors[$id] ?? null;
+    $independentActor = $subject === null && $previous?->subject === null ? $previous : null;
     $assetReference = trim(strval($entry['asset'] ?? '')) ?: null;
-    $sprite = $entry['sprite'] ?? '@';
+    $sprite = $entry['sprite'] ?? ($subject === null ? '@' : null);
 
     if ($assetReference !== null) {
+      $sprite ??= '@';
       $loaded = asset($assetReference, true);
 
       if (is_array($loaded)) {
@@ -78,10 +84,12 @@ final class CinematicStageManager
       }
     }
 
-    $sprite = is_array($sprite) ? array_values(array_map('strval', $sprite)) : [strval($sprite)];
-    $facing = MovementHeading::tryFrom(ucfirst(strtolower(strval($entry['facing'] ?? 'South')))) ?? MovementHeading::SOUTH;
-    $graphicalSprites = isset($entry['sprites2d']) ? self::graphicalSprites($entry['sprites2d']) : null;
-    $subject = isset($entry['subject']) ? $this->resolveSubject($entry['subject']) : null;
+    $sprite = $sprite === null ? null : (is_array($sprite) ? array_values(array_map('strval', $sprite)) : [strval($sprite)]);
+    $facing = isset($entry['facing'])
+      ? (MovementHeading::tryFrom(ucfirst(strtolower(strval($entry['facing'])))) ?? MovementHeading::SOUTH)
+      : ($independentActor?->facing ?? MovementHeading::SOUTH);
+    $graphicalSprites = isset($entry['sprites2d']) ? self::getGraphicalSprites($entry['sprites2d'])
+      : $subject?->getGraphicalCharacterSheet();
     $suppressed = $subject !== null ? [spl_object_id($subject) => $subject] : [];
     foreach ($entry['suppress'] ?? [] as $reference) {
       $other = $this->resolveSubject($reference);
@@ -103,19 +111,23 @@ final class CinematicStageManager
     }
     $actor = new StagedActor(
       id: $id,
-      sprite: $sprite !== [] ? $sprite : ['@'],
-      position: new Vector2(intval($entry['x'] ?? 0), intval($entry['y'] ?? 0)),
+      sprite: $sprite === [] ? ['@'] : $sprite,
+      position: new Vector2(
+        isset($entry['x']) ? intval($entry['x']) : ($independentActor?->position->x ?? 0),
+        isset($entry['y']) ? intval($entry['y']) : ($independentActor?->position->y ?? 0),
+      ),
       isVisible: ($entry['visible'] ?? true) !== false,
-      hasCollision: boolval($entry['collision'] ?? false),
+      hasCollision: boolval($entry['collision'] ?? $independentActor?->hasCollision ?? false),
       directionalSprites: is_array($entry['sprites'] ?? null) ? $entry['sprites'] : [],
       facing: $facing,
       assetReference: $assetReference,
       graphicalSprites: $graphicalSprites,
       subject: $subject !== null ? $leases[spl_object_id($subject)] : null,
       suppressedSubjects: array_values($leases),
-      assetRoot: $graphicalSprites instanceof CharacterSheet
+      assetRoot: $graphicalSprites instanceof CharacterSheet || $graphicalSprites instanceof FieldPoseAnimation
         ? $this->gameScene->getGame()->getRendererRuntime()?->getAssetRoot() : null,
     );
+    if ($this->animationPaused) { $actor->pauseGraphicalAnimation(); }
     ($this->actors[$id] ?? null)?->releaseVisual();
     $this->subjects += $leases;
     $this->actors[$id] = $actor;
@@ -223,12 +235,19 @@ final class CinematicStageManager
     }
   }
 
-  /** Shared by authoring validation and runtime staging. */
-  public static function graphicalSprites(array $data): GraphicalSpriteDefinition|CharacterSheet
+  /** @deprecated Use the action-named getGraphicalSprites boundary. */
+  public static function graphicalSprites(array $data): GraphicalSpriteDefinition|CharacterSheet|FieldPoseAnimation
   {
-    // A character sheet (`sheet`) walks and turns; a field image (`asset`) is a fixed pose.
+    return self::getGraphicalSprites($data);
+  }
+
+  /** Shared by authoring validation and runtime staging. */
+  public static function getGraphicalSprites(array $data): GraphicalSpriteDefinition|CharacterSheet|FieldPoseAnimation
+  {
+    // Walking sheets and authored field poses have independent playback policies.
     $sprites = array_key_exists('sheet', $data)
-      ? CharacterSheet::fromArray($data) : GraphicalSpriteDefinition::fromArray($data);
+      ? CharacterSheet::fromArray($data) : (array_key_exists('animation', $data)
+        ? FieldPoseAnimation::fromArray($data) : GraphicalSpriteDefinition::fromArray($data));
     if ($sprites->layer < PresentationLayerPolicy::WORLD || $sprites->layer >= PresentationLayerPolicy::UI) {
       throw new \InvalidArgumentException('Cinematic world sprites require layers 0..999; UI layers are reserved.');
     }
@@ -237,9 +256,22 @@ final class CinematicStageManager
 
   public function advanceGraphicalAnimation(float $seconds): void
   {
+    if ($this->animationPaused) { return; }
     foreach ($this->actors as $actor) {
       $actor->advanceGraphicalAnimation($seconds);
     }
+  }
+
+  public function pauseGraphicalAnimation(): void
+  {
+    $this->animationPaused = true;
+    foreach ($this->actors as $actor) { $actor->pauseGraphicalAnimation(); }
+  }
+
+  public function resumeGraphicalAnimation(): void
+  {
+    $this->animationPaused = false;
+    foreach ($this->actors as $actor) { $actor->resumeGraphicalAnimation(); }
   }
 
   public function find(string $id): ?StagedActor

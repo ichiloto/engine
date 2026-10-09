@@ -24,6 +24,7 @@ class TitleOptionsSettingsManager extends SettingsManager
       'sfx',
       'voice',
       'transitions',
+      'battle_transitions',
       'dialogue_speed',
       'dialogue_auto',
       'notification_duration',

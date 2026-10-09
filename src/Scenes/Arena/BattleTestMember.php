@@ -51,6 +51,66 @@ final readonly class BattleTestMember
     }
   }
 
+  /**
+   * A member as project data writes one: `actor` and `level`, and optionally
+   * `equipment` (slot name to item definition id, or null for empty),
+   * `commands` (command type values; omitted keeps the normal menu),
+   * `skills` and `summons`. Anything else is refused, never ignored.
+   *
+   * @param array<string, mixed> $data
+   * @throws InvalidArgumentException When the data is not a member.
+   */
+  public static function fromArray(array $data): self
+  {
+    $unknown = array_diff(array_keys($data), ['actor', 'level', 'equipment', 'commands', 'skills', 'summons']);
+    if ($unknown !== []) {
+      throw new InvalidArgumentException('A battle test member has no ' . implode(', ', $unknown) . '.');
+    }
+    if (!is_string($data['actor'] ?? null) || !is_int($data['level'] ?? null)) {
+      throw new InvalidArgumentException('A battle test member needs an actor id and a whole-number level.');
+    }
+    $equipment = $data['equipment'] ?? [];
+    if (!is_array($equipment) || array_any($equipment, static fn(mixed $item, mixed $slot): bool =>
+      !is_string($slot) || ($item !== null && !is_string($item)))) {
+      throw new InvalidArgumentException('A battle test member\'s equipment maps slot names to item ids or null.');
+    }
+    $commands = $data['commands'] ?? null;
+    if ($commands !== null) {
+      if (!is_array($commands) || !array_is_list($commands) || array_any($commands, static fn(mixed $command): bool =>
+        !is_string($command) || BattleCommandType::tryFrom($command) === null)) {
+        throw new InvalidArgumentException('A battle test member\'s commands are a list of command types: '
+          . implode(', ', array_column(BattleCommandType::cases(), 'value')) . '.');
+      }
+      $commands = array_map(BattleCommandType::from(...), $commands);
+    }
+    foreach (['skills', 'summons'] as $kind) {
+      if (!is_array($data[$kind] ?? [])) {
+        throw new InvalidArgumentException("A battle test member's {$kind} are a list.");
+      }
+    }
+
+    return new self($data['actor'], $data['level'], $equipment, $commands, $data['skills'] ?? [], $data['summons'] ?? []);
+  }
+
+  /**
+   * The member as project data writes it, leaving out what is at its default:
+   * no equipment, the normal command menu, no skills, no summons.
+   *
+   * @return array<string, mixed>
+   */
+  public function toArray(): array
+  {
+    return array_filter([
+      'actor' => $this->actorId,
+      'level' => $this->level,
+      'equipment' => $this->equipment,
+      'commands' => $this->commands === null ? null : array_map(static fn(BattleCommandType $command): string => $command->value, $this->commands),
+      'skills' => $this->skills,
+      'summons' => $this->summons,
+    ], static fn(mixed $value, string $key): bool => in_array($key, ['actor', 'level'], true)
+      || ($key === 'commands' ? $value !== null : $value !== []), ARRAY_FILTER_USE_BOTH);
+  }
+
   /** Another actor in this place, at the same level and with nothing equipped, since what one actor wears another may not. */
   public function withActor(string $actorId): self
   {

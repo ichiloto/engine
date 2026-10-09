@@ -23,4 +23,6 @@ enum ScriptCommandReference: string
   case QUEST = 'quest';
   /** An actor. */
   case ACTOR = 'actor';
+  /** A standalone, cue-free stage timeline admitted by EffectTimelineLibrary::loadStage(). */
+  case STAGE_TIMELINE = 'stage_timeline';
 }

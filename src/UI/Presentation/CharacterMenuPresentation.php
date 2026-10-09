@@ -12,6 +12,7 @@ use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\ActionHint;
 use Ichiloto\Engine\IO\ActionHints;
+use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Scenes\Game\States\EquipmentMenuState;
@@ -78,13 +79,17 @@ final class CharacterMenuPresentation
       foreach ($mode->getPresentationCandidates() as $index => $candidate) {
         $item = $candidate['equipment'];
         $rows[] = new MenuRow('candidate-' . $index, $item->name, [new MenuRowValue((string)$candidate['available'])],
-          icon: CharacterMenuRows::icon($item, $mode->equipmentSlot?->semanticSlot), selected: $candidate['current'],
+          icon: CharacterMenuRows::getEquipmentIcon($item, $mode->equipmentSlot?->semanticSlot), selected: $candidate['current'],
           focused: $index === $mode->getPresentationIndex(), disabled: !$candidate['current'] && $candidate['available'] < 1);
       }
-      $view->prose('equipment-slot-name', ($mode->equipmentSlot === null ? '' : $mode->equipmentSlot->name) . ' / Available',
-        new CanvasRectangle($content->x, $content->y, $content->width, $m->cellHeight));
-      $listBox = new CanvasRectangle($content->x, $content->y + $m->cellHeight + $m->sectionGap,
-        $content->width, $content->height - $m->cellHeight - $m->sectionGap);
+      $heading = ($mode->equipmentSlot === null ? '' : $mode->equipmentSlot->name) . ' / Available';
+      if ($mode->equipmentSlot !== null) {
+        $compatibility = CharacterMenuRows::getSlotCompatibilityText($character, $mode->equipmentSlot);
+        if ($compatibility !== '') { $heading .= "\n" . $compatibility; }
+      }
+      $headingHeight = $view->prose('equipment-slot-name', $heading, $content);
+      $listBox = new CanvasRectangle($content->x, $content->y + $headingHeight + $m->sectionGap,
+        $content->width, $content->height - $headingHeight - $m->sectionGap);
       $view->rows('equipment-candidates', $rows, self::layout($theme, $listBox, self::numericColumns($rows)), $mode->getPresentationIndex());
     } else {
       $index = $state->equipmentAssignmentPanel === null ? -1 : $state->equipmentAssignmentPanel->activeSlotIndex;
@@ -122,16 +127,18 @@ final class CharacterMenuPresentation
     $resourceX = $profile->x + $p + $identityWidth + $m->sectionGap;
     $view->prose('status-role', $character->role->name, new CanvasRectangle($resourceX, $profile->y + $p, 360, $roleHeight));
     $stats = $character->effectiveStats;
-    $resources = [new MenuRow('level', 'Lv', [new MenuRowValue((string)$character->level)])];
+    $resources = [new MenuRow('level', Vocabulary::getTerm('stats.level', 'Lv'), [new MenuRowValue((string)$character->level)])];
     foreach (['Hp', 'Mp', 'Ap'] as $resource) {
-      $resources[] = new MenuRow(strtolower($resource), strtoupper($resource),
+      $resources[] = new MenuRow(strtolower($resource), Vocabulary::getTerm('stats.' . strtolower($resource), strtoupper($resource)),
         [new MenuRowValue($stats->{'current' . $resource} . ' / ' . $stats->{'total' . $resource})]);
     }
     $resourceBox = new CanvasRectangle($resourceX, $profile->y + $p + $roleHeight + $m->sectionGap, 360, 4 * ($m->cellHeight + 1));
     $view->rows('status-resources', $resources, new MenuRowLayout($resourceBox, self::numericColumns($resources),
       $m->cellHeight + 1, $m->cellWidth, $m->cellHeight, true));
-    $exp = [new MenuRow('current', 'Current EXP', [new MenuRowValue(number_format($character->currentExp))]),
-      new MenuRow('next', 'To Next Level', [new MenuRowValue(number_format($character->nextLevelExp))])];
+    $exp = [new MenuRow('current', get_message('exp_total', Vocabulary::getTerm('shop.exp_total', 'Current %1'), Vocabulary::getTerm('stats.exp', 'EXP')),
+      [new MenuRowValue(number_format($character->currentExp))]),
+      new MenuRow('next', get_message('exp_next', 'To Next %1', Vocabulary::getTerm('stats.level', 'Level')),
+        [new MenuRowValue(number_format($character->nextLevelExp))])];
     $expX = $resourceX + 360 + $m->sectionGap;
     $view->rows('status-exp', $exp, self::layout($theme, new CanvasRectangle($expX, $resourceBox->y,
       $profile->x + $profile->width - $p - $expX, $profileHeight - $p - ($resourceBox->y - $profile->y)), self::numericColumns($exp)));
@@ -186,7 +193,8 @@ final class CharacterMenuPresentation
     $m = $theme->metrics;
     $row = $theme->rows->metrics;
     $label = max(1, ...array_map(fn(MenuRow $r) => mb_strlen($r->label), $rows));
-    $icon = $theme->icons === null ? 0 : (int)ceil($row->iconWidth / $m->cellWidth) + $row->gapCells;
+    $icon = array_any($rows, fn(MenuRow $r) => MenuRowPainter::canShowIcon($r, $theme->icons))
+      ? (int)ceil($row->iconWidth / $m->cellWidth) + $row->gapCells : 0;
     $cells = (int)floor(($box->width - 2 * $row->padding) / $m->cellWidth) - $label - $icon - $row->gapCells;
     return self::layout($theme, $box, [new MenuRowColumn(max(1, $cells), HorizontalAlignment::LEFT)]);
   }

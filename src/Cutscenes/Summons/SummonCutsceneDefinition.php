@@ -9,6 +9,8 @@ namespace Ichiloto\Engine\Cutscenes\Summons;
  */
 final class SummonCutsceneDefinition
 {
+  public const array PAIRED_TIMELINE_FIELDS = ['formatVersion', 'presentations', 'editor'];
+
   /**
    * @var string[]
    */
@@ -57,6 +59,9 @@ final class SummonCutsceneDefinition
     public array $editor = [],
     public array $authoring = [],
     public ?SummonAvailability $availability = null,
+    public ?int $restFrame = null,
+    public array $presentations = [],
+    public ?array $stage = null,
   )
   {
     $this->id = trim($id);
@@ -101,6 +106,17 @@ final class SummonCutsceneDefinition
    */
   public static function fromArrays(array $data, array $timeline): self
   {
+    if (array_key_exists('stage', $timeline) && !is_array($timeline['stage'])) {
+      throw new \InvalidArgumentException('Summon cinematic stage must be a descriptor.');
+    }
+    if (array_key_exists('presentations', $timeline) && (!is_array($timeline['presentations'])
+      || count($timeline['presentations']) !== 2
+      || array_diff(array_keys($timeline['presentations']), ['terminal', 'graphical']) !== []
+      || !is_array($timeline['presentations']['terminal'] ?? null)
+      || !is_array($timeline['presentations']['graphical'] ?? null)
+      || array_diff(array_keys($timeline), self::PAIRED_TIMELINE_FIELDS) !== [])) {
+      throw new \InvalidArgumentException('Summon presentation sequences cannot be mixed with a shared timeline.');
+    }
     $tracks = array_map(
       static fn(array $track): SummonCutsceneTrack => SummonCutsceneTrack::fromArray($track),
       array_values(array_filter($timeline['tracks'] ?? [], 'is_array')),
@@ -142,6 +158,9 @@ final class SummonCutsceneDefinition
       array_key_exists('availability', $data)
         ? SummonAvailability::fromAuthored($data['availability'])
         : null,
+      isset($timeline['restFrame']) ? intval($timeline['restFrame']) : null,
+      is_array($timeline['presentations'] ?? null) ? $timeline['presentations'] : [],
+      $timeline['stage'] ?? null,
     );
   }
 
@@ -212,10 +231,15 @@ final class SummonCutsceneDefinition
    */
   public function toTimelineArray(): array
   {
+    if ($this->presentations !== []) {
+      return ['formatVersion' => $this->formatVersion, 'presentations' => $this->presentations, 'editor' => $this->editor];
+    }
     return [
       'formatVersion' => $this->formatVersion,
       'fps' => $this->fps,
       'lengthFrames' => $this->lengthFrames,
+      ...($this->restFrame === null ? [] : ['restFrame' => $this->restFrame]),
+      ...($this->stage === null ? [] : ['stage' => $this->stage]),
       'tracks' => array_map(
         static fn(SummonCutsceneTrack $track): array => $track->toArray(),
         $this->getTracks(),

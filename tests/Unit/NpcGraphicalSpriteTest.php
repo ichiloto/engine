@@ -85,6 +85,13 @@ final class NpcGraphicalTestScene extends GameScene
 
   public function changeMapIdentity(string $mapId): void { $this->currentMapId = $mapId; }
 
+  public function installVisibilityField(): NpcVisibilityTestField
+  {
+    $field = new NpcVisibilityTestField(new SceneStateContext($this));
+    $this->fieldState = $this->state = $field;
+    return $field;
+  }
+
   public function renderNpcField(): void
   {
     Console::recomposeFrame(function (): void {
@@ -92,6 +99,17 @@ final class NpcGraphicalTestScene extends GameScene
       $this->npcManager->render();
       $this->cinematicStage->render();
     });
+  }
+}
+
+final class NpcVisibilityTestField extends FieldState
+{
+  public int $redraws = 0;
+
+  public function renderTheField(bool $forceFullRepaint = false): void
+  {
+    $this->redraws++;
+    $this->getGameScene()->renderNpcField();
   }
 }
 
@@ -219,6 +237,43 @@ it('masks only the successfully graphical NPC layer through the real scene colle
     ->and(mb_substr($text[4], 7, 1))->toBe('.')->and(mb_substr($text[4], 8, 1))->toBe('L')
     ->and(Console::charAt(7, 4))->toBe('G')->and(Console::snapshot())->toEqual($terminal);
 });
+
+it('reconciles hidden NPC text and artwork during an active story event without erasing its overlay', function (bool $graphical) {
+  $field = $this->scene->installVisibilityField();
+  if ($graphical) { $this->runtime->start('NPC visibility test', 24, 8); }
+  $this->scene->renderNpcField();
+  Console::replaceOverlay('story-dialogue', ['Still speaking'], 1, 6, 1000);
+  $session = $this->scene->eventInterpreter->start([['type' => 'wait', 'seconds' => 10]], 'synthetic-withdrawal');
+  expect($this->scene->hasUnstableEventSession())->toBeTrue()->and(Console::charAt(7, 4))->toBe('G');
+
+  // Visibility can change after a yielded battle and before the next dialogue finishes.
+  $this->scene->gameState->setSwitch('departed', true);
+  $this->scene->requestFieldPresentationReconciliation();
+  $this->scene->renderPresentationOverlay();
+  expect($this->manager->getGraphicalSpriteProviders())->toBe([])
+    ->and($this->manager->npcAt(7, 4))->toBeNull()
+    ->and(Console::charAt(7, 4))->toBe('.')
+    ->and(mb_substr(Console::snapshot()->rows[6], 1, 14))->toBe('Still speaking')
+    ->and($this->scene->eventInterpreter->activeSession())->toBe($session)
+    ->and($field->redraws)->toBe(1);
+
+  $this->scene->renderPresentationOverlay();
+  expect($field->redraws)->toBe(1);
+  if ($graphical) {
+    $this->runtime->present($this->scene);
+    $frame = RetainedFrameState::replay($this->transport->sent)[0];
+    expect($frame['sprites'])->toBe([])
+      ->and(mb_substr(RetainedFrameState::getTextRows($frame, 24, 8)[4], 7, 1))->toBe('.');
+  }
+
+  $this->scene->gameState->setSwitch('departed', false);
+  $this->scene->requestFieldPresentationReconciliation();
+  $this->scene->renderPresentationOverlay();
+  expect($this->manager->getGraphicalSpriteProviders())->toBe([$this->npc])
+    ->and($this->manager->npcAt(7, 4))->toBe($this->npc)
+    ->and(Console::charAt(7, 4))->toBe('G')->and($field->redraws)->toBe(2);
+  Console::removeOverlay('story-dialogue');
+})->with(['terminal' => false, 'graphical' => true]);
 
 it('diagnoses malformed optional art without dropping occupancy or world-state writes', function ($graphics) {
   $this->manager->configure([getNpcTestEntry(['sprites2d' => $graphics,
@@ -498,6 +553,7 @@ final class NpcTalkProbeModalManager extends ModalManager
 {
   /** @var list<array{heading: MovementHeading, glyph: string, row: int|null}> */
   public array $pages = [];
+  public array $dialogueLines = [];
 
   public function __construct(private readonly Closure $speaker)
   {
@@ -514,6 +570,7 @@ final class NpcTalkProbeModalManager extends ModalManager
   ): void
   {
     $npc = ($this->speaker)();
+    $this->dialogueLines[] = [$message, $title, $presentation];
     $this->pages[] = ['heading' => $npc->heading, 'glyph' => Console::charAt(7, 4),
       'row' => $npc->getGraphicalSpriteDefinition()?->sourceRect->y];
   }
@@ -528,6 +585,25 @@ function installNpcTalkProbe(object $test): NpcTalkProbeModalManager
 
   return $probe;
 }
+
+it('carries emotion through shared NPC and blocking dialogue pages without changing speaker or heading', function () {
+  $this->manager->configure([getNpcTestEntry(['dialogue' => [
+    ['text' => 'Synthetic first.', 'emotion' => 'Concerned'],
+    ['text' => 'Synthetic next.'],
+  ]])]);
+  $probe = installNpcTalkProbe($this);
+  $npc = $this->manager->findById('guide');
+  $before = [$npc->heading, $npc->sprite];
+  $npc->talk($this->scene);
+  \Ichiloto\Engine\Messaging\Dialogue\Dialogue::fromArray([
+    'name' => 'Other label', 'text' => 'Synthetic trigger page.', 'emotion' => 'Custom.Expression',
+  ])->show();
+  expect(array_column($probe->dialogueLines, 0))->toBe(['Synthetic first.', 'Synthetic next.', 'Synthetic trigger page.'])
+    ->and(array_column($probe->dialogueLines, 1))->toBe(['Guide', 'Guide', 'Other label'])
+    ->and(array_map(fn($line) => $line[2]->emotion, $probe->dialogueLines))->toBe(['Concerned', 'Neutral', 'Custom.Expression'])
+    ->and(array_map(fn($line) => $line[2]->actorId, $probe->dialogueLines))->toBe([null, null, null])
+    ->and([$npc->heading, $npc->sprite])->toBe($before);
+});
 
 /** The sheet row (source y) of a heading in the 4 x 6 fixture: RPG Maker's down, left, right, up. */
 function npcTestRow(MovementHeading $heading): int
@@ -742,30 +818,33 @@ function setNpcTestCollision(GameScene $scene, array $cells, CollisionType $type
   $property->setValue($scene->mapManager, $map);
 }
 
-it('talks across any depth of counter to the NPC behind it, and never through a wall', function () {
+it('removes multi-cell-counter interaction and action prompts while retaining one-cell reach', function (int $depth) {
   ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 24, 'height' => 8]));
   $this->manager->configure([getNpcTestEntry(['dialogue' => [['text' => 'Welcome.']]])]);
   $probe = installNpcTalkProbe($this);
   $player = $this->scene->player;
-  // The guide stands at (7, 4) behind a counter two cells deep.
-  setNpcTestCollision($this->scene, [[7, 5], [7, 6]], CollisionType::COUNTER);
-  placeNpcTestPlayer($player, 7, 7, MovementRouteRunner::directionVector('up'));
+  $npc = $this->manager->findById('guide');
+  $x = intval($npc->position->x);
+  $y = intval($npc->position->y);
+  $counters = array_map(static fn(int $distance): array => [$x, $y + $distance], range(1, $depth));
+  setNpcTestCollision($this->scene, $counters, CollisionType::COUNTER);
+  placeNpcTestPlayer($player, $x, $y + $depth + 1, MovementRouteRunner::directionVector('up'));
 
   $player->refreshTalkTarget();
-  expect($player->talkTarget)->toBe($this->manager->findById('guide'))->and($player->canAct)->toBeTrue();
+  expect($player->talkTarget)->toBe($depth === 1 ? $npc : null)->and($player->canAct)->toBe($depth === 1);
   $player->interact();
-  expect($probe->pages)->toHaveCount(1);
+  expect($probe->pages)->toHaveCount($depth === 1 ? 1 : 0);
 
   // A counter cannot be walked onto.
-  expect($this->scene->mapManager->canMoveTo(7, 6))->toBeFalse();
+  expect($this->scene->mapManager->canMoveTo($x, $y + $depth))->toBeFalse();
 
   // A wall in the line ends the reach.
-  setNpcTestCollision($this->scene, [[7, 6]], CollisionType::SOLID);
+  setNpcTestCollision($this->scene, [[$x, $y + $depth]], CollisionType::SOLID);
   $player->refreshTalkTarget();
   expect($player->talkTarget)->toBeNull()->and($player->canAct)->toBeFalse();
   $player->interact();
-  expect($probe->pages)->toHaveCount(1);
-});
+  expect($probe->pages)->toHaveCount($depth === 1 ? 1 : 0);
+})->with(['one counter' => [1], 'two counters removed' => [2]]);
 
 it('shows the action prompt only for an NPC that has something to say', function () {
   ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 24, 'height' => 8]));

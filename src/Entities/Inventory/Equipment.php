@@ -12,6 +12,11 @@ use Ichiloto\Engine\Entities\ParameterChanges;
 abstract class Equipment extends InventoryItem
 {
   protected(set) EquipmentSlotType $semanticSlot;
+  /** Legacy authored glyphs remain source-compatible but never override the equipment type. */
+  protected(set) string $icon {
+    get => EquipmentIcon::getTerminalGlyph(EquipmentIcon::getType($this));
+    set { $this->icon = $value; }
+  }
   /**
    * @var int The equipment's net rating across all parameter changes.
    */

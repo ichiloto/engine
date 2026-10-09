@@ -5,9 +5,14 @@ namespace Ichiloto\Engine\Rendering;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Core\Timers;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasComposite;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasCompositeOperation;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Enumerations\TransitionStyle;
 use Ichiloto\Engine\UI\Accessibility;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use InvalidArgumentException;
 
 /**
  * Covers and reveals the screen between two views.
@@ -18,8 +23,9 @@ use Ichiloto\Engine\Util\Config\ProjectConfig;
  *
  * Transitions are opt in: a straight cut is snappier, and an effect between
  * every doorway wears thin fast. A project turns them on with
- * `ui.transitions.style`, players can change it in the config menu, and a
- * player who has asked for reduced motion never sees one regardless.
+ * `ui.transitions.style`. Battle entry has its independent
+ * `ui.transitions.battle` policy; omission preserves the older shared gate.
+ * Players can change either in the config menu. Reduced motion skips both.
  *
  * @package Ichiloto\Engine\Rendering
  */
@@ -29,6 +35,7 @@ class ScreenTransition
    * The config path of the transition style.
    */
   public const string CONFIG_STYLE = 'ui.transitions.style';
+  public const string CONFIG_BATTLE = 'ui.transitions.battle';
   /**
    * The config path of the transition duration, in milliseconds.
    */
@@ -69,6 +76,13 @@ class ScreenTransition
       $style,
       max(0, intval(config(ProjectConfig::class, self::CONFIG_DURATION, self::DEFAULT_DURATION_MS)))
     );
+  }
+
+  /** Explicit battle policy is independent; older projects retain their existing shared setting. */
+  public static function isBattleEnabled(): bool
+  {
+    return (bool) config(ProjectConfig::class, self::CONFIG_BATTLE,
+      config(ProjectConfig::class, self::CONFIG_STYLE) !== TransitionStyle::NONE->value);
   }
 
   /**
@@ -121,7 +135,28 @@ class ScreenTransition
       $frames = array_reverse($frames);
     }
 
-    return new ScreenTransitionSession($this, $frames);
+    return new ScreenTransitionSession($this, $frames, revealing: strtolower($direction) === 'in');
+  }
+
+  /** Paints an animated or settled cover; timing and reduced motion belong to its session. */
+  public function composeCover(int $width, int $height, float $coverage = 1): ?PresentationCanvas
+  {
+    if (!is_finite($coverage) || $coverage < 0 || $coverage > 1) {
+      throw new InvalidArgumentException('Transition coverage must be finite and in 0..1.');
+    }
+    if ($this->style === TransitionStyle::NONE) { return null; }
+    $composites = [];
+    if ($coverage > 0) {
+      $columns = $this->style === TransitionStyle::WIPE ? ceil($width * $coverage) : $width;
+      $composites[] = new CanvasComposite('screen-transition-cover', 1, 1,
+        new CanvasRectangle(0, 0, $columns, $height), [new CanvasCompositeOperation([
+          'type' => 'fill', 'destination' => ['x' => 0, 'y' => 0, 'width' => 1, 'height' => 1],
+          'brush' => ['type' => 'solid', 'color' => ['kind' => 'rgb', 'r' => 0, 'g' => 0, 'b' => 0]],
+        ])], PresentationLayerPolicy::TRANSITION,
+        $this->style === TransitionStyle::FADE ? $coverage : 1);
+    }
+    return new PresentationCanvas($width, $height, composites: $composites, protectedAreas: [],
+      presentationOwners: ['cinematic-cover', 'transition']);
   }
 
   /** Graphical appearance is authored data; lifecycle and reduced motion remain shared engine policy. */

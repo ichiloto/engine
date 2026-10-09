@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Core\Menu\Commands;
 
+use Ichiloto\Engine\Battle\BattleCommandType;
+
 use Exception;
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
@@ -25,7 +27,7 @@ class OpenMagicMenuCommand extends MenuItem
    */
   public function __construct(MenuInterface $menu)
   {
-    parent::__construct($menu, 'Magic', "View a character's magic.");
+    parent::__construct($menu, BattleCommandType::MAGIC->label(), "View a character's magic.");
   }
 
   /**

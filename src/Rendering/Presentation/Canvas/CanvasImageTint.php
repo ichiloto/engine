@@ -11,6 +11,60 @@ use InvalidArgumentException;
 /** A separate colour overlay masked to the current displayed image, not its bounding box. */
 final class CanvasImageTint
 {
+  /** Combine same-depth, opaque tint surfaces without a raster per subject.
+   * @param list<CanvasComposite> $tints
+   */
+  public static function combine(string $id, array $tints): CanvasComposite
+  {
+    CanvasCompositeValues::getList($tints, 1, 256);
+    if (!$tints[0] instanceof CanvasComposite) { throw new InvalidArgumentException('Combined image tints require typed surfaces.'); }
+    $layer = $tints[0]->layer;
+    foreach ($tints as $tint) {
+      if (!$tint instanceof CanvasComposite || $tint->layer !== $layer || $tint->opacity !== 1.0) {
+        throw new InvalidArgumentException('Combined image tints require the same depth and full surface opacity.');
+      }
+      foreach ($tint->operations as $operation) {
+        if ($operation->data['type'] !== 'fill' || $operation->data['masks'] === []
+          || array_any($operation->data['masks'], static fn(array $mask): bool => $mask['type'] !== 'image_alpha')) {
+          throw new InvalidArgumentException('Combined image tints accept only alpha-masked fills.');
+        }
+      }
+    }
+    if (count($tints) === 1) {
+      $tint = $tints[0];
+      return new CanvasComposite($id, $tint->width, $tint->height, $tint->destination,
+        $tint->operations, $tint->layer, $tint->opacity, $tint->clipRect);
+    }
+    $x = floor(min(array_map(static fn(CanvasComposite $tint): float => $tint->destination->x, $tints)));
+    $y = floor(min(array_map(static fn(CanvasComposite $tint): float => $tint->destination->y, $tints)));
+    $right = ceil(max(array_map(static fn(CanvasComposite $tint): float => $tint->destination->x + $tint->destination->width, $tints)));
+    $bottom = ceil(max(array_map(static fn(CanvasComposite $tint): float => $tint->destination->y + $tint->destination->height, $tints)));
+    $operations = [];
+    foreach ($tints as $tint) {
+      $place = static fn(array $rectangle): array => [
+        'x' => $tint->destination->x - $x + $rectangle['x'] * $tint->destination->width / $tint->width,
+        'y' => $tint->destination->y - $y + $rectangle['y'] * $tint->destination->height / $tint->height,
+        'width' => $rectangle['width'] * $tint->destination->width / $tint->width,
+        'height' => $rectangle['height'] * $tint->destination->height / $tint->height,
+      ];
+      foreach ($tint->operations as $operation) {
+        $data = $operation->data;
+        $data['destination'] = $place($data['destination']);
+        foreach ($data['masks'] as &$mask) { $mask['destination'] = $place($mask['destination']); }
+        unset($mask);
+        if ($tint->clipRect !== null) {
+          $clip = $tint->clipRect;
+          $left = $clip->x - $x; $top = $clip->y - $y;
+          $data['masks'][] = ['type' => 'polygon', 'contours' => [[[$left, $top], [$left + $clip->width, $top],
+            [$left + $clip->width, $top + $clip->height], [$left, $top + $clip->height]]]];
+        }
+        $operations[] = new CanvasCompositeOperation($data);
+      }
+    }
+    return new CanvasComposite($id, (int)($right - $x), (int)($bottom - $y),
+      new CanvasRectangle($x, $y, $right - $x, $bottom - $y), $operations, $layer);
+  }
+
   public static function compose(string $id, CanvasImage $image, PresentationColor $color,
     float $strength, string $assetRoot): CanvasComposite
   {

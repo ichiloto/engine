@@ -25,6 +25,7 @@ use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandCatalog;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandContext;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
 use Ichiloto\Engine\Field\Location;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Rendering\ScreenTransition;
@@ -373,11 +374,15 @@ class EventInterpreter
 
     switch ($type) {
       case 'text':
+        $context = DialogueContext::getFromText($command);
         $session->claimPresentation($lane);
-        $this->presentation->beginText(
-          strval($command['text'] ?? ''),
-          strval($command['name'] ?? ''),
-        );
+        $text = strval($command['text'] ?? '');
+        $speaker = strval($command['name'] ?? '');
+        if ($this->presentation instanceof EventDialoguePresentationInterface) {
+          $this->presentation->beginDialogue($text, $speaker, $context);
+        } else {
+          $this->presentation->beginText($text, $speaker);
+        }
         $lane->yieldFor($command, ['kind' => 'dialogue']);
         return EventCommandResult::YIELDED;
 
@@ -471,13 +476,10 @@ class EventInterpreter
         $player = $this->gameScene->player;
 
         if ($player !== null && isset($command['x'], $command['y'])) {
-          $player->erase();
-          $player->position->x = intval($command['x']);
-          $player->position->y = intval($command['y']);
+          $this->gameScene->relocatePlayer(new Vector2(intval($command['x']), intval($command['y'])));
           if ($session->isFinalizing) {
             $this->gameScene->cinematicStage?->commitSubjectTransforms($player);
           }
-          $player->render();
         }
         return EventCommandResult::COMPLETED;
 
@@ -531,7 +533,10 @@ class EventInterpreter
           throw new RuntimeException('start_battle requires a configured party.');
         }
 
-        if ($this->gameScene->party->isDefeated()) {
+        $reservePolicy = \Ichiloto\Engine\Battle\ReservePolicy::resolve($command['reservePolicy'] ?? null);
+        $entryRoster = new \Ichiloto\Engine\Battle\BattlePartyRoster($this->gameScene->party, $reservePolicy);
+        $entryRoster->promoteReservesAfterWipeout();
+        if ($entryRoster->isDefeated) {
           throw new RuntimeException('start_battle cannot launch with a defeated party.');
         }
 
@@ -560,7 +565,7 @@ class EventInterpreter
           'resultVariable' => trim(strval($command['resultVariable'] ?? '')),
           'defeatPolicy' => $defeatPolicy,
         ]);
-        $extraSettings = ['event_defeat_policy' => $defeatPolicy]
+        $extraSettings = ['event_defeat_policy' => $defeatPolicy, 'reservePolicy' => $reservePolicy->value]
           + array_intersect_key($command, ['battleArena' => true]);
 
         if ($escapePolicy !== null) {

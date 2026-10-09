@@ -10,6 +10,7 @@ use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
+use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Scenes\SceneStateContext;
@@ -34,8 +35,8 @@ class SaveMenuState extends GameSceneState implements CanRender, CanvasProviderI
   protected function composeMenuCanvas(MenuPresentationCatalog $theme, float $time): ?PresentationCanvas
   {
     return SaveLoadMenuPresentation::compose($this->slots, $this->activeSlotIndex, $theme,
-      $this->menuInfoText, $this->statusMessage, $time, title: 'Save',
-      prompt: 'Which file would you like to save to?', statusColor: $this->statusColor);
+      $this->menuInfoText, $this->statusMessage, $time, title: Vocabulary::getTerm('game.save', 'Save'),
+      prompt: get_message('prompt.save', 'Which file would you like to save to?'), statusColor: $this->statusColor);
   }
 
   protected const int SAVE_MENU_WIDTH = 110;
@@ -118,7 +119,7 @@ class SaveMenuState extends GameSceneState implements CanRender, CanvasProviderI
     $width = min(self::SAVE_MENU_WIDTH, get_screen_width());
 
     $this->infoWindow = new Window(
-      'Save',
+      Vocabulary::getTerm('game.save', 'Save'),
       '',
       new Vector2($this->leftMargin, $this->topMargin),
       $width,
@@ -170,7 +171,7 @@ class SaveMenuState extends GameSceneState implements CanRender, CanvasProviderI
   public function render(): void
   {
     $this->infoWindow?->setContent([
-      'Which file would you like to save to?',
+      get_message('prompt.save', 'Which file would you like to save to?'),
     ]);
     $this->infoWindow?->render();
 
@@ -252,14 +253,14 @@ class SaveMenuState extends GameSceneState implements CanRender, CanvasProviderI
       $this->statusColor = 'decrease';
       Debug::warn($this->statusMessage);
       $this->render();
-      alert($this->statusMessage, 'Save Unavailable');
+      alert($this->statusMessage, get_message('save.unavailable_title', '%1 Unavailable', Vocabulary::getTerm('game.save', 'Save')));
       return;
     } catch (RuntimeException $exception) {
       Debug::warn(sprintf('Manual save failed: %s', $exception->getMessage()));
       $this->statusMessage = 'Saving is unavailable. Check storage permissions and try again.';
       $this->statusColor = 'decrease';
       $this->render();
-      alert($this->statusMessage, 'Save Unavailable');
+      alert($this->statusMessage, get_message('save.unavailable_title', '%1 Unavailable', Vocabulary::getTerm('game.save', 'Save')));
       return;
     }
 
@@ -268,7 +269,7 @@ class SaveMenuState extends GameSceneState implements CanRender, CanvasProviderI
     $this->statusMessage = sprintf('Saved to File %d.', $savedSlot->slot);
     $this->statusColor = 'increase';
     $this->render();
-    alert($this->statusMessage, 'Save Complete');
+    alert($this->statusMessage, get_message('save.complete_title', '%1 Complete', Vocabulary::getTerm('game.save', 'Save')));
   }
 
   /**

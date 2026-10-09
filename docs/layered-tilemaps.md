@@ -377,7 +377,7 @@ bindings while assembling and checking the first representative kits.
 
 Superseded. The [graphical field plan](graphical-field.md) replaced named
 tile families with RPG Maker MZ tilesets and tileset pieces, and the GUI
-Editor plan (`gui-editor/README.md`) owns the graphical frontend, the shared
+Editor plan (`gui-editor/docs/plan.md`) owns the graphical frontend, the shared
 Editor session, the `ichiloto edit` TUI/GUI choice and the remaining GUI
 authoring gaps. The graphical-marker and crop workflow is removed from the
 TUI; shared artwork services and authored data remain.

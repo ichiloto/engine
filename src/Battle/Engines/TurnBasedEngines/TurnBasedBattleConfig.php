@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Battle\Engines\TurnBasedEngines;
 
 use Ichiloto\Engine\Battle\UI\BattleScreen;
+use Ichiloto\Engine\Battle\BattlePartyRoster;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\Scenes\Battle\BattleConfig;
@@ -29,8 +30,9 @@ class TurnBasedBattleConfig extends BattleConfig
     protected(set) BattleScreen $ui,
     array $events = [],
     array $settings = [],
+    ?BattlePartyRoster $partyRoster = null,
   )
   {
-    parent::__construct($party, $troop, $events, $settings);
+    parent::__construct($party, $troop, $events, $settings, partyRoster: $partyRoster);
   }
 }

@@ -184,6 +184,14 @@ command path instead of being silently filtered.
 
 ## Subjects, staged actors, and movement
 
+Cinematic `text` uses the same optional authored `emotion`, speaker alias and
+portrait binding as ordinary story events and NPC dialogue pages. It does not
+restage field actors or alter speaker/gameplay identity. Omission remains Neutral,
+and missing optional art retains text and the existing catalog fallback. See
+[text expressions](story-events.md#text-expressions) for the shared contract and
+remaining Editor/GUI authoring implications. Timed `narration` and `title_card`
+remain separate presentation commands.
+
 Subject references support `player`, `party_actor`, `npc`, `staged_actor`,
 `position`, `screen_position`, and `marker` where the receiving command makes
 sense. Map NPCs use their stable map-local `id`. Temporary staged actors use a
@@ -212,7 +220,9 @@ and `layer`), which walks and turns like the Player, or a single field image
 (`asset`, optional `sourceRect`, `layer` 0..999, and an optional footprint in
 whole `cells`), bottom-centred on the actor. See
 [field character sheets](rendering/sprite-sheets.md).
-The terminal `sprite` or `asset` remains required. Successful staged movement
+Unbound cast requires a terminal `sprite` or `asset`. Bound visuals inherit
+each omitted terminal/graphical role independently from their real subject;
+terminal-only overrides do not erase the subject's sheet. Successful staged movement
 advances the existing PHP walk animation; facing-only, blocked movement, hiding
 and idle stop it. Definitions do not infer movement from input.
 Graphical identity is `staged:<id>`; only that actor's terminal contribution is
@@ -227,6 +237,54 @@ move the real subject, retaining one motion authority. Optional `suppress`
 subject references support paired visuals without changing collision, authored
 visibility, NPC lookup or wandering eligibility. `replace => true` explicitly
 changes an existing staged visual while preserving the subject lease.
+For an unbound replacement, each omitted x/y, facing and collision field retains
+its current value; explicit zero coordinates and `collision => false` are overrides.
+
+### Authored field pose frames
+
+A field-image `sprites2d` descriptor may add `animation`, independently of
+walking and facing. The existing actor and field clock advance it during yielded
+text, choice and waits, without another `stage_actor` or movement command:
+
+```php
+'sprites2d' => [
+  'asset' => 'Graphics/Poses/Signal.png',
+  'cells' => ['width' => 1, 'height' => 1],
+  'animation' => [
+    'columns' => 3,
+    'rows' => 1,
+    'frames' => [0, 1, 2],
+    'fps' => 8,
+    'loop' => true,
+    'restFrame' => 0,
+  ],
+],
+```
+
+Grid axes are integers in 1..64 (default 1). `frames` is a required ordered
+list of 1..10000 row-major source-cell indices; repeats are allowed. `fps` is
+an integer in 1..120 (default 8), `loop` defaults to true, and `restFrame`
+defaults to source cell 0, not a playback-list index. A non-looping pose holds
+its last frame. An optional outer `sourceRect` bounds the whole animation sheet
+region, not one frame. Frame dimensions are read from the current PNG/region,
+which must fit and divide evenly into the grid. Replacing a compatible file
+does not change actor identity, field footprint, collision or authoring metadata.
+Unavailable/incompatible art is diagnosed and keeps the terminal presentation.
+
+The staged visual owns playback; queries and renderer projection never advance
+it. Scene suspension and hidden/ineligible visuals freeze its clock; resume/show
+continue without catching up wall time. Facing/blocked movement stop sliding,
+not the pose loop. Removal/replacement, cinematic cleanup and map/scene teardown
+release playback. Reduced motion shows `restFrame` and freezes the pose clock;
+returning to normal motion continues its previous phase. Omitted `animation`
+preserves static images and the existing CharacterSheet walking policy.
+
+`CinematicCommandSchema::export()['stagedPoseAnimation']` exposes the Engine's
+authoring vocabulary and limits, and the existing staged-graphics validator
+validates the same descriptor in cast and commands. GUI asset picking, grid/frame
+selection and preview controls must consume this contract and preserve it through
+the existing source-edit/undo services. This runtime slice does not implement
+those GUI controls or require graphical frame editing in the TUI.
 
 Leases are scoped to object, map and session identity. Normal completion keeps
 intentional transforms; failure, transfer and scene stop restore temporary ones
@@ -234,6 +292,11 @@ and release visual suppression. Legal skip restores before finalizer writes;
 successful finalizer `move_player` commits are not undone by a later failure.
 Stage `commitSubjectTransforms()` provides the explicit transform boundary.
 Re-entry and same-ID NPCs on other maps do not inherit stale suppression.
+
+`move_player` uses the shared [immediate placement handoff](story-events.md#immediate-player-placement):
+attached cameras snap to the new position, while detached cinematic cameras
+remain under authored control. It cancels old walking interpolation and arrival
+work without creating a movement step or changing finalizer commit semantics.
 
 ### Captured-entry walking and return
 
@@ -257,13 +320,17 @@ bound visuals follow their real subject rather than owning another route.
  'secondsPerStep' => 0.15],
 ```
 
-`remember` is a unique identifier within one cinematic event session, not a
-save variable. It records successful units and the actual entry facing/idle
+`remember` is a unique identifier within one event execution session, including
+ordinary NPC scripts, inline map events, standalone common events and cinematics,
+not a map catalogue or save variable. Referenced common events share their
+caller's session and can record or retrace its routes. Separate invocations do
+not share records. A runner without a session and staged actors cannot record.
+It records successful units and the actual entry facing/idle
 sprite. `retrace` consumes that completed history once, walks the exact inverse
 units with collision checks, then restores facing without changing the reached
 position. It requires the same real subject object, map, stage generation and
 recorded endpoint. Missing, incomplete, duplicate, consumed or stale histories
-fail closed. Transfers, failure, skip and completion cannot leak history into
+fail closed. Transfers, failure, skip, cancellation and completion cannot leak history into
 another session. Replacing a visual does not replace the movement subject.
 
 Only one route may move a subject at a time, including parallel lanes. Normal
@@ -282,7 +349,8 @@ Its operations are:
 - `pan` for timed interpolation;
 - `route` for ordered `points`, each with its own target and duration;
 - `track` for a moving subject over a duration;
-- `shake` for bounded displacement that returns to its base position;
+- `shake` for bounded displacement that returns to its base position while
+  preserving player-follow ownership and the previous detach/restore state;
 - `restore` for the previous camera state.
 
 Timed operations yield inside their lane, so camera, actor, dialogue, audio,
@@ -344,8 +412,8 @@ not merely stop advancing the interpreter's clock.
 
 These are implementation constraints, not delivered capabilities. The field
 presentation manager now owns independent effect sessions rather than one
-animation slot. Staged graphics support explicit replacement and optional walk
-playback, and sound effects are fire-and-forget
+animation slot. Staged graphics support explicit replacement, optional walk
+playback and owned field-pose frame playback; sound effects are fire-and-forget
 without a caller-owned playback handle. Resolve those boundaries as their
 consumers are implemented; do not encode scene-specific workarounds or introduce
 an unused animation/voice framework. Keep PHP responsible for scene semantics
@@ -361,8 +429,20 @@ Cinematics may compose existing Engine presentation systems with:
 - `clear_presentation` for all cinematic-owned effects, overlays and covers;
 - `cinematic_music` for a non-blocking music transition.
 
-Narration overlays appear in full rather than using dialogue's progressive
-reveal. Their authored `seconds` value is therefore a minimum: the Engine
+Timed narration and title cards use the shared dialogue panel, theme and
+pagination in graphical runtime and Editor previews. They do not register an
+input-owning modal or show dialogue's Auto/Continue controls. The handcrafted
+ASCII bubble is removed; Terminal uses the standard Window. Reading geometry
+comes from the host's text/canvas surface, never the field camera's tile count.
+Isolated hosts provide their own asset root through ScenePresentationContext.
+Unsupported graphical capabilities or an invalid theme retain visible Terminal
+text and diagnostics rather than hiding it.
+
+Narration pages appear in full rather than using dialogue's progressive
+reveal. Long passages advance across pages on the existing operation clock,
+with each page receiving its share of the total word-count reading time;
+rendering itself never advances time. Their authored `seconds` value is a
+minimum: the Engine
 extends it when necessary for the visible word count, using the project timing
 policy under `ui.cinematics.narration.minimum_duration`,
 `words_per_minute`, and `settle_duration`. This affects `narration` only;
@@ -391,7 +471,8 @@ full hold. These compatibility records are not retired yet.
 
 Each command owns one session. Parallel commands compose with one another and
 with map effects; completing or cancelling one removes only its effects.
-Finishing a timed narration/title clears its overlay, not sibling effects or a
+Finishing a timed narration/title clears only its own overlay, not a newer cue,
+sibling effects or a
 transition cover. Explicit clear, failure, transfer and shutdown release owned
 sessions. Cinematic commands reject looping timelines, whose lifetime belongs
 to the map rather than a blocking command lane.
@@ -418,6 +499,15 @@ Cinematic transfers do not invoke the project's legacy blocking configured
 map until the authored reveal. Ordinary event and field transfers retain the
 configured transition path. Reduced-motion mode reaches the same covered and
 revealed final states without intermediate animation frames.
+
+Cinematic fade and wipe covers use the same session-owned PHP clock for both
+presentations. Graphical fades interpolate black-cover opacity; wipes reveal or
+cover the corresponding width. Terminal retains its existing glyph progression.
+The settled cover survives the map transfer until the authored reveal, and
+cancellation clears it. Graphical covers compose above retained field content
+and opaque scene canvases, while notifications remain above the cover. Renderers
+without canvas-overlay/compositing support retain the terminal cover rather than
+hiding it. This does not migrate the ordinary blocking transfer path.
 
 An active battle is an irreversible boundary for generic skipping. Skip is
 refused while a battle is active; authors must not use skip to infer or

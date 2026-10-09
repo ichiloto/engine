@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Rendering;
 
 use Closure;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use InvalidArgumentException;
 use LogicException;
 use Throwable;
@@ -11,6 +12,7 @@ use Throwable;
 final class ScreenTransitionSession
 {
   protected float $elapsed = 0.0;
+  private float $traversalElapsed = 0.0;
   protected int $frameIndex = 0;
   protected ?array $currentFrame = null;
   protected(set) bool $isComplete = false;
@@ -34,6 +36,7 @@ final class ScreenTransitionSession
     ?callable $ready = null,
     ?callable $cleanup = null,
     private bool $enabled = true,
+    private bool $revealing = false,
   )
   {
     if ($transition instanceof ScreenTransitionTreatment) {
@@ -66,7 +69,10 @@ final class ScreenTransitionSession
       }
     }
 
-    $this->elapsed += max(0.0, $deltaSeconds);
+    $deltaSeconds = max(0.0, $deltaSeconds);
+    $duration = $this->transition->durationMs / 1000;
+    $this->traversalElapsed = min($duration, $this->traversalElapsed + min($duration, $deltaSeconds));
+    $this->elapsed += $deltaSeconds;
     $frameSeconds = max(0.001, ($this->transition->durationMs / 1000) / count($this->frames));
 
     while ($this->frameIndex < count($this->frames)
@@ -79,6 +85,7 @@ final class ScreenTransitionSession
     }
 
     $this->isComplete = $this->frameIndex >= count($this->frames);
+    if ($this->isComplete) { $this->traversalElapsed = $duration; }
     return $this->isComplete;
   }
 
@@ -100,6 +107,17 @@ final class ScreenTransitionSession
   public function hasRenderedFrame(): bool
   {
     return $this->currentFrame !== null || $this->paintedPhase !== null;
+  }
+
+  /** Graphical covers use continuous shared time, not the terminal's four block shades. */
+  public function getPresentationCanvas(int $width, int $height): ?PresentationCanvas
+  {
+    if (!$this->transition instanceof ScreenTransition || !$this->transition->isEnabled()
+      || $this->frames === [] || $this->phase === ScreenTransitionPhase::CANCELLED) {
+      return null;
+    }
+    $progress = $this->traversalElapsed / ($this->transition->durationMs / 1000);
+    return $this->transition->composeCover($width, $height, $this->revealing ? 1 - $progress : $progress);
   }
 
   /** Repaints the most recent frame after a field composition redraw. */

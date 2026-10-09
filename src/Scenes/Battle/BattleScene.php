@@ -29,6 +29,7 @@ use Ichiloto\Engine\Battle\UI\BattleScreen;
 use Ichiloto\Engine\Battle\UI\BattleResultWindow;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\Scenes\AbstractScene;
@@ -55,6 +56,10 @@ use Ichiloto\Engine\Util\Config\ConfigStore;
  */
 class BattleScene extends AbstractScene implements CanvasProviderInterface
 {
+  /** @var list<CharacterInterface> */
+  public array $partyBattlers {
+    get => $this->config?->partyRoster->battlers ?? $this->party->battlers->toArray();
+  }
   public private(set) ?GraphicalBattlePresentation $graphicalPresentation = null;
   public private(set) ?BattleCanvasLayout $battleUiLayout = null;
   public private(set) ?BattleResultsSkin $resultsSkin = null;
@@ -123,7 +128,9 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
     $ui = BattleCanvasUiAdapter::collect($this, $layout, includeField: $this->graphicalPresentation === null);
     $hud = $this->ui === null ? null : BattleHudSnapshot::fromScreen($this->ui);
     if ($this->graphicalPresentation !== null) {
-      return $this->graphicalPresentation->frame($this->ui?->fieldWindow, $ui, $hud, $focus);
+      return $this->graphicalPresentation->frame($this->ui?->fieldWindow, $ui, $hud, $focus,
+        imageFlips: $this->getGame()->getRendererRuntime()?->supports(RendererSessionConfig::CANVAS_IMAGE_FLIP) ?? false,
+        compositing: $this->getGame()->getRendererRuntime()?->supports(RendererSessionConfig::CANVAS_COMPOSITING) ?? false);
     }
     $composition = $hud === null ? null : GraphicalBattleHud::compose($layout, $hud, $focus,
       hrtime(true) / 1_000_000_000, $this->getGame()->getRendererRuntime()?->getAssetRoot());

@@ -19,14 +19,14 @@ use Ichiloto\Engine\Field\NpcPlacement;
  * takes the player off the map, so those cells are reached but not walked
  * through. An event fires while the player stands in its area, so it needs
  * one reachable cell; a talkable NPC is spoken to from a reachable cell that
- * reaches it, beside it or across counters (InteractionReach, as the field
- * talks).
+ * reaches it, beside it or across one counter cell (InteractionReach, as the
+ * field talks).
  *
  * Story conditions are not evaluated. An NPC that only appears under
  * conditions is a story gate, like a conditional event: gates are assumed
  * open, so only an NPC present in every story state blocks its cell. A
  * conditional NPC is still spoken to while present, so it still needs a
- * reachable cell beside it.
+ * reachable cell beside it or across one counter cell.
  *
  * @package Ichiloto\Engine\Field\Reachability
  */
@@ -195,7 +195,7 @@ final readonly class MapReachability
 
       if (! $this->isSpokenToFrom($npc, $reachable)) {
         $problems[] = new ReachabilityProblem($this->mapId, ReachabilityProblemKind::UNREACHABLE_NPC,
-          sprintf('NPC %s at (%d, %d) can never be spoken to: no reachable cell is beside it or across a counter from it.',
+          sprintf('NPC %s at (%d, %d) can never be spoken to: no reachable cell is beside it or directly across one counter cell from it.',
             $npc->name, $npc->x, $npc->y),
           $npc->x, $npc->y);
       }
@@ -205,9 +205,9 @@ final readonly class MapReachability
   }
 
   /**
-   * Whether a reachable cell reaches the NPC under the field's own rule: walk
-   * out from the NPC across counters to the first other cell, and ask
-   * InteractionReach from there, facing back, which NPC it finds.
+   * Whether a bounded candidate standing cell reaches this NPC under the
+   * field's own predicate. The shared bound and predicate also govern the
+   * authoring boundary; no reverse unbounded counter traversal is allowed.
    *
    * @param array<string, true> $reachable
    */
@@ -223,15 +223,13 @@ final readonly class MapReachability
     $hasNpcAt = static fn(int $x, int $y): bool => isset($occupied[self::key($x, $y)]);
 
     foreach ([[0, -1], [1, 0], [0, 1], [-1, 0]] as [$dx, $dy]) {
-      [$x, $y] = [$npc->x + $dx, $npc->y + $dy];
-
-      while ($isCounterAt($x, $y) && ! $hasNpcAt($x, $y)) {
-        [$x, $y] = [$x + $dx, $y + $dy];
-      }
-
-      if (isset($reachable[self::key($x, $y)])
-        && InteractionReach::findTalkCell($x, $y, -$dx, -$dy, $isCounterAt, $hasNpcAt) === [$npc->x, $npc->y]) {
-        return true;
+      for ($distance = 1; $distance <= InteractionReach::MAX_COUNTER_CELLS + 1; $distance++) {
+        $x = $npc->x + $dx * $distance;
+        $y = $npc->y + $dy * $distance;
+        if (isset($reachable[self::key($x, $y)])
+          && InteractionReach::findTalkCell($x, $y, -$dx, -$dy, $isCounterAt, $hasNpcAt) === [$npc->x, $npc->y]) {
+          return true;
+        }
       }
     }
 

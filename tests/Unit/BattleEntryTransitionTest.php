@@ -105,6 +105,7 @@ function getEntryFixtureCamera(): Camera
 
 class EntryFieldFixture extends AbstractScene
 {
+  public string $content = 'Actual field composition';
   public int $updates = 0;
   public int $stops = 0;
   public int $suspends = 0;
@@ -118,13 +119,15 @@ class EntryFieldFixture extends AbstractScene
   public function stop(): void { $this->stops++; parent::stop(); }
   public function suspend(): void { $this->suspends++; parent::suspend(); }
   public function resume(): void { $this->resumes++; parent::resume(); }
-  public function render(): void { Console::write('Actual field composition', 0, 0); }
+  public function render(): void { Console::write($this->content, 0, 0); }
 }
 
 final class EntryOtherFixture extends EntryFieldFixture {}
 
 final class EntryBattleFixture extends BattleScene
 {
+  public bool $useGraphicalField = false;
+  public string $compositionId = 'prepared-battle';
   public bool $failPreparation = false;
   public bool $failComposition = false;
   public int $compositions = 0;
@@ -138,12 +141,21 @@ final class EntryBattleFixture extends BattleScene
     if ($this->failPreparation) { throw new RuntimeException('Incoming preparation failed.'); }
     parent::configure($config);
   }
+  protected function initializeBattleSceneStates(): void
+  {
+    parent::initializeBattleSceneStates();
+    if ($this->useGraphicalField) {
+      // Entry owns terminal-layer replacement even when graphical field drawing makes no Console writes.
+      new ReflectionProperty(BattleScene::class, 'graphicalPresentation')->setValue($this,
+        new ReflectionClass(\Ichiloto\Engine\Battle\Presentation\GraphicalBattlePresentation::class)->newInstanceWithoutConstructor());
+    }
+  }
   public function getPresentationCanvas(): ?PresentationCanvas
   {
     if ($this->failComposition) { throw new RuntimeException('Incoming composition failed.'); }
     $this->compositions++;
     return new PresentationCanvas(1350, 720,
-      [new CanvasImage('prepared-battle', 'prepared-battle.png', new CanvasRectangle(0, 0, 1350, 720))]);
+      [new CanvasImage($this->compositionId, 'prepared-battle.png', new CanvasRectangle(0, 0, 1350, 720))]);
   }
 }
 
@@ -239,6 +251,92 @@ it('starts combat immediately without the old terminal intro under Off or reduce
   $this->runtime->present($this->battle);
   expect(RetainedFrameState::getLatestFrame($this->transport->sent)['canvas'])->not->toHaveKey('composites');
 })->with(['Off' => [false], 'reduced motion' => [true]]);
+
+it('enables an authored battle handoff independently of doorway transitions', function () {
+  ConfigStore::get(ProjectConfig::class)->set('ui.transitions.style', 'none');
+  ConfigStore::get(ProjectConfig::class)->set('ui.transitions.battle', true);
+  $this->manager->loadBattleScene($this->party, $this->troop);
+  expect($this->manager->hasSceneTransition())->toBeTrue()
+    ->and($this->manager->currentScene)->toBe($this->field)
+    ->and($this->game->engine->starts)->toBe(0);
+});
+
+it('honours an explicit battle Off setting without disabling doorway transitions', function () {
+  ConfigStore::get(ProjectConfig::class)->set('ui.transitions.style', 'wipe');
+  ConfigStore::get(ProjectConfig::class)->set('ui.transitions.battle', false);
+  $this->manager->loadBattleScene($this->party, $this->troop);
+  expect($this->manager->hasSceneTransition())->toBeFalse()
+    ->and($this->battle->state)->toBeInstanceOf(BattleRunState::class);
+});
+
+it('replaces untiled field text at battle handoff rather than importing it into the battle UI', function (string $mode, bool $graphical) {
+  ConfigStore::get(ProjectConfig::class)->set('ui.transitions.style', $mode === 'off' ? 'none' : 'wipe');
+  ConfigStore::get(ProjectConfig::class)->set('accessibility.reducedMotion', $mode === 'reduced');
+  $this->battle->useGraphicalField = $graphical;
+  Console::withLayer('map:untiled-floor', fn() => Console::write('UNTILED FIELD GLYPHS', 20, 10), -100);
+  Console::replaceOverlay('persistent-notice', ['NOTICE SURVIVES'], 2, 2, 4000);
+  $this->manager->loadBattleScene($this->party, $this->troop);
+  if ($mode === 'normal') {
+    expect(implode('', Console::snapshot()->rows))->toContain('UNTILED FIELD GLYPHS');
+    $this->manager->advance(1);
+    $this->manager->advance(.08);
+    $this->manager->advance(.38);
+  }
+  expect(array_column(Console::presentationSnapshot()->textLayers, 'id'))->not->toContain('map:untiled-floor')
+    ->and(implode('', Console::snapshot()->rows))->not->toContain('UNTILED FIELD GLYPHS', 'Actual field composition')
+    ->and(implode('', Console::snapshot()->rows))->toContain('NOTICE SURVIVES');
+})->with(['normal', 'off', 'reduced'])->with([false, true]);
+
+it('rebuilds each encounter and releases its cover before returning to the same field', function (string $mode) {
+  ConfigStore::get(ProjectConfig::class)->set('ui.transitions.style', $mode === 'off' ? 'none' : 'default');
+  ConfigStore::get(ProjectConfig::class)->set('accessibility.reducedMotion', $mode === 'reduced');
+  $previousUi = null;
+  for ($encounter = 1; $encounter <= 3; $encounter++) {
+    $this->field->content = 'Current field ' . $encounter;
+    $this->battle->compositionId = 'encounter-' . $encounter;
+    $this->manager->render();
+    $this->runtime->present($this->field);
+    $this->manager->loadBattleScene($this->party, $this->troop);
+    if ($mode === 'normal') {
+      expect($this->manager->currentScene)->toBe($this->field)
+        ->and($this->game->engine->starts)->toBe($encounter - 1);
+      $this->manager->advance(1);
+      $this->runtime->present($this->field);
+      $covered = RetainedFrameState::getLatestFrame($this->transport->sent);
+      expect($covered['textLayers'][0]['runs'][0]['text'])->toStartWith($this->field->content);
+      $this->manager->advance(.08);
+      $this->runtime->present($this->battle);
+      $incoming = RetainedFrameState::getLatestFrame($this->transport->sent);
+      expect($incoming['canvas']['images'][0]['id'])->toBe($this->battle->compositionId)
+        ->and($incoming['textLayers'])->toBe([])
+        ->and($this->game->engine->starts)->toBe($encounter - 1);
+      $this->manager->advance(.38);
+    }
+    $this->runtime->present($this->battle);
+    $running = RetainedFrameState::getLatestFrame($this->transport->sent);
+    expect($this->manager->hasSceneTransition())->toBeFalse()
+      ->and($this->manager->currentScene)->toBe($this->battle)
+      ->and($this->battle->state)->toBeInstanceOf(BattleRunState::class)
+      ->and($this->battle->ui)->not->toBe($previousUi)
+      ->and($this->battle->result)->toBeNull()
+      ->and($this->battle->shouldLoadGameOver)->toBeFalse()
+      ->and($this->game->engine->starts)->toBe($encounter)
+      ->and($running['canvas']['images'][0]['id'])->toBe($this->battle->compositionId)
+      ->and($running['canvas'])->not->toHaveKey('composites');
+    $previousUi = $this->battle->ui;
+    $this->battle->shouldLoadGameOver = true;
+    $this->manager->returnFromBattleScene();
+    $this->manager->render();
+    $this->runtime->present($this->field);
+    $returned = RetainedFrameState::getLatestFrame($this->transport->sent);
+    expect($this->manager->currentScene)->toBe($this->field)
+      ->and($this->field->resumes)->toBe($encounter)
+      ->and($this->field->suspends)->toBe($encounter)
+      ->and($this->field->stops)->toBe(0)
+      ->and($returned)->not->toHaveKey('canvas')
+      ->and($returned['textLayers'][0]['runs'][0]['text'])->toStartWith($this->field->content);
+  }
+})->with(['normal transition' => 'normal', 'transitions off' => 'off', 'reduced motion' => 'reduced']);
 
 it('pauses on focus loss and resumes without charging unfocused time to the sweep', function () {
   $this->manager->loadBattleScene($this->party, $this->troop);

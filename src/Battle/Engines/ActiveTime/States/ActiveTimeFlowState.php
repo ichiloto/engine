@@ -188,7 +188,7 @@ class ActiveTimeFlowState extends PlayerActionState
    */
   protected function activateReadyCharacter(TurnStateExecutionContext $context, Character $character): void
   {
-    $partyBattlers = $context->party->battlers->toArray();
+    $partyBattlers = $context->partyRoster->battlers;
     $index = array_search($character, $partyBattlers, true);
 
     if (! is_int($index)) {
@@ -227,7 +227,7 @@ class ActiveTimeFlowState extends PlayerActionState
 
     [$action, $resolvedTargets] = EnemyActionEvaluator::chooseAction(
       $enemy,
-      $context->party->battlers->toArray(),
+      $context->partyRoster->battlers,
       $context->troop->members->toArray(),
       max(1, $context->roundNumber),
       $maxPartyLevel,

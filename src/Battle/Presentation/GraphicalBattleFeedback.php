@@ -14,6 +14,13 @@ use Ichiloto\Engine\UI\Accessibility;
 /** Existing literal results projected into bounded, glyph-only presentation. */
 final class GraphicalBattleFeedback
 {
+  /** Fallen artwork replaces KO captions; retain the original feedback for terminal consumers. */
+  public static function getVisibleLines(array $lines): array
+  {
+    return array_values(array_filter($lines,
+      static fn(array $line): bool => ($line['role'] ?? null) !== BattleFeedbackRole::KO));
+  }
+
   /** @param list<\Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle> $occupied Actual opaque HUD surfaces.
    * @return list<CanvasTextLayer>
    */
@@ -26,18 +33,20 @@ final class GraphicalBattleFeedback
     $layers = [];
     $reducedMotion = Accessibility::prefersReducedMotion();
     $blocks = [];
-    // Stationary names and KO occupy space first, so later popups cannot displace them.
+    // Stationary names occupy space first, so later popups cannot displace them.
     foreach ($participants as $participant) {
-      if ($participant['persistent'] !== []) {
+      $lines = self::getVisibleLines($participant['persistent']);
+      if ($lines !== []) {
         $blocks[] = ['id' => 'label-' . $participant['id'], 'owner' => $participant['id'], 'bounds' => $participant['bounds'],
-          'lines' => $participant['persistent'], 'popup' => null];
+          'lines' => $lines, 'popup' => null];
       }
     }
     foreach ($participants as $participant) {
       foreach ($participant['popups'] as $popup) {
-        if (BattleFeedbackTiming::duration($popup['durationSeconds']) === 0.0 || $popup['lines'] === []) { continue; }
+        $lines = self::getVisibleLines($popup['lines']);
+        if (BattleFeedbackTiming::duration($popup['durationSeconds']) === 0.0 || $lines === []) { continue; }
         $blocks[] = ['id' => 'result-' . $participant['id'] . '-' . $popup['sequence'], 'owner' => $participant['id'],
-          'bounds' => $participant['bounds'], 'lines' => $popup['lines'], 'popup' => $popup];
+          'bounds' => $participant['bounds'], 'lines' => $lines, 'popup' => $popup];
       }
     }
     foreach ($blocks as $block) {
@@ -111,7 +120,6 @@ final class GraphicalBattleFeedback
       BattleFeedbackRole::WEAK => [11, 22, 'damage'],
       BattleFeedbackRole::RESIST, BattleFeedbackRole::NULL => [11, 22, 'mp'],
       BattleFeedbackRole::ABSORB => [11, 22, 'healing'],
-      BattleFeedbackRole::KO => [13, 26, 'focus'],
       BattleFeedbackRole::MISS => [17, 34, 'text'],
       BattleFeedbackRole::DAMAGE => $critical ? [24, 48, 'damage'] : [20, 40, 'damage'],
       BattleFeedbackRole::HEAL => [20, 40, 'healing'],

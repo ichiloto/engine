@@ -9,13 +9,14 @@ use Ichiloto\Engine\Entities\Interfaces\CharacterInterface as Actor;
 use Ichiloto\Engine\Entities\ItemScope;
 use Ichiloto\Engine\Entities\Skills\Skill;
 use Ichiloto\Engine\Entities\Skills\SkillEffectExecutor;
+use Ichiloto\Engine\Localization\Vocabulary;
 
 /**
  * Executes a battle skill by applying each of its configured effects.
  *
  * @package Ichiloto\Engine\Battle\Actions
  */
-class SkillBattleAction extends BattleAction
+class SkillBattleAction extends BattleAction implements ExecutionEligibility
 {
   private SkillEffectExecutor $effectExecutor;
   public ItemScope $targetScope {
@@ -35,12 +36,23 @@ class SkillBattleAction extends BattleAction
     $this->effectExecutor = new SkillEffectExecutor($this->resolver, $this->random);
   }
 
+  public function getExecutionRefusal(Actor $actor): ?string
+  {
+    if ($actor->isKnockedOut) {
+      return sprintf('%s cannot act while knocked out.', $actor->name);
+    }
+    return $actor->stats->currentMp < $this->skill->cost
+      ? get_message('battle.insufficient_resource', '%1 cannot use %2: not enough %3.',
+        $actor->name, $this->name, Vocabulary::getTerm('stats.mp', 'MP'))
+      : null;
+  }
+
   /**
    * @inheritDoc
    */
   public function execute(Actor $actor, array $targets): void
   {
-    if ($actor->isKnockedOut || $actor->stats->currentMp < $this->skill->cost) {
+    if ($this->getExecutionRefusal($actor) !== null) {
       return;
     }
 

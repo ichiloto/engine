@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\Entities\Skills;
 
 use Assegai\Util\Path;
+use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneDefinition;
+use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
 use Throwable;
@@ -20,6 +22,8 @@ use Throwable;
  * SpecialSkill, an attack a BasicSkill). Every consumer
  * that resolves a skill by name reads this catalogue, so a skill is found the
  * same way wherever it is authored.
+ * Catalogue membership defines a resource, not permission to use it. Actors
+ * select their inherent attack and own learned skills; enemies own action patterns.
  *
  * @package Ichiloto\Engine\Entities\Skills
  */
@@ -37,11 +41,13 @@ final class SkillCatalog
    * @param array<string, Skill> $skills The skills, keyed by name, in authored order.
    * @param array<string, string> $sourceFiles The data file each skill is authored in, keyed by name.
    * @param list<string> $problems The authoring problems found while reading the catalogue.
+   * @param array<string, true> $summonActions Linked action identities from this project's summon definitions.
    */
   private function __construct(
     private readonly array $skills,
     private readonly array $sourceFiles,
     private readonly array $problems,
+    private readonly array $summonActions,
   )
   {
   }
@@ -116,7 +122,8 @@ final class SkillCatalog
       }
     }
 
-    return self::fromSkills($skills, $problems);
+    return self::fromSkills($skills, $problems,
+      new SummonCutsceneLibrary(Path::join($assetRoot, 'Cutscenes', 'Summons'))->load());
   }
 
   /**
@@ -126,9 +133,10 @@ final class SkillCatalog
    *
    * @param array<string, Skill> $skills The skills, keyed by their file relative to `assets/Data`.
    * @param list<string> $problems Problems already found while reading the files.
+   * @param list<SummonCutsceneDefinition> $summons Definitions in the same project, not an active battle's global registry.
    * @return self The catalogue.
    */
-  public static function fromSkills(array $skills, array $problems = []): self
+  public static function fromSkills(array $skills, array $problems = [], array $summons = []): self
   {
     $byName = [];
     $sourceFiles = [];
@@ -148,7 +156,17 @@ final class SkillCatalog
       $sourceFiles[$skill->name] = $file;
     }
 
-    return new self($byName, $sourceFiles, $problems);
+    $summonActions = [];
+    foreach ($summons as $summon) {
+      if ($summon->linkedActionId !== null) { $summonActions[$summon->linkedActionId] = true; }
+    }
+    return new self($byName, $sourceFiles, $problems, $summonActions);
+  }
+
+  /** Classifies authored action identity independently of process working directory and battle lifetime. */
+  public function isSummonAction(string $name): bool
+  {
+    return isset($this->summonActions[$name]);
   }
   /**
    * Returns every skill, keyed by name, in file order.

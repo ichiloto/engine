@@ -17,7 +17,7 @@ final class TileComposer
   public const array WATER_FRAMES = [0, 1, 2, 1];
   public const int WATERFALL_FRAMES = 3;
 
-  /** Quarter positions (in quarter tiles within the autotile block) for each floor shape, clockwise from top left. */
+  /** Source quarter positions for each floor shape, in destination order: top left, top right, bottom left, bottom right. */
   private const array FLOOR = [
     [[2, 4], [1, 4], [2, 3], [1, 3]], [[2, 0], [1, 4], [2, 3], [1, 3]], [[2, 4], [3, 0], [2, 3], [1, 3]], [[2, 0], [3, 0], [2, 3], [1, 3]],
     [[2, 4], [1, 4], [2, 3], [3, 1]], [[2, 0], [1, 4], [2, 3], [3, 1]], [[2, 4], [3, 0], [2, 3], [3, 1]], [[2, 0], [3, 0], [2, 3], [3, 1]],

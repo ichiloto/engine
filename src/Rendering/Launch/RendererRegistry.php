@@ -20,7 +20,8 @@ final class RendererRegistry
     $descriptors ??= [
       new RendererDescriptor('terminal', static fn(string $assetRoot): ?RendererRuntime => null),
       new RendererDescriptor('gpui', static fn(string $assetRoot): RendererRuntime => new RendererRuntime(
-        new RendererRuntimeConfig(new RendererProcessConfig([$resolver->resolve('gpui')]), $assetRoot, 10, 20,
+        new RendererRuntimeConfig(new RendererProcessConfig([$resolver->resolve('gpui')]), $assetRoot,
+          RendererRuntimeConfig::GPUI_CELL_WIDTH, RendererRuntimeConfig::GPUI_CELL_HEIGHT,
           // Optional surfaces select from the renderer's advertised capabilities after startup.
           // Merely installing a theme must not tighten the game's transport requirements.
           // Key transitions are an event subscription: requiring it is how the Game asks for

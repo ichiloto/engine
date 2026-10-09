@@ -5,7 +5,7 @@ declare(strict_types=1);
 
 /**
  * Read-only, map-only PHP presentation benchmark; never launches a renderer.
- * Run this same tool in separate processes against the baseline and candidate.
+ * Run this same tool in separate processes against retained-API source revisions.
  * Example: php tools/benchmark-retained-presentation.php --project=/path/to/game
  *   --engine=/path/to/engine --dependencies=/path/to/installed/engine/vendor
  *   --map=region/map --columns=200 --rows=50 --start-x=8 --start-y=20
@@ -15,22 +15,21 @@ declare(strict_types=1);
  * exclusively from --engine, including when it is a detached source checkout.
  */
 
-use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
+use Ichiloto\Engine\Field\MapGraphics;
 use Ichiloto\Engine\Field\MapLayerSet;
 use Ichiloto\Engine\Field\MapLayerSource;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\ConsolePresentationChanges;
 use Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot;
 use Ichiloto\Engine\Rendering\Camera;
-use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
+use Ichiloto\Engine\Rendering\FieldViewport;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\PresentationViewport;
 use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
-use Ichiloto\Engine\Rendering\Tiles\GraphicalTileCollector;
-use Ichiloto\Engine\Rendering\Tiles\GraphicalTileDefinition;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererTransportState;
 use Ichiloto\Engine\Rendering\Transport\Interfaces\RendererTransportInterface;
 use Ichiloto\Engine\Rendering\Transport\RendererEvent;
@@ -39,6 +38,9 @@ use Ichiloto\Engine\Rendering\Transport\RendererMessage;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Scenes\SceneManager;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\PlaySettings;
 
 const BENCHMARK_CELL_WIDTH = 10;
 const BENCHMARK_CELL_HEIGHT = 20;
@@ -94,9 +96,9 @@ foreach (require $vendor . '/composer/autoload_files.php' as $id => $file) {
     }
 }
 chdir($project);
-$retained = class_exists(PresentationWorld::class);
 $columns = $getInteger('columns', 200, 2, RendererGridConfig::MAX_COLUMNS);
 $rows = $getInteger('rows', 50, 2, RendererGridConfig::MAX_ROWS);
+ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => $columns, 'height' => $rows]));
 
 /** An encoded sink with immediate synthetic acknowledgements, not pipe/native latency. */
 final class BenchmarkPresentationTransport implements RendererTransportInterface
@@ -110,12 +112,15 @@ final class BenchmarkPresentationTransport implements RendererTransportInterface
     public int $tileCells = 0;
     public int $textRuns = 0;
     public int $worldUploads = 0;
+    public int $worldCells = 0;
     public int $presentedFrames = 0;
+    public ?array $worldMetadata = null;
+    public ?array $viewport = null;
     public function start(RendererSessionConfig $session): void
     {
         $this->running = true;
         $this->events[] = RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready',
-            'capabilities' => $session->requiredCapabilities], JSON_THROW_ON_ERROR));
+            'capabilities' => $session->getNegotiableCapabilities()], JSON_THROW_ON_ERROR));
     }
     public function send(RendererMessage $message): void
     {
@@ -124,22 +129,35 @@ final class BenchmarkPresentationTransport implements RendererTransportInterface
         $this->encodeNs += hrtime(true) - $started;
         $this->bytes += strlen($encoded);
         $this->packets++;
-        foreach ($message->payload['tileBatches'] ?? [] as $batch) { $this->tileCells += count($batch['cells']); }
-        foreach ($message->payload['textLayers'] ?? [] as $layer) { $this->textRuns += count($layer['runs']); }
         $this->operations += count($message->payload['operations'] ?? []);
+        if (array_key_exists('viewport', $message->payload)) { $this->viewport = $message->payload['viewport']; }
         foreach ($message->payload['operations'] ?? [] as $operation) {
-            if ($operation['op'] === 'put' && ($operation['kind'] ?? null) === 'world') { $this->worldUploads++; }
+            if ($operation['op'] === 'put' && ($operation['kind'] ?? null) === 'world') {
+                $this->worldUploads++;
+                $value = $operation['value'];
+                $this->worldMetadata = ['id' => $operation['id'], 'size' => [$value['columns'], $value['rows']],
+                    'cellSize' => [$value['cellWidth'], $value['cellHeight']], 'layers' => $value['layers'],
+                    'tileSize' => $value['tileset']['tileSize'] ?? null,
+                    'tileSheets' => $value['tileset']['sheets'] ?? [],
+                    'tileCatalogSize' => count($value['tileset']['tiles'] ?? [])];
+            }
+            foreach ($operation['rows'] ?? [] as $row) {
+                if ($operation['op'] === 'worldRows') { $this->worldCells += count($row['cells']); }
+                elseif ($operation['op'] === 'worldTiles') { $this->tileCells += count($row['cells']); }
+                elseif ($operation['op'] === 'textRows') { $this->textRuns += count($row['runs']); }
+            }
         }
         if (isset($message->payload['generation'])) {
             if ($message->payload['present']) { $this->presentedFrames++; }
             $this->events[] = RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'frame_ack',
                 'generation' => $message->payload['generation'], 'frame' => $message->payload['frame'],
                 'presented' => $message->payload['present']], JSON_THROW_ON_ERROR));
-        } else { $this->presentedFrames++; }
+        }
     }
     public function resetCounters(): void
     {
-        $this->encodeNs = $this->bytes = $this->packets = $this->operations = $this->tileCells = $this->textRuns = $this->worldUploads = $this->presentedFrames = 0;
+        $this->encodeNs = $this->bytes = $this->packets = $this->operations = $this->tileCells = $this->textRuns = $this->worldUploads = $this->worldCells = $this->presentedFrames = 0;
+        $this->worldMetadata = $this->viewport = null;
     }
     public function trySend(RendererMessage $message): bool { $this->send($message); return true; }
     public function getPendingWriteBytes(): int { return 0; }
@@ -151,31 +169,38 @@ final class BenchmarkPresentationTransport implements RendererTransportInterface
     public function getDiagnostics(): string { return 'Read-only encoded benchmark sink; no native process.'; }
 }
 
-/** Only presentation providers are exercised, not an initialised gameplay scene. */
+/** An inert scene owner; only the benchmark owns startup and cleanup. */
+final class BenchmarkPresentationGame extends Game
+{
+    public function __construct() {}
+    public function __destruct() {}
+}
+
+/** Real scene/UI providers without starting gameplay, persistence or audio services. */
 final class BenchmarkPresentationScene extends GameScene
 {
-    private GraphicalTileCollector $tiles;
-    public function __construct(private MapLayerSet $layers, private array $definitions,
-        private ?PresentationWorld $world, int $width, int $height)
+    public function __construct(MapLayerSet $layers, private PresentationWorld $world,
+        private FieldViewport $benchmarkViewport)
     {
-        $this->tiles = new GraphicalTileCollector();
-        $camera = new Camera($this, $width, $height, worldSpace: $layers->getComposedGrid());
-        new ReflectionProperty(GameScene::class, 'camera')->setValue($this, $camera);
-        if ($world !== null) { $camera->setRetainedWorldAvailable(true); }
+        // Inert owners avoid Game's launch/cleanup and SceneManager's save/battle setup.
+        // The real scene constructor still initializes its camera, UI and event providers.
+        $game = new BenchmarkPresentationGame();
+        $manager = new ReflectionClass(SceneManager::class)->newInstanceWithoutConstructor();
+        $manager->game = $game;
+        parent::__construct($manager, 'PHP presentation benchmark');
+        $this->camera = new Camera($this, $benchmarkViewport->columns, $benchmarkViewport->rows,
+            worldSpace: $layers->getComposedGrid());
+        $this->camera->setRetainedWorldAvailable(true);
     }
     public function getGraphicalSpriteProviders(): iterable { return []; }
-    public function getGraphicalTileBatches(): array { return $this->tiles->collectLayers($this->layers, $this->definitions, $this->camera); }
     public function getPresentationCanvas(): ?PresentationCanvas { return null; }
     public function getPresentationWorld(): ?PresentationWorld { return $this->world; }
     public function getPresentationViewport(ConsolePresentationSnapshot|ConsolePresentationChanges $snapshot, array $sprites, array $tiles = []): ?PresentationViewport
     {
-        if ($this->world === null) { return null; }
-        $origin = $this->camera->getWorldOrigin();
-        return new PresentationViewport(1, 0, 0, new CanvasRectangle(0, 0,
-            $snapshot->width * BENCHMARK_CELL_WIDTH, $snapshot->height * BENCHMARK_CELL_HEIGHT),
-            worldId: $this->world->id, worldOriginX: $origin['x'], worldOriginY: $origin['y']);
+        return $this->benchmarkViewport->createViewport($snapshot, $sprites, $tiles,
+            $this->world->id, $this->camera->getWorldOrigin());
     }
-    public function drawMap(): void { Console::recomposeFrame(fn() => $this->camera->renderLayeredMap($this->layers), true); }
+    public function drawMap(): void { Console::recomposeFrame($this->camera->renderMap(...), true); }
 }
 
 function summariseBenchmarkSamples(array $values): array
@@ -187,47 +212,58 @@ function summariseBenchmarkSamples(array $values): array
 }
 
 Console::setTerminalOutputEnabled(false);
+Console::enterAlternateScreen();
 Console::setLayerTracking(true);
 Console::syncDimensions($columns, $rows);
 LatencyTrace::configure();
 $started = hrtime(true);
 $layers = MapLayerSource::loadFromDirectory($mapDirectory, $map);
 $data = require $mapDirectory . '/' . basename($map) . '.data.php';
-$definitions = isset($data['tiles2d']) ? GraphicalTileDefinition::getForLayers($data['tiles2d'], $layers, $map) : [];
+if (!is_array($data)) { throw new InvalidArgumentException('Map data must return an array.'); }
+// Glyph-keyed tiles2d and stateless tile batches are removed; graphics use retained tileset layers only.
+$graphics = MapGraphics::loadFromDirectory($mapDirectory, $map, $data['tileset'] ?? null,
+    $layers, $assets, $data[MapGraphics::SETTINGS_KEY] ?? null);
 $loadMs = (hrtime(true) - $started) / 1e6;
 $started = hrtime(true);
-$world = $retained ? PresentationWorld::getFromLayers($layers, $definitions) : null;
+$world = PresentationWorld::getFromLayers($layers, 'map', $graphics, $assets);
 $worldCompileMs = (hrtime(true) - $started) / 1e6;
-$scene = new BenchmarkPresentationScene($layers, $definitions, $world, $columns, $rows);
-$maxX = max(0, $scene->camera->worldSpaceWidth - $columns);
-$maxY = max(0, $scene->camera->worldSpaceHeight - $rows);
+$fieldViewport = new FieldViewport(new RendererGridConfig($columns, $rows, BENCHMARK_CELL_WIDTH, BENCHMARK_CELL_HEIGHT));
+$scene = new BenchmarkPresentationScene($layers, $world, $fieldViewport);
+$maxX = max(0, $scene->camera->worldSpaceWidth - $fieldViewport->columns);
+$maxY = max(0, $scene->camera->worldSpaceHeight - $fieldViewport->rows);
 if ($startX + 1 > $maxX || $startY > $maxY) { throw new InvalidArgumentException('Map must permit the requested eight distinct scroll positions.'); }
 $positions = [['north', $startX, $startY - 1], ['east', $startX + 1, $startY - 1],
     ['south', $startX + 1, $startY], ['west', $startX, $startY], ['north-west', 0, 0],
     ['north-east', $maxX, 0], ['south-east', $maxX, $maxY], ['south-west', 0, $maxY]];
+if (count(array_unique(array_map(static fn(array $position): string => $position[1] . ':' . $position[2], $positions))) !== 8) {
+    throw new InvalidArgumentException('Map must permit the requested eight distinct scroll positions.');
+}
 $transport = new BenchmarkPresentationTransport();
 $runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig([PHP_BINARY]), $assets,
-    cellWidth: BENCHMARK_CELL_WIDTH, cellHeight: BENCHMARK_CELL_HEIGHT,
-    requiredCapabilities: ['sprite_source_rect', 'tile_batches', ...($retained ? [] : ['frame_viewport'])]), $transport);
-$runtime->start('PHP presentation benchmark', $columns, $rows);
-$scene->camera->moveTo($startX, $startY);
-$started = hrtime(true);
-$scene->drawMap();
-$coldCalls = 0;
-do {
-    $runtime->present($scene);
-    if (++$coldCalls > BENCHMARK_MAX_COLD_UPLOAD_CALLS) { throw new RuntimeException('Cold upload failed to complete.'); }
-} while ($transport->presentedFrames === 0);
-$initial = ['combinedMs' => (hrtime(true) - $started) / 1e6, 'bytes' => $transport->bytes, 'packets' => $transport->packets,
-    'operations' => $transport->operations, 'worldUploads' => $transport->worldUploads, 'runtimeCalls' => $coldCalls];
-$traceRecords = [];
-if (isset($options['trace'])) {
-    LatencyTrace::configure(static function (array $record) use (&$traceRecords): void {
-        if (isset($record['duration_ns'])) { $traceRecords[$record['stage']] = $record['duration_ns'] / 1e6; }
-    });
-}
-$samples = [];
+    cellWidth: BENCHMARK_CELL_WIDTH, cellHeight: BENCHMARK_CELL_HEIGHT), $transport);
 try {
+    $runtime->start('PHP presentation benchmark', $columns, $rows);
+    $transport->resetCounters();
+    $scene->camera->moveTo($startX, $startY);
+    $started = hrtime(true);
+    $scene->drawMap();
+    $coldCalls = 0;
+    do {
+        $runtime->present($scene);
+        if (++$coldCalls > BENCHMARK_MAX_COLD_UPLOAD_CALLS) { throw new RuntimeException('Cold upload failed to complete.'); }
+    } while ($transport->presentedFrames === 0);
+    if ($transport->worldUploads !== 1) { throw new RuntimeException('Cold upload must install exactly one retained world.'); }
+    $initial = ['combinedMs' => (hrtime(true) - $started) / 1e6, 'bytes' => $transport->bytes, 'packets' => $transport->packets,
+        'operations' => $transport->operations, 'worldUploads' => $transport->worldUploads, 'runtimeCalls' => $coldCalls,
+        'worldCells' => $transport->worldCells, 'tileCells' => $transport->tileCells,
+        'presentedFrames' => $transport->presentedFrames, 'world' => $transport->worldMetadata, 'viewport' => $transport->viewport];
+    $traceRecords = [];
+    if (isset($options['trace'])) {
+        LatencyTrace::configure(static function (array $record) use (&$traceRecords): void {
+            if (isset($record['duration_ns'])) { $traceRecords[$record['stage']] = $record['duration_ns'] / 1e6; }
+        });
+    }
+    $samples = [];
     for ($cycle = -$warmup; $cycle < $iterations; $cycle++) {
         foreach ($positions as [$label, $x, $y]) {
             $scene->camera->moveTo($x, $y);
@@ -239,7 +275,8 @@ try {
             $changed = $runtime->present($scene);
             $finished = hrtime(true);
             if (!$changed) { throw new RuntimeException("Scroll $label unexpectedly emitted nothing."); }
-            if ($retained && ($transport->packets !== 1 || $transport->operations !== 0 || $transport->worldUploads !== 0)) {
+            if ($transport->packets !== 1 || $transport->operations !== 0 || $transport->worldUploads !== 0
+                || $transport->presentedFrames !== 1 || ($transport->viewport['worldOrigin'] ?? null) !== ['column' => $x, 'row' => $y]) {
                 throw new RuntimeException('Retained scrolling must emit one viewport-only packet.');
             }
             if ($cycle >= 0) {
@@ -247,7 +284,8 @@ try {
                     'runtimeMs' => ($finished - $drawn) / 1e6, 'combinedMs' => ($finished - $started) / 1e6,
                     'transportEncodingMs' => $transport->encodeNs / 1e6, 'bytes' => $transport->bytes,
                     'packets' => $transport->packets, 'operations' => $transport->operations,
-                    'tileCells' => $transport->tileCells, 'textRuns' => $transport->textRuns, 'traceMs' => $traceRecords];
+                    'tileCells' => $transport->tileCells, 'textRuns' => $transport->textRuns,
+                    'worldUploads' => $transport->worldUploads, 'viewport' => $transport->viewport, 'traceMs' => $traceRecords];
             }
         }
     }
@@ -255,7 +293,11 @@ try {
     $scene->drawMap();
     $unchanged = $runtime->present($scene);
     if ($unchanged || $transport->packets !== 0) { throw new RuntimeException('Unchanged state emitted a packet.'); }
-} finally { $runtime->shutdown(); LatencyTrace::configure(); }
+    $unchangedPackets = $transport->packets;
+} finally {
+    try { $runtime->shutdown(); }
+    finally { Console::reset(); LatencyTrace::configure(); }
+}
 $sources = [];
 foreach (get_declared_classes() as $class) {
     if (!str_starts_with($class, 'Ichiloto\\Engine\\')) { continue; }
@@ -269,13 +311,15 @@ foreach (['drawMs', 'runtimeMs', 'combinedMs', 'transportEncodingMs', 'bytes', '
     $summary[$metric] = summariseBenchmarkSamples(array_column($samples, $metric));
 }
 $result = ['scope' => 'PHP map-only scroll, real Console/Camera and Runtime::present including collectors, snapshots, serializer and encoded fake transport with immediate synthetic acknowledgements. No actors/HUD/gameplay/native/GPU/pipe latency.',
-    'mode' => $retained ? 'retained' : 'original-full-frame', 'traceEnabled' => isset($options['trace']),
+    'mode' => 'retained', 'traceEnabled' => isset($options['trace']),
     'php' => PHP_VERSION, 'os' => php_uname(), 'jit' => ini_get('opcache.jit'), 'opcacheCli' => ini_get('opcache.enable_cli'),
     'engine' => $engine, 'project' => $project, 'dependencies' => $vendor, 'map' => $map,
     'grid' => [$columns, $rows], 'cellSize' => [BENCHMARK_CELL_WIDTH, BENCHMARK_CELL_HEIGHT],
+    'fieldGrid' => [$fieldViewport->columns, $fieldViewport->rows],
+    'fieldCellSize' => [FieldViewport::TILE_SIZE, FieldViewport::TILE_SIZE], 'fieldZoom' => $fieldViewport->zoom,
     'worldSize' => [$scene->camera->worldSpaceWidth, $scene->camera->worldSpaceHeight],
     'warmupCycles' => $warmup, 'measuredCycles' => $iterations, 'positions' => $positions, 'sources' => $sources,
-    'loadMs' => $loadMs, 'worldCompileMs' => $worldCompileMs, 'initial' => $initial, 'unchangedPackets' => $transport->packets,
+    'loadMs' => $loadMs, 'worldCompileMs' => $worldCompileMs, 'initial' => $initial, 'unchangedPackets' => $unchangedPackets,
     'summary' => $summary, 'samples' => $samples];
 $json = json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
 if ($output === null) { fwrite(STDOUT, $json); }

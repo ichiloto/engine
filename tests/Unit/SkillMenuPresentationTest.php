@@ -24,6 +24,7 @@ use Ichiloto\Engine\Entities\Magic\LearnableSpell;
 use Ichiloto\Engine\Entities\Magic\Spellbook;
 use Ichiloto\Engine\Entities\Magic\SpellLearningRequirement;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Entities\Skills\BasicSkill;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
 use Ichiloto\Engine\Entities\Skills\SpecialSkill;
 use Ichiloto\Engine\Entities\Stats;
@@ -234,6 +235,53 @@ it('keeps scrolled terminal rows contiguous and selects the actual owner index',
   $panel->setEntries($entries, 0);
   expect(trim(TerminalText::stripAnsi($panel->getContent()[0])))->toBe('Entry 0');
 })->with([MagicListPanel::class, AbilityListPanel::class]);
+
+it('uses plain skill names in terminal lists and detail headers while retaining graphical icon roles', function (bool $magic) {
+  $state = skillMenuOwner($this, $magic);
+  $name = $magic ? 'Alpha Restore' : 'Alpha Guard';
+  $class = $state::class;
+  $list = new ReflectionMethod($class, $magic ? 'buildUseEntries' : 'buildReadyEntries')->invoke($state);
+  $details = new ReflectionMethod($class, $magic ? 'buildUseDetailLines' : 'buildReadyDetailLines')->invoke($state);
+  expect(trim(TerminalText::stripAnsi($list[0])))->toStartWith($name)
+    ->and(implode('', $list))->not->toContain('NOT A NATIVE ICON')
+    ->and($details[0])->toBe($name)
+    ->and($details[1])->toBe('MP Cost : ' . ($magic ? 3 : 7))
+    ->and($state->getPresentationContent()->rows[0]->icon)->toBe($magic ? 'skill.magic' : 'skill.ability');
+  skillMenuKey($state, KeyCode::RIGHT);
+  $name = $magic ? 'Zeta Spell' : 'Zeta Ability';
+  $list = new ReflectionMethod($class, 'buildLearnEntries')->invoke($state);
+  $details = new ReflectionMethod($class, 'buildLearnDetailLines')->invoke($state);
+  expect(trim(TerminalText::stripAnsi($list[0])))->toStartWith($name)
+    ->and($details[0])->toBe($name);
+  if ($magic) {
+    skillMenuKey($state, KeyCode::LEFT);
+    skillMenuKey($state, KeyCode::ENTER);
+    $details = new ReflectionMethod($class, 'buildTargetDetailLines')->invoke($state);
+    expect($details[0])->toBe('Alpha Restore');
+  }
+})->with([false, true]);
+
+it('shows and reviews learned alternate attacks in both field menu presentations', function (bool $graphical) {
+  $attack = new BasicSkill('Alternate Strike', 'An explicitly learned alternate attack.', '', 4, 0,
+    new ItemScope(ItemScopeSide::ENEMY, ItemScopeNumber::ONE), Occasion::BATTLE_SCREEN);
+  new ReflectionProperty($this->actor, 'abilityBook')->setValue($this->actor, new AbilityBook([$attack]));
+  if ($graphical) { skillMenuRuntime($this, skillMenuTheme()); }
+  $state = skillMenuOwner($this, false);
+  $details = new ReflectionMethod(AbilityMenuState::class, 'buildReadyDetailLines')->invoke($state);
+  $rows = new ReflectionMethod(AbilityMenuState::class, 'buildReadyEntries')->invoke($state);
+  expect($details[0])->toBe($attack->name)
+    ->and($details[1])->toBe('MP Cost : 4')
+    ->and(trim(TerminalText::stripAnsi($rows[0])))->toStartWith($attack->name)
+    ->and($state->getPresentationContent()->description)->toBe($attack->description);
+  if ($graphical) {
+    expect(implode('', skillMenuText($this->scene->getPresentationCanvas())))
+      ->toContain($attack->name, $attack->description);
+  }
+  skillMenuKey($state, KeyCode::ENTER);
+  expect($state->getPresentationContent()->status)->toBe('Alternate Strike is ready for battle.')
+    ->and($this->actor->stats->currentMp)->toBe(20)
+    ->and($this->ally->stats->currentHp)->toBe(30);
+})->with([false, true]);
 
 it('projects both real skill owners and every tab through two themes without mutating outcomes', function (bool $magic, bool $alternative) {
   $state = skillMenuOwner($this, $magic);

@@ -38,6 +38,12 @@ trait HasStates
    */
   public bool $lastHitWasCritical = false;
 
+  /** State definitions are shared resources; live duration belongs to each battler. */
+  protected function cloneStateInstances(): void
+  {
+    $this->states = array_map(static fn(StateInstance $instance): StateInstance => clone $instance, $this->states);
+  }
+
   /**
    * Sets the battler's state resistances.
    *

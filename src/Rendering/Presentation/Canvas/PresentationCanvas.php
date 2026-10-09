@@ -37,6 +37,32 @@ final readonly class PresentationCanvas
       ...array_map(static fn(CanvasIndicator $indicator) => $indicator->bounds, $this->indicators)];
   }
 
+  /** Stack a live screen-space layer without replacing the retained scene underneath. */
+  public static function composeOverlay(?self $base, self $overlay, string $idPrefix = ''): self
+  {
+    if ($base === null && $idPrefix === '') { return $overlay; }
+    $base ??= new self($overlay->width, $overlay->height);
+    if ($base->width !== $overlay->width || $base->height !== $overlay->height) {
+      throw new InvalidArgumentException('Canvas overlays must share their logical surface.');
+    }
+    $offset = 1 + max([0, ...array_column($base->images, 'layer'), ...array_column($base->textLayers, 'layer'),
+      ...array_column($base->indicators, 'layer'), ...array_column($base->composites, 'layer')]);
+    return new self($base->width, $base->height,
+      [...$base->images, ...array_map(static fn($image) => new CanvasImage($idPrefix . $image->id, $image->asset,
+        $image->destination, $offset + $image->layer, $image->sourceRect, $image->opacity,
+        $image->clipRect, $image->brightness, $image->flipX, $image->flipY), $overlay->images)],
+      [...$base->indicators, ...array_map(static fn($indicator) => new CanvasIndicator($idPrefix . $indicator->id,
+        $idPrefix . $indicator->imageId, $indicator->kind, $indicator->bounds, $indicator->strokeWidth, $indicator->color,
+        $offset + $indicator->layer), $overlay->indicators)],
+      CanvasTextBatch::compact([...$base->textLayers, ...array_map(static fn($text) => new CanvasTextLayer($idPrefix . $text->id, $offset + $text->layer,
+        $text->x, $text->y, $text->grid, $text->runs, $text->clipRect, $text->opacity, $text->glyphEffects), $overlay->textLayers)]),
+      [...$base->composites, ...array_map(static fn($composite) => new CanvasComposite($idPrefix . $composite->id,
+        $composite->width, $composite->height, $composite->destination, $composite->operations,
+        $offset + $composite->layer, $composite->opacity, $composite->clipRect), $overlay->composites)],
+      [...$base->getOverlayProtection(), ...$overlay->getOverlayProtection()],
+      [...$base->presentationOwners, ...$overlay->presentationOwners]);
+  }
+
   /** @param list<CanvasImage> $images
    * @param list<CanvasIndicator> $indicators
    * @param list<CanvasTextLayer> $textLayers
@@ -49,10 +75,18 @@ final readonly class PresentationCanvas
     array $textLayers = [],
     array $composites = [],
     ?array $protectedAreas = null,
+    public array $presentationOwners = [],
   )
   {
     if ($width < 1 || $height < 1 || $width > CanvasValidation::MAX_EXTENT || $height > CanvasValidation::MAX_EXTENT) {
       throw new InvalidArgumentException('Canvas dimensions must be in 1..16384.');
+    }
+    if (!array_is_list($presentationOwners) || count($presentationOwners) > 1024) {
+      throw new InvalidArgumentException('Canvas presentation owners require a bounded list.');
+    }
+    foreach ($presentationOwners as $owner) {
+      if (!is_string($owner)) { throw new InvalidArgumentException('Canvas presentation owners require layer IDs.'); }
+      CanvasValidation::id($owner);
     }
     $this->images = CanvasValidation::orderedList($images, CanvasImage::class, 1024);
     $this->indicators = CanvasValidation::orderedList($indicators, CanvasIndicator::class, 2048);

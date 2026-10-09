@@ -864,6 +864,9 @@ class Game implements CanRun, SubjectInterface
         }
         TerminalCapabilities::reset();
         TerminalCapabilities::detect();
+        if (isset($this->notificationManager)) {
+            $this->rendererRuntime?->setNotificationManager($this->notificationManager);
+        }
         $this->rendererRuntime?->start($this->name, $this->width, $this->height, $this->rendererRuntime === null ? null
             : ApplicationIcon::getAssetPath(ConfigStore::has(AppConfig::class) ? config(AppConfig::class, ApplicationIcon::KEY) : null,
                 $this->rendererRuntime->getAssetRoot()));
@@ -1084,6 +1087,8 @@ SPLASH_SCREEN;
             return;
         }
 
+        $this->modalManager->processPendingAlerts();
+        if ($this->terminalCleanedUp) { return; }
         $this->notificationManager->update();
         if ($this->terminalCleanedUp) {
             return;
@@ -1159,6 +1164,9 @@ SPLASH_SCREEN;
         if ($this->terminalCleanedUp || Console::isComposing()) { return; }
         // The modal owns its logical layout; only its physical margins may move.
         $this->syncScreenSize(resizeLogicalViewport: false);
+        if ($this->sceneManager->currentScene instanceof \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasOverlayProviderInterface) {
+            $this->sceneManager->currentScene->renderPresentationOverlay();
+        }
         if ($this->rendererRuntime !== null) {
             // Scene presentation ownership also applies during dialogue/timer waits.
             $this->rendererRuntime->present($this->sceneManager->currentScene, $this->notificationManager);
@@ -1250,6 +1258,9 @@ SPLASH_SCREEN;
         // update without exposing a lower-precedence HUD between them.
         $this->sceneManager->currentScene?->getUI()->commitPresentationChanges();
         $this->sceneManager->render();
+        if ($this->sceneManager->currentScene instanceof \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasOverlayProviderInterface) {
+            $this->sceneManager->currentScene->renderPresentationOverlay();
+        }
         $this->notificationManager->render();
 
         if (

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\UI\Presentation;
 
 use Ichiloto\Engine\Entities\Enumerations\WeaponType;
+use Ichiloto\Engine\Entities\Inventory\EquipmentIcon;
 use Ichiloto\Engine\Entities\Inventory\EquipmentSlotType;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasNineSlice;
@@ -39,12 +40,11 @@ final readonly class MenuIconRegistry
   public function asset(WeaponType|EquipmentSlotType|string|null $metadata): ?string
   {
     if ($metadata === null) { return null; }
-    $semantic = match (true) {
-      $metadata instanceof WeaponType => 'weapon.' . strtolower($metadata->value),
-      $metadata instanceof EquipmentSlotType => 'slot.' . $metadata->value,
-      default => $metadata,
-    };
-    foreach (array_unique(array_filter([$this->icons[$semantic] ?? null, $this->icons['unknown'] ?? null])) as $asset) {
+    $type = EquipmentIcon::resolveType($metadata);
+    $semantic = is_string($metadata) ? $metadata : EquipmentIcon::getRole($metadata);
+    // Known types retain their own symbol when optional artwork is unavailable, never another item's icon.
+    foreach (array_unique(array_filter([$this->icons[$semantic] ?? null,
+      $type === null ? ($this->icons['unknown'] ?? null) : null])) as $asset) {
       if (PngAssetPreflight::getAvailableSize($this->assetRoot, $asset) !== null) { return $asset; }
     }
     return null;

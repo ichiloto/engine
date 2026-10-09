@@ -3,8 +3,8 @@
 namespace Ichiloto\Engine\Cutscenes\Summons;
 
 use JsonException;
-use Ichiloto\Engine\Animations\Timelines\EffectTimelineCompiler;
-use InvalidArgumentException;
+use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
+use Ichiloto\Engine\Animations\Timelines\EffectTimelineValidator;
 
 /**
  * Compiles authored summon cutscene sources into runtime playback data.
@@ -13,8 +13,11 @@ use InvalidArgumentException;
  */
 final class SummonCutsceneCompiler
 {
+  public const int VERSION = 4;
+
   public function __construct(
-    public int $compileVersion = 1,
+    public int $compileVersion = self::VERSION,
+    private readonly ?string $assetRoot = null,
   )
   {
     $this->compileVersion = max(1, $compileVersion);
@@ -23,57 +26,64 @@ final class SummonCutsceneCompiler
   /**
    * @throws JsonException
    */
-  public function compile(SummonCutsceneDefinition $definition): SummonCompiledCutscene
+  public function compile(SummonCutsceneDefinition $definition,
+    EffectPresentation $presentation = EffectPresentation::GRAPHICAL): SummonCompiledCutscene
   {
-    $this->assertValidEffectTiming($definition);
-
     $source = $definition->toSourceArray();
+    $timeline = $definition->toTimelineArray();
+    unset($timeline['formatVersion'], $timeline['editor']);
+    if (isset($timeline['presentations'])) {
+      $variants = $timeline['presentations'];
+      if (is_array($variants[$presentation->value] ?? null)) {
+        $variants[$presentation->value] = $this->prepareSequence($definition, $variants[$presentation->value]);
+      }
+      $timeline = ['presentations' => $variants];
+    } else {
+      $timeline = $this->prepareSequence($definition, $timeline);
+    }
+    $effect = (new EffectTimelineValidator($this->assetRoot ?? getcwd() . '/assets'))
+      ->compile($definition->id, $timeline, true, $presentation, forSummon: true);
+    // Covers belong to the selected stage, not the common source's legacy fades.
+    $stageOwnsCovers = isset($effect->defaults['stage']);
     $sourceHash = sha1(json_encode($source, JSON_THROW_ON_ERROR));
-    $segments = (new EffectTimelineCompiler())->compileTracks(array_map(
-      static fn(SummonCutsceneTrack $track): array => $track->toArray(), $definition->getTracks(),
-    ));
-
-    $cueSchedule = array_map(
-      static fn(SummonCue $cue): array => $cue->toArray(),
-      $definition->getCues(),
-    );
 
     return new SummonCompiledCutscene(
       $definition->id,
       $sourceHash,
       $this->compileVersion,
-      $definition->fps,
-      $segments,
-      $cueSchedule,
+      $effect->fps,
+      $effect->playbackSegments,
+      $effect->cueSchedule,
       [
-        'in' => $definition->transitionIn->toArray(),
-        'out' => $definition->transitionOut->toArray(),
+        'in' => [...$definition->transitionIn->toArray(),
+          'durationMs' => $stageOwnsCovers ? 0 : $definition->transitionIn->durationMs],
+        'out' => [...$definition->transitionOut->toArray(),
+          'durationMs' => $stageOwnsCovers ? 0 : $definition->transitionOut->durationMs],
       ],
       [
+        ...$effect->defaults,
+        'presentation' => $presentation->value,
         'playback' => $definition->playback->toArray(),
         'name' => $definition->name,
         'moveName' => $definition->moveName,
         'targetPresentation' => $definition->targetPresentation->toArray(),
         'effectTiming' => $definition->effectTiming->toArray(),
-        'lengthFrames' => $definition->lengthFrames,
       ],
     );
   }
 
-  protected function assertValidEffectTiming(SummonCutsceneDefinition $definition): void
+  /** Summon policy stays outside the common sequence; its impact uses the same validator. */
+  private function prepareSequence(SummonCutsceneDefinition $definition, array $sequence): array
   {
-    if ($definition->effectTiming->mode === 'cue') {
-      if ($definition->effectTiming->cueId === null || $definition->effectTiming->cueId === '') {
-        throw new InvalidArgumentException('Summon cutscene cue timing requires a cueId.');
-      }
-
-      if ($definition->getCueById($definition->effectTiming->cueId) === null) {
-        throw new InvalidArgumentException('Summon cutscene effect cue does not exist.');
-      }
-    }
-
-    if (in_array($definition->effectTiming->mode, ['explicit_frame', 'frame'], true) && $definition->effectTiming->frame === null) {
-      throw new InvalidArgumentException('Summon cutscene explicit frame timing requires a frame value.');
-    }
+    // Flat and paired sources use the same legacy summon normalization without rewriting authored source.
+    $sequence['tracks'] = array_map(static fn(array $track): array => SummonCutsceneTrack::fromArray($track)->toArray(),
+      array_values(array_filter($sequence['tracks'] ?? [], 'is_array')));
+    $sequence['cues'] = array_map(static fn(array $cue): array => SummonCue::fromArray($cue)->toArray(),
+      array_values(array_filter($sequence['cues'] ?? [], 'is_array')));
+    $timing = $definition->effectTiming->toArray();
+    if ($timing['mode'] === 'explicit_frame') { $timing['mode'] = 'frame'; }
+    return [...$sequence, 'playback' => 'once',
+      'restFrame' => $sequence['restFrame'] ?? max(0, ($sequence['lengthFrames'] ?? 1) - 1),
+      'effectTiming' => $timing];
   }
 }

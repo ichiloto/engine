@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Battle\Presentation;
 
+use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasGlyphEffects;
@@ -102,7 +103,10 @@ final class GraphicalBattleResults
     $view = new self($skin, $playback);
     $stage = $playback->currentStage();
     $view->heading(match ($stage['kind']) {
-      'primary' => 'VICTORY', 'level' => 'LEVEL UP', 'ability' => 'NEW ABILITY', default => 'SPECIAL REWARD',
+      'primary' => Vocabulary::getTerm('battle.victory', 'VICTORY'),
+      'level' => Vocabulary::getTerm('battle.level_up', 'LEVEL UP'),
+      'ability' => Vocabulary::getTerm('battle.new_ability', 'NEW ABILITY'),
+      default => Vocabulary::getTerm('battle.special_reward', 'SPECIAL REWARD'),
     });
     if ($stage['kind'] === 'primary') { $view->primary(); } else { $view->event(); }
     $view->controls();
@@ -124,9 +128,9 @@ final class GraphicalBattleResults
     $this->renderImage('party', 'panel', new CanvasRectangle(52, 146, 754, 502));
     $this->renderImage('rewards', 'panel', new CanvasRectangle(828, 146, 470, 324));
     $this->renderImage('summary', 'quiet', new CanvasRectangle(828, 484, 470, 164));
-    $this->line('party-title', 'PARTY PROGRESS', 80, 168, 698, 11, 22, 'accent');
-    $this->line('rewards-title', 'REWARDS', 856, 168, 414, 11, 22, 'accent');
-    $this->line('summary-title', 'BATTLE SUMMARY', 856, 508, 414, 11, 22, 'accent');
+    $this->line('party-title', Vocabulary::getTerm('battle.party_progress', 'PARTY PROGRESS'), 80, 168, 698, 11, 22, 'accent');
+    $this->line('rewards-title', Vocabulary::getTerm('battle.rewards', 'REWARDS'), 856, 168, 414, 11, 22, 'accent');
+    $this->line('summary-title', Vocabulary::getTerm('battle.summary', 'BATTLE SUMMARY'), 856, 508, 414, 11, 22, 'accent');
     $rewards = $this->playback->rewards;
     $rows = $this->page(BattleResultsContent::partyRows($rewards), 4);
     foreach ($rows as $slot => $row) {
@@ -141,26 +145,27 @@ final class GraphicalBattleResults
         $this->line('party-name-' . $slot . '-' . $line, $name, 196, $y + $line * 28,
           $row['nameColumns'] * 14, 14, 28, 'text', alpha: $alpha);
       }
-      $this->line('party-level-' . $slot, 'Lv ' . $progress['level'], 680, $y, 98, 13, 26, 'accent', 'right', $alpha);
+      $this->line('party-level-' . $slot, Vocabulary::getTerm('stats.level_short', Vocabulary::getTerm('stats.level', 'Lv')) . ' ' . $progress['level'], 680, $y, 98, 13, 26, 'accent', 'right', $alpha);
       $gain = $award->experienceAwarded > 0 ? '+' . $award->experienceAwarded : '';
       $this->line('party-gain-' . $slot, $gain, 778 - $row['gainWidth'], $y + 28,
         $row['gainWidth'], 13, 26, 'positive', 'right', $alpha);
       if ($progress['maximum']) {
-        $this->line('party-cap-' . $slot, 'MAX LEVEL', 196, $y + 60, 260, 11, 22, 'muted', alpha: $alpha);
+        $this->line('party-cap-' . $slot, Vocabulary::getTerm('battle.max_level', 'MAX LEVEL'), 196, $y + 60, 260, 11, 22, 'muted', alpha: $alpha);
       } else {
         $this->renderGauge('party-' . $slot, new CanvasRectangle(196, $y + 64, 582, 12), $progress['ratio'], $alpha);
       }
       $markers = [];
       if ($row['continued']) { $markers[] = 'NAME CONTINUED'; }
       if ($this->playback->isComplete()) {
-        if ($award->levelledUp()) { $markers[] = 'LEVEL UP'; }
-        if ($award->learnedDetails !== []) { $markers[] = 'NEW ABILITY'; }
+        if ($award->levelledUp()) { $markers[] = Vocabulary::getTerm('battle.level_up', 'LEVEL UP'); }
+        if ($award->learnedDetails !== []) { $markers[] = Vocabulary::getTerm('battle.new_ability', 'NEW ABILITY'); }
       }
       $this->line('party-markers-' . $slot, implode(' / ', $markers), 196, $y + 80, 582, 9, 18, 'accent', alpha: $alpha);
     }
-    $this->total('experience', 'EXP / MEMBER', $rewards->experiencePerMember, 207);
-    $this->total('gold', 'MONEY', $rewards->gold, 241);
-    $this->line('items-title', 'ITEMS', 856, 278, 414, 11, 22, 'muted');
+    $this->total('experience', Vocabulary::getTerm('battle.experience_per_member',
+      Vocabulary::getTerm('stats.exp', 'EXP') . ' / MEMBER'), $rewards->experiencePerMember, 207);
+    $this->total('gold', Vocabulary::getTerm('currency.name', 'Gold'), $rewards->gold, 241);
+    $this->line('items-title', Vocabulary::getTerm('command.item', 'ITEMS'), 856, 278, 414, 11, 22, 'muted');
     $items = BattleResultsContent::itemLines($rewards);
     if ($items === []) { $this->line('items-empty', 'None', 856, 308, 414, 13, 26, 'muted'); }
     foreach ($this->page($items, 4) as $index => $item) {
@@ -209,7 +214,7 @@ final class GraphicalBattleResults
     }
     if ($actor !== null && $stage['kind'] === 'level') {
       $progress = $this->playback->progress($actor);
-      $label = $progress['maximum'] ? 'MAX LEVEL' : $progress['current'] . ' / ' . $progress['needed'];
+      $label = $progress['maximum'] ? Vocabulary::getTerm('battle.max_level', 'MAX LEVEL') : $progress['current'] . ' / ' . $progress['needed'];
       $this->line('event-progress', $label, 538, 553, 650, 13, 26, 'muted', 'right');
       if (!$progress['maximum']) {
         $this->renderGauge('event-progress', new CanvasRectangle(538, 594, 650, 12), $progress['ratio']);
@@ -232,8 +237,11 @@ final class GraphicalBattleResults
 
   private function total(string $id, string $label, int $value, int $y): void
   {
-    $this->line($id . '-label', $label, 856, $y + 2, 143, 11, 22, 'muted');
-    $this->line($id . '-value', (string)$value, 1010, $y, 260, 13, 26, 'accent', 'right');
+    $valueWidth = max(78, strlen((string)$value) * 13);
+    $labelWidth = 414 - $valueWidth - 16;
+    $cellWidth = max(1, min(11, (int)floor($labelWidth / max(1, mb_strlen($label)))));
+    $this->line($id . '-label', $label, 856, $y + 2, $labelWidth, $cellWidth, 22, 'muted');
+    $this->line($id . '-value', (string)$value, 1270 - $valueWidth, $y, $valueWidth, 13, 26, 'accent', 'right');
   }
 
   private function portrait(string $id, string $actorId, string $name, string $family, CanvasRectangle $bounds, float $alpha = 1): void

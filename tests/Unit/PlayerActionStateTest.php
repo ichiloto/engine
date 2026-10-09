@@ -7,6 +7,8 @@ use Ichiloto\Engine\Battle\Actions\GuardAction;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Battle\BattleAction;
 use Ichiloto\Engine\Battle\BattleCommandCatalog;
+use Ichiloto\Engine\Battle\BattleCommandType;
+use Ichiloto\Engine\Battle\BattleCommandLoadout;
 use Ichiloto\Engine\Battle\PartyBattlerPositions;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\PlayerActionState;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnStateExecutionContext;
@@ -41,6 +43,8 @@ use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\Inventory\Items\ItemScope as InventoryItemScope;
 use Ichiloto\Engine\Entities\Skills\SkillInvocation;
 use Ichiloto\Engine\Entities\Stats;
+use Ichiloto\Engine\Entities\Roles\CharacterRole;
+use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
@@ -281,6 +285,56 @@ function createTargetingTestScreen(): BattleScreenTargetingTestProxy
   return $screen;
 }
 
+it('opens role-aware battle commands and routes renamed labels by identity in both battle engines', function (bool $activeTime) {
+  $priorConfig = new ReflectionClass(ConfigStore::class)->getStaticProperties();
+  putSceneAudioConfig(['locale' => 'alternate', 'vocab' => [
+    'command' => ['attack' => 'Magic', 'magic' => 'Attack', 'summon_by_role' => ['Synthetic Role' => 'Petition']],
+    'alternate' => ['command' => ['summon_by_role' => ['Synthetic Role' => 'Entreat']]],
+  ]]);
+  try {
+    $game = new ReflectionClass(GameTargetingTestProxy::class)->newInstanceWithoutConstructor();
+    $party = new Party();
+    $actor = new Character('Synthetic actor', 1, new Stats(currentHp: 100, currentMp: 10, totalMp: 10),
+      spellbook: new Spellbook([new MagicSkill('Authored spell', '', '', 2, 0)]));
+    $actor->role = new CharacterRole($actor, 'Synthetic Role');
+    expect($actor->commandAbilities[3]->name)->toBe('Entreat')
+      ->and($actor->commandAbilities[3]->type)->toBe(BattleCommandType::SUMMON);
+    $party->addMember($actor);
+    $troop = new Troop('Synthetic', [createTargetingTestEnemy('Enemy')]);
+    $screen = createTargetingTestScreen();
+    setTestProperty($screen->commandWindow, 'height', BattleCommandWindow::HEIGHT);
+    $engine = $activeTime ? new ActiveTimeBattleEngine($game) : new TraditionalTurnBasedBattleEngine($game);
+    $engine->configure($activeTime ? new ActiveTimeBattleConfig($party, $troop, $screen)
+      : new TurnBasedBattleConfig($party, $troop, $screen));
+    $context = new TurnStateExecutionContext($game, $party, $troop, $screen, []);
+    $context->setTurns([new Turn($actor)]);
+    if ($activeTime) {
+      $state = $engine->turnInitState;
+      // This is the readiness -> command loading path from the reported crash.
+      new ReflectionMethod($state, 'activateReadyCharacter')->invoke($state, $context, $actor);
+    } else {
+      $state = new PlayerActionStateTestProxy($engine);
+      $state->setActiveCharacterIndexForTest(0);
+      $state->loadCharacterActionsForTest($context);
+    }
+    expect($screen->commandWindow->getActiveCommand()->type)->toBe(BattleCommandType::ATTACK)
+      ->and($screen->commandWindow->getActiveCommand()->name)->toBe('Magic');
+    new ReflectionMethod($state, 'beginSubmenuSelection')->invoke($state, $context);
+    expect($screen->commandContextWindow->getActiveItem()->type)->toBe(BattleCommandType::ATTACK);
+    new ReflectionMethod($state, 'returnToCommandSelection')->invoke($state, $context);
+    $screen->commandWindow->selectNext();
+    $screen->commandWindow->selectNext();
+    expect($screen->commandWindow->getActiveCommand()->type)->toBe(BattleCommandType::MAGIC)
+      ->and($screen->commandWindow->getActiveCommand()->name)->toBe('Attack');
+    new ReflectionMethod($state, 'beginSubmenuSelection')->invoke($state, $context);
+    expect($screen->commandContextWindow->getActiveItem()->action->name)->toBe('Authored spell');
+    $actor->battleCommandLoadout = new BattleCommandLoadout([BattleCommandType::ATTACK]);
+    expect(array_column(BattleCommandCatalog::buildCommands($actor, $party), 'type'))->toBe([BattleCommandType::ATTACK]);
+  } finally {
+    foreach ($priorConfig as $key => $value) { new ReflectionProperty(ConfigStore::class, $key)->setValue(null, $value); }
+  }
+})->with(['traditional' => false, 'active time' => true]);
+
 it('applies shared opening advantages only to the traditional first round', function (string $opening) {
   $game = (new ReflectionClass(GameTargetingTestProxy::class))->newInstanceWithoutConstructor();
   $screen = createTargetingTestScreen();
@@ -369,6 +423,30 @@ it('queues the player action against the selected target and keeps a queued targ
     ->and($screen->lastAlert)->toContain('Slime B')
     ->and($fieldWindow->getQueuedTroopTargets())->toBe([1 => 1])
     ->and($fieldWindow->getFocusedTroopIndex())->toBeNull();
+});
+
+it('includes current authored conditions and stages in the existing battle Info action', function () {
+  $game = new ReflectionClass(GameTargetingTestProxy::class)->newInstanceWithoutConstructor();
+  $party = new Party();
+  $actor = new Character('Synthetic actor', 1, new Stats(currentHp: 100));
+  $actor->addState(new \Ichiloto\Engine\Entities\States\State('condition', 'Condition name', 'C', 'Authored explanation.'));
+  $actor->setStatStage('speed', -2);
+  $party->addMember($actor);
+  $troop = new Troop('Synthetic', [createTargetingTestEnemy('Enemy')]);
+  $screen = createTargetingTestScreen();
+  $engine = new TraditionalTurnBasedBattleEngine($game);
+  $engine->configure(new TurnBasedBattleConfig($party, $troop, $screen));
+  $context = new TurnStateExecutionContext($game, $party, $troop, $screen, []);
+  $context->setTurns([new Turn($actor)]);
+  $state = new PlayerActionStateTestProxy($engine);
+  $state->setActiveCharacterIndexForTest(0);
+  $state->loadCharacterActionsForTest($context);
+  $state->showFocusedInfoForTest($context);
+  expect($screen->lastAlert)->toContain('physical attack', 'Condition name', 'Authored explanation.', 'Speed -2');
+  $actor->removeState('condition');
+  $actor->resetStatStages();
+  $state->showFocusedInfoForTest($context);
+  expect($screen->lastAlert)->not->toContain('Condition name', 'Authored explanation.', 'Speed -2');
 });
 
 it('shows helpful info for the focused battle command and submenu option', function () {

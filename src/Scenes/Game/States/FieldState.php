@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use Ichiloto\Engine\Localization\Vocabulary;
+
 use Exception;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Vector2;
@@ -9,6 +11,11 @@ use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\Field\PlayerWalk;
+use Ichiloto\Engine\Field\SkitPrompt;
+use Ichiloto\Engine\Field\SkitPromptPresentation;
+use Ichiloto\Engine\IO\ActionHints;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasOverlayProviderInterface;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
@@ -17,7 +24,6 @@ use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\SceneStateContext;
-use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
 
 /**
@@ -36,9 +42,43 @@ use Ichiloto\Engine\Util\Debug;
  *
  * @package Ichiloto\Engine\Scenes\Game\States
  */
-class FieldState extends GameSceneState
+class FieldState extends GameSceneState implements CanvasOverlayProviderInterface
 {
     private ?PlayerWalk $walk = null;
+    private ?SkitPromptPresentation $skitPromptPresentation = null;
+
+    private function getSkitPrompt(): ?SkitPrompt
+    {
+        if (!isset($this->context)) { return null; }
+        $scene = $this->getGameScene();
+        $prompt = $scene->skitManager?->getAvailablePrompt();
+        if ($prompt === null) { return null; }
+        return $scene->isStopping || $scene->state !== $this
+            || $scene->sceneManager->currentScene !== $scene || $scene->sceneManager->hasSceneTransition()
+            || $scene->hasUnstableEventSession() || $scene->getUI()->getActivePresentations() !== []
+            ? null : $prompt;
+    }
+
+    public function renderPresentationOverlay(): void
+    {
+        ($this->skitPromptPresentation ??= new SkitPromptPresentation())->renderTerminal($this->getSkitPrompt(),
+            ActionHints::resolve('skit', 'Watch skit'));
+    }
+
+    public function getPresentationOverlay(int $width, int $height): ?PresentationCanvas
+    {
+        $prompt = $this->getSkitPrompt();
+        if ($prompt === null) { return null; }
+        $runtime = $this->getGameScene()->getGame()->getRendererRuntime();
+        return $runtime === null ? null
+            : ($this->skitPromptPresentation ??= new SkitPromptPresentation())->getCanvas($prompt,
+                ActionHints::resolve('skit', 'Watch skit'), $runtime, $width, $height);
+    }
+
+    public function getExcludedOverlayLayers(): array { return [SkitPromptPresentation::LAYER]; }
+
+    public function exit(): void { Console::removeOverlay(SkitPromptPresentation::LAYER); }
+    public function suspend(): void { Console::removeOverlay(SkitPromptPresentation::LAYER); }
 
     /** Held walking, for input that reports held keys. */
     protected PlayerWalk $playerWalk {
@@ -78,6 +118,7 @@ class FieldState extends GameSceneState
             $this->getGameScene()->getUI()->render();
             $this->getGameScene()->cinematicPresentation?->render();
             $this->getGameScene()->eventInterpreter?->renderPresentation();
+            $this->renderPresentationOverlay();
         }, $forceFullRepaint);
     }
 
@@ -90,6 +131,12 @@ class FieldState extends GameSceneState
      */
     public function execute(?SceneStateContext $context = null): void
     {
+        try { $this->executeField($context); }
+        finally { $this->renderPresentationOverlay(); }
+    }
+
+    private function executeField(?SceneStateContext $context): void
+    {
         $scene = $this->context->getScene();
         assert($scene instanceof GameScene);
 
@@ -100,7 +147,7 @@ class FieldState extends GameSceneState
         // The player's last step arrives once its slide has shown, here in
         // the field and never under a menu opened while it slid.
         $scene->player?->completeArrival();
-        if ($scene->isStopping || $scene->state !== $this) {
+        if ($scene->isStopping || $scene->state !== $this || $scene->sceneManager->hasSceneTransition()) {
             return;
         }
 
@@ -126,7 +173,7 @@ class FieldState extends GameSceneState
 
         $this->handleActions($scene);
 
-        if ($scene->isStopping || $scene->hasUnstableEventSession()) {
+        if ($scene->isStopping || $scene->hasUnstableEventSession() || $scene->sceneManager->hasSceneTransition()) {
             return;
         }
 
@@ -139,7 +186,7 @@ class FieldState extends GameSceneState
 
         $this->handleNavigation($scene);
 
-        if ($scene->isStopping || $scene->hasUnstableEventSession()) {
+        if ($scene->isStopping || $scene->hasUnstableEventSession() || $scene->sceneManager->hasSceneTransition()) {
             return;
         }
 
@@ -165,7 +212,7 @@ class FieldState extends GameSceneState
             Input::isButtonDown("quit") &&
             confirm(
                 get_message("confirm.quit", "Are you sure you want to quit?"),
-                config(ProjectConfig::class, 'vocab.game.shutdown', 'Exit Game'))) {
+                Vocabulary::getTerm('game.shutdown', 'Exit Game'))) {
             $scene->getGame()->quit();
             return;
         }
@@ -179,7 +226,7 @@ class FieldState extends GameSceneState
             $scene->player->interact();
         }
 
-        if ($scene->isStopping) {
+        if ($scene->isStopping || $scene->sceneManager->hasSceneTransition()) {
             return;
         }
 

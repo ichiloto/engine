@@ -64,7 +64,7 @@ class EnemyActionState extends TurnState
 
     return EnemyActionEvaluator::chooseAction(
       $enemy,
-      $context->party->battlers->toArray(),
+      $context->partyRoster->battlers,
       $context->troop->members->toArray(),
       $context->roundNumber,
       $maxPartyLevel,

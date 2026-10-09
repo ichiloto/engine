@@ -19,6 +19,7 @@ use Ichiloto\Engine\Entities\Skills\MagicSkill;
 use Ichiloto\Engine\Entities\Skills\Skill;
 use Ichiloto\Engine\Entities\Skills\SkillCatalog;
 use Ichiloto\Engine\Entities\Skills\SpecialSkill;
+use Ichiloto\Engine\Localization\Vocabulary;
 use Throwable;
 
 /**
@@ -79,23 +80,24 @@ final class BattleCommandCatalog
    *
    * @param Character $character The active party character.
    * @param Party $party The party whose inventory should be inspected.
-   * @param string $commandName The selected top-level command name.
+   * @param BattleCommandType|string $commandName The semantic command, or a legacy name/id.
    * @param array<string, int> $reservedItemCounts Already queued item counts keyed by stable definition id.
    * @return BattleCommandOption[] The submenu options for the command.
    */
   public static function buildOptions(
     Character $character,
     Party $party,
-    string $commandName,
+    BattleCommandType|string $commandName,
     array $reservedItemCounts = [],
     ?GameState $gameState = null,
   ): array
   {
-    if ($character->battleCommandLoadout?->allowsCommand(BattleCommandType::fromCommandName($commandName)) === false) {
+    $type = $commandName instanceof BattleCommandType ? $commandName : BattleCommandType::fromCommandName($commandName);
+    if ($character->battleCommandLoadout?->allowsCommand($type) === false) {
       return [];
     }
-    return match (BattleCommandType::fromCommandName($commandName)) {
-      BattleCommandType::ATTACK => self::buildAttackOptions(),
+    return match ($type) {
+      BattleCommandType::ATTACK => self::buildAttackOptions($character),
       BattleCommandType::SKILL => self::buildSkillOptions($character),
       BattleCommandType::MAGIC => self::buildMagicOptions($character),
       BattleCommandType::SUMMON => self::buildSummonOptions($character, $party, $gameState),
@@ -108,7 +110,7 @@ final class BattleCommandCatalog
    * Builds the visible top-level commands, hiding Summon when it has no
    * currently usable option for this character.
    *
-   * @return BattleAction[]
+   * @return BattleCommand[]
    */
   public static function buildCommands(
     Character $character,
@@ -119,8 +121,8 @@ final class BattleCommandCatalog
   {
     return array_values(array_filter(
       $character->commandAbilities,
-      static function (BattleAction $action) use ($character, $party, $gameState, $escapePolicy): bool {
-        $type = BattleCommandType::fromCommandName($action->name);
+      static function (BattleCommand $command) use ($character, $party, $gameState, $escapePolicy): bool {
+        $type = $command->type;
 
         if ($character->battleCommandLoadout?->allowsCommand($type) === false) {
           return false;
@@ -144,30 +146,28 @@ final class BattleCommandCatalog
    *
    * @return BattleCommandOption[] The available attack options.
    */
-  protected static function buildAttackOptions(): array
+  protected static function buildAttackOptions(Character $character): array
   {
-    $options = [];
-    $hasBasicAttack = false;
+    $skills = [];
+    if ($character->attackSkill !== null) {
+      $skills[$character->attackSkill->name] = $character->attackSkill;
+    }
 
-    foreach (self::loadBattleSkills() as $skill) {
+    foreach ($character->abilityBook->getBattleUsableAbilities() as $skill) {
       if (! $skill instanceof BasicSkill) {
         continue;
       }
-
-      $hasBasicAttack = $hasBasicAttack || strtolower($skill->name) === 'attack';
-      $options[] = self::createSkillOption($skill);
+      $skills[$skill->name] = $skill;
     }
 
-    if (! $hasBasicAttack) {
-      array_unshift(
-        $options,
-        new BattleCommandOption(
-          'Attack',
-          'Strike a single enemy with a physical attack.',
-          new AttackAction('Attack'),
-          type: BattleCommandType::ATTACK,
-        )
-      );
+    $options = array_values(array_map(self::createSkillOption(...), $skills));
+    if ($character->attackSkill === null) {
+      array_unshift($options, new BattleCommandOption(
+        BattleCommandType::ATTACK->label(),
+        'Strike a single enemy with a physical attack.',
+        new AttackAction(BattleCommandType::ATTACK->label()),
+        type: BattleCommandType::ATTACK,
+      ));
     }
 
     return $options;
@@ -181,21 +181,12 @@ final class BattleCommandCatalog
    */
   protected static function buildSkillOptions(Character $character): array
   {
-    $learnedAbilities = $character->abilityBook->getBattleUsableAbilities();
-    $knownAbilities = $character->abilityBook->getLearnedAbilities();
-    $discoverableAbilities = $character->abilityBook->getLearnableAbilities();
-
-    if (! empty($learnedAbilities)) {
-      return array_values(array_map(self::createSkillOption(...), $learnedAbilities));
-    }
-
-    if (! empty($knownAbilities) || ! empty($discoverableAbilities)) {
-      return [];
-    }
-
     return array_values(array_map(
       self::createSkillOption(...),
-      array_filter(self::loadBattleSkills(), static fn(Skill $skill): bool => $skill instanceof SpecialSkill)
+      array_filter(
+        $character->abilityBook->getBattleUsableAbilities(),
+        static fn(Skill $skill): bool => $skill instanceof SpecialSkill && !self::isSummonActionId($skill->name),
+      ),
     ));
   }
 
@@ -352,7 +343,7 @@ final class BattleCommandCatalog
    */
   protected static function createSkillOption(Skill $skill): BattleCommandOption
   {
-    $costLabel = $skill->cost > 0 ? sprintf(' (%d MP)', $skill->cost) : '';
+    $costLabel = $skill->cost > 0 ? sprintf(' (%d %s)', $skill->cost, Vocabulary::getTerm('stats.mp', 'MP')) : '';
     $action = new SkillBattleAction($skill);
     $scope = $action->targetScope;
 

@@ -14,18 +14,23 @@ use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
+require __DIR__ . '/BattlePreviewClock.php';
 
-// The trusted local fixture owns its isolated state. This driver has no Game or audio lifecycle.
+// The trusted local fixture owns its isolated state, audio policy and disposal.
 $client = null;
+$fixture = null;
 $result = 0;
+$report = '';
 try {
-    $options = getopt('', ['renderer:', 'asset-root:', 'fixture:', 'subjects:', 'duration:', 'no-launch', 'reduced-motion', 'help']);
+    $options = getopt('', ['renderer:', 'asset-root:', 'fixture:', 'subjects:', 'duration:', 'no-launch', 'reduced-motion', 'inspect', 'help']);
     if (isset($options['help'])) {
         echo "Usage: php tools/gpui-battle-preview.php --asset-root=PATH --fixture=PHP [--renderer=PATH]\n"
             . "  [--subjects=ID,ID --duration=12 --reduced-motion --no-launch]\n"
             . "The trusted factory accepts root, reducedMotion and optional subject IDs, then returns frame/verify callbacks.\n"
             . "Without --subjects the fixture keeps its complete default; explicit selections must be acknowledged.\n"
             . "Frames use the production battle presenter. Silent, bounded, no project writes; closes automatically.\n";
+        echo "--inspect starts paused: stdin accepts play, pause, step SECONDS, quit; thirty-minute wall limit.\n"
+            . "In its native window: Space plays/pauses, Right steps 1 second, Down steps 0.1 seconds, Escape quits.\n";
         exit(0);
     }
     $root = $options['asset-root'] ?? '';
@@ -33,6 +38,7 @@ try {
     $renderer = $options['renderer'] ?? '';
     $duration = filter_var($options['duration'] ?? '12', FILTER_VALIDATE_FLOAT);
     $noLaunch = isset($options['no-launch']);
+    $inspection = isset($options['inspect']);
     // getopt drops empty values; an explicit empty selection must not become the full default.
     $subjectOptionProvided = array_any($argv, static fn(string $argument): bool => $argument === '--subjects'
         || str_starts_with($argument, '--subjects='));
@@ -67,15 +73,39 @@ try {
         $client->start(new RendererSessionConfig('Ichiloto battle command preview (silent)', $root, $grid,
             protocol: RendererProtocolVersion::V2, requiredCapabilities: [RendererSessionConfig::GRAPHICAL_CANVAS,
                 RendererSessionConfig::SPRITE_SOURCE_RECT, RendererSessionConfig::CANVAS_CLIP_OPACITY,
-                RendererSessionConfig::CANVAS_COMPOSITING]));
+                RendererSessionConfig::CANVAS_COMPOSITING, ...($fixture['requiredCapabilities'] ?? [])]));
         $client->pump();
         $presentation = new RendererPresentation($client, $grid);
     }
-    $acknowledgements = $frames = 0;
+    $acknowledgements = 0;
+    $frames = $inspection ? 1 : 0;
     $started = hrtime(true) / 1_000_000_000;
     $seconds = 0.0;
-    while ($seconds <= $duration) {
-        $canvas = $frames === 0 ? $first : $fixture['frame']($seconds);
+    $clock = $inspection ? new BattlePreviewClock($duration) : null;
+    $lastWall = $started;
+    $canvas = $first;
+    if ($inspection) {
+        stream_set_blocking(STDIN, false);
+        fwrite(STDERR, "Inspection paused at 0 seconds. Commands: play, pause, step SECONDS, quit.\n");
+    }
+    while ($clock !== null ? !$clock->isCompleted : $seconds <= $duration) {
+        $now = hrtime(true) / 1_000_000_000;
+        if ($inspection) {
+            if ($now - $started >= 1800) { throw new RuntimeException('Inspection reached its thirty-minute wall limit.'); }
+            while (($command = fgets(STDIN)) !== false) {
+                $clock->applyCommand($command);
+                fwrite(STDERR, sprintf("Inspection command %s at %.3f seconds.\n", trim($command), $clock->elapsedSeconds));
+            }
+            if (feof(STDIN) && !$clock->isPlaying) {
+                // A final step may finish the fixture before the input pipe closes.
+                $times = $clock->advanceTime($now - $lastWall);
+                if (!$clock->isCompleted) { throw new RuntimeException('Inspection input closed before verification.'); }
+            } else { $times = $clock->advanceTime($now - $lastWall); }
+            foreach ($times as $time) { $canvas = $fixture['frame']($time); $frames++; }
+            $seconds = $clock->elapsedSeconds;
+            if ($times !== [] && !$clock->isPlaying) { fwrite(STDERR, sprintf("Inspection paused at %.3f seconds.\n", $seconds)); }
+        } else { $canvas = $frames === 0 ? $first : $fixture['frame']($seconds); }
+        $lastWall = $now;
         if (!$canvas instanceof PresentationCanvas || $canvas->width !== $first->width || $canvas->height !== $first->height) {
             throw new RuntimeException('Battle preview frame geometry changed.');
         }
@@ -93,18 +123,27 @@ try {
                     throw new RuntimeException('Battle preview closed before verification.');
                 }
             }
+            while (($key = $client->pollKey()) !== null) {
+                if ($clock?->applyKey($key)) {
+                    fwrite(STDERR, sprintf("Inspection key %s at %.3f seconds.\n", $key, $clock->elapsedSeconds));
+                }
+            }
             usleep(16667);
         }
-        $frames++;
-        $seconds = $noLaunch ? $frames / 60 : hrtime(true) / 1_000_000_000 - $started;
+        if ($inspection) {
+            if ($noLaunch) { usleep(16667); }
+        } else {
+            $frames++;
+            $seconds = $noLaunch ? $frames / 60 : hrtime(true) / 1_000_000_000 - $started;
+        }
     }
     $evidence = $fixture['verify']();
     if (!$noLaunch && $acknowledgements === 0) { throw new RuntimeException('No presented frame acknowledgement received.'); }
     if ($client !== null && $client->shutdown() !== 0) { throw new RuntimeException('Battle preview renderer did not exit cleanly.'); }
-    echo json_encode(['frames' => $frames, 'nativePresentedFrames' => $acknowledgements,
+    $report = json_encode(['frames' => $frames, 'nativePresentedFrames' => $acknowledgements,
         'reducedMotion' => isset($options['reduced-motion']), 'subjects' => $fixture['subjects'] ?? null,
         'fixture' => $evidence], JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT) . "\n";
-    echo $noLaunch ? "CPU preview verification passed; no native window launched.\n"
+    $report .= $noLaunch ? "CPU preview verification passed; no native window launched.\n"
         : "Silent preview closed cleanly. Native acknowledgements are not visual acceptance or GPU timing.\n";
 } catch (Throwable $error) {
     fwrite(STDERR, $error->getMessage() . "\n");
@@ -112,5 +151,8 @@ try {
 } finally {
     try { $client?->shutdown(); }
     catch (Throwable $error) { fwrite(STDERR, 'Cleanup: ' . $error->getMessage() . "\n"); $result = 1; }
+    try { if (is_callable($fixture['dispose'] ?? null)) { $fixture['dispose'](); } }
+    catch (Throwable $error) { fwrite(STDERR, 'Fixture cleanup: ' . $error->getMessage() . "\n"); $result = 1; }
 }
+if ($result === 0) { echo $report; }
 exit($result);

@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Quests;
 
 use Ichiloto\Engine\Exceptions\NotFoundException;
+use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 use InvalidArgumentException;
@@ -76,11 +77,11 @@ class Quest
     $parts = [];
 
     if (($gold = intval($this->rewards['gold'] ?? 0)) > 0) {
-      $parts[] = sprintf('%d G', $gold);
+      $parts[] = trim(sprintf('%d %s', $gold, Vocabulary::getTerm('currency.symbol', 'G')));
     }
 
     if (($experience = intval($this->rewards['experience'] ?? 0)) > 0) {
-      $parts[] = sprintf('%d EXP', $experience);
+      $parts[] = sprintf('%d %s', $experience, Vocabulary::getTerm('stats.exp', 'EXP'));
     }
 
     $itemStore = ConfigStore::has(ItemStore::class) ? ConfigStore::get(ItemStore::class) : null;

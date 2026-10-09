@@ -21,7 +21,8 @@ function makeSimulationEnemy(string $name, Stats $stats): Enemy
 {
   $enemy = new ReflectionClass(Enemy::class)->newInstanceWithoutConstructor();
 
-  foreach (['name' => $name, 'level' => 1, 'stats' => $stats, 'imagePath' => '', 'image' => ['@']] as $property => $value) {
+  foreach (['name' => $name, 'level' => 1, 'stats' => $stats, 'imagePath' => '', 'image' => ['@'],
+    'position' => new \Ichiloto\Engine\Core\Vector2(), 'rewards' => new \Ichiloto\Engine\Battle\BattleRewards(0, 0, [])] as $property => $value) {
     new ReflectionProperty(Enemy::class, $property)->setValue($enemy, $value);
   }
 
@@ -66,6 +67,21 @@ it('reports a fight the party always loses', function () {
     ->and($report->winRate())->toBe(0.0)
     ->and($report->verdict())->toContain('wall')
     ->and($report->deaths['Novice'])->toBe(20);
+});
+
+it('uses the same default wipeout and explicit reserve rule across repeated simulations', function () {
+  $party = new Party();
+  for ($index = 0; $index < 3; $index++) {
+    $party->addMember(new Character('Novice' . $index, 1, new Stats(currentHp: 1, attack: 0, defence: 0, speed: 1)));
+  }
+  $reserve = new Character('Strong reserve', 1, new Stats(currentHp: 1000, attack: 1000, defence: 1000, speed: 1000));
+  $party->addMember($reserve);
+  $troop = new Troop('Synthetic threat', [makeSimulationEnemy('Threat', new Stats(currentHp: 100, attack: 100, speed: 100))]);
+  $default = new BattleSimulator()->simulate($party, $troop, 3);
+  $optedIn = new BattleSimulator()->simulate($party, $troop, 3, ['reservePolicy' => 'replace_after_wipeout']);
+  expect($default->defeats)->toBe(3)->and($default->damageDealt)->not->toHaveKey('Strong reserve')
+    ->and($optedIn->victories)->toBe(3)->and($reserve->stats->currentHp)->toBe(1000)
+    ->and($party->battlers->toArray())->toBe(array_slice($party->members->toArray(), 0, 3));
 });
 
 it('calls a fight neither side can finish a stalemate', function () {
@@ -149,3 +165,43 @@ it('uses the live resolver and final staged stat values for seeded previews', fu
     ->and($live->lastResult?->targets[0]->actualHpLost())->toBe($preview->targets[0]->actualHpLost())
     ->and($liveTarget->stats->currentHp)->toBe($simulationTarget->stats->currentHp);
 });
+
+it('isolates every run and exceptions from caller afflictions, stages, guarding and resources', function (bool $fail) {
+  $party = makeSimulationParty('Hero', new Stats(currentHp: 80, currentMp: 7, attack: 12));
+  $enemy = makeSimulationEnemy('Enemy', new Stats(currentHp: 90, currentMp: 8, attack: 10));
+  $hero = $party->battlers->toArray()[0];
+  $state = new \Ichiloto\Engine\Entities\States\State('poison', 'Poison', durationTurns: 4, tickFormula: '-3');
+  foreach ([$hero, $enemy] as $battler) {
+    $battler->addState($state);
+    $battler->addStatStage('attack', 2);
+    $battler->beginGuarding();
+  }
+  $before = [serialize($hero), serialize($enemy)];
+  $simulator = new class($fail) extends BattleSimulator {
+    public int $checkedRuns = 0;
+    public function __construct(private bool $fail) { parent::__construct(); }
+    protected function fight(\Ichiloto\Engine\Battle\BattlePartyRoster $roster, array $enemies,
+      array &$damage, array &$hpLoss, array &$healing, array &$mitigation,
+      SeededCombatRandomSource $random): array
+    {
+      foreach ([...$roster->battlers, ...$enemies] as $battler) {
+        expect($battler->states[0]->remainingTurns)->toBe(4)
+          ->and($battler->getStatStage('attack'))->toBe(2)->and($battler->isGuarding)->toBeTrue();
+        $battler->tickStates();
+        $battler->stats->currentMp = 0;
+        $battler->resetStatStages();
+        $battler->stopGuarding();
+        $battler->lastHitWasCritical = true;
+      }
+      $this->checkedRuns++;
+      if ($this->fail) { throw new RuntimeException('Synthetic interruption'); }
+      return ['result' => 'stalemate', 'turns' => 1];
+    }
+  };
+  $run = fn() => $simulator->simulate($party, new Troop('Synthetic', [$enemy]), 3);
+  if ($fail) { expect($run)->toThrow(RuntimeException::class, 'Synthetic interruption'); }
+  else { expect($run()->stalemates)->toBe(3); }
+  expect($simulator->checkedRuns)->toBe($fail ? 1 : 3)
+    ->and([serialize($hero), serialize($enemy)])->toBe($before)
+    ->and($hero->states[0]->state)->toBe($state)->and($enemy->states[0]->state)->toBe($state);
+})->with([false, true]);

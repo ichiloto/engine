@@ -9,10 +9,15 @@ use Ichiloto\Engine\Core\Menu\EquipmentMenu\Modes\EquipmentSelectionMode;
 use Ichiloto\Engine\Core\Menu\EquipmentMenu\Modes\EquipmentSlotSelectionMode;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enumerations\WeaponType;
+use Ichiloto\Engine\Entities\Enumerations\ArmorType;
+use Ichiloto\Engine\Entities\Inventory\Armor;
+use Ichiloto\Engine\Entities\Inventory\Accessory;
+use Ichiloto\Engine\Entities\Inventory\EquipmentSlotType;
 use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
 use Ichiloto\Engine\Entities\ParameterChanges;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Stats;
+use Ichiloto\Engine\Entities\Roles\CharacterRole;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
@@ -40,6 +45,7 @@ use Ichiloto\Engine\UI\Modal\ModalManager;
 use Ichiloto\Engine\UI\Presentation\CharacterMenuPresentation;
 use Ichiloto\Engine\UI\Presentation\CharacterMenuRows;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
+use Ichiloto\Engine\UI\Presentation\MenuIconRegistry;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Debug;
@@ -187,6 +193,175 @@ function characterMenuCandidates(EquipmentMenuPresentationProbe $state): Equipme
   $state->setMode($mode);
   return $mode;
 }
+
+it('keeps each restricted weapon-slot icon stable across empty equipped and cleared states', function (WeaponType $type) {
+  $actor = new Character('Synthetic wielder', 0, new Stats(), attackStyle: $type);
+  $actor->role = new CharacterRole($actor, 'Restricted', allowedWeaponTypes: [$type]);
+  $slot = $actor->equipment[0];
+  foreach ([null, new Weapon('First', '', '/', 1, equipmentType: $type, id: 'first'),
+    new Weapon('Second', '', '+', 1, equipmentType: $type, id: 'second'), null] as $gear) {
+    expect($actor->assignEquipment($slot->name, $gear))->toBeTrue()
+      ->and(CharacterMenuRows::slots($actor)[0]->icon)->toBe($type)
+      ->and(CharacterMenuRows::getSlotCompatibilityText($actor, $slot))->toBe('Weapon types: ' . $type->value);
+  }
+})->with(array_map(fn(WeaponType $type) => [$type], WeaponType::cases()));
+
+it('uses a compatible actor style for multiple weapon types without changing item icons', function () {
+  $actor = new Character('Synthetic sentinel', 0, new Stats(), attackStyle: WeaponType::FLAIL);
+  $actor->role = new CharacterRole($actor, 'Flexible', allowedWeaponTypes: [WeaponType::SWORD, WeaponType::FLAIL]);
+  $slot = $actor->equipment[0];
+  $sword = new Weapon('Sword upgrade', '', '/', 1, equipmentType: WeaponType::SWORD);
+  expect($actor->assignEquipment($slot->name, $sword))->toBeTrue()
+    ->and(CharacterMenuRows::slots($actor)[0]->icon)->toBe(WeaponType::FLAIL)
+    ->and(CharacterMenuRows::getEquipmentIcon($sword))->toBe(WeaponType::SWORD)
+    ->and(CharacterMenuRows::getSlotCompatibilityText($actor, $slot))->toBe('Weapon types: Sword, Flail');
+  $actor->role = new CharacterRole($actor, 'Changed role', allowedWeaponTypes: [WeaponType::STAFF]);
+  expect(CharacterMenuRows::slots($actor)[0]->icon)->toBe(WeaponType::STAFF)
+    ->and(CharacterMenuRows::getSlotCompatibilityText($actor, $slot))->toBe('Weapon types: Staff');
+});
+
+it('does not guess a weapon family from equipment or the first allowed type', function () {
+  $slot = $this->actor->equipment[0];
+  expect(CharacterMenuRows::slots($this->actor)[0]->icon)->toBe(EquipmentSlotType::WEAPON)
+    ->and(CharacterMenuRows::getSlotCompatibilityText($this->actor, $slot))->toBe('Weapon types: Any');
+  $this->actor->role = new CharacterRole($this->actor, 'Flexible', allowedWeaponTypes: [WeaponType::SWORD, WeaponType::FLAIL]);
+  expect(CharacterMenuRows::slots($this->actor)[0]->icon)->toBe(EquipmentSlotType::WEAPON);
+  new ReflectionProperty($this->actor, 'attackStyle')->setValue($this->actor, WeaponType::STAFF);
+  expect(CharacterMenuRows::slots($this->actor)[0]->icon)->toBe(EquipmentSlotType::WEAPON)
+    ->and(CharacterMenuRows::slots($this->actor)[2]->icon)->toBe(EquipmentSlotType::HEAD);
+});
+
+it('shows compatibility from the current actor in both equipment and status themes', function (bool $alternative) {
+  $this->actor->role = new CharacterRole($this->actor, 'Staff wielder', allowedWeaponTypes: [WeaponType::STAFF]);
+  $theme = new MenuPresentationCatalog($this->root, characterMenuTheme($alternative));
+  $this->state->setMode(new EquipmentSlotSelectionMode($this->state));
+  expect($this->state->equipmentInfoPanel->getPresentationText())->toStartWith('Weapon types: Staff');
+  foreach ([$this->state->canvas($theme), CharacterMenuPresentation::status($this->actor, $theme)] as $canvas) {
+    expect(array_filter($canvas->images, fn($image) => str_contains($image->id, 'slots-slot-0-icon')
+      && $image->asset === 'staff.png'))->not->toBeEmpty();
+  }
+  characterMenuCandidates($this->state);
+  $canvas = $this->state->canvas($theme);
+  $heading = array_column($canvas->textLayers, null, 'id')['equipment-slot-name'];
+  expect(array_column($heading->runs, 'text'))->toContain('Weapon types: Staff');
+  foreach ($canvas->textLayers as $layer) {
+    if (str_starts_with($layer->id, 'equipment-candidates-candidate-')) {
+      expect($layer->y)->toBeGreaterThanOrEqual($heading->y + $heading->grid->rows * $heading->grid->cellHeight);
+    }
+  }
+  $this->state->cycle(1);
+  $this->state->setMode(new EquipmentSlotSelectionMode($this->state));
+  expect($this->state->equipmentInfoPanel->getPresentationText())->toStartWith('Weapon types: Any');
+})->with([false, true]);
+
+it('filters equipment candidates using the same actor restrictions as assignment', function () {
+  $this->actor->role = new CharacterRole($this->actor, 'Staff wielder', allowedWeaponTypes: [WeaponType::STAFF]);
+  $sword = new Weapon('Incompatible sword', '', '/', 1, equipmentType: WeaponType::SWORD, id: 'weapon.sword');
+  $untyped = new Weapon('Legacy untyped weapon', '', '/', 1, id: 'weapon.untyped');
+  $this->party->inventory->addItems($sword, $untyped);
+  $mode = characterMenuCandidates($this->state);
+  $candidates = $mode->getPresentationCandidates();
+  expect(array_map(fn(array $entry) => $entry['equipment']->id, $candidates))
+    ->toBe([$this->equipped->id, $this->candidate->id, $untyped->id])
+    ->and($candidates[0]['available'])->toBe(0)->and($candidates[0]['current'])->toBeTrue();
+  foreach ($candidates as $entry) { expect($this->actor->canEquip($entry['equipment']))->toBeTrue(); }
+  expect($this->actor->canEquip($sword))->toBeFalse();
+});
+
+it('filters armor candidates by the selected semantic slot and current role', function () {
+  $this->actor->role = new CharacterRole($this->actor, 'Robes only', allowedArmorTypes: [ArmorType::MAGIC_ARMOR]);
+  $body = new Armor('Robe', '', '/', 1, equipmentType: ArmorType::MAGIC_ARMOR, id: 'armor.body');
+  $head = new Armor('Hat', '', '/', 1, equipmentType: ArmorType::MAGIC_ARMOR, id: 'armor.head', semanticSlot: EquipmentSlotType::HEAD);
+  $heavy = new Armor('Plate', '', '/', 1, equipmentType: ArmorType::HEAVY_ARMOR, id: 'armor.heavy');
+  $this->party->inventory->addItems($body, $head, $heavy);
+  $mode = new EquipmentSelectionMode($this->state);
+  $mode->character = $this->actor;
+  $mode->equipmentSlot = $this->actor->equipment[3];
+  $mode->previousMode = new EquipmentSlotSelectionMode($this->state);
+  $this->state->setMode($mode);
+  expect($mode->getPresentationCandidates())->toHaveCount(1)
+    ->and($mode->getPresentationCandidates()[0]['equipment'])->toBe($body)
+    ->and($this->actor->canEquip($head))->toBeTrue()->and($this->actor->canEquip($heavy))->toBeFalse();
+});
+
+it('keeps each armor category icon stable through equipment and compatibility-family changes', function (ArmorType $type) {
+  $actor = new Character('Synthetic armor wearer', 0, new Stats());
+  $actor->role = new CharacterRole($actor, 'Restricted armor', allowedArmorTypes: [$type]);
+  foreach ([1, 2, 3] as $index) {
+    $slot = $actor->equipment[$index];
+    foreach ([null, new Armor('First', '', '/', 1, equipmentType: $type, id: 'armor.first', semanticSlot: $slot->semanticSlot),
+      new Armor('Second', '', '+', 1, equipmentType: $type, id: 'armor.second', semanticSlot: $slot->semanticSlot), null] as $gear) {
+      expect($actor->assignEquipment($slot->name, $gear))->toBeTrue()
+        ->and(CharacterMenuRows::slots($actor)[$index]->icon)->toBe($slot->semanticSlot)
+        ->and(CharacterMenuRows::getSlotCompatibilityText($actor, $slot))->toBe('Armor types: ' . $type->value);
+    }
+  }
+})->with(array_map(fn(ArmorType $type) => [$type], ArmorType::cases()));
+
+it('shows every slot compatibility rule without inventing a preferred armor family', function () {
+  $actor = $this->actor;
+  $actor->role = new CharacterRole($actor, 'Flexible armor', allowedArmorTypes: [ArmorType::LIGHT_ARMOR, ArmorType::MAGIC_ARMOR]);
+  foreach ([1, 2, 3] as $index) {
+    $slot = $actor->equipment[$index];
+    expect(CharacterMenuRows::slots($actor)[$index]->icon)->toBe($slot->semanticSlot)
+      ->and(CharacterMenuRows::getSlotDescription($actor, $slot))->toStartWith('Armor types: Magic Armor, Light Armor');
+  }
+  $actor->role = new CharacterRole($actor, 'Unrestricted');
+  foreach ([1, 2, 3] as $index) {
+    expect(CharacterMenuRows::getSlotCompatibilityText($actor, $actor->equipment[$index]))->toBe('Armor types: Any');
+  }
+  $slot = $actor->equipment[4];
+  foreach ([null, new Accessory('Ring', '', 'r', 1), new Accessory('Pendant', '', 'p', 1), null] as $gear) {
+    expect($actor->assignEquipment($slot->name, $gear))->toBeTrue()
+      ->and(CharacterMenuRows::slots($actor)[4]->icon)->toBe(EquipmentSlotType::ACCESSORY)
+      ->and(CharacterMenuRows::getSlotCompatibilityText($actor, $slot))->toBe('Accepts: Accessories');
+  }
+});
+
+it('removes per-family armor icon variants and shares the category binding between slots and items', function () {
+  $icons = new MenuIconRegistry($this->root, ['slot.head' => 'head.png', 'slot.body' => 'state.png', 'unknown' => 'unknown.png']);
+  $head = new Armor('Hat', '', 'OLD', 5, equipmentType: ArmorType::MAGIC_ARMOR, semanticSlot: EquipmentSlotType::HEAD);
+  expect($icons->asset(CharacterMenuRows::getEquipmentIcon($head)))->toBe('head.png')
+    ->and($icons->asset(EquipmentSlotType::HEAD))->toBe('head.png');
+  $icons = new MenuIconRegistry($this->root, ['slot.head' => 'missing.png', 'unknown' => 'unknown.png']);
+  expect($icons->asset(CharacterMenuRows::getEquipmentIcon($head)))->toBeNull()
+    ->and($icons->asset('custom.unregistered'))->toBe('unknown.png');
+});
+
+it('keeps all five slot notes and icons consistent while navigating either renderer theme', function (bool $alternative) {
+  InputManager::setBindings(['down' => ['keys' => [KeyCode::DOWN]], 'up' => ['keys' => [KeyCode::UP]]]);
+  $this->actor->role = new CharacterRole($this->actor, 'Synthetic role', allowedWeaponTypes: [WeaponType::STAFF],
+    allowedArmorTypes: [ArmorType::MAGIC_ARMOR]);
+  $this->state->setMode(new EquipmentSlotSelectionMode($this->state));
+  $theme = new MenuPresentationCatalog($this->root, characterMenuTheme($alternative));
+  foreach ($this->actor->equipment as $index => $slot) {
+    InputManager::setInputSource($index === 0 ? new FakeInputSource() : new FakeInputSource(KeyCode::DOWN));
+    InputManager::handleInput();
+    $this->state->execute();
+    expect($this->state->equipmentInfoPanel->getPresentationText())->toBe(CharacterMenuRows::getSlotDescription($this->actor, $slot));
+    $text = array_column($this->state->canvas($theme)->textLayers, null, 'id')['equipment-description'];
+    expect(array_column($text->runs, 'text')[0])->toBe(CharacterMenuRows::getSlotCompatibilityText($this->actor, $slot));
+  }
+  $terminal = implode("\n", $this->state->equipmentAssignmentPanel->getContent());
+  expect($terminal)->toContain('Owner Staff')->not->toContain('/ Owner Staff');
+})->with([false, true]);
+
+it('keeps equipped accessory availability and filters out every other semantic slot', function () {
+  $accessory = new Accessory('Owned accessory', '', 'a', 1, id: 'accessory.owned');
+  $other = new Accessory('Other accessory', '', 'b', 1, id: 'accessory.other');
+  $this->party->inventory->addItems($accessory, $other);
+  $slot = $this->actor->equipment[4];
+  $this->actor->assignEquipment($slot->name, $accessory);
+  $mode = new EquipmentSelectionMode($this->state);
+  $mode->character = $this->actor;
+  $mode->equipmentSlot = $slot;
+  $mode->previousMode = new EquipmentSlotSelectionMode($this->state);
+  $this->state->setMode($mode);
+  $candidates = $mode->getPresentationCandidates();
+  expect($candidates)->toHaveCount(2)->and($candidates[0]['equipment'])->toBe($accessory)
+    ->and($candidates[0]['current'])->toBeTrue()->and($candidates[0]['available'])->toBe(0)
+    ->and($candidates[1]['equipment'])->toBe($other)->and($candidates[1]['available'])->toBe(1);
+});
 
 it('projects actual Equipment and complete Status data through two themes without changing owners', function () {
   $themes = [new MenuPresentationCatalog($this->root, characterMenuTheme(false)), new MenuPresentationCatalog($this->root, characterMenuTheme(true))];

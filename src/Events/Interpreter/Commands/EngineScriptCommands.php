@@ -72,6 +72,13 @@ final class EngineScriptCommands
           'description' => "Played while the party sleeps; the project's sleep theme when not given.",
         ],
         [
+          'key' => 'presentation',
+          'label' => 'Rest Presentation',
+          'kind' => 'reference',
+          'reference' => 'stage_timeline',
+          'description' => 'Graphical rest stage identity or explicit leader/party stage selection; graphics.inn.presentation when not given. Terminal rest timing is unchanged.',
+        ],
+        [
           'key' => 'resultVariable',
           'label' => 'Result Variable',
           'kind' => 'text',

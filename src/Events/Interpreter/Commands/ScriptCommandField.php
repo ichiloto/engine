@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Events\Interpreter\Commands;
 
+use Ichiloto\Engine\Cutscenes\Presentation\PartyStageSelection;
 use InvalidArgumentException;
 
 /**
@@ -204,9 +205,10 @@ final readonly class ScriptCommandField
     }
 
     return match ($this->kind) {
-      ScriptCommandFieldKind::TEXT, ScriptCommandFieldKind::REFERENCE => is_string($value)
+      ScriptCommandFieldKind::TEXT => is_string($value)
         ? []
         : [sprintf('"%s" must be text.', $path)],
+      ScriptCommandFieldKind::REFERENCE => $this->findReferenceProblems($value, $path),
       ScriptCommandFieldKind::INTEGER => is_int($value)
         ? $this->findMinimumProblems($value, $path)
         : [sprintf('"%s" must be a whole number.', $path)],
@@ -224,6 +226,23 @@ final readonly class ScriptCommandField
         : [sprintf('"%s" must give whole-number x and y.', $path)],
       ScriptCommandFieldKind::LIST => $this->findListProblems($value, $path),
     };
+  }
+
+  /** @return list<string> */
+  private function findReferenceProblems(mixed $value, string $path): array
+  {
+    if ($this->reference === ScriptCommandReference::STAGE_TIMELINE) {
+      if ($value instanceof PartyStageSelection) { return []; }
+      if (is_array($value)) {
+        try {
+          PartyStageSelection::fromArray($value);
+          return [];
+        } catch (InvalidArgumentException $error) {
+          return [sprintf('"%s" has an invalid party stage selection: %s', $path, $error->getMessage())];
+        }
+      }
+    }
+    return is_string($value) ? [] : [sprintf('"%s" must be text.', $path)];
   }
 
   /**

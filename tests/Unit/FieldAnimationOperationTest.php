@@ -9,6 +9,7 @@ use Ichiloto\Engine\Audio\AudioManager;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicPresentationManager;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicTextPresentation;
 use Ichiloto\Engine\Cutscenes\Cinematics\FieldAnimationOperation;
 use Ichiloto\Engine\Cutscenes\Cinematics\TimedPresentationOperation;
 use Ichiloto\Engine\Rendering\Camera;
@@ -45,15 +46,12 @@ beforeEach(function () {
   $this->camera = new FieldEffectRecordingCamera();
   new ReflectionProperty(GameScene::class, 'camera')->setValue($this->scene, $this->camera);
   $this->presentation = new CinematicPresentationManager($this->scene);
-  $this->effectRoot = sys_get_temp_dir() . '/ichiloto-field-operation-' . bin2hex(random_bytes(6));
-  mkdir($this->effectRoot);
+  $this->effectRoot = createTestDirectory('ichiloto-field-operation-');
   writeTestPng($this->effectRoot . '/sheet.png', 16, 8);
   $this->effects = new EffectTimelineLibrary($this->effectRoot);
 });
 
 afterEach(function () {
-  unlink($this->effectRoot . '/sheet.png');
-  rmdir($this->effectRoot);
   new ReflectionProperty(AudioManager::class, 'instance')->setValue(null, $this->audioBefore);
   if ($this->configBefore === null) {
     ConfigStore::remove(ProjectConfig::class);
@@ -105,6 +103,9 @@ it('keeps a cinematic field operation paused with the shared playhead and retire
   $animation = new Animation(62, 'Field pause', maxFrames: 3);
   $animation->setCue(3, new AnimationCue(soundEffect: 'not-after-cancel'));
   $this->presentation->showOverlay('narration', 'Independent overlay');
+  $overlayProperty = new ReflectionProperty(CinematicPresentationManager::class, 'overlay');
+  $independentOverlay = $overlayProperty->getValue($this->presentation);
+  expect($independentOverlay)->toEqual(new CinematicTextPresentation('narration', 'Independent overlay'));
   $operation = new FieldAnimationOperation($animation, $this->presentation, new Vector2(2, 3), secondsPerFrame: .173);
   $session = getCinematicEffectSession($operation);
   $session->playback->pause();
@@ -118,8 +119,7 @@ it('keeps a cinematic field operation paused with the shared playhead and retire
     ->and($session->playback->isPaused)->toBeTrue()
     ->and($this->presentation->effectCount)->toBe(0)
     ->and($this->audio->calls)->toBeEmpty()
-    ->and(new ReflectionProperty(CinematicPresentationManager::class, 'overlay')->getValue($this->presentation))
-    ->toBe(['kind' => 'narration', 'text' => 'Independent overlay', 'title' => '']);
+    ->and($overlayProperty->getValue($this->presentation))->toBe($independentOverlay);
 });
 
 it('holds a complete rest frame under reduced motion for the full authored lifetime without dropping sounds', function () {

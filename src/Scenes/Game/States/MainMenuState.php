@@ -24,7 +24,9 @@ use Ichiloto\Engine\Core\Menu\MainMenu\CharacterSelectionMenu;
 use Ichiloto\Engine\Core\Menu\MainMenu\MainMenu;
 use Ichiloto\Engine\Core\Menu\MainMenu\MainMenuSettingsManager;
 use Ichiloto\Engine\Core\Menu\MainMenu\Modes\MainMenuCommandSelectionMode;
+use Ichiloto\Engine\Core\Menu\MainMenu\Modes\MainMenuCharacterSelectionMode;
 use Ichiloto\Engine\Core\Menu\MainMenu\Modes\MainMenuConfigMode;
+use Ichiloto\Engine\Core\Menu\MainMenu\Modes\MainMenuPartyOrderMode;
 use Ichiloto\Engine\Core\Menu\MainMenu\Windows\AccountBalancePanel;
 use Ichiloto\Engine\Core\Menu\MainMenu\Windows\ConfigDetailPanel;
 use Ichiloto\Engine\Core\Menu\MainMenu\Windows\ConfigSelectionWindow;
@@ -37,6 +39,9 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\IO\Input;
+use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
@@ -45,6 +50,7 @@ use Ichiloto\Engine\UI\Presentation\MainMenuPresentation;
 use Ichiloto\Engine\UI\Presentation\ConfigMenuPresentation;
 use Ichiloto\Engine\UI\Presentation\MenuCanvasState;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
+use Ichiloto\Engine\UI\Presentation\MenuPager;
 use Symfony\Component\Console\Output\ConsoleOutput;
 
 /**
@@ -196,6 +202,50 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
      * @var MainMenuModeInterface|null The mode of the main menu.
      */
     protected ?MainMenuModeInterface $mode = null;
+    private ?Character $partyPresentationCharacter = null;
+
+    public function getPartyPresentationIndex(): int
+    {
+        $members = $this->party->members->toArray();
+        if ($this->mode instanceof MainMenuCharacterSelectionMode || $this->mode instanceof MainMenuPartyOrderMode) {
+            $index = $this->characterSelectionMenu?->getActivePanelIndex();
+            if ($index !== null && isset($members[$index])) { return $index; }
+        }
+        $index = array_search($this->partyPresentationCharacter, $members, true);
+        return is_int($index) ? $index : 0;
+    }
+
+    /** Remember gameplay identity, so reordering and submenu re-entry do not retain a stale position. */
+    public function rememberPartyPresentationCharacter(?Character $character): void
+    {
+        if ($character !== null && in_array($character, $this->party->members->toArray(), true)) {
+            $this->partyPresentationCharacter = $character;
+        }
+    }
+
+    public function changePartyPage(int $direction): bool
+    {
+        if ($direction !== -1 && $direction !== 1) {
+            throw new \InvalidArgumentException('Party page navigation requires a previous or next direction.');
+        }
+        if (!$this->mode instanceof MainMenuCommandSelectionMode && !$this->mode instanceof MainMenuCharacterSelectionMode
+            && !$this->mode instanceof MainMenuPartyOrderMode) { return false; }
+        $game = $this->getGameScene()->getGame();
+        if (isset($game->modalManager) && $game->modalManager->currentModal?->isShowing()) { return false; }
+        if ($this->getPresentationCanvas() === null || $this->menuTheme === null) { return false; }
+        $index = $this->getPartyPresentationIndex();
+        $pages = MainMenuPresentation::getPartyPagination($this, $this->menuTheme);
+        $target = $pages->getAdjacentRecordIndex($index, $direction);
+        if ($target === $index) { return true; }
+        $character = $this->party->members->toArray()[$target] ?? null;
+        if (!$character instanceof Character) { return true; }
+        $this->rememberPartyPresentationCharacter($character);
+        if (!$this->mode instanceof MainMenuCommandSelectionMode) {
+            $this->characterSelectionMenu?->focusPanelByIndex($target);
+        }
+        play_sound(SystemSound::CURSOR);
+        return true;
+    }
     /**
      * @var bool Whether the game can be saved.
      */
@@ -210,6 +260,8 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
      */
     public function enter(): void
     {
+        $this->mode?->exit();
+        $this->mode = null;
         $this->resetMenuPresentation();
         Console::clear();
         $this->getGameScene()->locationHUDWindow->deactivate();
@@ -384,9 +436,15 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
      */
     public function setMode(MainMenuModeInterface $mode): void
     {
+        $this->rememberActivePartyPresentationCharacter();
         $this->mode?->exit();
         $this->mode = $mode;
         $this->mode->enter();
+        if (($mode instanceof MainMenuCharacterSelectionMode || $mode instanceof MainMenuPartyOrderMode)
+            && $this->partyPresentationCharacter !== null && $this->getPresentationCanvas() !== null) {
+            $index = array_search($this->partyPresentationCharacter, $this->party->members->toArray(), true);
+            if (is_int($index)) { $this->characterSelectionMenu?->focusPanelByIndex($index); }
+        }
     }
 
     /**
@@ -400,7 +458,21 @@ class MainMenuState extends GameSceneState implements CanRender, CanvasProviderI
             $this->nextTimeUpdate = Time::getTime() + $this->updateInterval;
         }
 
+        if (Input::isButtonDown(MenuPager::NEXT_ACTION) && $this->changePartyPage(1)) { return; }
+        if (Input::isButtonDown(MenuPager::PREVIOUS_ACTION) && $this->changePartyPage(-1)) { return; }
         $this->mode->update();
+    }
+
+    public function exit(): void
+    {
+        $this->rememberActivePartyPresentationCharacter();
+    }
+
+    private function rememberActivePartyPresentationCharacter(): void
+    {
+        if ($this->mode instanceof MainMenuCharacterSelectionMode || $this->mode instanceof MainMenuPartyOrderMode) {
+            $this->rememberPartyPresentationCharacter($this->characterSelectionMenu?->activeCharacter);
+        }
     }
 
     /**

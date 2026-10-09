@@ -672,6 +672,25 @@ Turn the polished stage into a real fight. Roughly in order:
 > because a designer wants the shape of a fight before tactics. 8 new tests
 > (suite: 347 passed).
 >
+> **Battle-test command loadouts (2026-10-02):** the shared
+> `BattleTestMember`/`BattleTestSetup` now configures command categories,
+> additional learned abilities and spells, and explicit summon assignments.
+> The arena has constrained Commands, Skills, Magic and Summons pickers beside
+> the existing actor/level/equipment fields; Console uses the same setup.
+> Explicit sandbox summons bypass story availability at both menu and
+> resolution, not wielder eligibility, exclusive ownership, costs or targets.
+> Every fight builds fresh characters; runtime access is excluded from saves
+> and discarded on restoration. Campaign actors, progression and saves remain
+> unchanged. Invalid resources, field-only actions and ambiguous linked summon
+> actions are refused rather than silently omitted.
+>
+> The existing `--runs` simulator is still attack-only. Custom command/skill/
+> summon loadouts must not produce misleading simulation reports: Console
+> refuses them with `--runs`; play the configured fight instead. A future
+> simulator action policy must use shared action selection, targeting and
+> transaction semantics, including enemy patterns and deterministic replay,
+> rather than a special summon executor. This capability is not implemented.
+>
 > It earned itself on the first run: every early enemy in the demo shared one
 > placeholder stat block (a level 14 bat with 203 HP and 30 defence) against
 > three level 1 characters whose best attack is 12, so **the party lost 100%
@@ -887,6 +906,28 @@ introduced. See [audio.md](audio.md#scenario-and-mission-music).
 
 Dedicated Editor authoring and CLI reference validation for this catalog are
 not implemented by this Engine change and remain an explicit tooling handoff.
+
+## Queued - Game-defined scene excursions
+
+Andrew requested bespoke mini-games through custom scenes on October 8, 2026.
+This is separate from G4. Immediate work is an implementation plan and Game/Art
+interface proposals; it is not a claim that the new integration is implemented.
+Existing `Game::addScenes()`, `SceneManager` and `SceneInterface` already accept
+game-defined scenes. Audit their entry/return lifecycle before adding anything.
+
+The reusable Engine slice must preserve a waiting field event, input/focus and
+scene-owned resources across entry, cancellation, completion, return and quit;
+deliver an explicit result without replaying the event or losing its caller;
+and support shared Terminal/GPUI presentation and safe persistence extension
+boundaries. Extend existing scene, event, input and save services rather than
+introducing a mini-game manager or a second runtime. Verify with synthetic
+custom scenes and interruption/re-entry tests, not game-specific card rules.
+
+Each game's rules, card collection, NPC challenges, winnings, refinement,
+trading, progression gates and authored interface theme belong to that game.
+The immediate reference-game plan and its unresolved rule decisions are owned
+by Game in its existing private roadmap, not copied into Engine documentation.
+Implementation is queued independently and must not expand G4 acceptance.
 
 ## Sequencing notes
 

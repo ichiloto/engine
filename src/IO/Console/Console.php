@@ -127,6 +127,80 @@ class Console
   private static array $presentationBaseCells = [];
   private static bool $retainedWorldPresentation = false;
   private static ?RetainedConsolePresentation $retainedPresentation = null;
+  private static int $captureDepth = 0;
+
+  /**
+   * Render synchronously into a detached Console surface, without acquiring a terminal or consuming the live cursor.
+   * The caller owns simulation and UI. This only captures drawing, including named layers and retained overlays.
+   * @param callable(): void $draw
+   * @param list<string> $excludedLayers
+   * @param list<string> $excludedWorldLayers Map contributions and their older underlays, not later UI.
+   */
+  public static function capturePresentation(int $width, int $height, callable $draw, array $excludedLayers = [],
+    array $excludedWorldLayers = [], bool $retainedWorld = false): ConsolePresentationSnapshot
+  {
+    new \Ichiloto\Engine\Rendering\Transport\RendererGridConfig($width, $height, 1, 1);
+    // Console is a static facade. Save its current values, including the live output descriptor, without closing it.
+    $saved = [];
+    foreach (array_keys(get_class_vars(self::class)) as $name) { $saved[$name] = self::${$name}; }
+    try {
+      self::$captureDepth++;
+      self::$frameDepth = 0;
+      self::$usingAlternateScreen = self::$terminalHandedBack = self::$isRecomposing = false;
+      self::$frameRows = self::$recomposeRepaintRows = self::$buffer = self::$layerCells = [];
+      self::$layerPriorities = self::$overlays = self::$presentationBaseCells = [];
+      self::$game = null;
+      self::$trackLayers = true;
+      self::$activeLayer = null;
+      self::$activeLayerPriority = 0;
+      self::$retainedWorldPresentation = $retainedWorld;
+      self::$retainedPresentation = null;
+      self::$previousTerminalSettings = '';
+      self::$width = $width;
+      self::$height = $height;
+      self::$output = self::$terminalOutputStream = null;
+      self::$terminalOutputEnabled = false;
+      self::$terminalViewport = null;
+      self::$terminalViewportDirty = false;
+      self::$terminalOffsetX = self::$terminalOffsetY = 0;
+      self::recomposeFrame($draw);
+      if (self::$width !== $width || self::$height !== $height) {
+        throw new \LogicException('An isolated capture must retain its selected Console dimensions.');
+      }
+      $changes = self::getRetainedPresentationChanges($excludedLayers, true, $excludedWorldLayers);
+      $layers = array_map(static fn(array $layer): PresentationTextLayer => new PresentationTextLayer(
+        $layer['id'], $layer['layer'], array_merge([], ...array_column($layer['rows'], 'runs'))), $changes->layers);
+      self::applyCaptureExclusions($excludedLayers, $excludedWorldLayers);
+      return new ConsolePresentationSnapshot($width, $height, $layers, self::getBuffer());
+    } finally {
+      foreach ($saved as $name => $value) { self::${$name} = $value; }
+    }
+  }
+
+  /** Select owners on the completed detached surface, then use the normal Terminal row compositor. */
+  private static function applyCaptureExclusions(array $excludedLayers, array $excludedWorldLayers): void
+  {
+    $excludedWorld = array_fill_keys($excludedWorldLayers, true);
+    if ($excludedWorld !== []) {
+      foreach (self::$layerCells as &$entries) {
+        foreach ($entries as &$entry) {
+          foreach (array_keys($entry['layers']) as $id) {
+            if (!isset($excludedWorld[$id])) { continue; }
+            // A retained map replaces its base and older contributions only at its own cells.
+            $entry['base'] = null;
+            foreach (array_keys($entry['layers']) as $underlay) {
+              if ($underlay === $id) { break; }
+              unset($entry['layers'][$underlay]);
+            }
+          }
+        }
+        unset($entry);
+      }
+      unset($entries);
+    }
+    foreach (array_unique([...$excludedLayers, ...$excludedWorldLayers]) as $id) { self::removeLayer($id, false); }
+    foreach ($excludedLayers as $id) { self::removeOverlay($id, false); }
+  }
 
   public static function setRetainedWorldPresentation(bool $enabled): void
   {
@@ -240,9 +314,14 @@ class Console
     self::updateOverlay($id, $rows === [] ? null : ['priority' => $priority, 'rows' => $rows]);
   }
 
-  public static function removeOverlay(string $id): void
+  /** Retiring an owner need not repaint a disposed scene or use a failed output sink. */
+  public static function removeOverlay(string $id, bool $repaint = true): void
   {
-    if (isset(self::$overlays[$id])) { self::updateOverlay($id, null); }
+    if (!isset(self::$overlays[$id])) { return; }
+    if ($repaint) { self::updateOverlay($id, null); return; }
+    $rows = array_keys(self::$overlays[$id]['rows']);
+    unset(self::$overlays[$id]);
+    foreach ($rows as $row) { self::getRetainedTracker()->markRowDirty($row); }
   }
 
   private static function updateOverlay(string $id, ?array $overlay): void
@@ -511,6 +590,9 @@ class Console
   /** Select the physical sink before borrowing a terminal screen; buffers remain active. */
   public static function setTerminalOutputEnabled(bool $enabled): void
   {
+    if ($enabled && self::$captureDepth > 0) {
+      throw new \LogicException('An isolated Console capture cannot acquire terminal output.');
+    }
     if (self::$terminalOutputEnabled === $enabled) {
       return;
     }
@@ -1086,6 +1168,7 @@ class Console
    */
   public static function saveTerminalSettings(): void
   {
+    if (self::$captureDepth > 0) { return; }
     self::$previousTerminalSettings = shell_exec('stty -g') ?? '';
   }
 
@@ -1096,6 +1179,7 @@ class Console
    */
   public static function restoreTerminalSettings(): void
   {
+    if (self::$captureDepth > 0) { return; }
     shell_exec('stty ' . self::$previousTerminalSettings);
   }
 
@@ -1184,28 +1268,31 @@ class Console
   }
 
   /**
-   * Gets the buffer.
+   * Reads the live composed buffer, including during an atomic update.
    *
+   * @param list<string> $excludedOverlays Overlay IDs to omit from this read only; scene layers remain intact.
    * @return string[] The buffer.
    */
-  public static function getBuffer(): array
+  public static function getBuffer(array $excludedOverlays = []): array
   {
-    return array_map(self::cellsToRow(...), self::visibleCellRows());
+    return array_map(self::cellsToRow(...), self::visibleCellRows($excludedOverlays));
   }
 
-  /** @return array<int, list<string>> Derived overlay view of the single canonical scene. */
-  private static function visibleCellRows(): array
+  /** @param list<string> $excludedOverlays @return array<int, list<string>> Derived live view of the single canonical scene. */
+  private static function visibleCellRows(array $excludedOverlays = []): array
   {
     $rows = self::isRetainedTracking() ? array_replace(self::getEmptyBuffer(), self::$buffer) : self::$buffer;
     if (self::$overlays === []) { return $rows; }
     if ($rows === []) { $rows = self::getEmptyBuffer(); }
+    $excluded = array_fill_keys($excludedOverlays, true);
     $affected = [];
-    foreach (self::$overlays as $overlay) {
+    foreach (self::$overlays as $id => $overlay) {
+      if (isset($excluded[$id])) { continue; }
       foreach (array_keys($overlay['rows']) as $row) { $affected[$row] = true; }
     }
     foreach (array_keys($affected) as $row) {
       if ($row < self::$height) {
-        $rows[$row] = self::compositeOverlayRow($rows[$row] ?? array_fill(0, self::$width, ' '), $row);
+        $rows[$row] = self::compositeOverlayRow($rows[$row] ?? array_fill(0, self::$width, ' '), $row, $excluded);
       }
     }
     return $rows;
@@ -1334,43 +1421,7 @@ class Console
   /** @param array<int, array<int, string>> $rows @return list<PresentationTextRun> */
   private static function presentationRuns(array $rows): array
   {
-    $started = LatencyTrace::getTimeNow();
-    $parsing = 0;
-    $runs = $cache = [];
-    foreach ($rows as $y => $cells) {
-      ksort($cells);
-      $text = '';
-      $start = $previous = -1;
-      $style = ['foreground' => null, 'background' => null];
-      foreach ($cells as $x => $cell) {
-        if ($cell === self::WIDE_SYMBOL_CONTINUATION) {
-          $next = $previous === $x - 1 ? $style : ['foreground' => null, 'background' => null];
-          $glyph = ' ';
-        } else {
-          if (!isset($cache[$cell])) {
-            $parseStart = LatencyTrace::getTimeNow();
-            $cache[$cell] = [SgrColorParser::parse($cell), TerminalText::rendererScalar($cell)];
-            if ($parseStart !== null) { $parsing += LatencyTrace::getTimeNow() - $parseStart; }
-          }
-          $parsed = $cache[$cell];
-          [$next, $glyph] = $parsed;
-        }
-        if ($text !== '' && ($x !== $previous + 1 || $next != $style)) {
-          $runs[] = new PresentationTextRun($y, $start, $text, $style['foreground'], $style['background']);
-          $text = '';
-        }
-        if ($text === '') { $start = $x; }
-        $text .= $glyph;
-        $style = $next;
-        $previous = $x;
-      }
-      if ($text !== '') {
-        $runs[] = new PresentationTextRun($y, $start, $text, $style['foreground'], $style['background']);
-      }
-    }
-    LatencyTrace::end('console.runs', $started, ['style_parse_ns' => $parsing,
-      'unique_cells' => count($cache), 'runs' => count($runs)]);
-    return $runs;
+    return new TerminalPresentationComposer()->createRuns($rows);
   }
 
   /**

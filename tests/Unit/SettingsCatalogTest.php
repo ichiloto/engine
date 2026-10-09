@@ -167,3 +167,21 @@ it('lets a player choose a screen transition', function () {
   expect($config->get('ui.transitions.style'))->toBe('wipe')
     ->and($catalog->read('transitions'))->toBe(TransitionStyle::WIPE);
 });
+
+it('exposes and persists battle transitions independently while preserving legacy defaults', function () {
+  $config = new CatalogConfigStub(['ui' => ['transitions' => ['style' => 'none']]]);
+  ConfigStore::put(ProjectConfig::class, $config);
+  $catalog = new SettingsCatalog();
+  expect($catalog->read('battle_transitions'))->toBeFalse();
+  $catalog->write('battle_transitions', true);
+  expect($catalog->read('battle_transitions'))->toBeTrue()
+    ->and($config->get('ui.transitions.battle'))->toBeTrue()
+    ->and($config->get('ui.transitions.style'))->toBe('none');
+  $catalog->write('transitions', TransitionStyle::WIPE);
+  $catalog->write('battle_transitions', false);
+  expect($catalog->read('battle_transitions'))->toBeFalse()
+    ->and($catalog->read('transitions'))->toBe(TransitionStyle::WIPE);
+  foreach ([new MainMenuSettingsManager(), new TitleOptionsSettingsManager()] as $manager) {
+    expect(array_column($manager->getSettings(), 'key'))->toContain('battle_transitions');
+  }
+});

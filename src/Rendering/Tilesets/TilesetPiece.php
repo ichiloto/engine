@@ -24,7 +24,7 @@ use InvalidArgumentException;
  */
 final readonly class TilesetPiece
 {
-  public const array FIELDS = ['name', 'layer', 'glyphs', 'tiles', 'connects', 'effect'];
+  public const array FIELDS = ['name', 'layer', 'glyphs', 'tiles', 'connects', 'effect', 'keeps'];
   /** Cells join the cells beside them across and down, like a wall or fence. */
   public const string LINES = 'lines';
   /** A line cell's shapes: joined only across, only down, or both ways (corners, junctions and lone posts). */
@@ -35,24 +35,52 @@ final readonly class TilesetPiece
   public int $width;
   /** Cells down. */
   public int $height;
+  /** @var list<list<string>> Styled display cells, using the same contract as MapLayer::grid. */
+  public array $grid;
+  /** @var list<list<string>> Plain glyphs; footprint and collision never depend on style. */
+  public array $glyphs;
+  /** @var array<string, string> Styled display cell for each connected shape. */
+  public array $shapeGrid;
+  /** @var array<string, string> Plain connected shapes; membership never depends on style. */
+  public array $shapes;
+  /** @var array<string, string> Authored source for each connected shape. */
+  private array $sourceShapeGrid;
+  /** @var list<list<string>> */
+  private array $sourceCells;
+  /** @var list<string> Existing tiles on these layers remain beneath a stamped piece. */
+  public array $keeps;
 
   /**
-   * @param list<list<string>> $glyphs One visible character per cell, by row; one cell for a connected piece.
+   * @param list<list<string>> $glyphs One visible character per cell, optionally styled, by row; one cell for a connected piece.
    * @param array<string, list<list<string>>> $tiles Tile layer entries (`42`, `0`) by row, keyed by tile layer name.
-   * @param array<string, string> $shapes A connected piece's glyph for each shape.
+   * @param array<string, string> $shapes A connected piece's optionally styled glyph for each shape.
    * @param array<string, array<string, string>> $shapeTiles A connected piece's tile entry for each shape, keyed by tile layer name.
+   * @param list<string>|null $sourceRows Original rows, when constructing from row-based authored data.
+   * @param array<string, string>|null $sourceShapeGrid Original connected shape strings, before display formatting.
+   * @param list<string> $keeps Tile layers preserved under the stamped footprint, never layers this piece writes.
    */
   public function __construct(
     public string $id,
     public string $name,
     public string $layer,
-    public array $glyphs,
+    array $glyphs,
     public array $tiles = [],
     public ?string $connects = null,
-    public array $shapes = [],
+    array $shapes = [],
     public array $shapeTiles = [],
     public ?string $effect = null,
+    private ?array $sourceRows = null,
+    ?array $sourceShapeGrid = null,
+    array $keeps = [],
   ) {
+    $this->keeps = self::readKeptLayers($keeps, array_keys($tiles + $shapeTiles), $connects, "Piece {$id}");
+    $this->sourceCells = $glyphs;
+    $this->sourceShapeGrid = $sourceShapeGrid ?? $shapes;
+    $this->grid = array_map(static fn(array $row): array => array_map(
+      static fn(string $cell): string => implode('', TerminalText::visibleSymbols($cell)), $row), $glyphs);
+    $this->glyphs = array_map(static fn(array $row): array => array_map(TerminalText::stripAnsi(...), $row), $this->grid);
+    $this->shapeGrid = array_map(static fn(string $cell): string => implode('', TerminalText::visibleSymbols($cell)), $shapes);
+    $this->shapes = array_map(TerminalText::stripAnsi(...), $this->shapeGrid);
     $this->height = count($glyphs);
     $this->width = count($glyphs[0] ?? []);
   }
@@ -98,6 +126,7 @@ final readonly class TilesetPiece
         throw new InvalidArgumentException("{$context} tiles must be keyed by tile layer name.");
       }
     }
+    $keeps = self::readKeptLayers(array_key_exists('keeps', $data) ? $data['keeps'] : [], array_keys($layers), $connects, $context);
     if ($connects === self::LINES) {
       return self::readConnected($id, $data, $layers, $context);
     }
@@ -108,7 +137,7 @@ final readonly class TilesetPiece
     $glyphs = [];
     foreach ($rows as $y => $row) {
       $symbols = is_string($row) ? TerminalText::visibleSymbols($row) : [];
-      if ($symbols === [] || array_filter($symbols, static fn(string $symbol): bool => TerminalText::displayWidth($symbol) !== 1) !== []) {
+      if ($symbols === [] || array_filter($symbols, static fn(string $symbol): bool => !self::isCellGlyph($symbol)) !== []) {
         throw new InvalidArgumentException("{$context} glyph row {$y} must be one or more characters, each one terminal cell wide.");
       }
       $glyphs[] = $symbols;
@@ -133,7 +162,29 @@ final readonly class TilesetPiece
       static fn(array $row): bool => array_any($row, static fn(string $tile): bool => $tile !== '0'))))) {
       throw new InvalidArgumentException("{$context} effect needs graphical tiles to identify its stamped instances.");
     }
-    return new self($id, $data['name'], $data['layer'], $glyphs, $tiles, effect: $effect);
+    return new self($id, $data['name'], $data['layer'], $glyphs, $tiles, effect: $effect, sourceRows: $rows, keeps: $keeps);
+  }
+
+  /** @param list<array-key> $writtenLayers @return list<string> */
+  private static function readKeptLayers(mixed $keeps, array $writtenLayers, ?string $connects, string $context): array
+  {
+    if (!is_array($keeps) || !array_is_list($keeps)) {
+      throw new InvalidArgumentException("{$context} keeps must be a list of tile layer names.");
+    }
+    $names = [];
+    foreach ($keeps as $name) {
+      if (!is_string($name) || preg_match(self::NAME_PATTERN, $name) !== 1) {
+        throw new InvalidArgumentException("{$context} keeps must name valid tile layers.");
+      }
+      if (isset($names[$name]) || in_array($name, $writtenLayers, true)) {
+        throw new InvalidArgumentException("{$context} keeps must name distinct layers this piece does not write.");
+      }
+      $names[$name] = true;
+    }
+    if ($names !== [] && $connects !== null) {
+      throw new InvalidArgumentException("{$context} connected pieces do not preserve underlying tile layers yet.");
+    }
+    return array_keys($names);
   }
 
   /** @param array<array-key, mixed> $data @param array<array-key, mixed> $layers */
@@ -146,12 +197,13 @@ final readonly class TilesetPiece
     $shapes = [];
     foreach (self::LINE_SHAPES as $shape) {
       $glyph = $glyphs[$shape];
-      if (!is_string($glyph) || TerminalText::symbolCount($glyph) !== 1 || TerminalText::displayWidth($glyph) !== 1 || trim($glyph) === '') {
+      $symbols = is_string($glyph) ? TerminalText::visibleSymbols($glyph) : [];
+      if (count($symbols) !== 1 || !self::isCellGlyph($symbols[0]) || trim(TerminalText::stripAnsi($symbols[0])) === '') {
         throw new InvalidArgumentException("{$context} {$shape} glyph must be one visible character, one terminal cell wide.");
       }
-      $shapes[$shape] = $glyph;
+      $shapes[$shape] = $symbols[0];
     }
-    if (count(array_unique($shapes)) !== count($shapes)) {
+    if (count(array_unique(array_map(TerminalText::stripAnsi(...), $shapes))) !== count($shapes)) {
       throw new InvalidArgumentException("{$context} needs a different glyph for each shape, so its cells can be told apart.");
     }
     $shapeTiles = [];
@@ -171,7 +223,35 @@ final readonly class TilesetPiece
         $shapeTiles[$layer][$shape] = $cells[0][0];
       }
     }
-    return new self($id, $data['name'], $data['layer'], [[$shapes['corner']]], [], self::LINES, $shapes, $shapeTiles);
+    return new self($id, $data['name'], $data['layer'], [[$shapes['corner']]], [], self::LINES, $shapes, $shapeTiles,
+      sourceRows: [$glyphs['corner']], sourceShapeGrid: $glyphs);
+  }
+
+  private static function isCellGlyph(string $symbol): bool
+  {
+    return TerminalText::displayWidth($symbol) === 1
+      && preg_match('/\p{Cc}/u', TerminalText::stripAnsi($symbol)) !== 1;
+  }
+
+  /** @return list<list<string>> Independent authored source cells, not display ANSI converted to markup. */
+  public function getSourceGrid(): array
+  {
+    return $this->sourceRows === null
+      ? array_map(static fn(array $row): array => array_map(self::getSourceCell(...), $row), $this->sourceCells)
+      : array_map(TerminalText::getSourceSymbols(...), $this->sourceRows);
+  }
+
+  /** @return array<string, string> Authored source for each connected shape. */
+  public function getSourceShapeGrid(): array
+  {
+    return array_map(self::getSourceCell(...), $this->sourceShapeGrid);
+  }
+
+  private static function getSourceCell(string $source): string
+  {
+    $cells = TerminalText::getSourceSymbols($source);
+    if (count($cells) !== 1) { throw new InvalidArgumentException('Piece source cell must remain one independently authored glyph.'); }
+    return $cells[0];
   }
 
   /** Whether a glyph is one of this connected piece's shapes, so its cell joins the piece. */

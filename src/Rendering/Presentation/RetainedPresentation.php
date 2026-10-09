@@ -49,6 +49,7 @@ final class RetainedPresentation
     private bool $coalesced = false;
     private int $windowBase = 0;
     private int $pendingWriteBytes = 0;
+    private bool $warnedUnsupportedPivot = false;
 
     public function __construct(private readonly RendererClient $client, private readonly ?Closure $serviceTransport = null,
         private readonly ?Closure $clock = null) { $this->frameOwner = new \stdClass(); }
@@ -100,11 +101,7 @@ final class RetainedPresentation
             if ($canvas !== null && ($canvas->width !== $screenOverlay->width || $canvas->height !== $screenOverlay->height)) {
                 throw new LogicException('A screen overlay must match its retained composition.');
             }
-            $canvas = new PresentationCanvas($screenOverlay->width, $screenOverlay->height,
-                [...($canvas?->images ?? []), ...$screenOverlay->images],
-                [...($canvas?->indicators ?? []), ...$screenOverlay->indicators],
-                [...($canvas?->textLayers ?? []), ...$screenOverlay->textLayers],
-                [...($canvas?->composites ?? []), ...$screenOverlay->composites], $canvas?->protectedAreas);
+            $canvas = PresentationCanvas::composeOverlay($canvas, $screenOverlay);
         }
         $this->operations = [];
         if ($this->world !== $frame->world) {
@@ -165,6 +162,7 @@ final class RetainedPresentation
         $this->generation = max($this->generation, $expectedGeneration ?? 0);
         $this->windowBase = $this->generation;
         if ($newSession) {
+            $this->warnedUnsupportedPivot = false;
             $this->generation = $this->acknowledgedGeneration = $this->progressGeneration = 0;
             $this->windowBase = $this->pendingWriteBytes = 0;
         }
@@ -194,7 +192,13 @@ final class RetainedPresentation
         $this->updateText($text);
         $lift = $this->client->supports(RendererSessionConfig::SPRITE_LIFT);
         $turns = $this->client->supports(RendererSessionConfig::SPRITE_QUARTER_TURNS);
-        $this->replaceValues('sprite', array_map(static fn($sprite) => $sprite->toArray($lift, $turns), PresentationSprite::orderedList($sprites)));
+        $pivot = $this->client->supports(RendererSessionConfig::SPRITE_PIVOT);
+        if (!$pivot && !$this->warnedUnsupportedPivot && array_any($sprites, static fn($sprite): bool =>
+            $sprite->pivot !== null && ($sprite->pivot->x !== .5 || $sprite->pivot->y !== 1.0))) {
+            Debug::warn('Renderer lacks sprite_pivot; field images retain bottom-center placement.');
+            $this->warnedUnsupportedPivot = true;
+        }
+        $this->replaceValues('sprite', array_map(static fn($sprite) => $sprite->toArray($lift, $turns, $pivot), PresentationSprite::orderedList($sprites)));
         $this->setViewport($viewport?->toArray());
     }
 

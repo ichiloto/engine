@@ -18,6 +18,7 @@ use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
+use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Scenes\AbstractScene;
 use Ichiloto\Engine\Scenes\Game\GameLoader;
@@ -443,7 +444,7 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
     ['width' => $width, 'height' => $height] = $this->resolveOptionsWindowSize();
 
     $this->optionsWindow = new Window(
-      self::TITLE_OPTIONS_TITLE,
+      $this->getOptionsMenuTitle(),
       self::TITLE_OPTIONS_HELP,
       new Vector2(
         max(0, intdiv(get_screen_width() - $width, 2)),
@@ -469,7 +470,7 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
     $topMargin = max(0, intdiv(get_screen_height() - $menuHeight, 2));
 
     $this->continueInfoWindow = new Window(
-      'Continue',
+      $this->getContinueMenuTitle(),
       '',
       new Vector2($leftMargin, $topMargin),
       $width,
@@ -614,7 +615,7 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
   {
     $this->refreshContinueSlots();
     $this->continueInfoWindow?->setContent([
-      'Choose a save file to continue from.',
+      get_message('prompt.load', 'Choose a save file to continue from.'),
     ]);
     $this->continueInfoWindow?->render();
 
@@ -746,7 +747,7 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
     $width = max(
       self::TITLE_OPTIONS_MIN_WIDTH,
       $contentWidth + self::TITLE_OPTIONS_HORIZONTAL_PADDING,
-      TerminalText::displayWidth(self::TITLE_OPTIONS_TITLE) + 3,
+      TerminalText::displayWidth($this->getOptionsMenuTitle()) + 3,
       TerminalText::displayWidth(self::TITLE_OPTIONS_HELP) + 3,
     );
     $height = count($this->options) + 3 + self::TITLE_OPTIONS_STATUS_ROWS;
@@ -755,6 +756,19 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
       'width' => min(get_screen_width(), $width),
       'height' => min(get_screen_height(), $height),
     ];
+  }
+
+  /**
+   * Returns the shared Terminal and canvas options heading.
+   */
+  protected function getOptionsMenuTitle(): string
+  {
+    return Vocabulary::getTerm('game.options', Vocabulary::getTerm('command.options', self::TITLE_OPTIONS_TITLE));
+  }
+
+  protected function getContinueMenuTitle(): string
+  {
+    return Vocabulary::getTerm('game.continue', Vocabulary::getTerm('command.continue', 'Continue'));
   }
 
   /**

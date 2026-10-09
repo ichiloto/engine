@@ -18,10 +18,11 @@ final readonly class BattleUiSkin
   public array $colors;
 
   public function __construct(array $textures, array $colors, public ?BattleTargetCursor $targetCursor = null,
-    public ?MenuIconRegistry $icons = null)
+    public ?MenuIconRegistry $icons = null,
+    public BattleConditionBadgeStyle $conditionBadges = new BattleConditionBadgeStyle())
   {
     $this->textures = self::roles($textures, CanvasNineSlice::class,
-      ['panel', 'quiet', 'track', 'hp', 'mp', 'atb', 'selector', 'target', 'queued', 'acting']);
+      ['panel', 'quiet', 'track', 'hp', 'mp', 'atb', 'selector', 'target', 'queued']);
     $this->colors = self::roles($colors, PresentationColor::class,
       ['text', 'muted', 'selected', 'focus', 'disabled', 'damage', 'healing', 'mp', 'ink']);
   }

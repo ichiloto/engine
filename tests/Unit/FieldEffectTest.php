@@ -13,6 +13,7 @@ use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicPresentationManager;
 use Ichiloto\Engine\Events\Triggers\EventCue;
 use Ichiloto\Engine\Events\Triggers\EventCueKind;
 use Ichiloto\Engine\Events\Triggers\ScriptEventTrigger;
@@ -21,6 +22,7 @@ use Ichiloto\Engine\Field\MapTileLayer;
 use Ichiloto\Engine\Rendering\FieldViewport;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSprite;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteMotion;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
 use Ichiloto\Engine\Rendering\Tilesets\Tileset;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
@@ -114,6 +116,29 @@ it('holds an authored rest frame under reduced motion instead of advancing its l
     ->and($session->getSprites(new Vector2(0, 0), true)[0]->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(6);
 });
 
+it('contains field image frames without changing the ground anchor or reduced-motion rest crop', function (int $frameWidth,
+  int $frameHeight, int $drawHeight) {
+  writeTestPng($this->root . '/Graphics/strip.png', $frameWidth * 8, $frameHeight);
+  $source = createFieldTimelineData(rest: 3);
+  foreach ($source['tracks'] as &$track) { $track['fit'] = 'contain'; }
+  unset($track);
+  $session = new FieldEffectSession('contained', FieldEffectAnchor::fromArray(['cell' => ['x' => 4, 'y' => 5]]),
+    $this->library->compile('contained', $source));
+  $position = new Vector2(7, 9);
+  foreach ([false, true] as $reduced) {
+    $sprites = $session->getSprites($position, $reduced);
+    foreach ($sprites as $sprite) {
+      $image = $sprite->getGraphicalSpriteDefinition();
+      expect([$image->width, $image->height])->toBe([96, $drawHeight])
+        ->and($image->sourceRect->toArray())->toBe(['x' => $reduced ? 3 * $frameWidth : 0, 'y' => 0,
+          'width' => $frameWidth, 'height' => $frameHeight])
+        ->and($sprite->getGraphicalSpriteWorldPosition())->toEqual($position);
+    }
+  }
+  expect($session->anchor->cell)->toEqual(new Vector2(4, 5))
+    ->and($session->playback->currentFrame)->toBe(0);
+})->with(['exact pixels' => [8, 2, 24], 'rounded pixels' => [7, 3, 41]]);
+
 it('holds the rest frame for once field effects under reduced motion until their authored lifetime ends', function () {
   $session = new FieldEffectSession('once', FieldEffectAnchor::fromArray(['object' => 'player']),
     $this->library->compile('once', createFieldTimelineData('once', 3)));
@@ -124,6 +149,75 @@ it('holds the rest frame for once field effects under reduced motion until their
     ->and($session->getSprites(new Vector2(2, 3), true)[0]->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(6);
   $session->update(0.1, true);
   expect($session->playback->isCompleted)->toBeTrue()->and($session->getSprites(new Vector2(2, 3), true))->toBe([]);
+});
+
+it('keeps normalized image pivots through replacement art fitting crops motion and camera scrolling', function (string $fit) {
+  $source = createFieldTimelineData(rest: 3);
+  foreach ($source['tracks'] as &$track) {
+    $track['cells'] = ['width' => 3, 'height' => 1];
+    $track['fit'] = $fit;
+    $track['pivot'] = ['x' => .25, 'y' => .625];
+    foreach ($track['keyframes'] as &$frame) { $frame['position'] = ['x' => -1, 'y' => 2]; }
+    unset($frame);
+  }
+  unset($track);
+  $camera = new Camera(makeCameraTestScene(), 20, 10, worldSpace: array_fill(0, 30, str_repeat('.', 40)));
+  $projector = new GraphicalSpriteProjector();
+  $motion = new PresentationSpriteMotion(.125);
+  foreach ([[12, 4, 144, 48], [3, 6, 24, 48], [7, 3, 112, 48]] as [$width, $height, $containWidth, $containHeight]) {
+    writeTestPng($this->root . '/Graphics/strip.png', $width * 8, $height);
+    $session = new FieldEffectSession('pivoted', FieldEffectAnchor::fromArray(['cell' => ['x' => 7, 'y' => 5]]),
+      $this->library->compile('pivoted', $source));
+    $session->update(.2);
+    foreach ([false, true] as $reduced) {
+      $sprites = $session->getSprites(new Vector2(7, 5), $reduced, $motion);
+      foreach ($sprites as $sprite) {
+        $definition = $sprite->getGraphicalSpriteDefinition();
+        expect([$definition->width, $definition->height])->toBe($fit === 'contain' ? [$containWidth, $containHeight] : [144, 48])
+          ->and($definition->pivot->toArray())->toBe(['x' => .25, 'y' => .625])
+          ->and($definition->sourceRect->toArray())->toBe(['x' => ($reduced ? 3 : 1) * $width, 'y' => 0,
+            'width' => $width, 'height' => $height])
+          ->and($sprite->getGraphicalSpriteWorldPosition())->toEqual(new Vector2(6, 7));
+        foreach ([[3, 2, 3, 5], [10, 8, -4, -1]] as [$scrollX, $scrollY, $x, $y]) {
+          $camera->moveTo($scrollX, $scrollY);
+          $state = $camera->captureState();
+          $projected = $projector->project($sprite, $camera);
+          expect([$projected->x, $projected->y])->toBe([$x, $y])
+            ->and($projected->pivot)->toBe($definition->pivot)
+            ->and($projected->motion)->toBe($motion)
+            ->and($projected->withoutMotion()->pivot)->toBe($definition->pivot)
+            ->and($camera->captureState())->toEqual($state);
+        }
+      }
+    }
+    expect($session->anchor->cell)->toEqual(new Vector2(7, 5))
+      ->and($session->playback->currentFrame)->toBe(1);
+    $plain = $source;
+    foreach ($plain['tracks'] as &$track) { unset($track['pivot']); }
+    unset($track);
+    $default = new FieldEffectSession('plain', $session->anchor, $this->library->compile('plain', $plain));
+    expect($default->getSprites(new Vector2(7, 5))[0]->getGraphicalSpriteDefinition()->pivot)->toBeNull();
+  }
+})->with(['contain', 'stretch']);
+
+it('preserves field image pivots when a cinematic pins and scales the same effect to screen space', function () {
+  $source = createFieldTimelineData();
+  $source['tracks'][0]['pivot'] = ['x' => .25, 'y' => .625];
+  $session = new FieldEffectSession('pinned', FieldEffectAnchor::fromArray(['cell' => ['x' => 4, 'y' => 5]]),
+    $this->library->compile('pinned', $source));
+  $manager = new CinematicPresentationManager(makeBareScene(GameScene::class));
+  $manager->presentEffect($session, screenSpace: true);
+  $viewport = new FieldViewport(new RendererGridConfig(80, 30, 10, 20), zoom: 2);
+  $sprites = $manager->getEffectSprites($viewport);
+  $definition = $sprites[0]->getGraphicalSpriteDefinition();
+  $camera = $this->createMock(Camera::class);
+  $camera->expects($this->never())->method('getScreenSpacePosition');
+  $projected = new GraphicalSpriteProjector()->project($sprites[0], $camera);
+  expect($definition->pivot->toArray())->toBe(['x' => .25, 'y' => .625])
+    ->and([$definition->width, $definition->height])->toBe([192, 192])
+    ->and($projected->pivot)->toBe($definition->pivot)
+    ->and($sprites[1]->getGraphicalSpriteDefinition()->pivot)->toBeNull()
+    ->and($session->anchor->cell)->toEqual(new Vector2(4, 5));
 });
 
 it('starts concurrent map effects and clears the previous map on transfer and explicit clear', function () {
@@ -149,6 +243,7 @@ it('renders terminal map effects without opening their graphical images or chang
     ]]],
     'graphical' => [...createFieldTimelineData(), 'tracks' => [[
       'id' => 'image', 'type' => 'image', 'asset' => 'Graphics/missing.png',
+      'pivot' => ['x' => .25, 'y' => .625],
       'keyframes' => [['frame' => 0, 'duration' => 8]],
     ]]],
   ]];

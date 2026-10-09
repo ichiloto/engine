@@ -28,16 +28,7 @@ final class NotificationPlacement
   public static function getProtectedAreas(?PresentationCanvas $canvas, ?ConsolePresentationSnapshot $text,
     array $sprites, RendererGridConfig $grid, ?PresentationViewport $viewport = null): array
   {
-    $areas = [];
-    if ($canvas !== null) {
-      foreach ($canvas->images as $image) { $areas[] = $image->clipRect ?? $image->destination; }
-      foreach ($canvas->textLayers as $layer) {
-        if ($layer->id === 'menu-background' || str_starts_with($layer->id, 'menu-background-part-')) { continue; }
-        $areas[] = $layer->clipRect ?? $layer->paintBounds;
-      }
-      foreach ($canvas->composites as $composite) { $areas[] = $composite->clipRect ?? $composite->destination; }
-      foreach ($canvas->indicators as $indicator) { $areas[] = $indicator->bounds; }
-    }
+    $areas = $canvas?->getOverlayProtection() ?? [];
     $width = $grid->columns * $grid->cellWidth;
     $height = $grid->rows * $grid->cellHeight;
     foreach ($sprites as $sprite) {

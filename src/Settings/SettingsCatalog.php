@@ -126,6 +126,12 @@ class SettingsCatalog
         ],
       ),
       new GameSetting(
+        'battle_transitions',
+        'Battle Transitions',
+        'Plays the authored battle-entry effect independently of screen transitions. Reduced motion still skips it.',
+        ['Off' => false, 'On' => true],
+      ),
+      new GameSetting(
         'location_hud',
         'Location HUD',
         'Toggles the field HUD that shows coordinates and facing direction.',
@@ -192,6 +198,7 @@ class SettingsCatalog
       'transitions' => TransitionStyle::tryFrom(strtolower(strval(
         config(ProjectConfig::class, ScreenTransition::CONFIG_STYLE, TransitionStyle::NONE->value)
       ))) ?? TransitionStyle::NONE,
+      'battle_transitions' => ScreenTransition::isBattleEnabled(),
       default => null,
     };
   }
@@ -230,6 +237,7 @@ class SettingsCatalog
         ScreenTransition::CONFIG_STYLE,
         ($value instanceof TransitionStyle ? $value : TransitionStyle::NONE)->value
       ),
+      'battle_transitions' => $this->writePath($config, ScreenTransition::CONFIG_BATTLE, boolval($value)),
       default => null,
     };
   }

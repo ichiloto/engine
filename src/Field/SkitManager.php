@@ -3,11 +3,7 @@
 namespace Ichiloto\Engine\Field;
 
 use Assegai\Util\Path;
-use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
-use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
-use Ichiloto\Engine\IO\Enumerations\Color;
-use Ichiloto\Engine\IO\InputBindings;
 use Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePresentationCatalog;
 use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
@@ -36,8 +32,8 @@ use Throwable;
  * ];
  * ```
  *
- * When a skit becomes available a notification invites the player to press
- * the skit key; playing one shows its beats as a dialogue exchange and
+ * A persistent field prompt shows the next playable skit. Playing one shows
+ * its beats as a dialogue exchange and
  * records `skit_seen:<id>` so it never replays.
  *
  * @package Ichiloto\Engine\Field
@@ -48,10 +44,7 @@ class SkitManager
    * @var array<string, array<string, mixed>> The authored skits, keyed by id.
    */
   protected(set) array $skits = [];
-  /**
-   * @var string[] Skit ids already announced this session (avoids notification spam).
-   */
-  protected array $announced = [];
+  public private(set) bool $isPlaying = false;
 
   /**
    * SkitManager constructor.
@@ -108,35 +101,14 @@ class SkitManager
     );
   }
 
-  /**
-   * Announces newly available skits (map entry, flag changes).
-   *
-   * @return void
-   */
-  public function announceAvailableSkits(): void
+  /** Reads the same live availability/order used by playback, without consuming it. */
+  public function getAvailablePrompt(): ?SkitPrompt
   {
+    if ($this->isPlaying) { return null; }
     foreach ($this->availableSkits() as $skitId => $skit) {
-      if (in_array($skitId, $this->announced, true)) {
-        continue;
-      }
-
-      $this->announced[] = $skitId;
-
-      try {
-        $skitKeys = (new InputBindings())->describeKeys('skit');
-        $highlightedKeys = Color::apply($skitKeys, Color::YELLOW);
-
-        notify(
-          $this->gameScene->getGame(),
-          NotificationChannel::INFO,
-          'Skit available',
-          sprintf("%s\nPress %s to watch.", strval($skit['title'] ?? $skitId), $highlightedKeys),
-          NotificationDuration::LONG
-        );
-      } catch (Throwable $exception) {
-        Debug::warn(sprintf('Skit notification failed: %s', $exception->getMessage()));
-      }
+      return new SkitPrompt($skitId, strval($skit['title'] ?? $skitId));
     }
+    return null;
   }
 
   /**
@@ -146,8 +118,11 @@ class SkitManager
    */
   public function playNextAvailableSkit(): bool
   {
+    if ($this->isPlaying) { return false; }
     foreach ($this->availableSkits() as $skitId => $skit) {
-      $this->play($skitId, $skit);
+      $this->isPlaying = true;
+      try { $this->play($skitId, $skit); }
+      finally { $this->isPlaying = false; }
       return true;
     }
 

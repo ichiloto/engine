@@ -26,6 +26,8 @@ final readonly class PresentationSprite
      */
     public int $lift = 0,
     public int $quarterTurns = 0,
+    /** Optional image point at the unchanged cell anchor; negotiated sprite_pivot only. */
+    public ?PresentationSpritePivot $pivot = null,
   )
   {
     if ($id === '' || str_contains($id, "\0") || preg_match('//u', $id) !== 1) {
@@ -45,9 +47,9 @@ final readonly class PresentationSprite
    * sprite_lift, a lifted sprite names its `lift`; without, the value is the
    * unlifted placement every renderer accepts.
    *
-   * @return array{id: string, asset: string, x: int, y: int, width: int, height: int, anchor: string, layer: int, sourceRect?: array{x: int, y: int, width: int, height: int}, motion?: array{duration: float}, lift?: int, quarterTurns?: int}
+   * @return array{id: string, asset: string, x: int, y: int, width: int, height: int, anchor: string, layer: int, sourceRect?: array{x: int, y: int, width: int, height: int}, motion?: array{duration: float}, lift?: int, quarterTurns?: int, pivot?: array{x: float, y: float}}
    */
-  public function toArray(bool $lift = false, bool $quarterTurns = false): array
+  public function toArray(bool $lift = false, bool $quarterTurns = false, bool $pivot = false): array
   {
     $data = ['id' => $this->id, 'asset' => $this->asset, 'x' => $this->x, 'y' => $this->y,
       'width' => $this->width, 'height' => $this->height, 'anchor' => $this->anchor->value, 'layer' => $this->layer];
@@ -55,6 +57,7 @@ final readonly class PresentationSprite
     if ($this->motion !== null) { $data['motion'] = $this->motion->toArray(); }
     if ($lift && $this->lift > 0) { $data['lift'] = $this->lift; }
     if ($quarterTurns && $this->quarterTurns > 0) { $data['quarterTurns'] = $this->quarterTurns; }
+    if ($pivot && $this->pivot !== null) { $data['pivot'] = $this->pivot->toArray(); }
     return $data;
   }
 
@@ -62,7 +65,8 @@ final readonly class PresentationSprite
   public function withoutMotion(): self
   {
     return $this->motion === null ? $this : new self($this->id, $this->asset, $this->x, $this->y, $this->width,
-      $this->height, $this->anchor, $this->layer, $this->sourceRect, lift: $this->lift, quarterTurns: $this->quarterTurns);
+      $this->height, $this->anchor, $this->layer, $this->sourceRect, lift: $this->lift, quarterTurns: $this->quarterTurns,
+      pivot: $this->pivot);
   }
 
   /** @param list<PresentationSprite> $sprites @return list<PresentationSprite> */

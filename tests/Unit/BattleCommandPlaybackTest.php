@@ -51,6 +51,45 @@ it('preserves authored effect cadence and target cue impact instead of the sourc
     ->toBe($plan->phases['target']['start'] + 48);
 });
 
+it('spreads paced source and target tracks over their owning phase and resolves only once', function (float $speed, bool $reduced) {
+  $effect = (new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary(''))->compile('phase-cadence', [
+    'lengthFrames' => 5, 'restFrame' => 2, 'cadence' => 'battle_phase',
+    'tracks' => [['id' => 'stroke', 'type' => 'glyph', 'anchor' => 'target',
+      'keyframes' => array_map(static fn(int $frame): array => ['frame' => $frame, 'content' => (string)$frame], range(0, 4))]],
+    'cues' => [['id' => 'sound', 'frame' => 2, 'type' => 'playSound', 'payload' => ['sound' => 'test']],
+      ['id' => 'hit', 'frame' => 3, 'type' => 'applyEffect']],
+    'effectTiming' => ['mode' => 'cue', 'cueId' => 'hit'],
+  ], true, \Ichiloto\Engine\Animations\Timelines\EffectPresentation::TERMINAL);
+  $timings = new BattleTurnTimings(.1, .1, .173 / $speed, .72 / $speed, .1, .1, .1);
+  $plan = new BattleCommandTimeline($timings, $effect, $effect);
+  foreach (['source' => $timings->actionAnimation, 'target' => $timings->effectAnimation] as $phase => $duration) {
+    $start = $plan->phases[$phase]['start'];
+    expect($plan->phases[$phase]['length'])->toBe((int)ceil($duration * 120 - 1e-9))
+      ->and($plan->restFrames[$phase])->toBe($start + (int)ceil($duration * 2 / 5 * 120 - 1e-9));
+    for ($tick = 0; $tick < $plan->phases[$phase]['length']; $tick++) {
+      $segments = array_filter($plan->timeline->playbackSegments, static fn(array $segment): bool =>
+        $segment['startFrame'] <= $start + $tick && $start + $tick <= $segment['endFrame']);
+      expect($segments)->toHaveCount(1);
+    }
+  }
+  $actor = new Character('Actor', 1, new Stats(currentHp: 100, totalHp: 100));
+  $hits = $sounds = 0;
+  $playback = new BattleCommandPlayback($plan, $actor, [$actor], BattlePoseRole::ATTACK,
+    static function () use (&$hits): void { $hits++; },
+    static function (array $cue) use (&$sounds): void { if ($cue['type'] === 'playSound') { $sounds++; } });
+  $impact = $plan->phases['target']['start'] + (int)ceil($timings->effectAnimation * 3 / 5 * 120 - 1e-9);
+  $playback->update(($impact - 1) / 120);
+  expect($hits)->toBe(0);
+  $active = $playback->getActiveSegments($reduced);
+  expect($active)->not->toBeEmpty();
+  if ($reduced) { expect($active[0]['drawCommands'][0]['content'])->toBe('2'); }
+  $playback->update(1 / 120);
+  expect($hits)->toBe(1);
+  $playback->update(10);
+  $playback->update(10);
+  expect($hits)->toBe(1)->and($sounds)->toBe(2)->and($playback->isCompleted)->toBeTrue();
+})->with([.5, 1.0, 4.0])->with([false, true]);
+
 it('keeps adjacent effect frames exclusive at every supported cadence', function (int $fps) {
   $effect = new CompiledEffectTimeline('cadence', '', fps: $fps, playbackSegments: array_map(
     static fn(int $frame): array => ['startFrame' => $frame, 'endFrame' => $frame, 'layer' => 'image',
@@ -349,6 +388,42 @@ it('rejects invalid pacing before starting a battle command', function () {
   expect(fn() => new BattleCommandTimeline(new BattleTurnTimings(INF, 0, 0, 0, 0, 0, 0)))
     ->toThrow(InvalidArgumentException::class);
 });
+
+it('imports paced legacy frames without rounding their cadence and retains blank slots and flash tails', function (float $seconds) {
+  $animation = new Animation(1, 'Paced cells', maxFrames: 5,
+    frames: [new AnimationFrame(1, [new AnimationCell('a', 0, 0, 'red')]),
+      new AnimationFrame(3, [new AnimationCell('b', 0, 0, 'blue')])],
+    cues: [3 => new AnimationCue(soundEffect: 'hit', flashColor: 'red', flashDurationFrames: 4)]);
+  $timeline = LegacyAnimationTimeline::compile($animation, BattleCommandTimeline::FPS, secondsPerFrame: $seconds);
+  $boundary = static fn(int $frame): int => (int)ceil($frame * $seconds * BattleCommandTimeline::FPS - 1e-9);
+  expect($timeline->defaults['lengthFrames'])->toBe($boundary(6))
+    ->and($timeline->playbackSegments[0]['startFrame'])->toBe(0)
+    ->and($timeline->playbackSegments[0]['endFrame'])->toBe($boundary(1) - 1)
+    ->and($timeline->playbackSegments[1]['startFrame'])->toBe($boundary(2))
+    ->and($timeline->playbackSegments[1]['endFrame'])->toBe($boundary(3) - 1)
+    ->and($timeline->playbackSegments[2]['endFrame'])->toBe($boundary(6) - 1)
+    ->and($timeline->cueSchedule[0]['frame'])->toBe($boundary(2));
+  $playback = commandPlaybackFixture(target: $timeline);
+  $start = $playback->plan->phases['target']['start'];
+  expect($playback->plan->phases['target']['length'])->toBe($boundary(6))
+    ->and($playback->session->getActiveSegments($start + $boundary(1)))->toBeEmpty()
+    ->and($playback->session->getActiveSegments($start + $boundary(2)))->toHaveCount(2);
+})->with([.13, .173, 300.0]);
+
+it('keeps cues but drops collapsed legacy art when importing faster than the output lane', function () {
+  $animation = new Animation(1, 'Fast cells', maxFrames: 3,
+    frames: [new AnimationFrame(1, [new AnimationCell('a', 0, 0)]),
+      new AnimationFrame(2, [new AnimationCell('b', 0, 0)])],
+    cues: [2 => new AnimationCue(soundEffect: 'hit')]);
+  $timeline = LegacyAnimationTimeline::compile($animation, 120, secondsPerFrame: .001);
+  expect($timeline->playbackSegments)->toHaveCount(1)->and($timeline->defaults['lengthFrames'])->toBe(1)
+    ->and($timeline->cueSchedule[0]['frame'])->toBe(1);
+});
+
+it('refuses invalid consumer cadence when importing legacy effects', function (float $seconds) {
+  expect(fn() => LegacyAnimationTimeline::compile(new Animation(1, 'Invalid'), 120, secondsPerFrame: $seconds))
+    ->toThrow(InvalidArgumentException::class);
+})->with([0.0, -1.0, INF, -INF, NAN]);
 
 it('crosses exact high-rate clock boundaries without delaying frame cues', function () {
   $timeline = new CompiledEffectTimeline('clock', '', fps: 120,

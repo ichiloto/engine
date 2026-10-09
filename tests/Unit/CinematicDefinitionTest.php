@@ -61,7 +61,7 @@ it('exports one authoritative runtime and authoring vocabulary', function () {
     ->and($schema['unsafeAuthoredSkipCommandTypes'])->toContain('start_battle', 'give_item', 'knowledge')
     ->and($schema['authoredSkipCommonEventPolicy'])->toBe('reject')
     ->and($schema['summonDefinitionFields'])->toContain('id', 'playback', 'effectTiming', 'availability')
-    ->and($schema['summonTimelineFields'])->toBe(['formatVersion', 'fps', 'lengthFrames', 'tracks', 'cues', 'editor'])
+    ->and($schema['summonTimelineFields'])->toBe(['formatVersion', 'fps', 'lengthFrames', 'restFrame', 'presentations', 'stage', 'tracks', 'cues', 'editor'])
     ->and($schema['summonPlaybackConfigFields'])->toBe(['defaultSpeed', 'allowSkip', 'loopPreview'])
     ->and($schema['summonPlaybackFields'])->toContain('currentFrame', 'isPaused', 'isCompleted', 'isLooping');
 });

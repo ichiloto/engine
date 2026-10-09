@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\UI\Presentation;
 
+use Ichiloto\Engine\Localization\Vocabulary;
+
+use Ichiloto\Engine\Entities\Inventory\Equipment;
+
 use Ichiloto\Engine\Core\Menu\ItemMenu\Modes\DiscardItemMode;
 use Ichiloto\Engine\Core\Menu\ItemMenu\Modes\SelectIemMenuCommandMode;
 use Ichiloto\Engine\Core\Menu\ItemMenu\Modes\SelectItemTargetMode;
@@ -56,6 +60,7 @@ final class ItemMenuPresentation
     foreach ($state->selectionPanel->items as $index => $item) {
       $selected = $state->selectionPanel->activeIndex === $index;
       $rows[] = new MenuRow('item-' . $index, $item->name, [new MenuRowValue((string)$item->quantity)],
+        icon: $item instanceof Equipment ? CharacterMenuRows::getEquipmentIcon($item) : null,
         selected: $selected, focused: $selected && $itemFocus);
     }
     $quantityCells = max([2, ...array_map(fn(MenuRow $row) => mb_strlen($row->values[0]->text), $rows)]);
@@ -80,8 +85,9 @@ final class ItemMenuPresentation
       $hp = $target->stats->currentHp . ' / ' . $target->stats->totalHp;
       $mp = $target->stats->currentMp . ' / ' . $target->stats->totalMp;
       $columns = [new MenuRowColumn(max(mb_strlen($hp), mb_strlen($mp)))];
-      $view->rows('items-status', [new MenuRow('hp', sprintf('Lvl %02d HP', $target->level), [new MenuRowValue($hp)]),
-        new MenuRow('mp', 'MP', [new MenuRowValue($mp)])], new MenuRowLayout(self::inset($statusBox, $p), $columns,
+      $view->rows('items-status', [new MenuRow('hp', sprintf('%s %02d %s', Vocabulary::getTerm('stats.level', 'Lvl'), $target->level,
+        Vocabulary::getTerm('stats.hp', 'HP')), [new MenuRowValue($hp)]),
+        new MenuRow('mp', Vocabulary::getTerm('stats.mp', 'MP'), [new MenuRowValue($mp)])], new MenuRowLayout(self::inset($statusBox, $p), $columns,
           $m->cellHeight + 2, $m->cellWidth, $m->cellHeight, true));
     }
 

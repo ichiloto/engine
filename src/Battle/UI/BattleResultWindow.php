@@ -8,6 +8,7 @@ use Ichiloto\Engine\Battle\Presentation\BattleResultsText;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowHeightPolicy;
 use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\UI\Windows\WindowAlignment;
@@ -51,7 +52,10 @@ class BattleResultWindow extends Window
     $playback->setScrollLimit($pages - 1);
     $page = min($pages - 1, $playback->scrollOffset);
     $content = array_pad(array_slice($wrapped, $page * $height, $height), $height, '');
-    $title = 'Victory - ' . ucfirst($playback->currentStage()['kind']);
+    $stage = $playback->currentStage()['kind'];
+    $title = Vocabulary::getTerm('battle.victory', 'Victory') . ' - ' . Vocabulary::getTerm(
+      'battle.' . match ($stage) { 'primary' => 'rewards', 'level' => 'level_up', 'ability' => 'new_ability', 'special' => 'special_reward' },
+      ucfirst($stage));
     $prompt = $playback->confirmation();
     $help = ($prompt['enabled'] ? 'enter:' . $prompt['label'] : '')
       . ($pages > 1 ? sprintf(' up/down:Page %d/%d', $page + 1, $pages) : '');
@@ -88,7 +92,7 @@ class BattleResultWindow extends Window
   {
     $this->result = $result;
     $this->revealedEntryCount = 0;
-    $this->setTitle($result->title);
+    $this->setTitle(Vocabulary::getTerm('battle.' . $result->outcome(), $result->title));
 
     if (! empty($result->entries)) {
       $this->isRevealComplete = false;

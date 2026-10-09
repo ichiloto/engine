@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Cutscenes\Cinematics;
 
 use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use InvalidArgumentException;
 use Ichiloto\Engine\Events\Interpreter\MovementRouteRunner;
 
@@ -55,6 +56,7 @@ final class CinematicScriptValidator
       }
 
       match ($type) {
+        'text' => self::validateText($command, $cinematicId, $commandPath),
         'sequence' => self::validateRequiredBlock($command, 'commands', $cinematicId, "$commandPath/sequence"),
         'parallel' => self::validateParallel($command, $cinematicId, $commandPath),
         'branch' => self::validateBranch($command, $cinematicId, $commandPath),
@@ -75,6 +77,16 @@ final class CinematicScriptValidator
         'checkpoint' => self::validateStableReference($command, 'name', $cinematicId, $commandPath),
         default => null,
       };
+    }
+  }
+
+  /** @param array<string, mixed> $command */
+  protected static function validateText(array $command, string $cinematicId, string $path): void
+  {
+    try {
+      DialogueContext::getFromText($command);
+    } catch (InvalidArgumentException $error) {
+      throw self::failure($cinematicId, "$path/emotion", $error->getMessage());
     }
   }
 
@@ -236,7 +248,7 @@ final class CinematicScriptValidator
         throw self::failure($cinematicId, $path, 'staged actor sprites2d must be an array.');
       }
       try {
-        CinematicStageManager::graphicalSprites($entry['sprites2d']);
+        CinematicStageManager::getGraphicalSprites($entry['sprites2d']);
       } catch (InvalidArgumentException $error) {
         throw self::failure($cinematicId, "$path/sprites2d", $error->getMessage());
       }
@@ -247,7 +259,8 @@ final class CinematicScriptValidator
       throw self::failure($cinematicId, $path, 'staged actor id is required.');
     }
 
-    if (! array_key_exists('sprite', $entry) && trim(strval($entry['asset'] ?? '')) === '') {
+    if (! array_key_exists('subject', $entry)
+      && ! array_key_exists('sprite', $entry) && trim(strval($entry['asset'] ?? '')) === '') {
       throw self::failure($cinematicId, $path, 'staged actor requires a sprite or asset reference.');
     }
 

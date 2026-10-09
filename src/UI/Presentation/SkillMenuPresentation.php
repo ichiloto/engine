@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\UI\Presentation;
 
+use Ichiloto\Engine\Localization\Vocabulary;
+
 use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
@@ -37,9 +39,9 @@ final class SkillMenuPresentation
     $identity = $content->title . "\n" . $actor->name . "\nRole: " . $actor->role->name;
     $nameHeight = self::textHeight($identity, $nameWidth, $theme);
     $stats = $actor->effectiveStats;
-    $resources = ['Lv' => (string)$actor->level,
-      'HP' => number_format($stats->currentHp) . ' / ' . number_format($stats->totalHp),
-      'MP' => number_format($stats->currentMp) . ' / ' . number_format($stats->totalMp)];
+    $resources = [new MenuRow('0', Vocabulary::getTerm('stats.level', 'Lv'), [new MenuRowValue((string)$actor->level)]),
+      new MenuRow('1', Vocabulary::getTerm('stats.hp', 'HP'), [new MenuRowValue(number_format($stats->currentHp) . ' / ' . number_format($stats->totalHp))]),
+      new MenuRow('2', Vocabulary::getTerm('stats.mp', 'MP'), [new MenuRowValue(number_format($stats->currentMp) . ' / ' . number_format($stats->totalMp))])];
     $resourceHeight = self::fieldHeight($resources, $resourcesWidth, $theme);
     $countHeight = self::fieldHeight($content->summary, $countsWidth, $theme);
     $summaryHeight = max(140, 2 * $p + max($portrait, $nameHeight, $resourceHeight, $countHeight));
@@ -134,23 +136,37 @@ final class SkillMenuPresentation
     return $text === '' ? 0 : count(MenuCanvas::wrap($text, (int)floor($width / $theme->metrics->cellWidth))) * $theme->metrics->cellHeight;
   }
 
+  /** @param array<string, string>|list<MenuRow> $fields */
   private static function fieldLayout(array $fields, CanvasRectangle $bounds, MenuPresentationCatalog $theme): MenuRowLayout
   {
     $m = $theme->metrics;
     $metrics = $theme->rows->metrics;
-    $label = max(1, ...array_map('mb_strlen', array_keys($fields)));
+    $label = max(1, ...array_map(fn(MenuRow $row) => mb_strlen($row->label), self::fieldRows($fields)));
     $values = (int)floor(($bounds->width - 2 * $metrics->padding) / $m->cellWidth) - $label - $metrics->gapCells;
     if ($values < 1) { throw new RuntimeException('Skill menu fields require a wider finite viewport.'); }
     return new MenuRowLayout($bounds, [new MenuRowColumn($values)], $m->cellHeight + (int)ceil(max(1, $metrics->separatorWidth)), $m->cellWidth, $m->cellHeight, true);
   }
 
+  /** @param array<string, string>|list<MenuRow> $fields
+   * @return list<MenuRow>
+   */
   private static function fieldRows(array $fields): array
   {
     $rows = [];
-    foreach ($fields as $label => $value) { $rows[] = new MenuRow((string)count($rows), $label, [new MenuRowValue($value)]); }
+    foreach ($fields as $label => $value) {
+      if ($value instanceof MenuRow) { $rows[] = $value; continue; }
+      $displayLabel = match ($label) {
+        'HP' => Vocabulary::getTerm('stats.hp', 'HP'),
+        'MP' => Vocabulary::getTerm('stats.mp', 'MP'),
+        'MP Cost' => Vocabulary::getTerm('stats.mp', 'MP') . ' Cost',
+        default => $label,
+      };
+      $rows[] = new MenuRow((string)count($rows), $displayLabel, [new MenuRowValue($value)]);
+    }
     return $rows;
   }
 
+  /** @param array<string, string>|list<MenuRow> $fields */
   private static function fieldHeight(array $fields, float $width, MenuPresentationCatalog $theme): int
   {
     if ($fields === []) { return 0; }
@@ -158,6 +174,7 @@ final class SkillMenuPresentation
     return array_sum(array_map(fn($row) => $layout->heightFor($row, $theme->rows->metrics, false), self::fieldRows($fields)));
   }
 
+  /** @param array<string, string>|list<MenuRow> $fields */
   private static function fields(MenuCanvas $view, string $id, array $fields, CanvasRectangle $bounds): void
   {
     $view->rows($id, self::fieldRows($fields), self::fieldLayout($fields, $bounds, $view->theme));

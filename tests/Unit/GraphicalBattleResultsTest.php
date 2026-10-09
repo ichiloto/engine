@@ -502,7 +502,7 @@ it('fits all-missing Results textures over a full four-member HUD without droppi
         fn($i) => new BattleHudStatusRow($i, 31 + $i * 27, 200, 7 + $i * 3, 30, $i / 3), range(0, 3))),
       message: 'Battle won');
     $textures = [];
-    foreach (['panel', 'quiet', 'track', 'hp', 'mp', 'atb', 'selector', 'target', 'queued', 'acting'] as $role) {
+    foreach (['panel', 'quiet', 'track', 'hp', 'mp', 'atb', 'selector', 'target', 'queued'] as $role) {
       $textures[$role] = new CanvasNineSlice($role . '.png', new SpriteSourceRect(0, 0, 8, 8));
     }
     $palette = array_fill_keys(['text', 'muted', 'selected', 'focus', 'disabled', 'damage', 'healing', 'mp', 'ink'], PresentationColor::rgb(200, 200, 200));

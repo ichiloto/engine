@@ -4,8 +4,6 @@ namespace Ichiloto\Engine\Scenes\Arena;
 
 use Ichiloto\Engine\Battle\Presentation\BattlePresentationCatalog;
 use Ichiloto\Engine\Core\Vector2;
-use Ichiloto\Engine\Entities\Character;
-use Ichiloto\Engine\Entities\Inventory\Equipment;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\IO\Console\Console;
@@ -13,6 +11,7 @@ use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
+use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Scenes\AbstractScene;
 use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
@@ -21,7 +20,6 @@ use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Stores\ActorStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
-use Ichiloto\Engine\Battle\BattleCommandType;
 use Throwable;
 
 /**
@@ -56,6 +54,8 @@ class ArenaScene extends AbstractScene
    */
   protected array $troops = [];
   protected ?ArenaSetupEditor $editor = null;
+  /** The project's battle test, once read: its troop preselects the list. */
+  protected ?ProjectBattleTest $projectBattleTest = null;
   /**
    * @var Party|null The party the setup describes, for the party panel; never the one that fights.
    */
@@ -94,12 +94,30 @@ class ArenaScene extends AbstractScene
     Console::clear();
     $this->render();
 
-    // Booted with a troop named: skip the list and fight it.
+    // Booted with a troop named: skip the list and fight it. Otherwise the
+    // list opens, on the project's battle test troop when it names one.
     $wanted = strval($this->getGame()->options['arena_troop'] ?? '');
 
     if ($wanted !== '') {
       $this->fightByName($wanted);
+    } elseif (($troop = $this->projectBattleTest?->troop) !== null) {
+      $this->selectTroopByName($troop) || Debug::warn(sprintf('The battle test troop %s is not among the troops.', $troop));
+      $this->render();
     }
+  }
+
+  /** Puts the troop list's cursor on a troop, by name, without fighting it. */
+  private function selectTroopByName(string $troopName): bool
+  {
+    foreach ($this->troops as $index => $troop) {
+      if (strcasecmp($troop->name, $troopName) === 0) {
+        $this->editor?->selectTroop($index);
+
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /**
@@ -244,7 +262,8 @@ class ArenaScene extends AbstractScene
 
   /**
    * The setup editor, starting from the setup a caller passed or else the
-   * project's starting party.
+   * project's battle test ({@see ProjectBattleTest}): its party, or the
+   * starting party when it keeps none, and its arena.
    *
    * @return ArenaSetupEditor|null Null when no party can be built.
    */
@@ -254,20 +273,23 @@ class ArenaScene extends AbstractScene
 
     try {
       $actors = ConfigStore::get(ActorStore::class);
-      $loadouts = BattleTestLoadoutCatalog::getProjectCatalog();
+      $choices = new BattleTestChoices($actors, ConfigStore::get(ItemStore::class), BattleTestLoadoutCatalog::getProjectCatalog());
+      $this->projectBattleTest = ProjectBattleTest::loadFromProject();
       $setup = $this->getGame()->options[self::SETUP_OPTION] ?? null;
       $setup = $setup instanceof BattleTestSetup
         ? $setup
-        : BattleTestSetup::getFromStartingParty($actors);
+        : $this->projectBattleTest->createSetup($actors);
 
       return new ArenaSetupEditor(
         $setup,
         count($this->troops),
         $actors->getActorIds(),
-        fn(string $actorId): array => array_map(static fn($slot): string => $slot->name, $this->createProbe($actorId)->equipment),
-        fn(string $actorId, string $slotName): array => $this->getEquipmentChoices($actorId, $slotName),
-        fn(string $actorId): int => $this->createProbe($actorId)->maxLevel,
-        fn(BattleTestMember $member, string $field): array => $this->getLoadoutChoices($loadouts, $member, $field),
+        $choices->getSlotNames(...),
+        $choices->getEquipmentChoices(...),
+        $choices->getMaxLevel(...),
+        // The member as edited, in its place in the setup as it stands.
+        fn(BattleTestMember $member, string $field): array => $choices->getLoadoutChoices(
+          $this->editor->setup->withMember($this->editor->memberIndex, $member), $this->editor->memberIndex, $field),
         array_map(strval(...), array_keys($this->arenaChoices)),
       );
     } catch (Throwable $exception) {
@@ -301,63 +323,6 @@ class ArenaScene extends AbstractScene
 
     $this->arenaChoices = $catalog?->getArenaChoices() ?? [];
     $this->defaultArenaName = $catalog?->defaultArena === null ? null : ($this->arenaChoices[$catalog->defaultArena] ?? null);
-  }
-
-  /** @return list<array{id: ?string, name: string}> */
-  protected function getLoadoutChoices(BattleTestLoadoutCatalog $catalog, BattleTestMember $member, string $field): array
-  {
-    if ($field === 'commands') {
-      return [['id' => null, 'name' => 'Normal commands'], ...array_map(
-        fn(BattleCommandType $type): array => ['id' => $type->value, 'name' => $type->labelForRole($this->createProbe($member->actorId)->role->name)],
-        BattleCommandType::cases(),
-      )];
-    }
-    $choices = match ($field) {
-      'skills' => $catalog->getSkillChoices(false),
-      'magic' => $catalog->getSkillChoices(true),
-      'summons' => $catalog->getSummonChoices($this->createProbe($member->actorId)),
-      default => [],
-    };
-    if ($field === 'summons') {
-      $choices = array_values(array_filter($choices, function ($choice) use ($member): bool {
-        if (in_array($choice['id'], $member->summons, true)) { return true; }
-        $candidate = $this->editor?->setup->withMember($this->editor->memberIndex, $member->withSummons(
-          array_values(array_unique([...$member->summons, $choice['id']])),
-        ));
-        return $candidate?->getProblems(ConfigStore::get(ActorStore::class), ConfigStore::get(ItemStore::class)) === [];
-      }));
-    }
-    return [['id' => null, 'name' => 'Clear extra grants'], ...$choices];
-  }
-
-  /** A character of the actor as authored, to read its slots and limits. */
-  protected function createProbe(string $actorId): Character
-  {
-    return ConfigStore::get(ActorStore::class)->require($actorId, 'the battle test setup')->createCharacter();
-  }
-
-  /**
-   * What an actor can wear in a slot: nothing, then every equipment item
-   * the slot accepts and the actor can equip, in authored order.
-   *
-   * @return list<array{id: ?string, name: string}>
-   */
-  protected function getEquipmentChoices(string $actorId, string $slotName): array
-  {
-    $character = $this->createProbe($actorId);
-    $slot = array_find($character->equipment, static fn($slot): bool => $slot->name === $slotName);
-    $items = ConfigStore::get(ItemStore::class);
-    $choices = [['id' => null, 'name' => '(None)']];
-
-    foreach ($slot === null ? [] : $items->getItemIds() as $id) {
-      $item = $items->get($id);
-      if ($item instanceof Equipment && $slot->acceptsType === $item::class && $slot->semanticSlot === $item->semanticSlot
-        && $character->canEquip($item)) {
-        $choices[] = ['id' => $id, 'name' => $item->name];
-      }
-    }
-
-    return $choices;
   }
 
   /**
@@ -491,10 +456,11 @@ class ArenaScene extends AbstractScene
     $levels = array_map(static fn(object $enemy): int => $enemy->level ?? 1, $members);
 
     return sprintf(
-      '%-24s %d %s, level %s',
+      '%-24s %d %s, %s %s',
       $troop->name,
       count($members),
       count($members) === 1 ? 'enemy' : 'enemies',
+      Vocabulary::getTerm('stats.level', 'level'),
       $levels === [] ? '?' : (min($levels) === max($levels) ? min($levels) : min($levels) . '-' . max($levels))
     );
   }
@@ -564,9 +530,9 @@ class ArenaScene extends AbstractScene
 
     foreach ($this->previewParty?->members?->toArray() ?? [] as $character) {
       $members[] = [$character->name, [
-        'Lv' => (string) $character->level,
-        'HP' => "{$character->stats->currentHp}/{$character->stats->totalHp}",
-        'MP' => "{$character->stats->currentMp}/{$character->stats->totalMp}",
+        Vocabulary::getTerm('stats.level_short', Vocabulary::getTerm('stats.level', 'Lv')) => (string) $character->level,
+        Vocabulary::getTerm('stats.hp', 'HP') => "{$character->stats->currentHp}/{$character->stats->totalHp}",
+        Vocabulary::getTerm('stats.mp', 'MP') => "{$character->stats->currentMp}/{$character->stats->totalMp}",
       ]];
     }
 

@@ -1,12 +1,15 @@
 <?php
 
 use Ichiloto\Engine\Battle\BattlePacing;
+use Ichiloto\Engine\Audio\AudioManager;
+use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\TraditionalTurnBasedBattleEngine;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\ActionExecutionState;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnState;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\TurnStateExecutionContext;
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Turn;
 use Ichiloto\Engine\Battle\Presentation\BattlePoseRole;
+use Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline;
 use Ichiloto\Engine\Battle\UI\BattleCharacterNameWindow;
 use Ichiloto\Engine\Battle\UI\BattleCharacterStatusWindow;
 use Ichiloto\Engine\Battle\UI\BattleFieldWindow;
@@ -16,6 +19,9 @@ use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
+use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDamageSkillEffect;
+use Ichiloto\Engine\Entities\ItemScope;
+use Ichiloto\Engine\Entities\Skills\BasicSkill;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\States\State;
 use Ichiloto\Engine\Entities\Stats;
@@ -23,6 +29,11 @@ use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+
+use function Tests\Support\Battle\createTargetExecutionFixture;
+use function Tests\Support\Battle\queueTargetExecution;
+
+require_once __DIR__ . '/../Support/Battle/QueuedCommandFixture.php';
 
 final class TurnEndField extends BattleFieldWindow
 {
@@ -78,6 +89,11 @@ function createTurnEndFixture(bool $partyTick, bool $graphical): array
   $party = new Party();
   $actor = new Character('Actor', 1, new Stats(currentHp: $partyTick ? 5 : 100, totalHp: 100));
   $party->addMember($actor);
+  if ($partyTick) {
+    foreach (['KO second', 'KO third', 'Living reserve'] as $index => $name) {
+      $party->addMember(new Character($name, 1, new Stats(currentHp: $index < 2 ? 0 : 100)));
+    }
+  }
   $enemy = (new ReflectionClass(Enemy::class))->newInstanceWithoutConstructor();
   new ReflectionProperty($enemy, 'name')->setValue($enemy, 'Enemy without art');
   new ReflectionProperty($enemy, 'stats')->setValue($enemy,
@@ -169,8 +185,13 @@ it('holds lethal own-turn damage and KO before victory or defeat in every presen
         ->and($playback->phase)->toBe('reaction')->and($playback->getPoseRole($turn->battler))->toBe(BattlePoseRole::KNOCKOUT)
         ->and($playback->getAdvanceFraction())->toBe(0.0)->and($context->getCurrentTurn())->toBe($turn)
         ->and($engine->transitions)->toBeEmpty()->and(array_column($screen->fieldWindow->lines, 'text'))->toBe(['-10 Poison', 'KO'])
+        ->and($screen->fieldWindow->lines[1]['role'])->toBe(\Ichiloto\Engine\Battle\Presentation\BattleFeedbackRole::KO)
         ->and($screen->fieldWindow->hold)->toBeGreaterThan(0)
         ->and($playback->getActiveSegments($reducedMotion, !$graphical))->toBeEmpty();
+      if ($partyTick) {
+        expect($context->getLivingPartyBattlers())->toBeEmpty()
+          ->and($context->party->members[3]->isKnockedOut)->toBeFalse();
+      }
       expect(new ReflectionMethod(BattleFieldWindow::class, 'isCommandAdvanced')->invoke($screen->fieldWindow, $turn->battler))
         ->toBeFalse();
       $playback->pause();
@@ -197,3 +218,61 @@ it('holds lethal own-turn damage and KO before victory or defeat in every presen
     'enemy calm terminal' => [false, false, true], 'party calm terminal' => [true, false, true],
     'enemy calm graphical' => [false, true, true], 'party calm graphical' => [true, true, true],
   ]);
+
+it('finishes a real queued command before holding its lethal own-turn tick in both battle engines',
+  function (bool $activeTime, bool $partyTick, bool $graphical, bool $reducedMotion) {
+    $prior = ConfigStore::has(ProjectConfig::class) ? ConfigStore::get(ProjectConfig::class) : null;
+    $delta = new ReflectionProperty(Time::class, 'deltaTime')->getValue();
+    ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reducedMotion]]));
+    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createMock(AudioManager::class));
+    [$engine, $context, $screen, $actor, $ally, $enemies] = $fixture;
+    $battler = $partyTick ? $actor : $enemies[0];
+    $target = $partyTick ? $enemies[0] : $actor;
+    $battler->stats->currentHp = 5;
+    if (!$partyTick) { $enemies[1]->stats->currentHp = 0; }
+    $battler->addState(new State('poison', 'Poison', durationTurns: 2, tickFormula: '-10'));
+    $target->addState(new State('other-poison', 'Other poison', durationTurns: 1, tickFormula: '-10'));
+    $targetHp = $target->stats->currentHp;
+    $action = new SkillBattleAction(new BasicSkill('Synthetic strike', '', '', 0, 0,
+      new ItemScope(), effects: [new HPDamageSkillEffect('1', variance: 0)]));
+    try {
+      $turn = queueTargetExecution($fixture, $action, [$target], $battler);
+      $command = $screen->fieldWindow->getCommandPlayback();
+      expect($command)->not->toBeNull()->and($battler->stats->currentHp)->toBe(5)
+        ->and($turn->isCompleted)->toBeFalse()->and($action->lastResult)->toBeNull();
+      new ReflectionProperty(Time::class, 'deltaTime')->setValue(null, 10.0);
+      $engine->state->update($context);
+      $tick = $screen->fieldWindow->getCommandPlayback();
+      expect($command->isCompleted)->toBeTrue()->and($tick)->not->toBeNull()->and($tick)->not->toBe($command)
+        ->and($tick->phase)->toBe('reaction')->and($tick->getPoseRole($battler))->toBe(BattlePoseRole::KNOCKOUT)
+        ->and($tick->getAdvanceFraction())->toBe(0.0)->and($tick->getActiveSegments($reducedMotion, !$graphical))->toBe([])
+        ->and($engine->state)->toBe($engine->actionExecutionState)->and($context->getCurrentTurn())->toBe($turn)
+        ->and($battler->stats->currentHp)->toBe(0)->and($target->hasState('other-poison'))->toBeTrue()
+        ->and($action->lastResult->targets)->toHaveCount(1);
+      expect($target->stats->currentHp)->toBe($targetHp - $action->lastResult->targets[0]->actualHpLost());
+      $result = $screen->fieldWindow->results[array_key_last($screen->fieldWindow->results)];
+      expect($result[0])->toBe($battler)->and(array_column($result[1], 'text'))->toBe(['-10 Poison', 'KO']);
+      $getSnapshot = static fn(): string => serialize([$battler->stats, $battler->states,
+        $target->stats, $target->states, $action->lastResult]);
+      $after = $getSnapshot();
+      $tick->pause();
+      $engine->state->update($context);
+      expect($engine->state)->toBe($engine->actionExecutionState)->and($context->getCurrentTurn())->toBe($turn)
+        ->and($getSnapshot())->toBe($after);
+      $tick->resume();
+      new ReflectionProperty(Time::class, 'deltaTime')->setValue(null,
+        $tick->plan->phases['reaction']['length'] / BattleCommandTimeline::FPS / 2);
+      $engine->state->update($context);
+      expect($engine->state)->toBe($engine->actionExecutionState)->and($context->getCurrentTurn())->toBe($turn);
+      new ReflectionProperty(Time::class, 'deltaTime')->setValue(null, 10.0);
+      $engine->state->update($context);
+      expect($engine->state)->toBe($engine->turnResolutionState)->and($context->getCurrentTurn())->toBeNull()
+        ->and($screen->fieldWindow->getCommandPlayback())->toBeNull()
+        ->and($getSnapshot())->toBe($after)
+        ->and($partyTick ? $context->getLivingPartyBattlers() : $context->getLivingTroopBattlers())->toBeEmpty();
+    } finally {
+      $engine->stop();
+      new ReflectionProperty(Time::class, 'deltaTime')->setValue(null, $delta);
+      $prior === null ? ConfigStore::remove(ProjectConfig::class) : ConfigStore::put(ProjectConfig::class, $prior);
+    }
+  })->with([false, true])->with([false, true])->with([false, true])->with([false, true]);

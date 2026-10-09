@@ -6,6 +6,7 @@ use JsonException;
 use RuntimeException;
 use Throwable;
 use Ichiloto\Engine\Util\Debug;
+use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
 
 /**
  * Loads summon cutscenes from folder-based assets.
@@ -23,9 +24,10 @@ final class SummonCutsceneLibrary
     protected string $assetPath = 'Cutscenes/Summons',
     protected ?SummonCutsceneCompiler $compiler = null,
     protected bool $cacheForBattle = false,
+    ?string $assetRoot = null,
   )
   {
-    $this->compiler ??= new SummonCutsceneCompiler();
+    $this->compiler ??= new SummonCutsceneCompiler(assetRoot: $assetRoot);
   }
 
   /**
@@ -83,7 +85,8 @@ final class SummonCutsceneLibrary
     return null;
   }
 
-  public function loadCompiledOrCompileByLinkedActionId(string $actionId): ?SummonCompiledCutscene
+  public function loadCompiledOrCompileByLinkedActionId(string $actionId,
+    EffectPresentation $presentation = EffectPresentation::GRAPHICAL): ?SummonCompiledCutscene
   {
     $definition = $this->findByLinkedActionId($actionId);
 
@@ -91,37 +94,26 @@ final class SummonCutsceneLibrary
       return null;
     }
 
-    return $this->loadCompiledOrCompile($definition->id);
+    return $this->loadCompiledOrCompile($definition->id, $presentation);
   }
 
-  public function loadCompiledOrCompile(string $id): ?SummonCompiledCutscene
+  public function loadCompiledOrCompile(string $id,
+    EffectPresentation $presentation = EffectPresentation::GRAPHICAL): ?SummonCompiledCutscene
   {
-    if ($this->cacheForBattle && array_key_exists($id, $this->battleCompiled)) {
-      return $this->battleCompiled[$id];
+    $key = $presentation->value . ':' . $id;
+    if ($this->cacheForBattle && array_key_exists($key, $this->battleCompiled)) {
+      return $this->battleCompiled[$key];
     }
     $definition = $this->findById($id);
     if (! $definition instanceof SummonCutsceneDefinition) {
-      return $this->cacheForBattle ? ($this->battleCompiled[$id] = null) : null;
+      return $this->cacheForBattle ? ($this->battleCompiled[$key] = null) : null;
     }
-
+    // Validate current resources before admitting serialized caches. Art replacement
+    // can change sheet geometry without changing the authored source hash.
+    $fresh = $this->compiler->compile($definition, $presentation);
     $compiled = $this->loadCompiled($id);
-    if (! $compiled instanceof SummonCompiledCutscene) {
-      $compiled = $this->compiler->compile($definition);
-      return $this->cacheForBattle ? ($this->battleCompiled[$id] = $compiled) : $compiled;
-    }
-
-    try {
-      $expectedHash = sha1(json_encode($definition->toSourceArray(), JSON_THROW_ON_ERROR));
-    } catch (JsonException) {
-      return $this->cacheForBattle ? ($this->battleCompiled[$id] = $compiled) : $compiled;
-    }
-
-    if ($compiled->sourceHash !== $expectedHash) {
-      $compiled = $this->compiler->compile($definition);
-      return $this->cacheForBattle ? ($this->battleCompiled[$id] = $compiled) : $compiled;
-    }
-
-    return $this->cacheForBattle ? ($this->battleCompiled[$id] = $compiled) : $compiled;
+    if (!$compiled instanceof SummonCompiledCutscene || $compiled->toArray() !== $fresh->toArray()) { $compiled = $fresh; }
+    return $this->cacheForBattle ? ($this->battleCompiled[$key] = $compiled) : $compiled;
   }
 
   public function loadCompiled(string $id): ?SummonCompiledCutscene

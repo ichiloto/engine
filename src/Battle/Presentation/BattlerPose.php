@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Battle\Presentation;
 
+use Ichiloto\Engine\Animations\Timelines\EffectPlaybackTiming;
 use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
@@ -23,8 +24,10 @@ final readonly class BattlerPose
     public int $restFrame = 0,
     public float $pivotX = 0.5,
     public float $pivotY = 1.0,
+    public ?float $scaleSpan = null,
   ) {
     SpriteValidation::validateAssetPath($asset);
+    if ($scaleSpan !== null) { BattlerScale::validateUnit($scaleSpan); }
     if ($columns < 1 || $rows < 1 || $columns > 64 || $rows > 64 || $fps < 1 || $fps > 120
       || !array_is_list($frames) || $frames === [] || count($frames) > 10000
       || array_any($frames, static fn($frame): bool => !is_int($frame) || $frame < 0 || $frame >= $columns * $rows)
@@ -44,7 +47,7 @@ final readonly class BattlerPose
     if ($size['width'] % $this->columns !== 0 || $size['height'] % $this->rows !== 0) {
       throw new InvalidArgumentException('The current battler pose PNG does not divide into its authored sheet grid.');
     }
-    $index = (int)floor($elapsedSeconds * $this->fps);
+    $index = EffectPlaybackTiming::getFrameCountForElapsed($elapsedSeconds, 1 / $this->fps);
     $source = $reducedMotion ? $this->restFrame : $this->frames[
       $this->loop ? $index % count($this->frames) : min($index, count($this->frames) - 1)];
     $width = intdiv($size['width'], $this->columns);

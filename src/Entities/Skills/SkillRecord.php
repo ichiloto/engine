@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Entities\Skills;
 
 use Ichiloto\Engine\Battle\Resolution\ResolutionKind;
+use Ichiloto\Engine\Battle\CounterAttackRule;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\AddStateSkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDamageSkillEffect;
 use Ichiloto\Engine\Entities\Effects\SkillEffects\HPDrainSkillEffect;
@@ -42,7 +43,7 @@ final class SkillRecord
   /** The keys a record's data may hold. */
   public const array KEYS = [
     'kind', 'name', 'description', 'icon', 'cost', 'cooldown', 'occasion', 'scope', 'invocation', 'effects',
-    'animationId', 'effectType',
+    'animationId', 'effectType', 'counterAttack',
   ];
 
   /** Each kind's value, by the class it builds. */
@@ -99,16 +100,23 @@ final class SkillRecord
       'effects' => self::readEffects($data['effects'] ?? []),
       'animationId' => self::readOptionalInt($data['animationId'] ?? null, 'animationId'),
     ];
-
+    $counterAttack = CounterAttackRule::fromArray($data['counterAttack'] ?? null);
+    if ($counterAttack !== null && $class === MagicSkill::class) {
+      throw new InvalidArgumentException('counterAttack grants belong to non-magic abilities, not spells.');
+    }
     if (array_key_exists('effectType', $data)) {
       if ($class !== MagicSkill::class) {
         throw new InvalidArgumentException('effectType belongs to a spell; this skill is not one.');
       }
 
-      $arguments['effectType'] = self::readEnum(MagicEffectType::class, self::requireString($data, 'effectType'), 'effectType');
+      return new MagicSkill(...[
+        ...$arguments,
+        'effectType' => self::readEnum(MagicEffectType::class, self::requireString($data, 'effectType'), 'effectType'),
+      ]);
     }
 
-    return new $class(...$arguments);
+    if ($class === MagicSkill::class) { return new MagicSkill(...$arguments); }
+    return new $class(...[...$arguments, 'counterAttack' => $counterAttack]);
   }
 
   /**
@@ -142,6 +150,7 @@ final class SkillRecord
     if ($skill->animationId !== null) {
       $data['animationId'] = $skill->animationId;
     }
+    if ($skill->counterAttack !== null) { $data['counterAttack'] = $skill->counterAttack->toArray(); }
 
     if ($skill instanceof MagicSkill && $skill->effectType !== null) {
       $data['effectType'] = $skill->effectType->value;

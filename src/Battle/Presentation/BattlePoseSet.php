@@ -9,7 +9,10 @@ use InvalidArgumentException;
 /** Project-owned roles selected independently of actor names and filenames. */
 final readonly class BattlePoseSet
 {
-  /** @param array<string, BattlerPose> $roles BattlePoseRole values. */
+  /**
+   * @param array<string, BattlerPose> $roles BattlePoseRole values.
+   * @param ?float $displayWidth Resting/base artwork width in arena units; poses inherit its pixel scale.
+   */
   public function __construct(public array $roles, public ?float $displayWidth = null)
   {
     if ($displayWidth !== null && (!is_finite($displayWidth) || $displayWidth <= 0 || $displayWidth > 16384)) {

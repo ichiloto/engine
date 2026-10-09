@@ -96,11 +96,11 @@ it('reports a talkable NPC nobody can stand beside', function () {
   ]);
 
   expect(reachabilityProblems($map->analyze([new ReachabilityEntrance(0, 0, 'the door')])->problems))->toBe([
-    'unreachable_npc: NPC Keeper at (2, 2) can never be spoken to: no reachable cell is beside it or across a counter from it.',
+    'unreachable_npc: NPC Keeper at (2, 2) can never be spoken to: no reachable cell is beside it or directly across one counter cell from it.',
   ]);
 });
 
-it('speaks to a keeper across a counter of any depth, as the field does', function (array $rows, bool $isSpokenTo) {
+it('removes multi-cell-counter reach from map analysis while preserving one-cell reach', function (array $rows, bool $isSpokenTo) {
   // The keeper stands at (2, 0); the player arrives at (2, 4).
   $map = new MapReachability('shop', reachabilityGrid($rows), [], [], [reachabilityNpc(['name' => 'Keeper', 'x' => 2, 'y' => 0])]);
   $report = $map->analyze([new ReachabilityEntrance(2, 4, 'the door')]);
@@ -111,7 +111,9 @@ it('speaks to a keeper across a counter of any depth, as the field does', functi
     ->and($report->isReachable(2, 1))->toBeFalse();
 })->with([
   'one counter' => [['#...#', '##=##', '#...#', '#...#', '#...#'], true],
-  'three counters deep' => [['#...#', '##=##', '##=##', '##=##', '#...#'], true],
+  'two counters deep removed' => [['#...#', '##=##', '##=##', '#...#', '#...#'], false],
+  'three counters deep removed' => [['#...#', '##=##', '##=##', '##=##', '#...#'], false],
+  'floor gap behind the counter' => [['#...#', '#...#', '##=##', '#...#', '#...#'], false],
   'a wall behind the counter' => [['#...#', '##=##', '##=##', '#####', '#...#'], false],
 ]);
 
@@ -126,6 +128,63 @@ it('stops the reach at another NPC standing on the counter', function () {
       static fn(int $x, int $y): bool => in_array([$x, $y], [[1, 1], [1, 2]], true),
       static fn(int $x, int $y): bool => [$x, $y] === [1, 2] || [$x, $y] === [1, 0]))->toBe([1, 2]);
 });
+
+it('uses the same direct or one-cell counter rule for reachable standing cells in all headings', function (array $direction, int $depth) {
+  [$dx, $dy] = $direction;
+  [$x, $y] = [4, 4];
+  $grid = array_fill(0, 9, array_fill(0, 9, CollisionType::SOLID->value));
+  $grid[$y][$x] = CollisionType::NONE->value;
+  for ($distance = 1; $distance <= $depth; $distance++) {
+    $grid[$y + $dy * $distance][$x + $dx * $distance] = CollisionType::COUNTER->value;
+  }
+  [$nx, $ny] = [$x + $dx * ($depth + 1), $y + $dy * ($depth + 1)];
+  $grid[$ny][$nx] = CollisionType::NONE->value;
+  $report = new MapReachability('synthetic-counter', $grid, npcs: [reachabilityNpc(['x' => $nx, 'y' => $ny])])
+    ->analyze([new ReachabilityEntrance($x, $y, 'synthetic entrance')]);
+  expect($report->canSpeakTo($nx, $ny))->toBe($depth <= 1)
+    ->and($report->isReachable($nx, $ny))->toBeFalse()
+    ->and(array_column($report->problems, 'kind'))->toBe($depth <= 1 ? [] : [ReachabilityProblemKind::UNREACHABLE_NPC]);
+})->with(['north' => [[0, -1]], 'east' => [[1, 0]], 'south' => [[0, 1]], 'west' => [[-1, 0]]])
+  ->with(['direct' => [0], 'one counter' => [1], 'two counters removed' => [2], 'three counters removed' => [3]]);
+
+it('uses one-cell counter reach at the project authoring boundary before allowing an NPC-gated arrival', function (int $depth, bool $layered) {
+  $root = createTestDirectory('counter-authoring-');
+  $assets = $root . '/assets';
+  mkdir($assets . '/Data', 0700, true);
+  $rows = ['#.#', ...array_fill(0, $depth, '#=#'), '#.#'];
+  writeReachabilityMap($assets, 'service', $rows, array_fill(0, count($rows), '   '), [
+    'npcs' => [['name' => 'Synthetic Keeper', 'x' => 1, 'y' => 0, 'script' => [
+      ['type' => 'transfer', 'map' => 'destination', 'x' => 0, 'y' => 0],
+    ]]],
+  ]);
+  writeReachabilityMap($assets, 'destination', ['..'], ['  '], []);
+  $dictionary = ['.' => CollisionType::NONE, '#' => CollisionType::SOLID, '=' => CollisionType::COUNTER];
+  if ($layered) {
+    $directory = $assets . '/Maps/service/layers';
+    mkdir($directory);
+    $terrain = array_map(static fn(string $row): string => str_replace('=', '.', $row), $rows);
+    $fixtures = array_map(static fn(string $row): string => str_replace(['#', '.'], ' ', $row), $rows);
+    $front = array_fill(0, count($rows), '   ');
+    $front[array_key_last($front)] = ' # ';
+    foreach (['00.terrain.map.php' => $terrain, '01.fixtures.map.php' => $fixtures, '02.front.deco.php' => $front] as $file => $grid) {
+      file_put_contents($directory . '/' . $file, "<?php\nreturn <<<'GRID'\n" . implode("\n", $grid) . "\nGRID;\n");
+    }
+    // The layer owns COUNTER; a decorative overhang never adds another collision row.
+    $dictionary['='] = CollisionType::SOLID;
+    $dictionary['fixtures'] = ['=' => CollisionType::COUNTER];
+  }
+  file_put_contents($assets . '/Maps/collisions.php', '<?php return ' . var_export($dictionary, true) . ';');
+  file_put_contents($assets . '/Data/system.php', '<?php return ' . var_export([
+    'startingPositions' => ['player' => ['destinationMap' => 'service', 'spawnPoint' => ['x' => 1, 'y' => $depth + 1]]],
+  ], true) . ';');
+  $project = ProjectReachability::analyze($assets);
+  expect($project->reports['service']->canSpeakTo(1, 0))->toBe($depth <= 1)
+    ->and($project->reports['destination']->isReachable(0, 0))->toBe($depth <= 1)
+    ->and(array_column($project->reports['service']->problems, 'kind'))
+    ->toBe($depth <= 1 ? [] : [ReachabilityProblemKind::UNREACHABLE_NPC])
+    ->and(array_column($project->reports['destination']->problems, 'kind'))
+    ->toBe($depth <= 1 ? [] : [ReachabilityProblemKind::NO_ENTRANCE]);
+})->with([0, 1, 2, 3])->with(['flat source' => [false], 'fixtures layer with decorative front' => [true]]);
 
 it('reaches a transfer but never walks through it', function () {
   // The corridor's only way east is through the transfer at (2, 0).

@@ -24,7 +24,8 @@ final class LegacyAnimationTimeline
     ], forBattle: true);
   }
 
-  public static function compile(Animation $animation, int $fps = 10, bool $includeFlash = true): CompiledEffectTimeline
+  public static function compile(Animation $animation, int $fps = 10, bool $includeFlash = true,
+    ?float $secondsPerFrame = null): CompiledEffectTimeline
   {
     $segments = $cues = [];
     foreach ($animation->getFrames() as $frame) {
@@ -52,6 +53,23 @@ final class LegacyAnimationTimeline
     }
     $length = max([$animation->maxFrames, ...array_map(
       static fn(array $segment): int => $segment['endFrame'] + 1, $segments)]);
+    if ($secondsPerFrame !== null) {
+      // Import consumer-owned cadence onto the output lane, not a rounded FPS.
+      $clock = new EffectPlaybackTiming(new CompiledEffectTimeline('legacy-' . $animation->id, '',
+        fps: $fps, defaults: ['lengthFrames' => $length]), secondsPerFrame: $secondsPerFrame);
+      foreach ($segments as &$segment) {
+        $segment['startFrame'] = $clock->getFrameBoundary($segment['startFrame'], $fps);
+        $segment['endFrame'] = $clock->getFrameBoundary($segment['endFrame'] + 1, $fps) - 1;
+      }
+      unset($segment);
+      $segments = array_values(array_filter($segments,
+        static fn(array $segment): bool => $segment['startFrame'] <= $segment['endFrame']));
+      foreach ($cues as &$cue) {
+        $cue['frame'] = $clock->getFrameBoundary($cue['frame'], $fps);
+      }
+      unset($cue);
+      $length = max(1, $clock->getFrameBoundary($length, $fps));
+    }
     return new CompiledEffectTimeline('legacy-' . $animation->id, '', fps: $fps,
       playbackSegments: $segments, cueSchedule: $cues,
       defaults: ['lengthFrames' => $length, 'restFrame' => $length - 1]);

@@ -95,7 +95,7 @@ class ShopInventorySelectionMode extends ShopMenuMode
     $this->state->mainPanel->setItems($this->state->sellableItems, $this->state->traderSellRate);
     $this->state->mainPanel->activeItemIndex = 0;
     $this->updateItemsInPossession();
-    $this->state->infoPanel->setText($this->selectedItem->description);
+    $this->state->infoPanel->setText($this->selectedItem?->description ?? '');
   }
 
   /**

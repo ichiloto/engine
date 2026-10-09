@@ -4,6 +4,9 @@ namespace Ichiloto\Engine\Entities\Enemies;
 
 use Exception;
 use Ichiloto\Engine\Battle\BattleRewards;
+use Ichiloto\Engine\Battle\CounterAttackProvider;
+use Ichiloto\Engine\Battle\CounterAttackRule;
+use Ichiloto\Engine\Battle\HasCounterAttacks;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Inventory\Accessory;
@@ -21,10 +24,11 @@ use Ichiloto\Engine\Progress\Knowledge\KnowledgeIdentity;
  *
  * @package Ichiloto\Engine\Entities\Enemies
  */
-class Enemy implements CharacterInterface
+class Enemy implements CharacterInterface, CounterAttackProvider
 {
   use HasStates;
   use HasStatStages;
+  use HasCounterAttacks;
 
   public bool $isKnockedOut {
     get {
@@ -69,6 +73,7 @@ class Enemy implements CharacterInterface
     array $stateResistances = [],
     array $elementAffinities = [],
     ?string $knowledgeSubjectId = null,
+    ?CounterAttackRule $counterAttack = null,
   )
   {
     foreach ($actionPatterns as $pattern) {
@@ -78,6 +83,7 @@ class Enemy implements CharacterInterface
     }
 
     $this->setStateResistances($stateResistances);
+    $this->counterAttack = $counterAttack;
     $this->setElementAffinities($elementAffinities);
     $this->knowledgeSubjectId = $knowledgeSubjectId === null || trim($knowledgeSubjectId) === ''
       ? null
@@ -145,6 +151,7 @@ class Enemy implements CharacterInterface
       'rewards' => $this->rewards,
       'actionPatterns' => $this->actionPatterns,
       'knowledgeSubjectId' => $this->knowledgeSubjectId,
+      'counterAttack' => $this->counterAttack?->toArray(),
     ];
   }
 
@@ -193,6 +200,7 @@ class Enemy implements CharacterInterface
       if (property_exists($this, $key)) {
         $this->{$key} = match($key) {
           'stats' => is_array($value) ? Stats::fromArray($value) : $value,
+          'counterAttack' => CounterAttackRule::fromArray($value),
           default => $value
         };
       }
@@ -204,5 +212,6 @@ class Enemy implements CharacterInterface
     $this->position = clone $this->position;
     $this->stats = clone $this->stats;
     $this->rewards = clone $this->rewards;
+    $this->cloneStateInstances();
   }
 }

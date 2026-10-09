@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\UI\Presentation;
 
+use Ichiloto\Engine\Entities\Inventory\EquipmentIcon;
+use Ichiloto\Engine\IO\Console\TerminalText;
+
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
@@ -36,7 +39,7 @@ final class MenuRowPainter
     new PresentationCanvas($width, $height);
     CanvasValidation::id($id);
     $layout->viewport->assertWithin($width, $height);
-    $layout->assertFits($skin->metrics);
+    $layout->assertFits($skin->metrics, $recordBounds !== null);
     if ($recordBounds !== null) {
       $recordBounds->assertWithin($width, $height);
       if (count($rows) !== 1 || $rows[0]->kind !== MenuRowKind::RECORD) {
@@ -49,13 +52,14 @@ final class MenuRowPainter
     $view = new self($width, $height, $layer, $contentLayer ?? $layer + 5);
     $reducedMotion ??= Accessibility::prefersReducedMotion();
     $ids = [];
+    $areas = [];
     $y = $layout->viewport->y;
     foreach ($rows as $index => $row) {
       if (!$row instanceof MenuRow || isset($ids[$row->id])) {
         throw new InvalidArgumentException('Menu rows require typed records with unique stable IDs.');
       }
       $ids[$row->id] = true;
-      $rowHeight = $layout->heightFor($row, $skin->metrics, $icons?->asset($row->icon) !== null);
+      $rowHeight = $layout->heightFor($row, $skin->metrics, self::canShowIcon($row, $icons));
       if ($y + $rowHeight > $layout->viewport->y + $layout->viewport->height) { $view->overflow($row->id); }
       $bounds = new CanvasRectangle($layout->viewport->x, $y, $layout->viewport->width, $rowHeight);
       if ($recordBounds !== null && ($bounds->x < $recordBounds->x || $bounds->y < $recordBounds->y
@@ -63,10 +67,15 @@ final class MenuRowPainter
         || $bounds->y + $bounds->height > $recordBounds->y + $recordBounds->height)) {
         throw new InvalidArgumentException('Record identity must fit inside its treatment bounds.');
       }
+      if ($recordBounds !== null && $layout->rowHeight < $layout->cellHeight + $skin->metrics->separatorWidth
+        && $bounds->y + $bounds->height > $recordBounds->y + $recordBounds->height - $skin->metrics->separatorWidth) {
+        throw new InvalidArgumentException('Compact record identity must leave room for its separate treatment separator.');
+      }
       $view->row($id . '-' . $row->id, $row, $bounds, $layout, $skin, $icons, $time, $reducedMotion, $recordBounds);
+      $areas[] = $recordBounds ?? $bounds;
       $y += $rowHeight;
     }
-    return new PresentationCanvas($width, $height, $view->images, textLayers: $view->text);
+    return new PresentationCanvas($width, $height, $view->images, textLayers: $view->text, protectedAreas: $areas);
   }
 
   private function row(string $id, MenuRow $row, CanvasRectangle $bounds, MenuRowLayout $layout,
@@ -106,15 +115,28 @@ final class MenuRowPainter
 
     $bounds = $identityBounds;
     $asset = $icons?->asset($row->icon);
-    if ($asset !== null) {
+    if (self::canShowIcon($row, $icons)) {
       if ($metrics->iconHeight > $bounds->height || $metrics->iconWidth > $bounds->width - 2 * $metrics->padding) {
         throw new InvalidArgumentException('Menu icon box requires a larger row or viewport.');
       }
+    }
+    if ($asset !== null) {
       array_push($this->images, ...$icons->contain($id . '-icon', $asset,
         new CanvasRectangle($bounds->x + $metrics->padding, $bounds->y + ($bounds->height - $metrics->iconHeight) / 2,
           $metrics->iconWidth, $metrics->iconHeight), $this->contentLayer, $bounds));
     }
-    $this->renderLabel($id, $row, $bounds, $layout, $skin, $asset !== null, $icons);
+    elseif (($type = EquipmentIcon::resolveType($row->icon)) !== null) {
+      $glyph = EquipmentIcon::getTerminalGlyph($type);
+      $cells = TerminalText::displayWidth($glyph);
+      $cellWidth = max(1, min($layout->cellWidth, (int)floor($metrics->iconWidth / $cells)));
+      $cellHeight = max(1, (int)floor(min($layout->cellHeight, $metrics->iconHeight)));
+      $this->text[] = new CanvasTextLayer($id . '-icon', $this->contentLayer,
+        $bounds->x + $metrics->padding + ($metrics->iconWidth - $cells * $cellWidth) / 2,
+        $bounds->y + ($bounds->height - $cellHeight) / 2,
+        new RendererGridConfig($cells, 1, $cellWidth, $cellHeight),
+        [new PresentationTextRun(0, 0, $glyph, $colors[$row->disabled ? 'disabled' : 'text'])], $bounds);
+    }
+    $this->renderLabel($id, $row, $bounds, $layout, $skin, self::canShowIcon($row, $icons), $icons);
     if ($row->focused && $row->showCursor && $row->kind !== MenuRowKind::BUTTON
       && !$row->disabled && $icons?->cursor !== null) {
       if ($metrics->cursorHeight > $bounds->height
@@ -126,6 +148,11 @@ final class MenuRowPainter
           $bounds->y + ($bounds->height - $metrics->cursorHeight) / 2, $metrics->cursorWidth, $metrics->cursorHeight),
         $this->contentLayer + 1, $bounds));
     }
+  }
+
+  public static function canShowIcon(MenuRow $row, ?MenuIconRegistry $icons): bool
+  {
+    return $icons?->asset($row->icon) !== null || EquipmentIcon::resolveType($row->icon) !== null;
   }
 
   private function treatment(string $id, MenuRow $row, MenuRowSkin $skin, string $role, CanvasRectangle $bounds, int $layer): bool
@@ -143,7 +170,8 @@ final class MenuRowPainter
   {
     $color = $skin->colors[$row->disabled ? 'disabled' : 'text'];
     $metrics = $skin->metrics;
-    $separator = $row->kind->isAction() ? 0 : $metrics->separatorWidth;
+    // Compound records can place the separator below the identity, outside its text row.
+    $separator = $row->kind->isAction() ? 0 : min($metrics->separatorWidth, $layout->rowHeight - $layout->cellHeight);
     $y = $bounds->y + ($layout->rowHeight - $separator - $layout->cellHeight) / 2;
     $iconCells = $hasIcon ? (int)ceil($metrics->iconWidth / $layout->cellWidth) + $metrics->gapCells : 0;
     $length = mb_strlen($row->label, 'UTF-8');

@@ -5,21 +5,19 @@ namespace Ichiloto\Engine\Rendering\Runtime;
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\InputManager;
-use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueScenePresentation;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePageLayout;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
-use Ichiloto\Engine\Messaging\Notifications\Presentation\NotificationPlacement;
 use Ichiloto\Engine\IO\InputSources\InputSourceInterface;
 use Ichiloto\Engine\IO\InputSources\RendererInputSource;
-use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
-use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
-use Ichiloto\Engine\Rendering\Presentation\FrameViewportProviderInterface;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasOverlayProviderInterface;
+use Ichiloto\Engine\Rendering\Presentation\SceneFrameComposer;
 use Ichiloto\Engine\Rendering\Presentation\RendererPresentation;
 use Ichiloto\Engine\Rendering\Presentation\RetainedFrame;
 use Ichiloto\Engine\Rendering\ScreenTransitionPhase;
 use Ichiloto\Engine\Rendering\ScreenTransitionTreatment;
-use Ichiloto\Engine\Rendering\Presentation\RetainedWorldProviderInterface;
 use Ichiloto\Engine\Rendering\RendererClient;
-use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteCollector;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererEventType;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException;
 use Ichiloto\Engine\Rendering\Transport\Interfaces\RendererTransportInterface;
@@ -37,17 +35,18 @@ final class RendererRuntime
   private readonly RendererTransportInterface $transport;
   private readonly RendererClient $client;
   private readonly RendererInputSource $input;
-  private readonly GraphicalSpriteCollector $collector;
+  private readonly SceneFrameComposer $frameComposer;
   private ?InputSourceInterface $previousInput = null;
   private ?RendererPresentation $presentation = null;
   private ?RendererSessionConfig $session = null;
-  private ?DialogueScenePresentation $dialoguePresentation = null;
+  private ?NotificationManager $notificationManager = null;
   private bool $started = false;
   private bool $closed = false;
   private bool $closeRequested = false;
   private bool $resetText = true;
   private ?ScreenTransitionTreatment $handoffTreatment = null;
   private ?RetainedFrame $handoffFrame = null;
+  private ?RetainedFrame $sceneFrame = null;
   private ScreenTransitionPhase $handoffPhase = ScreenTransitionPhase::GATHER;
   private float $handoffProgress = 0;
   public private(set) bool $windowActive = true;
@@ -58,7 +57,7 @@ final class RendererRuntime
     $this->transport = $transport ?? new ProcessRendererTransport($config->process);
     $this->client = new RendererClient($this->transport);
     $this->input = new RendererInputSource($this->client);
-    $this->collector = new GraphicalSpriteCollector();
+    $this->frameComposer = new SceneFrameComposer($config->assetRoot);
   }
 
   /** @param string|null $icon The game's application icon, relative to the asset root. */
@@ -152,88 +151,34 @@ final class RendererRuntime
 
   public function present(?SceneInterface $scene, ?NotificationManager $notifications = null): bool
   {
+    if ($notifications !== null) { $this->setNotificationManager($notifications); }
+    $notifications ??= $this->notificationManager;
     $started = LatencyTrace::getTimeNow();
     LatencyTrace::record('presentation.begin', ['scene' => $scene === null ? null : $scene::class]);
     $this->pump();
     if ($this->presentation === null || $this->closed) {
       throw new LogicException('Renderer presentation requires an active session.');
     }
+    if ($scene instanceof CanvasOverlayProviderInterface && $this->supports(RendererSessionConfig::CANVAS_OVERLAY)) {
+      $scene->renderPresentationOverlay();
+    }
     if ($this->handoffTreatment !== null && $this->handoffFrame !== null) {
-      $changed = $this->presentHandoffFrame();
+      $changed = $this->presentHandoffFrame($notifications);
       if ($changed) { $this->pump(); }
       LatencyTrace::end('presentation.end', $started, ['changed' => $changed]);
       return $changed;
     }
-    $canvas = $scene instanceof CanvasProviderInterface ? $scene->getPresentationCanvas() : null;
-    $dialogue = $scene === null ? null : ($this->dialoguePresentation ??= new DialogueScenePresentation($this->config->assetRoot))
-      ->compose($scene, $canvas, $this->grid->columns * $this->grid->cellWidth, $this->grid->rows * $this->grid->cellHeight,
-        $this->supports(RendererSessionConfig::CANVAS_OVERLAY) && $this->supports(RendererSessionConfig::GRAPHICAL_CANVAS)
-          && $this->supports(RendererSessionConfig::CANVAS_CLIP_OPACITY) && $this->supports(RendererSessionConfig::SPRITE_SOURCE_RECT),
-        $this->supports(RendererSessionConfig::GRAPHICAL_CANVAS) && $this->supports(RendererSessionConfig::CANVAS_CLIP_OPACITY)
-          && $this->supports(RendererSessionConfig::SPRITE_SOURCE_RECT),
-        $this->supports(RendererSessionConfig::CANVAS_IMAGE_TONE));
-    $canvas = $dialogue !== null ? $dialogue->canvas : $canvas;
-    if ($canvas !== null && !($dialogue?->isOverlay ?? false)) {
-      if ($notifications !== null) {
-        $protected = NotificationPlacement::getProtectedAreas($canvas, null, [], $this->grid);
-        $canvas = $notifications->composePresentation($canvas, $canvas->width, $canvas->height, $protected);
-      }
-    }
-    if ($canvas !== null && !($dialogue?->isOverlay ?? false)) {
-      if ($this->handoffTreatment !== null) {
-        $this->handoffFrame = $this->presentation->prepareCanvas($canvas);
-        $changed = $this->presentHandoffFrame();
-      } else { $changed = $this->presentation->presentCanvas($canvas); }
-      $this->resetText = true;
-      if ($changed) { $this->pump(); }
-      LatencyTrace::end('presentation.end', $started, ['changed' => $changed]);
-      return $changed;
-    }
-    $collection = LatencyTrace::getTimeNow();
-    $sprites = $this->collector->collect($scene);
-    // Steps are committed either way; a renderer without field_motion places sprites by whole cells.
-    $slides = $this->client->supports(RendererSessionConfig::FIELD_MOTION);
-    if (!$slides) {
-      $sprites = array_map(static fn($sprite) => $sprite->withoutMotion(), $sprites);
-    }
-    LatencyTrace::end('presentation.sprites', $collection, ['count' => count($sprites)]);
-    if (LatencyTrace::enabled()) {
-      LatencyTrace::record('presentation.sprite.positions', ['sprites' => array_map(
-        static fn($sprite) => ['id' => $sprite->id, 'x' => $sprite->x, 'y' => $sprite->y,
-          'sourceRect' => $sprite->sourceRect?->toArray()], $sprites)]);
-    }
-    PresentationLayerPolicy::assertWorldSprites($sprites);
-    // Off-grid providers still reach GPUI for clipping, but do not mask terminal edge cells.
-    $visible = array_filter($sprites, static fn($sprite) => $sprite->x >= 0 && $sprite->x < Console::getWidth()
-      && $sprite->y >= 0 && $sprite->y < Console::getHeight());
-    $excluded = array_map(static fn($sprite) => $sprite->id, $visible);
-    if ($dialogue !== null) { array_push($excluded, ...$dialogue->excludedLayers); }
-    if ($notifications !== null) { array_push($excluded, ...$notifications->getExcludedPresentationLayers()); }
-    $world = $scene instanceof RetainedWorldProviderInterface ? $scene->getPresentationWorld() : null;
-    $snapshotStart = LatencyTrace::getTimeNow();
-    $snapshot = Console::getRetainedPresentationChanges($excluded, $this->resetText, $world?->textLayerIds ?? []);
-    LatencyTrace::end('presentation.snapshot', $snapshotStart);
-    $viewport = $scene instanceof FrameViewportProviderInterface
-      ? $scene->getPresentationViewport($snapshot, $sprites, []) : null;
-    if (!$slides) {
-      $viewport = $viewport?->withoutFollow();
-    }
-    $overlay = $dialogue?->isOverlay ? $dialogue->canvas : null;
-    if ($notifications !== null) {
-      $protected = $notifications->hasGraphicalPresentation()
-        ? NotificationPlacement::getProtectedAreas($overlay, Console::presentationSnapshot($excluded), $sprites, $this->grid, $viewport)
-        : [];
-      $overlay = $notifications->composePresentation($overlay,
-        $this->grid->columns * $this->grid->cellWidth, $this->grid->rows * $this->grid->cellHeight, $protected);
-    }
-    $this->resetText = false;
     try {
+      $composition = $this->frameComposer->composeFrame($scene, $this->grid, $this->supports(...),
+        fn(array $excluded, array $worldLayers) => Console::getRetainedPresentationChanges($excluded, $this->resetText, $worldLayers),
+        $notifications, refreshOverlay: false);
+      $this->resetText = $composition->snapshot === null;
+      $this->sceneFrame = $composition->prepareFrame($this->presentation);
       if ($this->handoffTreatment !== null) {
-        $this->handoffFrame = $this->presentation->prepareFrame($snapshot, $sprites, $viewport, $world, $overlay);
-        $changed = $this->presentHandoffFrame();
+        $this->handoffFrame = $this->sceneFrame;
+        $changed = $this->presentHandoffFrame($notifications);
       } else {
-        $changed = $this->presentation->present($snapshot, $sprites, viewport: $viewport, world: $world,
-          canvasOverlay: $overlay);
+        $changed = $this->presentation->presentFrame($this->sceneFrame, $composition->screenOverlay);
       }
     } catch (Throwable $error) {
       $this->resetText = true;
@@ -258,7 +203,7 @@ final class RendererRuntime
       RendererSessionConfig::CANVAS_OVERLAY] as $capability) {
       if (!$this->supports($capability)) { throw new LogicException('A screen handoff requires ' . $capability); }
     }
-    $this->handoffFrame = $this->presentation->captureFrame();
+    $this->handoffFrame = $this->sceneFrame ?? $this->presentation->captureFrame();
     $this->handoffTreatment = $treatment;
     $this->handoffPhase = ScreenTransitionPhase::GATHER;
     $this->handoffProgress = 0;
@@ -288,13 +233,25 @@ final class RendererRuntime
     $this->resetText = true;
   }
 
-  private function presentHandoffFrame(): bool
+  private function presentHandoffFrame(?NotificationManager $notifications): bool
   {
     $frame = $this->handoffFrame ?? throw new LogicException('The handoff composition is not prepared.');
     $width = $frame->canvas?->width ?? $this->grid->columns * $this->grid->cellWidth;
     $height = $frame->canvas?->height ?? $this->grid->rows * $this->grid->cellHeight;
-    return $this->presentation->presentFrame($frame,
-      $this->handoffTreatment->compose($this->handoffPhase, $this->handoffProgress, $width, $height));
+    // Capture only the scene. Notices remain live above the cover throughout the handoff.
+    $cover = $this->handoffTreatment->compose($this->handoffPhase, $this->handoffProgress, $width, $height);
+    $overlay = $notifications?->composePresentation($cover, $width, $height) ?? $cover;
+    return $this->presentation->presentFrame($frame, $overlay);
+  }
+
+  /** Negotiate pages before typing begins; the renderer never advances dialogue. */
+  public function getDialoguePageLayout(string $speaker, DialogueContext $context, string $help): ?DialoguePageLayout
+  {
+    if ($this->grid === null || !$this->supports(RendererSessionConfig::GRAPHICAL_CANVAS)) { return null; }
+    // Pages must fit both the field viewport and the standard opaque menu canvas.
+    $width = min($this->grid->columns * $this->grid->cellWidth,
+      PresentationCanvas::DEFAULT_WIDTH);
+    return $this->frameComposer->getDialoguePageLayout($speaker, $context, $help, $width);
   }
 
   public function shutdown(): ?int
@@ -318,6 +275,12 @@ final class RendererRuntime
   }
 
   public function getAssetRoot(): string { return $this->config->assetRoot; }
+
+  /** Attach the game-owned queue once; scene and transition callers need not forward it. */
+  public function setNotificationManager(NotificationManager $notifications): void
+  {
+    $this->notificationManager = $notifications;
+  }
 
   public function supports(string $capability): bool { return $this->client->supports($capability); }
 }

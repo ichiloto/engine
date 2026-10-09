@@ -9,7 +9,7 @@ use Ichiloto\Engine\Entities\Interfaces\ActionContextInterface;
 use Ichiloto\Engine\Events\Enumerations\LootType;
 use Ichiloto\Engine\Events\Triggers\ChestEventTrigger;
 use Ichiloto\Engine\Util\Config\ConfigStore;
-use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 use RuntimeException;
 
@@ -60,7 +60,7 @@ class ChestOpeningAction extends FieldAction
     switch ($this->trigger->lootType) {
       case LootType::GOLD:
         $amount = is_numeric($this->trigger->loot) ? (int) $this->trigger->loot : $this->trigger->quantity;
-        $symbol = config(ProjectConfig::class, 'vocab.currency.symbol', 'G');
+        $symbol = Vocabulary::getTerm('currency.symbol', 'G');
         $message = get_message('obtained_gold', '%1 %2 found!', $amount, $symbol);
         $context->party->transact($amount);
         break;

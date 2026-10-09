@@ -15,10 +15,12 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\UI\Modal\ModalManager;
+use Ichiloto\Engine\UI\Modal\PagedAlertModal;
 
-it('refuses a layered destination through the real field transfer and draws a recoverable notification', function (string $failure) {
+it('refuses a layered destination and routes the detailed recovery report to an alert instead of a toast', function (string $failure) {
     $saved = [];
-    foreach ([Console::class, NotificationManager::class, EventManager::class, Time::class, ConfigStore::class, AudioManager::class] as $class) {
+    foreach ([Console::class, NotificationManager::class, EventManager::class, Time::class, ConfigStore::class, AudioManager::class, ModalManager::class] as $class) {
         $saved[$class] = new ReflectionClass($class)->getStaticProperties();
     }
     $root = sys_get_temp_dir() . '/ichiloto-layer-transfer-' . bin2hex(random_bytes(8));
@@ -32,7 +34,7 @@ it('refuses a layered destination through the real field transfer and draws a re
     file_put_contents($overlay, $failure === 'source'
         ? "<?php\nreturn str_repeat(' ', 2);" : MapGridSource::buildSource('x', 'MAP'));
     try {
-        foreach ([NotificationManager::class, EventManager::class] as $class) {
+        foreach ([NotificationManager::class, EventManager::class, ModalManager::class] as $class) {
             new ReflectionProperty($class, 'instance')->setValue(null, null);
         }
         foreach ((new ReflectionClass(AudioManager::class))->getProperties(ReflectionProperty::IS_STATIC) as $property) {
@@ -64,9 +66,15 @@ it('refuses a layered destination through the real field transfer and draws a re
         new ReflectionProperty(MapManager::class, 'gameScene')->setValue($manager, $scene);
         expect($scene->transferPlayer(new Location('destination', new Vector2(0, 0), null), false))->toBeFalse();
         NotificationManager::getInstance($game)->render();
-        $visible = implode("\n", Console::snapshot()->rows);
-        expect($visible)->toContain('Map transfer unavailable', 'destination')
+        $modals = ModalManager::getInstance($game);
+        $pending = new ReflectionProperty($modals, 'pendingAlerts')->getValue($modals);
+        expect($pending)->toHaveCount(1)->and($pending[0]['title'])->toBe('Map transfer unavailable');
+        $alert = new PagedAlertModal($game, $pending[0]['message'], $pending[0]['title']);
+        $pages = new ReflectionProperty($alert, 'pages')->getValue($alert);
+        $visible = implode("\n", $pages);
+        expect($visible)->toContain('destination')
             ->not->toContain($root)
+            ->and(implode("\n", Console::snapshot()->rows))->not->toContain('Map transfer unavailable')
             ->and($camera->worldSpace)->toBe([['o', 'l', 'd']])
             ->and($scene->currentMapId)->toBe('original');
     } finally {

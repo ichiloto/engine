@@ -1,21 +1,50 @@
 <?php
 
+use Ichiloto\Engine\Core\Enumerations\MovementHeading;
+use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Core\GameState;
+use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
+use Ichiloto\Engine\Events\Enumerations\CollisionType;
+use Ichiloto\Engine\Events\EventManager;
+use Ichiloto\Engine\Events\Interfaces\EventInterface;
+use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
+use Ichiloto\Engine\Events\Interpreter\EventExecutionSession;
+use Ichiloto\Engine\Events\Interpreter\EventExecutionStatus;
+use Ichiloto\Engine\Events\Interpreter\EventInterpreter;
+use Ichiloto\Engine\Events\Interpreter\EventPresentationInterface;
+use Ichiloto\Engine\Events\MovementEvent;
+use Ichiloto\Engine\Field\EncounterManager;
+use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Field\Player;
 use Ichiloto\Engine\Field\PlayerWalk;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\IO\KeyTransition;
+use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Rendering\FieldMetric;
+use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
+use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
+use Ichiloto\Engine\Rendering\Transport\RendererEvent;
+use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
+use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Game\States\FieldState;
+use Ichiloto\Engine\Scenes\Game\States\GameSceneState;
 use Ichiloto\Engine\Scenes\SceneStateContext;
+use Ichiloto\Engine\Scenes\SceneManager;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Tests\Support\Input\FakeHeldInputSource;
 use Tests\Support\Input\FakeInputSource;
+use Tests\Support\Input\FakeRendererTransport;
 
 require_once __DIR__ . '/../Support/Input/FakeHeldInputSource.php';
 require_once __DIR__ . '/../Support/Input/FakeInputSource.php';
+require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
 
 /** The field metric's step: one 48-pixel cell, across or down, at RPG Maker's 180 field pixels per second. */
 const WALK_STEP = 16 / 60;
@@ -163,6 +192,80 @@ it('keeps quick taps without letting them outrun walking', function () {
     ->and($this->driver->getFrames())->toBe([0, 16, 32, 48]);
 });
 
+it('discards a queued walking tap and its clock at an input reset boundary', function (string $boundary) {
+  $this->source->press('down', KeyCode::DOWN);
+  $this->driver->frame();
+  $this->source->release('down')->press('right', KeyCode::RIGHT)->release('right');
+  $this->driver->frame();
+  expect($this->driver->getDirections())->toBe(['down']);
+
+  match ($boundary) {
+    'focus reset' => $this->source->transitions[] = KeyTransition::reset(),
+    'manager reset' => InputManager::resetState(),
+    'draining reset' => InputManager::resetState(true),
+    'source replacement' => InputManager::setInputSource(new FakeHeldInputSource()),
+  };
+  $this->driver->run(1.0);
+  expect($this->driver->getDirections())->toBe(['down']);
+
+  InputManager::getInputSource()->press('left', KeyCode::LEFT);
+  $this->driver->frame();
+  expect($this->driver->getDirections())->toBe(['down', 'left']);
+})->with(['focus reset', 'manager reset', 'draining reset', 'source replacement']);
+
+it('accepts a fresh press after a reset in the same update without reviving an earlier tap', function () {
+  $this->source->press('down', KeyCode::DOWN);
+  $this->driver->frame();
+  $this->source->release('down')->press('right', KeyCode::RIGHT)->release('right');
+  $this->driver->frame();
+
+  $this->source->transitions[] = KeyTransition::reset();
+  $this->source->press('left', KeyCode::LEFT);
+  $this->driver->frame();
+  expect($this->driver->getDirections())->toBe(['down', 'left'])
+    ->and($this->driver->getFrames())->toBe([0, 2]);
+  $this->source->release('left');
+  $this->driver->run(1.0);
+  expect($this->driver->getDirections())->toBe(['down', 'left']);
+});
+
+it('discards held directions and a queued tap on renderer restart and walks only from new-session presses', function () {
+  $consoleState = new ReflectionClass(Console::class)->getStaticProperties();
+  $transport = new FakeRendererTransport();
+  $transport->onStart = static function (FakeRendererTransport $peer): void {
+    $peer->batches = [[RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["key_transitions"]}')]];
+  };
+  $runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), sys_get_temp_dir(),
+    requiredCapabilities: [RendererSessionConfig::KEY_TRANSITIONS]), $transport);
+  $frame = function (array $events) use ($transport, $runtime): void {
+    $transport->batches[] = array_map(RendererEvent::fromJson(...), $events);
+    $runtime->pump();
+    $this->driver->frame();
+  };
+  try {
+    $runtime->start('Walking lifecycle fixture', 12, 4);
+    $frame(['{"protocol":2,"type":"key","key":"down","control":"down","repeat":false}']);
+    $frame(['{"protocol":2,"type":"key","key":"right","control":"right","repeat":false}',
+      '{"protocol":2,"type":"key_release","control":"right"}']);
+    expect($this->driver->getDirections())->toBe(['down']);
+
+    $runtime->restart();
+    $this->driver->run(1.0);
+    expect($this->driver->getDirections())->toBe(['down'])
+      ->and(InputManager::isButtonHeld('down'))->toBeFalse()
+      ->and(InputManager::isButtonHeld('right'))->toBeFalse();
+    $frame(['{"protocol":2,"type":"key","key":"left","control":"left","repeat":false}']);
+    expect($this->driver->getDirections())->toBe(['down', 'left']);
+    $runtime->shutdown();
+    $this->driver->run(1.0);
+    expect($this->driver->getDirections())->toBe(['down', 'left'])
+      ->and(InputManager::isButtonHeld('left'))->toBeFalse();
+  } finally {
+    $runtime->shutdown();
+    foreach ($consoleState as $name => $value) { new ReflectionProperty(Console::class, $name)->setValue(null, $value); }
+  }
+});
+
 it('walks equal distances in equal time at any update rate within one step', function (float|array $frames) {
   foreach (['right' => [KeyCode::RIGHT, WALK_STEP], 'down' => [KeyCode::DOWN, WALK_STEP]] as $control => [$key, $step]) {
     $source = new FakeHeldInputSource();
@@ -269,7 +372,239 @@ final class WalkingFieldScene extends GameScene
 final class WalkingFieldState extends FieldState
 {
   public function navigate(GameScene $scene): void { $this->handleNavigation($scene); }
+  // These tests exercise state ownership and movement, not HUD or screen setup.
+  public function enter(): void {}
+  public function exit(): void {}
 }
+
+it('invalidates every held direction and pending tap across immediate menu entry and return', function () {
+  $scene = new WalkingFieldScene();
+  $context = new SceneStateContext($scene);
+  $field = new WalkingFieldState($context);
+  new ReflectionProperty(GameScene::class, 'fieldState')->setValue($scene, $field);
+  $menu = new class($context) extends GameSceneState {
+    public function execute(?SceneStateContext $context = null): void {}
+  };
+  $delta = new ReflectionProperty(Time::class, 'deltaTime');
+  $previousDelta = $delta->getValue();
+  try {
+    $delta->setValue(null, 1 / 60);
+    $this->source->press('down', KeyCode::DOWN)->press('s', KeyCode::s);
+    InputManager::handleInput();
+    $field->navigate($scene);
+    $this->source->press('right', KeyCode::RIGHT)->release('right');
+    InputManager::handleInput();
+    $field->navigate($scene);
+
+    // No input-update gap separates the state change from its return.
+    $scene->setState($menu);
+    $this->source->press('up', KeyCode::UP);
+    InputManager::handleInput();
+    $scene->setState($field);
+    $field->navigate($scene);
+    foreach (range(1, 60) as $_) { InputManager::handleInput(); $field->navigate($scene); }
+    expect($scene->player->moves)->toBe([[0, 1, WALK_STEP]]);
+
+    // Releasing the newest stale key must not revive either older Down binding.
+    $this->source->release('up');
+    foreach (range(1, 20) as $_) { InputManager::handleInput(); $field->navigate($scene); }
+    expect($scene->player->moves)->toHaveCount(1);
+    $this->source->release('s')->press('s', KeyCode::s);
+    InputManager::handleInput();
+    $field->navigate($scene);
+    expect($scene->player->moves)->toBe([[0, 1, WALK_STEP], [0, 1, WALK_STEP]]);
+  } finally {
+    $delta->setValue(null, $previousDelta);
+  }
+});
+
+it('does not resume pre-context or during-context walking presses after a yielded dialogue or cinematic', function (string $contextKind) {
+  $scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()
+    ->onlyMethods(['reconcileFieldPresentation', 'onEventSessionFinished'])->getMock();
+  $scene->expects($this->once())->method('onEventSessionFinished')->with($this->isInstanceOf(EventExecutionSession::class), true);
+  $manager = $this->getMockBuilder(SceneManager::class)->disableOriginalConstructor()->onlyMethods(['hasSceneTransition'])->getMock();
+  $manager->method('hasSceneTransition')->willReturn(false);
+  new ReflectionProperty(SceneManager::class, 'currentScene')->setValue($manager, $scene);
+  new ReflectionProperty(GameScene::class, 'sceneManager')->setValue($scene, $manager);
+  new ReflectionProperty(GameScene::class, 'gameState')->setValue($scene, new GameState());
+  new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, new class extends Camera { public function __construct() {} });
+  $player = $this->getMockBuilder(Player::class)->disableOriginalConstructor()->onlyMethods(['tryMove', 'refreshTalkTarget'])->getMock();
+  new ReflectionProperty(Player::class, 'position')->setValue($player, new Vector2(1, 1));
+  $moves = [];
+  $player->method('tryMove')->willReturnCallback(static function (Vector2 $direction, Camera $camera) use (&$moves): bool {
+    $moves[] = [(int)$direction->x, (int)$direction->y];
+    return true;
+  });
+  new ReflectionProperty(GameScene::class, 'player')->setValue($scene, $player);
+  $field = $this->getMockBuilder(FieldState::class)->setConstructorArgs([new SceneStateContext($scene)])
+    ->onlyMethods(['renderPresentationOverlay'])->getMock();
+  new ReflectionProperty(GameScene::class, 'state')->setValue($scene, $field);
+  new ReflectionProperty(GameScene::class, 'fieldState')->setValue($scene, $field);
+  $dialogueComplete = false;
+  $presentation = $this->createMock(EventPresentationInterface::class);
+  // The mutable completion flag models the dialogue finishing on a later field tick.
+  $presentation->method('isComplete')->willReturnCallback(static function () use (&$dialogueComplete): bool { return $dialogueComplete; });
+  $interpreter = new EventInterpreter($scene, $presentation);
+  new ReflectionProperty(GameScene::class, 'eventInterpreter')->setValue($scene, $interpreter);
+  $frame = static function (int $count = 1) use ($field): void {
+    foreach (range(1, $count) as $_) { InputManager::handleInput(); $field->execute(); }
+  };
+  $delta = new ReflectionProperty(Time::class, 'deltaTime');
+  $previousDelta = $delta->getValue();
+  try {
+    $delta->setValue(null, 1 / 60);
+    $this->source->press('down', KeyCode::DOWN);
+    $frame();
+    $this->source->press('right', KeyCode::RIGHT)->release('right');
+    $frame();
+    expect($moves)->toBe([[0, 1]]);
+
+    $session = $contextKind === 'dialogue'
+      ? $interpreter->run([['type' => 'text', 'text' => 'Synthetic dialogue.']])
+      : $interpreter->runCinematic(CinematicDefinition::fromArrays(
+        ['id' => 'walking-lifecycle', 'name' => 'Synthetic walking lifecycle'],
+        [['type' => 'wait', 'seconds' => 0.1]],
+      ));
+    expect($session->status)->toBe(EventExecutionStatus::YIELDED)
+      ->and($scene->hasUnstableEventSession())->toBeTrue();
+    $this->source->press('up', KeyCode::UP);
+    $frame(3);
+    expect($moves)->toBe([[0, 1]])->and($scene->hasUnstableEventSession())->toBeTrue();
+    $dialogueComplete = true;
+    $frame(60);
+    expect($session->status)->toBe(EventExecutionStatus::COMPLETED)
+      ->and($scene->hasUnstableEventSession())->toBeFalse()->and($moves)->toBe([[0, 1]]);
+
+    $this->source->release('up');
+    $frame(20);
+    expect($moves)->toBe([[0, 1]]);
+    $this->source->release('down')->press('down', KeyCode::DOWN);
+    $frame();
+    expect($moves)->toBe([[0, 1], [0, 1]]);
+  } finally {
+    $delta->setValue(null, $previousDelta);
+  }
+})->with(['dialogue', 'cinematic']);
+
+it('keeps held walking cardinal at a blocked corner and applies effects once per committed cell', function (CollisionType $obstacle) {
+  $configState = new ReflectionProperty(ConfigStore::class, 'store')->getValue();
+  $eventState = new ReflectionProperty(EventManager::class, 'instance')->getValue();
+  $delta = new ReflectionProperty(Time::class, 'deltaTime');
+  $previousDelta = $delta->getValue();
+  ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub());
+  new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
+  try {
+    $game = new class extends Game {
+      public function __construct() {}
+      public function __destruct() {}
+    };
+    $scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()->onlyMethods(['getGame'])->getMock();
+    $scene->method('getGame')->willReturn($game);
+    $camera = new class extends Camera { public function __construct() {} };
+    new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
+    $map = $this->getMockBuilder(MapManager::class)->disableOriginalConstructor()->onlyMethods(['scrollMap'])->getMock();
+    $map->method('scrollMap')->willReturn(false);
+    new ReflectionProperty(MapManager::class, 'gameScene')->setValue($map, $scene);
+    $collision = array_fill(0, 4, array_fill(0, 4, CollisionType::NONE->value));
+    $collision[1][2] = $collision[2][1] = $obstacle->value;
+    new ReflectionProperty(MapManager::class, 'collisionMap')->setValue($map, $collision);
+    new ReflectionProperty(GameScene::class, 'mapManager')->setValue($scene, $map);
+    $player = new class($scene) extends Player {
+      public array $triggerSteps = [];
+      public function __construct(GameScene $scene) {
+        parent::__construct($scene, 'Synthetic walker', new Vector2(1, 1), new Rect(0, 0, 1, 1), ['@']);
+      }
+      public function render(): void {}
+      public function renderEventCues(): void {}
+      public function erasePlayer(Camera $camera, ?array $sprite = null): void {}
+      protected function renderLocationHUDWindow(): void {}
+      protected function handleTriggers(MovementEvent $event): void {
+        $this->triggerSteps[] = [$event->destination->x, $event->destination->y];
+        parent::handleTriggers($event);
+      }
+    };
+    new ReflectionProperty(GameScene::class, 'player')->setValue($scene, $player);
+    $encounters = new class($scene) extends EncounterManager {
+      public array $steps = [];
+      public function registerStep(?CollisionType $tile): void { $this->steps[] = $tile; }
+    };
+    new ReflectionProperty(GameScene::class, 'encounterManager')->setValue($scene, $encounters);
+    $observer = new class implements ObserverInterface {
+      public array $steps = [];
+      public function onNotify(object $entity, EventInterface $event): void {
+        $this->steps[] = [$event->origin->x, $event->origin->y, $event->destination->x, $event->destination->y];
+      }
+    };
+    $player->addObserver($observer);
+    $field = new WalkingFieldState(new SceneStateContext($scene));
+    $frame = static function (int $count = 1) use ($field, $scene): void {
+      foreach (range(1, $count) as $_) { InputManager::handleInput(); $field->navigate($scene); }
+    };
+    $delta->setValue(null, 1 / 60);
+
+    // The diagonal destination is open, but both cardinal neighbours block.
+    $this->source->press('down', KeyCode::DOWN)->press('right', KeyCode::RIGHT);
+    $frame(20);
+    expect([$player->position->x, $player->position->y])->toBe([1.0, 1.0])
+      ->and($player->heading)->toBe(MovementHeading::EAST)
+      ->and($player->triggerSteps)->toBe([])->and($encounters->steps)->toBe([])->and($observer->steps)->toBe([]);
+    $this->source->release('right');
+    $frame(20);
+    expect([$player->position->x, $player->position->y])->toBe([1.0, 1.0])
+      ->and($player->heading)->toBe(MovementHeading::SOUTH)
+      ->and($player->triggerSteps)->toBe([])->and($encounters->steps)->toBe([])->and($observer->steps)->toBe([]);
+
+    $this->source->press('left', KeyCode::LEFT);
+    $frame();
+    $this->source->release('left');
+    $frame(16);
+    $this->source->release('down');
+    $frame(32);
+    $player->completeArrival();
+    $player->completeArrival();
+    expect([$player->position->x, $player->position->y])->toBe([0.0, 2.0])
+      ->and($player->triggerSteps)->toBe([[0.0, 1.0], [0.0, 2.0]])
+      ->and($encounters->steps)->toBe([CollisionType::NONE, CollisionType::NONE])
+      ->and($observer->steps)->toBe([[1.0, 1.0, 0.0, 1.0], [0.0, 1.0, 0.0, 2.0]]);
+  } finally {
+    $delta->setValue(null, $previousDelta);
+    new ReflectionProperty(ConfigStore::class, 'store')->setValue(null, $configState);
+    new ReflectionProperty(EventManager::class, 'instance')->setValue(null, $eventState);
+  }
+})->with(['wall' => [CollisionType::SOLID], 'NPC occupancy' => [CollisionType::NPC], 'counter' => [CollisionType::COUNTER]]);
+
+it('cancels held walking when a scripted event takes control even without missing a field update', function () {
+  $scene = new WalkingFieldScene();
+  $state = new WalkingFieldState(new SceneStateContext($scene));
+  new ReflectionProperty(GameScene::class, 'fieldState')->setValue($scene, $state);
+  $delta = new ReflectionProperty(Time::class, 'deltaTime');
+  $previousDelta = $delta->getValue();
+  try {
+    $delta->setValue(null, 1 / 60);
+    $this->source->press('down', KeyCode::DOWN);
+    InputManager::handleInput();
+    $state->navigate($scene);
+    expect($scene->player->moves)->toHaveCount(1);
+
+    // An immediate event can finish before the next input update. Input-update
+    // gaps therefore cannot stand in for the event's ownership boundary.
+    $session = new EventExecutionSession([]);
+    $scene->onEventSessionStarted($session);
+    $session->complete();
+    foreach (range(1, 60) as $_) { InputManager::handleInput(); $state->navigate($scene); }
+    expect($scene->player->moves)->toHaveCount(1);
+
+    $this->source->release('down');
+    InputManager::handleInput();
+    $state->navigate($scene);
+    $this->source->press('down', KeyCode::DOWN);
+    InputManager::handleInput();
+    $state->navigate($scene);
+    expect($scene->player->moves)->toHaveCount(2);
+  } finally {
+    $delta->setValue(null, $previousDelta);
+  }
+});
 
 it('walks the field through the ordinary validated move with held input and steps per key event without it', function () {
   $scene = new WalkingFieldScene();

@@ -56,6 +56,18 @@ it('adds and removes cells and cues through the runtime model', function () {
     ->and($animation->getCue(1))->toBeNull();
 });
 
+it('does not manufacture a legacy delay for timeline-only animation bindings', function () {
+  $binding = Animation::fromArray(['id' => 1, 'name' => 'Effect binding', 'targetEffect' => 'target']);
+  expect($binding->hasLegacyPresentation)->toBeFalse();
+  $binding->setCell(1, 0, 0, '*');
+  expect($binding->hasLegacyPresentation)->toBeTrue();
+  $binding->setCell(1, 0, 0, ' ');
+  expect($binding->hasLegacyPresentation)->toBeFalse();
+  $binding->setCue(1, new AnimationCue(soundEffect: 'Cue'));
+  expect($binding->hasLegacyPresentation)->toBeTrue()
+    ->and(new Animation(2, 'Authored blank holds', maxFrames: 2)->hasLegacyPresentation)->toBeTrue();
+});
+
 it('advances reusable animations non-blockingly across every elapsed frame', function () {
   $animation = new Animation(2, 'Non-blocking Animation', maxFrames: 4);
   $session = new AnimationPlaybackSession($animation, 0.1);
@@ -248,13 +260,14 @@ it('replaces scene-owned animation assets between battles even when the action s
     $state = (new ReflectionClass(ActionExecutionState::class))->newInstanceWithoutConstructor();
     $resolve = new ReflectionMethod(ActionExecutionState::class, 'resolveActionAnimation');
     $action = new SkillBattleAction(new SpecialSkill('Strike', '', '', 0, 0, animationId: 7));
+    $actor = new \Ichiloto\Engine\Entities\Character('Actor', 1, new \Ichiloto\Engine\Entities\Stats());
     BattleCommandCatalog::beginBattle();
-    expect($resolve->invoke($state, $action)?->name)->toBe('Before');
+    expect($resolve->invoke($state, $action, $actor)?->name)->toBe('Before');
     file_put_contents($path, "<?php return [['id' => 7, 'name' => 'After']];");
-    expect($resolve->invoke($state, $action)?->name)->toBe('Before');
+    expect($resolve->invoke($state, $action, $actor)?->name)->toBe('Before');
     BattleCommandCatalog::endBattle();
     BattleCommandCatalog::beginBattle();
-    expect($resolve->invoke($state, $action)?->name)->toBe('After');
+    expect($resolve->invoke($state, $action, $actor)?->name)->toBe('After');
   } finally {
     BattleCommandCatalog::endBattle();
     chdir($previous);

@@ -8,6 +8,7 @@ use Ichiloto\Engine\Events\Interpreter\EventPendingOperationInterface;
 final class TimedPresentationOperation implements EventPendingOperationInterface
 {
   protected float $remaining;
+  private readonly ?CinematicTextPresentation $overlay;
 
   public function __construct(
     protected CinematicPresentationManager $presentation,
@@ -15,14 +16,17 @@ final class TimedPresentationOperation implements EventPendingOperationInterface
   )
   {
     $this->remaining = max(0.0, $seconds);
+    $this->overlay = $presentation->overlayPresentation;
+    $this->overlay?->setDuration($this->remaining);
   }
 
   public function update(float $deltaSeconds): bool
   {
     $this->remaining = max(0.0, $this->remaining - max(0.0, $deltaSeconds));
+    $this->overlay?->advance($deltaSeconds);
 
     if ($this->remaining <= 0.0) {
-      $this->presentation->clearOverlay();
+      if ($this->overlay !== null) { $this->presentation->clearOverlay($this->overlay); }
       return true;
     }
 
@@ -32,6 +36,6 @@ final class TimedPresentationOperation implements EventPendingOperationInterface
   public function cancel(): void
   {
     $this->remaining = 0.0;
-    $this->presentation->clearOverlay();
+    if ($this->overlay !== null) { $this->presentation->clearOverlay($this->overlay); }
   }
 }

@@ -53,8 +53,8 @@ final class MovementRouteRunner implements EventPendingOperationInterface
     $this->mapId = $gameScene->currentMapId;
     $this->generation = $gameScene->cinematicStage?->generation ?? 0;
     if (isset($command['remember']) || isset($command['retrace'])) {
-      if ($session?->cinematic === null || $this->routeSubject instanceof StagedActor) {
-        throw new MovementRouteException('Recorded routes require a real subject in an active cinematic session.');
+      if ($session === null || $this->routeSubject instanceof StagedActor) {
+        throw new MovementRouteException('Recorded routes require a real subject in an event execution session.');
       }
       if (isset($command['retrace'])) {
         $this->returnRecord = $session->movementRoute($command['retrace']);
