@@ -12,6 +12,7 @@ use Ichiloto\Engine\Events\Triggers\EventTriggerFactory;
 use Ichiloto\Engine\Events\Triggers\SleepEventTrigger;
 use Ichiloto\Engine\Events\Triggers\TransferPlayerTrigger;
 use Ichiloto\Engine\Field\MapCollisionResolver;
+use Ichiloto\Engine\Field\MapPhysicalOccupancy;
 use Ichiloto\Engine\Field\MapSourceReader;
 use Ichiloto\Engine\Field\MapTrigger;
 use Ichiloto\Engine\Field\NpcPlacement;
@@ -55,22 +56,27 @@ final class ProjectReachability
     $mapsDirectory = Path::join($assetRoot, 'Maps');
     $problems = [];
     $maps = [];
+    $dictionaryFailure = null;
+    $dictionaryFailureReported = false;
 
     try {
       $dictionary = MapSourceReader::loadCollisionDictionary(Path::join($mapsDirectory, 'collisions.php'));
     } catch (Throwable $error) {
       $dictionary = null;
-      $problems[] = new ReachabilityProblem('', ReachabilityProblemKind::UNREADABLE_MAP,
-        'The collision dictionary could not be read: ' . $error->getMessage());
+      $dictionaryFailure = $error;
     }
 
     foreach (self::findMapIds($mapsDirectory) as $mapId) {
-      if ($dictionary === null) {
-        break;
-      }
-
       try {
         $source = MapSourceReader::readFiles(MapSourceReader::resolvePaths($mapsDirectory, $mapId));
+        if ($dictionaryFailure !== null && !array_key_exists(MapPhysicalOccupancy::DATA_KEY, $source['data'])) {
+          if (!$dictionaryFailureReported) {
+            $problems[] = new ReachabilityProblem('', ReachabilityProblemKind::UNREADABLE_MAP,
+              'The collision dictionary could not be read: ' . $dictionaryFailure->getMessage());
+            $dictionaryFailureReported = true;
+          }
+          continue;
+        }
         $events = array_map(ReachabilityEvent::fromDefinition(...), $source['data']['events']);
         // Only arrivals are built as triggers: they read nothing but their own data.
         $arrivals = array_map(
@@ -87,7 +93,7 @@ final class ProjectReachability
           'data' => $source['data'],
           'map' => new MapReachability(
             $mapId,
-            MapCollisionResolver::resolveLayers($source['layers'], $dictionary),
+            MapCollisionResolver::resolveMap($source['layers'], $source['data'], $dictionary ?? [])->collisionGrid,
             $events,
             $edgeTriggers,
             array_values(array_filter(array_map(NpcPlacement::fromArray(...), (array) ($source['data']['npcs'] ?? [])))),

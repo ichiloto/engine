@@ -161,6 +161,36 @@ stores them; `AutotileShape::resolveLayer` chooses them from neighbours for
 authoring tools. See [graphical field](graphical-field.md) for sheets, draw
 bands and animation.
 
+## Physical occupancy
+
+A map may explicitly declare `occupancy` in its `.data.php`. It contains
+zero-based row lists of resolved `CollisionType` cases, with exactly the same
+row lengths as the logical map, including ragged rows:
+
+```php
+'occupancy' => [
+    [CollisionType::NONE, CollisionType::COUNTER, CollisionType::SOLID],
+    [CollisionType::NONE, CollisionType::NONE, CollisionType::SOLID],
+],
+```
+
+This declaration is the sole static passage source for both renderers,
+reachability and shared field previews. Terminal appearance and graphical
+resources do not choose physical cells. Integer cells, mismatched dimensions
+and unresolved `PASS_THROUGH` cases are refused; a malformed declaration never
+falls back to glyph-derived passage.
+
+Only an absent `occupancy` key selects the compatibility rules below. Ordinary
+loads and saves never migrate a map. The GUI's explicit **Separate collision**
+action captures the current resolved cells through the shared Editor session,
+without changing either presentation or current passage. It is source-preserving,
+undoable and saved through the existing transaction. Later glyph/layer appearance
+edits no longer change collision on a converted map. Resize and row/column
+insertion carry its physical cells with geometry and make newly added cells
+`SOLID`; maps without the declaration remain undeclared. Physical painting and
+object-footprint authoring remain separate GUI capabilities, not implied by this
+conversion control.
+
 ## Collision dictionaries
 
 The game's `assets/Maps/collisions.php` can combine a flat glyph dictionary with
@@ -187,8 +217,8 @@ flat entry applies. Unknown glyphs remain solid. Resolution walks gameplay
 layers from top to bottom, skipping upper spaces and `PASS_THROUGH` symbols.
 The first remaining glyph supplies the collision result. If no layer supplies
 a result, the cell is solid; `PASS_THROUGH` is never a final collision value.
-Decoration is excluded entirely. Collision comes from authored symbols and the
-dictionary, never from colour, graphics or a separate stored collision grid.
+Decoration is excluded entirely. For an undeclared map, collision comes from
+authored symbols and the dictionary, never from colour or graphics.
 
 `CollisionType::COUNTER` marks a counter: solid to movement, but the player
 talks across one cell. A directly faced NPC is still reachable. Otherwise the

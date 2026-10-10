@@ -11,6 +11,57 @@ use voku\helper\ASCII;
 
 final class MapCollisionResolver
 {
+    /**
+     * A declared occupancy grid replaces glyph-derived passage, never supplements it.
+     * Only an absent key selects compatibility; malformed declarations must refuse.
+     *
+     * @param array<string, mixed> $data
+     * @param array<int|string, CollisionType|array<int|string, CollisionType>> $dictionary
+     */
+    public static function resolveMap(MapLayerSet $layers, array $data, array $dictionary = []): MapPhysicalOccupancy
+    {
+        if (array_key_exists(MapPhysicalOccupancy::DATA_KEY, $data)) {
+            return new MapPhysicalOccupancy($data[MapPhysicalOccupancy::DATA_KEY], $layers);
+        }
+        return self::resolveLegacyOccupancy($layers, $dictionary);
+    }
+
+    /**
+     * Capture the exact legacy result for an explicitly requested authoring migration.
+     * This does not change sources or install the declaration in the map data.
+     *
+     * @param array<int|string, CollisionType|array<int|string, CollisionType>> $dictionary
+     */
+    public static function resolveLegacyOccupancy(MapLayerSet $layers, array $dictionary): MapPhysicalOccupancy
+    {
+        $rows = array_map(static fn(array $row): array => array_map(CollisionType::from(...), $row),
+            self::resolveLayers($layers, $dictionary));
+        return new MapPhysicalOccupancy($rows, $layers);
+    }
+
+    /**
+     * Compatibility for the existing flat, optionally string-row MapManager API.
+     *
+     * @param array<int, string[]|string> $tiles
+     * @param array<int|string, mixed> $dictionary
+     * @return int[][]
+     */
+    public static function resolveTiles(array $tiles, array $dictionary): array
+    {
+        $grid = [];
+        foreach ($tiles as $row) {
+            $result = [];
+            foreach (is_array($row) ? $row : TerminalText::visibleSymbols($row) as $tile) {
+                $glyph = ASCII::to_ascii(TerminalText::stripAnsi($tile));
+                $type = $dictionary[$glyph] ?? CollisionType::SOLID;
+                $result[] = $type instanceof CollisionType && $type !== CollisionType::PASS_THROUGH
+                    ? $type->value : CollisionType::SOLID->value;
+            }
+            $grid[] = $result;
+        }
+        return $grid;
+    }
+
     /** @param array<int|string, mixed> $dictionary */
     public static function validateDictionary(array $dictionary, string $context = 'Collision dictionary'): void
     {
@@ -38,6 +89,8 @@ final class MapCollisionResolver
     }
 
     /**
+     * Legacy glyph-keyed compatibility adapter; new consumers use resolveMap.
+     *
      * @param array<int|string, CollisionType|array<int|string, CollisionType>> $dictionary
      * @return int[][]
      */

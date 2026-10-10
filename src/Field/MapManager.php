@@ -20,12 +20,10 @@ use Ichiloto\Engine\Exceptions\IchilotoException;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
-use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
-use voku\helper\ASCII;
 
 /**
  * The MapManager class is responsible for managing the map.
@@ -293,7 +291,8 @@ class MapManager implements CanRenderAt
   {
     $source = $this->prepareSplitMapDataFromFiles($this->resolveMapPaths($filename));
     $map = $source['data'];
-    $collisions = $this->generateLayerCollisionMap($source['layers'], $this->getCollisionDictionary());
+    $collisions = $source['occupancy']?->collisionGrid
+      ?? $this->generateLayerCollisionMap($source['layers'], $this->getCollisionDictionary());
     $mapTriggers = [];
     foreach ($map['triggers'] ?? [] as $trigger) {
       $mapTriggers[] = MapTrigger::tryFromArray($trigger);
@@ -437,24 +436,7 @@ class MapManager implements CanRenderAt
       $dictionary = $this->defaultCollisionDictionary;
     }
 
-    $collisionMap = [];
-
-    foreach ($tilemap as $row) {
-      $collisionRow = [];
-
-      $tiles = is_array($row) ? $row : TerminalText::visibleSymbols($row);
-
-      foreach ($tiles as $tile) {
-        $cleanedTile = ASCII::to_ascii(TerminalText::stripAnsi($tile));
-        $type = $dictionary[$cleanedTile] ?? CollisionType::SOLID;
-        $collisionRow[] = $type instanceof CollisionType && $type !== CollisionType::PASS_THROUGH
-          ? $type->value : CollisionType::SOLID->value;
-      }
-
-      $collisionMap[] = $collisionRow;
-    }
-
-    return $collisionMap;
+    return MapCollisionResolver::resolveTiles($tilemap, $dictionary);
   }
 
   /**
@@ -782,12 +764,17 @@ class MapManager implements CanRenderAt
 
   /**
    * @param array{id: string, data: string, map: string, event: string} $paths
-   * @return array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet, graphics: ?MapGraphics}
+   * @return array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet, graphics: ?MapGraphics, occupancy: ?MapPhysicalOccupancy}
    */
   protected function prepareSplitMapDataFromFiles(array $paths): array
   {
     $source = MapSourceReader::readFiles($paths);
     $map = $source['data'];
+    // Validate declared physical data before either loading path can mutate a scene.
+    // Legacy read-only/preview loading still needs no collision dictionary here.
+    $occupancy = array_key_exists(MapPhysicalOccupancy::DATA_KEY, $map)
+      ? MapCollisionResolver::resolveMap($source['layers'], $map)
+      : null;
 
     if (array_key_exists('tiles2d', $map)) {
       // Glyph-keyed crops are retired; a map draws graphics from its tileset.
@@ -803,7 +790,7 @@ class MapManager implements CanRenderAt
       Debug::warn("Map {$paths['id']} graphics are unusable; showing terminal glyphs: " . $error->getMessage());
     }
 
-    return [...$source, 'graphics' => $graphics];
+    return [...$source, 'graphics' => $graphics, 'occupancy' => $occupancy];
   }
 
   /** The project's asset root, where tilesets and their sheets live. */

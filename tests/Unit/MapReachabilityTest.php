@@ -257,6 +257,37 @@ function removeReachabilityProject(string $directory): void
   rmdir($directory);
 }
 
+it('checks declared physical occupancy independently of glyphs and the legacy dictionary', function (bool $dictionaryPresent) {
+  $root = createTestDirectory('physical-reachability-');
+  $assets = $root . '/assets';
+  mkdir($assets . '/Data', 0700, true);
+  writeReachabilityMap($assets, 'physical', ['###'], ['   '], [
+    'occupancy' => [[CollisionType::NONE, CollisionType::NONE, CollisionType::SOLID]],
+  ]);
+  if ($dictionaryPresent) {
+    file_put_contents($assets . '/Maps/collisions.php', '<?php return ["#" => \\Ichiloto\\Engine\\Events\\Enumerations\\CollisionType::SOLID];');
+  }
+  file_put_contents($assets . '/Data/system.php', '<?php return ' . var_export([
+    'startingPositions' => ['player' => ['destinationMap' => 'physical', 'spawnPoint' => ['x' => 0, 'y' => 0]]],
+  ], true) . ';');
+  $project = ProjectReachability::analyze($assets);
+  expect($project->getAllProblems())->toBe([])
+    ->and($project->reports['physical']->isReachable(1, 0))->toBeTrue()
+    ->and($project->reports['physical']->isReachable(2, 0))->toBeFalse();
+})->with(['conflicting legacy dictionary' => [true], 'no legacy dictionary' => [false]]);
+
+it('reports malformed declared occupancy instead of checking glyph-derived collisions', function () {
+  $root = createTestDirectory('invalid-physical-reachability-');
+  $assets = $root . '/assets';
+  writeReachabilityMap($assets, 'physical', ['..'], ['  '], ['occupancy' => null]);
+  file_put_contents($assets . '/Maps/collisions.php', '<?php return ["." => \\Ichiloto\\Engine\\Events\\Enumerations\\CollisionType::NONE];');
+  $project = ProjectReachability::analyze($assets);
+  expect($project->reports)->toBe([])
+    ->and($project->problems)->toHaveCount(1)
+    ->and($project->problems[0]->kind)->toBe(ReachabilityProblemKind::UNREADABLE_MAP)
+    ->and($project->problems[0]->message)->toContain('Map occupancy must be a zero-based list');
+});
+
 it('reaches maps only through arrivals the player can get to from the start', function () {
   $root = sys_get_temp_dir() . '/ichiloto-reachability-' . bin2hex(random_bytes(4));
   $assets = "{$root}/assets";

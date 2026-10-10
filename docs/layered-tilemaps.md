@@ -327,11 +327,13 @@ Everything converts; the terminal game must play identically throughout.
 
 ## Graphical correction roadmap
 
-The [graphical field plan](graphical-field.md) supersedes Stages 1 to 3
-below: the terminal grid is unchanged, the graphical field draws each
-terminal cell as one 48 x 48 pixel RPG Maker tile, and tilesets, autotiles and character
-sheets follow RPG Maker's conventions. Stages 1 to 3 remain as history only,
-and Stage 4 is superseded as it says.
+The [graphical field plan](graphical-field.md) supersedes the scale, pivot and
+tile-family choices in Stages 1 to 3 below: the terminal grid is unchanged, the
+graphical field draws each terminal cell as one 48 x 48 pixel RPG Maker tile,
+and tilesets, autotiles and character
+sheets follow RPG Maker's conventions. Those replaced choices remain history;
+Stage 1's independent physical-occupancy requirement below still applies.
+Stage 4 is superseded as it says.
 
 All six stages below form the implementation roadmap. They are remaining
 correction and verification work, not capabilities delivered by this document.
@@ -353,6 +355,13 @@ through a tested compatibility adapter for glyph-keyed inputs, and an explicit
 source-preserving migration. A purely graphical edit must leave glyphs and
 resolved collision unchanged; a purely terminal appearance edit must leave
 graphical placements and intended physical occupancy unchanged.
+
+The shared `occupancy` declaration, runtime/preview/reachability consumption,
+explicit source-preserving GUI conversion and geometry/history preservation are
+implemented. The [map contract](maps.md#physical-occupancy)
+defines absence-only compatibility and malformed-data refusal. No production map
+is silently converted. Physical-cell brushes and object-footprint authoring remain
+open in the GUI plan; the conversion control alone does not close Stage 1.
 
 ### Stage 2 - Sprite pivot, ground footprint and depth
 

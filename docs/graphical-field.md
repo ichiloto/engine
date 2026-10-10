@@ -2,9 +2,10 @@
 
 This plan defines how a graphical renderer (GPUI today, others later)
 represents the field. Ichiloto is a terminal game engine: the terminal
-layers are the game. The graphical field is a representation drawn on top
-of that foundation, following RPG Maker's established conventions rather
-than inventing new ones. It supersedes Stages 1 to 3 of the graphical
+layers remain a complete playable presentation of shared gameplay. The graphical
+field represents that same state, following RPG Maker's established conventions
+rather than inventing new ones. It supersedes the scale, pivot and tile-family
+choices in Stages 1 to 3 of the graphical
 correction roadmap in [layered-tilemaps.md](layered-tilemaps.md); the
 editing surface is owned by the GUI Editor plan. Related docs:
 [maps.md](maps.md), [rendering/tile-batches.md](rendering/tile-batches.md),
@@ -12,10 +13,12 @@ editing surface is owned by the GUI Editor plan. Related docs:
 
 ## Principles
 
-1. **The terminal is the game.** Map geometry, collision, movement, events,
-   interactions and saves derive from the terminal layers, always. Nothing
-   graphical can make a cell solid, walkable or interactive, and nothing
-   graphical changes how the terminal looks or plays.
+1. **The terminal represents the whole game.** Geometry, physical occupancy,
+   movement, events, interactions and saves are shared gameplay state. Explicit
+   [physical occupancy](maps.md#physical-occupancy)
+   is independent of both appearances; undeclared maps retain the glyph-keyed
+   compatibility adapter until explicitly migrated. Pure graphical edits cannot
+   make a cell solid, walkable or interactive, or change Terminal appearance.
 2. **The terminal grid is the field's grid.** A map cell is one terminal
    character, and the player moves one cell per step, in every renderer. A
    graphical renderer draws each terminal cell as one RPG Maker tile, with
@@ -374,7 +377,9 @@ maps. The existing 16 x 32 art is not carried forward.
 
 ## Decisions already made (do not relitigate)
 
-- The terminal is the game; collision always derives from terminal layers.
+- The terminal remains a complete playable presentation. Shared physical
+  occupancy is independent of presentation; only undeclared legacy maps derive
+  collision from terminal layers. Conversion is explicit and source-preserving.
 - Graphics never change terminal geometry, movement or authoring. A map
   cell is one terminal character in every renderer; the graphical field
   draws it as one 48 x 48 RPG Maker tile, and maps are laid out in tiles.

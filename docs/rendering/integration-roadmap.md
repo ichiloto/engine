@@ -101,11 +101,155 @@ dataset controls, remain in secondary engine-publication-readiness-20261010-wNmu
 This is completed implementation evidence for publication, not G4 completion or
 new native/other-platform acceptance.
 
+October 10 Game publication isolation: approved leader-selected rest stages and
+their Sleep resources are committed locally on develop as `a19798c`. The exact
+staged tree passes five checks / 794 assertions under strict warning, risky,
+deprecation, notice and empty-suite gates. The commit body mistakenly says 994;
+794 is the verified result. At that rest checkpoint, atlas/palette changes were
+excluded because their isolated check found an invisible legacy Happyville Shop
+decor tile. Current live maps and palettes tested together passed four checks /
+531,184 assertions. They were excluded from the rest commit,
+not rolled back, substituted or passed by weakening the coverage test. Disposable
+secondary-drive test snapshots were removed; small logs/provenance remain.
+Native production-art acceptance is still open, and no window was launched while
+the desktop inspection reported locked. G4 remains incomplete.
+
+October 10 Editor/GUI checkpoint completes declared owned-stage effect admission,
+shared Engine stage canvas previews and independent paired Terminal sequences.
+GUI seek replies are checked before and after asynchronous image preparation;
+invalid stage pictures report errors instead of falling back to field or battle.
+Generic cutscene saved undo preserves source templates, syntax and key order
+without resetting persisted conflict/reference checkpoints. Final Editor Unit
+passes 2,084 tests / 13,807 assertions, exit 0 under strict warning/risky/
+deprecation/notice/empty-suite gates; 15 optional real-Game cases were skipped
+because Game source was not pinned. The original production all-effects preview
+case separately passes one test / 56 assertions against current Game, with its
+source-preservation assertions intact. Complete offline GUI release checks pass
+140 tests, exit 0. No native stage or other-platform acceptance is inferred.
+Claude's separately assigned retained-underlay terminal/collision restoration
+remains open. G4 is not complete, and the four repository-specific publication
+permissions already requested remain pending. Logs are on the secondary drive
+under publication-20261010; the initial wrong-runner invocation stopped before
+tests and is retained alongside the corrected run.
+Completed Editor and GUI implementation checkpoints are local develop commits
+`c03c22d` and `79dbc79` respectively. Their caches and unrelated policy files
+were excluded. Engine code `60131de` and Console `c3136d7` are already published;
+this follow-up evidence is local and does not imply another remote mutation.
+
+The atlas dependency is now closed separately on local Game develop as `665313e`:
+the four palettes, currently referenced replacement sheets, admitted Shared and
+RelayPulse resources, and matching Shop picture-tile rebinding form one verified
+checkpoint. Shop counter/floor/wall changes remain with their physical-map batch;
+all physical maps, collision, events, story, configuration and save migrations
+are excluded. The exact staged tree passes 220 tests / 813,978 assertions, exit 0
+under strict gates, covering every current map's glyph ownership, Terminal
+isolation, cell-area loading, drawable registered tiles and rest. Frozen Garden
+dimensions, branch coordinates and source-hash assertions are removed in favor
+of those current-map invariants. The original failed rectangle-only assertion
+and warning logs remain; no gate was suppressed. The three owned secondary
+exports were verified and removed, with small receipts and logs retained.
+This does not establish full
+Game CI, native artwork acceptance, other-platform support or G4 completion.
+
+The initial separate battle/status candidate was not committed: strict status checks pass
+19 tests / 745 assertions, but its completed presentation dependencies expose
+excluded canonical skill/actor ownership and an obsolete practicum encounter
+arena reference. Five adjacent presentation files ran 435 tests / 26,433
+assertions with three failures and two warnings, exit 1; GraphicalBattle discovery
+stopped before executing tests. No assertion or gate was weakened to publish
+this mixed work. Its owned exports were verified and removed. The candidate
+manifest, original failures and dependency receipt remain under secondary
+game-battle-presentation-checkpoint-20261010-030515. This publication dependency
+does not undo the approved live status integration or establish G4 completion.
+
+The corrected dependency checkpoint is now committed on local Game develop as
+`a114409`: approved battler/status roles, paired battle effects, canonical skill
+ownership, arena/formation separation and the required content-16 aliases. It
+removes the acting underline, obsolete arena-owned enemy placements and practicum
+arena binding, duplicated results portraits, legacy inline effect/catalogue
+paths and retired Ifrit/Nkhwazi definition paths. Terminal-only renamed summon
+definitions retain their compiled Terminal behavior; completed G3 graphical
+lanes and mixed map/story work remain separate in the live checkout. Direct
+discovery catches both renamed definitions. Final strict focused checks pass
+747 tests / 77,407 assertions; required canonical-save cases pass 7 / 257 and
+exclusive eligibility cases 3 / 76, all exit 0. The unfiltered HEAD-based save
+probe still has two historical-map failures and twelve warning cases in unchanged
+excluded map tests; it is not a green full-save or full-Game result. The committed
+tree matches the verified candidate, the normal index is empty, and the owner's
+3,395 live file fingerprints are unchanged. Evidence is in secondary
+game-g2-closure-20261010-b3ZZGP. This checkpoint is not pushed, does not publish
+the separate content-37 map/save boundary below, and does not establish native
+acceptance, other-platform qualification or G4 completion.
+
+October 10 save-boundary audit found eight unsafe landings among 10,515 frozen
+content-19 floor cells: three NPC cells and three wall cells in Administration,
+plus two wall cells in Waymeet. Earlier repairs missed shifted coordinates and
+NPC occupancy. A separate 36-to-37 declared migration repairs them without
+changing earlier steps, authored positions or the historical fixture. The
+pipeline dataset now discovers later declared repairs rather than testing only
+35-to-36. Final strict save/relocation/layer/barrier families pass 156 tests /
+37,435 assertions, exit 0; all historical floor cells now avoid current blockers
+and occupants. Progress, original envelope bytes, current-save positions and
+idempotent resaves are preserved; content-19 endpoint expectations remain
+separate from current-chain checks. All 82 normal save/settings/log fingerprints
+match the released worker baseline. Evidence is in secondary
+g4-save-forward-repair-20261010-0332. This live map/save boundary is uncommitted;
+the separate Game battle/catalogue owner has only the released HEAD-based
+content-16 compatibility and owned test-storage subset, not the live content-37
+manifest, map or save-test lane. No full Game CI, native acceptance, other-platform
+qualification or G4 completion is inferred.
+
+October 10 follow-up preparation re-reviewed the current `GameScene` and `Player`
+changes against the existing muted walking runner. The new dated secondary-drive
+receipt preserves the earlier evidence. Lint and the deny-write, no-launch
+preflight pass against Engine `60131de` and Game `a114409`, verifying all audio
+disabled, autosave disabled and save writes refused. No native window or normal
+file was changed. Game owns the next map/save checkpoint, so native launch must
+wait for its release and a fresh ref check; this is not held-input acceptance.
+
+October 10 physical-occupancy implementation now provides an explicit `occupancy`
+declaration independent of terminal glyphs and graphical resources. Runtime load,
+reachability and the shared field preview consume the same resolved cells;
+malformed declarations refuse, and only absence chooses legacy compatibility.
+The shared source-preserving migration and GUI **Separate collision** confirmation
+preserve current passage and both presentations as one undo step, written only on
+save. Later appearance edits no longer choose collision on a converted map.
+Resize and insertion carry physical geometry through source transactions and
+save/undo/redo; added cells are solid, while undeclared maps remain undeclared.
+Physical-cell brushes and object-footprint authoring remain open in the existing
+[correction plan](../layered-tilemaps.md#stage-1---independent-graphical-ground-scale).
+No production map was silently migrated, and this is not full Stage 1 acceptance.
+
+Post-change full Engine: 7,122 passed / 451,809 assertions, no failures/skips,
+strict issue gates. The initial 128 MiB CLI attempt exhausted memory in an existing
+PNG fixture; the completed rerun used the same process-only 512 MiB limit as prior
+full runs, without changing runtime resource policy. Full Editor Unit against live
+Engine: 2,195 passed / 15 optional real-Game cases skipped / 14,538 assertions;
+strict issue gates. Its first run found a wrong empty-history response assertion
+in the new test; the correction follows the existing API, not a runtime change.
+The delegated geometry/transaction/history families pass 282 / 1,694 with no
+skips; GUI offline release passes 141 with no ignored cases. Logs and original
+failures remain on the secondary drive. No native launch or Windows/Linux/WSLg
+qualification was performed. The earlier muted-runner receipt is now stale after
+MapManager changed; refresh its reviewed inputs before any native launch.
+
+Game's exact map/save candidate remains uncommitted at `a114409`. Its final
+non-overlapping bounded groups total 767 passed / one failed / 1,188,711
+assertions, not full CI. A separate committed-baseline run passes the same
+noticeboard invariant: the pending fixture moves the information glyph from
+58,17 to 54,17 while the interaction stays at 58,17. The existing author-placement
+decision remains pending; no position was guessed or test waived. Game released
+its empty index and preserved the exact candidate/evidence ZIP on the secondary
+drive, removing only its verified disposable exports (about 1.5 GB). Existing
+completed commits remain independent of this held map/save batch. Editor, GUI,
+Renderer and Game develop pushes still await the already-presented explicit
+repository/ref permission; no blocked push was retried or delegated.
+
 | Acceptance area | Owner | Current evidence and work remaining |
 | --- | --- | --- |
 | Current field asset-role coverage | Claude/Game, Art through coordinator | October 9 all nineteen reachable maps have material layers, and all five currently authored semantic save points have their registered artwork and effects. Game has implemented seven interior expansions with north/south wall faces, reviewed coordinate/save migrations, existing facing desk-chair bindings and removal of embedded room/compound labels in both presentations. Approved Sleep/Shared, revision-4 modular roofs, waiting seats, Waymeet fixtures and Lanternrest Recovery damage are now admitted locally under Andrew's named tool/licence exceptions. Source-preserving bindings include the console/computers, localized Recovery damage, current Happyville roof rectangles and five existing low-ground save sigils. Four leader-selected rest stages use shared Inn ownership. Waiting-seat alternatives are palette-ready, not guessed assignments to unidentified fixtures. Strict headless Game presentation and route checks pass 82 / 748,599 and 117 / 80,499; adjacent Engine rest checks pass 148 / 1,257. CPU tile compositions were inspected; native/GPU art acceptance remains open. Eleven disconnected prototypes, unresolved fixture/facade identities and noticeboard alignment remain open; prototype retention is not inferred. World has no currently authored semantic save points; none were invented. The existing private Game ledger remains the coverage authority. Material coverage is not complete map dressing. |
 | Graphical maps and safe GUI authoring | Claude/Editor/GUI | Shared Draw tiles, validator-derived coverage, selection copy/cut/paste, piece eyedropper, ordered shadow layers, independent sheet-piece/shape controls and staged-actor art/pose-loop controls are implemented locally. Row/column insertion, map duplication and metadata-derived relocation use reviewed source-preserving transactions; ordinary saves keep stable identity. Dim/Restore is session-only, respects hiding and resets on map/project change. Native checks verified insertion, duplication, relocation cancellation and dim/hide/reset; detailed receipts below name their limits. Route references now use the actual command owner; camera/transfer/effect placement and field-sheet controls are connected. NPC sheet selection preserves index/layer and previews four directions; staged walking sheets use the same current-file crop contract. Runtime and GUI share retained painting, including transparent unstyled blank cells. October 9 native inspection verifies the corrected modal width, cardinal route edit/refusal/save/undo, actual NPC-owned Retrace choices and Inn stage selection/save/undo; the latest direction previews still need native inspection. Unsupported source edits refuse before writing, with undo/reload, external-change protection and Terminal/collision isolation preserved. Remaining representative native checks, production-art acceptance and explicit author decisions are not closed by automated tests or a successful build. |
-| Shared field/cinematic previews | Codex/Engine, Claude/Editor/GUI | Shared SceneFrameComposer, isolated ScenePresentationContext and Console capture, styled Terminal rows, pure dialogue pagination and named runtime GPUI grid are implemented. Native SceneSession/ScenePainter reuse retained validation, projection and painting with canonical READY/ACK/rejection messages in both preview tabs. One isolated PreviewField uses the shared interpreter, movement and field camera; presentation upkeep does not execute gameplay/input. Actual host tests cover malformed refusal, detach/reopen/reset, EOF cleanup and optional-list semantics. The shared Skip policy/finalizer supports paused/playing completion, refusal explanations and failed previews without a substitute arena or duplicate interpreter. Graphical host epochs prevent retired pictures, feedback and view replies from reaching equal-grid replacement sessions. Current-map diagnostics persist until a successful transfer; missing effect start maps remain diagnosed. October 8 native evidence covers field/cover/narration completion, restart/step, Terminal/GPUI tabs and effect seek/reconnect/play with a pinned timeline. October 9 GPUI evidence additionally verifies same-map relocation with camera follow, watched and skipped transfer, and restart to the original scene rather than a retired picture. Fixtures remained unchanged and owned processes were closed. Native failure diagnostics, the latest Terminal-tab restart, physical held input and production-art acceptance remain open; a locked-desktop transport run or screenshot timeout does not prove pixels. |
+| Shared field/cinematic previews | Codex/Engine, Claude/Editor/GUI | Shared SceneFrameComposer, isolated ScenePresentationContext and Console capture, styled Terminal rows, pure dialogue pagination and named runtime GPUI grid are implemented. Native SceneSession/ScenePainter reuse retained validation, projection and painting with canonical READY/ACK/rejection messages in both preview tabs. One isolated PreviewField uses the shared interpreter, movement and field camera; presentation upkeep does not execute gameplay/input. Actual host tests cover malformed refusal, detach/reopen/reset, EOF cleanup and optional-list semantics. The shared Skip policy/finalizer supports paused/playing completion, refusal explanations and failed previews without a substitute arena or duplicate interpreter. Graphical host epochs prevent retired pictures, feedback and view replies from reaching equal-grid replacement sessions. Current-map diagnostics persist until a successful transfer; missing effect start maps remain diagnosed. October 8 native evidence covers field/cover/narration completion, restart/step, Terminal/GPUI tabs and effect seek/reconnect/play with a pinned timeline. October 9 GPUI evidence additionally verifies same-map relocation with camera follow, watched and skipped transfer, and restart to the original scene rather than a retired picture. Fixtures remained unchanged and owned processes were closed. October 10 native failure diagnostics and forbidden-Skip refusal are verified in both tabs; the latest Terminal-tab restart, physical held input and production-art acceptance remain open; a locked-desktop transport run or screenshot timeout does not prove pixels. |
 | Held walking and input lifecycle | Codex/Engine/Renderer | Implemented; the immediate empty event-session latch is corrected globally. Focused PHP checks initially passed 242 tests / 1,686 assertions and the full run below includes the correction. Muted native Home checks now inspect introductory dialogue, right/down tap movement, camera scrolling and graphical main-menu opening, cancellation and resumed field movement. The preview closed cleanly with saves/settings unchanged and no audio backend. Simultaneous held keys, partial/full release, corners, focus and cinematic return remain unobserved natively; a tap or headless pass is not native held-input acceptance. |
 | Regression and bounded native proof | Coordinator and owners | October 8 full Engine Unit: 6,514 passed / 439,567 assertions, exit 0, no warnings/skips reported. Earlier warnings came from a vacuous ID-keyed state assertion; the old unconditional Enemy construction skip is removed. Tests now check live state identity/duration/HP and real construction with replaceable synthetic art (focused 23 / 173). Two full-run inn failures were reproduced after a real Console hand-back test: the inn fixture now acquires its own headless Console session and restores its parent state, preserving every five-beat/recovery/payment/audio/wake assertion. The corrected shutdown-plus-inn sequence passes 45 / 474; no inn runtime change was needed. Presentation upkeep/player walking/pose regressions: 192 passed / 44,038 assertions. Renderer after blank-cell correction: 238 passed / four existing opt-in ignored; strict Clippy/formatting pass, with existing dependency future-compatibility notices unchanged. GUI release after Skip: 66 passed; focused new Editor controls and adjacent preview families: 36 passed / 533 assertions. Scoped live-Engine static analysis passes. The normal GUI app was rebuilt and its macOS bundle relinked to that release executable on the managed secondary cache. GUI repository-wide formatting and warnings-as-errors Clippy checks do not pass: their diagnostics are in unchanged files outside the new control; no warning was suppressed and unrelated source was not reformatted. Changed-file whitespace checks pass. Editor full suite before the subsequent Skip addition, after preview movement repair: 1,685 passed / 82,037 assertions, exit 0, no errors/failures/skips in JUnit; focused preview families 20 passed / 223 assertions and scoped live-Engine static analysis clean. Earlier mapping/inn/host checks: 13 passed / 125 assertions. Full Game CI: 1,681 passed / two failed / 929,926 assertions, exit 1, with the existing battle-simulations exclusion unchanged. Its garden-route-control wall-top/glyph assertion and town-center orphaned information glyph remain with Game ownership. All 383 affected storage/menu test-family cases pass; source fingerprints, normal logs and all ten live save/settings files stayed unchanged. Test storage uses shared exception-safe ownership/cleanup on the secondary drive, not checkout-rooted save scratch or suppressed diagnostics. Complete remaining representative native acceptance; Windows/Linux/WSLg remain untested. |
 
