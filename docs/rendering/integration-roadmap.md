@@ -1275,6 +1275,26 @@ bindings now request `keeps: walls`; the subsequent focused Game check passes
 4 tests / 166,322 assertions. These checks do not claim native window-placement
 acceptance or a full-suite rerun. Existing map layouts and collision are unchanged.
 
+October 11's remaining black stone contours expose a different missed role:
+Game's terrain coverage check examined ground/water, but not alpha-shaped
+borders and wall tops. The current eastern-service-road tile-only CPU crop
+reproduces the screenshot and contains 2,717 uncovered pixels beneath stone
+contours; this is not a native capture or a renderer rounding diagnosis.
+The Engine model now removes the blanket prohibition on connected-piece
+`keeps`, retaining valid/distinct/unwritten layer checks, single-cell shape
+geometry, authored source and independent physical occupancy. Synthetic piece,
+source, style, occupancy and tileset checks pass 146 tests / 896 assertions;
+scoped PHPStan level 3, syntax and whitespace checks pass. The old rejection
+test is replaced deliberately with accepted connected retention and malformed
+declaration tests. This is not a full-suite or cross-platform rerun.
+Claude owns the connected Editor consumer/round trips and the global Game
+backing, palette and coverage correction; those are not complete merely
+because Engine can parse retention. Game correction remains outside the
+frozen 397-path candidate and will follow that batch's introduction, with the
+four author-owned Lanternrest deltas preserved. CPU before evidence and test
+receipts are retained on the secondary drive under `stone-contours-20261011-0136`
+and `connected-keeps-20261011-0141`; no normal Game launch, saves or audio change.
+
 Shared route authoring now edits the Engine's steps/waypoints/retrace union
 without persisting the GUI's mode selector, fabricating omitted axes or deriving
 identity from current selection. Recorded routes now belong to every actual

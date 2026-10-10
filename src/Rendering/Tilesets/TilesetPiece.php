@@ -80,7 +80,7 @@ final readonly class TilesetPiece
     array $keeps = [],
     ?array $occupancy = null,
   ) {
-    $this->keeps = self::readKeptLayers($keeps, array_keys($tiles + $shapeTiles), $connects, "Piece {$id}");
+    $this->keeps = self::readKeptLayers($keeps, array_keys($tiles + $shapeTiles), "Piece {$id}");
     $this->sourceCells = $glyphs;
     $this->sourceShapeGrid = $sourceShapeGrid ?? $shapes;
     $this->grid = array_map(static fn(array $row): array => array_map(
@@ -135,9 +135,9 @@ final readonly class TilesetPiece
         throw new InvalidArgumentException("{$context} tiles must be keyed by tile layer name.");
       }
     }
-    $keeps = self::readKeptLayers(array_key_exists('keeps', $data) ? $data['keeps'] : [], array_keys($layers), $connects, $context);
+    $keeps = self::readKeptLayers(array_key_exists('keeps', $data) ? $data['keeps'] : [], array_keys($layers), $context);
     if ($connects === self::LINES) {
-      return self::readConnected($id, $data, $layers, $context);
+      return self::readConnected($id, $data, $layers, $keeps, $context);
     }
     $rows = $data['glyphs'] ?? null;
     if (!is_array($rows) || $rows === [] || !array_is_list($rows)) {
@@ -211,7 +211,7 @@ final readonly class TilesetPiece
   }
 
   /** @param list<array-key> $writtenLayers @return list<string> */
-  private static function readKeptLayers(mixed $keeps, array $writtenLayers, ?string $connects, string $context): array
+  private static function readKeptLayers(mixed $keeps, array $writtenLayers, string $context): array
   {
     if (!is_array($keeps) || !array_is_list($keeps)) {
       throw new InvalidArgumentException("{$context} keeps must be a list of tile layer names.");
@@ -226,14 +226,11 @@ final readonly class TilesetPiece
       }
       $names[$name] = true;
     }
-    if ($names !== [] && $connects !== null) {
-      throw new InvalidArgumentException("{$context} connected pieces do not preserve underlying tile layers yet.");
-    }
     return array_keys($names);
   }
 
-  /** @param array<array-key, mixed> $data @param array<array-key, mixed> $layers */
-  private static function readConnected(string $id, array $data, array $layers, string $context): self
+  /** @param array<array-key, mixed> $data @param array<array-key, mixed> $layers @param list<string> $keeps */
+  private static function readConnected(string $id, array $data, array $layers, array $keeps, string $context): self
   {
     $glyphs = $data['glyphs'] ?? null;
     if (!is_array($glyphs) || array_diff(self::LINE_SHAPES, array_keys($glyphs)) !== [] || array_diff(array_keys($glyphs), self::LINE_SHAPES) !== []) {
@@ -271,7 +268,7 @@ final readonly class TilesetPiece
     $occupancy = array_key_exists('occupancy', $data)
       ? self::readOccupancy($data['occupancy'], 1, 1, $context) : null;
     return new self($id, $data['name'], $data['layer'], [[$shapes['corner']]], [], self::LINES, $shapes, $shapeTiles,
-      sourceRows: [$glyphs['corner']], sourceShapeGrid: $glyphs, occupancy: $occupancy);
+      sourceRows: [$glyphs['corner']], sourceShapeGrid: $glyphs, keeps: $keeps, occupancy: $occupancy);
   }
 
   private static function isCellGlyph(string $symbol): bool

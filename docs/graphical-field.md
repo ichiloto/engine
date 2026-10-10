@@ -174,11 +174,14 @@ editing surface is owned by the GUI Editor plan. Related docs:
   `'keeps' => ['walls']` for a window that can sit on any wall material.
   The shared `TilesetPiece` parser exposes this readonly list. Names must be
   valid, distinct tile layer names and cannot also be layers the piece writes.
-  Omission means no retained layers. Nonempty `keeps` is refused on connected
-  pieces until their reshape/erase ownership is defined. Retention describes
+  Omission means no retained layers. Connected pieces may keep the same
+  independently authored layers at each single-cell shape, including through
+  reshaping; these are retained cells, not tiles the piece owns or fabricates.
+  This removes the former blanket connected-piece prohibition while retaining
+  all name, uniqueness and written-layer validation. Retention describes
   graphical authoring only; physical occupancy remains independent, with
   glyph passage used only by undeclared legacy maps. The Engine contract is implemented; the corresponding Editor
-  placement/coverage behavior and Game bindings are being integrated by their
+  connected placement/coverage behavior and Game bindings are being integrated by their
   owner, not implied by parsing this field alone.
 - **Piece cell styles.** Existing `glyphs` rows may use the same terminal
   markup as map layers, for example `'<fg=green>ab</><fg=yellow>c</>'`.
