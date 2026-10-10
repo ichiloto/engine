@@ -173,8 +173,15 @@ shows clean blank floors and the colour budget stays untouched.
 
 ## Collision
 
-Resolution is **topmost-occupied-wins with pass-through**, the RPG Maker rule
-translated to glyphs:
+An explicit [physical occupancy](maps.md#physical-occupancy) declaration is the
+sole static passage authority for runtime, previews and reachability in both
+presentations. Its cells are final collision types, independent of terminal
+glyphs and graphical placements. Malformed declarations refuse instead of
+falling back; only an absent declaration selects the compatibility rules below.
+Ordinary loads and saves never migrate a map.
+
+Legacy resolution is **topmost-occupied-wins with pass-through**, the RPG Maker
+rule translated to glyphs:
 
 - For each cell, consult gameplay layers from the top down. Skip empty cells
   (spaces on non-base layers) and pass-through cells. The first remaining
@@ -189,8 +196,10 @@ translated to glyphs:
   to all layers; optional sections keyed by layer name (`'terrain' => […]`,
   `'fixtures' => […]`) give a glyph different meanings per layer. Unknown
   glyphs still default to `SOLID`.
-- Collision is always *derived* from the visible text through the dictionary -
-  never stored beside it. There are no per-layer collision grids.
+- On an undeclared map, collision is derived from visible text through the
+  dictionary. Explicit migration captures that resolved result in one shared
+  physical grid without changing current passage or either presentation; it
+  does not introduce per-layer collision authorities.
 
 ## GPUI presentation
 

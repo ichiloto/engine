@@ -106,8 +106,10 @@ editing surface is owned by the GUI Editor plan. Related docs:
   D from 512, E from 768, A5 from 1536, A1 from 2048, A2 from 2816, A3 from
   4352, A4 from 5888), with the autotile shape carried in the identity.
 - RPG Maker's per-tile passage settings do not apply: passage comes from
-  the terminal. Its "above characters" priority is kept as a purely
-  graphical draw band.
+  the map's shared [physical occupancy](maps.md#physical-occupancy). Only an
+  undeclared map uses glyph-keyed compatibility; neither tile selection nor
+  drawing priority changes physical cells. Its "above characters" priority
+  is kept as a purely graphical draw band.
 - A tileset may name its missing-art tile (`missingArt`), a plain tile on
   one of its sheets that marks a cell whose art nobody can yet infer. It
   draws like any tile; tools report the cells that show it as art to do.
