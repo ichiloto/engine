@@ -11,6 +11,7 @@ use Ichiloto\Engine\Core\GameObject;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Actions\FieldActionContext;
+use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Interfaces\ActionInterface;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Events\Enumerations\MovementEventType;
@@ -53,6 +54,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    */
   private ?Closure $pendingArrival = null;
   private ?CharacterSheetAssetGuard $graphicalAssetGuard = null;
+  private bool $emptyPartyDiagnosed = false;
   /**
    * @var string[] $upSprite The sprite of the player when facing up.
    */
@@ -141,6 +143,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    * @param array<string, string[]> $directionalSprites The configured directional sprite set.
    * @param CharacterSheet|null $graphicalSprites Optional RPG Maker character sheet, independent of terminal sprites.
    * @param string|null $assetRoot Project asset root for checking the sheet.
+   * @param Party|null $party Live field party; when supplied, its leader owns graphical appearance.
    */
   public function __construct(
     SceneInterface $scene,
@@ -152,6 +155,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     array $directionalSprites = [],
     private readonly ?CharacterSheet $graphicalSprites = null,
     ?string $assetRoot = null,
+    private readonly ?Party $party = null,
   )
   {
     parent::__construct(
@@ -162,7 +166,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
       $sprite
     );
 
-    if ($graphicalSprites !== null) {
+    if ($graphicalSprites !== null || $party !== null) {
       $this->walkAnimation = new CharacterWalkAnimation();
       $this->graphicalAssetGuard = new CharacterSheetAssetGuard($assetRoot ?? getcwd() . '/assets', 'Player');
     }
@@ -181,7 +185,19 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   /** Authored graphical role remains available while a staged visual owns presentation. */
   public function getGraphicalCharacterSheet(): ?CharacterSheet
   {
-    return $this->graphicalSprites;
+    if ($this->party === null) {
+      return $this->graphicalSprites;
+    }
+    $leader = $this->party->leader;
+    if ($leader === null) {
+      if (!$this->emptyPartyDiagnosed) {
+        Debug::warn('Player field artwork unavailable; party has no selected leader. Keeping terminal sprite.');
+        $this->emptyPartyDiagnosed = true;
+      }
+      return null;
+    }
+    $this->emptyPartyDiagnosed = false;
+    return $leader->getGraphicalCharacterSheet();
   }
 
   #[Override]
@@ -190,8 +206,9 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     if ($this->isPresentationSuppressed()) {
       return null;
     }
-    $frame = $this->graphicalSprites === null ? null : $this->graphicalAssetGuard?->getFrameSize($this->graphicalSprites);
-    return $frame === null ? null : $this->graphicalSprites->getFrame($this->heading,
+    $sheet = $this->getGraphicalCharacterSheet();
+    $frame = $sheet === null ? null : $this->graphicalAssetGuard?->getFrameSize($sheet);
+    return $frame === null ? null : $sheet->getFrame($this->heading,
       $this->walkAnimation?->getPattern() ?? CharacterWalkAnimation::PATTERNS[0], $frame);
   }
 
@@ -207,7 +224,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    */
   public function completeArrival(): void
   {
-    if (!($this->walkAnimation?->isSliding ?? false)) {
+    if (Console::isTerminalOutputEnabled() || !($this->walkAnimation?->isSliding ?? false)) {
       $this->runPendingArrival();
     }
   }
@@ -341,7 +358,12 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     $fieldWasRecomposed = $this->updatePlayerPosition($direction, $camera, $previousSprite);
     if ($origin->x !== $this->position->x || $origin->y !== $this->position->y) {
       $step = new CharacterStep($origin, $this->position, $this->getGameScene()->getStepSeconds($direction));
-      $this->walkAnimation?->step($step);
+      if (!Console::isTerminalOutputEnabled()
+        && ($this->getGraphicalCharacterSheet() !== null || $this->isPresentationSuppressed())) {
+        $this->walkAnimation?->step($step);
+      } else {
+        $this->walkAnimation?->stop();
+      }
       $this->getGameScene()->cinematicStage?->subjectMoved($this, $step);
     }
     // An ordinary step can erase an NPC that occupied the player's previous

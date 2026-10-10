@@ -88,8 +88,7 @@ final class CinematicStageManager
     $facing = isset($entry['facing'])
       ? (MovementHeading::tryFrom(ucfirst(strtolower(strval($entry['facing'])))) ?? MovementHeading::SOUTH)
       : ($independentActor?->facing ?? MovementHeading::SOUTH);
-    $graphicalSprites = isset($entry['sprites2d']) ? self::getGraphicalSprites($entry['sprites2d'])
-      : $subject?->getGraphicalCharacterSheet();
+    $graphicalSprites = isset($entry['sprites2d']) ? self::getGraphicalSprites($entry['sprites2d']) : null;
     $suppressed = $subject !== null ? [spl_object_id($subject) => $subject] : [];
     foreach ($entry['suppress'] ?? [] as $reference) {
       $other = $this->resolveSubject($reference);
@@ -124,7 +123,7 @@ final class CinematicStageManager
       graphicalSprites: $graphicalSprites,
       subject: $subject !== null ? $leases[spl_object_id($subject)] : null,
       suppressedSubjects: array_values($leases),
-      assetRoot: $graphicalSprites instanceof CharacterSheet || $graphicalSprites instanceof FieldPoseAnimation
+      assetRoot: $subject !== null || $graphicalSprites instanceof CharacterSheet || $graphicalSprites instanceof FieldPoseAnimation
         ? $this->gameScene->getGame()->getRendererRuntime()?->getAssetRoot() : null,
     );
     if ($this->animationPaused) { $actor->pauseGraphicalAnimation(); }

@@ -29,7 +29,7 @@ final class CinematicSubjectResolver
         $this->gameScene->cinematicStage?->find($id)?->position,
         sprintf('Staged actor "%s" was not found.', $id),
       ),
-      'party_actor' => $this->partyActorPosition($id),
+      'party_actor' => $this->getPartyActorPosition($id),
       'position' => new Vector2(intval($reference['x'] ?? 0), intval($reference['y'] ?? 0)),
       'marker' => $this->copy(
         $this->gameScene->player?->findEventMarkerPosition($id),
@@ -39,17 +39,18 @@ final class CinematicSubjectResolver
     };
   }
 
-  protected function partyActorPosition(string $id): Vector2
+  protected function getPartyActorPosition(string $id): Vector2
   {
     $members = $this->gameScene->party?->members->toArray() ?? [];
+    $hasStableIdentity = $id !== '' && array_any($members, static fn($actor): bool => $actor->actorId === $id);
 
     foreach ($members as $index => $actor) {
       $matches = $id === ''
         ? $index === 0
-        : in_array($id, array_filter([
+        : ($hasStableIdentity ? $actor->actorId === $id : in_array($id, array_filter([
           property_exists($actor, 'id') ? strval($actor->id) : null,
           property_exists($actor, 'name') ? strval($actor->name) : null,
-        ]), true);
+        ]), true));
 
       if (! $matches) {
         continue;

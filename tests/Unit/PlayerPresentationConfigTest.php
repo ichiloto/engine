@@ -11,6 +11,7 @@ use Ichiloto\Engine\Events\Interpreter\EventInterpreter;
 use Ichiloto\Engine\Events\Interpreter\EventPresentationInterface;
 use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Field\Player;
+use Ichiloto\Engine\Field\PlayerGraphicalSubject;
 use Ichiloto\Engine\Field\PlayerPresentationConfig;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\InputManager;
@@ -43,6 +44,12 @@ final class PlayerPresentationTestGame extends Game
 {
   public function __construct() {}
   public function __destruct() {}
+}
+
+final class PlayerPresentationTestScene extends GameScene
+{
+  public function __construct(private Game $testGame) {}
+  public function getGame(): Game { return $this->testGame; }
 }
 
 /**
@@ -96,8 +103,7 @@ beforeEach(function () {
     file_put_contents($this->root . '/assets/Data/Entities/player.php', '<?php return ' . var_export($data, true) . ';');
   };
   ($this->writePlayerData)($this->data);
-  $this->scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()->onlyMethods(['getGame'])->getMock();
-  $this->scene->method('getGame')->willReturn(new PlayerPresentationTestGame());
+  $this->scene = new PlayerPresentationTestScene(new PlayerPresentationTestGame());
   $this->camera = new Camera($this->scene, 20, 10, worldSpace: array_fill(0, 30, str_repeat('.', 40)));
   new ReflectionProperty(GameScene::class, 'camera')->setValue($this->scene, $this->camera);
   $this->config = new GameConfig('fixture', new Party(), new Vector2(7, 4), new Rect(0, 0, 1, 1), MovementHeading::SOUTH);
@@ -129,6 +135,49 @@ it('shares project loading with new-game terminal art and treats absent graphica
   expect($config->graphical)->toBeNull()->and($config->terminal->toArray())->toBe($terminal->toArray())
     ->and(($this->createPlayer)($this->config)->getGraphicalSpriteDefinition())->toBeNull();
 });
+
+it('preserves fixed-player ownership when the selector is absent or explicitly selected', function (?string $selector) {
+  if ($selector !== null) {
+    $this->data['graphicalSubject'] = $selector;
+  }
+  ($this->writePlayerData)($this->data);
+  $presentation = PlayerPresentationConfig::load();
+  expect($presentation->graphicalSubject)->toBe(PlayerGraphicalSubject::FIXED_PLAYER)
+    ->and($presentation->graphical->asset)->toBe($this->sheet)
+    ->and(($this->createPlayer)($this->config)->getGraphicalSpriteDefinition()->asset)->toBe($this->sheet)
+    ->and(is_file($this->root . '/warning.log'))->toBeFalse();
+})->with(['absent selector' => [null], 'explicit fixed-player' => ['fixed-player']]);
+
+it('selects party-leader ownership without interpreting unused fixed-player art', function () {
+  $this->data['graphicalSubject'] = 'party-leader';
+  $this->data['sprites2d'] = 'invalid unused fixed-player art';
+  ($this->writePlayerData)($this->data);
+  $presentation = PlayerPresentationConfig::load();
+  expect($presentation->graphicalSubject)->toBe(PlayerGraphicalSubject::PARTY_LEADER)
+    ->and($presentation->graphical)->toBeNull()
+    ->and($presentation->terminal->toArray())->toBe(['north' => ['^'], 'east' => ['>'], 'south' => ['v'], 'west' => ['<']])
+    ->and(is_file($this->root . '/warning.log'))->toBeFalse();
+  expect(($this->createPlayer)($this->config)->getGraphicalSpriteDefinition())->toBeNull()
+    ->and(file_get_contents($this->root . '/warning.log'))->toContain('party has no selected leader')
+    ->not->toContain('Player sprites2d is invalid');
+});
+
+it('refuses invalid graphical ownership without selecting fixed-player or party-leader', function (mixed $selector) {
+  $this->data['graphicalSubject'] = $selector;
+  ($this->writePlayerData)($this->data);
+  $presentation = PlayerPresentationConfig::load();
+  $player = ($this->createPlayer)($this->config);
+  expect($presentation->graphicalSubject)->toBeNull()->and($presentation->graphical)->toBeNull()
+    ->and($player->getGraphicalSpriteDefinition())->toBeNull()
+    ->and($player->sprite)->toBe($this->config->playerSprite)
+    ->and($player->getDirectionalSprites())->toBe(['north' => ['^'], 'east' => ['>'], 'south' => ['v'], 'west' => ['<']])
+    ->and(file_get_contents($this->root . '/warning.log'))->toContain('Player graphicalSubject is invalid', 'without choosing another graphical identity')
+    ->not->toContain('party has no selected leader');
+})->with([
+  'null' => [null], 'false' => [false], 'integer' => [1], 'array' => [['party-leader']],
+  'empty string' => [''], 'unknown mode' => ['protagonist'], 'wrong case' => ['PARTY-LEADER'],
+  'whitespace' => [' party-leader '],
+]);
 
 it('loads current project art for new and restored Players without serializing graphical data', function () {
   $new = ($this->createPlayer)($this->config);

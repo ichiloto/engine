@@ -54,9 +54,14 @@ The provider receives no Camera or client and never draws, polls or sends.
 GameObject itself does not implement the capability. Player is the first
 production implementation; future object types must opt in independently.
 
-Player accepts an appended optional `?CharacterSheet $graphicalSprites = null`
-constructor argument. Existing calls are unchanged;
-without a set, its definition is null and it remains terminal-only. Its stable ID
+Player accepts optional `?CharacterSheet $graphicalSprites = null` and live
+`?Party $party = null` constructor arguments. Existing calls are unchanged.
+Without either source, its definition is null and it remains terminal-only.
+A supplied party resolves the current selected leader's actor-owned sheet;
+otherwise the explicitly supplied fixed sheet is used. `GameScene` selects one
+source through the current project's
+[graphical subject mode](sprite-sheets.md#player-identity-and-actor-roles).
+There is no fallback from a missing leader role to another actor's sheet. Its stable ID
 is `player`, representing the unique field player, independent of character name,
 heading, position and GameObject's random hash. Do not include multiple field
 Players under this ID in one frame; S4 rejects duplicate IDs.

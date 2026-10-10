@@ -56,6 +56,14 @@ editing surface is owned by the GUI Editor plan. Related docs:
 
 ## Characters
 
+- Player graphical identity is a project choice, separate from Terminal sprites.
+  Existing projects retain fixed-player `sprites2d`; explicit `party-leader`
+  mode resolves the selected leader's stable actor ID and current actor-owned
+  `images.field2d` role. Party-order changes preserve field geometry, camera,
+  movement and arrival ownership. Inherited cinematic player art follows that
+  same role; explicitly named cast members stay themselves. Missing roles are
+  diagnosed, not replaced with another actor's art. See the
+  [sheet and identity contract](rendering/sprite-sheets.md#player-identity-and-actor-roles).
 - NPC visibility is reconciled at the field presentation boundary, including
   while a story event still owns dialogue or waits after battle. The shared
   field compositor redraws both sprite providers and terminal layers together,

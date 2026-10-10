@@ -11,7 +11,8 @@ pattern and frame selection; the renderer draws the selected crop. See the
 
 ## Project metadata
 
-Keep the terminal `sprites` entry. Add `sprites2d` naming a character sheet:
+Keep the terminal `sprites` entry. A fixed player or an independently authored
+NPC uses `sprites2d` naming a character sheet:
 
 ```php
 // A standard sheet holds 8 characters; index selects one (0 to 7).
@@ -28,6 +29,42 @@ Keep the terminal `sprites` entry. Add `sprites2d` naming a character sheet:
 the world range 0 to 999. Nothing else is accepted: size, anchor, frame size,
 frame counts and timing are not authored, because the sheet and the cell
 already define them.
+
+### Player identity and actor roles
+
+`Data/Entities/player.php` chooses the graphical subject explicitly:
+
+```php
+'graphicalSubject' => 'party-leader',
+```
+
+In this mode, the live party leader's stable actor ID resolves its current
+`Data/Actors/<id>.php` definition. That actor owns the shared field role:
+
+```php
+'images' => [
+    'field2d' => ['sheet' => 'Graphics/Characters/$Leader.png', 'layer' => 100],
+    // Other existing artwork roles remain independent.
+],
+```
+
+Changing party order changes the sheet, not the field player's identity,
+position, heading, walking phase, camera or pending arrival. Saved gameplay
+references the actor; current project definitions supply artwork after loading.
+The actor role uses the same sheet/index/world-layer validation as fixed sheets.
+It does not infer actor identity from file names, duplicate image dimensions or
+fall back to a different actor when a role is missing or invalid. Such failures
+are diagnosed while retaining the terminal presentation.
+
+`'graphicalSubject' => 'fixed-player'` uses the player's existing `sprites2d`.
+Omitting the selector preserves that compatibility behavior. An invalid selector
+is diagnosed and refuses optional graphical artwork rather than guessing an
+identity. The selector does not change terminal `sprites` or collision.
+
+A cinematic staged subject without explicit artwork inherits the real subject's
+current sheet. A staged player therefore follows the selected leader; explicitly
+named actors and explicitly authored staged artwork retain their own identity.
+Ending the stage releases its presentation lease without replacing the player.
 
 ## Sheet layout
 

@@ -66,6 +66,7 @@ beforeEach(function () {
     new ReflectionProperty(Console::class, $name)->setValue(null, $value);
   }
   Console::syncDimensions(20, 10);
+  Console::setTerminalOutputEnabled(false);
   ob_start();
 
   // Reuse the lightweight scene/map fixture approach; Player and Camera run their real constructors.

@@ -70,7 +70,7 @@ final class StagedActor implements GraphicalSpriteProviderInterface
     $this->baseSprite = $sprite;
     $this->visible = $isVisible;
     $this->walkAnimation = new CharacterWalkAnimation();
-    if ($graphicalSprites instanceof CharacterSheet) {
+    if ($graphicalSprites instanceof CharacterSheet || ($graphicalSprites === null && $subject !== null)) {
       $this->graphicalAssetGuard = new CharacterSheetAssetGuard($assetRoot ?? getcwd() . '/assets', 'Staged actor ' . $id);
     }
     if ($graphicalSprites instanceof FieldPoseAnimation) {
@@ -144,7 +144,7 @@ final class StagedActor implements GraphicalSpriteProviderInterface
   /** Any visible art slides; only a character sheet also walks through its frames. */
   public function beginGraphicalStep(CharacterStep $step): void
   {
-    if ($this->isVisible && $this->graphicalSprites !== null) {
+    if ($this->isVisible && $this->getGraphicalSprites() !== null) {
       $this->walkAnimation->step($step);
     }
   }
@@ -159,15 +159,22 @@ final class StagedActor implements GraphicalSpriteProviderInterface
 
   private function getFrameDefinition(): ?GraphicalSpriteDefinition
   {
-    if ($this->graphicalSprites instanceof FieldPoseAnimation) {
+    $sprites = $this->getGraphicalSprites();
+    if ($sprites instanceof FieldPoseAnimation) {
       return $this->posePlayback?->getFrame(Accessibility::prefersReducedMotion());
     }
-    if (!$this->graphicalSprites instanceof CharacterSheet) {
-      return $this->graphicalSprites;
+    if (!$sprites instanceof CharacterSheet) {
+      return $sprites;
     }
-    $frame = $this->graphicalAssetGuard?->getFrameSize($this->graphicalSprites);
+    $frame = $this->graphicalAssetGuard?->getFrameSize($sprites);
     return $frame === null ? null
-      : $this->graphicalSprites->getFrame($this->facing, $this->walkAnimation->getPattern(), $frame);
+      : $sprites->getFrame($this->facing, $this->walkAnimation->getPattern(), $frame);
+  }
+
+  /** Explicit cast art stays fixed; an inherited role follows its real subject. */
+  private function getGraphicalSprites(): GraphicalSpriteDefinition|CharacterSheet|FieldPoseAnimation|null
+  {
+    return $this->graphicalSprites ?? $this->subject?->subject->getGraphicalCharacterSheet();
   }
 
   public function stopGraphicalAnimation(): void

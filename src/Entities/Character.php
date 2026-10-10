@@ -44,6 +44,9 @@ use Ichiloto\Engine\Entities\Stats\StatResolution;
 use Ichiloto\Engine\Entities\Stats\StatResolver;
 use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Stores\ClassStore;
+use Ichiloto\Engine\Util\Stores\ActorStore;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
 use Ichiloto\Engine\Exceptions\PersistentStateRestoreException;
 use Ichiloto\Engine\Exceptions\SummonAssignmentException;
 use Ichiloto\Engine\IO\SaveCompatibility\SaveHydrationContext;
@@ -267,6 +270,24 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
   protected(set) ?string $naturalVariantId = null;
   /** Stable project actor identity; distinct from the mutable display name. */
   protected(set) string $actorId;
+  private ?string $lastFieldArtworkFailure = null;
+
+  /** Resolve current actor-owned art, never historical images or mutable display names. */
+  public function getGraphicalCharacterSheet(): ?CharacterSheet
+  {
+    $store = ConfigStore::has(ActorStore::class) ? ConfigStore::get(ActorStore::class) : null;
+    $definition = $store instanceof ActorStore ? $store->get($this->actorId) : null;
+    if ($definition === null) {
+      $failure = sprintf('Actor "%s" field artwork unavailable; current actor definition is missing. Keeping terminal sprite.', $this->actorId);
+      if ($failure !== $this->lastFieldArtworkFailure) {
+        Debug::warn($failure);
+        $this->lastFieldArtworkFailure = $failure;
+      }
+      return null;
+    }
+    $this->lastFieldArtworkFailure = null;
+    return $definition->getGraphicalCharacterSheet();
+  }
 
   /**
    * Character constructor.

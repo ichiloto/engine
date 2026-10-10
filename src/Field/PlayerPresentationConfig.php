@@ -12,6 +12,8 @@ final readonly class PlayerPresentationConfig
   public function __construct(
     public PlayerSpriteSet $terminal,
     public ?CharacterSheet $graphical = null,
+    /** Null means an invalid selector refused optional graphical presentation. */
+    public ?PlayerGraphicalSubject $graphicalSubject = PlayerGraphicalSubject::FIXED_PLAYER,
   ) {}
 
   public static function load(): self
@@ -23,8 +25,16 @@ final readonly class PlayerPresentationConfig
   /** @param array<string, mixed> $data */
   public static function fromArray(array $data): self
   {
+    $subject = PlayerGraphicalSubject::FIXED_PLAYER;
+    if (array_key_exists('graphicalSubject', $data)) {
+      $subject = is_string($data['graphicalSubject'])
+        ? PlayerGraphicalSubject::tryFrom($data['graphicalSubject']) : null;
+      if ($subject === null) {
+        Debug::warn('Player graphicalSubject is invalid; expected fixed-player or party-leader; keeping the terminal sprite without choosing another graphical identity.');
+      }
+    }
     $graphical = null;
-    if (array_key_exists('sprites2d', $data)) {
+    if ($subject === PlayerGraphicalSubject::FIXED_PLAYER && array_key_exists('sprites2d', $data)) {
       // Optional art never stops the game: a malformed sheet keeps the terminal sprite.
       try {
         if (!is_array($data['sprites2d'])) {
@@ -35,6 +45,6 @@ final readonly class PlayerPresentationConfig
         Debug::warn('Player sprites2d is invalid; keeping the terminal sprite: ' . $error->getMessage());
       }
     }
-    return new self(PlayerSpriteSet::fromArray($data), $graphical);
+    return new self(PlayerSpriteSet::fromArray($data), $graphical, $subject);
   }
 }

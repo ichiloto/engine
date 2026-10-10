@@ -34,6 +34,7 @@ use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
 use Ichiloto\Engine\Field\Player;
+use Ichiloto\Engine\Field\PlayerGraphicalSubject;
 use Ichiloto\Engine\Field\PlayerPresentationConfig;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderHostInterface;
 use Ichiloto\Engine\IO\Console\Console;
@@ -600,9 +601,12 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     /** Gameplay comes from the save; graphical artwork comes from the current project. */
     protected function createPlayer(GameConfig $config): Player
     {
+        $presentation = PlayerPresentationConfig::load();
         return new Player($this, 'Player', $config->playerPosition, $config->playerShape,
             $config->playerSprite, $config->playerHeading, $config->playerSprites,
-            PlayerPresentationConfig::load()->graphical, $this->getGame()->getRendererRuntime()?->getAssetRoot());
+            graphicalSprites: $presentation->graphicalSubject === PlayerGraphicalSubject::FIXED_PLAYER ? $presentation->graphical : null,
+            assetRoot: $this->getGame()->getRendererRuntime()?->getAssetRoot(),
+            party: $presentation->graphicalSubject === PlayerGraphicalSubject::PARTY_LEADER ? $config->party : null);
     }
 
     /** Initializes the game scene states. */
