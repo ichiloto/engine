@@ -144,8 +144,21 @@ editing surface is owned by the GUI Editor plan. Related docs:
   A space glyph or a `0` tile leaves that cell as it was. An editor stamps
   a piece whole, writing its glyphs and its tiles together, so a map made
   in the terminal draws correctly graphically without a second pass; the
-  terminal editor never asks for or shows the tiles. Collision still comes
-  from the glyphs alone. A map offers the pieces of the tileset it names.
+  terminal editor never asks for or shows the tiles. Runtime collision reads
+  the map's explicit `occupancy`; only an undeclared map uses legacy glyph
+  passage. A map offers the pieces of the tileset it names.
+- **Physical recipes.** A piece may separately declare `occupancy`, a
+  rectangular list of rows matching its logical width and height. Cells are
+  final `CollisionType` cases or `null` to leave the destination unchanged:
+  `'occupancy' => [[CollisionType::SOLID, null], [CollisionType::COUNTER, CollisionType::SOLID]]`.
+  `PASS_THROUGH` is a legacy layer rule, not a final physical cell. Absence
+  means no recipe; an explicit null declaration, invalid type or mismatched
+  geometry refuses. A connected piece uses one cell independently of its
+  drawn shape. Glyph/art placement never applies this recipe automatically.
+  The GUI edits it through the existing record/source/history service and
+  saves the tileset before selecting it in the Collision tool. An explicit
+  footprint stamp changes only declared map occupancy as one undo step;
+  every non-null cell must fit, including on ragged maps, or nothing changes.
 - **Independent underlays.** A stamped piece may declare `keeps`, a list of
   tile layers whose existing tiles remain beneath it, for example
   `'keeps' => ['walls']` for a window that can sit on any wall material.
@@ -153,8 +166,8 @@ editing surface is owned by the GUI Editor plan. Related docs:
   valid, distinct tile layer names and cannot also be layers the piece writes.
   Omission means no retained layers. Nonempty `keeps` is refused on connected
   pieces until their reshape/erase ownership is defined. Retention describes
-  graphical authoring only; gameplay footprint and collision still come from
-  glyphs. The Engine contract is implemented; the corresponding Editor
+  graphical authoring only; physical occupancy remains independent, with
+  glyph passage used only by undeclared legacy maps. The Engine contract is implemented; the corresponding Editor
   placement/coverage behavior and Game bindings are being integrated by their
   owner, not implied by parsing this field alone.
 - **Piece cell styles.** Existing `glyphs` rows may use the same terminal

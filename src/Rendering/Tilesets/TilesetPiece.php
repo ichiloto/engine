@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\Rendering\Tilesets;
 
 use Ichiloto\Engine\Field\MapTileLayer;
 use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
+use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use InvalidArgumentException;
 
@@ -13,9 +14,11 @@ use InvalidArgumentException;
  * A whole item a map is built from, such as a bed: its terminal glyphs on one
  * gameplay layer and, optionally, its RPG Maker tiles on named tile layers,
  * over the same footprint of terminal cells. Editors stamp a piece whole; the
- * game only ever reads the glyphs and tiles it left behind, so collision
- * still comes from the glyphs alone. A space glyph and a `0` tile leave that
- * cell as it was.
+ * game only ever reads the map data it left behind. Optional occupancy is a
+ * recipe for an explicit physical stamp, never an automatic consequence of
+ * placing glyphs or tiles. A null occupancy cell, space glyph or `0` tile
+ * leaves its respective destination as it was. Runtime collision reads map
+ * occupancy, with legacy glyph passage only when map occupancy is absent.
  *
  * A connected piece (`'connects' => 'lines'`), such as a wall, is drawn one
  * cell at a time and joins the cells of the same piece beside it: each cell
@@ -24,7 +27,7 @@ use InvalidArgumentException;
  */
 final readonly class TilesetPiece
 {
-  public const array FIELDS = ['name', 'layer', 'glyphs', 'tiles', 'connects', 'effect', 'keeps'];
+  public const array FIELDS = ['name', 'layer', 'glyphs', 'tiles', 'connects', 'effect', 'keeps', 'occupancy'];
   /** Cells join the cells beside them across and down, like a wall or fence. */
   public const string LINES = 'lines';
   /** A line cell's shapes: joined only across, only down, or both ways (corners, junctions and lone posts). */
@@ -37,7 +40,7 @@ final readonly class TilesetPiece
   public int $height;
   /** @var list<list<string>> Styled display cells, using the same contract as MapLayer::grid. */
   public array $grid;
-  /** @var list<list<string>> Plain glyphs; footprint and collision never depend on style. */
+  /** @var list<list<string>> Plain glyphs; logical geometry never depends on style. */
   public array $glyphs;
   /** @var array<string, string> Styled display cell for each connected shape. */
   public array $shapeGrid;
@@ -49,6 +52,8 @@ final readonly class TilesetPiece
   private array $sourceCells;
   /** @var list<string> Existing tiles on these layers remain beneath a stamped piece. */
   public array $keeps;
+  /** @var list<list<CollisionType|null>>|null Explicit physical recipe; null cells leave the destination unchanged, absence means no recipe. */
+  public ?array $occupancy;
 
   /**
    * @param list<list<string>> $glyphs One visible character per cell, optionally styled, by row; one cell for a connected piece.
@@ -58,6 +63,7 @@ final readonly class TilesetPiece
    * @param list<string>|null $sourceRows Original rows, when constructing from row-based authored data.
    * @param array<string, string>|null $sourceShapeGrid Original connected shape strings, before display formatting.
    * @param list<string> $keeps Tile layers preserved under the stamped footprint, never layers this piece writes.
+   * @param list<list<CollisionType|null>>|null $occupancy Final physical cells over the logical geometry, independent of glyphs, tiles and connected shape.
    */
   public function __construct(
     public string $id,
@@ -72,6 +78,7 @@ final readonly class TilesetPiece
     private ?array $sourceRows = null,
     ?array $sourceShapeGrid = null,
     array $keeps = [],
+    ?array $occupancy = null,
   ) {
     $this->keeps = self::readKeptLayers($keeps, array_keys($tiles + $shapeTiles), $connects, "Piece {$id}");
     $this->sourceCells = $glyphs;
@@ -83,6 +90,8 @@ final readonly class TilesetPiece
     $this->shapes = array_map(TerminalText::stripAnsi(...), $this->shapeGrid);
     $this->height = count($glyphs);
     $this->width = count($glyphs[0] ?? []);
+    $this->occupancy = $occupancy === null ? null
+      : self::readOccupancy($occupancy, $this->width, $this->height, "Piece {$id}");
   }
 
   /**
@@ -162,7 +171,43 @@ final readonly class TilesetPiece
       static fn(array $row): bool => array_any($row, static fn(string $tile): bool => $tile !== '0'))))) {
       throw new InvalidArgumentException("{$context} effect needs graphical tiles to identify its stamped instances.");
     }
-    return new self($id, $data['name'], $data['layer'], $glyphs, $tiles, effect: $effect, sourceRows: $rows, keeps: $keeps);
+    $occupancy = array_key_exists('occupancy', $data)
+      ? self::readOccupancy($data['occupancy'], $width, count($glyphs), $context) : null;
+    return new self($id, $data['name'], $data['layer'], $glyphs, $tiles, effect: $effect, sourceRows: $rows, keeps: $keeps,
+      occupancy: $occupancy);
+  }
+
+  /** @return list<list<CollisionType|null>> */
+  private static function readOccupancy(mixed $rows, int $width, int $height, string $context): array
+  {
+    $context .= ' occupancy';
+    if (!is_array($rows) || !array_is_list($rows)) {
+      throw new InvalidArgumentException("{$context} must be a zero-based list of rows.");
+    }
+    if (count($rows) !== $height) {
+      throw new InvalidArgumentException("{$context} must have {$height} rows to match its logical geometry.");
+    }
+    $occupancy = [];
+    foreach ($rows as $y => $row) {
+      if (!is_array($row) || !array_is_list($row)) {
+        throw new InvalidArgumentException("{$context} row {$y} must be a zero-based list of CollisionType cases or null.");
+      }
+      if (count($row) !== $width) {
+        throw new InvalidArgumentException("{$context} row {$y} must be {$width} cells wide to match its logical geometry.");
+      }
+      $occupancy[$y] = [];
+      foreach ($row as $x => $type) {
+        if ($type !== null && !$type instanceof CollisionType) {
+          throw new InvalidArgumentException("{$context} cell {$x}, {$y} must be a CollisionType case or null; got " . get_debug_type($type) . '.');
+        }
+        if ($type === CollisionType::PASS_THROUGH) {
+          throw new InvalidArgumentException("{$context} cell {$x}, {$y} must be resolved; PASS_THROUGH is only a legacy layer passage rule.");
+        }
+        // Detach caller-owned row and cell references from this readonly recipe.
+        $occupancy[$y][$x] = $type;
+      }
+    }
+    return $occupancy;
   }
 
   /** @param list<array-key> $writtenLayers @return list<string> */
@@ -223,8 +268,10 @@ final readonly class TilesetPiece
         $shapeTiles[$layer][$shape] = $cells[0][0];
       }
     }
+    $occupancy = array_key_exists('occupancy', $data)
+      ? self::readOccupancy($data['occupancy'], 1, 1, $context) : null;
     return new self($id, $data['name'], $data['layer'], [[$shapes['corner']]], [], self::LINES, $shapes, $shapeTiles,
-      sourceRows: [$glyphs['corner']], sourceShapeGrid: $glyphs);
+      sourceRows: [$glyphs['corner']], sourceShapeGrid: $glyphs, occupancy: $occupancy);
   }
 
   private static function isCellGlyph(string $symbol): bool

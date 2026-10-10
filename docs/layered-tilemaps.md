@@ -363,9 +363,13 @@ defines absence-only compatibility and malformed-data refusal. No production map
 is silently converted. The GUI Collision tool now uses shared physical-cell
 read, paint and fill services, the existing brush shapes, a constrained collision
 picker and an editor-only overlay. Source-preserving save/history and stale
-revision or cancelled-gesture refusal have automated coverage. Object-footprint
-authoring and native acceptance of the physical brushes remain open in the GUI
-plan; these implemented cell tools alone do not close Stage 1.
+revision or cancelled-gesture refusal have automated coverage. Reusable piece
+recipes and explicit Collision-tool footprint stamps now use the same source,
+history and physical-cell authority. Recipes never apply during glyph/art
+placement; mixed types and null cells are supported without inferred defaults.
+Preview and stamping validate the whole recipe against the actual map geometry
+and the displayed map/recipe revision. Native acceptance of cell brushes and
+footprint controls remains open; implementation alone does not close Stage 1.
 
 ### Stage 2 - Sprite pivot, ground footprint and depth
 
