@@ -85,4 +85,92 @@ final readonly class CanvasNineSlice
     }
     return $images;
   }
+
+  /**
+   * Repeat a full-height middle sample horizontally without stretching source pixels.
+   * Height must equal source height / density; existing vertical cuts remain fixed.
+   * The final image keeps its full sample size and clips its fractional tail, so its
+   * original destination must still fit the canvas. Budget counts planned pieces
+   * before clipping, including caps, and must be the caller's remaining image slots.
+   * @return list<CanvasImage>
+   */
+  public function composeRepeatedXImages(string $id, CanvasRectangle $destination, int $layer,
+    ?CanvasRectangle $clip = null, ?SpriteSourceRect $repeatSource = null, int $remainingImageBudget = 1024): array
+  {
+    $middleLeft = $this->source->x + $this->left;
+    $middleRight = $this->source->x + $this->source->width - $this->right;
+    if ($middleRight <= $middleLeft) {
+      throw new InvalidArgumentException('Horizontal repetition requires a positive source middle strip.');
+    }
+    $repeatSource ??= new SpriteSourceRect($middleLeft, $this->source->y,
+      $middleRight - $middleLeft, $this->source->height);
+    if ($repeatSource->x < $middleLeft || $repeatSource->x + $repeatSource->width > $middleRight
+      || $repeatSource->y !== $this->source->y || $repeatSource->height !== $this->source->height) {
+      throw new InvalidArgumentException('Repeat source must be a full-height crop wholly within the middle strip.');
+    }
+    if ($destination->width < max($this->minimumWidth, ($this->left + $this->right) / $this->density)
+      || $destination->height < $this->minimumHeight
+      || $destination->height !== (float)$this->source->height / $this->density) {
+      throw new InvalidArgumentException('Repeated destination must fit the minimum and fixed caps at the exact source height / density.');
+    }
+    if ($remainingImageBudget < 0 || $remainingImageBudget > 1024) {
+      throw new InvalidArgumentException('Remaining canvas image budget must be in 0..1024.');
+    }
+    $sx = [$this->source->x, $middleLeft, $middleRight, $this->source->x + $this->source->width];
+    $sy = [$this->source->y, $this->source->y + $this->top,
+      $this->source->y + $this->source->height - $this->bottom, $this->source->y + $this->source->height];
+    $dx = [$destination->x, $destination->x + $this->left / $this->density,
+      $destination->x + $destination->width - $this->right / $this->density, $destination->x + $destination->width];
+    $dy = [$destination->y, $destination->y + $this->top / $this->density,
+      $destination->y + $destination->height - $this->bottom / $this->density, $destination->y + $destination->height];
+    $repeatWidth = $repeatSource->width / $this->density;
+    $repeatCount = (int)ceil(max(0, $dx[2] - $dx[1]) / $repeatWidth);
+    $rowCount = 0;
+    for ($row = 0; $row < 3; $row++) {
+      if ($sy[$row + 1] > $sy[$row]) { $rowCount++; }
+    }
+    $pieceCount = $rowCount * ((int)($this->left > 0) + $repeatCount + (int)($this->right > 0));
+    // Refuse expansion before constructing any CanvasImage or allocating its list.
+    if ($pieceCount > $remainingImageBudget) {
+      throw new InvalidArgumentException('Horizontal repeat expansion exceeds the remaining canvas image budget.');
+    }
+    $tailClip = null;
+    $hasTail = $repeatCount > 0 && $dx[1] + $repeatCount * $repeatWidth > $dx[2];
+    if ($hasTail) {
+      $x = $dx[1] + ($repeatCount - 1) * $repeatWidth;
+      $y = $destination->y;
+      $right = $dx[2];
+      $bottom = $dy[3];
+      if ($clip !== null) {
+        $x = max($x, $clip->x);
+        $y = max($y, $clip->y);
+        $right = min($right, $clip->x + $clip->width);
+        $bottom = min($bottom, $clip->y + $clip->height);
+      }
+      if ($right > $x && $bottom > $y) {
+        $tailClip = new CanvasRectangle($x, $y, $right - $x, $bottom - $y);
+      }
+    }
+    $images = [];
+    for ($row = 0; $row < 3; $row++) {
+      if ($sy[$row + 1] <= $sy[$row]) { continue; }
+      for ($column = 0; $column < 3; $column++) {
+        $count = $column === 1 ? $repeatCount : (int)($sx[$column + 1] > $sx[$column]);
+        for ($index = 0; $index < $count; $index++) {
+          $isTail = $column === 1 && $hasTail && $index === $repeatCount - 1;
+          if ($isTail && $tailClip === null) { continue; }
+          $x = $column === 1 ? $dx[1] + $index * $repeatWidth : $dx[$column];
+          $width = $column === 1 ? $repeatWidth : ($sx[$column + 1] - $sx[$column]) / $this->density;
+          $sourceX = $column === 1 ? $repeatSource->x : $sx[$column];
+          $sourceWidth = $column === 1 ? $repeatSource->width : $sx[$column + 1] - $sx[$column];
+          $pieceId = "{$id}-{$row}-{$column}" . ($column === 1 ? "-{$index}" : '');
+          $images[] = new CanvasImage($pieceId, $this->asset,
+            new CanvasRectangle($x, $dy[$row], $width, ($sy[$row + 1] - $sy[$row]) / $this->density),
+            $layer, new SpriteSourceRect($sourceX, $sy[$row], $sourceWidth, $sy[$row + 1] - $sy[$row]),
+            clipRect: $isTail ? $tailClip : $clip);
+        }
+      }
+    }
+    return $images;
+  }
 }

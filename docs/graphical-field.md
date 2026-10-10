@@ -502,6 +502,73 @@ write. Dedicated GUI controls and their safe round trips remain a separate
 Editor/GUI boundary; this runtime contract does not claim authoring completion
 or add a graphical workflow to the TUI.
 
+### Editable Signage (Approved Direction, Not Yet Implemented)
+
+Reusable signs extend the map-owned presentation path rather than baking words
+into tile images or adding a Game-specific HUD overlay. Andrew approved editable
+labels on reusable boards and translation from the start on October 11, then
+selected an open-licensed font with replaceable developer font resources.
+Existing bed/purse icon signs remain usable and unchanged.
+
+The placement owns a stable sign identity, anchor and localized vocabulary term;
+the reusable resource owns blank board artwork, font role and text treatment.
+Font names and paths are project data, not Engine constants. Board width derives
+from the selected current font's shaped label bounds, treatment extents and
+padding. Fixed end caps and repeated middle strips preserve artwork grain;
+fitting must not silently shrink/truncate words, expand physical occupancy or
+derive Terminal geometry from graphical pixels. Missing terms, unusable glyphs,
+invalid assets and exceeded budgets require diagnostics, not invented text.
+
+Board and label must paint as one map-owned, camera-transformed, depth-sorted
+subject, interleaving with actors through shared field painting. Existing HUD
+canvas text paints after the field and is not this mechanism. World grouping,
+font loading/shaping/measurement and repeated-centre support need coordinated
+Engine/Renderer contracts before runtime and authoring admission. Children must
+consume aggregate presentation budgets; grouping does not reset or raise limits.
+Replacement artwork/fonts, locale changes, reload and transfer must use owned
+resource retirement and current-file validation rather than permanent hashes.
+
+The agreed protocol-2 seam negotiates `world_canvas`, `canvas_labels` and
+`text_layout`. A `prepare_text` query names `requestId` and a typed spec: complete
+UTF-8 text, ordered explicit project font references, logical `fontSize`, locale,
+foreground and optional existing `glyphEffects` (null refuses). Font references
+carry asset-root-relative `asset` and optional `faceIndex` (default zero);
+the planned limits are 1..16 fonts, faces 0..31 and sizes 1..256. Correlated
+`text_prepared` returns a session-only `layoutId` and advance/baseline/line/ink/
+paint bounds; `text_prepare_failed` returns its diagnostic. `release_text`
+retires pending registry ownership, not an accepted frame's live layout.
+Queries never advance retained generation.
+
+Retained `world_canvas` owns ID, outer order/layer, cell x/y, normalized pivot
+and a complete local canvas. Its `labels` (or screen `canvas_label` entities)
+reference `layoutId`, pixel `origin`, local layer and optional clip/opacity.
+`viewport.worldCanvasIds` requires a world identity. Label origin must account
+for negative glyph bearings and effects, not just advance. Both embedded and
+runtime preparation use the same project text service and validation. These
+wire shapes are Renderer work in progress; typed Engine transport, resource
+admission, consumer composition and synthetic/native qualification remain open.
+
+The shared `CanvasNineSlice::composeRepeatedXImages()` helper is implemented
+independently of signage admission. It retains existing fixed cuts and density,
+accepts a full-height repeat sample inside the source middle, and emits ordinary
+image pieces without stretching. It checks the caller's remaining image budget
+before expansion, intersects the final tail with caller clipping, and requires
+source-height/density destination height. A clipped fractional tail retains its
+full-density destination; zero/small right caps may require transparent logical
+surface margin, with a world subject's pivot measured against the true board
+anchor rather than that margin. Canvas bounds validation and collision are not
+changed to accommodate it. Existing stretched `images()` behavior is unchanged.
+Nineteen new synthetic cases / 392 assertions and fourteen adjacent cases /
+89 assertions pass, plus scoped configured static analysis. This helper does
+not implement localized labels, world groups or Editor controls.
+
+Engine owns vocabulary resolution, layout and lifecycle; Renderer owns shared
+protocol/font preparation and painting; Claude owns Editor/GUI source-preserving
+authoring and Terminal text editing. The blank wooden/stone board proposals are
+delivered for appearance review; their illustrative proof text is not a final
+runtime font. No new declaration syntax, supported font format, runtime import
+or native/other-platform acceptance is claimed by this planned direction.
+
 ## Project format
 
 `ichiloto upgrade` is the project's format chain. A project records its

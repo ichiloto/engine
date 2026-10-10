@@ -602,10 +602,25 @@ the Player owns timing even without its own sheet when a staged subject owns
 its visual, while scene presentation determines delayed graphical arrival.
 Terminal, sheetless unstaged and reduced-motion arrivals stay immediate.
 No native production-art, cinematic-return or other-platform acceptance is
-inferred. The earlier green Game
-receipt stays pinned to its original Engine snapshot. Publication of the held
-Game candidate requires requalification against the updated Engine as well as
-the live-edit ownership decision; the old receipt is not relabelled.
+inferred. The earlier green Game receipt stays pinned to its original Engine
+snapshot; it is not relabelled. The October 11 requalification of that same
+frozen Game candidate on published Engine `ba48523` now passes 1,908 tests /
+1,701,078 assertions, exit zero, with zero JUnit errors, failures or skips and
+the existing battle-simulations exclusion. Candidate bytes, original custody
+inventory and both indexes stayed unchanged. Engine source stayed unchanged,
+but Andrew's already-running normal Game updated three autosaves and its logs
+and refreshed the installed Renderer with its own backup; those files were not
+restored or removed. The frozen export changed only its warning log, retaining
+two negative-fixture diagnostics. This is not an unchanged entire-runtime-tree
+or native acceptance claim. The stopped wrong-loader attempt is retained, not
+counted as qualification. Receipts are in secondary
+`game-g4-coupled-20261010-claude/qualification-ba48523-20261011-0000`.
+The Engine-source hold is released. Publication of the held Game candidate still
+requires the four later authored Lanternrest files' ownership decision; no
+custody rebaseline, staging or Game publication is inferred from the green run.
+Owned test diagnostics and synthetic scratch are sealed in one verified ZIP;
+11 unused files / 913,988 bytes and six directories were removed. Normal saves,
+settings, logs and installed-renderer backups were left intact.
 
 The shared runtime/authoring Renderer paint seam is now verified and published
 on existing develop as `2a221b2`, reflected in the existing develop-to-main PR3.
@@ -649,6 +664,81 @@ approval to integrate the later reusable assets or complete brush authoring.
 The rejected earlier packet remains excluded. The existing 38-sheet generic
 NPC catalogue is delivered for reuse; it snapshots current Game artwork and
 does not create new identities or imply placements.
+
+Art subsequently delivered nine independent whole-tree/grove resources in
+`ForestCanopy-20261010/WholeTreeResources-20261010`. The coordinator verified the
+closed 56-member ZIP, its 55 manifest-file hashes, current PNG decoding and
+dimensions, and transparent corners, then personally inspected native-scale
+Kaelion comparison, dense-overlap and sparse-edge proofs. This is package and
+composition evidence, not runtime import, native painting or enlarged-budget
+acceptance. Claude owns placements and physical root occupancy; flattened grove
+resources share one ground pivot, while individual trees allow path interleaving.
+The approved revision-2 scene and rejected custody remain distinct.
+
+Andrew's October 11 signage decisions are "Editable labels on reusable boards
+(recommended)" and "Go with custom text signs, translatable from the start".
+He also chose an open-licensed font, no payment, with provision for developers
+to replace it. The shared contract must keep localized label terms separate
+from blank wooden/engraved board artwork, preserve existing icon signs, and
+fit text without stretching grain or changing collision/Terminal geometry.
+Engine owns vocabulary, layout and map lifecycle; Renderer owns project-font
+shaping/measurement and world-depth painting; Claude alone owns Editor/GUI;
+Art owns board proposals. The current image-only object path and HUD canvas
+cannot supply grouped world-depth text. The shared Renderer seam is agreed
+for bounded local implementation, not substituted with a Game-specific overlay.
+It adds capability-negotiated `world_canvas`, `canvas_labels` and `text_layout`
+to protocol 2. A retained world-canvas subject owns its local canvas, stable ID,
+pivot and camera-relative cell anchor. Engine ranks sprites and groups together
+by layer/ground-row/stable order; child layers remain inside the group. Runtime
+and ScenePainter authoring use the same projection, clipping and painting path.
+
+Correlated `prepare_text` / `text_prepared` / `text_prepare_failed` queries do
+not change retained generation. A session-owned immutable layout handle pins
+exact loaded font bytes and whole-label shaping with advance, baseline, ink and
+effect-expanded paint bounds. Labels paint that same prepared layout; handles
+are never authored identity or save data. Explicit project font chains use the
+existing safe AssetRoot resolver; proposed TTF/OTF SFNT admission is bounded at
+32 MiB per font and charged to existing aggregate prepared-memory accounting.
+No missing-glyph machine-font fallback is added. Preparation stays off the UI
+thread, pending requests are bounded at 64, accepted frames retain their live
+layout references, and project/session retirement releases their registry.
+Synthetic bidi/contextual/combining-mark cases must qualify actual shaping.
+
+World groups share the 1,024-subject ceiling with ordinary field sprites; all
+screen/group images, indicators, composites and canvas text consume aggregate
+candidate limits. Existing screen grid-text and canvas-text pools each retain
+their separate 64 ceilings; labels use the canvas pool. A bad group/layout
+must leave the previous accepted generation intact. Engine's repeated-centre
+composition emits ordinary CanvasImage pieces with fixed caps, exact-density
+strips and a clipped final tail, checking expansion before allocation; it needs
+no board-specific wire primitive. Legacy stretched nine-slice behavior remains.
+That bounded helper is now implemented as `composeRepeatedXImages()` with an
+optional narrower middle source crop and explicit remaining image budget. It
+preserves legacy `images()` and current canvas validation. Fractional tails keep
+full-density destination rectangles; callers with zero/small right caps need
+transparent logical margin, without changing visible board width or occupancy.
+Its 19 new tests / 392 assertions and 14 adjacent tests / 89 assertions pass
+strict issue gates with a process-only 512 MiB limit. Scoped configured level-0
+static analysis, syntax and whitespace checks pass. One expected replacement-art
+diagnostic is retained. Evidence is on secondary
+`test-tmp/canvas-nine-slice-repeat-20261011-MYQVgz`; owned worker cache/tmp were
+removed and the completed worker is closed. No new full suite, native or
+other-platform qualification is inferred.
+Appearance and font evidence,
+source-preserving authoring, admission and native checks remain open.
+Art's two blank boards and six slices are delivered; the coordinator verified
+the closed 48-member package and all eight PNGs, then inspected facade, width
+and alpha proofs. Sample lettering is illustrative, not a shipped runtime font.
+The board appearance question is presented once here after showing actual art.
+
+Andrew separately approved the Play workflow through Claude: a new game on the
+open map at the selected cell, skipping title by default, with "Play from the
+title" and renderer choices. Installed/usable GPUI is preferred; Terminal remains
+available in its own window. Engine/console owns startup options, noninteractive
+renderer availability and platform terminal-session launching; Claude owns the
+Editor launcher/RPC and GUI Play menu. This approved work is not implemented or
+counted as accepted merely by recording it; no Editor/GUI ownership transfer,
+normal-save access, native launch or cross-platform validation is implied.
 
 The selected-leader implementation preserves the same Player, camera, heading,
 walking phase, pending arrival and Terminal roles while resolving current
