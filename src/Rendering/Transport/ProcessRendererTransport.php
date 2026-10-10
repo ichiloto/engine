@@ -133,6 +133,13 @@ final class ProcessRendererTransport implements RendererTransportInterface
 
   public function send(RendererMessage $message): void
   {
+    if (!$this->trySend($message)) {
+      throw new RendererTransportException('Renderer outbound buffer is full; message was not queued.');
+    }
+  }
+
+  public function trySend(RendererMessage $message): bool
+  {
     if ($this->state !== RendererTransportState::RUNNING || $this->closeRequested) {
       throw new RendererTransportException('Application messages require a running renderer session.', $this->diagnostics, $this->exitCode);
     }
@@ -146,7 +153,7 @@ final class ProcessRendererTransport implements RendererTransportInterface
       $this->advance(0.0);
       throw $this->failure ?? new RendererProcessExitedException('Renderer exited before send.', $this->diagnostics, $this->exitCode);
     }
-    $this->queue($message);
+    return $this->queue($message);
   }
 
   public function pollEvents(float $waitSeconds = 0.0): array
@@ -235,7 +242,7 @@ final class ProcessRendererTransport implements RendererTransportInterface
     }
   }
 
-  private function queue(RendererMessage $message): void
+  private function queue(RendererMessage $message): bool
   {
     $encoding = LatencyTrace::getTimeNow();
     try {
@@ -247,9 +254,10 @@ final class ProcessRendererTransport implements RendererTransportInterface
     if (strlen($line) > $this->config->maxLineBytes) {
       throw new RendererTransportException('Outbound renderer line exceeds the configured byte limit; message was not queued.');
     }
-    $this->outbound->append($line);
+    if (!$this->outbound->tryAppend($line)) { return false; }
     LatencyTrace::record('transport.queued', ['frame' => $message->payload['frame'] ?? null,
       'bytes' => strlen($line), 'pending_bytes' => $this->outbound->pendingBytes()]);
+    return true;
   }
 
   private function advance(float $wait): void

@@ -124,9 +124,13 @@ first action and are cleared from active and reserve members by ordinary
 battle cleanup on victory, defeat or retreat. They are not serialized as
 permanent growth. Durable world writes continue through normal save/load.
 
-Malformed rules fail closed during project data loading. Diagnostics identify
-the project file, rule ID (or source position), invalid field and offending
-actor, stat, classification or write.
+An invalid actor reference disables only its containing rule during project
+data loading. Startup continues and valid rules still execute; no effects or
+writes from the disabled rule run. This removes the previous startup-wide
+failure for stale actor references without restoring display-name aliases.
+The catalogue's `getDiagnostics()` and warning log identify the project file,
+rule ID, field and offending reference. Other malformed rule data still fails
+closed during loading, including invalid stats, classifications and writes.
 
 ## Editor authoring handoff
 

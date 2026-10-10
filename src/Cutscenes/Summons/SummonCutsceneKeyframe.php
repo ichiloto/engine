@@ -10,7 +10,7 @@ namespace Ichiloto\Engine\Cutscenes\Summons;
 final class SummonCutsceneKeyframe
 {
   /**
-   * @param array<string, int>|null $position
+   * @param array<string, int|float>|null $position
    * @param array<string, mixed> $payload
    */
   public function __construct(
@@ -25,6 +25,10 @@ final class SummonCutsceneKeyframe
     public ?string $blendMode = null,
     public ?string $easing = null,
     public array $payload = [],
+    public ?int $sourceFrame = null,
+    public ?bool $flipX = null,
+    public ?bool $flipY = null,
+    public ?float $opacity = null,
   )
   {
     $this->frame = max(0, $frame);
@@ -55,7 +59,20 @@ final class SummonCutsceneKeyframe
       isset($data['blendMode']) ? strval($data['blendMode']) : null,
       isset($data['easing']) ? strval($data['easing']) : null,
       is_array($data['payload'] ?? null) ? $data['payload'] : [],
+      isset($data['sourceFrame']) ? intval($data['sourceFrame']) : null,
+      isset($data['flipX']) ? boolval($data['flipX']) : null,
+      isset($data['flipY']) ? boolval($data['flipY']) : null,
     );
+  }
+
+  /** @param array<string, mixed> $data */
+  public static function fromImageArray(array $data): self
+  {
+    $keyframe = self::fromArray($data);
+    $keyframe->position = is_array($data['position'] ?? null)
+      ? self::normalizePosition($data['position']) : null;
+    $keyframe->opacity = isset($data['opacity']) ? floatval($data['opacity']) : null;
+    return $keyframe;
   }
 
   /**
@@ -78,9 +95,19 @@ final class SummonCutsceneKeyframe
     ], static fn(mixed $value): bool => $value !== null && $value !== [] && $value !== '');
   }
 
+  /** @return array<string, mixed> */
+  public function toImageArray(): array
+  {
+    return array_filter([
+      'frame' => $this->frame, 'duration' => $this->duration, 'position' => $this->position,
+      'sourceFrame' => $this->sourceFrame, 'flipX' => $this->flipX, 'flipY' => $this->flipY,
+      'opacity' => $this->opacity,
+    ], static fn(mixed $value): bool => $value !== null);
+  }
+
   /**
-   * @param array<int, int>|array<string, int>|null $position
-   * @return array{x: int, y: int}|null
+   * @param array<int, int|float>|array<string, int|float>|null $position
+   * @return array{x: int|float, y: int|float}|null
    */
   protected static function normalizePosition(?array $position): ?array
   {
@@ -88,17 +115,10 @@ final class SummonCutsceneKeyframe
       return null;
     }
 
-    if (array_is_list($position)) {
-      return [
-        'x' => intval($position[0] ?? 0),
-        'y' => intval($position[1] ?? 0),
-      ];
-    }
-
-    return [
-      'x' => intval($position['x'] ?? 0),
-      'y' => intval($position['y'] ?? 0),
-    ];
+    $x = $position[array_is_list($position) ? 0 : 'x'] ?? 0;
+    $y = $position[array_is_list($position) ? 1 : 'y'] ?? 0;
+    return ['x' => is_int($x) || is_float($x) ? $x : intval($x),
+      'y' => is_int($y) || is_float($y) ? $y : intval($y)];
   }
 
   /**
@@ -107,8 +127,7 @@ final class SummonCutsceneKeyframe
    */
   protected static function positionFromArray(mixed $value): ?array
   {
-    return is_array($value)
-      ? self::normalizePosition($value)
-      : null;
+    // Legacy glyph/text coordinates remain integer cells; image offsets use their own factory.
+    return is_array($value) ? array_map(intval(...), self::normalizePosition($value)) : null;
   }
 }

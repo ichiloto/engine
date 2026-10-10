@@ -6,12 +6,13 @@ use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Exception;
 use Ichiloto\Engine\Core\Menu\QuantitySelector;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
+use Ichiloto\Engine\Entities\Inventory\EquipmentIcon;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Scenes\Game\States\ShopState;
-use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Localization\Vocabulary;
 
 /**
  * Represents the purchase confirmation mode.
@@ -44,18 +45,24 @@ class PurchaseConfirmationMode extends ShopMenuMode
    * @var int The maximum quantity of the item to purchase.
    */
   protected(set) int $maxQuantity = 99;
+  public bool $canIncreaseQuantity {
+    get => $this->canIncreaseQuantityBy(1);
+  }
+  public bool $canDecreaseQuantity {
+    get => $this->quantity > $this->quantitySelector->minimum;
+  }
   /**
    * @var int The total price of the purchase.
    */
-  protected int $totalPrice {
+  public int $totalPrice {
     get {
       $total = ($this->item?->price ?? 0) * $this->quantity;
 
       if ($this->previousMode instanceof ShopInventorySelectionMode) {
-        return $total * $this->state->traderSellRate;
+        return (int)round($total * $this->state->traderSellRate);
       }
 
-      return $total * $this->state->traderBuyRate;
+      return (int)round($total * $this->state->traderBuyRate);
     }
   }
   protected string $symbol = 'G';
@@ -116,7 +123,7 @@ class PurchaseConfirmationMode extends ShopMenuMode
       $this->isShopPurchase ? 'sell' : 'purchase',
     ));
     $this->quantitySelector = new QuantitySelector($this->maxQuantity);
-    $this->symbol = config(ProjectConfig::class, 'vocab.currency.symbol', 'G');
+    $this->symbol = Vocabulary::getTerm('currency.symbol', 'G');
     $this->updateWindowContent();
   }
 
@@ -180,6 +187,12 @@ class PurchaseConfirmationMode extends ShopMenuMode
    */
   protected function increaseQuantity(int $amount = 1): bool
   {
+    return $this->canIncreaseQuantityBy($amount) && $this->quantitySelector->adjust($amount);
+  }
+
+  private function canIncreaseQuantityBy(int $amount): bool
+  {
+    if ($this->item === null || $this->quantity >= $this->maxQuantity) { return false; }
     $newQuantity = $this->quantity + $amount;
     $newPriceTotal = $newQuantity * $this->item->price;
 
@@ -199,7 +212,7 @@ class PurchaseConfirmationMode extends ShopMenuMode
       }
     }
 
-    return $this->quantitySelector->adjust($amount);
+    return true;
   }
 
   /**
@@ -219,7 +232,7 @@ class PurchaseConfirmationMode extends ShopMenuMode
    */
   public function updateWindowContent(): void
   {
-    $itemName = TerminalText::padRight($this->item->name ?? 'N/A', 45);
+    $itemName = TerminalText::padRight($this->item === null ? 'N/A' : EquipmentIcon::getItemLabel($this->item), 45);
     $quantity = TerminalText::padLeft((string)$this->quantity, 2);
     $totalPrice = TerminalText::padLeft((string)$this->totalPrice, 48);
     $content = [

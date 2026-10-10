@@ -7,8 +7,18 @@ use Ichiloto\Engine\Battle\Presentation\BattleResultsContent;
 use Ichiloto\Engine\Battle\Presentation\BattleResultsPlayback;
 use Ichiloto\Engine\Battle\Presentation\BattleResultsSkin;
 use Ichiloto\Engine\Battle\Presentation\BattleRewards;
+use Ichiloto\Engine\Battle\Presentation\BattleCanvasLayout;
+use Ichiloto\Engine\Battle\Presentation\BattleHudListSnapshot;
+use Ichiloto\Engine\Battle\Presentation\BattleHudRow;
+use Ichiloto\Engine\Battle\Presentation\BattleHudSnapshot;
+use Ichiloto\Engine\Battle\Presentation\BattleHudStatusSnapshot;
+use Ichiloto\Engine\Battle\Presentation\BattleHudStatusRow;
+use Ichiloto\Engine\Battle\Presentation\BattleUiSkin;
+use Ichiloto\Engine\Battle\Presentation\GraphicalBattleHud;
 use Ichiloto\Engine\Battle\Presentation\GraphicalBattleResults;
 use Ichiloto\Engine\Progression\ProgressionSnapshot;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasComposite;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasCompositeOperation;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasNineSlice;
@@ -59,6 +69,36 @@ function resultsFrameText(PresentationCanvas $frame): string
 {
   return implode("\n", array_merge(...array_map(fn($layer) => array_column($layer->runs, 'text'), $frame->textLayers)));
 }
+
+it('retains battlefield composites and each owners overlay protection through results', function () {
+  $effect = new CanvasComposite('battle-effect', 16, 16, new CanvasRectangle(900, 200, 16, 16),
+    [new CanvasCompositeOperation(['type' => 'fill', 'destination' => ['x' => 0, 'y' => 0, 'width' => 16, 'height' => 16],
+      'brush' => ['type' => 'solid', 'color' => PresentationColor::rgb(0, 128, 255)->toArray()], 'opacity' => 0.5])]);
+  $base = new PresentationCanvas(1350, 720, composites: [$effect],
+    protectedAreas: [new CanvasRectangle(900, 200, 100, 160)]);
+  $playback = new BattleResultsPlayback(new BattleRewards(0, 0, []), true);
+  $frame = GraphicalBattleResults::frame($base, resultsSkinFixture(), $playback);
+  expect($frame->composites)->toBe([$effect])->and($frame->protectedAreas)->not->toBeNull()
+    ->and($frame->getOverlayProtection())->toContain($base->getOverlayProtection()[0]);
+  foreach ($frame->images as $image) {
+    expect(\Ichiloto\Engine\Messaging\Notifications\Presentation\NotificationPlacement::isClear(
+      $image->destination, $frame->getOverlayProtection()))->toBeFalse();
+  }
+});
+
+it('keeps results portraits on the actor id while displaying a renamed actor', function () {
+  $data = (require dirname(__DIR__) . '/Fixtures/Actors/FoundationHero.php')['data'];
+  $original = \Ichiloto\Engine\Entities\Actors\ActorDefinition::fromArray($data)->createCharacter();
+  $data['name'] = 'Hero Renamed';
+  $renamed = \Ichiloto\Engine\Entities\Actors\ActorDefinition::fromArray($data)->createCharacter($original->toArray());
+  $snapshot = ProgressionSnapshot::capture($renamed);
+  $portrait = new CanvasNineSlice('hero-portrait.png', new SpriteSourceRect(0, 0, 96, 96));
+  $skin = resultsSkinFixture(['actor.hero' => ['menu' => $portrait, 'bust' => $portrait]]);
+  $playback = new BattleResultsPlayback(new BattleRewards(0, 0, [new BattleProgression(0, $snapshot, $snapshot)]), true);
+  $frame = GraphicalBattleResults::frame(resultsBattlefield(), $skin, $playback);
+  expect($snapshot->actorId)->toBe('actor.hero')->and(resultsFrameText($frame))->toContain('Hero Renamed')
+    ->and(array_column($frame->images, 'asset'))->toContain('hero-portrait.png');
+});
 
 it('centers each confirmation label on its button without a list cursor', function () {
   $p = new BattleResultsPlayback(new BattleRewards(0, 0, []));
@@ -162,13 +202,39 @@ it('keeps outside-panel hints readable and fits all nine level-up stats on one o
   expect($playback->pageCount())->toBe(1)->and(resultsFrameText($frame))->toContain('Evasion', "1  \u{2192}  2", "5 \u{2192} 5")
     ->not->toContain('->');
   $counter = array_column($frame->textLayers, null, 'id')['results-event-counter'];
-  expect($counter->runs[0]->background)->toBe($skin->colors['ink']);
+  expect($counter->runs[0]->background)->toBeNull();
 
   $overflow = new BattleResultsPlayback(resultsGraphicalFacts(drops: 12), true);
   $frame = GraphicalBattleResults::frame(resultsBattlefield(), $skin, $overflow);
   $pages = array_column($frame->textLayers, null, 'id')['results-pages'];
   expect($pages->runs[0]->background)->toBe($skin->colors['ink']);
 });
+
+it('incorporates the event count into each results panel with the heading text treatment', function (string $kind) {
+  $playback = new BattleResultsPlayback(resultsGraphicalFacts(1), true);
+  while ($playback->currentStage()['kind'] !== $kind) {
+    $playback->update(1);
+    $playback->confirm();
+  }
+  $skin = resultsSkinFixture();
+  $frame = GraphicalBattleResults::frame(resultsBattlefield(), $skin, $playback);
+  $layers = array_column($frame->textLayers, null, 'id');
+  $counter = $layers['results-event-counter'];
+  $panel = array_column($frame->images, null, 'id')['results-event-1-1']->destination;
+  $heading = $layers['results-event-line-0'];
+  $count = $playback->eventCounter();
+
+  expect($counter->runs[0]->text)->toBe($count['current'] . '/' . $count['total'])
+    ->and($counter->runs[0]->background)->toBeNull()
+    ->and($counter->runs[0]->foreground)->toBe($skin->colors['accent'])
+    ->and($counter->grid->cellWidth)->toBe($heading->grid->cellWidth)
+    ->and($counter->grid->cellHeight)->toBe($heading->grid->cellHeight)
+    ->and($counter->bounds->x)->toBeGreaterThan($panel->x)
+    ->and($counter->bounds->y)->toBeGreaterThan($panel->y)
+    ->and($counter->bounds->x + $counter->bounds->width)->toBeLessThan($panel->x + $panel->width)
+    ->and($counter->bounds->y + $counter->bounds->height)->toBeLessThanOrEqual($heading->bounds->y)
+    ->and($counter->runs[0]->column + mb_strlen($counter->runs[0]->text))->toBe($counter->grid->columns);
+})->with(['level', 'ability', 'special']);
 
 it('preserves the real battlefield and approved primary geometry with independent values and neutral portraits', function () {
   $field = resultsBattlefield();
@@ -265,17 +331,19 @@ it('validates asset presence, source bounds, unique decoded costs and one-densit
     expect($costs)->toHaveCount(8)->and(array_sum($costs))->toBe(8 * 8 * 4 * 8);
     foreach ($skin->textures as $texture) {
       file_put_contents($root . '/' . $texture->asset, "\x89PNG\r\n\x1a\n\0\0\0\rIHDR" . pack('NN', 4096, 4096));
+      touch($root . '/' . $texture->asset, time() + 1);
     }
     expect(fn() => GraphicalBattleResults::preflight($skin, $root))->toThrow(RuntimeException::class, '64 MiB');
     foreach ($skin->textures as $texture) {
       file_put_contents($root . '/' . $texture->asset, "\x89PNG\r\n\x1a\n\0\0\0\rIHDR" . pack('NN', 8, 8));
+      touch($root . '/' . $texture->asset, time() + 2);
     }
     $portrait = new CanvasNineSlice('panel.png', new SpriteSourceRect(1, 0, 7, 8));
     $prepared = GraphicalBattleResults::prepare(resultsSkinFixture(['actor-1' => ['menu' => $portrait]]), $root);
     expect($prepared->portraits['actor-1']['menu']->source->toArray())
       ->toBe(['x' => 0, 'y' => 0, 'width' => 8, 'height' => 8]);
     unlink($root . '/exp.png');
-    expect(fn() => GraphicalBattleResults::preflight($skin, $root))->toThrow(RuntimeException::class);
+    expect(GraphicalBattleResults::preflight($skin, $root))->not->toHaveKey('exp.png')->toHaveCount(7);
     $textures = $skin->textures;
     $textures['exp'] = new CanvasNineSlice('exp.png', new SpriteSourceRect(0, 0, 8, 8), density: 2);
     expect(fn() => new BattleResultsSkin($textures, $skin->colors))->toThrow(InvalidArgumentException::class);
@@ -296,8 +364,9 @@ it('contains current portrait and icon images after same-path replacements witho
     foreach ($skin->textures as $texture) {
       file_put_contents($root . '/' . $texture->asset, "\x89PNG\r\n\x1a\n\0\0\0\rIHDR" . pack('NN', 8, 8));
     }
-    foreach ([[40, 80], [200, 60], [100, 120]] as [$width, $height]) {
+    foreach ([[40, 80], [200, 60], [100, 120]] as $revision => [$width, $height]) {
       file_put_contents($root . '/actor.png', "\x89PNG\r\n\x1a\n\0\0\0\rIHDR" . pack('NN', $width, $height));
+      touch($root . '/actor.png', time() + $revision);
       $prepared = GraphicalBattleResults::prepare($skin, $root);
       expect($prepared->icons['inventory']->source->toArray())
         ->toBe(['x' => 0, 'y' => 0, 'width' => $width, 'height' => $height]);
@@ -330,7 +399,9 @@ it('validates every portrait but budgets Primary pages and individual busts sepa
   $root = sys_get_temp_dir() . '/ichiloto-results-stages-' . bin2hex(random_bytes(4));
   mkdir($root);
   $png = static function (string $name, int $width, int $height) use ($root): void {
+    static $revision = 0;
     file_put_contents($root . '/' . $name, "\x89PNG\r\n\x1a\n\0\0\0\rIHDR" . pack('NN', $width, $height));
+    touch($root . '/' . $name, time() + ++$revision);
   };
   try {
     foreach (resultsSkinFixture()->textures as $texture) { $png($texture->asset, 8, 8); }
@@ -348,10 +419,10 @@ it('validates every portrait but budgets Primary pages and individual busts sepa
     $costs = GraphicalBattleResults::preflight($skin, $root, resultsBattlefield()->images);
     expect(array_sum($costs))->toBeGreaterThan(67108864);
 
-    // Missing art is still a catalog error even when that actor is not currently in the party.
+    // Unavailable optional portraits do not invalidate healthy catalog entries.
     unlink($root . '/bust-6.png');
-    expect(fn() => GraphicalBattleResults::preflight($skin, $root, [], ['actor-1']))
-      ->toThrow(RuntimeException::class, 'readable PNG');
+    $available = GraphicalBattleResults::preflight($skin, $root, [], ['actor-1']);
+    expect($available)->not->toHaveKey('bust-6.png')->toHaveKey('menu-6.png')->toHaveKey('bust-1.png')->toHaveCount(19);
     $png('bust-6.png', 2048, 2048);
 
     // These actors can share a Primary page when continued names shift the page boundary.
@@ -393,4 +464,52 @@ it('uses admitted semantic item and skill icons rather than falling back for kno
     $p->confirm();
   }
   expect($assets)->toContain('skill.png', 'item.png')->not->toContain('unknown.png');
+});
+
+it('keeps healthy Results artwork above fallback panels with complete rewards and controls', function () {
+  $root = sys_get_temp_dir() . '/ichiloto-results-fallback-' . bin2hex(random_bytes(4));
+  mkdir($root);
+  try {
+    foreach (['exp.png', 'portrait.png', 'button.png'] as $asset) {
+      file_put_contents($root . '/' . $asset, "\x89PNG\r\n\x1a\n\0\0\0\rIHDR" . pack('NN', 8, 8));
+    }
+    $skin = GraphicalBattleResults::prepare(resultsSkinFixture(), $root);
+    $playback = new BattleResultsPlayback(resultsGraphicalFacts(), true);
+    $frame = GraphicalBattleResults::frame(new PresentationCanvas(1350, 720), $skin, $playback);
+    expect(array_column($frame->images, 'asset'))->toContain('exp.png', 'portrait.png', 'button.png')
+      ->and(resultsFrameText($frame))->toContain('VICTORY', 'Hero 1', 'Hero 4', '123', 'Continue');
+    $layers = array_column($frame->textLayers, null, 'id');
+    $images = array_column($frame->images, null, 'id');
+    expect($layers['results-party-fallback']->layer)->toBeLessThan($images['results-party-0-portrait-frame-1-1']->layer)
+      ->and($layers['results-party-fallback']->layer)->toBeLessThan($images['results-party-0-fill-1-1']->layer);
+    foreach (glob($root . '/*') ?: [] as $path) { unlink($path); }
+    $frame = GraphicalBattleResults::frame(new PresentationCanvas(1350, 720), $skin, $playback);
+    expect($frame->images)->toBe([])->and(resultsFrameText($frame))->toContain('Continue', 'Hero 4');
+  } finally {
+    foreach (glob($root . '/*') ?: [] as $path) { unlink($path); }
+    rmdir($root);
+  }
+});
+
+it('fits all-missing Results textures over a full four-member HUD without dropping either surface', function () {
+  $root = sys_get_temp_dir() . '/ichiloto-combined-fallback-' . bin2hex(random_bytes(4));
+  mkdir($root);
+  try {
+    $list = new BattleHudListSnapshot('Title', 'Help', array_map(
+      fn($i) => new BattleHudRow($i, 'Member ' . $i, $i === 0), range(0, 3)), 0, 0, 4, 4, 1, 1);
+    $hud = new BattleHudSnapshot($list, $list, $list,
+      new BattleHudStatusSnapshot('', '', array_map(
+        fn($i) => new BattleHudStatusRow($i, 31 + $i * 27, 200, 7 + $i * 3, 30, $i / 3), range(0, 3))),
+      message: 'Battle won');
+    $textures = [];
+    foreach (['panel', 'quiet', 'track', 'hp', 'mp', 'atb', 'selector', 'target', 'queued'] as $role) {
+      $textures[$role] = new CanvasNineSlice($role . '.png', new SpriteSourceRect(0, 0, 8, 8));
+    }
+    $palette = array_fill_keys(['text', 'muted', 'selected', 'focus', 'disabled', 'damage', 'healing', 'mp', 'ink'], PresentationColor::rgb(200, 200, 200));
+    $arena = new BattleCanvasLayout(1350, 720, skin: new BattleUiSkin($textures, $palette), feedbackArea: new CanvasRectangle(0, 80, 1350, 452));
+    $field = GraphicalBattleHud::compose($arena, $hud, 'submenu', 0, $root);
+    $skin = GraphicalBattleResults::prepare(resultsSkinFixture(), $root);
+    $frame = GraphicalBattleResults::frame($field, $skin, new BattleResultsPlayback(resultsGraphicalFacts(), true));
+    expect($frame->images)->toBe([])->and(resultsFrameText($frame))->toContain('Continue', 'Hero 4', 'Member 0', 'Battle won', '16%', '100%');
+  } finally { rmdir($root); }
 });

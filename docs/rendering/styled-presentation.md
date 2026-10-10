@@ -1,7 +1,8 @@
-# Styled presentation (S7-E)
+# Styled presentation
 
-The optional graphical Game runtime defaults to protocol v2. Terminal-only play
-remains the normal default, and explicit v1 sessions retain the S2-S6 APIs.
+The optional graphical Game runtime uses retained protocol v2. Terminal-only play
+remains the normal default. Native v1 and stateless v2 full-frame output are removed;
+old immutable frame encoders remain for reference/tooling, not native submission.
 PHP owns gameplay, bindings, camera, composition, animation and timing. The
 renderer receives presentation data, never battle or dialogue instructions.
 
@@ -14,22 +15,33 @@ are always serialized, including null. Runs reject invalid UTF-8, controls and
 negative coordinates; snapshots additionally check grid fit.
 
 `PresentationTextLayer` contains a nonempty UTF-8 ID of at most 256 bytes, a
-signed i32 layer and a list of typed runs. `StyledPresentationFrame` is separate
-from the v1 `PresentationFrame`. It validates unique text-layer IDs, at most 64
-layers, 32768 runs, 524288 text scalars and 1024 sprites, then creates a v2 FRAME
-message with `textLayers` and `sprites`. Arrays detach caller-owned element
-references. Empty lists remove previous content in the atomic replacement.
+signed i32 layer and a list of typed runs. Screen text is bounded to 64 layers,
+32768 runs and 524288 scalars; sprites have a separate 1024-item limit.
+`StyledPresentationFrame` retains the old complete-frame representation for
+reference comparisons. Its `textLayers`/`sprites` envelope is no longer accepted
+by the native renderer. Arrays detach caller-owned element references.
 
 `Console::presentationSnapshot()` reads the canonical terminal cells after
 composition. It returns immutable dimensions and text layers without flushing,
 changing dirty spans or altering terminal output. Like `Console::snapshot()`,
 it rejects capture during incomplete Console frames/recomposition.
 
-Both versions use the same `TerminalText::rendererScalar()` normalization:
+Snapshots and retained row projection use the same `TerminalText::rendererScalar()` normalization:
 one scalar per logical cell, a wide anchor in its existing cell, continuation
 cells represented by spaces, and `?` for incompatible multi-scalar graphemes or
 controls after existing stabilization. This is not a second width model. Wide
 continuations carry the anchor's colours, preserving coloured blank coverage.
+
+`TerminalPresentationComposer` owns this conversion for full Console snapshots,
+incremental rows and isolated Editor previews. `createRunsFromLines($lines, $grid)`
+normalizes ANSI-formatted rows through the existing terminal cell model before
+clipping to the logical grid. `createCanvasFromLines($lines, $grid)` wraps those
+typed runs in one `CanvasTextLayer` at the supplied cell dimensions. It leaves the
+source lines unchanged and does not write to the live Console. GUI previews
+paint the structured canvas, not raw escape sequences or their byte lengths;
+Terminal/TUI consumers continue using the original formatted lines. The same
+conversion handles sparse gaps, wide continuations, intensity and partial colour
+resets across these consumers, with a bounded style cache.
 
 ## Existing colour authoring
 
@@ -51,7 +63,8 @@ terminal emulator and never sends ANSI to v2.
 Unsupported non-colour attributes (blink, underline, italic, reverse, strike,
 etc.) are ignored only at graphical extraction. For example, WHITE_BLINK keeps
 its white foreground, but GPUI does not blink. Malformed/truncated/out-of-range
-extended colour sequences fail snapshot generation rather than inventing a colour.
+extended colour sequences fail projection rather than inventing a colour. Failed
+incremental projection does not consume pending Console row changes.
 
 The canonical SGR accumulator also fixes an existing reset bug: a zero RGB
 component or compound `0;31` is not an unconditional reset of the whole prefix;
@@ -68,7 +81,7 @@ dialogue and HUD text over future graphical maps, not just ASCII world text.
 
 ## Sparse provenance and ordering
 
-Anonymous Console cells form an opaque complete `world` layer at 0. Named scopes
+Anonymous Console writes form the screen-space `world` layer at 0. Named scopes
 use `Console::withLayer($id, $draw, $priority)` and record only authored cells.
 Each row is grouped into horizontally contiguous equal-colour runs, not one run
 per cell. Missing named cells are transparent; explicitly written spaces are
@@ -76,7 +89,7 @@ opaque and must not be trimmed. A null background paints the renderer's default
 `#111820`; it does not make an authored cell transparent. Null foreground uses
 `#D9E1E8`.
 
-Existing S6 underlay bookkeeping remains authoritative. Excluding `player`
+Existing underlay bookkeeping remains authoritative. Excluding `player`
 restores the recorded world beneath the terminal Player while including its PNG.
 Later anonymous writes invalidate named provenance at the touched cells even
 when glyphs match. Clear/resize/recomposition reset stale provenance; failed
@@ -87,8 +100,9 @@ retain one entry per layer/cell rather than an unbounded frame history.
 
 | Content | Numeric layer |
 | --- | --- |
-| World text | 0 |
-| World graphical sprites | Authored 0..999 (Last Legend Player: 100) |
+| Retained map layers | -100 + authored order 0..99 |
+| Non-map screen-space world text | 0 |
+| World graphical sprites | Authored 0..999 |
 | Ordinary UI | 1000 |
 | FIELD_HUD and Player interaction prompt | 1000 + existing priority 10 |
 | MODAL | 1000 + existing priority 20 |
@@ -107,14 +121,62 @@ within signed i32. Lower numeric layers paint first; equal-layer text precedes
 sprites, with stable order within each type. These are PHP-authored values,
 not gameplay meaning interpreted by Rust.
 
+## Incremental Console API
+
+```php
+$changes = Console::getRetainedPresentationChanges(
+    excludedLayers: $graphicalSpriteIds,
+    reset: $resendAllText,
+    excludedWorldLayers: $retainedMapLayerIds,
+);
+```
+
+`ConsolePresentationChanges` contains `width`, `height`, `reset`, `layers`,
+`removedIds` and nullable `order`. Each changed layer is
+`{id, layer, rows:[{row, runs}]}` using immutable `PresentationTextRun` values.
+Rows replace complete sparse layer rows; an empty run list removes that row.
+Metadata-only updates can have no rows. `removedIds` explicitly removes layers.
+`order` is the complete layer order only when changed or resetting; null keeps
+the previous order. IDs and numeric priorities remain separate.
+
+The first read, requested reset or changed dimensions returns complete current
+text once. Later reads project dirty rows and preserve unchanged rows without a
+full snapshot or full-grid cell scan. Exclusion changes invalidate the affected
+layer footprints. A successful read consumes the cursor; a caller whose delivery
+fails must request a reset. Runtime owns this recovery for normal Game use.
+
+`excludedLayers` hides only those named contributions and reveals their underlay.
+`excludedWorldLayers` hides a map contribution and all earlier per-cell underlays,
+preserving later dynamic and UI writes. It requires no full-grid replacement mask.
+
+`setRetainedWorldPresentation(true)` takes effect only while layer tracking is
+enabled and terminal output is disabled. It omits synthetic base blanks so they
+cannot cover retained map artwork. Explicit base spaces and styled spaces remain
+opaque; named UI and overlay spaces are unchanged. Non-map base text remains
+screen-space, not part of the retained world upload.
+
+In that mode, `removeWorldCellContributions(column, row, width: 1)` clips the
+requested region and removes explicit base and named contributions below UI 1000.
+It expands intersecting wide glyphs to their whole footprints, preserves named UI
+and overlays, and writes no replacement blank. Outside that mode it is a no-op.
+For owner-specific cleanup, prefer `removeLayer(id, repaint: false)`; the cell
+operation can also remove another overlapping world owner, like map restoration.
+
+`recomposeFrame()` has a sparse branch when tracking is enabled and terminal output
+is disabled. It builds authored rows with lazy blank defaults, marks changed old/new
+row footprints and rolls back failed compositions. Explicit `getBuffer()` and
+snapshot calls still materialize complete logical rows. The T1 terminal dirty-span,
+output and ordinary recomposition behavior is unchanged.
+
 ## Presenting and waiting
 
-`RendererPresentation::present()` accepts either snapshot type and emits the
-matching version through the same client. It compares layer IDs, numeric order,
-ordered run positions/text/colours, protocol and sprites. Foreground-only and
-background-only changes enqueue frames. Unchanged frames do not. Failed sends
-do not advance the sequence or remembered successful state, so retry is safe.
-Queue success is not display acknowledgement; neither protocol acknowledges frames.
+`RendererPresentation::present()` accepts `ConsolePresentationChanges` or either
+Console snapshot type. All three use retained v2 output. New/changed layer metadata
+uses `put`, changed existing rows use `textRows`, and removed IDs use `remove`.
+Foreground-only and background-only changes enqueue updates; unchanged frames do
+not. Sprites and canvas elements are retained by ID as well. Failed delivery,
+rejection, resize and acknowledgement timeout request a complete reset, not a
+stateless frame. See [generations and atomic staging](presentation.md).
 
 `Timers::setFrameTick($update, $present)` registers two phases around the optional
 draw callback supplied to `Timers::wait()`: update, draw, present, bounded sleep.
@@ -126,9 +188,7 @@ lifecycle, timers, audio and notifications but never recursively update scenes.
 ActionExecutionState's shared pause, AnimationPlayer, SummonCutscenePlayer,
 ScreenTransition, BattleStartState, Modal and SelectModal now use this boundary.
 Typewriter/selection content is drawn after background work and before presentation.
-Authored durations/FPS and PHP action decisions remain authoritative. The
-[validation audit](s7-e-validation.md#production-sleep-audit) lists every retained
-and replaced production sleep.
+Authored durations/FPS and PHP action decisions remain authoritative.
 
 ## Input and geometry
 
@@ -139,6 +199,7 @@ binding/key queries, not parsing alone. Meaningful native actions depend on the
 current game context and its existing bindings.
 
 The logical grid remains fixed for graphical sessions. Cell pixels change display
-scale, not layout dimensions. Terminal-only dynamic resize and v1 plain text
-remain available. This phase adds no tile maps, graphical NPCs/battlers, renderer
-animation, new game bindings or save fields.
+scale, not layout dimensions. Terminal-only dynamic resize remains available.
+Native resize resynchronizes retained presentation without changing gameplay
+geometry. Retaining presentation does not add renderer-driven animation,
+gameplay bindings or save fields.

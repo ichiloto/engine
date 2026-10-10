@@ -14,7 +14,22 @@ first); the package format carries its renderer and platform identities, so
 additional renderer implementations install through the same command. That
 generated installation directory is ignored by Git; binaries and
 machine-specific manifests must not enter source commits. There is no default
-download, checkout-relative search or PATH fallback.
+download, implicit checkout-relative search or PATH fallback.
+
+For source development, Console's normal `ichiloto play` checks for a changed
+renderer without building before a new graphical process. `development.json` names
+the source directory relative to this boundary and its PHP package builder.
+Console reads it only for a Git Engine checkout outside the project's vendor
+tree; Composer's vendored Git clones do not activate it, and exported archives omit it.
+The renderer owns its read-only build-input fingerprint and compiler invocation.
+Console offers Update now, Continue, or Skip this version; only Update now or
+`ichiloto renderer:update` may build and install. Console owns the update lock,
+installation receipt, exact-version skip preference and verified installation.
+Non-interactive play reports available updates without prompting or building.
+Update failures preserve the old installation and never block the launch attempt.
+Automatic rebuilding and launch refusal on preparation failure are removed.
+Game art and PHP gameplay changes do not invalidate the native build. See
+[startup](../../docs/rendering/runtime.md#development-renderer-updates).
 
 A clean Engine checkout therefore contains this README, not a native renderer
 or a Rust project. Cargo commands belong in the separate `ichiloto/gpui-renderer`
@@ -28,8 +43,8 @@ GPUI gameplay, packaging and performance validation must use the optimized
 release renderer built with `cargo build --release --locked` in its own
 repository. Debug builds are for development and diagnostics, not representative
 gameplay performance. Packages stage the release executable with its required
-platform bundle resources; this boundary does not build or download anything
-automatically.
+platform bundle resources. The Engine runtime resolver itself never builds or
+downloads; explicit source updates belong to Console, not the game process.
 
 Manifest version 1 maps renderer IDs and platform IDs to executable paths
 relative to the manifest. For the currently validated Apple Silicon build:
@@ -54,19 +69,25 @@ WSL/WSLg uses the Linux entry with Linux PHP and a Linux renderer, not a Windows
 executable. Native Windows process transport is a separate
 [unsupported boundary](../../docs/rendering/process-transport.md).
 
-The Renderer window's earlier blanket non-macOS rejection has been corrected
-using shared GPUI maximize/restore handling. The accepted optimized canvas/UI
-renderer is now installed at this boundary locally, preserving the existing
-application identity and manifest. It has macOS validation only, not Linux/WSLg
-or native Windows execution acceptance, and is not a published package. See the
+The Renderer window uses shared GPUI maximize/restore handling rather than a
+blanket non-macOS rejection. An existing local installation may still contain
+the earlier stateless canvas/UI renderer. A source update does not replace that
+binary: the retained Engine contract requires an explicitly updated, matching
+renderer package. Existing macOS validation does not establish Linux/WSLg or
+native Windows execution acceptance. See the
 [current graphical battle record](../../docs/rendering/graphical-battle-g1.md).
 
 Preserve a platform bundle and its resources when staging it. On macOS the
-existing GPUI application includes its Info.plist for native application
-identity; its executable speaks the existing stdin/stdout protocol directly.
-Process launching and protocol remain the existing Engine runtime's
-responsibility. The session fixes the legacy grid; negotiated graphical canvases
-have their own logical dimensions. Cell defaults belong to the GPUI registration
+GPUI application includes its Info.plist for native application identity.
+The current source contract uses retained V2 stdin/stdout messages directly;
+the native stateless V1 and V2 full-frame paths are removed. Engine and renderer
+must use the same retained contract; a historical reference encoder is not a
+runtime fallback. Process launching and protocol remain the Engine runtime's
+responsibility. The session fixes the text grid; retained graphical canvases
+have their own logical dimensions. World layers upload once and use the shared
+viewport camera transform while text and canvas elements update by stable ID.
+See the [presentation contract](../../docs/rendering/presentation.md).
+Cell defaults belong to the GPUI registration
 (10x20), not to the manifest or Console.
 
 Tests inject a temporary manifest/platform or resolver and use PHP-only/fake

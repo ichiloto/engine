@@ -17,6 +17,7 @@ use Ichiloto\Engine\Core\Interfaces\CanUpdate;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
+use Throwable;
 
 /**
  * AudioManager plays background music and sound effects.
@@ -57,6 +58,8 @@ class AudioManager implements CanUpdate
    * The project config path of the sound effect toggle.
    */
   protected const string CONFIG_SFX_ENABLED = 'audio.sfx';
+  public const string CONFIG_VOICE_ENABLED = 'audio.voice';
+  public const string VOICE_DIRECTORY = 'Voice';
   /**
    * The project config path of the master volume (0-100).
    */
@@ -199,6 +202,132 @@ class AudioManager implements CanUpdate
    */
   protected array $loggedWarnings = [];
   protected ?CinematicMusicSession $cinematicMusicSession = null;
+  protected ?AudioPlayback $speechPlayback = null;
+  protected ?string $speechPath = null;
+  protected float $speechDuckFactor = 1.0;
+  protected ?SpeechSequence $speechSequence = null;
+
+  public function beginSpeechSequence(): SpeechSequence
+  {
+    if ($this->speechSequence !== null) {
+      $this->endSpeechSequence($this->speechSequence);
+    }
+    return $this->speechSequence = new SpeechSequence();
+  }
+
+  public function endSpeechSequence(SpeechSequence $owner): void
+  {
+    if ($owner !== $this->speechSequence) { return; }
+    $this->speechSequence = null;
+    $this->stopSpeech();
+  }
+
+  public function releaseSpeechDucking(?SpeechSequence $owner = null): void
+  {
+    if ($owner !== null && $owner !== $this->speechSequence) { return; }
+    $wasDucked = $this->speechDuckFactor < 1.0;
+    $this->speechDuckFactor = 1.0;
+    if ($wasDucked && $this->bgmPlayback !== null) { $this->updateBackgroundMusic(); }
+  }
+
+  /** One owned line at a time. A new request also interrupts a muted/missing line. */
+  public function playSpeech(string $path, float $musicDuckFactor = 1.0): ?AudioPlayback
+  {
+    $this->stopSpeech();
+    if (! $this->isSpeechEnabled()) {
+      $this->releaseSpeechDucking();
+      return null;
+    }
+    try {
+      $resolved = $this->resolveAudioPath($path, self::VOICE_DIRECTORY);
+      if ($resolved === null) {
+        $this->releaseSpeechDucking();
+        $this->warnOnce("speech-missing:$path", "Voice file not found: $path");
+        return null;
+      }
+      $backend = $this->selectBackend($resolved);
+      if ($backend === null) {
+        $this->releaseSpeechDucking();
+        $this->warnOnce("speech-format:$resolved", "No available audio player supports voice: $resolved");
+        return null;
+      }
+      $playback = $this->spawn($backend->buildCommand($resolved, $this->getMasterVolume(), false));
+      if ($playback === null) {
+        $this->releaseSpeechDucking();
+        $this->warnOnce("speech-spawn:$resolved", "Failed to start voice playback: $resolved");
+        return null;
+      }
+      $this->speechPlayback = $playback;
+      $this->speechPath = $resolved;
+      $this->speechDuckFactor = is_finite($musicDuckFactor) ? max(0.0, min(1.0, $musicDuckFactor)) : 1.0;
+      $this->updateBackgroundMusic();
+      return $playback;
+    } catch (Throwable $exception) {
+      $this->stopSpeech();
+      $this->releaseSpeechDucking();
+      $this->warnOnce("speech-error:$path", "Voice playback failed: $path: {$exception->getMessage()}");
+      return null;
+    }
+  }
+
+  /** A stale owner cannot stop the next speaker's line. */
+  public function stopSpeech(?AudioPlayback $owner = null): void
+  {
+    if ($owner !== null && $owner !== $this->speechPlayback) {
+      return;
+    }
+    $this->speechPlayback?->stop();
+    $this->speechPlayback = null;
+    $this->speechPath = null;
+    if ($this->speechSequence === null) {
+      $this->releaseSpeechDucking();
+    }
+  }
+
+  /** Querying also reaps completed speech and honours live mute changes. */
+  public function isSpeechPlaying(?AudioPlayback $owner = null): bool
+  {
+    if ($owner !== null && $owner !== $this->speechPlayback) {
+      return false;
+    }
+    if (! $this->isSpeechEnabled()) {
+      $this->stopSpeech($owner);
+      $this->releaseSpeechDucking();
+      return false;
+    }
+    if ($this->speechPlayback === null) {
+      return false;
+    }
+    if ($this->speechPlayback->isRunning) {
+      return true;
+    }
+    if (($this->speechPlayback->exitCode ?? 0) !== 0) {
+      $this->warnOnce("speech-exit:$this->speechPath", "Voice playback failed: $this->speechPath");
+      $this->releaseSpeechDucking();
+    }
+    $this->stopSpeech($owner);
+    return false;
+  }
+
+  protected function isSpeechEnabled(): bool
+  {
+    return boolval($this->getProjectSetting(self::CONFIG_VOICE_ENABLED, true)) && $this->getMasterVolume() > 0.0;
+  }
+
+  protected function getBackgroundMusicVolume(): float
+  {
+    $factor = $this->speechDuckFactor;
+    if ($factor < 1.0 && $this->bgmPath !== null) {
+      $backend = $this->selectBackend($this->bgmPath, $this->bgmLoops);
+      if ($backend === null || ! $backend->supportsSeeking()
+        || ($this->bgmLoops && $backend->supportsNativeLooping()
+          && ($this->probeTrackDuration($this->bgmPath) ?? 0.0) <= 0.0)) {
+        $this->warnOnce('speech-duck-unavailable', 'Live voice ducking is unavailable for this track; music is not restarted.');
+        $factor = 1.0;
+      }
+    }
+    return $this->getMasterVolume() * $factor;
+  }
 
   /**
    * The background music currently playing, or null when there is none.
@@ -438,6 +567,7 @@ class AudioManager implements CanUpdate
    */
   public function update(): void
   {
+    $this->isSpeechPlaying();
     $this->reapFinishedSoundEffects();
     $this->updateBackgroundMusic();
 
@@ -453,7 +583,9 @@ class AudioManager implements CanUpdate
    */
   public function shutdown(): void
   {
+    $this->speechSequence = null;
     $this->stopBackgroundMusic();
+    $this->stopSpeech();
 
     foreach ($this->sfxPlaybacks as $playback) {
       $playback->stop();
@@ -568,7 +700,7 @@ class AudioManager implements CanUpdate
     }
 
     if ($this->bgmPlayback?->isRunning) {
-      $currentVolume = $this->getMasterVolume();
+      $currentVolume = $this->getBackgroundMusicVolume();
 
       if (abs($currentVolume - $this->bgmVolume) > PHP_FLOAT_EPSILON) {
         $this->applyMasterVolumeToBgm($currentVolume);
@@ -626,6 +758,9 @@ class AudioManager implements CanUpdate
       : null;
 
     if ($backend === null || ! $backend->supportsSeeking()) {
+      if ($this->speechDuckFactor < 1.0) {
+        $this->warnOnce('speech-duck-unavailable', 'Live voice ducking is unavailable on this audio backend; music is not restarted.');
+      }
       // Acknowledge the change without restarting; the next spawn reads the
       // master volume fresh.
       $this->bgmVolume = $currentVolume;
@@ -705,7 +840,7 @@ class AudioManager implements CanUpdate
       return;
     }
 
-    $volume = $this->getMasterVolume();
+    $volume = $this->getBackgroundMusicVolume();
     $loopNatively = $this->bgmLoops && $backend->supportsNativeLooping();
     $startAtSeconds = $backend->supportsSeeking() ? max(0.0, $startAtSeconds) : 0.0;
     $playback = $this->spawn($backend->buildCommand($this->bgmPath, $volume, $loopNatively, $startAtSeconds));

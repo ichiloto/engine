@@ -7,18 +7,33 @@ use Ichiloto\Engine\Cutscenes\Cinematics\CinematicStageManager;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\Cursor;
 use Ichiloto\Engine\Rendering\Camera;
+use Ichiloto\Engine\Rendering\Enumerations\TransitionStyle;
+use Ichiloto\Engine\Rendering\ScreenTransition;
+use Ichiloto\Engine\Cutscenes\Cinematics\TransitionOperation;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\PlaySettings;
+use Ichiloto\Engine\Rendering\FieldViewport;
 use Ichiloto\Engine\Rendering\Presentation\RendererPresentation;
 use Ichiloto\Engine\Rendering\RendererClient;
+use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
+use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
+use Ichiloto\Engine\Rendering\Sprites\CharacterWalkAnimation;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProjector;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
+use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Scenes\SceneManager;
 use Tests\Support\Input\FakeRendererTransport;
-use function Tests\Support\Rendering\spriteSheetData;
+use function Tests\Support\Rendering\characterSheetData;
+use function Tests\Support\Rendering\writeCharacterSheetPng;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
 
 beforeEach(function () {
+  $this->configBefore = new ReflectionClass(ConfigStore::class)->getStaticProperties();
+  ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 24, 'height' => 8]));
   $this->consoleBefore = new ReflectionClass(Console::class)->getStaticProperties();
   $this->cursorBefore = new ReflectionClass(Cursor::class)->getStaticProperties();
   foreach (['frameDepth' => 0, 'isRecomposing' => false, 'terminalHandedBack' => false,
@@ -29,6 +44,15 @@ beforeEach(function () {
   Console::syncDimensions(24, 8);
   Console::setLayerTracking(true);
   $this->scene = new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();
+  // Staged character sheets are checked against the running renderer's asset root.
+  $this->assetRoot = sys_get_temp_dir() . '/ichiloto-cinematic-graphics-' . bin2hex(random_bytes(4));
+  writeCharacterSheetPng($this->assetRoot . '/' . characterSheetData()['sheet'], 48, 48);
+  [$game] = makeSceneAudioGame();
+  $game->useRendererRuntime(new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']),
+    $this->assetRoot), new FakeRendererTransport()));
+  $manager = makeBareScene(SceneManager::class);
+  new ReflectionProperty(SceneManager::class, 'game')->setValue($manager, $game);
+  new ReflectionProperty(GameScene::class, 'sceneManager')->setValue($this->scene, $manager);
   $this->camera = new Camera($this->scene, 24, 8, worldSpace: array_fill(0, 30, str_repeat('.', 60)));
   new ReflectionProperty(GameScene::class, 'camera')->setValue($this->scene, $this->camera);
   $this->stage = new CinematicStageManager($this->scene);
@@ -38,42 +62,51 @@ beforeEach(function () {
 
 afterEach(function () {
   ob_end_clean();
-  foreach ([Console::class => $this->consoleBefore, Cursor::class => $this->cursorBefore] as $class => $state) {
+  foreach ([Console::class => $this->consoleBefore, Cursor::class => $this->cursorBefore,
+    ConfigStore::class => $this->configBefore] as $class => $state) {
     foreach ($state as $name => $value) {
       new ReflectionProperty($class, $name)->setValue(null, $value);
     }
   }
+  $paths = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($this->assetRoot,
+    FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
+  foreach ($paths as $path) { $path->isDir() ? rmdir($path->getPathname()) : unlink($path->getPathname()); }
+  rmdir($this->assetRoot);
 });
 
 it('projects staged sheets with independent identities and PHP-owned route animation', function () {
-  $entry = ['id' => 'one', 'sprite' => '@', 'x' => 7, 'y' => 4, 'sprites2d' => spriteSheetData()];
+  $entry = ['id' => 'one', 'sprite' => '@', 'x' => 7, 'y' => 4, 'sprites2d' => characterSheetData()];
   $one = $this->stage->add($entry);
   $two = $this->stage->add(array_replace($entry, ['id' => 'two', 'x' => 9]));
+  // 48 x 48 frames: east is row 2; strides step through patterns 2 then 0 (each 48-pixel step carries
+  // the cycle 1.6 patterns on) while the other actor stands on 1.
   $this->stage->move('one', Vector2::right());
   $this->stage->advanceGraphicalAnimation(0.08);
-  expect($one->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(256)
-    ->and($two->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(0);
+  expect($one->getGraphicalSpriteDefinition()->sourceRect->toArray())->toBe(['x' => 96, 'y' => 96, 'width' => 48, 'height' => 48])
+    ->and($two->getGraphicalSpriteDefinition()->sourceRect->toArray())->toBe(['x' => 48, 'y' => 0, 'width' => 48, 'height' => 48]);
   $this->stage->move('one', Vector2::right());
   $this->stage->advanceGraphicalAnimation(0.08);
-  expect($one->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(512);
+  expect($one->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(0);
   $this->camera->moveTo(3, 2);
   $sprite = $this->projector->project($one, $this->camera);
-  expect([$sprite->id, $sprite->x, $sprite->y, $sprite->asset])->toBe(['staged:one', 6, 2, 'Graphics/east.png'])
+  expect([$sprite->id, $sprite->x, $sprite->y, $sprite->asset])->toBe(['staged:one', 6, 2, characterSheetData()['sheet']])
+    ->and([$sprite->width, $sprite->height])->toBe([FieldViewport::TILE_SIZE, FieldViewport::TILE_SIZE])
     ->and($two->getGraphicalSpriteId())->toBe('staged:two');
   $copy = $one->getGraphicalSpriteWorldPosition();
   $copy->x = 999;
   expect($one->position->x)->toBe(9.0);
   $this->stage->move('one', Vector2::up(), faceOnly: true);
-  expect($one->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(0)
-    ->and($one->getGraphicalSpriteDefinition()->asset)->toBe('Graphics/north.png');
+  expect($one->getGraphicalSpriteDefinition()->sourceRect->toArray())->toBe(['x' => 48, 'y' => 144, 'width' => 48, 'height' => 48]);
   $this->stage->move('one', Vector2::up());
-  $this->stage->advanceGraphicalAnimation(0.16);
-  expect($one->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(0);
+  $this->stage->advanceGraphicalAnimation(0.08);
+  expect($one->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(96);
+  $this->stage->advanceGraphicalAnimation(CharacterWalkAnimation::STOP_SECONDS);
+  expect($one->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(48);
 });
 
 it('keeps terminal fallbacks intact and masks only the graphical actor provenance', function () {
   $one = $this->stage->add(['id' => 'one', 'sprite' => '@', 'x' => 7, 'y' => 4,
-    'sprites2d' => ['asset' => 'pose.png', 'width' => 56, 'height' => 56, 'layer' => 100,
+    'sprites2d' => ['asset' => 'pose.png', 'layer' => 100,
       'sourceRect' => ['x' => 256, 'y' => 0, 'width' => 256, 'height' => 256]]]);
   $legacy = $this->stage->add(['id' => 'legacy', 'sprite' => 'L', 'x' => 8, 'y' => 4]);
   Console::recomposeFrame(function (): void {
@@ -99,7 +132,7 @@ it('keeps terminal fallbacks intact and masks only the graphical actor provenanc
 
 it('emits opaque cinematic overlays and covers above world sprites and clears them in the next snapshot', function () {
   $actor = $this->stage->add(['id' => 'one', 'sprite' => '@', 'x' => 7, 'y' => 4,
-    'sprites2d' => ['asset' => 'pose.png', 'width' => 56, 'height' => 56, 'layer' => 999]]);
+    'sprites2d' => ['asset' => 'pose.png', 'layer' => 999]]);
   $transport = new FakeRendererTransport();
   $output = new RendererPresentation(new RendererClient($transport), new RendererGridConfig(24, 8));
   $this->presentation->showOverlay('narration', 'A test line.');
@@ -113,20 +146,52 @@ it('emits opaque cinematic overlays and covers above world sprites and clears th
       [$this->projector->project($actor, $this->camera)]);
   };
   $render();
-  $frame = $transport->sent[0]->payload;
+  $frame = Tests\Support\Rendering\RetainedFrameState::replay($transport->sent)[0];
   expect($frame['sprites'])->toHaveCount(1)
     ->and(array_column($frame['textLayers'], 'layer'))->toContain(1020, 3000)
     ->and(Console::charAt(7, 4))->toBe('#');
   $this->presentation->clear();
   $render();
-  expect(array_column($transport->sent[1]->payload['textLayers'], 'layer'))->not->toContain(1020, 3000)
-    ->and($transport->sent[1]->payload['sprites'])->toBe($frame['sprites']);
+  $restored = Tests\Support\Rendering\RetainedFrameState::replay($transport->sent)[1];
+  expect(array_column($restored['textLayers'], 'layer'))->not->toContain(1020, 3000)
+    ->and($restored['sprites'])->toBe($frame['sprites'])
+    ->and(array_column($transport->sent[1]->payload['operations'], 'kind'))->not->toContain('sprite');
 });
 
+it('holds a graphical cinematic cover across transfer and clears it on reveal or cancellation', function (bool $reduced) {
+  $configs = new ReflectionClass(ConfigStore::class)->getStaticProperties();
+  putSceneAudioConfig(['accessibility' => ['reducedMotion' => $reduced]]);
+  try {
+    $out = new TransitionOperation(new ScreenTransition(TransitionStyle::FADE, 400)->session('out'), $this->presentation, 'out');
+    $out->update(0.4);
+    $held = $this->presentation->getTransitionCanvas(1350, 720);
+    expect($held->composites[0]->opacity)->toBe(1.0)
+      ->and($held->presentationOwners)->toBe(['cinematic-cover', 'transition']);
+    $in = new TransitionOperation(new ScreenTransition(TransitionStyle::FADE, 400)->session('in'), $this->presentation, 'in');
+    if (!$reduced) {
+      expect($this->presentation->getTransitionCanvas(1350, 720)->composites[0]->opacity)->toBe(1.0);
+      $in->update(0.2);
+      expect($this->presentation->getTransitionCanvas(1350, 720)->composites[0]->opacity)->toBe(0.5);
+    }
+    $in->update(0.2);
+    expect($this->presentation->getTransitionCanvas(1350, 720))->toBeNull()
+      ->and($this->presentation->hasTransitionCover())->toBeFalse();
+    $this->presentation->hideField('#');
+    $cancel = new TransitionOperation(new ScreenTransition(TransitionStyle::FADE, 400)->session(), $this->presentation, 'out');
+    $cancel->cancel();
+    expect($this->presentation->getTransitionCanvas(1350, 720))->toBeNull();
+  } finally {
+    foreach ($configs as $name => $value) { new ReflectionProperty(ConfigStore::class, $name)->setValue(null, $value); }
+  }
+})->with([false, true]);
+
 it('validates staged graphics at authoring boundaries without requiring an asset on disk', function () {
+  $sheet = characterSheetData('Graphics/Characters/Absent.png', 3);
+  $pose = ['asset' => 'Graphics/Poses/Absent.png', 'cells' => ['width' => 2, 'height' => 3]];
   $definition = CinematicDefinition::fromArrays(['id' => 'sheet-cast', 'name' => 'Sheet cast',
-    'cast' => [['id' => 'one', 'sprite' => '@', 'sprites2d' => spriteSheetData()]]], [['type' => 'wait', 'seconds' => 1]]);
-  expect($definition->cast[0]['sprites2d'])->toBe(spriteSheetData());
+    'cast' => [['id' => 'one', 'sprite' => '@', 'sprites2d' => $sheet], ['id' => 'two', 'sprite' => '@', 'sprites2d' => $pose]]],
+    [['type' => 'wait', 'seconds' => 1]]);
+  expect($definition->cast[0]['sprites2d'])->toBe($sheet)->and($definition->cast[1]['sprites2d'])->toBe($pose);
 });
 
 it('rejects malformed staged graphics with an actionable cast path', function ($graphics) {
@@ -135,9 +200,36 @@ it('rejects malformed staged graphics with an actionable cast path', function ($
     ->toThrow(InvalidArgumentException::class, 'cast[1]');
 })->with([
   'wrong type' => ['image.png'],
-  'missing fields' => [['asset' => 'pose.png']],
-  'bad path' => [['asset' => '../pose.png', 'width' => 56, 'height' => 56]],
-  'reserved UI layer' => [['asset' => 'pose.png', 'width' => 56, 'height' => 56, 'layer' => 1000]],
-  'bad crop' => [['asset' => 'pose.png', 'width' => 56, 'height' => 56,
-    'sourceRect' => ['x' => -1, 'y' => 0, 'width' => 256, 'height' => 256]]],
+  'missing asset' => [['layer' => 100]],
+  'authored pixel size' => [['asset' => 'pose.png', 'width' => 56, 'height' => 56]],
+  'authored anchor' => [['asset' => 'pose.png', 'anchor' => 'bottom_center']],
+  'bad path' => [['asset' => '../pose.png']],
+  'reserved UI layer' => [['asset' => 'pose.png', 'layer' => 1000]],
+  'bad crop' => [['asset' => 'pose.png', 'sourceRect' => ['x' => -1, 'y' => 0, 'width' => 256, 'height' => 256]]],
+  'empty footprint' => [['asset' => 'pose.png', 'cells' => ['width' => 0, 'height' => 1]]],
+  'per-direction images' => [['north' => ['asset' => 'north.png'], 'east' => ['asset' => 'east.png'],
+    'south' => ['asset' => 'south.png'], 'west' => ['asset' => 'west.png']]],
+  'sheet with authored size' => [['sheet' => 'Graphics/Characters/Heroes.png', 'width' => 48]],
+  'sheet index out of range' => [['sheet' => 'Graphics/Characters/Heroes.png', 'index' => 8]],
+  'sheet unsafe path' => [['sheet' => '../Heroes.png']],
+  'sheet reserved UI layer' => [['sheet' => 'Graphics/Characters/Heroes.png', 'layer' => 1000]],
 ]);
+
+it('slides staged steps at the pace that moves them and a pose image as well as a sheet', function () {
+  $sheet = $this->stage->add(['id' => 'walker', 'sprite' => '@', 'x' => 7, 'y' => 4, 'sprites2d' => characterSheetData()]);
+  $pose = $this->stage->add(['id' => 'pose', 'sprite' => 'P', 'x' => 3, 'y' => 3,
+    'sprites2d' => ['asset' => 'pose.png', 'layer' => 100]]);
+  $this->stage->move('walker', Vector2::down());
+  $this->scene->moveAtPace(0.5, fn(): bool => $this->stage->move('pose', Vector2::right()));
+  expect($sheet->getGraphicalSpriteMotion()?->seconds)->toBe(16 / 60)
+    ->and($this->projector->project($sheet, $this->camera)->motion?->toArray())->toBe(['duration' => 16 / 60])
+    ->and($pose->getGraphicalSpriteMotion()?->seconds)->toBe(0.5)
+    // The pace belongs to that one move.
+    ->and($this->scene->getStepSeconds(Vector2::right()))->toBe(16 / 60);
+  // A staged sheet stands lifted like any field character; a pose image is drawn as authored.
+  expect($this->projector->project($sheet, $this->camera)->lift)->toBe(6)
+    ->and($this->projector->project($pose, $this->camera)->lift)->toBe(0);
+  $this->stage->move('walker', Vector2::up(), faceOnly: true);
+  $pose->hide();
+  expect($sheet->getGraphicalSpriteMotion())->toBeNull()->and($pose->getGraphicalSpriteMotion())->toBeNull();
+});

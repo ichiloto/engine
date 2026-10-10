@@ -39,6 +39,7 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Game\States\EquipmentMenuState;
 use Ichiloto\Engine\Scenes\Game\States\MainMenuState;
 use Ichiloto\Engine\Scenes\Game\States\SaveMenuState;
+use Ichiloto\Engine\Scenes\Game\States\StatusViewState;
 use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Elements\LocationHUDWindow;
@@ -47,9 +48,11 @@ use Ichiloto\Engine\UI\Modal\AlertModal;
 use Ichiloto\Engine\UI\Modal\ModalManager;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\Presentation\MenuCanvas;
+use Ichiloto\Engine\UI\Presentation\MenuLayout;
 use Ichiloto\Engine\UI\Presentation\MenuRow;
 use Ichiloto\Engine\UI\Presentation\MenuRowLayout;
 use Ichiloto\Engine\UI\Presentation\MenuRowPainter;
+use Ichiloto\Engine\UI\Presentation\MenuPager;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
@@ -135,6 +138,13 @@ function mainMenuPresentationKey(KeyCode $key, MainMenuState $state): void
   $state->getPresentationMode()->update();
 }
 
+function mainMenuPresentationPageKey(KeyCode $key, MainMenuState $state): void
+{
+  InputManager::setInputSource(new FakeInputSource($key));
+  InputManager::handleInput();
+  $state->execute();
+}
+
 beforeEach(function () {
   $this->savedStatics = [];
   foreach ([Console::class, InputManager::class, ActionHints::class, ConfigStore::class, Debug::class, ModalManager::class, AudioManager::class] as $class) {
@@ -149,6 +159,7 @@ beforeEach(function () {
   ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub(['vocab' => ['currency' => ['name' => 'Tokens', 'symbol' => 'T']]]));
   Console::syncDimensions(135, 36);
   Console::setTerminalOutputEnabled(false);
+  Console::enterAlternateScreen();
   $this->game = new MainMenuPresentationGame();
   new ReflectionProperty(AudioManager::class, 'instance')->setValue(null, null);
   $audio = new class extends AudioManager {
@@ -174,6 +185,7 @@ beforeEach(function () {
   new ReflectionProperty($this->scene, 'party')->setValue($this->scene, $this->party);
   $this->state = new MainMenuPresentationProbe(new SceneStateContext($this->scene));
   new ReflectionProperty($this->scene, 'state')->setValue($this->scene, $this->state);
+  new ReflectionProperty($this->scene, 'mainMenuState')->setValue($this->scene, $this->state);
   InputManager::setBindings(['confirm' => ['keys' => [KeyCode::ENTER]], 'cancel' => ['keys' => [KeyCode::C]]]);
   $this->state->enter();
   $this->runtime = null;
@@ -181,14 +193,24 @@ beforeEach(function () {
 });
 
 afterEach(function () {
+  $menu = WeakReference::create($this->state->mainMenu);
   $this->runtime?->shutdown();
-  ob_end_clean();
+  unset($this->runtime, $this->state, $this->scene, $this->game, $this->party);
   foreach ($this->savedStatics as $class => $properties) {
+    if ($class === Console::class) { continue; }
     foreach ($properties as $name => $value) { new ReflectionProperty($class, $name)->setValue(null, $value); }
   }
+  new ReflectionProperty(Console::class, 'game')->setValue(null, $this->savedStatics[Console::class]['game']);
+  // Menu destructors clear Console; collect the fixture before returning that shared surface.
+  gc_collect_cycles();
+  foreach ($this->savedStatics[Console::class] as $name => $value) {
+    new ReflectionProperty(Console::class, $name)->setValue(null, $value);
+  }
+  ob_end_clean();
   $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($this->root, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
   foreach ($files as $file) { $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname()); }
   rmdir($this->root);
+  expect($menu->get())->toBeNull();
 });
 
 it('projects all current fields and commands through two themes with independent unique portraits', function () {
@@ -209,20 +231,62 @@ it('projects all current fields and commands through two themes with independent
       ->and($text['main-time-value'])->toBe($this->state->getPresentationSummaries()['time']['lines'][0]);
     foreach ($this->party->members as $index => $member) {
       expect($text['main-party-' . $index . '-identity-text'])->toBe($member->name)
-        ->and($text['main-party-' . $index . '-role'])->toBe('Role: ' . $member->role->name)
+        ->and($text['main-party-' . $index . '-resources-role-text'])->toBe('Role' . $member->role->name)
         ->and($text['main-party-' . $index . '-resources-hp-text'])->toBe('HP' . $member->effectiveStats->currentHp . ' / ' . $member->effectiveStats->totalHp)
         ->and($text['main-party-' . $index . '-resources-mp-text'])->toBe('MP' . $member->effectiveStats->currentMp . ' / ' . $member->effectiveStats->totalMp);
+      $role = $layers['main-party-' . $index . '-resources-role-text'];
+      foreach (['role' => 'Role', 'level' => 'Lv', 'hp' => 'HP', 'mp' => 'MP'] as $field => $label) {
+        $row = $layers['main-party-' . $index . '-resources-' . $field . '-text'];
+        expect($row->runs[0]->text)->toBe($label)->not->toContain(':')
+          ->and($row->runs[0]->column)->toBe(0)
+          ->and($row->x)->toBe($role->x)
+          ->and($row->grid->columns)->toBe($role->grid->columns)
+          ->and($row->runs[1]->column + mb_strlen($row->runs[1]->text))->toBe($row->grid->columns);
+      }
     }
     $ids = [...array_column($frame->images, 'id'), ...array_column($frame->textLayers, 'id')];
     expect(count(array_unique($ids)))->toBe(count($ids))
       ->and(count(array_filter($frame->images, fn($image) => $image->asset === 'portrait.png')))->toBe(4)
       ->and($layers)->not->toHaveKey('main-command-0-separator');
     $rules = array_filter($frame->textLayers, fn($layer) => str_contains($layer->id, '-resources-') && str_ends_with($layer->id, '-separator'));
-    expect(array_sum(array_map(fn($layer) => count($layer->runs), $rules)))->toBe(12);
+    expect(array_sum(array_map(fn($layer) => count($layer->runs), $rules)))->toBe(16);
     foreach ($frame->images as $image) { $image->destination->assertWithin(1350, 720); }
   }
   expect(mainMenuPresentationText($frames[0]))->toBe(mainMenuPresentationText($frames[1]));
 });
+
+it('wraps a long role in the aligned value column and measures space before the level row', function (bool $alternative) {
+  $member = $this->party->members->toArray()[0];
+  $name = 'Senior Vanguard of the Northern Civilian Investigation and Safety Division';
+  $member->role = new \Ichiloto\Engine\Entities\Roles\CharacterRole($member, $name);
+  $frame = $this->state->canvas(new MenuPresentationCatalog($this->root, mainMenuPresentationTheme($alternative)));
+  $layers = array_column($frame->textLayers, null, 'id');
+  $role = $layers['main-party-0-resources-role-text'];
+  $level = $layers['main-party-0-resources-level-text'];
+  $values = array_slice($role->runs, 1);
+  expect($role->grid->rows)->toBeGreaterThan(1)
+    ->and(implode('', array_column($values, 'text')))->toBe($name)
+    ->and($role->bounds->y + $role->bounds->height)->toBeLessThanOrEqual($level->bounds->y);
+  foreach ($values as $value) {
+    expect($value->column + mb_strlen($value->text))->toBe($role->grid->columns);
+  }
+  foreach ($frame->textLayers as $layer) { $layer->paintBounds->assertWithin(1350, 720); }
+})->with([false, true]);
+
+it('centers the main menu on both axes in the same envelope as other menus', function (bool $alternative) {
+  $data = mainMenuPresentationTheme($alternative);
+  $data['frames'] ??= array_fill_keys(['panel', 'quiet'], ['asset' => 'surface.png', 'cuts' => [3, 4, 3, 4]]);
+  $frame = $this->state->canvas(new MenuPresentationCatalog($this->root, $data));
+  $header = mainMenuPresentationFrameBounds($frame, 'main-info');
+  $location = mainMenuPresentationFrameBounds($frame, 'main-location');
+  $help = mainMenuPresentationFrameBounds($frame, 'main-help');
+  $host = MenuLayout::getBounds($frame->width, $frame->height);
+  expect($header->x)->toBe($host->x)->toBe(($frame->width - $header->width) / 2)
+    ->and($header->y)->toBe($host->y)
+    ->and($location->x)->toBe($header->x)
+    ->and($help->x + $help->width)->toBe($header->x + $header->width)
+    ->and($help->y + $help->height)->toBe($frame->height - $header->y);
+})->with([false, true]);
 
 it('preserves unoccupied frames and supports absent portrait mappings', function (int $count) {
   $members = array_slice($this->party->members->toArray(), 0, $count);
@@ -253,7 +317,7 @@ it('shares the bottom row with Location and meets the fourth character card with
     $lastCard = mainMenuPresentationFrameBounds($frame, 'main-party-3-frame');
     expect($help->y)->toBe($location->y)->toBe($lastCard->y + $lastCard->height)
       ->and($help->height)->toBe($location->height)
-      ->and($help->y + $help->height)->toBe(700.0);
+      ->and($help->y + $help->height)->toBe($frame->height - MenuLayout::getBounds()->y);
   }
 })->with([false, true])->with([false, true]);
 
@@ -272,7 +336,7 @@ it('grows both bottom panels together when either contains wrapped content', fun
   $help = mainMenuPresentationFrameBounds($frame, 'main-help');
   expect($help->y)->toBe($location->y)
     ->and($help->height)->toBe($location->height)->toBeGreaterThan(80)
-    ->and($help->y + $help->height)->toBe(700.0);
+    ->and($help->y + $help->height)->toBe($frame->height - MenuLayout::getBounds()->y);
   $layers = array_column($frame->textLayers, null, 'id');
   foreach (['main-location-value' => $location, 'main-help-text' => $help] as $id => $box) {
     $text = $layers[$id];
@@ -280,6 +344,48 @@ it('grows both bottom panels together when either contains wrapped content', fun
       ->and($text->y + $text->grid->rows * $theme->metrics->cellHeight)->toBeLessThanOrEqual($box->y + $box->height);
   }
 })->with([false, true])->with([false, true])->with(['location', 'help']);
+
+it('fits all four complete character cards inside eight-pixel panel borders without pagination', function (bool $hints) {
+  mainMenuPresentationPng($this->root . '/surface.png', 96, 96);
+  $data = mainMenuPresentationTheme(false);
+  $data['showInputHints'] = $hints;
+  $data['frames'] = array_fill_keys(['panel', 'quiet'], [
+    'asset' => 'surface.png', 'cuts' => [24, 24, 24, 24], 'borderWidths' => [8, 8, 8, 8],
+  ]);
+  $theme = new MenuPresentationCatalog($this->root, $data);
+  $members = $this->party->members->toArray();
+  $battlers = $this->party->battlers->toArray();
+  foreach ([new MainMenuCommandSelectionMode($this->state), new MainMenuCharacterSelectionMode($this->state),
+    new MainMenuPartyOrderMode($this->state)] as $mode) {
+    $this->state->setMode($mode);
+    $frame = $this->state->canvas($theme);
+    $layers = array_column($frame->textLayers, null, 'id');
+    $text = mainMenuPresentationText($frame);
+    expect($layers)->not->toHaveKey('main-party-range')
+      ->and(count(array_filter($frame->images, fn($image) => $image->asset === 'portrait.png')))->toBe(4);
+    foreach ($members as $index => $member) {
+      $id = 'main-party-' . $index;
+      $card = mainMenuPresentationFrameBounds($frame, $id . '-frame');
+      expect($card->height)->toBe(140.0)
+        ->and($text[$id . '-identity-text'])->toBe($member->name)
+        ->and($text[$id . '-resources-role-text'])->toBe('Role' . $member->role->name)
+        ->and($text[$id . '-resources-level-text'])->toBe('Lv' . $member->level)
+        ->and($text[$id . '-resources-hp-text'])->toBe('HP' . $member->effectiveStats->currentHp . ' / ' . $member->effectiveStats->totalHp)
+        ->and($text[$id . '-resources-mp-text'])->toBe('MP' . $member->effectiveStats->currentMp . ' / ' . $member->effectiveStats->totalMp);
+      $bottom = $card->y + 8;
+      foreach (['identity-text', 'resources-role-text', 'resources-level-text', 'resources-hp-text', 'resources-mp-text'] as $field) {
+        $layer = $layers[$id . '-' . $field];
+        expect($layer->bounds->y)->toBeGreaterThanOrEqual($bottom)
+          ->and($layer->bounds->y + $layer->bounds->height)->toBeLessThanOrEqual($card->y + $card->height - 8);
+        $bottom = $layer->bounds->y + $layer->bounds->height;
+      }
+    }
+    $last = mainMenuPresentationFrameBounds($frame, 'main-party-3-frame');
+    expect($last->y + $last->height)->toBe(mainMenuPresentationFrameBounds($frame, 'main-help')->y)
+      ->and($this->party->members->toArray())->toBe($members)
+      ->and($this->party->battlers->toArray())->toBe($battlers);
+  }
+})->with([false, true]);
 
 it('follows owner character focus across large parties without changing active or reserve membership', function (bool $alternative) {
   for ($i = 4; $i < 12; $i++) { $this->party->addMember(new Character('Actor ' . $i, 0, new Stats(), actorId: 'actor.' . $i)); }
@@ -289,12 +395,215 @@ it('follows owner character focus across large parties without changing active o
   for ($i = 0; $i < 11; $i++) { $this->state->characterSelectionMenu->selectNext(); }
   $frame = $this->state->canvas(new MenuPresentationCatalog($this->root, mainMenuPresentationTheme($alternative)));
   expect(mainMenuPresentationText($frame)['main-party-11-identity-text'])->toBe('Actor 11')
-    ->and(mainMenuPresentationText($frame)['main-party-range'])->toEndWith('/ 12')
+    ->and(mainMenuPresentationText($frame)['main-party-pager-counter'])->toBe('Page 3 of 3')
     ->and($this->party->members->toArray())->toBe($before)->and($this->party->battlers->toArray())->toBe($battlers)
     ->and($this->state->characterSelectionMenu->getActivePanelIndex())->toBe(11);
   $this->state->characterSelectionMenu->selectNext();
   expect($this->state->characterSelectionMenu->getActivePanelIndex())->toBe(0);
 })->with([false, true]);
+
+it('keeps stable four-card pages and themed footer controls for expanding parties', function (int $count, bool $alternative, bool $hints) {
+  for ($i = 4; $i < $count; $i++) { $this->party->addMember(new Character('Actor ' . $i, 0, new Stats(), actorId: 'actor.' . $i)); }
+  mainMenuPresentationPng($this->root . '/surface.png', 96, 96);
+  $data = mainMenuPresentationTheme($alternative);
+  $data['showInputHints'] = $hints;
+  $data['frames'] = array_fill_keys(['panel', 'quiet'], [
+    'asset' => 'surface.png', 'cuts' => [24, 24, 24, 24], 'borderWidths' => [8, 8, 8, 8],
+  ]);
+  if (!$hints) { $data['frames']['quiet']['borderWidths'] = [24, 24, 24, 24]; }
+  $theme = new MenuPresentationCatalog($this->root, $data);
+  $this->state->setMode(new MainMenuCharacterSelectionMode($this->state));
+  $members = $this->party->members->toArray();
+  foreach (range(0, $count - 1) as $selected) {
+    $this->state->characterSelectionMenu->focusPanelByIndex($selected);
+    $frame = $this->state->canvas($theme);
+    $text = mainMenuPresentationText($frame);
+    $layers = array_column($frame->textLayers, null, 'id');
+    $first = intdiv($selected, 4) * 4;
+    $last = min($count - 1, $first + 3);
+    $identities = array_filter(array_keys($text), fn($id) => preg_match('/^main-party-\d+-identity-text$/', $id));
+    expect(array_values($identities))->toBe(array_map(fn($index) => 'main-party-' . $index . '-identity-text', range($first, $last)))
+      ->and($text['main-party-pager-counter'])->toBe(sprintf('Page %d of %d', intdiv($selected, 4) + 1, (int)ceil($count / 4)))
+      ->and($layers)->not->toHaveKey('main-party-range')
+      ->and($this->party->members->toArray())->toBe($members);
+    $footer = mainMenuPresentationFrameBounds($frame, 'main-help');
+    if ($last - $first === 3) {
+      $bottom = mainMenuPresentationFrameBounds($frame, 'main-party-' . $last . '-frame');
+      expect($bottom->y + $bottom->height)->toBe($footer->y);
+    }
+    foreach (['previous', 'next'] as $role) {
+      $layer = $layers['main-party-pager-' . $role . '-button-text'];
+      $border = $hints ? 8 : 24;
+      expect($layer->x + $layer->bounds->width / 2)->toBe($layer->clipRect->x + $layer->clipRect->width / 2)
+        ->and($layer->clipRect->x)->toBeGreaterThanOrEqual($footer->x + $border)
+        ->and($layer->clipRect->x + $layer->clipRect->width)->toBeLessThanOrEqual($footer->x + $footer->width - $border)
+        ->and($layer->clipRect->y)->toBeGreaterThanOrEqual($footer->y + $border)
+        ->and($layer->clipRect->y + $layer->clipRect->height)->toBeLessThanOrEqual($footer->y + $footer->height - $border);
+      $disabled = $role === 'previous' ? $first === 0 : $last === $count - 1;
+      expect($layer->runs[0]->foreground)->toEqual($theme->colors[$disabled ? 'disabled' : 'text']);
+    }
+    expect($layers['main-party-pager-counter']->runs[0]->foreground)->toEqual($theme->colors['accent'])
+      ->and(array_filter($frame->images, fn($image) => str_contains($image->id, 'pager') && str_contains($image->id, 'cursor')))->toBeEmpty();
+    if ($hints) { expect($text['main-hints'])->toContain('Prev', 'Next', 'Confirm', 'Cancel'); }
+    else { expect($text)->not->toHaveKey('main-hints'); }
+  }
+})->with([5, 7, 12])->with([false, true])->with([false, true]);
+
+it('measures wrapped cards into smaller whole-record pages without truncating character information', function () {
+  for ($i = 4; $i < 7; $i++) { $this->party->addMember(new Character('Actor ' . $i, 0, new Stats())); }
+  $member = $this->party->members->toArray()[0];
+  new ReflectionProperty($member, 'name')->setValue($member, str_repeat('Extended actor ', 6));
+  $data = mainMenuPresentationTheme(false);
+  $data['frames'] = array_fill_keys(['panel', 'quiet'], ['asset' => 'surface.png', 'cuts' => [3, 4, 3, 4]]);
+  $theme = new MenuPresentationCatalog($this->root, $data);
+  $pages = \Ichiloto\Engine\UI\Presentation\MainMenuPresentation::getPartyPagination($this->state, $theme);
+  expect($pages->pages)->toBe([['first' => 0, 'last' => 2], ['first' => 3, 'last' => 6]]);
+  $frame = $this->state->canvas($theme);
+  expect(mainMenuPresentationText($frame)['main-party-0-identity-text'])->toBe($member->name);
+  $layers = array_column($frame->textLayers, null, 'id');
+  $footer = mainMenuPresentationFrameBounds($frame, 'main-help');
+  foreach (['identity-text', 'resources-role-text', 'resources-level-text', 'resources-hp-text', 'resources-mp-text'] as $field) {
+    expect($layers['main-party-0-' . $field]->bounds->y + $layers['main-party-0-' . $field]->bounds->height)->toBeLessThanOrEqual($footer->y);
+  }
+});
+
+it('uses remappable page actions in the owner and remembers the browsed page when entering character selection', function () {
+  for ($i = 4; $i < 7; $i++) { $this->party->addMember(new Character('Actor ' . $i, 0, new Stats())); }
+  $data = mainMenuPresentationTheme(false);
+  $data['showInputHints'] = false;
+  file_put_contents($this->root . '/' . MenuPresentationCatalog::FILE, '<?php return ' . var_export($data, true) . ';');
+  $this->runtime = mainMenuPresentationRuntime($this->root, MenuPresentationCatalog::CAPABILITIES);
+  $this->game->useRendererRuntime($this->runtime);
+  InputManager::setBinding(MenuPager::NEXT_ACTION, [KeyCode::F1]);
+  InputManager::setBinding(MenuPager::PREVIOUS_ACTION, [KeyCode::F2]);
+  $this->state->mainMenu->setActiveItemByLabel('Equipment');
+  $command = $this->state->mainMenu->getActiveItem();
+  $members = $this->party->members->toArray();
+  mainMenuPresentationPageKey(KeyCode::PAGE_DOWN, $this->state);
+  expect($this->state->getPartyPresentationIndex())->toBe(0);
+  mainMenuPresentationPageKey(KeyCode::F1, $this->state);
+  expect($this->state->getPartyPresentationIndex())->toBe(4)
+    ->and(mainMenuPresentationText($this->scene->getPresentationCanvas())['main-party-pager-counter'])->toBe('Page 2 of 2')
+    ->and($this->state->mainMenu->getActiveItem())->toBe($command)
+    ->and($this->party->members->toArray())->toBe($members);
+  mainMenuPresentationPageKey(KeyCode::F1, $this->state);
+  expect($this->state->getPartyPresentationIndex())->toBe(4);
+  mainMenuPresentationKey(KeyCode::ENTER, $this->state);
+  expect($this->state->characterSelectionMenu->getActivePanelIndex())->toBe(4);
+  $this->state->characterSelectionMenu->focusPanelByIndex(6);
+  mainMenuPresentationPageKey(KeyCode::F2, $this->state);
+  expect($this->state->characterSelectionMenu->getActivePanelIndex())->toBe(2);
+  $this->state->characterSelectionMenu->selectNext();
+  expect(mainMenuPresentationText($this->scene->getPresentationCanvas())['main-party-pager-counter'])->toBe('Page 1 of 2');
+  $this->state->characterSelectionMenu->selectNext();
+  expect(mainMenuPresentationText($this->scene->getPresentationCanvas())['main-party-pager-counter'])->toBe('Page 2 of 2');
+  mainMenuPresentationKey(KeyCode::C, $this->state);
+  expect($this->state->getPartyPresentationIndex())->toBe(4);
+});
+
+it('preserves the marked swap source while paging and reorders across pages through the original owner', function () {
+  for ($i = 4; $i < 7; $i++) { $this->party->addMember(new Character('Actor ' . $i, 0, new Stats())); }
+  $data = mainMenuPresentationTheme(false);
+  file_put_contents($this->root . '/' . MenuPresentationCatalog::FILE, '<?php return ' . var_export($data, true) . ';');
+  $this->runtime = mainMenuPresentationRuntime($this->root, MenuPresentationCatalog::CAPABILITIES);
+  $this->game->useRendererRuntime($this->runtime);
+  $this->state->mainMenu->setActiveItemByLabel('Order');
+  mainMenuPresentationKey(KeyCode::ENTER, $this->state);
+  mainMenuPresentationKey(KeyCode::ENTER, $this->state);
+  $members = $this->party->members->toArray();
+  mainMenuPresentationPageKey(KeyCode::PAGE_DOWN, $this->state);
+  expect($this->state->characterSelectionMenu->getMarkedPanelIndex())->toBe(0)
+    ->and($this->state->characterSelectionMenu->getActivePanelIndex())->toBe(4)
+    ->and($this->party->members->toArray())->toBe($members)
+    ->and(mainMenuPresentationText($this->scene->getPresentationCanvas())['main-help-text'])->toContain('Actor 0');
+  mainMenuPresentationKey(KeyCode::ENTER, $this->state);
+  $expected = $members;
+  [$expected[0], $expected[4]] = [$expected[4], $expected[0]];
+  expect($this->party->members->toArray())->toBe($expected)
+    ->and($this->party->battlers->toArray())->toBe(array_slice($expected, 0, 3))
+    ->and($this->state->characterSelectionMenu->getMarkedPanelIndex())->toBeNull()
+    ->and($this->state->getPartyPresentationIndex())->toBe(4);
+});
+
+it('retains character identity and page when returning from a character submenu', function (string $command) {
+  for ($i = 4; $i < 7; $i++) { $this->party->addMember(new Character('Actor ' . $i, 0, new Stats())); }
+  $target = $command === 'Equipment'
+    ? new class(new SceneStateContext($this->scene)) extends EquipmentMenuState { public function enter(): void {} }
+    : new class(new SceneStateContext($this->scene)) extends StatusViewState { public function enter(): void {} };
+  if ($command === 'Equipment') { new ReflectionProperty($this->scene, 'equipmentMenuState')->setValue($this->scene, $target); }
+  file_put_contents($this->root . '/' . MenuPresentationCatalog::FILE, '<?php return ' . var_export(mainMenuPresentationTheme(false), true) . ';');
+  $this->runtime = mainMenuPresentationRuntime($this->root, MenuPresentationCatalog::CAPABILITIES);
+  $this->game->useRendererRuntime($this->runtime);
+  $this->state->mainMenu->setActiveItemByLabel($command);
+  mainMenuPresentationKey(KeyCode::ENTER, $this->state);
+  $this->state->getPresentationMode()->nextGameSceneState = $target;
+  $this->state->characterSelectionMenu->focusPanelByIndex(5);
+  mainMenuPresentationKey(KeyCode::ENTER, $this->state);
+  expect($target->character)->toBe($this->party->members->toArray()[5]);
+  $target->character = $this->party->members->toArray()[6];
+  $this->scene->setState($this->state);
+  expect($this->state->mainMenu->getActiveItem()->getLabel())->toBe($command)
+    ->and($this->state->getPartyPresentationIndex())->toBe(6)
+    ->and(mainMenuPresentationText($this->scene->getPresentationCanvas())['main-party-pager-counter'])->toBe('Page 2 of 2');
+  mainMenuPresentationKey(KeyCode::ENTER, $this->state);
+  expect($this->state->characterSelectionMenu->getActivePanelIndex())->toBe(6);
+})->with(['Equipment', 'Status']);
+
+it('leaves terminal navigation unchanged and ignores page controls without a usable graphical menu', function () {
+  for ($i = 4; $i < 7; $i++) { $this->party->addMember(new Character('Actor ' . $i, 0, new Stats())); }
+  $mode = $this->state->getPresentationMode();
+  $command = $this->state->mainMenu->getActiveItem();
+  expect($this->state->changePartyPage(1))->toBeFalse()
+    ->and($this->state->getPresentationMode())->toBe($mode)
+    ->and($this->state->mainMenu->getActiveItem())->toBe($command);
+  $this->state->setMode(new MainMenuCharacterSelectionMode($this->state));
+  $this->state->characterSelectionMenu->focusPanelByIndex(5);
+  $this->state->setMode(new MainMenuCommandSelectionMode($this->state));
+  $this->state->setMode(new MainMenuCharacterSelectionMode($this->state));
+  expect($this->state->characterSelectionMenu->getActivePanelIndex())->toBe(0);
+});
+
+it('does not page behind a visible modal and resumes the same page after it closes', function () {
+  for ($i = 4; $i < 7; $i++) { $this->party->addMember(new Character('Actor ' . $i, 0, new Stats())); }
+  file_put_contents($this->root . '/' . MenuPresentationCatalog::FILE, '<?php return ' . var_export(mainMenuPresentationTheme(false), true) . ';');
+  $this->runtime = mainMenuPresentationRuntime($this->root, MenuPresentationCatalog::CAPABILITIES);
+  $this->game->useRendererRuntime($this->runtime);
+  $this->state->setMode(new MainMenuCharacterSelectionMode($this->state));
+  $this->state->characterSelectionMenu->focusPanelByIndex(2);
+  $modal = makeBareScene(ModalManager::class);
+  $stack = new Stack(ModalInterface::class);
+  new ReflectionProperty($modal, 'modals')->setValue($modal, $stack);
+  new ReflectionProperty($this->game, 'modalManager')->setValue($this->game, $modal);
+  $alert = new AlertModal($this->game, 'Wait for confirmation.', 'Notice');
+  new ReflectionProperty($alert, 'isShowing')->setValue($alert, true);
+  $stack->push($alert);
+  $members = $this->party->members->toArray();
+  mainMenuPresentationPageKey(KeyCode::PAGE_DOWN, $this->state);
+  $frame = $this->scene->getPresentationCanvas();
+  expect($frame)->not->toBeNull(new ReflectionProperty(MainMenuState::class, 'menuPresentationError')->getValue($this->state) ?? '');
+  expect($this->state->getPartyPresentationIndex())->toBe(2)
+    ->and($this->party->members->toArray())->toBe($members)
+    ->and(mainMenuPresentationText($frame)['main-party-pager-counter'])->toBe('Page 1 of 2');
+  $stack->pop();
+  mainMenuPresentationPageKey(KeyCode::PAGE_DOWN, $this->state);
+  expect($this->state->getPartyPresentationIndex())->toBe(6)
+    ->and(mainMenuPresentationText($this->scene->getPresentationCanvas())['main-party-pager-counter'])->toBe('Page 2 of 2');
+});
+
+it('remembers the character rather than a stale page index when party membership changes', function () {
+  for ($i = 4; $i < 7; $i++) { $this->party->addMember(new Character('Actor ' . $i, 0, new Stats())); }
+  $members = $this->party->members->toArray();
+  $remembered = $members[6];
+  $this->state->rememberPartyPresentationCharacter($remembered);
+  expect($this->state->getPartyPresentationIndex())->toBe(6);
+  $this->party->swapMembers(6, 1);
+  expect($this->state->getPartyPresentationIndex())->toBe(1);
+  $this->party->members = new ItemList(Character::class,
+    array_values(array_filter($this->party->members->toArray(), fn($member) => $member !== $remembered)));
+  expect($this->state->getPartyPresentationIndex())->toBe(0);
+  $this->state->rememberPartyPresentationCharacter(new Character('Not in the party', 0, new Stats()));
+  expect($this->state->getPartyPresentationIndex())->toBe(0);
+});
 
 it('highlights the focused character with the command selection treatment and clears it on return', function () {
   $theme = new MenuPresentationCatalog($this->root, mainMenuPresentationTheme(false));
@@ -334,7 +643,9 @@ it('fills the complete padded card interior without a name cursor or persistent 
   $images = array_column($frame->images, null, 'id');
   $fill = $text['main-party-0-identity-selected'];
   $name = $text['main-party-0-identity-text'];
-  expect($fill->clipRect->toArray())->toBe(['x' => 428.0, 'y' => 68.0, 'width' => 784.0, 'height' => 124.0])
+  $card = mainMenuPresentationFrameBounds($frame, 'main-party-0-frame');
+  expect($fill->clipRect->toArray())->toBe(['x' => $card->x + 8, 'y' => $card->y + 8,
+    'width' => $card->width - 16, 'height' => $card->height - 16])
     ->and($fill->clipRect->y)->toBeLessThanOrEqual($name->y)
     ->and($images['main-party-0-frame-0-1-backing']->layer)->toBeLessThan($fill->layer)
     ->and($images['main-party-0-frame-0-1-border']->layer)->toBeGreaterThan($fill->layer)
@@ -464,7 +775,10 @@ it('wraps live labels and semantic hints without overlapping records or descript
   }
   ActionHints::useProvider(null);
   InputManager::setBindings([]);
-  expect(mainMenuPresentationText($this->state->canvas($theme))['main-hints'])->toBe('Unbound: Confirm  Unbound: Cancel');
+  $frame = $this->state->canvas($theme);
+  $expected = 'Unbound: Confirm  Unbound: Cancel';
+  if (isset(mainMenuPresentationText($frame)['main-party-pager-counter'])) { $expected .= '   Page Up : Prev   Page Down : Next'; }
+  expect(mainMenuPresentationText($frame)['main-hints'])->toBe($expected);
 })->with([false, true]);
 
 it('refreshes compact hints and profile glyphs on the real four-party menu without changing its actions', function (bool $alternative) {
@@ -534,7 +848,7 @@ it('uses shared Config when themed and overlays alerts without changing the acti
   $configFrame = $this->scene->getPresentationCanvas();
   $configRuns = array_merge(...array_map(fn($layer) => array_column($layer->runs, 'text'), $configFrame->textLayers));
   expect($this->state->getPresentationMode())->toBeInstanceOf(MainMenuConfigMode::class)
-    ->and($configRuns)->toContain('Config', 'Volume', '75%', 'Sets the master volume for music and sound effects.', 'Cancel');
+    ->and($configRuns)->toContain('Config', 'Volume', '75%', 'Sets the master volume for music, sound effects and voice.', 'Cancel');
   $config = $this->state->getPresentationMode()->getConfigMenu();
   InputManager::setBindings([...InputManager::getBindings(), 'down' => ['keys' => [KeyCode::DOWN]]]);
   mainMenuPresentationKey(KeyCode::DOWN, $this->state);
@@ -628,7 +942,33 @@ it('connects in-game Save to the shared themed canvas and modal lifecycle withou
   expect(mainMenuPresentationText($this->scene->getPresentationCanvas())['save-info-description'])->toBe('Choose a file.');
 })->with([false, true]);
 
-it('diagnoses unrenderable content or invalid art and recovers without mutating the owner', function () {
+it('keeps the Save menu usable and reports plain feedback when local storage refuses a write', function () {
+  $slots = array_map(static fn(int $slot): SaveSlot => SaveSlot::empty($slot, ''), range(1, 5));
+  $manager = $this->createMock(SaveManager::class);
+  $manager->method('getSaveSlots')->willReturn($slots);
+  $manager->method('save')->willThrowException(new RuntimeException('Permission denied at /private/path'));
+  new ReflectionProperty($this->scene->sceneManager, 'saveManager')->setValue($this->scene->sceneManager, $manager);
+  $modals = new class extends ModalManager {
+    public array $alerts = [];
+    public function __construct() {}
+    public function alert(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH): void
+    {
+      $this->alerts[] = [$message, $title];
+    }
+  };
+  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $modals);
+  $state = new SaveMenuState(new SceneStateContext($this->scene));
+  new ReflectionProperty($this->scene, 'state')->setValue($this->scene, $state);
+  $state->enter();
+  new ReflectionMethod($state, 'saveToActiveSlot')->invoke($state);
+  $message = 'Saving is unavailable. Check storage permissions and try again.';
+  expect(new ReflectionProperty($state, 'statusMessage')->getValue($state))->toBe($message)
+    ->and($modals->alerts)->toBe([[$message, 'Save Unavailable']])
+    ->and(file_get_contents($this->root . '/logs/warning.log'))->toContain('Permission denied at /private/path')
+    ->and($this->scene->state)->toBe($state);
+});
+
+it('diagnoses unrenderable content and recovers without mutating the owner', function () {
   file_put_contents($this->root . '/' . MenuPresentationCatalog::FILE, '<?php return ' . var_export(mainMenuPresentationTheme(false), true) . ';');
   $this->runtime = mainMenuPresentationRuntime($this->root, MenuPresentationCatalog::CAPABILITIES);
   $this->game->useRendererRuntime($this->runtime);
@@ -637,11 +977,7 @@ it('diagnoses unrenderable content or invalid art and recovers without mutating 
   expect($this->scene->getPresentationCanvas())->toBeNull()->and($this->state->getPresentationMode())->toBe($mode);
   $this->state->infoPanel->setText('Recovered description');
   expect($this->scene->getPresentationCanvas())->toBeInstanceOf(PresentationCanvas::class);
-  file_put_contents($this->root . '/portrait.png', 'invalid PNG');
-  clearstatcache();
-  expect($this->scene->getPresentationCanvas())->toBeNull()->and($this->state->getPresentationMode())->toBe($mode);
-  $logs = implode('', array_map(file_get_contents(...), glob($this->root . '/logs/*')));
-  expect($logs)->toContain('Menu presentation degraded to terminal');
+  expect(file_get_contents($this->root . '/logs/error.log'))->toContain('Menu presentation degraded to terminal');
 });
 
 it('keeps default row output identical while separate record treatments retain the same name cursor geometry', function (bool $alternative) {
@@ -661,6 +997,26 @@ it('keeps default row output identical while separate record treatments retain t
   $separators = array_column($full->textLayers, null, 'id');
   expect($separators['test-actor-separator']->clipRect->y)->toBe(239.0);
 })->with([false, true]);
+
+it('fits a text-height identity when its separator belongs to the compound record bounds', function () {
+  $theme = new MenuPresentationCatalog($this->root, mainMenuPresentationTheme(false));
+  $row = new MenuRow('actor', 'Actor Name', selected: true, focused: true, showCursor: false);
+  $layout = new MenuRowLayout(new CanvasRectangle(250, 100, 600, 24), rowHeight: 24);
+  $bounds = new CanvasRectangle(200, 90, 700, 150);
+  $frame = MenuRowPainter::compose(1350, 720, 'test', [$row], $layout, $theme->rows, $theme->icons,
+    reducedMotion: true, recordBounds: $bounds);
+  $layers = array_column($frame->textLayers, null, 'id');
+  $text = $layers['test-actor-text'];
+  expect($text->y)->toBe(100.0)
+    ->and($text->clipRect)->toEqual($layout->viewport)
+    ->and($text->bounds)->toEqual(new CanvasRectangle(280, 100, 540, 24))
+    ->and($text->paintBounds)->toEqual($text->bounds)
+    ->and($layers['test-actor-separator']->clipRect->y)->toBe(239.0);
+  expect(fn() => MenuRowPainter::compose(1350, 720, 'test', [$row], $layout, $theme->rows))
+    ->toThrow(InvalidArgumentException::class);
+  expect(fn() => MenuRowPainter::compose(1350, 720, 'test', [$row], $layout, $theme->rows, recordBounds: $layout->viewport))
+    ->toThrow(InvalidArgumentException::class, 'Compact record identity must leave room for its separate treatment separator.');
+});
 
 it('retains source-specific terminal fields and owner Save availability', function () {
   $this->state->render();
@@ -738,4 +1094,24 @@ it('fits four actors and thirteen commands with framed art and neutral row treat
       ->and(mainMenuPresentationText($frame))->toHaveKeys(['main-party-0-identity-text', 'main-party-1-identity-text',
         'main-party-2-identity-text', 'main-party-3-identity-text', 'main-command-12-text']);
   }
+});
+
+
+it('replaces only the unavailable main menu portrait and retains other cards and frames', function () {
+  $theme = mainMenuPresentationTheme(true);
+  $theme['portraits']['actor.0'] = 'broken.png';
+  file_put_contents($this->root . '/broken.png', 'invalid PNG');
+  file_put_contents($this->root . '/' . MenuPresentationCatalog::FILE, '<?php return ' . var_export($theme, true) . ';');
+  $this->runtime = mainMenuPresentationRuntime($this->root, MenuPresentationCatalog::CAPABILITIES);
+  $this->game->useRendererRuntime($this->runtime);
+  $mode = $this->state->getPresentationMode();
+  $frame = $this->scene->getPresentationCanvas();
+  expect($frame)->toBeInstanceOf(PresentationCanvas::class)
+    ->and(array_column($frame->images, 'asset'))->toContain('portrait.png', 'surface.png')->not->toContain('broken.png')
+    ->and(array_filter($frame->images, fn($image) => $image->asset === 'portrait.png'))->toHaveCount(3)
+    ->and(implode('', mainMenuPresentationText($frame)))->toContain('Items')
+    ->and($this->state->getPresentationMode())->toBe($mode)
+    ->and(file_get_contents($this->root . '/logs/warning.log'))->toContain('broken.png');
+  mainMenuPresentationPng($this->root . '/broken.png', 33, 55);
+  expect(array_column($this->scene->getPresentationCanvas()->images, 'asset'))->toContain('broken.png');
 });

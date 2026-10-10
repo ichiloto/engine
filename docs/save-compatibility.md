@@ -137,8 +137,65 @@ return [
 Migration classes implement `ContentMigrationInterface` and transform the
 existing decoded `payload` array. Migrations must be adjacent, deterministic,
 and must not execute a callable stored in a save. To advance from version 1
-to 2, add exactly one `1 -> 2` class, retain all older steps, then raise
+to 2, add exactly one `1 -> 2` step, retain all older steps, then raise
 `contentVersion`.
+
+### Declared map shifts
+
+A step may declare declared position edits, `mapShifts` and/or `relocations`,
+instead of `class` (a class or declared edits, never both).
+It records blank rows or columns inserted into a map, so no generated PHP
+class is needed:
+
+```php
+[
+  'from' => 1,
+  'to' => 2,
+  'mapShifts' => [
+    ['map' => 'town', 'axis' => 'y', 'at' => 4, 'by' => 2],
+    ['map' => 'town', 'axis' => 'x', 'at' => 7, 'by' => 3],
+  ],
+]
+```
+
+`map` is a non-empty map ID, `axis` is `'x'` or `'y'`, `at` is the 0-based
+insertion line (an integer of at least 0) and `by` is the inserted count (an
+integer of at least 1). The list must be non-empty; malformed entries make the
+manifest invalid. The engine applies the shifts in order to the saved player
+position: when the save's map is `map` and its coordinate on `axis` is at or
+beyond `at`, that coordinate grows by `by`. Map aliases apply to both the save
+and the entry, so a renamed map still matches. The Editor's row and column
+insert command appends such a step and raises `contentVersion`.
+
+### Declared relocations
+
+When authored content (an NPC, furniture, a wall) comes to occupy cells a
+player could have saved on, a step declares `relocations` instead of a
+project class:
+
+```php
+[
+  'from' => 16,
+  'to' => 17,
+  'relocations' => [
+    ['map' => 'town', 'cells' => [[34, 5]], 'to' => [35, 6]],
+    ['map' => 'town', 'cells' => [[55, 8], [56, 8]], 'to' => [55, 6]],
+  ],
+]
+```
+
+`map` is a non-empty map ID, `cells` a non-empty list of distinct `[x, y]`
+cells and `to` the `[x, y]` landing, all non-negative integers; the landing
+may not be one of the cells. A saved player position exactly on a listed cell
+moves to the landing; every other position, including a fractional one, keeps
+its coordinates. Map aliases apply as for shifts. The cells and landing are
+frozen in the manifest: choose a landing that is open floor, free of events and
+NPCs and reachable, because loading a save never consults the mutable map.
+
+A step may declare both `mapShifts` and `relocations`; its shifts apply first,
+then its relocations, each in authored order. A move belongs to the step that
+introduced it: never add cells to an earlier step, since saves already past
+that version will not run it again.
 
 `ContentReferenceCategory` is the shared runtime/editor vocabulary: maps,
 one-shot events, quests, actors, items, equipment, abilities, spells,
@@ -146,6 +203,39 @@ summons, states, story events, enemies, and achievements. Alias entries use a
 list of `from`/`to` pairs so contradictory duplicate sources remain visible
 to validation. Chains resolve deterministically; self-aliases and cycles are
 invalid. No rename is inferred.
+
+Actor definitions must declare a non-empty string `data.id`. Display-name and
+filename lookup aliases have been removed: only IDs resolve definitions, so two
+actors may share a display name and a name may match another actor's ID without
+changing either identity. Existing case-insensitive ID lookup is retained.
+For a legacy file with an **absent** ID, the runtime file loader temporarily uses
+its current name as an in-memory provisional ID and logs the source filename and
+migration instructions. It never writes project files. An empty or malformed
+authored ID remains an error, not a fallback.
+Released projects also used actor file stems in `startingParty`. Only that
+startup path can resolve a missing-ID actor by file stem, with a warning. A
+registered ID takes precedence; explicit modern actors gain no filename or
+display-name aliases, and ambiguous legacy references are refused.
+
+Before renaming legacy content, use the Editor's **Freeze current name as ID**
+repair or confirm the CLI validation migration (`validate --migrate-actor-ids`).
+Both use the same source-preserving service. A project plan freezes missing IDs
+and updates filename/display-name references to stable IDs, including projects
+whose IDs were frozen earlier without updating their references. It lists every
+changed file before confirmation. Starting parties, skits, actor presentation
+bindings and battle-entry-rule actor predicates/effects share this inventory.
+NPC/staged scene identities, enemy references, ordinary dialogue names and
+name-based summon wielder restrictions are separate contracts and stay untouched.
+Unsupported dynamic source, ambiguous references and colliding keys/IDs are
+refused before writing. Confirmed project repair writes the listed files as one
+transaction; undo/redo checks source snapshots and uses the same transaction.
+The TUI's actor-only freeze retains deferred save when no reference files need
+repair. Validation reports unresolved actor references, including startingParty.
+The frozen ID preserves existing name-based saves; changing the identity
+instead requires an explicit content migration. The Editor assigns IDs to new
+actors and keeps established IDs read-only. Renames change only `data.name`.
+Skits, dialogue presentation, battle artwork, results portraits and current saves
+use the explicit id; a display-name change requires no artwork rebinding.
 
 A tombstone means removal was deliberate. If a loaded save still contains
 that identity, loading fails and asks for a project content migration. A game

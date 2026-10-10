@@ -19,6 +19,10 @@ public function poll(): ?KeyCode;
 public function reset(bool $drainBufferedInput = false): void;
 ```
 
+Sources that know physical key state also implement `HeldInputSourceInterface`
+(see [key transitions](#key-transitions-implemented)); the two methods above
+stay their complete event-only contract.
+
 Each poll returns one canonical key in arrival order, or null. Sources perform
 bounded reads and do not call gameplay, change bindings, or own game-loop timing.
 `InputManager` holds current/previous `?KeyCode` state and dispatches the existing
@@ -34,14 +38,30 @@ it does not change selection. Boot captures these effective bindings for Restore
 Defaults. Loading never writes configuration; the existing explicit Controls
 rebind/restore workflow retains persistence ownership.
 
-### Approved compatibility correction
+Missing `menu_page_previous` and `menu_page_next` actions similarly offer
+Page Up and Page Down only when those keys are not already authored elsewhere.
+Explicit bindings, empty keys and controller metadata are preserved. The graphical
+Main Menu consumes these semantic actions through its PHP owner, not through the
+renderer. They browse measured whole-character pages, retain relative position
+where the destination page allows it, and stop at the first/last page. Terminal
+navigation and menus without a usable graphical presentation are unchanged.
+Control hints use the shared provider and live bindings. Physical gamepad,
+pointer and touch delivery are not implemented by adding these actions.
 
-S3 uses canonical comparison for `isKeyPressed()` with maintainer approval.
+Controls stores changed keyboard keys under `input.bindings` in the player's
+`.data/player-settings.json`. The authored `input.php` supplies action identities,
+descriptions, controller metadata and default keys. At boot, the Engine applies
+valid player key overrides to known, rebindable actions; Restore Defaults clears
+those overrides. Neither action rewrites `input.php`.
+
+<a id="approved-compatibility-correction"></a>
+### Canonical key comparison
+
+S3 uses canonical comparison for `isKeyPressed()`.
 Previously that method compared raw terminal bytes with enum values, so special
 keys such as Up and Enter always returned false even when `isKeyDown()` returned
 true. These keys now report pressed consistently for terminal and renderer input.
-This is an explicitly approved correction to the legacy behavior, not a preserved
-quirk. No special-key whitelist or terminal-byte leakage is needed in InputManager.
+No special-key whitelist or terminal-byte leakage is needed in InputManager.
 
 The normalized contract also excludes terminal bytes outside the existing enum:
 these yield null rather than dispatching an event whose `getKey()` is null.
@@ -67,20 +87,16 @@ elsewhere have not all been migrated.
 
 Themes may set `showInputHints` to false to omit persistent graphical helper
 strips and their reserved layout space without changing actions or bindings.
-The default remains true for compatibility. Last Legend uses the dedicated
-Controls lookup instead, retaining useful action descriptions in menus and
-dialogs. Controls still exposes all aliases, not only the compact primary key.
+The default remains true for compatibility. Themes can use the dedicated
+Controls lookup while retaining useful action descriptions in menus and dialogs.
+Controls exposes all aliases, not only the compact primary key.
 
 A PHP input context can supply an `ActionHintProvider` and replace its display
 profile without changing menu composition or dispatching input. That is a
 presentation boundary, **not implemented gamepad detection or controller input**.
 The current native and terminal sources still report keyboard identities only.
-The approved PC/Desktop Controls Art example uses Xbox glyphs (`gamepad.xbox`):
-A/B/X/Y, shoulders/triggers, D-pad, Menu and View. PlayStation and Nintendo
-families are later variants. This is a manually selected preview family, not
-approved shipping mappings, device detection or authorization to implement a
-controller backend; semantic actions and keyboard bindings remain unchanged.
-Physical-controller work must drive the profile from meaningful active-device
+Display providers may select gamepad-family glyphs for previews without changing
+keyboard input or establishing physical device support. Physical-controller work must drive the profile from meaningful active-device
 input, handle focus/disconnection and keyboard/controller coexistence, and keep
 device glyph changes independent of actions, focus and selection. Merely having
 a controller connected must not make hints unusable for a keyboard player.
@@ -152,8 +168,10 @@ allows opt-in trace correlation without adding wire or gameplay fields.
 RendererRuntime uses it after its explicit pump, keeping each I/O pass bounded.
 
 Both terminal and renderer paths still consume one key per `handleInput()`.
-They cannot distinguish deliberate repeated taps from OS repeats, because neither
-contract supplies repeat identity. A burst can queue behind the frame cadence.
+The event-only stream cannot distinguish deliberate repeated taps from OS repeats.
+A `key_transitions` session supplies repeat identity for held state only (see
+[key transitions](#key-transitions-implemented)); its key stream is unchanged.
+A burst can queue behind the frame cadence.
 Do not deduplicate identities or batch only KeyboardEvents: gameplay also reads
 current/previous key state once per update. See the latency investigation in
 [S7-E validation](s7-e-validation.md) for evidence and the unresolved batching boundary.
@@ -200,15 +218,15 @@ separately before cleanup. The duration defaults to 60 seconds (allowed 0-300).
 Lifecycle diagnostics go to stderr. The tool generates no frames or game actions.
 
 See the [S3 validation and handoff record](s3-validation.md) for tested boundaries
-and the approved compatibility correction. Runtime selection, presentation,
-and Last Legend integration remain out of scope.
+and the canonical key comparison behaviour. The smoke tool does not run gameplay.
 
-## Planned controller-ready input and normalized movement
+## Controller-ready input and normalized movement
 
-**Not implemented.** The sections above describe the current event-only source
-contract. This extension is queued in the [integration roadmap](integration-roadmap.md#controller-ready-input-and-normalized-movement)
-for G4 field readiness after the current cinematic ownership work; capture does
-not change current APIs or authorize an immediate implementation.
+The sections above describe the event-only source contract every source
+keeps. Held keyboard walking in the graphical field is implemented on top of
+it; diagonals, physical controllers and analog input remain planned. The
+[integration roadmap](integration-roadmap.md#controller-ready-input-and-normalized-movement)
+tracks the remaining work.
 
 ### Ownership and compatibility
 
@@ -219,78 +237,127 @@ contracts must accommodate device/control identity, press/release/held state,
 simultaneous controls, analog magnitude, focus/connection changes and coexistence.
 Future gamepads must not be permanently modeled as synthetic keyboard presses.
 PHP owns bindings, action contexts, movement and timing; native sources report
-normalized controls. No render callback may drive gameplay.
+normalized controls. No render callback drives gameplay.
 
-Renderer must inspect the pinned GPUI key-down/up and focus APIs before Engine
-and Renderer agree the smallest negotiated transition/reset extension. Preserve
-legacy event semantics; do not reinterpret them silently or assume an upgrade.
-Track stable control identity separately from text/case so modifier changes do
-not strand held keys. Repeated down events create neither new physical edges nor
-extra movement. GPUI's previously unreliable `is_held` repeat flag is not enough.
-Clear held state on focus loss, connection failure and shutdown; elapsed silence
-is not release evidence. Preserve platform shortcuts and text-entry separation.
+### Key transitions (implemented)
 
-Replace single-current-key state for stateful sources with bounded event/held
-processing before the normal gameplay update. Preserve taps that press and
-release between updates, multiple bindings for one action and event ordering.
-Do not run gameplay once per input event or drain unboundedly. Keep held actions,
-pressed/released edges and UI navigation repeat distinct; do not redefine every
-existing `isButtonDown()` consumer as held. Terminal keeps an explicit event-only
-adapter and cannot claim reliable physical key release.
+`key_transitions` is a protocol 2 event subscription, requested like
+`window_activation` in `hello.requiredCapabilities`; the Game's GPUI session
+requires it. Sessions that do not request it receive exactly the legacy `key`
+events. A subscribed session receives every key-down as before, OS repeats
+included, now with a stable `control` identity and a `repeat` flag, plus two
+new events:
 
-### Movement and world semantics
+```json
+{"protocol":2,"type":"key","key":"S","control":"s","repeat":true}
+{"protocol":2,"type":"key_release","control":"s"}
+{"protocol":2,"type":"input_reset"}
+```
 
-- Derive one intent from all held movement actions. Opposing directions cancel
-  per axis; Down plus Right produces a diagonal without alternating key presses.
-- Use elapsed time and explicit travel distance, not OS repeat rate or painted
-  frames. The stable PHP field metric must account for rectangular horizontal and
-  vertical step dimensions; equal cell frequency is not equal apparent speed.
-  Native scaling, DPI and resize must not alter gameplay speed. Avoid scattered
-  axis-specific speed corrections. Future analog input retains partial magnitude.
-- Keep integer cell commits initially, using a distance/time accumulator or
-  scheduled step duration rather than truncating a normalized fractional vector.
-  Direction changes grant no free step; blocked movement banks no burst; catch-up
-  after stalls is bounded. Leave presentation-position interpolation separate:
-  this does not deliver smooth subcell FIELD rendering.
-- Commit a diagonal through one validated operation, not two cardinal moves.
-  The destination and both orthogonal clearances must be valid against walls,
-  map edges, NPCs and authored gates. Clearance probes have no movement events,
-  triggers or encounter RNG. Only the occupied destination receives existing
-  movement/event effects, exactly once.
-- Document how a committed diagonal counts for step-based systems before
-  implementation. Do not silently rebalance encounter frequency; unresolved
-  gameplay policy goes through the Engine coordinator, not Renderer.
-- Follow both camera axes using the existing policy and only the necessary
-  completed field recomposition, retaining T1's gains. Use existing four-direction
-  art with a documented deterministic facing rule, independent of movement vector;
-  a new eight-direction art batch is not a prerequisite.
-- Preserve authored route `secondsPerStep`, completion and ownership. Reuse the
-  validated movement boundary without replacing route timing with the new free-
-  movement clock. Dialogue, menus, cinematics and battles cancel pending walking;
-  returning cannot replay stale presses or confirm twice. Coordinate Player,
-  input, Camera and session edits with real-subject cinematic takeover.
+The control names the physical key independently of its text: case, Shift and
+Caps Lock change `key`, never `control` (Tab and Shift-Tab are control `tab`).
+The renderer tracks held controls itself, because GPUI's `is_held` is false
+for keys macOS routes through text input (the arrows): a key-down for a held
+control is a repeat and creates no press. A key-up releases its control
+whatever modifiers are down. Platform shortcuts stay ignored. The renderer
+sends `input_reset` when the window loses focus, and when Command engages
+while keys are held, because macOS withholds key-up events under Command.
 
-### Acceptance and exclusions
+`RendererClient` queues presses, releases and resets in a bounded transition
+FIFO beside the unchanged key FIFO; repeats stay event-only keys. Unsubscribed
+transitions and unidentified keys in a subscribed session are protocol errors.
+`RendererInputSource` implements `HeldInputSourceInterface`: `poll()` still
+yields every key for edge consumers, and `drainTransitions()` returns
+`KeyTransition` values. The terminal source stays event-only and never claims a
+release; `InputManager::isHeldInputAvailable()` is false for it.
 
-Deterministic tests must cover held Down/add Right/release Right/release Down;
-all diagonals and opposing pairs; multiple bindings; repeat-down; quick taps and
-modifier changes; focus/reset/disconnect/failure/context changes. Compare equal
-travel over equal simulated time, with a documented one-step quantization bound,
-under different update subdivisions and both rectangular and square metrics.
-Verify resize independence, blocked/stalled timing, corner/NPC/gate/map-edge
-collision, both-axis camera tracking and exactly-once destination effects.
-Retain keyboard menu, terminal, cinematic route, T1 composition and graphical
-exclusion regression coverage.
+Each `InputManager::handleInput()` applies the transitions the runtime's pump
+received, in order, to a bounded `KeyHoldState` before the gameplay update. A
+held control keeps the key code it typed when pressed, so a modifier change
+never strands it. Each press gets an increasing order, and press edges survive
+a release in the same update, so quick taps are kept. The new queries are
+separate from the existing edges: `isButtonHeld()`, `wasButtonPressed()` and
+`getButtonPressOrder()` cover every binding of an action, while `isButtonDown()`,
+`isKeyDown()` and axes keep their event-only meaning, so menus and their
+navigation repeat are unchanged. Held state is cleared by `input_reset`,
+`resetState()`, source replacement, renderer restart and any input failure or
+disconnect; elapsed silence is never release evidence.
+
+Every held-state clear also retains a monotonic press-order cutoff through
+`InputManager::getLatestResetPressOrder()`. Consumers with pending intent must
+discard presses at or before that boundary, without discarding fresh presses
+received after a reset in the same update. `PlayerWalk` uses that cutoff to
+clear its queued tap and step clock: clearing only the manager's held controls
+would otherwise leave stale movement queued outside the input owner. Source
+replacement, polling/transition failure and renderer restart/shutdown use the
+same boundary; no renderer-specific walking reset or Terminal release inference
+is added.
+
+### Field walking (implemented)
+
+With held input, `FieldState` walks through `PlayerWalk`, RPG Maker MZ's
+four-directional walking: the most recently pressed held direction wins and
+releasing it falls back to the next most recent one still held; opposing
+directions follow the same rule. Each step is the ordinary validated
+`Player::tryMove()`, so collision, NPCs, gates, triggers, encounters, events
+and saves behave exactly as a single step does, once per committed cell.
+
+`Rendering\FieldMetric` is the one field metric: RPG Maker's default walk of
+180 logical field pixels per second (48 pixels in 16 frames at 60 frames per
+second) over square 48-pixel cells, so every step, across or down, takes
+16/60 s. It is measured
+before field zoom, device scale and window fit, so none of those change
+gameplay speed. From standing, a press faces and steps at once. While a step
+is in progress a new direction waits for it: a direction change grants no free
+step. A tap is kept for the next step and cannot outrun walking. Blocked
+movement faces the wall each update and banks no time. The step clock carries
+its overshoot, so equal time walks equal distance at any update interval up to
+one step: the count differs by at most one step. After a stall at most one step
+catches up. Any update the field did not control (a menu, dialogue, cinematic,
+battle, map transfer) cancels walking, and every press before it is stale: a
+direction still held when control returns must be pressed again.
+
+Event-only input keeps its one step per key event with its own timing. Route
+timing is unchanged: a route step presents over its own `secondsPerStep`
+through `GameScene::moveAtPace()`, and wander steps walk at field speed.
+
+### Planned
+
+- Diagonal movement stays planned. Four-directional movement follows RPG
+  Maker MZ; a diagonal mode would derive one intent from all held movement
+  actions, cancel opposing directions per axis and commit one validated
+  diagonal operation whose destination and both orthogonal clearances are
+  valid against walls, map edges, NPCs and gates. Clearance probes have no
+  movement events, triggers or encounter RNG; only the destination receives
+  its effects, exactly once. How a diagonal counts for step-based systems and
+  encounters must be decided before implementation, and art keeps a
+  documented four-direction facing rule.
+- Physical controllers, controller libraries, analog magnitude (partial walk
+  speed), device identity and hot-plug remain planned; they must report
+  normalized controls, not synthetic keyboard presses.
+- Enhanced terminal key reporting remains outside this delivery.
+
+### Acceptance
+
+Deterministic tests cover held Down, adding Right, releasing Right and Down;
+opposing pairs; multiple bindings; repeats; quick taps; modifier changes;
+focus, reset, restart and failure; context cancellation; equal travel under
+different update rates with the one-step bound; rectangular and square
+metrics; blocked and stalled timing; terminal and menu edges. Retain keyboard
+menu, terminal, cinematic route, T1 composition and graphical exclusion
+regression coverage.
+
+October 8 lifecycle regressions prove queued-tap/clock invalidation at reset,
+fresh post-reset presses, renderer restart/shutdown, immediate menu return and
+yielded dialogue/cinematic return. Synthetic blocked corners cover walls, NPC
+occupancy and counters, with triggers, encounter steps and observer events only
+on committed cells and exactly once. The four focused input/walking families
+pass 92 tests / 504 assertions; these checks do not replace physical native
+held-key acceptance.
 
 Native acceptance uses one bounded ordinary-Game GPUI pass: simultaneous keys,
-partial/all release, unobstructed horizontal/vertical/diagonal travel, corners,
-scrolling, focus loss and dialogue/menu/cinematic entry and return. Measure
-travel relative to the field, not only a camera-followed on-screen Player.
-Verify silence before launch without changing Andrew's normal configuration;
-no scratch-runtime family or user-data changes. State tested platforms honestly.
-
-Physical controllers, controller libraries, enhanced terminal key reporting,
-continuous subcell animation, renderer upgrades, broad platform ports, new art
-admission and publishing are not part of this queued first delivery. Before
-implementation, read the original canonical and workspace policies and establish
-shared-file ownership; preserve existing work, author files, saves and settings.
+partial and complete release, unobstructed horizontal and vertical travel,
+corners, scrolling, focus loss and dialogue/menu/cinematic entry and return.
+Measure travel relative to the field, not only a camera-followed on-screen
+Player. Preserve user audio settings, saves and configuration during
+validation. State tested platforms explicitly.

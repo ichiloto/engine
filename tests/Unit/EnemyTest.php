@@ -30,9 +30,30 @@ it('can create an enemy', function() {
   );
   $rewards = new BattleRewards(380, 100, []);
 
-  $enemy = new Enemy($enemyName, $enemyLevel, $enemyStats, '', $rewards, []);
+  $root = createTestDirectory('enemy-creation-');
+  mkdir($root . '/assets/Graphics/Enemies', 0700, true);
+  $previousDirectory = getcwd();
 
-  expect($enemy)
-    ->toBeInstanceOf(Enemy::class)
-    ->toHaveProperties(['name','level','stats','rewards','image', 'imagePath']);
-})->skip();
+  try {
+    chdir($root);
+
+    foreach ([['E'], ['EEE', ' E ', 'EEE']] as $imageRows) {
+      file_put_contents($root . '/assets/Graphics/Enemies/synthetic.txt', implode("\n", $imageRows) . "\n");
+      $enemy = new Enemy($enemyName, $enemyLevel, $enemyStats, 'synthetic', $rewards, []);
+
+      expect($enemy)
+        ->toBeInstanceOf(Enemy::class)
+        ->toHaveProperties(['name','level','stats','rewards','image', 'imagePath'])
+        ->and($enemy->name)->toBe($enemyName)
+        ->and($enemy->level)->toBe($enemyLevel)
+        ->and($enemy->stats)->toBe($enemyStats)
+        ->and($enemy->rewards)->toBe($rewards)
+        ->and($enemy->imagePath)->toBe('synthetic')
+        ->and($enemy->image)->toBe($imageRows);
+    }
+  } finally {
+    chdir($previousDirectory);
+  }
+
+  expect(getcwd())->toBe($previousDirectory);
+});

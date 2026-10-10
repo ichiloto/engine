@@ -18,6 +18,16 @@ final readonly class PresentationSprite
     public PresentationSpriteAnchor $anchor = PresentationSpriteAnchor::BOTTOM_CENTER,
     public int $layer = 0,
     public ?SpriteSourceRect $sourceRect = null,
+    /** Field sprites only: how the sprite reached this cell. Requires negotiated field_motion. */
+    public ?PresentationSpriteMotion $motion = null,
+    /**
+     * Field sprites only: logical pixels drawn above the cell, which still places and orders the sprite.
+     * Sent only to a renderer that negotiated sprite_lift ({@see toArray()}).
+     */
+    public int $lift = 0,
+    public int $quarterTurns = 0,
+    /** Optional image point at the unchanged cell anchor; negotiated sprite_pivot only. */
+    public ?PresentationSpritePivot $pivot = null,
   )
   {
     if ($id === '' || str_contains($id, "\0") || preg_match('//u', $id) !== 1) {
@@ -26,15 +36,37 @@ final readonly class PresentationSprite
     SpriteValidation::validateDefinition($asset, $width, $height, $layer);
     SpriteValidation::validateSigned32BitRange($x);
     SpriteValidation::validateSigned32BitRange($y);
+    SpriteValidation::validateLift($lift, $height);
+    if ($quarterTurns < 0 || $quarterTurns > 3) {
+      throw new InvalidArgumentException('Sprite quarterTurns must be an integer from 0 to 3.');
+    }
   }
 
-  /** @return array{id: string, asset: string, x: int, y: int, width: int, height: int, anchor: string, layer: int, sourceRect?: array{x: int, y: int, width: int, height: int}} */
-  public function toArray(): array
+  /**
+   * The sprite's protocol value. With `$lift`, for a renderer that negotiated
+   * sprite_lift, a lifted sprite names its `lift`; without, the value is the
+   * unlifted placement every renderer accepts.
+   *
+   * @return array{id: string, asset: string, x: int, y: int, width: int, height: int, anchor: string, layer: int, sourceRect?: array{x: int, y: int, width: int, height: int}, motion?: array{duration: float}, lift?: int, quarterTurns?: int, pivot?: array{x: float, y: float}}
+   */
+  public function toArray(bool $lift = false, bool $quarterTurns = false, bool $pivot = false): array
   {
     $data = ['id' => $this->id, 'asset' => $this->asset, 'x' => $this->x, 'y' => $this->y,
       'width' => $this->width, 'height' => $this->height, 'anchor' => $this->anchor->value, 'layer' => $this->layer];
     if ($this->sourceRect !== null) { $data['sourceRect'] = $this->sourceRect->toArray(); }
+    if ($this->motion !== null) { $data['motion'] = $this->motion->toArray(); }
+    if ($lift && $this->lift > 0) { $data['lift'] = $this->lift; }
+    if ($quarterTurns && $this->quarterTurns > 0) { $data['quarterTurns'] = $this->quarterTurns; }
+    if ($pivot && $this->pivot !== null) { $data['pivot'] = $this->pivot->toArray(); }
     return $data;
+  }
+
+  /** The same sprite placed without a slide, for renderers that cannot present one. */
+  public function withoutMotion(): self
+  {
+    return $this->motion === null ? $this : new self($this->id, $this->asset, $this->x, $this->y, $this->width,
+      $this->height, $this->anchor, $this->layer, $this->sourceRect, lift: $this->lift, quarterTurns: $this->quarterTurns,
+      pivot: $this->pivot);
   }
 
   /** @param list<PresentationSprite> $sprites @return list<PresentationSprite> */
@@ -51,7 +83,8 @@ final readonly class PresentationSprite
       $ids[$sprite->id] = true;
       $copy[] = $sprite;
     }
-    usort($copy, static fn(self $a, self $b) => $a->layer <=> $b->layer);
+    // Row order within a layer: a sprite lower on the field draws in front; ties keep their order.
+    usort($copy, static fn(self $a, self $b) => [$a->layer, $a->y] <=> [$b->layer, $b->y]);
     return $copy;
   }
 }

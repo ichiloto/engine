@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Quests;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
 use Ichiloto\Engine\Scenes\Game\GameScene;
@@ -387,9 +388,9 @@ class QuestManager
     if (! $quiet) {
       $objective = $quest->objectives[$objectiveIndex];
       $progress = $objective->quantity > 1
-        ? sprintf('%s (%d/%d)', $this->describeObjective($objective), $count, $objective->quantity)
-        : $this->describeObjective($objective);
-      $this->notifyQuest('Quest Updated', sprintf("%s\n%s", $quest->name, $progress), NotificationDuration::MEDIUM);
+        ? sprintf("\nProgress %d/%d", $count, $objective->quantity)
+        : '';
+      $this->notifyQuest('Quest Updated', $quest->name . $progress, NotificationDuration::MEDIUM);
     }
   }
 
@@ -430,14 +431,8 @@ class QuestManager
     $this->gameScene->gameState->recordStoryEvent(sprintf('quest_completed:%s', $quest->id));
 
     if (! $quiet) {
-      $text = $quest->name;
-
-      if (($rewards = $quest->describeRewards()) !== '') {
-        $text .= sprintf("\nReward: %s", $rewards);
-      }
-
-      $this->notifyQuest('Quest Complete', $text, NotificationDuration::LONG);
-      $this->notifyProgression($progressionResults);
+      $this->notifyQuest('Quest Complete', $quest->name, NotificationDuration::MEDIUM, 'quest.complete');
+      $this->showRewardSummary($quest, $progressionResults);
     }
   }
 
@@ -481,17 +476,20 @@ class QuestManager
     return $progressionResults;
   }
 
-  /** @param ExperienceAwardResult[] $results */
-  protected function notifyProgression(array $results): void
+  /** Remove per-level toasts: reward and progression details belong in one acknowledged summary.
+   * @param ExperienceAwardResult[] $results
+   */
+  protected function showRewardSummary(Quest $quest, array $results): void
   {
-    $lines = [];
+    $lines = ($rewards = $quest->describeRewards()) === '' ? [] : [Vocabulary::getTerm('battle.rewards', 'Rewards') . ': ' . $rewards];
 
     foreach ($results as $result) {
       if (! $result->levelledUp()) {
         continue;
       }
 
-      $line = sprintf('%s reached level %d.', $result->character->name, $result->newLevel);
+      $line = get_message('quest.level_gained', '%1 reached %2 %3.', $result->character->name,
+        Vocabulary::getTerm('stats.level', 'level'), $result->newLevel);
       $learned = $result->learnedSkills();
 
       if ($learned !== []) {
@@ -502,7 +500,7 @@ class QuestManager
     }
 
     if ($lines !== []) {
-      $this->notifyQuest('Party Progress', implode("\n", $lines), NotificationDuration::LONG);
+      ModalManager::getInstance($this->game)->queueAlert(implode("\n", $lines), $quest->name);
     }
   }
 
@@ -593,12 +591,13 @@ class QuestManager
    * @param string $title The notification title.
    * @param string $text The notification text.
    * @param NotificationDuration $duration The display duration.
+   * @param string|null $presentationRole Optional graphical meaning.
    * @return void
    */
-  protected function notifyQuest(string $title, string $text, NotificationDuration $duration): void
+  protected function notifyQuest(string $title, string $text, NotificationDuration $duration, ?string $presentationRole = null): void
   {
     try {
-      notify($this->game, NotificationChannel::QUEST, $title, $text, $duration);
+      notify($this->game, NotificationChannel::QUEST, $title, $text, $duration, presentationRole: $presentationRole);
     } catch (Throwable $exception) {
       Debug::warn(sprintf('Quest notification failed: %s', $exception->getMessage()));
     }

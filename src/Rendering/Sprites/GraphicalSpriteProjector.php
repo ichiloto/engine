@@ -15,7 +15,9 @@ final class GraphicalSpriteProjector
       return null;
     }
 
-    $screenPosition = $camera->getScreenSpacePosition($provider->getGraphicalSpriteWorldPosition());
+    $screenPosition = $provider instanceof ScreenSpaceSpriteProviderInterface
+      ? $provider->getGraphicalSpriteWorldPosition()
+      : $camera->getScreenSpacePosition($provider->getGraphicalSpriteWorldPosition());
     SpriteValidation::validateSigned32BitRange($screenPosition->x);
     SpriteValidation::validateSigned32BitRange($screenPosition->y);
 
@@ -24,7 +26,8 @@ final class GraphicalSpriteProjector
       $provider->getGraphicalSpriteId(), $definition->asset,
       (int) $screenPosition->x, (int) $screenPosition->y,
       $definition->width, $definition->height, $definition->anchor, $definition->layer,
-      $definition->sourceRect,
+      $definition->sourceRect, $provider->getGraphicalSpriteMotion(), $definition->lift, $definition->quarterTurns,
+      $definition->pivot,
     );
   }
 }

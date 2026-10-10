@@ -1,12 +1,15 @@
 #!/usr/bin/env php
 <?php
 
-use Ichiloto\Engine\IO\Console\ConsoleFrameSnapshot;
+use Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot;
 use Ichiloto\Engine\IO\InputSources\RendererInputSource;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSprite;
+use Ichiloto\Engine\Rendering\Presentation\PresentationTextLayer;
+use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Presentation\RendererPresentation;
 use Ichiloto\Engine\Rendering\RendererClient;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererEventType;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\ProcessRendererTransport;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
@@ -15,7 +18,7 @@ use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 require dirname(__DIR__) . '/vendor/autoload.php';
 
 /** Standalone fixture data, deliberately independent of Game and project assets. */
-function frameSmokeSnapshot(bool $changed): ConsoleFrameSnapshot
+function frameSmokeSnapshot(bool $changed): ConsolePresentationSnapshot
 {
   $rows = [
     $changed ? 'ICHILOTO S4 / FRAME 2' : 'ICHILOTO S4 / FRAME 1',
@@ -38,23 +41,33 @@ function frameSmokeSnapshot(bool $changed): ConsoleFrameSnapshot
     'Native keys are data, never game actions.',
   ];
   $rows = array_map(static fn(string $row): string => str_pad($row, 48), $rows);
-  return new ConsoleFrameSnapshot(48, 20, array_pad($rows, 20, str_repeat(' ', 48)));
+  $runs = [];
+  foreach (array_pad($rows, 20, str_repeat(' ', 48)) as $row => $text) {
+    $runs[] = new PresentationTextRun($row, 0, $text);
+  }
+  return new ConsolePresentationSnapshot(48, 20, [new PresentationTextLayer('world', 0, $runs)]);
 }
 
-function reportFrameSmokeEvents(RendererClient $client, RendererInputSource $input): bool
+function reportFrameSmokeEvents(RendererClient $client, RendererInputSource $input, RendererPresentation $presentation): bool
 {
   for ($i = 0; $i < 128 && ($key = $input->poll()) !== null; $i++) {
     fwrite(STDOUT, "INPUT key={$key->value} KeyCode={$key->name}\n");
   }
   $closed = false;
+  $invalidate = false;
   foreach ($client->pollEvents() as $event) {
     fwrite(STDOUT, 'RENDERER ' . $event->type->value
       . ($event->message !== null ? ' message=' . json_encode($event->message, JSON_THROW_ON_ERROR) : '') . "\n");
     if ($event->type === RendererEventType::ERROR) {
       throw new RuntimeException('Renderer rejected smoke data: ' . $event->message);
     }
+    if ($event->type === RendererEventType::FRAME_ACK) {
+      $presentation->acknowledge($event->generation, $event->presented);
+    }
+    $invalidate = $invalidate || in_array($event->type, [RendererEventType::FRAME_REJECTED, RendererEventType::RESIZED], true);
     $closed = $closed || $event->type === RendererEventType::CLOSE_REQUESTED;
   }
+  if ($invalidate) { $presentation->invalidate(); }
   return $closed;
 }
 
@@ -65,7 +78,7 @@ try {
   if (isset($options['help'])) {
     fwrite(STDOUT, "Usage: php tools/gpui-frame-smoke.php --renderer=/absolute/executable --asset-root=/absolute/directory\n"
       . "  [--sprite=relative/test.png] [--duration=60] [--change-after=10]\n"
-      . "Inspect FRAME 1, then its timed FRAME 2 replacement. Identical frames are suppressed.\n"
+      . "Inspect the retained initial frame, then changed rows and explicit sprite removal. Unchanged frames send nothing.\n"
       . "Enter in this terminal requests shutdown; native keys remain input data.\n");
     exit(0);
   }
@@ -84,7 +97,7 @@ try {
   $grid = new RendererGridConfig(48, 20);
   $transport = new ProcessRendererTransport(new RendererProcessConfig([$renderer]));
   $client = new RendererClient($transport);
-  $client->start(new RendererSessionConfig('Ichiloto PHP Frame Smoke Test', $assetRoot, $grid));
+  $client->start(new RendererSessionConfig('Ichiloto PHP Frame Smoke Test', $assetRoot, $grid, RendererProtocolVersion::V2));
   $input = new RendererInputSource($client);
   $presentation = new RendererPresentation($client, $grid);
   fwrite(STDERR, "Frame client handshake complete. Fixture-only presentation; no Game or gameplay integration.\n");
@@ -99,7 +112,7 @@ try {
   $changed = false;
   stream_set_blocking(STDIN, false);
   do {
-    if (reportFrameSmokeEvents($client, $input)) {
+    if (reportFrameSmokeEvents($client, $input, $presentation)) {
       break;
     }
     $terminalInput = fread(STDIN, 8192);
@@ -108,14 +121,16 @@ try {
     }
     $elapsed = (hrtime(true) - $started) / 1_000_000_000;
     if (! $changed && $elapsed >= $changeAfter) {
-      $presentation->present(frameSmokeSnapshot(true));
+      $snapshot = frameSmokeSnapshot(true);
+      $sprites = [];
       $changed = true;
-      fwrite(STDOUT, "FRAME number=2 queued (full text replacement; sprites cleared)\n");
+      fwrite(STDOUT, "FRAME changed rows and sprite removal requested\n");
     }
+    $presentation->present($snapshot, $sprites);
     usleep(20000);
   } while ($elapsed < $duration);
   $exitCode = $client->shutdown();
-  reportFrameSmokeEvents($client, $input);
+  reportFrameSmokeEvents($client, $input, $presentation);
   fwrite(STDERR, "Renderer exited with status {$exitCode}; frame client cleanup complete.\n");
   if ($transport->getDiagnostics() !== '') {
     fwrite(STDERR, 'Renderer stderr tail: ' . $transport->getDiagnostics() . "\n");

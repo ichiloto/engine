@@ -14,5 +14,6 @@ final readonly class BattleHudRow
     public bool $affordable = true,
     public string $description = '',
     public int $mpCost = 0,
+    public ?string $iconRole = null,
   ) {}
 }

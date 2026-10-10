@@ -1,11 +1,10 @@
 # Optional graphical sprite intent (S5)
 
-This document describes the S5 capability boundary. The subsequent
-[S6 runtime](runtime.md) adds project `sprites2d` loading, Game-loop collection
-and renderer-only terminal masking without changing these sprite models.
-The later [S8-A sprite-sheet extension](sprite-sheets.md) adds optional source
-rectangles and PHP-owned Player walk animation; the static format below remains
-supported. Statements about excluded animation describe S5, not the current runtime.
+This document describes the S5 capability boundary as history. The current
+authored format is the RPG Maker character sheet described in
+[field character sheets](sprite-sheets.md): characters occupy exactly one field
+cell and authored pixel sizes, anchors and per-direction images are no longer
+accepted. The provider and projection boundaries below still apply.
 
 S5 adds an explicitly invoked PHP-side chain:
 
@@ -37,47 +36,9 @@ NUL, absolute/drive/URI prefix, backslashes or `..` path components. There is no
 filesystem lookup, image loading or PNG decoding in PHP. Renderer asset-root
 containment, symlink checks and decoding remain renderer responsibilities.
 
-`DirectionalGraphicalSpriteSet` is also final readonly. Its constructor requires
-four typed definitions: `north`, `east`, `south`, `west`. Each may have independent
-dimensions and layer. `getForHeading(MovementHeading)` uses the existing gameplay
-enum, with `NONE` resolving to south. No partial-direction fallback is introduced.
-
-## Authored data
-
-`DirectionalGraphicalSpriteSet::fromArray()` accepts this complete structure:
-
-```php
-use Ichiloto\Engine\Rendering\Sprites\DirectionalGraphicalSpriteSet;
-
-$graphicalSprites = DirectionalGraphicalSpriteSet::fromArray([
-    'north' => [
-        'asset' => 'Graphics/Characters/Hero/Field/North.png',
-        'width' => 32, 'height' => 48, 'anchor' => 'bottom_center', 'layer' => 100,
-    ],
-    'east' => [
-        'asset' => 'Graphics/Characters/Hero/Field/East.png',
-        'width' => 32, 'height' => 48, 'anchor' => 'bottom_center', 'layer' => 100,
-    ],
-    'south' => [
-        'asset' => 'Graphics/Characters/Hero/Field/South.png',
-        'width' => 32, 'height' => 48, 'anchor' => 'bottom_center', 'layer' => 100,
-    ],
-    'west' => [
-        'asset' => 'Graphics/Characters/Hero/Field/West.png',
-        'width' => 32, 'height' => 48, 'anchor' => 'bottom_center', 'layer' => 100,
-    ],
-]);
-```
-
-All four lowercase cardinal keys are required. Each entry requires a string asset
-and integer width/height. Only omitted `anchor` and `layer` default to
-`bottom_center` and `0`; explicit null is invalid. Numeric strings, floats,
-unknown fields/directions, unsupported anchors and malformed entries throw
-`InvalidArgumentException`. Entry errors identify the affected direction.
-Parsed immutable values are detached from caller-owned array references.
-
-This is a reusable parser, not a project configuration loader. No `sprites2d`
-key is consumed, and no `assets/Data/Entities/player.php` is read by this feature.
+Characters are described by `CharacterSheet`, which resolves a heading and
+walking pattern to a one-cell definition; see
+[field character sheets](sprite-sheets.md).
 
 ## Provider capability and Player
 
@@ -93,9 +54,14 @@ The provider receives no Camera or client and never draws, polls or sends.
 GameObject itself does not implement the capability. Player is the first
 production implementation; future object types must opt in independently.
 
-Player accepts an appended optional `?DirectionalGraphicalSpriteSet
-$graphicalSprites = null` constructor argument. Existing calls are unchanged;
-without a set, its definition is null and it remains terminal-only. Its stable ID
+Player accepts optional `?CharacterSheet $graphicalSprites = null` and live
+`?Party $party = null` constructor arguments. Existing calls are unchanged.
+Without either source, its definition is null and it remains terminal-only.
+A supplied party resolves the current selected leader's actor-owned sheet;
+otherwise the explicitly supplied fixed sheet is used. `GameScene` selects one
+source through the current project's
+[graphical subject mode](sprite-sheets.md#player-identity-and-actor-roles).
+There is no fallback from a missing leader role to another actor's sheet. Its stable ID
 is `player`, representing the unique field player, independent of character name,
 heading, position and GameObject's random hash. Do not include multiple field
 Players under this ID in one frame; S4 rejects duplicate IDs.

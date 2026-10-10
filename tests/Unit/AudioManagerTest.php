@@ -201,7 +201,7 @@ function makeAudioTestGame(): Game
  */
 function makeAudioAssetsRoot(array $relativePaths): string
 {
-  $root = sys_get_temp_dir() . DIRECTORY_SEPARATOR . uniqid('ichiloto-audio-test-', true);
+  $root = createTestDirectory('ichiloto-audio-test-');
 
   foreach ($relativePaths as $relativePath) {
     $absolutePath = $root . DIRECTORY_SEPARATOR . $relativePath;

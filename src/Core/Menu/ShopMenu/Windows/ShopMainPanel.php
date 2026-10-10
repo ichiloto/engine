@@ -5,11 +5,12 @@ namespace Ichiloto\Engine\Core\Menu\ShopMenu\Windows;
 use Ichiloto\Engine\Core\Menu\ShopMenu\ShopMenu;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
+use Ichiloto\Engine\Entities\Inventory\EquipmentIcon;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
-use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Localization\Vocabulary;
 
 /**
  * The main panel of the shop menu.
@@ -107,13 +108,13 @@ class ShopMainPanel extends Window
   public function updateContent(): void
   {
     $content = [];
-    $symbol = config(ProjectConfig::class, 'vocab.currency.symbol', 'F');
+    $symbol = Vocabulary::getTerm('currency.symbol', 'G');
     $contentWidth = max(0, $this->width - 4);
 
     foreach ($this->items as $index => $item) {
       $prefix = $index === $this->activeItemIndex ? '>' : ' ';
       $price = $item->price * $this->priceRate;
-      $itemName = TerminalText::padRight($item->name, 36);
+      $itemName = TerminalText::padRight(EquipmentIcon::getItemLabel($item), 36);
       $priceText = TerminalText::padLeft("{$price} {$symbol}", 10);
       $line = TerminalText::padRight(" {$prefix} {$itemName} {$priceText}", $contentWidth);
 

@@ -8,6 +8,7 @@ use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\EquipmentSlot;
 use Ichiloto\Engine\Entities\Inventory\Equipment;
+use Ichiloto\Engine\Entities\Inventory\EquipmentIcon;
 use Ichiloto\Engine\Entities\Inventory\Inventory;
 use Ichiloto\Engine\Entities\Stats;
 use Ichiloto\Engine\IO\Console\TerminalText;
@@ -133,7 +134,9 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
     foreach ($inventory->equipment->toArray() as $equipment) {
       assert($equipment instanceof Equipment);
 
-      if (! is_a($equipment, $equipmentType)) {
+      if (! is_a($equipment, $equipmentType)
+        || ! $this->character?->canEquip($equipment)
+        || $equipment->semanticSlot !== $this->equipmentSlot?->semanticSlot) {
         continue;
       }
 
@@ -189,7 +192,7 @@ class EquipmentSelectionMode extends EquipmentMenuMode implements CanRender
 
     foreach ($this->compatibleEquipment as $index => $equipment) {
       $prefix = $index === $this->activeIndex ? '>' : ' ';
-      $equipmentName = TerminalText::padRight("{$equipment->icon} {$equipment->name}", 58);
+      $equipmentName = TerminalText::padRight(EquipmentIcon::getItemLabel($equipment), 58);
       $quantity = TerminalText::padLeft((string)$this->getAvailableQuantity($equipment), 2);
       $content[$index] = " {$prefix} {$equipmentName} :{$quantity}";
     }

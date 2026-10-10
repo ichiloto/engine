@@ -30,10 +30,12 @@ use Ichiloto\Engine\Events\Interfaces\StaticObserverInterface;
 use Ichiloto\Engine\Events\Interfaces\SubjectInterface;
 use Ichiloto\Engine\Entities\Elements\ElementRegistry;
 use Ichiloto\Engine\Entities\EquipmentOptimization\EquipmentOptimizationPolicyRegistry;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalCapabilities;
 use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\Rendering\Launch\ApplicationIcon;
 use Ichiloto\Engine\Rendering\Launch\RendererLaunchIntent;
 use Ichiloto\Engine\Rendering\Launch\RendererRegistry;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
@@ -53,6 +55,7 @@ use Ichiloto\Engine\Util\Config\AppConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\InputConfig;
 use Ichiloto\Engine\Util\Config\PlaySettings;
+use Ichiloto\Engine\Util\Config\PlayerSettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Stores\EnemyStore;
@@ -496,8 +499,11 @@ class Game implements CanRun, SubjectInterface
     private function initializeConfigStore(): void
     {
         EquipmentOptimizationPolicyRegistry::configureFromProject();
+        ScriptCommandRegistry::configureFromProject();
         ConfigStore::put(PlaySettings::class, new PlaySettings($this->options));
         ConfigStore::put(AppConfig::class, new AppConfig());
+        ProjectFormat::assertSupported(config(AppConfig::class, ProjectFormat::KEY));
+        ConfigStore::put(PlayerSettings::class, new PlayerSettings());
         ConfigStore::put(ProjectConfig::class, new ProjectConfig());
         ConfigStore::put(FieldMusicCatalog::class, FieldMusicCatalog::fromProject());
 
@@ -858,7 +864,12 @@ class Game implements CanRun, SubjectInterface
         }
         TerminalCapabilities::reset();
         TerminalCapabilities::detect();
-        $this->rendererRuntime?->start($this->name, $this->width, $this->height);
+        if (isset($this->notificationManager)) {
+            $this->rendererRuntime?->setNotificationManager($this->notificationManager);
+        }
+        $this->rendererRuntime?->start($this->name, $this->width, $this->height, $this->rendererRuntime === null ? null
+            : ApplicationIcon::getAssetPath(ConfigStore::has(AppConfig::class) ? config(AppConfig::class, ApplicationIcon::KEY) : null,
+                $this->rendererRuntime->getAssetRoot()));
         if (InputManager::requiresTerminalInput()) {
             Console::saveTerminalSettings();
             $this->terminalInputConfigured = true;
@@ -1076,6 +1087,8 @@ SPLASH_SCREEN;
             return;
         }
 
+        $this->modalManager->processPendingAlerts();
+        if ($this->terminalCleanedUp) { return; }
         $this->notificationManager->update();
         if ($this->terminalCleanedUp) {
             return;
@@ -1151,9 +1164,12 @@ SPLASH_SCREEN;
         if ($this->terminalCleanedUp || Console::isComposing()) { return; }
         // The modal owns its logical layout; only its physical margins may move.
         $this->syncScreenSize(resizeLogicalViewport: false);
+        if ($this->sceneManager->currentScene instanceof \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasOverlayProviderInterface) {
+            $this->sceneManager->currentScene->renderPresentationOverlay();
+        }
         if ($this->rendererRuntime !== null) {
             // Scene presentation ownership also applies during dialogue/timer waits.
-            $this->rendererRuntime->present($this->sceneManager->currentScene);
+            $this->rendererRuntime->present($this->sceneManager->currentScene, $this->notificationManager);
             LatencyTrace::flush();
         }
     }
@@ -1242,6 +1258,9 @@ SPLASH_SCREEN;
         // update without exposing a lower-precedence HUD between them.
         $this->sceneManager->currentScene?->getUI()->commitPresentationChanges();
         $this->sceneManager->render();
+        if ($this->sceneManager->currentScene instanceof \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasOverlayProviderInterface) {
+            $this->sceneManager->currentScene->renderPresentationOverlay();
+        }
         $this->notificationManager->render();
 
         if (
@@ -1252,7 +1271,7 @@ SPLASH_SCREEN;
         }
 
         $this->notify($this, new GameEvent(GameEventType::RENDER));
-        $this->rendererRuntime?->present($this->sceneManager->currentScene);
+        $this->rendererRuntime?->present($this->sceneManager->currentScene, $this->notificationManager);
         LatencyTrace::end('game.render.end', $started);
     }
 

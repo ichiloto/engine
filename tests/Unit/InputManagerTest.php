@@ -10,6 +10,8 @@ use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\IO\InputSources\RendererInputSource;
 use Ichiloto\Engine\IO\InputSources\TerminalInputSource;
+use Ichiloto\Engine\IO\InputSources\HeldInputSourceInterface;
+use Ichiloto\Engine\IO\KeyTransition;
 use Ichiloto\Engine\Rendering\RendererClient;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererEventType;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
@@ -18,9 +20,11 @@ use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\InputConfig;
 use Tests\Support\Input\FakeInputSource;
+use Tests\Support\Input\FakeHeldInputSource;
 use Tests\Support\Input\FakeRendererTransport;
 
 require_once __DIR__ . '/../Support/Input/FakeInputSource.php';
+require_once __DIR__ . '/../Support/Input/FakeHeldInputSource.php';
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
 
 it('carries expanded v2 identities through the client source manager and case-sensitive PHP bindings', function ($identity, $other) {
@@ -66,6 +70,20 @@ function inputCompatibilityStream(string $bytes)
 }
 
 // The original private-parser tests now exercise the extracted public source contract.
+it('decodes both SS3 and rxvt F1 through F4 from terminal bytes', function () {
+  $stream = inputCompatibilityStream("\033OP\033OQ\033OR\033OS\033[11~\033[12~\033[13~\033[14~");
+  try {
+    $source = new TerminalInputSource($stream);
+    $keys = [];
+    for ($i = 0; $i < 8; $i++) { $keys[] = $source->poll(); }
+    expect($keys)->toBe([KeyCode::F1, KeyCode::F2, KeyCode::F3, KeyCode::F4,
+      KeyCode::F1, KeyCode::F2, KeyCode::F3, KeyCode::F4])
+      ->and($source->poll())->toBeNull();
+  } finally {
+    fclose($stream);
+  }
+});
+
 it('maps macOS home and end escape sequences', function () {
   $stream = inputCompatibilityStream("\033[H\033OH\033[F\033OF");
   try {
@@ -182,7 +200,11 @@ it('adds a missing Info action using only unclaimed default keys', function (arr
 it('preserves an explicit Info entry including deliberate unbinding', function (array $entry) {
   $authored = ['info' => $entry, 'custom' => ['keys' => [KeyCode::F2]]];
   InputManager::setBindings($authored);
-  expect(InputManager::getBindings())->toBe($authored);
+  expect(InputManager::getBindings())->toBe([...$authored,
+    'menu_page_previous' => ['description' => 'Show the previous menu page.', 'keys' => [KeyCode::PAGE_UP]],
+    'menu_page_next' => ['description' => 'Show the next menu page.', 'keys' => [KeyCode::PAGE_DOWN]],
+    'dialogue_auto' => InputManager::getDefaultDialogueAutoBinding($authored),
+  ]);
   InputManager::setInputSource(new FakeInputSource(KeyCode::i));
   InputManager::handleInput();
   expect(Input::isButtonDown('info'))->toBeFalse();
@@ -283,6 +305,68 @@ it('delegates reset flags and clears both normalized key states', function ($dra
   InputManager::handleInput();
   expect(InputManager::getPressedKeyCode())->toBe($drain ? null : KeyCode::W);
 })->with([false, true]);
+
+it('retains an ordered reset cutoff without consuming post-reset taps or changing event-only edges', function () {
+  InputManager::setBindings([
+    'down' => ['keys' => [KeyCode::DOWN, KeyCode::s]],
+    'right' => ['keys' => [KeyCode::RIGHT]], 'left' => ['keys' => [KeyCode::LEFT]],
+  ]);
+  $source = new FakeHeldInputSource();
+  InputManager::setInputSource($source);
+  $order = InputManager::getLatestPressOrder();
+  $source->press('down', KeyCode::DOWN)->press('s', KeyCode::s)->press('right', KeyCode::RIGHT);
+  $source->transitions[] = KeyTransition::reset();
+  $source->release('down')->release('s')->release('right')->press('left', KeyCode::LEFT)->release('left');
+  InputManager::handleInput();
+  expect(InputManager::getLatestResetPressOrder())->toBe($order + 3)
+    ->and(InputManager::getButtonPressOrder('down'))->toBeNull()
+    ->and(InputManager::getButtonPressOrder('right'))->toBeNull()
+    ->and(InputManager::getButtonPressOrder('left'))->toBe($order + 4)
+    ->and(InputManager::wasButtonPressed('left'))->toBeTrue()
+    ->and(InputManager::isButtonHeld('left'))->toBeFalse()
+    // Physical transitions must not reinterpret the historical ordered key stream.
+    ->and(InputManager::isButtonDown('down'))->toBeTrue();
+  InputManager::handleInput();
+  expect(InputManager::getLatestResetPressOrder())->toBe($order + 3)
+    ->and(InputManager::getButtonPressOrder('left'))->toBeNull()
+    ->and(InputManager::wasButtonPressed('left'))->toBeFalse();
+});
+
+it('invalidates held aliases and press edges when polling or draining transitions fails', function (string $failurePoint) {
+  InputManager::setBindings([
+    'down' => ['keys' => [KeyCode::DOWN, KeyCode::s]], 'right' => ['keys' => [KeyCode::RIGHT]],
+  ]);
+  $source = new class(new FakeHeldInputSource(), $failurePoint) implements HeldInputSourceInterface {
+    public bool $fail = false;
+    public function __construct(public FakeHeldInputSource $inner, private string $failurePoint) {}
+    public function poll(): ?KeyCode {
+      if ($this->fail && $this->failurePoint === 'poll') { throw new RuntimeException('Synthetic input failure.'); }
+      return $this->inner->poll();
+    }
+    public function reset(bool $drainBufferedInput = false): void { $this->inner->reset($drainBufferedInput); }
+    public function canReportHeldState(): bool { return true; }
+    public function drainTransitions(): array {
+      if ($this->fail && $this->failurePoint === 'transitions') { throw new RuntimeException('Synthetic input failure.'); }
+      return $this->inner->drainTransitions();
+    }
+  };
+  InputManager::setInputSource($source);
+  $source->inner->press('down', KeyCode::DOWN)->press('s', KeyCode::s)->press('right', KeyCode::RIGHT);
+  InputManager::handleInput();
+  $order = InputManager::getLatestPressOrder();
+  expect(InputManager::isButtonHeld('down'))->toBeTrue()->and(InputManager::isButtonHeld('right'))->toBeTrue();
+  $source->fail = true;
+  expect(fn() => InputManager::handleInput())->toThrow(RuntimeException::class, 'Synthetic input failure.')
+    ->and(InputManager::getLatestResetPressOrder())->toBe($order)
+    ->and(InputManager::isButtonHeld('down'))->toBeFalse()->and(InputManager::isButtonHeld('right'))->toBeFalse()
+    ->and(InputManager::wasButtonPressed('down'))->toBeFalse()->and(InputManager::wasButtonPressed('right'))->toBeFalse()
+    ->and(InputManager::getButtonPressOrder('down'))->toBeNull()->and(InputManager::getButtonPressOrder('right'))->toBeNull();
+  $source->fail = false;
+  $source->inner->release('down')->release('s')->release('right')->press('right', KeyCode::RIGHT);
+  InputManager::handleInput();
+  expect(InputManager::isButtonHeld('down'))->toBeFalse()->and(InputManager::isButtonHeld('right'))->toBeTrue()
+    ->and(InputManager::getButtonPressOrder('right'))->toBeGreaterThan($order);
+})->with(['poll', 'transitions']);
 
 it('feeds renderer keys into the unchanged Input facade and PHP bindings', function ($identity, $code, $axis, $value) {
   $transport = new FakeRendererTransport();

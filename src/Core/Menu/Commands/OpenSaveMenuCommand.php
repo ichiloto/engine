@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Core\Menu\Commands;
 
+use Ichiloto\Engine\Localization\Vocabulary;
+
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\MenuItem;
@@ -17,7 +19,7 @@ class OpenSaveMenuCommand extends MenuItem
 {
   public function __construct(MenuInterface $menu)
   {
-    parent::__construct($menu, 'Save', 'Create or overwrite a save file.');
+    parent::__construct($menu, Vocabulary::getTerm('game.save', 'Save'), 'Create or overwrite a save file.');
   }
 
   /**

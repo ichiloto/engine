@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Battle\Presentation;
 
 use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\Localization\Vocabulary;
 
 /** Shared measured pages keep navigation and native composition in agreement. */
 final class BattleResultsContent
@@ -12,7 +13,7 @@ final class BattleResultsContent
   public static function pageCount(BattleResultsPlayback $playback): int
   {
     if ($playback->currentStage()['kind'] !== 'primary') {
-      return max(1, (int)ceil(count(self::eventLines($playback)) / self::eventPageSize($playback)));
+      return max(1, (int)ceil(count(self::getEventLines($playback)) / self::eventPageSize($playback)));
     }
     return max(1, (int)ceil(count(self::partyRows($playback->rewards)) / 4),
       (int)ceil(count(self::itemLines($playback->rewards)) / 4),
@@ -70,12 +71,34 @@ final class BattleResultsContent
   }
 
   /** @return list<array{text: string, tone: string}> */
-  public static function eventLines(BattleResultsPlayback $playback): array
+  public static function getEventLines(BattleResultsPlayback $playback): array
+  {
+    $lines = [];
+    foreach (self::getEventRows($playback) as $row) {
+      $text = $row['text'];
+      if (isset($row['value'])) {
+        $value = $row['value'];
+        $text .= mb_strlen($text . $value) < 49
+          ? str_repeat(' ', 50 - mb_strlen($text . $value)) . $value
+          : "\n" . $value;
+      }
+      foreach (self::wrap($text, 50) as $line) {
+        $lines[] = ['text' => $line, 'tone' => $row['tone']];
+      }
+    }
+    return $lines;
+  }
+
+  /**
+   * Keep labels and values separate so each renderer can measure its own columns.
+   * @return list<array{text: string, tone: string, value?: string}>
+   */
+  public static function getEventRows(BattleResultsPlayback $playback): array
   {
     $stage = $playback->currentStage();
     $lines = [];
     $add = static function (string $text, string $tone = 'text') use (&$lines): void {
-      foreach (self::wrap($text, 50) as $line) { $lines[] = ['text' => $line, 'tone' => $tone]; }
+      $lines[] = ['text' => $text, 'tone' => $tone];
     };
     if ($stage['kind'] === 'special') {
       $event = $playback->rewards->specialRewards[$stage['detail']];
@@ -91,7 +114,7 @@ final class BattleResultsContent
     assert($before !== null && $after !== null);
     $add($after->name, 'accent');
     if ($stage['kind'] === 'level') {
-      $add('Level ' . $before->level . "  \u{2192}  " . $after->level, 'accent');
+      $add(Vocabulary::getTerm('stats.level', 'Level') . ' ' . $before->level . "  \u{2192}  " . $after->level, 'accent');
       foreach ($after->stats as $stat => $value) {
         if (!array_key_exists($stat, $before->stats)) { continue; }
         $old = $before->stats[$stat];
@@ -100,22 +123,22 @@ final class BattleResultsContent
           'maxHp' => 'HP', 'maxMp' => 'MP',
           default => ucfirst((string)preg_replace('/([a-z])([A-Z])/', '$1 $2', $stat)),
         };
+        $label = Vocabulary::getTerm('stats.' . match ($stat) {
+          'maxHp' => 'hp', 'maxMp' => 'mp', default => $stat,
+        }, $label);
         $numbers = $old . " \u{2192} " . $value . ' (' . ($delta > 0 ? '+' : '') . $delta . ')';
         $tone = $delta > 0 ? 'positive' : ($delta < 0 ? 'negative' : 'muted');
-        if (mb_strlen($label . $numbers) < 49) {
-          $add($label . str_repeat(' ', 50 - mb_strlen($label . $numbers)) . $numbers, $tone);
-        } else {
-          $add($label, $tone);
-          $add($numbers, $tone);
-        }
+        $lines[] = ['text' => $label, 'value' => $numbers, 'tone' => $tone];
       }
     } else {
       $entries = $playback->abilities($actor);
       $entry = $entries[$stage['detail']];
       $add($entry['name'], 'accent');
-      $add(ucfirst($entry['kind']) . '  ' . ($stage['detail'] + 1) . '/' . count($entries), 'muted');
+      $kind = strtolower($entry['kind']);
+      $add(Vocabulary::getTerm('command.' . ($kind === 'ability' ? 'skill' : $kind), ucfirst($entry['kind']))
+        . '  ' . ($stage['detail'] + 1) . '/' . count($entries), 'muted');
       if (isset($entry['cost'])) {
-        $add('Cost: ' . $entry['cost'] . ' MP');
+        $add('Cost: ' . $entry['cost'] . ' ' . Vocabulary::getTerm('stats.mp', 'MP'));
       }
       $add($entry['description']);
     }

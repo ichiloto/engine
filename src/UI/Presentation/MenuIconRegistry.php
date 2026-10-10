@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\UI\Presentation;
 
 use Ichiloto\Engine\Entities\Enumerations\WeaponType;
+use Ichiloto\Engine\Entities\Inventory\EquipmentIcon;
 use Ichiloto\Engine\Entities\Inventory\EquipmentSlotType;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasNineSlice;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasValidation;
 use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use InvalidArgumentException;
 
 /** Optional project bindings. No authored source sizes and no display-name/glyph inference. */
@@ -38,12 +40,14 @@ final readonly class MenuIconRegistry
   public function asset(WeaponType|EquipmentSlotType|string|null $metadata): ?string
   {
     if ($metadata === null) { return null; }
-    $semantic = match (true) {
-      $metadata instanceof WeaponType => 'weapon.' . strtolower($metadata->value),
-      $metadata instanceof EquipmentSlotType => 'slot.' . $metadata->value,
-      default => $metadata,
-    };
-    return $this->icons[$semantic] ?? $this->icons['unknown'] ?? null;
+    $type = EquipmentIcon::resolveType($metadata);
+    $semantic = is_string($metadata) ? $metadata : EquipmentIcon::getRole($metadata);
+    // Known types retain their own symbol when optional artwork is unavailable, never another item's icon.
+    foreach (array_unique(array_filter([$this->icons[$semantic] ?? null,
+      $type === null ? ($this->icons['unknown'] ?? null) : null])) as $asset) {
+      if (PngAssetPreflight::getAvailableSize($this->assetRoot, $asset) !== null) { return $asset; }
+    }
+    return null;
   }
 
   /** Full-source contain uses a zero-cut CanvasNineSlice, never stretches or slices an icon.
@@ -57,7 +61,8 @@ final readonly class MenuIconRegistry
   /** @return list<CanvasImage> */
   public static function containAsset(string $root, string $id, string $asset, CanvasRectangle $box, int $layer, CanvasRectangle $clip): array
   {
-    $art = CanvasNineSlice::fromPng($root, $asset);
+    if (PngAssetPreflight::getAvailableSize($root, $asset) === null) { return []; }
+    $art = CanvasNineSlice::getFromPng($root, $asset);
     $scale = min($box->width / $art->source->width, $box->height / $art->source->height);
     $width = $art->source->width * $scale;
     $height = $art->source->height * $scale;

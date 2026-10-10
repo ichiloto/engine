@@ -10,6 +10,13 @@ use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\IO\Input;
+use Ichiloto\Engine\IO\InputBindings;
+use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePaginationBuilder;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueSnapshot;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePresentationProviderInterface;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowHeightPolicy;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
@@ -22,12 +29,9 @@ use Ichiloto\Engine\UI\Windows\WindowAlignment;
  *
  * @package Ichiloto\Engine\UI\Modal
  */
-class TextBoxModal extends Modal
+class TextBoxModal extends Modal implements DialoguePresentationProviderInterface
 {
-  /** Ordinary dialogue keeps a compact three-line footprint. */
-  private const int DEFAULT_CONTENT_LINES = 3;
-  /** A fourth wrapped line may grow the box; longer dialogue is paginated. */
-  private const int MAX_CONTENT_LINES_PER_PAGE = 4;
+  private const float DEFAULT_TYPING_SPEED = 60.0;
   /**
    * @var string|null $help The help text to display.
    */
@@ -69,6 +73,7 @@ class TextBoxModal extends Modal
   protected int $currentPageIndex = 0;
   /** Help authored by the caller, restored while a new page is typing. */
   protected string $authoredHelp = '';
+  private WindowPosition $dialoguePosition;
 
   /**
    * TextBoxModal constructor.
@@ -88,25 +93,20 @@ class TextBoxModal extends Modal
     string $help = '',
     ?WindowPosition $position = null,
     BorderPackInterface $borderPack = new DefaultBorderPack(),
-    protected float $charactersPerSecond = 60
+    protected float $charactersPerSecond = self::DEFAULT_TYPING_SPEED,
+    protected ?DialoguePlayback $playback = null,
+    protected DialogueContext $presentation = new DialogueContext(),
   )
   {
-    $width = min(DEFAULT_DIALOG_WIDTH, max(4, get_screen_width()));
-    $contentWidth = max(1, $width - 4); // borders and Window's default horizontal padding
-    $wrappedLines = $this->wrapMessageIntoLines($message, $contentWidth);
-    $screenContentLines = max(1, get_screen_height() - 2);
-    $linesPerPage = min(self::MAX_CONTENT_LINES_PER_PAGE, $screenContentLines);
-    $this->messagePages = array_map(
-      static fn(array $page): string => implode("\n", $page),
-      array_chunk($wrappedLines, $linesPerPage),
-    );
-    $this->messagePages = $this->messagePages ?: [''];
-    $contentLines = min(
-      $screenContentLines,
-      max(self::DEFAULT_CONTENT_LINES, min(count($wrappedLines), $linesPerPage)),
-    );
-    $height = $contentLines + 2;
-    $position ??= trim($title) === '' ? WindowPosition::TOP : WindowPosition::BOTTOM;
+    $this->playback ??= new DialoguePlayback(isset($game->audioManager) ? $game->audioManager : null);
+    $pagination = DialoguePaginationBuilder::buildPagination($message, $title, $help, $presentation,
+      get_screen_width(), get_screen_height(),
+      $game->getRendererRuntime()?->getDialoguePageLayout($title, $presentation, $help), $position);
+    $this->messagePages = $pagination->pages;
+    $width = $pagination->windowWidth;
+    $height = $pagination->windowHeight;
+    $position = $pagination->position;
+    $this->dialoguePosition = $position;
     $positionCoordinates = $position->getCoordinates($width, $height);
     $this->messageLength = mb_strlen($this->currentPageMessage());
     $this->authoredHelp = $help;
@@ -129,11 +129,20 @@ class TextBoxModal extends Modal
     $this->rebuildWindow();
   }
 
+  public function getDialogueSnapshot(): DialogueSnapshot
+  {
+    $page = $this->currentPageMessage();
+    return new DialogueSnapshot($this->title, $page, mb_substr($page, 0, $this->currentCharacterIndex),
+      $this->isPrinting, $this->currentPageIndex, count($this->messagePages), $this->playback?->auto ?? false,
+      $this->dialoguePosition, $this->presentation, $this->authoredHelp);
+  }
+
   /**
    * @inheritDoc
    */
   public function show(): void
   {
+    InputManager::consumeCurrentInput();
     parent::show();
     $this->leftMargin = $this->rect->getX();
     $this->topMargin = $this->rect->getY();
@@ -142,8 +151,11 @@ class TextBoxModal extends Modal
     $this->messageLength = mb_strlen($this->currentPageMessage());
     $this->help = $this->authoredHelp;
     $this->isPrinting = true;
+    $this->nextPrintTime = 0;
+    $this->playback?->beginPage($this->currentPageMessage());
 
     $this->updateContent();
+    $this->refreshPlaybackHelp();
   }
 
   /**
@@ -163,6 +175,23 @@ class TextBoxModal extends Modal
       $this->submit();
     } elseif (Input::isButtonDown('cancel')) {
       $this->cancel();
+    } elseif ($this->playback !== null && Input::isButtonDown('dialogue_auto')) {
+      $this->playback->toggleAuto();
+    } elseif ($this->playback?->canAdvance(
+      microtime(true), $this->isPrinting, ! isset($this->messagePages[$this->currentPageIndex + 1]),
+    )) {
+      $this->submit();
+    }
+    $this->refreshPlaybackHelp();
+  }
+
+  private function refreshPlaybackHelp(): void
+  {
+    if ($this->playback !== null) {
+      $bindings = new InputBindings();
+      $hints = sprintf('%s:continue %s:Auto %s', $bindings->describeKeys('confirm'),
+        $bindings->describeKeys('dialogue_auto'), $this->playback->auto ? 'on' : 'off');
+      $this->help = $this->authoredHelp === '' ? $hints : $this->authoredHelp . ' ' . $hints;
     }
   }
 
@@ -172,7 +201,8 @@ class TextBoxModal extends Modal
       $now = microtime(true);
 
       if ($now >= $this->nextPrintTime) {
-        $this->nextPrintTime = $now + (1 / $this->charactersPerSecond);
+        $speed = is_finite($this->charactersPerSecond) ? max(1.0, $this->charactersPerSecond) : self::DEFAULT_TYPING_SPEED;
+        $this->nextPrintTime = $now + (1 / $speed);
         $this->currentCharacterIndex++;
       }
 
@@ -191,9 +221,8 @@ class TextBoxModal extends Modal
       }
 
       $this->window->setContent($this->content);
-    } else {
-      $this->help = 'space:continue';
     }
+    $this->refreshPlaybackHelp();
   }
 
   /**
@@ -226,7 +255,9 @@ class TextBoxModal extends Modal
       $this->help = $this->authoredHelp;
       $this->nextPrintTime = 0;
       $this->isPrinting = true;
+      $this->playback?->beginPage($this->currentPageMessage());
       $this->updateContent();
+      $this->refreshPlaybackHelp();
     } else {
       $this->cancel();
     }
@@ -241,6 +272,15 @@ class TextBoxModal extends Modal
   protected function playInteractionSound(SystemSound $sound): void
   {
     // Intentionally silent.
+  }
+
+  public function hide(): void
+  {
+    try {
+      parent::hide();
+    } finally {
+      $this->playback?->finishLine();
+    }
   }
 
   /**
@@ -292,22 +332,14 @@ class TextBoxModal extends Modal
     // Split the message into lines. The cursor counts characters, so the
     // slice must too — byte slicing would cut a multibyte character in half
     // and stop short of the end on any message containing one.
-    $contentString = wordwrap($message, max(1, $this->window->getContentWidth()), "\n", true);
+    $contentString = implode("\n", $this->wrapMessageIntoLines($message, max(1, $this->window->getContentWidth())));
     return explode("\n", mb_substr($contentString, 0, $this->currentCharacterIndex));
   }
 
   /** @return string[] Message lines wrapped to the terminal content width. */
   protected function wrapMessageIntoLines(string $message, int $contentWidth): array
   {
-    $lines = [];
-
-    foreach (explode("\n", $message) as $paragraph) {
-      foreach (explode("\n", wordwrap($paragraph, max(1, $contentWidth), "\n", true)) as $line) {
-        $lines[] = $line;
-      }
-    }
-
-    return $lines ?: [''];
+    return DialoguePaginationBuilder::wrapMessageIntoLines($message, $contentWidth);
   }
 
   /** Returns the already-wrapped text for the active dialogue page. */

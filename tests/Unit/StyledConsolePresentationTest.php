@@ -17,6 +17,7 @@ use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Tests\Support\Input\FakeRendererTransport;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
 beforeEach(function () {
   $this->consoleState = new ReflectionClass(Console::class)->getStaticProperties();
@@ -212,13 +213,24 @@ it('queues colour-only changes transactionally and compares layer identity order
   expect($presenter->present(Console::presentationSnapshot(), [$sprite]))->toBeTrue();
   expect(array_map(fn($message) => $message->payload['frame'], $transport->sent))->toBe(range(1, 7))
     ->and($transport->sent[0]->protocol)->toBe(RendererProtocolVersion::V2)
-    ->and($transport->sent[0]->payload)->not->toHaveKey('text');
+    ->and($transport->sent[0]->payload)->not->toHaveKeys(['text', 'textLayers', 'sprites'])
+    ->and($transport->sent[1]->payload['reset'])->toBeTrue()
+    ->and($transport->sent[2]->payload['operations'][0]['op'])->toBe('textRows');
+  $frames = Tests\Support\Rendering\RetainedFrameState::replay($transport->sent);
+  expect($frames[0]['textLayers'][0]['runs'][0]['foreground'])->toBe(PresentationColor::ansi16(1)->toArray())
+    ->and($frames[1]['textLayers'][0]['runs'][0]['foreground'])->toBe(PresentationColor::ansi16(2)->toArray())
+    ->and($frames[2]['textLayers'][0]['runs'][0]['background'])->toBe(PresentationColor::ansi16(4)->toArray())
+    ->and($frames[6]['sprites'])->toBe([$sprite->toArray()]);
 });
 
 it('reserves UI layers only in automatic runtime composition', function () {
-  foreach ([-1, 1000, 2000] as $layer) {
+  foreach ([-2, 1000, 2000] as $layer) {
     $sprite = new PresentationSprite('x', 'x.png', 0, 0, 1, 1, layer: $layer);
     expect(new StyledPresentationFrame(0, [], [$sprite])->sprites)->toBe([$sprite]);
     expect(fn() => PresentationLayerPolicy::assertWorldSprites([$sprite]))->toThrow(InvalidArgumentException::class);
   }
+  $ground = new PresentationSprite('light', 'light.png', 0, 0, 1, 1,
+    layer: PresentationLayerPolicy::FIELD_EFFECT_BEHIND);
+  PresentationLayerPolicy::assertWorldSprites([$ground]);
+  expect($ground->layer)->toBe(-1);
 });

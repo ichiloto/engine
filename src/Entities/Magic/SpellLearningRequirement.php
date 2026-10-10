@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Entities\Magic;
 
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 
@@ -140,7 +141,7 @@ class SpellLearningRequirement
     $parts = [];
 
     if ($this->experienceRequired > 0) {
-      $parts[] = sprintf('EXP %d/%d', $character->currentExp, $this->experienceRequired);
+      $parts[] = sprintf('%s %d/%d', Vocabulary::getTerm('stats.exp', 'EXP'), $character->currentExp, $this->experienceRequired);
     }
 
     if ($this->trainingHoursRequired > 0) {
@@ -148,7 +149,7 @@ class SpellLearningRequirement
     }
 
     if ($this->goldCost > 0) {
-      $parts[] = sprintf('Gold %d/%d', $party->accountBalance, $this->goldCost);
+      $parts[] = sprintf('%s %d/%d', Vocabulary::getTerm('currency.name', 'Gold'), $party->accountBalance, $this->goldCost);
     }
 
     $itemStore = ConfigStore::get(ItemStore::class);

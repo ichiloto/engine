@@ -172,7 +172,9 @@ it('separates requested and actual healing damage and overkill', function () {
     ->and($damage->requestedHpChange)->toBe(-80)
     ->and($damage->actualHpLost)->toBe(30)
     ->and($damage->overkill)->toBe(50)
-    ->and($damage->postEffectHp)->toBe(0);
+    ->and($damage->postEffectHp)->toBe(0)
+    ->and(new CombatTargetResult('Victim', [$damage])->getResolvedHpDamage())->toBe(80)
+    ->and(new CombatTargetResult('Healed', [$healing])->getResolvedHpDamage())->toBe(0);
 });
 
 it('represents every elemental outcome and bounds ordinary composition', function () {
@@ -232,7 +234,8 @@ it('derives bounded future effects from actual action loss rather than overkill'
   ]);
   $policy = new ActualHpLossAggregatePolicy(0.25);
 
-  expect($action->actualHpLost())->toBe(30)
+  expect($action->targets[0]->getResolvedHpDamage())->toBe(100)
+    ->and($action->actualHpLost())->toBe(30)
     ->and($action->defeatedTargetCount())->toBe(1)
     ->and($policy->magnitudeFor($action))->toBe(8)
     ->and(fn() => new ActualHpLossAggregatePolicy(0.26))
@@ -295,6 +298,8 @@ it('drains from actual HP lost and keeps actor and victim target aggregates dist
     ->and($actor->stats->currentHp)->toBe(50)
     ->and($action->lastResult?->actualHpLost())->toBe(30)
     ->and($action->lastResult?->actualHpRestored())->toBe(30)
+    ->and($action->lastResult?->targets[0]->getResolvedHpDamage())->toBe(98)
+    ->and($action->lastResult?->targets[1]->getResolvedHpDamage())->toBe(0)
     ->and(array_map(static fn(CombatTargetResult $result): string => $result->targetId, $action->lastResult?->targets ?? []))
     ->toBe([CombatResolver::identity($target), CombatResolver::identity($actor)]);
 });

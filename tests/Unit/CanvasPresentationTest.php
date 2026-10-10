@@ -27,8 +27,10 @@ use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Tests\Support\Input\FakeRendererTransport;
+use Tests\Support\Rendering\RetainedFrameState;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
 function canvasImage(string $id = 'one', int $layer = 0, ?SpriteSourceRect $crop = null): CanvasImage
 {
@@ -48,18 +50,118 @@ function canvasPresenter(array $capabilities, ?RendererGridConfig $grid = null):
   return [new RendererPresentation($client, $grid ?? new RendererGridConfig(2, 1)), $transport];
 }
 
+it('clips an anchored image at every edge without translating or stretching its remaining pixels', function (bool $flipX, bool $flipY) {
+  $source = new SpriteSourceRect(100, 200, 40, 30);
+  $image = CanvasImage::createClipped('clipped', 'synthetic.png', -10, -20, 80, 60, 50, 30, 100, $source, $flipX, $flipY);
+  expect($image->destination->toArray())->toBe(['x' => 0.0, 'y' => 0.0, 'width' => 50.0, 'height' => 30.0])
+    ->and($image->sourceRect->toArray())->toBe(['x' => $flipX ? 110 : 105, 'y' => $flipY ? 205 : 210,
+      'width' => 25, 'height' => 15])
+    ->and($image->flipX)->toBe($flipX)->and($image->flipY)->toBe($flipY);
+  new PresentationCanvas(50, 30, [$image]);
+  expect(CanvasImage::createClipped('outside', 'synthetic.png', 50, 0, 80, 60, 50, 30, 100, $source))->toBeNull();
+  $fractional = CanvasImage::createClipped('fractional', 'synthetic.png', -10.5, -20.5, 80, 60, 50, 30, 100, $source);
+  expect($fractional->destination->x)->toBe(1.5)->and($fractional->destination->y)->toBe(1.5)
+    ->and($fractional->destination->width / $fractional->sourceRect->width)->toBe(2.0)
+    ->and($fractional->destination->height / $fractional->sourceRect->height)->toBe(2.0);
+  new PresentationCanvas(50, 30, [$fractional]);
+})->with([false, true])->with([false, true]);
+
+it('constructs strictly contained fractional clipping edges without changing source pixels or flips', function (bool $flipX, bool $flipY) {
+  $source = new SpriteSourceRect(64, 96, 2048, 1536);
+  $image = CanvasImage::createClipped('fractional-edge', 'replaceable-sheet.png',
+    -104.80000000000018, -74.40000000000009, 1638.4, 1228.8000000000002, 1280, 720, 7, $source, $flipX, $flipY);
+  expect($image)->not->toBeNull()
+    ->and($image->sourceRect->toArray())->toBe(['x' => $flipX ? 381 : 196, 'y' => $flipY ? 639 : 190,
+      'width' => 1599, 'height' => 899])
+    ->and($image->destination->x)->toBe(0.7999999999998266)
+    ->and($image->destination->y)->toBe(0.7999999999999261)
+    ->and($image->destination->x + $image->destination->width)->toBeLessThanOrEqual(1280)
+    ->and($image->destination->y + $image->destination->height)->toBeLessThanOrEqual(720)
+    ->and($image->destination->width / 1599)->toEqualWithDelta(.8, 1e-15)
+    ->and($image->destination->height / 899)->toEqualWithDelta(.8, 1e-15)
+    ->and($image->flipX)->toBe($flipX)->and($image->flipY)->toBe($flipY)->and($image->layer)->toBe(7);
+  new PresentationCanvas(1280, 720, [$image]);
+  $wire = json_decode(json_encode($image->toArray(), JSON_THROW_ON_ERROR), true, flags: JSON_THROW_ON_ERROR);
+  new CanvasRectangle(...array_values($wire['destination']))->assertWithin(1280, 720);
+})->with([false, true])->with([false, true]);
+
+it('keeps zoomed partial source-sheet placements bounded at both mirrored edges', function (bool $flipX, bool $flipY) {
+  $source = new SpriteSourceRect(4294965247, 4294965759, 2048, 1536);
+  foreach ([.125, .3, .8, 1.1, 1.5, 2.75] as $scale) {
+    foreach ([[-.2, -.7], [73.3, 45.9], [319.8, 179.7], [-700.3, -500.9]] as [$x, $y]) {
+      $image = CanvasImage::createClipped('zoomed', 'replaceable-sheet.png', $x, $y,
+        2048 * $scale, 1536 * $scale, 320, 180, 0, $source, $flipX, $flipY);
+      if ($image === null) { continue; }
+      new PresentationCanvas(320, 180, [$image]);
+      $crop = $image->sourceRect;
+      expect($crop->x)->toBeGreaterThanOrEqual($source->x)
+        ->and($crop->y)->toBeGreaterThanOrEqual($source->y)
+        ->and($crop->x + $crop->width)->toBeLessThanOrEqual(4294967295)
+        ->and($crop->y + $crop->height)->toBeLessThanOrEqual(4294967295)
+        ->and($image->destination->width / $crop->width)->toEqualWithDelta($scale, 1e-12)
+        ->and($image->destination->height / $crop->height)->toEqualWithDelta($scale, 1e-12);
+      foreach ($image->destination->toArray() as $value) { expect(is_finite($value))->toBeTrue(); }
+      $left = $flipX ? $source->x + $source->width - $crop->x - $crop->width : $crop->x - $source->x;
+      $top = $flipY ? $source->y + $source->height - $crop->y - $crop->height : $crop->y - $source->y;
+      expect($image->destination->x)->toEqualWithDelta($x + $left * $scale, 1e-12)
+        ->and($image->destination->y)->toEqualWithDelta($y + $top * $scale, 1e-12);
+    }
+  }
+})->with([false, true])->with([false, true]);
+
+it('omits fully offscreen and subpixel remnants while retaining strict placement limits', function () {
+  $source = new SpriteSourceRect(0, 0, 10, 10);
+  foreach ([[100, 0, 10, 10], [0, 100, 10, 10], [-10, 0, 10, 10], [0, -10, 10, 10],
+    [99.9, 0, 10, 10], [0, 99.9, 10, 10], [PHP_FLOAT_MAX, 0, 10, 10], [-PHP_FLOAT_MAX, 0, 10, 10]] as $placement) {
+    expect(CanvasImage::createClipped('outside', 'synthetic.png', ...[...$placement, 100, 100, 0, $source]))->toBeNull();
+  }
+  foreach ([[NAN, 0, 10, 10, 100, 100], [0, INF, 10, 10, 100, 100], [0, 0, INF, 10, 100, 100],
+    [0, 0, 10, NAN, 100, 100], [0, 0, 0, 10, 100, 100], [0, 0, 10, -1, 100, 100],
+    [0, 0, 16385, 10, 100, 100], [0, 0, 10, 10, 0, 100], [0, 0, 10, 10, 100, 16385]] as $placement) {
+    expect(fn() => CanvasImage::createClipped('invalid', 'synthetic.png', ...[...$placement, 0, $source]))
+      ->toThrow(InvalidArgumentException::class);
+  }
+  $image = CanvasImage::createClipped('limit', 'synthetic.png', 0, 0, 16384, 16384, 16384, 16384, 0,
+    new SpriteSourceRect(0, 0, 4294967295, 4294967295));
+  new PresentationCanvas(16384, 16384, [$image]);
+  expect($image->sourceRect->width)->toBe(4294967295);
+  $overflow = new CanvasRectangle(0.7999999999998266, 0.7999999999999261, 1279.2, 719.2000000000002);
+  expect(fn() => $overflow->assertWithin(1280, 720))->toThrow(InvalidArgumentException::class);
+  expect(fn() => new PresentationCanvas(1280, 720, [new CanvasImage('overflow', 'synthetic.png', $overflow)]))
+    ->toThrow(InvalidArgumentException::class);
+});
+
+it('namespaces stacked artwork and indicator references without changing geometry or owner identity', function () {
+  $image = new CanvasImage('actor', 'synthetic.png', new CanvasRectangle(0, 0, 10, 20), 4, flipX: true);
+  $indicator = new CanvasIndicator('focus', 'actor', CanvasIndicatorKind::OUTLINE,
+    new CanvasRectangle(0, 0, 10, 20), 1, PresentationColor::rgb(255, 255, 255), layer: 5);
+  $overlay = new PresentationCanvas(100, 100, [$image], [$indicator], presentationOwners: ['ui:123']);
+  $canvas = PresentationCanvas::composeOverlay(new PresentationCanvas(100, 100, [$image]), $overlay, 'upper-');
+  expect(array_column($canvas->images, 'id'))->toBe(['actor', 'upper-actor'])
+    ->and($canvas->indicators[0]->id)->toBe('upper-focus')
+    ->and($canvas->indicators[0]->imageId)->toBe('upper-actor')
+    ->and($canvas->images[1]->destination)->toEqual($image->destination)
+    ->and($canvas->images[1]->flipX)->toBeTrue()
+    ->and($canvas->presentationOwners)->toBe(['ui:123'])
+    ->and($canvas->toArray())->not->toHaveKey('presentationOwners');
+});
+
 it('submits free canvas geometry independently of terminal metrics and preserves fractions', function () {
   $canvas = new PresentationCanvas(1350, 720, [canvasImage()]);
   $messages = [];
+  $frames = [];
   foreach ([new RendererGridConfig(2, 1, 16, 24), new RendererGridConfig(135, 36, 10, 20)] as $grid) {
     [$presenter, $transport] = canvasPresenter(['graphical_canvas'], $grid);
     expect($presenter->presentCanvas($canvas))->toBeTrue();
     $messages[] = $transport->sent[0]->encode();
+    $frames[] = RetainedFrameState::replay($transport->sent)[0];
   }
   expect($messages[0])->toBe($messages[1]);
   $wire = json_decode($messages[0], true, flags: JSON_THROW_ON_ERROR);
-  expect($wire['canvas']['images'][0]['destination'])->toBe(['x' => 969.25, 'y' => 265.5, 'width' => 143, 'height' => 181])
-    ->and($wire['textLayers'])->toBe([])->and($wire['sprites'])->toBe([])->and($wire['protocol'])->toBe(2);
+  expect($frames[0])->toBe($frames[1])
+    ->and($frames[0]['canvas']['images'][0]['destination'])->toBe(['x' => 969.25, 'y' => 265.5, 'width' => 143.0, 'height' => 181.0])
+    ->and($frames[0]['textLayers'])->toBe([])->and($frames[0]['sprites'])->toBe([])->and($wire['protocol'])->toBe(2)
+    ->and($wire)->not->toHaveKeys(['canvas', 'textLayers', 'sprites']);
 });
 
 it('rejects invalid canvas rectangle values without clamping or cell snapping', function ($values) {
@@ -69,6 +171,18 @@ it('rejects invalid canvas rectangle values without clamping or cell snapping', 
   [[NAN, 0, 1, 1]], [[0, INF, 1, 1]], [[0, 0, INF, 1]], [[0, 0, 1, NAN]],
   [[16384, 0, 1, 1]], [[0, 0, 1, 16385]], [[PHP_FLOAT_MAX, 0, PHP_FLOAT_MAX, 1]],
 ]);
+
+it('validates and detaches PHP overlay protection without changing the renderer wire contract', function () {
+  $area = new CanvasRectangle(10, 10, 20, 20);
+  $areas = [&$area];
+  $canvas = new PresentationCanvas(100, 100, protectedAreas: $areas);
+  $area = new CanvasRectangle(0, 0, 100, 100);
+  expect($canvas->protectedAreas[0]->width)->toBe(20.0)
+    ->and($canvas->toArray())->toBe(new PresentationCanvas(100, 100)->toArray());
+  foreach ([[new CanvasRectangle(90, 0, 20, 10)], ['not a rectangle'], ['key' => $area], array_fill(0, 32769, $area)] as $invalid) {
+    expect(fn() => new PresentationCanvas(100, 100, protectedAreas: $invalid))->toThrow(InvalidArgumentException::class);
+  }
+});
 
 it('validates canvas extents and completely contained image indicator and text rectangles', function () {
   foreach ([[0, 1], [1, 0], [-1, 1], [16385, 1], [1, 16385]] as [$width, $height]) {
@@ -115,6 +229,65 @@ it('rejects wrong typed geometry inputs at strict PHP construction boundaries', 
   }
   expect(fn() => new PresentationCanvas(1.5, 1))->toThrow(TypeError::class);
   expect(fn() => new CanvasImage('id', 'a.png', new CanvasRectangle(0, 0, 1, 1), opacity: null))->toThrow(TypeError::class);
+});
+
+it('validates optional image brightness without changing legacy opacity or wire defaults', function () {
+  $rect = new CanvasRectangle(0, 0, 20, 20);
+  foreach ([-0.01, 1.01, NAN, INF, -INF] as $brightness) {
+    expect(fn() => new CanvasImage('image', 'a.png', $rect, brightness: $brightness))->toThrow(InvalidArgumentException::class);
+  }
+  foreach ([null, '0.6', true, []] as $brightness) {
+    expect(fn() => new CanvasImage('image', 'a.png', $rect, brightness: $brightness))->toThrow(TypeError::class);
+  }
+  expect(new CanvasImage('image', 'a.png', $rect)->toArray())->not->toHaveKey('brightness');
+  expect(new CanvasImage('image', 'a.png', $rect, brightness: 0)->toArray()['brightness'])->toBe(0.0);
+  expect(new CanvasImage('image', 'a.png', $rect, brightness: 0.6)->opacity)->toBe(1.0);
+});
+
+it('negotiates image tone and updates retained brightness without resetting unrelated canvas entities', function () {
+  expect(fn() => new RendererSessionConfig('Tone', sys_get_temp_dir(), requiredCapabilities: ['canvas_image_tone']))
+    ->toThrow(InvalidArgumentException::class);
+  expect(fn() => new RendererSessionConfig('Tone', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+    requiredCapabilities: ['canvas_image_tone']))->toThrow(InvalidArgumentException::class);
+  $rect = new CanvasRectangle(20, 20, 40, 60);
+  $make = fn($brightness) => new PresentationCanvas(100, 100, [
+    new CanvasImage('bust', 'synthetic.png', $rect, brightness: $brightness),
+    new CanvasImage('other', 'synthetic.png', new CanvasRectangle(0, 0, 10, 10)),
+  ]);
+  [$legacy, $oldPeer] = canvasPresenter(['graphical_canvas']);
+  expect(fn() => $legacy->presentCanvas($make(0.6)))->toThrow(RendererProtocolException::class, 'canvas_image_tone');
+  expect($oldPeer->sent)->toBe([])->and($legacy->presentCanvas($make(1)))->toBeTrue();
+  [$presenter, $peer] = canvasPresenter(['graphical_canvas', 'canvas_image_tone']);
+  expect($presenter->presentCanvas($make(0.6)))->toBeTrue()
+    ->and($presenter->presentCanvas($make(0.6)))->toBeFalse()
+    ->and($presenter->presentCanvas($make(1)))->toBeTrue();
+  expect($peer->sent[1]->payload['reset'])->toBeFalse()
+    ->and($peer->sent[1]->payload['operations'])->toHaveCount(1)
+    ->and($peer->sent[1]->payload['operations'][0]['id'])->toBe('bust');
+  $frames = RetainedFrameState::replay($peer->sent);
+  expect($frames[0]['canvas']['images'][0]['brightness'])->toBe(0.6)
+    ->and($frames[1]['canvas']['images'][0])->not->toHaveKey('brightness')
+    ->and($frames[1]['canvas']['images'][1])->toEqual($frames[0]['canvas']['images'][1]);
+});
+
+it('negotiates independent image flips and removes them on retained replacement', function () {
+  $rect = new CanvasRectangle(20, 20, 40, 60);
+  $make = fn(bool $flip) => new PresentationCanvas(100, 100, [
+    new CanvasImage('stroke', 'synthetic.png', $rect, flipX: $flip, flipY: $flip),
+  ]);
+  expect(fn() => new RendererSessionConfig('Flip', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+    requiredCapabilities: ['canvas_image_flip']))->toThrow(InvalidArgumentException::class);
+  [$legacy, $oldPeer] = canvasPresenter(['graphical_canvas']);
+  expect(fn() => $legacy->presentCanvas($make(true)))->toThrow(RendererProtocolException::class, 'canvas_image_flip');
+  expect($oldPeer->sent)->toBeEmpty()->and($legacy->presentCanvas($make(false)))->toBeTrue();
+  [$presenter, $peer] = canvasPresenter(['graphical_canvas', 'canvas_image_flip']);
+  expect($presenter->presentCanvas($make(true)))->toBeTrue()
+    ->and($presenter->presentCanvas($make(true)))->toBeFalse()
+    ->and($presenter->presentCanvas($make(false)))->toBeTrue();
+  $frames = RetainedFrameState::replay($peer->sent);
+  expect($frames[0]['canvas']['images'][0])->toMatchArray(['flipX' => true, 'flipY' => true])
+    ->and($frames[1]['canvas']['images'][0])->not->toHaveKeys(['flipX', 'flipY'])
+    ->and($peer->sent[1]->payload['reset'])->toBeFalse();
 });
 
 it('preserves stable instance references and equal-layer order through replacement and removal', function () {
@@ -220,11 +393,14 @@ it('shares transactional deduplication and sequencing across canvas and field tr
     ->and($presenter->presentCanvas($canvas))->toBeFalse();
   $transport->sendFailure = new RendererTransportException('backpressure');
   expect(fn() => $presenter->presentCanvas(new PresentationCanvas(1350, 720)))->toThrow(RendererTransportException::class);
-  expect($presenter->presentCanvas($canvas))->toBeFalse();
+  expect(fn() => $presenter->presentCanvas($canvas))->toThrow(RendererTransportException::class);
   $transport->sendFailure = null;
   expect($presenter->presentCanvas(new PresentationCanvas(1350, 720)))->toBeTrue()
     ->and($presenter->present($field))->toBeTrue()->and($presenter->present($field))->toBeFalse();
+  $frames = RetainedFrameState::replay($transport->sent);
   expect(array_map(fn($m) => $m->payload['frame'], $transport->sent))->toBe([1, 2, 3, 4])
-    ->and($transport->sent[2]->payload['canvas']['images'])->toBe([])
-    ->and($transport->sent[3]->payload)->not->toHaveKey('canvas');
+    ->and($transport->sent[2]->payload['reset'])->toBeTrue()
+    ->and($frames[2]['canvas']['images'])->toBe([])
+    ->and($frames[3])->not->toHaveKey('canvas')
+    ->and($transport->sent[3]->payload['operations'])->toContain(['op' => 'remove', 'kind' => 'canvas', 'id' => 'canvas']);
 });

@@ -1,26 +1,29 @@
-# Presentation frames (S4)
+# Retained presentation
 
-This page describes the retained v1 API. The optional Game runtime now defaults
-to v2; see [styled presentation (S7-E)](styled-presentation.md). V1 continues to
-use plain text and sprites without structured colour or text-layer ordering.
+Native GPUI uses protocol v2 session-owned presentation state. PHP sends changed
+elements, text rows and camera state, not a complete screen on every frame.
+PHP still owns gameplay, timing, input bindings and the camera. See
+[runtime startup](runtime.md), [styled text](styled-presentation.md) and
+[retained world layers](tile-batches.md).
 
-S4 adds explicitly invoked presentation through the existing renderer connection.
-Ichiloto remains the PHP game engine. The normal Game runtime still does not
-launch GPUI, select a renderer, or send graphical frames. No Player/GameObject
-sprite integration, Last Legend integration, camera conversion, or gameplay
-behavior is introduced here. [S5 graphical sprite intent](graphical-sprites.md)
-adds an explicit Player/provider-to-Camera adapter on top of this boundary;
-neither phase installs Game-loop presentation.
+**Removed behavior:** native protocol v1 presentation, stateless v2 full-screen
+replacement and direct `tileBatches` presenter output are removed. There is no
+new retained-mode capability flag or parallel native full-resend path.
+`ConsoleFrameSnapshot`, `ConsolePresentationSnapshot`, `PresentationFrame` and
+`StyledPresentationFrame` remain useful immutable reference/tooling models. Their
+old wire encoders are not accepted native presentation packets. Passing either
+Console snapshot to `RendererPresentation` converts it to retained styled text;
+it does not select the old wire format.
 
 ## Immutable Console boundary
 
-After a complete composition, call `Console::snapshot()`. It returns a
+For reference/tooling capture after a complete composition, `Console::snapshot()` returns a
 `ConsoleFrameSnapshot` containing immutable `width`, `height`, and `rows`.
 There are exactly height rows, each containing exactly width Unicode scalars.
 Snapshot constructors also detach caller-owned array-element references; PHP
 readonly properties alone would not prevent those aliases changing a frame.
 
-The snapshot reads Console's existing canonical `rowToCells()` model, not a
+The snapshot reads Console's existing canonical cell model, not a
 stripped copy of its serialized terminal rows. Capture neither flushes terminal
 output nor changes dirty spans, buffer contents, frame depth, dimensions, or cursor
 state. Capture during `beginFrame()` nesting or complete-screen recomposition
@@ -29,8 +32,8 @@ throws, so presentation cannot observe a partially composed frame. Capture after
 
 ### Terminal cells versus renderer cells
 
-Protocol v1 places one Unicode scalar per renderer cell. It has no terminal-width,
-ANSI-style, or grapheme model. Snapshot conversion therefore follows these rules:
+Screen-space text places one Unicode scalar per renderer cell. Snapshot and
+incremental row conversion use the same normalization rules:
 
 | Canonical terminal cell | Snapshot cell |
 | --- | --- |
@@ -61,7 +64,7 @@ The canonical terminal buffer retains its original styles and symbols.
 
 ## Presentation models
 
-`Rendering\Presentation\PresentationFrame` is an immutable atomic replacement:
+The reference-only `Rendering\Presentation\PresentationFrame` is an immutable atomic replacement:
 `number`, `text`, and `sprites`. Its constructor validates nonnegative integer
 labels, UTF-8 scalar rows without controls, list structure, typed sprites, and
 unique sprite IDs. Global v1 limits are 256 rows, 512 scalars per row, and 1024
@@ -70,12 +73,12 @@ Console snapshots are deliberately stricter complete rectangular grids.
 
 PHP supports labels through `PHP_INT_MAX`, a safe subset of the renderer's u64.
 `toRendererMessage()` produces a `RendererMessageType::FRAME` envelope. Existing
-S2 `RendererMessage` handles JSON/NDJSON encoding; no second framing code exists.
-Each frame replaces all prior text and sprites, including removal via empty lists.
+`RendererMessage` handles JSON/NDJSON encoding; no second framing code exists.
+These replacement semantics apply to the reference model, not native sessions.
 
 `PresentationSprite` contains `id`, `asset`, `x`, `y`, `width`, `height`, `anchor`,
 and `layer`. It holds screen-space presentation data, whether manually supplied
-as in S4 or projected from an engine provider by S5. It is not gameplay state.
+or projected from an engine provider. It is not gameplay state.
 `PresentationSpriteAnchor::BOTTOM_CENTER` is the only supported anchor.
 
 - IDs must be nonempty UTF-8 without NUL and unique within each frame.
@@ -84,12 +87,14 @@ as in S4 or projected from an engine provider by S5. It is not gameplay state.
 - Coordinates and layers are signed 32-bit integers; off-grid coordinates are valid.
 - Display width/height must each be 1-4096 logical pixels, not terminal cells.
 
-PHP performs structural checks only. It neither resolves paths nor reads images.
-The renderer owns canonical assetRoot containment, symlink checks, PNG decoding,
-and image-memory limits. PNG content, not a filename extension, is authoritative.
+The sprite value performs structural checks. Asset-aware providers additionally
+use shared Engine validation and fallback diagnostics. The renderer independently
+enforces canonical assetRoot containment, symlink checks, PNG decoding and
+image-memory limits. PNG content, not a filename extension, is authoritative.
 
 Sprites are stably sorted by ascending layer. Equal layers retain author order,
-so later sprites paint above earlier ones. All sprite layers paint above text.
+so later sprites paint above earlier ones. Text and sprites share numeric layer
+ordering; text precedes sprites at an equal layer.
 For bottom_center, feet are `((x + 0.5) * cellWidth, (y + 1) * cellHeight)`;
 the image top-left is feet minus `(width / 2, height)`. GPUI uses logical pixels
 (macOS points), applying display scaling itself.
@@ -101,45 +106,161 @@ grid that were used for hello:
 
 ```php
 $input = new RendererInputSource($client);
-$presentation = new RendererPresentation($client, $grid);
+// The shared service callback pumps and dispatches feedback, leaving keys for input.
+$presentation = new RendererPresentation($client, $grid, $serviceTransport);
 
-// Explicitly invoked after existing Console composition has finished.
-$queued = $presentation->present(Console::snapshot(), $manualSprites);
+// After Console composition; configure tracking before the first draw.
+$changes = Console::getRetainedPresentationChanges($excludedSpriteLayerIds);
+$queued = $presentation->present($changes, $sprites, viewport: $viewport, world: $world);
 ```
 
-The presenter borrows the client. It never polls transport/input, consumes
-ready/close/error events, shuts down the renderer, or calls Console drawing APIs.
-The application continues to pump and consume the shared `RendererClient` and
-owns explicit shutdown. Presentation and input must never create competing
-consumers of the underlying transport's `pollEvents()`.
+The presenter borrows the client and never owns gameplay, Console drawing or
+shutdown. Large uploads service the shared transport between chunks, through
+Runtime's lifecycle callback when attached. They do not create another event
+consumer. `present()` rejects dimensions differing from the fixed hello grid.
+Standalone callers must likewise dispatch ACKs to `acknowledge()`, handle
+rejection/resize and preserve gameplay keys; merely pumping bytes is not enough.
 
-`present()` rejects snapshot dimensions that differ from the hello grid. V1 fixes
-geometry for a session; there is no silent cropping, resizing, or automatic restart.
-If an application explicitly starts a new renderer session, it must also create a
-new presenter so the first complete frame is sent again.
+### Nonblocking upload and coalescing
 
-Frames start at 1 and advance only after a successful client enqueue. Unchanged
-normalized text and sprite state return false without sending. Structured strict
-comparison avoids JSON serialization for duplicate detection and distinguishes
-different numeric-looking string IDs. Equal-layer order remains significant;
-reordering distinct layers alone is normalized away. Only the last successfully
-queued envelope is retained; there is no additional presentation queue.
+`present()` and `presentCanvas()` return true only when new retained-update bytes
+were queued in that call, including intermediate staged packets. False can mean
+unchanged content **or** a pending upload deferred by backpressure/ACK credit.
+Neither result proves the new scene is visible.
 
-S2/S3 queue pressure and send failures propagate. Failed sends neither advance
-the sequence nor replace remembered state, so callers can retry. Integer sequence
-exhaustion fails explicitly instead of wrapping. Duplicate suppression concerns
-queued state, **not a render acknowledgement**: v1 has no frame acknowledgement.
-Asynchronous renderer errors remain application-visible; they do not retroactively
-turn a successful enqueue into a displayed frame. Asset contents changing behind
-an unchanged path are also outside structural duplicate detection.
+One `RetainedUpload` fixes the transaction being sent across calls. Changes arriving
+meanwhile update the sender's desired state, not an ever-growing packet list.
+The in-flight transaction finishes atomically; a following transaction reconciles
+its baseline with the latest desired text, sprites, canvas, world and viewport.
+Intermediate desired versions are coalesced. Continuous changes therefore do not
+restart the cold upload forever, and no partial candidate replaces the old scene.
 
-Runtime cadence, coalescing, asynchronous rejection/retry policy, and asset-cache
-invalidation remain later integration decisions. S4 does not silently drop frames
-or connect the sequence to the game's frame count.
+The producer's named limits are independent of the transport's larger capacity:
+
+| `RetainedPresentation` limit | Value |
+| --- | --- |
+| `CHUNK_BYTES`, target operation bytes per packet | 32 KiB |
+| `SEND_BUDGET_BYTES`, target queued bytes per present call | 1 MiB |
+| `MAX_SEND_PACKETS`, packet and zero-wait I/O-pass limits per call | 32 each |
+| `MAX_PENDING_WRITE_BYTES`, pending-byte high-water mark | 1 MiB |
+| `MAX_IN_FLIGHT`, unacknowledged-packet window | 32 |
+| `MAX_MESSAGE_BYTES` / `ENVELOPE_RESERVE_BYTES` | 4 MiB / 4 KiB |
+
+Operations are indivisible, so a call may cross its byte target by one packet.
+A record larger than the pending high-water mark is admitted only to an empty
+queue and must still fit the transport line limit. `trySend(false)` yields with
+its operation cursor and generation unchanged. Bounded zero-wait servicing can
+continue while writes or ACKs advance; it does not sleep or wait synchronously
+for a slow reader. First-use world compilation/chunk preparation is separate from
+these I/O budgets, not a guaranteed wall-clock frame-time bound.
+
+`RendererPresentation::hasPendingUpload()` (also on `RetainedPresentation`)
+reports staged, coalesced or reset work. Continue ordinary present calls, supplying
+current desired state and incremental Console changes, even when that content
+has not changed. Runtime already does this at its normal presentation boundary.
+Generic tools should service shared input/feedback and resume on later iterations
+until pending work clears, with their own deadline/cancellation; do not busy-spin
+or inspect private sender state. It may take an extra call to reconcile coalesced
+changes that ultimately canceled each other.
+
+An empty upload does not mean the pipe is drained or the final frame acknowledged.
+Continue pumping after `hasPendingUpload()` becomes false; `getPendingWriteBytes()`
+and `frame_ack` with `presented:true` answer those separate questions. Benchmarks
+must complete the cold transaction before measuring warm unchanged/scroll calls.
+Once upload/recovery is complete, unchanged desired state queues nothing.
+
+### Retained operations and generations
+
+`RetainedPresentation` stores desired text, sprite, canvas and world state per
+session. Stable IDs identify elements; explicit `order` preserves equal-layer
+ordering. New elements and changed metadata use `put`; removals use `remove`.
+An existing screen text layer sends `textRows` containing only changed rows.
+Each listed row replaces that layer's entire sparse row; `runs:[]` removes it.
+Unlisted rows and elements remain. Sprites and canvas elements are compared by
+value and sent only when changed. Canvas/field transitions remove the previous
+surface's elements explicitly.
+
+The native frame envelope is:
+
+```json
+{"protocol":2,"type":"frame","frame":1,"baseGeneration":0,"generation":1,"reset":true,"present":true,"operations":[{"op":"put","kind":"text","id":"world","value":{"id":"world","layer":0,"order":0,"runs":[]}}],"viewport":null}
+```
+
+`put`/`remove` kinds are `world`, `text`, `sprite`, `canvas`, `canvas_image`,
+`canvas_indicator`, `canvas_text` and `canvas_composite`. Row operations are
+`textRows`, `worldRows` and `worldTiles`. A `put` replaces that ID's value;
+putting a world replaces its metadata and clears its previous rows/tiles.
+World rows are uploaded again as part of the same staged transaction.
+
+Generation describes accepted retained state, independently of game ticks and
+the `frame` display label. A non-reset update must name the accepted generation
+as `baseGeneration` and advance it. A reset ignores a mismatched base but must
+still advance beyond the receiver's current generation. The PHP sender increments
+generation once per queued packet. A new native session starts from generation 0.
+
+Uploads target 32 KiB operation chunks; a single operation is not split. The
+4 MiB NDJSON line limit still applies, reserving `ENVELOPE_RESERVE_BYTES` for the
+envelope during chunk preparation. Intermediate
+chunks use `present:false`; the last uses `present:true` and atomically replaces
+visible state. Until then the old scene remains visible. Viewport changes belong
+only to the final chunk. Retained updates allow at most 4096 operations per packet,
+64 MiB source state and 128 MiB combined staged/visible source state.
+
+Queue success is not display success. `frame_ack` identifies accepted generation,
+frame and whether it was presented. `frame_rejected` carries a diagnostic and
+requires resynchronization. The sender retains desired state after a failed send;
+a subsequent delivery attempt uses a complete reset, rather than remembering
+only the last successful full snapshot. Runtime also resets the Console change
+cursor after failure.
+An actual send exception still propagates; only temporary capacity pressure is
+a nonthrowing deferral.
+
+`invalidate()` abandons unsent staged/coalesced work, preserves current desired
+state and requests a reset. Already queued bytes keep their framing and order.
+`invalidate(expectedGeneration: $expected)` rebases to the greater of the local
+and receiver generations, so the next queued reset advances beyond either.
+Runtime uses the highest reported expectation and invalidates once per feedback
+drain. `invalidate(newSession:true)` instead starts the new session at generation
+0, with its first packet at 1; it does not erase desired presentation.
+
+Runtime forwards ACK progress to Presenter. Partial pipe writes as well as newer
+ACKs refresh the monotonic progress deadline. If pending delivery makes neither
+kind of progress for `ACK_TIMEOUT_SECONDS` (2.0 seconds), the next present requests
+a reset even when content is unchanged, still subject to capacity. A repeated or
+pre-reset ACK does not extend the deadline. This catches a dropped final packet
+without needing a later rejection and avoids repeatedly filling a blocked pipe.
+See [transport feedback](process-transport.md#retained-frame-feedback).
+
+Changes to image bytes behind an unchanged asset path are not detected by
+structural duplicate comparison. Asset replacement
+does not alter gameplay identity or save data.
+
+### Internal world source budget
+
+The world [bounds and atomicity contract](tile-batches.md#bounds-and-atomicity)
+is separate from wire/queue limits. `PresentationWorld::getFromLayers()` checks
+its 64 MiB `MAX_SOURCE_BYTES` charge before constructing owner-cell wire arrays,
+then includes tile candidates as they are added. The estimate charges 8192 bytes
+per layer, 64 bytes plus glyph/owner-ID byte lengths per owner cell, and 16 bytes
+per tile candidate. `estimatedSourceBytes` is diagnostic compiled data, not
+additional author-maintained map or asset metadata.
+
+These are internal retained-source accounting limits, not total PHP heap, JSON
+wire length, decoded PNG memory or proof of native rendering. A map can meet the
+1,048,576-cell footprint ceiling yet exceed the source budget. Native validation
+independently enforces complete scene and combined staging/visible limits; image
+decoding and prepared caches retain their own bounds.
+
+`MapManager` diagnoses a failed world build and, when tile definitions were
+present, first retries a glyph-only world. If that is also unavailable, Camera
+continues through Console's screen-space retained text rather than suppressing
+the field. This preserves gameplay and does not resurrect native V1/stateless
+frames. See [runtime field fallback](runtime.md#scene-ownership-and-composition) and the
+[world compiler](../../src/Rendering/Presentation/PresentationWorld.php).
 
 ## Real frame smoke tool
 
-Build the unchanged reference renderer with `cargo build --locked`, then run:
+With a compatible retained renderer build, run:
 
 ```sh
 php tools/gpui-frame-smoke.php \
@@ -155,7 +276,7 @@ behavior is disabled or rerouted.
 
 Inspect the 48x20 map labeled FRAME 1 and its column ruler. The immediate duplicate
 attempt reports `FRAME duplicate suppressed`. At change-after seconds, FRAME 2
-replaces the text, moves the fixture `@` from (23,7) to (8,7), and clears sprites.
+updates changed rows, moves the fixture `@` from (23,7) to (8,7), and removes sprites.
 The old marker and OLD FRAME text must disappear. Logs say **queued**, not rendered;
 native visual inspection establishes actual display. Input and lifecycle events
 continue to be reported separately while frames are displayed.
@@ -169,4 +290,4 @@ Optionally add `--sprite=test-sprite.png` when that explicitly supplied fixture
 exists under assetRoot. It displays at (8,4), size 32x48, bottom_center; FRAME 2
 removes it. The required text-only proof does not depend on any game artwork.
 
-See [S4 validation](s4-validation.md) for results and the next-phase handoff.
+The smoke tool is a manual diagnostic, not a statement of platform validation.

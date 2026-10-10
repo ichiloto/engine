@@ -8,6 +8,40 @@ use Ichiloto\Engine\Exceptions\RequiredFieldException;
 use Ichiloto\Engine\Quests\Quest;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
+use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Core\GameState;
+use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Entities\Stats;
+use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
+use Ichiloto\Engine\Progression\ExperienceAwardResult;
+use Ichiloto\Engine\Quests\QuestLog;
+use Ichiloto\Engine\Quests\QuestManager;
+use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\UI\Modal\ModalManager;
+
+class QuestCompletionPresentationProbe extends QuestManager
+{
+  public array $notices = [];
+  public int $grants = 0;
+
+  public function __construct(Game $game, private array $results, Quest $quest)
+  {
+    $this->game = $game;
+    $this->gameScene = new class extends GameScene {
+      public function __construct() { $this->gameState = new GameState(); }
+    };
+    $this->log = new QuestLog();
+    $this->log->accept($quest->id, 1);
+  }
+
+  public function finishQuest(Quest $quest, bool $quiet = false): void { $this->completeQuest($quest, $quiet); }
+  public function advanceObjective(Quest $quest, int $count): void { $this->applyProgress($quest, 0, $count); }
+  protected function grantRewards(Quest $quest): array { $this->grants++; return $this->results; }
+  protected function notifyQuest(string $title, string $text, NotificationDuration $duration, ?string $presentationRole = null): void
+  {
+    $this->notices[] = [$title, $text, $presentationRole];
+  }
+}
 
 beforeEach(function () {
   $this->savedConfig = new ReflectionClass(ConfigStore::class)->getStaticProperties();
@@ -65,18 +99,57 @@ it('bounds large-quantity snapshots by reward entry count without loading or ins
     ->and($quest->rewards)->toBe($rewards);
 });
 
-it('validates references before omitting zero or negative quantity rewards', function (int $quantity) {
+it('keeps reward granting strict while zero-quantity display is best effort', function (int $quantity) {
   $valid = new Quest('zero', 'Zero', rewards: ['items' => [['item' => 'Old Tonic', 'quantity' => $quantity]]]);
   expect($valid->describeRewards())->toBe('')
     ->and($this->store->load($valid->rewards['items']))->toBe([])
-    ->and(fn() => new Quest('missing', 'Missing', rewards: ['items' => [['item' => 'missing', 'quantity' => $quantity]]])->describeRewards())->toThrow(NotFoundException::class)
-    ->and(fn() => new Quest('bad', 'Bad', rewards: ['items' => [['quantity' => $quantity]]])->describeRewards())->toThrow(RequiredFieldException::class);
+    ->and(new Quest('missing', 'Missing', rewards: ['items' => [['item' => 'missing', 'quantity' => $quantity]]])->describeRewards())->toBe('')
+    ->and(new Quest('bad', 'Bad', rewards: ['items' => [['quantity' => $quantity]]])->describeRewards())->toBe('')
+    ->and(fn() => $this->store->load([['item' => 'missing', 'quantity' => $quantity]]))->toThrow(NotFoundException::class);
 })->with([0, -5]);
 
-it('retains loader diagnostics rather than hiding invalid structured rewards', function () {
-  expect(fn() => new Quest('bad', 'Bad', rewards: ['items' => [['quantity' => 2]]])->describeRewards())->toThrow(RequiredFieldException::class)
-    ->and(fn() => new Quest('missing', 'Missing', rewards: ['items' => [['item' => 'missing']]])->describeRewards())->toThrow(NotFoundException::class);
+it('describes invalid rewards without crashing and keeps valid rewards visible', function () {
+  expect(new Quest('bad', 'Bad', rewards: ['items' => [['quantity' => 2]]])->describeRewards())->toBe('Unknown item x2')
+    ->and(new Quest('missing', 'Missing', rewards: ['items' => [['item' => 'missing'], 'item.tonic']])->describeRewards())
+    ->toBe('missing (unavailable), Current Tonic');
   ConfigStore::remove(ItemStore::class);
   expect(new Quest('legacy', 'Legacy', rewards: ['items' => ['Legacy name']])->describeRewards())->toBe('Legacy name')
-    ->and(fn() => new Quest('unloaded', 'Unloaded', rewards: ['items' => [['item' => 'item.tonic']]])->describeRewards())->toThrow(InvalidArgumentException::class);
+    ->and(new Quest('unloaded', 'Unloaded', rewards: ['items' => [['item' => 'item.tonic']]])->describeRewards())->toBe('item.tonic');
+});
+
+it('removes per-level toasts and retains quest reward details in one acknowledged summary', function (bool $quiet) {
+  $saved = new ReflectionProperty(ModalManager::class, 'instance')->getValue();
+  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, null);
+  $game = new class extends Game {
+    public function __construct() {}
+    public function __destruct() {}
+  };
+  $quest = new Quest('completion', 'A named quest', rewards: ['gold' => 200, 'experience' => 1000]);
+  $results = array_map(fn($name) => new ExperienceAwardResult(new Character($name, 0, new Stats()), 1000, 1, 4,
+    learnedAbilities: ['Dual Slash'], learnedMagic: ['Burn 1']), ['Hero', 'Friend']);
+  $manager = new QuestCompletionPresentationProbe($game, $results, $quest);
+  try {
+    $manager->finishQuest($quest, $quiet);
+    $manager->finishQuest($quest, $quiet);
+    $modals = ModalManager::getInstance($game);
+    $pending = new ReflectionProperty($modals, 'pendingAlerts')->getValue($modals);
+    expect($manager->grants)->toBe(1)
+      ->and($manager->notices)->toBe($quiet ? [] : [['Quest Complete', 'A named quest', 'quest.complete']]);
+    if ($quiet) { expect($pending)->toBe([]); }
+    else {
+      expect($pending)->toHaveCount(1)->and($pending[0]['title'])->toBe('A named quest')
+        ->and($pending[0]['message'])->toBe("Rewards: 200 G, 1000 EXP\nHero reached level 4. Learned Dual Slash, Burn 1.\nFriend reached level 4. Learned Dual Slash, Burn 1.");
+    }
+  } finally { new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $saved); }
+})->with([false, true]);
+
+it('keeps progress notices terse while retaining complete objective prose in the quest definition', function () {
+  $game = new class extends Game { public function __construct() {} public function __destruct() {} };
+  $description = str_repeat('This complete objective description belongs in the journal. ', 6);
+  $quest = new Quest('progress', 'Named quest', objectives: [new \Ichiloto\Engine\Quests\QuestObjective(
+    \Ichiloto\Engine\Quests\QuestObjectiveType::DEFEAT, 'Rat', 20, $description)]);
+  $manager = new QuestCompletionPresentationProbe($game, [], $quest);
+  $manager->advanceObjective($quest, 2);
+  expect($manager->notices)->toBe([['Quest Updated', "Named quest\nProgress 2/20", null]])
+    ->and($quest->objectives[0]->description)->toBe($description);
 });

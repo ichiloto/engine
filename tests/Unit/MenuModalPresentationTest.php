@@ -17,6 +17,7 @@ use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
@@ -43,7 +44,7 @@ use Ichiloto\Engine\UI\Modal\TextBoxModal;
 use Ichiloto\Engine\UI\Presentation\MenuModalPresentation;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\Presentation\MenuCanvas;
-use Ichiloto\Engine\UI\Presentation\MenuCanvasTextBatch;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextBatch;
 use Ichiloto\Engine\UI\Presentation\MenuRow;
 use Ichiloto\Engine\UI\Presentation\MenuRowKind;
 use Ichiloto\Engine\UI\Presentation\MenuRowLayout;
@@ -55,9 +56,11 @@ use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
 use Tests\Support\Input\FakeInputSource;
 use Tests\Support\Input\FakeRendererTransport;
+use Tests\Support\Rendering\RetainedFrameState;
 
 require_once __DIR__ . '/../Support/Input/FakeInputSource.php';
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
 class ModalMenuGame extends Game
 {
@@ -130,13 +133,14 @@ function modalMenuForeground(array $layers): array
 beforeEach(function () {
   $this->saved = [];
   foreach ([Console::class, ConfigStore::class, InputManager::class, ActionHints::class, Timers::class,
-    ModalManager::class, EventManager::class, AudioManager::class, Debug::class] as $class) {
+    ModalManager::class, EventManager::class, AudioManager::class, Debug::class, NotificationManager::class] as $class) {
     $this->saved[$class] = new ReflectionClass($class)->getStaticProperties();
   }
   Timers::setFrameTick(null);
   ActionHints::useProvider(null);
   new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, null);
   new ReflectionProperty(EventManager::class, 'instance')->setValue(null, null);
+  new ReflectionProperty(NotificationManager::class, 'instance')->setValue(null, null);
   $this->root = sys_get_temp_dir() . '/ichiloto-menu-modal-' . bin2hex(random_bytes(5));
   mkdir($this->root . '/Data/Presentation', 0777, true);
   modalMenuPng($this->root . '/art.png');
@@ -147,6 +151,7 @@ beforeEach(function () {
   Console::syncDimensions(135, 36);
   Console::setTerminalOutputEnabled(false);
   $this->game = new ModalMenuGame();
+  new ReflectionProperty($this->game, 'notificationManager')->setValue($this->game, NotificationManager::getInstance($this->game));
   $audio = new class extends AudioManager {
     public array $sounds = [];
     public function __construct() {}
@@ -200,14 +205,25 @@ beforeEach(function () {
 });
 
 afterEach(function () {
+  $menu = WeakReference::create($this->state->mainMenu);
   $this->runtime?->shutdown();
-  ob_end_clean();
+  unset($this->runtime, $this->state, $this->scene, $this->game, $this->party,
+    $this->manager, $this->audio, $this->startCanvas, $this->transport);
   foreach ($this->saved as $class => $properties) {
+    if ($class === Console::class) { continue; }
     foreach ($properties as $name => $value) { new ReflectionProperty($class, $name)->setValue(null, $value); }
   }
+  new ReflectionProperty(Console::class, 'game')->setValue(null, $this->saved[Console::class]['game']);
+  // Menu destructors clear Console; collect the fixture before returning that shared surface.
+  gc_collect_cycles();
+  foreach ($this->saved[Console::class] as $name => $value) {
+    new ReflectionProperty(Console::class, $name)->setValue(null, $value);
+  }
+  ob_end_clean();
   $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($this->root, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
   foreach ($files as $file) { $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname()); }
   rmdir($this->root);
+  expect($menu->get())->toBeNull();
 });
 
 it('layers supported modals above the complete four-party menu through either theme', function (bool $art, string $type) {
@@ -246,8 +262,9 @@ it('layers supported modals above the complete four-party menu through either th
   expect($this->manager->currentModal)->toBe($modal)
     ->and(modalMenuText($this->scene->getPresentationCanvas()))->toBe(modalMenuText($base));
   new ReflectionMethod(Game::class, 'presentBlockedFrame')->invoke($this->game);
-  expect(end($this->transport->sent)->payload)->toHaveKey('canvas')
-    ->and(json_encode(end($this->transport->sent)->payload))->not->toContain('menu-modal-')
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  expect(end($frames))->toHaveKey('canvas')
+    ->and(json_encode(end($frames)))->not->toContain('menu-modal-')
     ->and($source->keys)->toBe([KeyCode::TAB]);
 })->with([false, true])->with(['alert', 'confirm', 'select']);
 
@@ -275,17 +292,20 @@ it('submits the real Optimize alert through the blocked render frame and restore
   $source = new FakeInputSource(null, KeyCode::ENTER, KeyCode::TAB);
   InputManager::setInputSource($source);
   $equipment->equipmentMenu->getActiveItem()->execute($equipment->equipmentMenuContext);
-  $frames = array_filter($this->transport->sent, fn($message) => isset($message->payload['canvas']));
+  $frames = array_filter(RetainedFrameState::replay($this->transport->sent), fn($frame) => isset($frame['canvas']));
   expect($frames)->not->toBeEmpty()->and($this->manager->currentModal)->toBeNull()
     ->and($this->scene->state)->toBe($equipment)->and($equipment->equipmentMenu->activeIndex)->toBe(1)
     ->and($source->keys)->toBe([KeyCode::TAB]);
-  foreach ($frames as $message) {
-    $text = json_encode($message->payload['canvas']['textLayers']);
+  foreach ($frames as $frame) {
+    $text = json_encode($frame['canvas']['textLayers']);
     expect($text)->toContain('Equipment optimized!', 'menu-modal-choice-0-text', 'equipment-identity');
     if (!$showInputHints) { expect($text)->not->toContain('menu-modal-hints'); }
   }
   new ReflectionMethod(Game::class, 'presentBlockedFrame')->invoke($this->game);
-  expect(json_encode(end($this->transport->sent)->payload))->not->toContain('menu-modal-')->toContain('equipment-identity');
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  expect(json_encode(end($frames)))->not->toContain('menu-modal-')->toContain('equipment-identity');
+  expect(array_filter(end($this->transport->sent)->payload['operations'],
+    fn($operation) => $operation['op'] === 'remove' && str_starts_with($operation['id'], 'menu-modal-')))->not->toBeEmpty();
 })->with([false, true])->with([false, true]);
 
 it('cancels the real Quit selection through the same input path without exiting or consuming the next input', function () {
@@ -296,9 +316,9 @@ it('cancels the real Quit selection through the same input path without exiting 
   $this->state->mainMenu->getActiveItem()->execute();
   expect($source->keys)->toBe([KeyCode::TAB])->and($this->game->hasStopped())->toBeFalse()
     ->and($this->manager->currentModal)->toBeNull()->and($this->state->mainMenu->getActiveItem()->getLabel())->toBe('Quit');
-  $frames = array_filter($this->transport->sent, fn($message) => isset($message->payload['canvas']));
+  $frames = array_filter(RetainedFrameState::replay($this->transport->sent), fn($frame) => isset($frame['canvas']));
   expect($frames)->not->toBeEmpty();
-  foreach ($frames as $message) { expect(json_encode($message->payload))->toContain('To Title', 'Exit', 'menu-modal-choice-0-text'); }
+  foreach ($frames as $frame) { expect(json_encode($frame))->toContain('To Title', 'Exit', 'menu-modal-choice-0-text'); }
 });
 
 it('honors safe default selection indexes and live semantic cancel bindings without a hardcoded C alias', function () {
@@ -306,7 +326,8 @@ it('honors safe default selection indexes and live semantic cancel bindings with
   $source = new FakeInputSource(null, KeyCode::ENTER);
   InputManager::setInputSource($source);
   expect($this->manager->select('Discard progress?', ['Proceed', 'Cancel'], 'Confirm', default: 1))->toBe(1);
-  $frame = end($this->transport->sent)->payload['canvas'];
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  $frame = end($frames)['canvas'];
   expect(array_filter(array_column($frame['textLayers'], 'id'), fn($id) => str_starts_with($id, 'menu-modal-choice-1-focus')))->not->toBeEmpty();
   InputManager::setBinding('cancel', [KeyCode::Q]);
   $source = new FakeInputSource(KeyCode::C, KeyCode::ESCAPE, KeyCode::Q, KeyCode::TAB);
@@ -335,7 +356,8 @@ it('uses the Select owner navigation for large-choice viewport changes without r
   InputManager::setInputSource($source);
   expect($this->manager->select('Choose', array_map(fn($i) => 'Choice ' . $i, range(0, 59)), default: 30))->toBe(31)
     ->and($source->keys)->toBe([KeyCode::TAB]);
-  $frame = end($this->transport->sent)->payload['canvas'];
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  $frame = end($frames)['canvas'];
   expect(array_column($frame['textLayers'], 'id'))->toContain('menu-modal-choice-31-text', 'menu-modal-choice-range')
     ->and(count($frame['textLayers']))->toBeLessThanOrEqual(64);
 })->with([false, true]);
@@ -362,10 +384,12 @@ it('diagnoses unsupported or oversized modals instead of disguising them as gene
   $logs = implode('', array_map(file_get_contents(...), glob($this->root . '/logs/*')));
   expect($logs)->toContain('Menu presentation degraded to terminal', $type === 'long' ? 'finite menu viewport' : 'no supported menu canvas');
   new ReflectionMethod(Game::class, 'presentBlockedFrame')->invoke($this->game);
-  expect(end($this->transport->sent)->payload)->not->toHaveKey('canvas')->toHaveKey('textLayers');
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  expect(end($frames))->not->toHaveKey('canvas')->toHaveKey('textLayers');
   $modal->hide();
   new ReflectionMethod(Game::class, 'presentBlockedFrame')->invoke($this->game);
-  expect(end($this->transport->sent)->payload)->toHaveKey('canvas');
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  expect(end($frames))->toHaveKey('canvas');
 })->with(['prompt', 'text', 'long']);
 
 it('sizes compact dialogs from current text and wraps long content at the same bounded font size', function (bool $art) {
@@ -504,13 +528,13 @@ it('batches only fully visible nonoverlapping text without changing paint positi
     $layers[] = new CanvasTextLayer('text-' . $i, 30, 5, $i * 10, new RendererGridConfig(4, 1, 10, 10),
       [new PresentationTextRun(0, 0, (string)$i, $theme->colors['text'])], new CanvasRectangle(5, $i * 10, 40, 10));
   }
-  $batched = MenuCanvasTextBatch::compact($layers);
+  $batched = CanvasTextBatch::compact($layers);
   expect($batched)->toHaveCount(64)->and(modalMenuForeground($batched))->toBe(modalMenuForeground($layers));
   $clipped = array_map(fn($text) => new CanvasTextLayer($text->id, $text->layer, $text->x, $text->y,
     $text->grid, $text->runs, new CanvasRectangle($text->x, $text->y, 10, 10)), $layers);
-  expect(MenuCanvasTextBatch::compact($clipped))->toBe($clipped);
+  expect(CanvasTextBatch::compact($clipped))->toBe($clipped);
   $overlapping = array_map(fn($text) => new CanvasTextLayer($text->id, $text->layer, 0, 0, $text->grid, $text->runs), $layers);
-  expect(MenuCanvasTextBatch::compact($overlapping))->toBe($overlapping);
+  expect(CanvasTextBatch::compact($overlapping))->toBe($overlapping);
 });
 
 it('stacks quantity chevrons to the right while independently centering the value and Continue', function (bool $art, int $amount) {
@@ -566,17 +590,25 @@ it('fits the complete largest integer quantity without widening beyond the modal
   }
 });
 
-it('batches default focus edges without changing any filled pixel or the centered command label', function () {
+it('batches default focus and primitive outline edges without changing any filled pixel or the centered command label', function (bool $primitive) {
   $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1']);
   $base = new PresentationCanvas(450, 100, textLayers: array_map(fn($i) => new CanvasTextLayer('base-' . $i, 0, 0, 0,
     new RendererGridConfig(1, 1, 10, 10), [new PresentationTextRun(0, 0, 'A', $theme->colors['text'])]), range(0, 60)));
-  $overlay = MenuRowPainter::compose(450, 100, 'menu-modal-choice', [new MenuRow('0', 'OK', kind: MenuRowKind::COMMAND, focused: true)],
-    new MenuRowLayout(new CanvasRectangle(10, 10, 360, 40)), $theme->rows);
+  $bounds = new CanvasRectangle(10, 10, 360, 40);
+  if ($primitive) {
+    $view = new MenuCanvas($theme, 450, 100);
+    $view->renderOutline('menu-modal-choice', $bounds, 'edge', 2);
+    $view->rows('menu-modal-choice', [new MenuRow('0', 'OK', kind: MenuRowKind::BUTTON)], new MenuRowLayout($bounds));
+    $overlay = $view->finish();
+  } else {
+    $overlay = MenuRowPainter::compose(450, 100, 'menu-modal-choice', [new MenuRow('0', 'OK', kind: MenuRowKind::COMMAND, focused: true)],
+      new MenuRowLayout($bounds), $theme->rows);
+  }
   $frame = MenuCanvas::overlay($base, $overlay, $theme);
   $pixels = static function (array $layers): array {
     $pixels = [];
     foreach ($layers as $layer) {
-      if (!str_contains($layer->id, '-focus')) { continue; }
+      if (!str_contains($layer->id, '-focus') && !str_contains($layer->id, '-outline')) { continue; }
       foreach ($layer->runs as $run) {
         for ($x = 0; $x < mb_strlen($run->text) * $layer->grid->cellWidth; $x++) {
           for ($y = 0; $y < $layer->grid->cellHeight; $y++) {
@@ -592,4 +624,4 @@ it('batches default focus edges without changing any filled pixel or the centere
   expect($pixels($frame->textLayers))->toBe($pixels($overlay->textLayers))->and(count($frame->textLayers))->toBeLessThanOrEqual(64);
   $label = array_find($frame->textLayers, fn($text) => $text->id === 'menu-modal-choice-0-text');
   expect($label->x + $label->bounds->width / 2)->toBe(190.0);
-});
+})->with([false, true]);

@@ -35,7 +35,7 @@ final readonly class CanvasNineSlice
   }
 
   /** Whole-file artwork needs a path and authored border intent, not duplicate image dimensions. */
-  public static function fromPng(string $root, string $asset, int $left = 0, int $top = 0,
+  public static function getFromPng(string $root, string $asset, int $left = 0, int $top = 0,
     int $right = 0, int $bottom = 0, int $density = 1, float $minimumWidth = 0, float $minimumHeight = 0): self
   {
     if (min($left, $top, $right, $bottom) < 0) {

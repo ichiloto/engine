@@ -16,6 +16,8 @@ use Ichiloto\Engine\Events\Interpreter\EventPresentationInterface;
 use Ichiloto\Engine\Events\Interpreter\EventSessionCompletionTargetInterface;
 use Ichiloto\Engine\Events\Interpreter\EventInterpreter;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicController;
+use Ichiloto\Engine\Cutscenes\Cinematics\CameraOperation;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicSubjectResolver;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicLibrary;
 use Ichiloto\Engine\Cutscenes\Cinematics\CinematicPresentationManager;
@@ -52,6 +54,19 @@ use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Stores\EnemyStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 use Assegai\Collections\ItemList;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandCatalog;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandContext;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandHandlerInterface;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandOutcome;
+use Ichiloto\Engine\Events\Interpreter\EventPendingOperationInterface;
+use Ichiloto\Engine\Inn\InnOffer;
+use Ichiloto\Engine\Inn\InnStay;
+use Ichiloto\Engine\Inn\InnStayOutcome;
+use Ichiloto\Engine\Messaging\Dialogue\ConfirmDialogue;
+use Ichiloto\Engine\Scenes\Game\States\FieldState;
+use Ichiloto\Engine\Scenes\Game\States\GameSceneState;
+use Ichiloto\Engine\Scenes\Game\States\ShopState;
+use Ichiloto\Engine\Scenes\SceneStateContext;
 
 final class EventTestPresentation implements EventPresentationInterface
 {
@@ -359,6 +374,7 @@ class EventTestGameScene extends GameScene
   public array $configuredTransferTransitions = [];
   public array $cinematicCoverAtTransfer = [];
   public bool $autoResumeTransfers = true;
+  public bool $refuseTransfers = false;
   public int $cameraScrollRecompositions = 0;
   public bool $canRecomposeCameraScroll = false;
 
@@ -419,11 +435,14 @@ class EventTestGameScene extends GameScene
     $this->hasDeferredAutoSave = true;
   }
 
-  public function transferPlayer(Location $location, bool $useConfiguredTransition = true): void
+  public function transferPlayer(Location $location, bool $useConfiguredTransition = true): bool
   {
     $this->transferCount++;
     $this->configuredTransferTransitions[] = $useConfiguredTransition;
     $this->cinematicCoverAtTransfer[] = $this->cinematicPresentation?->hasTransitionCover() ?? false;
+    if ($this->refuseTransfers) {
+      return false;
+    }
     $this->cinematicStage?->clear();
     $this->currentMapId = $location->mapFilename;
 
@@ -432,6 +451,7 @@ class EventTestGameScene extends GameScene
     } else {
       $this->autoSave();
     }
+    return true;
   }
 
   public function onEventSessionStarted(EventExecutionSession $session): void
@@ -461,6 +481,18 @@ function makeEventRuntime(): array
   return [$scene, $interpreter, $presentation];
 }
 
+/** Save settings are project-relative; the disposable project owns every generated save. */
+function makeEventTestSaveManager(string $projectRoot, SaveCompatibilityManifest $manifest): SaveManager
+{
+  $previousDirectory = getcwd();
+  try {
+    chdir($projectRoot);
+    return new SaveManager(new EventTestGame(), compatibilityManifest: $manifest);
+  } finally {
+    chdir($previousDirectory);
+  }
+}
+
 /**
  * Creates one disposable project containing a first-class Cinematic asset.
  *
@@ -473,7 +505,7 @@ function makeCinematicTriggerProject(
   array $definitionOverrides = [],
 ): string
 {
-  $root = sys_get_temp_dir() . '/cinematic-trigger-' . uniqid();
+  $root = createTestDirectory('cinematic-trigger-');
   $assetRoot = $root . '/assets/Cutscenes/Cinematics/' . $id;
   mkdir($assetRoot, 0o777, true);
   $definition = array_replace([
@@ -573,7 +605,7 @@ it('recovers every travelling member without changing roster order', function ()
 });
 
 it('fails closed on an unknown top-level command and permits a corrected trigger retry', function () {
-  $root = sys_get_temp_dir() . '/event-unknown-' . uniqid();
+  $root = createTestDirectory('event-unknown-');
   mkdir($root . '/assets/Events', 0o777, true);
   mkdir($root . '/assets/Data', 0o777, true);
   file_put_contents($root . '/assets/Events/fail-closed.php', <<<'PHP'
@@ -833,11 +865,15 @@ it('centres title cards while left aligning narration inside its top centred box
     }
   }
 
-  expect($titleRows[4] ?? '')->toBe('|   SKY CARAVAN    |')
-    ->and($titleRows[5] ?? '')->toBe('|    Dawn Route    |')
-    ->and($narrationRows[1] ?? '')->toBe('| ' . str_pad('SKY CARAVAN', 16) . ' |')
-    ->and($narrationRows[2] ?? '')->toBe('| ' . str_pad('Dawn Route', 16) . ' |')
-    ->and($narrationRows[3] ?? '')->toBe('| ' . str_pad('continues', 16) . ' |');
+  $findRow = static fn(array $rows, string $text): string => array_find($rows,
+    static fn(string $row): bool => str_contains($row, $text)) ?? '';
+  // The standard Window replaces the handcrafted ASCII border; alignment remains the contract.
+  expect(mb_strpos($findRow($titleRows, 'SKY CARAVAN'), 'SKY CARAVAN'))->toBe(intdiv(20 - mb_strlen('SKY CARAVAN'), 2))
+    ->and(mb_strpos($findRow($titleRows, 'Dawn Route'), 'Dawn Route'))->toBe(5)
+    ->and(mb_strpos($findRow($narrationRows, 'Dawn Route'), 'Dawn Route'))->toBe(2)
+    ->and(mb_strpos($findRow($narrationRows, 'continues'), 'continues'))->toBe(2)
+    ->and($findRow($titleRows, 'Dawn Route'))->not->toStartWith('|')
+    ->and($findRow($narrationRows, 'Dawn Route'))->not->toStartWith('|');
 });
 
 it('resumes dialogue and choices on later ticks', function () {
@@ -1153,6 +1189,32 @@ it('rejects unavailable field gates before movement advances any field state', f
     ->and($player->movementNotifications)->toBe(3);
 });
 
+it('gates exactly the cells of an event painted in two places, never the floor between them', function () {
+  [$scene] = makeEventRuntime();
+  $player = new EventTestPlayer(new Vector2(2, 0));
+  $scene->installPlayer($player);
+  $trigger = new \Ichiloto\Engine\Events\Triggers\DialogueEventTrigger(
+    \Ichiloto\Engine\Core\CellArea::fromCells([[1, 0], [3, 0]]),
+    ['dialogue' => [['name' => '', 'text' => 'The route is open.']]],
+    conditions: [['type' => 'switch', 'name' => 'gate_open']],
+    whenBlocked: 'The route is locked.',
+  );
+  $trigger->bind($scene->gameState, $scene->party);
+  $player->addTrigger($trigger);
+
+  // Standing between the placements is not standing in the event, so both
+  // placements are approaches from outside and both are gated.
+  expect($player->tryFieldMove(Vector2::left(), $scene->camera))->toBeFalse()
+    ->and($player->tryFieldMove(Vector2::right(), $scene->camera))->toBeFalse()
+    ->and($player->position->x)->toBe(2.0)
+    ->and($player->tryFieldMove(Vector2::down(), $scene->camera))->toBeTrue();
+
+  $scene->gameState->setSwitch('gate_open', true);
+
+  expect($player->tryFieldMove(Vector2::up(), $scene->camera))->toBeTrue()
+    ->and($player->tryFieldMove(Vector2::right(), $scene->camera))->toBeTrue()
+    ->and($player->position->x)->toBe(3.0);
+});
 it('lets a loaded player already inside a newly locked event area move out', function () {
   [$scene] = makeEventRuntime();
   $player = new EventTestPlayer(new Vector2(2, 0));
@@ -1375,11 +1437,9 @@ it('runs destination automatic triggers after the transfer session finishes', fu
 it('blocks manual saves and quicksaves while a session is unstable', function () {
   [$scene, $interpreter] = makeEventRuntime();
   $interpreter->run([['type' => 'wait', 'seconds' => 5]]);
-  $root = sys_get_temp_dir() . '/event-save-' . uniqid();
-  $manager = new SaveManager(
-    new EventTestGame(),
+  $root = createTestDirectory('event-save-');
+  $manager = makeEventTestSaveManager(
     $root,
-    $root . '/quick',
     SaveCompatibilityManifest::fromArray('ichiloto/event-test', [
       'contentVersion' => 0,
       'migrations' => [],
@@ -1388,12 +1448,13 @@ it('blocks manual saves and quicksaves while a session is unstable', function ()
     ], 'Event test manifest'),
   );
 
-  expect(fn() => $manager->save($scene, 1))->toThrow(ActiveEventSaveException::class)
+  expect($manager->getSlotPath(1))->toStartWith($root . '/.data/saves/')
+    ->and(fn() => $manager->save($scene, 1))->toThrow(ActiveEventSaveException::class)
     ->and(fn() => $manager->quickSave($scene))->toThrow(ActiveEventSaveException::class);
 });
 
 it('suspends for battle and resumes later commands with an optional result variable', function () {
-  $root = sys_get_temp_dir() . '/event-battle-' . uniqid();
+  $root = createTestDirectory('event-battle-');
   mkdir($root . '/assets/Data', 0o777, true);
   file_put_contents($root . '/assets/Data/troops.php', <<<'PHP'
   <?php
@@ -1413,6 +1474,7 @@ it('suspends for battle and resumes later commands with an optional result varia
         'defeatPolicy' => 'continue',
         'battleArena' => 'arena.training-yard',
         'firstStrike' => 'party',
+        'reservePolicy' => 'replace_after_wipeout',
       ],
       ['type' => 'set_switch', 'name' => 'after_battle', 'value' => true],
     ]);
@@ -1424,6 +1486,7 @@ it('suspends for battle and resumes later commands with an optional result varia
       ->and($scene->testSceneManager->lastBattleSettings['event_defeat_policy'])->toBe('continue')
       ->and($scene->testSceneManager->lastBattleSettings['battleArena'])->toBe('arena.training-yard')
       ->and($scene->testSceneManager->lastBattleSettings['firstStrike'])->toBe('party')
+      ->and($scene->testSceneManager->lastBattleSettings['reservePolicy'])->toBe('replace_after_wipeout')
       ->and($scene->gameState->getSwitch('after_battle'))->toBeFalse();
 
     $scene->resumeEventAfterBattle(new BattleResult('Victory', []));
@@ -1452,6 +1515,7 @@ it('suspends for battle and resumes later commands with an optional result varia
     expect($defeatSession?->status)->toBe(EventExecutionStatus::COMPLETED)
       ->and($defeatScene->testSceneManager->lastBattleSettings)->not->toHaveKey('battleArena')
       ->and($defeatScene->testSceneManager->lastBattleSettings['firstStrike'])->toBe('normal')
+      ->and($defeatScene->testSceneManager->lastBattleSettings['reservePolicy'])->toBe('none')
       ->and($defeatScene->gameState->getVariable('scripted_defeat_result'))->toBe('defeat')
       ->and($defeatScene->gameState->getSwitch('continued_after_defeat'))->toBeTrue();
   } finally {
@@ -1468,8 +1532,16 @@ it('rejects an invalid scripted opening before launching a battle', function () 
     ->and($scene->testSceneManager->battleCount)->toBe(0);
 });
 
+it('rejects an invalid reserve policy before suspending or launching the scripted battle', function () {
+  [$scene, $interpreter] = makeEventRuntime();
+  $session = $interpreter->run([['type' => 'start_battle', 'troop' => 'Technical Troop', 'reservePolicy' => true]]);
+  expect($session?->status)->toBe(EventExecutionStatus::FAILED)
+    ->and($session?->failureMessage)->toContain('reservePolicy must be')
+    ->and($scene->testSceneManager->battleCount)->toBe(0);
+});
+
 it('forwards map encounter arenas and clears their binding when maps change', function () {
-  $root = sys_get_temp_dir() . '/encounter-arena-' . uniqid();
+  $root = createTestDirectory('encounter-arena-');
   mkdir($root . '/assets/Data', 0777, true);
   file_put_contents($root . '/assets/Data/troops.php', '<?php return [["name" => "Technical Troop", "enemies" => []]];');
   $previousDirectory = getcwd();
@@ -1497,12 +1569,59 @@ it('forwards map encounter arenas and clears their binding when maps change', fu
   } finally {
     ConfigStore::remove(EnemyStore::class);
     chdir($previousDirectory);
-    unlink($root . '/assets/Data/troops.php'); rmdir($root . '/assets/Data'); rmdir($root . '/assets'); rmdir($root);
+  }
+});
+
+it('dispatches selected encounter scenes without leaking row settings into other troops or maps', function () {
+  $root = createTestDirectory('encounter-entry-');
+  mkdir($root . '/assets/Data', 0777, true);
+  file_put_contents($root . '/assets/Data/troops.php', '<?php return [["name" => "Technical Troop", "enemies" => []], ["name" => "Other Troop", "enemies" => []]];');
+  $previousDirectory = getcwd();
+  chdir($root);
+  ConfigStore::put(EnemyStore::class, (new ReflectionClass(EnemyStore::class))->newInstanceWithoutConstructor());
+  try {
+    [$scene] = makeEventRuntime();
+    $manager = new class($scene) extends Ichiloto\Engine\Field\EncounterManager {
+      public string $choice = 'Technical Troop';
+      public function trigger(): void { $this->startEncounter(); }
+      public function getWeights(): array { return $this->troopWeights; }
+      protected function pickTroopName(): ?string {
+        return array_key_exists($this->choice, $this->troopWeights) ? $this->choice : null;
+      }
+    };
+    $manager->configure([
+      'troops' => [
+        'Technical Troop' => ['weight' => 2, 'battleArena' => 'arena.lake'],
+        'Other Troop' => 3,
+      ],
+      'battleArena' => 'arena.map',
+    ]);
+    expect($manager->getWeights())->toBe(['Technical Troop' => 2, 'Other Troop' => 3]);
+    $manager->trigger();
+    expect($scene->testSceneManager->lastBattleSettings)->toBe(['battleArena' => 'arena.lake']);
+    $manager->choice = 'Other Troop';
+    $manager->trigger();
+    expect($scene->testSceneManager->lastBattleSettings)->toBe(['battleArena' => 'arena.map']);
+    $manager->configure(['troops' => ['Technical Troop' => 2]]);
+    $manager->choice = 'Technical Troop';
+    $manager->trigger();
+    expect($scene->testSceneManager->lastBattleSettings)->toBe([]);
+    $manager->configure(['troops' => ['Technical Troop' => ['weight' => 2, 'battleArena' => false]]]);
+    $manager->trigger();
+    expect($scene->testSceneManager->lastBattleSettings)->toBe(['battleArena' => false])
+      ->and($scene->testSceneManager->battleCount)->toBe(4);
+    $manager->configure(null);
+    $manager->trigger();
+    expect($manager->getWeights())->toBe([])
+      ->and($scene->testSceneManager->battleCount)->toBe(4);
+  } finally {
+    ConfigStore::remove(EnemyStore::class);
+    chdir($previousDirectory);
   }
 });
 
 it('runs the complete technical continuation route and saves its stable completion through IED1', function () {
-  $root = sys_get_temp_dir() . '/event-api-route-' . uniqid();
+  $root = createTestDirectory('event-api-route-');
   mkdir($root . '/assets/Data', 0o777, true);
   file_put_contents($root . '/assets/Data/troops.php', <<<'PHP'
   <?php
@@ -1715,6 +1834,104 @@ it('advances nested parallel lanes deterministically with lane-local pending sta
     ]);
 });
 
+describe('shared field effect event commands', function () {
+  beforeEach(function () {
+    $this->effectProjectCwd = getcwd();
+    $this->effectProjectConfig = ConfigStore::has(ProjectConfig::class) ? ConfigStore::get(ProjectConfig::class) : null;
+    $this->effectProject = createTestDirectory('ichiloto-event-effects-');
+    foreach (['short' => 2, 'long' => 8] as $id => $length) {
+      $path = $this->effectProject . '/assets/Animations/' . $id;
+      mkdir($path, 0777, true);
+      $data = ['presentations' => [
+        'terminal' => ['fps' => 10, 'lengthFrames' => $length, 'restFrame' => 0, 'tracks' => [[
+          'id' => 'text', 'type' => 'glyph',
+          'keyframes' => [['frame' => 0, 'duration' => $length, 'content' => '*', 'color' => 'cyan']],
+        ]]],
+        'graphical' => ['fps' => 5, 'lengthFrames' => 1, 'tracks' => [[
+          'id' => 'image', 'type' => 'image', 'asset' => 'Graphics/deliberately-missing.png',
+          'keyframes' => [['frame' => 0]],
+        ]]],
+      ]];
+      file_put_contents($path . '/' . $id . '.timeline.php', '<?php return ' . var_export($data, true) . ';');
+    }
+    chdir($this->effectProject);
+  });
+
+  afterEach(function () {
+    chdir($this->effectProjectCwd);
+    if ($this->effectProjectConfig === null) { ConfigStore::remove(ProjectConfig::class); }
+    else { ConfigStore::put(ProjectConfig::class, $this->effectProjectConfig); }
+  });
+
+  it('runs parallel effects at their selected cadence without a title clearing its siblings or loading terminal PNGs', function (bool $reduced) {
+    putSceneAudioConfig(['accessibility' => ['reducedMotion' => $reduced]]);
+    [$scene, $interpreter] = makeEventRuntime();
+    $scene->installCinematicRuntime();
+    $target = ['kind' => 'position', 'x' => 2, 'y' => 3];
+    $session = $interpreter->run([
+      ['type' => 'parallel', 'lanes' => [
+        ['id' => 'short', 'commands' => [['type' => 'field_animation', 'effect' => 'short', 'target' => $target]]],
+        ['id' => 'long', 'commands' => [['type' => 'field_animation', 'effect' => 'long', 'target' => $target]]],
+        ['id' => 'overlay', 'commands' => [['type' => 'title_card', 'text' => 'Separate', 'seconds' => .1]]],
+      ]],
+      ['type' => 'record_event', 'name' => 'effects_completed'],
+    ], 'field-parallel');
+    $interpreter->update(0.0);
+    expect($session?->status)->toBe(EventExecutionStatus::YIELDED)
+      ->and($scene->cinematicPresentation?->effectCount)->toBe(2);
+    $interpreter->update(.1);
+    expect($scene->cinematicPresentation?->effectCount)->toBe(2)
+      ->and(new ReflectionProperty(CinematicPresentationManager::class, 'overlay')->getValue($scene->cinematicPresentation))->toBeNull();
+    $interpreter->update(.1);
+    expect($scene->cinematicPresentation?->effectCount)->toBe(1)
+      ->and($session?->status)->toBe(EventExecutionStatus::YIELDED)
+      ->and($scene->gameState->storyEvents)->toBeEmpty();
+    $interpreter->update(.6);
+    $interpreter->update(100);
+    expect($session?->status)->toBe(EventExecutionStatus::COMPLETED)
+      ->and($scene->cinematicPresentation?->effectCount)->toBe(0)
+      ->and($scene->gameState->storyEvents)->toBe(['effects_completed']);
+  })->with(['ordinary' => false, 'reduced' => true]);
+
+  it('cancels and releases every owned effect before a failed event can write its completion', function () {
+    [$scene, $interpreter] = makeEventRuntime();
+    $scene->installCinematicRuntime();
+    $session = $interpreter->run([
+      ['type' => 'field_animation', 'effect' => 'long', 'target' => ['kind' => 'screen_position', 'x' => 2, 'y' => 3]],
+      ['type' => 'record_event', 'name' => 'must_not_complete'],
+    ], 'cancel-field');
+    $effects = new ReflectionProperty(CinematicPresentationManager::class, 'effects')->getValue($scene->cinematicPresentation);
+    $effect = array_values($effects)[0]['session'];
+    $interpreter->update(.1);
+    $interpreter->failActiveSession('Test transfer cancellation');
+    $interpreter->update(100);
+    expect($session?->status)->toBe(EventExecutionStatus::FAILED)
+      ->and($effect->playback->isPaused)->toBeTrue()
+      ->and($scene->cinematicPresentation?->effectCount)->toBe(0)
+      ->and($scene->gameState->storyEvents)->toBeEmpty();
+  });
+
+  it('refuses invalid effect references and competing timing ownership even in ordinary event scripts', function (array $reference) {
+    [$scene, $interpreter] = makeEventRuntime();
+    $scene->installCinematicRuntime();
+    $session = $interpreter->run([
+      ['type' => 'field_animation', ...$reference, 'target' => ['kind' => 'position', 'x' => 2, 'y' => 3]],
+      ['type' => 'record_event', 'name' => 'invalid_effect_must_not_complete'],
+    ], 'invalid-field');
+    expect($session?->status)->toBe(EventExecutionStatus::FAILED)
+      ->and($session?->failureMessage)->toContain('stable timeline identity')
+      ->and($scene->cinematicPresentation?->effectCount)->toBe(0)
+      ->and($scene->gameState->storyEvents)->toBeEmpty();
+  })->with([
+    'null' => [['effect' => null]],
+    'non-string' => [['effect' => 1]],
+    'unsafe' => [['effect' => '../long']],
+    'legacy id' => [['effect' => 'long', 'id' => 1]],
+    'legacy name' => [['effect' => 'long', 'animation' => 'Legacy']],
+    'tempo override' => [['effect' => 'long', 'secondsPerFrame' => .12]],
+  ]);
+});
+
 it('handles empty sequential blocks and fails malformed parallel blocks when validation is skipped', function () {
   [$scene, $interpreter] = makeEventRuntime();
   $emptySequence = $interpreter->run([
@@ -1824,7 +2041,7 @@ it('runs the original cinematic fixture to deterministic cleanup and save availa
   chdir($projectRoot);
   putSceneAudioConfig(['accessibility' => ['reducedMotion' => false]]);
   ConfigStore::put(PlaySettings::class, new SceneAudioConfigStub([
-    'screen' => ['width' => 20, 'height' => 10],
+    'screen' => ['screen' => ['width' => 20, 'height' => 10]],
   ]));
 
   try {
@@ -1855,11 +2072,9 @@ it('runs the original cinematic fixture to deterministic cleanup and save availa
       ->and($scene->cinematicController?->active())->toBeNull()
       ->and($scene->hasUnstableEventSession())->toBeFalse();
 
-    $saveRoot = sys_get_temp_dir() . '/cinematic-save-' . uniqid();
-    $saveManager = new SaveManager(
-      new EventTestGame(),
+    $saveRoot = createTestDirectory('cinematic-save-');
+    $saveManager = makeEventTestSaveManager(
       $saveRoot,
-      $saveRoot . '/quick',
       SaveCompatibilityManifest::fromArray('ichiloto/cinematic-fixture', [
         'contentVersion' => 0,
         'migrations' => [],
@@ -1867,7 +2082,10 @@ it('runs the original cinematic fixture to deterministic cleanup and save availa
         'tombstones' => [],
       ], 'Cinematic fixture manifest'),
     );
-    expect(file_get_contents($saveManager->save($scene, 1)->path))->toStartWith('IED1');
+    $slot = $saveManager->save($scene, 1);
+    expect($slot->path)->toStartWith($saveRoot . '/.data/saves/')
+      ->and(getcwd())->toBe($projectRoot)
+      ->and(file_get_contents($slot->path))->toStartWith('IED1');
   } finally {
     ConfigStore::remove(ProjectConfig::class);
     ConfigStore::remove(PlaySettings::class);
@@ -1881,7 +2099,7 @@ it('uses the same authored finalizer for skips before and after transfer', funct
   chdir($projectRoot);
   putSceneAudioConfig(['accessibility' => ['reducedMotion' => true]]);
   ConfigStore::put(PlaySettings::class, new SceneAudioConfigStub([
-    'screen' => ['width' => 20, 'height' => 10],
+    'screen' => ['screen' => ['width' => 20, 'height' => 10]],
   ]));
 
   try {
@@ -1940,7 +2158,7 @@ it('launches a stable cinematic id from an action trigger and completes after tr
     'save' => ['autosave' => true],
   ]);
   ConfigStore::put(PlaySettings::class, new SceneAudioConfigStub([
-    'screen' => ['width' => 20, 'height' => 10],
+    'screen' => ['screen' => ['width' => 20, 'height' => 10]],
   ]));
 
   try {
@@ -1962,11 +2180,9 @@ it('launches a stable cinematic id from an action trigger and completes after tr
     expect($player->availableAction)->toBeInstanceOf(RunCinematicAction::class);
     $player->interact();
     $session = $interpreter->activeSession();
-    $saveRoot = sys_get_temp_dir() . '/cinematic-trigger-save-' . uniqid();
-    $saveManager = new SaveManager(
-      new EventTestGame(),
+    $saveRoot = createTestDirectory('cinematic-trigger-save-');
+    $saveManager = makeEventTestSaveManager(
       $saveRoot,
-      $saveRoot . '/quick',
       SaveCompatibilityManifest::fromArray('ichiloto/cinematic-trigger', [
         'contentVersion' => 0,
         'migrations' => [],
@@ -1975,7 +2191,9 @@ it('launches a stable cinematic id from an action trigger and completes after tr
       ], 'Cinematic trigger save guard'),
     );
 
-    expect($session?->status)->toBe(EventExecutionStatus::YIELDED)
+    expect($saveManager->getSlotPath(1))->toStartWith($saveRoot . '/.data/saves/')
+      ->and(getcwd())->toBe($projectRoot)
+      ->and($session?->status)->toBe(EventExecutionStatus::YIELDED)
       ->and($trigger->sessionIsActive)->toBeTrue()
       ->and($trigger->startSession($scene))->toBeNull()
       ->and(fn() => $saveManager->save($scene, 1))->toThrow(ActiveEventSaveException::class)
@@ -2266,7 +2484,7 @@ it('does not let a second skip cancel an active authored finalizer', function ()
 it('uses cinematic transition coverage without the legacy blocking transfer transition', function (bool $reducedMotion) {
   putSceneAudioConfig(['accessibility' => ['reducedMotion' => $reducedMotion]]);
   ConfigStore::put(PlaySettings::class, new SceneAudioConfigStub([
-    'screen' => ['width' => 20, 'height' => 10],
+    'screen' => ['screen' => ['width' => 20, 'height' => 10]],
   ]));
 
   try {
@@ -2312,6 +2530,51 @@ it('retains configured transfer transitions for ordinary event scripts', functio
   ConfigStore::remove(ProjectConfig::class);
 });
 
+it('fails an ordinary event when its destination map is refused without leaving a suspended lane', function () {
+  [$scene, $interpreter] = makeEventRuntime();
+  $scene->installPlayer(new EventTestPlayer(new Vector2(1, 1)));
+  $scene->refuseTransfers = true;
+  $session = $interpreter->run([
+    ['type' => 'transfer', 'map' => 'bad-map', 'x' => 2, 'y' => 3],
+    ['type' => 'set_switch', 'name' => 'after_refused_transfer', 'value' => true],
+  ], 'refused-transfer');
+
+  expect($session?->status)->toBe(EventExecutionStatus::FAILED)
+    ->and($session?->failureMessage)->toContain('Map transfer to "bad-map" was refused')
+    ->and($session?->failureMessage)->toContain('lane "root"')
+    ->and($scene->gameState->getSwitch('after_refused_transfer'))->toBeFalse()
+    ->and($scene->currentMapId)->toBe('map-a')
+    ->and($scene->finished)->toBe([[$session?->id, false]])
+    ->and($scene->hasUnstableEventSession())->toBeFalse();
+});
+
+it('cleans up cinematic presentation when a scripted destination map is refused', function () {
+  [$scene] = makeEventRuntime();
+  $scene->installPlayer(new EventTestPlayer(new Vector2(1, 1)));
+  $scene->installCinematicRuntime();
+  $scene->refuseTransfers = true;
+  $cinematic = CinematicDefinition::fromArrays([
+    'id' => 'refused-cinematic-transfer',
+    'name' => 'Refused Cinematic Transfer',
+    'cast' => [['kind' => 'staged_actor', 'id' => 'visible-runner', 'sprite' => '@', 'x' => 2, 'y' => 2]],
+  ], [
+    ['type' => 'camera', 'operation' => 'detach'],
+    ['type' => 'transfer', 'map' => 'bad-map', 'x' => 2, 'y' => 3],
+    ['type' => 'record_event', 'name' => 'after_refused_cinematic_transfer'],
+  ]);
+  $session = $scene->cinematicController?->start($cinematic);
+
+  expect($session?->status)->toBe(EventExecutionStatus::FAILED)
+    ->and($session?->failureMessage)->toContain('Map transfer to "bad-map" was refused')
+    ->and($scene->gameState->hasStoryEvent('after_refused_cinematic_transfer'))->toBeFalse()
+    ->and($scene->gameState->hasStoryEvent('cinematic:refused-cinematic-transfer:completed'))->toBeFalse()
+    ->and($scene->currentMapId)->toBe('map-a')
+    ->and($scene->cinematicStage?->all())->toBe([])
+    ->and($scene->camera->followsPlayer)->toBeTrue()
+    ->and($scene->cinematicController?->active())->toBeNull()
+    ->and($scene->hasUnstableEventSession())->toBeFalse();
+});
+
 it('restores camera input and staged cast after controlled cinematic failure', function () {
   [$scene] = makeEventRuntime();
   $scene->installPlayer(new EventTestPlayer(new Vector2(1, 1)));
@@ -2347,7 +2610,7 @@ it('releases graphical cast on cinematic completion failure and legal skip befor
   $scene->installCinematicRuntime();
   $data = ['id' => 'graphical-lifecycle', 'name' => 'Graphical Lifecycle',
     'cast' => [['id' => 'runner', 'sprite' => '@', 'x' => 2, 'y' => 2,
-      'sprites2d' => ['asset' => 'runner.png', 'width' => 56, 'height' => 56, 'layer' => 100]]],
+      'sprites2d' => ['asset' => 'runner.png', 'layer' => 100]]],
     'skip' => ['policy' => 'authored'], 'finalizer' => [['type' => 'clear_presentation']]];
   $cinematic = CinematicDefinition::fromArrays($data, [
     ['type' => 'wait', 'seconds' => 0.1],
@@ -2372,7 +2635,7 @@ it('releases graphical cast on cinematic completion failure and legal skip befor
 })->with(['complete', 'failure', 'skip']);
 
 it('composes common events inside a cinematic lane and propagates nested failure context', function () {
-  $root = sys_get_temp_dir() . '/cinematic-common-event-' . uniqid();
+  $root = createTestDirectory('cinematic-common-event-');
   mkdir($root . '/assets/Events', 0o777, true);
   file_put_contents($root . '/assets/Events/formation-ready.php', <<<'PHP'
 <?php
@@ -2419,7 +2682,7 @@ PHP);
 });
 
 it('fails closed when a cinematic Common Event contains malformed command entries', function () {
-  $root = sys_get_temp_dir() . '/cinematic-malformed-common-event-' . uniqid();
+  $root = createTestDirectory('cinematic-malformed-common-event-');
   mkdir($root . '/assets/Events', 0o777, true);
   file_put_contents($root . '/assets/Events/malformed.php', <<<'PHP'
 <?php
@@ -2509,6 +2772,39 @@ it('pans, tracks moving staged subjects, shakes within bounds and resets the cam
   expect($shake?->status)->toBe(EventExecutionStatus::COMPLETED)
     ->and($scene->camera->followsPlayer)->toBeTrue();
 });
+
+it('preserves camera follow ownership and detach history through a shake', function (bool $detached, string $ending) {
+  putSceneAudioConfig(['accessibility' => ['reducedMotion' => $ending === 'reduced']]);
+  try {
+    [$scene] = makeEventRuntime();
+    $scene->installPlayer(new EventTestPlayer(new Vector2(1, 1)));
+    $scene->installCinematicRuntime();
+    $camera = $scene->camera;
+    $camera->moveTo(4, 3);
+    if ($detached) { $camera->detach(); $camera->moveTo(7, 6); }
+    $base = $camera->captureState();
+    $history = new ReflectionProperty(Camera::class, 'detachedSnapshot');
+    $previous = $history->getValue($camera);
+    $shake = new CameraOperation($camera, new CinematicSubjectResolver($scene),
+      ['operation' => 'shake', 'seconds' => 0.2, 'magnitude' => 2]);
+    expect($camera->followsPlayer)->toBe($base->followsPlayer)
+      ->and($history->getValue($camera))->toBe($previous);
+    if ($ending !== 'reduced') {
+      $shake->update(0.05);
+      expect($camera->followsPlayer)->toBe($base->followsPlayer)
+        ->and($history->getValue($camera))->toBe($previous);
+      $ending === 'cancel' ? $shake->cancel() : $shake->update(0.15);
+    }
+    expect($shake->isComplete)->toBeTrue()
+      ->and($camera->captureState())->toEqual($base)
+      ->and($history->getValue($camera))->toBe($previous);
+    if ($detached) {
+      $camera->restorePrevious();
+      expect($camera->followsPlayer)->toBeTrue()
+        ->and([$camera->position->x, $camera->position->y])->toBe([4.0, 3.0]);
+    }
+  } finally { ConfigStore::remove(ProjectConfig::class); }
+})->with([false, true])->with(['complete', 'cancel', 'reduced']);
 
 it('applies cinematic motion final states immediately when reduced motion is enabled', function () {
   putSceneAudioConfig(['accessibility' => ['reducedMotion' => true]]);
@@ -2615,4 +2911,208 @@ it('enforces and diagnoses the complete staged-actor collision policy', function
   expect($scene->cinematicStage?->move('ghost-route', new Vector2(1, 0)))->toBeTrue()
     ->and([$ghost?->position->x, $ghost?->position->y])->toBe([2.0, 1.0])
     ->and($scene->cinematicStage?->lastMoveFailure)->toBeNull();
+});
+
+final class RegisteredTestCarriageCommand implements ScriptCommandHandlerInterface
+{
+  /** @var list<array{?string, mixed, mixed}> */
+  public static array $calls = [];
+  public static ?RegisteredTestJourney $journey = null;
+
+  public function execute(ScriptCommandContext $context, array $command): ScriptCommandOutcome
+  {
+    self::$calls[] = [$context->scriptId, $context->origin['npc'] ?? null, $command['destination'] ?? null];
+    $context->scene->gameState->setSwitch('carriage_hired', true);
+
+    return self::$journey === null ? ScriptCommandOutcome::complete() : ScriptCommandOutcome::waitFor(self::$journey);
+  }
+}
+
+final class RegisteredTestJourney implements EventPendingOperationInterface
+{
+  public bool $hasArrived = false;
+  public float $elapsed = 0.0;
+
+  public function update(float $deltaSeconds): bool
+  {
+    $this->elapsed += $deltaSeconds;
+
+    return $this->hasArrived;
+  }
+
+  public function cancel(): void
+  {
+  }
+}
+
+/** A scene whose state changes are recorded rather than entered, as the shop's screens need a terminal. */
+final class ScriptCommandTestGameScene extends EventTestGameScene
+{
+  public function installFieldState(): FieldState
+  {
+    return $this->fieldState = new FieldState(new SceneStateContext($this));
+  }
+
+  public function setState(GameSceneState $state): void
+  {
+    $this->state = $state;
+  }
+}
+
+final class InnTestConfirmDialogue extends ConfirmDialogue
+{
+  public int $shown = 0;
+
+  public function __construct(private readonly int $answer)
+  {
+    parent::__construct('Keeper', 'Rest for 30 G?');
+  }
+
+  public function show(): void
+  {
+    $this->shown++;
+    $this->selectedChoice = $this->answer;
+  }
+}
+
+/** @return array{EventTestGameScene, EventInterpreter} */
+function makeRegisteredCommandRuntime(): array
+{
+  $catalog = ScriptCommandCatalog::fromDeclarations([[
+    'type' => 'hire_carriage',
+    'class' => RegisteredTestCarriageCommand::class,
+    'label' => 'Hire Carriage',
+    'fields' => [['key' => 'destination', 'label' => 'Destination', 'kind' => 'reference', 'reference' => 'map', 'required' => true]],
+  ]], 'test project');
+  $scene = new EventTestGameScene();
+  $interpreter = new EventInterpreter($scene, new EventTestPresentation(), $catalog);
+  $scene->installInterpreter($interpreter);
+  RegisteredTestCarriageCommand::$calls = [];
+  RegisteredTestCarriageCommand::$journey = null;
+
+  return [$scene, $interpreter];
+}
+
+it('runs a project command with its script context and continues in the same frame', function () {
+  [$scene, $interpreter] = makeRegisteredCommandRuntime();
+
+  $session = $interpreter->run([
+    ['type' => 'hire_carriage', 'destination' => 'harbour'],
+    ['type' => 'record_event', 'name' => 'carriage_left'],
+  ], 'npc:map-a:driver', null, ['npc' => 'driver']);
+
+  expect($session?->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and(RegisteredTestCarriageCommand::$calls)->toBe([['npc:map-a:driver', 'driver', 'harbour']])
+    ->and($scene->gameState->getSwitch('carriage_hired'))->toBeTrue()
+    ->and($scene->gameState->hasStoryEvent('carriage_left'))->toBeTrue();
+});
+
+it('waits on a project command operation one field tick at a time', function () {
+  [$scene, $interpreter] = makeRegisteredCommandRuntime();
+  RegisteredTestCarriageCommand::$journey = $journey = new RegisteredTestJourney();
+
+  $session = $interpreter->run([
+    ['type' => 'hire_carriage', 'destination' => 'harbour'],
+    ['type' => 'record_event', 'name' => 'carriage_arrived'],
+  ], 'carriage');
+  $interpreter->update(0.25);
+
+  expect($session?->status)->toBe(EventExecutionStatus::YIELDED)
+    ->and($journey->elapsed)->toBe(0.25)
+    ->and($scene->gameState->hasStoryEvent('carriage_arrived'))->toBeFalse();
+
+  $journey->hasArrived = true;
+  $interpreter->update(0.1);
+
+  expect($session?->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and($scene->gameState->hasStoryEvent('carriage_arrived'))->toBeTrue()
+    ->and(RegisteredTestCarriageCommand::$calls)->toHaveCount(1);
+});
+
+it('fails a project command closed before its handler runs when a field is wrong', function () {
+  [$scene, $interpreter] = makeRegisteredCommandRuntime();
+
+  $session = $interpreter->run([
+    ['type' => 'hire_carriage'],
+    ['type' => 'record_event', 'name' => 'must_not_run'],
+  ], 'carriage');
+
+  expect($session?->status)->toBe(EventExecutionStatus::FAILED)
+    ->and($session?->failureMessage)->toContain('type "hire_carriage"')
+    ->and($session?->failureMessage)->toContain('"destination" is required.')
+    ->and(RegisteredTestCarriageCommand::$calls)->toBe([])
+    ->and($scene->gameState->hasStoryEvent('must_not_run'))->toBeFalse();
+});
+
+it('opens a shop from a script and continues once the player leaves it', function () {
+  $store = (new ReflectionClass(ItemStore::class))->newInstanceWithoutConstructor();
+  $store->set('Test Blade', new Ichiloto\Engine\Entities\Inventory\Weapons\Weapon('Test Blade', 'A test weapon.', '/', 10));
+  ConfigStore::put(ItemStore::class, $store);
+
+  try {
+    $scene = new ScriptCommandTestGameScene();
+    $field = $scene->installFieldState();
+    $scene->setState($field);
+    $interpreter = new EventInterpreter($scene, new EventTestPresentation());
+    $scene->installInterpreter($interpreter);
+
+    $session = $interpreter->run([
+      ['type' => 'shop', 'items' => [['item' => 'Test Blade', 'price' => 7]], 'sellRate' => 0.25],
+      ['type' => 'record_event', 'name' => 'left_shop'],
+    ], 'npc:map-a:smith');
+    $shop = $scene->state;
+
+    expect($shop)->toBeInstanceOf(ShopState::class)
+      ->and(array_map(static fn($item): array => [$item->name, $item->price], $shop->merchandise))->toBe([['Test Blade', 7]])
+      ->and([$shop->traderBuyRate, $shop->traderSellRate])->toBe([1.0, 0.25])
+      ->and($session?->status)->toBe(EventExecutionStatus::YIELDED);
+
+    $interpreter->update(0.1);
+    expect($scene->gameState->hasStoryEvent('left_shop'))->toBeFalse();
+
+    $scene->setState($field);
+    $interpreter->update(0.1);
+
+    expect($session?->status)->toBe(EventExecutionStatus::COMPLETED)
+      ->and($scene->gameState->hasStoryEvent('left_shop'))->toBeTrue()
+      ->and($store->get('Test Blade')?->price)->toBe(10);
+  } finally {
+    ConfigStore::remove(ItemStore::class);
+  }
+});
+
+it('leaves the party unrested and unpaid when they decline a stay', function () {
+  [$scene] = makeEventRuntime();
+  $scene->party->credit(50);
+  $dialogue = new InnTestConfirmDialogue(1);
+
+  expect(new InnStay(new InnOffer($dialogue, cost: 30))->perform($scene))->toBe(InnStayOutcome::DECLINED)
+    ->and($dialogue->shown)->toBe(1)
+    ->and($scene->party->accountBalance)->toBe(50);
+});
+
+it('rests the party where they stand when the inn names no place to wake', function () {
+  $before = new ReflectionClass(ConfigStore::class)->getStaticProperties();
+  putSceneAudioConfig(['inn' => ['sleep_time' => 1]]);
+  ConfigStore::put(PlaySettings::class, new SceneAudioConfigStub(['screen' => ['width' => 20, 'height' => 10]]));
+
+  try {
+    [$scene] = makeEventRuntime();
+    $scene->installPlayer($player = new EventTestPlayer(new Vector2(3, 2)));
+    $member = new Character('Weary', 0, new Stats(currentHp: 5, currentMp: 1, totalHp: 100, totalMp: 20));
+    $scene->party->addMember($member);
+    $scene->party->credit(50);
+
+    $outcome = new InnStay(new InnOffer(new InnTestConfirmDialogue(InnStay::CONFIRM_CHOICE), cost: 30))->perform($scene);
+
+    expect($outcome)->toBe(InnStayOutcome::STAYED)
+      ->and($scene->party->accountBalance)->toBe(20)
+      ->and([$member->stats->currentHp, $member->stats->currentMp])->toBe([100, 20])
+      ->and([$player->position->x, $player->position->y])->toEqual([3, 2])
+      ->and($scene->mapManager->renderCount)->toBe(1);
+  } finally {
+    foreach ($before as $name => $value) {
+      new ReflectionProperty(ConfigStore::class, $name)->setValue(null, $value);
+    }
+  }
 });

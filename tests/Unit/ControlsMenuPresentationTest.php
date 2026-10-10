@@ -21,6 +21,7 @@ use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\InputConfig;
 use Ichiloto\Engine\Util\Config\PlaySettings;
+use Ichiloto\Engine\Util\Config\PlayerSettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
 use Tests\Support\Input\FakeInputSource;
@@ -30,14 +31,17 @@ require_once __DIR__ . '/../Support/Input/FakeInputSource.php';
 class ControlsPresentationConfig extends InputConfig
 {
   public array $written = [];
-  public bool $fail = false;
   protected function load(): array { return $this->options['initial'] ?? []; }
   protected function getFilename(): string { return 'input.php'; }
-  public function persist(): void
-  {
-    if ($this->fail) { throw new RuntimeException('Fixture write failure.'); }
-    $this->written[] = $this->all();
-  }
+  public function persist(): void { $this->written[] = $this->all(); }
+}
+
+function controlsSavedBinding(string $root, string $action): ?array
+{
+  $filename = $root . '/.data/player-settings.json';
+  if (! is_file($filename)) { return null; }
+  $data = json_decode((string) file_get_contents($filename), true);
+  return $data['input']['bindings'][$action] ?? null;
 }
 
 class ControlsPresentationOwner extends ControlsMenuState
@@ -73,6 +77,7 @@ beforeEach(function () {
   }
   $this->root = sys_get_temp_dir() . '/ichiloto-controls-' . bin2hex(random_bytes(5));
   mkdir($this->root);
+  ConfigStore::put(PlayerSettings::class, new PlayerSettings($this->root));
   $chunk = fn($type, $bytes) => pack('N', strlen($bytes)) . $type . $bytes . pack('N', crc32($type . $bytes));
   file_put_contents($this->root . '/glyph.png', "\x89PNG\r\n\x1a\n" . $chunk('IHDR', pack('NNCCCCC', 3, 5, 8, 6, 0, 0, 0))
     . $chunk('IDAT', gzcompress(str_repeat("\0" . str_repeat("\xAA\xCC\xEE\xFF", 3), 5))) . $chunk('IEND', ''));
@@ -180,11 +185,15 @@ it('applies and persists a binding once and refreshes the native and terminal lo
   expect(InputManager::getBindings()['confirm']['keys'])->toBe([KeyCode::K])
     ->and($this->owner->getPresentationContent()->rows[0]['control']->label)->toBe('K')
     ->and($this->owner->getPresentationContent()->status)->toBe('Confirm is now bound to K.')
-    ->and($this->config->written)->toHaveCount(1)->and(implode('', $this->owner->terminalRows()))->toContain('K');
+    ->and($this->config->written)->toBeEmpty()
+    ->and(controlsSavedBinding($this->root, 'confirm'))->toBe([KeyCode::K->value])
+    ->and(implode('', $this->owner->terminalRows()))->toContain('K');
 });
 
 it('reports a session-only rebind honestly when persistence fails', function () {
-  $this->config->fail = true;
+  $blocked = $this->root . '/blocked';
+  file_put_contents($blocked, 'not a directory');
+  ConfigStore::put(PlayerSettings::class, new PlayerSettings($blocked));
   controlsPresentationKey($this->owner, KeyCode::ENTER);
   controlsPresentationKey($this->owner, KeyCode::K);
   expect(InputManager::getBindings()['confirm']['keys'])->toBe([KeyCode::K])
@@ -193,7 +202,11 @@ it('reports a session-only rebind honestly when persistence fails', function () 
 });
 
 it('restores defaults using the retained shortcut and consumes the edge', function (bool $fail) {
-  $this->config->fail = $fail;
+  if ($fail) {
+    $blocked = $this->root . '/blocked';
+    file_put_contents($blocked, 'not a directory');
+    ConfigStore::put(PlayerSettings::class, new PlayerSettings($blocked));
+  }
   InputManager::setBinding('confirm', [KeyCode::K]);
   InputManager::setBinding('info', [KeyCode::F2]);
   controlsPresentationKey($this->owner, KeyCode::R);
@@ -210,7 +223,17 @@ it('discovers fallback Info without inventing a confirmation binding for an empt
   $frame = ControlsMenuPresentation::compose($this->owner->getPresentationContent(), $theme);
   expect(controlsPresentationText($frame))->toContain('Info', 'Read the next Info page; wrap to the first.', 'Keyboard bindings: i, I')
     ->and($this->owner->getPresentationContent()->listening)->toBeFalse()
-    ->and(array_column($this->owner->getPresentationContent()->rows, 'action'))->toBe(['info']);
+    ->and(array_column($this->owner->getPresentationContent()->rows, 'action'))
+    ->toBe(['info', 'menu_page_previous', 'menu_page_next', 'dialogue_auto']);
+  $this->owner->select(1);
+  $frame = ControlsMenuPresentation::compose($this->owner->getPresentationContent(), $theme);
+  expect(controlsPresentationText($frame))->toContain('Menu page previous', 'Show the previous menu page.', 'Keyboard bindings: PAGE_UP');
+  $this->owner->select(2);
+  $frame = ControlsMenuPresentation::compose($this->owner->getPresentationContent(), $theme);
+  expect(controlsPresentationText($frame))->toContain('Menu page next', 'Show the next menu page.', 'Keyboard bindings: PAGE_DOWN');
+  $this->owner->select(3);
+  $frame = ControlsMenuPresentation::compose($this->owner->getPresentationContent(), $theme);
+  expect(controlsPresentationText($frame))->toContain('Dialogue auto', 'Toggle automatic dialogue advance.', 'Keyboard bindings: SPACE');
 });
 
 it('scrolls the full owner list in terminal and native without losing the active action', function () {
@@ -223,10 +246,22 @@ it('scrolls the full owner list in terminal and native without losing the active
   expect($this->owner->getPresentationContent()->index)->toBe(53)
     ->and(implode('', $this->owner->terminalRows()))->toContain('Command 49');
   $frame = ControlsMenuPresentation::compose($this->owner->getPresentationContent(), $theme);
-  expect(controlsPresentationText($frame))->toContain('Command 49', '/ 55');
+  expect(controlsPresentationText($frame))->toContain('Command 49', '/ 58');
   controlsPresentationKey($this->owner, KeyCode::DOWN);
   expect($this->owner->getPresentationContent()->index)->toBe(54)
     ->and($this->owner->getPresentationContent()->rows[54]['action'])->toBe('info');
+  controlsPresentationKey($this->owner, KeyCode::DOWN);
+  expect($this->owner->getPresentationContent()->index)->toBe(55)
+    ->and($this->owner->getPresentationContent()->rows[55]['action'])->toBe('menu_page_previous');
+  controlsPresentationKey($this->owner, KeyCode::DOWN);
+  expect($this->owner->getPresentationContent()->index)->toBe(56)
+    ->and($this->owner->getPresentationContent()->rows[56]['action'])->toBe('menu_page_next');
+  controlsPresentationKey($this->owner, KeyCode::DOWN);
+  expect($this->owner->getPresentationContent()->index)->toBe(57)
+    ->and($this->owner->getPresentationContent()->rows[57]['action'])->toBe('dialogue_auto')
+    ->and(implode('', $this->owner->terminalRows()))->toContain('Dialogue auto', 'x, X');
+  $frame = ControlsMenuPresentation::compose($this->owner->getPresentationContent(), $theme);
+  expect(controlsPresentationText($frame))->toContain('Dialogue auto', 'Toggle automatic dialogue advance.', 'Keyboard bindings: x, X', '/ 58');
   controlsPresentationKey($this->owner, KeyCode::DOWN);
   expect($this->owner->getPresentationContent()->index)->toBe(0);
 });
@@ -252,7 +287,8 @@ it('exposes the missing Info action in both Controls views and rebinds it throug
   controlsPresentationKey($this->owner, KeyCode::F2);
   expect($this->owner->getPresentationContent()->rows[$index]['keys'])->toBe('F2')
     ->and(implode('', $this->owner->terminalRows()))->toContain('F2')
-    ->and($this->config->written)->toHaveCount(1)
+    ->and($this->config->written)->toBeEmpty()
+    ->and(controlsSavedBinding($this->root, 'info'))->toBe([KeyCode::F2->value])
     ->and(InputManager::getBindings()['command_0']['keys'])->toBe($conflict ? [KeyCode::i, KeyCode::I] : []);
 })->with([false, true]);
 

@@ -2,8 +2,10 @@
 
 namespace Ichiloto\Engine\Field;
 
-use Ichiloto\Engine\Rendering\Tiles\GraphicalTileDefinition;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
+use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
+use Ichiloto\Engine\IO\Console\TerminalCapabilities;
+use Ichiloto\Engine\IO\Console\Console;
 
 use Assegai\Util\Path;
 use Ichiloto\Engine\Core\Game;
@@ -18,12 +20,10 @@ use Ichiloto\Engine\Exceptions\IchilotoException;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
-use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
-use voku\helper\ASCII;
 
 /**
  * The MapManager class is responsible for managing the map.
@@ -40,7 +40,13 @@ class MapManager implements CanRenderAt
    * @var array<int, string[]> The tile map.
    */
   protected(set) array $tileMap = [];
-  public private(set) ?GraphicalTileDefinition $tiles2d = null;
+  public private(set) ?MapLayerSet $layers = null;
+  public private(set) ?MapGraphics $graphics = null;
+  private ?PresentationWorld $presentationWorld = null;
+  private ?bool $presentationWorldPolicy = null;
+  /** @var array<string, WorldObject> Installed subjects, never saved or used for collision. */
+  private array $worldObjects = [];
+  private array $presentationWorldCoverage = [];
   /**
    * The collision map.
    *
@@ -197,7 +203,13 @@ class MapManager implements CanRenderAt
     }
 
     $collisionType = $this->getCollision($x, $y);
-    return !in_array($collisionType, [CollisionType::SOLID, CollisionType::NPC]);
+    return !in_array($collisionType, [CollisionType::SOLID, CollisionType::NPC, CollisionType::COUNTER]);
+  }
+
+  /** Whether a cell is a counter the player can talk across; false outside the map. */
+  public function isCounterAt(int $x, int $y): bool
+  {
+    return ($this->collisionMap[$y][$x] ?? null) === CollisionType::COUNTER->value;
   }
 
   /**
@@ -254,47 +266,13 @@ class MapManager implements CanRenderAt
    * PHP normalizes numeric-string array keys such as `"8"` to integers, so
    * single decimal digit keys are valid tile glyphs alongside string keys.
    *
-   * @return array<int|string, CollisionType> The collision dictionary.
+   * @return array<int|string, CollisionType|array<int|string, CollisionType>> The collision dictionary.
    * @throws NotFoundException
    */
   public function loadCollisionDictionary(string $filename): array
   {
-    $dictionary = [];
-
-    if (! file_exists($filename) ) {
-      throw new NotFoundException("File $filename not found.");
-    }
-
-    $dictionary = $this->requirePhpFile($filename);
-
-    if (! is_array($dictionary)) {
-      throw new NotFoundException("File $filename does not return an array.");
-    }
-
-    if (!empty($dictionary)) {
-      foreach ($dictionary as $key => $value) {
-        $isSupportedKeyType = is_string($key) || is_int($key);
-        $isSingleGlyph = $isSupportedKeyType
-          && TerminalText::symbolCount((string) $key) === 1;
-
-        if (! $isSingleGlyph || ! ($value instanceof CollisionType)) {
-          $keyDescription = is_scalar($key) || $key === null
-            ? sprintf('%s(%s)', get_debug_type($key), var_export($key, true))
-            : get_debug_type($key);
-          $valueDescription = $value instanceof \UnitEnum
-            ? sprintf('%s::%s', $value::class, $value->name)
-            : (is_scalar($value) || $value === null
-              ? sprintf('%s(%s)', get_debug_type($value), var_export($value, true))
-              : get_debug_type($value));
-
-          throw new NotFoundException("Invalid dictionary entry: {$keyDescription} => {$valueDescription}");
-        }
-      }
-    }
-
-    return $dictionary;
+    return MapSourceReader::loadCollisionDictionary($filename);
   }
-
   /**
    * Loads the tile map from a file.
    *
@@ -308,16 +286,53 @@ class MapManager implements CanRenderAt
    */
   private function loadTileMap(string $filename, Player $player): void
   {
-    $map = $this->readMapDataFromFile($filename);
+    $this->applyPreparedMap($this->prepareMap($filename), $player);
+  }
+
+  /** Validates every map source and trigger before changing the active field. */
+  public function prepareMap(string $filename): PreparedMap
+  {
+    $source = $this->prepareSplitMapDataFromFiles($this->resolveMapPaths($filename));
+    $map = $source['data'];
+    $collisions = $source['occupancy']?->collisionGrid
+      ?? $this->generateLayerCollisionMap($source['layers'], $this->getCollisionDictionary());
+    $mapTriggers = [];
+    foreach ($map['triggers'] ?? [] as $trigger) {
+      $mapTriggers[] = MapTrigger::tryFromArray($trigger);
+    }
+    $eventTriggers = [];
+    $mapId = strval($map['id'] ?? '');
+    foreach ($map['events'] ?? [] as $event) {
+      $eventTriggers[] = EventTriggerFactory::create($event, $mapId !== '' ? $mapId : null);
+    }
+    $npcs = $this->gameScene->npcManager?->prepareNpcs(
+      is_array($map['npcs'] ?? null) ? $map['npcs'] : [],
+      $mapId,
+    );
+
+    return new PreparedMap($map, $source['tiles'], $collisions, $mapTriggers, $eventTriggers, $npcs, $source['layers'],
+      $source['graphics'], $source['worldObjects']);
+  }
+
+  /** Commits a previously validated destination and its field side effects. */
+  public function applyPreparedMap(PreparedMap $prepared, Player $player): void
+  {
+    $map = $prepared->data;
+    $this->tileMap = $prepared->tiles;
+    $this->layers = $prepared->layers;
+    $this->graphics = $prepared->graphics;
+    $this->clearPresentationWorld();
+    $this->collisionMap = $prepared->collisions;
+    $this->camera->worldSpace = $prepared->tiles;
     $locationName = $map['name'] ?? MapLocation::DEFAULT_LOCATION_NAME;
     $locationRegion = $map['region'] ?? MapLocation::DEFAULT_LOCATION_REGION;
     $this->gameScene->party->location = new MapLocation($locationName, $locationRegion);
 
     $this->calculateMapDimensions();
-    $this->loadCollisionMap($this->tileMap);
     $mapId = strval($map['id'] ?? '');
-    $this->loadMapTriggers($map['triggers'] ?? []);
-    $this->loadMapEvents($map['events'] ?? [], $mapId);
+    $this->installWorldObjects($prepared->worldObjects, $mapId);
+    $this->loadMapTriggers($prepared->mapTriggers);
+    $this->loadMapEvents($prepared->eventTriggers, $mapId);
     $this->applyMapBackgroundMusic($map['bgm'] ?? null, $map['bgmVariants'] ?? []);
 
     if ($mapId !== '') {
@@ -328,12 +343,11 @@ class MapManager implements CanRenderAt
     $this->gameScene->encounterManager?->configure(
       is_array($map['encounters'] ?? null) ? $map['encounters'] : null
     );
-    $this->gameScene->npcManager?->configure(
-      is_array($map['npcs'] ?? null) ? $map['npcs'] : []
-    );
-    $this->gameScene->skitManager?->announceAvailableSkits();
+    $this->gameScene->npcManager?->applyPreparedNpcs($prepared->npcs ?? []);
 
     $this->camera->resetPosition($player);
+    $this->gameScene->fieldEffects?->installMap($mapId, $map['fieldEffects'] ?? null, $prepared->graphics,
+      $prepared->eventTriggers);
   }
 
   /**
@@ -411,23 +425,10 @@ class MapManager implements CanRenderAt
   }
 
   /**
-   * Loads the collision map from a tile map.
-   *
-   * @param array<int, string[]> $tileMap The tile map.
-   * @return void
-   * @throws NotFoundException
-   */
-  private function loadCollisionMap(array $tileMap): void
-  {
-    $dictionary = $this->getCollisionDictionary();
-    $this->collisionMap = $this->generateCollisionMap($tileMap, $dictionary);
-  }
-
-  /**
    * Generates a collision map from a tile map.
    *
    * @param array<int, string[]|string> $tilemap The tile map.
-   * @param array<int|string, CollisionType> $dictionary The dictionary that maps tile glyphs to collision types.
+   * @param array<int|string, CollisionType|array<int|string, CollisionType>> $dictionary The dictionary that maps tile glyphs to collision types.
    * @return int[][] The collision map.
    */
   public function generateCollisionMap(
@@ -439,22 +440,16 @@ class MapManager implements CanRenderAt
       $dictionary = $this->defaultCollisionDictionary;
     }
 
-    $collisionMap = [];
+    return MapCollisionResolver::resolveTiles($tilemap, $dictionary);
+  }
 
-    foreach ($tilemap as $row) {
-      $collisionRow = [];
-
-      $tiles = is_array($row) ? $row : TerminalText::visibleSymbols($row);
-
-      foreach ($tiles as $tile) {
-        $cleanedTile = ASCII::to_ascii(TerminalText::stripAnsi($tile));
-        $collisionRow[] = $dictionary[$cleanedTile]->value ?? CollisionType::SOLID->value;
-      }
-
-      $collisionMap[] = $collisionRow;
-    }
-
-    return $collisionMap;
+  /**
+   * @param array<int|string, CollisionType|array<int|string, CollisionType>> $dictionary
+   * @return int[][]
+   */
+  public function generateLayerCollisionMap(MapLayerSet $layers, array $dictionary = []): array
+  {
+    return MapCollisionResolver::resolveLayers($layers, $dictionary ?: $this->defaultCollisionDictionary);
   }
 
   /**
@@ -464,8 +459,80 @@ class MapManager implements CanRenderAt
    */
   public function render(?int $x = null, ?int $y = null): void
   {
-    $this->tiles2d === null ? $this->camera->renderMap()
-      : PresentationLayerPolicy::terrain(fn() => $this->camera->renderMap());
+    if (Console::isRetainedWorldPresentation()) { $this->getPresentationWorld(); }
+    $this->camera->renderMap();
+  }
+
+  /** Build once per installed map/policy, only when a graphical consumer requests it. */
+  public function getPresentationWorld(): ?PresentationWorld
+  {
+    if ($this->layers === null) {
+      $this->camera->setRetainedWorldAvailable(false);
+      return null;
+    }
+    $policy = TerminalCapabilities::supportsCompositeEmoji();
+    $coverage = $this->getWorldObjectCoverage();
+    if ($this->presentationWorldPolicy === $policy && $this->presentationWorldCoverage === $coverage) {
+      $this->camera->setRetainedWorldAvailable($this->presentationWorld !== null);
+      return $this->presentationWorld;
+    }
+    $this->presentationWorldPolicy = $policy;
+    $this->presentationWorldCoverage = $coverage;
+    $this->presentationWorld = null;
+    try {
+      $this->presentationWorld = PresentationWorld::getFromLayers($this->layers, 'map', $this->graphics, $this->getAssetRoot(), $coverage);
+    } catch (\Throwable $error) {
+      // Unsupported world bounds keep the screen-space retained text path usable.
+      Debug::warn('Retained map presentation is unavailable: ' . $error->getMessage());
+    }
+    $this->camera->setRetainedWorldAvailable($this->presentationWorld !== null);
+    return $this->presentationWorld;
+  }
+
+  private function clearPresentationWorld(): void
+  {
+    $this->presentationWorld = null;
+    $this->presentationWorldPolicy = null;
+    $this->presentationWorldCoverage = [];
+  }
+
+  public function findWorldObject(string $id): ?WorldObject { return $this->worldObjects[$id] ?? null; }
+
+  /** @return iterable<WorldObject> */
+  public function getWorldObjects(): iterable { yield from $this->worldObjects; }
+
+  /** Reinstall even for the same map id: old leases may never claim the new map instance. */
+  private function installWorldObjects(array $definitions, string $mapId): void
+  {
+    $this->clearWorldObjects();
+    foreach ($definitions as $definition) {
+      $this->worldObjects[$definition->id] = new WorldObject($definition, $this->gameScene, $mapId, $this->getAssetRoot());
+    }
+  }
+
+  public function clearWorldObjects(): void
+  {
+    foreach ($this->worldObjects as $object) { $object->release(); }
+    $this->worldObjects = [];
+    $this->clearPresentationWorld();
+  }
+
+  private function getWorldObjectCoverage(): array
+  {
+    $coverage = [];
+    foreach ($this->worldObjects as $object) {
+      if (!$object->isCurrent()) { continue; }
+      $stage = $this->gameScene->cinematicStage;
+      $hideGlyphs = ($stage?->suppresses($object) ?? false)
+        ? $stage->hidesWorldObjectGlyphs($object) : $object->hidesOwnedGlyphs();
+      foreach ($object->definition->coverage as $kind => $names) {
+        if ($kind === 'glyphs' && !$hideGlyphs) { continue; }
+        foreach ($names as $name => $rows) {
+          foreach ($rows as $y => $cells) { $coverage[$kind][$name][$y] = ($coverage[$kind][$name][$y] ?? []) + $cells; }
+        }
+      }
+    }
+    return $coverage;
   }
 
   /**
@@ -492,7 +559,7 @@ class MapManager implements CanRenderAt
       $player->removeTriggers();
 
       foreach ($triggers as $data) {
-        $trigger = MapTrigger::tryFromArray($data);
+        $trigger = $data instanceof MapTrigger ? $data : MapTrigger::tryFromArray($data);
         $player->addTrigger($trigger);
       }
     }
@@ -513,7 +580,8 @@ class MapManager implements CanRenderAt
       $gameState = $this->gameScene->gameState;
 
       foreach ($events as $eventData) {
-        $eventTrigger = EventTriggerFactory::create($eventData, $mapId !== '' ? $mapId : null);
+        $eventTrigger = $eventData instanceof \Ichiloto\Engine\Events\Triggers\EventTrigger
+          ? $eventData : EventTriggerFactory::create($eventData, $mapId !== '' ? $mapId : null);
         $eventTrigger->bind($gameState, $this->gameScene->party);
 
         // A one-shot event the world state already records as completed
@@ -541,14 +609,14 @@ class MapManager implements CanRenderAt
    */
   public function renderBackgroundTile(int $x, int $y): void
   {
-    $draw = fn() => $this->camera->renderBackgroundTile($x, $y);
-    $this->tiles2d === null ? $draw() : PresentationLayerPolicy::terrain($draw);
+    if (Console::isRetainedWorldPresentation()) { $this->getPresentationWorld(); }
+    $this->camera->renderBackgroundTile($x, $y);
   }
 
   /**
    * Gets the collision dictionary from a file.
    *
-   * @return array<int|string, CollisionType> The collision dictionary.
+   * @return array<int|string, CollisionType|array<int|string, CollisionType>> The collision dictionary.
    * @throws NotFoundException If the file is not found.
    */
   protected function getCollisionDictionary(): array
@@ -705,19 +773,8 @@ class MapManager implements CanRenderAt
    */
   protected function resolveMapPaths(string $filename): array
   {
-    $assetsDirectory = Path::join(Path::getCurrentWorkingDirectory(), 'assets', 'Maps');
-    $mapId = preg_replace('/(\.(data|map|event))?\.php$/', '', $filename) ?: $filename;
-    $mapLeafName = basename(str_replace('\\', '/', $mapId));
-    $directory = Path::join($assetsDirectory, $mapId);
-
-    return [
-      'id' => $mapId,
-      'data' => Path::join($directory, "{$mapLeafName}.data.php"),
-      'map' => Path::join($directory, "{$mapLeafName}.map.php"),
-      'event' => Path::join($directory, "{$mapLeafName}.event.php"),
-    ];
+    return MapSourceReader::resolvePaths(Path::join(Path::getCurrentWorkingDirectory(), 'assets', 'Maps'), $filename);
   }
-
   /**
    * Reads a split map definition from `.data.php`, `.map.php`, and `.event.php` files.
    *
@@ -727,83 +784,87 @@ class MapManager implements CanRenderAt
    */
   protected function readSplitMapDataFromFiles(array $paths): array
   {
-    foreach (['data', 'map', 'event'] as $type) {
-      if (! file_exists($paths[$type])) {
-        throw new NotFoundException("File {$paths[$type]} not found.");
-      }
-    }
+    $prepared = $this->prepareSplitMapDataFromFiles($paths);
+    $this->gameScene->fieldEffects?->clear();
+    $this->tileMap = $prepared['tiles'];
+    $this->layers = $prepared['layers'];
+    $this->graphics = $prepared['graphics'];
+    $this->installWorldObjects($prepared['worldObjects'], strval($prepared['data']['id'] ?? ''));
+    $this->clearPresentationWorld();
+    $this->camera->worldSpace = $prepared['tiles'];
 
-    $map = $this->requirePhpFile($paths['data']);
+    return $prepared['data'];
+  }
 
-    if (! is_array($map)) {
-      throw new NotFoundException("File {$paths['data']} does not return an array.");
-    }
-
-    $map['id'] ??= $paths['id'];
-
-    $tiles2d = array_key_exists('tiles2d', $map)
-      ? GraphicalTileDefinition::fromArray($map['tiles2d'], $paths['data']) : null;
-
-    $this->tileMap = $this->parseMapLayer($this->requirePhpFile($paths['map']), $paths['map'], 'map');
-    $this->camera->worldSpace = $this->tileMap;
-
-    $eventLayer = $this->parseMapLayer($this->requirePhpFile($paths['event']), $paths['event'], 'event');
-    $this->assertEventLayerMatchesTileMap($eventLayer, $paths['event']);
-    $map['events'] = $this->resolveEventDefinitions($map['events'] ?? [], $eventLayer, $paths['event']);
-
-    $this->tiles2d = $tiles2d;
-
-    return $map;
+  /** Clears loaded geometry and presentation together for map preview lifecycles. */
+  protected function clearMapGeometry(): void
+  {
+    $this->gameScene->fieldEffects?->clear();
+    $this->tileMap = [];
+    $this->collisionMap = [];
+    $this->layers = null;
+    $this->graphics = null;
+    $this->clearWorldObjects();
+    $this->clearPresentationWorld();
+    $this->calculateMapDimensions();
+    $this->camera->worldSpace = [];
   }
 
   /**
-   * Requires an authored PHP asset without exposing the caller's local scope.
-   *
-   * PHP includes inherit and may mutate variables from the scope that invokes
-   * them. Map assets are executable PHP and commonly use descriptive local
-   * names such as `$map`, `$events`, or `$paths`; loading each file inside a
-   * dedicated static closure prevents those implementation details from
-   * replacing the loader's own state.
-   *
-   * @param string $filename The PHP asset to load.
-   * @return mixed The value returned by the asset.
+   * @param array{id: string, data: string, map: string, event: string} $paths
+   * @return array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet, graphics: ?MapGraphics, occupancy: ?MapPhysicalOccupancy, worldObjects: list<WorldObjectDefinition>}
    */
-  protected function requirePhpFile(string $filename): mixed
+  protected function prepareSplitMapDataFromFiles(array $paths): array
   {
-    return (static function (string $isolatedFilename): mixed {
-      return require $isolatedFilename;
-    })($filename);
-  }
+    $source = MapSourceReader::readFiles($paths);
+    $map = $source['data'];
+    // Validate declared physical data before either loading path can mutate a scene.
+    // Legacy read-only/preview loading still needs no collision dictionary here.
+    $occupancy = array_key_exists(MapPhysicalOccupancy::DATA_KEY, $map)
+      ? MapCollisionResolver::resolveMap($source['layers'], $map)
+      : null;
 
-  /**
-   * Parses a text-based map layer into symbol rows.
-   *
-   * @param string|string[] $layer The raw layer content.
-   * @param string $filename The source filename.
-   * @param string $fieldName The layer label used in validation errors.
-   * @return array<int, string[]> The parsed symbol grid.
-   */
-  protected function parseMapLayer(string|array $layer, string $filename, string $fieldName): array
-  {
-    $rows = match (true) {
-      is_string($layer) => preg_split('/\r\n|\n|\r/', rtrim($layer, "\r\n")) ?: [],
-      default => $layer,
-    };
-
-    if ($rows === []) {
-      return [];
+    if (array_key_exists('tiles2d', $map)) {
+      // Glyph-keyed crops are retired; a map draws graphics from its tileset.
+      Debug::warn("{$paths['id']}/" . basename($paths['data']) . " tiles2d is no longer read; its map shows terminal glyphs until it has a tileset.");
     }
 
-    foreach ($rows as $rowIndex => $row) {
-      if (! is_string($row)) {
-        throw new InvalidArgumentException("{$fieldName} row {$rowIndex} in {$filename} must be a string.");
+    $graphics = null;
+    try {
+      $graphics = MapGraphics::loadFromDirectory(dirname($paths['data']), $paths['id'], $map['tileset'] ?? null,
+        $source['layers'], $this->getAssetRoot(), $map[MapGraphics::SETTINGS_KEY] ?? null);
+    } catch (\Throwable $error) {
+      // Graphics never decide whether a map loads: it shows its terminal glyphs instead.
+      Debug::warn("Map {$paths['id']} graphics are unusable; showing terminal glyphs: " . $error->getMessage());
+    }
+
+    $tileOwners = null;
+    $objects = $map[WorldObjectDefinition::DATA_KEY] ?? null;
+    if ($graphics === null && is_array($objects) && array_any($objects, static fn(mixed $object): bool => is_array($object)
+      && is_array($object['covers'] ?? null) && !empty($object['covers']['tileLayers']))) {
+      $tileLayers = null;
+      try {
+        $tileLayers = MapGraphics::readLayersFromDirectory(dirname($paths['data']), $paths['id'], $source['layers']);
+      } catch (\Throwable $error) {
+        Debug::warn("Map {$paths['id']} graphical ownership is unavailable: " . $error->getMessage());
+      }
+      if ($tileLayers !== null) {
+        // Explicit owners remain provable without tileset pieces; inferred owners remain unknown.
+        $tileOwners = MapGraphics::resolveLayerOwners($map[MapGraphics::SETTINGS_KEY] ?? null,
+          array_column($tileLayers, 'name'), array_column(array_filter($source['layers']->layers,
+            static fn(MapLayer $layer): bool => !$layer->decoration), 'name'), null, $paths['id']);
       }
     }
 
-    return array_map(
-      static fn(string $row): array => TerminalText::visibleSymbols($row),
-      $rows
-    );
+    // Malformed subject/selector ownership refuses before scene mutation; unavailable optional art does not.
+    $worldObjects = WorldObjectDefinition::readMap($map, $source['layers'], $graphics, $tileOwners);
+    return [...$source, 'graphics' => $graphics, 'occupancy' => $occupancy, 'worldObjects' => $worldObjects];
+  }
+
+  /** The project's asset root, where tilesets and their sheets live. */
+  private function getAssetRoot(): string
+  {
+    return Path::join(Path::getCurrentWorkingDirectory(), 'assets');
   }
 
   /**
@@ -813,131 +874,19 @@ class MapManager implements CanRenderAt
    * @param string $filename The event-layer filename.
    * @return void
    */
-  protected function assertEventLayerMatchesTileMap(array $eventLayer, string $filename): void
+  protected function assertEventLayerMatchesTileMap(array $eventLayer, string $filename, ?array $tileMap = null): void
   {
-    if (count($eventLayer) !== count($this->tileMap)) {
-      throw new InvalidArgumentException("Event map {$filename} must have " . count($this->tileMap) . " rows.");
+    $tileMap ??= $this->tileMap;
+    if (count($eventLayer) !== count($tileMap)) {
+      throw new InvalidArgumentException("Event map {$filename} must have " . count($tileMap) . " rows.");
     }
 
-    foreach ($this->tileMap as $rowIndex => $tileRow) {
+    foreach ($tileMap as $rowIndex => $tileRow) {
       $eventRow = $eventLayer[$rowIndex] ?? [];
 
       if (count($eventRow) !== count($tileRow)) {
         throw new InvalidArgumentException("Event map {$filename} row {$rowIndex} must be " . count($tileRow) . " tiles wide.");
       }
     }
-  }
-
-  /**
-   * Resolves event definitions against the event overlay.
-   *
-   * @param array<int|string, array<string, mixed>> $events The map event definitions.
-   * @param array<int, string[]> $eventLayer The parsed event overlay.
-   * @param string $filename The event-layer filename.
-   * @return array<int, array<string, mixed>> The resolved runtime event data.
-   */
-  protected function resolveEventDefinitions(array $events, array $eventLayer, string $filename): array
-  {
-    $areas = $this->extractEventAreas($eventLayer, $filename);
-
-    if ($events === []) {
-      if ($areas !== []) {
-        throw new InvalidArgumentException("Event markers were found in {$filename}, but no event definitions exist in the map data.");
-      }
-
-      return [];
-    }
-
-    $resolvedEvents = [];
-
-    foreach ($events as $marker => $eventDefinition) {
-      if (! is_array($eventDefinition)) {
-        throw new InvalidArgumentException("Invalid event definition found in {$filename}.");
-      }
-
-      if (isset($eventDefinition['area']) && ! is_string($marker)) {
-        $resolvedEvents[] = $eventDefinition;
-        continue;
-      }
-
-      $resolvedMarker = is_string($marker) ? $marker : ($eventDefinition['marker'] ?? null);
-
-      if (! is_string($resolvedMarker) || TerminalText::displayWidth($resolvedMarker) !== 1) {
-        throw new InvalidArgumentException("Events in split map data must be keyed by a single-character marker or declare one explicitly.");
-      }
-
-      $area = $areas[$resolvedMarker] ?? throw new InvalidArgumentException("Event marker '{$resolvedMarker}' was not found in {$filename}.");
-      unset($areas[$resolvedMarker]);
-      $eventDefinition['area'] = $area;
-      $eventDefinition['marker'] = $resolvedMarker;
-      $resolvedEvents[] = $eventDefinition;
-    }
-
-    if ($areas !== []) {
-      $unusedMarkers = implode(', ', array_keys($areas));
-      throw new InvalidArgumentException("Unmapped event markers found in {$filename}: {$unusedMarkers}.");
-    }
-
-    return $resolvedEvents;
-  }
-
-  /**
-   * Extracts rectangular event areas from the event overlay.
-   *
-   * @param array<int, string[]> $eventLayer The parsed event overlay.
-   * @param string $filename The event-layer filename.
-   * @return array<string, array{x: int, y: int, width: int, height: int}> The resolved areas keyed by marker.
-   */
-  protected function extractEventAreas(array $eventLayer, string $filename): array
-  {
-    $bounds = [];
-
-    foreach ($eventLayer as $y => $row) {
-      foreach ($row as $x => $tile) {
-        $marker = TerminalText::stripAnsi($tile);
-
-        if (trim($marker) === '') {
-          continue;
-        }
-
-        if (! isset($bounds[$marker])) {
-          $bounds[$marker] = [
-            'minX' => $x,
-            'maxX' => $x,
-            'minY' => $y,
-            'maxY' => $y,
-          ];
-          continue;
-        }
-
-        $bounds[$marker]['minX'] = min($bounds[$marker]['minX'], $x);
-        $bounds[$marker]['maxX'] = max($bounds[$marker]['maxX'], $x);
-        $bounds[$marker]['minY'] = min($bounds[$marker]['minY'], $y);
-        $bounds[$marker]['maxY'] = max($bounds[$marker]['maxY'], $y);
-      }
-    }
-
-    $areas = [];
-
-    foreach ($bounds as $marker => $markerBounds) {
-      for ($y = $markerBounds['minY']; $y <= $markerBounds['maxY']; $y++) {
-        for ($x = $markerBounds['minX']; $x <= $markerBounds['maxX']; $x++) {
-          $cell = TerminalText::stripAnsi($eventLayer[$y][$x] ?? ' ');
-
-          if ($cell !== $marker) {
-            throw new InvalidArgumentException("Event marker '{$marker}' in {$filename} must occupy a solid rectangle.");
-          }
-        }
-      }
-
-      $areas[$marker] = [
-        'x' => $markerBounds['minX'],
-        'y' => $markerBounds['minY'],
-        'width' => $markerBounds['maxX'] - $markerBounds['minX'] + 1,
-        'height' => $markerBounds['maxY'] - $markerBounds['minY'] + 1,
-      ];
-    }
-
-    return $areas;
   }
 }

@@ -1,16 +1,389 @@
 # Maps, regions, and the map screen
 
-A map lives in its own directory under `assets/Maps`, with its three files
-named after it:
+A map lives in its own directory under `assets/Maps`. Its data and event files
+are named after the directory; its visible geometry can use ordered layers:
 
 ```
-assets/Maps/happyville/town-center/town-center.data.php
-                                   town-center.map.php
-                                   town-center.event.php
+assets/Maps/village/harbour/
+  harbour.data.php
+  harbour.event.php
+  layers/
+    01.ground.map.php
+    02.floor.deco.php
+    03.structures.map.php
+    04.objects.map.php
 ```
 
-The directory path is the map's **id**: `happyville/town-center`. That is what
+The directory path is the map's **id**: `village/harbour`. That is what
 `destinationMap` names, what save files record, and what the map screen uses.
+Layer names and the choice of layers belong to the game, not the Engine.
+A simple layered map needs only one gameplay layer.
+
+Maps without a `layers/` directory continue to load `<name>.map.php` beside
+their data and event files. This legacy format remains supported. An existing
+but empty or invalid `layers/` directory is an error, not a request to fall back
+to the legacy grid.
+
+## Grid source format
+
+Every `.map.php`, `.deco.php` and `.event.php` file returns one literal nowdoc string.
+For example:
+
+```php
+<?php
+
+return <<<'TOWN_MAP'
+####
+#  #
+####
+TOWN_MAP;
+```
+
+A map cell is one terminal character. Coordinates in map data, events,
+cutscenes and saves count those cells, and the player moves one cell per step.
+A graphical renderer keeps this grid: it draws each cell in the terminal's own
+tall shape (see [graphical field](graphical-field.md)).
+
+The delimiter may be any valid nowdoc label. Comments and whitespace outside
+the return are allowed; executable statements, builders, calls, interpolated
+heredocs, arrays and additional returns are not. The Engine parses all grid
+files without executing them, before it evaluates `.data.php`. The Editor uses
+the same parser. An invalid map remains listed with a source diagnostic but is
+read-only; other maps still open and validate. A repaired map becomes editable
+after reopening the project. The Editor rechecks the source before saving,
+duplicating or moving a map, so an external edit cannot be silently rewritten.
+An unchanged canonical grid keeps its source bytes on save. A failed Game map
+transfer leaves the current map and player position intact.
+
+Executable PHP and `string[]` grid values are no longer supported. Map metadata
+in `.data.php` and the project's `collisions.php` remain executable PHP data
+sources; they are not grid files.
+
+### Event markers
+
+An event is placed by painting its marker character on the `.event.php` layer
+and defined under that marker in `.data.php`. The event occupies exactly the
+cells showing its marker, in any shape: a line, an L, or separate placements
+such as a town exit on the east edge and another on the south side, which
+are one event with one identity, conditions and completion. Cells between
+two placements are not part of it, so standing there triggers nothing and an
+unavailable event's `whenBlocked` gate only stops steps onto its own cells.
+A cue shows on each separate placement. Cinematics that name a marker as a
+subject use its first cell in reading order, the top-left of a rectangle.
+
+## Layer order and composition
+
+Layer filenames have the form `NN.name.map.php` for gameplay or
+`NN.name.deco.php` for decoration. The two-digit order is in `00` through `99`,
+and names start with a letter followed by letters, digits, underscores or
+hyphens. Names and order numbers must each be unique within a map. Files are
+discovered from `layers/` and sorted by their numeric prefix; there is no
+second layer list in `.data.php`.
+
+All layers and the root event grid must have the same number of rows and the
+same number of logical symbols on each corresponding row. Existing ragged
+maps are supported: one row may be shorter than another, but that row must have
+the same width on every layer. Do not pad a migration just to make it rectangular.
+Colour markup is not a cell; wide glyphs retain their existing logical-cell and
+terminal-display behavior.
+
+The lowest gameplay layer is the base. Higher gameplay layers replace it only
+where they contain a non-space symbol. A space on an upper layer, including a
+styled space, is empty and shows the lower layer. The topmost occupied cell
+supplies the complete styled symbol. This composed grid is `Camera::worldSpace`
+and is exactly what the terminal renders.
+
+Decoration is never composed into that grid and never contributes collision.
+A decoration layer named in the collision dictionary refuses the map with a
+diagnostic. Interactive objects must be gameplay glyphs or events, never hidden
+decoration. Decoration has no graphical presentation of its own; a graphical
+renderer draws a map from its tile layers (see Graphics). The glyph-keyed tile
+crops (`tiles2d`) are retired: a map data file that still has `tiles2d` loads
+with a warning and shows its terminal glyphs.
+
+## Graphics
+
+A graphical renderer draws a map from its own tile layers, independent of
+its terminal glyphs. The map names an RPG Maker style tileset in its data
+file and keeps one tile identity per terminal cell in `graphics/`.
+
+Tilesets are grouped by the kind of setting they draw, as RPG Maker groups
+its own: one for overworld maps, one for exteriors (towns, fields, roads),
+one for interiors (homes, inns, offices) and one for dungeons (caves, ruins,
+crypts). That setting is the map's kind: every map has one, chosen when the
+map is created, and every map of a kind names the same tileset, so a tileset
+never belongs to one map or one place. The tiles a map can use change only
+when its kind does. The Editor asks a new map's kind, shows it as the
+Inspector's Kind, and warns about a map without one in a project that has
+tilesets; `ichiloto generate:map` takes it as `--kind`.
+
+A tileset's sheets are sorted as RPG Maker sorts them: A1 to A5 for
+structure (water, ground, building exteriors, walls, plain floors), B for the
+main objects, and C to E for more. A tile's identity is its place on its
+sheet, so new art goes into free cells and existing art never moves.
+
+```
+assets/Data/Tilesets/interior.php      # name, sheets A1 to E, above, tables
+assets/Maps/village/harbour/
+  harbour.data.php                      # 'tileset' => 'interior'
+  graphics/
+    01.floor.tiles.php
+    02.furniture.tiles.php
+```
+
+```php
+<?php
+
+return <<<'TILES'
+2816 2816 2816 2816   0   0
+2816 2816 2816 2816  42  43
+TILES;
+```
+
+Each tile layer is a literal nowdoc with one row per map row and one
+whitespace-separated RPG Maker tile identity per cell (`0` is empty); it is
+never executed. A field cell is one whole RPG Maker tile. An autotile (such as
+floor 2816) is composed for its own cell from its neighbours, so an area is
+painted in every cell; any other tile, such as the table above, is drawn whole
+in its cell. An entry naming half a tile (`42L`) is refused, with a message
+asking for whole tiles. The map data may shift a whole tile layer by half a
+cell across or down
+(`'tileLayers' => ['lounge' => ['offset' => [0, -0.5]]]`) so art can sit between
+the cells its terminal footprint allows, and may name the gameplay layer a tile
+layer belongs to (`'floor' => ['movesWith' => 'buildings']`): editors move its
+tiles with that layer's glyphs, and the graphical field hides only that layer's
+glyphs under its tiles. Without a setting, a tile layer belongs to the gameplay
+layer whose tileset pieces write it, when exactly one does.
+Graphics never change
+geometry, collision, events or saves, and unusable graphics or sheets are
+reported while the map shows its terminal glyphs. Autotile shapes are stored in the identities, as RPG Maker
+stores them; `AutotileShape::resolveLayer` chooses them from neighbours for
+authoring tools. See [graphical field](graphical-field.md) for sheets, draw
+bands and animation.
+
+## Physical occupancy
+
+A map may explicitly declare `occupancy` in its `.data.php`. It contains
+zero-based row lists of resolved `CollisionType` cases, with exactly the same
+row lengths as the logical map, including ragged rows:
+
+```php
+'occupancy' => [
+    [CollisionType::NONE, CollisionType::COUNTER, CollisionType::SOLID],
+    [CollisionType::NONE, CollisionType::NONE, CollisionType::SOLID],
+],
+```
+
+This declaration is the sole static passage source for both renderers,
+reachability and shared field previews. Terminal appearance and graphical
+resources do not choose physical cells. Integer cells, mismatched dimensions
+and unresolved `PASS_THROUGH` cases are refused; a malformed declaration never
+falls back to glyph-derived passage.
+
+Only an absent `occupancy` key selects the compatibility rules below. Ordinary
+loads and saves never migrate a map. The GUI's explicit **Separate collision**
+action captures the current resolved cells through the shared Editor session,
+without changing either presentation or current passage. It is source-preserving,
+undoable and saved through the existing transaction. Later glyph/layer appearance
+edits no longer change collision on a converted map. Resize and row/column
+insertion carry its physical cells with geometry and make newly added cells
+`SOLID`; maps without the declaration remain undeclared. Physical painting and
+object-footprint authoring remain separate GUI capabilities, not implied by this
+conversion control.
+
+## Collision dictionaries
+
+The game's `assets/Maps/collisions.php` can combine a flat glyph dictionary with
+optional sections keyed by layer name:
+
+```php
+<?php
+
+use Ichiloto\Engine\Events\Enumerations\CollisionType;
+
+return [
+    ' ' => CollisionType::NONE,
+    '#' => CollisionType::SOLID,
+    ';' => CollisionType::ENCOUNTER,
+    'structures' => [
+        '=' => CollisionType::NONE,          // A bridge overrides the ground.
+        '^' => CollisionType::PASS_THROUGH,  // An awning inherits the ground.
+    ],
+];
+```
+
+A named section overrides the flat dictionary for that layer; otherwise the
+flat entry applies. Unknown glyphs remain solid. Resolution walks gameplay
+layers from top to bottom, skipping upper spaces and `PASS_THROUGH` symbols.
+The first remaining glyph supplies the collision result. If no layer supplies
+a result, the cell is solid; `PASS_THROUGH` is never a final collision value.
+Decoration is excluded entirely. For an undeclared map, collision comes from
+authored symbols and the dictionary, never from colour or graphics.
+
+`CollisionType::COUNTER` marks a counter: solid to movement, but the player
+talks across one cell. A directly faced NPC is still reachable. Otherwise the
+faced cell must be `COUNTER` and the NPC must stand immediately behind it in
+the same cardinal heading. Floor, ordinary walls, the map's edge and a second
+counter cell without an NPC end the reach. An intervening NPC keeps priority;
+the player cannot reach a farther NPC through it (`InteractionReach`).
+
+Multi-cell-counter reach has been removed: the historical any-depth rule is
+superseded by Andrew's 2026-10-07 one-cell instruction. Counters are authored
+one gameplay row deep; wider art or an overhanging front face must not introduce
+another physical counter row. A counter is a gameplay type like any other:
+give the counter's glyph `COUNTER` in the flat dictionary or in the section of
+the layer it is drawn on, without changing how it looks. Graphical tile identity
+and visual offsets do not change collision or talk reach.
+
+## Reachability
+
+Maps, rooms and NPCs change throughout production, so nothing pins where
+content stands. What must hold is that the player is never blocked:
+`Ichiloto\Engine\Field\Reachability\ProjectReachability::analyze($assetRoot)`
+reads every map as the field does (`MapSourceReader` and the collision
+dictionary) and floods it from every place the project brings the player onto
+it, starting from where the game starts:
+
+- the system starting position, and scripted `transfer` commands in common
+  events and cinematics, which can run from anywhere;
+- transfer events, edge triggers and sleep events, once the player can reach
+  the cell that triggers them;
+- scripted transfers in an NPC's lines, once the player can speak to it directly
+  or across one counter cell,
+  and in an event's data, once the event can fire.
+
+An arrival counts only once the player can reach its source, and the spread
+repeats until nothing new is reached, so a door from a map nobody can reach
+leads nowhere.
+
+The flood follows the field's movement rules: one cell at a time in the four
+headings, onto any cell whose collision is not solid and that no NPC stands on.
+Fixed NPCs block their cell; wanderers and NPCs that only appear under
+conditions do not, since story gates are assumed open. Stepping onto a transfer
+or edge trigger leaves the map, so those cells are reached but not walked
+through. Each map's report lists:
+
+- an arrival outside the map, or on a solid or occupied cell (the player can
+  step off a blocked cell, but arrives overlapping it);
+- a map nothing the player can reach brings them onto yet, which is information
+  rather than a blocker (`ReachabilityProblemKind::isBlocking()` is false): a
+  map kept for content still to come strands nobody;
+- an event or edge trigger with no reachable cell, which therefore never fires;
+- a talkable NPC no reachable cell reaches, beside it or across one counter cell by the
+  same rule the field talks by, whose lines nobody can read;
+- an arrival naming a map the project does not have, and a map the field
+  cannot read.
+
+`MapReachability` runs the same analysis on one map's collision grid, events
+and NPCs, for tests with synthetic maps. Its bounded candidate cells use
+`InteractionReach::MAX_COUNTER_CELLS` and `findTalkCell`, the same authority as
+runtime interaction and the action prompt. The Editor's `ReachabilityValidator`
+delegates to `ProjectReachability`; authoring validation therefore uses the same
+one-cell rule, including whether an NPC's scripted transfer can run. This does
+not rewrite existing layouts or make graphical counter art a collision source.
+
+## Editing and migration
+
+The Editor cycles through gameplay, decoration and event layers with independent
+visibility and dimming. Terminal preview shows the composed gameplay grid only.
+Vim, mouse, colour, selection and clipboard operations use the active layer.
+Event colours are authoring aids only; runtime event markers are read without
+colour tags.
+
+Saves transact the whole changed file set. Untouched layer files are not written,
+and unchanged rows preserve their original bytes. Layer create, rename and remove
+participate in undo. Renaming preserves the numeric order without flattening
+the data file. Because a shared collision dictionary may use the old name, the Editor asks for confirmation if a rename changes resolved
+collision; it does not rewrite that dictionary automatically. The first explicit
+layer creation on a legacy map converts its grid.
+
+A game may supply a building catalogue for multi-row facade brushes. The Editor
+reads the catalogue as the shape source rather than keeping copied definitions.
+The game's layer conventions still determine where those brushes belong.
+
+When splitting an existing map, compare its complete styled composed grid and
+every cell's resolved collision before and after. A geometry-preserving split
+does not by itself require a save-content version change. Deliberate changes to
+walls, approaches or safe arrival cells need separate save-compatibility review
+and migrations where old positions become unsafe. Do not hide such changes by
+updating the equivalence baseline.
+
+Inserting blank rows or columns grows a map and moves everything at or beyond
+the insertion line by the inserted count: every terminal, event and tile layer,
+NPC positions and wander areas (an area straddling the line stretches), spawn
+points and transfers into the map from any file, `startingPositions`, and
+coordinates in scripts and cutscenes that run on the map. A regional `station`
+and tile-layer `offset` values are not map cells and never move. The Editor's
+insert command performs this as one transaction and reports every coordinate
+it cannot rewrite from source (a PHP expression, or a script started from
+several maps) for a hand edit. Saves follow through a declarative `mapShifts`
+content migration; see [Versioned save compatibility](save-compatibility.md#declared-map-shifts).
+
+### Regular NPC sprites
+
+Map `npcs` entries may add optional `sprites2d` alongside the existing terminal
+`sprite` and directional `sprites`. It names an RPG Maker character sheet, the
+same contract as the Player: see [field character sheets](rendering/sprite-sheets.md).
+An NPC occupies exactly one field cell. Omit `sprites2d` for terminal-only
+NPCs; an explicit empty array, null, or malformed definition is invalid and
+produces a diagnostic with terminal fallback, without removing the NPC.
+
+```php
+'npcs' => [[
+  'id' => 'village-guide',
+  'name' => 'Guide',
+  'sprite' => '@',
+  'x' => 7, 'y' => 4,
+  'sprites2d' => ['sheet' => 'Graphics/Characters/People.png', 'index' => 3, 'layer' => 100],
+]],
+```
+
+Sheets are project-asset-root-relative PNG paths, not character identities.
+Frame size is read from the image; world layers are 0..999. Shared limits
+require readable root-contained PNGs of at most 16 MiB and 4096 pixels per
+dimension. These are resource limits, not recommended artwork sizes. Missing
+files, invalid headers, unsafe paths, and sheets that do not divide into RPG
+Maker's layout retain terminal art with a warning. Replacing a valid file at the
+same path requires no metadata update; preflight retries changed files.
+Full PNG decoding remains the native renderer's responsibility: a valid header
+with corrupt IDAT data is not detected by this PHP preflight, and recovery from
+that native decode failure is not supplied by the NPC sidecar.
+
+NPCs implement `GraphicalSpriteProviderInterface`.
+`NpcManager::getGraphicalSpriteProviders()` returns exactly the visible,
+cinematically unsuppressed ordinary NPCs; terminal-only providers return a null
+graphical definition. Each terminal fallback uses its provider's named Console
+layer, so graphical replacement masks only that NPC. Presentation IDs are
+map-scoped and use the existing stable NPC `id`; legacy id-less entries receive
+separate entry-based presentation IDs without changing script or save identity.
+Visibility, interaction, collision, conversation writes and movement stay owned
+by the existing NPC logic. Cinematic leases suppress ordinary NPC art until
+released, including while the staged actor is hidden.
+
+The scene advances `NpcManager::advanceGraphicalAnimation($seconds)` alongside
+Player/staged-actor animation, including event routes, and uses
+`stopGraphicalAnimation()` on presentation lifecycle boundaries. Successful
+steps use the shared `CharacterWalkAnimation` (RPG Maker's 1, 2, 1, 0 stride);
+facing, blocked movement, restored staging, and map replacement return to the
+standing frame. Reduced motion retains route outcomes and shows the standing
+frame for each direction. The regular-NPC
+Editor picker and safe source-preserving authoring workflow are coordinated
+separately; runtime support alone does not complete Editor authoring.
+
+### Map-owned interactive fixtures
+
+A fixed interaction can keep its stable NPC `id`, dialogue and position while
+the gameplay layer supplies its appearance. Set that NPC's `sprite` explicitly
+to the empty string (`''`), and omit directional `sprites`. An omitted sprite
+still defaults to `@`; a space is not an empty sprite and would paint over the
+map. The empty sprite writes no cells, leaving both the terminal map glyph and
+its graphical crop visible without a second drawing above them.
+
+Keep the interaction anchored on the visible fixture cell, with a reachable
+approach cell beside it. The NPC still participates in interaction, conditions
+and occupancy. Its conditions control the interaction, not the authored map
+glyph; use a regular NPC sprite for an object whose appearance must move or
+disappear with the NPC. Map-owned fixtures should remain fixed.
 
 ## Regions
 

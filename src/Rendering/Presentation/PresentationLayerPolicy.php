@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Rendering\Presentation;
 
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\Field\MapLayer;
 use Ichiloto\Engine\UI\Enumerations\PresentationPriority;
 use Ichiloto\Engine\UI\Interfaces\LayeredPresentationInterface;
 use InvalidArgumentException;
@@ -11,16 +12,29 @@ use InvalidArgumentException;
 final class PresentationLayerPolicy
 {
   public const TERRAIN = -100;
-  public const TERRAIN_ID = 'terrain';
   public const WORLD = 0;
+  /** Ambient ground light is above map layers and below all character layers. */
+  public const FIELD_EFFECT_BEHIND = -1;
+  /** Foreground effects stay below authored above-character tiles (900..). */
+  public const FIELD_EFFECT_FRONT = 899;
+  public const FIELD_PROMPT_ID = 'field-prompt';
   public const UI = 1000;
-  public const NOTIFICATIONS = 2000;
+  public const CINEMATIC = 2000;
+  public const NOTIFICATIONS = 4000;
   public const TRANSITION = 3000;
 
-  public static function terrain(callable $draw): void
+
+  public static function getMapLayerId(MapLayer $layer): string
   {
-    Console::withLayer(self::TERRAIN_ID, $draw, self::WORLD, replaceUnderlying: true);
+    return 'map:' . $layer->name;
   }
+
+  public static function getMapLayerOrder(MapLayer $layer): int
+  {
+    // Authored two-digit prefixes span 0..99, keeping every map layer below WORLD.
+    return self::TERRAIN + $layer->order;
+  }
+
 
   public static function ui(object $element, callable $draw): void
   {
@@ -30,15 +44,15 @@ final class PresentationLayerPolicy
 
   public static function fieldPrompt(callable $draw): void
   {
-    Console::withLayer('field-prompt', $draw, self::UI + PresentationPriority::FIELD_HUD->value);
+    Console::withLayer(self::FIELD_PROMPT_ID, $draw, self::UI + PresentationPriority::FIELD_HUD->value);
   }
 
   /** @param list<PresentationSprite> $sprites */
   public static function assertWorldSprites(array $sprites): void
   {
     foreach ($sprites as $sprite) {
-      if ($sprite->layer < self::WORLD || $sprite->layer >= self::UI) {
-        throw new InvalidArgumentException('Automatic Game world sprites require layers 0..999; UI layers are reserved.');
+      if ($sprite->layer < self::FIELD_EFFECT_BEHIND || $sprite->layer >= self::UI) {
+        throw new InvalidArgumentException('Automatic Game world sprites require layers -1..999; UI layers are reserved.');
       }
     }
   }

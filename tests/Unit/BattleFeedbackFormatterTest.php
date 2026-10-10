@@ -3,6 +3,9 @@
 use Ichiloto\Engine\Battle\Engines\TurnBasedEngines\Traditional\States\ActionExecutionState;
 use Ichiloto\Engine\Battle\Presentation\BattleFeedbackRole;
 use Ichiloto\Engine\Battle\Resolution\CombatHitResult;
+use Ichiloto\Engine\Battle\Resolution\CombatResolutionRequest;
+use Ichiloto\Engine\Battle\Resolution\CombatResolver;
+use Ichiloto\Engine\Battle\Resolution\CombatResourceChange;
 use Ichiloto\Engine\Battle\Resolution\CombatTargetResult;
 use Ichiloto\Engine\Battle\Resolution\ElementalOutcome;
 use Ichiloto\Engine\Battle\Resolution\ResolutionKind;
@@ -34,6 +37,51 @@ function feedbackFormatterLines(Character $target, int $hp, int $mp, ?CombatTarg
   $state = new ReflectionClass(ActionExecutionState::class)->newInstanceWithoutConstructor();
   return new ReflectionMethod(ActionExecutionState::class, 'buildStatChangePopupLines')->invoke($state, $target, $hp, $mp, $result);
 }
+
+it('shows resolved hit damage independently of remaining HP without changing HP bounds', function (ResolutionKind $kind, int $hp) {
+  $actor = new Character('Actor', 1, new Stats(currentHp: 100, totalHp: 100));
+  $target = new Character('Target', 1, new Stats(currentHp: $hp, totalHp: 800, defence: 0, magicDefence: 0));
+  $hit = new CombatResolver()->resolve(new CombatResolutionRequest(
+    actionId: 'damage', executionId: 'damage:1', actor: $actor, target: $target,
+    rawMagnitude: 400, kind: $kind, baseAccuracy: null, criticalEligible: false,
+  ));
+  $result = new CombatTargetResult(CombatResolver::identity($target), [$hit]);
+  $lines = feedbackFormatterLines($target, $hp, $target->stats->currentMp, $result);
+
+  expect(array_column($lines, 'text'))->toBe($hp < 400 ? ['400', 'KO'] : ['400'])
+    ->and($lines[0]['role'])->toBe(BattleFeedbackRole::DAMAGE)
+    ->and($result->actualHpLost())->toBe(min($hp, 400))
+    ->and($target->stats->currentHp)->toBe(max(0, $hp - 400));
+})->with([ResolutionKind::PHYSICAL_DAMAGE, ResolutionKind::MAGICAL_DAMAGE, ResolutionKind::TRUE_DAMAGE])
+  ->with([800, 200]);
+
+it('sums resolved repeated hits once including the final hits overkill', function () {
+  $actor = new Character('Actor', 1, new Stats(currentHp: 100, totalHp: 100));
+  $target = new Character('Target', 1, new Stats(currentHp: 250, totalHp: 800));
+  $resolver = new CombatResolver();
+  $hits = [];
+  for ($index = 0; $index < 2; $index++) {
+    $hits[] = $resolver->resolve(new CombatResolutionRequest(
+      actionId: 'repeat', executionId: 'repeat:1', actor: $actor, target: $target,
+      rawMagnitude: 200, kind: ResolutionKind::TRUE_DAMAGE, baseAccuracy: null, criticalEligible: false,
+    ));
+  }
+  $result = new CombatTargetResult(CombatResolver::identity($target), $hits);
+  expect(array_column(feedbackFormatterLines($target, 250, $target->stats->currentMp, $result), 'text'))
+    ->toBe(['400', 'KO'])->and($result->actualHpLost())->toBe(250)
+    ->and($hits[1]->overkill)->toBe(150)->and($target->stats->currentHp)->toBe(0);
+});
+
+it('does not double count resource measurements alongside hits and preserves resource-only results', function () {
+  $target = new Character('Target', 1, new Stats(currentHp: 50, totalHp: 100));
+  $change = new CombatResourceChange(hpLost: 50);
+  $typed = new CombatTargetResult('Target', [feedbackFormatterHit(lost: 50)], resourceChange: $change);
+  $resourceOnly = new CombatTargetResult('Target', [], resourceChange: $change);
+  foreach ([$typed, $resourceOnly] as $result) {
+    expect($result->getResolvedHpDamage())->toBe(50)->and($result->actualHpLost())->toBe(50)
+      ->and(array_column(feedbackFormatterLines($target, 100, $target->stats->currentMp, $result), 'text'))->toBe(['50']);
+  }
+});
 
 it('assigns distinct elemental roles at the formatter for typed and legacy outcomes', function ($outcome, $text, $color, $role, $typed) {
   $target = new Character('Target', 1, new Stats(currentHp: 100, totalHp: 100, currentMp: 20, totalMp: 20));

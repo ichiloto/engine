@@ -34,6 +34,8 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
   /** @var array<int, float> Simulated time each battler crossed the ready threshold. */
   protected array $readyTimes = [];
   protected float $gaugeTime = 0.0;
+  /** @var array<int, true> Battlers that completed a turn in the current ATB round. */
+  private array $roundParticipants = [];
 
   /**
    * @var CharacterInterface[] Battlers whose gauges have filled and are ready to act.
@@ -89,6 +91,7 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
       $this->battleConfig->troop,
       $this->battleConfig->ui,
       [],
+      $this->battleConfig->partyRoster,
     );
     $this->resetBattleState($this->turnStateExecutionContext);
     $this->refreshStatusWindow($this->turnStateExecutionContext);
@@ -122,6 +125,7 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
     $this->initiativeSeeds = [];
     $this->readyTimes = [];
     $this->gaugeTime = 0.0;
+    $this->roundParticipants = [];
     $this->encounterAdvantage = EncounterAdvantage::NORMAL;
     $this->openingAlertPending = null;
   }
@@ -249,6 +253,36 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
     $this->setState($this->actionExecutionState);
   }
 
+  public function recordTurnCompletion(TurnStateExecutionContext $context, Turn $turn): void
+  {
+    $this->roundParticipants[spl_object_id($turn->battler)] = true;
+    $living = [...$context->getLivingPartyBattlers(), ...$context->getLivingTroopBattlers()];
+    if ($living !== [] && array_all($living,
+      fn(CharacterInterface $battler): bool => isset($this->roundParticipants[spl_object_id($battler)]))) {
+      $context->roundNumber = max(1, $context->roundNumber) + 1;
+      $this->roundParticipants = [];
+    }
+  }
+
+  public function handlePartyRosterChange(TurnStateExecutionContext $context): void
+  {
+    $participants = $this->getBattleParticipants($context);
+    $ids = array_fill_keys(array_map(spl_object_id(...), $participants), true);
+    $this->readyBattlers = array_values(array_filter($this->readyBattlers,
+      static fn(CharacterInterface $member): bool => isset($ids[spl_object_id($member)])));
+    $this->gaugeValues = array_intersect_key($this->gaugeValues, $ids);
+    $this->initiativeSeeds = array_intersect_key($this->initiativeSeeds, $ids);
+    $this->readyTimes = array_intersect_key($this->readyTimes, $ids);
+    $this->roundParticipants = [];
+    foreach ($context->partyRoster->battlers as $member) {
+      $id = spl_object_id($member);
+      $this->gaugeValues[$id] = 0.0;
+      $this->initiativeSeeds[$id] = $this->randomFloat(0.0, 1.0);
+    }
+    parent::handlePartyRosterChange($context);
+    $this->refreshStatusWindow($context);
+  }
+
   /**
    * Updates the battle status window to show HP, MP, and ATB.
    *
@@ -259,7 +293,7 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
   {
     $context->ui->characterStatusWindow->setAtbPercentages(array_map(
       fn(CharacterInterface $battler): float => $this->getGaugePercentage($battler),
-      $context->party->battlers->toArray(),
+      $context->partyRoster->battlers,
     ));
   }
 
@@ -298,7 +332,7 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
   protected function getBattleParticipants(TurnStateExecutionContext $context): array
   {
     return array_merge(
-      $context->party->battlers->toArray(),
+      $context->partyRoster->battlers,
       $context->troop->members->toArray(),
     );
   }
@@ -311,6 +345,8 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
    */
   protected function resetBattleState(TurnStateExecutionContext $context): void
   {
+    $this->roundParticipants = [];
+    $context->roundNumber = 0;
     $this->readyBattlers = [];
     $this->gaugeValues = [];
     $this->initiativeSeeds = [];
@@ -457,7 +493,7 @@ class ActiveTimeBattleEngine extends TurnBasedEngine
    */
   protected function isPartyBattler(TurnStateExecutionContext $context, CharacterInterface $battler): bool
   {
-    return in_array($battler, $context->party->battlers->toArray(), true);
+    return in_array($battler, $context->partyRoster->battlers, true);
   }
 
   /**

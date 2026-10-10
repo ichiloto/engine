@@ -8,6 +8,7 @@ use Ichiloto\Engine\Battle\Resolution\CombatRandomSource;
 use Ichiloto\Engine\Battle\Resolution\CombatResolver;
 use Ichiloto\Engine\Battle\Resolution\NativeCombatRandomSource;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface as Actor;
+use Ichiloto\Engine\Entities\ItemScope;
 
 /**
  * Class BattleAction. Represents an action that can be executed in a battle.
@@ -20,6 +21,10 @@ abstract class BattleAction implements BattleActionInterface
   protected CombatRandomSource $random;
   protected(set) ?CombatActionResult $lastResult = null;
   private int $executionSequence = 0;
+  /** The command's targeting contract, shared by selection and execution. */
+  public ItemScope $targetScope {
+    get { return new ItemScope(); }
+  }
   /**
    * BattleAction constructor.
    *

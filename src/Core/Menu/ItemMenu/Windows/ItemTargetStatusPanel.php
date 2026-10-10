@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Core\Menu\ItemMenu\Windows;
 
 use Ichiloto\Engine\Core\Rect;
+use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Entities\Character as Target;
 use Ichiloto\Engine\Scenes\Game\States\ItemMenuState;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
@@ -29,7 +30,7 @@ class ItemTargetStatusPanel extends Window
   )
   {
     parent::__construct(
-      'Status',
+      Vocabulary::getTerm('command.status', 'Status'),
       '',
       $area->position,
       $area->size->width,
@@ -65,8 +66,8 @@ class ItemTargetStatusPanel extends Window
     $hp = "{$this->target->stats->currentHp} / {$this->target->stats->totalHp}";
     $mp = "{$this->target->stats->currentMp} / {$this->target->stats->totalMp}";
     $content = [
-      sprintf("Lvl %02d %16s %12s", $this->target->level, 'HP', $hp),
-      sprintf("%23s %12s", 'MP', $mp),
+      sprintf("%s %02d %16s %12s", Vocabulary::getTerm('stats.level', 'Lvl'), $this->target->level, Vocabulary::getTerm('stats.hp', 'HP'), $hp),
+      sprintf("%23s %12s", Vocabulary::getTerm('stats.mp', 'MP'), $mp),
     ];
     $this->setContent($content);
     $this->render();

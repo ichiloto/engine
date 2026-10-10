@@ -34,6 +34,8 @@ final class Debug
 
   public static function warn(mixed $message): void
   {
+    // Recoverable runtime diagnostics remain available in production, without becoming failures themselves.
+    self::writeLine("WARN", $message, "warning.log");
     self::write(self::WARNING, "WARN", $message, "debug.log");
   }
 
@@ -61,9 +63,14 @@ final class Debug
 
   private static function writeLine(string $prefix, mixed $message, string $filename): void
   {
-    if (false === error_log(self::getFormattedMessage($message, $prefix), 3, self::getLogFilePath($filename))) {
-      throw new RuntimeException("Failed to write to the $filename log.");
+    $line = self::getFormattedMessage($message, $prefix);
+    try {
+      $path = @self::getLogFilePath($filename);
+    } catch (RuntimeException) {
+      // Diagnostics must not interrupt play or fall back to the game display.
+      return;
     }
+    @error_log($line, 3, $path);
   }
 
   private static function getFormattedMessage(mixed $message, string $prefix = "DEBUG"): string

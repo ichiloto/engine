@@ -7,7 +7,7 @@ use Exception;
 use Ichiloto\Engine\Entities\Inventory\Inventory;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Entities\Party as Trader;
-use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Localization\Vocabulary;
 
 /**
  * A shop where players can buy and sell items.
@@ -53,7 +53,7 @@ class Shop
     $totalCost = (int) round($item->price * $quantity * $this->traderBuyRate);
 
     if ($trader->accountBalance < $totalCost) {
-      alert('Not enough ' . config(ProjectConfig::class, 'vocab.currency.name', 'Gold') . '!');
+      alert(get_message('shop.insufficient_funds', 'Not enough %1!', Vocabulary::getTerm('currency.name', 'Gold')));
       return;
     }
 

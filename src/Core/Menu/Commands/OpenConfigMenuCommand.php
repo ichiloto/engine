@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Core\Menu\Commands;
 
+use Ichiloto\Engine\Localization\Vocabulary;
+
 use Exception;
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
@@ -23,7 +25,7 @@ class OpenConfigMenuCommand extends MenuItem
    */
   public function __construct(MenuInterface $menu)
   {
-    parent::__construct($menu, 'Config', 'Change the game settings.');
+    parent::__construct($menu, Vocabulary::getTerm('game.options', Vocabulary::getTerm('command.options', 'Config')), 'Change the game settings.');
   }
 
   /**

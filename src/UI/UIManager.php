@@ -158,6 +158,15 @@ class UIManager implements CanRender, CanUpdate, CanResume, CanStart
     $this->pendingPresentationDismissals = [];
   }
 
+  /** Read-only access also covers event-owned modals which do not use ModalManager's stack. */
+  public function getActivePresentations(): array
+  {
+    $active = array_filter(array_reverse($this->presentations, true), static fn($item) =>
+      !$item instanceof \Ichiloto\Engine\UI\Interfaces\ModalInterface || $item->isShowing());
+    uasort($active, static fn($a, $b) => $b->getPresentationPriority()->value <=> $a->getPresentationPriority()->value);
+    return array_values($active);
+  }
+
   /** Returns whether a lower layer currently yields to any intersecting one. */
   public function isSuppressed(LayeredPresentationInterface $presentation): bool
   {

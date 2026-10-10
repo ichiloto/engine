@@ -2,6 +2,9 @@
 
 namespace Ichiloto\Engine\Core\Menu\Commands;
 
+use Ichiloto\Engine\Battle\BattleCommandType;
+use Ichiloto\Engine\Localization\Vocabulary;
+
 use Exception;
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
@@ -23,7 +26,7 @@ class OpenAbilityMenuCommand extends MenuItem
    */
   public function __construct(MenuInterface $menu)
   {
-    parent::__construct($menu, 'Abilities', "View a character's abilities.");
+    parent::__construct($menu, Vocabulary::getTerm('command.' . BattleCommandType::SKILL->value, 'Abilities'), "View a character's abilities.");
   }
 
   /**

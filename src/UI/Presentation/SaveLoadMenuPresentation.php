@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\UI\Presentation;
 
 use Ichiloto\Engine\IO\Saves\SaveSlot;
+use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\UI\Text\MenuInfoText;
@@ -13,11 +14,15 @@ use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
 /** Save records remain owned by SaveManager; this view never reads or writes saves. */
 final class SaveLoadMenuPresentation
 {
+  // Leader details take the broad column; elapsed time remains right-aligned beside them.
+  private const float DETAIL_WIDTH_SHARE = 0.7;
   /** @param list<SaveSlot> $slots */
   public static function compose(array $slots, int $activeIndex, MenuPresentationCatalog $theme,
-    MenuInfoText $info, ?string $status = null, float $time = 0, string $title = 'Continue',
-    string $prompt = 'Choose a save file to continue from.', string $statusColor = 'decrease'): PresentationCanvas
+    MenuInfoText $info, ?string $status = null, float $time = 0, ?string $title = null,
+    ?string $prompt = null, string $statusColor = 'decrease'): PresentationCanvas
   {
+    $title ??= Vocabulary::getTerm('game.load', Vocabulary::getTerm('game.continue', Vocabulary::getTerm('command.continue', 'Continue')));
+    $prompt ??= get_message('prompt.load', 'Choose a save file to continue from.');
     $view = new MenuCanvas($theme, time: $time);
     $box = MenuLayout::getBounds();
     $m = $theme->metrics;
@@ -40,7 +45,7 @@ final class SaveLoadMenuPresentation
       $locationHeight = count(MenuCanvas::wrap($slot->isEmpty ? 'Empty File' : $slot->locationName,
         (int)floor($textWidth / $m->cellWidth))) * $m->cellHeight;
       $details = self::getDetailText($slot);
-      $detailWidth = $slot->isLoadable ? $textWidth * 0.7 : $textWidth;
+      $detailWidth = $slot->isLoadable ? $textWidth * self::DETAIL_WIDTH_SHARE : $textWidth;
       $detailHeight = $details === '' ? 0 : count(MenuCanvas::wrap($details, (int)floor($detailWidth / $m->cellWidth))) * $m->cellHeight;
       $heights[] = max(100, $m->cellHeight + $locationHeight + $detailHeight + $p) + $gap;
     }
@@ -57,7 +62,7 @@ final class SaveLoadMenuPresentation
       $edges = ($theme->frames['panel'] ?? null)?->borderInsets($theme->assetRoot, $card) ?? [4, 4, 4, 4];
       $treatment = new CanvasRectangle($card->x + $edges[0], $card->y + $edges[1],
         $card->width - $edges[0] - $edges[2], $card->height - $edges[1] - $edges[3]);
-      $view->prose($id . '-title', 'File ' . $slot->slot,
+      $view->prose($id . '-title', get_message('file', 'File') . ' ' . $slot->slot,
         new CanvasRectangle($card->x + $p, $card->y + 4, $card->width - 2 * $p, $m->cellHeight), 'accent');
       $identity = new MenuRow('location', $slot->isEmpty ? 'Empty File' : $slot->locationName,
         selected: $index === $activeIndex, focused: $index === $activeIndex);
@@ -69,13 +74,13 @@ final class SaveLoadMenuPresentation
       $detailY = $identityBox->y + $layout->heightFor($identity, $theme->rows->metrics, false);
       if (!$slot->isEmpty) {
         $view->prose($id . '-detail', self::getDetailText($slot),
-          new CanvasRectangle($left, $detailY, $slot->isLoadable ? $textWidth * 0.7 : $textWidth,
+          new CanvasRectangle($left, $detailY, $slot->isLoadable ? $textWidth * self::DETAIL_WIDTH_SHARE : $textWidth,
             $card->y + $card->height - $detailY - 4), $slot->isLoadable ? 'text' : 'decrease');
         if ($slot->isLoadable) {
           $seconds = max(0, $slot->playTimeSeconds);
           $duration = sprintf('%02d:%02d:%02d', intdiv($seconds, 3600), intdiv($seconds % 3600, 60), $seconds % 60);
-          $view->prose($id . '-duration', $duration, new CanvasRectangle($left + $textWidth * 0.7, $detailY,
-            $textWidth * 0.3, $m->cellHeight), alignment: HorizontalAlignment::RIGHT);
+          $view->prose($id . '-duration', $duration, new CanvasRectangle($left + $textWidth * self::DETAIL_WIDTH_SHARE, $detailY,
+            $textWidth * (1 - self::DETAIL_WIDTH_SHARE), $m->cellHeight), alignment: HorizontalAlignment::RIGHT);
         }
       }
       $y += $heights[$index];

@@ -3,11 +3,16 @@
 namespace Ichiloto\Engine\Entities;
 
 use Exception;
-use Ichiloto\Engine\Battle\Actions\AttackAction;
-use Ichiloto\Engine\Battle\BattleAction;
+use Ichiloto\Engine\Battle\BattleCommand;
 use Ichiloto\Engine\Battle\BattleCommandType;
+use Ichiloto\Engine\Battle\BattleCommandLoadout;
+use Ichiloto\Engine\Battle\CounterAttackProvider;
+use Ichiloto\Engine\Battle\CounterAttackRule;
+use Ichiloto\Engine\Battle\HasCounterAttacks;
 use Ichiloto\Engine\Battle\Resolution\ElementalAffinityResolver;
 use Ichiloto\Engine\Entities\Abilities\AbilityBook;
+use Ichiloto\Engine\Entities\Enumerations\WeaponType;
+use Ichiloto\Engine\Entities\Enumerations\Occasion;
 use Ichiloto\Engine\Entities\Interfaces\CanEquip;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Inventory\Accessory;
@@ -26,6 +31,8 @@ use Ichiloto\Engine\Entities\EquipmentOptimization\EquipmentOptimizationPolicyIn
 use Ichiloto\Engine\Entities\EquipmentOptimization\EquipmentOptimizationPolicyRegistry;
 use Ichiloto\Engine\Entities\EquipmentOptimization\EquipmentOptimizationScore;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
+use Ichiloto\Engine\Entities\Skills\BasicSkill;
+use Ichiloto\Engine\Entities\Skills\SkillCatalog;
 use Ichiloto\Engine\Entities\Magic\Spellbook;
 use Ichiloto\Engine\Entities\Roles\CharacterRole;
 use Ichiloto\Engine\Entities\Skills\Skill;
@@ -37,6 +44,9 @@ use Ichiloto\Engine\Entities\Stats\StatResolution;
 use Ichiloto\Engine\Entities\Stats\StatResolver;
 use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Stores\ClassStore;
+use Ichiloto\Engine\Util\Stores\ActorStore;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
 use Ichiloto\Engine\Exceptions\PersistentStateRestoreException;
 use Ichiloto\Engine\Exceptions\SummonAssignmentException;
 use Ichiloto\Engine\IO\SaveCompatibility\SaveHydrationContext;
@@ -47,12 +57,19 @@ use InvalidArgumentException;
  *
  * @package Ichiloto\Engine\Entities
  */
-class Character implements CharacterInterface, CanEquip
+class Character implements CharacterInterface, CanEquip, CounterAttackProvider
 {
   use HasStates {
     getElementMultiplier as private getBaseElementMultiplier;
   }
   use HasStatStages;
+  use HasCounterAttacks { getCounterAttackRules as private getInnateCounterAttackRules; }
+
+  public function __clone(): void
+  {
+    $this->stats = clone $this->stats;
+    $this->cloneStateInstances();
+  }
 
   /**
    * The maximum level.
@@ -164,25 +181,31 @@ class Character implements CharacterInterface, CanEquip
   }
 
   /**
-   * @var BattleAction[] The character's command abilities.
+   * @var BattleCommand[] The character's top-level menu commands.
    */
   public array $commandAbilities {
     get {
       return [
-        new AttackAction(BattleCommandType::ATTACK->label()),
-        new AttackAction(BattleCommandType::SKILL->label()),
-        new AttackAction(BattleCommandType::MAGIC->label()),
-        new AttackAction(BattleCommandType::SUMMON->labelForRole($this->role->name)),
-        new AttackAction(BattleCommandType::ITEM->label()),
-        new AttackAction(BattleCommandType::GUARD->label()),
-        new AttackAction(BattleCommandType::ESCAPE->label()),
+        new BattleCommand(BattleCommandType::ATTACK),
+        new BattleCommand(BattleCommandType::SKILL),
+        new BattleCommand(BattleCommandType::MAGIC),
+        new BattleCommand(BattleCommandType::SUMMON, BattleCommandType::SUMMON->labelForRole($this->role->name)),
+        new BattleCommand(BattleCommandType::ITEM),
+        new BattleCommand(BattleCommandType::GUARD),
+        new BattleCommand(BattleCommandType::ESCAPE),
       ];
     }
   }
+  /** Only fresh sandbox characters receive this; serialization deliberately excludes it. */
+  public ?BattleCommandLoadout $battleCommandLoadout = null;
   /**
    * @var array The character's equipment.
    */
   protected(set) array $equipment = [];
+  /** Project-owned basic weapon style, independent of stat-bearing equipment. */
+  protected(set) ?WeaponType $attackStyle = null;
+  /** Project-owned inherent attack; catalogue membership alone never grants an action. */
+  protected(set) ?BasicSkill $attackSkill = null;
   /**
    * @var string[] The ids of the summons assigned to this character.
    */
@@ -247,6 +270,24 @@ class Character implements CharacterInterface, CanEquip
   protected(set) ?string $naturalVariantId = null;
   /** Stable project actor identity; distinct from the mutable display name. */
   protected(set) string $actorId;
+  private ?string $lastFieldArtworkFailure = null;
+
+  /** Resolve current actor-owned art, never historical images or mutable display names. */
+  public function getGraphicalCharacterSheet(): ?CharacterSheet
+  {
+    $store = ConfigStore::has(ActorStore::class) ? ConfigStore::get(ActorStore::class) : null;
+    $definition = $store instanceof ActorStore ? $store->get($this->actorId) : null;
+    if ($definition === null) {
+      $failure = sprintf('Actor "%s" field artwork unavailable; current actor definition is missing. Keeping terminal sprite.', $this->actorId);
+      if ($failure !== $this->lastFieldArtworkFailure) {
+        Debug::warn($failure);
+        $this->lastFieldArtworkFailure = $failure;
+      }
+      return null;
+    }
+    $this->lastFieldArtworkFailure = null;
+    return $definition->getGraphicalCharacterSheet();
+  }
 
   /**
    * Character constructor.
@@ -280,11 +321,20 @@ class Character implements CharacterInterface, CanEquip
     ?PermanentGrowthLedger $permanentGrowth = null,
     ?string $naturalVariantId = null,
     ?string $actorId = null,
+    ?WeaponType $attackStyle = null,
+    ?BasicSkill $attackSkill = null,
+    ?CounterAttackRule $counterAttack = null,
   )
   {
     $this->maxLevel = $maxLevel;
     $this->currentExp = $currentExp;
     $this->equipment = $equipment;
+    $this->attackStyle = $attackStyle;
+    if ($attackSkill !== null && !in_array($attackSkill->occasion, [Occasion::ALWAYS, Occasion::BATTLE_SCREEN], true)) {
+      throw new InvalidArgumentException('The actor attackSkill must be usable in battle.');
+    }
+    $this->attackSkill = $attackSkill;
+    $this->counterAttack = $counterAttack;
     $this->abilityBook = $abilityBook ?? new AbilityBook();
     $this->spellbook = $spellbook ?? new Spellbook();
     $this->actorNaturalAdjustments = self::normalizeNaturalAdjustments($actorNaturalAdjustments);
@@ -367,6 +417,9 @@ class Character implements CharacterInterface, CanEquip
       isset($data['actorId'])
         ? strval($data['actorId'])
         : (isset($data['id']) ? strval($data['id']) : strval($data['name'] ?? '')),
+      ($data['attackStyle'] ?? null) === null ? null : WeaponType::require($data['attackStyle']),
+      self::resolveAttackSkill($data['attackSkill'] ?? null),
+      CounterAttackRule::fromArray($data['counterAttack'] ?? null),
     );
 
     // Actors reference a class by name (`'class' => 'Vanguard'`); the role
@@ -381,6 +434,18 @@ class Character implements CharacterInterface, CanEquip
     }
 
     return $character;
+  }
+
+  /** @return list<CounterAttackRule> Learned grants are independent of the player's menu sort order. */
+  public function getCounterAttackRules(): array
+  {
+    $rules = $this->getInnateCounterAttackRules();
+    $abilities = $this->abilityBook->getLearnedAbilities();
+    usort($abilities, static fn(Skill $a, Skill $b): int => strcmp($a->name, $b->name));
+    foreach ($abilities as $ability) {
+      if ($ability->counterAttack !== null) { $rules[] = $ability->counterAttack; }
+    }
+    return $rules;
   }
 
   /**
@@ -443,16 +508,39 @@ class Character implements CharacterInterface, CanEquip
       return;
     }
 
-    foreach ($this->equipment as $equipmentSlot) {
-      if ($equipmentSlot->name !== $slot->name) {
+    if ($this->assignEquipment($slot->name, $equipment)) {
+      alert(sprintf("Equipped %s on %s", $equipment->name, $this->name));
+    }
+  }
+
+  /**
+   * Puts equipment in one of the character's slots, or empties the slot
+   * given null, without announcing it: the slot must accept the equipment
+   * and the character must be able to equip it. Callers that speak to the
+   * player announce the change themselves.
+   *
+   * @param string $slotName The slot's name, such as `Weapon`.
+   * @param Equipment|null $equipment The equipment, or null to empty the slot.
+   * @return bool Whether the slot now holds what was asked.
+   */
+  public function assignEquipment(string $slotName, ?Equipment $equipment): bool
+  {
+    foreach ($this->equipment as $slot) {
+      if ($slot->name !== $slotName) {
         continue;
       }
+      if ($equipment !== null && (! $this->canEquip($equipment) || $slot->acceptsType !== $equipment::class
+        || $slot->semanticSlot !== $equipment->semanticSlot)) {
+        return false;
+      }
 
-      $equipmentSlot->equipment = $equipment;
+      $slot->equipment = $equipment;
       $this->adjustStatTotals();
-      alert(sprintf("Equipped %s on %s", $equipment->name, $this->name));
-      return;
+
+      return true;
     }
+
+    return false;
   }
 
   /**
@@ -1128,11 +1216,12 @@ class Character implements CharacterInterface, CanEquip
    */
   protected function bindDataToProperties(array $data): void
   {
+    $this->battleCommandLoadout = null;
     $persistentStates = is_array($data['states'] ?? null) ? $data['states'] : [];
     $roleName = null;
 
     foreach ($data as $key => $value) {
-      if ($key === 'states') {
+      if (in_array($key, ['states', 'battleCommandLoadout', 'attackStyle', 'attackSkill', 'counterAttack'], true)) {
         continue;
       }
 
@@ -1260,6 +1349,21 @@ class Character implements CharacterInterface, CanEquip
       // Recover legacy saves created while the level-cap bug had zeroed the stored vital totals.
       $this->restoreVitals();
     }
+  }
+
+  private static function resolveAttackSkill(mixed $reference): ?BasicSkill
+  {
+    if ($reference === null) {
+      return null;
+    }
+    if (!is_string($reference) || trim($reference) === '') {
+      throw new InvalidArgumentException('The actor attackSkill must be a non-empty skill reference.');
+    }
+    $skill = SkillCatalog::getProjectCatalog()->findSkill($reference);
+    if (!$skill instanceof BasicSkill) {
+      throw new InvalidArgumentException(sprintf('The actor attackSkill "%s" must reference a catalogued BasicSkill.', $reference));
+    }
+    return $skill;
   }
 
   /**

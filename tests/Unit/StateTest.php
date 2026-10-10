@@ -3,6 +3,7 @@
 use Ichiloto\Engine\Entities\States\HasStates;
 use Ichiloto\Engine\Entities\States\State;
 use Ichiloto\Engine\Entities\States\StateInstance;
+use Ichiloto\Engine\Entities\States\StateDisposition;
 use Ichiloto\Engine\Entities\Stats;
 
 function makeAfflictable(int $hp = 100): object
@@ -62,6 +63,27 @@ it('inflicts and cures states', function () {
     ->and($battler->removeState('poison'))->toBeTrue()
     ->and($battler->hasState('poison'))->toBeFalse()
     ->and($battler->removeState('poison'))->toBeFalse();
+});
+
+it('hydrates explicit state dispositions without guessing from names or formulas', function () {
+  expect(poisonState()->disposition)->toBe(StateDisposition::HARMFUL)
+    ->and(State::fromArray(['id' => 'ward', 'disposition' => 'beneficial'])->disposition)->toBe(StateDisposition::BENEFICIAL)
+    ->and(State::fromArray(['id' => 'marker', 'disposition' => StateDisposition::NEUTRAL])->disposition)->toBe(StateDisposition::NEUTRAL)
+    ->and(fn() => State::fromArray(['id' => 'bad', 'disposition' => 'unknown']))->toThrow(InvalidArgumentException::class);
+});
+
+it('recomputes live disposition after cure expiry and battle cleanup', function () {
+  $battler = makeAfflictable();
+  $battler->addState(new State('benefit', 'Beneficial', durationTurns: 2, disposition: StateDisposition::BENEFICIAL));
+  $battler->addState(new State('harm', 'Harmful', durationTurns: 1));
+  expect($battler->getStateDisposition())->toBe(StateDisposition::HARMFUL);
+  $battler->tickStates();
+  expect($battler->getStateDisposition())->toBe(StateDisposition::BENEFICIAL);
+  $battler->tickStates();
+  expect($battler->getStateDisposition())->toBe(StateDisposition::NEUTRAL);
+  $battler->addState(new State('benefit', 'Beneficial', disposition: StateDisposition::BENEFICIAL));
+  $battler->clearBattleStates();
+  expect($battler->getStateDisposition())->toBe(StateDisposition::NEUTRAL);
 });
 
 it('respects immunity through state resistances', function () {

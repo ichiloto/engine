@@ -66,11 +66,15 @@ trait MenuCanvasState
       $modal = isset($game->modalManager) ? $game->modalManager->currentModal : null;
       if ($canvas === null || $modal === null) { return $canvas; }
       if (!$modal->isShowing()) { return $canvas; }
+      if (MenuModalPresentation::requiresSceneComposition($this->getGameScene()->getUI(), $runtime->getAssetRoot())) {
+        return $canvas;
+      }
       $snapshot = $modal instanceof ModalPresentationProviderInterface ? $modal->getModalPresentation() : null;
       if ($snapshot === null) {
         throw new RuntimeException('Active modal ' . $modal::class . ' has no supported menu canvas presentation.');
       }
-      return MenuModalPresentation::compose($canvas, $snapshot, $this->menuTheme, $time);
+      return MenuModalPresentation::compose($canvas, $snapshot, $this->menuTheme, $time,
+        'ui:' . spl_object_id($modal));
     } catch (Throwable $error) {
       if ($this->menuPresentationError !== $error->getMessage()) {
         Debug::error('Menu presentation degraded to terminal: ' . $error->getMessage());

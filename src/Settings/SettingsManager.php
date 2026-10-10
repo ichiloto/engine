@@ -98,7 +98,7 @@ abstract class SettingsManager
   }
 
   /**
-   * Persists the current project configuration to disk.
+   * Persists the current player settings to disk.
    *
    * @return void
    */

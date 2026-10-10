@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use Ichiloto\Engine\Localization\Vocabulary;
+
 use Exception;
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Commands\MenuCommandExecutionContext;
@@ -195,7 +197,9 @@ class EquipmentMenuState extends GameSceneState implements CanvasProviderInterfa
    */
   public function exit(): void
   {
-    // Do nothing
+    if (isset($this->getGameScene()->mainMenuState)) {
+      $this->getGameScene()->mainMenuState->rememberPartyPresentationCharacter($this->character);
+    }
   }
 
   /**
@@ -234,7 +238,7 @@ class EquipmentMenuState extends GameSceneState implements CanvasProviderInterfa
            */
           parent::__construct(
             $menu,
-            'Equip',
+            Vocabulary::getTerm('command.equip', 'Equip'),
             'Equip a character with weapons and armor.',
           );
         }
@@ -408,7 +412,7 @@ class EquipmentMenuState extends GameSceneState implements CanvasProviderInterfa
     $this->characterDetailPanel->render();
     $this->equipmentCommandPanel->render();
     $this->equipmentInfoPanel->render();
-    $this->equipmentAssignmentPanel->setSlots($this->character?->equipment ?? []);
+    $this->equipmentAssignmentPanel->setSlots($this->character?->equipment ?? [], $this->character);
   }
 
   /**
@@ -456,6 +460,6 @@ class EquipmentMenuState extends GameSceneState implements CanvasProviderInterfa
 
     $this->setMode(new EquipmentMenuCommandSelectionMode($this));
     $this->characterDetailPanel->setDetails($this->character);
-    $this->equipmentAssignmentPanel->setSlots($this->character->equipment);
+    $this->equipmentAssignmentPanel->setSlots($this->character->equipment, $this->character);
   }
 }

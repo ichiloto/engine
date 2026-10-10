@@ -5,9 +5,16 @@ namespace Ichiloto\Engine\Field;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Rendering\Sprites\CharacterStep;
+use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Quests\QuestManager;
+use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
+use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
+use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderInterface;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Util\Debug;
+use InvalidArgumentException;
 use RuntimeException;
 
 /**
@@ -43,45 +50,43 @@ class NpcManager
    */
   public function configure(array $entries): void
   {
-    $this->npcs = [];
+    $this->applyPreparedNpcs($this->prepareNpcs($entries, $this->gameScene->currentMapId));
+  }
 
-    foreach ($entries as $entry) {
-      if (! is_array($entry)) {
+  /** Builds a destination's NPC list without changing the current map. */
+  public function prepareNpcs(array $entries, string $mapId): array
+  {
+    $npcs = [];
+    $ids = [];
+
+    foreach (array_values($entries) as $index => $entry) {
+      $placement = NpcPlacement::fromArray($entry);
+
+      if ($placement === null) {
         continue;
       }
 
-      $name = trim(strval($entry['name'] ?? ''));
+      $name = $placement->name;
+      $wanderArea = $placement->wanderArea;
+      $id = $placement->id ?? '';
 
-      if ($name === '' || ! isset($entry['x'], $entry['y'])) {
-        continue;
-      }
-
-      $wanderArea = null;
-
-      if (is_array($entry['wanderArea'] ?? null)) {
-        $wanderArea = [
-          'x' => intval($entry['wanderArea']['x'] ?? 0),
-          'y' => intval($entry['wanderArea']['y'] ?? 0),
-          'width' => max(1, intval($entry['wanderArea']['width'] ?? 1)),
-          'height' => max(1, intval($entry['wanderArea']['height'] ?? 1)),
-        ];
-      }
-
-      $id = trim(strval($entry['id'] ?? ''));
-
-      if ($id !== '' && $this->findById($id) !== null) {
+      if ($id !== '' && isset($ids[$id])) {
         throw new RuntimeException(sprintf(
           'Duplicate NPC id "%s" on map "%s".',
           $id,
-          $this->gameScene->currentMapId,
+          $mapId,
         ));
       }
+      if ($id !== '') {
+        $ids[$id] = true;
+      }
 
-      $this->npcs[] = new Npc(
+      $graphicalSprites = $this->loadGraphicalSprites($entry, $mapId, $id !== '' ? $id : "entry:$index ($name)");
+      $npcs[] = new Npc(
         name: $name,
         sprite: strval($entry['sprite'] ?? '@'),
-        position: new Vector2(intval($entry['x']), intval($entry['y'])),
-        wanders: strval($entry['movement'] ?? 'fixed') === 'wander',
+        position: new Vector2($placement->x, $placement->y),
+        wanders: $placement->wanders,
         wanderArea: $wanderArea,
         dialogue: array_values(array_filter((array) ($entry['dialogue'] ?? []), is_array(...))),
         script: array_values(array_filter((array) ($entry['script'] ?? []), is_array(...))),
@@ -89,8 +94,75 @@ class NpcManager
         sets: array_values(array_filter((array) ($entry['sets'] ?? []), is_array(...))),
         id: $id !== '' ? $id : null,
         directionalSprites: is_array($entry['sprites'] ?? null) ? $entry['sprites'] : [],
+        graphicalSprites: $graphicalSprites,
+        graphicalSpriteId: 'npc:map:' . rawurlencode($mapId) . ':'
+          . ($id !== '' ? 'id:' . rawurlencode($id) : 'entry:' . $index),
+        assetRoot: $graphicalSprites === null ? null
+          : ($this->gameScene->getGame()->getRendererRuntime()?->getAssetRoot() ?? getcwd() . '/assets'),
+        directionFix: ($entry['directionFix'] ?? false) === true,
       );
     }
+
+    return $npcs;
+  }
+
+  /** @param Npc[] $npcs */
+  public function applyPreparedNpcs(array $npcs): void
+  {
+    $this->stopGraphicalAnimation();
+    $this->npcs = $npcs;
+  }
+
+  /** Malformed optional art must not abort map loading or remove a gameplay subject. */
+  private function loadGraphicalSprites(array $entry, string $mapId, string $identity): ?CharacterSheet
+  {
+    if (!array_key_exists('sprites2d', $entry)) {
+      return null;
+    }
+    try {
+      if (!is_array($entry['sprites2d'])) {
+        throw new InvalidArgumentException('sprites2d must be a character sheet definition array.');
+      }
+      $sprites = CharacterSheet::fromArray($entry['sprites2d']);
+      if ($sprites->layer < PresentationLayerPolicy::WORLD || $sprites->layer >= PresentationLayerPolicy::UI) {
+        throw new InvalidArgumentException('Automatic Game world sprites require layers 0..999; UI layers are reserved.');
+      }
+      return $sprites;
+    } catch (InvalidArgumentException $error) {
+      Debug::warn(sprintf('NPC "%s" on map "%s" has invalid sprites2d; keeping terminal sprite: %s',
+        $identity, $mapId, $error->getMessage()));
+      return null;
+    }
+  }
+
+  /** @return list<GraphicalSpriteProviderInterface> Same subjects as ordinary terminal rendering. */
+  public function getGraphicalSpriteProviders(): array
+  {
+    return array_values(array_filter($this->npcs, $this->isPresentationVisible(...)));
+  }
+
+  /** Called alongside the Player/staged-actor tick, including during event routes. */
+  public function advanceGraphicalAnimation(float $seconds): void
+  {
+    foreach ($this->npcs as $npc) {
+      if ($this->isPresentationVisible($npc)) {
+        $npc->advanceGraphicalAnimation($seconds);
+      } else {
+        $npc->stopGraphicalAnimation();
+      }
+    }
+  }
+
+  public function stopGraphicalAnimation(): void
+  {
+    foreach ($this->npcs as $npc) {
+      $npc->stopGraphicalAnimation();
+    }
+  }
+
+  private function isPresentationVisible(Npc $npc): bool
+  {
+    return $this->conditionsHold($npc->conditions) && !($this->gameScene->cinematicStage?->suppresses($npc) ?? false);
   }
 
   /**
@@ -135,8 +207,10 @@ class NpcManager
 
   protected function renderNpc(Npc $npc): void
   {
-    if ($this->conditionsHold($npc->conditions) && !($this->gameScene->cinematicStage?->suppresses($npc) ?? false)) {
-      $this->gameScene->camera->renderOnScreen([$npc->sprite], $npc->position);
+    if ($this->isPresentationVisible($npc)) {
+      Console::withLayer($npc->getGraphicalSpriteId(), function () use ($npc): void {
+        $this->gameScene->camera->renderOnScreen([$npc->sprite], $npc->position);
+      });
     }
   }
 
@@ -203,15 +277,18 @@ class NpcManager
         && intval($player->position->x) === $destinationX
         && intval($player->position->y) === $destinationY)
     ) {
+      $npc->stopGraphicalAnimation();
       $this->gameScene->cinematicStage?->subjectStopped($npc);
       return false;
     }
 
     $this->eraseNpc($npc);
     $npc->face($direction);
+    $origin = clone $npc->position;
     $npc->position->x = $destinationX;
     $npc->position->y = $destinationY;
-    $this->gameScene->cinematicStage?->subjectMoved($npc);
+    $this->beginGraphicalStep($npc, new CharacterStep($origin, $npc->position,
+      $this->gameScene->getStepSeconds($direction)));
     $this->renderNpc($npc);
 
     return true;
@@ -232,12 +309,86 @@ class NpcManager
       ));
     }
 
-    $this->eraseNpc($npc);
-    $npc->face($direction);
-    $this->gameScene->cinematicStage?->subjectStopped($npc);
-    $this->renderNpc($npc);
+    $this->turnNpc($npc, $direction);
 
     return true;
+  }
+
+  /**
+   * Turns an NPC toward a position, as a JRPG NPC turns to the player who
+   * talks to it, remembering its heading so the end of the conversation can
+   * turn it back (see restoreNpcHeadingAfterTalk()). A direction-fixed NPC,
+   * one already in a conversation, or one a cinematic has staged keeps its
+   * heading.
+   *
+   * @param Npc $npc The NPC to turn.
+   * @param Vector2 $position The position to face, normally the player's.
+   * @return bool True when the NPC turned.
+   */
+  public function turnNpcToward(Npc $npc, Vector2 $position): bool
+  {
+    if (
+      $npc->directionFix
+      || $npc->conversationIsActive
+      || ($this->gameScene->cinematicStage?->suppresses($npc) ?? false)
+    ) {
+      return false;
+    }
+
+    $dx = intval($position->x) - intval($npc->position->x);
+    $dy = intval($position->y) - intval($npc->position->y);
+
+    if ($dx === 0 && $dy === 0) {
+      return false;
+    }
+
+    $before = $npc->heading;
+    // The dominant axis picks the cardinal heading; an adjacent talker is always on one axis.
+    $this->turnNpc($npc, abs($dx) >= abs($dy) ? new Vector2($dx <=> 0, 0) : new Vector2(0, $dy <=> 0));
+
+    if ($npc->heading !== $before) {
+      $npc->rememberHeadingBeforeTalk($before);
+    }
+
+    return true;
+  }
+
+  /**
+   * Turns an NPC back to the heading it had before the player talked to it,
+   * as RPG Maker does when the event ends. Nothing happens when the talk
+   * did not turn it, when the conversation itself turned, moved or staged
+   * it (the NPC forgets the heading on any later face() or restored
+   * transform), when a cinematic still stages it, or when it has left the
+   * current map. A wanderer keeps its wander schedule.
+   *
+   * @param Npc $npc The NPC whose conversation ended.
+   * @return bool True when the NPC turned back.
+   */
+  public function restoreNpcHeadingAfterTalk(Npc $npc): bool
+  {
+    $heading = $npc->takeHeadingBeforeTalk();
+
+    if (
+      $heading === null
+      || ! in_array($npc, $this->npcs, true)
+      || ($this->gameScene->cinematicStage?->suppresses($npc) ?? false)
+    ) {
+      return false;
+    }
+
+    $this->turnNpc($npc, $heading->getDirection());
+
+    return true;
+  }
+
+  /** Faces an NPC in place, redrawing its terminal glyph and settling its graphical frame. */
+  private function turnNpc(Npc $npc, Vector2 $direction): void
+  {
+    $this->eraseNpc($npc);
+    $npc->face($direction);
+    $npc->stopGraphicalAnimation();
+    $this->gameScene->cinematicStage?->subjectStopped($npc);
+    $this->renderNpc($npc);
   }
 
   /**
@@ -280,10 +431,23 @@ class NpcManager
 
     $this->eraseNpc($npc);
     $npc->face(new Vector2($dx, $dy));
+    $origin = clone $npc->position;
     $npc->position->x = $destinationX;
     $npc->position->y = $destinationY;
-    $this->gameScene->cinematicStage?->subjectMoved($npc);
+    // A wander pause is not a pace: the step itself walks at field speed.
+    $this->beginGraphicalStep($npc, new CharacterStep($origin, $npc->position,
+      $this->gameScene->getStepSeconds(new Vector2($dx, $dy))));
     $this->renderNpc($npc);
+  }
+
+  private function beginGraphicalStep(Npc $npc, CharacterStep $step): void
+  {
+    if ($this->isPresentationVisible($npc)) {
+      $npc->beginGraphicalStep($step);
+    } else {
+      $npc->stopGraphicalAnimation();
+    }
+    $this->gameScene->cinematicStage?->subjectMoved($npc, $step);
   }
 
   /**

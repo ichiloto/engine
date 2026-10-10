@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Messaging\Dialogue;
 
 use Exception;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowPosition;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 
@@ -15,6 +16,8 @@ use Ichiloto\Engine\Util\Config\ProjectConfig;
  */
 class Dialogue
 {
+  public private(set) DialogueContext $presentation;
+
   /**
    * Creates a new instance of the dialogue.
    *
@@ -28,6 +31,7 @@ class Dialogue
     public readonly array $face = [],
   )
   {
+    $this->presentation = new DialogueContext();
   }
 
   /**
@@ -47,6 +51,7 @@ class Dialogue
         'ui.dialogue.speed',
         config(ProjectConfig::class, 'ui.dialogue.message.speed', 20)
       ),
+      presentation: $this->presentation,
     );
   }
 
@@ -59,11 +64,14 @@ class Dialogue
    */
   public static function fromArray(array $data): static
   {
-    return new static(
+    $presentation = DialogueContext::getFromText($data);
+    $dialogue = new static(
       $data['name'] ?? '',
       $data['text'] ?? throw new RequiredFieldException('text'),
       self::loadFaceData($data['face'] ?? ''),
     );
+    $dialogue->presentation = $presentation;
+    return $dialogue;
   }
 
   /**

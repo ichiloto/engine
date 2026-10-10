@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Core\Menu\Commands;
 
+use Ichiloto\Engine\Localization\Vocabulary;
+
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\MenuItem;
@@ -19,7 +21,7 @@ class OpenTitleOptionsCommand extends MenuItem
    */
   public function __construct(MenuInterface $menu)
   {
-    parent::__construct($menu, 'Options', 'Adjust game settings.');
+    parent::__construct($menu, Vocabulary::getTerm('game.options', Vocabulary::getTerm('command.options', 'Options')), 'Adjust game settings.');
   }
 
   /**

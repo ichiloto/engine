@@ -2,6 +2,9 @@
 
 namespace Ichiloto\Engine\Cutscenes\Cinematics;
 
+use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use InvalidArgumentException;
 use Ichiloto\Engine\Events\Interpreter\MovementRouteRunner;
 
@@ -41,10 +44,19 @@ final class CinematicScriptValidator
       }
 
       if (! in_array($type, CinematicCommandSchema::COMMAND_TYPES, true)) {
-        throw self::failure($cinematicId, $commandPath, sprintf('unknown command type "%s".', $type));
+        $definition = ScriptCommandRegistry::getCatalog()->findDefinition($type)
+          ?? throw self::failure($cinematicId, $commandPath, sprintf('unknown command type "%s".', $type));
+        $problems = $definition->findProblems($command);
+
+        if ($problems !== []) {
+          throw self::failure($cinematicId, $commandPath, implode(' ', $problems));
+        }
+
+        continue;
       }
 
       match ($type) {
+        'text' => self::validateText($command, $cinematicId, $commandPath),
         'sequence' => self::validateRequiredBlock($command, 'commands', $cinematicId, "$commandPath/sequence"),
         'parallel' => self::validateParallel($command, $cinematicId, $commandPath),
         'branch' => self::validateBranch($command, $cinematicId, $commandPath),
@@ -65,6 +77,16 @@ final class CinematicScriptValidator
         'checkpoint' => self::validateStableReference($command, 'name', $cinematicId, $commandPath),
         default => null,
       };
+    }
+  }
+
+  /** @param array<string, mixed> $command */
+  protected static function validateText(array $command, string $cinematicId, string $path): void
+  {
+    try {
+      DialogueContext::getFromText($command);
+    } catch (InvalidArgumentException $error) {
+      throw self::failure($cinematicId, "$path/emotion", $error->getMessage());
     }
   }
 
@@ -226,7 +248,7 @@ final class CinematicScriptValidator
         throw self::failure($cinematicId, $path, 'staged actor sprites2d must be an array.');
       }
       try {
-        CinematicStageManager::graphicalSprites($entry['sprites2d']);
+        CinematicStageManager::getGraphicalSprites($entry['sprites2d']);
       } catch (InvalidArgumentException $error) {
         throw self::failure($cinematicId, "$path/sprites2d", $error->getMessage());
       }
@@ -237,7 +259,8 @@ final class CinematicScriptValidator
       throw self::failure($cinematicId, $path, 'staged actor id is required.');
     }
 
-    if (! array_key_exists('sprite', $entry) && trim(strval($entry['asset'] ?? '')) === '') {
+    if (! array_key_exists('subject', $entry)
+      && ! array_key_exists('sprite', $entry) && trim(strval($entry['asset'] ?? '')) === '') {
       throw self::failure($cinematicId, $path, 'staged actor requires a sprite or asset reference.');
     }
 
@@ -271,12 +294,20 @@ final class CinematicScriptValidator
   }
 
   /** @param array<string, mixed> $command */
-  protected static function validateFieldAnimation(array $command, string $cinematicId, string $path): void
+  public static function validateFieldAnimation(array $command, string $cinematicId, string $path): void
   {
-    $reference = $command['animation'] ?? $command['id'] ?? null;
+    if (array_key_exists('effect', $command)) {
+      if (!is_string($command['effect']) || preg_match(EffectTimelineLibrary::ID_PATTERN, $command['effect']) !== 1
+        || array_key_exists('animation', $command) || array_key_exists('id', $command)
+        || array_key_exists('secondsPerFrame', $command)) {
+        throw self::failure($cinematicId, $path, 'field effect requires one stable timeline identity and uses its authored frame rate.');
+      }
+    } else {
+      $reference = $command['animation'] ?? $command['id'] ?? null;
 
-    if (! is_scalar($reference) || trim(strval($reference)) === '') {
-      throw self::failure($cinematicId, $path, 'field animation reference is required.');
+      if (! is_scalar($reference) || trim(strval($reference)) === '') {
+        throw self::failure($cinematicId, $path, 'field animation reference is required.');
+      }
     }
 
     $target = $command['target'] ?? null;
@@ -415,7 +446,7 @@ final class CinematicScriptValidator
       throw self::failure($cinematicId, $path, sprintf('unsupported subject kind "%s".', $kind !== '' ? $kind : '(empty)'));
     }
 
-    if (in_array($kind, ['npc', 'staged_actor', 'marker'], true)
+    if (in_array($kind, ['npc', 'world_object', 'staged_actor', 'marker'], true)
       && trim(strval($reference['id'] ?? '')) === ''
     ) {
       throw self::failure($cinematicId, $path, sprintf('%s subject requires an id.', $kind));

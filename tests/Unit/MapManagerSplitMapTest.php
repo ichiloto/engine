@@ -1,11 +1,24 @@
 <?php
 
 use Ichiloto\Engine\Field\MapManager;
+use Ichiloto\Engine\Field\NpcManager;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 
 final class SplitMapManagerProbe extends MapManager
 {
+  public ?array $testPaths = null;
+
+  protected function resolveMapPaths(string $filename): array
+  {
+    return $this->testPaths ?? parent::resolveMapPaths($filename);
+  }
+
+  protected function getCollisionDictionary(): array
+  {
+    return [];
+  }
+
   /**
    * @param array{id: string, data: string, map: string, event: string} $paths
    * @return array<string, mixed>
@@ -16,36 +29,105 @@ final class SplitMapManagerProbe extends MapManager
   }
 }
 
-it('loads current optional terrain metadata afresh and rejects malformed presence without changing the map', function () {
+it('loads the terminal map afresh whatever retired tiles2d metadata the data file holds', function () {
   $directory = sys_get_temp_dir() . DIRECTORY_SEPARATOR . uniqid('ichiloto-terrain-map-', true);
   mkdir($directory);
   $paths = ['id'=>'test/terrain','data'=>"$directory/map.data.php",'map'=>"$directory/map.map.php",'event'=>"$directory/map.event.php"];
-  file_put_contents($paths['map'], '<?php return ";~";');
-  file_put_contents($paths['event'], '<?php return "  ";');
+  file_put_contents($paths['map'], "<?php\nreturn <<<'MAP'\n;~\nMAP;\n");
+  file_put_contents($paths['event'], "<?php\nreturn <<<'EVENT'\n  \nEVENT;\n");
   $manager = new ReflectionClass(SplitMapManagerProbe::class)->newInstanceWithoutConstructor();
   $scene = new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();
   $camera = new Camera(makeCameraTestScene(),8,4);
   new ReflectionProperty(GameScene::class,'camera')->setValue($scene,$camera);
   new ReflectionProperty(MapManager::class,'gameScene')->setValue($manager,$scene);
+  $debug = new ReflectionClass(\Ichiloto\Engine\Util\Debug::class)->getStaticProperties();
+  \Ichiloto\Engine\Util\Debug::configure(['log_directory' => $directory]);
   try {
+    // Glyph-keyed crops are retired: any tiles2d value, even a malformed one, is ignored.
     foreach ([null, 'one.png', 'two.png', null] as $asset) {
       $data = ['name'=>'Test'];
       if ($asset !== null) { $data['tiles2d'] = ['asset'=>$asset,'symbols'=>[';'=>['x'=>0,'y'=>0,'width'=>16,'height'=>32]]]; }
       file_put_contents($paths['data'], '<?php return ' . var_export($data,true) . ';');
       $manager->readSplitMap($paths);
-      expect($manager->tiles2d?->asset)->toBe($asset)->and($manager->tileMap)->toBe([[';','~']])
-        ->and($camera->worldSpace)->toBe($manager->tileMap);
+      expect($manager->tileMap)->toBe([[';','~']])->and($camera->worldSpace)->toBe($manager->tileMap);
     }
     file_put_contents($paths['data'], '<?php return ["tiles2d"=>null];');
-    expect(fn()=>$manager->readSplitMap($paths))->toThrow(InvalidArgumentException::class, 'map.data.php tiles2d:')
-      ->and($manager->tiles2d)->toBeNull()->and($manager->tileMap)->toBe([[';','~']]);
+    $manager->readSplitMap($paths);
+    expect($manager->tileMap)->toBe([[';','~']])
+      ->and(substr_count(file_get_contents($directory . '/warning.log'), 'tiles2d is no longer read'))->toBe(3);
   } finally {
+    foreach ($debug as $name => $value) { new ReflectionProperty(\Ichiloto\Engine\Util\Debug::class, $name)->setValue(null, $value); }
+    foreach (['warning.log', 'debug.log'] as $log) { if (is_file("$directory/$log")) { unlink("$directory/$log"); } }
     foreach (['data','map','event'] as $key) { unlink($paths[$key]); }
     rmdir($directory);
   }
 });
 
-it('isolates authored map variables from split-map loader state', function () {
+it('prepares a destination without touching the active map and refuses a bad event layer', function (): void {
+  $directory = sys_get_temp_dir() . '/ichiloto-map-preflight-' . bin2hex(random_bytes(8));
+  mkdir($directory);
+  $paths = [
+    'id' => 'test/destination',
+    'data' => $directory . '/destination.data.php',
+    'map' => $directory . '/destination.map.php',
+    'event' => $directory . '/destination.event.php',
+  ];
+  file_put_contents($paths['data'], "<?php return ['name' => 'Destination', 'events' => []];");
+  file_put_contents($paths['map'], "<?php return <<<'MAP'\n..\nMAP;");
+  file_put_contents($paths['event'], "<?php return <<<'EVENT'\n  \nEVENT;");
+
+  try {
+    $manager = (new ReflectionClass(SplitMapManagerProbe::class))->newInstanceWithoutConstructor();
+    $scene = (new ReflectionClass(GameScene::class))->newInstanceWithoutConstructor();
+    $camera = new Camera(makeCameraTestScene(), 8, 4, worldSpace: [['old']]);
+    new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
+    new ReflectionProperty(MapManager::class, 'gameScene')->setValue($manager, $scene);
+    $manager->testPaths = $paths;
+
+    $prepared = $manager->prepareMap('ignored');
+    expect($prepared->tiles)->toBe([['.', '.']])
+      ->and($manager->tileMap)->toBe([])
+      ->and($camera->worldSpace)->toBe([['old']]);
+
+    file_put_contents($paths['event'], "<?php return <<<'EVENT'\nX\nEVENT;");
+    expect(fn () => $manager->prepareMap('ignored'))->toThrow(InvalidArgumentException::class, 'must be 2 tiles wide')
+      ->and($manager->tileMap)->toBe([])
+      ->and($camera->worldSpace)->toBe([['old']]);
+
+    file_put_contents($paths['event'], "<?php return <<<'EVENT'\n  \nEVENT;");
+    file_put_contents($paths['data'], <<<'PHP'
+<?php return ['name' => 'Destination', 'events' => [], 'npcs' => [
+  ['id' => 'duplicate', 'name' => 'First', 'x' => 0, 'y' => 0],
+  ['id' => 'duplicate', 'name' => 'Second', 'x' => 1, 'y' => 0],
+]];
+PHP);
+    $npcManager = new NpcManager($scene);
+    new ReflectionProperty(GameScene::class, 'npcManager')->setValue($scene, $npcManager);
+    $npcManager->configure([['id' => 'original', 'name' => 'Original', 'x' => 0, 'y' => 0]]);
+    expect(fn () => $manager->prepareMap('ignored'))->toThrow(RuntimeException::class, 'Duplicate NPC id')
+      ->and($npcManager->npcs)->toHaveCount(1)
+      ->and($npcManager->npcs[0]->id)->toBe('original')
+      ->and($manager->tileMap)->toBe([])
+      ->and($camera->worldSpace)->toBe([['old']]);
+
+    unlink($paths['event']);
+    try {
+      $manager->prepareMap('ignored');
+      throw new RuntimeException('Missing event grid was accepted.');
+    } catch (\Ichiloto\Engine\Exceptions\NotFoundException $error) {
+      expect($error->getMessage())->toContain('test/destination/destination.event.php')
+        ->not->toContain($directory);
+    }
+    file_put_contents($paths['event'], "<?php return <<<'EVENT'\n  \nEVENT;");
+  } finally {
+    foreach (['data', 'map', 'event'] as $member) {
+      unlink($paths[$member]);
+    }
+    rmdir($directory);
+  }
+});
+
+it('removes executable grid sources from the split-map contract', function () {
   $directory = sys_get_temp_dir() . DIRECTORY_SEPARATOR . uniqid('ichiloto-split-map-', true);
   mkdir($directory, 0777, true);
 
@@ -70,7 +152,7 @@ return [
 ];
 PHP);
 
-  // This local name deliberately matches MapManager's `$map` data variable.
+  // The former executable source shape is refused, not evaluated.
   file_put_contents($paths['map'], <<<'PHP'
 <?php
 
@@ -79,11 +161,7 @@ $map = "  \n  ";
 return $map;
 PHP);
 
-  file_put_contents($paths['event'], <<<'PHP'
-<?php
-
-return "A \n  ";
-PHP);
+  file_put_contents($paths['event'], "<?php\nreturn <<<'EVENT'\nA \n  \nEVENT;\n");
 
   try {
     $manager = (new ReflectionClass(SplitMapManagerProbe::class))->newInstanceWithoutConstructor();
@@ -93,17 +171,13 @@ PHP);
     (new ReflectionProperty(GameScene::class, 'camera'))->setValue($gameScene, $camera);
     (new ReflectionProperty(MapManager::class, 'gameScene'))->setValue($manager, $gameScene);
 
-    $mapData = $manager->readSplitMap($paths);
-
-    expect($mapData['name'])->toBe('Collision Test')
-      ->and($mapData['events'])->toHaveCount(1)
-      ->and($mapData['events'][0]['marker'])->toBe('A')
-      ->and($mapData['events'][0]['area'])->toBe([
-        'x' => 0,
-        'y' => 0,
-        'width' => 1,
-        'height' => 1,
-      ]);
+    try {
+      $manager->readSplitMap($paths);
+      throw new RuntimeException('Executable grid source was accepted.');
+    } catch (InvalidArgumentException $error) {
+      expect($error->getMessage())->toContain('test/colliding-map/colliding-map.map.php: found T_VARIABLE at line 3')
+        ->not->toContain($directory);
+    }
   } finally {
     foreach (['data', 'map', 'event'] as $type) {
       if (is_file($paths[$type])) {
@@ -116,3 +190,33 @@ PHP);
     }
   }
 });
+
+it('refuses either executable grid before evaluating the map data file', function (string $member): void {
+  $directory = sys_get_temp_dir() . '/ichiloto-grid-gate-' . bin2hex(random_bytes(8));
+  mkdir($directory);
+  $marker = $directory . '/executed';
+  $paths = [
+    'id' => 'test/gate',
+    'data' => $directory . '/gate.data.php',
+    'map' => $directory . '/gate.map.php',
+    'event' => $directory . '/gate.event.php',
+  ];
+  file_put_contents($paths['data'], '<?php file_put_contents(' . var_export($marker, true) . ", 'yes'); return []; ");
+  file_put_contents($paths['map'], "<?php return <<<'MAP'\nx\nMAP;");
+  file_put_contents($paths['event'], "<?php return <<<'EVENT'\n \nEVENT;");
+  file_put_contents($paths[$member], '<?php file_put_contents(' . var_export($marker, true) . ", 'yes'); return 'x';");
+
+  try {
+    $manager = (new ReflectionClass(SplitMapManagerProbe::class))->newInstanceWithoutConstructor();
+    expect(fn() => $manager->readSplitMap($paths))->toThrow(InvalidArgumentException::class, 'literal nowdoc');
+    expect(is_file($marker))->toBeFalse();
+  } finally {
+    foreach (['data', 'map', 'event'] as $type) {
+      unlink($paths[$type]);
+    }
+    if (is_file($marker)) {
+      unlink($marker);
+    }
+    rmdir($directory);
+  }
+})->with(['map', 'event']);

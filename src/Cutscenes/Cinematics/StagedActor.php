@@ -2,27 +2,38 @@
 
 namespace Ichiloto\Engine\Cutscenes\Cinematics;
 
+use Ichiloto\Engine\Animations\Field\FieldPoseAnimation;
+use Ichiloto\Engine\Animations\Field\FieldPosePlayback;
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Vector2;
-use Ichiloto\Engine\Rendering\Sprites\DirectionalGraphicalSpriteSet;
+use Ichiloto\Engine\Field\WorldObject;
+use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
+use Ichiloto\Engine\Rendering\FieldMetric;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteMotion;
+use Ichiloto\Engine\Rendering\Sprites\CharacterSheetAssetGuard;
+use Ichiloto\Engine\Rendering\Sprites\CharacterStep;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderInterface;
-use Ichiloto\Engine\Rendering\Sprites\SpriteWalkAnimation;
+use Ichiloto\Engine\Rendering\Sprites\CharacterWalkAnimation;
+use Ichiloto\Engine\Rendering\Sprites\FieldSpriteRole;
+use Ichiloto\Engine\UI\Accessibility;
 
 /** A temporary field participant owned by one cinematic. */
 final class StagedActor implements GraphicalSpriteProviderInterface
 {
   public MovementHeading $facing {
-    get => $this->subject?->subject->heading ?? $this->localFacing;
+    get => $this->subject?->subject instanceof WorldObject ? $this->localFacing : ($this->subject?->subject->heading ?? $this->localFacing);
   }
   public Vector2 $position {
     get => $this->subject !== null ? clone $this->subject->subject->position : $this->localPosition;
   }
   public array $sprite {
     get {
+      if ($this->subject?->subject instanceof WorldObject) { return []; }
       $sprite = $this->directionalSprites[$this->facing->name]
         ?? $this->directionalSprites[strtolower($this->facing->name)] ?? null;
-      return is_array($sprite) && $sprite !== [] ? array_values(array_map('strval', $sprite)) : $this->baseSprite;
+      return is_array($sprite) && $sprite !== [] ? array_values(array_map('strval', $sprite))
+        : ($this->baseSprite ?? (array)$this->subject?->subject->sprite);
     }
   }
   public bool $isVisible {
@@ -30,46 +41,62 @@ final class StagedActor implements GraphicalSpriteProviderInterface
   }
   private MovementHeading $localFacing;
   private Vector2 $localPosition;
-  private array $baseSprite;
+  private ?array $baseSprite;
   private bool $visible;
   private bool $released = false;
-  private SpriteWalkAnimation $walkAnimation;
+  private CharacterWalkAnimation $walkAnimation;
+  private ?CharacterSheetAssetGuard $graphicalAssetGuard = null;
+  private ?FieldPosePlayback $posePlayback = null;
+  private ?FieldSpriteRole $worldObjectRole = null;
 
   /**
-   * @param string[] $sprite
+   * @param string[]|null $sprite Null inherits the bound subject's current terminal role.
    * @param array<string, string[]> $directionalSprites
    */
   public function __construct(
     public readonly string $id,
-    array $sprite,
+    ?array $sprite,
     Vector2 $position,
     bool $isVisible = true,
     protected(set) bool $hasCollision = false,
     protected(set) array $directionalSprites = [],
     MovementHeading $facing = MovementHeading::SOUTH,
     public readonly ?string $assetReference = null,
-    private readonly GraphicalSpriteDefinition|DirectionalGraphicalSpriteSet|null $graphicalSprites = null,
+    private readonly GraphicalSpriteDefinition|CharacterSheet|FieldPoseAnimation|null $graphicalSprites = null,
     public readonly ?CinematicSubjectLease $subject = null,
     /** @var CinematicSubjectLease[] */
     public readonly array $suppressedSubjects = [],
+    ?string $assetRoot = null,
   )
   {
     $this->localFacing = $facing;
     $this->localPosition = $position;
     $this->baseSprite = $sprite;
     $this->visible = $isVisible;
-    $this->walkAnimation = new SpriteWalkAnimation();
+    $this->walkAnimation = new CharacterWalkAnimation();
+    if ($subject?->subject instanceof WorldObject && $graphicalSprites !== null) {
+      $this->worldObjectRole = new FieldSpriteRole($graphicalSprites, $assetRoot ?? getcwd() . '/assets', 'Staged actor ' . $id);
+    } elseif ($graphicalSprites instanceof CharacterSheet || ($graphicalSprites === null && $subject !== null)) {
+      $this->graphicalAssetGuard = new CharacterSheetAssetGuard($assetRoot ?? getcwd() . '/assets', 'Staged actor ' . $id);
+    }
+    if ($graphicalSprites instanceof FieldPoseAnimation && !($subject?->subject instanceof WorldObject)) {
+      $this->posePlayback = new FieldPosePlayback($graphicalSprites, $assetRoot ?? getcwd() . '/assets', 'Staged actor ' . $id);
+    }
   }
 
   public function show(): void
   {
     $this->visible = true;
+    $this->posePlayback?->resume();
+    $this->worldObjectRole?->resume();
   }
 
   public function hide(): void
   {
     $this->visible = false;
     $this->walkAnimation->stop();
+    $this->posePlayback?->pause();
+    $this->worldObjectRole?->pause();
   }
 
   public function face(Vector2 $direction): void
@@ -79,13 +106,16 @@ final class StagedActor implements GraphicalSpriteProviderInterface
     $this->setFacing($direction);
   }
 
-  public function move(Vector2 $direction): void
+  /** @param float|null $stepSeconds How long the step takes to show; the field walking time when null. */
+  public function move(Vector2 $direction, ?float $stepSeconds = null): void
   {
     $this->assertIndependentMotion();
     $this->setFacing($direction);
+    $origin = clone $this->position;
     $this->position->x += $direction->x;
     $this->position->y += $direction->y;
-    $this->beginGraphicalStep();
+    $this->beginGraphicalStep(new CharacterStep($origin, $this->position,
+      $stepSeconds ?? new FieldMetric()->getWalkSeconds($direction)));
   }
 
   private function setFacing(Vector2 $direction): void
@@ -106,8 +136,8 @@ final class StagedActor implements GraphicalSpriteProviderInterface
 
   public function getGraphicalSpriteDefinition(): ?GraphicalSpriteDefinition
   {
-    $definition = $this->directionDefinition();
-    return !$this->isVisible || $definition === null ? null : $this->walkAnimation->present($definition);
+    if (!$this->isVisible) { return null; }
+    return $this->getFrameDefinition();
   }
 
   public function getGraphicalSpriteWorldPosition(): Vector2
@@ -115,28 +145,68 @@ final class StagedActor implements GraphicalSpriteProviderInterface
     return clone $this->position;
   }
 
-  public function beginGraphicalStep(): void
+  public function getGraphicalSpriteMotion(): ?PresentationSpriteMotion
   {
-    $definition = $this->directionDefinition();
-    if ($this->isVisible && $definition !== null) {
-      $this->walkAnimation->step($definition);
+    return $this->isVisible ? $this->walkAnimation->getMotion($this->position) : null;
+  }
+
+  /** Any visible art slides; only a character sheet also walks through its frames. */
+  public function beginGraphicalStep(CharacterStep $step): void
+  {
+    if ($this->isVisible && $this->getGraphicalSprites() !== null) {
+      $this->walkAnimation->step($step);
     }
   }
 
   public function advanceGraphicalAnimation(float $seconds): void
   {
     $this->walkAnimation->advance($seconds);
+    if ($this->isVisible) {
+      $this->posePlayback?->advance($seconds, Accessibility::prefersReducedMotion());
+      $this->worldObjectRole?->advance($seconds);
+    }
   }
 
-  private function directionDefinition(): ?GraphicalSpriteDefinition
+  private function getFrameDefinition(): ?GraphicalSpriteDefinition
   {
-    return $this->graphicalSprites instanceof DirectionalGraphicalSpriteSet
-      ? $this->graphicalSprites->getForHeading($this->facing) : $this->graphicalSprites;
+    if ($this->subject?->subject instanceof WorldObject) {
+      return $this->worldObjectRole !== null ? $this->worldObjectRole->getFrame($this->subject->subject->definition->pivot)
+        : $this->subject->subject->getGraphicalSpriteDefinition();
+    }
+    $sprites = $this->getGraphicalSprites();
+    if ($sprites instanceof FieldPoseAnimation) {
+      return $this->posePlayback?->getFrame(Accessibility::prefersReducedMotion());
+    }
+    if (!$sprites instanceof CharacterSheet) {
+      return $sprites;
+    }
+    $frame = $this->graphicalAssetGuard?->getFrameSize($sprites);
+    return $frame === null ? null
+      : $sprites->getFrame($this->facing, $this->walkAnimation->getPattern(), $frame);
+  }
+
+  /** Explicit cast art stays fixed; an inherited role follows its real subject. */
+  private function getGraphicalSprites(): GraphicalSpriteDefinition|CharacterSheet|FieldPoseAnimation|null
+  {
+    return $this->graphicalSprites ?? ($this->subject?->subject instanceof WorldObject
+      ? $this->subject->subject->getGraphicalSpriteDefinition() : $this->subject?->subject->getGraphicalCharacterSheet());
   }
 
   public function stopGraphicalAnimation(): void
   {
     $this->walkAnimation->stop();
+  }
+
+  public function pauseGraphicalAnimation(): void
+  {
+    $this->walkAnimation->stop();
+    $this->posePlayback?->pause();
+    $this->worldObjectRole?->pause();
+  }
+
+  public function resumeGraphicalAnimation(): void
+  {
+    if ($this->visible) { $this->posePlayback?->resume(); $this->worldObjectRole?->resume(); }
   }
 
   /** Hidden leases still suppress ordinary art; ineligible subjects do not. */
@@ -157,6 +227,8 @@ final class StagedActor implements GraphicalSpriteProviderInterface
   {
     $this->released = true;
     $this->walkAnimation->stop();
+    $this->posePlayback?->release();
+    $this->worldObjectRole?->release();
   }
 
   private function assertIndependentMotion(): void

@@ -18,10 +18,12 @@ use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
+use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Scenes\AbstractScene;
 use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Ichiloto\Engine\UI\SelectionStyle;
+use Ichiloto\Engine\UI\Text\MenuInfoText;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\SaveSlotWindow;
 use Ichiloto\Engine\UI\Windows\Window;
@@ -43,6 +45,7 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
   protected const int TITLE_OPTIONS_MIN_WIDTH = 34;
   protected const int TITLE_OPTIONS_HORIZONTAL_PADDING = 4;
   protected const int TITLE_OPTIONS_COLUMN_GAP = 2;
+  protected const int TITLE_OPTIONS_STATUS_ROWS = 2;
   protected const string TITLE_OPTIONS_TITLE = 'Options';
   protected const string TITLE_OPTIONS_HELP = 'Esc:Back';
   protected const int CONTINUE_MENU_WIDTH = 110;
@@ -441,7 +444,7 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
     ['width' => $width, 'height' => $height] = $this->resolveOptionsWindowSize();
 
     $this->optionsWindow = new Window(
-      self::TITLE_OPTIONS_TITLE,
+      $this->getOptionsMenuTitle(),
       self::TITLE_OPTIONS_HELP,
       new Vector2(
         max(0, intdiv(get_screen_width() - $width, 2)),
@@ -467,7 +470,7 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
     $topMargin = max(0, intdiv(get_screen_height() - $menuHeight, 2));
 
     $this->continueInfoWindow = new Window(
-      'Continue',
+      $this->getContinueMenuTitle(),
       '',
       new Vector2($leftMargin, $topMargin),
       $width,
@@ -612,7 +615,7 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
   {
     $this->refreshContinueSlots();
     $this->continueInfoWindow?->setContent([
-      'Choose a save file to continue from.',
+      get_message('prompt.load', 'Choose a save file to continue from.'),
     ]);
     $this->continueInfoWindow?->render();
 
@@ -651,8 +654,8 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
       $this->optionsManager->cycle($option, $step);
       $this->optionStatusMessage = null;
     } catch (Throwable $error) {
-      $this->optionStatusMessage = 'Could not save settings: ' . $error->getMessage();
-      Debug::error($this->optionStatusMessage);
+      Debug::warn('Could not save title settings: ' . $error->getMessage());
+      $this->optionStatusMessage = "Could not save settings.\nChoice kept for this session.";
     }
     $this->renderOptionsMenu();
   }
@@ -725,6 +728,8 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
     }
 
     $content[] = $backLine;
+    $status = ($this->titleInfoText ??= new MenuInfoText())->getPage('', $this->optionStatusMessage, $availableWidth);
+    array_push($content, ...array_pad($status->lines, self::TITLE_OPTIONS_STATUS_ROWS, ''));
 
     $this->optionsWindow->setContent(array_pad($content, $windowHeight - 2, ''));
     $this->optionsWindow->render();
@@ -742,15 +747,28 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
     $width = max(
       self::TITLE_OPTIONS_MIN_WIDTH,
       $contentWidth + self::TITLE_OPTIONS_HORIZONTAL_PADDING,
-      TerminalText::displayWidth(self::TITLE_OPTIONS_TITLE) + 3,
+      TerminalText::displayWidth($this->getOptionsMenuTitle()) + 3,
       TerminalText::displayWidth(self::TITLE_OPTIONS_HELP) + 3,
     );
-    $height = count($this->options) + 3;
+    $height = count($this->options) + 3 + self::TITLE_OPTIONS_STATUS_ROWS;
 
     return [
       'width' => min(get_screen_width(), $width),
       'height' => min(get_screen_height(), $height),
     ];
+  }
+
+  /**
+   * Returns the shared Terminal and canvas options heading.
+   */
+  protected function getOptionsMenuTitle(): string
+  {
+    return Vocabulary::getTerm('game.options', Vocabulary::getTerm('command.options', self::TITLE_OPTIONS_TITLE));
+  }
+
+  protected function getContinueMenuTitle(): string
+  {
+    return Vocabulary::getTerm('game.continue', Vocabulary::getTerm('command.continue', 'Continue'));
   }
 
   /**
@@ -870,10 +888,11 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
       }
 
       $currentScene->configure($gameConfig);
-    } catch (Throwable) {
+    } catch (Throwable $error) {
       $sceneManager->loadScene(self::class);
       $this->openContinueMenu();
-      $this->continueStatusMessage = "That save file cannot be loaded.";
+      $this->continueStatusMessage = 'Continue unavailable: ' . $error->getMessage();
+      Debug::warn($this->continueStatusMessage);
       $this->renderContinueMenu();
     }
   }

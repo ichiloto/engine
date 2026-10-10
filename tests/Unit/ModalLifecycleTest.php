@@ -142,6 +142,8 @@ final class PositionedTextBoxModalProbe extends TextBoxModal
   {
     return array_map(static fn(string $page): int => count(explode("\n", $page)), $this->messagePages);
   }
+
+  public function advancePage(): void { $this->submit(); }
 }
 
 beforeEach(function () {
@@ -377,7 +379,7 @@ it('left aligns prose and speech inside their independently positioned boxes', f
   ['Kaelion', WindowPosition::TOP, WindowPosition::TOP],
 ]);
 
-it('measures wrapped dialogue before bottom anchoring it inside the screen', function () {
+it('removes dialogue height growth and moves the fourth line to the next page', function () {
   $game = (new ReflectionClass(Game::class))->newInstanceWithoutConstructor();
   $modal = new PositionedTextBoxModalProbe(
     $game,
@@ -394,12 +396,20 @@ it('measures wrapped dialogue before bottom anchoring it inside the screen', fun
   ob_end_clean();
   $rendered = array_map(TerminalText::stripAnsi(...), Console::getBuffer());
 
-  expect($height)->toBe(6)
+  expect($height)->toBe(5)
     ->and($rectPosition)->toEqual(WindowPosition::BOTTOM->getCoordinates($width, $height))
     ->and($windowPosition)->toEqual($rectPosition)
     ->and(intval($rectPosition->y + $height))->toBe(get_screen_height())
-    ->and(implode("\n", array_slice($rendered, intval($rectPosition->y), $height)))->toContain('reports.')
+    ->and(implode("\n", array_slice($rendered, intval($rectPosition->y), $height)))->not->toContain('reports.')
     ->and($rendered[get_screen_height() - 1])->toContain('╚');
+  $modal->advancePage();
+  ob_start();
+  $modal->renderCompletePage();
+  ob_end_clean();
+  $rendered = array_map(TerminalText::stripAnsi(...), Console::getBuffer());
+  expect(implode("\n", array_slice($rendered, intval($rectPosition->y), $height)))->toContain('reports.')
+    ->and($modal->size())->toBe([$width, $height])
+    ->and($modal->positions()[0])->toEqual($rectPosition);
 });
 
 it('paginates dialogue that cannot fit its bounded text box', function () {
@@ -414,7 +424,7 @@ it('paginates dialogue that cannot fit its bounded text box', function () {
   expect(count($modal->pageLineCounts()))->toBeGreaterThan(1);
 
   foreach ($modal->pageLineCounts() as $lineCount) {
-    expect($lineCount)->toBeLessThanOrEqual(4);
+    expect($lineCount)->toBeLessThanOrEqual(3);
   }
 });
 

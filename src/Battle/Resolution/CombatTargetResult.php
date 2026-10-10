@@ -2,7 +2,7 @@
 
 namespace Ichiloto\Engine\Battle\Resolution;
 
-/** Ordered hit results and actual aggregates for one target. */
+/** Ordered hit results, resolved damage and actual resource aggregates for one target. */
 final readonly class CombatTargetResult
 {
   /**
@@ -13,18 +13,28 @@ final readonly class CombatTargetResult
     public string $targetId,
     public array $hits,
     public array $secondaryOutcomes = [],
+    public ?CombatResourceChange $resourceChange = null,
   )
   {
   }
 
+  /** Display the resolved hits, including overkill; drain and statistics use actualHpLost instead. */
+  public function getResolvedHpDamage(): int
+  {
+    return $this->actualHpLost()
+      + array_sum(array_map(static fn(CombatHitResult $hit): int => $hit->overkill, $this->hits));
+  }
+
   public function actualHpLost(): int
   {
-    return array_sum(array_map(static fn(CombatHitResult $hit): int => $hit->actualHpLost, $this->hits));
+    return $this->hits === [] ? ($this->resourceChange?->hpLost ?? 0)
+      : array_sum(array_map(static fn(CombatHitResult $hit): int => $hit->actualHpLost, $this->hits));
   }
 
   public function actualHpRestored(): int
   {
-    return array_sum(array_map(static fn(CombatHitResult $hit): int => $hit->actualHpRestored, $this->hits));
+    return $this->hits === [] ? ($this->resourceChange?->hpRestored ?? 0)
+      : array_sum(array_map(static fn(CombatHitResult $hit): int => $hit->actualHpRestored, $this->hits));
   }
 
   public function mitigation(): int

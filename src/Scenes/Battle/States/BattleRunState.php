@@ -32,7 +32,7 @@ class BattleRunState extends BattleSceneState
    */
   public function enter(): void
   {
-    $characters = $this->scene->party->battlers->toArray();
+    $characters = $this->scene->partyBattlers;
     $names = array_map(fn(CharacterInterface $character) => $character->name, $characters);
     $settings = is_array($this->scene->config?->settings ?? null) ? $this->scene->config->settings : [];
     $activeTimeSettings = is_array($settings['activeTime'] ?? null) ? $settings['activeTime'] : [];
@@ -63,6 +63,7 @@ class BattleRunState extends BattleSceneState
         min(100, max(0, intval($settings['opening']['preemptiveChancePercent'] ?? $activeTimeSettings['surpriseAttackChancePercent'] ?? 8))),
         min(100, max(0, intval($settings['opening']['ambushChancePercent'] ?? $activeTimeSettings['backAttackChancePercent'] ?? 6))),
         $settings,
+        partyRoster: $this->scene->config?->partyRoster,
       ));
     } else {
       $this->engine->configure(new TurnBasedBattleConfig(
@@ -71,6 +72,7 @@ class BattleRunState extends BattleSceneState
         $this->ui,
         $this->scene->events,
         $settings,
+        partyRoster: $this->scene->config?->partyRoster,
       ));
     }
 

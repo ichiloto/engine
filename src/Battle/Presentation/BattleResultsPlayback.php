@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Battle\Presentation;
 
 use InvalidArgumentException;
+use Ichiloto\Engine\Localization\Vocabulary;
 
 /** Presentation clock only. Outcomes are already committed; no character is read or written. */
 final class BattleResultsPlayback
@@ -114,7 +115,7 @@ final class BattleResultsPlayback
    */
   public function confirmation(): array
   {
-    $label = $this->isComplete() ? 'Continue' : 'Complete';
+    $label = $this->isComplete() ? Vocabulary::getTerm('command.continue', 'Continue') : Vocabulary::getTerm('battle.complete', 'Complete');
     $opacity = 1.0;
     $changing = false;
     if (!$this->reducedMotion && $this->confirmationChangedAt !== null) {
@@ -122,7 +123,7 @@ final class BattleResultsPlayback
       $incomingAt = self::BUTTON_FADE_OUT + self::BUTTON_GAP;
       $changing = $time < $incomingAt + self::BUTTON_FADE_IN;
       if ($time < self::BUTTON_FADE_OUT) {
-        $label = 'Complete';
+        $label = Vocabulary::getTerm('battle.complete', 'Complete');
         $opacity = max(0.0, 1 - $time / self::BUTTON_FADE_OUT);
       } else {
         $opacity = max(0.0, min(1.0, ($time - $incomingAt) / self::BUTTON_FADE_IN));

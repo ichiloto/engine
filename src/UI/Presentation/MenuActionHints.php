@@ -12,22 +12,23 @@ use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use InvalidArgumentException;
 use RuntimeException;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 
 /** Inline semantic hints, shared by menus. Glyphs replace controls, never actions or input behavior. */
 final class MenuActionHints
 {
   /** @param list<ActionHint> $hints */
-  public static function height(array $hints, MenuPresentationCatalog $theme, float $width): int
+  public static function height(array $hints, MenuPresentationCatalog $theme, float $width, bool $required = false): int
   {
-    if (!$theme->showInputHints) { return 0; }
+    if (!$required && !$theme->showInputHints) { return 0; }
     return self::layout($hints, $theme, $width)['rows'] * $theme->metrics->cellHeight;
   }
 
   /** @param list<ActionHint> $hints */
   public static function compose(int $width, int $height, string $id, array $hints,
-    MenuPresentationCatalog $theme, CanvasRectangle $bounds): PresentationCanvas
+    MenuPresentationCatalog $theme, CanvasRectangle $bounds, bool $required = false): PresentationCanvas
   {
-    if (!$theme->showInputHints) { return new PresentationCanvas($width, $height); }
+    if (!$required && !$theme->showInputHints) { return new PresentationCanvas($width, $height); }
     $layout = self::layout($hints, $theme, $bounds->width);
     $m = $theme->metrics;
     if ($layout['rows'] * $m->cellHeight > $bounds->height) {
@@ -72,6 +73,7 @@ final class MenuActionHints
       $control = $hint->control;
       // Unknown/missing glyph roles use readable labels, not an unrelated semantic Unknown icon.
       $asset = $control === null ? null : ($theme->icons?->icons[$control->iconRole()] ?? null);
+      if ($asset !== null && PngAssetPreflight::getAvailableSize($theme->assetRoot, $asset) === null) { $asset = null; }
       $glyphCells = (int)ceil($theme->rows->metrics->iconWidth / $theme->metrics->cellWidth);
       if ($glyphCells > $cells) { $asset = null; }
       $label = $control === null ? 'Unbound' : ' ' . $control->label . ' ';

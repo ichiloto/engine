@@ -15,8 +15,10 @@ use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Tests\Support\Input\FakeRendererTransport;
+use Tests\Support\Rendering\RetainedFrameState;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
 it('keeps legacy hello and whole-image sprite shapes unchanged', function () {
   $session = new RendererSessionConfig('Legacy', sys_get_temp_dir());
@@ -26,7 +28,7 @@ it('keeps legacy hello and whole-image sprite shapes unchanged', function () {
     ->and(RendererEvent::fromJson('{"protocol":1,"type":"ready"}')->capabilities)->toBe([]);
 });
 
-it('negotiates source rectangles on either transport version and preserves frame-only changes', function ($protocol) {
+it('negotiates source rectangles with either hello and removes stateless v1 presentation output', function ($protocol) {
   $transport = new FakeRendererTransport();
   $client = new RendererClient($transport);
   $session = new RendererSessionConfig('Sheets', sys_get_temp_dir(), protocol: $protocol,
@@ -47,10 +49,12 @@ it('negotiates source rectangles on either transport version and preserves frame
     expect($presentation->present($snapshot, [$sprite]))->toBeTrue()
       ->and($presentation->present($snapshot, [$sprite]))->toBeFalse();
   }
+  $frames = RetainedFrameState::replay($transport->sent);
   expect($transport->sent)->toHaveCount(2)
-    ->and($transport->sent[1]->payload['sprites'][0]['sourceRect']['x'])->toBe(256)
-    ->and($transport->sent[0]->payload['sprites'][0]['sourceRect']['x'])->toBe(0)
-    ->and($transport->sent[1]->protocol)->toBe($protocol);
+    ->and($frames[1]['sprites'][0]['sourceRect']['x'])->toBe(256)
+    ->and($frames[0]['sprites'][0]['sourceRect']['x'])->toBe(0)
+    ->and($transport->sent[1]->protocol)->toBe(RendererProtocolVersion::V2)
+    ->and(array_column($transport->sent[1]->payload['operations'], 'kind'))->toBe(['sprite']);
   $client->start(new RendererSessionConfig('Legacy restart', sys_get_temp_dir(), protocol: $protocol));
   expect($client->supports('sprite_source_rect'))->toBeFalse();
 })->with([RendererProtocolVersion::V1, RendererProtocolVersion::V2]);

@@ -3,11 +3,11 @@
 namespace Ichiloto\Engine\Events\Triggers;
 
 use Ichiloto\Engine\Entities\Actions\EnterShopAction;
-use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Events\Interfaces\EventTriggerContextInterface;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
 use Ichiloto\Engine\Messaging\Dialogue\Dialogue;
+use Ichiloto\Engine\Shop\ShopOffer;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 
@@ -19,9 +19,15 @@ use Ichiloto\Engine\Util\Stores\ItemStore;
 class ShopEventTrigger extends EventTrigger
 {
   /**
+   * @var ShopOffer What the shop sells and its rates, shared with the `shop` script command.
+   */
+  protected(set) ShopOffer $offer;
+  /**
    * @var Item[] The items in the shop.
    */
-  protected(set) array $items = [];
+  public array $items {
+    get => $this->offer->merchandise;
+  }
   /**
    * @var Dialogue[] The dialogue of the shop.
    */
@@ -29,42 +35,25 @@ class ShopEventTrigger extends EventTrigger
   /**
    * @var float The buy rate.
    */
-  protected(set) float $buyRate = 1.0;
+  public float $buyRate {
+    get => $this->offer->buyRate;
+  }
   /**
    * @var float The sell rate.
    */
-  protected(set) float $sellRate = 0.5;
+  public float $sellRate {
+    get => $this->offer->sellRate;
+  }
 
   /**
    * @throws RequiredFieldException
    */
   public function configure(): void
   {
-    $itemStore = ConfigStore::get(ItemStore::class);
-
-    foreach ($this->data->items as $itemData) {
-      $itemName = $itemData->item ?? throw new RequiredFieldException('item');
-      $itemPrice = $itemData->price ?? null;
-      /** @var InventoryItem $item */
-      $definitionId = $itemStore->requireDefinitionId(strval($itemName), 'loading shop merchandise');
-      $item = $itemStore->get($definitionId);
-      assert($item instanceof InventoryItem);
-      if (! is_null($itemPrice)) {
-        $item->price = $itemPrice;
-      }
-      $this->items[] = $item;
-    }
+    $this->offer = ShopOffer::fromData($this->data, ConfigStore::get(ItemStore::class));
 
     foreach ($this->data->dialogue ?? [] as $dialogue) {
       $this->dialogue[] = Dialogue::fromObject($dialogue);
-    }
-
-    if (isset($this->data->buyRate)) {
-      $this->buyRate = $this->data->buyRate;
-    }
-
-    if (isset($this->data->sellRate)) {
-      $this->sellRate = $this->data->sellRate;
     }
   }
 

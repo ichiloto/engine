@@ -41,7 +41,6 @@ final class CinematicTextTimingPolicy
       return max(0.0, $authoredMinimum);
     }
 
-    $words = preg_split('/\s+/u', $visibleText, -1, PREG_SPLIT_NO_EMPTY) ?: [];
     $wordsPerMinute = max(1.0, self::configuredFloat(
       'ui.cinematics.narration.words_per_minute',
       self::DEFAULT_WORDS_PER_MINUTE,
@@ -54,9 +53,14 @@ final class CinematicTextTimingPolicy
       'ui.cinematics.narration.settle_duration',
       self::DEFAULT_SETTLE_DURATION,
     );
-    $readingDuration = $settleDuration + (count($words) / ($wordsPerMinute / 60.0));
+    $readingDuration = $settleDuration + (self::getWordCount($visibleText) / ($wordsPerMinute / 60.0));
 
     return max(0.0, $authoredMinimum, $minimumDuration, $readingDuration);
+  }
+
+  public static function getWordCount(string $text): int
+  {
+    return count(preg_split('/\s+/u', trim(TerminalText::stripAnsi($text)), -1, PREG_SPLIT_NO_EMPTY) ?: []);
   }
 
   private static function configuredFloat(string $path, float $default): float

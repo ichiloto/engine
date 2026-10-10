@@ -35,6 +35,9 @@ class AudioPlayback
    * @var bool
    */
   protected bool $isClosed = false;
+  /** The child's exit status, retained before its process handle is released. */
+  protected(set) ?int $exitCode = null;
+  protected(set) bool $wasInterrupted = false;
 
   /**
    * Whether the player process is still running.
@@ -48,6 +51,10 @@ class AudioPlayback
       }
 
       $status = proc_get_status($this->process);
+
+      if ($status !== false && ! $status['running'] && $status['exitcode'] >= 0) {
+        $this->exitCode = $status['exitcode'];
+      }
 
       return $status !== false && ($status['running'] ?? false);
     }
@@ -110,6 +117,7 @@ class AudioPlayback
     }
 
     if ($this->isRunning) {
+      $this->wasInterrupted = true;
       proc_terminate($this->process);
     }
 

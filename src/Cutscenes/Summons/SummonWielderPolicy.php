@@ -10,7 +10,7 @@ use Ichiloto\Engine\Entities\Character;
  * Eligibility modes:
  * - `all`: any party member may be assigned the summon.
  * - `roles`: only characters whose role name appears in `$roles`.
- * - `characters`: only the named characters.
+ * - `characters`: only characters with the listed stable actor IDs.
  *
  * Tenancy:
  * - `shared`: any number of eligible members may hold the summon at once.
@@ -50,14 +50,14 @@ final class SummonWielderPolicy
    */
   public array $roles = [];
   /**
-   * @var string[] The eligible character names (mode `characters`).
+   * @var string[] The eligible actor IDs (mode `characters`); legacy original names remain provisional IDs.
    */
   public array $characters = [];
 
   /**
    * @param string $mode The eligibility mode.
    * @param string[] $roles The eligible role names.
-   * @param string[] $characters The eligible character names.
+   * @param string[] $characters The eligible stable actor IDs.
    * @param string $tenancy The tenancy mode.
    */
   public function __construct(
@@ -157,7 +157,8 @@ final class SummonWielderPolicy
 
     return match ($this->mode) {
       self::MODE_ROLES => in_array(strtolower(trim($character->role->name)), array_map('strtolower', $this->roles), true),
-      self::MODE_CHARACTERS => in_array(strtolower(trim($character->name)), array_map('strtolower', $this->characters), true),
+      // Character already freezes a legacy original name as actorId. Never fall back to mutable display text.
+      self::MODE_CHARACTERS => in_array(strtolower(trim($character->actorId)), array_map('strtolower', $this->characters), true),
       default => true,
     };
   }

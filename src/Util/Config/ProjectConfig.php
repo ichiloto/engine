@@ -24,6 +24,21 @@ class ProjectConfig extends AbstractConfig
       throw new Exception("Could not read file: $filename");
     }
 
+    if (! is_array($content)) {
+      throw new Exception("Project configuration must return an array: $filename");
+    }
+
+    // Authored config.php remains the project default. Player choices are
+    // private data and take precedence without rewriting tracked source.
+    $player = ConfigStore::has(PlayerSettings::class)
+      ? ConfigStore::get(PlayerSettings::class) : null;
+    if ($player instanceof PlayerSettings) {
+      $content = array_replace_recursive(
+        $content,
+        $player->getOverrides(),
+      );
+    }
+
     return $content;
   }
 

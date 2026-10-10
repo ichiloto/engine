@@ -4,23 +4,34 @@ use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\InputBindings;
 use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\InputConfig;
+use Ichiloto\Engine\Util\Config\PlayerSettings;
+use Ichiloto\Engine\Util\Debug;
 use Tests\Support\Input\FakeInputSource;
 
 require_once __DIR__ . '/../Support/Input/FakeInputSource.php';
 
 beforeEach(function () {
   $this->saved = [];
-  foreach ([InputManager::class, ConfigStore::class] as $class) {
+  foreach ([InputManager::class, ConfigStore::class, EventManager::class, Debug::class] as $class) {
     $this->saved[$class] = new ReflectionClass($class)->getStaticProperties();
   }
+  $this->playerRoot = sys_get_temp_dir() . '/ichiloto-bindings-' . bin2hex(random_bytes(6));
+  mkdir($this->playerRoot);
+  Debug::configure(['log_directory' => $this->playerRoot . '/logs']);
+  ConfigStore::put(PlayerSettings::class, new PlayerSettings($this->playerRoot));
 });
 
 afterEach(function () {
   foreach ($this->saved as $class => $properties) {
     foreach ($properties as $name => $value) { new ReflectionProperty($class, $name)->setValue(null, $value); }
   }
+  $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($this->playerRoot, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
+  foreach ($files as $file) { $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname()); }
+  rmdir($this->playerRoot);
 });
 
 /**
@@ -58,8 +69,17 @@ function installBindings(array $bindings): RecordingInputConfig
   $config = new RecordingInputConfig(['initial' => $bindings, 'filename' => 'input.php']);
   ConfigStore::put(InputConfig::class, $config);
   InputManager::setBindings($bindings);
+  new ReflectionProperty(InputManager::class, 'defaultConfig')->setValue(null, InputManager::getBindings());
 
   return $config;
+}
+
+function savedBindingValues(string $root, string $action): ?array
+{
+  $filename = $root . '/.data/player-settings.json';
+  if (! is_file($filename)) { return null; }
+  $data = json_decode((string) file_get_contents($filename), true);
+  return $data['input']['bindings'][$action] ?? null;
 }
 
 function demoBindings(): array
@@ -79,13 +99,13 @@ it('lists the rebindable actions with their keys', function () {
 
   // Back is deliberately absent: escape is how every screen is left,
   // including the rebinding screen.
-  expect($actions)->toBe(['action', 'up', 'info'])
+  expect($actions)->toBe(['action', 'up', 'info', 'menu_page_previous', 'menu_page_next', 'dialogue_auto'])
     ->and($bindings->describeKeys('action'))->toBe('SPACE, ENTER')
     ->and($bindings->describeKeys('up'))->toBe('UP, W')
     ->and($bindings->describeKeys('info'))->toBe('i, I');
 });
 
-it('rebinds an action immediately and writes it back', function () {
+it('rebinds an action immediately without rewriting authored input', function () {
   $config = installBindings(demoBindings());
   $bindings = new InputBindings();
 
@@ -94,7 +114,9 @@ it('rebinds an action immediately and writes it back', function () {
     // The running game reads bindings from the manager, so this takes effect
     // without a restart.
     ->and(InputManager::getBindings()['up']['keys'])->toBe([KeyCode::K])
-    ->and($config->written['up']['keys'])->toBe([KeyCode::K]);
+    ->and($config->all()['up']['keys'])->toBe([KeyCode::UP, KeyCode::W])
+    ->and($config->written)->toBeEmpty()
+    ->and(savedBindingValues($this->playerRoot, 'up'))->toBe([KeyCode::K->value]);
 });
 
 it('uses rebound directional actions for virtual axes', function () {
@@ -185,12 +207,164 @@ it('discovers a fully conflicted Info default as unbound and permits an explicit
   $authored = ['custom' => ['description' => 'Custom action.', 'keys' => [KeyCode::i, KeyCode::I]]];
   $config = installBindings($authored);
   $bindings = new InputBindings();
-  expect(array_column($bindings->all(), 'action'))->toBe(['custom', 'info'])
+  expect(array_column($bindings->all(), 'action'))->toBe(['custom', 'info', 'menu_page_previous', 'menu_page_next', 'dialogue_auto'])
     ->and($bindings->describeKeys('info'))->toBe('Unbound')
     ->and($bindings->controlForAction('info'))->toBeNull()
     ->and($config->all())->toBe($authored)->and($config->written)->toBeEmpty();
   expect($bindings->rebind('info', KeyCode::F2))->toBeTrue()
     ->and($bindings->describeKeys('info'))->toBe('F2')
     ->and(InputManager::getBindings()['custom'])->toBe($authored['custom'])
-    ->and($config->written['info']['keys'])->toBe([KeyCode::F2]);
+    ->and($config->written)->toBeEmpty()
+    ->and(savedBindingValues($this->playerRoot, 'info'))->toBe([KeyCode::F2->value]);
+});
+
+it('supplies discoverable page actions without claiming authored keys or rewriting source', function () {
+  $authored = ['custom' => ['description' => 'Custom action.', 'keys' => [KeyCode::PAGE_UP, KeyCode::PAGE_DOWN]]];
+  $config = installBindings($authored);
+  $bindings = new InputBindings();
+  expect($bindings->describeKeys('menu_page_previous'))->toBe('Unbound')
+    ->and($bindings->describeKeys('menu_page_next'))->toBe('Unbound')
+    ->and(InputManager::getBindings()['custom'])->toBe($authored['custom'])
+    ->and($config->all())->toBe($authored)->and($config->written)->toBeEmpty();
+  expect($bindings->rebind('menu_page_next', KeyCode::F1))->toBeTrue()
+    ->and(savedBindingValues($this->playerRoot, 'menu_page_next'))->toBe([KeyCode::F1->value]);
+  expect($bindings->restoreDefaults())->toBeTrue()
+    ->and($bindings->describeKeys('menu_page_next'))->toBe('Unbound');
+  $authored['menu_page_previous'] = ['description' => 'Authored previous page.', 'keys' => []];
+  $authored['menu_page_next'] = ['description' => 'Authored next page.', 'keys' => [KeyCode::F2],
+    'controllers' => [['family' => 'gamepad.xbox', 'control' => 'right_shoulder', 'label' => 'RB']]];
+  installBindings($authored);
+  foreach (['menu_page_previous', 'menu_page_next'] as $action) {
+    expect(InputManager::getBindings()[$action])->toBe($authored[$action]);
+  }
+});
+
+it('loads player keys over authored defaults and restores defaults without editing input.php', function () {
+  $originalDirectory = getcwd();
+  $source = "<?php return ['up' => ['description' => 'Walk north.', 'keys' => [\\Ichiloto\\Engine\\IO\\Enumerations\\KeyCode::UP, \\Ichiloto\\Engine\\IO\\Enumerations\\KeyCode::W], 'controllers' => [['family' => 'gamepad.xbox', 'control' => 'dpad_up', 'label' => 'Up']]], 'back' => ['description' => 'Leave.', 'keys' => [\\Ichiloto\\Engine\\IO\\Enumerations\\KeyCode::ESCAPE]]];\n";
+  file_put_contents($this->playerRoot . '/input.php', $source);
+  $game = new class extends Game {
+    public function __construct() {}
+    public function __destruct() {}
+  };
+  try {
+    chdir($this->playerRoot);
+    ConfigStore::put(InputConfig::class, new InputConfig());
+    InputManager::init($game);
+    expect((new InputBindings())->rebind('up', KeyCode::K))->toBeTrue()
+      ->and(savedBindingValues($this->playerRoot, 'up'))->toBe([KeyCode::K->value])
+      ->and(file_get_contents($this->playerRoot . '/input.php'))->toBe($source);
+
+    ConfigStore::put(PlayerSettings::class, new PlayerSettings($this->playerRoot));
+    ConfigStore::put(InputConfig::class, new InputConfig());
+    InputManager::init($game);
+    expect(InputManager::getDefaultBindings()['up']['keys'])->toBe([KeyCode::UP, KeyCode::W])
+      ->and(InputManager::getBindings()['up']['keys'])->toBe([KeyCode::K])
+      ->and(InputManager::getBindings()['up']['description'])->toBe('Walk north.')
+      ->and(InputManager::getBindings()['up']['controllers'])->toBe([['family' => 'gamepad.xbox', 'control' => 'dpad_up', 'label' => 'Up']])
+      ->and((new InputBindings())->describeKeys('up'))->toBe('K');
+    InputManager::setInputSource(new FakeInputSource(KeyCode::K));
+    InputManager::handleInput();
+    expect(\Ichiloto\Engine\IO\Input::isButtonDown('up'))->toBeTrue();
+
+    expect((new InputBindings())->restoreDefaults())->toBeTrue()
+      ->and(InputManager::getBindings()['up']['keys'])->toBe([KeyCode::UP, KeyCode::W])
+      ->and(file_get_contents($this->playerRoot . '/input.php'))->toBe($source);
+    ConfigStore::put(PlayerSettings::class, new PlayerSettings($this->playerRoot));
+    InputManager::init($game);
+    expect(InputManager::getBindings()['up']['keys'])->toBe([KeyCode::UP, KeyCode::W]);
+  } finally {
+    chdir($originalDirectory);
+  }
+});
+
+it('ignores stale locked and invalid player keys while preserving authored actions', function () {
+  mkdir($this->playerRoot . '/.data');
+  file_put_contents($this->playerRoot . '/.data/player-settings.json', json_encode([
+    'input' => ['bindings' => [
+      'up' => ['not-a-key'],
+      'back' => [KeyCode::K->value],
+      'retired' => [KeyCode::K->value],
+      'info' => [],
+      'action' => [KeyCode::K->value],
+    ]],
+  ], JSON_THROW_ON_ERROR));
+  ConfigStore::put(PlayerSettings::class, new PlayerSettings($this->playerRoot));
+  ConfigStore::put(InputConfig::class, new RecordingInputConfig(['initial' => demoBindings()]));
+  $game = new class extends Game {
+    public function __construct() {}
+    public function __destruct() {}
+  };
+
+  InputManager::init($game);
+  expect(InputManager::getBindings()['up']['keys'])->toBe([KeyCode::UP, KeyCode::W])
+    ->and(InputManager::getBindings()['back']['keys'])->toBe([KeyCode::ESCAPE])
+    ->and(InputManager::getBindings()['info']['keys'])->toBe([KeyCode::i, KeyCode::I])
+    ->and(InputManager::getBindings()['action']['keys'])->toBe([KeyCode::K])
+    ->and(InputManager::getBindings()['action']['description'])->toBe('Perform an action.')
+    ->and(InputManager::getBindings())->not->toHaveKey('retired')
+    ->and(file_get_contents($this->playerRoot . '/logs/warning.log'))
+    ->toContain('invalid player input binding for up', 'malformed player input binding for info',
+      'obsolete or locked player input binding');
+});
+
+it('rejects malformed player input parents and per-action overrides while retaining authored metadata', function (mixed $input, array $expectedKeys, string $diagnostic) {
+  mkdir($this->playerRoot . '/.data');
+  file_put_contents($this->playerRoot . '/.data/player-settings.json', json_encode(['input' => $input], JSON_THROW_ON_ERROR));
+  ConfigStore::put(PlayerSettings::class, new PlayerSettings($this->playerRoot));
+  ConfigStore::put(InputConfig::class, new RecordingInputConfig(['initial' => demoBindings()]));
+  $game = new class extends Game {
+    public function __construct() {}
+    public function __destruct() {}
+  };
+  InputManager::init($game);
+
+  expect(InputManager::getBindings()['up']['keys'])->toBe($expectedKeys)
+    ->and(InputManager::getBindings()['up']['description'])->toBe('Move up.')
+    ->and(InputManager::getBindings()['action']['description'])->toBe('Perform an action.')
+    ->and(file_get_contents($this->playerRoot . '/logs/warning.log'))->toContain($diagnostic);
+})->with([
+  [['bindings' => ['up' => []]], [KeyCode::UP, KeyCode::W], 'malformed player input binding for up'],
+  [['bindings' => ['up' => 'K']], [KeyCode::UP, KeyCode::W], 'malformed player input binding for up'],
+  [['bindings' => 'wrong type'], [KeyCode::UP, KeyCode::W], 'invalid player input bindings'],
+  ['wrong type', [KeyCode::UP, KeyCode::W], 'invalid player input data'],
+]);
+
+it('reports a malformed player binding once per load and reads a changed file on the next startup', function () {
+  mkdir($this->playerRoot . '/.data');
+  $settingsFile = $this->playerRoot . '/.data/player-settings.json';
+  file_put_contents($settingsFile, json_encode(['input' => ['bindings' => ['up' => []]]], JSON_THROW_ON_ERROR));
+  ConfigStore::put(PlayerSettings::class, new PlayerSettings($this->playerRoot));
+  ConfigStore::put(InputConfig::class, new RecordingInputConfig(['initial' => demoBindings()]));
+  $game = new class extends Game {
+    public function __construct() {}
+    public function __destruct() {}
+  };
+
+  InputManager::init($game);
+  $player = ConfigStore::get(PlayerSettings::class);
+  $player->getInputBindings();
+  $player->getInputBindings();
+  expect(InputManager::getBindings()['up']['keys'])->toBe([KeyCode::UP, KeyCode::W])
+    ->and(InputManager::getBindings()['up']['description'])->toBe('Move up.')
+    ->and(substr_count((string) file_get_contents($this->playerRoot . '/logs/warning.log'),
+      'malformed player input binding for up'))->toBe(1);
+
+  file_put_contents($settingsFile, json_encode(['input' => ['bindings' => ['up' => [KeyCode::K->value]]]], JSON_THROW_ON_ERROR));
+  ConfigStore::put(PlayerSettings::class, new PlayerSettings($this->playerRoot));
+  InputManager::init($game);
+  expect(InputManager::getBindings()['up']['keys'])->toBe([KeyCode::K])
+    ->and(InputManager::getBindings()['up']['description'])->toBe('Move up.')
+    ->and(substr_count((string) file_get_contents($this->playerRoot . '/logs/warning.log'),
+      'malformed player input binding for up'))->toBe(1);
+});
+
+it('refuses to persist an empty override for an authored action', function () {
+  $defaults = demoBindings();
+  $bindings = $defaults;
+  $bindings['up']['keys'] = [];
+  $player = ConfigStore::get(PlayerSettings::class);
+  expect(fn() => $player->setInputBindings($bindings, $defaults))
+    ->toThrow(InvalidArgumentException::class, 'empty key override for action up');
+  expect(is_file($this->playerRoot . '/.data/player-settings.json'))->toBeFalse();
 });

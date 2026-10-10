@@ -5,7 +5,6 @@ namespace Ichiloto\Engine\Entities\Actions;
 use Exception;
 use Ichiloto\Engine\Entities\Interfaces\ActionContextInterface;
 use Ichiloto\Engine\Events\Triggers\ShopEventTrigger;
-use Ichiloto\Engine\Scenes\Game\States\ShopState;
 
 /**
  * EnterShopAction class. This class is used to enter a shop.
@@ -31,15 +30,10 @@ class EnterShopAction extends FieldAction
    */
   public function execute(ActionContextInterface $context): void
   {
-    $scene = $context->scene;
-    $shopState = new ShopState($scene->fieldState->context);
-    $shopState->merchandise = $this->trigger->items;
-    $shopState->traderBuyRate = $this->trigger->buyRate;
-    $shopState->traderSellRate = $this->trigger->sellRate;
-
     foreach ($this->trigger->dialogue ?? [] as $dialogue) {
       $dialogue->show();
     }
-    $scene->setState($shopState);
+
+    $this->trigger->offer->open($context->scene);
   }
 }

@@ -2,12 +2,17 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use Ichiloto\Engine\Localization\Vocabulary;
+
 use Assegai\Collections\ItemList;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\EquipmentSlot;
+use Ichiloto\Engine\Entities\Inventory\EquipmentIcon;
+use Ichiloto\Engine\UI\Presentation\CharacterMenuRows;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
@@ -97,7 +102,9 @@ class StatusViewState extends GameSceneState implements CanvasProviderInterface
 
   public function exit(): void
   {
-    // Do nothing
+    if (isset($this->getGameScene()->mainMenuState)) {
+      $this->getGameScene()->mainMenuState->rememberPartyPresentationCharacter($this->character);
+    }
   }
 
   /**
@@ -133,7 +140,7 @@ class StatusViewState extends GameSceneState implements CanvasProviderInterface
     $this->borderPack = new DefaultBorderPack();
 
     $this->profileSummaryPanel = new Window(
-      'Status',
+      Vocabulary::getTerm('command.status', 'Status'),
       '',
       new Vector2($this->leftMargin, $this->topMargin),
       self::PROFILE_SUMMARY_PANEL_WIDTH,
@@ -178,22 +185,24 @@ class StatusViewState extends GameSceneState implements CanvasProviderInterface
     $this->profileSummaryPanel->setContent($this->buildProfileSummaryContent());
 
     $this->statsSummaryPanel->setContent(array_pad([
-      sprintf(" Attack:%27s", $this->character?->effectiveStats->attack),
-      sprintf(" Defence:%26s", $this->character?->effectiveStats->defence),
-      sprintf(" M.Attack:%25s", $this->character?->effectiveStats->magicAttack),
-      sprintf(" M.Defence:%24s", $this->character?->effectiveStats->magicDefence),
-      sprintf(" Evasion:%26s", $this->character?->effectiveStats->evasion),
-      sprintf(" Speed:%28s", $this->character?->effectiveStats->speed),
-      sprintf(" Grace:%28s", $this->character?->effectiveStats->grace),
+      sprintf(" %s:%27s", Vocabulary::getTerm('stats.attack', 'Attack'), $this->character?->effectiveStats->attack),
+      sprintf(" %s:%26s", Vocabulary::getTerm('stats.defence', 'Defence'), $this->character?->effectiveStats->defence),
+      sprintf(" %s:%25s", Vocabulary::getTerm('stats.magicAttack', 'M.Attack'), $this->character?->effectiveStats->magicAttack),
+      sprintf(" %s:%24s", Vocabulary::getTerm('stats.magicDefence', 'M.Defence'), $this->character?->effectiveStats->magicDefence),
+      sprintf(" %s:%26s", Vocabulary::getTerm('stats.evasion', 'Evasion'), $this->character?->effectiveStats->evasion),
+      sprintf(" %s:%28s", Vocabulary::getTerm('stats.speed', 'Speed'), $this->character?->effectiveStats->speed),
+      sprintf(" %s:%28s", Vocabulary::getTerm('stats.grace', 'Grace'), $this->character?->effectiveStats->grace),
     ], self::STATS_SUMMARY_PANEL_HEIGHT - 2, ''));
 
     $this->equipmentSummaryPanel->setContent(array_pad(
       array_map(function(EquipmentSlot $slot) {
         $equipmentName = '';
         if ($slot->equipment) {
-          $equipmentName = "{$slot->equipment->icon} {$slot->equipment->name}";
+          $equipmentName = $slot->equipment->name;
         }
-        return sprintf("  %-20s %s", "{$slot->name}:", $equipmentName);
+        $type = $this->character === null ? $slot->semanticSlot : CharacterMenuRows::getSlotIcon($this->character, $slot);
+        $icon = TerminalText::padRight(EquipmentIcon::getTerminalGlyph($type), 2);
+        return '  ' . TerminalText::padRight("{$icon} {$slot->name}:", 20) . ' ' . $equipmentName;
       }, $this->character?->equipment ?? []),
       self::EQUIPMENT_SUMMARY_PANEL_HEIGHT - 2,
       ''));
@@ -219,15 +228,16 @@ class StatusViewState extends GameSceneState implements CanvasProviderInterface
       sprintf(' %s', $this->character?->name ?? 'N/A'),
       sprintf("%19s Role:%12s", ' ', $this->character?->role->name ?? 'N/A'),
       sprintf(
-        "%19s Lv:%12s       %-14s %20d",
+        "%19s %s:%12s       %-14s %20d",
         ' ',
+        Vocabulary::getTerm('stats.level', 'Lv'),
         $this->character?->level ?? 1,
-        'Current EXP:', $this->character?->currentExp ?? 0,
+        get_message('exp_total', Vocabulary::getTerm('shop.exp_total', 'Current %1'), Vocabulary::getTerm('stats.exp', 'EXP')) . ':', $this->character?->currentExp ?? 0,
       ),
-      sprintf("%42s%-14s %20d",' ', 'To Next Level:', $this->character?->nextLevelExp ?? 0),
-      sprintf("%19s HP:%12s", ' ', "{$currentHp} / {$totalHp}"),
-      sprintf("%19s MP:%12s", ' ', "{$currentMp} / {$totalMp}"),
-      sprintf("%19s AP:%12s", ' ', "{$currentAp} / {$totalAp}"),
+      sprintf("%42s%-14s %20d",' ', get_message('exp_next', 'To Next %1', Vocabulary::getTerm('stats.level', 'Level')) . ':', $this->character?->nextLevelExp ?? 0),
+      sprintf("%19s %s:%12s", ' ', Vocabulary::getTerm('stats.hp', 'HP'), "{$currentHp} / {$totalHp}"),
+      sprintf("%19s %s:%12s", ' ', Vocabulary::getTerm('stats.mp', 'MP'), "{$currentMp} / {$totalMp}"),
+      sprintf("%19s %s:%12s", ' ', Vocabulary::getTerm('stats.ap', 'AP'), "{$currentAp} / {$totalAp}"),
     ], self::PROFILE_SUMMARY_PANEL_HEIGHT - 2, '');
   }
 

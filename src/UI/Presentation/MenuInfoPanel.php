@@ -5,12 +5,30 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\UI\Presentation;
 
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\UI\Text\MenuInfoText;
 
 /** A stable two-line description/status slot. Hints occupy separately reserved space. */
 final class MenuInfoPanel
 {
-  public static function getHeight(MenuPresentationCatalog $theme, array $hints = [], float $width = 1100): int
+  public static function getHeaderBounds(MenuPresentationCatalog $theme, CanvasRectangle $host,
+    int $canvasWidth = PresentationCanvas::DEFAULT_WIDTH, int $canvasHeight = PresentationCanvas::DEFAULT_HEIGHT): CanvasRectangle
+  {
+    return new CanvasRectangle($host->x, $host->y, $host->width, self::getHeight($theme));
+  }
+
+  public static function renderHeader(MenuCanvas $view, string $id, CanvasRectangle $header, string $description,
+    ?MenuInfoText $infoModel = null): void
+  {
+    $m = $view->theme->metrics;
+    $x = $header->x + $m->panelPadding;
+    $width = $header->width - 2 * $m->panelPadding;
+    self::renderContent($view, $id, new CanvasRectangle($x, $header->y + $m->panelPadding,
+      $width, 2 * $m->cellHeight), $description, infoModel: $infoModel,
+      rangeBounds: new CanvasRectangle($x, $header->y + $header->height - $m->panelPadding, $width, max(1, $m->panelPadding)));
+  }
+
+  public static function getHeight(MenuPresentationCatalog $theme, array $hints = [], float $width = MenuLayout::MAX_WIDTH): int
   {
     $m = $theme->metrics;
     $hintHeight = MenuActionHints::height($hints, $theme, $width - 2 * $m->panelPadding);

@@ -1,6 +1,10 @@
 <?php
 
 use Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot;
+use Ichiloto\Engine\Field\MapLayer;
+use Ichiloto\Engine\Field\MapLayerSet;
+use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
+use Tests\Support\Rendering\RetainedFrameState;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSprite;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTileBatch;
 use Ichiloto\Engine\Rendering\Presentation\RendererPresentation;
@@ -8,17 +12,20 @@ use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 use Ichiloto\Engine\Rendering\Presentation\StyledPresentationFrame;
 use Ichiloto\Engine\Rendering\RendererClient;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererMessageType;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererProtocolException;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererStartupException;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException;
 use Ichiloto\Engine\Rendering\Transport\ProcessRendererTransport;
 use Ichiloto\Engine\Rendering\Transport\RendererEvent;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
+use Ichiloto\Engine\Rendering\Transport\RendererMessage;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Tests\Support\Input\FakeRendererTransport;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
 function tileBatch(string $id = 'terrain', int $column = 0): PresentationTileBatch
 {
@@ -44,16 +51,16 @@ it('negotiates terrain at startup and fails closed without acknowledgement', fun
   } finally { $transport->shutdown(); }
 })->with(['normal', 'capabilities']);
 
-it('rejects tile capabilities in v1 and terrain frames without negotiated support', function () {
+it('rejects tile capabilities in v1 and explicitly removes stateless presenter tile batches', function () {
   expect(fn() => new RendererSessionConfig('Tiles', sys_get_temp_dir(), requiredCapabilities: ['tile_batches']))
     ->toThrow(InvalidArgumentException::class);
   $transport = new FakeRendererTransport();
   $presenter = new RendererPresentation(new RendererClient($transport), new RendererGridConfig(2,1));
   expect(fn() => $presenter->present(new ConsolePresentationSnapshot(2,1,[]), [], [tileBatch()]))
-    ->toThrow(RendererProtocolException::class, 'tile_batches')->and($transport->sent)->toBe([]);
+    ->toThrow(RendererProtocolException::class, 'retained world')->and($transport->sent)->toBe([]);
 });
 
-it('compares terrain-only changes clears omitted terrain and retries transactionally', function () {
+it('retains terrain identity removes omitted worlds and resets after rejected terrain delivery', function () {
   $transport = new FakeRendererTransport();
   $client = new RendererClient($transport);
   $client->start(new RendererSessionConfig('Tiles', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
@@ -62,18 +69,55 @@ it('compares terrain-only changes clears omitted terrain and retries transaction
   $client->pump();
   $presenter = new RendererPresentation($client, new RendererGridConfig(2,1));
   $snapshot = new ConsolePresentationSnapshot(2,1,[]);
-  expect($presenter->present($snapshot, [], [tileBatch()]))->toBeTrue()
-    ->and($presenter->present($snapshot, [], [tileBatch()]))->toBeFalse();
+  $createWorld = static function (string $text): PresentationWorld {
+    return PresentationWorld::getFromLayers(new MapLayerSet([new MapLayer('terrain', 0, false, '00-terrain.txt', $text)]));
+  };
+  $original = $createWorld('..');
+  $changed = $createWorld('.x');
+  expect($presenter->present($snapshot, world: $original))->toBeTrue()
+    ->and($presenter->present($snapshot, world: $original))->toBeFalse();
   $transport->sendFailure = new RendererTransportException('backpressure');
-  expect(fn() => $presenter->present($snapshot, [], [tileBatch(column:1)]))->toThrow(RendererTransportException::class);
-  expect($presenter->present($snapshot, [], [tileBatch()]))->toBeFalse();
+  expect(fn() => $presenter->present($snapshot, world: $changed))->toThrow(RendererTransportException::class);
+  expect(fn() => $presenter->present($snapshot, world: $original))->toThrow(RendererTransportException::class);
   $transport->sendFailure = null;
-  expect($presenter->present($snapshot, [], [tileBatch(column:1)]))->toBeTrue()
+  expect($presenter->present($snapshot, world: $changed))->toBeTrue()
     ->and($presenter->present($snapshot))->toBeTrue()
     ->and($presenter->present($snapshot))->toBeFalse()
     ->and(array_column(array_map(fn($m) => $m->payload, $transport->sent), 'frame'))->toBe([1,2,3])
-    ->and($transport->sent[2]->payload)->not->toHaveKey('tileBatches');
-  expect(fn() => $presenter->present($snapshot, [], [tileBatch(column:2)]))->toThrow(InvalidArgumentException::class);
+    ->and($transport->sent[1]->payload['reset'])->toBeTrue()
+    ->and($transport->sent[2]->payload['operations'])->toBe([['op' => 'remove', 'kind' => 'world', 'id' => 'map']]);
+  $frames = RetainedFrameState::replay($transport->sent);
+  expect($frames[0]['worlds']['map']['columns'])->toBe(2)->and($frames[2])->not->toHaveKey('worlds')
+    ->and($frames[0]['worlds']['map']['glyphRows']['map:terrain'][0][1]['glyph'])->toBe('.')
+    ->and($frames[1]['worlds']['map']['glyphRows']['map:terrain'][0][1]['glyph'])->toBe('x');
+  $rows = array_values(array_filter($transport->sent[1]->payload['operations'], fn($op) => $op['op'] === 'worldRows'));
+  expect(array_column($rows[0]['rows'][0]['cells'], 'glyph'))->toBe(['.', 'x']);
+});
+
+it('replays world row replacement by owner and clears empty rows and replaced world state', function () {
+  $state = new RetainedFrameState();
+  $put = ['op' => 'put', 'kind' => 'world', 'id' => 'map', 'value' => ['columns' => 2, 'rows' => 1,
+    'layers' => [['id' => 'back', 'layer' => -100, 'kind' => 'gameplay'], ['id' => 'front', 'layer' => -99, 'kind' => 'gameplay']]]];
+  $cell = static fn(string $owner) => ['glyph' => '.', 'foreground' => null, 'background' => null,
+    'displayWidth' => 1, 'ownerLayerId' => $owner];
+  $message = static fn(int $generation, array $operations, bool $reset = false) => new RendererMessage(
+    RendererMessageType::FRAME, ['frame' => $generation, 'baseGeneration' => $generation - 1,
+      'generation' => $generation, 'reset' => $reset, 'present' => true, 'operations' => $operations], RendererProtocolVersion::V2);
+  $state->applyMessage($message(1, [$put,
+    ['op' => 'worldRows', 'id' => 'map', 'rows' => [['row' => 0, 'cells' => [$cell('back'), $cell('front')]]]],
+  ], true));
+  expect($state->getFrame()['worlds']['map']['glyphRows']['front'][0])->toBe([1 => $cell('front')]);
+  $state->applyMessage($message(2, [
+    ['op' => 'worldRows', 'id' => 'map', 'rows' => [['row' => 0, 'cells' => [$cell('back'), $cell('back')]]]],
+  ]));
+  expect($state->getFrame()['worlds']['map']['glyphRows'])->toBe(['back' => [0 => [$cell('back'), $cell('back')]]]);
+  $state->applyMessage($message(3, [$put]));
+  expect($state->getFrame()['worlds']['map']['glyphRows'])->toBe([]);
+  $state->applyMessage($message(4, [['op' => 'remove', 'kind' => 'world', 'id' => 'map']]));
+  expect($state->getFrame())->not->toHaveKey('worlds');
+  $state->applyMessage($message(5, [$put]));
+  $state->applyMessage($message(6, [], true));
+  expect($state->getFrame())->not->toHaveKey('worlds');
 });
 
 it('keeps immutable catalogs and cell values detached from external references', function () {

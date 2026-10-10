@@ -9,6 +9,8 @@ use Ichiloto\Engine\Core\Menu\Commands\ToTitleMenuCommand;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\Localization\Vocabulary;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Scenes\AbstractScene;
 use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Ichiloto\Engine\Scenes\GameOver\Menus\GameOverMenu;
@@ -20,8 +22,10 @@ use Throwable;
  *
  * @package Ichiloto\Engine\Scenes\GameOver
  */
-class GameOverScene extends AbstractScene
+class GameOverScene extends AbstractScene implements CanvasProviderInterface
 {
+  use GameOverCanvasPresentation;
+
   /**
    * @var GameOverMenu The game over menu.
    */
@@ -61,6 +65,7 @@ class GameOverScene extends AbstractScene
     $menuHeight = 3;
 
     parent::start();
+    $this->resetGameOverPresentation();
     $this->headerContent = $this->loadHeaderContent();
     $this->headerLines = explode("\n", $this->headerContent);
     $this->headerHeight = count($this->headerLines);
@@ -133,7 +138,7 @@ class GameOverScene extends AbstractScene
 
       return implode("\n", [
         '================',
-        '   GAME OVER',
+        '   ' . Vocabulary::getTerm('game.game_over', 'GAME OVER'),
         '================',
       ]);
     }
@@ -158,6 +163,12 @@ class GameOverScene extends AbstractScene
   public function suspend(): void
   {
     Console::clear();
+  }
+
+  public function stop(): void
+  {
+    $this->resetGameOverPresentation();
+    parent::stop();
   }
 
   /**

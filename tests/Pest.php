@@ -40,6 +40,13 @@ uses()->beforeEach(function () {
     Ichiloto\Engine\IO\Console\TerminalCapabilities::reset();
 })->in(__DIR__);
 
+uses()->afterEach(function () {
+    cleanUpTestDirectories();
+})->in(__DIR__);
+
+// Fatal process exits cannot run per-test teardown.
+register_shutdown_function('cleanUpTestDirectories');
+
 /*
 |--------------------------------------------------------------------------
 | Expectations
@@ -65,6 +72,41 @@ expect()->extend('toBeOne', function () {
 | global functions to help you to reduce the number of lines of code in your test files.
 |
 */
+
+/** Creates a fixture directory owned by the current test's teardown. */
+function createTestDirectory(string $prefix): string
+{
+    $root = sys_get_temp_dir() . DIRECTORY_SEPARATOR . uniqid($prefix, true);
+    mkdir($root, 0700, true);
+    $GLOBALS['ichilotoTestDirectories'][$root] = $root;
+
+    return $root;
+}
+
+/** Removes registered fixtures, including when a test fails before its last line. */
+function cleanUpTestDirectories(): void
+{
+    foreach ($GLOBALS['ichilotoTestDirectories'] ?? [] as $root) {
+        if (! is_dir($root) || is_link($root)) {
+            continue;
+        }
+
+        $files = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::CHILD_FIRST,
+        );
+
+        foreach ($files as $file) {
+            $file->isDir() && ! $file->isLink()
+                ? rmdir($file->getPathname())
+                : unlink($file->getPathname());
+        }
+
+        rmdir($root);
+    }
+
+    $GLOBALS['ichilotoTestDirectories'] = [];
+}
 
 /**
  * Creates a lightweight scene stub for camera-oriented unit tests.
@@ -153,7 +195,7 @@ function makeCameraTestScene(): SceneInterface
  */
 function writeTestMaps(array $maps): string
 {
-  $root = sys_get_temp_dir() . DIRECTORY_SEPARATOR . uniqid('ichiloto-region-', true);
+  $root = createTestDirectory('ichiloto-region-');
 
   foreach ($maps as $id => $map) {
     $directory = $root . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $id);
@@ -347,4 +389,31 @@ function makeBareScene(string $sceneClass): object
 function putSceneAudioConfig(array $values): void
 {
   ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub($values));
+}
+
+/**
+ * Authors a project's skill catalogue as record files, one per skill and
+ * numbered in the given order, replacing any records already there: the
+ * fixture form of `assets/Data/Skills`.
+ *
+ * @param string $root The project root.
+ */
+function writeSkillRecords(string $root, \Ichiloto\Engine\Entities\Skills\Skill ...$skills): void
+{
+  $directory = $root . '/assets/Data/' . \Ichiloto\Engine\Entities\Skills\SkillCatalog::DIRECTORY;
+
+  if (! is_dir($directory)) {
+    mkdir($directory, 0777, true);
+  }
+
+  array_map(unlink(...), glob($directory . '/*.php') ?: []);
+
+  foreach (array_values($skills) as $index => $skill) {
+    $slug = trim(preg_replace('/[^a-z0-9]+/', '-', strtolower($skill->name)) ?? '', '-');
+    $data = var_export(\Ichiloto\Engine\Entities\Skills\SkillRecord::writeSkill($skill), true);
+    file_put_contents(
+      sprintf('%s/%04d-%s.php', $directory, $index + 1, $slug),
+      "<?php\n\nreturn ['class' => \\Ichiloto\\Engine\\Entities\\Skills\\Skill::class, 'data' => {$data}];\n",
+    );
+  }
 }

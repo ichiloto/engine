@@ -57,25 +57,38 @@ class WorldConditionEvaluator
         throw new InvalidArgumentException(sprintf('%s field "name" must be non-empty.', $conditionSource));
       }
 
-      if (isset($condition['negate']) && ! is_bool($condition['negate'])) {
+      if (array_key_exists('negate', $condition) && ! is_bool($condition['negate'])) {
         throw new InvalidArgumentException(sprintf('%s field "negate" must be boolean.', $conditionSource));
       }
 
+      if ($type === WorldConditionType::SWITCH && array_key_exists('value', $condition) && !is_bool($condition['value'])) {
+        throw new InvalidArgumentException(sprintf('%s switch field "value" must be boolean.', $conditionSource));
+      }
+
       if ($type === WorldConditionType::VARIABLE) {
-        $operator = strval($condition['op'] ?? '==');
-        if (! in_array($operator, ['==', '!=', '>', '>=', '<', '<='], true)) {
+        $operator = array_key_exists('op', $condition) ? $condition['op'] : '==';
+        if (!is_string($operator) || ! in_array($operator, ['==', '!=', '>', '>=', '<', '<='], true)) {
           throw new InvalidArgumentException(sprintf(
             '%s field "op" has unsupported variable operator "%s".',
             $conditionSource,
-            $operator,
+            is_scalar($operator) ? strval($operator) : get_debug_type($operator),
           ));
+        }
+        if (array_key_exists('value', $condition) && !is_int($condition['value'])
+          && !is_float($condition['value']) && !is_string($condition['value'])) {
+          throw new InvalidArgumentException(sprintf('%s variable field "value" must be a number or string.', $conditionSource));
         }
       }
 
       if ($type === WorldConditionType::ITEM
-        && isset($condition['quantity'])
+        && array_key_exists('quantity', $condition)
         && (! is_int($condition['quantity']) || $condition['quantity'] < 1)) {
         throw new InvalidArgumentException(sprintf('%s field "quantity" must be a positive integer.', $conditionSource));
+      }
+
+      if ($type === WorldConditionType::QUEST && array_key_exists('status', $condition)
+        && !in_array($condition['status'], ['active', 'completed'], true)) {
+        throw new InvalidArgumentException(sprintf('%s quest field "status" must be active or completed.', $conditionSource));
       }
     }
   }

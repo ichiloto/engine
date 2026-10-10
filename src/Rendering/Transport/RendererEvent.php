@@ -10,6 +10,9 @@ use stdClass;
 
 final readonly class RendererEvent
 {
+  /** A control identity names a physical key independently of its text, case and modifiers. */
+  public const string CONTROL_PATTERN = '/^[a-z0-9_]{1,32}$/D';
+
   /** @param list<string> $capabilities */
   private function __construct(
     public RendererEventType $type,
@@ -18,6 +21,15 @@ final readonly class RendererEvent
     public RendererProtocolVersion $protocol = RendererProtocolVersion::V1,
     public array $capabilities = [],
     public ?bool $active = null,
+    public ?int $generation = null,
+    public ?int $frame = null,
+    public ?bool $presented = null,
+    public ?int $expectedGeneration = null,
+    public ?bool $resyncRequired = null,
+    /** Negotiated key transitions: the control a key or key_release event belongs to. */
+    public ?string $control = null,
+    /** Negotiated key transitions: true when a key event repeats an already held control. */
+    public ?bool $repeat = null,
   )
   {
   }
@@ -45,9 +57,10 @@ final readonly class RendererEvent
     if ($type === RendererEventType::KEY && (! is_string($key) || $key === '')) {
       throw new RendererProtocolException('Renderer key event requires a nonempty key string.');
     }
-    if ($type === RendererEventType::ERROR && ! is_string($message)) {
-      throw new RendererProtocolException('Renderer error event requires a message string.');
+    if (in_array($type, [RendererEventType::ERROR, RendererEventType::FRAME_REJECTED], true) && ! is_string($message)) {
+      throw new RendererProtocolException('Renderer error or frame rejection event requires a message string.');
     }
+    [$control, $repeat] = self::requireKeyTransition($object, $type, $protocol);
     $active = $object->active ?? null;
     if ($type === RendererEventType::WINDOW_ACTIVATION
       && ($protocol !== RendererProtocolVersion::V2 || !is_bool($active))) {
@@ -55,6 +68,35 @@ final readonly class RendererEvent
     }
     if ($type !== RendererEventType::WINDOW_ACTIVATION && property_exists($object, 'active')) {
       throw new RendererProtocolException('Only window activation events carry active state.');
+    }
+    $retainedFields = match ($type) {
+      RendererEventType::FRAME_ACK => ['generation', 'frame', 'presented'],
+      RendererEventType::FRAME_REJECTED => ['generation', 'expectedGeneration', 'resyncRequired'],
+      default => [],
+    };
+    if (($retainedFields !== [] || $type === RendererEventType::RESIZED) && $protocol !== RendererProtocolVersion::V2) {
+      throw new RendererProtocolException('Retained frame feedback and resize notifications require protocol 2.');
+    }
+    foreach (['generation', 'frame', 'presented', 'expectedGeneration', 'resyncRequired'] as $field) {
+      if (property_exists($object, $field) && !in_array($field, $retainedFields, true)) {
+        throw new RendererProtocolException('Unexpected retained frame feedback field: ' . $field . '.');
+      }
+    }
+    $generation = $frame = $presented = $expectedGeneration = $resyncRequired = null;
+    if ($type === RendererEventType::FRAME_ACK) {
+      $generation = self::requireSequence($object, 'generation', 1);
+      $frame = self::requireSequence($object, 'frame');
+      $presented = $object->presented ?? null;
+      if (!is_bool($presented)) {
+        throw new RendererProtocolException('Frame acknowledgement requires a boolean presented state.');
+      }
+    } elseif ($type === RendererEventType::FRAME_REJECTED) {
+      $generation = self::requireSequence($object, 'generation');
+      $expectedGeneration = self::requireSequence($object, 'expectedGeneration');
+      $resyncRequired = $object->resyncRequired ?? null;
+      if ($resyncRequired !== true) {
+        throw new RendererProtocolException('Frame rejection requires resyncRequired: true.');
+      }
     }
     $capabilities = property_exists($object, 'capabilities') ? $object->capabilities : [];
     if (!is_array($capabilities) || !array_is_list($capabilities) || count($capabilities) > 32) {
@@ -70,7 +112,49 @@ final readonly class RendererEvent
       throw new RendererProtocolException('Capabilities must be unique and only appear on ready.');
     }
     return new self($type, $type === RendererEventType::KEY ? $key : null,
-      $type === RendererEventType::ERROR ? $message : null, $protocol, $capabilities, $active);
+      in_array($type, [RendererEventType::ERROR, RendererEventType::FRAME_REJECTED], true) ? $message : null,
+      $protocol, $capabilities, $active, $generation, $frame, $presented, $expectedGeneration, $resyncRequired,
+      $control, $repeat);
+  }
+
+  /**
+   * Key transitions are a protocol 2 subscription. A transition key names its control and
+   * whether it repeats a held one; a release names only its control; a reset carries nothing.
+   *
+   * @return array{?string, ?bool}
+   */
+  private static function requireKeyTransition(stdClass $object, RendererEventType $type, RendererProtocolVersion $protocol): array
+  {
+    $transition = in_array($type, [RendererEventType::KEY_RELEASE, RendererEventType::INPUT_RESET], true)
+      || ($type === RendererEventType::KEY && property_exists($object, 'control'));
+    if ($transition && $protocol !== RendererProtocolVersion::V2) {
+      throw new RendererProtocolException('Key transitions require protocol 2.');
+    }
+    if ((property_exists($object, 'control') && !in_array($type, [RendererEventType::KEY, RendererEventType::KEY_RELEASE], true))
+      || (property_exists($object, 'repeat') && !($type === RendererEventType::KEY && property_exists($object, 'control')))) {
+      throw new RendererProtocolException('Only transition key and key_release events carry control identity; only transition keys repeat.');
+    }
+    if (!$transition || $type === RendererEventType::INPUT_RESET) {
+      return [null, null];
+    }
+    $control = $object->control ?? null;
+    if (!is_string($control) || preg_match(self::CONTROL_PATTERN, $control) !== 1) {
+      throw new RendererProtocolException('Key transitions require a control identity of 1..32 lowercase letters, digits or underscores.');
+    }
+    $repeat = $object->repeat ?? null;
+    if ($type === RendererEventType::KEY && !is_bool($repeat)) {
+      throw new RendererProtocolException('A transition key event requires a boolean repeat state.');
+    }
+    return [$control, $repeat];
+  }
+
+  private static function requireSequence(stdClass $object, string $field, int $minimum = 0): int
+  {
+    $value = $object->$field ?? null;
+    if (!is_int($value) || $value < $minimum) {
+      throw new RendererProtocolException('Renderer ' . $field . ' requires an integer of at least ' . $minimum . '.');
+    }
+    return $value;
   }
 
   /** @param list<string> $required */

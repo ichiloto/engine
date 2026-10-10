@@ -7,6 +7,9 @@ use Ichiloto\Engine\Battle\Presentation\BattleResultsPlayback;
 use Ichiloto\Engine\Battle\Presentation\BattleResultsText;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\Localization\Vocabulary;
+use Ichiloto\Engine\UI\Windows\Enumerations\WindowHeightPolicy;
 use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\UI\Windows\WindowAlignment;
 
@@ -43,16 +46,16 @@ class BattleResultWindow extends Window
   /** Projects all structured facts through explicit pages rather than truncating rewards. */
   public function displayPlayback(BattleResultsPlayback $playback): void
   {
-    $wrapped = [];
-    foreach (BattleResultsText::lines($playback) as $line) {
-      array_push($wrapped, ...explode("\n", wrap_text($line, self::WIDTH - 4)));
-    }
-    $height = self::HEIGHT - 2;
+    $wrapped = BattleResultsText::getLines($playback, $this->getContentWidth());
+    $height = $this->getContentHeight();
     $pages = max(1, (int)ceil(count($wrapped) / $height));
     $playback->setScrollLimit($pages - 1);
     $page = min($pages - 1, $playback->scrollOffset);
     $content = array_pad(array_slice($wrapped, $page * $height, $height), $height, '');
-    $title = 'Victory - ' . ucfirst($playback->currentStage()['kind']);
+    $stage = $playback->currentStage()['kind'];
+    $title = Vocabulary::getTerm('battle.victory', 'Victory') . ' - ' . Vocabulary::getTerm(
+      'battle.' . match ($stage) { 'primary' => 'rewards', 'level' => 'level_up', 'ability' => 'new_ability', 'special' => 'special_reward' },
+      ucfirst($stage));
     $prompt = $playback->confirmation();
     $help = ($prompt['enabled'] ? 'enter:' . $prompt['label'] : '')
       . ($pages > 1 ? sprintf(' up/down:Page %d/%d', $page + 1, $pages) : '');
@@ -72,7 +75,8 @@ class BattleResultWindow extends Window
       self::WIDTH,
       self::HEIGHT,
       $this->battleScreen->borderPack,
-      WindowAlignment::middleLeft()
+      WindowAlignment::middleLeft(),
+      heightPolicy: WindowHeightPolicy::FIXED,
     );
 
     $this->refreshLayout();
@@ -88,7 +92,7 @@ class BattleResultWindow extends Window
   {
     $this->result = $result;
     $this->revealedEntryCount = 0;
-    $this->setTitle($result->title);
+    $this->setTitle(Vocabulary::getTerm('battle.' . $result->outcome(), $result->title));
 
     if (! empty($result->entries)) {
       $this->isRevealComplete = false;
@@ -240,7 +244,7 @@ class BattleResultWindow extends Window
     $content = [];
 
     foreach ($lines as $line) {
-      $content = array_merge($content, explode("\n", wrap_text($line, self::WIDTH - 4)));
+      $content = array_merge($content, TerminalText::wrapParagraphsToWidth($line, $this->getContentWidth()));
     }
 
     $content = array_slice($content, 0, self::HEIGHT - 2);

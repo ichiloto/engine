@@ -4,7 +4,7 @@ namespace Ichiloto\Engine\IO;
 
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\Util\Config\ConfigStore;
-use Ichiloto\Engine\Util\Config\InputConfig;
+use Ichiloto\Engine\Util\Config\PlayerSettings;
 use Ichiloto\Engine\Util\Debug;
 use Throwable;
 
@@ -12,8 +12,8 @@ use Throwable;
  * Reads and rewrites the player's key bindings.
  *
  * A rebind takes effect immediately, because the running game reads its
- * bindings from {@see InputManager}, and is written back to the project's
- * `input.php` so it survives the session.
+ * bindings from {@see InputManager}, and stores only key overrides in player
+ * data. The project's `input.php` remains the authored default.
  *
  * @package Ichiloto\Engine\IO
  */
@@ -26,6 +26,11 @@ class InputBindings implements ActionHintProvider
    * so binding it elsewhere could strand a player with no way out.
    */
   protected const array LOCKED_ACTIONS = ['back'];
+
+  public static function canRebind(string $action): bool
+  {
+    return ! in_array($action, self::LOCKED_ACTIONS, true);
+  }
 
   /**
    * Returns the rebindable actions in a stable display order.
@@ -95,7 +100,7 @@ class InputBindings implements ActionHintProvider
    */
   public function rebind(string $action, KeyCode $key): bool
   {
-    if (in_array($action, self::LOCKED_ACTIONS, true)) {
+    if (! self::canRebind($action)) {
       return false;
     }
 
@@ -119,28 +124,33 @@ class InputBindings implements ActionHintProvider
   }
 
   /**
-   * Writes the live bindings back to the project's input configuration.
+   * Writes changed keys to player data without modifying authored input.php.
    *
    * @return bool True when the bindings were written.
    */
   protected function persist(): bool
   {
-    $config = ConfigStore::get(InputConfig::class);
+    $player = ConfigStore::has(PlayerSettings::class)
+      ? ConfigStore::get(PlayerSettings::class) : null;
 
-    if (! $config instanceof InputConfig) {
-      Debug::warn('Input configuration is not available; the rebind applies to this session only.');
+    if (! $player instanceof PlayerSettings) {
+      Debug::warn('Player settings are not available; the rebind applies to this session only.');
 
       return false;
     }
 
-    foreach (InputManager::getBindings() as $action => $binding) {
-      $config->set($action, $binding);
+    $defaults = InputManager::getDefaultBindings();
+    if ($defaults === []) {
+      Debug::warn('Input defaults are not initialized; the rebind applies to this session only.');
+      return false;
     }
 
     try {
-      $config->persist();
+      $bindings = array_filter(InputManager::getBindings(), self::canRebind(...), ARRAY_FILTER_USE_KEY);
+      $player->setInputBindings($bindings, $defaults);
+      $player->persist();
     } catch (Throwable $exception) {
-      Debug::warn(sprintf('Could not write the input configuration: %s', $exception->getMessage()));
+      Debug::warn(sprintf('Could not save player input bindings: %s', $exception->getMessage()));
 
       return false;
     }

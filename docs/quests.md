@@ -39,8 +39,11 @@ return [
   `items` (names resolved through the item store). All optional.
 - Experience rewards use the same progression awarder as battles. Every
   crossed level grants the role's automatic skills exactly once, including
-  reserve members, and quest presentation reports new levels and learned
-  abilities or magic without maintaining a second progression model.
+  reserve members. One acknowledged, paginated reward summary reports the
+  rewards, new levels and learned abilities or magic; per-level toasts are
+  removed. Quest completion toasts contain only the quest name. Progress
+  notices contain the name and an optional count, not the full objective
+  description, which stays in the journal. No second progression model is used.
 - `optional` marks a side quest, which is offered rather than granted. See
   [Side quests the player can turn down](#side-quests-the-player-can-turn-down).
 

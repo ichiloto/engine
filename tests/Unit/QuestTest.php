@@ -334,7 +334,7 @@ class OfferRecordingQuestManager extends QuestManager
     // Needs a live scene; irrelevant to the offer flow.
   }
 
-  protected function notifyQuest(string $title, string $text, NotificationDuration $duration): void
+  protected function notifyQuest(string $title, string $text, NotificationDuration $duration, ?string $presentationRole = null): void
   {
     // Needs a live game; irrelevant to the offer flow.
   }
@@ -359,7 +359,7 @@ class CollectIdentityQuestManager extends QuestManager
     $this->gameScene = new CollectIdentityQuestScene($party);
   }
 
-  protected function notifyQuest(string $title, string $text, NotificationDuration $duration): void
+  protected function notifyQuest(string $title, string $text, NotificationDuration $duration, ?string $presentationRole = null): void
   {
   }
 }

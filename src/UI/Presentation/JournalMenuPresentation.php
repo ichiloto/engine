@@ -16,8 +16,12 @@ use RuntimeException;
 /** Same-panel quest journal and Records Info. All navigation remains with the states. */
 final class JournalMenuPresentation
 {
+  // Keep the title/summary compact beside the equal-width tabs.
+  private const float TITLE_WIDTH_SHARE = 0.22;
+  // Reserve half the row for record identity before distributing numeric values.
+  private const float VALUE_WIDTH_SHARE = 0.50;
   /** @return array{int, int} Text columns and rows, shared with the PHP scrolling owner. */
-  public static function pageSize(JournalMenuContent $content, MenuPresentationCatalog $theme, int $width = 1350, int $height = 720): array
+  public static function pageSize(JournalMenuContent $content, MenuPresentationCatalog $theme, int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT): array
   {
     if ($content->journal && $content->document !== null) { return QuestJournalPresentation::pageSize($content, $theme, $width, $height); }
     $bounds = self::geometry($content, $theme, $width, $height)['text'];
@@ -25,7 +29,7 @@ final class JournalMenuPresentation
   }
 
   public static function compose(JournalMenuContent $content, MenuPresentationCatalog $theme, TextPage $page,
-    float $time = 0, int $width = 1350, int $height = 720): PresentationCanvas
+    float $time = 0, int $width = PresentationCanvas::DEFAULT_WIDTH, int $height = PresentationCanvas::DEFAULT_HEIGHT): PresentationCanvas
   {
     if ($content->journal && $content->document !== null) { return QuestJournalPresentation::compose($content, $theme, $page, $time, $width, $height); }
     $g = self::geometry($content, $theme, $width, $height);
@@ -46,7 +50,7 @@ final class JournalMenuPresentation
       else {
         $cells = (int)floor(($bounds->width - 2 * $theme->rows->metrics->padding) / $m->cellWidth);
         $valueCount = max(array_map(fn($row) => count($row['values']), $content->rows));
-        $valueCells = max(4, (int)floor($cells * 0.50 / max(1, $valueCount)) - $theme->rows->metrics->gapCells);
+        $valueCells = max(4, (int)floor($cells * self::VALUE_WIDTH_SHARE / max(1, $valueCount)) - $theme->rows->metrics->gapCells);
         $labelCells = $cells - $valueCount * ($valueCells + $theme->rows->metrics->gapCells);
         $rows = [];
         foreach ($content->rows as $i => $row) {
@@ -93,10 +97,9 @@ final class JournalMenuPresentation
     $m = $theme->metrics;
     $p = $m->panelPadding;
     $gap = $m->sectionGap;
-    $host = new CanvasRectangle(($width - min(1100, $width - 20)) / 2, ($height - min(700, $height - 20)) / 2,
-      min(1100, $width - 20), min(700, $height - 20));
+    $host = MenuLayout::getBounds($width, $height);
     $inner = $host->width - 2 * $p;
-    $titleWidth = floor($inner * 0.22);
+    $titleWidth = floor($inner * self::TITLE_WIDTH_SHARE);
     $tabWidth = ($inner - $titleWidth - count($content->tabs) * $gap) / count($content->tabs);
     $titleText = $content->title . ($content->summary !== '' ? "\n" . $content->summary : '');
     $summaryHeight = max(80, 2 * $p + count(MenuCanvas::wrap($titleText, (int)floor($titleWidth / $m->cellWidth))) * $m->cellHeight);

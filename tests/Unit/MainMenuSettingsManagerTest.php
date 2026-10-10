@@ -5,6 +5,7 @@ use Ichiloto\Engine\Settings\GameSetting;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\Util\Config\AppConfig;
 use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\PlayerSettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
 
@@ -72,6 +73,20 @@ class ProjectConfigPersistProxy extends ProjectConfig
   }
 }
 
+beforeEach(function () {
+  $this->playerRoot = sys_get_temp_dir() . '/ichiloto-menu-player-' . bin2hex(random_bytes(6));
+  mkdir($this->playerRoot);
+  ConfigStore::put(PlayerSettings::class, new PlayerSettings($this->playerRoot));
+});
+
+afterEach(function () {
+  ConfigStore::remove(PlayerSettings::class);
+  $settings = $this->playerRoot . '/.data/player-settings.json';
+  if (is_file($settings)) { unlink($settings); }
+  if (is_dir(dirname($settings))) { rmdir(dirname($settings)); }
+  rmdir($this->playerRoot);
+});
+
 function getMainMenuSettingByKey(MainMenuSettingsManager $manager, string $key): GameSetting
 {
   foreach ($manager->getSettings() as $setting) {
@@ -110,7 +125,8 @@ it('updates and persists the selection color for menus and battle', function () 
   expect($label)->toBe('Yellow')
     ->and($config->get('ui.menu.selection_color'))->toBe(Color::YELLOW)
     ->and($config->get('ui.battle.selection_color'))->toBe(Color::YELLOW)
-    ->and($contents)->toContain('Color::YELLOW');
+    ->and($contents)->toBe('')
+    ->and((new PlayerSettings($this->playerRoot))->get('ui.menu.selection_color'))->toBe(Color::YELLOW->value);
 
   unlink($filename);
 });

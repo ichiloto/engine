@@ -23,12 +23,20 @@ final class RendererTransportTestHandles
   public static array $transports = [];
 }
 
-afterEach(function () {
-  foreach (RendererTransportTestHandles::$transports as $transport) {
-    try { $transport->shutdown(); } catch (Throwable) { }
+trait RendererTransportTestCleanup
+{
+  // Stop capture writers before Pest's shared directory teardown.
+  #[\PHPUnit\Framework\Attributes\After(1)]
+  public function shutdownTestTransports(): void
+  {
+    foreach (RendererTransportTestHandles::$transports as $transport) {
+      try { $transport->shutdown(); } catch (Throwable) { }
+    }
+    RendererTransportTestHandles::$transports = [];
   }
-  RendererTransportTestHandles::$transports = [];
-});
+}
+
+uses(RendererTransportTestCleanup::class);
 
 function makeS2Transport(string $scenario = 'normal', array $overrides = [], ?string $capture = null): ProcessRendererTransport
 {
@@ -47,23 +55,21 @@ function s2Session(): RendererSessionConfig
 }
 
 it('uses v2 for hello ready frame key error and shutdown on the same transport', function () {
-  $capture = tempnam(sys_get_temp_dir(), 'renderer-v2-');
-  try {
-    $transport = makeS2Transport('v2_events', capture: $capture);
-    $transport->start(new RendererSessionConfig('V2', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2));
-    $transport->send(new StyledPresentationFrame(1)->toRendererMessage());
-    $events = s2Await($transport, fn($events) => count($events) === 3);
-    expect(array_column($events, 'type'))->toBe([RendererEventType::READY, RendererEventType::KEY,
-      RendererEventType::ERROR]);
-    foreach ($events as $event) { expect($event->protocol)->toBe(RendererProtocolVersion::V2); }
-    expect($events[1]->key)->toBe('up')->and($events[2]->message)->toBe('recoverable');
-    $transport->shutdown();
-    $messages = array_map(fn($line) => json_decode($line, true, flags: JSON_THROW_ON_ERROR), file($capture, FILE_IGNORE_NEW_LINES));
-    expect(array_column($messages, 'protocol'))->toBe([2, 2, 2])
-      ->and(array_column($messages, 'type'))->toBe(['hello', 'frame', 'shutdown'])
-      ->and($messages[1]['textLayers'])->toBe([])
-      ->and($transport->getDiagnostics())->toContain('graceful shutdown');
-  } finally { unlink($capture); }
+  $capture = createTestDirectory('renderer-v2-') . '/capture.ndjson';
+  $transport = makeS2Transport('v2_events', capture: $capture);
+  $transport->start(new RendererSessionConfig('V2', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2));
+  $transport->send(new StyledPresentationFrame(1)->toRendererMessage());
+  $events = s2Await($transport, fn($events) => count($events) === 3);
+  expect(array_column($events, 'type'))->toBe([RendererEventType::READY, RendererEventType::KEY,
+    RendererEventType::ERROR]);
+  foreach ($events as $event) { expect($event->protocol)->toBe(RendererProtocolVersion::V2); }
+  expect($events[1]->key)->toBe('up')->and($events[2]->message)->toBe('recoverable');
+  $transport->shutdown();
+  $messages = array_map(fn($line) => json_decode($line, true, flags: JSON_THROW_ON_ERROR), file($capture, FILE_IGNORE_NEW_LINES));
+  expect(array_column($messages, 'protocol'))->toBe([2, 2, 2])
+    ->and(array_column($messages, 'type'))->toBe(['hello', 'frame', 'shutdown'])
+    ->and($messages[1]['textLayers'])->toBe([])
+    ->and($transport->getDiagnostics())->toContain('graceful shutdown');
 });
 
 it('receives v2 native close and drains the peer without an unnecessary shutdown message', function () {
@@ -122,26 +128,24 @@ function s2Await(ProcessRendererTransport $transport, callable $done): array
 }
 
 it('starts a direct child, validates hello, and releases it on idempotent shutdown', function () {
-  $capture = tempnam(sys_get_temp_dir(), 'renderer argv space-');
-  try {
-    $transport = makeS2Transport(capture: $capture);
-    expect($transport->isRunning())->toBeFalse();
-    $transport->start(s2Session());
-    expect($transport->isRunning())->toBeTrue()->and($transport->getState())->toBe(RendererTransportState::RUNNING);
-    expect($transport->pollEvents()[0]->type)->toBe(RendererEventType::READY);
-    expect($transport->shutdown())->toBe(0)->and($transport->shutdown())->toBe(0)
-      ->and($transport->isRunning())->toBeFalse()->and($transport->getState())->toBe(RendererTransportState::STOPPED);
-    $lines = explode("\n", trim(file_get_contents($capture)));
-    expect($lines)->toHaveCount(2);
-    expect(json_decode($lines[0], true, flags: JSON_THROW_ON_ERROR))->toBe([
-      'protocol' => 1, 'type' => 'hello', 'title' => 'Transport test',
-      'assetRoot' => realpath(sys_get_temp_dir()),
-      'grid' => ['columns' => 80, 'rows' => 24, 'cellWidth' => 16, 'cellHeight' => 24],
-    ])->and(json_decode($lines[1], true, flags: JSON_THROW_ON_ERROR))->toBe(['protocol' => 1, 'type' => 'shutdown']);
-    expect($transport->getDiagnostics())->toContain('graceful shutdown');
-    $transport->start(s2Session());
-    expect($transport->isRunning())->toBeTrue();
-  } finally { unlink($capture); }
+  $capture = createTestDirectory('renderer argv space-') . '/capture.ndjson';
+  $transport = makeS2Transport(capture: $capture);
+  expect($transport->isRunning())->toBeFalse();
+  $transport->start(s2Session());
+  expect($transport->isRunning())->toBeTrue()->and($transport->getState())->toBe(RendererTransportState::RUNNING);
+  expect($transport->pollEvents()[0]->type)->toBe(RendererEventType::READY);
+  expect($transport->shutdown())->toBe(0)->and($transport->shutdown())->toBe(0)
+    ->and($transport->isRunning())->toBeFalse()->and($transport->getState())->toBe(RendererTransportState::STOPPED);
+  $lines = explode("\n", trim(file_get_contents($capture)));
+  expect($lines)->toHaveCount(2);
+  expect(json_decode($lines[0], true, flags: JSON_THROW_ON_ERROR))->toBe([
+    'protocol' => 1, 'type' => 'hello', 'title' => 'Transport test',
+    'assetRoot' => realpath(sys_get_temp_dir()),
+    'grid' => ['columns' => 80, 'rows' => 24, 'cellWidth' => 16, 'cellHeight' => 24],
+  ])->and(json_decode($lines[1], true, flags: JSON_THROW_ON_ERROR))->toBe(['protocol' => 1, 'type' => 'shutdown']);
+  expect($transport->getDiagnostics())->toContain('graceful shutdown');
+  $transport->start(s2Session());
+  expect($transport->isRunning())->toBeTrue();
 });
 
 it('rejects send before start, double start, and manual lifecycle messages', function () {
@@ -285,10 +289,15 @@ it('reports a full outbound queue without changing already accepted bytes', func
   $transport->start(s2Session()); $transport->pollEvents();
   $transport->send(s2ApplicationMessage('first', str_repeat('x', 700)));
   $pending = $transport->getPendingWriteBytes();
+  expect($transport->trySend(s2ApplicationMessage('second', str_repeat('y', 700))))->toBeFalse()
+    ->and($transport->getPendingWriteBytes())->toBe($pending)->and($transport->isRunning())->toBeTrue();
   expect(fn() => $transport->send(s2ApplicationMessage('second', str_repeat('y', 700))))->toThrow(RendererTransportException::class);
   expect($transport->getPendingWriteBytes())->toBe($pending);
   $events = s2Await($transport, fn($events) => count($events) === 1);
   expect($events[0]->key)->toStartWith('first:');
+  expect($transport->trySend(s2ApplicationMessage('second', str_repeat('y', 700))))->toBeTrue();
+  $events = s2Await($transport, fn($events) => count($events) === 1);
+  expect($events[0]->key)->toStartWith('second:');
 });
 
 it('rejects unencodable and overlarge outbound messages before queuing', function () {
@@ -403,20 +412,16 @@ it('does not block a runtime poll on TERM grace when a malformed peer resists cl
 });
 
 it('drains a native-close style exit without sending shutdown to a closing peer', function () {
-  $capture = tempnam(sys_get_temp_dir(), 'renderer-close-');
-  try {
-    $transport = makeS2Transport('close_wait', capture: $capture);
-    $transport->start(s2Session());
-    $transport->pollEvents();
-    $transport->send(s2ApplicationMessage());
-    $events = s2Await($transport, fn($events) => count($events) === 1);
-    expect($events[0]->type)->toBe(RendererEventType::CLOSE_REQUESTED);
-    expect(fn() => $transport->send(s2ApplicationMessage()))->toThrow(RendererTransportException::class);
-    expect($transport->shutdown())->toBe(0);
-    expect(file_get_contents($capture))->not->toContain('"type":"shutdown"');
-  } finally {
-    unlink($capture);
-  }
+  $capture = createTestDirectory('renderer-close-') . '/capture.ndjson';
+  $transport = makeS2Transport('close_wait', capture: $capture);
+  $transport->start(s2Session());
+  $transport->pollEvents();
+  $transport->send(s2ApplicationMessage());
+  $events = s2Await($transport, fn($events) => count($events) === 1);
+  expect($events[0]->type)->toBe(RendererEventType::CLOSE_REQUESTED);
+  expect(fn() => $transport->send(s2ApplicationMessage()))->toThrow(RendererTransportException::class);
+  expect($transport->shutdown())->toBe(0);
+  expect(file_get_contents($capture))->not->toContain('"type":"shutdown"');
 });
 
 it('performs best-effort destructor cleanup without leaving the child running', function () {

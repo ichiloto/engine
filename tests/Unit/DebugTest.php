@@ -2,8 +2,18 @@
 
 use Ichiloto\Engine\Util\Debug;
 
+beforeEach(function () {
+  $this->debug = new ReflectionClass(Debug::class)->getStaticProperties();
+});
+
+afterEach(function () {
+  foreach ($this->debug as $key => $value) {
+    new ReflectionProperty(Debug::class, $key)->setValue(null, $value);
+  }
+});
+
 it('writes errors to the error log even when debug mode is off', function () {
-  $logDirectory = sys_get_temp_dir() . '/ichiloto-debug-test-' . uniqid('', true);
+  $logDirectory = createTestDirectory('ichiloto-debug-test-');
 
   Debug::configure([
     'log_level' => Debug::INFO,

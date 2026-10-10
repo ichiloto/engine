@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Ichiloto\Engine\Entities\Enumerations\WeaponType;
+use Ichiloto\Engine\Entities\Inventory\EquipmentIcon;
 use Ichiloto\Engine\Entities\Inventory\EquipmentSlotType;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
@@ -19,6 +20,7 @@ use Ichiloto\Engine\UI\Presentation\MenuRowPainter;
 use Ichiloto\Engine\UI\Presentation\MenuRowSkin;
 use Ichiloto\Engine\UI\Presentation\MenuRowValue;
 use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
+use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
@@ -49,6 +51,8 @@ function menuPresentationPng(string $path, int $width, int $height): void
 beforeEach(function () {
   $this->menuRoot = sys_get_temp_dir() . '/ichiloto-menu-rows-' . bin2hex(random_bytes(5));
   mkdir($this->menuRoot);
+  $this->debugStatics = new ReflectionClass(Debug::class)->getStaticProperties();
+  Debug::configure(['log_directory' => $this->menuRoot]);
   foreach (['staff', 'slot', 'unknown', 'cursor'] as $name) {
     menuPresentationPng($this->menuRoot . '/' . $name . '.png', 20, 40);
   }
@@ -58,6 +62,7 @@ beforeEach(function () {
 });
 
 afterEach(function () {
+  foreach ($this->debugStatics as $name => $value) { new ReflectionProperty(Debug::class, $name)->setValue(null, $value); }
   foreach (glob($this->menuRoot . '/*') ?: [] as $file) { unlink($file); }
   rmdir($this->menuRoot);
 });
@@ -223,12 +228,12 @@ it('keeps reduced-motion frames identical without suppressing meaning or changin
     ->and($compose(0)->images)->toHaveCount(1);
 });
 
-it('uses explicit weapon and slot metadata and falls back only for unknown semantics', function () {
+it('removes unknown artwork substitution for known equipment types but retains unknown custom semantics', function () {
   foreach (WeaponType::cases() as $type) {
-    expect($this->menuIcons->asset($type))->toBe($type === WeaponType::STAFF ? 'staff.png' : 'unknown.png');
+    expect($this->menuIcons->asset($type))->toBe($type === WeaponType::STAFF ? 'staff.png' : null);
   }
   foreach (EquipmentSlotType::cases() as $slot) {
-    expect($this->menuIcons->asset($slot))->toBe($slot === EquipmentSlotType::HEAD ? 'slot.png' : 'unknown.png');
+    expect($this->menuIcons->asset($slot))->toBe($slot === EquipmentSlotType::HEAD ? 'slot.png' : null);
   }
   expect($this->menuIcons->asset(null))->toBeNull()
     ->and($this->menuIcons->asset('weapon.staff'))->toBe('staff.png')
@@ -240,11 +245,12 @@ it('uses explicit weapon and slot metadata and falls back only for unknown seman
   expect(array_column($frame->images, 'asset'))->toBe(['staff.png', 'unknown.png']);
 });
 
-it('requires no artwork registry and retains text and visible focus without fake glyph icons', function () {
+it('uses the canonical equipment symbol without an artwork registry while retaining labels and focus', function () {
   $row = new MenuRow('row', 'Staff', icon: WeaponType::STAFF, selected: true, focused: true);
   $frame = MenuRowPainter::compose(400, 40, 'list', [$row], new MenuRowLayout(new CanvasRectangle(0, 0, 400, 40)), menuPresentationSkin());
   expect($frame->images)->toBe([])
     ->and(array_column($frame->textLayers, null, 'id'))->toHaveKey('list-row-focus-0')
+    ->and(array_column($frame->textLayers, null, 'id')['list-row-icon']->runs[0]->text)->toBe(EquipmentIcon::getTerminalGlyph(WeaponType::STAFF))
     ->and(array_column($frame->textLayers, null, 'id')['list-row-text']->runs[0]->text)->toBe('Staff');
 });
 
@@ -266,15 +272,21 @@ it('reads replacement file dimensions on each composition and contains both wide
   }
 });
 
-it('does not mask missing wrong-type or corrupt configured assets with an unknown icon', function () {
+it('removes unknown artwork substitution for unavailable equipment icons while retaining diagnostics and type symbols', function (string $asset, bool $unknown) {
   file_put_contents($this->menuRoot . '/bad.png', 'not a PNG');
   menuPresentationPng($this->menuRoot . '/wrong.jpg', 1, 1);
-  foreach (['missing.png', 'bad.png', 'wrong.jpg'] as $asset) {
-    $registry = new MenuIconRegistry($this->menuRoot, ['weapon.staff' => $asset, 'unknown' => 'unknown.png']);
-    expect(fn() => MenuRowPainter::compose(400, 40, 'list', [new MenuRow('row', 'Staff', icon: WeaponType::STAFF)],
-      new MenuRowLayout(new CanvasRectangle(0, 0, 400, 40)), menuPresentationSkin(), $registry))->toThrow(RuntimeException::class);
-  }
-});
+  $bindings = ['weapon.staff' => $asset, 'slot.head' => 'slot.png'];
+  if ($unknown) { $bindings['unknown'] = 'unknown.png'; }
+  $registry = new MenuIconRegistry($this->menuRoot, $bindings);
+  expect(file_exists($this->menuRoot . '/warning.log'))->toBeFalse();
+  $frame = MenuRowPainter::compose(400, 80, 'list', [new MenuRow('row', 'Staff', icon: WeaponType::STAFF),
+    new MenuRow('head', 'Head', icon: EquipmentSlotType::HEAD)],
+    new MenuRowLayout(new CanvasRectangle(0, 0, 400, 80)), menuPresentationSkin(), $registry);
+  expect(array_column($frame->images, 'asset'))->toBe(['slot.png'])
+    ->and(array_column($frame->textLayers, null, 'id')['list-row-icon']->runs[0]->text)->toBe(EquipmentIcon::getTerminalGlyph(WeaponType::STAFF))
+    ->and(array_column($frame->textLayers, null, 'id')['list-row-text']->runs[0]->text)->toBe('Staff')
+    ->and(file_get_contents($this->menuRoot . '/warning.log'))->toContain($asset);
+})->with(['missing.png', 'bad.png', 'wrong.jpg'])->with([false, true]);
 
 it('rejects truncation and partial rows while preserving the complete input for owner relayout', function () {
   $label = str_repeat('Long name ', 30);
@@ -481,7 +493,7 @@ it('keeps state artwork replaceable and reconciles cuts without stored source di
   expect($theme->artwork['selected']->left)->toBe(8);
 });
 
-it('rejects invalid themes or overlapping motion gutters rather than silently dropping artwork', function () {
+it('rejects invalid theme geometry and uses a primitive fallback for unavailable row artwork', function () {
   foreach ([fn() => new MenuRowMetrics(cursorPeriod: 0), fn() => new MenuRowMetrics(iconWidth: INF),
     fn() => new MenuRowMetrics(recordSeparatorOpacity: 2), fn() => new MenuRowMetrics(padding: -1),
     fn() => new MenuRowArtwork('../outside.png'), fn() => new MenuRowArtwork('art.png', left: -1)] as $invalid) {
@@ -495,5 +507,7 @@ it('rejects invalid themes or overlapping motion gutters rather than silently dr
   expect(fn() => MenuRowPainter::compose(400, 40, 'list', $rows, $layout, $overlap, $this->menuIcons))
     ->toThrow(InvalidArgumentException::class, 'separate leading gutter');
   $missing = new MenuRowSkin(menuPresentationSkin()->colors, artwork: ['normal' => new MenuRowArtwork('missing.png')], assetRoot: $this->menuRoot);
-  expect(fn() => MenuRowPainter::compose(400, 40, 'list', $rows, $layout, $missing))->toThrow(RuntimeException::class);
+  $frame = MenuRowPainter::compose(400, 40, 'list', $rows, $layout, $missing);
+  expect($frame)->toEqual(MenuRowPainter::compose(400, 40, 'list', $rows, $layout, menuPresentationSkin()))
+    ->and(file_get_contents($this->menuRoot . '/warning.log'))->toContain('missing.png');
 });

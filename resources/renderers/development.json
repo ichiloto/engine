@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "sources": {
+    "gpui": {
+      "directory": "../../../gpui-renderer",
+      "builder": "scripts/package.php"
+    }
+  }
+}

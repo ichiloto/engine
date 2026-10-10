@@ -2,6 +2,9 @@
 
 namespace Ichiloto\Engine\Core\Menu\Commands;
 
+use Ichiloto\Engine\Battle\BattleCommandType;
+use Ichiloto\Engine\Localization\Vocabulary;
+
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\MenuItem;
@@ -22,7 +25,7 @@ class OpenItemsMenuCommand extends MenuItem
    */
   public function __construct(MenuInterface $menu)
   {
-    parent::__construct($menu, 'Items', "View items in the party's possession.");
+    parent::__construct($menu, Vocabulary::getTerm('command.' . BattleCommandType::ITEM->value, 'Items'), "View items in the party's possession.");
   }
 
   /**

@@ -11,7 +11,7 @@ use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\GameOver\GameOverScene;
 use Ichiloto\Engine\Scenes\Title\TitleScene;
-use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Localization\Vocabulary;
 use Throwable;
 
 /**
@@ -32,7 +32,7 @@ class ContinueGameCommand extends MenuItem
     protected GameLoader $gameLoader
   )
   {
-    $label = config(ProjectConfig::class, 'vocab.game.continue') ?? 'Continue';
+    $label = Vocabulary::getTerm('game.continue', Vocabulary::getTerm('command.continue', 'Continue'));
     parent::__construct($menu, $label, 'Continue from a save file.', '');
 
     if (! SaveManager::getInstance($menu->getScene()->getGame())->hasSaveFiles(true)) {

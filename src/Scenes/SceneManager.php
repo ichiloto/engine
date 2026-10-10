@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Scenes;
 
+use Ichiloto\Engine\IO\Console\Console;
+
 use Assegai\Collections\ItemList;
 use Exception;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
@@ -19,6 +21,15 @@ use Ichiloto\Engine\Events\SceneEvent;
 use Ichiloto\Engine\Exceptions\IchilotoException;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\IO\SaveManager;
+use Ichiloto\Engine\IO\Input;
+use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\Rendering\ScreenTransition;
+use Ichiloto\Engine\Rendering\ScreenTransitionCatalog;
+use Ichiloto\Engine\Rendering\ScreenTransitionPhase;
+use Ichiloto\Engine\Rendering\ScreenTransitionSession;
+use Ichiloto\Engine\UI\Accessibility;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Scenes\Battle\BattleConfig;
 use Ichiloto\Engine\Scenes\Battle\BattleLoader;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
@@ -71,6 +82,12 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    * arena goes back to the arena.
    */
   protected ?string $sceneBeforeBattle = null;
+  private ?ScreenTransitionSession $sceneTransition = null;
+  private float $transitionTime = 0;
+  private bool $changingCoveredScene = false;
+  private bool $transitionFocusPaused = false;
+
+  public function hasSceneTransition(): bool { return $this->sceneTransition !== null; }
 
   /**
    * SceneManager constructor.
@@ -155,6 +172,7 @@ class SceneManager implements CanStart, CanRender, CanUpdate
   public function stop(): void
   {
     $failure = null;
+    try { $this->sceneTransition?->cancel(); } catch (Throwable $error) { $failure = $error; }
     foreach ($this->scenes as $scene) {
       try {
         // Include the current scene even if startup failed partway through.
@@ -177,6 +195,7 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    */
   public function render(): void
   {
+    if ($this->sceneTransition !== null) { return; }
     $this->currentScene?->render();
   }
 
@@ -193,8 +212,28 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    */
   public function update(): void
   {
+    if ($this->sceneTransition !== null) {
+      if (Input::isButtonDown('quit')) { $this->game->quit(); return; }
+      $now = $this->getTransitionTime();
+      $delta = max(0, $now - $this->transitionTime);
+      $this->transitionTime = $now;
+      if (!$this->game->getRendererRuntime()->windowActive) {
+        $this->sceneTransition->pause();
+        $this->transitionFocusPaused = true;
+        return;
+      }
+      if ($this->transitionFocusPaused) {
+        $this->sceneTransition->resume();
+        $this->transitionFocusPaused = false;
+        $delta = 0;
+      }
+      $this->sceneTransition->update($delta);
+      return;
+    }
     $this->currentScene?->update();
   }
+
+  protected function getTransitionTime(): float { return hrtime(true) / 1_000_000_000; }
 
   /**
    * Returns a registered scene by class name without loading it.
@@ -224,6 +263,10 @@ class SceneManager implements CanStart, CanRender, CanUpdate
       is_int($index) => $this->scenes->toArray()[$index] ?? throw new NotFoundException($index),
       default => $this->findScene($index) ?? throw new NotFoundException($index),
     };
+
+    if ($this->sceneTransition !== null && !$this->changingCoveredScene) {
+      $this->sceneTransition->cancel();
+    }
 
     if ($suspendCurrent && (! $sceneToLoad instanceof BattleScene
       || $this->currentScene instanceof BattleScene
@@ -372,33 +415,80 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    */
   public function loadBattleScene(Party $party, Troop $troop, array $events = [], array $extraSettings = []): void
   {
-    if ($this->currentScene instanceof BattleScene || $this->sceneBeforeBattle !== null) {
+    if ($this->currentScene instanceof BattleScene || $this->sceneBeforeBattle !== null || $this->sceneTransition !== null) {
       throw new \LogicException('A battle already owns the scene transition.');
     }
 
-    if ($party->isDefeated()) {
+    $config = $this->battleLoader->newConfig($party, $troop, $events, $extraSettings);
+    $config->partyRoster->promoteReservesAfterWipeout();
+    if ($config->partyRoster->isDefeated) {
       $this->loadGameOverScene();
       return;
     }
 
     $this->game->audioManager->playSystemSound(SystemSound::BATTLE_START);
 
-    $config = $this->battleLoader->newConfig($party, $troop, $events, $extraSettings);
     $this->game->useBattleEngineType(BattleEngineType::fromValue($config->settings['engine'] ?? null));
     // Only acquire the return owner after configuration preparation succeeds.
     $this->sceneBeforeBattle = $this->currentScene === null ? null : $this->currentScene::class;
-    $currentScene = $this->loadScene(BattleScene::class, suspendCurrent: true)->currentScene;
-
-    if (! $currentScene instanceof BattleScene) {
-      throw new NotFoundException('The current scene is not a battle scene.');
+    $runtime = $this->game->getRendererRuntime();
+    $treatment = null;
+    if ($runtime !== null && !Accessibility::prefersReducedMotion()
+      && ScreenTransition::isBattleEnabled()) {
+      try {
+        $treatment = ScreenTransitionCatalog::load($runtime->getAssetRoot())?->getBattleTreatment();
+        if ($treatment !== null) {
+          $treatment->validateAssets($runtime->getAssetRoot());
+          $runtime->beginScreenHandoff($treatment);
+        }
+      } catch (Throwable $error) {
+        Debug::warn('Graphical battle transition unavailable; using a direct cut: ' . $error->getMessage());
+        $treatment = null;
+      }
     }
+    if ($treatment === null) {
+      $this->enterBattleScene($config);
+      if ($runtime !== null && $this->currentScene instanceof BattleScene) { $this->currentScene->completeGraphicalEntry(); }
+      return;
+    }
+    $this->transitionTime = $this->getTransitionTime();
+    $this->transitionFocusPaused = false;
+    $this->sceneTransition = ScreenTransition::startHandoff($treatment,
+      $runtime->setScreenHandoffPhase(...),
+      function () use ($config, $runtime): void {
+        $this->changingCoveredScene = true;
+        try {
+          $this->enterBattleScene($config);
+          $runtime->replaceScreenHandoff();
+          // Prepare and queue the incoming composition while the engine-owned cover is still active.
+          $runtime->present($this->currentScene);
+        } finally { $this->changingCoveredScene = false; }
+      },
+      fn(): bool => $this->currentScene instanceof BattleScene && $this->currentScene->isStarted(),
+      function () use ($runtime): void {
+        $complete = $this->sceneTransition?->phase === ScreenTransitionPhase::COMPLETE;
+        $this->sceneTransition = null;
+        $runtime->endScreenHandoff();
+        InputManager::resetState(true);
+        if ($complete && $this->currentScene instanceof BattleScene) { $this->currentScene->completeGraphicalEntry(); }
+        if (!$complete && !$this->currentScene instanceof BattleScene) { $this->sceneBeforeBattle = null; }
+      });
+  }
 
-    $currentScene->configure($config);
-
-    // The battle's runtime settings may override the battle theme, and they
-    // only become known during configure(), after the scene transition has
-    // already applied music. Re-applying here is a no-op for the common case.
-    $this->applySceneBackgroundMusic($currentScene);
+  /** The scene swap is owned here, never by native animation completion or a battle state. */
+  protected function enterBattleScene(BattleConfig $config): void
+  {
+    // Replace outgoing field text even when artwork makes the incoming battlefield Console-free.
+    // Game-owned overlays remain live; no partially cleared screen reaches either renderer.
+    Console::recomposeFrame(function () use ($config): void {
+      $currentScene = $this->loadScene(BattleScene::class, suspendCurrent: true)->currentScene;
+      if (! $currentScene instanceof BattleScene) {
+        throw new NotFoundException('The current scene is not a battle scene.');
+      }
+      $currentScene->configure($config);
+      // Configuration may select a different battle theme after scene loading.
+      $this->applySceneBackgroundMusic($currentScene);
+    });
   }
 
   /**

@@ -16,7 +16,7 @@ final class MenuTextWrap
       throw new InvalidArgumentException('Menu text requires UTF-8 and a positive cell width.');
     }
     $lines = [];
-    $text = str_replace(["\r\n", "\r", "\t"], ["\n", "\n", '    '], $text);
+    $text = self::normalizeText($text);
     foreach (explode("\n", $text) as $paragraph) {
       // Nonbreaking spaces remain inside their word. Hyphens do not introduce a break.
       preg_match_all('/[^\S\x{00A0}\x{202F}]+|[\S\x{00A0}\x{202F}]+/u', $paragraph, $matches);
@@ -46,5 +46,11 @@ final class MenuTextWrap
       $lines[] = $line;
     }
     return $lines;
+  }
+
+  /** Use the same display normalization for layout and an owner's visible prefix. */
+  public static function normalizeText(string $text): string
+  {
+    return str_replace(["\r\n", "\r", "\t"], ["\n", "\n", '    '], $text);
   }
 }
