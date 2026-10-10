@@ -216,7 +216,16 @@ preserve current passage and both presentations as one undo step, written only o
 save. Later appearance edits no longer choose collision on a converted map.
 Resize and insertion carry physical geometry through source transactions and
 save/undo/redo; added cells are solid, while undeclared maps remain undeclared.
-Physical-cell brushes and object-footprint authoring remain open in the existing
+The GUI Collision tool now reads and paints those shared cells through the
+source-preserving session, with the existing pencil/line/rectangle/fill shapes,
+constrained type picker, right-click sampling and an editor-only numeric overlay.
+Fill does not cross missing ragged cells. Terminal glyphs and artwork are untouched;
+legacy conversion stays explicit. Delayed region replies after document, tool,
+brush or cancellation changes are rejected, and reviewed edits retain their
+displayed revision rather than being rebased. The generic source writer preserves
+verified enum-case literals and rejects fake imports inside strings or nested
+uses instead of flattening expressions. Object-footprint authoring and native
+physical-brush acceptance remain open in the existing
 [correction plan](../layered-tilemaps.md#stage-1---independent-graphical-ground-scale).
 No production map was silently migrated, and this is not full Stage 1 acceptance.
 
@@ -232,6 +241,18 @@ skips; GUI offline release passes 141 with no ignored cases. Logs and original
 failures remain on the secondary drive. No native launch or Windows/Linux/WSLg
 qualification was performed. The earlier muted-runner receipt is now stale after
 MapManager changed; refresh its reviewed inputs before any native launch.
+
+The subsequent physical-brush checkpoint is committed locally: Editor `4aab439`
+(enum source writes) and `1e9040b` (shared physical painting), GUI `00a3d0d`.
+Full Editor Unit against live Engine now passes 2,281 / 14,963 assertions, with
+the same 15 optional real-Game cases skipped because their project path was not
+set; no synthetic case was skipped. GUI managed-cache offline release passes
+147 with no failures or ignored cases. The delegated relevant source, geometry,
+history and session families pass 425 / 2,640 assertions with one optional
+real-Game skip. Original logs and failures remain on the secondary drive. These
+checks do not establish native painting or Windows/Linux/WSLg qualification.
+No native process was launched for this checkpoint, and publication remains
+held at the previously presented repository-specific permission questions.
 
 Game's exact map/save candidate remains uncommitted at `a114409`. Its final
 non-overlapping bounded groups total 767 passed / one failed / 1,188,711

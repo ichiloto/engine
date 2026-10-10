@@ -360,8 +360,12 @@ The shared `occupancy` declaration, runtime/preview/reachability consumption,
 explicit source-preserving GUI conversion and geometry/history preservation are
 implemented. The [map contract](maps.md#physical-occupancy)
 defines absence-only compatibility and malformed-data refusal. No production map
-is silently converted. Physical-cell brushes and object-footprint authoring remain
-open in the GUI plan; the conversion control alone does not close Stage 1.
+is silently converted. The GUI Collision tool now uses shared physical-cell
+read, paint and fill services, the existing brush shapes, a constrained collision
+picker and an editor-only overlay. Source-preserving save/history and stale
+revision or cancelled-gesture refusal have automated coverage. Object-footprint
+authoring and native acceptance of the physical brushes remain open in the GUI
+plan; these implemented cell tools alone do not close Stage 1.
 
 ### Stage 2 - Sprite pivot, ground footprint and depth
 
