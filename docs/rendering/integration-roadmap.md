@@ -389,8 +389,10 @@ messages and relayed the exact wording and scope to the owners:
    publishing gate remains binding; GUI `ee2d1e7`, Renderer `6157d58`, Editor
    `95ac81c` and Game `a114409` subsequently passed it and were pushed to their
    existing develop branches. Existing develop-to-main PRs 1, 3, 12 and 6
-   show those exact heads. Engine's next completed batch remains under final
-   verification; no main ref, release or unfinished Game batch was published.
+   show those exact heads. Engine `981464f` then passed the same guarded push;
+   existing PR 96 verifies its exact develop head. Game's separately completed
+   actor-role change `936f7a3` is also published in existing PR 6. No main ref,
+   release or unfinished Game batch was published.
 2. Noticeboard/plant alignment: "Yes". Align the interaction and nine stale
    plant drawings to the current authored map; never restore the old layout.
    Claude owns this change and the coupled held map/save boundary.
@@ -433,6 +435,14 @@ remain. No suppressions were added. Original log/JUnit evidence is retained in
 secondary `test-tmp/codex-party-leader-20261010/ownership-modes-full.*`.
 This is automated coverage, not a new native production-art or cinematic-return
 acceptance claim.
+
+Game `936f7a3` removes the fixed Kaelion-only player-art binding, opts into
+selected-leader ownership and binds the five existing approved actor sheets.
+Its focused new/load/all-bound-leader checks pass seven tests / 635 assertions,
+including the coordinator's final scoped integration run. Other mixed Game work
+and the earlier test import remain uncommitted; no map/save migration acceptance
+is inferred from these presentation round trips. Aeryn/Orwin/Thalric's field-art
+gap and GUI actor-role/mode selection remain recorded above.
 
 The delegated muted native run in secondary
 `test-tmp/g4-physical-controls-20261010-134806` passes explicit collision
