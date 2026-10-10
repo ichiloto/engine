@@ -44,6 +44,9 @@ class MapManager implements CanRenderAt
   public private(set) ?MapGraphics $graphics = null;
   private ?PresentationWorld $presentationWorld = null;
   private ?bool $presentationWorldPolicy = null;
+  /** @var array<string, WorldObject> Installed subjects, never saved or used for collision. */
+  private array $worldObjects = [];
+  private array $presentationWorldCoverage = [];
   /**
    * The collision map.
    *
@@ -308,7 +311,7 @@ class MapManager implements CanRenderAt
     );
 
     return new PreparedMap($map, $source['tiles'], $collisions, $mapTriggers, $eventTriggers, $npcs, $source['layers'],
-      $source['graphics']);
+      $source['graphics'], $source['worldObjects']);
   }
 
   /** Commits a previously validated destination and its field side effects. */
@@ -327,6 +330,7 @@ class MapManager implements CanRenderAt
 
     $this->calculateMapDimensions();
     $mapId = strval($map['id'] ?? '');
+    $this->installWorldObjects($prepared->worldObjects, $mapId);
     $this->loadMapTriggers($prepared->mapTriggers);
     $this->loadMapEvents($prepared->eventTriggers, $mapId);
     $this->applyMapBackgroundMusic($map['bgm'] ?? null, $map['bgmVariants'] ?? []);
@@ -467,14 +471,16 @@ class MapManager implements CanRenderAt
       return null;
     }
     $policy = TerminalCapabilities::supportsCompositeEmoji();
-    if ($this->presentationWorldPolicy === $policy) {
+    $coverage = $this->getWorldObjectCoverage();
+    if ($this->presentationWorldPolicy === $policy && $this->presentationWorldCoverage === $coverage) {
       $this->camera->setRetainedWorldAvailable($this->presentationWorld !== null);
       return $this->presentationWorld;
     }
     $this->presentationWorldPolicy = $policy;
+    $this->presentationWorldCoverage = $coverage;
     $this->presentationWorld = null;
     try {
-      $this->presentationWorld = PresentationWorld::getFromLayers($this->layers, 'map', $this->graphics, $this->getAssetRoot());
+      $this->presentationWorld = PresentationWorld::getFromLayers($this->layers, 'map', $this->graphics, $this->getAssetRoot(), $coverage);
     } catch (\Throwable $error) {
       // Unsupported world bounds keep the screen-space retained text path usable.
       Debug::warn('Retained map presentation is unavailable: ' . $error->getMessage());
@@ -487,6 +493,46 @@ class MapManager implements CanRenderAt
   {
     $this->presentationWorld = null;
     $this->presentationWorldPolicy = null;
+    $this->presentationWorldCoverage = [];
+  }
+
+  public function findWorldObject(string $id): ?WorldObject { return $this->worldObjects[$id] ?? null; }
+
+  /** @return iterable<WorldObject> */
+  public function getWorldObjects(): iterable { yield from $this->worldObjects; }
+
+  /** Reinstall even for the same map id: old leases may never claim the new map instance. */
+  private function installWorldObjects(array $definitions, string $mapId): void
+  {
+    $this->clearWorldObjects();
+    foreach ($definitions as $definition) {
+      $this->worldObjects[$definition->id] = new WorldObject($definition, $this->gameScene, $mapId, $this->getAssetRoot());
+    }
+  }
+
+  public function clearWorldObjects(): void
+  {
+    foreach ($this->worldObjects as $object) { $object->release(); }
+    $this->worldObjects = [];
+    $this->clearPresentationWorld();
+  }
+
+  private function getWorldObjectCoverage(): array
+  {
+    $coverage = [];
+    foreach ($this->worldObjects as $object) {
+      if (!$object->isCurrent()) { continue; }
+      $stage = $this->gameScene->cinematicStage;
+      $hideGlyphs = ($stage?->suppresses($object) ?? false)
+        ? $stage->hidesWorldObjectGlyphs($object) : $object->hidesOwnedGlyphs();
+      foreach ($object->definition->coverage as $kind => $names) {
+        if ($kind === 'glyphs' && !$hideGlyphs) { continue; }
+        foreach ($names as $name => $rows) {
+          foreach ($rows as $y => $cells) { $coverage[$kind][$name][$y] = ($coverage[$kind][$name][$y] ?? []) + $cells; }
+        }
+      }
+    }
+    return $coverage;
   }
 
   /**
@@ -743,6 +789,7 @@ class MapManager implements CanRenderAt
     $this->tileMap = $prepared['tiles'];
     $this->layers = $prepared['layers'];
     $this->graphics = $prepared['graphics'];
+    $this->installWorldObjects($prepared['worldObjects'], strval($prepared['data']['id'] ?? ''));
     $this->clearPresentationWorld();
     $this->camera->worldSpace = $prepared['tiles'];
 
@@ -757,6 +804,7 @@ class MapManager implements CanRenderAt
     $this->collisionMap = [];
     $this->layers = null;
     $this->graphics = null;
+    $this->clearWorldObjects();
     $this->clearPresentationWorld();
     $this->calculateMapDimensions();
     $this->camera->worldSpace = [];
@@ -764,7 +812,7 @@ class MapManager implements CanRenderAt
 
   /**
    * @param array{id: string, data: string, map: string, event: string} $paths
-   * @return array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet, graphics: ?MapGraphics, occupancy: ?MapPhysicalOccupancy}
+   * @return array{data: array<string, mixed>, tiles: array<int, string[]>, layers: MapLayerSet, graphics: ?MapGraphics, occupancy: ?MapPhysicalOccupancy, worldObjects: list<WorldObjectDefinition>}
    */
   protected function prepareSplitMapDataFromFiles(array $paths): array
   {
@@ -790,7 +838,27 @@ class MapManager implements CanRenderAt
       Debug::warn("Map {$paths['id']} graphics are unusable; showing terminal glyphs: " . $error->getMessage());
     }
 
-    return [...$source, 'graphics' => $graphics, 'occupancy' => $occupancy];
+    $tileOwners = null;
+    $objects = $map[WorldObjectDefinition::DATA_KEY] ?? null;
+    if ($graphics === null && is_array($objects) && array_any($objects, static fn(mixed $object): bool => is_array($object)
+      && is_array($object['covers'] ?? null) && !empty($object['covers']['tileLayers']))) {
+      $tileLayers = null;
+      try {
+        $tileLayers = MapGraphics::readLayersFromDirectory(dirname($paths['data']), $paths['id'], $source['layers']);
+      } catch (\Throwable $error) {
+        Debug::warn("Map {$paths['id']} graphical ownership is unavailable: " . $error->getMessage());
+      }
+      if ($tileLayers !== null) {
+        // Explicit owners remain provable without tileset pieces; inferred owners remain unknown.
+        $tileOwners = MapGraphics::resolveLayerOwners($map[MapGraphics::SETTINGS_KEY] ?? null,
+          array_column($tileLayers, 'name'), array_column(array_filter($source['layers']->layers,
+            static fn(MapLayer $layer): bool => !$layer->decoration), 'name'), null, $paths['id']);
+      }
+    }
+
+    // Malformed subject/selector ownership refuses before scene mutation; unavailable optional art does not.
+    $worldObjects = WorldObjectDefinition::readMap($map, $source['layers'], $graphics, $tileOwners);
+    return [...$source, 'graphics' => $graphics, 'occupancy' => $occupancy, 'worldObjects' => $worldObjects];
   }
 
   /** The project's asset root, where tilesets and their sheets live. */

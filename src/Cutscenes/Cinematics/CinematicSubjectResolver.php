@@ -25,6 +25,7 @@ final class CinematicSubjectResolver
         $this->gameScene->npcManager?->findById($id)?->position,
         sprintf('Map NPC "%s" was not found.', $id),
       ),
+      'world_object' => $this->getWorldObjectPosition($id),
       'staged_actor' => $this->copy(
         $this->gameScene->cinematicStage?->find($id)?->position,
         sprintf('Staged actor "%s" was not found.', $id),
@@ -37,6 +38,15 @@ final class CinematicSubjectResolver
       ),
       default => throw new RuntimeException(sprintf('Unsupported cinematic subject kind "%s".', $kind ?: '(empty)')),
     };
+  }
+
+  private function getWorldObjectPosition(string $id): Vector2
+  {
+    $object = $this->gameScene->mapManager?->findWorldObject($id);
+    if ($object === null || !$object->isCurrent()) {
+      throw new RuntimeException(sprintf('Map world object "%s" was not found.', $id));
+    }
+    return $object->position;
   }
 
   protected function getPartyActorPosition(string $id): Vector2

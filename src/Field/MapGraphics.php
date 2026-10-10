@@ -200,7 +200,31 @@ final readonly class MapGraphics
             return null;
         }
         self::assertTilesetNamed($tilesetId, $displayDirectory);
-        $files = is_dir($directory) ? (glob($directory . '/*.tiles.php') ?: []) : [];
+        return self::fromSources(self::readLayerSources($directory, $displayDirectory), $displayDirectory,
+            $tilesetId, $layers, $assetRoot, $settings);
+    }
+
+    /**
+     * Reads the same validated layer declarations without requiring optional tileset assets.
+     * Missing graphics directories have unknown declarations, not a proven empty layer list.
+     *
+     * @return list<MapTileLayer>|null
+     */
+    public static function readLayersFromDirectory(string $mapDirectory, string $displayDirectory, MapLayerSet $layers): ?array
+    {
+        $directory = $mapDirectory . DIRECTORY_SEPARATOR . self::DIRECTORY;
+        return is_dir($directory)
+            ? self::readLayersFromSources(self::readLayerSources($directory, $displayDirectory), $displayDirectory, $layers)
+            : null;
+    }
+
+    /** @return array<string, string> */
+    private static function readLayerSources(string $directory, string $displayDirectory): array
+    {
+        $files = is_dir($directory) ? glob($directory . '/*.tiles.php') : [];
+        if ($files === false) {
+            throw new InvalidArgumentException("Map {$displayDirectory}/" . self::DIRECTORY . ' tile layers could not be read.');
+        }
         $sources = [];
         foreach ($files as $path) {
             $source = @file_get_contents($path);
@@ -209,7 +233,7 @@ final readonly class MapGraphics
             }
             $sources[$path] = $source;
         }
-        return self::fromSources($sources, $displayDirectory, $tilesetId, $layers, $assetRoot, $settings);
+        return $sources;
     }
 
     /**
@@ -229,6 +253,20 @@ final readonly class MapGraphics
         }
         self::assertTilesetNamed($tilesetId, $displayDirectory);
         $tileset = Tileset::load($assetRoot, $tilesetId);
+        $tileLayers = self::readLayersFromSources($sources, $displayDirectory, $layers);
+        $names = array_map(static fn(MapTileLayer $layer): string => $layer->name, $tileLayers);
+        $offsets = self::readLayerOffsets($settings, $names, $displayDirectory);
+        $owners = self::resolveLayerOwners($settings, $names, array_values(array_map(static fn(MapLayer $layer): string => $layer->name,
+            array_filter($layers->layers, static fn(MapLayer $layer): bool => !$layer->decoration))), $tileset, $displayDirectory);
+        return new self($tileset, $tileLayers, $offsets, $owners);
+    }
+
+    /**
+     * @param array<string, string> $sources
+     * @return list<MapTileLayer>
+     */
+    private static function readLayersFromSources(array $sources, string $displayDirectory, MapLayerSet $layers): array
+    {
         self::assertLayerCount(count($sources), $displayDirectory);
         $tileLayers = $orders = [];
         foreach ($sources as $path => $source) {
@@ -246,11 +284,7 @@ final readonly class MapGraphics
             $tileLayers[] = $layer;
         }
         usort($tileLayers, static fn(MapTileLayer $a, MapTileLayer $b): int => $a->order <=> $b->order);
-        $names = array_map(static fn(MapTileLayer $layer): string => $layer->name, $tileLayers);
-        $offsets = self::readLayerOffsets($settings, $names, $displayDirectory);
-        $owners = self::resolveLayerOwners($settings, $names, array_values(array_map(static fn(MapLayer $layer): string => $layer->name,
-            array_filter($layers->layers, static fn(MapLayer $layer): bool => !$layer->decoration))), $tileset, $displayDirectory);
-        return new self($tileset, $tileLayers, $offsets, $owners);
+        return $tileLayers;
     }
 
     /** @phpstan-assert string $tilesetId */

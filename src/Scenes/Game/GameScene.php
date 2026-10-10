@@ -306,6 +306,9 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
                 yield $actor;
             }
             yield from $this->npcManager?->getGraphicalSpriteProviders() ?? [];
+            foreach ($this->mapManager?->getWorldObjects() ?? [] as $object) {
+                if (!($this->cinematicStage?->suppresses($object) ?? false)) { yield $object; }
+            }
             foreach ([...($this->fieldEffects?->getSprites($this->getFieldObjectSpriteProviders(), $this->fieldViewport,
                 $this->camera->getWorldOrigin(), Accessibility::prefersReducedMotion()) ?? []),
                 ...($this->cinematicPresentation?->getEffectSprites($this->fieldViewport) ?? [])] as $effect) {
@@ -322,6 +325,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         if ($this->player !== null) { yield $this->player; }
         yield from $this->cinematicStage?->all() ?? [];
         yield from $this->npcManager?->getGraphicalSpriteProviders() ?? [];
+        yield from $this->mapManager?->getWorldObjects() ?? [];
     }
 
     public function renderFieldEffects(): void
@@ -811,6 +815,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         $this->player?->advanceGraphicalAnimation($seconds);
         $this->npcManager?->advanceGraphicalAnimation($seconds);
         $this->cinematicStage?->advanceGraphicalAnimation($seconds);
+        foreach ($this->mapManager?->getWorldObjects() ?? [] as $object) { $object->advanceGraphicalAnimation($seconds); }
         // The action prompt lasts while the player can act, so it opens once per approach.
         $this->fieldEffects?->showActionPrompt(($this->player?->isActionPromptOverSprite ?? false)
             ? $this->player->getGraphicalSpriteId() : null);
@@ -870,6 +875,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
             fn() => $this->cinematicStage?->clear(),
             fn() => $this->cinematicPresentation?->clear(),
             fn() => $this->fieldEffects?->clear(),
+            fn() => $this->mapManager?->clearWorldObjects(),
             fn() => $this->setPresentationContext(null),
             fn() => parent::stop(),
         ] as $cleanup) {

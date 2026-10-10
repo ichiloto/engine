@@ -83,9 +83,28 @@ final readonly class PresentationWorld
     }
 
     public static function getFromLayers(MapLayerSet $layers, string $id = 'map', ?MapGraphics $graphics = null,
-        string $assetRoot = ''): self
+        string $assetRoot = '', array $coverage = []): self
     {
         $grid = $layers->getComposedGrid();
+        $projectedOwners = [];
+        // Recompose only explicitly owned graphical cells. Authored layers and gameplay never change.
+        foreach ($coverage['glyphs'] ?? [] as $rows) {
+            foreach ($rows as $y => $cells) {
+                foreach ($cells as $x => $_) {
+                    $cell = ' ';
+                    $owner = $layers->getGameplayLayerAt($x, $y);
+                    foreach ($layers->layers as $layer) {
+                        if ($layer->decoration || isset($coverage['glyphs'][$layer->name][$y][$x])) { continue; }
+                        if ($layer->glyphs[$y][$x] !== ' ') {
+                            $cell = $layer->grid[$y][$x];
+                            $owner = $layer;
+                        }
+                    }
+                    $grid[$y][$x] = $cell;
+                    $projectedOwners[$y][$x] = $owner;
+                }
+            }
+        }
         $height = count($grid);
         $width = max(array_map(count(...), $grid) ?: [0]);
         if ($height < 1 || $width < 1 || $height > self::MAX_EXTENT || $width > self::MAX_EXTENT
@@ -99,7 +118,7 @@ final readonly class PresentationWorld
             foreach ($cells as $x => $cell) {
                 $styled[$cell] ??= self::getWireCell($cell);
                 $estimatedBytes += self::CELL_SOURCE_BYTES + strlen($styled[$cell]['glyph'])
-                    + strlen(PresentationLayerPolicy::getMapLayerId($layers->getGameplayLayerAt($x, $y)));
+                    + strlen(PresentationLayerPolicy::getMapLayerId($projectedOwners[$y][$x] ?? $layers->getGameplayLayerAt($x, $y)));
             }
         }
         if ($estimatedBytes > self::MAX_SOURCE_BYTES) {
@@ -110,7 +129,7 @@ final readonly class PresentationWorld
                 'layer' => PresentationLayerPolicy::getMapLayerOrder($layer),
                 'kind' => $layer->decoration ? 'decoration' : 'gameplay'];
         }
-        $tiles = $graphics === null ? null : self::getTilePresentation($graphics, $layers, $assetRoot, $id);
+        $tiles = $graphics === null ? null : self::getTilePresentation($graphics, $layers, $assetRoot, $id, $coverage['tiles'] ?? []);
         if ($tiles !== null) {
             $metadata = [...$metadata, ...$tiles['layers']];
             $estimatedBytes += $tiles['bytes'];
@@ -122,7 +141,7 @@ final readonly class PresentationWorld
         foreach ($grid as $y => $cells) {
             $wire = [];
             foreach ($cells as $x => $cell) {
-                $wire[] = [...$styled[$cell], 'ownerLayerId' => PresentationLayerPolicy::getMapLayerId($layers->getGameplayLayerAt($x, $y))];
+                $wire[] = [...$styled[$cell], 'ownerLayerId' => PresentationLayerPolicy::getMapLayerId($projectedOwners[$y][$x] ?? $layers->getGameplayLayerAt($x, $y))];
             }
             $rows[] = ['op' => 'worldRows', 'id' => $id, 'rows' => [['row' => $y, 'cells' => $wire]]];
         }
@@ -142,7 +161,8 @@ final readonly class PresentationWorld
      *
      * @return array{tileset: array<string, mixed>, layers: list<array<string, mixed>>, operations: list<array<string, mixed>>, bytes: int, animated: bool, covers: array<string, string>, shadows: array{tiles: list<array<string, mixed>>, layers: list<array<string, mixed>>, operations: list<array<string, mixed>>}|null}|null
      */
-    private static function getTilePresentation(MapGraphics $graphics, MapLayerSet $mapLayers, string $assetRoot, string $id): ?array
+    private static function getTilePresentation(MapGraphics $graphics, MapLayerSet $mapLayers, string $assetRoot, string $id,
+        array $coveredCells = []): ?array
     {
         $gameplayIds = [];
         foreach ($mapLayers->layers as $mapLayer) {
@@ -159,7 +179,13 @@ final readonly class PresentationWorld
         $bytes = array_sum(array_map(strlen(...), $usable['sheets']));
         $animated = false;
         $layers = $operations = $covers = [];
-        $resolved = array_map(static fn($layer): array => AutotileShape::resolveLayer($layer->tiles), $graphics->layers);
+        $resolved = array_map(static function ($layer) use ($coveredCells): array {
+            $tiles = $layer->tiles;
+            foreach ($coveredCells[$layer->name] ?? [] as $y => $cells) {
+                foreach ($cells as $x => $_) { $tiles[$y][$x] = TileId::EMPTY; }
+            }
+            return AutotileShape::resolveLayer($tiles);
+        }, $graphics->layers);
         foreach ($graphics->layers as $index => $layer) {
             $covered = $gameplayIds[$graphics->owners[$layer->name] ?? ''] ?? null;
             $bands = [];

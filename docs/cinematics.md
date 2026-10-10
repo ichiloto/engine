@@ -240,7 +240,37 @@ changes an existing staged visual while preserving the subject lease.
 For an unbound replacement, each omitted x/y, facing and collision field retains
 its current value; explicit zero coordinates and `collision => false` are overrides.
 
-### Authored field pose frames
+### Map-Owned World Object Leases
+
+`subject => ['kind' => 'world_object', 'id' => 'instrument']` binds a temporary
+staged visual to a non-blocking object declared in the current map's
+[`worldObjects`](graphical-field.md#map-owned-world-objects). Camera and field
+animation subject references accept the same kind/ID. `suppress` may also
+name additional current world objects, with the existing one-visual-owner
+refusal. Unknown IDs refuse; identity is never inferred from art or glyphs.
+
+The object's declared ground anchor/pivot remain authoritative. Bound visuals
+inherit its live selected role unless they supply explicit `sprites2d`, and
+cannot add collision, position, facing or an independent route. World objects
+are fixed presentation subjects, not new player/NPC movement or interaction
+targets. Their terminal map glyphs stay unchanged; a bound object contributes
+no second terminal sprite. A hide retains the scoped lease, remove releases
+its visual suppression, and explicit replacement keeps the same lease.
+Missing optional replacement art reports and retains useful owned glyphs in
+the graphical field instead of using another variant's art.
+
+Normal completion, authored skip, cancellation/failure, setup errors, transfer
+and scene shutdown use the existing staged ownership cleanup. Objects have no
+transform/world-state rollback: current existing events, switches and physical
+unlocks survive cleanup. Persistent artwork is selected anew from that state,
+including after load/return. A same-ID object in a later map installation is
+a different subject instance and cannot inherit an earlier suppression lease.
+The graphical field hides only the object's explicitly declared owner cells,
+never unrelated ground layers or the entire map. GUI subject/role selection,
+safe source round trips, native visual acceptance and production art bindings
+remain separate integration boundaries; this does not mark G4 complete.
+
+### Authored Field Pose Frames
 
 A field-image `sprites2d` descriptor may add `animation`, independently of
 walking and facing. The existing actor and field clock advance it during yielded

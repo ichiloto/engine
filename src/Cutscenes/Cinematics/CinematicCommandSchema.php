@@ -41,7 +41,7 @@ final class CinematicCommandSchema
     'branch' => ['then', 'else'],
     'choice' => ['options', 'option' => ['text', 'then'], 'cancel'],
   ];
-  public const array SUBJECT_KINDS = ['player', 'party_actor', 'npc', 'staged_actor', 'position', 'screen_position', 'marker'];
+  public const array SUBJECT_KINDS = ['player', 'party_actor', 'npc', 'world_object', 'staged_actor', 'position', 'screen_position', 'marker'];
   public const array CAMERA_OPERATIONS = ['detach', 'attach', 'reset', 'focus', 'pan', 'route', 'track', 'shake', 'restore'];
   public const array CINEMATIC_DEFINITION_FIELDS = [
     'id', 'name', 'description', 'version', 'authoring', 'startMap',
@@ -152,10 +152,10 @@ final class CinematicCommandSchema
         'ownership' => 'one route per subject; current object, map and presentation generation',
       ],
       'stagedActorBinding' => [
-        'subject' => ['kind' => 'player|npc', 'id' => 'required for npc'],
+        'subject' => ['kind' => 'player|npc|world_object', 'id' => 'required for npc/world_object'],
         'suppress' => 'additional real subject references sharing this visual',
         'replace' => 'explicitly replace an existing visual without resetting captured transforms',
-        'movement' => 'route the real subject; a bound visual has no independent transform or collision',
+        'movement' => 'route a real player/NPC; world-object anchors are fixed; bound visuals have no independent transform or collision',
       ],
       'skipPolicies' => self::SKIP_POLICIES,
       'finalizerCommandTypes' => self::FINALIZER_COMMAND_TYPES,

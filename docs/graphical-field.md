@@ -340,6 +340,103 @@ editing surface is owned by the GUI Editor plan. Related docs:
   glyphs they move with, and never shows or asks for them; painting
   individual tiles belongs to the GUI editor (Phase 4).
 
+## Map-Owned World Objects
+
+Traversable fixtures are not NPCs. Optional `worldObjects` in map data declares
+non-blocking presentation subjects, owned by the installed map and selected
+from the existing world state. Omission leaves existing projects unchanged.
+The declaration never creates an NPC, changes terminal grids, collision,
+events, routes or saves, or implements collection mechanics.
+
+```php
+'worldObjects' => [[
+  'id' => 'instrument',
+  'anchor' => ['x' => 4, 'y' => 3],
+  'pivot' => ['x' => .5, 'y' => .875],
+  'sprites2d' => ['asset' => 'Graphics/Objects/instrument.png'],
+  'variants' => [[
+    'id' => 'lit',
+    'conditions' => [['type' => 'event', 'name' => 'instrument-activated']],
+    'sprites2d' => ['asset' => 'Graphics/Objects/instrument-lit.png'],
+  ], [
+    'id' => 'absent',
+    'conditions' => [['type' => 'switch', 'name' => 'instrument-removed']],
+    'sprites2d' => null,
+  ]],
+  'covers' => [
+    'layer' => 'fixtures', 'cells' => [[4, 3]], 'tileLayers' => ['objects'],
+  ],
+]],
+```
+
+`WorldObjectDefinition::readMap()` is the shared admission boundary. A map
+has at most 128 objects; IDs and variant IDs are explicit lowercase identifiers
+of 1..64 characters beginning with a letter. IDs are map-local, not inferred
+from filenames, appearance, dimensions or hashes. An anchor requires integer
+x/y inside the map. It places the image's normalized explicit pivot at that
+cell's bottom-centre ground point on the existing field metric; image overhang
+does not expand ground occupancy. Draw layer and ground-row sorting use the
+existing sprite projection, not terminal glyph identity.
+
+`sprites2d` reuses field image, field pose animation and character sheet roles.
+Paths are asset-root-relative. Image draw size uses existing whole field `cells`,
+not duplicate source dimensions; crops and sheet frames read the current file.
+The explicit pivot applies to every selected frame. Static crops extending
+partly beyond replacement artwork are clipped within that same image with a
+diagnostic; wholly out-of-bounds crops or incompatible animation/sheet grids
+retain glyph presentation with diagnostics. No other identity/art is chosen.
+The existing PNG path/header/resource preflight applies (16 MiB, 4096 pixels
+per axis); native preparation remains the decode authority.
+
+Variants are an ordered list of at most 16 entries, each with a distinct ID,
+1..32 shared world conditions and an explicit role or null. The first matching
+entry wins; otherwise the base role wins. Null is intentional graphical
+absence, not a missing-art fallback. Conditions use the existing evaluator,
+including negation, switches, events, variables, inventory and quests; they
+do not require new story flags. Validation refuses malformed selector types,
+operators and typed values through `WorldConditionEvaluator::validateAll()`
+rather than coercing them into another state at admission. This narrows admission,
+not `allHold()`'s unchanged unvalidated runtime coercion; object declarations
+always pass admission before evaluation.
+Selection is read-only and re-evaluated from current state, including after
+load, transfer, cinematic cleanup and return. Nothing is serialized for objects.
+
+Optional `covers` takes one existing gameplay layer, 1..256 distinct map cells,
+and an explicit list of graphical tile layers belonging to that gameplay
+layer through `MapGraphics::resolveLayerOwners()`. An empty tile list is valid.
+Overlapping object ownership and unknown/unrelated owners refuse before map
+installation when their references can be validated. Optional graphics/tileset
+failure remains non-fatal. The same tile-layer parser and owner resolver validate
+available declarations without requiring tileset pieces: explicit `movesWith`
+owners remain provable, while inferred owners may be unavailable. Missing or
+unreadable graphical declarations and unprovable owners are diagnosed; none of
+that object's glyph/tile coverage is applied until all ownership is proven.
+Reload/return resolves ownership again from current sources and restored assets.
+Malformed references and overlaps still refuse, without rewriting declarations.
+A declaration replaces only those static tile cells, including
+their above-character band. Other cells, ground layers and maps remain intact.
+Valid selected art, explicit absence and deliberately hidden cinematic leases
+also remove only the declared layer's glyph cells from graphical projection;
+underlying glyph owners are recomposed. Unavailable selected/replacement art
+keeps useful owned glyphs, not stale fixture tiles as substitute artwork.
+Authored layers, collision and terminal rendering stay untouched. Retained
+uploads rebuild only when this coverage changes, using the same upload owner
+and tile/shadow composition, not another map runtime.
+
+Graphical identity is `world-object:<map-id>:<declared-id>`. Each map installation
+creates new subject instances, so a stale lease cannot claim a same-ID object
+on another map or a later installation. [Cinematic bindings](cinematics.md#map-owned-world-object-leases)
+temporarily replace/suppress that identity; they never roll back world state.
+
+Authoring must preserve literal declarations and the original condition arrays
+through existing source-preserving edits/transactions/undo. Select identities,
+roles, layers and files through shared resource/asset pickers. Do not flatten
+executable map data or write derived frames, dimensions, selected variants or
+coverage grids back into source. Unsupported PHP edits must refuse before a
+write. Dedicated GUI controls and their safe round trips remain a separate
+Editor/GUI boundary; this runtime contract does not claim authoring completion
+or add a graphical workflow to the TUI.
+
 ## Project format
 
 `ichiloto upgrade` is the project's format chain. A project records its

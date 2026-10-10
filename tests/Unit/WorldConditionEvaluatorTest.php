@@ -138,3 +138,34 @@ it('fails closed for unknown condition types even when they are negated', functi
   expect(WorldConditionEvaluator::allHold([['type' => 'phase_of_moon', 'name' => 'full']], $state))->toBeFalse()
     ->and(WorldConditionEvaluator::allHold([['type' => 'phase_of_moon', 'name' => 'full', 'negate' => true]], $state))->toBeFalse();
 });
+
+it('refuses malformed typed condition values at the shared admission boundary', function (array $condition) {
+  expect(fn() => WorldConditionEvaluator::validateAll([$condition], 'synthetic conditions'))->toThrow(InvalidArgumentException::class);
+})->with([
+  'switch coercion' => [['type' => 'switch', 'name' => 'gate', 'value' => 'false']],
+  'null negate' => [['type' => 'event', 'name' => 'activated', 'negate' => null]],
+  'null quantity' => [['type' => 'item', 'name' => 'token', 'quantity' => null]],
+  'null operator' => [['type' => 'variable', 'name' => 'phase', 'op' => null]],
+  'array operator' => [['type' => 'variable', 'name' => 'phase', 'op' => []]],
+  'array value' => [['type' => 'variable', 'name' => 'phase', 'value' => []]],
+  'unknown quest status' => [['type' => 'quest', 'name' => 'quest', 'status' => 'unknown']],
+]);
+
+it('admits explicit false switches and typed shared selectors without changing their meaning', function () {
+  $conditions = [['type' => 'switch', 'name' => 'gate', 'value' => false],
+    ['type' => 'variable', 'name' => 'phase', 'op' => '==', 'value' => 'ready'],
+    ['type' => 'event', 'name' => 'activated', 'negate' => true]];
+  WorldConditionEvaluator::validateAll($conditions);
+  $state = new GameState();
+  $state->setVariable('phase', 'ready');
+  $before = $state->toArray();
+  expect(WorldConditionEvaluator::allHold($conditions, $state))->toBeTrue()->and($state->toArray())->toBe($before);
+});
+
+it('keeps unvalidated runtime coercion separate from narrowed condition admission', function () {
+  $conditions = [['type' => 'switch', 'name' => 'gate', 'value' => 'false']];
+  $state = new GameState();
+  $state->setSwitch('gate');
+  expect(fn() => WorldConditionEvaluator::validateAll($conditions))->toThrow(InvalidArgumentException::class)
+    ->and(WorldConditionEvaluator::allHold($conditions, $state))->toBeTrue();
+});

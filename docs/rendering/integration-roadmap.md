@@ -421,6 +421,112 @@ messages and relayed the exact wording and scope to the owners:
 The four physical keyboard checks and previously approved assets remain closed,
 not new approval requests. Desktop inspection became accessible at 13:36 CAT.
 
+At the October 10 coordinator follow-up, Art delivered 31 whole-object proposals
+with native-48px comparisons against the unchanged approved Kaelion, desk and
+medical bed. The coordinator inspected the furniture/layout, Temple/Road prop,
+facade and six symbolic-building proofs and opened the concrete review here.
+Their appearance/proposed-role and local-integration decision remains pending;
+delivery is not approval or runtime coverage. Municipal graphics/glyph footprint
+alignment and the pins' existing scripted states still need owner reconciliation,
+without changing authored collision, story or prototype maps. Route Controller
+revision 2 is also delivered: its same-scale front-pose comparison replaces the
+rejected elongated proposal, but appearance acceptance and the complete walking
+sheet remain open. Both reviews are presented in the coordinator conversation.
+Art's existing-package audit found no verified Aeryn, Orwin or Thalric walking
+sheets in the inspected delivery trees and 56 archives, although their approved
+appearance references remain available. The bounded three-sheet production
+decision is presented here; no appearance approval, generation or role binding
+is inferred from that audit. Later native app selection reports the Mac locked;
+no further native test was launched. The delegated current-ref no-window
+cinematic-return preflight passes against Engine `ef5249a` and Game `936f7a3`:
+real admission/completion and cleanup, exit zero, 17,615 normal entries and all
+103 earlier capsule files unchanged. It records no controls, movement arrivals,
+audio backends, presentation submissions or native launch; expected isolation/
+missing-art warnings and two nonfatal tty diagnostics remain visible. Its receipt
+is preparation only, pending the Game map/save owner's handback and fresh
+launch/mute checks; source/ref changes invalidate it. The four human keyboard
+passes are not repeated.
+
+Art's current review and status receipt were corrected at 17:22 on October 10
+and independently checked against the handback. They now distinguish admitted
+resources, applied bindings and native acceptance, including actual four-leader
+rest bindings, Waymeet/Recovery/roof placements and palette-only waiting seats.
+Their earlier versions remain historical evidence; the new 31 proposals,
+Controller revision 2 and three missing walking-sheet decisions remain pending.
+No artwork pixels or Game source changed in this status-only correction.
+
+At 17:27 the coordinator separated the unstarted player ownership/actor field-role
+GUI authoring slice from Claude's Game map/save lane and assigned a dedicated
+worker. This is implementation in progress, not another delivered selector:
+the shared picker, source-preserving edits and history must still be verified.
+Claude retains Town Center and the coupled save batch; the current noticeboard
+definition follows the current marker, but his verification handback is pending.
+Game separately prepares only the existing pin/Listening Disc ownership and
+state contracts, without admitting the pending proposals or changing geometry.
+A fresh native inventory still reports the Mac locked. No game test is open;
+the four passed physical keyboard checks remain closed.
+
+The player ownership/actor field-role authoring worker returned its local
+Editor/GUI implementation on October 10. Parent source review and an independent
+strict focused run pass 44 tests / 230 assertions against the current local
+Engine; the first parent run omitted the documented local-Engine setting and
+failed to load `ProjectFormat`, rather than exercising the implementation.
+Worker receipts retain 71 / 432 final Editor checks, 141 / 889 adjacent checks,
+29 / 253 Engine contract checks and eight GUI row-picture checks. The GUI reuses
+the existing inspector, picker and canvas preview rather than a second artwork
+workflow. Fixed-player/party-leader/absent-legacy ownership, inactive-art
+preservation, actor-id-bound field roles, clear/undo/redo/save/reopen and external
+conflict refusal are implemented and tested. Native visual inspection is still
+pending; the three missing actor sheets and persistent stateful-object authoring
+are separate gaps. The completed slice passed guarded publication to the existing
+develop branches: Editor `1e7fdf0` and GUI `dd7dced`. Existing PRs 12 and 1 verify
+those exact heads; both local mains, foreign caches/policies and unfinished Game
+work remain unchanged. No new branch, main write or art approval was involved.
+
+The bounded Game prop handback identifies a shared G4 integration gap beyond
+alignment: static traversable fixtures lack stable, map/session-scoped graphical
+subject identity, existing-condition-driven state variants and temporary
+cinematic replacement/suppression ownership. NPC substitutions would change
+collision; retaining staged actors indefinitely would evade persistent state
+and cleanup. The independent Engine worker returned the smallest extension
+of the existing field/cinematic contracts; parent review and verification now
+close its runtime implementation slice, not Game integration or GUI authoring.
+Game retains its existing event-derived object states and physical occupancy;
+no new collection flags, NPC blockers, story outcomes or geometry are authorized
+by this correction. Matching pin and Disc art must represent actual restored
+and temporary states, not contradict them. Source-safe GUI authoring, focused
+synthetic lifecycle/variant regressions and native observation must follow the
+reviewed shared contract; the pending proposal decisions do not close this gap.
+
+The shared map-owned `worldObjects` contract provides stable identity,
+existing-condition variants, fixed ground anchors/pivots, explicitly owned
+glyph/tile coverage and temporary cinematic leases through existing composition
+and cleanup. It does not create NPCs, new collision, collection flags or a save
+model. Parent review caught an optional-art compatibility defect; the corrected
+shared parser/owner resolver preserves gameplay loading when a tileset or
+graphical declaration is unavailable, diagnoses unproven coverage and leaves
+it unapplied. Provably malformed/unknown owners still refuse before mutation.
+Typed condition admission now removes acceptance of malformed selector values;
+unvalidated `allHold()` runtime coercion is unchanged. Current Game battle-entry
+and field-music declarations pass that admission check without content edits.
+
+Final focused strict checks pass 590 tests / 47,426 assertions, including 57
+world-object cases / 560 assertions, scoped configured-level static analysis and
+whitespace checks. The parent full Engine Unit run passes 7,285 tests / 453,029
+assertions, exit zero, with no recorded test errors, failures or skips and strict
+warning/risky/empty-suite flags. The raw JUnit receipt contains ANSI controls and
+invalid UTF-8 from existing dataset names and is not standard-parser-readable;
+parent verification reconciles only those names in memory to read its totals
+and preserves the original receipt. No test or test-runner gate was changed.
+Nineteen nonfatal terminal-device diagnostics remain in the log; this is not an
+issue-free runtime, reporting tool or native visual claim. Evidence is
+on the secondary drive in `test-tmp/world-object-ownership-regressions.xml`
+and `world-object-parent-full.{xml,log}`; the existing checkout result cache
+remained byte-identical. The Engine worker is closed. A separate Editor/GUI
+worker now owns source-safe world-object controls and known cinematic-reference
+selection. Game retains its map/save lane; art decisions, actual bindings and
+native acceptance remain open. No production art or normal save/settings changed.
+
 The selected-leader implementation preserves the same Player, camera, heading,
 walking phase, pending arrival and Terminal roles while resolving current
 actor-owned sheets. Synthetic new/load checks also cover a project's explicit

@@ -16,6 +16,7 @@ final readonly class PreparedMap
      * @param MapTrigger[] $mapTriggers
      * @param EventTrigger[] $eventTriggers
      * @param Npc[]|null $npcs
+     * @param list<WorldObjectDefinition> $worldObjects
      */
     public function __construct(
         public array $data,
@@ -26,6 +27,7 @@ final readonly class PreparedMap
         public ?array $npcs = null,
         public ?MapLayerSet $layers = null,
         public ?MapGraphics $graphics = null,
+        public array $worldObjects = [],
     ) {
     }
 }

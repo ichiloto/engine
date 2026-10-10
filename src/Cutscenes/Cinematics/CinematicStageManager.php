@@ -8,12 +8,13 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Field\Npc;
 use Ichiloto\Engine\Field\Player;
+use Ichiloto\Engine\Field\WorldObject;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Console\Console;
-use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
 use Ichiloto\Engine\Rendering\Sprites\CharacterStep;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
+use Ichiloto\Engine\Rendering\Sprites\FieldSpriteRole;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use RuntimeException;
 
@@ -155,27 +156,31 @@ final class CinematicStageManager
       throw new \InvalidArgumentException('Staged actor suppress must be a list of real subject references.');
     }
     foreach ([$entry['subject'], ...$suppressed] as $reference) {
-      if (!is_array($reference) || !in_array($reference['kind'] ?? null, ['player', 'npc'], true)
-        || (($reference['kind'] ?? null) === 'npc'
+      if (!is_array($reference) || !in_array($reference['kind'] ?? null, ['player', 'npc', 'world_object'], true)
+        || (in_array($reference['kind'] ?? null, ['npc', 'world_object'], true)
           && (!is_string($reference['id'] ?? null) || trim($reference['id']) === ''))) {
-        throw new \InvalidArgumentException('Real subject requires kind player or npc, with a stable id for npc.');
+        throw new \InvalidArgumentException('Real subject requires kind player, npc or world_object, with a stable id for npc/world_object.');
       }
     }
   }
 
-  private function resolveSubject(array $reference): Player|Npc
+  private function resolveSubject(array $reference): Player|Npc|WorldObject
   {
-    $subject = $reference['kind'] === 'player' ? $this->gameScene->player
-      : $this->gameScene->npcManager?->findById($reference['id']);
+    $subject = match ($reference['kind']) {
+      'player' => $this->gameScene->player,
+      'world_object' => $this->gameScene->mapManager?->findWorldObject($reference['id']),
+      default => $this->gameScene->npcManager?->findById($reference['id']),
+    };
     if ($subject === null || ($subject instanceof Npc
-      && !in_array($subject, $this->gameScene->npcManager?->visibleNpcs() ?? [], true))) {
+      && !in_array($subject, $this->gameScene->npcManager?->visibleNpcs() ?? [], true))
+      || ($subject instanceof WorldObject && !$subject->isCurrent())) {
       throw new RuntimeException(sprintf('Real cinematic subject "%s" is unavailable on map "%s".',
         $reference['id'] ?? 'player', $this->gameScene->currentMapId));
     }
     return $subject;
   }
 
-  public function suppresses(Player|Npc $subject): bool
+  public function suppresses(Player|Npc|WorldObject $subject): bool
   {
     foreach ($this->actors as $actor) {
       if (!$actor->ownsPresentation()) {
@@ -184,6 +189,20 @@ final class CinematicStageManager
       foreach ($actor->suppressedSubjects as $lease) {
         if ($lease->subject === $subject) {
           return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /** Missing replacement art keeps the owned glyph; an intentionally hidden lease does not. */
+  public function hidesWorldObjectGlyphs(WorldObject $subject): bool
+  {
+    foreach ($this->actors as $actor) {
+      if (!$actor->ownsPresentation()) { continue; }
+      foreach ($actor->suppressedSubjects as $lease) {
+        if ($lease->subject === $subject) {
+          return !$actor->isVisible || $actor->getGraphicalSpriteDefinition() !== null;
         }
       }
     }
@@ -200,7 +219,7 @@ final class CinematicStageManager
     }
   }
 
-  public function subjectStopped(Player|Npc $subject): void
+  public function subjectStopped(Player|Npc|WorldObject $subject): void
   {
     foreach ($this->actors as $actor) {
       if ($actor->subject?->subject === $subject) {
@@ -243,14 +262,7 @@ final class CinematicStageManager
   /** Shared by authoring validation and runtime staging. */
   public static function getGraphicalSprites(array $data): GraphicalSpriteDefinition|CharacterSheet|FieldPoseAnimation
   {
-    // Walking sheets and authored field poses have independent playback policies.
-    $sprites = array_key_exists('sheet', $data)
-      ? CharacterSheet::fromArray($data) : (array_key_exists('animation', $data)
-        ? FieldPoseAnimation::fromArray($data) : GraphicalSpriteDefinition::fromArray($data));
-    if ($sprites->layer < PresentationLayerPolicy::WORLD || $sprites->layer >= PresentationLayerPolicy::UI) {
-      throw new \InvalidArgumentException('Cinematic world sprites require layers 0..999; UI layers are reserved.');
-    }
-    return $sprites;
+    return FieldSpriteRole::readDefinition($data);
   }
 
   public function advanceGraphicalAnimation(float $seconds): void
@@ -401,6 +413,8 @@ final class CinematicStageManager
   {
     foreach ($this->actors as $actor) {
       if ($actor->isVisible) {
+        // World objects have no second terminal role: their authored map glyphs stay untouched.
+        if ($actor->subject?->subject instanceof WorldObject) { continue; }
         Console::withLayer($actor->getGraphicalSpriteId(), function () use ($actor): void {
           $this->gameScene->camera->renderOnScreen($actor->sprite, $actor->position);
         });

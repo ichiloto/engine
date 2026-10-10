@@ -446,7 +446,7 @@ final class CinematicScriptValidator
       throw self::failure($cinematicId, $path, sprintf('unsupported subject kind "%s".', $kind !== '' ? $kind : '(empty)'));
     }
 
-    if (in_array($kind, ['npc', 'staged_actor', 'marker'], true)
+    if (in_array($kind, ['npc', 'world_object', 'staged_actor', 'marker'], true)
       && trim(strval($reference['id'] ?? '')) === ''
     ) {
       throw self::failure($cinematicId, $path, sprintf('%s subject requires an id.', $kind));
