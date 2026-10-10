@@ -313,7 +313,8 @@ cinematic restart epochs/diagnostics; all 41 fixture files remain unchanged.
 The native window was inspected only at its initial map view. Its five-minute
 watchdog closed the owned GUI/host group before the controls could be verified;
 `native-launch.json` records signal 15 and unchanged files, not a passing check.
-Direction controls, footprint controls and Terminal-tab restart remain open.
+Direction controls, footprint controls and Terminal-tab restart remained open
+at that checkpoint; subsequent bounded outcomes are recorded below.
 The later `g4-editor-directions-restart-20261010-121658-sidecar` native check
 verifies all four distinct NPC direction previews, index zero and layer 100.
 Skip reached completed and Restart returned to 0.0 seconds paused. The owned
@@ -333,7 +334,8 @@ develop commit `6157d58` removes the inherited UI-font dependency. Its offline
 release suite passes 251 tests with four existing opt-in checks ignored; strict
 Clippy and formatting pass. The GUI's 150 offline tests and release build pass.
 Its existing local app bundle follows that build. Native verification of this
-correction remains pending because the Mac locked; no new window was launched.
+correction was pending at that checkpoint because the Mac locked; no new window
+was launched until the later delegated run recorded below.
 The separately prepared cinematic-return runner uses the normal Game/live
 Engine/installed renderer and real cinematic lifecycle, with writes restricted
 to fresh evidence and `/dev/null`. Its CPU preflight passes, but the initial
@@ -373,11 +375,71 @@ completed commits remain independent of this held map/save batch. Editor, GUI,
 Renderer and Game develop pushes still await the already-presented explicit
 repository/ref permission; no blocked push was retried or delegated.
 
+On October 10 at 13:47 CAT, the coordinator corrected the scattered-question
+workflow at Andrew's direction. The following six decisions are printed together
+in the coordinator conversation, with the actual Route Controller scale proof;
+Andrew does not need to search other tasks or handoffs. All remain unanswered:
+
+1. Publish only completed commits to the five existing Engine, Editor, GUI,
+   Renderer and Game `develop` branches, updating their existing PRs. No new
+   branch, direct-main write or unfinished batch is included.
+2. Align the noticeboard interaction and stale plant drawings to the current
+   authored map, or retain the old noticeboard location. No placement is inferred.
+3. Accept or revise the existing Route Controller appearance before remaining
+   directional views and integration.
+4. Preserve the eleven disconnected prototypes for later and exclude them from
+   playable G4 coverage, or dress them now. No deletion or exclusion is inferred.
+5. Prepare matching footprint/design proposals for unresolved furnishings and
+   facades, preserving story/collision and returning proposals through this
+   coordinator before integration.
+6. Choose whether reordered-party field appearance follows the selected leader
+   or remains the named protagonist; scripted subjects retain their own identity.
+
+The four physical keyboard checks and previously approved assets remain closed,
+not new approval requests. Desktop inspection became accessible at 13:36 CAT.
+The delegated muted native run in secondary
+`test-tmp/g4-physical-controls-20261010-134806` passes explicit collision
+migration, physical brush/undo, masked footprint stamping/atomic undo and
+read-only recipe inspection. It also verifies the settled Terminal destination
+glyph after Skip: recognizable text rather than the initial authored cover.
+The GUI/host closed normally, with no watchdog intervention; all 41 fixture
+files stayed unchanged and music/SFX/voice remained false with master volume
+zero. No Save was used. Persistence/reopening, recipe mutation, normal Game
+art and other platforms are not established. CUA displayed screenshots inline
+but supplied no durable screenshot files; the separate acceptance report and
+original launch/CPU receipts are retained.
+
+This native host used live Editor source during Claude's underlay changes;
+Editor moved from `8ccd402` plus WIP to `95ac81c` during the run. Its passing
+physical controls and font observations are retained with that qualification,
+not presented as an immutable final-commit run or underlay visual acceptance.
+Claude's completed handback restores authored glyph/style from proven retained
+piece layers when a mounted piece is erased, preserving those layers and
+declared occupancy. Cut/move retains whole-block ownership. Ambiguous underlays
+use the existing author choice rather than guessing. Local Editor `95ac81c`
+passes its seven new cases / 25 assertions, 59 adjacent cases and the full
+2,359-test / 102,610-assertion suite, exit zero. The coordinator inspected the
+commit and retained suite log; no duplicate full rerun or remote write occurred.
+
+The refreshed cinematic-return probe uses Engine `a4a61cd` and unchanged Game
+`a114409`; its new CPU preflight passes. The 12:03 UTC native attempt expired
+before inspection/input. The 12:13 UTC attempt reached active-window READY,
+but CUA still listed the renderer as not running; no duplicate app was opened
+and no input was sent. Neither attempt entered the test cinematic. Original
+receipts `native-20261010-120316-a40b7fff5350792b` and
+`native-20261010-121315-bb034aa6a0a2de01` in the existing cinematic-return capsule
+record host/renderer exit zero, no watchdog intervention, zero audio backends
+and all 17,613 preservation fingerprints unchanged. Cinematic-return acceptance
+remains open at the native inspection boundary, not a proved gameplay failure.
+All owned windows/processes are closed; further blind launches are not planned.
+The coordinator has not duplicated Claude's implementation, retried a denied
+push, changed author placements or treated the six questions as permission.
+
 | Acceptance area | Owner | Current evidence and work remaining |
 | --- | --- | --- |
 | Current field asset-role coverage | Claude/Game, Art through coordinator | October 9 all nineteen reachable maps have material layers, and all five currently authored semantic save points have their registered artwork and effects. Game has implemented seven interior expansions with north/south wall faces, reviewed coordinate/save migrations, existing facing desk-chair bindings and removal of embedded room/compound labels in both presentations. Approved Sleep/Shared, revision-4 modular roofs, waiting seats, Waymeet fixtures and Lanternrest Recovery damage are now admitted locally under Andrew's named tool/licence exceptions. Source-preserving bindings include the console/computers, localized Recovery damage, current Happyville roof rectangles and five existing low-ground save sigils. Four leader-selected rest stages use shared Inn ownership. Waiting-seat alternatives are palette-ready, not guessed assignments to unidentified fixtures. Strict headless Game presentation and route checks pass 82 / 748,599 and 117 / 80,499; adjacent Engine rest checks pass 148 / 1,257. CPU tile compositions were inspected; native/GPU art acceptance remains open. Eleven disconnected prototypes, unresolved fixture/facade identities and noticeboard alignment remain open; prototype retention is not inferred. World has no currently authored semantic save points; none were invented. The existing private Game ledger remains the coverage authority. Material coverage is not complete map dressing. |
 | Graphical maps and safe GUI authoring | Claude/Editor/GUI | Shared Draw tiles, validator-derived coverage, selection copy/cut/paste, piece eyedropper, ordered shadow layers, independent sheet-piece/shape controls and staged-actor art/pose-loop controls are implemented locally. Row/column insertion, map duplication and metadata-derived relocation use reviewed source-preserving transactions; ordinary saves keep stable identity. Dim/Restore is session-only, respects hiding and resets on map/project change. Native checks verified insertion, duplication, relocation cancellation and dim/hide/reset; detailed receipts below name their limits. Route references now use the actual command owner; camera/transfer/effect placement and field-sheet controls are connected. NPC sheet selection preserves index/layer and previews four directions; staged walking sheets use the same current-file crop contract. Runtime and GUI share retained painting, including transparent unstyled blank cells. October 9 native inspection verifies the corrected modal width, cardinal route edit/refusal/save/undo, actual NPC-owned Retrace choices and Inn stage selection/save/undo; October 10 native inspection also verifies all four NPC direction previews while preserving sheet index and layer. Unsupported source edits refuse before writing, with undo/reload, external-change protection and Terminal/collision isolation preserved. Remaining representative native checks, production-art acceptance and explicit author decisions are not closed by automated tests or a successful build. |
-| Shared field/cinematic previews | Codex/Engine, Claude/Editor/GUI | Shared SceneFrameComposer, isolated ScenePresentationContext and Console capture, styled Terminal rows, pure dialogue pagination and named runtime GPUI grid are implemented. Native SceneSession/ScenePainter reuse retained validation, projection and painting with canonical READY/ACK/rejection messages in both preview tabs. One isolated PreviewField uses the shared interpreter, movement and field camera; presentation upkeep does not execute gameplay/input. Actual host tests cover malformed refusal, detach/reopen/reset, EOF cleanup and optional-list semantics. The shared Skip policy/finalizer supports paused/playing completion, refusal explanations and failed previews without a substitute arena or duplicate interpreter. Graphical host epochs prevent retired pictures, feedback and view replies from reaching equal-grid replacement sessions. Current-map diagnostics persist until a successful transfer; missing effect start maps remain diagnosed. October 8 native evidence covers field/cover/narration completion, restart/step, Terminal/GPUI tabs and effect seek/reconnect/play with a pinned timeline. October 9 GPUI evidence additionally verifies same-map relocation with camera follow, watched and skipped transfer, and restart to the original scene rather than a retired picture. Fixtures remained unchanged and owned processes were closed. October 10 native failure diagnostics and forbidden-Skip refusal are verified in both tabs; the latest Terminal-tab check verifies Skip completion and Restart to time zero paused with the authored initial cover. Destination-glyph legibility, cinematic-return held input and production-art acceptance remain open. The separate brief physical walking check passed with Andrew; a locked-desktop transport run or screenshot timeout does not prove pixels. |
+| Shared field/cinematic previews | Codex/Engine, Claude/Editor/GUI | Shared SceneFrameComposer, isolated ScenePresentationContext and Console capture, styled Terminal rows, pure dialogue pagination and named runtime GPUI grid are implemented. Native SceneSession/ScenePainter reuse retained validation, projection and painting with canonical READY/ACK/rejection messages in both preview tabs. One isolated PreviewField uses the shared interpreter, movement and field camera; presentation upkeep does not execute gameplay/input. Actual host tests cover malformed refusal, detach/reopen/reset, EOF cleanup and optional-list semantics. The shared Skip policy/finalizer supports paused/playing completion, refusal explanations and failed previews without a substitute arena or duplicate interpreter. Graphical host epochs prevent retired pictures, feedback and view replies from reaching equal-grid replacement sessions. Current-map diagnostics persist until a successful transfer; missing effect start maps remain diagnosed. October 8 native evidence covers field/cover/narration completion, restart/step, Terminal/GPUI tabs and effect seek/reconnect/play with a pinned timeline. October 9 GPUI evidence additionally verifies same-map relocation with camera follow, watched and skipped transfer, and restart to the original scene rather than a retired picture. Fixtures remained unchanged and owned processes were closed. October 10 native failure diagnostics and forbidden-Skip refusal are verified in both tabs; the Terminal-tab check verifies Skip completion and Restart to time zero paused with the authored initial cover. The later physical-controls run verifies settled destination-glyph legibility, with the live-Editor source qualification above. Cinematic-return held input and production-art acceptance remain open. The separate brief physical walking check passed with Andrew; a locked-desktop transport run or screenshot timeout does not prove pixels. |
 | Held walking and input lifecycle | Codex/Engine/Renderer | Implemented; the immediate empty event-session latch is corrected globally. Focused PHP checks initially passed 242 tests / 1,686 assertions and the full run below includes the correction. Muted native Home checks inspect introductory dialogue, right/down tap movement, camera scrolling and graphical main-menu opening, cancellation and resumed field movement. Andrew's October 10 physical check passes simultaneous held keys, partial/full release, turning at a barrier and application-switch behavior; its receipt confirms resumed surviving-direction movement, stable release positions, camera follow and idle focus returns. The 120-second window closed cleanly with 5,472 preservation fingerprints unchanged and no audio backend. Cinematic-return held input remains open because event triggers were isolated in this walking check. |
 | Regression and bounded native proof | Coordinator and owners | October 8 full Engine Unit: 6,514 passed / 439,567 assertions, exit 0, no warnings/skips reported. Earlier warnings came from a vacuous ID-keyed state assertion; the old unconditional Enemy construction skip is removed. Tests now check live state identity/duration/HP and real construction with replaceable synthetic art (focused 23 / 173). Two full-run inn failures were reproduced after a real Console hand-back test: the inn fixture now acquires its own headless Console session and restores its parent state, preserving every five-beat/recovery/payment/audio/wake assertion. The corrected shutdown-plus-inn sequence passes 45 / 474; no inn runtime change was needed. Presentation upkeep/player walking/pose regressions: 192 passed / 44,038 assertions. Renderer after blank-cell correction: 238 passed / four existing opt-in ignored; strict Clippy/formatting pass, with existing dependency future-compatibility notices unchanged. GUI release after Skip: 66 passed; focused new Editor controls and adjacent preview families: 36 passed / 533 assertions. Scoped live-Engine static analysis passes. The normal GUI app was rebuilt and its macOS bundle relinked to that release executable on the managed secondary cache. GUI repository-wide formatting and warnings-as-errors Clippy checks do not pass: their diagnostics are in unchanged files outside the new control; no warning was suppressed and unrelated source was not reformatted. Changed-file whitespace checks pass. Editor full suite before the subsequent Skip addition, after preview movement repair: 1,685 passed / 82,037 assertions, exit 0, no errors/failures/skips in JUnit; focused preview families 20 passed / 223 assertions and scoped live-Engine static analysis clean. Earlier mapping/inn/host checks: 13 passed / 125 assertions. October 10 full Game CI: 1,938 tests / one failure / 1,803,350 assertions, exit 1, with the existing battle-simulations exclusion unchanged; all 756 PHP files lint. Only the town-center orphaned information glyph remains, with Game ownership and the pending author-placement decision. The earlier garden-control failure is absent in this current run. Runtime diagnostic inventory is retained separately from the zero-issue PHPUnit result; it includes expected fault fixtures and unresolved presentation warnings, not a claim that every runtime log is clean. All 383 affected storage/menu test-family cases pass; source fingerprints, normal logs and all ten live save/settings files stayed unchanged. Test storage uses shared exception-safe ownership/cleanup on the secondary drive, not checkout-rooted save scratch or suppressed diagnostics. Complete remaining representative native acceptance; Windows/Linux/WSLg remain untested. |
 
