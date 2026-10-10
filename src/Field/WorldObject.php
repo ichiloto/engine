@@ -47,6 +47,9 @@ final class WorldObject implements GraphicalSpriteProviderInterface
     public function getGraphicalSpriteId(): string { return 'world-object:' . $this->mapId . ':' . $this->definition->id; }
     public function getGraphicalSpriteDefinition(): ?GraphicalSpriteDefinition
     {
+        if ($this->definition->resource !== null && $this->definition->sprites instanceof GraphicalSpriteDefinition) {
+            return $this->scene->mapManager?->getWorldObjectResourceFrame($this);
+        }
         return $this->selectRole()?->getFrame($this->definition->pivot);
     }
     public function getGraphicalSpriteWorldPosition(): Vector2 { return $this->position; }
@@ -55,10 +58,18 @@ final class WorldObject implements GraphicalSpriteProviderInterface
     /** Explicit absence is valid presentation state; unavailable art is not. */
     public function hidesOwnedGlyphs(): bool
     {
+        if ($this->definition->resource !== null && $this->definition->sprites instanceof GraphicalSpriteDefinition) {
+            return $this->getGraphicalSpriteDefinition() !== null;
+        }
         $role = $this->selectRole();
         return $this->isCurrent() && ($role === null || $role->getFrame($this->definition->pivot) !== null);
     }
 
-    public function advanceGraphicalAnimation(float $seconds): void { $this->selectRole()?->advance($seconds); }
+    public function advanceGraphicalAnimation(float $seconds): void
+    {
+        if ($this->definition->resource === null || !$this->definition->sprites instanceof GraphicalSpriteDefinition) {
+            $this->selectRole()?->advance($seconds);
+        }
+    }
     public function release(): void { $this->released = true; $this->role?->release(); $this->role = null; }
 }

@@ -348,6 +348,71 @@ from the existing world state. Omission leaves existing projects unchanged.
 The declaration never creates an NPC, changes terminal grids, collision,
 events, routes or saves, or implements collection mechanics.
 
+Reusable presentation definitions belong to the existing
+`assets/Data/Presentation/field.php` catalog, alongside `cues` and
+`actionPrompt`. Its optional `resources` dictionary is keyed by stable
+lowercase IDs, not artwork names or hashes. Each entry requires a display
+`name`, explicit normalized `pivot` (the intended ground contact, such as a
+trunk base), and an existing `sprites2d` draw role. An optional authoring-only
+`occupancyStamp` is a list of relative integer x/y offsets and resolved
+`CollisionType` cases; `PASS_THROUGH`, duplicate offsets and more than 256 cells
+refuse. Omission means no recipe, not inferred collision.
+
+```php
+// Data/Presentation/field.php (asset-root-relative)
+return ['resources' => [
+  'whole-object' => [
+    'name' => 'Whole Object',
+    'pivot' => ['x' => .5, 'y' => .875],
+    'sprites2d' => ['asset' => 'Graphics/Objects/whole.png',
+      'cells' => ['width' => 3, 'height' => 4]],
+    'occupancyStamp' => [['x' => 0, 'y' => 0,
+      'type' => \Ichiloto\Engine\Events\Enumerations\CollisionType::SOLID]],
+  ],
+]];
+
+// Literal map data placement; no duplicated role, pivot or source dimensions.
+'worldObjects' => [[
+  'id' => 'placed-001', 'resource' => 'whole-object',
+  'anchor' => ['x' => 4, 'y' => 3],
+  'covers' => ['layer' => 'fixtures', 'cells' => [[4, 3]], 'tileLayers' => []],
+]],
+```
+
+The reference form accepts only `id`, `resource`, `anchor` and optional
+`covers`; `pivot`, `sprites2d` and even an empty `variants` are mutually
+exclusive with it. Existing inline/conditional declarations below remain
+supported without automatic extraction or source rewriting. `readMap(...,
+catalog: $catalog)` is the shared admission API for resource-aware consumers;
+`FieldPresentationCatalog::getResource()` returns a shared immutable
+`WorldObjectResource`. `MapManager` loads the catalog once per preparation pass
+when references are present, with syntax validation independent of optional
+cue/object pixels. Unknown references, malformed declarations, out-of-map
+anchors and malformed recipe structure refuse before installation. Runtime
+admission does not resolve authoring-recipe extents against a placement.
+
+`WorldObjectResource::resolveOccupancyStamp()` validates and returns absolute
+typed cells for an explicit authoring transaction, refusing out-of-map stamp
+cells before any writes; runtime never resolves or applies them. Widening an
+authoring recipe must not invalidate existing placements or change their
+persisted occupancy or saves. Only map occupancy owns collision. A GUI brush
+must refuse implicit-occupancy
+maps until explicitly separated; it persists IDs/choices once and stamps
+physical cells through the existing occupancy writer. Joined Terminal crowns
+belong on decoration layers, which remain excluded from graphical glyph
+composition. `covers` claims only exclusive gameplay-layer trunk cells, not
+overlapping crown bounds.
+
+Static resource roles share current-file frames within each coverage or sprite
+collection pass, including unavailable-art results. No frame facts survive that
+operation; a new pass observes replacement/recovery through the existing asset
+guard. Map reinstall releases shared static roles and placement-owned animation
+clocks. Animated resources share immutable intent, not playback clocks.
+The combined inline/reference admission remains 128 objects and the aggregate
+presentation budget remains 1,024 sprites. An additional static tier still
+requires mixed-scene/native paint evidence and owner acceptance; PHP projection
+and fake transport measurements alone do not establish decode cost or FPS.
+
 ```php
 'worldObjects' => [[
   'id' => 'instrument',

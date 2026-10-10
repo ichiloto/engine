@@ -166,8 +166,9 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
       $sprite
     );
 
+    // Step timing belongs to the player even when a staged visual supplies its artwork.
+    $this->walkAnimation = new CharacterWalkAnimation();
     if ($graphicalSprites !== null || $party !== null) {
-      $this->walkAnimation = new CharacterWalkAnimation();
       $this->graphicalAssetGuard = new CharacterSheetAssetGuard($assetRoot ?? getcwd() . '/assets', 'Player');
     }
     $this->configureDirectionalSprites($directionalSprites);
@@ -224,7 +225,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    */
   public function completeArrival(): void
   {
-    if (Console::isTerminalOutputEnabled() || !($this->walkAnimation?->isSliding ?? false)) {
+    if (!($this->walkAnimation?->isSliding ?? false) || !$this->getGameScene()->isGraphicalFieldPresented()) {
       $this->runPendingArrival();
     }
   }
@@ -358,9 +359,9 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     $fieldWasRecomposed = $this->updatePlayerPosition($direction, $camera, $previousSprite);
     if ($origin->x !== $this->position->x || $origin->y !== $this->position->y) {
       $step = new CharacterStep($origin, $this->position, $this->getGameScene()->getStepSeconds($direction));
-      if (!Console::isTerminalOutputEnabled()
+      if ($this->walkAnimation !== null
         && ($this->getGraphicalCharacterSheet() !== null || $this->isPresentationSuppressed())) {
-        $this->walkAnimation?->step($step);
+        $this->walkAnimation->step($step);
       } else {
         $this->walkAnimation?->stop();
       }

@@ -1,6 +1,7 @@
 <?php
 
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
+use Ichiloto\Engine\Animations\Field\FieldPresentationCatalog;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\Rect;
@@ -23,6 +24,7 @@ use Ichiloto\Engine\Field\MapGridSource;
 use Ichiloto\Engine\Field\MapLayer;
 use Ichiloto\Engine\Field\MapLayerSet;
 use Ichiloto\Engine\Field\MapManager;
+use Ichiloto\Engine\Field\MapCollisionResolver;
 use Ichiloto\Engine\Field\MapTileLayer;
 use Ichiloto\Engine\Field\NpcManager;
 use Ichiloto\Engine\Field\Player;
@@ -31,7 +33,13 @@ use Ichiloto\Engine\Field\WorldObjectDefinition;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\Cursor;
 use Ichiloto\Engine\Rendering\Camera;
+use Ichiloto\Engine\Rendering\FieldViewport;
 use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSprite;
+use Ichiloto\Engine\Rendering\Presentation\PresentationViewport;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
+use Ichiloto\Engine\Rendering\Presentation\RendererPresentation;
+use Ichiloto\Engine\Rendering\RendererClient;
 use Ichiloto\Engine\Rendering\Presentation\ScenePresentationContext;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
@@ -39,6 +47,10 @@ use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProjector;
 use Ichiloto\Engine\Rendering\Tilesets\Tileset;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
+use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
+use Ichiloto\Engine\Rendering\Transport\RendererEvent;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
+use Ichiloto\Engine\IO\Console\ConsolePresentationChanges;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\SceneManager;
 use Ichiloto\Engine\UI\UIManager;
@@ -125,7 +137,7 @@ function createWorldObjectSource(array $extra = []): array
     ], $extra);
 }
 
-function createWorldObjectPreparedMap(array $objects, string $id = 'synthetic/room'): PreparedMap
+function createWorldObjectPreparedMap(array $objects, string $id = 'synthetic/room', ?FieldPresentationCatalog $catalog = null): PreparedMap
 {
     $layers = new MapLayerSet([
         new MapLayer('ground', 0, false, 'ground', "gggg\ngggg\ngggg"),
@@ -139,7 +151,7 @@ function createWorldObjectPreparedMap(array $objects, string $id = 'synthetic/ro
     ], owners: ['floor' => 'ground', 'objects' => 'fixtures']);
     $data = ['id' => $id, 'name' => 'Synthetic room', 'worldObjects' => $objects];
     return new PreparedMap($data, $layers->getComposedGrid(), array_fill(0, 3, array_fill(0, 4, CollisionType::COLLECTABLE->value)),
-        [], [], [], $layers, $graphics, WorldObjectDefinition::readMap($data, $layers, $graphics));
+        [], [], [], $layers, $graphics, WorldObjectDefinition::readMap($data, $layers, $graphics, catalog: $catalog));
 }
 
 function createWorldObjectCinematic(array $commands = [], array $extra = []): CinematicDefinition
@@ -150,6 +162,15 @@ function createWorldObjectCinematic(array $commands = [], array $extra = []): Ci
         'skip' => ['policy' => 'authored'],
         'finalizer' => [['type' => 'record_event', 'name' => 'activated']],
     ], $extra), $commands ?: [['type' => 'wait', 'seconds' => 10]]);
+}
+
+function createResourceWorldObjectCatalog(string $root, array $extra = []): FieldPresentationCatalog
+{
+    return FieldPresentationCatalog::fromArray(['resources' => ['whole' => array_replace([
+        'name' => 'Synthetic reusable object', 'pivot' => ['x' => .25, 'y' => .75],
+        'sprites2d' => ['asset' => 'Graphics/base.png', 'cells' => ['width' => 3, 'height' => 4], 'layer' => 100],
+        'occupancyStamp' => [['x' => 0, 'y' => 0, 'type' => CollisionType::SOLID]],
+    ], $extra)]], $root . '/assets');
 }
 
 function getWorldObjectWireCells(PresentationWorld $world): array
@@ -619,4 +640,400 @@ it('releases replaced pose clocks and retains pause hide and clear ownership for
     $second->resumeGraphicalAnimation();
     $second->advanceGraphicalAnimation(100);
     expect($second->getGraphicalSpriteDefinition())->toBeNull()->and($this->object->getGraphicalSpriteDefinition()->asset)->toBe('Graphics/base.png');
+});
+
+it('refuses unknown conflicting or unsafe resource placements before actual map installation', function (string $invalid) {
+    $entry = ['id' => 'placed', 'resource' => 'whole', 'anchor' => ['x' => 1, 'y' => 1],
+        'covers' => ['layer' => 'fixtures', 'cells' => [[1, 1]], 'tileLayers' => []]];
+    $resource = ['name' => 'Synthetic', 'pivot' => ['x' => .5, 'y' => 1], 'sprites2d' => ['asset' => 'Graphics/base.png'],
+        'occupancyStamp' => [['x' => 0, 'y' => 0, 'type' => CollisionType::SOLID]]];
+    match ($invalid) {
+        'unknown resource' => $entry['resource'] = 'unknown',
+        'null resource' => $entry['resource'] = null,
+        'inline pivot' => $entry['pivot'] = ['x' => .5, 'y' => 1],
+        'inline role' => $entry['sprites2d'] = null,
+        'inline variants' => $entry['variants'] = [],
+        'anchor' => $entry['anchor']['x'] = 4,
+        'recipe type' => $resource['occupancyStamp'][0]['type'] = 1,
+        'unsafe path' => $resource['sprites2d']['asset'] = '../outside.png',
+        'pivot' => $resource['pivot']['y'] = -1,
+        'decoration coverage' => $entry['covers']['layer'] = 'canopy',
+    };
+    $sources = writeWorldObjectLoadingSources($this->root, ['worldObjects' => [$entry]], false);
+    mkdir($this->root . '/assets/Data/Presentation', 0777, true);
+    $path = $this->root . '/assets/Data/Presentation/field.php';
+    $sources[$path] = '<?php return ' . var_export(['resources' => ['whole' => $resource]], true) . ';';
+    file_put_contents($path, $sources[$path]);
+    $before = [$this->scene->mapManager->tileMap, $this->scene->mapManager->getCollisionGrid(), serialize($this->scene->createSnapshot())];
+    expect(fn() => $this->scene->loadMap('synthetic/loading', $this->scene->player))->toThrow(InvalidArgumentException::class)
+        ->and($this->scene->currentMapId)->toBe('synthetic/room')
+        ->and($this->scene->mapManager->findWorldObject('fixture'))->toBe($this->object)
+        ->and([$this->scene->mapManager->tileMap, $this->scene->mapManager->getCollisionGrid(), serialize($this->scene->createSnapshot())])->toBe($before);
+    foreach ($sources as $path => $source) { expect(file_get_contents($path))->toBe($source); }
+})->with(['unknown resource', 'null resource', 'inline pivot', 'inline role', 'inline variants', 'anchor',
+    'recipe type', 'unsafe path', 'pivot', 'decoration coverage']);
+
+it('refuses out of map authoring stamps without invalidating runtime placements when the recipe widens', function () {
+    $entries = [['id' => 'edge-placement', 'resource' => 'whole', 'anchor' => ['x' => 0, 'y' => 0]]];
+    $occupancy = array_fill(0, 3, array_fill(0, 4, CollisionType::NONE));
+    $occupancy[0][1] = CollisionType::COUNTER;
+    $sources = writeWorldObjectLoadingSources($this->root, ['worldObjects' => $entries, 'occupancy' => $occupancy], false);
+    mkdir($this->root . '/assets/Data/Presentation', 0777, true);
+    $path = $this->root . '/assets/Data/Presentation/field.php';
+    $resource = ['name' => 'Synthetic', 'pivot' => ['x' => .5, 'y' => 1], 'sprites2d' => ['asset' => 'Graphics/base.png'],
+        'occupancyStamp' => [['x' => 0, 'y' => 0, 'type' => CollisionType::SOLID]]];
+    file_put_contents($path, '<?php return ' . var_export(['resources' => ['whole' => $resource]], true) . ';');
+    $manager = $this->scene->mapManager;
+    $prepared = $manager->prepareMap('synthetic/loading');
+    expect($prepared->worldObjects[0]->resource->resolveOccupancyStamp($prepared->layers, 0, 0))
+        ->toBe([['x' => 0, 'y' => 0, 'type' => CollisionType::SOLID]]);
+    $this->scene->loadMap('synthetic/loading', $this->scene->player);
+    $old = $manager->findWorldObject('edge-placement');
+    $before = [$manager->tileMap, $manager->getCollisionGrid(), serialize($this->scene->createSnapshot()),
+        serialize($this->scene->eventManager->activeEvents)];
+    Console::recomposeFrame(fn() => $manager->render());
+    $terminal = Console::presentationSnapshot();
+
+    $resource['occupancyStamp'][] = ['x' => -1, 'y' => 0, 'type' => CollisionType::SOLID];
+    $sources[$path] = '<?php return ' . var_export(['resources' => ['whole' => $resource]], true) . ';';
+    file_put_contents($path, $sources[$path]);
+    $wider = $manager->prepareMap('synthetic/loading');
+    expect($wider->data['occupancy'])->toBe($occupancy)
+        ->and($wider->worldObjects[0]->resource->occupancyStamp)->toBe($resource['occupancyStamp'])
+        ->and($wider->worldObjects[0]->resource)->not->toBe($prepared->worldObjects[0]->resource);
+    $writeAttempted = false;
+    $dataPath = $this->root . '/assets/Maps/synthetic/loading/loading.data.php';
+    $authorStamp = function () use ($wider, $dataPath, &$writeAttempted): void {
+        $cells = $wider->worldObjects[0]->resource->resolveOccupancyStamp($wider->layers, 0, 0);
+        $writeAttempted = true;
+        file_put_contents($dataPath, var_export($cells, true));
+    };
+    expect($authorStamp)->toThrow(InvalidArgumentException::class)
+        ->and($writeAttempted)->toBeFalse();
+    foreach ($sources as $sourcePath => $source) { expect(file_get_contents($sourcePath))->toBe($source); }
+
+    $this->scene->loadMap('synthetic/loading', $this->scene->player);
+    $current = $manager->findWorldObject('edge-placement');
+    Console::recomposeFrame(fn() => $manager->render());
+    expect($current->getGraphicalSpriteId())->toBe($old->getGraphicalSpriteId())
+        ->and($current->getGraphicalSpriteDefinition())->not->toBeNull()
+        ->and($old->isCurrent())->toBeFalse()
+        ->and([$manager->tileMap, $manager->getCollisionGrid(), serialize($this->scene->createSnapshot()),
+            serialize($this->scene->eventManager->activeEvents)])->toBe($before)
+        ->and($manager->getCollisionGrid()[0][0])->toBe(CollisionType::NONE->value)
+        ->and($manager->getCollisionGrid()[0][1])->toBe(CollisionType::COUNTER->value)
+        ->and(Console::presentationSnapshot())->toEqual($terminal);
+    foreach ($sources as $sourcePath => $source) { expect(file_get_contents($sourcePath))->toBe($source); }
+});
+
+it('loads a catalog once per preparation and keeps inline source resource identity and occupancy independent', function () {
+    $entries = [
+        ['id' => 'placed-one', 'resource' => 'whole', 'anchor' => ['x' => 1, 'y' => 1]],
+        ['id' => 'placed-two', 'resource' => 'whole', 'anchor' => ['x' => 2, 'y' => 1]],
+        createWorldObjectSource(['id' => 'inline']),
+    ];
+    $occupancy = array_fill(0, 3, array_fill(0, 4, CollisionType::NONE));
+    $occupancy[1][1] = CollisionType::COUNTER;
+    $sources = writeWorldObjectLoadingSources($this->root, ['worldObjects' => $entries, 'occupancy' => $occupancy], false);
+    mkdir($this->root . '/assets/Data/Presentation', 0777, true);
+    $path = $this->root . '/assets/Data/Presentation/field.php';
+    $sources[$path] = '<?php $GLOBALS["g4ResourceCatalogLoads"]++; return ' . var_export(['resources' => ['whole' => [
+        'name' => 'Reusable', 'pivot' => ['x' => .5, 'y' => 1], 'sprites2d' => ['asset' => 'Graphics/base.png'],
+        'occupancyStamp' => [['x' => 0, 'y' => 0, 'type' => CollisionType::SOLID]],
+    ]]], true) . ';';
+    file_put_contents($path, $sources[$path]);
+    $GLOBALS['g4ResourceCatalogLoads'] = 0;
+    try {
+        $prepared = $this->scene->mapManager->prepareMap('synthetic/loading');
+        expect($GLOBALS['g4ResourceCatalogLoads'])->toBe(1)
+            ->and($prepared->worldObjects[0]->resource)->toBe($prepared->worldObjects[1]->resource)
+            ->and($prepared->worldObjects[2]->resource)->toBeNull()
+            ->and($prepared->data['worldObjects'])->toBe($entries)
+            ->and($prepared->collisions[1][1])->toBe(CollisionType::COUNTER->value)
+            ->and($prepared->collisions[1][2])->toBe(CollisionType::NONE->value);
+        $again = $this->scene->mapManager->prepareMap('synthetic/loading');
+        expect($GLOBALS['g4ResourceCatalogLoads'])->toBe(2)
+            ->and($again->worldObjects[0]->resource)->not->toBe($prepared->worldObjects[0]->resource);
+        foreach ($sources as $path => $source) { expect(file_get_contents($path))->toBe($source); }
+    } finally { unset($GLOBALS['g4ResourceCatalogLoads']); }
+});
+
+it('keeps joined decoration crowns out of graphical composition and replaces only disjoint trunk covers', function () {
+    $catalog = createResourceWorldObjectCatalog($this->root);
+    $entries = [
+        ['id' => 'left', 'resource' => 'whole', 'anchor' => ['x' => 1, 'y' => 1],
+            'covers' => ['layer' => 'fixtures', 'cells' => [[1, 1]], 'tileLayers' => ['objects']]],
+        ['id' => 'right', 'resource' => 'whole', 'anchor' => ['x' => 2, 'y' => 1],
+            'covers' => ['layer' => 'fixtures', 'cells' => [[2, 1]], 'tileLayers' => ['objects']]],
+    ];
+    $base = createWorldObjectPreparedMap($entries, catalog: $catalog);
+    $layers = new MapLayerSet([...$base->layers->layers, new MapLayer('canopy', 30, true, 'canopy', "(())\n(  )\n    ")]);
+    $occupancy = array_fill(0, 3, array_fill(0, 4, CollisionType::NONE));
+    $occupancy[1][1] = $occupancy[1][2] = CollisionType::SOLID;
+    $collisions = MapCollisionResolver::resolveMap($layers, ['occupancy' => $occupancy])->collisionGrid;
+    $prepared = new PreparedMap($base->data, $layers->getComposedGrid(), $collisions, [], [], [], $layers, $base->graphics,
+        WorldObjectDefinition::readMap($base->data, $layers, $base->graphics, catalog: $catalog));
+    $this->scene->mapManager->applyPreparedMap($prepared, $this->scene->player);
+    $manager = $this->scene->mapManager;
+    $before = [serialize($this->scene->createSnapshot()), $manager->getCollisionGrid(), $manager->tileMap,
+        serialize($this->scene->eventManager->activeEvents)];
+    Console::recomposeFrame(fn() => $manager->render());
+    $terminal = Console::presentationSnapshot();
+    $cells = getWorldObjectWireCells($manager->getPresentationWorld());
+    expect(array_column($cells[0], 'glyph'))->toBe(['g', 'g', 'g', 'g'])
+        ->and($cells[1][1]['glyph'])->toBe('g')->and($cells[1][2]['glyph'])->toBe('s')
+        ->and($manager->canMoveTo(1, 1))->toBeFalse()->and($manager->canMoveTo(0, 0))->toBeTrue()
+        ->and(fn() => WorldObjectDefinition::readMap(['worldObjects' => [$entries[0], array_replace($entries[0], ['id' => 'overlap'])]],
+            $layers, $base->graphics, catalog: $catalog))->toThrow(InvalidArgumentException::class);
+    $plain = new PreparedMap(array_replace($base->data, ['worldObjects' => []]), $prepared->tiles, $collisions,
+        [], [], [], $layers, $base->graphics);
+    $manager->applyPreparedMap($plain, $this->scene->player);
+    Console::recomposeFrame(fn() => $manager->render());
+    expect(Console::presentationSnapshot())->toEqual($terminal)
+        ->and([serialize($this->scene->createSnapshot()), $manager->getCollisionGrid(), $manager->tileMap,
+            serialize($this->scene->eventManager->activeEvents)])->toBe($before);
+});
+
+it('shares static frames only within each operation and recovers replaceable art without changing stable placement ids', function () {
+    $catalog = createResourceWorldObjectCatalog($this->root, ['sprites2d' => ['asset' => 'Graphics/base.png',
+        'cells' => ['width' => 3, 'height' => 4], 'sourceRect' => ['x' => 2, 'y' => 1, 'width' => 10, 'height' => 9]]]);
+    $entries = [['id' => 'left', 'resource' => 'whole', 'anchor' => ['x' => 1, 'y' => 1]],
+        ['id' => 'right', 'resource' => 'whole', 'anchor' => ['x' => 2, 'y' => 1]]];
+    $this->scene->mapManager->applyPreparedMap(createWorldObjectPreparedMap($entries, catalog: $catalog), $this->scene->player);
+    $manager = $this->scene->mapManager;
+    $collect = function () use ($manager): array {
+        $frames = [];
+        foreach ($manager->getWorldObjects() as $object) { $frames[] = $object->getGraphicalSpriteDefinition(); }
+        return $frames;
+    };
+    $old = $manager->findWorldObject('left');
+    $identity = $old->getGraphicalSpriteId();
+    $frames = $collect();
+    expect($frames[0])->toBe($frames[1])
+        ->and(new ReflectionProperty(MapManager::class, 'worldObjectResourceFrames')->getValue($manager))->toBeNull();
+    writeTestPng($this->root . '/assets/Graphics/base.png', 8, 6);
+    $frames = $collect();
+    expect($frames[0])->toBe($frames[1])->and($frames[0]->sourceRect->toArray())->toBe(['x' => 2, 'y' => 1, 'width' => 6, 'height' => 5]);
+    unlink($this->root . '/assets/Graphics/base.png');
+    expect($collect())->toBe([null, null])->and($old->hidesOwnedGlyphs())->toBeFalse()
+        ->and(file_get_contents($this->root . '/logs/warning.log'))->toContain('World object resource whole');
+    writeTestPng($this->root . '/assets/Graphics/base.png', 20, 12);
+    expect($collect()[0]->sourceRect->width)->toBe(10)->and($old->getGraphicalSpriteId())->toBe($identity);
+    $entries[0]['anchor'] = ['x' => 0, 'y' => 2];
+    $manager->applyPreparedMap(createWorldObjectPreparedMap($entries, catalog: $catalog), $this->scene->player);
+    $moved = $manager->findWorldObject('left');
+    expect($moved->getGraphicalSpriteId())->toBe($identity)->and($moved->position)->toEqual(new Vector2(0, 2))
+        ->and($old->isCurrent())->toBeFalse()->and($old->getGraphicalSpriteDefinition())->toBeNull()
+        ->and(new ReflectionProperty(MapManager::class, 'worldObjectResourceRoles')->getValue($manager))->toBe([]);
+    $collect();
+    $manager->clearWorldObjects();
+    expect($moved->getGraphicalSpriteDefinition())->toBeNull()
+        ->and(new ReflectionProperty(MapManager::class, 'worldObjectResourceRoles')->getValue($manager))->toBe([]);
+});
+
+it('keeps animation clocks per resource placement and releases them on reinstall', function () {
+    $catalog = createResourceWorldObjectCatalog($this->root, ['sprites2d' => ['asset' => 'Graphics/base.png',
+        'animation' => ['columns' => 2, 'frames' => [0, 1], 'fps' => 10]]]);
+    $entries = [['id' => 'left', 'resource' => 'whole', 'anchor' => ['x' => 1, 'y' => 1]],
+        ['id' => 'right', 'resource' => 'whole', 'anchor' => ['x' => 2, 'y' => 1]]];
+    $prepared = createWorldObjectPreparedMap($entries, catalog: $catalog);
+    $this->scene->mapManager->applyPreparedMap($prepared, $this->scene->player);
+    $left = $this->scene->mapManager->findWorldObject('left');
+    $right = $this->scene->mapManager->findWorldObject('right');
+    $left->advanceGraphicalAnimation(.1);
+    expect($left->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(6)
+        ->and($right->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(0)
+        ->and($left->definition->sprites)->toBe($right->definition->sprites);
+    $this->scene->mapManager->applyPreparedMap($prepared, $this->scene->player);
+    $left->advanceGraphicalAnimation(100);
+    expect($left->getGraphicalSpriteDefinition())->toBeNull()
+        ->and($this->scene->mapManager->findWorldObject('left')->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(0);
+});
+
+it('keeps ground row ordering stable across resource pivots and draw bands and retains off-grid overhang', function () {
+    $catalog = createResourceWorldObjectCatalog($this->root);
+    $entry = ['id' => 'placed', 'resource' => 'whole', 'anchor' => ['x' => 1, 'y' => 1]];
+    $this->scene->mapManager->applyPreparedMap(createWorldObjectPreparedMap([$entry], catalog: $catalog), $this->scene->player);
+    $object = $this->scene->mapManager->findWorldObject('placed');
+    $projected = new GraphicalSpriteProjector()->project($object, $this->scene->camera);
+    $north = new PresentationSprite('north', 'Graphics/base.png', $projected->x, $projected->y - 1, 24, 24, layer: 100);
+    $south = new PresentationSprite('south', 'Graphics/base.png', $projected->x, $projected->y + 1, 24, 24, layer: 100);
+    $tie = new PresentationSprite('tie', 'Graphics/base.png', $projected->x, $projected->y, 24, 24, layer: 100);
+    $above = new PresentationSprite('above', 'Graphics/base.png', $projected->x, $projected->y - 10, 24, 24, layer: 101);
+    expect(array_column(PresentationSprite::orderedList([$south, $projected, $tie, $above, $north]), 'id'))
+        ->toBe(['north', $object->getGraphicalSpriteId(), 'tie', 'south', 'above'])
+        ->and([$projected->width, $projected->height])->toBe([3 * FieldViewport::TILE_SIZE, 4 * FieldViewport::TILE_SIZE])
+        ->and($projected->pivot->toArray())->toBe(['x' => .25, 'y' => .75]);
+    $viewport = new PresentationViewport(2, 0, 0, new CanvasRectangle(0, 0, 120, 120), spriteIds: [$projected->id]);
+    expect($viewport->toArray()['scale'])->toBe(2.0)->and($projected->pivot)->toBe($catalog->getResource('whole')->pivot);
+    $this->scene->camera->position = new Vector2(20, 20);
+    $offGrid = new GraphicalSpriteProjector()->project($object, $this->scene->camera);
+    expect($offGrid)->not->toBeNull()->and($offGrid->x)->toBeLessThan(0)->and($offGrid->y)->toBeLessThan(0);
+});
+
+it('clears a static frame pass after interrupted collection and releases shared roles on replacement', function () {
+    $catalog = createResourceWorldObjectCatalog($this->root);
+    $prepared = createWorldObjectPreparedMap([['id' => 'placed', 'resource' => 'whole', 'anchor' => ['x' => 1, 'y' => 1]]], catalog: $catalog);
+    $manager = $this->scene->mapManager;
+    $manager->applyPreparedMap($prepared, $this->scene->player);
+    try {
+        foreach ($manager->getWorldObjects() as $object) {
+            $object->getGraphicalSpriteDefinition();
+            throw new RuntimeException('Synthetic interrupted projection');
+        }
+    } catch (RuntimeException) {}
+    $roles = new ReflectionProperty(MapManager::class, 'worldObjectResourceRoles')->getValue($manager);
+    expect($roles)->toHaveCount(1)
+        ->and(new ReflectionProperty(MapManager::class, 'worldObjectResourceFrames')->getValue($manager))->toBeNull();
+    $manager->applyPreparedMap($prepared, $this->scene->player);
+    expect(array_values($roles)[0]->getFrame($catalog->getResource('whole')->pivot))->toBeNull();
+});
+
+it('measures bounded dense reused objects with mixed sprite transport unchanged frames and scroll deltas', function () {
+    $width = 90;
+    $height = 54;
+    $layers = new MapLayerSet([new MapLayer('ground', 0, false, 'ground', implode("\n", array_fill(0, $height, str_repeat('g', $width))))]);
+    $sources = [];
+    for ($i = 0; $i < 4; $i++) {
+        writeTestPng($this->root . '/assets/Graphics/static-' . $i . '.png', 12 + $i, 20 + $i);
+        $sources['static-' . $i] = ['name' => 'Synthetic ' . $i, 'pivot' => ['x' => .5, 'y' => .875],
+            'sprites2d' => ['asset' => 'Graphics/static-' . $i . '.png', 'cells' => ['width' => 3, 'height' => 4], 'layer' => 100]];
+    }
+    $catalogStart = hrtime(true);
+    $catalog = FieldPresentationCatalog::fromArray(['resources' => $sources], $this->root . '/assets');
+    $catalogMs = (hrtime(true) - $catalogStart) / 1e6;
+    $entries = $inlineEntries = [];
+    for ($i = 0; $i < 128; $i++) {
+        $anchor = ['x' => ($i * 3) % $width, 'y' => 1 + intdiv($i, 30) * 5];
+        if ($i < 112) {
+            $id = 'static-' . ($i % 4);
+            $entries[] = ['id' => 'placed-' . $i, 'resource' => $id, 'anchor' => $anchor];
+            $inlineEntries[] = ['id' => 'placed-' . $i, 'anchor' => $anchor,
+                'pivot' => $sources[$id]['pivot'], 'sprites2d' => $sources[$id]['sprites2d']];
+        } else {
+            $entry = createWorldObjectSource(['id' => 'placed-' . $i, 'anchor' => $anchor,
+                'sprites2d' => $i < 120 ? ['asset' => 'Graphics/glow.png', 'animation' => ['columns' => 2, 'frames' => [0, 1], 'fps' => 10]]
+                    : ['asset' => 'Graphics/base.png']]);
+            unset($entry['covers']);
+            $entries[] = $inlineEntries[] = $entry;
+        }
+    }
+    $measure = function (array $declarations) use ($catalog, $layers): array {
+        $before = memory_get_usage();
+        $start = hrtime(true);
+        $definitions = WorldObjectDefinition::readMap(['worldObjects' => $declarations], $layers, catalog: $catalog);
+        $parseMs = (hrtime(true) - $start) / 1e6;
+        $definitionBytes = memory_get_usage() - $before;
+        $data = ['id' => 'synthetic/room', 'worldObjects' => $declarations];
+        $prepared = new PreparedMap($data, $layers->getComposedGrid(), array_fill(0, 54, array_fill(0, 90, CollisionType::NONE->value)),
+            [], [], [], $layers, worldObjects: $definitions);
+        $this->scene->mapManager->applyPreparedMap($prepared, $this->scene->player);
+        $samples = [];
+        $projector = new GraphicalSpriteProjector();
+        for ($pass = 0; $pass < 20; $pass++) {
+            $sprites = [];
+            $start = hrtime(true);
+            foreach ($this->scene->mapManager->getWorldObjects() as $object) {
+                $sprites[] = $projector->project($object, $this->scene->camera);
+            }
+            $samples[] = (hrtime(true) - $start) / 1e6;
+        }
+        sort($samples);
+        $roles = new ReflectionProperty(MapManager::class, 'worldObjectResourceRoles')->getValue($this->scene->mapManager);
+        return ['parse_ms' => $parseMs, 'definition_bytes' => $definitionBytes, 'projection_median_ms' => ($samples[9] + $samples[10]) / 2,
+            'projection_max_ms' => max($samples), 'shared_static_roles' => count($roles), 'sprites' => $sprites];
+    };
+    $inline = $measure($inlineEntries);
+    $reused = $measure($entries);
+    expect(array_map(fn($sprite) => $sprite->toArray(pivot: true), $reused['sprites']))
+        ->toBe(array_map(fn($sprite) => $sprite->toArray(pivot: true), $inline['sprites']))
+        ->and($reused['shared_static_roles'])->toBe(4)->and($inline['shared_static_roles'])->toBe(0);
+    $sprites = $reused['sprites'];
+    // Representative player/NPC/staged/effect payloads; no native animation or paint is timed.
+    foreach (['player' => 1, 'npc' => 32, 'staged' => 16, 'effect' => 16] as $kind => $count) {
+        for ($i = 0; $i < $count; $i++) {
+            $sprites[] = new PresentationSprite($kind . ':' . $i, 'Graphics/base.png', $i, $i % 12, 24, 24,
+                layer: $kind === 'effect' ? 200 : 100);
+        }
+    }
+    $transport = new FakeRendererTransport();
+    $client = new RendererClient($transport);
+    $grid = new RendererGridConfig(12, 6);
+    $client->start(new RendererSessionConfig('Synthetic resource measurement', $this->root . '/assets', $grid,
+        RendererProtocolVersion::V2, [RendererSessionConfig::SPRITE_PIVOT, RendererSessionConfig::SPRITE_SOURCE_RECT]));
+    $transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["sprite_pivot","sprite_source_rect"]}')];
+    $client->pump();
+    $presentation = new RendererPresentation($client, $grid);
+    $world = $this->scene->mapManager->getPresentationWorld();
+    $viewport = fn(int $x) => new PresentationViewport(1, 0, 0, new CanvasRectangle(0, 0, 120, 120),
+        spriteIds: array_column($sprites, 'id'), worldId: 'map', worldOriginX: $x);
+    $start = hrtime(true);
+    $presentation->present(new ConsolePresentationChanges(12, 6, true, order: []), $sprites, viewport: $viewport(0), world: $world);
+    for ($tick = 0; $tick < 100 && $presentation->hasPendingUpload(); $tick++) {
+        $last = end($transport->sent)->payload;
+        $presentation->acknowledge($last['generation'], $last['present']);
+        $presentation->present(new ConsolePresentationChanges(12, 6, false), $sprites, viewport: $viewport(0), world: $world);
+    }
+    $initialMs = (hrtime(true) - $start) / 1e6;
+    expect($presentation->hasPendingUpload())->toBeFalse();
+    $last = end($transport->sent)->payload;
+    $presentation->acknowledge($last['generation'], $last['present']);
+    $initialPackets = count($transport->sent);
+    $initialBytes = array_sum(array_map(fn($message) => strlen($message->encode()), $transport->sent));
+    $transport->sent = [];
+    expect($presentation->present(new ConsolePresentationChanges(12, 6, false), $sprites, viewport: $viewport(0), world: $world))->toBeFalse()
+        ->and($transport->sent)->toBe([]);
+    $scrollBytes = [];
+    $scrollPackets = [];
+    $scrollProjectionMs = [];
+    $mixedBase = array_slice($sprites, 128);
+    for ($x = 1; $x <= 8; $x++) {
+        $beforePackets = count($transport->sent);
+        $this->scene->camera->position = new Vector2($x, 0);
+        $scrolled = [];
+        $start = hrtime(true);
+        foreach ($this->scene->mapManager->getWorldObjects() as $object) {
+            $scrolled[] = new GraphicalSpriteProjector()->project($object, $this->scene->camera);
+        }
+        $scrollProjectionMs[] = (hrtime(true) - $start) / 1e6;
+        foreach ($mixedBase as $sprite) {
+            $scrolled[] = str_starts_with($sprite->id, 'effect:') ? $sprite : new PresentationSprite($sprite->id,
+                $sprite->asset, $sprite->x - $x, $sprite->y, $sprite->width, $sprite->height, layer: $sprite->layer);
+        }
+        $presentation->present(new ConsolePresentationChanges(12, 6, false), $scrolled, viewport: $viewport($x), world: $world);
+        for ($tick = 0; $tick < 100 && $presentation->hasPendingUpload(); $tick++) {
+            $last = end($transport->sent)->payload;
+            $presentation->acknowledge($last['generation'], $last['present']);
+            $presentation->present(new ConsolePresentationChanges(12, 6, false), $scrolled, viewport: $viewport($x), world: $world);
+        }
+        expect($presentation->hasPendingUpload())->toBeFalse();
+        $last = end($transport->sent);
+        $packets = array_slice($transport->sent, $beforePackets);
+        $operations = array_merge(...array_map(fn($message) => $message->payload['operations'], $packets));
+        expect(array_column($operations, 'kind'))->each->toBe('sprite')
+            ->and($operations)->toHaveCount(177)
+            ->and($last->payload['viewport']['worldOrigin']['column'])->toBe($x);
+        $scrollBytes[] = array_sum(array_map(fn($message) => strlen($message->encode()), $packets));
+        $scrollPackets[] = count($packets);
+        $presentation->acknowledge($last->payload['generation'], $last->payload['present']);
+    }
+    expect($sprites)->toHaveCount(193)->and($scrollPackets)->toHaveCount(8);
+    $budget = $sprites;
+    for ($i = count($budget); $i < 1024; $i++) { $budget[] = new PresentationSprite('budget:' . $i, 'Graphics/base.png', 0, 0, 24, 24); }
+    expect(PresentationSprite::orderedList($budget))->toHaveCount(1024);
+    $budget[] = new PresentationSprite('overflow', 'Graphics/base.png', 0, 0, 24, 24);
+    expect(fn() => PresentationSprite::orderedList($budget))->toThrow(InvalidArgumentException::class);
+    unset($inline['sprites'], $reused['sprites']);
+    $receipt = ['php' => PHP_VERSION, 'platform' => PHP_OS_FAMILY, 'world_cells' => $width * $height, 'object_count' => 128,
+        'reused_static_placements' => 112, 'animated_inline' => 8, 'conditional_inline' => 8, 'mixed_sprites' => count($sprites),
+        'passes' => 20, 'catalog_ms' => $catalogMs, 'inline' => $inline, 'reused' => $reused,
+        'initial_transport_ms' => $initialMs, 'initial_packets' => $initialPackets, 'initial_encoded_bytes' => $initialBytes,
+        'unchanged_packets' => 0, 'scroll_encoded_bytes' => $scrollBytes, 'scroll_projection_ms' => $scrollProjectionMs,
+        'scroll_packets' => $scrollPackets, 'scroll_sprite_updates' => 177, 'scroll_world_uploads' => 0,
+        'php_peak_bytes' => memory_get_peak_usage(),
+        'limitations' => 'PHP projection and fake retained transport only; static probes inferred from four shared role/frame calls per pass, not OS-counted; no decode, native paint, FPS, real art or NPC AI. Mixed actor/effect payloads are representative synthetic values, not those managers.'];
+    if (($path = getenv('ICHILOTO_RESOURCE_RECEIPT')) !== false) {
+        file_put_contents($path, json_encode($receipt, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
+    }
+    $client->shutdown();
 });

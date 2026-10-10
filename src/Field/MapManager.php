@@ -2,6 +2,10 @@
 
 namespace Ichiloto\Engine\Field;
 
+use Ichiloto\Engine\Animations\Field\FieldPresentationCatalog;
+use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
+use Ichiloto\Engine\Rendering\Sprites\FieldSpriteRole;
+use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
 use Ichiloto\Engine\IO\Console\TerminalCapabilities;
@@ -46,6 +50,11 @@ class MapManager implements CanRenderAt
   private ?bool $presentationWorldPolicy = null;
   /** @var array<string, WorldObject> Installed subjects, never saved or used for collision. */
   private array $worldObjects = [];
+  /** Clock-free roles are shared by resource only for this map installation. */
+  private array $worldObjectResourceRoles = [];
+  /** Null outside a collection/coverage pass: no replacement facts survive the operation. */
+  private ?array $worldObjectResourceFrames = null;
+  private int $worldObjectInstallation = 0;
   private array $presentationWorldCoverage = [];
   /**
    * The collision map.
@@ -499,7 +508,33 @@ class MapManager implements CanRenderAt
   public function findWorldObject(string $id): ?WorldObject { return $this->worldObjects[$id] ?? null; }
 
   /** @return iterable<WorldObject> */
-  public function getWorldObjects(): iterable { yield from $this->worldObjects; }
+  public function getWorldObjects(): iterable
+  {
+    $previous = $this->worldObjectResourceFrames;
+    $installation = $this->worldObjectInstallation;
+    $this->worldObjectResourceFrames = [];
+    try { yield from $this->worldObjects; }
+    finally {
+      $this->worldObjectResourceFrames = $installation === $this->worldObjectInstallation ? $previous : null;
+    }
+  }
+
+  /** One current-file probe per static resource in this pass, never a permanent pixel cache. */
+  public function getWorldObjectResourceFrame(WorldObject $object): ?GraphicalSpriteDefinition
+  {
+    $resource = $object->definition->resource;
+    if ($this->findWorldObject($object->definition->id) !== $object || !$object->isCurrent()
+      || $resource === null || !$resource->sprites instanceof GraphicalSpriteDefinition) { return null; }
+    $key = spl_object_id($resource);
+    if ($this->worldObjectResourceFrames !== null && array_key_exists($key, $this->worldObjectResourceFrames)) {
+      return $this->worldObjectResourceFrames[$key];
+    }
+    $role = $this->worldObjectResourceRoles[$key] ??= new FieldSpriteRole($resource->sprites, $this->getAssetRoot(),
+      'World object resource ' . $resource->id);
+    $frame = $role->getFrame($resource->pivot);
+    if ($this->worldObjectResourceFrames !== null) { $this->worldObjectResourceFrames[$key] = $frame; }
+    return $frame;
+  }
 
   /** Reinstall even for the same map id: old leases may never claim the new map instance. */
   private function installWorldObjects(array $definitions, string $mapId): void
@@ -513,14 +548,18 @@ class MapManager implements CanRenderAt
   public function clearWorldObjects(): void
   {
     foreach ($this->worldObjects as $object) { $object->release(); }
+    foreach ($this->worldObjectResourceRoles as $role) { $role->release(); }
     $this->worldObjects = [];
+    $this->worldObjectResourceRoles = [];
+    $this->worldObjectResourceFrames = null;
+    $this->worldObjectInstallation++;
     $this->clearPresentationWorld();
   }
 
   private function getWorldObjectCoverage(): array
   {
     $coverage = [];
-    foreach ($this->worldObjects as $object) {
+    foreach ($this->getWorldObjects() as $object) {
       if (!$object->isCurrent()) { continue; }
       $stage = $this->gameScene->cinematicStage;
       $hideGlyphs = ($stage?->suppresses($object) ?? false)
@@ -857,7 +896,10 @@ class MapManager implements CanRenderAt
     }
 
     // Malformed subject/selector ownership refuses before scene mutation; unavailable optional art does not.
-    $worldObjects = WorldObjectDefinition::readMap($map, $source['layers'], $graphics, $tileOwners);
+    $catalog = is_array($objects) && array_any($objects, static fn(mixed $object): bool => is_array($object)
+      && array_key_exists('resource', $object))
+      ? FieldPresentationCatalog::load($this->getAssetRoot(), EffectPresentation::TERMINAL) : null;
+    $worldObjects = WorldObjectDefinition::readMap($map, $source['layers'], $graphics, $tileOwners, $catalog);
     return [...$source, 'graphics' => $graphics, 'occupancy' => $occupancy, 'worldObjects' => $worldObjects];
   }
 

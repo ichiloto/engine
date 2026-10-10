@@ -6,24 +6,38 @@ namespace Ichiloto\Engine\Animations\Field;
 
 use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
 use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
+use Ichiloto\Engine\Field\WorldObjectResource;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
 use InvalidArgumentException;
 
 /**
- * Replaceable project bindings for the field's cues and the player's action
- * prompt; no game-specific names or paths in the engine.
+ * Replaceable project field bindings and named world-object resources;
+ * no game-specific names or paths in the engine.
  */
 final readonly class FieldPresentationCatalog
 {
   public const string FILE = 'Data/Presentation/field.php';
   public const array DIRECTIONS = ['east', 'southeast', 'south', 'southwest', 'west', 'northwest', 'north', 'northeast'];
+  /** @var array<string, WorldObjectResource> */
+  public array $resources;
 
   /**
    * @param array<string, array<string, mixed>> $cues
    * @param string|null $actionPrompt The effect drawn over the player while it can act, or null for its glyph.
+   * @param array<string, WorldObjectResource> $resources Immutable reusable presentation definitions.
    */
-  public function __construct(public array $cues = [], public ?string $actionPrompt = null) {}
+  public function __construct(public array $cues = [], public ?string $actionPrompt = null, array $resources = [])
+  {
+    $copy = [];
+    foreach ($resources as $id => $resource) {
+      if (!$resource instanceof WorldObjectResource || $resource->id !== $id) {
+        throw new InvalidArgumentException('Field resources require typed definitions keyed by their stable id.');
+      }
+      $copy[$id] = $resource;
+    }
+    $this->resources = $copy;
+  }
 
   public static function load(string $assetRoot, EffectPresentation $presentation = EffectPresentation::GRAPHICAL): self
   {
@@ -33,8 +47,8 @@ final readonly class FieldPresentationCatalog
 
   public static function fromArray(mixed $data, string $assetRoot, EffectPresentation $presentation = EffectPresentation::GRAPHICAL): self
   {
-    if (!is_array($data) || array_diff(array_keys($data), ['cues', 'actionPrompt']) !== [] || !is_array($data['cues'] ?? [])) {
-      throw new InvalidArgumentException('Field presentation accepts cue bindings keyed by terminal color and an action prompt binding.');
+    if (!is_array($data) || array_diff(array_keys($data), ['cues', 'actionPrompt', 'resources']) !== [] || !is_array($data['cues'] ?? [])) {
+      throw new InvalidArgumentException('Field presentation accepts cues, actionPrompt and named resources.');
     }
     $prompt = $data['actionPrompt'] ?? null;
     if ($prompt !== null && (!is_array($prompt) || array_keys($prompt) !== ['effect'] || !is_string($prompt['effect']))) {
@@ -62,7 +76,20 @@ final readonly class FieldPresentationCatalog
         if ($presentation === EffectPresentation::GRAPHICAL) { PngAssetPreflight::inspect($assetRoot, $image['asset']); }
       }
     }
-    return new self($cues, $prompt['effect'] ?? null);
+    $declarations = array_key_exists('resources', $data) ? $data['resources'] : [];
+    if (!is_array($declarations)) { throw new InvalidArgumentException('Field resources must be keyed by stable resource id.'); }
+    $resources = [];
+    foreach ($declarations as $id => $resource) {
+      WorldObjectResource::assertId($id);
+      $resources[$id] = WorldObjectResource::fromArray($id, $resource);
+    }
+    return new self($cues, $prompt['effect'] ?? null, $resources);
+  }
+
+  public function getResource(string $id): WorldObjectResource
+  {
+    WorldObjectResource::assertId($id);
+    return $this->resources[$id] ?? throw new InvalidArgumentException("Unknown field world-object resource '{$id}'.");
   }
 
   /** Explicit preflight for Editor validation; runtime fails safely with a diagnostic. */

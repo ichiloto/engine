@@ -13,6 +13,8 @@ use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
 use Ichiloto\Engine\Events\Interfaces\ObserverInterface;
+use Ichiloto\Engine\Field\MapLayer;
+use Ichiloto\Engine\Field\MapLayerSet;
 use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Field\NpcManager;
 use Ichiloto\Engine\Field\Player;
@@ -23,6 +25,8 @@ use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityPipeline;
 use Ichiloto\Engine\IO\SaveManager;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
 use Ichiloto\Engine\Rendering\Camera;
+use Ichiloto\Engine\Rendering\Presentation\ScenePresentationContext;
+use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
 use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Ichiloto\Engine\Scenes\Game\GameScene;
@@ -131,9 +135,14 @@ beforeEach(function () {
   new ReflectionProperty(GameScene::class, 'player')->setValue($this->scene, $this->player);
   $this->camera->attach($this->player);
   $map = new LeaderFieldAppearanceMap($this->scene);
+  new ReflectionProperty(MapManager::class, 'layers')->setValue($map,
+    new MapLayerSet([new MapLayer('ground', 0, false, 'synthetic',
+      implode("\n", array_fill(0, 30, str_repeat('.', 40))))]));
   new ReflectionProperty(GameScene::class, 'mapManager')->setValue($this->scene, $map);
   new ReflectionProperty(GameScene::class, 'npcManager')->setValue($this->scene, new NpcManager($this->scene));
   new ReflectionProperty(GameScene::class, 'cinematicStage')->setValue($this->scene, new CinematicStageManager($this->scene));
+  $this->scene->setPresentationContext(new ScenePresentationContext(new RendererGridConfig(20, 10, 48, 48),
+    static fn(string $capability): bool => true, graphical: true));
 });
 
 afterEach(function () {
@@ -235,6 +244,8 @@ it('preserves an in-flight step its animation and its exactly-once arrival acros
 });
 
 it('keeps terminal arrivals immediate in both graphical ownership modes', function (string $selector) {
+  $this->scene->setPresentationContext(new ScenePresentationContext(new RendererGridConfig(20, 10, 48, 48),
+    static fn(string $capability): bool => true, graphical: false));
   if ($selector === 'fixed-player') {
     $this->playerData['graphicalSubject'] = $selector;
     ($this->writePlayerData)();

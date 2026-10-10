@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Field;
 
 use Ichiloto\Engine\Animations\Field\FieldPoseAnimation;
+use Ichiloto\Engine\Animations\Field\FieldPresentationCatalog;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Entities\Party;
@@ -32,6 +33,7 @@ final readonly class WorldObjectDefinition
         public GraphicalSpriteDefinition|CharacterSheet|FieldPoseAnimation|null $sprites,
         public array $variants,
         public array $coverage,
+        public ?WorldObjectResource $resource = null,
     ) {}
 
     /**
@@ -39,7 +41,8 @@ final readonly class WorldObjectDefinition
      * @param array<string, ?string>|null $tileOwners Owners resolved without tileset pieces when graphics are unavailable.
      *     Null means layer declarations are unavailable; a null owner means inference is unavailable.
      */
-    public static function readMap(array $data, MapLayerSet $layers, ?MapGraphics $graphics = null, ?array $tileOwners = null): array
+    public static function readMap(array $data, MapLayerSet $layers, ?MapGraphics $graphics = null, ?array $tileOwners = null,
+        ?FieldPresentationCatalog $catalog = null): array
     {
         if (!array_key_exists(self::DATA_KEY, $data)) { return []; }
         $entries = $data[self::DATA_KEY];
@@ -48,8 +51,8 @@ final readonly class WorldObjectDefinition
         }
         $objects = $claimed = [];
         foreach ($entries as $entry) {
-            if (!is_array($entry) || array_diff(array_keys($entry), ['id', 'anchor', 'pivot', 'sprites2d', 'variants', 'covers']) !== []) {
-                throw new InvalidArgumentException('A world object accepts only id, anchor, pivot, sprites2d, variants and covers.');
+            if (!is_array($entry) || array_diff(array_keys($entry), ['id', 'anchor', 'resource', 'pivot', 'sprites2d', 'variants', 'covers']) !== []) {
+                throw new InvalidArgumentException('A world object accepts id, anchor, covers and either resource or inline pivot/sprites2d/variants.');
             }
             $id = self::requireId($entry['id'] ?? null);
             if (isset($objects[$id])) { throw new InvalidArgumentException("Duplicate world object id '{$id}'."); }
@@ -59,11 +62,18 @@ final readonly class WorldObjectDefinition
                 || !isset($layers->getComposedGrid()[$anchor['y']][$anchor['x']])) {
                 throw new InvalidArgumentException("World object '{$id}' requires an anchor with integer x/y inside its map.");
             }
-            if (!is_array($entry['pivot'] ?? null) || !array_key_exists('sprites2d', $entry)) {
+            $resource = null;
+            if (array_key_exists('resource', $entry)) {
+                if (array_intersect(array_keys($entry), ['pivot', 'sprites2d', 'variants']) !== []) {
+                    throw new InvalidArgumentException("World object '{$id}' resource references cannot include inline pivot, sprites2d or variants.");
+                }
+                WorldObjectResource::assertId($entry['resource']);
+                $resource = ($catalog ?? new FieldPresentationCatalog())->getResource($entry['resource']);
+            } elseif (!is_array($entry['pivot'] ?? null) || !array_key_exists('sprites2d', $entry)) {
                 throw new InvalidArgumentException("World object '{$id}' requires an explicit pivot and sprites2d role (or null).");
             }
-            $pivot = PresentationSpritePivot::fromArray($entry['pivot']);
-            $sprites = self::readSprites($entry['sprites2d']);
+            $pivot = $resource?->pivot ?? PresentationSpritePivot::fromArray($entry['pivot']);
+            $sprites = $resource?->sprites ?? self::readSprites($entry['sprites2d']);
             $variants = array_key_exists('variants', $entry) ? $entry['variants'] : [];
             if (!is_array($variants) || !array_is_list($variants) || count($variants) > self::MAX_VARIANTS) {
                 throw new InvalidArgumentException("World object '{$id}' variants must be a list of at most 16 entries.");
@@ -97,7 +107,8 @@ final readonly class WorldObjectDefinition
                     }
                 }
             }
-            $objects[$id] = new self($id, $anchor['x'], $anchor['y'], $pivot, $sprites, $parsed, $coverageResolved ? $coverage : []);
+            $objects[$id] = new self($id, $anchor['x'], $anchor['y'], $pivot, $sprites, $parsed,
+                $coverageResolved ? $coverage : [], $resource);
         }
         return array_values($objects);
     }
