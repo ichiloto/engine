@@ -18,7 +18,7 @@ use LogicException;
 use SplQueue;
 
 /** The sole event consumer for a shared renderer connection. No input/action mapping. */
-final class RendererClient
+final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPreparationProviderInterface
 {
   /** @var SplQueue<RendererEvent> */
   private SplQueue $keys;
@@ -38,6 +38,7 @@ final class RendererClient
   private array $capabilities = [];
   private readonly RendererTextRequests $textRequests;
   private bool $textSessionActive = false;
+  private ?object $textSession = null;
 
   public function __construct(
     private readonly RendererTransportInterface $transport,
@@ -65,10 +66,12 @@ final class RendererClient
     $this->capabilities = [];
     $this->textRequests->retireSession();
     $this->textSessionActive = false;
+    $this->textSession = null;
     $this->requiredCapabilities = $session->requiredCapabilities;
     $this->negotiableCapabilities = $session->getNegotiableCapabilities();
     $this->transport->start($session);
     $this->textSessionActive = true;
+    $this->textSession = new \stdClass();
     $this->failure = null;
   }
 
@@ -293,6 +296,11 @@ final class RendererClient
   public function supports(string $capability): bool
   {
     return in_array($capability, $this->capabilities, true);
+  }
+
+  public function getTextPreparationSession(): ?object
+  {
+    return $this->textSessionActive ? $this->textSession : null;
   }
 
   /** Null is transport backpressure. Pump once per update; inspect the returned request without I/O. */

@@ -34,6 +34,7 @@ final readonly class WorldObjectDefinition
         public array $variants,
         public array $coverage,
         public ?WorldObjectResource $resource = null,
+        public ?\Ichiloto\Engine\Localization\LocalizedText $label = null,
     ) {}
 
     /**
@@ -51,8 +52,8 @@ final readonly class WorldObjectDefinition
         }
         $objects = $claimed = [];
         foreach ($entries as $entry) {
-            if (!is_array($entry) || array_diff(array_keys($entry), ['id', 'anchor', 'resource', 'pivot', 'sprites2d', 'variants', 'covers']) !== []) {
-                throw new InvalidArgumentException('A world object accepts id, anchor, covers and either resource or inline pivot/sprites2d/variants.');
+            if (!is_array($entry) || array_diff(array_keys($entry), ['id', 'anchor', 'resource', 'pivot', 'sprites2d', 'variants', 'covers', 'label']) !== []) {
+                throw new InvalidArgumentException('A world object accepts id, anchor, covers, a sign label and either resource or inline pivot/sprites2d/variants.');
             }
             $id = self::requireId($entry['id'] ?? null);
             if (isset($objects[$id])) { throw new InvalidArgumentException("Duplicate world object id '{$id}'."); }
@@ -73,7 +74,16 @@ final readonly class WorldObjectDefinition
                 throw new InvalidArgumentException("World object '{$id}' requires an explicit pivot and sprites2d role (or null).");
             }
             $pivot = $resource?->pivot ?? PresentationSpritePivot::fromArray($entry['pivot']);
-            $sprites = $resource?->sprites ?? self::readSprites($entry['sprites2d']);
+            $sprites = $resource !== null ? $resource->sprites : self::readSprites($entry['sprites2d']);
+            $label = null;
+            if ($resource?->sign !== null) {
+                $label = \Ichiloto\Engine\Localization\LocalizedText::fromArray($entry['label'] ?? null);
+                if (array_key_exists('variants', $entry)) {
+                    throw new InvalidArgumentException('Sign resources do not accept image variants; their localized label remains the same subject.');
+                }
+            } elseif (array_key_exists('label', $entry)) {
+                throw new InvalidArgumentException('Only named sign resources accept a localized label.');
+            }
             $variants = array_key_exists('variants', $entry) ? $entry['variants'] : [];
             if (!is_array($variants) || !array_is_list($variants) || count($variants) > self::MAX_VARIANTS) {
                 throw new InvalidArgumentException("World object '{$id}' variants must be a list of at most 16 entries.");
@@ -108,7 +118,7 @@ final readonly class WorldObjectDefinition
                 }
             }
             $objects[$id] = new self($id, $anchor['x'], $anchor['y'], $pivot, $sprites, $parsed,
-                $coverageResolved ? $coverage : [], $resource);
+                $coverageResolved ? $coverage : [], $resource, $label);
         }
         return array_values($objects);
     }

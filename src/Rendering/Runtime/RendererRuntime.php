@@ -32,7 +32,7 @@ use Throwable;
 use Ichiloto\Engine\Util\Debug;
 
 /** Owns one explicit session; PHP Game owns simulation and frame cadence. */
-final class RendererRuntime
+final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPreparationProviderInterface
 {
   private readonly RendererTransportInterface $transport;
   private readonly RendererClient $client;
@@ -149,6 +149,11 @@ final class RendererRuntime
     if ($this->closeRequested) {
       throw new RendererWindowClosed('Renderer window closed.');
     }
+  }
+
+  public function getTextPreparationSession(): ?object
+  {
+    return $this->started && !$this->closed && !$this->closeRequested ? $this->client->getTextPreparationSession() : null;
   }
 
   /** Uses the same session broker as input and retained frames; no synchronous wait or extra event consumer. */

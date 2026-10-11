@@ -229,7 +229,8 @@ the shared `SceneFrameComposer`. The provider owns projection and local layout;
 the composer selects matching world membership and reserves automatic field
 layers -1..999, below UI. Complete replacement canvases do not collect field
 groups. The same composition is available to runtime and isolated previews;
-this provider alone is not map-sign/font-role authoring or a Game consumer.
+The map-sign consumer below uses this path; custom providers do not grant
+source-preserving authoring or artwork admission.
 
 Retained submission shares one stable layer/ground-row rank across sprites and
 groups. Exact ties keep existing actors before groups, preserving each source
@@ -250,3 +251,88 @@ Prepared-label line/scalar counts are resolved and admitted by the native layout
 owner, not duplicated in PHP measurement metadata. Unsupported capabilities,
 invalid membership and over-budget candidates fail explicitly without replacing
 the previously accepted generation.
+
+## Localized Map Signs
+
+Signs use existing named `resources` in `Data/Presentation/field.php` and
+`worldObjects` placements, not a second map, collision or identity system.
+A resource declares exactly one `sprites2d` or `sign` presentation. Existing
+image/icon resources remain unchanged. This synthetic sign resource illustrates
+the authoring contract; paths and style values belong to the project:
+
+```php
+'resources' => ['notice-board' => [
+  'name' => 'Replaceable board',
+  'pivot' => ['x' => 0.5, 'y' => 1],
+  'sign' => [
+    'asset' => 'Graphics/Boards/plain.png', 'fontRole' => 'sign',
+    'left' => 8, 'right' => 8, 'density' => 2, 'repeatWidth' => 8,
+    'padding' => [4, 2, 4, 2], 'minimumWidth' => 24, 'maximumWidth' => 160,
+    'layer' => 0,
+  ],
+]],
+```
+
+Cuts and optional repeat width are source pixels; padding (left, top, right,
+bottom) and width limits are logical pixels. Density is 1 or 2. The current
+PNG supplies its dimensions; replacing it requires no hash or duplicated size
+update. Caps and grain retain their exact density, with a clipped full-density
+tail and transparent logical margin when needed. Pivot compensation keeps the
+visible board anchored, not that margin. Height is current PNG height/density.
+Fixed caps are reconciled through the existing replacement-art diagnostic.
+
+Placements reference the resource and a single-line localized message/default:
+
+```php
+'worldObjects' => [[
+  'id' => 'workshop-sign', 'resource' => 'notice-board',
+  'anchor' => ['x' => 3, 'y' => 2],
+  'label' => ['message' => 'signs.workshop', 'default' => 'Workshop'],
+]],
+```
+
+Only sign resources accept labels. Signs do not accept image variants or
+inline resource overrides. Optional existing `covers` must name their gameplay
+owner, cells and an explicit `tileLayers` list; use `[]` to replace glyphs
+without erasing building textures. Coverage activates only for prepared signs.
+Neither label width nor visual overhang changes ground occupancy or saves.
+
+`Data/Presentation/text.php` returns an optional project font-role catalog:
+
+```php
+return ['schema' => 'ichiloto.text/1', 'roles' => ['sign' => [
+  'fonts' => [['asset' => 'Fonts/project.ttf', 'faceIndex' => 0]],
+  'fontSize' => 12, 'foreground' => ['kind' => 'rgb', 'r' => 230, 'g' => 215, 'b' => 170],
+]]];
+```
+
+At most 128 keyed roles use stable lowercase IDs. Each supplies an ordered
+chain of 1..16 project font references, size 1..256 and typed RGB/ANSI color;
+optional `glyphEffects` is an immutable `CanvasGlyphEffects` value in PHP source.
+There is no machine-font substitution or game-specific font embedded in Engine.
+Font licensing and actual native decoding/admission remain separate checks.
+
+`LocalizedText` resolves the existing `MessageCatalog` locale/base/default
+order without changing the locale. Message paths are at most 256 bytes; base
+and resolved strings are valid single-line UTF-8, at most 4096 scalars, without
+controls or Unicode line/paragraph separators. Requests use the current locale,
+or BCP-47 `und` when none is configured, never implicit English.
+
+`WorldSignPlayback` requests whole-label shaping through the host's existing
+`TextPreparationProviderInterface`. Pending I/O and shared capacity pressure
+return without polling or spinning. The consumer centers effect-expanded ink,
+including signed bearings; oversized labels re-query at a smaller size, with
+at most eight reductions and no truncation. Impossible fits and actual resource
+refusals are diagnosed, retain Terminal glyphs and do not substitute artwork.
+Locale, project role, current font-file facts, board geometry and session changes
+retire stale tickets; map/context teardown releases owned pending/prepared work.
+File facts are transient cache invalidation only, never identity or save data.
+All existing aggregate frame and 64-request preparation limits still apply.
+
+`GameScene` collects prepared signs through the shared world-canvas composer.
+Isolated hosts explicitly bind their own provider via
+`ScenePresentationContext::textPreparation`, with the same live capability
+reader as their presenter. They never borrow runtime Game services. The host
+alone pumps transport and retires sessions; session tokens and layout handles
+are opaque and must not be serialized. Terminal/unsupported contexts emit no
+sign canvas, preserving their existing authored representation.

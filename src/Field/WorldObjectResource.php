@@ -20,9 +20,10 @@ final readonly class WorldObjectResource
         public string $id,
         public string $name,
         public PresentationSpritePivot $pivot,
-        public GraphicalSpriteDefinition|CharacterSheet|FieldPoseAnimation $sprites,
+        public GraphicalSpriteDefinition|CharacterSheet|FieldPoseAnimation|null $sprites,
         /** @var list<array{x: int, y: int, type: CollisionType}> Relative physical cells. */
         public array $occupancyStamp,
+        public ?WorldSignStyle $sign = null,
     ) {}
 
     public static function assertId(mixed $id): void
@@ -35,11 +36,14 @@ final readonly class WorldObjectResource
     public static function fromArray(string $id, mixed $data): self
     {
         self::assertId($id);
-        if (!is_array($data) || array_diff(array_keys($data), ['name', 'pivot', 'sprites2d', 'occupancyStamp']) !== []
+        if (!is_array($data) || array_diff(array_keys($data), ['name', 'pivot', 'sprites2d', 'occupancyStamp', 'sign']) !== []
             || !is_string($data['name'] ?? null) || trim($data['name']) === ''
             || str_contains($data['name'], "\0") || preg_match('//u', $data['name']) !== 1
-            || !is_array($data['pivot'] ?? null) || !is_array($data['sprites2d'] ?? null)) {
-            throw new InvalidArgumentException("World object resource '{$id}' requires name, pivot and sprites2d, with optional occupancyStamp.");
+            || !is_array($data['pivot'] ?? null)
+            || (array_key_exists('sprites2d', $data) === array_key_exists('sign', $data))
+            || (array_key_exists('sprites2d', $data) && !is_array($data['sprites2d']))
+            || (array_key_exists('sign', $data) && !is_array($data['sign']))) {
+            throw new InvalidArgumentException("World object resource '{$id}' requires name, pivot and exactly one sprites2d or sign presentation, with optional occupancyStamp.");
         }
         $stamp = array_key_exists('occupancyStamp', $data) ? $data['occupancyStamp'] : [];
         if (!is_array($stamp) || !array_is_list($stamp) || count($stamp) > WorldObjectDefinition::MAX_CELLS) {
@@ -59,7 +63,7 @@ final readonly class WorldObjectResource
             // Detach authored references; mutable source arrays cannot alter the admitted recipe.
             $cells[] = ['x' => $cell['x'], 'y' => $cell['y'], 'type' => $cell['type']];
         }
-        $sprites = array_map(static fn(mixed $value): mixed => $value, $data['sprites2d']);
+        $sprites = array_map(static fn(mixed $value): mixed => $value, $data['sprites2d'] ?? []);
         if (is_array($sprites['animation'] ?? null)) {
             $animation = array_map(static fn(mixed $value): mixed => $value, $sprites['animation']);
             // Pose intent retains a frame list: detach it before sharing across placements.
@@ -69,7 +73,8 @@ final readonly class WorldObjectResource
             $sprites['animation'] = $animation;
         }
         return new self($id, $data['name'], PresentationSpritePivot::fromArray($data['pivot']),
-            FieldSpriteRole::readDefinition($sprites), $cells);
+            array_key_exists('sprites2d', $data) ? FieldSpriteRole::readDefinition($sprites) : null, $cells,
+            array_key_exists('sign', $data) ? WorldSignStyle::fromArray($data['sign']) : null);
     }
 
     /** Resolve for explicit authoring only. Validate every cell before a consumer writes occupancy. */

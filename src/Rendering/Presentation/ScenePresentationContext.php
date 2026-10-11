@@ -26,6 +26,7 @@ final readonly class ScenePresentationContext
         private ?Closure $collectPresentations = null,
         private ?Closure $readTime = null,
         public ?string $assetRoot = null,
+        public ?\Ichiloto\Engine\Rendering\Text\TextPreparationProviderInterface $textPreparation = null,
     ) {}
 
     public function supports(string $capability): bool

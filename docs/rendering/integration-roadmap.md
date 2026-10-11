@@ -683,8 +683,8 @@ from blank wooden/engraved board artwork, preserve existing icon signs, and
 fit text without stretching grain or changing collision/Terminal geometry.
 Engine owns vocabulary, layout and map lifecycle; Renderer owns project-font
 shaping/measurement and world-depth painting; Claude alone owns Editor/GUI;
-Art owns board proposals. The current image-only object path and HUD canvas
-cannot supply grouped world-depth text. The shared Renderer seam is agreed
+Art owns board proposals. The legacy image-only object path and HUD canvas
+alone cannot supply grouped world-depth text. The shared Renderer seam is agreed
 for bounded local implementation, not substituted with a Game-specific overlay.
 It adds capability-negotiated `world_canvas`, `canvas_labels` and `text_layout`
 to protocol 2. A retained world-canvas subject owns its local canvas, stable ID,
@@ -744,9 +744,9 @@ initial reset before replaying deltas), corrected without changing validation;
 their original evidence remains with the final reports on secondary
 `test-tmp/world-canvas-engine-20261011-wyw6Sy`. Fake-transport checks qualify PHP
 serialization/lifecycle, not native shaping or painting. No full Engine/Game,
-native or other-platform qualification is inferred. Localized map-sign/font-role
-consumers, source-preserving authoring and production font/art admission remain
-open.
+native or other-platform qualification is inferred. The localized map-sign/font-role
+consumer described below now extends this producer; source-preserving authoring
+and production font/art admission remain open.
 
 World groups share the 1,024-subject ceiling with ordinary field sprites; all
 screen/group images, indicators, composites and canvas text consume aggregate
@@ -778,6 +778,35 @@ was shown. This accepts both boards' appearance and scale only, not the sample
 font, missing license declarations or new variants. The exact scope was relayed
 to Claude and Art and recorded in Art's existing review/receipts; no import or
 native runtime signage acceptance is inferred.
+
+The Engine localized sign consumer is implemented through existing named
+world-object resources and placements. Resources choose image or board/style
+presentation; sign placements supply an existing MessageCatalog message/default
+reference. The optional `ichiloto.text/1` project catalog owns replaceable font
+roles, not machine fonts, renderer handles or collision. Current PNG facts,
+fixed-density caps/repeated grain, expanded paint bounds, bounded whole-label
+fitting and pivot compensation are shared runtime layout. Map/preview/session
+retirement releases owned text tickets; pending I/O and shared request capacity
+retry without polling, while actual invalid assets/text retain diagnostics and
+Terminal presentation. Preview hosts explicitly provide their own text service.
+The exact authoring contract is in [styled presentation](styled-presentation.md#localized-map-signs).
+No separate Game renderer, implicit tile coverage, production map edits or
+Editor/GUI ownership transfer was introduced.
+
+The strict combined targeted check passes 653 tests / 5,080 assertions, with
+zero failures/errors/skips; its JUnit is inspected independently. This covers
+font roles, localized text, sign styles and actual broker/scene lifecycle plus
+adjacent world-object, retained-rendering, canvas and runtime families. Scoped
+production PHPStan level 3 passes for the twelve non-scene files. `GameScene`
+passes the repository's configured level 0; its two level-3 `isset` findings
+are reproduced on the untouched published HEAD snapshot, not suppressed or
+fixed incidentally. Initial new-fixture failures and the corrected reports
+remain on secondary `test-tmp/map-sign-engine-20261011-VqDOKmLX`. The model worker
+found Unicode line/paragraph separator acceptance; the shared single-line
+validation was corrected and all those regressions pass. Workers are closed;
+no native/audio/browser launch or full Engine/Game suite is claimed. Production
+font/art admission, source-preserving Editor/GUI sign authoring, Game binding
+and native visual acceptance remain open; G4 is not complete.
 
 Andrew separately approved the Play workflow through Claude: a new game on the
 open map at the selected cell, skipping title by default, with "Play from the

@@ -95,7 +95,7 @@ use Ichiloto\Engine\Rendering\Presentation\ScenePresentationContextProviderInter
  *
  * @package Ichiloto\Engine\Scenes\Game
  */
-class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInterface, CanvasProviderInterface, CanvasOverlayProviderInterface, FrameViewportProviderInterface, RetainedWorldProviderInterface, ScenePresentationContextProviderInterface
+class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInterface, CanvasProviderInterface, CanvasOverlayProviderInterface, FrameViewportProviderInterface, RetainedWorldProviderInterface, ScenePresentationContextProviderInterface, \Ichiloto\Engine\Rendering\Presentation\WorldCanvasProviderInterface
 {
     private ?FieldViewport $fieldViewport = null;
     private ?ScenePresentationContext $presentationContext = null;
@@ -114,6 +114,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     public function setPresentationContext(?ScenePresentationContext $context): void
     {
         if ($this->presentationContext === $context) { return; }
+        foreach ($this->mapManager?->getWorldObjects() ?? [] as $object) { $object->releaseTextPresentation(); }
         if ($this->presentationContext === null && $context !== null) {
             $this->presentationCameraSize = ['columns' => $this->camera->screen->getWidth(),
                 'rows' => $this->camera->screen->getHeight()];
@@ -221,6 +222,32 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     public function getPresentationWorld(): ?PresentationWorld
     {
         return $this->hasGraphicalFieldPresentation() ? $this->mapManager?->getPresentationWorld() : null;
+    }
+
+    /** Isolated previews must explicitly bind their own session, never borrow the live Game transport. */
+    public function getTextPreparationProvider(): ?\Ichiloto\Engine\Rendering\Text\TextPreparationProviderInterface
+    {
+        if (!$this->hasGraphicalFieldPresentation()) { return null; }
+        foreach ([RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::TEXT_LAYOUT, RendererSessionConfig::CANVAS_LABELS,
+            RendererSessionConfig::WORLD_CANVAS, RendererSessionConfig::FRAME_VIEWPORT,
+            RendererSessionConfig::SPRITE_SOURCE_RECT, RendererSessionConfig::CANVAS_CLIP_OPACITY] as $capability) {
+            if (!$this->supportsScenePresentation($capability)) { return null; }
+        }
+        return $this->presentationContext !== null ? $this->presentationContext->textPreparation
+            : (isset($this->sceneManager) ? $this->getGame()->getRendererRuntime() : null);
+    }
+
+    public function getPresentationWorldCanvases(): array
+    {
+        if (!$this->hasGraphicalFieldPresentation()) { return []; }
+        $origin = $this->camera->getWorldOrigin();
+        $groups = [];
+        foreach ($this->mapManager?->getWorldObjects() ?? [] as $object) {
+            if ($this->cinematicStage?->suppresses($object) ?? false) { continue; }
+            $group = $object->getPresentationWorldCanvas();
+            if ($group !== null) { $groups[] = $group->createProjected($origin['x'], $origin['y']); }
+        }
+        return $groups;
     }
 
     public function getPresentationCanvas(): ?PresentationCanvas

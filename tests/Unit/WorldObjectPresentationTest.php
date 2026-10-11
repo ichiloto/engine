@@ -184,6 +184,58 @@ function getWorldObjectWireCells(PresentationWorld $world): array
     return $rows;
 }
 
+/** Real broker with a fake transport; sign consumers must never pump it themselves. */
+function createWorldSignHost(WorldObjectTestScene $scene, string $root, bool $acceptWrites = true): array
+{
+    writeTestPng($root . '/assets/Graphics/board.png', 32, 20);
+    mkdir($root . '/assets/Data/Presentation', 0700, true);
+    file_put_contents($root . '/assets/Data/Presentation/text.php', '<?php return ' . var_export([
+        'schema' => 'ichiloto.text/1', 'roles' => ['sign' => ['fonts' => [['asset' => 'Fonts/replaceable.ttf']],
+            'fontSize' => 12, 'foreground' => ['kind' => 'rgb', 'r' => 20, 'g' => 30, 'b' => 40]]]], true) . ';');
+    $catalog = FieldPresentationCatalog::fromArray(['resources' => ['board' => [
+        'name' => 'Synthetic board', 'pivot' => ['x' => .5, 'y' => 1],
+        'sign' => ['asset' => 'Graphics/board.png', 'fontRole' => 'sign', 'left' => 4, 'right' => 4,
+            'density' => 1, 'padding' => [2, 2, 2, 2], 'minimumWidth' => 20, 'maximumWidth' => 100, 'repeatWidth' => 4],
+    ]]], $root . '/assets');
+    $source = ['id' => 'board-placement', 'resource' => 'board', 'anchor' => ['x' => 1, 'y' => 1],
+        'label' => ['message' => 'signs.workshop', 'default' => 'Workshop'],
+        'covers' => ['layer' => 'fixtures', 'cells' => [[1, 1]], 'tileLayers' => []]];
+    $map = createWorldObjectPreparedMap([$source], catalog: $catalog);
+    $scene->mapManager->applyPreparedMap($map, $scene->player);
+    $transport = new FakeRendererTransport();
+    $transport->acceptWrites = $acceptWrites;
+    $client = new RendererClient($transport);
+    $session = new RendererSessionConfig('Synthetic signs', $root . '/assets', protocol: RendererProtocolVersion::V2);
+    $client->start($session);
+    $transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["text_layout"]}')];
+    $client->pump();
+    $client->drainEvents();
+    $scene->setPresentationContext(new ScenePresentationContext(new RendererGridConfig(12, 6, 16, 24),
+        static fn(string $cap): bool => true, assetRoot: $root . '/assets', textPreparation: $client));
+    return [$client, $transport, $scene->mapManager->findWorldObject('board-placement'), $session];
+}
+
+function getWorldSignQueries(FakeRendererTransport $transport): array
+{
+    return array_values(array_filter($transport->sent,
+        static fn($message) => $message->type === \Ichiloto\Engine\Rendering\Transport\Enumerations\RendererMessageType::PREPARE_TEXT));
+}
+
+function completeWorldSignQuery(RendererClient $client, FakeRendererTransport $transport, string $layout = 'board-text',
+    float $width = 30, float $height = 10, ?string $failure = null): void
+{
+    $query = getWorldSignQueries($transport);
+    $request = $query[array_key_last($query)]->payload['requestId'];
+    $data = $failure !== null ? ['type' => 'text_prepare_failed', 'requestId' => $request, 'message' => $failure]
+        : ['type' => 'text_prepared', 'requestId' => $request, 'layoutId' => $layout,
+            'metrics' => ['advance' => $width, 'baseline' => 9,
+                'lineBounds' => ['x' => 0, 'y' => 0, 'width' => $width, 'height' => $height],
+                'inkBounds' => ['x' => -1, 'y' => 1, 'width' => $width, 'height' => $height],
+                'paintBounds' => ['x' => -1, 'y' => 1, 'width' => $width, 'height' => $height]]];
+    $transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, ...$data], JSON_THROW_ON_ERROR))];
+    $client->pump();
+}
+
 /** Write only synthetic authored sources under the test's external scratch root. */
 function writeWorldObjectLoadingSources(string $root, array $data, bool $includeGraphics = true): array
 {
@@ -235,6 +287,175 @@ afterEach(function () {
     foreach ($this->before as $class => $state) {
         foreach ($state as $name => $value) { new ReflectionProperty($class, $name)->setValue(null, $value); }
     }
+});
+
+it('prepares localized world signs without polling and overlays the existing ground without changing gameplay', function () {
+    [$client, $transport, $sign] = createWorldSignHost($this->scene, $this->root);
+    $before = [$this->scene->mapManager->tileMap, $this->scene->gameState->toArray(), $this->scene->mapManager->getCollisionGrid()];
+    $polls = $transport->polls;
+    expect($this->scene->getPresentationWorldCanvases())->toBe([])->and($sign->hidesOwnedGlyphs())->toBeFalse()
+        ->and($sign->getGraphicalSpriteDefinition())->toBeNull()->and(getWorldSignQueries($transport))->toHaveCount(1)
+        ->and($transport->polls)->toBe($polls);
+    completeWorldSignQuery($client, $transport);
+    $polls = $transport->polls;
+    $groups = $this->scene->getPresentationWorldCanvases();
+    $origin = $this->scene->camera->getWorldOrigin();
+    expect($groups)->toHaveCount(1)->and([$groups[0]->x, $groups[0]->y])->toBe([1 - $origin['x'], 1 - $origin['y']])
+        ->and($groups[0]->id)->toBe($sign->getGraphicalSpriteId())->and($groups[0]->canvas->labels[0]->measurement->layoutId)->toBe('board-text')
+        ->and($sign->hidesOwnedGlyphs())->toBeTrue()->and($transport->polls)->toBe($polls)
+        ->and([$this->scene->mapManager->tileMap, $this->scene->gameState->toArray(), $this->scene->mapManager->getCollisionGrid()])->toBe($before);
+    $world = $this->scene->getPresentationWorld();
+    $tiles = array_values(array_filter($world->operations, static fn($op) => $op['op'] === 'worldTiles'));
+    expect($tiles)->not->toBe([]); // A board claiming a glyph does not implicitly erase building textures.
+    $sign->release();
+    expect($sign->getPresentationWorldCanvas())->toBeNull();
+});
+
+it('waits through transport backpressure and resizes the whole measured label without truncation', function () {
+    [$client, $transport] = createWorldSignHost($this->scene, $this->root, acceptWrites: false);
+    expect($this->scene->getPresentationWorldCanvases())->toBe([])->and(getWorldSignQueries($transport))->toBe([]);
+    $transport->acceptWrites = true;
+    $this->scene->getPresentationWorldCanvases();
+    completeWorldSignQuery($client, $transport, width: 192);
+    expect($this->scene->getPresentationWorldCanvases())->toBe([]);
+    $this->scene->getPresentationWorldCanvases();
+    $queries = getWorldSignQueries($transport);
+    expect($queries)->toHaveCount(2)->and($queries[1]->payload['spec']['text'])->toBe('Workshop')
+        ->and($queries[1]->payload['spec']['fontSize'])->toBe(6.0);
+    completeWorldSignQuery($client, $transport, 'fitted', width: 96);
+    $group = $this->scene->getPresentationWorldCanvases()[0];
+    expect($group->canvas->width)->toBe(100)->and($group->canvas->labels[0]->measurement->layoutId)->toBe('fitted');
+});
+
+it('releases old labels on locale and current font replacement without changing sign identity', function () {
+    [$client, $transport, $sign] = createWorldSignHost($this->scene, $this->root);
+    $id = $sign->getGraphicalSpriteId();
+    $this->scene->getPresentationWorldCanvases();
+    completeWorldSignQuery($client, $transport);
+    expect($this->scene->getPresentationWorldCanvases())->toHaveCount(1);
+    putSceneAudioConfig(['locale' => 'fr', 'messages' => ['fr' => ['signs' => ['workshop' => 'Atelier']]]]);
+    expect($this->scene->getPresentationWorldCanvases())->toBe([]);
+    $queries = getWorldSignQueries($transport);
+    expect($queries)->toHaveCount(2)->and($queries[1]->payload['spec']['text'])->toBe('Atelier')
+        ->and($queries[1]->payload['spec']['locale'])->toBe('fr');
+    completeWorldSignQuery($client, $transport, 'translated');
+    expect($this->scene->getPresentationWorldCanvases())->toHaveCount(1);
+    mkdir($this->root . '/assets/Fonts');
+    file_put_contents($this->root . '/assets/Fonts/replaceable.ttf', 'replacement font facts, decoding owned by renderer');
+    expect($this->scene->getPresentationWorldCanvases())->toBe([])->and(getWorldSignQueries($transport))->toHaveCount(3)
+        ->and($sign->getGraphicalSpriteId())->toBe($id);
+});
+
+it('diagnoses an unchanged refusal once and retries in a new renderer session', function () {
+    [$client, $transport, $sign, $session] = createWorldSignHost($this->scene, $this->root);
+    $firstSession = $client->getTextPreparationSession();
+    $this->scene->getPresentationWorldCanvases();
+    completeWorldSignQuery($client, $transport, failure: 'Synthetic missing glyph');
+    for ($i = 0; $i < 3; $i++) { expect($this->scene->getPresentationWorldCanvases())->toBe([]); }
+    expect(getWorldSignQueries($transport))->toHaveCount(1)->and($sign->hidesOwnedGlyphs())->toBeFalse();
+    $client->start($session);
+    $transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["text_layout"]}')];
+    $client->pump();
+    $client->drainEvents();
+    expect($client->getTextPreparationSession())->not->toBe($firstSession);
+    $this->scene->getPresentationWorldCanvases();
+    expect(getWorldSignQueries($transport))->toHaveCount(2);
+    completeWorldSignQuery($client, $transport, 'recovered');
+    expect($this->scene->getPresentationWorldCanvases())->toHaveCount(1);
+});
+
+it('retires map and preview tickets and does not borrow a runtime for unbound or Terminal previews', function () {
+    [$client, $transport, $sign] = createWorldSignHost($this->scene, $this->root);
+    $this->scene->getPresentationWorldCanvases();
+    $this->scene->setPresentationContext(new ScenePresentationContext(new RendererGridConfig(12, 6, 16, 24),
+        static fn(string $cap): bool => true));
+    expect($this->scene->getTextPreparationProvider())->toBeNull()->and($this->scene->getPresentationWorldCanvases())->toBe([]);
+    completeWorldSignQuery($client, $transport, 'late');
+    expect(array_column(array_map(static fn($message) => $message->payload, $transport->sent), 'layoutIds'))->toContain(['late']);
+    $this->scene->setPresentationContext(new ScenePresentationContext(new RendererGridConfig(12, 6, 16, 24),
+        static fn(string $cap): bool => true, graphical: false, textPreparation: $client));
+    expect($this->scene->getPresentationWorldCanvases())->toBe([])->and($sign->hidesOwnedGlyphs())->toBeFalse();
+    $this->scene->mapManager->applyPreparedMap($this->prepared, $this->scene->player);
+    expect($sign->isCurrent())->toBeFalse()->and($sign->getPresentationWorldCanvas())->toBeNull();
+});
+
+it('recovers from invalid translated text and preserves glyphs while an asset is unavailable', function () {
+    putSceneAudioConfig(['messages' => ['signs' => ['workshop' => "Invalid\nlabel"]]]);
+    [$client, $transport, $sign] = createWorldSignHost($this->scene, $this->root);
+    expect($this->scene->getPresentationWorldCanvases())->toBe([])->and(getWorldSignQueries($transport))->toBe([]);
+    putSceneAudioConfig(['messages' => ['signs' => ['workshop' => 'Corrected']]]);
+    $this->scene->getPresentationWorldCanvases();
+    completeWorldSignQuery($client, $transport);
+    expect($sign->hidesOwnedGlyphs())->toBeTrue();
+    unlink($this->root . '/assets/Graphics/board.png');
+    expect($this->scene->getPresentationWorldCanvases())->toBe([])->and($sign->hidesOwnedGlyphs())->toBeFalse();
+    writeTestPng($this->root . '/assets/Graphics/board.png', 36, 24);
+    expect($this->scene->getPresentationWorldCanvases())->toBe([])->and(getWorldSignQueries($transport))->toHaveCount(2);
+    completeWorldSignQuery($client, $transport, 'replaced');
+    expect($this->scene->getPresentationWorldCanvases())->toHaveCount(1);
+});
+
+it('requires every shared sign capability without erasing its Terminal owner', function (string $missing) {
+    [$client, $transport, $sign] = createWorldSignHost($this->scene, $this->root, acceptWrites: false);
+    $this->scene->setPresentationContext(new ScenePresentationContext(new RendererGridConfig(12, 6, 16, 24),
+        static fn(string $cap): bool => $cap !== $missing, textPreparation: $client));
+    $transport->acceptWrites = true;
+    expect($this->scene->getTextPreparationProvider())->toBeNull()->and($this->scene->getPresentationWorldCanvases())->toBe([])
+        ->and($sign->hidesOwnedGlyphs())->toBeFalse()->and(getWorldSignQueries($transport))->toBe([]);
+})->with(['graphical_canvas', 'text_layout', 'canvas_labels', 'world_canvas', 'frame_viewport', 'sprite_source_rect', 'canvas_clip_opacity']);
+
+it('retries bounded preparation capacity after other consumers retire their requests', function () {
+    [$client, $transport] = createWorldSignHost($this->scene, $this->root, acceptWrites: false);
+    $transport->acceptWrites = true;
+    $spec = new \Ichiloto\Engine\Rendering\Presentation\Text\TextSpec('Occupied',
+        [new \Ichiloto\Engine\Rendering\Presentation\Text\FontReference('Fonts/replaceable.ttf')],
+        12, 'und', \Ichiloto\Engine\Rendering\Presentation\PresentationColor::rgb(20, 30, 40));
+    $tickets = [];
+    for ($i = 0; $i < 64; $i++) { $tickets[] = $client->requestTextPreparation($spec); }
+    expect($this->scene->getPresentationWorldCanvases())->toBe([])->and(getWorldSignQueries($transport))->toHaveCount(64);
+    foreach ($tickets as $ticket) { $client->releaseTextPreparation($ticket); }
+    $transport->batches[] = array_map(static fn($ticket) => RendererEvent::fromJson(json_encode([
+        'protocol' => 2, 'type' => 'text_prepare_failed', 'requestId' => $ticket->requestId, 'message' => 'Cancelled synthetic query',
+    ], JSON_THROW_ON_ERROR)), $tickets);
+    $client->pump();
+    $this->scene->getPresentationWorldCanvases();
+    expect(getWorldSignQueries($transport))->toHaveCount(65);
+    completeWorldSignQuery($client, $transport, 'after-capacity');
+    expect($this->scene->getPresentationWorldCanvases())->toHaveCount(1);
+});
+
+it('composes prepared signs through the shared scene path with camera-relative viewport membership', function () {
+    [$client, $transport, $sign] = createWorldSignHost($this->scene, $this->root);
+    completeWorldSignQuery($client, $transport);
+    $composer = new \Ichiloto\Engine\Rendering\Presentation\SceneFrameComposer($this->root . '/assets');
+    $context = $this->scene->getPresentationContext();
+    $frame = $composer->composeFrame($this->scene, $context->grid, $context->supports(...),
+        static fn() => new \Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot(12, 6, []), refreshOverlay: false);
+    expect($frame->worldCanvases)->toHaveCount(1)->and($frame->viewport->worldCanvasIds)->toBe([$sign->getGraphicalSpriteId()])
+        ->and($frame->viewport->worldId)->toBe($frame->world->id);
+    $this->scene->mapManager->clearWorldObjects();
+    $cleared = $composer->composeFrame($this->scene, $context->grid, $context->supports(...),
+        static fn() => new \Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot(12, 6, []), refreshOverlay: false);
+    expect($cleared->worldCanvases)->toBe([])->and($cleared->viewport->worldCanvasIds)->toBe([]);
+});
+
+it('requires localized labels only for sign resources and refuses mixed presentation ownership', function () {
+    [$client, $transport, $sign] = createWorldSignHost($this->scene, $this->root);
+    $resource = $sign->definition->resource;
+    $catalog = FieldPresentationCatalog::fromArray(['resources' => ['board' => [
+        'name' => 'Board', 'pivot' => ['x' => .5, 'y' => 1], 'sign' => [
+            'asset' => 'Graphics/board.png', 'fontRole' => 'sign', 'left' => 4, 'right' => 4, 'density' => 1,
+            'padding' => [2, 2, 2, 2], 'minimumWidth' => 20, 'maximumWidth' => 100],
+    ]]], $this->root . '/assets');
+    $source = ['id' => 'another', 'resource' => 'board', 'anchor' => ['x' => 2, 'y' => 1],
+        'label' => ['message' => 'synthetic.label', 'default' => 'Another']];
+    foreach ([array_diff_key($source, ['label' => true]), [...$source, 'label' => 'not localized'],
+        [...$source, 'sprites2d' => []], [...$source, 'variants' => []], [...createWorldObjectSource(), 'label' => $source['label']]] as $bad) {
+        expect(fn() => WorldObjectDefinition::readMap(['worldObjects' => [$bad]], $this->prepared->layers,
+            $this->prepared->graphics, catalog: $catalog))->toThrow(InvalidArgumentException::class);
+    }
+    expect($resource->sprites)->toBeNull()->and($resource->sign)->not->toBeNull()
+        ->and($this->scene->mapManager->findWorldObject('board-placement'))->toBe($sign);
 });
 
 it('keeps absent declarations compatible and refuses malformed selectors before installing a map', function (string $invalid) {

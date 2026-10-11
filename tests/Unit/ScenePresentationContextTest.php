@@ -48,6 +48,7 @@ use Ichiloto\Engine\Util\Debug;
 use function Tests\Support\Rendering\writeTestPng;
 
 require_once __DIR__ . '/../Support/Rendering/GraphicalSpriteFixtures.php';
+require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
 
 /** Constructor-isolated host: every presentation method remains the real GameScene implementation. */
 final class ContextFieldSceneProbe extends GameScene
@@ -171,6 +172,18 @@ it('selects the real retained field without a FieldState, gameplay activation or
     foreach ($before as $class => $values) {
         expect(new ReflectionClass($class)->getStaticProperties())->toBe($values);
     }
+});
+
+it('never acquires the live transport for isolated text preparation', function () {
+    $this->scene->setPresentationContext(($this->createContext)());
+    expect($this->scene->getTextPreparationProvider())->toBeNull();
+    $provider = new \Ichiloto\Engine\Rendering\RendererClient(new \Tests\Support\Input\FakeRendererTransport());
+    $this->scene->setPresentationContext(new ScenePresentationContext($this->grid, static fn() => true,
+        textPreparation: $provider));
+    expect($this->scene->getTextPreparationProvider())->toBe($provider);
+    $this->scene->setPresentationContext(new ScenePresentationContext($this->grid, static fn() => true,
+        graphical: false, textPreparation: $provider));
+    expect($this->scene->getTextPreparationProvider())->toBeNull();
 });
 
 it('keeps isolated dialogue transparent over the real field and its held cinematic cover', function () {
