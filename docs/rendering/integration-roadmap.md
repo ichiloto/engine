@@ -1067,9 +1067,43 @@ headings and walking patterns through an independently composed frame, but its
 fifteen captured native frames do not visibly show the changing player sprites
 and retain the North-facing HUD. The last requested capture found the owned
 window already closed. This contradicts visual acceptance; the leader check
-remains open while a bounded worker diagnoses fixture composition versus actual
-submitted presentation. No runtime defect is assumed from the scratch fixture
-alone. Both completed runs preserve normal files and reap their owned hosts.
+remained open pending fixture diagnosis. Both completed runs preserve normal
+files and reap their owned hosts.
+
+The bounded worker established a fixture error, not a production delivery
+regression: collision-safe walking geometry was underneath nearly opaque
+foreground house art, and viewport clipping alone did not prove visibility.
+The corrected scratch fixture selects a foreground-clear cross from the actual
+composition and observes the driver's retained desired submission rather than
+independently composing an extra native frame. Normal and reduced-motion sender
+proofs each verify four leaders, sixteen headings and 3,001 submitted composition
+observations; all sixteen wire samples match actor identity, HUD and viewport.
+These remain CPU proofs, not acknowledgements or pixels. The worker is closed.
+
+The coordinated native capture `native-20261011-214845-7b725abd38` then completed
+with exit zero and thirteen inspected screenshots. They visibly show Kaelion,
+corrected Aeryn, Orwin and Thalric unoccluded, with the pictured headings matching
+the HUD and recognizable front/back/profile crops. This confirms that all three
+new field-sheet bindings reach the native display. Kaelion South, Aeryn North
+and Thalric North were not captured; smooth walking, every pose, reduced-motion
+pixels, collision/depth and physical-input acceptance are not claimed. Capture
+timestamps, actual HUD observations and submitted markers are retained together
+in `leader-coordinated-2348-receipts.json` beside the secondary-drive images.
+An immediately prior corrected run completed before its delayed capture and
+provides no pixels. Both corrected runs preserve normal files and remove their
+owned hosts/runs; no production source or authored map changes were needed.
+
+Claude's disposable muted GUI clone was also launched under global write and
+network denial, with HOME/TMPDIR isolated inside that clone and a bounded
+watchdog. CUA app selection still timed out with -10005 despite the expected
+bundled GUI/session host processes. No native UI input succeeded, so removal,
+tree-brush, relocation-review, field-role/player-mode and Terminal-restart
+controls remain unverified natively. Only the owned process group was stopped;
+exit 143 and the subsequent process inventory confirm cleanup. Claude retains
+Game/Editor/GUI ownership and retired his clone to Trash after confirming no
+consumer remained; this is not a claim of reclaimed disk space. Native capture
+permission works independently of this control-tool limitation; no desktop
+lock, source handover or alternative input authorization is inferred.
 
 The October 11 cinematic-return preflight and two observations use the normal
 Game checkout, live Engine and installed renderer, with only fresh evidence on
