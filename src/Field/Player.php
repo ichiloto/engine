@@ -23,6 +23,7 @@ use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteMotion;
 use Ichiloto\Engine\Rendering\Sprites\CharacterStep;
@@ -331,7 +332,20 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     // destination.
     // A step taken before the previous one was seen to arrive completes that
     // arrival first, so no step's triggers are skipped or reordered.
+    $scene = $this->getGameScene();
+    $field = $scene->fieldState;
+    $movementGeneration = $field?->movementGeneration;
+    $eventSession = $scene->eventInterpreter?->activeSession();
+    $resetThrough = InputManager::getLatestResetPressOrder();
     $this->runPendingArrival();
+    // Arrival callbacks can hand control elsewhere and even return immediately.
+    // Reject only this stale attempt, not a later route owned by that event.
+    if ($field !== $scene->fieldState || $movementGeneration !== $field?->movementGeneration
+      || $eventSession !== $scene->eventInterpreter?->activeSession()
+      || ($eventSession === null && $resetThrough !== InputManager::getLatestResetPressOrder()) || $scene->isStopping
+      || (isset($scene->sceneManager) && $scene->sceneManager->hasSceneTransition())) {
+      return false;
+    }
     $origin = clone $this->position;
     $destination = Vector2::sum($origin, $direction);
     $collisionType = null;

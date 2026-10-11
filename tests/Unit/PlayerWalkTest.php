@@ -422,13 +422,13 @@ it('does not resume pre-context or during-context walking presses after a yielde
   $scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()
     ->onlyMethods(['reconcileFieldPresentation', 'onEventSessionFinished'])->getMock();
   $scene->expects($this->once())->method('onEventSessionFinished')->with($this->isInstanceOf(EventExecutionSession::class), true);
-  $manager = $this->getMockBuilder(SceneManager::class)->disableOriginalConstructor()->onlyMethods(['hasSceneTransition'])->getMock();
+  $manager = $this->getStubBuilder(SceneManager::class)->disableOriginalConstructor()->onlyMethods(['hasSceneTransition'])->getStub();
   $manager->method('hasSceneTransition')->willReturn(false);
   new ReflectionProperty(SceneManager::class, 'currentScene')->setValue($manager, $scene);
   new ReflectionProperty(GameScene::class, 'sceneManager')->setValue($scene, $manager);
   new ReflectionProperty(GameScene::class, 'gameState')->setValue($scene, new GameState());
   new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, new class extends Camera { public function __construct() {} });
-  $player = $this->getMockBuilder(Player::class)->disableOriginalConstructor()->onlyMethods(['tryMove', 'refreshTalkTarget'])->getMock();
+  $player = $this->getStubBuilder(Player::class)->disableOriginalConstructor()->onlyMethods(['tryMove', 'refreshTalkTarget'])->getStub();
   new ReflectionProperty(Player::class, 'position')->setValue($player, new Vector2(1, 1));
   $moves = [];
   $player->method('tryMove')->willReturnCallback(static function (Vector2 $direction, Camera $camera) use (&$moves): bool {
@@ -436,12 +436,12 @@ it('does not resume pre-context or during-context walking presses after a yielde
     return true;
   });
   new ReflectionProperty(GameScene::class, 'player')->setValue($scene, $player);
-  $field = $this->getMockBuilder(FieldState::class)->setConstructorArgs([new SceneStateContext($scene)])
-    ->onlyMethods(['renderPresentationOverlay'])->getMock();
+  $field = $this->getStubBuilder(FieldState::class)->setConstructorArgs([new SceneStateContext($scene)])
+    ->onlyMethods(['renderPresentationOverlay'])->getStub();
   new ReflectionProperty(GameScene::class, 'state')->setValue($scene, $field);
   new ReflectionProperty(GameScene::class, 'fieldState')->setValue($scene, $field);
   $dialogueComplete = false;
-  $presentation = $this->createMock(EventPresentationInterface::class);
+  $presentation = $this->createStub(EventPresentationInterface::class);
   // The mutable completion flag models the dialogue finishing on a later field tick.
   $presentation->method('isComplete')->willReturnCallback(static function () use (&$dialogueComplete): bool { return $dialogueComplete; });
   $interpreter = new EventInterpreter($scene, $presentation);
@@ -498,11 +498,11 @@ it('keeps held walking cardinal at a blocked corner and applies effects once per
       public function __construct() {}
       public function __destruct() {}
     };
-    $scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()->onlyMethods(['getGame'])->getMock();
+    $scene = $this->getStubBuilder(GameScene::class)->disableOriginalConstructor()->onlyMethods(['getGame'])->getStub();
     $scene->method('getGame')->willReturn($game);
     $camera = new class extends Camera { public function __construct() {} };
     new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
-    $map = $this->getMockBuilder(MapManager::class)->disableOriginalConstructor()->onlyMethods(['scrollMap'])->getMock();
+    $map = $this->getStubBuilder(MapManager::class)->disableOriginalConstructor()->onlyMethods(['scrollMap'])->getStub();
     $map->method('scrollMap')->willReturn(false);
     new ReflectionProperty(MapManager::class, 'gameScene')->setValue($map, $scene);
     $collision = array_fill(0, 4, array_fill(0, 4, CollisionType::NONE->value));

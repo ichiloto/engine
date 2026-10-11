@@ -46,6 +46,8 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
 {
     private ?PlayerWalk $walk = null;
     private ?SkitPromptPresentation $skitPromptPresentation = null;
+    /** Invalidates movement across ownership handoffs, even without held input or a missed update. */
+    protected(set) int $movementGeneration = 0;
 
     private function getSkitPrompt(): ?SkitPrompt
     {
@@ -78,17 +80,22 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
     public function getExcludedOverlayLayers(): array { return [SkitPromptPresentation::LAYER]; }
 
     public function exit(): void { Console::removeOverlay(SkitPromptPresentation::LAYER); }
-    public function suspend(): void { Console::removeOverlay(SkitPromptPresentation::LAYER); }
+    public function suspend(): void
+    {
+        $this->cancelWalking();
+        Console::removeOverlay(SkitPromptPresentation::LAYER);
+    }
 
     /** Held walking, for input that reports held keys. */
     protected PlayerWalk $playerWalk {
         get => $this->walk ??= new PlayerWalk();
     }
 
-    /** Stop held walking; keys pressed so far must be pressed again. */
+    /** Invalidate in-flight movement and stop walking; earlier presses must be pressed again. */
     public function cancelWalking(): void
     {
-        $this->walk?->cancel();
+        $this->movementGeneration++;
+        $this->playerWalk->cancel();
     }
 
     /**
@@ -146,6 +153,7 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
         $scene->reconcileFieldPresentation();
         // The player's last step arrives once its slide has shown, here in
         // the field and never under a menu opened while it slid.
+        $movementGeneration = $this->movementGeneration;
         $scene->player?->completeArrival();
         if ($scene->isStopping || $scene->state !== $this || $scene->sceneManager->hasSceneTransition()) {
             return;
@@ -171,9 +179,15 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
             return;
         }
 
+        // Even a completed arrival event may have consumed this frame's input.
+        if ($movementGeneration !== $this->movementGeneration) {
+            return;
+        }
+
         $this->handleActions($scene);
 
-        if ($scene->isStopping || $scene->hasUnstableEventSession() || $scene->sceneManager->hasSceneTransition()) {
+        if ($scene->isStopping || $movementGeneration !== $this->movementGeneration
+            || $scene->hasUnstableEventSession() || $scene->sceneManager->hasSceneTransition()) {
             return;
         }
 
@@ -186,7 +200,8 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
 
         $this->handleNavigation($scene);
 
-        if ($scene->isStopping || $scene->hasUnstableEventSession() || $scene->sceneManager->hasSceneTransition()) {
+        if ($scene->isStopping || $movementGeneration !== $this->movementGeneration
+            || $scene->hasUnstableEventSession() || $scene->sceneManager->hasSceneTransition()) {
             return;
         }
 
