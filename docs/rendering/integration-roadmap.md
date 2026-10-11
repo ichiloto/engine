@@ -950,7 +950,7 @@ retried a denied push, changed author placements or treated unanswered questions
 as permission. Andrew's later explicit answers above supersede that pending
 decision state; publication still passes the unchanged safeguard.
 
-| Acceptance area | Owner | Current evidence and work remaining (October 11) |
+| Acceptance area | Owner | Current evidence and work remaining (October 12) |
 | --- | --- | --- |
 | Current field asset-role coverage | Claude/Game, Art through coordinator | The reviewed map/save batch is published as Game a4a2b83, preserving all four newer Lanternrest edits. All nineteen reachable maps have material layers; all five authored semantic save points are bound. Sleep/Shared, roofs, seats, Waymeet fixtures and Recovery damage are admitted and their reviewed bindings are in the published batch. Wood/stone sign resources and Silkscreen roles are admitted and published (b7819b5, 6e67451), native label composition is now visually confirmed by Andrew's October 11 19:56:56 screenshot (bounded evidence below), while authored map-sign placement remains open. Andrew explicitly authorized the three remaining local imports and approved the eleven new Controller poses on October 11. Claude implemented nine tree/grove resources in Game fb296a2 and thirty-one whole-object/scripted-state resources plus the existing Route Controller NPC's revision-2 sheet binding in c61653d, with 146 focused passes reported. Later approved fixture, temple-stamp, Annex/Municipal furniture and Town Center two-tree bindings are implemented through a8c9b8f; Crosswind's approved shrink/furnishing is published as 395b931 with declared save removals/relocations. All eight leaders now have approved images.field2d bindings: corrected Aeryn/Orwin/Thalric sheets are imported in Game ca8eed5, an exact seven-path change pushed to existing origin/develop. Claude's October 11 19:45 import and 19:55 reconciliation receipts report 235 focused passes, including every bound actor frame and new/loaded leader selection, not a native launch. Andrew's "Approve revised set and local import" covers the corrected set and two named exceptions: verified manual checks because the import tool is unavailable, and missing separate licence declarations with generation/source provenance retained. There are no permanent runtime hash gates, and the rejected packet was never imported. Local-import approval grants no new designs, map-layout changes, spending or publishing; the push used separate authority. Native inspection of those three party leaders remains open. Andrew's seven normal-play screenshots at 19:59:17-20:00:20 confirm Town Center's two separate broadleaf trees and the pictured exterior materials in GPUI, without accepting depth overlap or every production-art placement. Unassigned silhouettes/fixtures and other author-owned placements, including signs and forest areas, remain open. Disconnected prototypes and unrelated author-owned map edits remain untouched. The private Game ledger owns the detailed asset inventory; material coverage is not complete map dressing. |
 | Graphical maps and safe GUI authoring | Claude/Editor/GUI | Source-preserving drawing, copy/cut/paste, piece/shape tools, map insertion/duplication/relocation, visibility, field-sheet selection and staged-actor controls have qualified behavioral and bounded native evidence below. Shared authoring canvas and Play workflow are published on existing Editor/GUI develop (a602229, 65cf8b6); Console c558aec supplies owned terminal sessions. Editor 7ae8955 adds glyph-effect authoring and refuses unsafe export of non-instantiable PHP objects before writing. Published Editor 28e20fc adds the shared TileCoverage consumer: every map with a kind receives warnings for ground stacks that can expose the background, without map-specific exemptions or automatic edits. Unavailable pixel facts produce a diagnostic, not a pass. Editor b8c2de6 / GUI a5871dd implement reviewed row/column removal through the shared source-preserving line plan, affected-reference inventory, undo and Engine mapRemovals contract. Relative move_route steps on the edited map now require hand edits for insertion as well as removal. Editor af69918/c1b71b0 and GUI 73719d1 implement the whole-tree brush; trunks require the map's own declared collision, preserve walkable connectivity and respect the 128-object limit. Editor 4878544 / GUI f587f23 implement reviewed save relocations when a map save makes reachable floor solid: confirmation checks the shown fingerprint, Cancel writes nothing and Undo removes the manifest step. Save All / Save and Quit leave such maps unsaved for individual review. Direct-resize cells cut off the map are not covered by this review; line removal has its own landing, and projects without a manifest retain immediate saving. Current owner receipts report full Editor 2,489 / 106,185 and GUI 168 passes, with existing develop refs at Editor 4800fb4 / GUI f587f23. Native removal-dialog, tree-brush and save-relocation review checks remain open, as do GUI actor field-role/player-mode selection and representative production-art/canvas checks. Automated tests do not close those checks or remaining author decisions. |
@@ -1104,6 +1104,38 @@ Game/Editor/GUI ownership and retired his clone to Trash after confirming no
 consumer remained; this is not a claim of reclaimed disk space. Native capture
 permission works independently of this control-tool limitation; no desktop
 lock, source handover or alternative input authorization is inferred.
+
+The October 12 bounded arrival probe uses the real GameScene, Player and event
+interpreter on Engine `667ef8c` and unchanged Game `ca8eed5` plus preserved WIP.
+Native run `native-20261011-222542-e57bbb1711` exits zero: cancellation, immediate
+event, timed cinematic and relocation each reject the stale movement attempt
+and record exactly two committed arrivals, with no duplicate completion.
+These are native-driver state assertions, not physical-input or temporal pixel
+acceptance. Four owned-window captures were inspected: the timed-cinematic held
+image matches its standing location, but the two other held-labelled captures
+were taken after resumed movement and the resumed-labelled image shows the next
+case's origin. The last relocation capture missed the closed window. Original
+filenames and intended markers are retained with actual HUD observations in
+`test-tmp/g4-arrival-native-20261012-0023/capture-review.json`; misleading labels
+are not counted as acceptance. A fixture-only wrong interpreter method caused
+the first CPU attempt to fail and was corrected before the passing preflight.
+
+The production-tree probe also uses unchanged authored placements and collision.
+Its final uninterrupted run, `native-20261011-224151-ec3a2a91b4`, exits zero and
+provides three inspected images matching their HUD locations: standing north of
+the tree, standing below its trunk, and the completed four-step west endpoint.
+Actual retained submissions change player/tree order with depth and record the
+normal walking patterns, but rectangle overlap did not yield meaningful opaque
+silhouette overlap in the pictures. Tree/actor occlusion and smooth motion remain
+open; no authored map was moved to manufacture a pass. Evidence and the two
+small archived scratch fixtures are in `test-tmp/g4-depth-20261012/`. Both probes
+disable music/SFX/voice and autosave, use no audio backend, preserve normal
+source/settings/saves and reap their owned hosts/runs. The completed worker is
+closed and temporary fixture folders are removed after archive verification.
+Direct window-ID CUA targeting is unsupported on macOS and selecting the exact
+live renderer bundle still timed out with -10005; no UI input or video recording
+was attempted. Capture access is working, independently of that control failure.
+No full suite was repeated or Windows/Linux/WSLg qualification added.
 
 The October 11 cinematic-return preflight and two observations use the normal
 Game checkout, live Engine and installed renderer, with only fresh evidence on
@@ -3790,9 +3822,10 @@ Bounded macOS physical acceptance: Andrew's four October 10 walking checks and
 October 11 open-space cinematic-return check pass as recorded in the G4 checklist.
 They do not establish other platforms or whole-game input qualification.
 
-The separate pending-arrival/control-handoff edge is locally corrected and
-synthetically qualified in the G4 checklist; fresh native inspection is not
-claimed. Remaining: diagonal movement (four-directional movement is the current
+The separate pending-arrival/control-handoff edge is corrected and synthetically
+qualified; the G4 checklist now records bounded native-driver state checks and
+partial still-image inspection, not temporal or physical acceptance. Remaining:
+diagonal movement (four-directional movement is the current
 rule); physical controllers and analog magnitude; enhanced terminal reporting;
 and whole-game input/platform qualification.
 
