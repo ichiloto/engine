@@ -143,7 +143,7 @@ it('supports all existing foreground kinds with their exact bounded integer desc
   ['kind' => 'ansi256', 'index' => 0], ['kind' => 'ansi256', 'index' => 255],
 ]));
 
-it('retains optional typed glyph effects for PHP round trips and serializes them only in text specs', function () {
+it('keeps optional typed glyph input compatible while removing object-valued role exports', function () {
   $effects = new CanvasGlyphEffects(0.5, PresentationColor::ansi16(0), -1, 2, 0.25, 0.75, PresentationColor::rgb(1, 2, 3));
   foreach ([[], ['glyphEffects' => null], ['glyphEffects' => $effects]] as $optional) {
     $catalog = ProjectTextCatalog::fromArray(getProjectTextCatalogData(['label' => getProjectTextRoleData($optional)]));
@@ -152,12 +152,41 @@ it('retains optional typed glyph effects for PHP round trips and serializes them
     expect($roundTrip->toArray())->toBe($catalog->toArray())
       ->and($role->glyphEffects)->toBe($optional['glyphEffects'] ?? null);
     if ($role->glyphEffects !== null) {
-      expect($role->toArray()['glyphEffects'])->toBe($effects)
+      expect($role->toArray()['glyphEffects'])->toBe($effects->toArray())
         ->and($role->createSpec('label', 'en')->toArray()['glyphEffects'])->toBe($effects->toArray());
     } else {
       expect(array_key_exists('glyphEffects', $role->toArray()))->toBeFalse();
     }
   }
+});
+
+it('admits declarative glyph effects through the shared factory and round trips plain role intent', function () {
+  $effects = new CanvasGlyphEffects(0.5, PresentationColor::ansi256(200), -1, 2, 0.25, 0.75, PresentationColor::rgb(1, 2, 3));
+  $catalog = ProjectTextCatalog::fromArray(getProjectTextCatalogData([
+    'label' => getProjectTextRoleData(['glyphEffects' => $effects->toArray()]),
+  ]));
+  $role = $catalog->getRole('label');
+  expect($role->glyphEffects)->toEqual($effects)
+    ->and($role->toArray()['glyphEffects'])->toBe($effects->toArray())
+    ->and($role->createSpec('label', 'en')->glyphEffects)->toBe($role->glyphEffects)
+    ->and(ProjectTextCatalog::fromArray($catalog->toArray())->toArray())->toBe($catalog->toArray());
+});
+
+it('detaches declarative glyph references throughout text catalog admission and export', function () {
+  $width = 1; $red = 10;
+  $outline = ['width' => &$width, 'color' => ['kind' => 'rgb', 'r' => &$red, 'g' => 20, 'b' => 30]];
+  $effects = ['outline' => &$outline,
+    'shadow' => ['offsetX' => -1, 'offsetY' => 2, 'sigma' => 0.25, 'opacity' => 0.75,
+      'color' => ['kind' => 'ansi16', 'index' => 0]]];
+  $role = getProjectTextRoleData(['glyphEffects' => &$effects]);
+  $catalog = ProjectTextCatalog::fromArray(getProjectTextCatalogData(['label' => &$role]));
+  $before = $catalog->toArray();
+  $width = 4; $red = 255; $outline = []; $effects = []; $role = [];
+  $exported = $catalog->toArray();
+  $exported['roles']['label']['glyphEffects']['outline']['width'] = 0;
+  $exported['roles']['label']['glyphEffects']['outline']['color']['r'] = 0;
+  expect($catalog->toArray())->toBe($before)
+    ->and($catalog->getRole('label')->glyphEffects->outlineWidth)->toBe(1.0);
 });
 
 it('accepts empty catalogs and the role count identifier font count and model size boundaries', function () {
@@ -261,11 +290,14 @@ it('rejects invalid foreground kinds shapes coercion unknown fields and componen
   return nameProjectTextCases($cases);
 });
 
-it('does not invent a second glyph effects parser or accept untyped effects', function (mixed $effects) {
+it('rejects malformed glyph intent while allowing valid plain descriptors', function (mixed $effects) {
   expect(fn() => TextRole::fromArray(getProjectTextRoleData(['glyphEffects' => $effects])))
     ->toThrow(InvalidArgumentException::class);
 })->with(nameProjectTextCases([false, true, 1, 'shadow', [], new stdClass(),
-  new CanvasGlyphEffects(0, PresentationColor::ansi16(0), 0, 0, 0, 0, PresentationColor::ansi16(0))->toArray()]));
+  ['outline' => ['width' => 0, 'color' => ['kind' => 'ansi16', 'index' => 0]]],
+  ['outline' => ['width' => '0', 'color' => ['kind' => 'ansi16', 'index' => 0]],
+    'shadow' => ['offsetX' => 0, 'offsetY' => 0, 'sigma' => 0, 'opacity' => 0,
+      'color' => ['kind' => 'ansi16', 'index' => 0]]]]));
 
 it('validates direct typed role construction through the existing text model', function () {
   foreach ([[], ['font'], ['first' => new FontReference('synthetic/font.ttf')],
@@ -296,7 +328,7 @@ it('loads an optional readable inside-root PHP catalog without pinning mutable f
   expect(ProjectTextCatalog::load($root)->toArray())->toBe($intent);
 });
 
-it('loads actual typed effects authored in PHP rather than effect arrays', function () {
+it('loads existing typed PHP glyph effects and exports plain descriptors', function () {
   $root = createProjectTextAssetRoot();
   file_put_contents($root . '/' . ProjectTextCatalog::FILE, <<<'PHP'
     <?php
@@ -310,7 +342,42 @@ it('loads actual typed effects authored in PHP rather than effect arrays', funct
     PHP);
   $catalog = ProjectTextCatalog::load($root);
   expect($catalog->getRole('label')->glyphEffects)->toBeInstanceOf(CanvasGlyphEffects::class)
+    ->and($catalog->toArray()['roles']['label']['glyphEffects'])->toBe([
+      'outline' => ['width' => 1.0, 'color' => ['kind' => 'ansi16', 'index' => 0]],
+      'shadow' => ['offsetX' => 1.0, 'offsetY' => 1.0, 'sigma' => 0.0, 'opacity' => 0.5,
+        'color' => ['kind' => 'ansi16', 'index' => 0]],
+    ])
     ->and(ProjectTextCatalog::fromArray($catalog->toArray())->toArray())->toBe($catalog->toArray());
+  writeProjectTextCatalog($root, $catalog->toArray());
+  expect(ProjectTextCatalog::load($root)->toArray())->toBe($catalog->toArray());
+});
+
+it('loads a literal declarative PHP glyph catalog and reloads its plain exported source', function () {
+  $root = createProjectTextAssetRoot();
+  file_put_contents($root . '/' . ProjectTextCatalog::FILE, <<<'PHP'
+    <?php
+    return ['schema' => 'ichiloto.text/1', 'roles' => ['label' => [
+      'fonts' => [['asset' => 'synthetic/missing.ttf']], 'fontSize' => 12,
+      'foreground' => ['kind' => 'rgb', 'r' => 30, 'g' => 60, 'b' => 90],
+      'glyphEffects' => [
+        'outline' => ['width' => 1.5, 'color' => ['kind' => 'ansi256', 'index' => 200]],
+        'shadow' => ['offsetX' => -2, 'offsetY' => 3, 'sigma' => 0.25, 'opacity' => 0.75,
+          'color' => ['kind' => 'ansi16', 'index' => 7]],
+      ],
+    ]]];
+    PHP);
+  $catalog = ProjectTextCatalog::load($root);
+  $exported = $catalog->toArray();
+  expect($catalog->getRole('label')->glyphEffects)->toEqual(new CanvasGlyphEffects(
+    1.5, PresentationColor::ansi256(200), -2, 3, 0.25, 0.75, PresentationColor::ansi16(7),
+  ))->and($exported['roles']['label']['glyphEffects'])->toBe([
+    'outline' => ['width' => 1.5, 'color' => ['kind' => 'ansi256', 'index' => 200]],
+    'shadow' => ['offsetX' => -2.0, 'offsetY' => 3.0, 'sigma' => 0.25, 'opacity' => 0.75,
+      'color' => ['kind' => 'ansi16', 'index' => 7]],
+  ]);
+  writeProjectTextCatalog($root, $exported);
+  expect(ProjectTextCatalog::load($root)->toArray())->toBe($exported)
+    ->and(ProjectTextCatalog::fromArray($exported)->toArray())->toBe($exported);
 });
 
 it('rejects nonarray PHP returns with an explicit loading error', function (string $expression) {

@@ -359,7 +359,27 @@ return ['schema' => 'ichiloto.text/1', 'roles' => ['sign' => [
 
 At most 128 keyed roles use stable lowercase IDs. Each supplies an ordered
 chain of 1..16 project font references, size 1..256 and typed RGB/ANSI color;
-optional `glyphEffects` is an immutable `CanvasGlyphEffects` value in PHP source.
+optional `glyphEffects` uses the same plain descriptor as `CanvasGlyphEffects::toArray()`:
+
+```php
+'glyphEffects' => [
+  'outline' => ['width' => 1, 'color' => ['kind' => 'rgb', 'r' => 0, 'g' => 0, 'b' => 0]],
+  'shadow' => ['offsetX' => 1, 'offsetY' => 1, 'sigma' => 0, 'opacity' => 0.5,
+    'color' => ['kind' => 'ansi16', 'index' => 0]],
+],
+```
+
+Both sections and all their fields are required when effects are supplied;
+unknown fields and coerced values refuse. Numbers must be finite: outline width
+0..4, each shadow offset -8..8, sigma 0..4 and opacity 0..1. Color descriptors
+use bounded integer RGB, ANSI16 or ANSI256 components. The shared factories
+`CanvasGlyphEffects::createFromArray()` and `PresentationColor::createFromArray()`
+own hydration rather than an independent role-specific effects parser.
+Existing PHP-authored `CanvasGlyphEffects` input and null remain accepted.
+`TextRole::toArray()` now exports plain effects descriptors, removing its former
+object-valued exports and rejection of valid plain effects. This lets authoring
+save role intent without constructing objects; it does not enable unsupported
+source rewriting or claim Editor controls are implemented.
 There is no machine-font substitution or game-specific font embedded in Engine.
 Font licensing and actual native decoding/admission remain separate checks.
 

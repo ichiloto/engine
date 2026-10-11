@@ -51,41 +51,19 @@ final readonly class TextRole
       throw new InvalidArgumentException('Text role fontSize requires a number without coercion.');
     }
     $effects = $data['glyphEffects'] ?? null;
+    if (is_array($effects)) { $effects = CanvasGlyphEffects::createFromArray($effects); }
     if ($effects !== null && !$effects instanceof CanvasGlyphEffects) {
-      throw new InvalidArgumentException('Text role glyphEffects must be null or CanvasGlyphEffects.');
+      throw new InvalidArgumentException('Text role glyphEffects require null, a plain descriptor or CanvasGlyphEffects.');
     }
-    return new self($fonts, (float)$data['fontSize'], self::readForeground($data['foreground']), $effects);
+    return new self($fonts, (float)$data['fontSize'], PresentationColor::createFromArray($data['foreground']), $effects);
   }
 
-  /** PHP authoring descriptor: effects remain immutable typed intent, not renderer wire data. */
+  /** Plain authoring descriptor, including optional glyph effects. */
   public function toArray(): array
   {
     return ['fonts' => array_map(static fn(FontReference $font): array => $font->toArray(), $this->fonts),
       'fontSize' => $this->fontSize, 'foreground' => $this->foreground->toArray(),
-      ...($this->glyphEffects === null ? [] : ['glyphEffects' => $this->glyphEffects])];
-  }
-
-  private static function readForeground(mixed $data): PresentationColor
-  {
-    if (!is_array($data) || !is_string($data['kind'] ?? null)) {
-      throw new InvalidArgumentException('Text role foreground requires a typed color descriptor.');
-    }
-    $fields = match ($data['kind']) {
-      'rgb' => ['r', 'g', 'b'],
-      'ansi16', 'ansi256' => ['index'],
-      default => throw new InvalidArgumentException('Text role foreground supports rgb, ansi16 and ansi256 only.'),
-    };
-    self::assertFields($data, ['kind', ...$fields]);
-    foreach ($fields as $field) {
-      if (!is_int($data[$field])) {
-        throw new InvalidArgumentException('Text role color components require integers without coercion.');
-      }
-    }
-    return match ($data['kind']) {
-      'rgb' => PresentationColor::rgb($data['r'], $data['g'], $data['b']),
-      'ansi16' => PresentationColor::ansi16($data['index']),
-      'ansi256' => PresentationColor::ansi256($data['index']),
-    };
+      ...($this->glyphEffects === null ? [] : ['glyphEffects' => $this->glyphEffects->toArray()])];
   }
 
   private static function assertFields(array $data, array $required, array $optional = []): void

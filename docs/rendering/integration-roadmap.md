@@ -808,6 +808,21 @@ no native/audio/browser launch or full Engine/Game suite is claimed. Production
 font/art admission, source-preserving Editor/GUI sign authoring, Game binding
 and native visual acceptance remain open; G4 is not complete.
 
+The project text-role contract now accepts declarative glyph effects through
+the shared `CanvasGlyphEffects` descriptor factory and `PresentationColor`
+reader. Existing constructed PHP effects remain valid input. This removes
+object-valued `TextRole` exports and rejection of valid plain descriptors, so
+authoring can round-trip style intent without object construction. Exact fields,
+strict numeric/color types and the existing constructor bounds remain enforced;
+no renderer pool, resource or artwork limit changes. Five focused synthetic
+families pass 639 tests / 1,000 assertions, with configured level-0 production
+static analysis, six syntax checks and whitespace checks clean. Evidence is
+retained in secondary `test-tmp/engine-glyph-contract-4plLHs`; the worker is
+closed and its unused caches/logs are removed. Claude owns the corresponding
+Editor fields and Game style binding. These Engine checks do not establish
+source-writer editing, native sign pixels or other-platform acceptance, and do
+not close the separate pending board import decision.
+
 Andrew separately approved the Play workflow through Claude: a new game on the
 open map at the selected cell, skipping title by default, with "Play from the
 title" and renderer choices. Installed/usable GPUI is preferred; Terminal remains
