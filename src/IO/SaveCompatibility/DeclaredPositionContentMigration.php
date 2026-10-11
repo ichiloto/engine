@@ -6,9 +6,9 @@ use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
 
 /**
- * Applies a manifest step's declarative position edits (map shifts, then
+ * Applies a manifest step's declarative position edits (shifts, removals, then
  * relocations) to the saved player position, so projects need no generated
- * PHP class for inserted rows or columns or for newly occupied cells.
+ * PHP class for inserted/removed rows or columns or newly occupied cells.
  */
 final readonly class DeclaredPositionContentMigration implements ContentMigrationInterface
 {

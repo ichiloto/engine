@@ -142,7 +142,7 @@ to 2, add exactly one `1 -> 2` step, retain all older steps, then raise
 
 ### Declared map shifts
 
-A step may declare declared position edits, `mapShifts` and/or `relocations`,
+A step may declare position edits, `mapShifts`, `mapRemovals` and/or `relocations`,
 instead of `class` (a class or declared edits, never both).
 It records blank rows or columns inserted into a map, so no generated PHP
 class is needed:
@@ -166,6 +166,34 @@ position: when the save's map is `map` and its coordinate on `axis` is at or
 beyond `at`, that coordinate grows by `by`. Map aliases apply to both the save
 and the entry, so a renamed map still matches. The Editor's row and column
 insert command appends such a step and raises `contentVersion`.
+
+### Declared map removals
+
+Rows or columns removed from a map are declared as `mapRemovals`:
+
+```php
+[
+  'from' => 2,
+  'to' => 3,
+  'mapRemovals' => [
+    ['map' => 'town', 'axis' => 'x', 'at' => 4, 'count' => 2, 'to' => [1, 3]],
+  ],
+]
+```
+
+`map` and `axis` follow the shift contract. `at` is the first removed line
+(a non-negative integer), `count` is a positive integer, and `to` is a two-component
+`[x, y]` coordinate of non-negative integers in the map **after** removal.
+The list must be non-empty. Positions before the range keep their coordinates;
+positions on the removed lines move to `to`; later positions move back by
+`count` on that axis. Map aliases apply to both saved and declared map IDs.
+Each removal uses the coordinates resulting from previous edits in its step.
+
+The author must confirm an open, unoccupied, reachable landing. Its numerical
+coordinates may coincide with a removed line's old coordinates: they refer to
+the new map, not the deleted cells. Runtime migration uses that frozen landing,
+never a search of mutable map content. Keep older steps unchanged and increment
+`contentVersion`; an already-migrated save must not run the removal again.
 
 ### Declared relocations
 
@@ -192,10 +220,10 @@ its coordinates. Map aliases apply as for shifts. The cells and landing are
 frozen in the manifest: choose a landing that is open floor, free of events and
 NPCs and reachable, because loading a save never consults the mutable map.
 
-A step may declare both `mapShifts` and `relocations`; its shifts apply first,
-then its relocations, each in authored order. A move belongs to the step that
-introduced it: never add cells to an earlier step, since saves already past
-that version will not run it again.
+A step may combine `mapShifts`, `mapRemovals` and `relocations`; shifts apply
+first, then removals, then relocations, each list in authored order regardless
+of PHP key order. A move belongs to the step that introduced it: never add edits
+to an earlier step, since saves already past that version will not run it again.
 
 `ContentReferenceCategory` is the shared runtime/editor vocabulary: maps,
 one-shot events, quests, actors, items, equipment, abilities, spells,

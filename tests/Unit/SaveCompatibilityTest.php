@@ -497,6 +497,134 @@ it('rejects malformed declarative map shift migrations', function (array $entry,
   'zero count' => [['mapShifts' => [['map' => 'a', 'axis' => 'x', 'at' => 0, 'by' => 0]]], 'by must be a positive integer'],
 ]);
 
+it('moves saved positions through removed columns and rows using the declared landing', function (string $mapId, array $position, array $expected) {
+  $manifest = makeCompatibilityManifest([
+    'contentVersion' => 1,
+    'migrations' => [[
+      'from' => 0,
+      'to' => 1,
+      'mapRemovals' => [
+        ['map' => 'town', 'axis' => 'x', 'at' => 4, 'count' => 2, 'to' => [1, 2]],
+        ['map' => 'old-town', 'axis' => 'y', 'at' => 6, 'count' => 3, 'to' => [3, 4]],
+        ['map' => 'edge', 'axis' => 'x', 'at' => 0, 'count' => 1, 'to' => [0, 0]],
+      ],
+    ]],
+    'aliases' => ['maps' => [['from' => 'old-town', 'to' => 'town']]],
+  ]);
+  $path = '/tmp/ichiloto-map-removal.iedata';
+  $config = makeCompatibilityConfig($mapId);
+  $data = $config->getSaveCompatibilityData();
+  $data['playerPosition'] = new Vector2(...$position);
+  $config->applySaveCompatibilityData($data);
+  $legacy = serialize(['slot' => makeCompatibilitySlot($path), 'config' => $config]);
+
+  $loaded = new SaveCompatibilityPipeline($manifest)->load($legacy, $path)->config;
+
+  expect([$loaded->playerPosition->x, $loaded->playerPosition->y])->toEqual($expected);
+})->with([
+  'before both ranges' => ['town', [3, 5], [3, 5]],
+  'first removed column' => ['town', [4, 5], [1, 2]],
+  'last removed column' => ['town', [5, 5], [1, 2]],
+  'first column after removal' => ['town', [6, 5], [4, 5]],
+  'first removed row' => ['town', [3, 6], [3, 4]],
+  'last removed row' => ['town', [3, 8], [3, 4]],
+  'first row after removal' => ['town', [3, 9], [3, 6]],
+  'beyond both ranges' => ['town', [9, 11], [7, 8]],
+  'a landing follows the next removal' => ['town', [9, 7], [3, 4]],
+  'save and edit aliases both resolve' => ['old-town', [9, 11], [7, 8]],
+  'another map is unchanged' => ['forest', [9, 11], [9, 11]],
+  'zero-index removed column' => ['edge', [0, 2], [0, 0]],
+  'after zero-index removed column' => ['edge', [1, 2], [0, 2]],
+]);
+
+it('applies declared shifts then removals then relocations regardless of key order', function () {
+  $manifest = makeCompatibilityManifest([
+    'contentVersion' => 2,
+    'migrations' => [
+      [
+        'from' => 0, 'to' => 1,
+        'relocations' => [['map' => 'town', 'cells' => [[6, 3]], 'to' => [2, 4]]],
+        'mapRemovals' => [['map' => 'town', 'axis' => 'x', 'at' => 4, 'count' => 2, 'to' => [1, 2]]],
+        'mapShifts' => [['map' => 'town', 'axis' => 'x', 'at' => 3, 'by' => 2]],
+      ],
+      [
+        'from' => 1, 'to' => 2,
+        'mapRemovals' => [['map' => 'town', 'axis' => 'y', 'at' => 2, 'count' => 1, 'to' => [0, 0]]],
+      ],
+    ],
+  ]);
+  $path = '/tmp/ichiloto-map-removal-order.iedata';
+  $config = makeCompatibilityConfig('town');
+  $data = $config->getSaveCompatibilityData();
+  $data['playerPosition'] = new Vector2(6, 3);
+  $config->applySaveCompatibilityData($data);
+  $legacy = serialize(['slot' => makeCompatibilitySlot($path), 'config' => $config]);
+
+  $loaded = new SaveCompatibilityPipeline($manifest)->load($legacy, $path)->config;
+
+  expect([$loaded->playerPosition->x, $loaded->playerPosition->y])->toEqual([2, 3]);
+});
+
+it('does not reapply removed lines when a migrated save is loaded at the current version', function () {
+  $manifest = makeCompatibilityManifest([
+    'contentVersion' => 1,
+    'migrations' => [[
+      'from' => 0, 'to' => 1,
+      'mapRemovals' => [['map' => 'town', 'axis' => 'x', 'at' => 4, 'count' => 2, 'to' => [4, 3]]],
+    ]],
+  ]);
+  $path = '/tmp/ichiloto-map-removal-once.iedata';
+  $config = makeCompatibilityConfig('town');
+  $data = $config->getSaveCompatibilityData();
+  $data['playerPosition'] = new Vector2(5, 3);
+  $config->applySaveCompatibilityData($data);
+  $pipeline = new SaveCompatibilityPipeline($manifest);
+  $loaded = $pipeline->load(serialize(['slot' => makeCompatibilitySlot($path), 'config' => $config]), $path);
+  $current = serialize([
+    'schemaVersion' => 1, 'contentVersion' => 1, 'projectId' => 'ichiloto/test-project',
+    'payload' => ['slot' => $loaded->slot, 'config' => $loaded->config],
+  ]);
+
+  $reloaded = $pipeline->load($current, $path)->config;
+
+  expect([$reloaded->playerPosition->x, $reloaded->playerPosition->y])->toEqual([4, 3]);
+});
+
+it('rejects malformed declarative map removal migrations', function (mixed $removals, string $message) {
+  expect(fn() => makeCompatibilityManifest([
+    'contentVersion' => 1,
+    'migrations' => [['from' => 0, 'to' => 1, 'mapRemovals' => $removals]],
+  ]))->toThrow(InvalidSaveCompatibilityManifestException::class, $message);
+})->with([
+  'empty list' => [[], 'mapRemovals must be a non-empty list'],
+  'scalar list' => ['invalid', 'mapRemovals must be a non-empty list'],
+  'keyed list' => [['a' => ['map' => 'a', 'axis' => 'x', 'at' => 0, 'count' => 1, 'to' => [0, 0]]], 'non-empty list'],
+  'not an entry' => [['x'], 'must be an array with map, axis, at, count and to'],
+  'empty map' => [[['map' => ' ', 'axis' => 'x', 'at' => 0, 'count' => 1, 'to' => [0, 0]]], 'map must be a non-empty string'],
+  'non-string map' => [[['map' => 1, 'axis' => 'x', 'at' => 0, 'count' => 1, 'to' => [0, 0]]], 'map must be a non-empty string'],
+  'unknown axis' => [[['map' => 'a', 'axis' => 'z', 'at' => 0, 'count' => 1, 'to' => [0, 0]]], 'axis must be "x" or "y"'],
+  'negative line' => [[['map' => 'a', 'axis' => 'x', 'at' => -1, 'count' => 1, 'to' => [0, 0]]], 'at must be a non-negative integer'],
+  'string line' => [[['map' => 'a', 'axis' => 'x', 'at' => '0', 'count' => 1, 'to' => [0, 0]]], 'at must be a non-negative integer'],
+  'zero count' => [[['map' => 'a', 'axis' => 'x', 'at' => 0, 'count' => 0, 'to' => [0, 0]]], 'count must be a positive integer'],
+  'negative count' => [[['map' => 'a', 'axis' => 'x', 'at' => 0, 'count' => -1, 'to' => [0, 0]]], 'count must be a positive integer'],
+  'fractional count' => [[['map' => 'a', 'axis' => 'x', 'at' => 0, 'count' => 1.5, 'to' => [0, 0]]], 'count must be a positive integer'],
+  'missing landing' => [[['map' => 'a', 'axis' => 'x', 'at' => 0, 'count' => 1]], 'to must be [x, y]'],
+  'negative landing' => [[['map' => 'a', 'axis' => 'x', 'at' => 0, 'count' => 1, 'to' => [-1, 0]]], 'non-negative integers'],
+  'string landing' => [[['map' => 'a', 'axis' => 'x', 'at' => 0, 'count' => 1, 'to' => ['0', 0]]], 'non-negative integers'],
+  'keyed landing' => [[['map' => 'a', 'axis' => 'x', 'at' => 0, 'count' => 1, 'to' => ['x' => 0, 'y' => 0]]], 'to must be [x, y]'],
+  'extra landing component' => [[['map' => 'a', 'axis' => 'x', 'at' => 0, 'count' => 1, 'to' => [0, 0, 0]]], 'to must be [x, y]'],
+]);
+
+it('refuses to mix map removals and a project migration class', function () {
+  expect(fn() => makeCompatibilityManifest([
+    'contentVersion' => 1,
+    'migrations' => [[
+      'from' => 0, 'to' => 1, 'class' => RecordingContentVersion0To1::class,
+      'mapRemovals' => [['map' => 'a', 'axis' => 'x', 'at' => 0, 'count' => 1, 'to' => [0, 0]]],
+    ]],
+  ]))->toThrow(InvalidSaveCompatibilityManifestException::class, 'must declare either a class or declared position edits');
+});
+
 it('moves a saved player off declared relocated cells after the step map shifts', function (string $mapId, array $position, array $expected) {
   $manifest = makeCompatibilityManifest([
     'contentVersion' => 2,

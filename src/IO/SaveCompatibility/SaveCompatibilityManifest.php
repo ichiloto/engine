@@ -13,7 +13,7 @@ use Throwable;
 final readonly class SaveCompatibilityManifest
 {
   /** Declarative position edit keys of a migration step, in the order they apply. */
-  private const array DECLARED_POSITION_EDITS = ['mapShifts', 'relocations'];
+  private const array DECLARED_POSITION_EDITS = ['mapShifts', 'mapRemovals', 'relocations'];
 
   /**
    * @param array<string, array<string, string>> $aliases
@@ -463,9 +463,9 @@ final readonly class SaveCompatibilityManifest
    * Reads a migration step's declarative position edits, the one reading
    * the runtime and the Editor's validation share.
    *
-   * A step declares a project migration `class`, or `mapShifts` and/or
-   * `relocations`, never both kinds. Map shifts apply before relocations,
-   * each in authored order.
+   * A step declares a project migration `class`, or declared position edits,
+   * never both kinds. Shifts apply before removals, then relocations, each
+   * list in authored order.
    *
    * @param array<mixed> $entry The migration step.
    * @param string $where Where the step is, for error messages.
@@ -482,7 +482,7 @@ final readonly class SaveCompatibilityManifest
 
     if ($hasClass === ($declared !== [])) {
       throw new InvalidSaveCompatibilityManifestException(sprintf(
-        '%s must declare either a class or declared position edits (mapShifts, relocations), not both or neither.',
+        '%s must declare either a class or declared position edits (mapShifts, mapRemovals, relocations), not both or neither.',
         $where
       ));
     }
@@ -501,9 +501,12 @@ final readonly class SaveCompatibilityManifest
       }
 
       foreach ($rawEdits as $index => $rawEdit) {
-        $edits[] = $key === 'mapShifts'
-          ? MapShift::fromArray($rawEdit, "{$where} mapShifts[{$index}]")
-          : PositionRelocation::fromArray($rawEdit, "{$where} relocations[{$index}]");
+        $entryWhere = "{$where} {$key}[{$index}]";
+        $edits[] = match ($key) {
+          'mapShifts' => MapShift::fromArray($rawEdit, $entryWhere),
+          'mapRemovals' => MapRemoval::createFromArray($rawEdit, $entryWhere),
+          'relocations' => PositionRelocation::fromArray($rawEdit, $entryWhere),
+        };
       }
     }
 
