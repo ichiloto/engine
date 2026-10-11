@@ -825,9 +825,20 @@ passes at the configured level 0. The initial fixture's uninitialized manager
 was corrected, and its original failure is retained alongside the passing
 reports on secondary `test-tmp/g4-play-foundation-20261011-lUyBi4tI`.
 Console's explicit modes, project-authoritative auto choice and owned terminal
-session are being qualified separately; Editor/GUI consumption and native
-workflow acceptance remain open. No ownership transfer, normal-save access,
-native launch or cross-platform validation is inferred. G4 remains incomplete.
+session are qualified locally at `c558aec`; its existing develop publication
+awaits Andrew's separately scoped answer. Four targeted scripts and scoped
+level-3 production analysis pass. Four adjacent launcher, renderer-preparation,
+startup-identity and portable-dependency scripts also pass once each, with
+explicitly muted synthetic launches and matching preservation snapshots. The
+actual Last Legend renderer query returns both Terminal and GPUI, preferring
+GPUI; all 319 checked map, presentation, save, settings and log files retain
+their before/after digest. This is installed-resource discovery, not native
+runtime qualification. Claude has wired the consumer locally at Editor
+`9cd4621` and GUI `1f0d440`, holding their publication until Console lands.
+Native workflow acceptance remains open. No ownership transfer, native launch
+or cross-platform validation is inferred. The adjacent-check worker is closed;
+its scratch and unused fixture locks are removed, with small evidence retained
+in secondary `test-tmp/g4-console-adjacent-20261011-054140`. G4 remains incomplete.
 
 Claude's in-memory editing-canvas request exposed a shared composition
 limitation: a presentation source had to impersonate a running SceneInterface.
