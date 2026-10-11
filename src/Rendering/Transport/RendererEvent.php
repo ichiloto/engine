@@ -2,9 +2,12 @@
 
 namespace Ichiloto\Engine\Rendering\Transport;
 
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasValidation;
+use Ichiloto\Engine\Rendering\Presentation\Text\TextMetrics;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererEventType;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererProtocolException;
+use InvalidArgumentException;
 use JsonException;
 use stdClass;
 
@@ -12,8 +15,13 @@ final readonly class RendererEvent
 {
   /** A control identity names a physical key independently of its text, case and modifiers. */
   public const string CONTROL_PATTERN = '/^[a-z0-9_]{1,32}$/D';
+  /** The Rust protocol and process transport share this whole-line ceiling, not a smaller message limit. */
+  public const int MAX_TEXT_REPLY_BYTES = 4194304;
 
-  /** @param list<string> $capabilities */
+  /**
+   * @param list<string> $capabilities
+   * @param list<string> $layoutIds
+   */
   private function __construct(
     public RendererEventType $type,
     public ?string $key = null,
@@ -30,6 +38,10 @@ final readonly class RendererEvent
     public ?string $control = null,
     /** Negotiated key transitions: true when a key event repeats an already held control. */
     public ?bool $repeat = null,
+    public ?string $requestId = null,
+    public ?string $layoutId = null,
+    public ?TextMetrics $textMetrics = null,
+    public array $layoutIds = [],
   )
   {
   }
@@ -51,6 +63,10 @@ final readonly class RendererEvent
     if ($type === null) {
       throw new RendererProtocolException('Missing or unsupported renderer event type; excerpt=' . self::excerpt($line));
     }
+    if (in_array($type, [RendererEventType::TEXT_PREPARED, RendererEventType::TEXT_PREPARE_FAILED, RendererEventType::TEXT_RELEASED], true)
+      && strlen($line) > self::MAX_TEXT_REPLY_BYTES) {
+      throw new RendererProtocolException('Text reply exceeds the protocol 4 MiB line limit.');
+    }
 
     $key = $object->key ?? null;
     $message = $object->message ?? null;
@@ -60,6 +76,10 @@ final readonly class RendererEvent
     if (in_array($type, [RendererEventType::ERROR, RendererEventType::FRAME_REJECTED], true) && ! is_string($message)) {
       throw new RendererProtocolException('Renderer error or frame rejection event requires a message string.');
     }
+    if ($type === RendererEventType::TEXT_PREPARE_FAILED && !is_string($message)) {
+      throw new RendererProtocolException('Text preparation failure requires a message string.');
+    }
+    [$requestId, $layoutId, $textMetrics, $layoutIds] = self::requireTextReply($object, $type, $protocol);
     [$control, $repeat] = self::requireKeyTransition($object, $type, $protocol);
     $active = $object->active ?? null;
     if ($type === RendererEventType::WINDOW_ACTIVATION
@@ -112,9 +132,67 @@ final readonly class RendererEvent
       throw new RendererProtocolException('Capabilities must be unique and only appear on ready.');
     }
     return new self($type, $type === RendererEventType::KEY ? $key : null,
-      in_array($type, [RendererEventType::ERROR, RendererEventType::FRAME_REJECTED], true) ? $message : null,
+      in_array($type, [RendererEventType::ERROR, RendererEventType::FRAME_REJECTED, RendererEventType::TEXT_PREPARE_FAILED], true) ? $message : null,
       $protocol, $capabilities, $active, $generation, $frame, $presented, $expectedGeneration, $resyncRequired,
-      $control, $repeat);
+      $control, $repeat, $requestId, $layoutId, $textMetrics, $layoutIds);
+  }
+
+  /** @return array{?string, ?string, ?TextMetrics, list<string>} */
+  private static function requireTextReply(stdClass $object, RendererEventType $type, RendererProtocolVersion $protocol): array
+  {
+    $fields = match ($type) {
+      RendererEventType::TEXT_PREPARED => ['requestId', 'layoutId', 'metrics'],
+      RendererEventType::TEXT_PREPARE_FAILED => ['requestId', 'message'],
+      RendererEventType::TEXT_RELEASED => ['layoutIds'],
+      default => [],
+    };
+    foreach (['requestId', 'layoutId', 'metrics', 'layoutIds', 'textMetrics'] as $field) {
+      if (property_exists($object, $field) && !in_array($field, $fields, true)) {
+        throw new RendererProtocolException('Unexpected text reply field: ' . $field . '.');
+      }
+    }
+    if ($fields === []) { return [null, null, null, []]; }
+    if ($protocol !== RendererProtocolVersion::V2
+      || array_diff(array_keys(get_object_vars($object)), ['protocol', 'type', ...$fields]) !== []) {
+      throw new RendererProtocolException('Text replies require protocol 2 and only their defined fields.');
+    }
+    try {
+      if ($type === RendererEventType::TEXT_RELEASED) {
+        $ids = $object->layoutIds ?? null;
+        if (!is_array($ids) || !array_is_list($ids) || count($ids) > 64) {
+          throw new RendererProtocolException('Text release requires a list of at most 64 layout IDs.');
+        }
+        $layoutIds = [];
+        foreach ($ids as $id) { $layoutIds[] = self::requireTextId($id); }
+        return [null, null, null, $layoutIds];
+      }
+      $requestId = self::requireTextId($object->requestId ?? null);
+      if ($type === RendererEventType::TEXT_PREPARE_FAILED) { return [$requestId, null, null, []]; }
+      $layoutId = self::requireTextId($object->layoutId ?? null);
+      if (!($object->metrics ?? null) instanceof stdClass) {
+        throw new RendererProtocolException('Text preparation requires a metrics object.');
+      }
+      $metrics = get_object_vars($object->metrics);
+      foreach (['lineBounds', 'inkBounds', 'paintBounds'] as $field) {
+        if ($field === 'inkBounds' && array_key_exists($field, $metrics) && $metrics[$field] === null) { continue; }
+        if (!($metrics[$field] ?? null) instanceof stdClass) {
+          throw new RendererProtocolException('Text metrics require bounds objects and nullable inkBounds.');
+        }
+        $metrics[$field] = get_object_vars($metrics[$field]);
+      }
+      return [$requestId, $layoutId, TextMetrics::fromArray($metrics), []];
+    } catch (InvalidArgumentException $error) {
+      throw new RendererProtocolException('Invalid renderer text reply: ' . $error->getMessage(), previous: $error);
+    }
+  }
+
+  private static function requireTextId(mixed $value): string
+  {
+    if (!is_string($value)) {
+      throw new RendererProtocolException('Text reply IDs must be strings.');
+    }
+    CanvasValidation::id($value);
+    return $value;
   }
 
   /**

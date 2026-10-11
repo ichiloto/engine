@@ -126,6 +126,37 @@ it('opts in exactly once and shares input and presentation on one session', func
   expect(InputManager::getInputSource())->toBe($this->previous)->and($this->transport->shutdowns)->toBe(1);
 });
 
+it('prepares project text through the shared runtime broker without changing its retained frame', function () {
+  $spec = new \Ichiloto\Engine\Rendering\Presentation\Text\TextSpec('Synthetic sign',
+    [new \Ichiloto\Engine\Rendering\Presentation\Text\FontReference('fonts/project.ttf')], 12, 'en',
+    \Ichiloto\Engine\Rendering\Presentation\PresentationColor::rgb(20, 30, 40));
+  expect(fn() => $this->runtime->requestTextPreparation($spec))->toThrow(LogicException::class, 'active');
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["text_layout"]}')];
+  $this->runtime->start('Text runtime', 12, 4);
+  Console::write('Retained scene', 0, 0);
+  $this->runtime->present(null);
+  $before = $this->transport->sent;
+  $request = $this->runtime->requestTextPreparation($spec);
+  $this->transport->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2,
+    'type' => 'text_prepared', 'requestId' => $request->requestId, 'layoutId' => 'runtime-layout',
+    'metrics' => ['advance' => 20, 'baseline' => 10,
+      'lineBounds' => ['x' => 0, 'y' => 0, 'width' => 20, 'height' => 15], 'inkBounds' => null,
+      'paintBounds' => ['x' => -1, 'y' => -1, 'width' => 22, 'height' => 17]]], JSON_THROW_ON_ERROR)),
+    RendererEvent::fromJson('{"protocol":2,"type":"key","key":"up"}')];
+  $this->runtime->pump();
+  expect($request->getResult()->layoutId)->toBe('runtime-layout')
+    ->and(InputManager::getInputSource()->poll())->toBe(KeyCode::UP)
+    ->and($this->runtime->present(null))->toBeFalse()
+    ->and(array_filter($this->transport->sent, static fn($message) => $message->type ===
+      \Ichiloto\Engine\Rendering\Transport\Enumerations\RendererMessageType::FRAME))->toBe($before);
+  $this->runtime->releaseTextPreparation($request);
+  $this->transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"text_released","layoutIds":["runtime-layout"]}')];
+  $this->runtime->pump();
+  expect($request->state)->toBe(\Ichiloto\Engine\Rendering\Text\RendererTextPreparationState::RELEASED);
+  $this->runtime->shutdown();
+  expect(fn() => $this->runtime->requestTextPreparation($spec))->toThrow(LogicException::class, 'active');
+});
+
 it('selects renderer-only game output while preserving frames and silent cleanup', function () {
   $game = new RendererRuntimeGameProbe();
   $game->useRendererRuntime($this->runtime);

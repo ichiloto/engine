@@ -64,7 +64,7 @@ if ($scenario === 'startup_timeout') {
 if ($scenario === 'stderr_flood') {
   rendererStubWrite(str_repeat('diagnostic-', 100000) . 'STARTUP-TAIL', STDERR);
 }
-$ready = rendererStubEvent('ready', in_array($scenario, ['capabilities', 'dialogue_preview', 'scene_preview_start_key'], true) && isset($message['requiredCapabilities'])
+$ready = rendererStubEvent('ready', in_array($scenario, ['capabilities', 'dialogue_preview', 'scene_preview_start_key', 'project_text'], true) && isset($message['requiredCapabilities'])
   ? ['capabilities' => $message['requiredCapabilities']] : []);
 if ($scenario === 'ready_key') {
   $ready .= rendererStubEvent('key', ['key' => 'W']);
@@ -109,6 +109,24 @@ while (hrtime(true) < $deadline && ($line = fgets(STDIN)) !== false) {
     exit($scenario === 'shutdown_nonzero' ? 17 : 0);
   }
   switch ($scenario) {
+    case 'project_text':
+      if ($message['type'] === 'prepare_text') {
+        if ($message['spec']['text'] === 'refuse') {
+          rendererStubWrite(rendererStubEvent('text_prepare_failed', ['requestId' => $message['requestId'],
+            'message' => 'Synthetic resource refusal']));
+        } else {
+          rendererStubWrite(rendererStubEvent('text_prepared', ['requestId' => $message['requestId'],
+            'layoutId' => 'pipe-layout', 'metrics' => ['advance' => 20, 'baseline' => 10,
+              'lineBounds' => ['x' => 0, 'y' => 0, 'width' => 20, 'height' => 15], 'inkBounds' => null,
+              'paintBounds' => ['x' => -1, 'y' => -1, 'width' => 22, 'height' => 17]]]));
+        }
+      } elseif ($message['type'] === 'release_text') {
+        rendererStubWrite(rendererStubEvent('text_released', ['layoutIds' => $message['layoutIds']]));
+      } elseif ($message['type'] === 'frame') {
+        rendererStubWrite(rendererStubEvent('frame_ack', ['generation' => $message['generation'],
+          'frame' => $message['frame'], 'presented' => $message['present']]) . rendererStubEvent('key', ['key' => 'up']));
+      }
+      break;
     case 'retained_upload_fast':
     case 'retained_upload_slow':
     case 'retained_upload_drop':

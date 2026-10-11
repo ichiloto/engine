@@ -11,6 +11,9 @@ final readonly class RendererSessionConfig
 {
   public const string SPRITE_QUARTER_TURNS = 'sprite_quarter_turns';
   public const string SPRITE_PIVOT = 'sprite_pivot';
+  public const string TEXT_LAYOUT = 'text_layout';
+  public const string CANVAS_LABELS = 'canvas_labels';
+  public const string WORLD_CANVAS = 'world_canvas';
   public const string SPRITE_SOURCE_RECT = 'sprite_source_rect';
   public const string TILE_BATCHES = 'tile_batches';
   public const string GRAPHICAL_CANVAS = 'graphical_canvas';
@@ -43,6 +46,7 @@ final readonly class RendererSessionConfig
       ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_CLIP_OPACITY,
         self::CANVAS_GLYPH_EFFECTS, self::CANVAS_COMPOSITING, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::TILE_COVERS, self::TILE_SHADOWS,
         self::SPRITE_LIFT, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::SPRITE_QUARTER_TURNS, self::SPRITE_PIVOT,
+        self::TEXT_LAYOUT, self::CANVAS_LABELS, self::WORLD_CANVAS,
         ...array_values(array_intersect(self::EVENT_SUBSCRIPTIONS, $this->requiredCapabilities))]
       : $this->requiredCapabilities;
   }
@@ -64,7 +68,8 @@ final readonly class RendererSessionConfig
     $allowed = $protocol === RendererProtocolVersion::V2
       ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_CLIP_OPACITY, self::CANVAS_GLYPH_EFFECTS,
         self::CANVAS_COMPOSITING, self::WINDOW_ACTIVATION, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::TILE_COVERS, self::TILE_SHADOWS,
-        self::SPRITE_LIFT, self::KEY_TRANSITIONS, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::SPRITE_QUARTER_TURNS, self::SPRITE_PIVOT]
+        self::SPRITE_LIFT, self::KEY_TRANSITIONS, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::SPRITE_QUARTER_TURNS, self::SPRITE_PIVOT,
+        self::TEXT_LAYOUT, self::CANVAS_LABELS, self::WORLD_CANVAS]
       : [self::SPRITE_SOURCE_RECT];
     foreach ($requiredCapabilities as $capability) {
       if (!in_array($capability, $allowed, true)) {

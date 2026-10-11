@@ -10,7 +10,11 @@ use Ichiloto\Engine\Rendering\Transport\Interfaces\RendererTransportInterface;
 use Ichiloto\Engine\Rendering\Transport\RendererEvent;
 use Ichiloto\Engine\Rendering\Transport\RendererMessage;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
+use Ichiloto\Engine\Rendering\Presentation\Text\TextSpec;
+use Ichiloto\Engine\Rendering\Text\RendererTextPreparationRequest;
+use Ichiloto\Engine\Rendering\Text\RendererTextRequests;
 use InvalidArgumentException;
+use LogicException;
 use SplQueue;
 
 /** The sole event consumer for a shared renderer connection. No input/action mapping. */
@@ -32,6 +36,8 @@ final class RendererClient
   private array $negotiableCapabilities = [];
   /** @var list<string> */
   private array $capabilities = [];
+  private readonly RendererTextRequests $textRequests;
+  private bool $textSessionActive = false;
 
   public function __construct(
     private readonly RendererTransportInterface $transport,
@@ -47,6 +53,7 @@ final class RendererClient
     $this->keys = new SplQueue();
     $this->events = new SplQueue();
     $this->transitions = new SplQueue();
+    $this->textRequests = new RendererTextRequests($this->trySend(...));
   }
 
   public function start(RendererSessionConfig $session): void
@@ -56,9 +63,12 @@ final class RendererClient
       throw new RendererTransportException('Consume pending renderer events before starting another session.');
     }
     $this->capabilities = [];
+    $this->textRequests->retireSession();
+    $this->textSessionActive = false;
     $this->requiredCapabilities = $session->requiredCapabilities;
     $this->negotiableCapabilities = $session->getNegotiableCapabilities();
     $this->transport->start($session);
+    $this->textSessionActive = true;
     $this->failure = null;
   }
 
@@ -79,8 +89,10 @@ final class RendererClient
       $transitions = $this->transitions->count();
       $events = $this->events->count();
       $bytes = $this->queuedBytes;
+      $textReplies = $textReplyBytes = 0;
       $capabilities = $this->capabilities;
       $acknowledgements = $this->frameAcknowledgements;
+      $this->textRequests->assertReplies($batch);
       foreach ($batch as $event) {
         if ($event->type === RendererEventType::READY) {
           $event->requireCapabilities($this->requiredCapabilities);
@@ -91,6 +103,14 @@ final class RendererClient
           throw new RendererProtocolException('Window activation requires negotiated window_activation support.');
         }
         self::assertKeyTransitionContract($event, in_array(RendererSessionConfig::KEY_TRANSITIONS, $capabilities, true));
+        if (RendererTextRequests::isTextReply($event)) {
+          if (!in_array(RendererSessionConfig::TEXT_LAYOUT, $capabilities, true)) {
+            throw new RendererProtocolException('Prepared text replies require negotiated text_layout support.');
+          }
+          $textReplies++;
+          $textReplyBytes += self::eventBytes($event);
+          continue;
+        }
         if ($discardKeys && ($event->type === RendererEventType::KEY || self::isKeyTransition($event))) {
           continue;
         }
@@ -113,12 +133,13 @@ final class RendererClient
         $event->type === RendererEventType::KEY ? $keys++ : $events++;
         $bytes += self::eventBytes($event);
       }
-      if ($keys > $this->maxPendingKeys || $transitions > $this->maxPendingKeys || $events > $this->maxPendingEvents
-        || $bytes > $this->maxQueuedBytes) {
+      if ($keys > $this->maxPendingKeys || $transitions > $this->maxPendingKeys || $events + $textReplies > $this->maxPendingEvents
+        || $bytes + $textReplyBytes > $this->maxQueuedBytes) {
         throw new RendererTransportException('Renderer client queue capacity exceeded; incoming batch rejected.',
           $this->transport->getDiagnostics(), $this->transport->getExitCode());
       }
       foreach ($batch as $event) {
+        if (RendererTextRequests::isTextReply($event)) { continue; }
         if ($event->type === RendererEventType::FRAME_ACK) {
           continue;
         }
@@ -142,9 +163,16 @@ final class RendererClient
       }
       $this->queuedBytes = $bytes;
       $this->frameAcknowledgements = $acknowledgements;
+      $this->textRequests->acceptReplies($batch);
+      if (!$this->isRunning() || array_any($batch, static fn(RendererEvent $event) => $event->type === RendererEventType::CLOSE_REQUESTED)) {
+        $this->textSessionActive = false;
+        $this->textRequests->retireSession();
+      } else { $this->textRequests->flushReleases(); }
       $this->traceQueue();
     } catch (RendererTransportException $error) {
       $this->failure = $error;
+      $this->textRequests->retireSession();
+      $this->textSessionActive = false;
       throw $error;
     }
   }
@@ -267,14 +295,43 @@ final class RendererClient
     return in_array($capability, $this->capabilities, true);
   }
 
+  /** Null is transport backpressure. Pump once per update; inspect the returned request without I/O. */
+  public function requestTextPreparation(TextSpec $spec): ?RendererTextPreparationRequest
+  {
+    if (!$this->textSessionActive || !$this->isRunning() || !$this->supports(RendererSessionConfig::TEXT_LAYOUT)) {
+      throw new LogicException('Project text preparation requires an active renderer with text_layout support.');
+    }
+    try { return $this->textRequests->requestPreparation($spec); }
+    catch (RendererTransportException $error) {
+      $this->failure = $error;
+      $this->textRequests->retireSession();
+      $this->textSessionActive = false;
+      throw $error;
+    }
+  }
+
+  public function releaseTextPreparation(RendererTextPreparationRequest $request): void
+  {
+    try { $this->textRequests->releasePreparation($request); }
+    catch (RendererTransportException $error) {
+      $this->failure = $error;
+      $this->textRequests->retireSession();
+      $this->textSessionActive = false;
+      throw $error;
+    }
+  }
+
   public function shutdown(): ?int
   {
-    $exitCode = $this->transport->shutdown();
-    // Shutdown can drain final events into the transport. Keep them observable here.
-    if ($this->failure === null) {
-      $this->pump();
+    try {
+      $exitCode = $this->transport->shutdown();
+      // Shutdown can drain final events into the transport. Keep them observable here.
+      if ($this->failure === null) { $this->pump(); }
+      return $exitCode;
+    } finally {
+      $this->textRequests->retireSession();
+      $this->textSessionActive = false;
     }
-    return $exitCode;
   }
 
   /** A press (a key that repeats nothing), a release or a reset; never an OS repeat. */
@@ -303,6 +360,9 @@ final class RendererClient
       + array_sum(array_map(strlen(...), $event->capabilities)) + ($event->active === null ? 0 : 1)
       + ($event->generation === null ? 0 : 8) + ($event->frame === null ? 0 : 8)
       + ($event->expectedGeneration === null ? 0 : 8) + ($event->presented === null ? 0 : 1)
-      + ($event->resyncRequired === null ? 0 : 1) + ($event->repeat === null ? 0 : 1);
+      + ($event->resyncRequired === null ? 0 : 1) + ($event->repeat === null ? 0 : 1)
+      + strlen($event->requestId ?? '') + strlen($event->layoutId ?? '')
+      + array_sum(array_map(strlen(...), $event->layoutIds))
+      + ($event->textMetrics === null ? 0 : strlen(json_encode($event->textMetrics->toArray(), JSON_THROW_ON_ERROR)));
   }
 }

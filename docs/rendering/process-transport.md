@@ -138,6 +138,54 @@ malformed JSON, missing fields, unsupported versions/types, and duplicate ready
 are fatal protocol errors, never silently dropped data. A child exit with unwritten
 bytes is a failure. Key strings are protocol data, with no `KeyCode` or action mapping.
 
+## Project Text Queries
+
+Protocol 2 optionally negotiates `text_layout`, `canvas_labels` and
+`world_canvas`. Their presence does not make them mandatory for existing
+sessions. The Engine's typed text query path requires advertised `text_layout`;
+it never substitutes installed machine fonts or terminal grid text for a
+missing project face or unsupported capability.
+
+`RendererClient` and `RendererRuntime` expose
+`requestTextPreparation(TextSpec): ?RendererTextPreparationRequest` and
+`releaseTextPreparation(RendererTextPreparationRequest): void`. Supply a
+resolved whole label, locale, logical-pixel size, foreground, optional glyph
+effects and an ordered list of `FontReference` values. Font references are safe
+asset-root-relative paths with an explicit collection face, not image hashes
+or installed font names. Renderer owns decoding and shaping; the DTO does not
+open font files. A request returns immediately: `null` means the outbound line
+was not admitted under backpressure, so retry on a later update. A ticket's
+`getResult()` performs no I/O and returns `null` while pending, then an immutable
+`TextMeasurement` containing the opaque session layout ID and `TextMetrics`.
+Preparation refusal throws `RendererTextPreparationException` with the actual
+resource diagnostic when reading the ticket; it does not fail the connection.
+
+The normal broker pump correlates strict `text_prepared`,
+`text_prepare_failed` and `text_released` replies. It validates the entire batch
+before admission and keeps input, lifecycle and retained acknowledgement queues
+intact. Queries never increment retained generations or emit a `FRAME`.
+Reserved query fields on unrelated events are now rejected rather than ignored;
+all established event fields and low-level protocol-1 compatibility remain.
+Metrics include advance, baseline, line bounds, nullable ink bounds and effect-expanded
+paint bounds. Signed finite bearings are not canvas-placement rectangles;
+nonnegative extents are bounded at 16,384 logical pixels.
+
+At most 64 tickets/cleanup slots may be outstanding. Release unused pending or
+prepared tickets. Cancelling pending work keeps its slot until the reply arrives
+and safely releases any late result. Shared cached handles remain live until
+their final owner releases them; cleanup waits for unresolved replies which
+could share a handle. Write backpressure retains bounded cleanup for a later
+pump, without spinning. A refused ticket owns no layout and can be discarded.
+Window close, fatal transport failure, shutdown and restart retire live
+ownership. Request identities remain distinct across restarts, and foreign or
+stale replies/tickets are rejected. Layout IDs are never saved or authored
+resource identities.
+
+This implements typed measurement and lifetime support, not the Engine's
+world-canvas/label frame producer or font-role/map-sign authoring. Advertising
+the drawing capabilities does not manufacture those consumers. Whole-label
+shaping, project-font admission and native painting remain Renderer-owned.
+
 ## Retained frame feedback
 
 The V2 event stream includes:

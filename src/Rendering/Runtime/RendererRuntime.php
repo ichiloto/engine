@@ -18,6 +18,8 @@ use Ichiloto\Engine\Rendering\Presentation\RetainedFrame;
 use Ichiloto\Engine\Rendering\ScreenTransitionPhase;
 use Ichiloto\Engine\Rendering\ScreenTransitionTreatment;
 use Ichiloto\Engine\Rendering\RendererClient;
+use Ichiloto\Engine\Rendering\Presentation\Text\TextSpec;
+use Ichiloto\Engine\Rendering\Text\RendererTextPreparationRequest;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererEventType;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException;
 use Ichiloto\Engine\Rendering\Transport\Interfaces\RendererTransportInterface;
@@ -147,6 +149,20 @@ final class RendererRuntime
     if ($this->closeRequested) {
       throw new RendererWindowClosed('Renderer window closed.');
     }
+  }
+
+  /** Uses the same session broker as input and retained frames; no synchronous wait or extra event consumer. */
+  public function requestTextPreparation(TextSpec $spec): ?RendererTextPreparationRequest
+  {
+    if (!$this->started || $this->closed || $this->closeRequested) {
+      throw new LogicException('Project text preparation requires an active renderer runtime.');
+    }
+    return $this->client->requestTextPreparation($spec);
+  }
+
+  public function releaseTextPreparation(RendererTextPreparationRequest $request): void
+  {
+    $this->client->releaseTextPreparation($request);
   }
 
   public function present(?SceneInterface $scene, ?NotificationManager $notifications = null): bool

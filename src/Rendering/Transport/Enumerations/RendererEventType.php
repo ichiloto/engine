@@ -16,4 +16,7 @@ enum RendererEventType: string
   case FRAME_ACK = 'frame_ack';
   case FRAME_REJECTED = 'frame_rejected';
   case RESIZED = 'resized';
+  case TEXT_PREPARED = 'text_prepared';
+  case TEXT_PREPARE_FAILED = 'text_prepare_failed';
+  case TEXT_RELEASED = 'text_released';
 }

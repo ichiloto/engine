@@ -704,6 +704,28 @@ thread, pending requests are bounded at 64, accepted frames retain their live
 layout references, and project/session retirement releases their registry.
 Synthetic bidi/contextual/combining-mark cases must qualify actual shaping.
 
+Engine's typed query models, strict reply parser and shared session broker are
+implemented. Runtime exposes the same nonblocking request/release API without
+adding an event consumer or advancing retained generations. Tickets preserve
+actual resource refusals, signed metric bearings, final-owner cached-handle
+retention, late cancellation, bounded cleanup/backpressure and retirement on
+close/failure/restart. A deterministic PHP pipe peer checks actual transport
+serialization, not native font shaping. The latest independent JUnit inspection
+confirms all eight query/model/parser/runtime/client/retained/compatibility/
+presentation families pass: 575 tests / 1,456 assertions, no errors, failures
+or skips. Scoped shared PHPStan level 3, new-model/parser level 5, 20-file syntax
+and whitespace checks pass. Earlier combined execution passed all 635 cases;
+its report contained malformed fixture bytes in dataset names, since corrected.
+Two later complete 635-case runs each retain one failure in unchanged startup
+error tests (150 ms startup diagnostic, then one-second pre-session rejection).
+Heavy concurrent desktop CPU use was observed, but timing sensitivity is not
+silently treated as a proven baseline defect or a clean combined run. No timeout
+was raised and no case was skipped. Original failed and final per-family evidence
+remain on secondary `test-tmp/project-text-query-20261011-0213`. This is not a
+full Engine/Game rerun, native painting or other-platform qualification.
+World-canvas/label frame composition, localized map-sign/font-role consumers,
+source-preserving authoring and production font/art admission remain open.
+
 World groups share the 1,024-subject ceiling with ordinary field sprites; all
 screen/group images, indicators, composites and canvas text consume aggregate
 candidate limits. Existing screen grid-text and canvas-text pools each retain
@@ -724,12 +746,16 @@ diagnostic is retained. Evidence is on secondary
 `test-tmp/canvas-nine-slice-repeat-20261011-MYQVgz`; owned worker cache/tmp were
 removed and the completed worker is closed. No new full suite, native or
 other-platform qualification is inferred.
-Appearance and font evidence,
-source-preserving authoring, admission and native checks remain open.
+Font evidence, source-preserving authoring, admission and native checks remain
+open.
 Art's two blank boards and six slices are delivered; the coordinator verified
 the closed 48-member package and all eight PNGs, then inspected facade, width
 and alpha proofs. Sample lettering is illustrative, not a shipped runtime font.
-The board appearance question is presented once here after showing actual art.
+Andrew answered "Approve both board styles" on October 11 after the actual art
+was shown. This accepts both boards' appearance and scale only, not the sample
+font, missing license declarations or new variants. The exact scope was relayed
+to Claude and Art and recorded in Art's existing review/receipts; no import or
+native runtime signage acceptance is inferred.
 
 Andrew separately approved the Play workflow through Claude: a new game on the
 open map at the selected cell, skipping title by default, with "Play from the
@@ -1294,6 +1320,16 @@ frozen 397-path candidate and will follow that batch's introduction, with the
 four author-owned Lanternrest deltas preserved. CPU before evidence and test
 receipts are retained on the secondary drive under `stone-contours-20261011-0136`
 and `connected-keeps-20261011-0141`; no normal Game launch, saves or audio change.
+Claude subsequently staged the chosen substrate/floor backing through Editor's
+shared transactions in his named secondary-drive scratch, not the live Game.
+His local Editor consumer `ee3c739` reports 2,437 passing tests, still unpublished.
+The coordinator independently rendered the same 28x15 eastern-service-road crop
+from those staged assets: zero fully transparent pixels, compared with 2,717
+before, and personally inspected soil-backed contours without black rims.
+The after PNG/JSON is retained beside the before proof. Three staged coverage
+gaps remain owner-controlled (held Lanternrest, mounted fixtures without a wall
+face, and the cellar outer edge). Neither this CPU proof nor the Editor handback
+releases the Game candidate hold or claims a native/live correction.
 
 Shared route authoring now edits the Engine's steps/waypoints/retrace union
 without persisting the GUI's mode selector, fabricating omitted axes or deriving
