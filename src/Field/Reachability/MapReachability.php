@@ -240,9 +240,11 @@ final readonly class MapReachability
   private function canStandOn(int $x, int $y, array $blocked): bool
   {
     $collision = $this->collisions[$y][$x] ?? null;
+    // Map loading validates cells; direct analysis retains its tolerance of unknown non-null values.
+    $collisionType = is_int($collision) ? CollisionType::tryFrom($collision) : null;
 
     return $collision !== null
-      && ! in_array($collision, [CollisionType::SOLID->value, CollisionType::NPC->value, CollisionType::COUNTER->value], true)
+      && $collisionType?->blocksMovement() !== true
       && ! isset($blocked[self::key($x, $y)]);
   }
 

@@ -24,4 +24,12 @@ enum CollisionType: int
    * to an NPC directly behind it, as across a shop or inn counter.
    */
   case COUNTER = 10;
+
+  public function blocksMovement(): bool
+  {
+    return match ($this) {
+      self::SOLID, self::NPC, self::COUNTER => true,
+      default => false,
+    };
+  }
 }
