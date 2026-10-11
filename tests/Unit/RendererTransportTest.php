@@ -184,7 +184,8 @@ it('traces bounded startup milestones without consuming events or changing resta
 it('records startup failure evidence before cleanup changes child state or exit status', function ($scenario, $diagnostic, $stdout, $running, $exitCode) {
   $this->records = [];
   $this->traceTime = 1_000_000_000;
-  $transport = makeS2Transport($scenario, ['startupTimeout' => 0.15, 'diagnosticBufferBytes' => 8]);
+  // Only the timeout scenario needs a short deadline; process startup is scheduled by the OS.
+  $transport = makeS2Transport($scenario, ['startupTimeout' => $scenario === 'startup_timeout' ? 0.15 : 1.0, 'diagnosticBufferBytes' => 8]);
   $beforeCleanup = null;
   LatencyTrace::configure(function (array $record) use ($transport, &$beforeCleanup): void {
     $this->records[] = $record;
@@ -247,7 +248,7 @@ it('records startup failure evidence before cleanup changes child state or exit 
 
 it('leaves startup observations and the diagnostic clock unused when tracing is disabled', function ($scenario) {
   LatencyTrace::configure(null, fn() => throw new LogicException('Disabled trace clock must not be read.'));
-  $transport = makeS2Transport($scenario, ['startupTimeout' => 0.15]);
+  $transport = makeS2Transport($scenario, ['startupTimeout' => $scenario === 'startup_timeout' ? 0.15 : 1.0]);
   if ($scenario === 'normal') {
     $transport->start(s2Session());
     expect($transport->pollEvents()[0]->type)->toBe(RendererEventType::READY);
@@ -315,7 +316,7 @@ it('surfaces typed events in order and ignores blank lines without action policy
 });
 
 it('rejects startup errors, timeouts, and early exit with diagnostics and released resources', function ($scenario, $diagnostic) {
-  $transport = makeS2Transport($scenario, ['startupTimeout' => 0.15]);
+  $transport = makeS2Transport($scenario, ['startupTimeout' => $scenario === 'startup_timeout' ? 0.15 : 1.0]);
   $start = hrtime(true);
   try {
     $transport->start(s2Session());

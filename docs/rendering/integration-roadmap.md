@@ -954,8 +954,8 @@ decision state; publication still passes the unchanged safeguard.
 | --- | --- | --- |
 | Current field asset-role coverage | Claude/Game, Art through coordinator | The reviewed map/save batch is published as Game a4a2b83, preserving all four newer Lanternrest edits. All nineteen reachable maps have material layers; all five authored semantic save points are bound. Sleep/Shared, roofs, seats, Waymeet fixtures and Recovery damage are admitted and their reviewed bindings are in the published batch. Wood/stone sign resources and Silkscreen roles are admitted and published (b7819b5, 6e67451), but no native board composition or authored map-sign placement is claimed. Andrew explicitly authorized the three remaining local imports and approved the eleven new Controller poses on October 11. Claude implemented nine tree/grove resources in Game fb296a2 and thirty-one whole-object/scripted-state resources plus the existing Route Controller NPC's revision-2 sheet binding in c61653d, with 146 focused passes reported. The manual-import and missing separate licence-declaration exceptions are recorded with provenance; they grant no new designs, map-layout changes, spending or publishing. Author-owned placements, actual whole-object/scripted-state bindings and representative native inspection remain open. Missing Aeryn/Orwin/Thalric field sheets are not invented or silently substituted. Disconnected prototypes and author-owned map edits remain untouched. The private Game ledger owns the detailed asset inventory; material coverage is not complete map dressing. |
 | Graphical maps and safe GUI authoring | Claude/Editor/GUI | Source-preserving drawing, copy/cut/paste, piece/shape tools, map insertion/duplication/relocation, visibility, field-sheet selection and staged-actor controls have qualified behavioral and bounded native evidence below. Shared authoring canvas and Play workflow are now published on existing Editor/GUI develop (a602229, 65cf8b6); Console c558aec supplies owned terminal sessions. Editor 7ae8955 adds glyph-effect authoring and refuses unsafe export of non-instantiable PHP objects before writing. Published Editor 28e20fc adds the shared TileCoverage consumer: every map with a kind receives warnings for ground stacks that can expose the background, without map-specific exemptions or automatic edits. Unavailable pixel facts produce a diagnostic, not a pass. Its reported full suite passes 2,455 tests; GUI's latest reported suite passes 161. Representative native production-art/canvas checks and remaining author decisions are not closed by automated tests. |
-| Shared field/cinematic previews | Codex/Engine, Claude/Editor/GUI | SceneFrameComposer, isolated presentation context/Console capture, named runtime grid, retained paint, host epochs and READY/ACK/rejection lifecycle are implemented and published. October 8-10 native receipts below cover normal/reduced previews, both tabs, restart/seek/reconnect, camera follow, watched/skipped transfers, persistent failure diagnostics and forbidden Skip, with their explicit limits. Current Engine c3d63d2 / Game dcbec3b cinematic-return CPU preflight passes with preserved files and no native launch. October 11 native observations below were interrupted before input by focus loss and a READY timeout; cinematic-return held input and native production-art/sign composition remain unverified. No screenshot timeout, incomplete launch or pre-READY input attempt is counted as acceptance. |
-| Held walking and input lifecycle | Codex/Engine/Renderer | The empty event-session latch is corrected globally. Muted native Home checks cover dialogue, tap walking, camera scrolling, menu cancellation and resumed movement. Andrew's four October 10 physical checks passed and are closed: simultaneous holds, partial/full release, barrier turning and application switch. The 120-second receipt confirms 5,472 preservation fingerprints unchanged and no audio backend. Cinematic-return held input remains a distinct open check because event triggers were isolated in the successful walking run; the four passed checks will not be repeated. |
+| Shared field/cinematic previews | Codex/Engine, Claude/Editor/GUI | SceneFrameComposer, isolated presentation context/Console capture, named runtime grid, retained paint, host epochs and READY/ACK/rejection lifecycle are implemented and published. October 8-10 native receipts below cover normal/reduced previews, both tabs, restart/seek/reconnect, camera follow, watched/skipped transfers, persistent failure diagnostics and forbidden Skip, with their explicit limits. Andrew's October 11 open-space physical check and receipt native-20261011-130923-2f66a38493309e3f now close held-key cinematic return. Earlier interrupted launches are historical attempts, not acceptance. The separate arrival/control-handoff fix is locally implemented and qualified with synthetic regressions below; fresh native inspection of that correction and production-art/sign composition remain open. No screenshot timeout, incomplete launch or pre-READY input attempt is counted as acceptance. |
+| Held walking and input lifecycle | Codex/Engine/Renderer | The empty event-session latch is corrected globally. Muted native Home checks cover dialogue, tap walking, camera scrolling, menu cancellation and resumed movement. Andrew's four October 10 physical checks passed and are closed: simultaneous holds, partial/full release, barrier turning and application switch. The 120-second receipt confirms 5,472 preservation fingerprints unchanged and no audio backend. His October 11 open-space check also passes: movement stays stopped through the cinematic and after return until release and a fresh press; the probe preserved normal files and used no audio backend. These five accepted physical checks will not be repeated. The separate arrival/control-handoff correction removes stale extra steps, preserves committed arrivals and scripted routes, and passes 324 focused checks. Fresh native observation of that correction is not claimed. |
 | Regression and bounded native proof | Coordinator and owners | The final immutable Game candidate passes full CI on Engine ba48523: 1,908 tests / 1,701,078 assertions, exit zero, no JUnit failures/errors/skips, with the existing battle-simulations exclusion. This supersedes the older town-center orphan failure, not later live edits. The published batch plus disjoint font admission passes current-Engine a8c1196 substrate/timeline/barrier checks: 29 / 4,137. Game dfa4953 publishes backing for three exterior maps/seven interiors; its focused checks pass 2 / 80, without changing existing substrate cells. Published Game dcbec3b removes its duplicate pixel reader and uses Engine TileCoverage; the reported focused checks pass 2 / 76. The all-map warning reports remaining author-owned gaps in Garden Route Control (5 cells), Lanternrest Wayhouse (170) and Inn Cellar (6), without editing those maps or exempting them. Engine c3d63d2's six-family coverage qualification passes 172 / 1,694 with scoped analysis; declarative-glyph checks pass 639 / 1,000. Prior full Engine and Renderer receipts remain dated below rather than relabelled current. Semantic map-grid whitespace and seven extra EOF lines remain in the reviewed Game bytes. GUI repository-wide formatting/strict-Clippy limitations remain unchanged and unsuppressed. Native completion and Windows/Linux/WSLg testing are not claimed. |
 
 The October 11 cinematic-return preflight and two observations use the normal
@@ -1006,6 +1006,123 @@ in secondary `test-tmp/engine-startup-qualified-20261011.3C7WFqAl`; generated
 fixtures and analysis cache are disposable. This is startup observability, not
 native acceptance or a timeout/lifecycle change. No full suite or other-platform
 qualification is claimed for this patch.
+
+The qualified diagnostics are published on Engine develop as `e4a450f`, updating
+existing PR 96 without a main write. Claude's approved existing-footprint bindings
+are now published on Game develop through `7f0548d`: Waymeet records/clinical
+counters and waiting columns, the Assessment rescue dummy and Field Sector
+workbenches. Eight even-width resource pivots are aligned with the actual
+cell-centred ground-contact convention; collision and unrelated cells remain
+unchanged. Claude reports 266 focused Game checks / 444,204 assertions, not a
+new full suite. Unassigned facility blocks remain pending an authored decision.
+
+Fresh CPU preflight `preflight-20261011-115651-9b07afc38b830caf` passes against
+Engine `e4a450f` / Game `7f0548d`. Its single instrumented native observation
+`native-20261011-115951-1314fe372fdecb7e` records a launched child, all 473 HELLO
+bytes accepted by the OS pipe, validated protocol-2 READY after 1.86 seconds,
+and an active presented frame after 2.48 seconds. It stays active through the
+70-second bound and submits 2,917 frames, but the inspection inventory does not
+locate the running test window: no physical controls, committed arrivals or
+cinematic occur. It therefore ends `bounded-native-observation-incomplete`,
+not accepted. Child and host exit zero, the exclusive group is reaped without
+watchdog or residual children, all 17,727 preservation entries and 103 original
+evidence files are unchanged, and audio remains fully muted with no backend.
+These receipts are in the existing cinematic-return capsule. This run supplies
+startup evidence, not a fix for the earlier intermittent timeout or cinematic
+return acceptance. Claude's temporary Game write hold is released. The coordinator
+asks Andrew for one distinct physical cinematic-return check; his four passed
+walking checks remain closed. No further blind native retry is scheduled.
+
+October 11 physical cinematic-return acceptance now closes the distinct
+held-key return check. Andrew requested an open map after the Home wall masked
+the previous observation. The reviewed probe uses normal transfer into current
+Town Center and selects its spawn from current collision/NPC data; no authored
+map, collision, save or settings changes are made. Fresh CPU preflight
+`preflight-20261011-130601-cb7210e710ab6714` verifies 25 clear Up cells and the
+real cinematic lifecycle, with music/SFX/voice false, master zero and no audio
+backend. Native receipt `native-20261011-130923-2f66a38493309e3f` records the
+card's completed return with 22 cells still open, the original Up press held
+without movement for 3.76 seconds after return, an actual release, and resumed
+walking only after a distinct fresh Up press. Andrew confirms: "It worked as
+expected. Kaelion stopped once the card came up and remained stopped after it
+desappeared. He resumed. walking after pressing Up again."
+The window closes automatically after fresh movement and release; host and
+renderer exit zero, the host is reaped, no watchdog or residual group is used,
+and all normal preservation entries and 103 original evidence files remain
+unchanged. The probe now loads the normal AppConfig icon; this corrects its
+earlier generic test-launch icon, not a demonstrated production icon regression.
+Claude's Game write hold at `d6aa2e1` is released. No further human rerun is
+needed for held-key return. G4 remains incomplete: separate telemetry also
+records one already-started step arriving during cinematic ownership. Inspect
+the shared pending-arrival/control handoff with synthetic fixtures; this return
+acceptance does not certify that boundary or other-platform behavior.
+
+Andrew's four October 11 layout choices are now closed as decisions and recorded
+in the existing authoritative private Game ledger. Claude reports approved
+furniture and grove placements in Game `a8c9b8f`, with current facades preserved
+and 266 focused checks / 444,204 assertions passing. These are implementation
+and CPU-composition results, not native visual acceptance. Crosswind's approved
+shrink still requires shared safe row/column removal with source-preserving
+transactions, undo and affected-reference relocation, owned by Claude in
+Editor/GUI before Game applies the authored change. Whole-tree brush authoring
+and remaining author-owned locations stay in that lane. The coordinator and
+Engine arrival-handoff worker do not edit Editor/GUI. Andrew subsequently
+answered the bounded three-sheet question, "Authorize three sheet proposals".
+The exact approval covers Aeryn, Orwin and Thalric using approved appearances
+and established field style/scale: three proposals only, with no paid external
+jobs, redesign or runtime import. Art received that approval and is preparing
+the sheets for review. Appearance/pose acceptance and admission remain separate;
+the earlier read-only audit is not misrepresented as production. Claude also
+found eight bound Aeryn dialogue portraits and an unused menu portrait violating
+the no-cleavage rule, with no verified covered replacement. Covered battle Idle
+is the costume authority for her proposed field art, never those rejected
+portraits. A separate nine-portrait correction and temporary binding-removal
+decision is presented through the coordinator and remains pending.
+
+Engine develop `772d599` commits the October 11 arrival-handoff correction,
+which removes a stale extra step after a
+pending arrival transfers control, including an event that completes within the
+same frame. The previous committed arrival still completes exactly once;
+field generation, event ownership, input reset and scene lifecycle invalidate
+only the stale attempt. Already-owned and reentrant scripted routes remain
+valid. Field cancellation records the handoff before walking is initialized,
+and suspension cancels walking. Synthetic trigger, encounter and observer cases
+cover dialogue, cinematic, immediate events, cancellation, input reset,
+suspension, battle/menu return, relocation and new owned routes. Dedicated
+regressions pass 35 / 264; the six-family qualification passes 324 / 2,512 with
+strict warning/notice/deprecation gates, including PHPUnit notices. This is not
+a new native/platform claim or a repeat of the five accepted physical checks.
+The completed worker is closed; its owned analysis cache and synthetic fixtures
+are removed, small evidence remains on the secondary drive, and seven accidental
+worker-only primary-log lines were removed without changing the pre-existing log.
+
+Engine develop `8d72ec2` now reads declared `mapRemovals` through the shared save-compatibility
+manifest and runtime migration, unblocking Claude's source-preserving Editor
+row/column-removal consumer. Positions before removed lines stay put; removed
+positions use an author-confirmed post-removal landing; later positions shift
+back. Shifts apply before removals, then relocations, with map aliases and
+versioned exactly-once reloads preserved. Synthetic save checks pass 123 / 543;
+runtime uses frozen author decisions rather than searching mutable content.
+Crosswind's actual 39x13 / proposed 23x10 proof has been shown to Andrew; the
+size decision is pending, distinct from his closed "Furnish and shrink" intent.
+Editor/GUI implementation, its publication, and the actual Game resize belong
+to Claude, not the coordinator.
+
+The combined current Engine qualification passes 518 / 3,573, exit zero under
+strict issue gates, covering movement, save removal and process transport.
+Configured-level-0 analysis of the changed runtime files passes. The full Unit
+run executes 8,606 / 459,770 with no failures, errors or skips, but exits one
+under the strict gate because 815 PHPUnit notices remain in other passive-mock
+fixtures. This is not a clean full-suite pass; those notices are not suppressed.
+The first full attempt had one diagnostic-fixture failure: a real child given a
+150ms startup deadline was terminated before its expected exit. The test-only
+correction removes that scheduling assumption for non-timeout scenarios while
+retaining short timeout cases, existing exit/lifecycle assertions and unchanged
+production deadlines. Evidence is retained in secondary
+`test-tmp/g4-map-removal-20261011.gysN75ef`; raw JUnit dataset names contain
+control/non-UTF-8 fixture bytes, so result inspection sanitizes a read-only
+in-memory copy, never the original evidence. No fresh native, PHP 8.4 or
+Windows/Linux/WSLg qualification is claimed.
 
 Latest October 9 verification after shared field/UI changes: full Engine Unit
 passes 7,034 tests / 451,181 assertions, exit 0, with no errors, failures or skips
@@ -3522,10 +3639,15 @@ renderer slides field sprites between cells over each step's duration and
 moves a following camera with the player on one clock. Terminal event-only
 input, route timing and retained-cell composition are unchanged.
 
-Remaining: one bounded native acceptance pass of held walking in the ordinary
-Game; diagonal movement (four-directional movement is the current rule);
-physical controllers and analog magnitude; enhanced terminal reporting; and
-whole-game input/platform qualification.
+Bounded macOS physical acceptance: Andrew's four October 10 walking checks and
+October 11 open-space cinematic-return check pass as recorded in the G4 checklist.
+They do not establish other platforms or whole-game input qualification.
+
+The separate pending-arrival/control-handoff edge is locally corrected and
+synthetically qualified in the G4 checklist; fresh native inspection is not
+claimed. Remaining: diagonal movement (four-directional movement is the current
+rule); physical controllers and analog magnitude; enhanced terminal reporting;
+and whole-game input/platform qualification.
 
 ## Battle presentation direction
 
