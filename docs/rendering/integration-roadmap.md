@@ -987,6 +987,23 @@ to redesign or alter maps. These images close only the pictured Town Center
 appearance checks; tree/actor occlusion, motion, transfers, save use, interiors,
 GUI authoring and the three new party leaders are not demonstrated.
 
+The later October 11 interior proof passed its CPU composition preflight but
+failed the native READY handshake before any inspected frame. Receipt
+`native-20261011-183005-e3832d71ce` records host exit one, renderer exit 143,
+no protected-file changes and no residual owned process group. It is not
+interior or leader visual acceptance. Cleanup exposed a shared scene lifecycle
+defect: a never-started scene tried to remove a null modal listener, and repeated
+startup could register duplicate owned listeners. AbstractScene now registers
+its modal listener once, tolerates cleanup before registration and clears its
+owned reference after removal; unrelated listeners and normal modal behavior
+remain intact. Synthetic tests reproduce both interrupted-start stages and
+repeated start/stop/restart. The corrected scene/preview/battle/field regression
+set passes 708 tests / 12,135 assertions under strict issue gates, exit zero,
+with 512 MiB test memory and temporary output on the secondary drive. An earlier
+128 MiB sandboxed attempt exhausted memory and is not a passing run. This
+focused result does not replace full-suite or native acceptance. No further
+native launch is claimed; desktop availability confirmation remains pending.
+
 The October 11 cinematic-return preflight and two observations use the normal
 Game checkout, live Engine and installed renderer, with only fresh evidence on
 the secondary drive. The refreshed runner changes its reviewed reference pair,

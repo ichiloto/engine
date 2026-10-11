@@ -254,6 +254,10 @@ abstract class AbstractScene implements SceneInterface
    */
   protected function initializeEventHandlers(): void
   {
+    if ($this->modalEventHandler !== null) {
+      return;
+    }
+
     $this->modalEventHandler = function (ModalEvent $event) {
       if ($this->sceneManager->currentScene !== $this) {
         return;
@@ -284,6 +288,11 @@ abstract class AbstractScene implements SceneInterface
 
   protected function deregisterEventHandlers(): void
   {
+    if ($this->modalEventHandler === null) {
+      return;
+    }
+
     $this->eventManager->removeEventListener(EventType::MODAL, $this->modalEventHandler);
+    $this->modalEventHandler = null;
   }
 }
