@@ -21,7 +21,7 @@ use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererProtocolException;
 
-/** Session-local scene assembly; providers still own projection, clocks, map identity and cleanup. */
+/** Shared frame assembly; providers still own projection, clocks, map identity and cleanup. */
 final class SceneFrameComposer
 {
   private readonly GraphicalSpriteCollector $collector;
@@ -40,7 +40,7 @@ final class SceneFrameComposer
    * @param Closure(list<string>, list<string>): (ConsolePresentationSnapshot|ConsolePresentationChanges) $collectText
    * Runtime refreshes Terminal overlays before cached handoffs; isolated previews refresh them here.
    */
-  public function composeFrame(?SceneInterface $scene, RendererGridConfig $grid, Closure $supports,
+  public function composeFrame(SceneInterface|FramePresentationSourceInterface|null $scene, RendererGridConfig $grid, Closure $supports,
     Closure $collectText, ?NotificationManager $notifications = null, bool $refreshOverlay = true): SceneFrameComposition
   {
     $overlaySupported = $supports(RendererSessionConfig::CANVAS_OVERLAY);
@@ -50,11 +50,11 @@ final class SceneFrameComposer
     $width = $grid->columns * $grid->cellWidth;
     $height = $grid->rows * $grid->cellHeight;
     $canvas = $scene instanceof CanvasProviderInterface ? $scene->getPresentationCanvas() : null;
-    $dialogue = $scene === null ? null : $this->dialogue->compose($scene, $canvas, $width, $height,
+    $dialogue = $scene instanceof SceneInterface ? $this->dialogue->compose($scene, $canvas, $width, $height,
       $overlaySupported && $supports(RendererSessionConfig::GRAPHICAL_CANVAS)
         && $supports(RendererSessionConfig::CANVAS_CLIP_OPACITY) && $supports(RendererSessionConfig::SPRITE_SOURCE_RECT),
       $supports(RendererSessionConfig::GRAPHICAL_CANVAS) && $supports(RendererSessionConfig::CANVAS_CLIP_OPACITY)
-        && $supports(RendererSessionConfig::SPRITE_SOURCE_RECT), $supports(RendererSessionConfig::CANVAS_IMAGE_TONE));
+        && $supports(RendererSessionConfig::SPRITE_SOURCE_RECT), $supports(RendererSessionConfig::CANVAS_IMAGE_TONE)) : null;
     $canvas = $dialogue !== null ? $dialogue->canvas : $canvas;
     if ($canvas !== null && !($dialogue?->isOverlay ?? false)) {
       $sceneOverlay = $scene instanceof CanvasOverlayProviderInterface && $overlaySupported
@@ -64,7 +64,8 @@ final class SceneFrameComposer
         : PresentationCanvas::composeOverlay($sceneOverlay, $noticeCanvas));
     }
     $collection = LatencyTrace::getTimeNow();
-    $sprites = $this->collector->collect($scene);
+    $sprites = $scene instanceof SceneInterface || $scene === null ? $this->collector->collect($scene)
+      : PresentationSprite::orderedList($scene->getPresentationSprites());
     $slides = $supports(RendererSessionConfig::FIELD_MOTION);
     if (!$slides) { $sprites = array_map(static fn($sprite) => $sprite->withoutMotion(), $sprites); }
     LatencyTrace::end('presentation.sprites', $collection, ['count' => count($sprites)]);
