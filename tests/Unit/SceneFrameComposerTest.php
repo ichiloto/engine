@@ -145,8 +145,8 @@ beforeEach(function () {
   $this->root = createTestDirectory('ichiloto-composition-');
   Debug::configure(['log_directory' => $this->root]);
   $this->grid = new RendererGridConfig(8, 4, 48, 48);
-  $ui = $this->getMockBuilder(UIManager::class)->disableOriginalConstructor()
-    ->onlyMethods(['getActivePresentations'])->getMock();
+  $ui = $this->getStubBuilder(UIManager::class)->disableOriginalConstructor()
+    ->onlyMethods(['getActivePresentations'])->getStub();
   $ui->method('getActivePresentations')->willReturn([]);
   $this->scene = new CompositionSceneProbe($this->grid, $ui);
   $this->scene->world = PresentationWorld::getFromLayers(new MapLayerSet([
@@ -289,12 +289,12 @@ it('keeps dialogue transparent over the field and screen cover and notices above
   mkdir($this->root . '/Data/Presentation', 0700, true);
   file_put_contents($this->root . '/Data/Presentation/dialogue.php', '<?php return ' . var_export([
     'schema' => 'ichiloto.dialogue/1', 'theme' => ['schema' => 'ichiloto.menu/1']], true) . ';');
-  $owner = $this->getMockBuilder(TextBoxModal::class)->disableOriginalConstructor()
-    ->onlyMethods(['getDialogueSnapshot'])->getMock();
+  $owner = $this->getStubBuilder(TextBoxModal::class)->disableOriginalConstructor()
+    ->onlyMethods(['getDialogueSnapshot'])->getStub();
   $owner->method('getDialogueSnapshot')->willReturn(new DialogueSnapshot('Synthetic speaker', 'Synthetic page.',
     'Synthetic page.', false, 0, 1, false, WindowPosition::BOTTOM, new DialogueContext()));
-  $ui = $this->getMockBuilder(UIManager::class)->disableOriginalConstructor()
-    ->onlyMethods(['getActivePresentations'])->getMock();
+  $ui = $this->getStubBuilder(UIManager::class)->disableOriginalConstructor()
+    ->onlyMethods(['getActivePresentations'])->getStub();
   $ui->method('getActivePresentations')->willReturn([$owner]);
   new ReflectionProperty(GameScene::class, 'uiManager')->setValue($this->scene, $ui);
   $this->grid = $this->scene->grid = new RendererGridConfig(80, 30, 16, 24);

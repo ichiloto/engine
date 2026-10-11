@@ -224,7 +224,7 @@ it('finishes a real queued command before holding its lethal own-turn tick in bo
     $prior = ConfigStore::has(ProjectConfig::class) ? ConfigStore::get(ProjectConfig::class) : null;
     $delta = new ReflectionProperty(Time::class, 'deltaTime')->getValue();
     ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reducedMotion]]));
-    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createMock(AudioManager::class));
+    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createStub(AudioManager::class));
     [$engine, $context, $screen, $actor, $ally, $enemies] = $fixture;
     $battler = $partyTick ? $actor : $enemies[0];
     $target = $partyTick ? $enemies[0] : $actor;

@@ -1,7 +1,6 @@
 <?php
 
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
-use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Field\MapGridSource;
@@ -37,6 +36,7 @@ use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Tests\Support\Input\FakeRendererTransport;
+use Tests\Support\PassiveGame;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
 
@@ -281,11 +281,11 @@ it('scrolls through the real field compositor and runtime without revisiting sta
     $runtime = $this->runtime = new RendererRuntime(new RendererRuntimeConfig(
         new RendererProcessConfig(['fixture']), $this->root, cellWidth: 10, cellHeight: 20), $transport);
     $runtime->start('Retained scroll guard', $columns, $rows);
-    $game = $this->getMockBuilder(Game::class)->disableOriginalConstructor()
-        ->onlyMethods(['getRendererRuntime', '__destruct'])->getMock();
+    $game = $this->getStubBuilder(PassiveGame::class)->disableOriginalConstructor()
+        ->onlyMethods(['getRendererRuntime'])->getStub();
     $game->method('getRendererRuntime')->willReturn($runtime);
-    $scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()
-        ->onlyMethods(['getGame'])->getMock();
+    $scene = $this->getStubBuilder(GameScene::class)->disableOriginalConstructor()
+        ->onlyMethods(['getGame'])->getStub();
     $scene->method('getGame')->willReturn($game);
     new ReflectionProperty(AbstractScene::class, 'sceneManager')->setValue($scene,
         new ReflectionClass(SceneManager::class)->newInstanceWithoutConstructor());

@@ -9,6 +9,9 @@ use Ichiloto\Engine\Field\RegionMap;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\UI\UIManager;
+use Tests\Support\PassiveGame;
+
+require_once __DIR__ . '/Support/PassiveGame.php';
 
 /*
 |--------------------------------------------------------------------------
@@ -350,7 +353,7 @@ class RecordingAudioManager extends AudioManager
  */
 function makeSceneAudioGame(): array
 {
-  $game = (new ReflectionClass(Game::class))->newInstanceWithoutConstructor();
+  $game = new PassiveGame();
   $audioManager = new RecordingAudioManager($game);
   new ReflectionProperty(Game::class, 'audioManager')->setValue($game, $audioManager);
 

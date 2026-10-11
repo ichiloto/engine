@@ -956,7 +956,33 @@ decision state; publication still passes the unchanged safeguard.
 | Graphical maps and safe GUI authoring | Claude/Editor/GUI | Source-preserving drawing, copy/cut/paste, piece/shape tools, map insertion/duplication/relocation, visibility, field-sheet selection and staged-actor controls have qualified behavioral and bounded native evidence below. Shared authoring canvas and Play workflow are published on existing Editor/GUI develop (a602229, 65cf8b6); Console c558aec supplies owned terminal sessions. Editor 7ae8955 adds glyph-effect authoring and refuses unsafe export of non-instantiable PHP objects before writing. Published Editor 28e20fc adds the shared TileCoverage consumer: every map with a kind receives warnings for ground stacks that can expose the background, without map-specific exemptions or automatic edits. Unavailable pixel facts produce a diagnostic, not a pass. Editor b8c2de6 / GUI a5871dd implement reviewed row/column removal through the shared source-preserving line plan, affected-reference inventory, undo and Engine mapRemovals contract. Relative move_route steps on the edited map now require hand edits for insertion as well as removal. Editor af69918/c1b71b0 and GUI 73719d1 implement the whole-tree brush; trunks require the map's own declared collision, preserve walkable connectivity and respect the 128-object limit. Editor 4878544 / GUI f587f23 implement reviewed save relocations when a map save makes reachable floor solid: confirmation checks the shown fingerprint, Cancel writes nothing and Undo removes the manifest step. Save All / Save and Quit leave such maps unsaved for individual review. Direct-resize cells cut off the map are not covered by this review; line removal has its own landing, and projects without a manifest retain immediate saving. Current owner receipts report full Editor 2,489 / 106,185 and GUI 168 passes, with existing develop refs at Editor 4800fb4 / GUI f587f23. Native removal-dialog, tree-brush and save-relocation review checks remain open, as do GUI actor field-role/player-mode selection and representative production-art/canvas checks. Automated tests do not close those checks or remaining author decisions. |
 | Shared field/cinematic previews | Codex/Engine, Claude/Editor/GUI | SceneFrameComposer, isolated presentation context/Console capture, named runtime grid, retained paint, host epochs and READY/ACK/rejection lifecycle are implemented and published. October 8-10 native receipts below cover normal/reduced previews, both tabs, restart/seek/reconnect, camera follow, watched/skipped transfers, persistent failure diagnostics and forbidden Skip, with their explicit limits. Andrew's October 11 open-space physical check and receipt native-20261011-130923-2f66a38493309e3f now close held-key cinematic return. Earlier interrupted launches are historical attempts, not acceptance. The separate arrival/control-handoff fix is published as Engine 772d599 and qualified with synthetic regressions below; fresh native inspection of that correction and remaining production-art composition stay open. Sign labels are visually confirmed in the separate read-only proof below. No screenshot timeout, incomplete launch or pre-READY input attempt is counted as acceptance. |
 | Held walking and input lifecycle | Codex/Engine/Renderer | The empty event-session latch is corrected globally. Muted native Home checks cover dialogue, tap walking, camera scrolling, menu cancellation and resumed movement. Andrew's four October 10 physical checks passed and are closed: simultaneous holds, partial/full release, barrier turning and application switch. The 120-second receipt confirms 5,472 preservation fingerprints unchanged and no audio backend. His October 11 open-space check also passes: movement stays stopped through the cinematic and after return until release and a fresh press; the probe preserved normal files and used no audio backend. These five accepted physical checks will not be repeated. The separate arrival/control-handoff correction removes stale extra steps, preserves committed arrivals and scripted routes, and passes 324 focused checks. Fresh native observation of that correction is not claimed. |
-| Regression and bounded native proof | Coordinator and owners | The final immutable Game candidate passes full CI on Engine ba48523: 1,908 tests / 1,701,078 assertions, exit zero, no JUnit failures/errors/skips, with the existing battle-simulations exclusion. This supersedes the older town-center orphan failure, not later live edits. The published batch plus disjoint font admission passes Engine a8c1196 substrate/timeline/barrier checks: 29 / 4,137. Game dfa4953 publishes backing for three exterior maps/seven interiors; its focused checks pass 2 / 80, without changing existing substrate cells. Published Game dcbec3b removes its duplicate pixel reader and uses Engine TileCoverage; the reported focused checks pass 2 / 76. The earlier all-map warning recorded Garden Route Control (5 cells), Lanternrest Wayhouse (170) and Inn Cellar (6); later Game d6aa2e1 adds reachable-floor/doorway backing and Editor 22878c6 adds shared reachable-untiled-cell warnings. The current private Game ledger leaves Waymeet/Inn-front/Lanternrest layout or coverage choices with Andrew and the Shop's three untiled exit cells with Game after its pending data edits, without automatic map edits or exemptions. Crosswind's owner receipt reports 357 / 499,539 focused save/terrain/relay passes; ca8eed5's leader-import receipt reports 235 focused passes, neither a full Game rerun nor native acceptance. Engine c3d63d2's six-family coverage qualification passes 172 / 1,694 with scoped analysis; declarative-glyph checks pass 639 / 1,000. Current Engine 306dcfe qualification passes 518 / 3,573 under strict issue gates; full Unit executes 8,606 / 459,770 without failures/errors/skips but exits one for 815 PHPUnit notices, not a clean full-suite pass. Prior full Engine and Renderer receipts remain dated below rather than relabelled current. Semantic map-grid whitespace and seven extra EOF lines remain in the reviewed Game bytes. GUI repository-wide formatting/strict-Clippy limitations remain unchanged and unsuppressed. Native completion and Windows/Linux/WSLg testing are not claimed. |
+| Regression and bounded native proof | Coordinator and owners | The final immutable Game candidate passes full CI on Engine ba48523: 1,908 tests / 1,701,078 assertions, exit zero, no JUnit failures/errors/skips, with the existing battle-simulations exclusion. This supersedes the older town-center orphan failure, not later live edits. The published batch plus disjoint font admission passes Engine a8c1196 substrate/timeline/barrier checks: 29 / 4,137. Game dfa4953 publishes backing for three exterior maps/seven interiors; its focused checks pass 2 / 80, without changing existing substrate cells. Published Game dcbec3b removes its duplicate pixel reader and uses Engine TileCoverage; the reported focused checks pass 2 / 76. The earlier all-map warning recorded Garden Route Control (5 cells), Lanternrest Wayhouse (170) and Inn Cellar (6); later Game d6aa2e1 adds reachable-floor/doorway backing and Editor 22878c6 adds shared reachable-untiled-cell warnings. The current private Game ledger leaves Waymeet/Inn-front/Lanternrest layout or coverage choices with Andrew and the Shop's three untiled exit cells with Game after its pending data edits, without automatic map edits or exemptions. Crosswind's owner receipt reports 357 / 499,539 focused save/terrain/relay passes; ca8eed5's leader-import receipt reports 235 focused passes, neither a full Game rerun nor native acceptance. Engine c3d63d2's six-family coverage qualification passes 172 / 1,694 with scoped analysis; declarative-glyph checks pass 639 / 1,000. The October 11 final Engine Unit qualification on afd6fb3 plus the reviewed test-only fixture corrections passes 8,614 / 459,759 with exit zero and no warning, notice, deprecation, risky, failure, error, skip or incomplete events. This supersedes the older 8,606 / 459,770 exit-one run with 815 passive-mock notices; strict issue gates remain enabled. The current live Game full run records 1,942 passes / 3 failures / 1,804,657 assertions; Claude's subsequently authorized affected-menu run passes 84 / 9,107, including all three formerly failing Quit cases, with no further full rerun. This is combined dated evidence, not a newly claimed full Game green result. Prior full Engine and Renderer receipts remain dated below rather than relabelled current. Semantic map-grid whitespace and seven extra EOF lines remain in the reviewed Game bytes. GUI repository-wide formatting/strict-Clippy limitations remain unchanged and unsuppressed. Native completion and Windows/Linux/WSLg testing are not claimed. |
+
+The October 11 Engine qualification corrects test ownership, not runtime
+behavior: passive dependencies use stubs rather than interaction-verification
+mocks, and a shared synthetic Game fixture owns neither bootstrap nor terminal
+teardown. PHPUnit ignores `__destruct` in `onlyMethods`; earlier partial doubles
+therefore retained real Game cleanup and could corrupt a later composed frame
+when a cycle was collected. The shared fixture removes that inherited lifecycle
+ownership from passive field, audio, notification and modal dependencies while
+preserving intentional real-Game constructor/destructor tests, callbacks and
+all behavioral assertions/interaction expectations. A new synthetic regression
+collects plain and partial-stub Game cycles inside both buffered and retained
+frames and verifies live Console, timer and renderer ownership remains intact.
+It passes 4 / 44; the affected/shared-helper/lifecycle-preservation set passes
+1,678 / 119,958; exactly one final full Unit run passes 8,614 / 459,759, exit zero,
+with all PHP/PHPUnit notice, warning, deprecation, risky and empty-suite gates
+enabled. The eight additions since the earlier baseline are four already
+committed scene-cleanup cases plus four new passive-fixture cases; no old test
+or behavioral assertion was removed. The assertion-count difference comes from
+existing variable-iteration frame/transport tests, not narrowed verification.
+Test memory is capped at 512 MiB and output stays on the secondary drive.
+Raw JUnit retains existing ANSI control bytes in dataset names and cannot be
+parsed as well-formed XML; qualification uses the complete event stream and
+process exit, with the original reports preserved. Compressed evidence and the
+exact command are in `test-tmp/g4-strict-unit-20261011.kbS0lk/`. The worker is
+closed, owned test scratch is cleaned, and the foreign result cache is unchanged.
+This does not establish native or Windows/Linux/WSLg acceptance.
 
 Andrew supplied native sign screenshots at 19:56:25 and 19:56:56 on October 11.
 The coordinator inspected all four rendered boards: HOME and HAPPYVILLE WORKSHOP
@@ -1001,8 +1027,49 @@ repeated start/stop/restart. The corrected scene/preview/battle/field regression
 set passes 708 tests / 12,135 assertions under strict issue gates, exit zero,
 with 512 MiB test memory and temporary output on the secondary drive. An earlier
 128 MiB sandboxed attempt exhausted memory and is not a passing run. This
-focused result does not replace full-suite or native acceptance. No further
-native launch is claimed; desktop availability confirmation remains pending.
+focused result does not replace full-suite or native acceptance. Andrew later
+confirmed that he had kept the desktop awake with VLC; no lock is inferred from
+the earlier startup or inspection failures.
+
+The subsequent October 11 read-only native runs reached READY and completed
+with exit zero: Home/Municipal/Crosswind in
+`native-20261011-194239-de614671cf`, Kaelion/Aeryn/Orwin/Thalric in
+`native-20261011-194829-77511c0cb9`, and Aeryn alone in
+`native-20261011-195443-41e491f992`. The leader receipts record all four headings,
+standing and four ordinary scripted steps through the live Player/Party field
+path; they do not establish physical input or visual acceptance. CUA native
+window selection still timed out despite the live host. Andrew then explicitly
+authorized native macOS screen capture of our owned test windows. The bounded
+interior capture attempt, `native-20261011-201502-ff6791f42b`, also completed
+normally but macOS could not create an image of the identified owned window.
+At that attempt the capture process reported Screen Recording access unavailable;
+its ancestry is ChatGPT.app and the bundled CodexCLI helper. Further launches
+were stopped pending usable capture permission, not desktop availability. Every run disables
+music/SFX/voice and autosave, uses no audio backend, preserves protected normal
+files, and removes its owned process group/run. The receipts are retained on
+the secondary drive in `test-tmp/g4-native-capture-20261011-2209/`; no screenshot
+failure is counted as acceptance. VLC and unrelated windows remain untouched.
+
+Andrew subsequently enabled Screen Recording. The read-only unsandboxed probe
+returns true; the tool-sandbox probe still returns false and must not be used
+to infer that his desktop is locked or permission is absent. Owned-window native
+capture now succeeds. Run `native-20261011-210247-495630cd6c` provides inspected
+Home, Municipal storage-fixture and Crosswind images in the same secondary
+evidence directory. The pictured floor/wall joins have no exposed black seams
+or terrain glyphs, the current furniture renders over continuous flooring, and
+Crosswind shows its approved compact furnishing and north/south wall faces.
+These stills establish those pictured compositions, not motion, depth overlap,
+collision, transfers, events or all-map coverage. An earlier timed run completed
+before its capture call and supplies no pixels; it is not accepted.
+
+Leader run `native-20261011-210806-13eec20203` reports all four selected actors,
+headings and walking patterns through an independently composed frame, but its
+fifteen captured native frames do not visibly show the changing player sprites
+and retain the North-facing HUD. The last requested capture found the owned
+window already closed. This contradicts visual acceptance; the leader check
+remains open while a bounded worker diagnoses fixture composition versus actual
+submitted presentation. No runtime defect is assumed from the scratch fixture
+alone. Both completed runs preserve normal files and reap their owned hosts.
 
 The October 11 cinematic-return preflight and two observations use the normal
 Game checkout, live Engine and installed renderer, with only fresh evidence on

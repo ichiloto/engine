@@ -313,12 +313,12 @@ it('restarts an active renderer once without replacing desired field or canvas s
   $this->runtime->start('Restart retained scene', 12, 4);
   $world = PresentationWorld::getFromLayers(new MapLayerSet([new MapLayer('terrain', 1, false, 'map', 'abc')]));
   $canvas = new PresentationCanvas(320, 180, [new CanvasImage('panel', 'panel.png', new CanvasRectangle(8, 8, 64, 32))]);
-  $scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()
-    ->onlyMethods(['getPresentationWorld', 'getPresentationCanvas', 'getGraphicalSpriteProviders'])->getMock();
+  $scene = $this->getStubBuilder(GameScene::class)->disableOriginalConstructor()
+    ->onlyMethods(['getPresentationWorld', 'getPresentationCanvas', 'getGraphicalSpriteProviders'])->getStub();
   $scene->method('getPresentationWorld')->willReturn($world);
   $scene->method('getPresentationCanvas')->willReturn($canvasMode ? $canvas : null);
-  $player = $this->getMockBuilder(Player::class)->disableOriginalConstructor()
-    ->onlyMethods(['getGraphicalSpriteDefinition', 'getGraphicalSpriteWorldPosition'])->getMock();
+  $player = $this->getStubBuilder(Player::class)->disableOriginalConstructor()
+    ->onlyMethods(['getGraphicalSpriteDefinition', 'getGraphicalSpriteWorldPosition'])->getStub();
   $player->method('getGraphicalSpriteDefinition')->willReturn(CharacterSheet::fromArray(characterSheetData())
     ->getFrame(\Ichiloto\Engine\Core\Enumerations\MovementHeading::SOUTH, 1, ['width' => 48, 'height' => 48]));
   $player->method('getGraphicalSpriteWorldPosition')->willReturn(new Vector2(2, 1));
@@ -619,7 +619,7 @@ it('caps terminal auto sizing at the battle footprint', function () {
 
 it('presents the same field ownership from real Game renders and blocked ticks without capturing partial frames', function () {
   $game = new RendererRuntimeGameProbe();
-  $scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()->onlyMethods(['render', 'getUI'])->getMock();
+  $scene = $this->getStubBuilder(GameScene::class)->disableOriginalConstructor()->onlyMethods(['render', 'getUI'])->getStub();
   $scene->method('getUI')->willReturn($this->createStub(UIManager::class));
   $sceneManager = makeBareScene(SceneManager::class);
   $sceneManager->currentScene = $scene;
@@ -629,7 +629,7 @@ it('presents the same field ownership from real Game renders and blocked ticks w
   ConfigStore::put(AppConfig::class, new SceneAudioConfigStub());
   $camera = new Camera($scene, 12, 4);
   new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
-  $player = $this->getMockBuilder(Player::class)->disableOriginalConstructor()->onlyMethods(['getGraphicalSpriteDefinition', 'getGraphicalSpriteWorldPosition'])->getMock();
+  $player = $this->getStubBuilder(Player::class)->disableOriginalConstructor()->onlyMethods(['getGraphicalSpriteDefinition', 'getGraphicalSpriteWorldPosition'])->getStub();
   $player->method('getGraphicalSpriteDefinition')->willReturn(CharacterSheet::fromArray(characterSheetData())
     ->getFrame(\Ichiloto\Engine\Core\Enumerations\MovementHeading::SOUTH, 1, ['width' => 48, 'height' => 48]));
   $player->method('getGraphicalSpriteWorldPosition')->willReturn(new Vector2(2, 1));
@@ -677,8 +677,8 @@ it('presents layered field ownership through the real field runtime and clears i
     new ReflectionProperty(MapManager::class, $name)->setValue($map, $value);
   }
   new ReflectionProperty(GameScene::class, 'mapManager')->setValue($scene, $map);
-  $player = $this->getMockBuilder(Player::class)->disableOriginalConstructor()
-    ->onlyMethods(['getGraphicalSpriteDefinition'])->getMock();
+  $player = $this->getStubBuilder(Player::class)->disableOriginalConstructor()
+    ->onlyMethods(['getGraphicalSpriteDefinition'])->getStub();
   $player->method('getGraphicalSpriteDefinition')->willReturn(null);
   new ReflectionProperty(Player::class, 'isActive')->setValue($player, true);
   new ReflectionProperty(GameScene::class, 'player')->setValue($scene, $player);
@@ -730,8 +730,8 @@ it('uses the same field eligibility for the terrain world and Player and clears 
     new MapLayer('terrain', 1, false, 'field', implode("\n", array_fill(0, 4, str_repeat(';', 12)))),
   ], legacy: true));
   new ReflectionProperty(GameScene::class,'mapManager')->setValue($scene,$map);
-  $player = $this->getMockBuilder(Player::class)->disableOriginalConstructor()
-    ->onlyMethods(['getGraphicalSpriteDefinition'])->getMock();
+  $player = $this->getStubBuilder(Player::class)->disableOriginalConstructor()
+    ->onlyMethods(['getGraphicalSpriteDefinition'])->getStub();
   $player->method('getGraphicalSpriteDefinition')->willReturn(null);
   new ReflectionProperty(Player::class,'isActive')->setValue($player,true);
   new ReflectionProperty(GameScene::class,'player')->setValue($scene,$player);

@@ -617,7 +617,7 @@ it('keeps one anchor and topmost layering across field stacked menus modals and 
   foreach ([null, $menu, $modal, $menu, null] as $base) {
     $scene = null;
     if ($base !== null) {
-      $scene = $this->createMock(NotificationCanvasSceneProbe::class);
+      $scene = $this->createStub(NotificationCanvasSceneProbe::class);
       $scene->method('getPresentationCanvas')->willReturn($base);
     }
     $this->runtime->present($scene, $this->manager);

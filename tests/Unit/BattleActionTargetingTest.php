@@ -62,9 +62,9 @@ afterEach(function () {
 });
 
 it('accepts supplied party and troop instances through shared queued combat setup', function (bool $activeTime) {
-  $synthetic = createTargetExecutionFixture($activeTime, false, $this->createMock(AudioManager::class));
+  $synthetic = createTargetExecutionFixture($activeTime, false, $this->createStub(AudioManager::class));
   [, $original, , $actor, $ally, $enemies] = $synthetic;
-  $fixture = createQueuedBattleFixture($activeTime, false, $this->createMock(AudioManager::class),
+  $fixture = createQueuedBattleFixture($activeTime, false, $this->createStub(AudioManager::class),
     $original->party, $original->troop);
   [$engine, $context, $screen] = $fixture;
   expect($fixture)->toHaveCount(3)->and($context->party)->toBe($original->party)
@@ -83,7 +83,7 @@ it('accepts supplied party and troop instances through shared queued combat setu
 it('executes a queued revival on its fallen ally through impact, reaction and cleanup',
   function (bool $activeTime, bool $graphical, bool $reducedMotion) {
     ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reducedMotion]]));
-    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createMock(AudioManager::class));
+    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createStub(AudioManager::class));
     [$engine, $context, $screen, $actor, $ally, $enemies] = $fixture;
     $item = new Item('Revival', '', '', 10, 2,
       scope: new InventoryScope(ItemScopeSide::ALLY, status: ItemScopeStatus::DEAD),
@@ -120,7 +120,7 @@ it('executes a queued revival on its fallen ally through impact, reaction and cl
   })->with([false, true])->with([false, true])->with([false, true]);
 
 it('keeps a queued support action within its ally scope when its chosen target falls', function (bool $activeTime) {
-  $fixture = createTargetExecutionFixture($activeTime, false, $this->createMock(AudioManager::class));
+  $fixture = createTargetExecutionFixture($activeTime, false, $this->createStub(AudioManager::class));
   [$engine, $context, $screen, $actor, $ally, $enemies] = $fixture;
   $skill = new MagicSkill('Recover', '', '', 4, 0, new ItemScope(ItemScopeSide::ALLY),
     effects: [new HPRecoverSkillEffect('20', variance: 0)]);
@@ -135,7 +135,7 @@ it('keeps a queued support action within its ally scope when its chosen target f
 it('shows both sides of an MP drain even when the gain exactly offsets the command cost',
   function (bool $activeTime, bool $graphical, bool $reducedMotion) {
     ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reducedMotion]]));
-    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createMock(AudioManager::class));
+    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createStub(AudioManager::class));
     [$engine, $context, $screen, $actor, , $enemies] = $fixture;
     $actor->stats->currentMp = 20;
     $action = new SkillBattleAction(new MagicSkill('Drain', '', '', 4, 0,
@@ -161,7 +161,7 @@ it('shows both sides of an MP drain even when the gain exactly offsets the comma
 it('preserves opposing MP effects instead of a net zero and does not present the caster cost as damage',
   function (bool $activeTime, bool $graphical, bool $reducedMotion) {
     ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reducedMotion]]));
-    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createMock(AudioManager::class));
+    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createStub(AudioManager::class));
     [$engine, $context, $screen, $actor, , $enemies] = $fixture;
     $action = new SkillBattleAction(new MagicSkill('Exchange', '', '', 4, 0,
       effects: [new MPDamageSkillEffect('10', variance: 0), new MPRecoverySkillEffect('10', variance: 0)]));
@@ -178,7 +178,7 @@ it('preserves opposing MP effects instead of a net zero and does not present the
 it('preserves opposing item effects and reports bounded recovery through the same result path',
   function (bool $activeTime, bool $graphical, bool $reducedMotion) {
     ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reducedMotion]]));
-    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createMock(AudioManager::class));
+    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createStub(AudioManager::class));
     [$engine, $context, $screen, $actor] = $fixture;
     $remove = new class('MP loss', '', 10, 1, ValueBasis::ACTUAL) extends BaseEffect {
       public function apply(CharacterInterface $target): void { $target->stats->currentMp -= $this->value; }
@@ -205,7 +205,7 @@ it('shows full resolved damage through queued attacks skills items repeats and g
   function (string $kind, bool $activeTime, bool $graphical, bool $reducedMotion) {
     ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reducedMotion]]));
     foreach ([800, $kind === 'repeat' ? 250 : 200] as $remainingHp) {
-      $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createMock(AudioManager::class),
+      $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createStub(AudioManager::class),
         actorStats: new Stats(currentHp: 20, totalHp: 1000, currentMp: 50, totalMp: 50, attack: 400));
       [$engine, $context, $screen, $actor, , $enemies] = $fixture;
       $targets = $kind === 'group' ? $enemies : [$enemies[0]];
@@ -266,7 +266,7 @@ it('shows full resolved damage through queued attacks skills items repeats and g
     ->with([false, true])->with([false, true])->with([false, true]);
 
 it('retargets one attack to one living opponent, never the entire opposing side', function (bool $activeTime) {
-  $fixture = createTargetExecutionFixture($activeTime, false, $this->createMock(AudioManager::class));
+  $fixture = createTargetExecutionFixture($activeTime, false, $this->createStub(AudioManager::class));
   [$engine, $context, $screen, $actor, $ally, $enemies] = $fixture;
   $turn = queueTargetExecution($fixture, new AttackAction('Attack'), [$ally]);
   expect(array_map(spl_object_id(...), $turn->targets))->toBe([spl_object_id($enemies[0])])
@@ -275,7 +275,7 @@ it('retargets one attack to one living opponent, never the entire opposing side'
 })->with([false, true]);
 
 it('does not spend a revival item when no fallen ally remains eligible', function (bool $activeTime) {
-  $fixture = createTargetExecutionFixture($activeTime, false, $this->createMock(AudioManager::class));
+  $fixture = createTargetExecutionFixture($activeTime, false, $this->createStub(AudioManager::class));
   [$engine, $context, $screen, $actor, $ally, $enemies] = $fixture;
   $ally->stats->currentHp = 100;
   $item = new Item('Revival', '', '', 10, 2,
@@ -289,7 +289,7 @@ it('does not spend a revival item when no fallen ally remains eligible', functio
 it('resolves an all-ally command once and shows a result for each legal recipient',
   function (bool $activeTime, bool $graphical, bool $reducedMotion) {
     ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reducedMotion]]));
-    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createMock(AudioManager::class));
+    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createStub(AudioManager::class));
     [$engine, $context, $screen, $actor, $ally, $enemies] = $fixture;
     $ally->stats->currentHp = 20;
     $skill = new MagicSkill('Synthetic group heal', '', '', 4, 0,
@@ -312,7 +312,7 @@ it('resolves an all-ally command once and shows a result for each legal recipien
 it('never replays a reused action result when its queued command cannot execute',
   function (bool $item, bool $activeTime, bool $graphical, bool $reducedMotion) {
     ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reducedMotion]]));
-    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createMock(AudioManager::class));
+    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createStub(AudioManager::class));
     [$engine, $context, $screen, $actor, , $enemies] = $fixture;
     $target = $enemies[0];
     $target->stats->currentMp = 20;
@@ -362,7 +362,7 @@ it('preserves turn-owned legacy effect cadence through the actual queued command
       chdir($root);
       ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reducedMotion]]));
       BattleCommandCatalog::beginBattle();
-      $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createMock(AudioManager::class));
+      $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createStub(AudioManager::class));
       [$engine, $context, $screen, $actor, , $enemies] = $fixture;
       $skill = new BasicSkill('No guessed rate', '', '', 4, 0,
         effects: [new HPDamageSkillEffect('10', variance: 0, resolutionKind: ResolutionKind::TRUE_DAMAGE)], animationId: 1);
@@ -413,7 +413,7 @@ it('runs equipped and explicit attack choreography through queued combat, pause,
       chdir($root);
       ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reducedMotion]]));
       BattleCommandCatalog::beginBattle();
-      $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createMock(AudioManager::class));
+      $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createStub(AudioManager::class));
       [$engine, $context, $screen, $hero, , $enemies] = $fixture;
       $actor = $enemy ? $enemies[0] : $hero;
       $recipient = $enemy ? $hero : $enemies[0];

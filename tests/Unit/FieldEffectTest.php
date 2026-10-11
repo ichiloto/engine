@@ -253,7 +253,7 @@ it('renders terminal map effects without opening their graphical images or chang
   $anchor = ['cell' => ['x' => 2, 'y' => 3]];
   $manager->installMap('terminal', [['id' => 'aura', 'effect' => 'energy', 'anchor' => $anchor]], null, []);
   $draws = [];
-  $camera = $this->getMockBuilder(Camera::class)->disableOriginalConstructor()->onlyMethods(['getScreenSpacePosition', 'draw'])->getMock();
+  $camera = $this->getStubBuilder(Camera::class)->disableOriginalConstructor()->onlyMethods(['getScreenSpacePosition', 'draw'])->getStub();
   new ReflectionProperty(Camera::class, 'screen')->setValue($camera, new Rect(0, 0, 20, 10));
   $camera->method('getScreenSpacePosition')->willReturnCallback(static fn(Vector2 $point): Vector2 => clone $point);
   $camera->method('draw')->willReturnCallback(static function ($content, $x, $y) use (&$draws): void { $draws[] = [$content, $x, $y]; });

@@ -215,12 +215,12 @@ it('loads sheet presentation for new and restored players without modifying term
 
 it('animates only successful player steps and rests on blocked movement or facing changes', function () {
   $set = PlayerPresentationConfig::load();
-  $player = $this->getMockBuilder(Player::class)->setConstructorArgs([
+  $player = $this->getStubBuilder(Player::class)->setConstructorArgs([
     $this->scene, 'Sheet hero', new Vector2(7, 4), new Rect(0, 0, 1, 1), ['v'],
     MovementHeading::SOUTH, $set->terminal->toArray(), $set->graphical, $this->root . '/assets',
-  ])->onlyMethods(['erasePlayer', 'render', 'renderEventCues', 'renderLocationHUDWindow', 'handleTriggers', 'notify'])->getMock();
-  $map = $this->getMockBuilder(MapManager::class)->disableOriginalConstructor()
-    ->onlyMethods(['canMoveTo', 'scrollMap'])->getMock();
+  ])->onlyMethods(['erasePlayer', 'render', 'renderEventCues', 'renderLocationHUDWindow', 'handleTriggers', 'notify'])->getStub();
+  $map = $this->getStubBuilder(MapManager::class)->disableOriginalConstructor()
+    ->onlyMethods(['canMoveTo', 'scrollMap'])->getStub();
   $map->method('canMoveTo')->willReturnOnConsecutiveCalls(true, false);
   $map->method('scrollMap')->willReturn(false);
   new ReflectionProperty(GameScene::class, 'mapManager')->setValue($this->scene, $map);

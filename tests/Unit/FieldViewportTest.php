@@ -4,7 +4,6 @@ use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
 use Ichiloto\Engine\Field\MapLayerSet;
 use Ichiloto\Engine\Field\MapLayer;
 
-use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Field\Player;
 use Ichiloto\Engine\IO\Console\Console;
@@ -32,6 +31,7 @@ use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Tests\Support\Input\FakeRendererTransport;
+use Tests\Support\PassiveGame;
 use Tests\Support\Rendering\RetainedFrameState;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
@@ -150,10 +150,10 @@ it('uses the reduced camera for real field projection while UI and menu frames s
     $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__,
         cellWidth: 10, cellHeight: 20), $transport);
     $this->runtime->start('Field zoom', 135, 36);
-    $game = $this->getMockBuilder(Game::class)->disableOriginalConstructor()->onlyMethods(['getRendererRuntime', '__destruct'])->getMock();
+    $game = $this->getStubBuilder(PassiveGame::class)->disableOriginalConstructor()->onlyMethods(['getRendererRuntime'])->getStub();
     $game->method('getRendererRuntime')->willReturn($this->runtime);
-    $scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()
-        ->onlyMethods(['getGame', 'getPresentationWorld'])->getMock();
+    $scene = $this->getStubBuilder(GameScene::class)->disableOriginalConstructor()
+        ->onlyMethods(['getGame', 'getPresentationWorld'])->getStub();
     $scene->method('getGame')->willReturn($game);
     // The field cell size travels with its retained world.
     $scene->method('getPresentationWorld')->willReturn(PresentationWorld::getFromLayers(
@@ -162,7 +162,7 @@ it('uses the reduced camera for real field projection while UI and menu frames s
         makeBareScene(\Ichiloto\Engine\Scenes\SceneManager::class));
     $camera = new Camera($scene, 135, 36, worldSpace: array_fill(0, 40, str_repeat('.', 100)));
     new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
-    $player = $this->getMockBuilder(Player::class)->disableOriginalConstructor()->onlyMethods(['getGraphicalSpriteDefinition'])->getMock();
+    $player = $this->getStubBuilder(Player::class)->disableOriginalConstructor()->onlyMethods(['getGraphicalSpriteDefinition'])->getStub();
     $player->method('getGraphicalSpriteDefinition')->willReturn(null);
     new ReflectionProperty(Player::class, 'isActive')->setValue($player, true);
     new ReflectionProperty(Player::class, 'position')->setValue($player, new Vector2(99, 39));
@@ -222,10 +222,10 @@ it('degrades the field to the text grid when no retained world carries the field
     $this->runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__,
         cellWidth: 10, cellHeight: 20), $transport);
     $this->runtime->start('No world', 135, 36);
-    $game = $this->getMockBuilder(Game::class)->disableOriginalConstructor()->onlyMethods(['getRendererRuntime', '__destruct'])->getMock();
+    $game = $this->getStubBuilder(PassiveGame::class)->disableOriginalConstructor()->onlyMethods(['getRendererRuntime'])->getStub();
     $game->method('getRendererRuntime')->willReturn($this->runtime);
-    $scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()
-        ->onlyMethods(['getGame', 'getPresentationWorld'])->getMock();
+    $scene = $this->getStubBuilder(GameScene::class)->disableOriginalConstructor()
+        ->onlyMethods(['getGame', 'getPresentationWorld'])->getStub();
     $scene->method('getGame')->willReturn($game);
     $scene->method('getPresentationWorld')->willReturn(null);
     new ReflectionProperty(GameScene::class, 'sceneManager')->setValue($scene,

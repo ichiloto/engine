@@ -944,7 +944,7 @@ it('connects in-game Save to the shared themed canvas and modal lifecycle withou
 
 it('keeps the Save menu usable and reports plain feedback when local storage refuses a write', function () {
   $slots = array_map(static fn(int $slot): SaveSlot => SaveSlot::empty($slot, ''), range(1, 5));
-  $manager = $this->createMock(SaveManager::class);
+  $manager = $this->createStub(SaveManager::class);
   $manager->method('getSaveSlots')->willReturn($slots);
   $manager->method('save')->willThrowException(new RuntimeException('Permission denied at /private/path'));
   new ReflectionProperty($this->scene->sceneManager, 'saveManager')->setValue($this->scene->sceneManager, $manager);

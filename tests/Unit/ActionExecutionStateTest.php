@@ -288,7 +288,7 @@ it('replaces scene-owned summon assets between battles even when the action stat
     chdir($root);
     file_put_contents($data, "<?php return ['id' => 'call', 'name' => 'Before', 'linkedActionId' => 'Call'];");
     file_put_contents($timeline, "<?php return ['fps' => 12, 'lengthFrames' => 1, 'tracks' => [], 'cues' => []];");
-    [$engine] = createTargetExecutionFixture(false, false, $this->createMock(AudioManager::class));
+    [$engine] = createTargetExecutionFixture(false, false, $this->createStub(AudioManager::class));
     $state = $engine->actionExecutionState;
     $resolve = new ReflectionMethod(ActionExecutionState::class, 'resolveSummonCutscene');
     $action = new SkillBattleAction(new SpecialSkill('Call', '', '', 0, 0));

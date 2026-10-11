@@ -93,7 +93,7 @@ function failCommandCleanupOutput(): void
 }
 
 it('keeps stage damage resolution separate from arena result feedback', function (bool $graphical) {
-  [, $original] = createTargetExecutionFixture(false, $graphical, $this->createMock(AudioManager::class));
+  [, $original] = createTargetExecutionFixture(false, $graphical, $this->createStub(AudioManager::class));
   $screen = $original->ui;
   $context = $original;
   $actor = $context->partyRoster->battlers[0];
@@ -129,7 +129,7 @@ it('keeps stage damage resolution separate from arena result feedback', function
 })->with([false, true]);
 
 it('releases command state and its overlay even when terminal cleanup cannot be painted', function (bool $graphical) {
-  [, $original] = createTargetExecutionFixture(false, $graphical, $this->createMock(AudioManager::class));
+  [, $original] = createTargetExecutionFixture(false, $graphical, $this->createStub(AudioManager::class));
   $screen = new CommandCleanupScreen($graphical);
   $context = new TurnStateExecutionContext($original->game, $original->party, $original->troop, $screen, []);
   $resolved = 0;
@@ -163,7 +163,7 @@ it('releases command state and its overlay even when terminal cleanup cannot be 
 
 it('cleans up after frame rollback and preserves the original gameplay failure in both battle engines',
   function (bool $activeTime, bool $graphical, bool $retained) {
-    [$engine, $original] = createTargetExecutionFixture($activeTime, $graphical, $this->createMock(AudioManager::class));
+    [$engine, $original] = createTargetExecutionFixture($activeTime, $graphical, $this->createStub(AudioManager::class));
     $screen = new CommandCleanupScreen($graphical);
     $screen->failControls = true;
     $context = new TurnStateExecutionContext($original->game, $original->party, $original->troop, $screen, []);
@@ -195,7 +195,7 @@ it('cleans up after frame rollback and preserves the original gameplay failure i
   })->with([false, true])->with([false, true])->with([false, true]);
 
 it('does not let a disposed old command erase a replacement commands presentation', function () {
-  [, $original] = createTargetExecutionFixture(false, true, $this->createMock(AudioManager::class));
+  [, $original] = createTargetExecutionFixture(false, true, $this->createStub(AudioManager::class));
   $screen = new CommandCleanupScreen(true);
   $context = new TurnStateExecutionContext($original->game, $original->party, $original->troop, $screen, []);
   $old = createCommandCleanupRunner($context, static fn() => null);
@@ -212,7 +212,7 @@ it('does not let a disposed old command erase a replacement commands presentatio
 });
 
 it('retires a completed command after a failed final frame without replaying combat', function (bool $activeTime) {
-  [$engine, $original] = createTargetExecutionFixture($activeTime, false, $this->createMock(AudioManager::class));
+  [$engine, $original] = createTargetExecutionFixture($activeTime, false, $this->createStub(AudioManager::class));
   $screen = new CommandCleanupScreen(false);
   $context = new TurnStateExecutionContext($original->game, $original->party, $original->troop, $screen, []);
   $resolved = 0;

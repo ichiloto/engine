@@ -114,8 +114,8 @@ beforeEach(function () {
     file_put_contents($this->root . '/Data/Presentation/dialogue.php', '<?php return ' . var_export([
         'schema' => 'ichiloto.dialogue/1', 'theme' => ['schema' => 'ichiloto.menu/1']], true) . ';');
     $this->scene = new ContextFieldSceneProbe($this->root);
-    $this->player = $this->getMockBuilder(Player::class)->disableOriginalConstructor()
-        ->onlyMethods(['getGraphicalSpriteDefinition'])->getMock();
+    $this->player = $this->getStubBuilder(Player::class)->disableOriginalConstructor()
+        ->onlyMethods(['getGraphicalSpriteDefinition'])->getStub();
     $this->player->method('getGraphicalSpriteDefinition')->willReturn(new GraphicalSpriteDefinition(
         'Graphics/Replaceable.png', 48, 96, sourceRect: new SpriteSourceRect(48, 0, 48, 96), lift: 6));
     new ReflectionProperty(Player::class, 'position')->setValue($this->player, new Vector2(7, 4));

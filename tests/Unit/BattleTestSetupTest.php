@@ -285,8 +285,8 @@ it('fights every battle with a fresh party and troop, so a beaten troop and a le
   ConfigStore::put(ItemStore::class, $this->items);
 
   $battles = [];
-  $manager = $this->getMockBuilder(Ichiloto\Engine\Scenes\SceneManager::class)->disableOriginalConstructor()
-    ->onlyMethods(['loadBattleScene'])->getMock();
+  $manager = $this->getStubBuilder(Ichiloto\Engine\Scenes\SceneManager::class)->disableOriginalConstructor()
+    ->onlyMethods(['loadBattleScene'])->getStub();
   $manager->method('loadBattleScene')->willReturnCallback(function ($party, $troop) use (&$battles): void {
     // What the fight starts with, before the battle changes it.
     $battles[] = [$party, $troop, $troop->members->toArray()[0]->stats->currentHp, $party->members->toArray()[0]->level];
@@ -342,8 +342,8 @@ it('fights in the chosen arena, as a battle setting, and in the default without 
   ConfigStore::put(ItemStore::class, $this->items);
 
   $settings = [];
-  $manager = $this->getMockBuilder(Ichiloto\Engine\Scenes\SceneManager::class)->disableOriginalConstructor()
-    ->onlyMethods(['loadBattleScene'])->getMock();
+  $manager = $this->getStubBuilder(Ichiloto\Engine\Scenes\SceneManager::class)->disableOriginalConstructor()
+    ->onlyMethods(['loadBattleScene'])->getStub();
   $manager->method('loadBattleScene')->willReturnCallback(function ($party, $troop, array $events = [], array $extraSettings = []) use (&$settings): void {
     $settings[] = $extraSettings;
   });

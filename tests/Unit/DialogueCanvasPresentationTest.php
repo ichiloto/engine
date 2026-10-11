@@ -384,11 +384,11 @@ it('honours negotiated image tone in scene composition and diagnoses its absence
         ['actorId' => 'hero', 'name' => 'Hero', 'emotion' => 'Neutral'],
         ['actorId' => 'friend', 'name' => 'Friend', 'emotion' => 'Neutral'],
     ]);
-    $owner = $this->getMockBuilder(TextBoxModal::class)->disableOriginalConstructor()->onlyMethods(['getDialogueSnapshot'])->getMock();
+    $owner = $this->getStubBuilder(TextBoxModal::class)->disableOriginalConstructor()->onlyMethods(['getDialogueSnapshot'])->getStub();
     $owner->method('getDialogueSnapshot')->willReturn(getDialogueTestLine('Hero', $context));
-    $ui = $this->getMockBuilder(UIManager::class)->disableOriginalConstructor()->onlyMethods(['getActivePresentations'])->getMock();
+    $ui = $this->getStubBuilder(UIManager::class)->disableOriginalConstructor()->onlyMethods(['getActivePresentations'])->getStub();
     $ui->method('getActivePresentations')->willReturn([$owner]);
-    $scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()->onlyMethods(['getUI'])->getMock();
+    $scene = $this->getStubBuilder(GameScene::class)->disableOriginalConstructor()->onlyMethods(['getUI'])->getStub();
     $scene->method('getUI')->willReturn($ui);
     $presentation = new DialogueScenePresentation($this->root);
     foreach (range(0, 1) as $iteration) {
@@ -426,10 +426,10 @@ it('rejects unsafe catalog references and permits an empty legacy placeholder', 
 it('drops an opaque base canvas rather than hiding terminal dialogue when optional composition fails', function (bool $supportsCanvas) {
     mkdir($this->root . '/Data/Presentation', 0777, true);
     file_put_contents($this->root . '/Data/Presentation/dialogue.php', '<?php return ["schema" => "invalid"];');
-    $owner = $this->getMockBuilder(TextBoxModal::class)->disableOriginalConstructor()->onlyMethods(['getDialogueSnapshot'])->getMock();
-    $ui = $this->getMockBuilder(UIManager::class)->disableOriginalConstructor()->onlyMethods(['getActivePresentations'])->getMock();
+    $owner = $this->getStubBuilder(TextBoxModal::class)->disableOriginalConstructor()->onlyMethods(['getDialogueSnapshot'])->getStub();
+    $ui = $this->getStubBuilder(UIManager::class)->disableOriginalConstructor()->onlyMethods(['getActivePresentations'])->getStub();
     $ui->method('getActivePresentations')->willReturn([$owner]);
-    $scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()->onlyMethods(['getUI'])->getMock();
+    $scene = $this->getStubBuilder(GameScene::class)->disableOriginalConstructor()->onlyMethods(['getUI'])->getStub();
     $scene->method('getUI')->willReturn($ui);
     $surface = new DialogueScenePresentation($this->root)->compose($scene, new PresentationCanvas(1280, 720), 1280, 720,
         supportsOverlay: true, supportsCanvas: $supportsCanvas);
@@ -444,14 +444,14 @@ it('composes nested reward alerts above dialogue and excludes every converted te
         'schema' => 'ichiloto.dialogue/1', 'theme' => ['schema' => 'ichiloto.menu/1'],
         'actors' => ['hero' => ['portrait' => 'hero.png']],
     ], true) . ';');
-    $dialogue = $this->getMockBuilder(TextBoxModal::class)->disableOriginalConstructor()
-        ->onlyMethods(['getDialogueSnapshot', 'isShowing'])->getMock();
+    $dialogue = $this->getStubBuilder(TextBoxModal::class)->disableOriginalConstructor()
+        ->onlyMethods(['getDialogueSnapshot', 'isShowing'])->getStub();
     $dialogue->method('getDialogueSnapshot')->willReturn(getDialogueTestLine('Hero'));
     $dialogue->method('isShowing')->willReturn(true);
     $alerts = [];
     foreach (['First reward', 'Second reward'] as $title) {
-        $alert = $this->getMockBuilder(\Ichiloto\Engine\UI\Modal\AlertModal::class)->disableOriginalConstructor()
-            ->onlyMethods(['getModalPresentation', 'isShowing'])->getMock();
+        $alert = $this->getStubBuilder(\Ichiloto\Engine\UI\Modal\AlertModal::class)->disableOriginalConstructor()
+            ->onlyMethods(['getModalPresentation', 'isShowing'])->getStub();
         $alert->method('getModalPresentation')->willReturn(new \Ichiloto\Engine\UI\Modal\ModalPresentation(
             $title, 'Rewards granted.', ['OK'], 0, singleConfirmation: true));
         $alert->method('isShowing')->willReturn(true);
@@ -462,7 +462,7 @@ it('composes nested reward alerts above dialogue and excludes every converted te
         new \Assegai\Collections\ItemList(\Ichiloto\Engine\UI\Interfaces\UIElementInterface::class));
     foreach ([$dialogue, ...$alerts] as $owner) { $ui->present($owner); }
     expect($ui->getActivePresentations())->toBe([$alerts[1], $alerts[0], $dialogue]);
-    $scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()->onlyMethods(['getUI'])->getMock();
+    $scene = $this->getStubBuilder(GameScene::class)->disableOriginalConstructor()->onlyMethods(['getUI'])->getStub();
     $scene->method('getUI')->willReturn($ui);
     $surface = new DialogueScenePresentation($this->root)->compose($scene,
         $withBase ? new PresentationCanvas(1280, 720) : null, 1280, 720, true);
@@ -497,9 +497,9 @@ it('does not duplicate a menu-owned modal when the shared scene composer sees th
     $alert = $this->getMockBuilder(\Ichiloto\Engine\UI\Modal\AlertModal::class)->disableOriginalConstructor()
         ->onlyMethods(['getModalPresentation'])->getMock();
     $alert->expects($this->never())->method('getModalPresentation');
-    $ui = $this->getMockBuilder(UIManager::class)->disableOriginalConstructor()->onlyMethods(['getActivePresentations'])->getMock();
+    $ui = $this->getStubBuilder(UIManager::class)->disableOriginalConstructor()->onlyMethods(['getActivePresentations'])->getStub();
     $ui->method('getActivePresentations')->willReturn([$alert]);
-    $scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()->onlyMethods(['getUI'])->getMock();
+    $scene = $this->getStubBuilder(GameScene::class)->disableOriginalConstructor()->onlyMethods(['getUI'])->getStub();
     $scene->method('getUI')->willReturn($ui);
     $ownerId = 'ui:' . spl_object_id($alert);
     $base = \Ichiloto\Engine\UI\Presentation\MenuModalPresentation::compose(new PresentationCanvas(1280, 720),
@@ -608,14 +608,14 @@ it('integrates active event-owned dialogue with the retained field and removes o
     $capabilities = $graphical ? ['graphical_canvas', 'canvas_overlay', 'canvas_clip_opacity', 'sprite_source_rect'] : [];
     $peer->batches[] = [RendererEvent::fromJson(json_encode(['protocol' => 2, 'type' => 'ready', 'capabilities' => $capabilities]))];
     $runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['not-launched']), $this->root), $peer);
-    $owner = $this->getMockBuilder(TextBoxModal::class)->disableOriginalConstructor()->onlyMethods(['getDialogueSnapshot'])->getMock();
+    $owner = $this->getStubBuilder(TextBoxModal::class)->disableOriginalConstructor()->onlyMethods(['getDialogueSnapshot'])->getStub();
     $owner->method('getDialogueSnapshot')->willReturn(getDialogueTestLine(context: new DialogueContext('hero')));
     $active = [];
-    $ui = $this->getMockBuilder(UIManager::class)->disableOriginalConstructor()->onlyMethods(['getActivePresentations'])->getMock();
+    $ui = $this->getStubBuilder(UIManager::class)->disableOriginalConstructor()->onlyMethods(['getActivePresentations'])->getStub();
     $ui->method('getActivePresentations')->willReturnCallback(function () use (&$active) { return $active; });
     $world = PresentationWorld::getFromLayers(new MapLayerSet([new MapLayer('terrain', 1, false, 'field', 'Floor')]));
-    $scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()
-        ->onlyMethods(['getUI', 'getPresentationCanvas', 'getPresentationWorld', 'getPresentationViewport', 'getGraphicalSpriteProviders'])->getMock();
+    $scene = $this->getStubBuilder(GameScene::class)->disableOriginalConstructor()
+        ->onlyMethods(['getUI', 'getPresentationCanvas', 'getPresentationWorld', 'getPresentationViewport', 'getGraphicalSpriteProviders'])->getStub();
     $scene->method('getUI')->willReturn($ui);
     $scene->method('getPresentationCanvas')->willReturn(null);
     $scene->method('getPresentationWorld')->willReturn($world);

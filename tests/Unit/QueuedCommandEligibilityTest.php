@@ -151,7 +151,7 @@ it('refuses unaffordable queued basic magic and summon commands before presentat
 it('resolves still-authorized queued skills exactly once at their original impact and target',
   function (string $kind, bool $activeTime, bool $graphical, bool $reducedMotion) {
     ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reducedMotion]]));
-    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createMock(AudioManager::class));
+    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createStub(AudioManager::class));
     [$engine, $context, $screen, $actor, , $enemies] = $fixture;
     $action = createEligibilitySkillAction($kind);
     $turn = queueEligibilityTurn($fixture, $action, [$enemies[1]]);
@@ -241,7 +241,7 @@ it('holds cinematic summon restoration and damage feedback before concluding eit
   function (bool $activeTime, bool $graphical, bool $reducedMotion, bool $lethal) {
     ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reducedMotion]]));
     writeEligibilityStageSummon($graphical);
-    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createMock(AudioManager::class));
+    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createStub(AudioManager::class));
     [$engine, $context, $screen, $actor, , $enemies] = $fixture;
     foreach ($enemies as $enemy) { $enemy->stats->currentHp = $lethal ? 1 : 100; }
     $action = createEligibilitySkillAction('summon', new SkillScope(number: ItemScopeNumber::ALL));
@@ -303,7 +303,7 @@ it('resolves image summons at the selected presentation contact cue and cleans u
   function (bool $activeTime, bool $graphical, bool $reducedMotion, bool $allEnemies) {
     ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reducedMotion]]));
     writeEligibilityImageSummon($graphical);
-    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createMock(AudioManager::class));
+    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createStub(AudioManager::class));
     [$engine, , $screen, $actor, , $enemies] = $fixture;
     $action = createEligibilitySkillAction('summon', new SkillScope(number: $allEnemies ? ItemScopeNumber::ALL : ItemScopeNumber::ONE));
     $targets = $allEnemies ? $enemies : [$enemies[1]];
@@ -350,7 +350,7 @@ it('pauses image summons at contact and abandons them without losing or replayin
   function (bool $activeTime, bool $graphical, bool $reducedMotion, bool $afterContact, bool $stage) {
     ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reducedMotion]]));
     $stage ? writeEligibilityStageSummon($graphical) : writeEligibilityImageSummon($graphical);
-    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createMock(AudioManager::class));
+    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createStub(AudioManager::class));
     [$engine, $context, $screen, $actor, , $enemies] = $fixture;
     $action = createEligibilitySkillAction('summon');
     queueEligibilityTurn($fixture, $action, [$enemies[1]]);
@@ -398,7 +398,7 @@ it('pauses image summons at contact and abandons them without losing or replayin
 it('rechecks MP at impact and replaces abandoned presentation with a refusal without resurrection',
   function (bool $activeTime, bool $graphical, bool $reducedMotion) {
     ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reducedMotion]]));
-    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createMock(AudioManager::class));
+    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createStub(AudioManager::class));
     [$engine, , $screen, $actor, , $enemies] = $fixture;
     $action = createEligibilitySkillAction('magic');
     $turn = queueEligibilityTurn($fixture, $action, [$enemies[1]]);
@@ -445,7 +445,7 @@ it('refuses depleted queued items using their resource owner even when the queue
   })->with([false, true])->with([false, true])->with([false, true])->with([false, true]);
 
 it('spends only the live owned item stack and never overspends a reused queued reference', function (bool $activeTime) {
-  $fixture = createTargetExecutionFixture($activeTime, false, $this->createMock(AudioManager::class));
+  $fixture = createTargetExecutionFixture($activeTime, false, $this->createStub(AudioManager::class));
   [, , $screen, $actor] = $fixture;
   $held = new Item('Recovery', '', '', 1, 1, scope: new ItemScope(ItemScopeSide::ALLY),
     effects: [new HPRecoveryEffect('Restore', '', 10, 1, ValueBasis::ACTUAL)], id: 'recovery');
@@ -476,7 +476,7 @@ it('uses the configured battle screen capability to compile terminal summons wit
         'keyframes' => [['frame' => 0, 'duration' => 2, 'content' => '*']]],
     ],
   ], true) . ';');
-  [$engine] = createTargetExecutionFixture(false, false, $this->createMock(AudioManager::class));
+  [$engine] = createTargetExecutionFixture(false, false, $this->createStub(AudioManager::class));
   $action = createEligibilitySkillAction('summon');
   $compiled = new ReflectionMethod(ActionExecutionState::class, 'resolveSummonCutscene')
     ->invoke($engine->actionExecutionState, $action);
@@ -487,7 +487,7 @@ it('uses the configured battle screen capability to compile terminal summons wit
 it('rechecks the inventory owner at impact before applying an item effect',
   function (bool $activeTime, bool $graphical, bool $reducedMotion) {
     ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reducedMotion]]));
-    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createMock(AudioManager::class));
+    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createStub(AudioManager::class));
     [, , $screen, $actor] = $fixture;
     $held = new Item('Recovery', '', '', 1, 1, scope: new ItemScope(ItemScopeSide::ALLY),
       effects: [new HPRecoveryEffect('Restore', '', 10, 1, ValueBasis::ACTUAL)], id: 'recovery');
@@ -508,7 +508,7 @@ it('rechecks the inventory owner at impact before applying an item effect',
   })->with([false, true])->with([false, true])->with([false, true]);
 
 it('preserves reusable items and skips consumption when there are no effects or recipients', function () {
-  [, , , $actor] = createTargetExecutionFixture(false, false, $this->createMock(AudioManager::class));
+  [, , , $actor] = createTargetExecutionFixture(false, false, $this->createStub(AudioManager::class));
   $effect = new HPRecoveryEffect('Restore', '', 10, 1, ValueBasis::ACTUAL);
   foreach ([[false, [$effect], [$actor]], [true, [], [$actor]], [true, [$effect], []]] as [$consumable, $effects, $targets]) {
     $held = new Item('Recovery', '', '', 1, 2, consumable: $consumable, effects: $effects, id: 'recovery');
@@ -522,7 +522,7 @@ it('preserves reusable items and skips consumption when there are no effects or 
 });
 
 it('uses a replenished stack of the same stable identity instead of stale queued quantity', function (bool $activeTime) {
-  $fixture = createTargetExecutionFixture($activeTime, false, $this->createMock(AudioManager::class));
+  $fixture = createTargetExecutionFixture($activeTime, false, $this->createStub(AudioManager::class));
   [, , , $actor] = $fixture;
   $old = new Item('Recovery', '', '', 1, 1, scope: new ItemScope(ItemScopeSide::ALLY),
     effects: [new HPRecoveryEffect('Restore', '', 10, 1, ValueBasis::ACTUAL)], id: 'recovery');

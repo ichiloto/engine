@@ -15,7 +15,7 @@ require_once __DIR__ . '/../Support/Battle/QueuedCommandFixture.php';
 
 it('holds simultaneous enemy defeats after feedback and emits exactly one clear sound each', function (bool $activeTime, bool $graphical) {
   $sounds = [];
-  $audio = $this->createMock(AudioManager::class);
+  $audio = $this->createStub(AudioManager::class);
   $audio->method('playSystemSound')->willReturnCallback(function ($sound) use (&$sounds): void { $sounds[] = $sound; });
   [, $context, , $actor, , $enemies] = createTargetExecutionFixture($activeTime, $graphical, $audio);
   $hits = 0;
@@ -56,7 +56,7 @@ it('holds simultaneous enemy defeats after feedback and emits exactly one clear 
 })->with([false, true])->with([false, true]);
 
 it('cancels a result-only poison or counter defeat without emitting abandoned clear audio', function (bool $resultsOnly) {
-  [, $context, , $actor, , $enemies] = createTargetExecutionFixture(false, true, $this->createMock(AudioManager::class));
+  [, $context, , $actor, , $enemies] = createTargetExecutionFixture(false, true, $this->createStub(AudioManager::class));
   $enemy = $enemies[0];
   $events = [];
   $playback = null;
@@ -77,7 +77,7 @@ it('cancels a result-only poison or counter defeat without emitting abandoned cl
 })->with([false, true]);
 
 it('removes revived enemies from the presentation hold and never clears them or retries a failed cue', function () {
-  [, , , $actor, , $enemies] = createTargetExecutionFixture(false, true, $this->createMock(AudioManager::class));
+  [, , , $actor, , $enemies] = createTargetExecutionFixture(false, true, $this->createStub(AudioManager::class));
   foreach ($enemies as $enemy) { $enemy->stats->currentHp = 0; }
   $clears = [];
   $playback = new BattleCommandPlayback(new BattleCommandTimeline(new BattleTurnTimings(.1, .1, .1, .1, .1, .1, .1)),
@@ -95,7 +95,7 @@ it('removes revived enemies from the presentation hold and never clears them or 
 });
 
 it('bounds defeat ownership to command participants and stops cue delivery on reentrant interruption', function () {
-  [, , , $actor, , $enemies] = createTargetExecutionFixture(false, true, $this->createMock(AudioManager::class));
+  [, , , $actor, , $enemies] = createTargetExecutionFixture(false, true, $this->createStub(AudioManager::class));
   foreach ($enemies as $enemy) { $enemy->stats->currentHp = 0; }
   $events = [];
   $playback = null;

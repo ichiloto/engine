@@ -145,7 +145,7 @@ it('grants only owned active states and learned abilities with stable priority r
 
 it('responds only to typed landed opposing physical hits, not misses, magic, healing, unrelated outcomes or unowned grants',
   function (string $case) {
-    $fixture = createTargetExecutionFixture(false, false, $this->createMock(AudioManager::class));
+    $fixture = createTargetExecutionFixture(false, false, $this->createStub(AudioManager::class));
     [, $context, , $actor, , $enemies] = $fixture;
     $recipient = $enemies[0];
     $rule = new CounterAttackRule('Riposte');
@@ -176,7 +176,7 @@ it('responds only to typed landed opposing physical hits, not misses, magic, hea
 it('queues a counter after return with normal poses and results while preserving reactor turns, ticks, guard and gauge',
   function (bool $activeTime, bool $graphical, bool $reduced, bool $partyResponds) {
     ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reduced]]));
-    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createMock(AudioManager::class));
+    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createStub(AudioManager::class));
     [$engine, $context, $screen, $actor, , $enemies] = $fixture;
     $attacker = $partyResponds ? $enemies[0] : $actor;
     $recipient = $partyResponds ? $actor : $enemies[0];
@@ -235,7 +235,7 @@ it('queues a counter after return with normal poses and results while preserving
   })->with([false, true])->with([false, true])->with([false, true])->with([false, true]);
 
 it('uses the same counter outcomes in simulation without enabling default retaliation or changing caller resources', function () {
-  $fixture = createTargetExecutionFixture(false, false, $this->createMock(AudioManager::class));
+  $fixture = createTargetExecutionFixture(false, false, $this->createStub(AudioManager::class));
   [, $context, , $actor, , $enemies] = $fixture;
   $actor->stats->speed = 1;
   $actor->stats->attack = 0;
@@ -281,7 +281,7 @@ it('rejects summons from an explicit project root even when another project is t
 it('shows a lethal counter and knockout before ending battle, without promoting an unapproved reserve',
   function (bool $activeTime, bool $graphical, bool $reduced, bool $partyResponds) {
     ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reduced]]));
-    $audio = $this->createMock(AudioManager::class);
+    $audio = $this->createStub(AudioManager::class);
     $base = createTargetExecutionFixture($activeTime, $graphical, $audio);
     [, $baseContext, , $actor, $ally, $enemies] = $base;
     $third = new Character('Third', 0, new Stats(currentHp: 0, totalHp: 100));
@@ -323,7 +323,7 @@ it('shows a lethal counter and knockout before ending battle, without promoting 
 
 it('does not retaliate after cancellation and does not execute an interrupted response',
   function (bool $activeTime, bool $graphical, bool $cancelResponse) {
-    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createMock(AudioManager::class));
+    $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createStub(AudioManager::class));
     [$engine, $context, $screen, $actor, , $enemies] = $fixture;
     $recipient = $enemies[0];
     new ReflectionProperty($recipient, 'counterAttack')->setValue($recipient, new CounterAttackRule('Riposte'));
@@ -353,7 +353,7 @@ it('does not retaliate after cancellation and does not execute an interrupted re
   })->with([false, true])->with([false, true])->with([false, true]);
 
 it('deduplicates recipients and rechecks queued counters after lethal damage, grant removal, blocking and costs', function (string $change) {
-  $fixture = createTargetExecutionFixture(false, false, $this->createMock(AudioManager::class));
+  $fixture = createTargetExecutionFixture(false, false, $this->createStub(AudioManager::class));
   [, $context, , $actor, , $enemies] = $fixture;
   foreach ($enemies as $enemy) {
     $enemy->addState(new State('counter', 'Counter', counterAttack: new CounterAttackRule('Riposte')));
@@ -375,7 +375,7 @@ it('deduplicates recipients and rechecks queued counters after lethal damage, gr
 })->with(['lethal', 'grant', 'block', 'cost']);
 
 it('uses learned-ability grants for basic physical attacks without inferring counters for unrelated outcomes', function () {
-  $fixture = createTargetExecutionFixture(false, false, $this->createMock(AudioManager::class));
+  $fixture = createTargetExecutionFixture(false, false, $this->createStub(AudioManager::class));
   [, , , $actor, , $enemies] = $fixture;
   $grant = createCounterTestSkill('Counter training', grant: new CounterAttackRule('Riposte'));
   $actor->learnSkill($grant);

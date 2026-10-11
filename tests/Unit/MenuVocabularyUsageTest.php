@@ -138,12 +138,12 @@ beforeEach(function () {
   $this->party->addMember($this->actor);
   new ReflectionProperty($this->scene, 'party')->setValue($this->scene, $this->party);
   $this->context = new SceneStateContext($this->scene);
-  $this->menu = $this->createMock(MenuInterface::class);
+  $this->menu = $this->createStub(MenuInterface::class);
   $this->menu->method('getScene')->willReturn($this->scene);
   $this->alerts = new MenuVocabularyAlerts();
   new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $this->alerts);
   new ReflectionProperty($this->game, 'modalManager')->setValue($this->game, $this->alerts);
-  $saves = $this->createMock(SaveManager::class);
+  $saves = $this->createStub(SaveManager::class);
   $saves->method('hasSaveFiles')->willReturn(true);
   new ReflectionProperty(SaveManager::class, 'instance')->setValue(null, $saves);
 });

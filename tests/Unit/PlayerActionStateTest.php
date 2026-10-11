@@ -626,7 +626,7 @@ it('queues an authored enemy action in active-time battles', function () {
 
 it('requires separate target confirmation for submenu commands and allows cancellation', function (bool $activeTime, ItemScopeSide $side, ItemScopeNumber $number, ItemScopeStatus $status, array $indexes, string $source) {
   $game = (new ReflectionClass(GameTargetingTestProxy::class))->newInstanceWithoutConstructor();
-  $audio = $this->createMock(AudioManager::class);
+  $audio = $this->createStub(AudioManager::class);
   setTestProperty($game, 'audioManager', $audio);
   $skill = new MagicSkill('Targeted Magic', 'Affects the confirmed targets.', '', 5, 0, new ItemScope($side, $number, $status, 2));
   $ability = new SpecialSkill('Targeted Skill', 'Affects the confirmed targets.', '', 5, 0, new ItemScope($side, $number, $status, 2));

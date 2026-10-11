@@ -1030,8 +1030,8 @@ it('continues an actual command after a presentation redraw fails', function () 
 
 it('cancels an in-flight command when its battle scene is stopped', function (bool $atb) {
   [$engine, $context, $scene, , $action] = graphicalCommandRuntime($atb);
-  $events = $this->getMockBuilder(\Ichiloto\Engine\Events\EventManager::class)->disableOriginalConstructor()
-    ->onlyMethods(['removeEventListener'])->getMock();
+  $events = $this->getStubBuilder(\Ichiloto\Engine\Events\EventManager::class)->disableOriginalConstructor()
+    ->onlyMethods(['removeEventListener'])->getStub();
   new ReflectionProperty(AbstractScene::class, 'eventManager')->setValue($scene, $events);
   new ReflectionProperty(AbstractScene::class, 'modalEventHandler')->setValue($scene, static fn() => null);
   $engine->run($context);
