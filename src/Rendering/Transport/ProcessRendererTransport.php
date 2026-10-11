@@ -43,6 +43,11 @@ final class ProcessRendererTransport implements RendererTransportInterface
   private RendererProtocolVersion $protocol = RendererProtocolVersion::V1;
   /** @var list<string> */
   private array $requiredCapabilities = [];
+  /** @var array<string, mixed>|null Last startup observation survives an already-reaped child. */
+  private ?array $startupStatus = null;
+  private ?int $startupHelloBytes = null;
+  private int $startupStdoutBytes = 0;
+  private int $startupDiagnosticBytes = 0;
 
   private float|int $now {
       get {
@@ -70,8 +75,13 @@ final class ProcessRendererTransport implements RendererTransportInterface
     $this->exitCode = null;
     $this->closeRequested = false;
     $this->terminationSignal = 0;
+    $this->startupStatus = null;
+    $this->startupHelloBytes = null;
+    $this->startupStdoutBytes = $this->startupDiagnosticBytes = 0;
     $this->outbound = new RendererWriteBuffer($this->config->maxOutboundBytes);
     $deadline = $this->now + $this->config->startupTimeout;
+    LatencyTrace::record('transport.startup.begin', ['protocol' => $this->protocol->value,
+      'timeout_seconds' => $this->config->startupTimeout]);
 
     try {
       if (PHP_OS_FAMILY === 'Windows') {
@@ -88,6 +98,7 @@ final class ProcessRendererTransport implements RendererTransportInterface
       }
       $this->process = $process;
       $this->pipes = $pipes;
+      $this->recordStartupState('transport.startup.child.launched');
       foreach ($this->pipes as $pipe) {
         if (! stream_set_blocking($pipe, false)) {
           throw new RendererStartupException('Cannot configure nonblocking renderer pipes.');
@@ -96,6 +107,11 @@ final class ProcessRendererTransport implements RendererTransportInterface
       // proc_open uses file-descriptor pipes, not buffered stdio FILE streams.
       // Their writes already go directly to the nonblocking descriptor.
       $this->queue($session->hello());
+      if (LatencyTrace::enabled()) {
+        $this->startupHelloBytes = $this->outbound->pendingBytes();
+        LatencyTrace::record('transport.startup.hello.queued', ['bytes' => $this->startupHelloBytes,
+          'pending_bytes' => $this->startupHelloBytes]);
+      }
       while ($this->now < $deadline) {
         $this->serviceIo(min(self::STATUS_INTERVAL, max(0.0, $deadline - $this->now)));
         foreach ($this->events as $event) {
@@ -110,6 +126,7 @@ final class ProcessRendererTransport implements RendererTransportInterface
       }
       throw new RendererStartupException('Timed out waiting for renderer ready.');
     } catch (Throwable $error) {
+      $this->recordStartupState('transport.startup.failed', ['error_type' => $error::class]);
       $this->fail(new RendererStartupException($error->getMessage(), previous: $error));
       throw $this->failure;
     }
@@ -121,6 +138,9 @@ final class ProcessRendererTransport implements RendererTransportInterface
       return false;
     }
     $status = proc_get_status($this->process);
+    if ($this->state === RendererTransportState::STARTING && LatencyTrace::enabled()) {
+      $this->startupStatus = $status;
+    }
     if (! $status['running']) {
       if ($status['exitcode'] >= 0) {
         $this->exitCode = $status['exitcode'];
@@ -307,6 +327,12 @@ final class ProcessRendererTransport implements RendererTransportInterface
         static fn() => fwrite($pipe, $bytes)), $this->config->ioBudgetBytes);
       LatencyTrace::record('transport.drain', ['written_bytes' => $before - $this->outbound->pendingBytes(),
         'pending_bytes' => $this->outbound->pendingBytes()]);
+      if ($this->startupHelloBytes !== null && $this->outbound->pendingBytes() === 0) {
+        // The OS pipe accepted HELLO; this does not observe the peer receiving it.
+        LatencyTrace::record('transport.startup.hello.pipe_drained', ['bytes' => $this->startupHelloBytes,
+          'pending_bytes' => 0]);
+        $this->startupHelloBytes = null;
+      }
     }
     $this->collectExit();
   }
@@ -329,6 +355,10 @@ final class ProcessRendererTransport implements RendererTransportInterface
         break;
       }
       $budget -= strlen($bytes);
+      if ($this->state === RendererTransportState::STARTING && LatencyTrace::enabled()) {
+        if ($index === 1) { $this->startupStdoutBytes += strlen($bytes); }
+        else { $this->startupDiagnosticBytes += strlen($bytes); }
+      }
       if ($index === 2) {
         $this->diagnostics = substr($this->diagnostics . $bytes, -$this->config->diagnosticBufferBytes);
         LatencyTrace::record('renderer.stderr', ['text' => $bytes]);
@@ -376,6 +406,9 @@ final class ProcessRendererTransport implements RendererTransportInterface
       }
       $this->events[] = $event;
       $this->eventBytes += strlen($line);
+      if ($event->type === RendererEventType::READY) {
+        LatencyTrace::record('transport.startup.ready.accepted', ['protocol' => $event->protocol->value]);
+      }
       if ($event->type === RendererEventType::CLOSE_REQUESTED) {
         $this->closeRequested = true;
       }
@@ -416,6 +449,31 @@ final class ProcessRendererTransport implements RendererTransportInterface
     $class = $error::class;
     $this->failure = new $class($error->reason . ($cleanupFailure !== null ? '; ' . $cleanupFailure : ''),
       $this->diagnostics, $this->exitCode, $error);
+  }
+
+  /** Count-only startup evidence, captured before failure cleanup can send TERM. */
+  private function recordStartupState(string $stage, array $data = []): void
+  {
+    if (! LatencyTrace::enabled()) { return; }
+    if ($this->process !== null) { $this->startupStatus = proc_get_status($this->process); }
+    $status = $this->startupStatus;
+    LatencyTrace::record($stage, [
+      'state' => $this->state->name,
+      'child_pid' => $status['pid'] ?? null,
+      'child_running' => $status['running'] ?? false,
+      'child_exit_code' => $status['exitcode'] ?? null,
+      'child_signaled' => $status['signaled'] ?? false,
+      'child_term_signal' => $status['termsig'] ?? null,
+      'child_stopped' => $status['stopped'] ?? false,
+      'child_stop_signal' => $status['stopsig'] ?? null,
+      'exit_code' => $this->exitCode,
+      'pending_bytes' => $this->outbound->pendingBytes(),
+      'stdout_bytes' => $this->startupStdoutBytes,
+      'stdout_buffer_bytes' => strlen($this->stdout),
+      'diagnostic_bytes' => $this->startupDiagnosticBytes,
+      'diagnostic_buffer_bytes' => strlen($this->diagnostics),
+      ...$data,
+    ]);
   }
 
   private function beginFailure(RendererTransportException $error): void

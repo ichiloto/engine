@@ -1,5 +1,6 @@
 <?php
 
+use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\Rendering\Presentation\StyledPresentationFrame;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererEventType;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererMessageType;
@@ -33,10 +34,15 @@ trait RendererTransportTestCleanup
       try { $transport->shutdown(); } catch (Throwable) { }
     }
     RendererTransportTestHandles::$transports = [];
+    LatencyTrace::configure();
   }
 }
 
 uses(RendererTransportTestCleanup::class);
+
+beforeEach(function () {
+  LatencyTrace::configure();
+});
 
 function makeS2Transport(string $scenario = 'normal', array $overrides = [], ?string $capture = null): ProcessRendererTransport
 {
@@ -126,6 +132,137 @@ function s2Await(ProcessRendererTransport $transport, callable $done): array
   } while (hrtime(true) < $deadline);
   throw new RuntimeException('Test event deadline exceeded.');
 }
+
+function getS2StartupRecords(array $records): array
+{
+  return array_values(array_filter($records, static fn($record) => str_starts_with($record['stage'], 'transport.startup.')));
+}
+
+it('traces bounded startup milestones without consuming events or changing restart and shutdown', function ($scenario, $protocol, $budget) {
+  $this->records = [];
+  $this->traceTime = 1_000_000_000;
+  LatencyTrace::configure(function (array $record): void { $this->records[] = $record; },
+    function (): int { return $this->traceTime += 1_000_000; });
+  $session = new RendererSessionConfig('Private startup title', sys_get_temp_dir(), protocol: $protocol);
+  $transport = makeS2Transport($scenario, ['ioBudgetBytes' => $budget]);
+  $helloBytes = strlen($session->hello()->encode());
+  for ($attempt = 0; $attempt < 2; $attempt++) {
+    $transport->start($session);
+    expect($transport->getState())->toBe(RendererTransportState::RUNNING)->and($transport->isRunning())->toBeTrue();
+    $records = array_slice(getS2StartupRecords($this->records), $attempt * 5);
+    expect(array_column($records, 'stage'))->toBe([
+      'transport.startup.begin', 'transport.startup.child.launched', 'transport.startup.hello.queued',
+      'transport.startup.hello.pipe_drained', 'transport.startup.ready.accepted',
+    ])->and($records[0]['timeout_seconds'])->toBe(1.0)->and($records[0]['protocol'])->toBe($protocol->value);
+    expect($records[1]['child_pid'])->toBeGreaterThan(0)->and($records[1]['child_running'])->toBeTrue()
+      ->and($records[1]['state'])->toBe(RendererTransportState::STARTING->name)
+      ->and($records[1]['child_exit_code'])->toBe(-1)->and($records[1]['child_signaled'])->toBeFalse()
+      ->and($records[1]['stdout_bytes'])->toBe(0)->and($records[1]['diagnostic_bytes'])->toBe(0);
+    expect($records[2]['bytes'])->toBe($helloBytes)->and($records[2]['pending_bytes'])->toBe($helloBytes)
+      ->and($records[3]['bytes'])->toBe($helloBytes)->and($records[3]['pending_bytes'])->toBe(0)
+      ->and($records[4]['protocol'])->toBe($protocol->value)->and($transport->getPendingWriteBytes())->toBe(0);
+    foreach ($records as $index => $record) {
+      if ($index > 0) { expect($record['at_ns'])->toBeGreaterThan($records[$index - 1]['at_ns']); }
+    }
+    $encoded = json_encode($records, JSON_THROW_ON_ERROR);
+    expect($encoded)->not->toContain($session->title, 'assetRoot', 'command', 'environment', 'received');
+    expect($encoded)->not->toContain(json_encode($session->assetRoot, JSON_THROW_ON_ERROR));
+    $events = s2Await($transport, fn($events) => count($events) === ($scenario === 'ready_key' ? 2 : 1));
+    expect(array_column($events, 'type'))->toBe($scenario === 'ready_key'
+      ? [RendererEventType::READY, RendererEventType::KEY] : [RendererEventType::READY]);
+    if ($scenario === 'ready_key') { expect($events[1]->key)->toBe('W'); }
+    expect($transport->shutdown())->toBe(0)->and($transport->shutdown())->toBe(0)
+      ->and($transport->getState())->toBe(RendererTransportState::STOPPED);
+    expect(getS2StartupRecords($this->records))->toHaveCount(($attempt + 1) * 5);
+  }
+})->with([
+  ['normal', RendererProtocolVersion::V1, 65536],
+  ['ready_key', RendererProtocolVersion::V2, 11],
+  ['chunked', RendererProtocolVersion::V2, 11],
+]);
+
+it('records startup failure evidence before cleanup changes child state or exit status', function ($scenario, $diagnostic, $stdout, $running, $exitCode) {
+  $this->records = [];
+  $this->traceTime = 1_000_000_000;
+  $transport = makeS2Transport($scenario, ['startupTimeout' => 0.15, 'diagnosticBufferBytes' => 8]);
+  $beforeCleanup = null;
+  LatencyTrace::configure(function (array $record) use ($transport, &$beforeCleanup): void {
+    $this->records[] = $record;
+    if ($record['stage'] === 'transport.startup.failed') {
+      $beforeCleanup = [
+        'state' => $transport->getState(),
+        'signal' => new ReflectionProperty($transport, 'terminationSignal')->getValue($transport),
+        'stdin_open' => isset(new ReflectionProperty($transport, 'pipes')->getValue($transport)[0]),
+      ];
+    }
+  }, function (): int { return $this->traceTime += 1_000_000; });
+  $started = hrtime(true);
+  try {
+    $transport->start(s2Session());
+    test()->fail('Expected startup failure');
+  } catch (RendererStartupException $error) {
+    expect($error->exitCode)->toBe($exitCode)->and($error->diagnostics)->toBe(substr($diagnostic, -8));
+    expect($error->getMessage())->toContain($scenario === 'startup_timeout' ? 'Timed out' :
+      ($scenario === 'early_exit' ? 'process exited' : 'rejected startup'));
+  }
+  expect((hrtime(true) - $started) / 1e9)->toBeLessThan(1.5);
+  $records = getS2StartupRecords($this->records);
+  $stages = array_column($records, 'stage');
+  expect(array_slice($stages, 0, 3))->toBe([
+    'transport.startup.begin', 'transport.startup.child.launched', 'transport.startup.hello.queued',
+  ])->and(end($stages))->toBe('transport.startup.failed');
+  if ($running) {
+    expect($stages)->toBe([
+      'transport.startup.begin', 'transport.startup.child.launched', 'transport.startup.hello.queued',
+      'transport.startup.hello.pipe_drained',
+      ...($scenario === 'ready_error' ? ['transport.startup.ready.accepted'] : []),
+      'transport.startup.failed',
+    ]);
+  }
+  $failure = end($records);
+  expect($failure['state'])->toBe(RendererTransportState::STARTING->name)
+    ->and($failure['child_pid'])->toBe($records[1]['child_pid'])
+    ->and($failure['child_running'])->toBe($running)->and($failure['child_signaled'])->toBeFalse()
+    ->and($failure['child_exit_code'])->toBe($running ? -1 : $exitCode)
+    ->and($failure['exit_code'])->toBe($running ? null : $exitCode)
+    ->and($failure['stdout_bytes'])->toBe(strlen($stdout))->and($failure['stdout_buffer_bytes'])->toBe(0)
+    ->and($failure['diagnostic_bytes'])->toBe(strlen($diagnostic))
+    ->and($failure['diagnostic_buffer_bytes'])->toBe(min(8, strlen($diagnostic)));
+  expect($beforeCleanup)->toBe(['state' => RendererTransportState::STARTING, 'signal' => 0, 'stdin_open' => $running]);
+  if ($running) { expect($failure['pending_bytes'])->toBe(0); }
+  expect(json_encode($records, JSON_THROW_ON_ERROR))->not->toContain(...array_filter([
+    $diagnostic, 'hello rejected', 'startup frame rejected', 'command', 'assetRoot', 'environment',
+  ]));
+  expect($failure['at_ns'])->toBeGreaterThan($records[count($records) - 2]['at_ns'])
+    ->and($transport->getState())->toBe(RendererTransportState::FAILED)
+    ->and($transport->getExitCode())->toBe($exitCode)->and($transport->isRunning())->toBeFalse();
+  expect(array_count_values($stages)['transport.startup.failed'])->toBe(1);
+  $transport->shutdown(); $transport->shutdown();
+})->with([
+  ['startup_timeout', 'waiting for an unavailable surface', '', true, 143],
+  ['startup_error', 'startup diagnostic', "{\"protocol\":1,\"type\":\"error\",\"message\":\"hello rejected\"}\n", true, 143],
+  ['ready_error', '', "{\"protocol\":1,\"type\":\"ready\"}\n{\"protocol\":1,\"type\":\"error\",\"message\":\"startup frame rejected\"}\n", true, 143],
+  ['early_exit', 'early startup failure', '', false, 23],
+]);
+
+it('leaves startup observations and the diagnostic clock unused when tracing is disabled', function ($scenario) {
+  LatencyTrace::configure(null, fn() => throw new LogicException('Disabled trace clock must not be read.'));
+  $transport = makeS2Transport($scenario, ['startupTimeout' => 0.15]);
+  if ($scenario === 'normal') {
+    $transport->start(s2Session());
+    expect($transport->pollEvents()[0]->type)->toBe(RendererEventType::READY);
+    expect($transport->shutdown())->toBe(0);
+  } else {
+    expect(fn() => $transport->start(s2Session()))->toThrow(RendererStartupException::class);
+    expect($transport->getState())->toBe(RendererTransportState::FAILED)
+      ->and($transport->getExitCode())->toBe($scenario === 'early_exit' ? 23 : 143);
+  }
+  expect(new ReflectionProperty($transport, 'startupStatus')->getValue($transport))->toBeNull()
+    ->and(new ReflectionProperty($transport, 'startupHelloBytes')->getValue($transport))->toBeNull()
+    ->and(new ReflectionProperty($transport, 'startupStdoutBytes')->getValue($transport))->toBe(0)
+    ->and(new ReflectionProperty($transport, 'startupDiagnosticBytes')->getValue($transport))->toBe(0)
+    ->and($transport->isRunning())->toBeFalse();
+})->with(['normal', 'startup_timeout', 'startup_error', 'early_exit']);
 
 it('starts a direct child, validates hello, and releases it on idempotent shutdown', function () {
   $capture = createTestDirectory('renderer argv space-') . '/capture.ndjson';
