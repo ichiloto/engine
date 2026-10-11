@@ -78,6 +78,38 @@ renderers receive none of it. The viewport's optional
 `tileFrame` selects each tile's frame `tileFrame % frames`, so water animates
 with a camera-only update.
 
+## Optional tile coverage inspection
+
+`TileCoverage` provides the shared author-diagnostic pixel facts beside
+`TileComposer`, without participating in gameplay or native rendering. Create
+`new TileCoverage($tileset, $assetRoot)` once per validation pass and discard it
+afterward. It snapshots the current usable PNG sheets, retains packed visibility
+rather than decoded RGBA images, and bounds its composed-frame cache. A fresh
+reader sees replacement artwork even when dimensions and timestamps are unchanged;
+no import hash or duplicated image metadata becomes a runtime requirement.
+
+`readFrames($tileId)` returns `tileSize`, row-major boolean `frames`, and
+`diagnostic`. Each frame contains `tileSize * tileSize` entries. Both truecolor
+and palette alpha are respected: only GD alpha 127 is fully invisible. Empty
+tile identity zero yields a completely uncovered frame. Quarter, table-overlap,
+water and waterfall composition comes from `TileComposer`, not a second layout.
+
+`findUncovered($stack)` returns `tileSize`, `uncoveredPixels` and `diagnostic`.
+The count is the distinct pixels which **any independent animation-frame
+combination** can leave exposed, not the maximum simultaneous hole count of one
+frame. It is zero exactly when every combination covers the cell. For each tile
+the helper intersects all its frames, then unions those guaranteed-cover masks
+across layers, avoiding exponential combination enumeration. Callers choose the
+authored layer stack; the reader does not infer ground from terminal glyphs,
+change tiles or insert substrate. This conservative independent-phase check is
+the Game's existing every-combination policy, not native animation timing.
+
+Missing optional GD, absent/unusable sheets, decoding failures or unsafe artwork
+return null pixel facts with an explicit diagnostic. Callers must show/record
+inspection unavailability, never interpret null as zero uncovered pixels.
+Malformed tile identities or non-list stacks throw `InvalidArgumentException`.
+Checks are read-only and do not become collision, gameplay or asset-admission gates.
+
 ## Bounds and atomicity
 
 - A world has 1..64 layers, dimensions of at most 16384 per axis, and a
