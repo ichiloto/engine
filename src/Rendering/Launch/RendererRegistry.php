@@ -10,6 +10,8 @@ use InvalidArgumentException;
 
 final class RendererRegistry
 {
+  public const string AVAILABILITY_SCHEMA = 'ichiloto.renderers/1';
+
   /** @var array<string, RendererDescriptor> */
   private array $descriptors = [];
 
@@ -18,7 +20,8 @@ final class RendererRegistry
   {
     $resolver ??= new PackagedRendererExecutableResolver();
     $descriptors ??= [
-      new RendererDescriptor('terminal', static fn(string $assetRoot): ?RendererRuntime => null),
+      new RendererDescriptor('terminal', static fn(string $assetRoot): ?RendererRuntime => null,
+        'Native Terminal', static fn(): RendererAvailability => new RendererAvailability(true)),
       new RendererDescriptor('gpui', static fn(string $assetRoot): RendererRuntime => new RendererRuntime(
         new RendererRuntimeConfig(new RendererProcessConfig([$resolver->resolve('gpui')]), $assetRoot,
           RendererRuntimeConfig::GPUI_CELL_WIDTH, RendererRuntimeConfig::GPUI_CELL_HEIGHT,
@@ -28,7 +31,10 @@ final class RendererRegistry
           // key presses and releases, which held field walking needs.
           requiredCapabilities: [RendererSessionConfig::SPRITE_SOURCE_RECT, RendererSessionConfig::TILE_BATCHES,
             RendererSessionConfig::KEY_TRANSITIONS]),
-      )),
+      ), 'GPUI', static function () use ($resolver): RendererAvailability {
+        $resolver->resolve('gpui');
+        return new RendererAvailability(true);
+      }),
     ];
     foreach ($descriptors as $descriptor) {
       if (isset($this->descriptors[$descriptor->id])) {
@@ -36,6 +42,24 @@ final class RendererRegistry
       }
       $this->descriptors[$descriptor->id] = $descriptor;
     }
+  }
+
+  /**
+   * @return array{schema: string, renderers: list<array{id: string, displayName: string, available: bool, reason: ?string}>, preferredId: ?string}
+   */
+  public function getReport(): array
+  {
+    $renderers = [];
+    $availableIds = [];
+    foreach ($this->descriptors as $descriptor) {
+      $availability = $descriptor->getAvailability();
+      $renderers[] = ['id' => $descriptor->id, 'displayName' => $descriptor->displayName,
+        'available' => $availability->available, 'reason' => $availability->reason];
+      if ($availability->available) { $availableIds[] = $descriptor->id; }
+    }
+    $preferredId = in_array('gpui', $availableIds, true) ? 'gpui'
+      : (in_array('terminal', $availableIds, true) ? 'terminal' : ($availableIds[0] ?? null));
+    return ['schema' => self::AVAILABILITY_SCHEMA, 'renderers' => $renderers, 'preferredId' => $preferredId];
   }
 
   /** @return list<RendererDescriptor> */

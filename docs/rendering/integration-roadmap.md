@@ -813,9 +813,35 @@ open map at the selected cell, skipping title by default, with "Play from the
 title" and renderer choices. Installed/usable GPUI is preferred; Terminal remains
 available in its own window. Engine/console owns startup options, noninteractive
 renderer availability and platform terminal-session launching; Claude owns the
-Editor launcher/RPC and GUI Play menu. This approved work is not implemented or
-counted as accepted merely by recording it; no Editor/GUI ownership transfer,
-normal-save access, native launch or cross-platform validation is implied.
+Editor launcher/RPC and GUI Play menu. Shared Engine startup and read-only
+renderer discovery are now implemented: an explicit process-only mode starts
+the existing New Game lifecycle at the authored spawn or opens the real title,
+while ordinary/custom-scene startup remains intact. Discovery queries the same
+packaged executable resolver without constructing a native runtime. The exact
+contract is in [styled presentation](styled-presentation.md#tool-startup-and-discovery).
+The combined startup/discovery/launch/menu/party check passes 125 tests / 712
+assertions with zero failures/errors/skips; scoped production static analysis
+passes at the configured level 0. The initial fixture's uninitialized manager
+was corrected, and its original failure is retained alongside the passing
+reports on secondary `test-tmp/g4-play-foundation-20261011-lUyBi4tI`.
+Console's explicit modes, project-authoritative auto choice and owned terminal
+session are being qualified separately; Editor/GUI consumption and native
+workflow acceptance remain open. No ownership transfer, normal-save access,
+native launch or cross-platform validation is inferred. G4 remains incomplete.
+
+Claude's in-memory editing-canvas request exposed a shared composition
+limitation: a presentation source had to impersonate a running SceneInterface.
+The existing composer now also accepts a narrow FramePresentationSourceInterface
+and existing world/viewport/canvas providers. It uses already-projected sprites
+without asking for Game/UI state; real scenes retain their original collector
+and dialogue paths. Synthetic unsaved-world, replacement/deletion, motion,
+overlay/notification, capability, layer and membership checks plus adjacent
+scene/world/viewport families pass 96 tests / 472 assertions. Scoped configured
+level-0 static analysis, syntax and whitespace checks pass. No separate Editor
+composer, new gameplay authority or UI ownership transfer was introduced.
+Editor/GUI consumption and native sign/canvas acceptance remain open. The worker
+is closed and its scratch/cache is removed; small qualification logs remain on
+secondary `test-tmp/frame-source-20261011-k5d13y`.
 
 The selected-leader implementation preserves the same Player, camera, heading,
 walking phase, pending arrival and Terminal roles while resolving current

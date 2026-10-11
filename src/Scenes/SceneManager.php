@@ -34,6 +34,7 @@ use Ichiloto\Engine\Scenes\Battle\BattleConfig;
 use Ichiloto\Engine\Scenes\Battle\BattleLoader;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Ichiloto\Engine\Scenes\GameOver\GameOverScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Throwable;
@@ -247,6 +248,19 @@ class SceneManager implements CanStart, CanRender, CanUpdate
   public function findScene(string $className): ?SceneInterface
   {
     return $this->scenes->find(fn(SceneInterface $scene) => $scene::class === $className);
+  }
+
+  /** Title commands and tooling share the same new-game data and scene lifecycle. */
+  public function startNewGame(?GameLoader $loader = null): GameScene
+  {
+    $config = ($loader ?? GameLoader::getInstance($this->game))->loadNewGame();
+    $scene = $this->loadScene(GameScene::class)->currentScene;
+    if (!$scene instanceof GameScene) {
+      throw new NotFoundException('The current scene is not a game scene.');
+    }
+    $scene->configure($config);
+
+    return $scene;
   }
 
   /**

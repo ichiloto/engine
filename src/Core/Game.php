@@ -170,6 +170,7 @@ class Game implements CanRun, SubjectInterface
         protected int    $height = DEFAULT_SCREEN_HEIGHT,
         protected(set) array  $options = [],
         ?RendererRegistry $rendererRegistry = null,
+        private readonly ?GameStartupMode $startupMode = null,
     )
     {
         $this->rendererRegistry = $rendererRegistry;
@@ -794,6 +795,8 @@ class Game implements CanRun, SubjectInterface
      */
     protected function start(): void
     {
+        $startupMode = $this->startupMode ?? GameStartupMode::readEnvironment();
+        $this->validateStartupMode($startupMode);
         $this->registerTerminalRestoreHandlers();
         $this->startInputSession();
         Console::enterAlternateScreen();
@@ -811,14 +814,13 @@ class Game implements CanRun, SubjectInterface
             Timers::setFrameTick($this->updateBlockedFrame(...), $this->presentBlockedFrame(...));
         }
 
-        $this->showSplashScreens();
+        if ($startupMode !== GameStartupMode::NEW_GAME) {
+            $this->showSplashScreens();
+        }
         $this->buildItemStore();
         $this->handleGameEvents();
 
-        // A project normally opens on its title screen. Tooling can start
-        // somewhere else, which is how `ichiloto battle` drops a developer
-        // straight into the arena.
-        $this->sceneManager->loadScene($this->options['starting_scene'] ?? 0);
+        $this->startInitialScene($startupMode);
         $this->addObserver(Time::class);
 
         // Lets anything that has to wait hand the loop back instead of
@@ -829,6 +831,23 @@ class Game implements CanRun, SubjectInterface
         $this->isRunning = true;
 
         $this->notify($this, new GameEvent(GameEventType::START));
+    }
+
+    /** Refuse conflicting launch intentions before acquiring native input/output. */
+    protected function validateStartupMode(?GameStartupMode $mode): void
+    {
+        if ($mode !== null && array_key_exists('starting_scene', $this->options)) {
+            throw new \InvalidArgumentException('An explicit start mode cannot be combined with starting_scene.');
+        }
+    }
+
+    protected function startInitialScene(?GameStartupMode $mode): void
+    {
+        match ($mode) {
+            GameStartupMode::NEW_GAME => $this->sceneManager->startNewGame(),
+            GameStartupMode::TITLE => $this->sceneManager->loadScene(TitleScene::class),
+            null => $this->sceneManager->loadScene($this->options['starting_scene'] ?? 0),
+        };
     }
 
     /**

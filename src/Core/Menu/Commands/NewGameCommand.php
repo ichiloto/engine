@@ -8,7 +8,6 @@ use Ichiloto\Engine\Core\Menu\MenuItem;
 use Ichiloto\Engine\Exceptions\IchilotoException;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Scenes\Game\GameLoader;
-use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Title\TitleScene;
 use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Util\Debug;
@@ -48,13 +47,7 @@ class NewGameCommand extends MenuItem
     }
     $sceneManager = $context->sceneManager;
     try {
-      $config = $this->gameLoader->loadNewGame();
-      $currentScene = $sceneManager->loadScene(GameScene::class)->currentScene;
-
-      if (! $currentScene instanceof GameScene ) {
-        throw new NotFoundException('The current scene is not a game scene.');
-      }
-      $currentScene->configure($config);
+      $sceneManager->startNewGame($this->gameLoader);
     } catch (Throwable $error) {
       Debug::warn('New game could not start: ' . $error->getMessage());
       $sceneManager->loadScene(TitleScene::class);

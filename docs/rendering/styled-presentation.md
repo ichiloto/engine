@@ -6,6 +6,57 @@ old immutable frame encoders remain for reference/tooling, not native submission
 PHP owns gameplay, bindings, camera, composition, animation and timing. The
 renderer receives presentation data, never battle or dialogue instructions.
 
+## Tool Startup And Discovery
+
+An optional `GameStartupMode` passed to `Game` or process-only
+`ICHILOTO_START_MODE` selects `new-game` or `title`. New-game bypasses splash
+and title, then calls `SceneManager::startNewGame()` with the same loader and
+configuration lifecycle used by the title's New Game command. Its authored
+starting map/cell and a fresh party are not inferred from a save. Title mode
+opens the normal title flow. Neither mode is persisted into project settings
+or saves. Without a mode, existing `starting_scene` and ordinary startup remain
+unchanged; explicit mode plus `starting_scene` is refused before input/output
+acquisition. Editor tooling owns a disposable save-less overlay when it needs
+isolated testing; the runtime does not disable ordinary later save behavior.
+
+`RendererRegistry::getReport()` returns the read-only `ichiloto.renderers/1`
+installation report: each entry has `id`, `displayName`, `available` and an
+unavailable `reason`, with `preferredId` choosing installed GPUI, then Terminal.
+Descriptors use an optional availability probe distinct from their runtime
+factory. GPUI delegates to the same packaged executable resolver as startup;
+discovery never constructs a runtime, opens a native window or installs/builds
+anything. This proves installed executable resolution, not native handshake
+or platform acceptance. Alternative descriptors without a probe diagnose
+unsupported discovery rather than being assumed usable. Unexpected probe
+implementation failures propagate; only declared unavailability is converted
+to an unavailable entry.
+
+Console queries the opened project's Engine in a bounded isolated process
+through `renderer:list --json`, rather than loading a second Engine into the
+Editor/Console process. Explicit `play --renderer=auto` consumes that report;
+explicit renderer choices retain their identity. `play --start=...` refuses
+older Engines without the launch-mode contract rather than pretending the
+requested startup occurred. Terminal-window lifetime and platform prerequisites
+are owned by Console; Editor/GUI consume these shared launch contracts.
+
+## Scene-Free Frame Sources
+
+`SceneFrameComposer::composeFrame()` accepts a real `SceneInterface`, a
+`FramePresentationSourceInterface`, or null. An in-memory authoring source
+supplies already camera-relative `getPresentationSprites()` and implements
+the existing retained-world, world-canvas and viewport providers as needed.
+It does not need a running Game, a fake scene or a UI manager. Optional canvas
+and overlay providers retain their existing contracts; real scenes keep their
+normal sprite collector and dialogue path.
+
+The same composer validates sprite lists, field layers, capabilities, matching
+world/viewport identity and world-canvas membership. Motion degradation,
+off-grid clipping, Terminal exclusions and highest-priority notifications are
+not duplicated in the Editor. The source/host still owns unsaved map data,
+projection, transport exchange, text preparation and ticket cleanup. A sign
+playback uses its explicit provider and releases on definition change or host
+close; composition does not invent or poll a second renderer session.
+
 ## Immutable data and cells
 
 `PresentationColor` has validated immutable `ansi16(0..15)`, `ansi256(0..255)`
