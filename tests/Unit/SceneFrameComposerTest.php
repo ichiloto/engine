@@ -22,6 +22,10 @@ use Ichiloto\Engine\Rendering\Presentation\PresentationWorld;
 use Ichiloto\Engine\Rendering\Presentation\RendererPresentation;
 use Ichiloto\Engine\Rendering\Presentation\SceneFrameComposer;
 use Ichiloto\Engine\Rendering\Presentation\SceneFrameComposition;
+use Ichiloto\Engine\Rendering\Presentation\WorldCanvasProviderInterface;
+use Ichiloto\Engine\Rendering\Presentation\PresentationWorldCanvas;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot;
+use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererProtocolException;
 use Ichiloto\Engine\Rendering\RendererClient;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
@@ -57,9 +61,10 @@ class CompositionSpriteProbe implements GraphicalSpriteProviderInterface
 final class CompositionScreenSpriteProbe extends CompositionSpriteProbe implements ScreenSpaceSpriteProviderInterface {}
 
 /** Uses the real projector, Camera, world and viewport contracts without a project interpreter. */
-final class CompositionSceneProbe extends GameScene
+final class CompositionSceneProbe extends GameScene implements WorldCanvasProviderInterface
 {
   public array $providers = [];
+  public array $groups = [];
   public ?PresentationWorld $world = null;
   public ?PresentationCanvas $canvas = null;
   public ?PresentationCanvas $cover = null;
@@ -76,6 +81,7 @@ final class CompositionSceneProbe extends GameScene
       worldSpace: array_fill(0, 30, str_repeat('.', 40)));
   }
   public function getGraphicalSpriteProviders(): iterable { return $this->providers; }
+  public function getPresentationWorldCanvases(): array { return $this->groups; }
   public function getPresentationWorld(): ?PresentationWorld { return $this->world; }
   public function getPresentationCanvas(): ?PresentationCanvas { return $this->canvas; }
   public function getPresentationOverlay(int $width, int $height): ?PresentationCanvas { return $this->cover; }
@@ -394,4 +400,46 @@ it('rejects mixed replacement and field ownership and invalid field layering ins
   $this->actor->definition = GraphicalSpriteDefinition::fromArray(['asset' => 'Replaceable/Actor.png', 'layer' => 1000]);
   expect(fn() => $this->composer->composeFrame($this->scene, $this->grid, fn($feature) => true, $this->capture))
     ->toThrow(InvalidArgumentException::class);
+});
+
+it('shares projected world canvases with runtime and isolated preview without touching Terminal glyphs or Camera', function () {
+  $canvas = new PresentationCanvas(48, 24);
+  $this->scene->groups = [new PresentationWorldCanvas('sign', 7, 4,
+    new PresentationSpritePivot(.5, 1), $canvas, 10)->createProjected(3, 2)];
+  $camera = $this->scene->camera->captureState();
+  $frame = $this->composer->composeFrame($this->scene, $this->grid, fn($feature) => true, $this->capture);
+  expect($frame->worldCanvases)->toBe($this->scene->groups)
+    ->and($frame->viewport->worldCanvasIds)->toBe(['sign'])
+    ->and($frame->viewport->follow->spriteId)->toBe('actor')
+    ->and([$frame->worldCanvases[0]->x, $frame->worldCanvases[0]->y])->toBe([4, 2])
+    ->and($this->scene->camera->captureState())->toEqual($camera)
+    ->and($this->captures[0][0])->not->toContain('sign');
+  [$presenter, $transport] = createCompositionPresenter($this->root, $this->grid);
+  $presenter->presentFrame($frame->prepareFrame($presenter));
+  $latest = RetainedFrameState::getLatestFrame($transport->sent);
+  expect($latest['worldCanvases'][0])->toBe($this->scene->groups[0]->toArray())
+    ->and($latest['viewport']['worldCanvasIds'])->toBe(['sign']);
+  $this->scene->groups = [];
+  $after = $this->composer->composeFrame($this->scene, $this->grid, fn($feature) => true, $this->capture);
+  $presenter->presentFrame($after->prepareFrame($presenter));
+  expect($after->worldCanvases)->toBe([])
+    ->and(RetainedFrameState::getLatestFrame($transport->sent))->not->toHaveKey('worldCanvases');
+});
+
+it('rejects unsupported or misplaced field canvas providers instead of drawing them as HUD or changing Terminal', function () {
+  $this->scene->groups = [new PresentationWorldCanvas('sign', 1, 1,
+    new PresentationSpritePivot(.5, 1), new PresentationCanvas(48, 24), 10)];
+  foreach ([RendererSessionConfig::WORLD_CANVAS, RendererSessionConfig::FRAME_VIEWPORT] as $missing) {
+    expect(fn() => $this->composer->composeFrame($this->scene, $this->grid,
+      fn($feature) => $feature !== $missing, $this->capture))->toThrow(RendererProtocolException::class);
+  }
+  $this->scene->groups = [new PresentationWorldCanvas('wrong-layer', 1, 1,
+    new PresentationSpritePivot(.5, 1), new PresentationCanvas(48, 24), 1000)];
+  expect(fn() => $this->composer->composeFrame($this->scene, $this->grid, fn($feature) => true, $this->capture))
+    ->toThrow(InvalidArgumentException::class);
+  // A complete scene canvas deliberately replaces field subjects; it must never ask a field provider for them.
+  $this->scene->canvas = createCompositionTextCanvas('replacement', 384, 192);
+  $replacement = $this->composer->composeFrame($this->scene, $this->grid, fn($feature) => true,
+    fn() => throw new LogicException('Replacement must not consume Terminal.'));
+  expect($replacement->worldCanvases)->toBe([])->and($replacement->viewport)->toBeNull();
 });

@@ -20,6 +20,8 @@ final readonly class PresentationCanvas
   public array $textLayers;
   /** @var list<CanvasComposite> */
   public array $composites;
+  /** @var list<CanvasLabel> */
+  public array $labels;
   /** PHP-only overlay avoidance areas. Null retains conservative protection for unannotated canvases.
    * @var list<CanvasRectangle>|null
    */
@@ -31,8 +33,17 @@ final readonly class PresentationCanvas
   public function getOverlayProtection(): array
   {
     if ($this->protectedAreas !== null) { return $this->protectedAreas; }
+    $labelAreas = [];
+    foreach ($this->labels as $label) {
+      $paint = $label->paintBounds;
+      if ($label->clipRect !== null) { $labelAreas[] = $label->clipRect; }
+      elseif ($paint->width > 0 && $paint->height > 0) {
+        $labelAreas[] = new CanvasRectangle($paint->x, $paint->y, $paint->width, $paint->height);
+      }
+    }
     return [...array_map(static fn(CanvasImage $image) => $image->clipRect ?? $image->destination, $this->images),
       ...array_map(static fn(CanvasTextLayer $text) => $text->clipRect ?? $text->paintBounds, $this->textLayers),
+      ...$labelAreas,
       ...array_map(static fn(CanvasComposite $composite) => $composite->clipRect ?? $composite->destination, $this->composites),
       ...array_map(static fn(CanvasIndicator $indicator) => $indicator->bounds, $this->indicators)];
   }
@@ -46,7 +57,8 @@ final readonly class PresentationCanvas
       throw new InvalidArgumentException('Canvas overlays must share their logical surface.');
     }
     $offset = 1 + max([0, ...array_column($base->images, 'layer'), ...array_column($base->textLayers, 'layer'),
-      ...array_column($base->indicators, 'layer'), ...array_column($base->composites, 'layer')]);
+      ...array_column($base->indicators, 'layer'), ...array_column($base->composites, 'layer'),
+      ...array_column($base->labels, 'layer')]);
     return new self($base->width, $base->height,
       [...$base->images, ...array_map(static fn($image) => new CanvasImage($idPrefix . $image->id, $image->asset,
         $image->destination, $offset + $image->layer, $image->sourceRect, $image->opacity,
@@ -60,12 +72,16 @@ final readonly class PresentationCanvas
         $composite->width, $composite->height, $composite->destination, $composite->operations,
         $offset + $composite->layer, $composite->opacity, $composite->clipRect), $overlay->composites)],
       [...$base->getOverlayProtection(), ...$overlay->getOverlayProtection()],
-      [...$base->presentationOwners, ...$overlay->presentationOwners]);
+      [...$base->presentationOwners, ...$overlay->presentationOwners],
+      [...$base->labels, ...array_map(static fn(CanvasLabel $label) => new CanvasLabel($idPrefix . $label->id,
+        $label->measurement, $label->x, $label->y, $offset + $label->layer, $label->clipRect, $label->opacity), $overlay->labels)]);
   }
 
   /** @param list<CanvasImage> $images
    * @param list<CanvasIndicator> $indicators
    * @param list<CanvasTextLayer> $textLayers
+   * @param list<CanvasComposite> $composites
+   * @param list<CanvasLabel> $labels
    */
   public function __construct(
     public int $width,
@@ -76,6 +92,7 @@ final readonly class PresentationCanvas
     array $composites = [],
     ?array $protectedAreas = null,
     public array $presentationOwners = [],
+    array $labels = [],
   )
   {
     if ($width < 1 || $height < 1 || $width > CanvasValidation::MAX_EXTENT || $height > CanvasValidation::MAX_EXTENT) {
@@ -91,6 +108,11 @@ final readonly class PresentationCanvas
     $this->images = CanvasValidation::orderedList($images, CanvasImage::class, 1024);
     $this->indicators = CanvasValidation::orderedList($indicators, CanvasIndicator::class, 2048);
     $this->textLayers = CanvasValidation::orderedList($textLayers, CanvasTextLayer::class, StyledPresentationFrame::MAX_TEXT_LAYERS);
+    $this->labels = CanvasValidation::orderedList($labels, CanvasLabel::class, StyledPresentationFrame::MAX_TEXT_LAYERS);
+    if (count($this->textLayers) + count($this->labels) > StyledPresentationFrame::MAX_TEXT_LAYERS) {
+      throw new InvalidArgumentException('Canvas grid text and project labels share the 64-layer text pool.');
+    }
+    foreach ($this->labels as $label) { $label->assertWithin($width, $height); }
     $this->composites = CanvasValidation::orderedList($composites, CanvasComposite::class, 8);
     $areas = null;
     if ($protectedAreas !== null) {
@@ -151,6 +173,7 @@ final readonly class PresentationCanvas
       'images' => array_map(static fn(CanvasImage $image) => $image->toArray(), $this->images),
       'indicators' => array_map(static fn(CanvasIndicator $indicator) => $indicator->toArray(), $this->indicators),
       'textLayers' => array_map(static fn(CanvasTextLayer $text) => $text->toArray(), $this->textLayers),
+      ...($this->labels === [] ? [] : ['labels' => array_map(static fn(CanvasLabel $label) => $label->toArray(), $this->labels)]),
       ...($this->composites === [] ? [] : ['composites' => array_map(static fn($item) => $item->toArray(), $this->composites)])];
   }
 }

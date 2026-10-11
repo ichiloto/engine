@@ -19,6 +19,7 @@ use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteCollector;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
+use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererProtocolException;
 
 /** Session-local scene assembly; providers still own projection, clocks, map identity and cleanup. */
 final class SceneFrameComposer
@@ -90,9 +91,25 @@ final class SceneFrameComposer
     $viewport = $scene instanceof FrameViewportProviderInterface
       ? $scene->getPresentationViewport($snapshot, $sprites, []) : null;
     if (!$slides) { $viewport = $viewport?->withoutFollow(); }
+    $groups = $scene instanceof WorldCanvasProviderInterface ? $scene->getPresentationWorldCanvases() : [];
+    if ($groups !== []) {
+      if (!$supports(RendererSessionConfig::WORLD_CANVAS) || !$supports(RendererSessionConfig::FRAME_VIEWPORT)) {
+        throw new RendererProtocolException('Field canvases require negotiated world_canvas and frame_viewport support.');
+      }
+      $groups = PresentationWorldCanvas::getOrderedList($groups);
+      if ($viewport === null || $world === null || $viewport->worldId !== $world->id) {
+        throw new RendererProtocolException('Field canvases require their selected field world and viewport.');
+      }
+      foreach ($groups as $group) {
+        if ($group->layer < PresentationLayerPolicy::FIELD_EFFECT_BEHIND || $group->layer >= PresentationLayerPolicy::UI) {
+          throw new \InvalidArgumentException('Automatic Game world canvases require layers -1..999; UI layers are reserved.');
+        }
+      }
+      $viewport = $viewport->selectWorldCanvases(array_column($groups, 'id'));
+    }
     $overlay = $dialogue?->isOverlay ? $dialogue->canvas : null;
     return new SceneFrameComposition($snapshot, $sprites, $viewport, $world, $overlay,
-      $noticeCanvas === null ? $sceneOverlay : PresentationCanvas::composeOverlay($sceneOverlay, $noticeCanvas));
+      $noticeCanvas === null ? $sceneOverlay : PresentationCanvas::composeOverlay($sceneOverlay, $noticeCanvas), $groups);
   }
 
   public function getDialoguePageLayout(string $speaker, DialogueContext $context, string $help, int $width): ?DialoguePageLayout

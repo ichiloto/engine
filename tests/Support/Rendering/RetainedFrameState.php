@@ -120,7 +120,11 @@ final class RetainedFrameState
         'textLayers' => $this->getValues('canvas_text')];
       $composites = $this->getValues('canvas_composite');
       if ($composites !== []) { $frame['canvas']['composites'] = $composites; }
+      $labels = $this->getValues('canvas_label');
+      if ($labels !== []) { $frame['canvas']['labels'] = $labels; }
     }
+    $groups = $this->getValues('world_canvas');
+    if ($groups !== []) { $frame['worldCanvases'] = $groups; }
     if ($this->viewport !== null) { $frame['viewport'] = $this->viewport; }
     foreach ($this->values['world'] ?? [] as $id => $world) {
       $frame['worlds'][$id] = [...$world, 'glyphRows' => $this->worldGlyphRows[$id] ?? []];

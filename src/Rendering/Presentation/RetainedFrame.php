@@ -17,5 +17,7 @@ final readonly class RetainedFrame
     public ?array $viewport,
     public ?PresentationCanvas $canvas,
     public bool $canvasIsOverlay,
+    /** @var list<PresentationWorldCanvas> */
+    public array $worldCanvases = [],
   ) {}
 }

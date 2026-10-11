@@ -723,8 +723,30 @@ silently treated as a proven baseline defect or a clean combined run. No timeout
 was raised and no case was skipped. Original failed and final per-family evidence
 remain on secondary `test-tmp/project-text-query-20261011-0213`. This is not a
 full Engine/Game rerun, native painting or other-platform qualification.
-World-canvas/label frame composition, localized map-sign/font-role consumers,
-source-preserving authoring and production font/art admission remain open.
+Engine's typed `CanvasLabel` and `PresentationWorldCanvas` producer is now
+implemented. Shared scene composition accepts camera-relative local groups,
+selects their world viewport membership and ranks actors/groups together by
+layer, ground row and stable order. Screen and group labels retain measured
+layout identity, signed paint bounds, clipping and opacity; reset, replacement,
+capture, transfer cleanup and backpressure use the existing retained lifecycle.
+Invalid viewport membership and aggregate over-budget canvas compositions are
+rejected before retained mutation or submission, rather than being forwarded
+to the renderer. Existing empty-group payloads and Terminal behavior remain.
+All canvas roots share image, indicator, text and composite budgets; actual
+prepared-label line/scalar costs remain native-owned after layout resolution.
+The strict combined targeted run passes 346 tests / 4,450 assertions. Its raw
+JUnit contains 20 XML-forbidden control bytes in existing dataset names; the
+original is preserved. Removing those bytes in memory only independently
+confirms all 346 cases, assertions and zero failures/errors/skips. Scoped
+production PHPStan level 3, 20-file syntax and whitespace checks pass. Two
+initial failures in the new tests were replay-fixture errors (discarding the
+initial reset before replaying deltas), corrected without changing validation;
+their original evidence remains with the final reports on secondary
+`test-tmp/world-canvas-engine-20261011-wyw6Sy`. Fake-transport checks qualify PHP
+serialization/lifecycle, not native shaping or painting. No full Engine/Game,
+native or other-platform qualification is inferred. Localized map-sign/font-role
+consumers, source-preserving authoring and production font/art admission remain
+open.
 
 World groups share the 1,024-subject ceiling with ordinary field sprites; all
 screen/group images, indicators, composites and canvas text consume aggregate

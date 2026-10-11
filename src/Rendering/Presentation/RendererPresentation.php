@@ -6,6 +6,7 @@ use Ichiloto\Engine\IO\Console\ConsoleFrameSnapshot;
 use Ichiloto\Engine\IO\Console\ConsolePresentationChanges;
 use Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasFrameBudget;
 use Ichiloto\Engine\Rendering\RendererClient;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use InvalidArgumentException;
@@ -39,9 +40,10 @@ final class RendererPresentation
   public function captureFrame(): RetainedFrame { return $this->retained->captureFrame(); }
 
   public function prepareFrame(ConsolePresentationSnapshot|ConsolePresentationChanges $snapshot, array $sprites = [],
-    ?PresentationViewport $viewport = null, ?PresentationWorld $world = null, ?PresentationCanvas $canvasOverlay = null): RetainedFrame
+    ?PresentationViewport $viewport = null, ?PresentationWorld $world = null, ?PresentationCanvas $canvasOverlay = null,
+    array $worldCanvases = []): RetainedFrame
   {
-    return $this->submitPresentation($snapshot, $sprites, [], $viewport, $world, $canvasOverlay, true);
+    return $this->submitPresentation($snapshot, $sprites, [], $viewport, $world, $canvasOverlay, true, $worldCanvases);
   }
 
   public function prepareCanvas(PresentationCanvas $canvas): RetainedFrame
@@ -52,6 +54,8 @@ final class RendererPresentation
 
   public function presentFrame(RetainedFrame $frame, ?PresentationCanvas $screenOverlay = null): bool
   {
+    $this->validateWorldCanvases($frame->worldCanvases);
+    if ($frame->canvas !== null) { $this->validateCanvas($frame->canvas); }
     if ($screenOverlay !== null) {
       $this->validateCanvas($screenOverlay);
       if ($frame->canvasIsOverlay && (!$this->client->supports(RendererSessionConfig::CANVAS_OVERLAY)
@@ -70,14 +74,14 @@ final class RendererPresentation
    */
   public function present(ConsoleFrameSnapshot|ConsolePresentationSnapshot|ConsolePresentationChanges $snapshot,
     array $sprites = [], array $tileBatches = [], ?PresentationViewport $viewport = null,
-    ?PresentationWorld $world = null, ?PresentationCanvas $canvasOverlay = null): bool
+    ?PresentationWorld $world = null, ?PresentationCanvas $canvasOverlay = null, array $worldCanvases = []): bool
   {
-    return $this->submitPresentation($snapshot, $sprites, $tileBatches, $viewport, $world, $canvasOverlay, false);
+    return $this->submitPresentation($snapshot, $sprites, $tileBatches, $viewport, $world, $canvasOverlay, false, $worldCanvases);
   }
 
   private function submitPresentation(ConsoleFrameSnapshot|ConsolePresentationSnapshot|ConsolePresentationChanges $snapshot,
     array $sprites, array $tileBatches, ?PresentationViewport $viewport,
-    ?PresentationWorld $world, ?PresentationCanvas $canvasOverlay, bool $prepare): bool|RetainedFrame
+    ?PresentationWorld $world, ?PresentationCanvas $canvasOverlay, bool $prepare, array $worldCanvases): bool|RetainedFrame
   {
     if ($snapshot->width !== $this->grid->columns || $snapshot->height !== $this->grid->rows) {
       throw new InvalidArgumentException('Console snapshot dimensions must match the fixed renderer session grid.');
@@ -113,8 +117,9 @@ final class RendererPresentation
       }
       $this->validateCanvas($canvasOverlay);
     }
-    return $prepare ? $this->retained->prepareFrame($snapshot, $sprites, $viewport, $world, $canvasOverlay)
-      : $this->retained->present($snapshot, $sprites, $viewport, $world, $canvasOverlay);
+    $this->validateWorldCanvases($worldCanvases);
+    return $prepare ? $this->retained->prepareFrame($snapshot, $sprites, $viewport, $world, $canvasOverlay, $worldCanvases)
+      : $this->retained->present($snapshot, $sprites, $viewport, $world, $canvasOverlay, $worldCanvases);
   }
 
   /** Graphical frames do not require a Console snapshot or use its cell dimensions. */
@@ -132,6 +137,10 @@ final class RendererPresentation
     if ($canvas->composites !== [] && !$this->client->supports(RendererSessionConfig::CANVAS_COMPOSITING)) {
       throw new RendererProtocolException('Canvas raster operations require negotiated canvas_compositing support.');
     }
+    if ($canvas->labels !== [] && (!$this->client->supports(RendererSessionConfig::CANVAS_LABELS)
+      || !$this->client->supports(RendererSessionConfig::TEXT_LAYOUT))) {
+      throw new RendererProtocolException('Canvas labels require negotiated canvas_labels and text_layout support.');
+    }
     foreach ($canvas->images as $image) {
       if (($image->flipX || $image->flipY) && !$this->client->supports(RendererSessionConfig::CANVAS_IMAGE_FLIP)) {
         throw new RendererProtocolException('Canvas image mirroring requires negotiated canvas_image_flip support.');
@@ -144,7 +153,8 @@ final class RendererPresentation
       }
     }
     $compositing = array_any($canvas->images, static fn($image) => $image->clipRect !== null)
-      || array_any($canvas->textLayers, static fn($text) => $text->clipRect !== null || $text->opacity !== 1.0);
+      || array_any($canvas->textLayers, static fn($text) => $text->clipRect !== null || $text->opacity !== 1.0)
+      || array_any($canvas->labels, static fn($label) => $label->clipRect !== null || $label->opacity !== 1.0);
     if ($compositing && !$this->client->supports(RendererSessionConfig::CANVAS_CLIP_OPACITY)) {
       throw new RendererProtocolException('Canvas clipping and text opacity require negotiated canvas_clip_opacity support.');
     }
@@ -152,5 +162,17 @@ final class RendererPresentation
       && !$this->client->supports(RendererSessionConfig::CANVAS_GLYPH_EFFECTS)) {
       throw new RendererProtocolException('Canvas glyph contours require negotiated canvas_glyph_effects support.');
     }
+  }
+
+  /** @param list<PresentationWorldCanvas> $groups */
+  private function validateWorldCanvases(array $groups): void
+  {
+    $groups = PresentationWorldCanvas::getOrderedList($groups);
+    if ($groups !== [] && (!$this->client->supports(RendererSessionConfig::WORLD_CANVAS)
+      || !$this->client->supports(RendererSessionConfig::FRAME_VIEWPORT))) {
+      throw new RendererProtocolException('Field canvases require negotiated world_canvas and frame_viewport support.');
+    }
+    foreach ($groups as $group) { $this->validateCanvas($group->canvas); }
+    CanvasFrameBudget::assertCanvases(array_map(static fn($group) => $group->canvas, $groups));
   }
 }

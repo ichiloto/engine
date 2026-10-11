@@ -29,6 +29,8 @@ final readonly class PresentationViewport
     public int $tileFrame = 0,
     /** The sprite the camera follows, for renderers that negotiated field_motion. */
     public ?PresentationViewportFollow $follow = null,
+    /** Atomic local canvases receiving the same camera, zoom and clip as selected field sprites. */
+    public array $worldCanvasIds = [],
   ) {
     if ($tileFrame < 0) {
       throw new InvalidArgumentException('Viewport tileFrame must be nonnegative.');
@@ -37,7 +39,7 @@ final readonly class PresentationViewport
       || !is_finite($x) || !is_finite($y) || $x < 0 || $y < 0) {
       throw new InvalidArgumentException('Viewport scale must be finite, positive and at most 8; its origin must be finite and nonnegative.');
     }
-    foreach ([$textLayerIds, $spriteIds, $tileBatchIds] as $ids) {
+    foreach ([$textLayerIds, $spriteIds, $tileBatchIds, $worldCanvasIds] as $ids) {
       if (!array_is_list($ids)) { throw new InvalidArgumentException('Viewport membership must be a list.'); }
       $seen = [];
       foreach ($ids as $id) {
@@ -46,6 +48,9 @@ final readonly class PresentationViewport
         }
         $seen[$id] = true;
       }
+    }
+    if ($worldCanvasIds !== [] && $worldId === null) {
+      throw new InvalidArgumentException('World canvas membership requires a field world.');
     }
     if (($worldId !== null && ($worldId === '' || strlen($worldId) > 256 || preg_match('//u', $worldId) !== 1))
       || ($worldId === null && ($worldOriginX !== 0 || $worldOriginY !== 0))) {
@@ -68,7 +73,8 @@ final readonly class PresentationViewport
   }
 
   /** @param list<PresentationTextLayer> $text @param list<PresentationSprite> $sprites @param list<PresentationTileBatch> $tiles */
-  public function assertMembers(array|ConsolePresentationSnapshot|ConsolePresentationChanges $text, array $sprites, array $tiles = []): void
+  public function assertMembers(array|ConsolePresentationSnapshot|ConsolePresentationChanges $text, array $sprites, array $tiles = [],
+    array $worldCanvases = []): void
   {
     if ($text instanceof ConsolePresentationChanges) {
       if (array_intersect($this->textLayerIds, $text->removedIds) !== []
@@ -78,7 +84,8 @@ final readonly class PresentationViewport
       // Incremental rows omit unchanged layers; complete membership belongs to the scene.
       $text = array_map(static fn(string $id): array => ['id' => $id], $this->textLayerIds);
     } elseif ($text instanceof ConsolePresentationSnapshot) { $text = $text->textLayers; }
-    foreach ([[$this->textLayerIds, $text], [$this->spriteIds, $sprites], [$this->tileBatchIds, $tiles]] as [$ids, $items]) {
+    foreach ([[$this->textLayerIds, $text], [$this->spriteIds, $sprites], [$this->tileBatchIds, $tiles],
+      [$this->worldCanvasIds, $worldCanvases]] as [$ids, $items]) {
       if (array_diff($ids, array_column($items, 'id')) !== []) {
         throw new InvalidArgumentException('Viewport membership must reference items in the same frame.');
       }
@@ -90,6 +97,7 @@ final readonly class PresentationViewport
     return ['scale' => $this->scale, 'origin' => ['x' => $this->x, 'y' => $this->y],
       'clipRect' => $this->clipRect->toArray(), 'textLayerIds' => $this->textLayerIds,
       'spriteIds' => $this->spriteIds,
+      ...($this->worldCanvasIds === [] ? [] : ['worldCanvasIds' => $this->worldCanvasIds]),
       ...($this->worldId === null ? [] : ['worldId' => $this->worldId,
         'worldOrigin' => ['column' => $this->worldOriginX, 'row' => $this->worldOriginY]]),
       ...($this->tileFrame === 0 ? [] : ['tileFrame' => $this->tileFrame]),
@@ -101,6 +109,13 @@ final readonly class PresentationViewport
   {
     return $this->follow === null ? $this : new self($this->scale, $this->x, $this->y, $this->clipRect,
       $this->textLayerIds, $this->spriteIds, $this->tileBatchIds, $this->worldId, $this->worldOriginX,
-      $this->worldOriginY, $this->tileFrame);
+      $this->worldOriginY, $this->tileFrame, worldCanvasIds: $this->worldCanvasIds);
+  }
+
+  /** Preserve the selected field transform while selecting its already-projected local canvases. */
+  public function selectWorldCanvases(array $ids): self
+  {
+    return new self($this->scale, $this->x, $this->y, $this->clipRect, $this->textLayerIds, $this->spriteIds,
+      $this->tileBatchIds, $this->worldId, $this->worldOriginX, $this->worldOriginY, $this->tileFrame, $this->follow, $ids);
   }
 }

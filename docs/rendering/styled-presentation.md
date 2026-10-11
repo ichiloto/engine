@@ -16,7 +16,8 @@ negative coordinates; snapshots additionally check grid fit.
 
 `PresentationTextLayer` contains a nonempty UTF-8 ID of at most 256 bytes, a
 signed i32 layer and a list of typed runs. Screen text is bounded to 64 layers,
-32768 runs and 524288 scalars; sprites have a separate 1024-item limit.
+32768 runs and 524288 scalars; field sprites and world-canvas groups share a
+separate 1024-subject limit.
 `StyledPresentationFrame` retains the old complete-frame representation for
 reference comparisons. Its `textLayers`/`sprites` envelope is no longer accepted
 by the native renderer. Arrays detach caller-owned element references.
@@ -203,3 +204,49 @@ scale, not layout dimensions. Terminal-only dynamic resize remains available.
 Native resize resynchronizes retained presentation without changing gameplay
 geometry. Retaining presentation does not add renderer-driven animation,
 gameplay bindings or save fields.
+
+## Prepared Labels And Field Canvases
+
+`CanvasLabel` draws the immutable layout returned by the existing nonblocking
+text-preparation query. Its `TextMeasurement` supplies effect-expanded paint
+bounds; the wire carries only the session-local `layoutId`, local origin, layer,
+optional clip and opacity. Paint bounds must fit the local canvas even when
+clipped or transparent. `PresentationCanvas` accepts labels in its final optional
+argument; labels and legacy canvas text share the 64-item canvas-text pool.
+Screen grid text keeps its separate pool. Layout handles are not authored data,
+font identity, save fields or a substitute for font-admission checks.
+
+`PresentationWorldCanvas` groups one local canvas with a stable subject ID,
+camera-relative integer cell anchor, explicit normalized pivot and ground layer.
+The anchor/pivot moves the whole group through the selected field viewport's
+camera, zoom and clip. Child layers stay inside that group. Call
+`createProjected($originX, $originY)` to derive a camera-relative group from an
+authored world anchor; this changes drawing only, never collision or Terminal
+geometry. `PresentationViewport::worldCanvasIds` explicitly selects membership.
+
+A scene may implement `WorldCanvasProviderInterface` to supply these groups to
+the shared `SceneFrameComposer`. The provider owns projection and local layout;
+the composer selects matching world membership and reserves automatic field
+layers -1..999, below UI. Complete replacement canvases do not collect field
+groups. The same composition is available to runtime and isolated previews;
+this provider alone is not map-sign/font-role authoring or a Game consumer.
+
+Retained submission shares one stable layer/ground-row rank across sprites and
+groups. Exact ties keep existing actors before groups, preserving each source
+list's order. Capture, prepare, overlay presentation, reliable reset and
+replacement retain that rank. Returning to a full-canvas scene removes field
+groups, sprites, world and viewport through the ordinary retained lifecycle.
+Session-owned text preparation and release remain with the caller; accepted
+native frames pin their prepared layout resources.
+
+Groups require negotiated `world_canvas`, `frame_viewport` and `graphical_canvas`.
+Labels require `canvas_labels` and `text_layout`; clipping/opacity and other
+child capabilities are checked independently. `CanvasFrameBudget` checks the
+combined screen/group candidate before retained state changes, including reused
+drawings. Aggregate limits are 1024 images, 2048 indicators, 64 canvas text/labels,
+32768 legacy text runs, 524288 legacy scalars, 8 composites, 8388608 composite
+pixels, 256 operations, 16384 displacement nodes and 268435456 cold raster work.
+Prepared-label line/scalar counts are resolved and admitted by the native layout
+owner, not duplicated in PHP measurement metadata. Unsupported capabilities,
+invalid membership and over-budget candidates fail explicitly without replacing
+the previously accepted generation.

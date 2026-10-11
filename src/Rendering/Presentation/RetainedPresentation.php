@@ -6,6 +6,7 @@ use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\IO\Console\ConsolePresentationChanges;
 use Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasFrameBudget;
 use Ichiloto\Engine\Rendering\RendererClient;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Util\Debug;
@@ -36,6 +37,8 @@ final class RetainedPresentation
     private ?array $viewport = null;
     private ?PresentationCanvas $canvas = null;
     private bool $canvasIsOverlay = true;
+    /** @var list<PresentationWorldCanvas> */
+    private array $worldCanvases = [];
     private readonly object $frameOwner;
     /** @var list<array<string, mixed>> */
     private array $operations = [];
@@ -57,14 +60,15 @@ final class RetainedPresentation
     public function captureFrame(): RetainedFrame
     {
         return new RetainedFrame($this->frameOwner, $this->values, $this->textRows, $this->world,
-            $this->viewport, $this->canvas, $this->canvasIsOverlay);
+            $this->viewport, $this->canvas, $this->canvasIsOverlay, $this->worldCanvases);
     }
 
     /** Prepare the incoming composition without sending an uncovered frame. */
     public function prepareFrame(ConsolePresentationChanges|ConsolePresentationSnapshot $text, array $sprites,
-        ?PresentationViewport $viewport, ?PresentationWorld $world = null, ?PresentationCanvas $canvasOverlay = null): RetainedFrame
+        ?PresentationViewport $viewport, ?PresentationWorld $world = null, ?PresentationCanvas $canvasOverlay = null,
+        array $worldCanvases = []): RetainedFrame
     {
-        return $this->prepareRetainedFrame(fn() => $this->updateFrame($text, $sprites, $viewport, $world, $canvasOverlay));
+        return $this->prepareRetainedFrame(fn() => $this->updateFrame($text, $sprites, $viewport, $world, $canvasOverlay, $worldCanvases));
     }
 
     public function prepareCanvas(PresentationCanvas $canvas): RetainedFrame
@@ -87,6 +91,7 @@ final class RetainedPresentation
             $this->viewport = $previous->viewport;
             $this->canvas = $previous->canvas;
             $this->canvasIsOverlay = $previous->canvasIsOverlay;
+            $this->worldCanvases = $previous->worldCanvases;
             $this->operations = $operations;
             $this->viewportChanged = $viewportChanged;
         }
@@ -103,6 +108,8 @@ final class RetainedPresentation
             }
             $canvas = PresentationCanvas::composeOverlay($canvas, $screenOverlay);
         }
+        CanvasFrameBudget::assertCanvases([...($canvas === null ? [] : [$canvas]),
+            ...array_map(static fn($group) => $group->canvas, $frame->worldCanvases)]);
         $this->operations = [];
         if ($this->world !== $frame->world) {
             if ($this->world !== null) { $this->operations[] = ['op' => 'remove', 'kind' => 'world', 'id' => $this->world->id]; }
@@ -121,7 +128,9 @@ final class RetainedPresentation
                 $this->putText((string)$id);
             }
         }
-        $this->replaceValues('sprite', array_values($frame->values['sprite'] ?? []));
+        $this->replaceValues('sprite', array_values($frame->values['sprite'] ?? []), true);
+        $this->replaceValues('world_canvas', array_values($frame->values['world_canvas'] ?? []), true);
+        $this->worldCanvases = $frame->worldCanvases;
         $this->updateCanvas($canvas, $frame->canvasIsOverlay);
         $this->setViewport($frame->viewport);
         return $this->flush();
@@ -173,15 +182,24 @@ final class RetainedPresentation
 
     /** @param list<PresentationSprite> $sprites */
     public function present(ConsolePresentationChanges|ConsolePresentationSnapshot $text, array $sprites,
-        ?PresentationViewport $viewport, ?PresentationWorld $world = null, ?PresentationCanvas $canvasOverlay = null): bool
+        ?PresentationViewport $viewport, ?PresentationWorld $world = null, ?PresentationCanvas $canvasOverlay = null,
+        array $worldCanvases = []): bool
     {
-        $this->updateFrame($text, $sprites, $viewport, $world, $canvasOverlay);
+        $this->updateFrame($text, $sprites, $viewport, $world, $canvasOverlay, $worldCanvases);
         return $this->flush();
     }
 
     private function updateFrame(ConsolePresentationChanges|ConsolePresentationSnapshot $text, array $sprites,
-        ?PresentationViewport $viewport, ?PresentationWorld $world, ?PresentationCanvas $canvasOverlay): void
+        ?PresentationViewport $viewport, ?PresentationWorld $world, ?PresentationCanvas $canvasOverlay, array $worldCanvases): void
     {
+        $subjects = PresentationSubjectOrder::getOrderedSubjects($sprites, $worldCanvases);
+        $worldCanvases = PresentationWorldCanvas::getOrderedList($worldCanvases);
+        if ($worldCanvases !== [] && ($world === null || $viewport?->worldId !== $world->id)) {
+            throw new \InvalidArgumentException('World canvases require their selected field world and viewport.');
+        }
+        $viewport?->assertMembers($text, $sprites, worldCanvases: $worldCanvases);
+        CanvasFrameBudget::assertCanvases([...($canvasOverlay === null ? [] : [$canvasOverlay]),
+            ...array_map(static fn($group) => $group->canvas, $worldCanvases)]);
         $this->operations = [];
         $this->updateCanvas($canvasOverlay, true);
         if ($world !== $this->world) {
@@ -198,7 +216,16 @@ final class RetainedPresentation
             Debug::warn('Renderer lacks sprite_pivot; field images retain bottom-center placement.');
             $this->warnedUnsupportedPivot = true;
         }
-        $this->replaceValues('sprite', array_map(static fn($sprite) => $sprite->toArray($lift, $turns, $pivot), PresentationSprite::orderedList($sprites)));
+        $spriteValues = $groupValues = [];
+        foreach ($subjects as $order => $subject) {
+            $value = [...($subject instanceof PresentationSprite ? $subject->toArray($lift, $turns, $pivot)
+                : $subject->toArray()), 'order' => $order];
+            if ($subject instanceof PresentationSprite) { $spriteValues[] = $value; }
+            else { $groupValues[] = $value; }
+        }
+        $this->replaceValues('sprite', $spriteValues, true);
+        $this->replaceValues('world_canvas', $groupValues, true);
+        $this->worldCanvases = $worldCanvases;
         $this->setViewport($viewport?->toArray());
     }
 
@@ -210,6 +237,7 @@ final class RetainedPresentation
 
     private function updateFullCanvas(PresentationCanvas $canvas): void
     {
+        CanvasFrameBudget::assertCanvases([$canvas]);
         $this->operations = [];
         if ($this->world !== null) {
             $this->operations[] = ['op' => 'remove', 'kind' => 'world', 'id' => $this->world->id];
@@ -218,6 +246,8 @@ final class RetainedPresentation
         $this->replaceValues('text', []);
         $this->textRows = [];
         $this->replaceValues('sprite', []);
+        $this->replaceValues('world_canvas', []);
+        $this->worldCanvases = [];
         $this->updateCanvas($canvas, false);
         $this->setViewport(null);
     }
@@ -229,7 +259,8 @@ final class RetainedPresentation
         $this->replaceValues('canvas', $canvas === null ? [] : [['id' => 'canvas', 'width' => $canvas->width,
             'height' => $canvas->height, ...($overlay ? ['mode' => 'overlay'] : [])]]);
         foreach (['canvas_image' => $canvas?->images ?? [], 'canvas_indicator' => $canvas?->indicators ?? [],
-            'canvas_text' => $canvas?->textLayers ?? [], 'canvas_composite' => $canvas?->composites ?? []] as $kind => $items) {
+            'canvas_text' => $canvas?->textLayers ?? [], 'canvas_composite' => $canvas?->composites ?? [],
+            'canvas_label' => $canvas?->labels ?? []] as $kind => $items) {
             $this->replaceValues($kind, array_map(static fn($item) => $item->toArray(), $items));
         }
     }
@@ -241,12 +272,12 @@ final class RetainedPresentation
     }
 
     /** @param list<array<string, mixed>> $items */
-    private function replaceValues(string $kind, array $items): void
+    private function replaceValues(string $kind, array $items, bool $preserveOrder = false): void
     {
         $next = [];
         foreach ($items as $order => $value) {
             $id = $value['id'];
-            $value['order'] = $order;
+            $value['order'] = $preserveOrder ? $value['order'] : $order;
             $next[$id] = $value;
             if (($this->values[$kind][$id] ?? null) !== $value) { $this->put($kind, $id, $value); }
         }
