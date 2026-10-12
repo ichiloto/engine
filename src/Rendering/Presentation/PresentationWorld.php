@@ -138,10 +138,14 @@ final readonly class PresentationWorld
                 throw new InvalidArgumentException('Retained world exceeds the bounded layer or source-memory budget with its tiles.');
             }
         }
+        $wireCells = [];
         foreach ($grid as $y => $cells) {
             $wire = [];
             foreach ($cells as $x => $cell) {
-                $wire[] = [...$styled[$cell], 'ownerLayerId' => PresentationLayerPolicy::getMapLayerId($projectedOwners[$y][$x] ?? $layers->getGameplayLayerAt($x, $y))];
+                $ownerId = PresentationLayerPolicy::getMapLayerId($projectedOwners[$y][$x] ?? $layers->getGameplayLayerAt($x, $y));
+                // Identical immutable cells share storage; caller edits remain isolated by PHP copy-on-write.
+                $wireCells[$ownerId][$cell] ??= [...$styled[$cell], 'ownerLayerId' => $ownerId];
+                $wire[] = $wireCells[$ownerId][$cell];
             }
             $rows[] = ['op' => 'worldRows', 'id' => $id, 'rows' => [['row' => $y, 'cells' => $wire]]];
         }
