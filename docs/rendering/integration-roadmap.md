@@ -1046,8 +1046,10 @@ cardinal rock family and A5 earth floor through both GUI and actual runtime
 composition. Its CPU proof checks all 448 cell-quarter groups, nine rock variants
 and reachable open floor. The inspected native image shows connected chambers,
 corridors and bends without exposed black gaps or terminal glyph bleed. This
-qualifies the selected cardinal family, not unimplemented 47-shape concave joins
-or author-owned production-map changes.
+qualifies the selected cardinal family, not native painting of all 47 implemented
+floor-blob variants or author-owned production-map changes. The existing CPU
+autotile qualification covers the floor-blob concave joins; they are not a missing
+implementation.
 
 On Editor `c27ce9e` and rebuilt GUI `077d05b`, Return now advances two dialogue
 pages and Down/Return chooses the second route in both Terminal and GPUI preview
@@ -1075,6 +1077,36 @@ A focused muted native check shows the two authored lines intact in both tabs,
 an unnamed sentence wrapping across the available reading area, complete
 GPUI choices, the selected second option in Terminal, and its correct branch
 back in GPUI. This qualifies one native theme, not all themes or resize cases.
+
+The October 12 muted sign-authoring retry on Editor `b9afff5` closes the new-object
+picker follow-up above. Native screenshots show Create selecting a new object,
+the constrained Field Resource picker, both wooden and stone board bindings, and
+editable localized labels rendered on their boards. Saving persists `North Gate`
+on wood; two menu Undo operations restore its default label and then the unbound
+object with its inline-image controls. Selecting stone and saving `Station`, then
+closing and reopening the disposable project, preserves the board, text and
+translation key. No resource identity is manually typed. The coordinator inspected
+the owner's full Editor log: 2,499 tests / 107,376 assertions, exit zero; no full
+suite was repeated. This qualifies macOS sign creation, editing, Undo and reopen,
+not authored building placements, all input methods/fonts/themes or world depth.
+The earlier windowless Editor had already exited before the authorized retry;
+no signal was sent to it. The fresh launcher exits zero and its three owned
+processes are verified gone. Normal configuration, Home map and the foreign
+PHPUnit cache retain their pre-launch fingerprints. The consumed APFS clone and
+110 MiB compiler cache are removed after verifying the two compact evidence copies
+in secondary `test-tmp/g4-sign-authoring-20261012/`.
+
+The separate combined actor/tree/equal-row/door depth proof remains open. Its CPU
+preflight verifies the actual runtime composition and meaningful opaque overlap,
+but the subsequent owned-window CGImage and ScreenCaptureKit images contain only
+the dark native client. Capture permission succeeds; a desktop lock or absent
+permission is not inferred. Native receipts record accepted scene replacements,
+correct actors/viewport and zero protected changes, but acceptance is not painting.
+A bounded trace has no later render/layout/paint records; native frame delivery
+versus redraw invalidation remains unresolved, not a proven Renderer defect.
+Failed images and compact receipts remain in secondary
+`test-tmp/g4-depth-native-20261012-Ce9m7e/`. No vendor/production workaround, full
+suite rerun, other-platform claim or authored map change was made.
 
 The actual `InnRestPresentation` and scene-owned stage boundary complete four
 leader-selected rests in normal and reduced motion on Engine `8930ca5` and Game
