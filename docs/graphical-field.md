@@ -180,9 +180,22 @@ editing surface is owned by the GUI Editor plan. Related docs:
   This removes the former blanket connected-piece prohibition while retaining
   all name, uniqueness and written-layer validation. Retention describes
   graphical authoring only; physical occupancy remains independent, with
-  glyph passage used only by undeclared legacy maps. The Engine contract is implemented; the corresponding Editor
-  connected placement/coverage behavior and Game bindings are being integrated by their
-  owner, not implied by parsing this field alone.
+  glyph passage used only by undeclared legacy maps. Both the Engine contract
+  and Editor consumer are implemented: `editor/src/Canvas/PieceRole.php`
+  carries retention on each connected shape, and `GlyphTilePlanner` /
+  `CanvasEditor` preserve it through placement, reshaping, erasure and existing
+  source-preserving history. `editor/tests/Unit/Canvas/ConnectedKeptUnderlayTest.php`
+  exercises retained backing, omission, draw/reshape/erase, Undo and save/reopen with
+  synthetic maps. The retained Engine qualification is 146 tests / 896
+  assertions in secondary `test-tmp/connected-keeps-20261011-0141/after-verified-paths.xml`;
+  Claude's Editor `ee3c739` consumer receipt is
+  `docs/agents/to-codex/20261011-0337-editor-ee3c739-pushed.md`.
+  Game `dfa4953` binds the exterior stone wall to retained substrate and adds
+  missing backing without replacing existing cells. Shared `TileCoverage` and
+  its Editor warning/Game regression consumers are also implemented; retention
+  does not fabricate absent backing or prove every authored map is covered.
+  Remaining author-owned coverage choices and bounded native checks stay in
+  the [integration roadmap](rendering/integration-roadmap.md).
 - **Piece cell styles.** Existing `glyphs` rows may use the same terminal
   markup as map layers, for example `'<fg=green>ab</><fg=yellow>c</>'`.
   Parsing uses shared `TerminalText` rules, including nested styles, ANSI,
@@ -505,7 +518,7 @@ write. Dedicated GUI controls and their safe round trips remain a separate
 Editor/GUI boundary; this runtime contract does not claim authoring completion
 or add a graphical workflow to the TUI.
 
-### Editable Signage (Approved Direction, Not Yet Implemented)
+### Editable Signage (Implemented Contract, Bounded Native Proof)
 
 Reusable signs extend the map-owned presentation path rather than baking words
 into tile images or adding a Game-specific HUD overlay. Andrew approved editable
@@ -513,64 +526,129 @@ labels on reusable boards and translation from the start on October 11, then
 selected an open-licensed font with replaceable developer font resources.
 Existing bed/purse icon signs remain usable and unchanged.
 
-The placement owns a stable sign identity, anchor and localized vocabulary term;
-the reusable resource owns blank board artwork, font role and text treatment.
-Font names and paths are project data, not Engine constants. Board width derives
-from the selected current font's shaped label bounds, treatment extents and
-padding. Fixed end caps and repeated middle strips preserve artwork grain;
-fitting must not silently shrink/truncate words, expand physical occupancy or
-derive Terminal geometry from graphical pixels. Missing terms, unusable glyphs,
-invalid assets and exceeded budgets require diagnostics, not invented text.
+The shared runtime contract is implemented. `WorldObjectResource::fromArray()`
+requires exactly one `sprites2d` or `sign` presentation. `WorldSignStyle` owns
+the replaceable board asset, `fontRole`, source-pixel left/right cuts, density
+1 or 2, logical padding and width limits, with optional layer/repeat width.
+`WorldObjectDefinition::readMap()` admits sign placements with the existing
+stable `id`, `resource`, `anchor`, optional `covers` and required
+`label => ['message' => ..., 'default' => ...]`. Only named sign resources
+accept labels; image variants and inline resource overrides refuse. Optional
+coverage names explicit owners and tile layers; `tileLayers => []` retains
+building textures. No label or image extent changes physical occupancy.
+The complete schema and examples are in
+[localized map signs](rendering/styled-presentation.md#localized-map-signs).
 
-Board and label must paint as one map-owned, camera-transformed, depth-sorted
-subject, interleaving with actors through shared field painting. Existing HUD
-canvas text paints after the field and is not this mechanism. World grouping,
-font loading/shaping/measurement and repeated-centre support need coordinated
-Engine/Renderer contracts before runtime and authoring admission. Children must
-consume aggregate presentation budgets; grouping does not reset or raise limits.
-Replacement artwork/fonts, locale changes, reload and transfer must use owned
-resource retirement and current-file validation rather than permanent hashes.
+The optional `Data/Presentation/text.php` catalog uses `ichiloto.text/1`, with
+at most 128 stable keyed roles. Each `TextRole` owns an ordered project font
+chain, size, typed foreground and optional outline/shadow `glyphEffects`.
+Plain effects descriptors are now admitted and exported through the shared
+`CanvasGlyphEffects` / `PresentationColor` factories; constructing PHP objects
+is not required. Existing object-valued input remains compatible, not authority
+to flatten unsupported source. Font names/paths are project data, never Engine
+constants. `LocalizedText` resolves the current `MessageCatalog` locale/base/
+authored-default order without changing locale or inventing labels; base and
+resolved text must be single-line UTF-8 within 4096 scalars.
 
-The agreed protocol-2 seam negotiates `world_canvas`, `canvas_labels` and
-`text_layout`. A `prepare_text` query names `requestId` and a typed spec: complete
-UTF-8 text, ordered explicit project font references, logical `fontSize`, locale,
-foreground and optional existing `glyphEffects` (null refuses). Font references
-carry asset-root-relative `asset` and optional `faceIndex` (default zero);
-the planned limits are 1..16 fonts, faces 0..31 and sizes 1..256. Correlated
-`text_prepared` returns a session-only `layoutId` and advance/baseline/line/ink/
-paint bounds; `text_prepare_failed` returns its diagnostic. `release_text`
-retires pending registry ownership, not an accepted frame's live layout.
-Queries never advance retained generation.
+`WorldSignPlayback` nonblockingly prepares the complete label through the
+host's `TextPreparationProviderInterface`; the transport owner alone pumps
+replies. `WorldSignStyle::composeCanvas()` centers effect-expanded paint bounds,
+including negative bearings, inside current-board padding. Width grows within
+the authored minimum/maximum; oversized labels re-query at smaller font sizes
+with at most eight reductions and a one-pixel minimum, never truncating text.
+Impossible fits, unusable glyphs/assets and resource refusals are diagnosed and
+retain Terminal presentation, not substitute artwork or machine fonts.
+Shared request-capacity pressure retries on a later frame without polling.
+Locale, role, current font-file facts, board geometry or session changes retire
+stale tickets; map/context teardown releases owned preparation. Those file
+facts are transient invalidation, not permanent hashes or saved identity.
 
-Retained `world_canvas` owns ID, outer order/layer, cell x/y, normalized pivot
-and a complete local canvas. Its `labels` (or screen `canvas_label` entities)
-reference `layoutId`, pixel `origin`, local layer and optional clip/opacity.
-`viewport.worldCanvasIds` requires a world identity. Label origin must account
-for negative glyph bearings and effects, not just advance. Both embedded and
-runtime preparation use the same project text service and validation. These
-wire shapes are Renderer work in progress; typed Engine transport, resource
-admission, consumer composition and synthetic/native qualification remain open.
+`CanvasNineSlice::composeRepeatedXImages()` is used by the sign consumer, not
+merely an independent helper. Fixed caps and full-density repeated middle strips
+preserve grain; the clipped final tail may need transparent logical margin.
+Pivot compensation anchors the visible board rather than that margin. Expansion
+checks the image budget before allocation. Existing stretched `images()` and
+canvas bounds remain unchanged.
 
-The shared `CanvasNineSlice::composeRepeatedXImages()` helper is implemented
-independently of signage admission. It retains existing fixed cuts and density,
-accepts a full-height repeat sample inside the source middle, and emits ordinary
-image pieces without stretching. It checks the caller's remaining image budget
-before expansion, intersects the final tail with caller clipping, and requires
-source-height/density destination height. A clipped fractional tail retains its
-full-density destination; zero/small right caps may require transparent logical
-surface margin, with a world subject's pivot measured against the true board
-anchor rather than that margin. Canvas bounds validation and collision are not
-changed to accommodate it. Existing stretched `images()` behavior is unchanged.
-Nineteen new synthetic cases / 392 assertions and fourteen adjacent cases /
-89 assertions pass, plus scoped configured static analysis. This helper does
-not implement localized labels, world groups or Editor controls.
+`GameScene::getPresentationWorldCanvases()` projects prepared signs through
+`PresentationWorldCanvas`, `WorldCanvasProviderInterface` and the shared
+`SceneFrameComposer`. Board and label are one camera-transformed, clipped,
+depth-sorted field subject, not a HUD overlay. Actors/groups share stable
+layer/ground-row ranking and the 1,024-subject ceiling. Group children consume
+aggregate canvas limits, including the 64-item text/label pool; grouping cannot
+raise limits. Coverage activates only while the sign is prepared and usable.
+Terminal/unsupported contexts keep their existing authored presentation.
+Runtime and isolated previews bind their own text provider through
+`ScenePresentationContext::textPreparation`; authoring sources can use the same
+composer through `FramePresentationSourceInterface` without a second GameScene.
 
-Engine owns vocabulary resolution, layout and lifecycle; Renderer owns shared
-protocol/font preparation and painting; Claude owns Editor/GUI source-preserving
-authoring and Terminal text editing. The blank wooden/stone board proposals are
-delivered for appearance review; their illustrative proof text is not a final
-runtime font. No new declaration syntax, supported font format, runtime import
-or native/other-platform acceptance is claimed by this planned direction.
+The protocol-2 `world_canvas`, `canvas_labels` and `text_layout` seam is
+implemented in both Engine and GPUI Renderer. World groups also require the
+existing graphical-canvas/viewport capabilities, with crop and clip/opacity
+capabilities checked for the sign path. `prepare_text` names `requestId` and
+a typed whole-UTF-8 spec: 1..16 explicit asset-root-relative fonts, optional
+`faceIndex` 0..31 (default zero), size 1..256, locale, foreground and optional
+effects (omit absent effects; wire null refuses). Correlated `text_prepared`
+returns a session-only `layoutId` and advance/baseline/line/ink/paint bounds;
+`text_prepare_failed` preserves the actual diagnostic. `release_text` names
+layout IDs and retires registry ownership, not an accepted frame's live layout.
+Queries never advance retained generation. Group/screen labels reference that
+same layout, local origin/layer and optional clip/opacity;
+`viewport.worldCanvasIds` selects groups belonging to its world.
+Renderer `gpui-renderer/src/text_layout.rs`, `transport.rs` and `scene_view.rs` share project
+font admission/shaping; `renderer.rs` paints the retained groups. SFNT
+TTF/OTF and collections are admitted from safe project paths, at most 32 MiB
+per font and within shared memory limits, without machine-font fallback.
+
+Retained October 11 synthetic qualification, not a new test run: the sign/
+catalog/scene/broker and adjacent families pass 653 tests / 5,080 assertions,
+zero errors/failures/skips, in secondary
+`test-tmp/map-sign-engine-20261011-VqDOKmLX/qualification-final.xml` and its log.
+The later plain-effects contract receipt is 639 / 1,000 in
+`test-tmp/engine-glyph-contract-4plLHs/test-summary.log`.
+Renderer `test-tmp/renderer-signs-20261011-JCUXZJ/qualification.json` records
+280 passes and four existing opt-in benchmark/replay ignores at `9c4f0ba`;
+this is dated substrate evidence, not current all-platform qualification.
+These secondary receipt paths are under
+`/Volumes/Macintosh HD 2/IchilotoBuildCaches/`.
+
+Claude's existing source-preserving authoring services are implemented in
+`editor/src/Field/FieldResourceFields.php`, `TextRoleFields.php` and
+`WorldObjectAuthoring.php`. The live editing canvas uses `AuthoringCanvasHost`,
+`AuthoringMapSource` and placement-owned `AuthoringSignPlaybacks` with the same
+Engine playback and embedded Renderer service. This does not establish every
+GUI workflow or add graphical authoring to the TUI. The dedicated GUI Sign
+creation flow remains Claude's follow-up: `gui-editor/src/editor/world_objects.rs`
+currently sends only x/y from its generic Create action, while
+`editor/src/Session/SessionHost.php` already accepts optional `resource` and
+`text` on `worldObjects.create`.
+
+Production board/font admission is no longer pending: Game `b7819b5` imports
+`Graphics/Objects/Signs/WoodBoard.png`, `StoneBoard.png` and reusable resources.
+Game `f795537` imports `Fonts/Silkscreen-Regular.ttf` and its text roles;
+`6e67451` adds their editable shadow/highlight treatments.
+The source-owner receipt is
+`examples/last-legend/assets/Graphics/Comparison/G4SignImports-20261011/Admission.json`,
+with exact local-import approval, the named unavailable-tool/board-licence
+exceptions, and font/source provenance. OFL/AUTHORS files accompany the font.
+Import hashes are historical evidence only; they do not gate replaceable art.
+The receipt's `nativeAcceptance: false` records import-time scope, not the later
+visual proof.
+
+Andrew's October 11 19:56:56 screenshot visibly confirms short/long labels on
+both boards, centered and readable without clipping or exposed background
+rectangles. The retained `NativeSigns.png` and matching `NativeRun.json` are in
+secondary `test-tmp/g4-sign-proof-20261011-1956/`; the run exits zero after
+2,011 frames, with audio disabled and no protected/user-file changes.
+Its automatic visual-acceptance flag remains false: the supplied human pixels,
+not the driver or failed inspection-tool targeting, establish composition.
+The [integration roadmap](rendering/integration-roadmap.md) owns this bounded
+native record. It does not close authored facade placement, native dynamic
+label/locale/font replacement, edit/save/reopen workflows, actor/sign depth
+occlusion, reduced-motion sign proof or Windows/Linux/WSLg acceptance.
+Engine retains vocabulary/layout/lifecycle ownership, Renderer font/paint
+ownership, and Claude Editor/GUI/Game ownership; those concrete conditions
+remain open rather than treating runtime support as all-authoring completion.
 
 ## Project format
 
