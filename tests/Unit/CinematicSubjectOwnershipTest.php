@@ -261,6 +261,35 @@ afterEach(function () {
   rmdir($this->assetRoot);
 });
 
+it('keeps cinematic admission and ownership independent of deferred field occupancy', function (bool $alreadyStaged) {
+  $position = clone $this->npc->position;
+  if ($alreadyStaged) {
+    $actor = $this->stage->add(subjectOwnershipCast());
+  }
+  $this->player->position->x = $position->x;
+  $this->player->position->y = $position->y;
+  if (!$alreadyStaged) {
+    $actor = $this->stage->add(subjectOwnershipCast());
+  }
+  expect($this->scene->npcManager->visibleNpcs())->toBe([])
+    ->and($this->scene->npcManager->npcAt(intval($position->x), intval($position->y)))->toBeNull()
+    ->and($this->scene->npcManager->canStageNpc($this->npc))->toBeTrue()
+    ->and($actor->subject->isEligible())->toBeTrue()
+    ->and($actor->ownsPresentation())->toBeTrue()
+    ->and($this->stage->suppresses($this->npc))->toBeTrue()
+    ->and($actor->getGraphicalSpriteDefinition())->not->toBeNull();
+
+  $this->stage->clear();
+  expect($this->scene->npcManager->findById('guide'))->toBe($this->npc)
+    ->and($this->npc->position)->toEqual($position)
+    ->and($this->scene->npcManager->visibleNpcs())->toBe([]);
+  $this->player->position->x--;
+  expect($this->scene->npcManager->visibleNpcs())->toBe([$this->npc]);
+  $this->scene->gameState->setSwitch('departed');
+  expect($this->scene->npcManager->canStageNpc($this->npc))->toBeFalse()
+    ->and(fn() => $this->stage->add(subjectOwnershipCast()))->toThrow(RuntimeException::class, 'unavailable');
+})->with(['admitted while deferred' => false, 'lease survives deferral' => true]);
+
 it('advances a field pose through the real scene clock while dialogue or a choice remains yielded', function (array $command) {
   $this->scene->installField();
   $session = $this->scene->startCinematic(subjectOwnershipDefinition([$command], ['cast' => [makeSubjectOwnershipLoopCast()]]));

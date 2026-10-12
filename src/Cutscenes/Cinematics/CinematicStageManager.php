@@ -172,7 +172,7 @@ final class CinematicStageManager
       default => $this->gameScene->npcManager?->findById($reference['id']),
     };
     if ($subject === null || ($subject instanceof Npc
-      && !in_array($subject, $this->gameScene->npcManager?->visibleNpcs() ?? [], true))
+      && !($this->gameScene->npcManager?->canStageNpc($subject) ?? false))
       || ($subject instanceof WorldObject && !$subject->isCurrent())) {
       throw new RuntimeException(sprintf('Real cinematic subject "%s" is unavailable on map "%s".',
         $reference['id'] ?? 'player', $this->gameScene->currentMapId));

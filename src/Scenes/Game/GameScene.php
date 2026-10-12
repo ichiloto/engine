@@ -576,17 +576,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         $this->fieldMusicHolds = 0;
         $this->gameState = GameState::fromArray($this->config->gameState);
 
-        // Flag writes feed quest objectives that watch switches and story
-        // events. Every world-state write can affect skits or achievements.
-        $this->gameState->onChange = function (string $kind, string $name): void {
-            $this->requestFieldPresentationReconciliation();
-
-            if ($kind !== 'variable') {
-                $this->questManager?->recordFlag($name);
-            }
-
-            $this->achievementManager?->evaluateConditionalAchievements();
-        };
+        $this->gameState->onChange = $this->handleWorldStateChange(...);
 
         Time::setElapsedTime($this->config->playTimeSeconds);
 
@@ -1287,6 +1277,18 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     public function requestFieldPresentationReconciliation(): void
     {
         $this->fieldPresentationIsDirty = true;
+    }
+
+    /** All writes invalidate presentation; only achieved flags advance quests. */
+    protected function handleWorldStateChange(string $kind, string $name): void
+    {
+        $this->requestFieldPresentationReconciliation();
+
+        if ($kind === 'event' || ($kind === 'switch' && $this->gameState->getSwitch($name))) {
+            $this->questManager?->recordFlag($name);
+        }
+
+        $this->achievementManager?->evaluateConditionalAchievements();
     }
 
     /**

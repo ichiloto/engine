@@ -16,6 +16,7 @@ use Ichiloto\Engine\Field\MapManager;
 use Ichiloto\Engine\Field\Npc;
 use Ichiloto\Engine\Field\NpcManager;
 use Ichiloto\Engine\Field\Player;
+use Ichiloto\Engine\Field\PreparedMap;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\Cursor;
 use Ichiloto\Engine\IO\InputManager;
@@ -23,6 +24,7 @@ use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
 use Ichiloto\Engine\Rendering\Sprites\CharacterWalkAnimation;
+use Ichiloto\Engine\Rendering\Sprites\CharacterStep;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteCollector;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderInterface;
 use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
@@ -30,6 +32,7 @@ use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\RendererEvent;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Scenes\Game\GameConfig;
 use Ichiloto\Engine\Scenes\Game\States\FieldState;
 use Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback;
 use Ichiloto\Engine\Scenes\SceneStateContext;
@@ -84,6 +87,14 @@ final class NpcGraphicalTestScene extends GameScene
   }
 
   public function changeMapIdentity(string $mapId): void { $this->currentMapId = $mapId; }
+
+  public function restoreSavedPlayer(GameConfig $config): void
+  {
+    $this->player = $this->createPlayer($config);
+    new ReflectionProperty(Player::class, 'isActive')->setValue($this->player, true);
+  }
+
+  public function refreshFieldMusic(bool $force = false, bool $keepSilence = false): void {}
 
   public function installVisibilityField(): NpcVisibilityTestField
   {
@@ -274,6 +285,175 @@ it('reconciles hidden NPC text and artwork during an active story event without 
     ->and(Console::charAt(7, 4))->toBe('G')->and($field->redraws)->toBe(2);
   Console::removeOverlay('story-dialogue');
 })->with(['terminal' => false, 'graphical' => true]);
+
+it('defers prepared NPC field occupancy at a restored saved player cell until ordinary walking vacates it', function (array $behavior, bool $graphical) {
+  $entry = getNpcTestEntry(['dialogue' => [['text' => 'Synthetic greeting']],
+    'script' => [['type' => 'wait', 'seconds' => 1]], 'directionFix' => true,
+    'wanderArea' => ['x' => 5, 'y' => 2, 'width' => 5, 'height' => 5], ...$behavior]);
+  $preparedNpcs = $this->manager->prepareNpcs([$entry], $this->scene->currentMapId);
+  $npc = $preparedNpcs[0];
+  $npc->face(Vector2::up());
+  $heading = $npc->heading;
+  $sprite = $npc->sprite;
+  $save = serialize(new GameConfig($this->scene->currentMapId, new Party(),
+    clone $npc->position, new Rect(0, 0, 1, 1), MovementHeading::EAST, playerSprite: ['P']));
+  $config = unserialize($save);
+  $project = createTestDirectory('ichiloto-npc-saved-player-');
+  mkdir($project . '/assets/Data/Entities', 0700, true);
+  file_put_contents($project . '/assets/Data/Entities/player.php', '<?php return [];');
+  $previousDirectory = getcwd();
+  try {
+    chdir($project);
+    $this->scene->restoreSavedPlayer($config);
+  } finally {
+    chdir($previousDirectory);
+  }
+  // The real map commit receives NPCs prepared before the saved player was restored.
+  $tiles = array_fill(0, 12, array_fill(0, 32, '.'));
+  $collisions = array_fill(0, 12, array_fill(0, 32, CollisionType::NONE->value));
+  $this->scene->mapManager->applyPreparedMap(new PreparedMap(
+    ['id' => $this->scene->currentMapId], $tiles, $collisions, [], [], $preparedNpcs), $this->scene->player);
+  $this->scene->camera->detach();
+  $this->scene->camera->moveTo(0, 0);
+  $this->scene->renderNpcField();
+  $this->scene->player->renderPlayer();
+  $playerGlyph = $this->scene->player->sprite[0];
+  $collision = null;
+  expect($this->manager->npcs)->toBe($preparedNpcs)
+    ->and($this->manager->findById($npc->id))->toBe($npc)
+    ->and($this->manager->visibleNpcs())->toBe([])
+    ->and($this->manager->npcAt($entry['x'], $entry['y']))->toBeNull()
+    ->and($this->scene->mapManager->canMoveTo($entry['x'], $entry['y'], $collision))->toBeTrue()
+    ->and($collision)->toBe(CollisionType::NONE)
+    ->and($this->manager->getGraphicalSpriteProviders())->toBe([])
+    ->and(new GraphicalSpriteCollector()->collect($this->scene))->toBe([])
+    ->and(Console::charAt($entry['x'], $entry['y']))->toBe($playerGlyph)
+    ->and(serialize($config))->toBe($save);
+  if ($graphical) {
+    $this->runtime->start('Deferred saved NPC', 24, 8);
+    $this->runtime->present($this->scene);
+    $frame = RetainedFrameState::replay($this->transport->sent)[0];
+    expect($frame['sprites'])->toBe([])
+      ->and(mb_substr(RetainedFrameState::getTextRows($frame, 24, 8)[$entry['y']], $entry['x'], 1))->toBe($playerGlyph);
+  }
+
+  expect($this->scene->player->tryMove(Vector2::left(), $this->scene->camera))->toBeTrue()
+    ->and($this->manager->visibleNpcs())->toBe([$npc])
+    ->and($this->manager->getGraphicalSpriteProviders())->toBe([$npc])
+    ->and($this->manager->npcAt($entry['x'], $entry['y']))->toBe($npc)
+    ->and($this->scene->mapManager->canMoveTo($entry['x'], $entry['y'], $collision))->toBeFalse()
+    ->and($collision)->toBe(CollisionType::NPC)
+    ->and(Console::charAt($entry['x'], $entry['y']))->toBe($sprite)
+    ->and($this->scene->player->tryMove(Vector2::right(), $this->scene->camera))->toBeFalse()
+    ->and($this->manager->findById($npc->id))->toBe($npc)
+    ->and([$npc->position->x, $npc->position->y])->toBe([(float)$entry['x'], (float)$entry['y']])
+    ->and($npc->heading)->toBe($heading)->and($npc->directionFix)->toBeTrue()
+    ->and($npc->conditions)->toBe($entry['conditions'])->and($npc->script)->toBe($entry['script'])
+    ->and($npc->dialogue)->toBe($entry['dialogue'])->and($npc->wanderArea)->toBe($entry['wanderArea']);
+  if ($graphical) {
+    $this->runtime->present($this->scene);
+    $frames = RetainedFrameState::replay($this->transport->sent);
+    expect(array_column($frames[array_key_last($frames)]['sprites'], 'id'))->toBe([$npc->getGraphicalSpriteId()]);
+  }
+})->with([
+  'wanderer' => [['movement' => 'wander', 'conditions' => []]],
+  'conditional fixed actor' => [['movement' => 'fixed']],
+])->with(['terminal' => false, 'graphical' => true]);
+
+it('defers condition activation under the player and uses ordinary reconciliation when the cell is free', function (bool $graphical) {
+  $this->manager->configure([getNpcTestEntry(['conditions' => [
+    ['type' => 'switch', 'name' => 'npc_present', 'value' => true],
+  ]])]);
+  $this->npc = $this->manager->findById('guide');
+  $field = $this->scene->installVisibilityField();
+  $this->scene->gameState->onChange = fn() => $this->scene->requestFieldPresentationReconciliation();
+  $this->scene->gameState->setSwitch('npc_present', false);
+  $this->scene->player->position->x = 6;
+  $this->scene->player->position->y = 4;
+  $this->scene->camera->detach();
+  if ($graphical) { $this->runtime->start('Deferred conditional NPC', 24, 8); }
+  expect($this->scene->player->tryMove(Vector2::right(), $this->scene->camera))->toBeTrue();
+  $this->scene->gameState->setSwitch('npc_present', true);
+  $this->scene->renderPresentationOverlay();
+  expect($this->manager->visibleNpcs())->toBe([])
+    ->and($this->manager->npcAt(7, 4))->toBeNull()
+    ->and($this->manager->getGraphicalSpriteProviders())->toBe([])
+    ->and($this->manager->findById('guide'))->toBe($this->npc)
+    ->and(Console::charAt(7, 4))->not->toBe('G')->and($field->redraws)->toBe(1);
+  expect($this->scene->player->tryMove(Vector2::left(), $this->scene->camera))->toBeTrue()
+    ->and($this->manager->visibleNpcs())->toBe([$this->npc])
+    ->and($this->manager->getGraphicalSpriteProviders())->toBe([$this->npc])
+    ->and(Console::charAt(7, 4))->toBe('G');
+
+  $this->scene->gameState->setSwitch('npc_present', false);
+  $this->scene->renderPresentationOverlay();
+  expect(Console::charAt(7, 4))->toBe('.')
+    ->and($this->scene->player->tryMove(Vector2::right(), $this->scene->camera))->toBeTrue()
+    ->and($this->scene->player->tryMove(Vector2::left(), $this->scene->camera))->toBeTrue()
+    ->and($this->manager->visibleNpcs())->toBe([])
+    ->and($this->manager->getGraphicalSpriteProviders())->toBe([]);
+  $this->scene->gameState->setSwitch('npc_present', true);
+  $this->scene->renderPresentationOverlay();
+  expect($this->manager->visibleNpcs())->toBe([$this->npc])
+    ->and($this->manager->npcAt(7, 4))->toBe($this->npc)
+    ->and($this->manager->getGraphicalSpriteProviders())->toBe([$this->npc])
+    ->and(Console::charAt(7, 4))->toBe('G')->and($field->redraws)->toBe(3);
+  if ($graphical) {
+    $this->runtime->present($this->scene);
+    expect(array_column(RetainedFrameState::replay($this->transport->sent)[0]['sprites'], 'id'))
+      ->toBe([$this->npc->getGraphicalSpriteId()]);
+  }
+})->with(['terminal' => false, 'graphical' => true]);
+
+it('does not advance wandering or ordinary animation while deferred even with a cinematic subject lease', function (bool $staged) {
+  $this->manager->configure([getNpcTestEntry(['movement' => 'wander'])]);
+  $npc = $this->manager->findById('guide');
+  $npc->nextWanderTime = 1;
+  $position = clone $npc->position;
+  $heading = $npc->heading;
+  if ($staged) {
+    $actor = $this->scene->cinematicStage->add(['id' => 'pose', 'sprite' => '@',
+      'subject' => ['kind' => 'npc', 'id' => 'guide']]);
+  }
+  $this->scene->player->position->x = $npc->position->x;
+  $this->scene->player->position->y = $npc->position->y;
+  $npc->beginGraphicalStep(new CharacterStep(Vector2::sum($position, Vector2::left()), $position, .5));
+  new ReflectionProperty(Time::class, 'time')->setValue(null, 2.0);
+  for ($tick = 0; $tick < 3; $tick++) {
+    $this->manager->update();
+    $this->manager->advanceGraphicalAnimation(.08);
+  }
+  expect($npc->position)->toEqual($position)->and($npc->heading)->toBe($heading)
+    ->and($npc->nextWanderTime)->toBe(1.0)->and($npc->getGraphicalSpriteMotion())->toBeNull()
+    ->and($npc->getGraphicalSpriteDefinition()->sourceRect->x)->toBe(4)
+    ->and($this->manager->visibleNpcs())->toBe([])
+    ->and($this->manager->getGraphicalSpriteProviders())->toBe([])
+    ->and($this->manager->findById('guide'))->toBe($npc);
+  if ($staged) {
+    expect($this->scene->cinematicStage->all())->toBe([$actor])
+      ->and($actor->position)->toEqual($position)
+      ->and($this->scene->cinematicStage->suppresses($npc))->toBeTrue();
+    $this->scene->cinematicStage->clear();
+    expect($this->manager->visibleNpcs())->toBe([]);
+  }
+})->with(['ordinary subject' => false, 'staged subject' => true]);
+
+it('keeps stable-id script access without erasing the player while an NPC is deferred', function () {
+  $player = $this->scene->player;
+  $player->position->x = $this->npc->position->x;
+  $player->position->y = $this->npc->position->y;
+  $this->scene->renderNpcField();
+  $player->renderPlayer();
+  $playerGlyph = $player->sprite[0];
+  expect($this->manager->faceNpc('guide', Vector2::right()))->toBeTrue()
+    ->and(Console::charAt(7, 4))->toBe($playerGlyph)
+    ->and($this->manager->getGraphicalSpriteProviders())->toBe([]);
+  expect($this->manager->moveNpcById('guide', Vector2::right()))->toBeTrue()
+    ->and($this->manager->findById('guide'))->toBe($this->npc)
+    ->and($this->manager->npcAt(8, 4))->toBe($this->npc)
+    ->and($this->manager->getGraphicalSpriteProviders())->toBe([$this->npc])
+    ->and(Console::charAt(7, 4))->toBe($playerGlyph)->and(Console::charAt(8, 4))->toBe('E');
+});
 
 it('diagnoses malformed optional art without dropping occupancy or world-state writes', function ($graphics) {
   $this->manager->configure([getNpcTestEntry(['sprites2d' => $graphics,

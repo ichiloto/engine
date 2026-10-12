@@ -62,9 +62,7 @@ class GameState
 
     $this->switches[$name] = $value;
 
-    if ($value) {
-      $this->onChange?->__invoke('switch', $name);
-    }
+    $this->onChange?->__invoke('switch', $name);
   }
 
   /**

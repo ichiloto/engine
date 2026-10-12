@@ -37,7 +37,7 @@ final class CinematicSubjectLease
   public function isEligible(): bool
   {
     return $this->isCurrent() && ($this->subject instanceof Player || $this->subject instanceof WorldObject
-      || in_array($this->subject, $this->scene->npcManager?->visibleNpcs() ?? [], true));
+      || ($this->scene->npcManager?->canStageNpc($this->subject) ?? false));
   }
 
   /** Ratify only this transform, never story state or presentation eligibility. */

@@ -160,9 +160,26 @@ class NpcManager
     }
   }
 
+  /** Cinematics retain active subjects independently of ordinary field occupancy. */
+  public function canStageNpc(Npc $npc): bool
+  {
+    return in_array($npc, $this->npcs, true) && $this->conditionsHold($npc->conditions);
+  }
+
+  /** Field occupancy is deferred, not relocated, while the player occupies the NPC's cell. */
+  private function isFieldVisible(Npc $npc): bool
+  {
+    $player = $this->gameScene->player;
+
+    return $this->conditionsHold($npc->conditions)
+      && ($player === null
+        || intval($player->position->x) !== intval($npc->position->x)
+        || intval($player->position->y) !== intval($npc->position->y));
+  }
+
   private function isPresentationVisible(Npc $npc): bool
   {
-    return $this->conditionsHold($npc->conditions) && !($this->gameScene->cinematicStage?->suppresses($npc) ?? false);
+    return $this->isFieldVisible($npc) && !($this->gameScene->cinematicStage?->suppresses($npc) ?? false);
   }
 
   /**
@@ -392,7 +409,7 @@ class NpcManager
   }
 
   /**
-   * Returns the NPCs whose visibility conditions currently hold.
+   * Returns NPCs whose conditions hold and whose cell is not occupied by the player.
    *
    * @return Npc[] The visible NPCs.
    */
@@ -400,7 +417,7 @@ class NpcManager
   {
     return array_values(array_filter(
       $this->npcs,
-      fn(Npc $npc): bool => $this->conditionsHold($npc->conditions)
+      $this->isFieldVisible(...)
     ));
   }
 
@@ -462,7 +479,7 @@ class NpcManager
    */
   protected function eraseNpc(Npc $npc): void
   {
-    if ($this->gameScene->cinematicStage?->suppresses($npc) ?? false) {
+    if (! $this->isPresentationVisible($npc)) {
       return;
     }
     $columns = max(1, TerminalText::displayWidth($npc->sprite));
