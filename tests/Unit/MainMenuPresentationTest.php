@@ -321,16 +321,52 @@ it('shares the bottom row with Location and meets the fourth character card with
   }
 })->with([false, true])->with([false, true]);
 
-it('grows both bottom panels together when either contains wrapped content', function (bool $alternative, bool $hints, string $taller) {
+it('keeps four cards on the same page when unrelated location metadata wraps', function (bool $alternative, bool $hints) {
   $data = mainMenuPresentationTheme($alternative);
   $data['showInputHints'] = $hints;
   $data['frames'] ??= ['panel' => ['asset' => 'surface.png', 'cuts' => [3, 4, 3, 4]]];
   $theme = new MenuPresentationCatalog($this->root, $data);
-  if ($taller === 'location') {
-    new ReflectionProperty($this->state, 'locationDetailPanel')->getValue($this->state)
-      ->setLocation(str_repeat('Extended location name ', 6), 'Owner Region');
+  $ordinary = $this->state->canvas($theme);
+  $footer = mainMenuPresentationFrameBounds($ordinary, 'main-help');
+  new ReflectionProperty($this->state, 'locationDetailPanel')->getValue($this->state)
+    ->setLocation(str_repeat('Wide destination ', 4), 'Owner Region');
+  $members = $this->party->members->toArray();
+  foreach ([new MainMenuCommandSelectionMode($this->state), new MainMenuCharacterSelectionMode($this->state),
+    new MainMenuPartyOrderMode($this->state)] as $mode) {
+    $this->state->setMode($mode);
+    $frame = $this->state->canvas($theme);
+    $layers = array_column($frame->textLayers, null, 'id');
+    $text = mainMenuPresentationText($frame);
+    $location = mainMenuPresentationFrameBounds($frame, 'main-location');
+    $help = mainMenuPresentationFrameBounds($frame, 'main-help');
+    expect($location->height)->toBeGreaterThan($footer->height)
+      ->and($help->height)->toBe($footer->height)
+      ->and($layers)->not->toHaveKey('main-party-pager-counter')
+      ->and($this->party->members->toArray())->toBe($members);
+    foreach ($members as $index => $member) {
+      $id = 'main-party-' . $index;
+      expect($text[$id . '-identity-text'])->toBe($member->name);
+      $card = mainMenuPresentationFrameBounds($frame, $id . '-frame');
+      foreach (['identity-text', 'resources-role-text', 'resources-level-text', 'resources-hp-text', 'resources-mp-text'] as $field) {
+        $layer = $layers[$id . '-' . $field];
+        expect($layer->bounds->y)->toBeGreaterThanOrEqual($card->y)
+          ->and($layer->bounds->y + $layer->bounds->height)->toBeLessThanOrEqual($card->y + $card->height);
+      }
+    }
+    $last = mainMenuPresentationFrameBounds($frame, 'main-party-3-frame');
+    expect($last->y + $last->height)->toBe($help->y)
+      ->and($location->y + $location->height)->toBe($help->y + $help->height);
   }
-  else { $this->state->characterSelectionMenu->setHelpText(str_repeat('Extended help message ', 20)); }
+})->with([false, true])->with([false, true]);
+
+// Location no longer enlarges the party footer. Help still owns its required
+// space, and the smaller left summary can retain the common bottom alignment.
+it('grows both bottom panels together when party help contains wrapped content', function (bool $alternative, bool $hints) {
+  $data = mainMenuPresentationTheme($alternative);
+  $data['showInputHints'] = $hints;
+  $data['frames'] ??= ['panel' => ['asset' => 'surface.png', 'cuts' => [3, 4, 3, 4]]];
+  $theme = new MenuPresentationCatalog($this->root, $data);
+  $this->state->characterSelectionMenu->setHelpText(str_repeat('Extended help message ', 20));
   $frame = $this->state->canvas($theme);
   $location = mainMenuPresentationFrameBounds($frame, 'main-location');
   $help = mainMenuPresentationFrameBounds($frame, 'main-help');
@@ -343,7 +379,7 @@ it('grows both bottom panels together when either contains wrapped content', fun
     expect($text->y)->toBeGreaterThanOrEqual($box->y)
       ->and($text->y + $text->grid->rows * $theme->metrics->cellHeight)->toBeLessThanOrEqual($box->y + $box->height);
   }
-})->with([false, true])->with([false, true])->with(['location', 'help']);
+})->with([false, true])->with([false, true]);
 
 it('fits all four complete character cards inside eight-pixel panel borders without pagination', function (bool $hints) {
   mainMenuPresentationPng($this->root . '/surface.png', 96, 96);

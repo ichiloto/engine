@@ -144,7 +144,8 @@ final class MainMenuPresentation
     $hintHeight = MenuActionHints::height($hints, $theme, self::PARTY_WIDTH - 2 * $p);
     $footerPadding = $verticalPadding;
     $footerHorizontalPadding = $p;
-    $footerHeight = max($summaryHeights['location'] ?? 80,
+    // Each column owns its content height; location wrapping must not steal party-card space.
+    $footerHeight = max(80,
       2 * $footerPadding + $helpHeight + ($hintHeight > 0 ? $m->sectionGap + $hintHeight : 0));
     $cardInsets = ($theme->frames['panel'] ?? null)?->borderInsets($theme->assetRoot,
       new CanvasRectangle(0, 0, self::PARTY_WIDTH, 140));
@@ -173,7 +174,7 @@ final class MainMenuPresentation
       $footerHeight = max($footerHeight, 2 * $footerPadding + max($helpHeight, MenuPager::getHeight($theme))
         + ($hintHeight > 0 ? $m->sectionGap + $hintHeight : 0));
     }
-    if (isset($summaryHeights['location'])) { $summaryHeights['location'] = $footerHeight; }
+    if (isset($summaryHeights['location'])) { $summaryHeights['location'] = max($summaryHeights['location'], $footerHeight); }
     $pagination = new MenuPagination($heights, self::HEIGHT - $footerHeight - $infoHeight);
     return compact('verticalPadding', 'infoHeight', 'summaryHeights', 'help', 'helpHeight', 'helpWidth',
       'hints', 'hintHeight', 'footerHeight', 'footerPadding', 'footerHorizontalPadding', 'pagerWidth', 'cardPadding', 'heights', 'pagination');
