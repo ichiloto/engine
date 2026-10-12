@@ -344,8 +344,12 @@ sheets follow RPG Maker's conventions. Those replaced choices remain history;
 Stage 1's independent physical-occupancy requirement below still applies.
 Stage 4 is superseded as it says.
 
-All six stages below form the implementation roadmap. They are remaining
-correction and verification work, not capabilities delivered by this document.
+All six stages below retain the implementation requirements and their history.
+Their shared runtime and source-preserving authoring mechanisms are implemented;
+the October 12 G4 record qualifies representative macOS GUI/runtime checks and
+the relevant full suites, with explicit limits rather than exhaustive platform
+or artwork acceptance. The remaining concrete Game coverage correction and
+author-owned placements are tracked in the existing G4/private Game plans.
 Extend the existing Engine/Editor contracts; do not introduce another gameplay
 model, a parallel map runtime or a speculative full editor suite.
 
@@ -394,6 +398,13 @@ overlapping actors and environment pieces by ground Y within their explicit
 draw-priority bands, with stable ties. Do not use image height, crop origin or
 terminal row dimensions as an implicit collision footprint or depth key.
 
+The explicit pivot/footprint and stable ground-Y contracts are implemented.
+October 12 native runtime captures qualify two actors exchanging front/behind
+canopy rows, repeatable equal-row overlaps and doorway foreground/clear states.
+These six discrete observer states do not claim smooth motion, all artwork or
+same-band sign/actor overlap; physical walking acceptance is separately recorded
+in the existing G4 checklist. No production Renderer change was needed.
+
 ### Stage 3 - Connected modular environment kits
 
 Support connected wall, floor, exterior and cave kits through reusable tile
@@ -402,6 +413,11 @@ isolated patches or one-off room-sized art. Art and family membership are
 replaceable project resources; the Engine owns generic connection/composition
 rules, not Last Legend paths or visual style. Preserve existing artwork and
 bindings while assembling and checking the first representative kits.
+
+RPG Maker tile/autotile composition and explicit piece recipes provide this
+shared mechanism. CPU coverage includes all 47 floor-blob variants; the bounded
+October 12 GUI/runtime cave proof qualifies a selected cardinal rock/floor
+family, not every concave shape or every production material.
 
 ### Stage 4 - GUI authoring
 
@@ -426,6 +442,12 @@ map conversion, including exterior and cave examples. Retain existing phase
 history and migration safeguards; do not discard assets, events, save data or
 unfinished work to simplify the proof.
 
+The Home proof and representative wider interior, exterior and cave conversions
+have the bounded native and preservation evidence in the G4 checklist. Game's
+current coverage ledger separates playable maps from disconnected prototypes
+Andrew explicitly keeps untouched. Material backing is not complete map
+dressing, and authored placements remain separate from mechanism acceptance.
+
 ### Stage 6 - Full tests and visual proofs
 
 Run the full relevant Engine, Editor and reference-game suites, covering source
@@ -443,6 +465,14 @@ include terminal proofs that editing and play remain unchanged. Verify music
 and effects are muted before any native playtest. Report executed suites,
 skips and observed platforms accurately: headless checks, art previews and
 macOS observations do not establish Linux/WSLg or Windows validation.
+
+The recorded complete suites pass: Engine 8,614 tests / 459,759 assertions,
+Editor 2,499 / 107,376 and Game 2,002 / 1,817,759, retaining Game's existing
+battle-simulations exclusion and the exact candidate refs/receipts in the G4
+checklist. Later focused runs and native pixel checks do not relabel those
+dated full-suite results. Native save-loading, all brush/input gestures,
+InnStay payment/recovery, frame-perfect smoothness and other-platform testing
+are not claimed. Unchanged testing limits are not new implementation scope.
 
 ## Open compatibility item
 

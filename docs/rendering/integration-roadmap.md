@@ -11,7 +11,7 @@ and remaining engineering work, not release status.
 | G1 | Graphical arena, static battlers and battle UI | Implemented; see [battle contract](graphical-battle-g1.md). Artwork coverage is project-owned. |
 | G2 | Animated battlers and combat effects | Complete locally across Traditional/ATB, terminal and reduced motion. Approved art and all eight party-pose calibrations are in normal Game develop. Native checks cover party roles, command/counter sequences, directional/repeated effects, ground rings, fallen poses, revival, healing and actual poison-to-results ordering. Normal/reduced real-scene runs now show victory pages and graphical Game Over; normal entry shows the approved wipe. Native authoring edits, save/reload and conversion Write/Undo/Redo are verified. Full Engine: 5,585 passed / one existing skip / 383,251 assertions. Live Terminal cadence/authoring and the ordinary walking-triggered entry's pixels remain unobserved; automated composition/behavior and ordinary encounter handoffs pass. These are reported testing limitations, not another delivery-blocking loop under Andrew's October 6 instruction. The terminal-styled intermediate defeat message is a G5 coverage follow-up, not a missing Game Over state. Current Game command acceptance passes seven tests / 50,678 assertions; full Game CI retains its separate NPC-reachability failure. The approved current-major compatibility reader stays supported; next-major removal and publishing are not G2 gates. See [runtime and acceptance](../effect-animation.md#local-battle-runtime-october-2026) and the fixed checklist below. Kaelion-Fira story work and Aeryn's separate Victory proposal are outside G2. |
 | G3 | Graphical summon presentation | Complete locally under Andrew's October 7 workable-stand-in criterion. D'jin's accepted painted-2D layers and paired timeline are integrated in normal Game develop. Native Traditional/ATB casts pass in normal and reduced motion: actual arena return precedes exactly-once all-enemy damage and one MP charge, with formation/control cleanup. The original independent Terminal lane is preserved; actual-engine Terminal lifecycle and source-preserving Editor checks pass. Native Editor tabs, pinned preview/timeline and all four resize boundaries are verified. A shared native JSON-coordinate precision defect found during acceptance is corrected without weakening canvas bounds. Later animator-quality boot/armour continuity, other summon cinematics and platform qualification are not part of this completed stand-in slice. See the checklist and October 7 closure record below. Work is local and uncommitted, not published or released. |
-| G4 | Field actors, objects and environment | Active from October 7; incomplete. The [fixed acceptance checklist](#g4-field-delivery-checklist) covers asset-role coverage, [field-map corrections and GUI authoring](../layered-tilemaps.md#graphical-correction-roadmap), shared field/cinematic previews, and native acceptance of implemented [held walking](#controller-ready-input-and-normalized-movement). |
+| G4 | Field actors, objects and environment | Active from October 7. Shared runtime, GUI authoring, preview and held-input checks are closed within the bounded macOS evidence below. One concrete Game coverage correction remains: three authored empty Shop exit-floor cells, prepared but awaiting Andrew's map-specific approval. Author-owned placements and later screen/platform work are not G4 blockers. See the [fixed acceptance checklist](#g4-field-delivery-checklist) and [field-map corrections](../layered-tilemaps.md#graphical-correction-roadmap). |
 | G5 | Game-wide interface coverage | Shared adapters and [safe graphical notifications](../notifications.md) are implemented; complete screen coverage and Editor authoring remain outstanding. Actual October 6 defeat runs show a terminal-styled intermediate result message before the graphical Game Over menu; the shared result presentation needs defeat coverage without changing the terminal or gameplay outcome. |
 | G6 | Packaging and supported platforms | [Early platform feasibility and release gates](#platform-feasibility-and-release-gates) precede platform-sensitive production commitments; they do not wait for G1-G5 completion. Console's source-development updater is not player distribution. Prebuilt packages, native Windows transport/audio and whole-platform qualification remain unfinished. |
 
@@ -1096,17 +1096,48 @@ PHPUnit cache retain their pre-launch fingerprints. The consumed APFS clone and
 110 MiB compiler cache are removed after verifying the two compact evidence copies
 in secondary `test-tmp/g4-sign-authoring-20261012/`.
 
-The separate combined actor/tree/equal-row/door depth proof remains open. Its CPU
-preflight verifies the actual runtime composition and meaningful opaque overlap,
-but the subsequent owned-window CGImage and ScreenCaptureKit images contain only
-the dark native client. Capture permission succeeds; a desktop lock or absent
-permission is not inferred. Native receipts record accepted scene replacements,
-correct actors/viewport and zero protected changes, but acceptance is not painting.
-A bounded trace has no later render/layout/paint records; native frame delivery
-versus redraw invalidation remains unresolved, not a proven Renderer defect.
-Failed images and compact receipts remain in secondary
-`test-tmp/g4-depth-native-20261012-Ce9m7e/`. No vendor/production workaround, full
-suite rerun, other-platform claim or authored map change was made.
+The October 12 combined actor/tree/equal-row/door depth proof now passes in the
+existing installed Renderer, without a production Renderer change. The six
+inspected owned-window PNGs show Kaelion and Drazek exchanging ground rows
+behind/in front of the canopy, stable equal-row tree overlaps, and Kaelion
+hidden by the doorway foreground then clear south of it. The two repeated
+equal-row captures are byte-identical. Wood and stone labels retain their
+explicit draw band; this is not same-band sign/actor occlusion acceptance.
+CPU/runtime checks verify meaningful opaque overlap, ground footprints, pivots,
+terminal isolation and all six compositions. These are discrete observer states,
+not continuous input or smooth-motion checks; the accepted physical walking and
+cinematic-return checks remain separate and closed.
+
+Receipt `native-20261012-090238-c3351dad38` records exit zero, no watchdog or
+residual owned group, the host reaped, the throwaway run removed and all 10,531
+protected files unchanged. Music/SFX/voice were false, master zero, autosave off
+and audio backends zero. Its bounded trace includes actual render/layout/paint
+stages, and every capture exits zero. Automatic receipts deliberately leave
+visual acceptance false; the coordinator's subsequent inspection establishes
+this bounded pixel pass. The accepted PNGs, observer receipt and verified
+compressed helper/CPU/native receipts remain in secondary
+`test-tmp/g4-depth-native-20261012-rendered-tgKayw/`. The unused opt-in diagnostic
+change was removed, its worker closed and the clean Renderer cache rebuilt;
+Renderer source remains `9c4f0ba`. The consumed primary-drive helper is removed.
+Earlier dark CGImage/ScreenCaptureKit captures remain failed evidence in
+`test-tmp/g4-depth-native-20261012-Ce9m7e/`; their cause is not proved, and neither
+desktop lock nor absent capture permission is inferred. No workaround, vendor
+edit, full-suite rerun, author-map edit or other-platform qualification occurred.
+
+Claude's October 12 owner close-out reports no remaining G4 Editor/GUI item.
+The one concrete Game correction is the Shop's three untiled exit cells.
+Read-only comparison of the authored floor, MapTileLayer and MapGraphics finds
+every row identical: the three cells on row 16 are already empty in the source,
+not tiles discarded by layer ownership or runtime resolution. Game's disposable
+trial through the source-preserving Editor changes only the three floor tiles;
+the data, other Shop files and save compatibility remain byte-identical. Its live
+write was refused by the permission gate under Andrew's map-ownership rule.
+The coordinator apologized for requesting it before map-specific approval and
+presented that narrow decision to Andrew; the normal map remains unchanged.
+Unowned shop-stock changes remain intact and uncommitted. Author-owned map
+openings, silhouettes, signs and forest placements remain Andrew's work, not
+delivery gates. Native save-loading and InnStay payment/recovery remain reported
+testing limits on unchanged behavior, not additional G4 implementation claims.
 
 The actual `InnRestPresentation` and scene-owned stage boundary complete four
 leader-selected rests in normal and reduced motion on Engine `8930ca5` and Game
