@@ -348,8 +348,12 @@ All six stages below retain the implementation requirements and their history.
 Their shared runtime and source-preserving authoring mechanisms are implemented;
 the October 12 G4 record qualifies representative macOS GUI/runtime checks and
 the relevant full suites, with explicit limits rather than exhaustive platform
-or artwork acceptance. The remaining concrete Game coverage correction and
-author-owned placements are tracked in the existing G4/private Game plans.
+or artwork acceptance. G4 closes October 12 after the approved three-cell Shop
+floor correction in Game `5d27b4a`: the existing Editor writes only the graphical
+floor, leaving layout, collision, events, save compatibility and unrelated stock
+edits unchanged. Its affected coverage/save tests pass 390 / 694,332. The existing
+G4/private Game plans retain author-owned placements and exact testing limits;
+this completion is not exhaustive map dressing or other-platform acceptance.
 Extend the existing Engine/Editor contracts; do not introduce another gameplay
 model, a parallel map runtime or a speculative full editor suite.
 
