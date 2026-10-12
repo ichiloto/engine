@@ -22,6 +22,7 @@ final readonly class NpcPlacement
     public ?array $wanderArea,
     public bool $isTalkable,
     public bool $isConditional,
+    public array $conditions,
   )
   {
   }
@@ -55,6 +56,7 @@ final readonly class NpcPlacement
 
     $id = trim(strval($entry['id'] ?? ''));
     $hasLines = static fn(mixed $lines): bool => array_filter((array) $lines, is_array(...)) !== [];
+    $conditions = array_values(array_filter((array) ($entry['conditions'] ?? []), is_array(...)));
 
     return new self(
       $name,
@@ -64,7 +66,8 @@ final readonly class NpcPlacement
       strval($entry['movement'] ?? 'fixed') === 'wander',
       $wanderArea,
       $hasLines($entry['dialogue'] ?? []) || $hasLines($entry['script'] ?? []),
-      $hasLines($entry['conditions'] ?? []),
+      $conditions !== [],
+      $conditions,
     );
   }
 }

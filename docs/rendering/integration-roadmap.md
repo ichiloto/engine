@@ -4179,6 +4179,30 @@ The [cinematic contract](../cinematics.md#current-graphical-boundary) owns curre
 runtime details. Representative scene integration extends the existing
 interpreter, routes, camera, animation timing and cleanup, not a second runtime.
 
+October 12's separate Editor Play correction implements `GameLaunchContext` for
+the real project root, not a temporary symlink asset tree. A typed constructor
+argument or one-shot `ICHILOTO_LAUNCH_CONTEXT` JSON (64 KiB maximum) carries only
+startup mode, an isolated caller-owned data root, a logical map/cell start,
+an optional cinematic, or the existing `ProjectBattleTest` override. It never
+rewrites authored system/map/event files or weakens asset containment. Startup
+conflicts, unsafe paths, missing definitions, physical blockers and eligible
+NPC occupants are refused before native acquisition; inactive NPC anchors use
+the same starting-state, party/inventory and quest eligibility as the field.
+Committed arrival precedes the asynchronous cinematic, and its existing owner
+resumes ordinary automatic-event evaluation. Startup instructions are consumed
+once; isolated settings, saves and logging retain their scoped storage lifetime.
+
+The caller creates the dedicated canonical data directory outside the project,
+copies only settings and owns process/output cleanup. It must route PHP's early
+error log, stdout and stderr there before starting PHP; Engine cannot isolate
+errors that happen before its initialization. Independent strict affected
+qualification passes 401 tests / 2,296 assertions, exit zero. A prior same-test
+run exited one for the coordinator's obsolete cache-control CLI option, not a
+source failure; both receipts remain in secondary `test-tmp/launch-context-parent-20261012.*`.
+The foreign cache is unchanged. Editor/GUI/Console integration and native
+launch acceptance remain pending; the Engine implementation is local and
+unpublished, not a release, another G4 goal or cross-platform acceptance.
+
 ### Contract and scope gates
 
 - Keep subject identity and state in PHP. Graphical providers observe it;

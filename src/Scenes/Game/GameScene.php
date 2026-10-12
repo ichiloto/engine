@@ -542,6 +542,19 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
      */
     protected bool $fieldPresentationIsDirty = false;
 
+    private ?CinematicDefinition $launchCinematic = null;
+
+    /** No fabricated event or map edit: the real controller owns this launch session. */
+    public function configureForLaunch(GameConfig $config, CinematicDefinition $cinematic): void
+    {
+        $this->launchCinematic = $cinematic;
+        try {
+            $this->configure($config);
+        } finally {
+            $this->launchCinematic = null;
+        }
+    }
+
     /**
      * Configures the game scene.
      *
@@ -616,7 +629,21 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         $this->player->activate();
         $this->locationHUDWindow->updateDetails($this->player->position, $this->player->heading);
         $this->setState($this->fieldState);
-        $this->player->evaluateAutomaticTriggersAtCurrentPosition();
+        $this->startConfiguredFieldEvents();
+    }
+
+    /** The launch session takes control before automatic events; completion resumes their normal evaluation. */
+    protected function startConfiguredFieldEvents(): void
+    {
+        $cinematic = $this->launchCinematic;
+        $this->launchCinematic = null;
+        if ($cinematic === null) {
+            $this->player->evaluateAutomaticTriggersAtCurrentPosition();
+        } else {
+            $this->hasPendingAutomaticTriggerEvaluation = true;
+            $this->startCinematic($cinematic);
+            $this->evaluatePendingAutomaticTriggers();
+        }
     }
 
     /** Gameplay comes from the save; graphical artwork comes from the current project. */

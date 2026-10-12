@@ -157,6 +157,10 @@ final class SubjectOwnershipScene extends GameScene
   }
 
   public function getGame(): Game { return $this->testGame; }
+  public function configure(\Ichiloto\Engine\Scenes\Interfaces\SceneConfigurationInterface $config): void
+  {
+    $this->startConfiguredFieldEvents();
+  }
   protected function reportMapLoadFailure(string $mapId, \Throwable $error): void
   {
     $this->mapLoadDiagnostic = $mapId . ': ' . $error->getMessage();
@@ -164,6 +168,7 @@ final class SubjectOwnershipScene extends GameScene
   public function onEventSessionFinished(EventExecutionSession $session, bool $completed): void
   {
     $this->requestFieldPresentationReconciliation();
+    $this->evaluatePendingAutomaticTriggers();
   }
   public function renderBackgroundTile(int $x, int $y): void { $this->restoredTiles[] = [$x, $y]; }
   public function installField(): void
@@ -259,6 +264,36 @@ afterEach(function () {
     FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
   foreach ($paths as $path) { $path->isDir() ? rmdir($path->getPathname()) : unlink($path->getPathname()); }
   rmdir($this->assetRoot);
+});
+
+it('starts a launch cinematic once on the real asynchronous controller and resumes automatic field events', function () {
+  $config = new ReflectionClass(\Ichiloto\Engine\Scenes\Game\GameConfig::class)->newInstanceWithoutConstructor();
+  $cinematic = subjectOwnershipDefinition([['type' => 'wait', 'seconds' => 0.1]]);
+  $pending = new ReflectionProperty(GameScene::class, 'hasPendingAutomaticTriggerEvaluation');
+  $this->scene->configureForLaunch($config, $cinematic);
+  $session = $this->scene->eventInterpreter->activeSession();
+  expect($session->status)->toBe(EventExecutionStatus::YIELDED)
+    ->and($this->scene->cinematicController->active())->toBe($cinematic)
+    ->and($pending->getValue($this->scene))->toBeTrue()
+    ->and(new ReflectionProperty(GameScene::class, 'launchCinematic')->getValue($this->scene))->toBeNull();
+  $this->scene->eventInterpreter->update(1.0);
+  expect($session->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and($this->scene->cinematicController->active())->toBeNull()
+    ->and($pending->getValue($this->scene))->toBeFalse();
+  $this->scene->configure($config);
+  expect($this->scene->cinematicController->active())->toBeNull()
+    ->and($this->scene->eventInterpreter->activeSession())->toBeNull();
+});
+
+it('cleans up a yielded launch cinematic through the existing scene-owned controller on interruption', function () {
+  $config = new ReflectionClass(\Ichiloto\Engine\Scenes\Game\GameConfig::class)->newInstanceWithoutConstructor();
+  $this->scene->configureForLaunch($config, subjectOwnershipDefinition());
+  $session = $this->scene->eventInterpreter->activeSession();
+  $this->scene->cinematicController->shutdown();
+  expect($session->status)->toBe(EventExecutionStatus::FAILED)
+    ->and($this->scene->cinematicController->active())->toBeNull()
+    ->and($this->stage->all())->toBe([])
+    ->and(new ReflectionProperty(GameScene::class, 'launchCinematic')->getValue($this->scene))->toBeNull();
 });
 
 it('keeps cinematic admission and ownership independent of deferred field occupancy', function (bool $alreadyStaged) {

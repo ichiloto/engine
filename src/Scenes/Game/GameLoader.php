@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Scenes\Game;
 
 use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Core\GameStartLocation;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\SystemData;
 use Ichiloto\Engine\Core\Vector2;
@@ -76,7 +77,7 @@ class GameLoader
    * @return GameConfig The game configuration.
    * @throws RequiredFieldException Thrown when a required field is missing.
    */
-  public function loadNewGame(): GameConfig
+  public function loadNewGame(?GameStartLocation $start = null): GameConfig
   {
     $systemData = asset('Data/system.php', true) ?? throw new RuntimeException('System data not found.');
     if (!is_array($systemData)) {
@@ -101,12 +102,14 @@ class GameLoader
     }
     $party->inventory->addItems(...$this->itemStore->load($systemData->startingInventory));
 
-    $playerPosition = new Vector2($systemData->startingPositions->player->spawnPoint->x, $systemData->startingPositions->player->spawnPoint->y);
+    $playerPosition = $start === null
+      ? new Vector2($systemData->startingPositions->player->spawnPoint->x, $systemData->startingPositions->player->spawnPoint->y)
+      : new Vector2($start->x, $start->y);
     $playerSprites = $this->loadPlayerSprites();
     $spawnSprite = $playerSprites->resolveSprite($systemData->startingPositions->player->spawnSprite ?? throw new RequiredFieldException('startingPositions.player.spawnSprite'));
 
     return new GameConfig(
-      mapId: $systemData->startingPositions->player->destinationMap,
+      mapId: $start?->mapId ?? $systemData->startingPositions->player->destinationMap,
       party: $party,
       playerPosition: $playerPosition,
       playerShape: new Rect(0, 0, 1, 1),

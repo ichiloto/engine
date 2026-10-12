@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Core;
 
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Quests\QuestLog;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
@@ -99,9 +100,10 @@ class WorldConditionEvaluator
    * @param array<int, mixed> $conditions The condition entries.
    * @param GameState $gameState The world state.
    * @param Party|null $party The party, for item conditions.
+   * @param QuestLog|null $questLog Explicit state for detached/preflight evaluation; otherwise the running manager.
    * @return bool True when all conditions hold.
    */
-  public static function allHold(array $conditions, GameState $gameState, ?Party $party = null): bool
+  public static function allHold(array $conditions, GameState $gameState, ?Party $party = null, ?QuestLog $questLog = null): bool
   {
     foreach ($conditions as $condition) {
       if (! is_array($condition)) {
@@ -127,7 +129,7 @@ class WorldConditionEvaluator
         continue;
       }
 
-      $result = self::evaluate($type, $condition, $name, $gameState, $party);
+      $result = self::evaluate($type, $condition, $name, $gameState, $party, $questLog);
 
       if (($condition['negate'] ?? false) ? $result : ! $result) {
         return false;
@@ -145,6 +147,7 @@ class WorldConditionEvaluator
    * @param string $name The trimmed condition name.
    * @param GameState $gameState The world state.
    * @param Party|null $party The party, for item conditions.
+   * @param QuestLog|null $questLog Explicit quest state when supplied.
    * @return bool True when the condition's test passes.
    */
   protected static function evaluate(
@@ -152,7 +155,8 @@ class WorldConditionEvaluator
     array $condition,
     string $name,
     GameState $gameState,
-    ?Party $party
+    ?Party $party,
+    ?QuestLog $questLog = null,
   ): bool
   {
     return match ($type) {
@@ -165,7 +169,9 @@ class WorldConditionEvaluator
       ),
       WorldConditionType::ITEM => ($party?->inventory?->getQuantity($name, 'evaluating an item world condition') ?? 0) >= max(1, intval($condition['quantity'] ?? 1)),
       WorldConditionType::KEY_ITEM => $party?->inventory?->hasKeyItem($name) ?? false,
-      WorldConditionType::QUEST => QuestManager::current()?->questStatusMatches($name, strval($condition['status'] ?? 'completed')) ?? false,
+      WorldConditionType::QUEST => $questLog !== null
+        ? (($condition['status'] ?? 'completed') === 'active' ? $questLog->isActive($name) : $questLog->isCompleted($name))
+        : (QuestManager::current()?->questStatusMatches($name, strval($condition['status'] ?? 'completed')) ?? false),
     };
   }
 

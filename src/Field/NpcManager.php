@@ -90,7 +90,7 @@ class NpcManager
         wanderArea: $wanderArea,
         dialogue: array_values(array_filter((array) ($entry['dialogue'] ?? []), is_array(...))),
         script: array_values(array_filter((array) ($entry['script'] ?? []), is_array(...))),
-        conditions: array_values(array_filter((array) ($entry['conditions'] ?? []), is_array(...))),
+        conditions: $placement->conditions,
         sets: array_values(array_filter((array) ($entry['sets'] ?? []), is_array(...))),
         id: $id !== '' ? $id : null,
         directionalSprites: is_array($entry['sprites'] ?? null) ? $entry['sprites'] : [],

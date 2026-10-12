@@ -35,6 +35,10 @@ use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalCapabilities;
 use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\IO\SaveManager;
+use Ichiloto\Engine\IO\LaunchDataRoot;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
+use Ichiloto\Engine\Scenes\Arena\ProjectBattleTest;
 use Ichiloto\Engine\Rendering\Launch\ApplicationIcon;
 use Ichiloto\Engine\Rendering\Launch\RendererLaunchIntent;
 use Ichiloto\Engine\Rendering\Launch\RendererRegistry;
@@ -155,6 +159,13 @@ class Game implements CanRun, SubjectInterface
      */
     private bool $crashed = false;
 
+    private ?GameLaunchContext $pendingLaunchContext = null;
+    private ?CinematicDefinition $pendingLaunchCinematic = null;
+    private ?ProjectBattleTest $pendingLaunchBattleTest = null;
+    private ?string $launchDataRoot = null;
+    private bool $launchPrepared = false;
+    private ?GameStartupMode $resolvedStartupMode = null;
+
     /**
      * Game constructor.
      *
@@ -171,9 +182,12 @@ class Game implements CanRun, SubjectInterface
         protected(set) array  $options = [],
         ?RendererRegistry $rendererRegistry = null,
         private readonly ?GameStartupMode $startupMode = null,
+        ?GameLaunchContext $launchContext = null,
     )
     {
         $this->rendererRegistry = $rendererRegistry;
+        // Resolve transport/storage before any service can read player data.
+        $this->prepareLaunchContext($launchContext);
         try {
             // Output ownership is selected at start, after optional runtime attachment.
             Console::setTerminalOutputEnabled(false);
@@ -392,6 +406,7 @@ class Game implements CanRun, SubjectInterface
      */
     private function cleanupTerminal(): void
     {
+        $this->clearPendingLaunch();
         // Quitting, the end of run(), and the shutdown handler all lead here,
         // because any of them may be the last thing that happens. The work is
         // only worth doing once.
@@ -460,7 +475,7 @@ class Game implements CanRun, SubjectInterface
      */
     private function getErrorLogPath(): string
     {
-        return Path::join(Path::getCurrentWorkingDirectory(), 'logs', 'error.log');
+        return Path::join($this->getLogDirectory(), 'error.log');
     }
 
     /**
@@ -504,7 +519,7 @@ class Game implements CanRun, SubjectInterface
         ConfigStore::put(PlaySettings::class, new PlaySettings($this->options));
         ConfigStore::put(AppConfig::class, new AppConfig());
         ProjectFormat::assertSupported(config(AppConfig::class, ProjectFormat::KEY));
-        ConfigStore::put(PlayerSettings::class, new PlayerSettings());
+        ConfigStore::put(PlayerSettings::class, new PlayerSettings(dataRoot: $this->launchDataRoot));
         ConfigStore::put(ProjectConfig::class, new ProjectConfig());
         ConfigStore::put(FieldMusicCatalog::class, FieldMusicCatalog::fromProject());
 
@@ -532,7 +547,7 @@ class Game implements CanRun, SubjectInterface
      */
     private function initializeDebugger(): void
     {
-        $logDirectory = Path::join(Path::getCurrentWorkingDirectory(), 'logs');
+        $logDirectory = $this->getLogDirectory();
 
         if (!file_exists($logDirectory)) {
             if (false === mkdir($logDirectory, 0777, true)) {
@@ -795,8 +810,9 @@ class Game implements CanRun, SubjectInterface
      */
     protected function start(): void
     {
-        $startupMode = $this->startupMode ?? GameStartupMode::readEnvironment();
-        $this->validateStartupMode($startupMode);
+        $this->prepareLaunchContext();
+        $startupMode = $this->resolvedStartupMode;
+        $this->preflightLaunchContext();
         $this->registerTerminalRestoreHandlers();
         $this->startInputSession();
         Console::enterAlternateScreen();
@@ -843,11 +859,91 @@ class Game implements CanRun, SubjectInterface
 
     protected function startInitialScene(?GameStartupMode $mode): void
     {
+        $context = $this->pendingLaunchContext;
+        $cinematic = $this->pendingLaunchCinematic;
+        $this->pendingLaunchContext = null;
+        $this->pendingLaunchCinematic = null;
+        if ($context?->battleTest !== null) {
+            $this->pendingLaunchBattleTest = $context->battleTest;
+            try {
+                $this->sceneManager->loadScene(ArenaScene::class);
+            } finally {
+                $this->pendingLaunchBattleTest = null;
+            }
+            return;
+        }
+        if ($context?->start !== null || $cinematic !== null) {
+            $this->sceneManager->startNewGame(start: $context?->start, cinematic: $cinematic);
+            return;
+        }
         match ($mode) {
             GameStartupMode::NEW_GAME => $this->sceneManager->startNewGame(),
             GameStartupMode::TITLE => $this->sceneManager->loadScene(TitleScene::class),
             null => $this->sceneManager->loadScene($this->options['starting_scene'] ?? 0),
         };
+    }
+
+    /** One process launch, separate from authored options and persistent gameplay. */
+    protected function prepareLaunchContext(?GameLaunchContext $context = null): void
+    {
+        if ($this->launchPrepared) { return; }
+        $transport = GameLaunchContext::consumeEnvironment();
+        if ($context !== null && $transport !== null) {
+            throw new \InvalidArgumentException('Supply launchContext or its environment transport, not both.');
+        }
+        $context ??= $transport;
+        $otherMode = $this->startupMode ?? GameStartupMode::readEnvironment();
+        $context?->validateOptions($this->options, $otherMode);
+        $mode = $context?->mode ?? $otherMode;
+        $this->validateStartupMode($mode);
+        $root = $context?->dataRoot;
+        if ($root !== null) { $root = LaunchDataRoot::validate($root, Path::getCurrentWorkingDirectory()); }
+        $this->launchDataRoot = $root;
+        $this->pendingLaunchContext = $context;
+        $this->resolvedStartupMode = $mode;
+        $this->launchPrepared = true;
+    }
+
+    /** Storage remains isolated after the one-shot startup instructions are consumed. */
+    public function getDataRoot(): string
+    {
+        return $this->launchDataRoot ?? Path::join(Path::getCurrentWorkingDirectory(), SaveManager::DATA_DIRECTORY);
+    }
+
+    public function hasIsolatedDataRoot(): bool
+    {
+        return $this->launchDataRoot !== null;
+    }
+
+    public function consumeLaunchBattleTest(): ?ProjectBattleTest
+    {
+        $test = $this->pendingLaunchBattleTest;
+        $this->pendingLaunchBattleTest = null;
+        return $test;
+    }
+
+    protected function preflightLaunchContext(): void
+    {
+        try {
+            if ($this->pendingLaunchContext !== null) {
+                $this->pendingLaunchCinematic = GameLaunchPreflight::validate($this, $this->pendingLaunchContext);
+            }
+        } catch (Throwable $error) {
+            $this->clearPendingLaunch();
+            throw $error;
+        }
+    }
+
+    private function clearPendingLaunch(): void
+    {
+        $this->pendingLaunchContext = null;
+        $this->pendingLaunchCinematic = null;
+        $this->pendingLaunchBattleTest = null;
+    }
+
+    private function getLogDirectory(): string
+    {
+        return Path::join($this->launchDataRoot ?? Path::getCurrentWorkingDirectory(), 'logs');
     }
 
     /**

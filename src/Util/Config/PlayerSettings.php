@@ -7,6 +7,7 @@ namespace Ichiloto\Engine\Util\Config;
 use BackedEnum;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\SaveManager;
+use Ichiloto\Engine\IO\LaunchDataRoot;
 use Ichiloto\Engine\Util\Debug;
 use Ichiloto\Engine\Util\LocalDataFiles;
 use InvalidArgumentException;
@@ -26,23 +27,27 @@ final class PlayerSettings extends AbstractConfig
   ];
 
   private readonly string $filename;
+  private readonly ?string $isolatedDataRoot;
 
   /** @var array<string, KeyCode[]>|null */
   private ?array $inputBindings = null;
 
-  public function __construct(?string $projectRoot = null)
+  public function __construct(?string $projectRoot = null, ?string $dataRoot = null)
   {
     $root = $projectRoot ?? getcwd();
     if ($root === false) {
       throw new RuntimeException('Cannot locate the project for player settings.');
     }
-    $this->filename = $root . DIRECTORY_SEPARATOR . SaveManager::DATA_DIRECTORY
+    $this->filename = ($dataRoot ?? $root . DIRECTORY_SEPARATOR . SaveManager::DATA_DIRECTORY)
       . DIRECTORY_SEPARATOR . 'player-settings.json';
+    $this->isolatedDataRoot = $dataRoot;
+    $this->validateStoragePath();
     parent::__construct();
   }
 
   protected function load(): array
   {
+    $this->validateStoragePath();
     try {
       if (! LocalDataFiles::runFileOperation(fn() => is_file($this->filename))) {
         return [];
@@ -183,6 +188,7 @@ final class PlayerSettings extends AbstractConfig
 
   public function persist(): void
   {
+    $this->validateStoragePath();
     $data = $this->getOverrides();
     $bindings = $this->getInputBindings();
     if ($bindings !== []) {
@@ -190,6 +196,13 @@ final class PlayerSettings extends AbstractConfig
     }
     $content = json_encode((object) $data, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR) . "\n";
     LocalDataFiles::writeAtomically($this->filename, $content);
+  }
+
+  private function validateStoragePath(): void
+  {
+    if ($this->isolatedDataRoot !== null) {
+      LaunchDataRoot::validatePath($this->isolatedDataRoot, $this->filename);
+    }
   }
 
   /** @param array<string, KeyCode[]> $bindings */

@@ -5,11 +5,26 @@ use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Core\WorldConditionType;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Quests\QuestLog;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 
 it('passes an empty condition list', function () {
   expect(WorldConditionEvaluator::allHold([], new GameState()))->toBeTrue();
+});
+
+it('evaluates explicit quest state without requiring a running scene', function () {
+  $state = new GameState();
+  $quests = new QuestLog();
+  $active = [['type' => 'quest', 'name' => 'synthetic-quest', 'status' => 'active']];
+  $completed = [['type' => 'quest', 'name' => 'synthetic-quest', 'status' => 'completed']];
+  expect(WorldConditionEvaluator::allHold($active, $state, questLog: $quests))->toBeFalse();
+  $quests->accept('synthetic-quest', 1);
+  expect(WorldConditionEvaluator::allHold($active, $state, questLog: $quests))->toBeTrue()
+    ->and(WorldConditionEvaluator::allHold($completed, $state, questLog: $quests))->toBeFalse();
+  $quests->markCompleted('synthetic-quest');
+  expect(WorldConditionEvaluator::allHold($active, $state, questLog: $quests))->toBeFalse()
+    ->and(WorldConditionEvaluator::allHold($completed, $state, questLog: $quests))->toBeTrue();
 });
 
 it('publishes the complete stable condition vocabulary', function () {

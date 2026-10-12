@@ -57,6 +57,7 @@ class SaveManager
 
   /** The single compatibility pipeline shared by every save surface. */
   protected SaveCompatibilityPipeline $compatibilityPipeline;
+  private ?string $isolatedDataRoot = null;
 
   public function __construct(
     protected Game $game,
@@ -65,8 +66,11 @@ class SaveManager
     ?SaveCompatibilityManifest $compatibilityManifest = null,
   )
   {
-    $this->saveDirectory = Path::normalize(Path::join(Path::getCurrentWorkingDirectory(), self::DATA_DIRECTORY, $this->saveDirectory));
-    $this->quickSaveDirectory = Path::normalize(Path::join(Path::getCurrentWorkingDirectory(), self::DATA_DIRECTORY, $this->quickSaveDirectory));
+    $this->isolatedDataRoot = $game->hasIsolatedDataRoot() ? $game->getDataRoot() : null;
+    $this->saveDirectory = Path::normalize(Path::join($game->getDataRoot(), $this->saveDirectory));
+    $this->quickSaveDirectory = Path::normalize(Path::join($game->getDataRoot(), $this->quickSaveDirectory));
+    $this->validateStoragePath($this->saveDirectory);
+    $this->validateStoragePath($this->quickSaveDirectory);
     $compatibilityManifest ??= SaveCompatibilityManifest::fromProjectRoot(Path::getCurrentWorkingDirectory());
     $this->compatibilityPipeline = new SaveCompatibilityPipeline($compatibilityManifest);
     $this->diagnoseStorageAvailability();
@@ -95,12 +99,16 @@ class SaveManager
    */
   public function getSaveFiles(bool $includeQuickSaves = false): array
   {
+    $this->validateStoragePath($this->saveDirectory);
+    $this->validateStoragePath($this->quickSaveDirectory);
     $saveFiles = glob($this->saveDirectory . '/*.' . self::FILE_EXTENSION) ?: [];
 
     if ($includeQuickSaves) {
       $quickSaveFiles = glob($this->quickSaveDirectory . '/*.' . self::FILE_EXTENSION) ?: [];
       $saveFiles = [...$saveFiles, ...$quickSaveFiles];
     }
+
+    foreach ($saveFiles as $path) { $this->validateStoragePath($path); }
 
     usort(
       $saveFiles,
@@ -220,6 +228,7 @@ class SaveManager
    */
   public function autoSave(GameScene $scene): SaveSlot
   {
+    $this->validateStoragePath($this->quickSaveDirectory);
     $existing = glob($this->quickSaveDirectory . '/' . self::AUTO_SAVE_NAME . '-*.' . self::FILE_EXTENSION) ?: [];
     usort($existing, static fn(string $a, string $b): int => filemtime($a) <=> filemtime($b));
 
@@ -239,7 +248,7 @@ class SaveManager
    */
   public function getQuickSavePath(string $name): string
   {
-    return Path::join($this->quickSaveDirectory, sprintf('%s.%s', $name, self::FILE_EXTENSION));
+    return $this->validateStoragePath(Path::join($this->quickSaveDirectory, sprintf('%s.%s', $name, self::FILE_EXTENSION)));
   }
 
   /**
@@ -252,6 +261,7 @@ class SaveManager
    */
   protected function writeSave(GameScene $scene, int $slot, string $path): SaveSlot
   {
+    $this->validateStoragePath($path);
     if ($scene->hasUnstableEventSession()) {
       throw new ActiveEventSaveException(
         'Saving is unavailable while a story event is in progress. Finish the event first.'
@@ -293,6 +303,7 @@ class SaveManager
    */
   public function loadSaveFile(string $path): SavedGame
   {
+    $this->validateStoragePath($path);
     if (! file_exists($path)) {
       throw new RuntimeException(sprintf('Save file not found: %s', $path));
     }
@@ -366,7 +377,12 @@ class SaveManager
       throw new RuntimeException('Save slots are 1-based.');
     }
 
-    return Path::join($this->saveDirectory, sprintf('file-%02d.%s', $slot, self::FILE_EXTENSION));
+    return $this->validateStoragePath(Path::join($this->saveDirectory, sprintf('file-%02d.%s', $slot, self::FILE_EXTENSION)));
+  }
+
+  private function validateStoragePath(string $path): string
+  {
+    return $this->isolatedDataRoot === null ? $path : LaunchDataRoot::validatePath($this->isolatedDataRoot, $path);
   }
 
   /**

@@ -274,7 +274,7 @@ class ArenaScene extends AbstractScene
     try {
       $actors = ConfigStore::get(ActorStore::class);
       $choices = new BattleTestChoices($actors, ConfigStore::get(ItemStore::class), BattleTestLoadoutCatalog::getProjectCatalog());
-      $this->projectBattleTest = ProjectBattleTest::loadFromProject();
+      $this->projectBattleTest = $this->getGame()->consumeLaunchBattleTest() ?? ProjectBattleTest::loadFromProject();
       $setup = $this->getGame()->options[self::SETUP_OPTION] ?? null;
       $setup = $setup instanceof BattleTestSetup
         ? $setup

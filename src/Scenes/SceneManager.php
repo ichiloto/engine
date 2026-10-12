@@ -10,6 +10,8 @@ use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Battle\Enumerations\BattleEngineType;
 use Ichiloto\Engine\Battle\Interfaces\BattleEngineInterface;
 use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Core\GameStartLocation;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicDefinition;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Core\Interfaces\CanStart;
 use Ichiloto\Engine\Core\Interfaces\CanUpdate;
@@ -251,14 +253,18 @@ class SceneManager implements CanStart, CanRender, CanUpdate
   }
 
   /** Title commands and tooling share the same new-game data and scene lifecycle. */
-  public function startNewGame(?GameLoader $loader = null): GameScene
+  public function startNewGame(?GameLoader $loader = null, ?GameStartLocation $start = null, ?CinematicDefinition $cinematic = null): GameScene
   {
-    $config = ($loader ?? GameLoader::getInstance($this->game))->loadNewGame();
+    $config = ($loader ?? GameLoader::getInstance($this->game))->loadNewGame($start);
     $scene = $this->loadScene(GameScene::class)->currentScene;
     if (!$scene instanceof GameScene) {
       throw new NotFoundException('The current scene is not a game scene.');
     }
-    $scene->configure($config);
+    if ($cinematic === null) {
+      $scene->configure($config);
+    } else {
+      $scene->configureForLaunch($config, $cinematic);
+    }
 
     return $scene;
   }
