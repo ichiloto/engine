@@ -377,8 +377,12 @@ recipes and explicit Collision-tool footprint stamps now use the same source,
 history and physical-cell authority. Recipes never apply during glyph/art
 placement; mixed types and null cells are supported without inferred defaults.
 Preview and stamping validate the whole recipe against the actual map geometry
-and the displayed map/recipe revision. Native acceptance of cell brushes and
-footprint controls remains open; implementation alone does not close Stage 1.
+and the displayed map/recipe revision. October 12 macOS native checks qualify
+collision painting and a mixed open/solid/counter footprint, including null-cell
+preservation, reviewed old-save landings, grouped Undo and whole-stamp refusal at
+the map edge. The disposable source-preserving clone was removed after the
+receipt was retained. These bounded checks do not establish every brush gesture
+or other-platform acceptance; see the G4 integration-roadmap evidence.
 
 ### Stage 2 - Sprite pivot, ground footprint and depth
 
