@@ -130,6 +130,9 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
       } elseif ($event->type === RendererEventType::WINDOW_ACTIVATION) {
         $this->windowActive = $event->active ?? throw new LogicException('Window activation lacks its validated state.');
       } elseif ($event->type === RendererEventType::FRAME_REJECTED) {
+        LatencyTrace::record('presentation.frame.rejected', ['generation' => $event->generation,
+          'expected_generation' => $event->expectedGeneration, 'resync_required' => $event->resyncRequired,
+          'message' => $event->message]);
         Debug::warn('Renderer rejected a presentation update: ' . $event->message . '. Retained state will be resynchronized.');
         $invalidate = true;
         $expectedGeneration = max($expectedGeneration ?? 0, $event->expectedGeneration ?? 0);
@@ -137,6 +140,8 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
         $invalidate = true;
       } elseif ($event->type === RendererEventType::FRAME_ACK) {
         $this->presentation?->acknowledge($event->generation, $event->presented);
+        LatencyTrace::record('presentation.frame.acknowledged', ['generation' => $event->generation,
+          'frame' => $event->frame, 'presented' => $event->presented]);
       } elseif ($event->type === RendererEventType::ERROR) {
         throw new RendererTransportException('Renderer error: ' . $event->message,
           $this->transport->getDiagnostics(), $this->transport->getExitCode());
