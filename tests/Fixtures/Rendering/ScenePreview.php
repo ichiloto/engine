@@ -63,7 +63,7 @@ final class ScenePreviewScene extends AbstractScene implements CanvasProviderInt
 return static function (string $root, bool $reduced, ?array $subjects = null, string $transitionMode = 'project'): array {
     $selected = $subjects ?? ['field'];
     $allowed = ['field', 'realtime', 'never-complete', 'unmuted', 'unmute-start', 'unmute-advance',
-        'invalid-completion', 'cleanup-error', 'verify-error', 'ignore-transitions', 'slow-first-frame'];
+        'invalid-completion', 'cleanup-error', 'verify-error', 'ignore-transitions', 'slow-first-frame', 'slow-every-frame'];
     foreach ($selected as $id) {
         if (!in_array($id, $allowed, true)) { throw new InvalidArgumentException('Unknown scene preview subject: ' . $id); }
     }
@@ -100,9 +100,10 @@ return static function (string $root, bool $reduced, ?array $subjects = null, st
             $calls[] = 'advance';
             $step = count($calls) - 1;
             if (in_array('slow-first-frame', $selected, true) && $step === 1) { usleep(200000); }
+            if (in_array('slow-every-frame', $selected, true)) { usleep(120000); }
             // This synthetic lifecycle must visit each phase even after a delayed wall-clock tick.
-            $scene->canvasMode = $step >= 4 && $step <= 6;
-            $complete = $step >= 10 && $seconds >= 0.15;
+            $scene->canvasMode = $step === 2;
+            $complete = $step >= 3 && $seconds >= 0.15;
             if (in_array('unmute-advance', $selected, true)) { $settings->set('audio.music', true); }
         },
         'isComplete' => static function () use ($selected, &$complete): mixed {
