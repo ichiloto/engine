@@ -148,8 +148,8 @@ it('rejects invalid or unacknowledged transition policies before starting a scen
     [['--transitions=on', '--subjects=ignore-transitions'], 'fixture must acknowledge the exact requested transition mode'],
 ]);
 
-it('attaches the production runtime before startup and submits retained field, canvas and returned field', function () {
-    $result = runScenePreviewTool([], 'dialogue_preview');
+it('attaches the production runtime before startup and submits retained field, canvas and returned field', function (bool $late) {
+    $result = runScenePreviewTool($late ? ['--subjects=slow-first-frame'] : [], 'dialogue_preview');
     expect($result['exit'])->toBe(0, $result['stderr'])->and($result['stderr'])->toBe('');
     $evidence = getScenePreviewEvidence($result);
     expect($evidence['fixture']['startedAfterRuntime'])->toBeTrue()
@@ -166,7 +166,7 @@ it('attaches the production runtime before startup and submits retained field, c
         ->and(array_key_exists('canvas', $frames[array_key_last($frames)]))->toBeFalse()
         ->and($frames[array_key_last($frames)]['textLayers'][0]['runs'][0]['text'])->toContain('FIELD BASE')
         ->and($result['cleanup']['stops'])->toBe(1);
-});
+})->with([false, true]);
 
 it('refuses unsafe audio before a process starts and disposes isolated state', function () {
     $result = runScenePreviewTool(['--subjects=unmuted'], 'dialogue_preview');
