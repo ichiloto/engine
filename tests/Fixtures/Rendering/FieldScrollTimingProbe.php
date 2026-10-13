@@ -10,6 +10,7 @@ use Ichiloto\Engine\Core\GameStartLocation;
 use Ichiloto\Engine\Core\GameStartupMode;
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\IO\LaunchDataRoot;
+use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererEvent;
@@ -159,7 +160,7 @@ final class FieldScrollTimingProbeGame extends Game
     {
         assertFieldScrollSilent($this->audioManager);
         parent::startInputSession();
-        if ($this->getScreenSize() !== [135, 36]) {
+        if ([Console::getWidth(), Console::getHeight()] !== [135, 36]) {
             throw new RuntimeException('The owned Terminal/GPUI surface must support the prescribed 135x36 grid.');
         }
     }
@@ -299,6 +300,7 @@ try {
         $audio = createFieldScrollSilentAudio($owner);
         assertFieldScrollSilent($audio);
         foreach ([Game::class => ['getDataRoot', 'hasIsolatedDataRoot', 'getRendererRuntime'],
+            Console::class => ['getWidth', 'getHeight'],
             LatencyTrace::class => ['getTimeNow', 'configure', 'record', 'end'],
             GameScene::class => ['configure']] as $class => $methods) {
             foreach ($methods as $method) {
