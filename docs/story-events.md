@@ -53,6 +53,47 @@ The area is exactly the cells the marker occupies, however they are placed
 (see [Event markers](maps.md#event-markers)).
 Omit it when the unavailable event should be absent rather than act as a gate.
 
+## Transfer map trigger
+
+Keep a direct map link as a `TransferPlayerTrigger`, including when crossing
+that link records a story boundary. Its ordinary trigger-level `sets` apply
+after the destination map commits and before destination automatic events,
+interpreter continuation and transfer autosave:
+
+```php
+'D' => [
+  'class' => 'Ichiloto\\Engine\\Events\\Triggers\\TransferPlayerTrigger',
+  'sets' => [['type' => 'event', 'name' => 'outward_journey_started']],
+  'data' => [
+    'destinationMap' => 'countryside',
+    'spawnPoint' => ['x' => 2, 'y' => 3],
+    'spawnSprite' => ['South'],
+    'reusable' => true,
+  ],
+],
+```
+
+Transfer markers remain movement-driven, not automatic on initial field entry.
+Blocked movement, unavailable conditions and refused destination preparation
+apply no completion writes or one-shot state. The destination remains explicit
+in `data.destinationMap` for map-link authoring and reachability analysis.
+
+Reusable is the default. Each successful pass applies its writes once; story
+events are idempotent, while variable additions intentionally apply per pass.
+With `data.reusable` false, completion persists under the original source
+`map-id:marker`, so returning to that map does not reactivate the transfer.
+This removes the previous silent dropping of transfer `sets` and the repeated
+activation of transfers authored as one-shot. Ordinary reusable links retain
+their existing behavior.
+
+Programmatic initiators may pass `onCommitted` as the optional third `Closure`
+argument to `GameScene::transferPlayer()`. Existing one- and two-argument calls
+remain unchanged. A `GameScene` subclass overriding this method must accept
+that optional argument and invoke it only after its own successful destination
+commit, before continuation, automatic events or saving. Do not invoke it from
+a refused or failed preparation path. The callback is scoped to that transfer;
+it is not a persistent listener or serialized event continuation.
+
 ## Cinematic map trigger
 
 A complete first-class Cinematic is referenced rather than copied into a

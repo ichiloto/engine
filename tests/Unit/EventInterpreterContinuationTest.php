@@ -435,7 +435,7 @@ class EventTestGameScene extends GameScene
     $this->hasDeferredAutoSave = true;
   }
 
-  public function transferPlayer(Location $location, bool $useConfiguredTransition = true): bool
+  public function transferPlayer(Location $location, bool $useConfiguredTransition = true, ?Closure $onCommitted = null): bool
   {
     $this->transferCount++;
     $this->configuredTransferTransitions[] = $useConfiguredTransition;
@@ -445,6 +445,7 @@ class EventTestGameScene extends GameScene
     }
     $this->cinematicStage?->clear();
     $this->currentMapId = $location->mapFilename;
+    $onCommitted?->__invoke();
 
     if ($this->autoResumeTransfers) {
       $this->finalizePlayerTransfer();

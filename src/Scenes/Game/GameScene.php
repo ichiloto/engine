@@ -1028,11 +1028,12 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
      *
      * @param Location $location The destination location.
      * @param bool $useConfiguredTransition Whether to run the project's legacy blocking transfer transition.
+     * @param Closure|null $onCommitted Completion owned by the transfer initiator, before destination events and autosave.
      * @return bool Whether the destination was loaded.
      * @throws IchilotoException If the map cannot be loaded.
      * @throws NotFoundException If the map is not found.
      */
-    public function transferPlayer(Location $location, bool $useConfiguredTransition = true): bool
+    public function transferPlayer(Location $location, bool $useConfiguredTransition = true, ?Closure $onCommitted = null): bool
     {
         Debug::info("Transferring player to $location->mapFilename... at $location->playerPosition");
 
@@ -1080,6 +1081,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         $this->eventInterpreter?->renderPresentation();
         Debug::info("Player transferred to $location->mapFilename... at {$this->player->position}");
 
+        $onCommitted?->__invoke();
         $this->finalizePlayerTransfer();
         return true;
     }
