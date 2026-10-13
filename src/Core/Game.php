@@ -760,12 +760,13 @@ class Game implements CanRun, SubjectInterface
     public function run(): void
     {
         try {
-            $sleepTime = (int)(1000000 / ($this->options['fps'] ?? DEFAULT_FPS));
+            $framePacing = new FramePacing($this->options['fps'] ?? DEFAULT_FPS);
             $this->start();
             $nextFrameTime = microtime(true) + 1;
             $lastFrameCountSnapShot = $this->frameCount;
 
             while ($this->isRunning) {
+                $frameStartedNanoseconds = hrtime(true);
                 LatencyTrace::beginIteration();
                 $this->rendererRuntime?->pump();
                 if ($this->terminalCleanedUp) {
@@ -787,12 +788,15 @@ class Game implements CanRun, SubjectInterface
                 $this->render();
                 LatencyTrace::endIteration();
 
-                usleep($sleepTime);
-
                 if (microtime(true) >= $nextFrameTime) {
                     $this->frameRate = $this->frameCount - $lastFrameCountSnapShot;
                     $lastFrameCountSnapShot = $this->frameCount;
                     $nextFrameTime = microtime(true) + 1;
+                }
+
+                $sleepTime = $framePacing->getRemainingSleepMicroseconds($frameStartedNanoseconds, hrtime(true));
+                if ($sleepTime > 0) {
+                    usleep($sleepTime);
                 }
             }
         } catch (RendererWindowClosed) {

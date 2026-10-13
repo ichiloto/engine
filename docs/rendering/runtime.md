@@ -397,6 +397,35 @@ Console contributions, then presents changed rows, providers and any retained
 world. A valid retained world replaces Console map draws only in GPUI. Rust receives
 no movement, collision, event, heading, camera or save authority.
 
+The shared `Game::run()` loop budgets each iteration from `hrtime(true)` before
+lifecycle pumping through input, update, render/presentation, latency-trace
+completion and FPS bookkeeping.
+`Core\FramePacing::getRemainingSleepMicroseconds()` subtracts that work from
+`1 / fps`, truncating only the remaining sleep to whole microseconds.
+This removes the previous unconditional full-frame sleep added after the work.
+An iteration at or beyond its budget gets no additional sleep; the next
+iteration starts a fresh budget, with no catch-up simulation or sleep debt.
+Quit checks and cleanup ordering are unchanged. Movement, input, simulation
+clocks and blocked `Timers` waits retain their existing behavior.
+
+FPS defaults when the option is absent/null, as before. A supplied value must
+be finite and positive (numeric configuration strings remain accepted), with
+a representable microsecond budget; invalid values use Game's existing error
+path rather than silently selecting another rate. Scheduler oversleep and
+over-budget work can still lengthen an iteration. PHP iteration/capture cadence
+does not measure terminal-emulator FPS, physical input latency or native
+presentation latency; matched workload measurements must keep that distinction.
+
+The 2026-10-13 matched Terminal probe used the same real Last Legend project,
+135x36 grid, 30 FPS, seed, 12 idle updates and 36 scripted camera steps.
+Both runs completed all 48 steps without a recorded PHP error. Before/after
+elapsed time was 2.423/1.791 seconds; median iteration spacing was
+48.059/38.343 ms and nearest-rank p95 was 74.736/38.374 ms. This single pair
+supports removing the additive sleep, not a general FPS or hardware-load claim.
+Scheduler oversleep remains visible above the configured 33.333 ms budget.
+Captured output was redirected to isolated secondary-drive logs, not displayed
+in a terminal emulator; physical input and GPUI presentation were not measured.
+
 The Game's GPUI session requires the `key_transitions` subscription, so the
 renderer also reports key presses, releases and resets; PHP applies them
 before each gameplay update and owns held walking and its timing (see
