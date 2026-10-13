@@ -381,6 +381,38 @@ Turn the polished stage into a real fight. Roughly in order:
 > `trainingHours` decision (kept — spells still gate on it), and the equipment
 > stat-delta preview, which was already implemented in `CharacterDetailPanel`.
 
+#### Project-owned level-up recovery (2026-10-13)
+
+`assets/Data/system.php` may declare this optional section:
+
+```php
+'progression' => [
+  'restoreVitalsOnLevelUp' => true,
+],
+```
+
+The section must be an associative PHP array (an empty array is valid); its
+only supported key is `restoreVitalsOnLevelUp`, whose value must be a literal
+boolean. Omitted section or key means `true`, preserving existing games. Null,
+strings, numbers, lists, objects and unknown section keys are rejected rather
+than coerced. Unrelated system fields remain unchanged.
+
+`SystemData::$progression` is a validated, immutable `ProgressionSettings`.
+Game bootstrap registers the same contract in `ConfigStore` for the existing
+`ExperienceAwarder::award()` / `awardParty()` path. `true` restores current HP
+and MP to their equipment-aware maxima only when an award raises the level;
+`false` disables that automatic refill and preserves current resources (with
+the existing maximum clamping). EXP, level growth, automatic role-skill grants,
+AP and states are unchanged. Battle and quest awards share this path; scripted
+and migration EXP callers must use it too, not raw `Character::addExperience()`.
+This adds no new script command or migration behavior.
+
+This is developer-owned project data, not a player option, launch override or
+save field. Equipment recalculation, save hydration, legacy invalid-vital save
+recovery and battle-test setup keep their existing semantics. Editor/GUI
+authoring must preserve other system data and round-trip literal booleans;
+their integration remains with the Editor owner.
+
 #### Original plan
 - **Classes** — `ClassStore` over `classes.php`; actors reference a class by
   name; `Character::fromArray` resolves it into a real `CharacterRole` with
