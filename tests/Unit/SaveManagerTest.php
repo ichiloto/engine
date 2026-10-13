@@ -106,7 +106,7 @@ it('leaves absent player data untouched while listing saves and resolving quick-
     chdir($root);
     $manager = new SaveManager(makeSaveManagerTestGame(), 'saves', 'saves/quick', makeSaveManagerTestManifest());
     expect($manager->getSaveFiles(true))->toBe([])
-      ->and($manager->getSaveSlots())->toHaveCount(5)
+      ->and($manager->getSaveSlots())->toHaveCount(30)
       ->and($manager->getQuickSavePath('quick'))->toBe(realpath($root) . '/.data/saves/quick/quick.iedata')
       ->and(is_dir($root . '/.data'))->toBeFalse();
   } finally {

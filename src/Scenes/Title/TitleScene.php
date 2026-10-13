@@ -28,6 +28,7 @@ use Ichiloto\Engine\UI\Text\MenuInfoText;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowHeightPolicy;
 use Ichiloto\Engine\UI\Windows\SaveSlotWindow;
+use Ichiloto\Engine\UI\Windows\SaveSlotMenuLayout;
 use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
@@ -53,7 +54,6 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
   protected const int CONTINUE_MENU_WIDTH = 110;
   protected const int CONTINUE_INFO_HEIGHT = 3;
   protected const int CONTINUE_HELP_HEIGHT = 4;
-  protected const int CONTINUE_SLOT_COUNT = 5;
 
   /**
    * The title menu.
@@ -101,8 +101,7 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
    * @var SaveSlotWindow[] The continue overlay slot windows.
    */
   protected array $continueSlotWindows = [];
-  /** @var array{int, int}|null The viewport used to lay out the Terminal selector. */
-  protected ?array $continueViewport = null;
+  protected ?SaveSlotMenuLayout $continueViewport = null;
   /**
    * @var Window|null The continue overlay prompt window.
    */
@@ -468,18 +467,13 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
   protected function initializeContinueMenuWindows(): void
   {
     $borderPack = new DefaultBorderPack();
-    $width = min(self::CONTINUE_MENU_WIDTH, get_screen_width());
-    $screenHeight = get_screen_height();
-    $chromeHeight = min(self::CONTINUE_INFO_HEIGHT + self::CONTINUE_HELP_HEIGHT,
-      max(4, $screenHeight - SaveSlotWindow::HEIGHT));
-    $infoHeight = min(self::CONTINUE_INFO_HEIGHT, $chromeHeight - 2);
-    $helpHeight = $chromeHeight - $infoHeight;
-    $visibleCount = min(max(1, count($this->continueSlots)),
-      max(1, intdiv(max(0, $screenHeight - $chromeHeight), SaveSlotWindow::HEIGHT)));
-    $menuHeight = $chromeHeight + (SaveSlotWindow::HEIGHT * $visibleCount);
-    $leftMargin = max(0, intdiv(get_screen_width() - $width, 2));
-    $topMargin = max(0, intdiv($screenHeight - $menuHeight, 2));
-    $this->continueViewport = [get_screen_width(), $screenHeight];
+    $layout = $this->continueViewport = $this->createContinueMenuLayout();
+    $width = $layout->width;
+    $infoHeight = $layout->infoHeight;
+    $helpHeight = $layout->helpHeight;
+    $visibleCount = $layout->visibleCount;
+    $leftMargin = $layout->left;
+    $topMargin = $layout->top;
 
     $this->continueInfoWindow = new Window(
       $this->getContinueMenuTitle(),
@@ -516,6 +510,12 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
       $borderPack,
       heightPolicy: WindowHeightPolicy::FIXED
     );
+  }
+
+  protected function createContinueMenuLayout(): SaveSlotMenuLayout
+  {
+    return new SaveSlotMenuLayout(get_screen_width(), get_screen_height(), count($this->continueSlots),
+      self::CONTINUE_MENU_WIDTH, self::CONTINUE_INFO_HEIGHT, self::CONTINUE_HELP_HEIGHT);
   }
 
   /**
@@ -628,13 +628,11 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
   protected function renderContinueMenu(): void
   {
     $this->refreshContinueSlots();
-    if ($this->continueViewport !== [get_screen_width(), get_screen_height()]) {
+    if ($this->continueViewport != $this->createContinueMenuLayout()) {
       Console::clear();
       $this->initializeContinueMenuWindows();
     }
-    $visibleCount = max(1, count($this->continueSlotWindows));
-    $first = intdiv($this->activeContinueSlotIndex, $visibleCount) * $visibleCount;
-    $last = min(count($this->continueSlots), $first + $visibleCount);
+    [$first, $last] = $this->continueViewport->getVisibleRange($this->activeContinueSlotIndex);
     $range = sprintf('%d-%d / %d', $first + 1, $last, count($this->continueSlots));
     $this->continueInfoWindow?->setTitle($this->getContinueMenuTitle() . '  ' . $range);
     $this->continueInfoWindow?->setContent([
@@ -843,7 +841,7 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
   protected function refreshContinueSlots(): void
   {
     $selectedPath = $this->continueSlots[$this->activeContinueSlotIndex]->path ?? null;
-    $this->continueSlots = $this->sceneManager->saveManager->getLoadSlots(self::CONTINUE_SLOT_COUNT);
+    $this->continueSlots = $this->sceneManager->saveManager->getLoadSlots();
     foreach ($this->continueSlots as $index => $slot) {
       if ($slot->path === $selectedPath) {
         $this->activeContinueSlotIndex = $index;

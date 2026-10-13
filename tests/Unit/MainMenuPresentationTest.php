@@ -924,10 +924,11 @@ it('uses shared Config when themed and overlays alerts without changing the acti
 });
 
 it('connects in-game Save to the shared themed canvas and modal lifecycle without writing saves', function (bool $alternative) {
+  InputManager::setBindings([...InputManager::getBindings(), 'back' => ['keys' => [KeyCode::ESCAPE]]]);
   $slots = [new SaveSlot(1, '', false, 'Rest Point', 'Actor 0', 6, 3600),
     ...array_map(static fn($index) => SaveSlot::empty($index, ''), range(2, 5))];
   $manager = $this->createMock(SaveManager::class);
-  $manager->expects($this->atLeastOnce())->method('getSaveSlots')->with(5)->willReturn($slots);
+  $manager->expects($this->atLeastOnce())->method('getSaveSlots')->with(null)->willReturn($slots);
   $manager->expects($this->never())->method('save');
   new ReflectionProperty($this->scene->sceneManager, 'saveManager')->setValue($this->scene->sceneManager, $manager);
   $state = new SaveMenuState(new SceneStateContext($this->scene));
@@ -936,7 +937,7 @@ it('connects in-game Save to the shared themed canvas and modal lifecycle withou
   $state->enter();
   expect($this->scene->getPresentationCanvas())->toBeNull();
   $terminal = new ReflectionProperty($state, 'helpWindow')->getValue($state);
-  expect(implode(' ', $terminal->getContent()))->toContain('Choose a file.', 'Enter saves. Esc returns.');
+  expect(implode(' ', $terminal->getContent()))->toContain('Choose a file.', 'Enter: Save', 'Escape: Back');
 
   $themeData = mainMenuPresentationTheme($alternative);
   file_put_contents($this->root . '/' . MenuPresentationCatalog::FILE, '<?php return ' . var_export($themeData, true) . ';');

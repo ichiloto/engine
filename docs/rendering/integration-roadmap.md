@@ -4100,6 +4100,17 @@ options and Back. Save and Load share `SaveLoadMenuPresentation`, existing
 slot metadata, full-card focus, wrapped descriptions and empty/incompatible
 states. Save participates in GameScene canvas/modal delegation. Status colours
 distinguish success/failure; re-entry clears stale status without changing saves.
+SaveManager now owns the shared project manual-slot capacity: 30 by default,
+customizable with `config.php` `saves.manual_slots` (positive integer). The
+duplicate Save/Title counts are removed. Both Terminal selectors share bounded
+page geometry, selected-row visibility, resize and semantic control hints; GPUI
+scrolls all manual rows and Load-only quick/automatic records through the existing
+shared presentation. Existing files, checkpoint ordering and the three-file
+autosave ring are unchanged. See [save compatibility](../save-compatibility.md#save-discovery-and-checkpoint-ordering).
+Editor authoring of this project setting remains unimplemented in this Engine
+slice; it needs the existing source-preserving settings workflow, not a second
+capacity authority or a player setting. Native acceptance of the 30-row menus
+is still separate from the synthetic Terminal/canvas coverage.
 
 Credits retains authored sections through `CreditsContent`. GPUI rolls centred,
 clipped text above the title backdrop with a steady Back button; a capable

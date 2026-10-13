@@ -15,7 +15,10 @@ use Ichiloto\Engine\IO\Saves\SaveSlot;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Debug;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\LocalDataFiles;
+use InvalidArgumentException;
 use RuntimeException;
 use Throwable;
 
@@ -28,7 +31,7 @@ class SaveManager
 {
   protected const string FILE_EXTENSION = 'iedata';
   protected const string FILE_HEADER = 'IED1';
-  protected const int DEFAULT_SLOT_COUNT = 5;
+  protected const int DEFAULT_SLOT_COUNT = 30;
   /**
    * The slot number recorded in quick saves (outside the player-visible range).
    */
@@ -160,13 +163,29 @@ class SaveManager
   }
 
   /**
+   * Returns the project's manual-slot capacity, shared by Save and Load.
+   * This is project configuration, not player settings or saved campaign data.
+   */
+  public function getManualSlotCount(): int
+  {
+    $count = ConfigStore::has(ProjectConfig::class)
+      ? ConfigStore::get(ProjectConfig::class)->get('saves.manual_slots', self::DEFAULT_SLOT_COUNT)
+      : self::DEFAULT_SLOT_COUNT;
+    if (!is_int($count) || $count < 1) {
+      throw new InvalidArgumentException('Project saves.manual_slots must be a positive integer.');
+    }
+    return $count;
+  }
+
+  /**
    * Returns the configured save slots for the current project.
    *
-   * @param int $slotCount The number of slots to resolve.
+   * @param int|null $slotCount Explicit inspection range; null uses project capacity.
    * @return SaveSlot[] The resolved save slots.
    */
-  public function getSaveSlots(int $slotCount = self::DEFAULT_SLOT_COUNT): array
+  public function getSaveSlots(?int $slotCount = null): array
   {
+    $slotCount ??= $this->getManualSlotCount();
     $slots = [];
 
     for ($slot = 1; $slot <= $slotCount; $slot++) {
@@ -191,7 +210,7 @@ class SaveManager
    *
    * @return SaveSlot[]
    */
-  public function getLoadSlots(int $slotCount = self::DEFAULT_SLOT_COUNT): array
+  public function getLoadSlots(?int $slotCount = null): array
   {
     $slots = $this->getSaveSlots($slotCount);
     foreach ($this->getSaveFiles(true) as $path) {

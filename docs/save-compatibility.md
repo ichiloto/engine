@@ -40,6 +40,24 @@ longer repeats it.
 
 ## Save discovery and checkpoint ordering
 
+`SaveManager::getManualSlotCount()` is the single runtime capacity authority.
+It resolves `config.php` project configuration `saves.manual_slots`, a positive
+integer defaulting to **30** when omitted. Save and Title Load ask that same
+manager without menu-owned counts. Projects can customize capacity, for example
+`'saves' => ['manual_slots' => 40]`; this is not a player option or campaign-save
+field. Invalid configured values are refused, not silently replaced. Existing
+explicit `getSaveSlots($count)` / `getLoadSlots($count)` inspection ranges remain
+available for callers; the runtime menus do not use those overrides.
+
+Changing capacity does not rename, reset, migrate or delete numbered files.
+Legacy `file-01.iedata` through `file-05.iedata` retain their identities, and
+slot 30 uses `file-30.iedata`. Lowering capacity hides higher numbered slots
+from these menus, without preventing explicit `loadSlot()` / path loading;
+raising it exposes them again. Latest-file discovery still considers existing
+files independently of menu capacity. No Game setting is needed for 30 slots.
+Editor controls for authoring this project setting are not implemented here;
+source-preserving settings authoring remains in the Editor owner's lane.
+
 `SaveManager::getSaveSlots()` remains the numbered-only, writable Save-menu
 contract. `getLoadSlots()` is the read-only runtime Load Game catalog: the
 configured numbered slots (including empty ones), followed by existing quick
@@ -54,8 +72,11 @@ confirmed loading follows `GameLoader::loadSavedGame()` and
 `SaveSlot::getLabel()` shares File, Autosave and Quick Save labels across the
 Terminal and graphical selector. Optional project vocabulary terms `save.auto`
 and `save.quick` replace those two defaults. Save identity and negative reserved
-slot numbers are unchanged. The Terminal selector pages within its viewport;
-the shared graphical save/load presentation scrolls the same complete catalog
+slot numbers are unchanged. Both Terminal selectors use `SaveSlotMenuLayout`
+to page within their viewport (at least one slot, supported height 8+ rows),
+including wraparound, partial last pages and resize; the selected file stays
+visible with a numbered page range and semantic Save/Load and Back hints.
+The shared graphical save/load presentation scrolls the same complete catalog
 around the same active index. Neither adds writable automatic/quick Save rows.
 
 New SaveManager writes add optional positive integer `saveOrder` to the existing
@@ -92,7 +113,9 @@ Synthetic `SaveLoadCatalogTest` covers same-timestamp repeated checkpoints,
 restart ordering, ring gaps/rotation, legacy ties/future timestamps, latest
 loadable fallback, class-free order inspection, read-only state/settings/time,
 path confinement, failed replacements, viewport paging and semantic control
-hints, and Title dispatch through the shared saved-load path.
+hints, and Title dispatch through the shared saved-load path. It also covers
+30-slot defaults and last-slot writing, configurable capacity changes, unchanged
+legacy files, Save navigation/wraparound, and all records in both graphical themes.
 
 ## Pre-WP1 payload inventory
 

@@ -82,7 +82,7 @@ echo json_encode([
   'settingsFailed' => $settingsFailed,
   'saveFailures' => $saveFailures,
   'sessionChoiceApplied' => $player->get('ui.dialogue.auto') === true,
-  'slotsListed' => count($slots) === 5,
+  'slotsListed' => array_column($slots, 'slot') === range(1, $manager->getManualSlotCount()),
   'diagnosed' => ! $logsBlocked && str_contains((string) file_get_contents($root . '/logs/warning.log'), 'Saving is unavailable:'),
   'dataPath' => is_file($root . '/.data') ? 'file' : (is_dir($root . '/.data') ? 'directory' : 'absent'),
   'deleteRefused' => $deleteRefused,

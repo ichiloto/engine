@@ -8,6 +8,8 @@ use Ichiloto\Engine\Core\Menu\TitleMenu\TitleMenu;
 use Ichiloto\Engine\Core\ProjectState\ProjectStateParticipantInterface;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Time;
+use Ichiloto\Engine\Audio\AudioManager;
+use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Exceptions\ActiveEventSaveException;
@@ -18,6 +20,8 @@ use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityManifest;
 use Ichiloto\Engine\IO\SaveManager;
+use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntime;
 use Ichiloto\Engine\Rendering\Runtime\RendererRuntimeConfig;
@@ -26,14 +30,41 @@ use Ichiloto\Engine\Scenes\Game\GameConfig;
 use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\SceneManager;
+use Ichiloto\Engine\Scenes\SceneStateContext;
+use Ichiloto\Engine\Scenes\Game\States\SaveMenuState;
 use Ichiloto\Engine\Scenes\Title\TitleScene;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\Presentation\SaveLoadMenuPresentation;
 use Ichiloto\Engine\UI\Presentation\TitlePresentationCatalog;
 use Ichiloto\Engine\UI\Text\MenuInfoText;
+use Ichiloto\Engine\UI\Modal\ModalManager;
+use Ichiloto\Engine\UI\Windows\SaveSlotMenuLayout;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Debug;
+
+require_once dirname(__DIR__) . '/Support/Input/FakeInputSource.php';
+
+final class SaveCatalogProjectConfig extends ProjectConfig
+{
+  protected function load(): array { return $this->options; }
+  public function persist(): void {}
+}
+
+final class SaveCatalogSaveMenuProbe extends SaveMenuState
+{
+  public function openMenu(): void { $this->enter(); }
+  public function selectSlot(int $index): void { $this->activeSlotIndex = $index; $this->render(); }
+  public function getSlots(): array { return $this->slots; }
+  public function getSelectedIndex(): int { return $this->activeSlotIndex; }
+  public function getWindows(): array { return [$this->infoWindow, ...$this->slotWindows, $this->helpWindow]; }
+  public function getDrawnText(): string { return TerminalText::stripAnsi(implode("\n", Console::getBuffer())); }
+  public function composeCanvas(MenuPresentationCatalog $theme): \Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas
+  {
+    return $this->composeMenuCanvas($theme, 0);
+  }
+}
 
 final class SaveCatalogGame extends Game
 {
@@ -155,10 +186,14 @@ beforeEach(function () {
   $this->root = createTestDirectory('ichiloto-save-catalog-');
   $this->statics = [];
   foreach ([Debug::class, ConfigStore::class, Time::class, Console::class, SaveManager::class, GameLoader::class,
-    ActionHints::class] as $class) {
+    ActionHints::class, InputManager::class, AudioManager::class, ModalManager::class] as $class) {
     $this->statics[$class] = new ReflectionClass($class)->getStaticProperties();
   }
   Debug::configure(['log_directory' => $this->root . '/logs']);
+  new ReflectionProperty(AudioManager::class, 'instance')->setValue(null, null);
+  new ReflectionProperty(InputManager::class, 'eventManager')->setValue(null, null);
+  // This catalog fixture deliberately exercises a small project capacity.
+  ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub(['saves' => ['manual_slots' => 5]]));
   $this->game = new SaveCatalogGame($this->root);
   $this->game->registerProjectStateParticipant(new SaveCatalogParticipant());
   $this->manager = createSaveCatalogManager($this->game);
@@ -479,5 +514,200 @@ it('scrolls the full Title catalog with shared labels and unique automatic ident
     $titleText = implode('', array_map(static fn($layer) => implode('', array_map(static fn($run) =>
       $run->foreground === null ? '' : $run->text, $layer->runs)), $titleFrame->textLayers));
     expect($titleText)->toContain($slot->getLabel(), '/ 9');
+  }
+})->with([false, true]);
+
+function createSaveCapacityMenu(SaveCatalogScene $scene, SaveCatalogTitleProbe $title): SaveCatalogSaveMenuProbe
+{
+  new ReflectionProperty(GameScene::class, 'sceneManager')->setValue($scene, $title->sceneManager);
+  new ReflectionProperty(GameScene::class, 'locationHUDWindow')->setValue($scene,
+    makeBareScene(\Ichiloto\Engine\UI\Elements\LocationHUDWindow::class));
+  return new SaveCatalogSaveMenuProbe(new SceneStateContext($scene));
+}
+
+it('defaults both catalogs to thirty manual slots with no project setting', function (bool $registered) {
+  ConfigStore::remove(ProjectConfig::class);
+  if ($registered) { ConfigStore::put(ProjectConfig::class, new SaveCatalogProjectConfig()); }
+  $slots = $this->manager->getSaveSlots();
+  expect($this->manager->getManualSlotCount())->toBe(30)
+    ->and(array_column($slots, 'slot'))->toBe(range(1, 30))
+    ->and($this->manager->getLoadSlots())->toHaveCount(30)
+    ->and(basename($slots[29]->path))->toBe('file-30.iedata');
+})->with([false, true]);
+
+it('applies capacity changes to both menus without moving or rewriting legacy saves', function () {
+  $config = new SaveCatalogProjectConfig(['saves' => ['manual_slots' => 30]]);
+  ConfigStore::put(ProjectConfig::class, $config);
+  $bytes = [];
+  foreach (range(1, 5) as $number) {
+    $path = $this->manager->getSlotPath($number);
+    writeSaveCatalogEnvelope($path, ['slot' => new SaveSlot($number, '/legacy/path', false, 'Legacy fixture'),
+      'config' => $this->scene->createSnapshot()]);
+    $bytes[$path] = file_get_contents($path);
+  }
+  $saved = $this->manager->save($this->scene, 30);
+  $bytes[$saved->path] = file_get_contents($saved->path);
+  Console::setTerminalOutputEnabled(false);
+  Console::syncDimensions(80, 19);
+  ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 80, 'height' => 19]));
+  $title = new SaveCatalogTitleProbe($this->game, $this->manager);
+  $menu = createSaveCapacityMenu($this->scene, $title);
+  $menu->openMenu();
+  $title->openContinueMenu();
+  $menu->selectSlot(29);
+  foreach ([7, 40, 1, 30] as $count) {
+    $config->set('saves.manual_slots', $count);
+    $menu->resume();
+    $title->selectSlot(0);
+    expect($menu->getSlots())->toHaveCount($count)->and($title->getSlots())->toHaveCount($count)
+      ->and($menu->getSelectedIndex())->toBeLessThan($count)
+      ->and($this->manager->loadSlot(30)->slot->slot)->toBe(30);
+    foreach ($bytes as $path => $contents) {
+      expect(file_get_contents($path))->toBe($contents);
+    }
+    foreach (range(1, 5) as $number) {
+      expect($this->manager->loadSlot($number)->slot->slot)->toBe($number)
+        ->and($this->manager->loadSlot($number)->slot->path)->toBe($this->manager->getSlotPath($number));
+    }
+  }
+  expect($this->manager->getSaveSlots(3))->toHaveCount(3);
+});
+
+it('refuses invalid project capacities rather than silently using a different menu count', function (mixed $count) {
+  ConfigStore::put(ProjectConfig::class, new SaveCatalogProjectConfig(['saves' => ['manual_slots' => $count]]));
+  expect(fn() => $this->manager->getSaveSlots())->toThrow(InvalidArgumentException::class)
+    ->and(fn() => $this->manager->getLoadSlots())->toThrow(InvalidArgumentException::class);
+})->with([0, -1, 1.5, '30', true, [[]]]);
+
+it('pages all thirty Save rows within the Terminal viewport including resize and a partial last page', function (int $height) {
+  ConfigStore::put(ProjectConfig::class, new SaveCatalogProjectConfig());
+  Console::setTerminalOutputEnabled(false);
+  Console::syncDimensions(80, $height);
+  ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 80, 'height' => $height]));
+  $title = new SaveCatalogTitleProbe($this->game, $this->manager);
+  $menu = createSaveCapacityMenu($this->scene, $title);
+  $menu->openMenu();
+  $layout = new SaveSlotMenuLayout(80, $height, 30);
+  foreach (range(0, 29) as $index) {
+    $menu->selectSlot($index);
+    [$first, $last] = $layout->getVisibleRange($index);
+    expect($menu->getDrawnText())->toContain('File ' . ($index + 1), ($first + 1) . '-' . $last . ' / 30')
+      ->and(count(Console::getBuffer()))->toBeLessThanOrEqual($height);
+    foreach ($menu->getWindows() as $window) {
+      $bounds = $window->getBounds();
+      expect($bounds->getY())->toBeGreaterThanOrEqual(0)
+        ->and($bounds->getY() + $bounds->getHeight())->toBeLessThanOrEqual($height);
+    }
+    expect(count($menu->getWindows()))->toBe($layout->visibleCount + 2);
+  }
+  Console::syncDimensions(60, 15);
+  ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 60, 'height' => 15]));
+  $menu->selectSlot(29);
+  expect($menu->getDrawnText())->toContain('File 30', '29-30 / 30')
+    ->and(count(Console::getBuffer()))->toBeLessThanOrEqual(15);
+  $menu->selectSlot(0);
+  expect($menu->getDrawnText())->not->toContain('File 30');
+})->with([8, 11, 19, 36]);
+
+it('navigates through thirty Save slots wraps both ends and confirms the actual slot thirty path', function () {
+  ConfigStore::put(ProjectConfig::class, new SaveCatalogProjectConfig());
+  Console::setTerminalOutputEnabled(false);
+  Console::syncDimensions(80, 19);
+  ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 80, 'height' => 19]));
+  $title = new SaveCatalogTitleProbe($this->game, $this->manager);
+  $menu = createSaveCapacityMenu($this->scene, $title);
+  $menu->openMenu();
+  InputManager::setBindings(['down' => ['keys' => [KeyCode::DOWN]], 'up' => ['keys' => [KeyCode::UP]],
+    'confirm' => ['keys' => [KeyCode::ENTER]]]);
+  $press = function (KeyCode $key) use ($menu): void {
+    InputManager::setInputSource(new \Tests\Support\Input\FakeInputSource($key));
+    InputManager::handleInput();
+    $menu->execute();
+  };
+  foreach (range(1, 30) as $step) {
+    $press(KeyCode::DOWN);
+    expect($menu->getSelectedIndex())->toBe($step % 30);
+  }
+  $press(KeyCode::UP);
+  expect($menu->getSelectedIndex())->toBe(29)->and($menu->getDrawnText())->toContain('File 30');
+  $audio = new class extends AudioManager {
+    public function __construct() {}
+    public function playSystemSound(SystemSound $sound): void {}
+  };
+  new ReflectionProperty(Game::class, 'audioManager')->setValue($this->game, $audio);
+  $alerts = new class extends ModalManager {
+    public array $messages = [];
+    public function __construct() {}
+    public function alert(string $message, string $title = '', int $width = DEFAULT_DIALOG_WIDTH): void
+    {
+      $this->messages[] = $message;
+    }
+  };
+  new ReflectionProperty(ModalManager::class, 'instance')->setValue(null, $alerts);
+  new ReflectionProperty(Console::class, 'game')->setValue(null, $this->game);
+  $press(KeyCode::ENTER);
+  expect($this->manager->loadSlot(30)->slot->slot)->toBe(30)
+    ->and(basename($this->manager->getSaveFiles()[0]))->toBe('file-30.iedata')
+    ->and($alerts->messages)->toBe(['Saved to File 30.']);
+  $loader = new ReflectionClass(GameLoader::class)->newInstanceWithoutConstructor();
+  new ReflectionProperty(GameLoader::class, 'game')->setValue($loader, $this->game);
+  new ReflectionProperty(GameLoader::class, 'instance')->setValue(null, $loader);
+  new ReflectionProperty(SaveManager::class, 'instance')->setValue(null, $this->manager);
+  $title->openContinueMenu();
+  expect($title->getSelectedIndex())->toBe(29)->and($title->getSlots()[29]->slot)->toBe(30);
+  $title->loadSelectedSlot();
+  expect($title->getLoadCount())->toBe(1)->and($title->getLoadedConfig()->playTimeSeconds)->toBe(17);
+});
+
+it('keeps semantic Save and Back hints readable in the smallest supported viewport', function () {
+  ConfigStore::put(ProjectConfig::class, new SaveCatalogProjectConfig());
+  Console::setTerminalOutputEnabled(false);
+  Console::syncDimensions(80, 8);
+  ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 80, 'height' => 8]));
+  ActionHints::useProvider(new class implements ActionHintProvider {
+    public function controlForAction(string $action): ?ControlHint
+    {
+      return new ControlHint('gamepad', $action, $action === 'confirm' ? 'A' : 'B');
+    }
+  });
+  $title = new SaveCatalogTitleProbe($this->game, $this->manager);
+  $menu = createSaveCapacityMenu($this->scene, $title);
+  $menu->openMenu();
+  $menu->selectSlot(29);
+  expect($menu->getDrawnText())->toContain('A: Save', 'B: Back', 'File 30', '30-30 / 30')
+    ->not->toContain('Enter', 'Esc')->and(count(Console::getBuffer()))->toBe(8);
+});
+
+it('keeps thirty manual slots and load-only checkpoints reachable in graphical Save and Load', function (bool $alternative) {
+  ConfigStore::put(ProjectConfig::class, new SaveCatalogProjectConfig());
+  Console::setTerminalOutputEnabled(false);
+  Console::syncDimensions(80, 19);
+  ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 80, 'height' => 19]));
+  foreach (range(1, 3) as $index) { $this->manager->autoSave($this->scene); }
+  $this->manager->quickSave($this->scene);
+  $title = new SaveCatalogTitleProbe($this->game, $this->manager);
+  $menu = createSaveCapacityMenu($this->scene, $title);
+  $menu->openMenu();
+  $title->openContinueMenu();
+  expect($menu->getSlots())->toHaveCount(30)->and($title->getSlots())->toHaveCount(34);
+  $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1', 'showInputHints' => false,
+    'metrics' => $alternative ? ['cellWidth' => 8, 'cellHeight' => 22, 'panelPadding' => 12] : []]);
+  foreach ($title->getSlots() as $index => $slot) {
+    $title->selectSlot($index);
+    $frame = SaveLoadMenuPresentation::compose($title->getSlots(), $index, $theme, new MenuInfoText());
+    $text = implode('', array_map(static fn($layer) => implode('', array_column($layer->runs, 'text')), $frame->textLayers));
+    expect($text)->toContain($slot->getLabel(), '/ 34')
+      ->and($title->getDrawnText())->toContain($slot->getLabel());
+    if ($index < 30) {
+      $menu->selectSlot($index);
+      $save = $menu->composeCanvas($theme);
+      $text = implode('', array_map(static fn($layer) => implode('', array_column($layer->runs, 'text')), $save->textLayers));
+      expect($text)->toContain($slot->getLabel(), '/ 30')->not->toContain('Autosave', 'Quick Save');
+      expect(array_column($save->textLayers, 'id'))->toContain('save-slot-' . ($index + 1) . '-title');
+    }
+    foreach ($frame->textLayers as $layer) {
+      expect($layer->clipRect->y)->toBeGreaterThanOrEqual(0)
+        ->and($layer->clipRect->y + $layer->clipRect->height)->toBeLessThanOrEqual($frame->height);
+    }
   }
 })->with([false, true]);
