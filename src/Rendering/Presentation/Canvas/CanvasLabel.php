@@ -22,14 +22,22 @@ final readonly class CanvasLabel
     public int $layer = 0,
     public ?CanvasRectangle $clipRect = null,
     public float $opacity = 1,
+    public int $rotation = 0,
   ) {
     CanvasValidation::id($id);
     SpriteValidation::validateSigned32BitRange($layer);
     if (!is_finite($x) || !is_finite($y) || !is_finite($opacity) || $opacity < 0 || $opacity > 1) {
       throw new InvalidArgumentException('Canvas label origins must be finite and opacity must be in 0..1.');
     }
+    if ($rotation !== 0 && $rotation !== 180) {
+      throw new InvalidArgumentException('Canvas label rotation must be 0 or 180 degrees.');
+    }
     $paint = $measurement->metrics->paintBounds;
-    $this->paintBounds = new TextBounds($x + $paint->x, $y + $paint->y, $paint->width, $paint->height);
+    $line = $measurement->metrics->lineBounds;
+    // Reflect padded paint around the logical text box, not the raster's center.
+    $paintX = $rotation === 0 ? $paint->x : 2 * $line->x + $line->width - $paint->x - $paint->width;
+    $paintY = $rotation === 0 ? $paint->y : 2 * $line->y + $line->height - $paint->y - $paint->height;
+    $this->paintBounds = new TextBounds($x + $paintX, $y + $paintY, $paint->width, $paint->height);
     $this->assertWithin(CanvasValidation::MAX_EXTENT, CanvasValidation::MAX_EXTENT);
   }
 
@@ -50,6 +58,7 @@ final readonly class CanvasLabel
     return ['id' => $this->id, 'layoutId' => $this->measurement->layoutId,
       'origin' => ['x' => $this->x, 'y' => $this->y], 'layer' => $this->layer,
       ...($this->clipRect === null ? [] : ['clipRect' => $this->clipRect->toArray()]),
-      ...($this->opacity === 1.0 ? [] : ['opacity' => $this->opacity])];
+      ...($this->opacity === 1.0 ? [] : ['opacity' => $this->opacity]),
+      ...($this->rotation === 0 ? [] : ['rotation' => $this->rotation])];
   }
 }

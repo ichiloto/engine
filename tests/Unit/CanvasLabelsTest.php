@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 use Ichiloto\Engine\Rendering\Presentation\Canvas\{CanvasImage, CanvasLabel, CanvasRectangle, CanvasTextLayer, PresentationCanvas};
 use Ichiloto\Engine\Rendering\Presentation\Text\{TextBounds, TextMeasurement, TextMetrics};
-use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
+use Ichiloto\Engine\Rendering\Transport\{RendererGridConfig, RendererSessionConfig};
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
 
 function createCanvasLabelMeasurement(?TextBounds $paint = null): TextMeasurement
 {
@@ -24,6 +25,62 @@ it('serializes only a live layout reference and origin while preserving signed p
   expect($canvas->toArray()['labels'])->toBe([$label->toArray()])
     ->and(new PresentationCanvas(10, 8)->toArray())->not->toHaveKey('labels');
   expect(fn() => new ReflectionProperty($label, 'x')->setValue($label, 3))->toThrow(Error::class);
+});
+
+it('half-turns paint around the logical line bounds without changing measurement identity or clip space', function () {
+  $measurement = new TextMeasurement('asymmetric-layout', new TextMetrics(12, 8,
+    new TextBounds(2, 3, 12, 10), new TextBounds(1, 4, 13, 9), new TextBounds(-3, 1, 22, 18)));
+  $clip = new CanvasRectangle(7, 9, 3, 4);
+  $label = new CanvasLabel('turned', $measurement, 10.25, 12.5, 5, $clip, 0.25, 180);
+  expect($label->paintBounds->toArray())->toBe(['x' => 7.25, 'y' => 9.5, 'width' => 22.0, 'height' => 18.0])
+    ->and($label->toArray())->toBe(['id' => 'turned', 'layoutId' => 'asymmetric-layout',
+      'origin' => ['x' => 10.25, 'y' => 12.5], 'layer' => 5,
+      'clipRect' => $clip->toArray(), 'opacity' => 0.25, 'rotation' => 180])
+    ->and($label->measurement)->toBe($measurement);
+  $canvas = new PresentationCanvas(40, 40, labels: [$label]);
+  expect($canvas->getOverlayProtection())->toBe([$clip]);
+  $whole = new CanvasLabel('whole', $measurement, 10.25, 12.5, rotation: 180);
+  expect(new PresentationCanvas(40, 40, labels: [$whole])->getOverlayProtection()[0]->toArray())
+    ->toBe($label->paintBounds->toArray());
+});
+
+it('refuses unsupported orientations and preserves default upright wire data', function () {
+  $measurement = createCanvasLabelMeasurement();
+  foreach ([-180, 1, 90, 270, 360] as $rotation) {
+    expect(fn() => new CanvasLabel('unsupported', $measurement, 3, 2, rotation: $rotation))
+      ->toThrow(InvalidArgumentException::class, '0 or 180');
+  }
+  foreach ([true, '180', 180.0, null] as $rotation) {
+    expect(fn() => new CanvasLabel('invalid-type', $measurement, 3, 2, rotation: $rotation))->toThrow(TypeError::class);
+  }
+  expect(new CanvasLabel('upright', $measurement, 3, 2)->toArray())->not->toHaveKey('rotation')
+    ->and(new CanvasLabel('upright', $measurement, 3, 2, rotation: 0)->toArray())->not->toHaveKey('rotation');
+});
+
+it('still rejects half-turned paint outside the surface regardless of clipping or opacity', function () {
+  $measurement = new TextMeasurement('shadow-layout', new TextMetrics(10, 8,
+    new TextBounds(0, 0, 10, 10), new TextBounds(0, 0, 10, 10), new TextBounds(0, 0, 15, 12)));
+  $clip = new CanvasRectangle(0, 0, 1, 1);
+  expect(fn() => new CanvasLabel('negative', $measurement, 4, 2, clipRect: $clip, opacity: 0, rotation: 180))
+    ->toThrow(InvalidArgumentException::class);
+  $label = new CanvasLabel('overflow', $measurement, 6, 3, clipRect: $clip, opacity: 0, rotation: 180);
+  expect(fn() => new PresentationCanvas(15, 12, labels: [$label]))->toThrow(InvalidArgumentException::class);
+});
+
+it('negotiates half-turns only with the existing project-label dependencies in protocol two', function () {
+  $required = [RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::TEXT_LAYOUT,
+    RendererSessionConfig::CANVAS_LABELS, RendererSessionConfig::CANVAS_TEXT_180];
+  $session = new RendererSessionConfig('Half-turn', __DIR__, protocol: RendererProtocolVersion::V2,
+    requiredCapabilities: $required);
+  expect($session->hello()->payload['requiredCapabilities'])->toBe($required)
+    ->and($session->getNegotiableCapabilities())->toContain(RendererSessionConfig::CANVAS_TEXT_180);
+  foreach (array_slice($required, 0, 3) as $missing) {
+    expect(fn() => new RendererSessionConfig('Missing dependency', __DIR__, protocol: RendererProtocolVersion::V2,
+      requiredCapabilities: array_values(array_diff($required, [$missing]))))
+      ->toThrow(InvalidArgumentException::class, 'Half-turned canvas labels');
+  }
+  expect(fn() => new RendererSessionConfig('Legacy', __DIR__, requiredCapabilities: [RendererSessionConfig::CANVAS_TEXT_180]))
+    ->toThrow(InvalidArgumentException::class, 'Unsupported renderer capability');
 });
 
 it('accepts signed origins when their translated paint fits and preserves legitimate empty bounds', function () {
@@ -95,7 +152,7 @@ it('preserves relayers and prefixes labels while stacking all overlay pools abov
   $measurement = createCanvasLabelMeasurement();
   $clip = new CanvasRectangle(0, 0, 10, 8);
   $base = new PresentationCanvas(20, 20, labels: [new CanvasLabel('label', $measurement, 3, 2, 20)]);
-  $overlayLabel = new CanvasLabel('label', $measurement, 4, 3, 2, $clip, 0.5);
+  $overlayLabel = new CanvasLabel('label', $measurement, 4, 3, 2, $clip, 0.5, 180);
   $image = new CanvasImage('image', 'synthetic.png', new CanvasRectangle(0, 0, 1, 1), 1);
   $overlay = new PresentationCanvas(20, 20, [$image], labels: [$overlayLabel]);
   $combined = PresentationCanvas::composeOverlay($base, $overlay, 'overlay:');

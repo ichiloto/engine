@@ -74,7 +74,8 @@ final readonly class PresentationCanvas
       [...$base->getOverlayProtection(), ...$overlay->getOverlayProtection()],
       [...$base->presentationOwners, ...$overlay->presentationOwners],
       [...$base->labels, ...array_map(static fn(CanvasLabel $label) => new CanvasLabel($idPrefix . $label->id,
-        $label->measurement, $label->x, $label->y, $offset + $label->layer, $label->clipRect, $label->opacity), $overlay->labels)]);
+        $label->measurement, $label->x, $label->y, $offset + $label->layer, $label->clipRect, $label->opacity,
+        $label->rotation), $overlay->labels)]);
   }
 
   /** @param list<CanvasImage> $images

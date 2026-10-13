@@ -140,8 +140,8 @@ bytes is a failure. Key strings are protocol data, with no `KeyCode` or action m
 
 ## Project Text Queries
 
-Protocol 2 optionally negotiates `text_layout`, `canvas_labels` and
-`world_canvas`. Their presence does not make them mandatory for existing
+Protocol 2 optionally negotiates `text_layout`, `canvas_labels`,
+`canvas_text_180` and `world_canvas`. Their presence does not make them mandatory for existing
 sessions. The Engine's typed text query path requires advertised `text_layout`;
 it never substitutes installed machine fonts or terminal grid text for a
 missing project face or unsupported capability.
@@ -185,6 +185,26 @@ This implements typed measurement and lifetime support, not the Engine's
 world-canvas/label frame producer or font-role/map-sign authoring. Advertising
 the drawing capabilities does not manufacture those consumers. Whole-label
 shaping, project-font admission and native painting remain Renderer-owned.
+
+`CanvasLabel` may place the same measurement upright or with `rotation: 180`.
+The optional wire field is omitted for upright labels; other angles are refused.
+Half-turn placement requires negotiated `canvas_text_180` together with
+`graphical_canvas`, `canvas_labels` and `text_layout`. Unsupported presentation
+is refused before retained state changes, in screen, overlay and world-canvas
+paths. Rotation belongs to placement, not the text/font specification or saved
+identity. The logical measured line box supplies its pivot; reflected paint
+bearings include antialiasing and asymmetric glyph effects. Clips stay in canvas
+space and opacity applies to the complete label. Clipping or invisibility never
+excuses paint outside the surface. Overlay composition preserves orientation.
+Legacy grid text and Terminal are unchanged.
+
+This feature does not raise resource limits or establish full card-table
+acceptance. Labels and grid layers still share the 64-placement pool and the
+query owner still permits 64 tickets/cleanup slots. A complete table with paired
+indices, suit pips, hand, inspection and ledger exceeds that placement limit.
+Its shared batching/admission design and cold/warm raster memory/work/retained
+generation qualification are required separately; shrinking or omitting cards,
+baking labels or simply raising limits is not a valid workaround.
 
 ## Retained frame feedback
 

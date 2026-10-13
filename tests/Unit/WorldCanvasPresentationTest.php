@@ -122,6 +122,49 @@ it('rejects missing negotiated group and label capabilities before changing reta
   'screen-layouts' => [RendererSessionConfig::TEXT_LAYOUT, true],
 ]);
 
+it('refuses unnegotiated half-turns in screen world and overlay paths before changing retained state', function (string $route) {
+  [$presenter, $transport, $text, $world, $viewport] = createWorldCanvasPresenter([RendererSessionConfig::CANVAS_TEXT_180]);
+  $presenter->present($text);
+  $before = $presenter->captureFrame();
+  $transport->sent = [];
+  $prototype = createWorldCanvasProbe()->canvas->labels[0];
+  $label = new CanvasLabel('rotated', $prototype->measurement, 4, 3, rotation: 180);
+  $canvas = new PresentationCanvas(480, 240, labels: [$label]);
+  $submit = match ($route) {
+    'screen' => fn() => $presenter->presentCanvas($canvas),
+    'overlay' => fn() => $presenter->present($text, canvasOverlay: $canvas),
+    'frame-overlay' => fn() => $presenter->presentFrame($presenter->prepareFrame($text), $canvas),
+    default => fn() => $presenter->present($text, viewport: $viewport->selectWorldCanvases(['board']), world: $world,
+      worldCanvases: [createWorldCanvasProbe(canvas: $canvas)]),
+  };
+  expect($submit)->toThrow(RendererProtocolException::class, 'canvas_text_180')
+    ->and($transport->sent)->toBe([])->and($presenter->captureFrame())->toEqual($before);
+})->with(['screen', 'world', 'overlay', 'frame-overlay']);
+
+it('replaces and removes label orientation through retained and snapshot paths without changing layout identity', function () {
+  [$presenter, $transport] = createWorldCanvasPresenter();
+  $measurement = createWorldCanvasProbe()->canvas->labels[0]->measurement;
+  $upright = new PresentationCanvas(48, 24, labels: [new CanvasLabel('live', $measurement, 4, 3)]);
+  $rotated = new PresentationCanvas(48, 24, labels: [new CanvasLabel('live', $measurement, 4, 3, rotation: 180)]);
+  $presenter->presentCanvas($upright);
+  $initial = $transport->sent;
+  $transport->sent = [];
+  $presenter->presentCanvas($rotated);
+  $wire = RetainedFrameState::getLatestFrame([...$initial, ...$transport->sent]);
+  expect($transport->sent[0]->payload['operations'])->toHaveCount(1)
+    ->and($transport->sent[0]->payload['operations'][0]['kind'])->toBe('canvas_label')
+    ->and($wire['canvas']['labels'][0]['rotation'])->toBe(180)
+    ->and($wire['canvas']['labels'][0]['layoutId'])->toBe($measurement->layoutId);
+  $presenter->invalidate();
+  $transport->sent = [];
+  $presenter->presentCanvas($rotated);
+  expect(RetainedFrameState::getLatestFrame($transport->sent)['canvas']['labels'][0])->toBe($rotated->labels[0]->toArray());
+  $snapshot = $transport->sent;
+  $transport->sent = [];
+  $presenter->presentCanvas($upright);
+  expect(RetainedFrameState::getLatestFrame([...$snapshot, ...$transport->sent])['canvas']['labels'][0])->not->toHaveKey('rotation');
+});
+
 it('rejects aggregate overlay pressure before mutation and retains the original field frame', function () {
   [$presenter, $transport, $text, $world, $viewport] = createWorldCanvasPresenter();
   $groups = array_map(fn($i) => createWorldCanvasProbe('board-' . $i), range(1, 64));

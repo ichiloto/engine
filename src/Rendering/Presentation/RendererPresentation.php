@@ -141,6 +141,10 @@ final class RendererPresentation
       || !$this->client->supports(RendererSessionConfig::TEXT_LAYOUT))) {
       throw new RendererProtocolException('Canvas labels require negotiated canvas_labels and text_layout support.');
     }
+    if (array_any($canvas->labels, static fn($label) => $label->rotation !== 0)
+      && !$this->client->supports(RendererSessionConfig::CANVAS_TEXT_180)) {
+      throw new RendererProtocolException('Half-turned canvas labels require negotiated canvas_text_180 support.');
+    }
     foreach ($canvas->images as $image) {
       if (($image->flipX || $image->flipY) && !$this->client->supports(RendererSessionConfig::CANVAS_IMAGE_FLIP)) {
         throw new RendererProtocolException('Canvas image mirroring requires negotiated canvas_image_flip support.');

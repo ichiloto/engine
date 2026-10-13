@@ -13,6 +13,7 @@ final readonly class RendererSessionConfig
   public const string SPRITE_PIVOT = 'sprite_pivot';
   public const string TEXT_LAYOUT = 'text_layout';
   public const string CANVAS_LABELS = 'canvas_labels';
+  public const string CANVAS_TEXT_180 = 'canvas_text_180';
   public const string WORLD_CANVAS = 'world_canvas';
   public const string SPRITE_SOURCE_RECT = 'sprite_source_rect';
   public const string TILE_BATCHES = 'tile_batches';
@@ -46,7 +47,7 @@ final readonly class RendererSessionConfig
       ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_CLIP_OPACITY,
         self::CANVAS_GLYPH_EFFECTS, self::CANVAS_COMPOSITING, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::TILE_COVERS, self::TILE_SHADOWS,
         self::SPRITE_LIFT, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::SPRITE_QUARTER_TURNS, self::SPRITE_PIVOT,
-        self::TEXT_LAYOUT, self::CANVAS_LABELS, self::WORLD_CANVAS,
+        self::TEXT_LAYOUT, self::CANVAS_LABELS, self::CANVAS_TEXT_180, self::WORLD_CANVAS,
         ...array_values(array_intersect(self::EVENT_SUBSCRIPTIONS, $this->requiredCapabilities))]
       : $this->requiredCapabilities;
   }
@@ -69,7 +70,7 @@ final readonly class RendererSessionConfig
       ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_CLIP_OPACITY, self::CANVAS_GLYPH_EFFECTS,
         self::CANVAS_COMPOSITING, self::WINDOW_ACTIVATION, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::TILE_COVERS, self::TILE_SHADOWS,
         self::SPRITE_LIFT, self::KEY_TRANSITIONS, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::SPRITE_QUARTER_TURNS, self::SPRITE_PIVOT,
-        self::TEXT_LAYOUT, self::CANVAS_LABELS, self::WORLD_CANVAS]
+        self::TEXT_LAYOUT, self::CANVAS_LABELS, self::CANVAS_TEXT_180, self::WORLD_CANVAS]
       : [self::SPRITE_SOURCE_RECT];
     foreach ($requiredCapabilities as $capability) {
       if (!in_array($capability, $allowed, true)) {
@@ -81,6 +82,10 @@ final readonly class RendererSessionConfig
       || in_array(self::CANVAS_IMAGE_TONE, $requiredCapabilities, true) || in_array(self::CANVAS_IMAGE_FLIP, $requiredCapabilities, true))
       && !in_array(self::GRAPHICAL_CANVAS, $requiredCapabilities, true)) {
       throw new InvalidArgumentException('Canvas compositing capabilities require graphical_canvas.');
+    }
+    if (in_array(self::CANVAS_TEXT_180, $requiredCapabilities, true)
+      && array_diff([self::GRAPHICAL_CANVAS, self::CANVAS_LABELS, self::TEXT_LAYOUT], $requiredCapabilities) !== []) {
+      throw new InvalidArgumentException('Half-turned canvas labels require graphical_canvas, canvas_labels and text_layout.');
     }
     if (!array_is_list($requiredCapabilities) || count(array_unique($requiredCapabilities)) !== count($requiredCapabilities)) {
       throw new InvalidArgumentException('Renderer required capabilities must be a unique list of supported capability names.');

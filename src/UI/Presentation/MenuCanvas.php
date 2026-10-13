@@ -8,8 +8,6 @@ use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Presentation\StyledPresentationFrame;
 
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight;
-use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
-use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasComposite;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextBatch;
@@ -118,14 +116,17 @@ final class MenuCanvas
   /** Reuse the same bounded batching when placing a local menu overlay above an existing canvas. */
   public static function overlay(PresentationCanvas $base, PresentationCanvas $overlay, MenuPresentationCatalog $theme): PresentationCanvas
   {
+    // Images (mirror flags included), indicators (with the images they mark), labels (measurement, clip, opacity
+    // and orientation included) and composites stack through the general composer, above every base layer and
+    // label. The overlay's protection is taken before its background is dropped, as it always was.
+    $stacked = PresentationCanvas::composeOverlay($base, new PresentationCanvas($overlay->width, $overlay->height,
+      $overlay->images, $overlay->indicators, [], $overlay->composites, $overlay->getOverlayProtection(),
+      $overlay->presentationOwners, $overlay->labels));
     $view = new self($theme, $base->width, $base->height);
     $offset = 1 + max([0, ...array_column($base->images, 'layer'), ...array_column($base->textLayers, 'layer'),
-      ...array_column($base->indicators, 'layer'), ...array_column($base->composites, 'layer')]);
-    $view->images = $base->images;
-    foreach ($overlay->images as $image) {
-      $view->images[] = new CanvasImage($image->id, $image->asset, $image->destination, $offset + $image->layer,
-        $image->sourceRect, $image->opacity, $image->clipRect, $image->brightness);
-    }
+      ...array_column($base->indicators, 'layer'), ...array_column($base->composites, 'layer'),
+      ...array_column($base->labels, 'layer')]);
+    $view->images = $stacked->images;
     $view->text = $base->textLayers;
     foreach ($overlay->textLayers as $text) {
       // The local builder's whole-screen background is not part of an overlay.
@@ -154,15 +155,9 @@ final class MenuCanvas
     $view->compactRules();
     $view->text = CanvasTextBatch::compact($view->text);
     $result = $view->finish();
-    $composites = [...$base->composites];
-    foreach ($overlay->composites as $composite) {
-      $composites[] = new CanvasComposite($composite->id, $composite->width, $composite->height,
-        $composite->destination, $composite->operations, $offset + $composite->layer, $composite->opacity, $composite->clipRect);
-    }
-    CanvasImagePreflight::inspect($result->images, $theme->assetRoot, $composites);
-    $areas = [...$base->getOverlayProtection(), ...$overlay->getOverlayProtection()];
-    return new PresentationCanvas($base->width, $base->height, $result->images, $base->indicators, $result->textLayers,
-      $composites, $areas, [...$base->presentationOwners, ...$overlay->presentationOwners]);
+    CanvasImagePreflight::inspect($result->images, $theme->assetRoot, $stacked->composites);
+    return new PresentationCanvas($base->width, $base->height, $result->images, $stacked->indicators, $result->textLayers,
+      $stacked->composites, $stacked->protectedAreas, $stacked->presentationOwners, $stacked->labels);
   }
 
   public function portrait(string $actorId, CanvasRectangle $bounds, string $id = 'portrait'): void
