@@ -58,26 +58,54 @@ files independently of menu capacity. No Game setting is needed for 30 slots.
 Editor controls for authoring this project setting are not implemented here;
 source-preserving settings authoring remains in the Editor owner's lane.
 
-`SaveManager::getSaveSlots()` remains the numbered-only, writable Save-menu
-contract. `getLoadSlots()` is the read-only runtime Load Game catalog: the
-configured numbered slots (including empty ones), followed by existing quick
-and automatic saves, newest first. It includes legacy `auto.iedata` and numbered
-autosave files. Corrupt, wrong-project and incompatible records remain visible
-but cannot be loaded. Inspection uses the existing compatibility
-pipeline on detached data; it does not restore project state, change settings or
-playtime, execute the saved-scene resume hook, or rewrite migrated saves. Only
-confirmed loading follows `GameLoader::loadSavedGame()` and
-`SceneManager::loadSavedGame()`, including the existing saved-scene handoff.
+`SaveManager::getSaveSlots()` remains the numbered-only writable Save catalog.
+Developer `config.php` options `save.autosave` (default false) and
+`save.quicksave` (default true, preserving the existing Quick Save capability)
+are validated booleans; either, both or neither may be enabled. They are project
+capabilities, never player preferences or campaign fields. Disabled mechanisms
+reject direct SaveManager writes, are excluded from Load and latest-loadable
+Continue discovery, and Quick Save disappears from Controls and control hints.
+Title Load stays enabled when enabled files exist, including invalid records
+so their diagnostic remains reachable. Direct GameOver Continue requires an
+enabled loadable checkpoint. Shared `getEnabledSaveFiles()` and
+`hasEnabledSaveFiles()` provide that distinction.
+Raw `getSaveFiles(true)` remains an inspection/order surface, including disabled
+and legacy records; explicit path loading remains available for tools.
 
-`SaveSlot::getLabel()` shares File, Autosave and Quick Save labels across the
-Terminal and graphical selector. Optional project vocabulary terms `save.auto`
-and `save.quick` replace those two defaults. Save identity and negative reserved
-slot numbers are unchanged. Both Terminal selectors use `SaveSlotMenuLayout`
-to page within their viewport (at least one slot, supported height 8+ rows),
-including wraparound, partial last pages and resize; the selected file stays
-visible with a numbered page range and semantic Save/Load and Back hints.
-The shared graphical save/load presentation scrolls the same complete catalog
-around the same active index. Neither adds writable automatic/quick Save rows.
+`getLoadSlots()` shows one logical **Autosave first** whenever enabled (empty
+until a file exists), followed by numbered files, then an existing enabled
+Quick Save. The Autosave resolves the newest loadable `auto.iedata` or legacy
+`auto-NN.iedata` by persisted order, skipping corrupt/incompatible newer files.
+If every candidate is invalid, the newest failure is visible and disabled.
+Inspection never restores campaign/settings/playtime or writes a migration.
+All legacy files remain byte-for-byte intact until explicitly managed by their
+owner; new autosaves replace only `auto.iedata` atomically. No destructive
+migration or copying of stale payloads occurs.
+
+**Removed:** three-file rotating autosave writes and automatic map-transfer
+checkpoint decisions. Engine provides `GameScene::autoSave()` as a developer
+checkpoint request: requests during an unstable event defer until successful
+completion and are discarded on failure. Moving maps alone never requests a
+save. `SaveManager::autoSave()` enforces capability and stability directly.
+**Removed:** hardcoded F5 field dispatch. `quick_save` is a semantic action in
+`input.php`, included in player rebinding and live hints. For older projects,
+Engine supplies F5 only if unclaimed; an explicit binding (even empty) wins.
+The shared field dispatch and writer both honor the Quick Save capability.
+
+`SaveSlot::getLabel()` shares File, Autosave and Quick Save vocabulary labels.
+`SaveSlotPage` owns five records per ordinary page across both presentations,
+including a populated five-record tail when the catalog contains at least five
+records. `SaveSlotMenuLayout` uses compact three-row records at Terminal 80x24,
+standard four-row records on taller surfaces, and fewer whole records when
+height requires it. Supported Terminal minimum is 40x8; smaller capabilities
+are refused explicitly rather than overflowing. Both scenes handle semantic
+previous/next-page actions, normal row navigation, wraparound and resize.
+Graphical cards divide their finite list into five records; unusually large
+metrics reduce capacity explicitly, and a viewport unable to fit one complete
+record is refused. **Removed:** variable-height wrapped graphical card rows.
+Compact rows truncate display text; the full selected location, leader, duration
+or compatibility error stays accessible in the existing paged Info panel via
+`info`. Neither selector adds writable automatic/quick Save rows.
 
 New SaveManager writes add optional positive integer `saveOrder` to the existing
 schema-1 envelope root, beside `schemaVersion`, `contentVersion`, `projectId`
@@ -86,9 +114,8 @@ ignore that optional scalar, and the serialized SaveSlot/SavedGame contracts do
 not change. `savedAt` remains the actual wall-clock timestamp used for metadata,
 not an ordering counter.
 
-This removes **filemtime-only ordering** from latest-file discovery and autosave
-rotation. Each successful write records the greater of current epoch
-microseconds and the greatest persisted order plus one, across all numbered,
+This removes **filemtime-only ordering** from latest-file discovery. Each
+successful write records the greater of current epoch microseconds and the greatest persisted order plus one, across all numbered,
 quick and automatic files. Reconstructing the manager after restart therefore
 retains monotonic ordering even within one filesystem second or after a clock
 rollback. Ordering inspection disables PHP class instantiation and reads only
@@ -100,14 +127,10 @@ legacy checkpoint was truly written last. Future legacy modification times can
 advance the logical order; this does not change `savedAt`. Integer exhaustion
 refuses a write before replacing any good file.
 
-The writer fills missing canonical ring cells `auto-01` through `auto-03`
-before replacing the oldest persisted checkpoint. Noncanonical/legacy automatic
-files remain loadable but are no longer overwrite candidates for the canonical
-three-file ring. Atomic replacement and the active-event guard are retained;
-a failed snapshot, encoding or storage write leaves the previous save/order
-intact, with no in-memory sequence to advance. Ordering assumes the existing
-single runtime writer per player-data root; it does not provide a cross-process
-save transaction or claim power-loss fsync guarantees.
+Atomic replacement and the active-event guard remain: failed snapshot,
+encoding or storage writes leave the prior save/order intact. Ordering assumes
+one runtime writer per player-data root; it provides neither a cross-process
+save transaction nor power-loss fsync guarantees.
 
 Synthetic `SaveLoadCatalogTest` covers same-timestamp repeated checkpoints,
 restart ordering, ring gaps/rotation, legacy ties/future timestamps, latest
@@ -534,8 +557,8 @@ battle states are never added to the saved character array.
 | Persistent states | `HasStates`, `StateRegistry` | Phase 3 | Battle persistence exists; save persistence missing | ID/remaining-turn serialization for persistent definitions only | Transient states leak | Character, party, full-save, alias/tombstone tests |
 | Achievements | `AchievementManager`, `GameConfig::$achievements` | Phase 6 | ID/timestamp array persists | Apply achievement aliases/tombstones | Unlock records lost | Last Legend exact-array assertion |
 | Bestiary | `Bestiary`, `GameConfig::$bestiary` | Phase 6 | Enemy-name counters persist | Apply enemy aliases/tombstones | Records reset | Seen/defeated count assertions |
-| Quicksave | `SaveManager::quickSave()` | Phase 6 | Separate file, shared writer | Shared envelope/pipeline | F5 saves unreadable | Quick write/load and legacy quick tests |
-| Autosave | `SaveManager::autoSave()` | Phase 6 | Three rotating files, shared writer | Shared envelope/pipeline | Ring or transfer regression | Four writes/three files and all-file loads |
+| Quicksave | `SaveManager::quickSave()` | Phase 6 | Separate file, shared writer | Shared envelope/pipeline | Semantic binding or capability regression | Quick write/load and legacy quick tests |
+| Autosave | `SaveManager::autoSave()` | Phase 6 | Single logical slot, atomic writer | Shared envelope/pipeline | Disabled capability or corrupt legacy selection | Repeated writes/one file, preserved legacy and option combinations |
 | Title Continue | `TitleScene`, `ContinueGameCommand`, `getSaveSlots()` | Phase 6 | Discovers numbered slots/latest loadable files | Compatibility-aware shared loader and readable slot failures | Continue disabled/crash | Slot discovery/latest-loadable integration assertions |
 | Project identity | `ichiloto.json`, workspace loader | Project metadata | Display name only in Last Legend | Stable canonical `id` in envelope | Cross-game load | Wrong-project rejection |
 | Save metadata | `SaveSlot` | Phase 6 | Location/leader/playtime/path object | Preserve unchanged inside payload | Slot UI regression | Slot-summary and surface tests |

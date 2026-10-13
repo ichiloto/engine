@@ -34,7 +34,11 @@ class ContinueGameCommand extends MenuItem
     $label = Vocabulary::getTerm('game.continue', Vocabulary::getTerm('command.continue', 'Continue'));
     parent::__construct($menu, $label, 'Continue from a save file.', '');
 
-    if (! SaveManager::getInstance($menu->getScene()->getGame())->hasSaveFiles(true)) {
+    $scene = $menu->getScene();
+    $saves = SaveManager::getInstance($scene->getGame());
+    $available = $scene instanceof TitleScene ? $saves->hasEnabledSaveFiles(true)
+      : $saves->getLatestLoadableSaveFile(true) !== null;
+    if (!$available) {
       $this->disable();
     }
   }

@@ -45,6 +45,7 @@ Debug::configure(['log_directory' => $root . '/logs', 'log_level' => Debug::DEBU
 $player = new PlayerSettings($root);
 ConfigStore::put(PlayerSettings::class, $player);
 $effective = new ProjectConfig();
+$effective->set('save.autosave', true);
 ConfigStore::put(ProjectConfig::class, $effective);
 // No native game starts in this probe; still verify the effective audio state first.
 AudioMutePreflight::assertMuted($effective);

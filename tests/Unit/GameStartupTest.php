@@ -306,6 +306,7 @@ it('requires a dedicated canonical data root and does not create or alter reject
 });
 
 it('keeps original asset and save identity while settings and all save surfaces use isolated data', function () {
+    putSceneAudioConfig(['save' => ['autosave' => true]]);
     $data = realpath(createTestDirectory('launch-data-'));
     $originalSettings = '{"audio":{"music":false,"sfx":false,"master_volume":0}}';
     file_put_contents($this->root . '/.data/player-settings.json', $originalSettings);

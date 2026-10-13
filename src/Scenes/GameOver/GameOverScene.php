@@ -205,7 +205,7 @@ class GameOverScene extends AbstractScene implements CanvasProviderInterface
       return;
     }
 
-    if ($this->sceneManager->saveManager->hasSaveFiles(true)) {
+    if ($this->sceneManager->saveManager->getLatestLoadableSaveFile(true) !== null) {
       $this->continueCommand->enable();
     } else {
       $this->continueCommand->disable();

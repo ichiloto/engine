@@ -193,7 +193,7 @@ beforeEach(function () {
   new ReflectionProperty(AudioManager::class, 'instance')->setValue(null, null);
   new ReflectionProperty(InputManager::class, 'eventManager')->setValue(null, null);
   // This catalog fixture deliberately exercises a small project capacity.
-  ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub(['saves' => ['manual_slots' => 5]]));
+  ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub(['saves' => ['manual_slots' => 5], 'save' => ['autosave' => true]]));
   $this->game = new SaveCatalogGame($this->root);
   $this->game->registerProjectStateParticipant(new SaveCatalogParticipant());
   $this->manager = createSaveCatalogManager($this->game);
@@ -221,11 +221,11 @@ it('inspects manual automatic and quick records without restoring state or writi
   $settings = new ReflectionClass(ConfigStore::class)->getStaticProperties();
   $slots = $this->manager->getLoadSlots();
   expect($slots)->toHaveCount(7)
-    ->and(array_column($slots, 'slot'))->toBe([1, 2, 3, 4, 5, SaveManager::QUICK_SAVE_SLOT, SaveManager::AUTO_SAVE_SLOT])
+    ->and(array_column($slots, 'slot'))->toBe([SaveManager::AUTO_SAVE_SLOT, 1, 2, 3, 4, 5, SaveManager::QUICK_SAVE_SLOT])
     ->and(array_map(fn($slot) => $slot->getLabel(), $slots))->toBe([
-      'File 1', 'File 2', 'File 3', 'File 4', 'File 5', 'Quick Save', 'Autosave 1',
+      'Autosave', 'File 1', 'File 2', 'File 3', 'File 4', 'File 5', 'Quick Save',
     ])
-    ->and($slots[5]->path)->toBe($quick->path)->and($slots[6]->path)->toBe($auto->path)
+    ->and($slots[6]->path)->toBe($quick->path)->and($slots[0]->path)->toBe($auto->path)
     ->and($registry->getState('fixture/checkpoint'))->toBe(['checkpoint' => 99])
     ->and(new ReflectionClass(Time::class)->getStaticProperties())->toBe($time)
     ->and(new ReflectionClass(ConfigStore::class)->getStaticProperties())->toBe($settings)
@@ -235,7 +235,7 @@ it('inspects manual automatic and quick records without restoring state or writi
 });
 
 it('leaves missing save directories absent while inspecting the load catalog', function () {
-  expect($this->manager->getLoadSlots())->toHaveCount(5)
+  expect($this->manager->getLoadSlots())->toHaveCount(6)
     ->and($this->manager->hasSaveFiles(true))->toBeFalse()
     ->and(is_dir($this->root . '/saves'))->toBeFalse();
 });
@@ -250,31 +250,27 @@ it('keeps bad automatic and quick entries visible disabled and skips them for la
   file_put_contents($auto, 'IED1not-gzip');
   touch($auto, time() + 3600);
   $slots = $this->manager->getLoadSlots();
-  expect($slots[5]->slot)->toBe(SaveManager::AUTO_SAVE_SLOT)->and($slots[5]->isLoadable)->toBeFalse()
+  expect($slots[0]->slot)->toBe(SaveManager::AUTO_SAVE_SLOT)->and($slots[0]->isLoadable)->toBeFalse()
     ->and($slots[6]->slot)->toBe(SaveManager::QUICK_SAVE_SLOT)->and($slots[6]->isLoadable)->toBeFalse()
     ->and($slots[6]->statusMessage)->toContain('newer engine')
     ->and($this->manager->getLatestSaveFile(true))->toBe($auto)
     ->and($this->manager->getLatestLoadableSaveFile(true))->toBe($good->path);
 });
 
-it('retains the three newest checkpoints with identical file timestamps across manager restarts', function () {
-  $paths = [];
+it('removes rotating writes and replaces one checkpoint atomically across manager restarts', function () {
   $orders = [];
   foreach (range(1, 9) as $checkpoint) {
     $this->scene->checkpoint = $checkpoint;
     $manager = createSaveCatalogManager($this->game);
     $saved = $manager->autoSave($this->scene);
-    $paths[] = basename($saved->path);
     $orders[] = readSaveCatalogEnvelope($saved->path)['saveOrder'];
-    foreach ($manager->getSaveFiles(true) as $path) { touch($path, 1_000); }
-    expect($manager->getLatestLoadableSaveFile(true))->toBe($saved->path)
+    touch($saved->path, 1000);
+    expect(basename($saved->path))->toBe('auto.iedata')
+      ->and($manager->getLatestLoadableSaveFile(true))->toBe($saved->path)
       ->and(getSaveCatalogCheckpoint($manager, $saved->path))->toBe($checkpoint);
   }
-  expect($paths)->toBe(['auto-01.iedata', 'auto-02.iedata', 'auto-03.iedata',
-    'auto-01.iedata', 'auto-02.iedata', 'auto-03.iedata', 'auto-01.iedata', 'auto-02.iedata', 'auto-03.iedata']);
   foreach (range(1, count($orders) - 1) as $index) { expect($orders[$index])->toBeGreaterThan($orders[$index - 1]); }
-  $manager = createSaveCatalogManager($this->game);
-  expect(array_map(fn($path) => getSaveCatalogCheckpoint($manager, $path), $manager->getSaveFiles(true)))->toBe([9, 8, 7]);
+  expect($manager->getSaveFiles(true))->toHaveCount(1);
 });
 
 it('uses one persisted ordering for manual quick and auto saves and excludes quick files on request', function () {
@@ -303,16 +299,25 @@ it('preserves legacy timestamps with deterministic ties and advances beyond futu
   expect(readSaveCatalogEnvelope($next->path)['saveOrder'])->toBe($order + 1);
 });
 
-it('retains readable legacy automatic files without making them canonical ring overwrite candidates', function () {
-  $legacy = $this->manager->getQuickSavePath('auto');
-  writeSaveCatalogEnvelope($legacy, ['slot' => new SaveSlot(1, '/old/location', false, 'Legacy fixture'),
-    'config' => $this->scene->createSnapshot()]);
-  $bytes = file_get_contents($legacy);
-  foreach (range(1, 5) as $index) { $this->manager->autoSave($this->scene); }
-  $slots = $this->manager->getLoadSlots();
-  $slot = array_find($slots, fn($slot) => $slot->path === $legacy);
-  expect($slot->slot)->toBe(SaveManager::AUTO_SAVE_SLOT)->and($slot->getLabel())->toBe('Autosave')
-    ->and($slot->isLoadable)->toBeTrue()->and(file_get_contents($legacy))->toBe($bytes)
+it('selects the newest decodable legacy checkpoint without destructive migration', function () {
+  $paths = [];
+  foreach (range(1, 3) as $index) {
+    $path = $this->manager->getQuickSavePath('auto-0' . $index);
+    $this->scene->checkpoint = $index;
+    writeSaveCatalogEnvelope($path, ['slot' => new SaveSlot(-2, $path, false, 'Legacy fixture'),
+      'config' => $this->scene->createSnapshot(), 'saveOrder' => 100 + $index]);
+    $paths[] = $path;
+  }
+  file_put_contents($paths[2], 'IED1not-gzip');
+  touch($paths[2], time() + 3600);
+  $bytes = array_map(file_get_contents(...), $paths);
+  $slot = $this->manager->getLoadSlots()[0];
+  expect($slot->path)->toBe($paths[1])->and($slot->getLabel())->toBe('Autosave')
+    ->and($this->manager->getLatestLoadableSaveFile(true))->toBe($paths[1]);
+  $saved = $this->manager->autoSave($this->scene);
+  expect(basename($saved->path))->toBe('auto.iedata')
+    ->and($this->manager->getLoadSlots()[0]->path)->toBe($saved->path)
+    ->and(array_map(file_get_contents(...), $paths))->toBe($bytes)
     ->and($this->manager->getSaveFiles(true))->toHaveCount(4);
 });
 
@@ -328,17 +333,6 @@ it('breaks duplicated persisted order ties deterministically and advances beyond
   expect($this->manager->getSaveFiles(true))->toBe([$manual->path, $quick->path]);
   $next = $this->manager->autoSave($this->scene);
   expect(readSaveCatalogEnvelope($next->path)['saveOrder'])->toBe($order + 1);
-});
-
-it('fills a missing autosave ring cell without overwriting another checkpoint', function () {
-  $first = $this->manager->autoSave($this->scene);
-  $second = $this->manager->autoSave($this->scene);
-  $third = $this->manager->autoSave($this->scene);
-  $bytes = file_get_contents($third->path);
-  unlink($second->path);
-  $replacement = $this->manager->autoSave($this->scene);
-  expect($replacement->path)->toBe($second->path)->and(file_get_contents($third->path))->toBe($bytes)
-    ->and(is_file($first->path))->toBeTrue();
 });
 
 it('orders files without invoking saved object hydration', function () {
@@ -409,19 +403,19 @@ it('pages every title load record inside the Terminal viewport and relayouts aft
   $this->manager->quickSave($this->scene);
   $title = new SaveCatalogTitleProbe($this->game, $this->manager);
   $title->openContinueMenu();
-  expect($title->getSelectedIndex())->toBe(5)->and($title->getSlots())->toHaveCount(9);
+  expect($title->getSelectedIndex())->toBe(6)->and($title->getSlots())->toHaveCount(7);
   foreach ($title->getSlots() as $index => $slot) {
     $title->selectSlot($index);
     expect($title->getDrawnText())->toContain($slot->getLabel())
       ->and(count(Console::getBuffer()))->toBeLessThanOrEqual($height);
-    $visibleCount = max(1, intdiv($height - min(7, max(4, $height - 4)), 4));
-    $first = intdiv($index, $visibleCount) * $visibleCount;
-    expect($title->getDrawnText())->toContain(($first + 1) . '-' . min(9, $first + $visibleCount) . ' / 9');
+    $visibleCount = (new SaveSlotMenuLayout(80, $height, 7))->visibleCount;
+    $first = min(intdiv($index, $visibleCount) * $visibleCount, max(0, 7 - $visibleCount));
+    expect($title->getDrawnText())->toContain(($first + 1) . '-' . min(7, $first + $visibleCount) . ' / 7');
   }
   Console::syncDimensions(60, 15);
   ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 60, 'height' => 15]));
-  $title->selectSlot(8);
-  expect($title->getDrawnText())->toContain($title->getSlots()[8]->getLabel(), '9-9 / 9')
+  $title->selectSlot(6);
+  expect($title->getDrawnText())->toContain($title->getSlots()[6]->getLabel(), '6-7 / 7')
     ->and(count(Console::getBuffer()))->toBeLessThanOrEqual(15);
 })->with([8, 11, 19, 36]);
 
@@ -437,8 +431,9 @@ it('loads an automatic or quick Title selection through the existing saved-game 
   new ReflectionProperty(GameLoader::class, 'instance')->setValue(null, $loader);
   new ReflectionProperty(SaveManager::class, 'instance')->setValue(null, $this->manager);
   $title->openContinueMenu();
-  expect($title->getSlots()[5]->path)->toBe($saved->path)->and($title->getLoadCount())->toBe(0);
-  $title->selectSlot(5);
+  $index = $writer === 'autoSave' ? 0 : 6;
+  expect($title->getSlots()[$index]->path)->toBe($saved->path)->and($title->getLoadCount())->toBe(0);
+  $title->selectSlot($index);
   $title->loadSelectedSlot();
   expect($title->getLoadCount())->toBe(1)
     ->and($title->getLoadedConfig()->projectState['fixture/checkpoint']['data'])->toBe(['checkpoint' => 77])
@@ -474,7 +469,7 @@ it('keeps semantic controller hints and status readable in the compact load view
   $title = new SaveCatalogTitleProbe($this->game, $this->manager);
   $title->openContinueMenu();
   $title->loadSelectedSlot();
-  expect($title->getDrawnText())->toContain('A: Load', 'B: Back', 'That file is empty.', '1-1 / 5')
+  expect($title->getDrawnText())->toContain('A: Load', 'B: Back', 'That file is empty.', '1-1 / 6')
     ->not->toContain('Enter', 'Esc')->and(count(Console::getBuffer()))->toBe(8);
 });
 
@@ -498,7 +493,7 @@ it('scrolls the full Title catalog with shared labels and unique automatic ident
     $text = implode('', array_map(static fn($layer) => implode('', array_map(static fn($run) =>
       $run->foreground === null ? '' : $run->text, $layer->runs)), $frame->textLayers));
     $ids = [...array_column($frame->textLayers, 'id'), ...array_column($frame->images, 'id')];
-    expect($text)->toContain($slot->getLabel(), '/ 9')
+    expect($text)->toContain($slot->getLabel(), '/ 7')
       ->not->toContain('File -1', 'File -2')->and(array_unique($ids))->toHaveCount(count($ids));
     $recordId = 'save-slot-' . $slot->slot . ($slot->slot <= 0 ? '-' . hash('sha256', $slot->path) : '');
     expect($ids)->toContain($recordId . '-title');
@@ -513,7 +508,7 @@ it('scrolls the full Title catalog with shared labels and unique automatic ident
     expect($titleFrame)->not->toBeNull();
     $titleText = implode('', array_map(static fn($layer) => implode('', array_map(static fn($run) =>
       $run->foreground === null ? '' : $run->text, $layer->runs)), $titleFrame->textLayers));
-    expect($titleText)->toContain($slot->getLabel(), '/ 9');
+    expect($titleText)->toContain($slot->getLabel(), '/ 7');
   }
 })->with([false, true]);
 
@@ -680,6 +675,7 @@ it('keeps semantic Save and Back hints readable in the smallest supported viewpo
 
 it('keeps thirty manual slots and load-only checkpoints reachable in graphical Save and Load', function (bool $alternative) {
   ConfigStore::put(ProjectConfig::class, new SaveCatalogProjectConfig());
+  ConfigStore::get(ProjectConfig::class)->set('save.autosave', true);
   Console::setTerminalOutputEnabled(false);
   Console::syncDimensions(80, 19);
   ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 80, 'height' => 19]));
@@ -689,21 +685,21 @@ it('keeps thirty manual slots and load-only checkpoints reachable in graphical S
   $menu = createSaveCapacityMenu($this->scene, $title);
   $menu->openMenu();
   $title->openContinueMenu();
-  expect($menu->getSlots())->toHaveCount(30)->and($title->getSlots())->toHaveCount(34);
+  expect($menu->getSlots())->toHaveCount(30)->and($title->getSlots())->toHaveCount(32);
   $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1', 'showInputHints' => false,
     'metrics' => $alternative ? ['cellWidth' => 8, 'cellHeight' => 22, 'panelPadding' => 12] : []]);
   foreach ($title->getSlots() as $index => $slot) {
     $title->selectSlot($index);
     $frame = SaveLoadMenuPresentation::compose($title->getSlots(), $index, $theme, new MenuInfoText());
     $text = implode('', array_map(static fn($layer) => implode('', array_column($layer->runs, 'text')), $frame->textLayers));
-    expect($text)->toContain($slot->getLabel(), '/ 34')
+    expect($text)->toContain($slot->getLabel(), '/ 32')
       ->and($title->getDrawnText())->toContain($slot->getLabel());
-    if ($index < 30) {
-      $menu->selectSlot($index);
+    if ($slot->slot > 0) {
+      $menu->selectSlot($slot->slot - 1);
       $save = $menu->composeCanvas($theme);
       $text = implode('', array_map(static fn($layer) => implode('', array_column($layer->runs, 'text')), $save->textLayers));
       expect($text)->toContain($slot->getLabel(), '/ 30')->not->toContain('Autosave', 'Quick Save');
-      expect(array_column($save->textLayers, 'id'))->toContain('save-slot-' . ($index + 1) . '-title');
+      expect(array_column($save->textLayers, 'id'))->toContain('save-slot-' . $slot->slot . '-title');
     }
     foreach ($frame->textLayers as $layer) {
       expect($layer->clipRect->y)->toBeGreaterThanOrEqual(0)
@@ -711,3 +707,131 @@ it('keeps thirty manual slots and load-only checkpoints reachable in graphical S
     }
   }
 })->with([false, true]);
+
+
+it('shares five-slot pages at ordinary Terminal and graphical sizes in both themes', function (bool $alternative) {
+  $this->manager->save($this->scene, 1);
+  $layout = new SaveSlotMenuLayout(80, 24, 30);
+  expect($layout->visibleCount)->toBe(5)->and($layout->slotHeight)->toBe(3);
+  Console::setTerminalOutputEnabled(false);
+  Console::syncDimensions(80, 24);
+  ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 80, 'height' => 24]));
+  ConfigStore::put(ProjectConfig::class, new SaveCatalogProjectConfig());
+  $title = new SaveCatalogTitleProbe($this->game, $this->manager);
+  $menu = createSaveCapacityMenu($this->scene, $title);
+  $menu->openMenu();
+  expect(count($menu->getWindows()))->toBe(7)->and($menu->getDrawnText())->toContain('1-5 / 30', 'File 5', 'Unknown', '00:00:17');
+  $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1', 'showInputHints' => false,
+    'metrics' => $alternative ? ['cellWidth' => 8, 'cellHeight' => 22, 'panelPadding' => 12] : []]);
+  $frame = $menu->composeCanvas($theme);
+  $titles = array_filter($frame->textLayers, fn($layer) => str_starts_with($layer->id, 'save-slot-') && str_ends_with($layer->id, '-title'));
+  expect($titles)->toHaveCount(5);
+})->with([false, true]);
+
+it('honors every developer save capability combination for writes catalog Continue input and hints', function (bool $auto, bool $quick) {
+  // Seed legacy files while both mechanisms are enabled, then change game capabilities.
+  $this->manager->autoSave($this->scene);
+  $this->manager->quickSave($this->scene);
+  $bytes = array_map(file_get_contents(...), $this->manager->getSaveFiles(true));
+  ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub(['save' => ['autosave' => $auto, 'quicksave' => $quick]]));
+  $slots = $this->manager->getLoadSlots(5);
+  expect(array_column($slots, 'slot'))->toBe([
+    ...($auto ? [SaveManager::AUTO_SAVE_SLOT] : []), 1, 2, 3, 4, 5,
+    ...($quick ? [SaveManager::QUICK_SAVE_SLOT] : []),
+  ]);
+  expect($this->manager->getLatestLoadableSaveFile(true))->toBe($quick ? $this->manager->getQuickSavePath('quick')
+    : ($auto ? $this->manager->getQuickSavePath('auto') : null));
+  InputManager::setBindings(['quick_save' => ['description' => 'Quick Save', 'keys' => [KeyCode::q]]]);
+  InputManager::setInputSource(new \Tests\Support\Input\FakeInputSource(KeyCode::q));
+  InputManager::handleInput();
+  expect(InputManager::isButtonDown('quick_save'))->toBe($quick)
+    ->and(ActionHints::resolve('quick_save', 'Quick Save')->control !== null)->toBe($quick)
+    ->and(in_array('quick_save', array_column((new \Ichiloto\Engine\IO\InputBindings())->all(), 'action'), true))->toBe($quick);
+  if (!$auto) { expect(fn() => $this->manager->autoSave($this->scene))->toThrow(RuntimeException::class, 'disabled'); }
+  if (!$quick) { expect(fn() => $this->manager->quickSave($this->scene))->toThrow(RuntimeException::class, 'disabled'); }
+  expect(array_map(file_get_contents(...), $this->manager->getSaveFiles(true)))->toBe($bytes);
+})->with([false, true])->with([false, true]);
+
+it('refuses nonboolean developer save capabilities', function (mixed $value) {
+  ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub(['save' => ['autosave' => $value, 'quicksave' => $value]]));
+  expect(fn() => $this->manager->getLoadSlots())->toThrow(InvalidArgumentException::class)
+    ->and(fn() => $this->manager->quickSave($this->scene))->toThrow(InvalidArgumentException::class);
+})->with([[0], [1], ['false'], [[]]]);
+
+
+it('keeps populated tail pages and navigable selection for any catalog size', function (int $count) {
+  $capacity = 5;
+  foreach (range(0, max(0, $count - 1)) as $index) {
+    [$first, $last] = \Ichiloto\Engine\UI\Windows\SaveSlotPage::getVisibleRange($count, $index);
+    expect($last - $first)->toBe(min(5, $count));
+    if ($count > 0) {
+      expect($first)->toBeLessThanOrEqual($index)->and($last)->toBeGreaterThan($index);
+      foreach ([-1, 1] as $direction) {
+        $next = \Ichiloto\Engine\UI\Windows\SaveSlotPage::getAdjacentIndex($count, $index, $direction);
+        expect($next)->toBe(max(0, min($count - 1, $index + $direction * $capacity)));
+      }
+    }
+  }
+})->with([0, 1, 30, 31, 32]);
+
+it('keeps full long selected metadata accessible through Info while removing wrapped graphical card rows', function (bool $alternative, bool $bad) {
+  $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1', 'showInputHints' => false,
+    'metrics' => $alternative ? ['cellWidth' => 8, 'cellHeight' => 22, 'panelPadding' => 12] : []]);
+  $full = str_repeat('Long location and identity ', 30) . 'FINAL METADATA';
+  $slot = new SaveSlot(1, '/synthetic/save', false, $bad ? 'Incompatible Save' : $full,
+    leaderName: str_repeat('Long leader ', 20), leaderLevel: 123, isLoadable: !$bad, statusMessage: $bad ? $full : null);
+  $slots = [$slot, ...array_slice($this->manager->getSaveSlots(), 1)];
+  $info = new MenuInfoText();
+  $seen = '';
+  for ($page = 0; $page < 30; $page++) {
+    $frame = SaveLoadMenuPresentation::compose($slots, 0, $theme, $info);
+    $seen .= implode('', array_map(fn($layer) => implode('', array_column($layer->runs, 'text')), $frame->textLayers));
+    foreach ($frame->textLayers as $layer) {
+      expect($layer->clipRect->y + $layer->clipRect->height)->toBeLessThanOrEqual($frame->height);
+    }
+    if (!$info->advance()) { break; }
+  }
+  expect($seen)->toContain('FINAL METADATA')->and($info->lastPage->source)->toContain($full);
+})->with([false, true])->with([false, true]);
+
+
+it('refuses invalid save page bounds instead of constructing unsafe navigation ranges', function (int $count, int $capacity) {
+  expect(fn() => \Ichiloto\Engine\UI\Windows\SaveSlotPage::getVisibleRange($count, 0, $capacity))
+    ->toThrow(InvalidArgumentException::class)
+    ->and(fn() => \Ichiloto\Engine\UI\Windows\SaveSlotPage::getAdjacentIndex($count, 0, 1, $capacity))
+    ->toThrow(InvalidArgumentException::class);
+})->with([[-1, 5], [30, 0], [30, 6]]);
+
+
+it('keeps enabled corrupt records discoverable at Title but prevents direct GameOver Continue', function (bool $corrupt, bool $enabled) {
+  $saved = $this->manager->quickSave($this->scene);
+  if ($corrupt) { file_put_contents($saved->path, 'IED1broken'); }
+  ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub(['save' => ['autosave' => false, 'quicksave' => $enabled]]));
+  Console::setTerminalOutputEnabled(false);
+  Console::syncDimensions(80, 24);
+  ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 80, 'height' => 24]));
+  new ReflectionProperty(SaveManager::class, 'instance')->setValue(null, $this->manager);
+  $loader = new ReflectionClass(GameLoader::class)->newInstanceWithoutConstructor();
+  $title = new SaveCatalogTitleProbe($this->game, $this->manager);
+  $titleMenu = new TitleMenu($title, 'Synthetic Title');
+  new ReflectionProperty(TitleScene::class, 'menu')->setValue($title, $titleMenu);
+  $titleCommand = new \Ichiloto\Engine\Core\Menu\Commands\ContinueGameCommand($titleMenu, $loader);
+  expect($titleCommand->isDisabled())->toBe(!$enabled);
+  new ReflectionProperty(TitleScene::class, 'continueCommand')->setValue($title, $titleCommand);
+  $title->syncContinueAvailability();
+  expect($titleCommand->isDisabled())->toBe(!$enabled);
+  $gameOver = new ReflectionClass(\Ichiloto\Engine\Scenes\GameOver\GameOverScene::class)->newInstanceWithoutConstructor();
+  new ReflectionProperty($gameOver, 'sceneManager')->setValue($gameOver, $title->sceneManager);
+  $overMenu = new \Ichiloto\Engine\Scenes\GameOver\Menus\GameOverMenu($gameOver, 'Synthetic Game Over');
+  new ReflectionProperty($gameOver, 'menu')->setValue($gameOver, $overMenu);
+  $overCommand = new \Ichiloto\Engine\Core\Menu\Commands\ContinueGameCommand($overMenu, $loader);
+  expect($overCommand->isDisabled())->toBe(!$enabled || $corrupt);
+  new ReflectionProperty($gameOver, 'continueCommand')->setValue($gameOver, $overCommand);
+  new ReflectionMethod($gameOver, 'syncContinueAvailability')->invoke($gameOver);
+  expect($overCommand->isDisabled())->toBe(!$enabled || $corrupt)
+    ->and($this->manager->getSaveFiles(true))->toBe([$saved->path]);
+  if ($enabled && $corrupt) {
+    $slot = array_find($this->manager->getLoadSlots(), fn($slot) => $slot->slot === SaveManager::QUICK_SAVE_SLOT);
+    expect($slot->isLoadable)->toBeFalse()->and($slot->statusMessage)->not->toBeNull();
+  }
+})->with([false, true])->with([false, true]);

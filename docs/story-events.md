@@ -58,7 +58,7 @@ Omit it when the unavailable event should be absent rather than act as a gate.
 Keep a direct map link as a `TransferPlayerTrigger`, including when crossing
 that link records a story boundary. Its ordinary trigger-level `sets` apply
 after the destination map commits and before destination automatic events,
-interpreter continuation and transfer autosave:
+interpreter continuation. Map transfer itself does not request an autosave:
 
 ```php
 'D' => [
@@ -284,7 +284,7 @@ an attached camera to the destination with normal map-edge clamping, and rebuild
 the complete field through its existing compositor. Deliberately detached
 cinematic cameras keep their framing and ownership.
 
-Placement does not trigger walking arrivals, encounters, transfer autosaves or
+Placement does not trigger walking arrivals, encounters, developer-requested autosaves or
 event re-entry. Authored cinematic finalizers retain their existing subject
 transform commit boundary. Cross-map transfers still load destination geometry
 before positioning their camera; temporary cinematic rollback retains its
@@ -476,7 +476,7 @@ the WP1 save envelope.
 
 - Numbered/manual saves and quicksaves are rejected by `SaveManager` while a
   session is active, with `ActiveEventSaveException` feedback.
-- A transfer-requested autosave is deferred and is written only after the
+- A developer-requested autosave is deferred and is written only after the
   whole event and its completion writes succeed.
 - A failed event discards the deferred autosave.
 - If the process exits mid-event, loading returns to the last stable save,

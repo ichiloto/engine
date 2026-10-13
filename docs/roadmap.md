@@ -437,9 +437,10 @@ their integration remains with the Editor owner.
 > saves. **Records screen**: a new main-menu entry with Achievements and
 > Bestiary tabs — undiscovered enemies mask to `??????`, secret achievements
 > hide until earned, and the entry only appears when a project authors
-> either. **Quicksave/autosave**: `SaveManager::quickSave()` (F5 in the
-> field) and `autoSave()` (a 3-file rotating ring, written on map transfer
-> when `save.autosave` is on) both land in the existing quick-save
+> either. **Quicksave/autosave**: `SaveManager::quickSave()` (semantic
+> `quick_save`, configurable binding; enabled by `save.quicksave`) and
+> `autoSave()` (one atomic slot, developer-triggered when `save.autosave`
+> is enabled; automatic map-transfer saves removed) both land in the existing quick-save
 > directory and never consume a player-visible slot. **Accessibility**
 > (`UI\Accessibility`): `reducedMotion`, `disableBlink`, `highContrast`,
 > and `textSpeedScale` under `accessibility.*`, all defaulting to current
@@ -825,7 +826,7 @@ continues after victory; normal game-over behavior remains the default, with
 defeat continuation requiring an explicit policy.
 
 Active sessions remain in memory rather than entering the WP1 save envelope.
-Manual/numbered saves and quicksaves are blocked centrally, and transfer
+Manual/numbered saves and quicksaves are blocked centrally, and developer-requested
 autosaves are deferred until successful event completion. The TUI can author
 `ScriptEventTrigger`, structured route steps, and battle continuation fields;
 the existing validator covers script references, stable NPC identities,

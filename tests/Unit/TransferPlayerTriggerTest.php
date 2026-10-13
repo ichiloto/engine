@@ -292,14 +292,14 @@ afterEach(function () {
     }
 });
 
-it('completes transfer writes after real destination commit before automatic events and autosave', function () {
+it('completes transfer writes after real destination commit before automatic events and removes automatic transfer autosave', function () {
     $scene = createTransferTriggerScene(destinationAuto: true);
     $trigger = $scene->player->findTrigger('T');
     expect($scene->player->tryMove(Vector2::right(), $scene->camera))->toBeTrue();
     $phases = array_column($scene->journal, 'phase');
     expect($phases)->toBe(['prepare', 'before-commit', 'committed', 'rendered', 'callback',
         'write:event:boundary_crossed', 'write:variable:crossings', 'finalize', 'event-start',
-        'write:switch:arrival_observed', 'autosave'])
+        'write:switch:arrival_observed'])
         ->and($scene->committedCallbacks)->toBe(1)
         ->and($trigger->isReusable)->toBeTrue()
         ->and($trigger->isComplete)->toBeFalse();
@@ -309,6 +309,8 @@ it('completes transfer writes after real destination commit before automatic eve
             ->and($observation['location'])->toBe('Destination')
             ->and($observation['tiles'][0])->toBe(array_fill(0, 5, 'd'));
     }
+    expect($scene->saves->snapshots)->toBe([]);
+    $scene->autoSave(); // Developer chooses the checkpoint after destination events.
     $save = $scene->saves->snapshots[0];
     expect($scene->saves->snapshots)->toHaveCount(1)
         ->and($save['map'])->toBe('test/destination')
@@ -327,7 +329,7 @@ it('persists one-shot completion under source identity and restores it on return
         ->and($scene->gameState->isEventComplete('test/source', 'T'))->toBeTrue()
         ->and($scene->gameState->isEventComplete('test/destination', 'T'))->toBeFalse()
         ->and($scene->player->findTrigger('T')->isComplete)->toBeFalse()
-        ->and($scene->saves->snapshots[0]['state']['completedEvents'])->toBe(['test/source:T' => true]);
+        ->and($scene->gameState->toArray()['completedEvents'])->toBe(['test/source:T' => true]);
     expect($scene->player->tryMove(Vector2::right(), $scene->camera))->toBeTrue()
         ->and($scene->player->tryMove(Vector2::right(), $scene->camera))->toBeTrue()
         ->and($scene->currentMapId)->toBe('test/source');
@@ -360,7 +362,7 @@ it('applies variable writes once per reusable pass while story writes stay idemp
         ->and($scene->gameState->isEventComplete('test/source', 'T'))->toBeFalse()
         ->and(array_count_values(array_column($scene->journal, 'phase'))['write:variable:crossings'])->toBe(2)
         ->and(array_count_values(array_column($scene->journal, 'phase'))['write:event:boundary_crossed'])->toBe(1)
-        ->and($scene->saves->snapshots)->toHaveCount(4);
+        ->and($scene->saves->snapshots)->toBe([]);
 })->with(['default reusable' => [[]], 'explicit reusable' => [['reusable' => true]]]);
 
 it('does not write or complete when movement cannot activate a transfer', function (string $blocker, bool $moves) {
@@ -424,7 +426,7 @@ it('retains successful two-argument callers without an implicit completion callb
         ->and($scene->committedCallbacks)->toBe(0)
         ->and($scene->gameState->hasStoryEvent('boundary_crossed'))->toBeFalse()
         ->and($scene->gameState->getVariable('crossings'))->toBe(0)
-        ->and($scene->saves->snapshots)->toHaveCount(1);
+        ->and($scene->saves->snapshots)->toBe([]);
 });
 
 it('invokes a direct commit callback once after render before finalization and never on refusal', function () {
@@ -444,7 +446,7 @@ it('invokes a direct commit callback once after render before finalization and n
     $scene->updateEventSession(10);
     expect($calls)->toBe(1)
         ->and($scene->committedCallbacks)->toBe(1)
-        ->and($scene->saves->snapshots[0]['state']['variables']['direct_commits'])->toBe(1)
+        ->and($scene->gameState->getVariable('direct_commits'))->toBe(1)
         ->and(array_column($scene->journal, 'phase'))->toBe(['prepare', 'before-commit', 'committed',
-            'rendered', 'callback', 'write:variable:direct_commits', 'finalize', 'autosave']);
+            'rendered', 'callback', 'write:variable:direct_commits', 'finalize']);
 });

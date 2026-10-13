@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Scenes\Title;
 
+use Ichiloto\Engine\UI\Windows\SaveSlotPage;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Menu\Commands\ContinueGameCommand;
 use Ichiloto\Engine\Core\Menu\Commands\NewGameCommand;
@@ -202,6 +203,7 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
 
     if (Input::isButtonDown('info') && ($this->showingOptions || $this->showingContinueMenu)) {
       $this->titleInfoText?->advance();
+      if ($this->showingContinueMenu) { $this->renderContinueMenu(); }
       return;
     }
 
@@ -426,7 +428,7 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
       return;
     }
 
-    if ($this->sceneManager->saveManager->hasSaveFiles(true)) {
+    if ($this->sceneManager->saveManager->hasEnabledSaveFiles(true)) {
       $this->continueCommand->enable();
     } else {
       $this->continueCommand->disable();
@@ -491,10 +493,11 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
       $this->continueSlotWindows[] = new SaveSlotWindow(
         new Vector2(
           $leftMargin,
-          $topMargin + $infoHeight + ($slotIndex * SaveSlotWindow::HEIGHT)
+          $topMargin + $infoHeight + ($slotIndex * $layout->slotHeight)
         ),
         $width,
-        $borderPack
+        $borderPack,
+        $layout->slotHeight
       );
     }
 
@@ -503,7 +506,7 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
       '',
       new Vector2(
         $leftMargin,
-        $topMargin + $infoHeight + (SaveSlotWindow::HEIGHT * $visibleCount)
+        $topMargin + $infoHeight + ($layout->slotHeight * $visibleCount)
       ),
       $width,
       $helpHeight,
@@ -575,6 +578,15 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
    */
   protected function updateContinueMenu(): void
   {
+    foreach (['menu_page_previous' => -1, 'menu_page_next' => 1] as $action => $direction) {
+      if (Input::isButtonDown($action)) {
+        $this->activeContinueSlotIndex = SaveSlotPage::getAdjacentIndex(
+          count($this->continueSlots), $this->activeContinueSlotIndex, $direction, $this->continueViewport?->visibleCount ?? SaveSlotPage::SIZE);
+        $this->continueStatusMessage = null;
+        $this->renderContinueMenu();
+        return;
+      }
+    }
     $vertical = Input::getAxis(AxisName::VERTICAL);
     $audioManager = $this->getGame()->audioManager;
 
@@ -657,11 +669,11 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
     $hints = $this->getContinueControlHelp();
     $helpHeight = $this->continueHelpWindow?->getHeight() ?? self::CONTINUE_HELP_HEIGHT;
     $this->continueHelpWindow?->setTitle($helpHeight <= 2 ? $statusText : 'Help');
-    $this->continueHelpWindow?->setHelp($helpHeight < 4 ? $hints : '');
-    $this->continueHelpWindow?->setContent([
-      $statusText,
-      $hints,
-    ]);
+    $this->continueHelpWindow?->setHelp($hints);
+    $page = ($this->titleInfoText ??= new MenuInfoText())->getPage($this->continueStatusMessage === null
+      ? ($this->continueSlots[$this->activeContinueSlotIndex] ?? null)?->getDescription() ?? 'Choose a file.' : '',
+      $this->continueStatusMessage, max(1, ($this->continueHelpWindow?->getWidth() ?? 80) - 4));
+    $this->continueHelpWindow?->setContent($page->lines);
     $this->continueHelpWindow?->render();
   }
 
@@ -862,8 +874,9 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
    */
   protected function resolveDefaultContinueSlotIndex(): int
   {
+    $latest = $this->sceneManager->saveManager->getLatestLoadableSaveFile(true);
     foreach ($this->continueSlots as $slotIndex => $slot) {
-      if (! $slot->isEmpty && $slot->isLoadable) {
+      if ($latest !== null && $slot->path === $latest && ! $slot->isEmpty && $slot->isLoadable) {
         return $slotIndex;
       }
     }

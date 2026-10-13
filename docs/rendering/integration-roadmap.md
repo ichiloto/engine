@@ -4105,8 +4105,16 @@ customizable with `config.php` `saves.manual_slots` (positive integer). The
 duplicate Save/Title counts are removed. Both Terminal selectors share bounded
 page geometry, selected-row visibility, resize and semantic control hints; GPUI
 scrolls all manual rows and Load-only quick/automatic records through the existing
-shared presentation. Existing files, checkpoint ordering and the three-file
-autosave ring are unchanged. See [save compatibility](../save-compatibility.md#save-discovery-and-checkpoint-ordering).
+shared presentation. Existing files and checkpoint ordering remain preserved. The 2026-10-14
+save correction removes rotating autosave writes, hardcoded F5 dispatch and
+Engine-selected map-transfer autosaves. Developer `save.autosave` and
+`save.quicksave` capabilities control writers, field dispatch, hints, catalog
+and Continue. One logical Autosave sorts first and selects the newest loadable
+legacy record without destructive migration. Shared five-record pages fill
+ordinary Terminal 80x24 and graphical surfaces, including the tail; compact
+rows remove graphical wrapping and retain full active metadata through Info.
+Smaller Terminal surfaces (40x8 minimum) use bounded whole-record pages;
+oversized graphical theme metrics reduce capacity explicitly. See [save compatibility](../save-compatibility.md#save-discovery-and-checkpoint-ordering).
 Editor authoring of this project setting remains unimplemented in this Engine
 slice; it needs the existing source-preserving settings workflow, not a second
 capacity authority or a player setting. Native acceptance of the 30-row menus

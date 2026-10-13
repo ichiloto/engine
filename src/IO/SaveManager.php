@@ -11,6 +11,7 @@ use Ichiloto\Engine\Exceptions\SaveCompatibilityException;
 use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityManifest;
 use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityPipeline;
 use Ichiloto\Engine\IO\Saves\SavedGame;
+use Ichiloto\Engine\IO\Saves\SaveFeatures;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
 use Ichiloto\Engine\Scenes\Game\GameScene;
@@ -42,7 +43,6 @@ class SaveManager
   public const int AUTO_SAVE_SLOT = -2;
   protected const string QUICK_SAVE_NAME = 'quick';
   protected const string AUTO_SAVE_NAME = 'auto';
-  protected const int AUTO_SAVE_RING_SIZE = 3;
   private const int ORDER_UNITS_PER_SECOND = 1_000_000;
 
   /**
@@ -123,6 +123,17 @@ class SaveManager
     return $saveFiles;
   }
 
+  /** Enabled discovery retains invalid records so a Load selector can diagnose them. */
+  public function getEnabledSaveFiles(bool $includeQuickSaves = false): array
+  {
+    return array_values(array_filter($this->getSaveFiles($includeQuickSaves), $this->isEnabledSavePath(...)));
+  }
+
+  public function hasEnabledSaveFiles(bool $includeQuickSaves = false): bool
+  {
+    return $this->getEnabledSaveFiles($includeQuickSaves) !== [];
+  }
+
   /**
    * Returns whether any save files currently exist.
    *
@@ -153,7 +164,7 @@ class SaveManager
    */
   public function getLatestLoadableSaveFile(bool $includeQuickSaves = false): ?string
   {
-    foreach ($this->getSaveFiles($includeQuickSaves) as $path) {
+    foreach ($this->getEnabledSaveFiles($includeQuickSaves) as $path) {
       if ($this->canLoadSaveFile($path)) {
         return $path;
       }
@@ -203,23 +214,36 @@ class SaveManager
   }
 
   /**
-   * Read-only load catalog: numbered slots, then existing automatic/quick files
-   * newest first. Save menus retain the numbered-only getSaveSlots() contract.
-   * Compatibility inspection prepares detached snapshots; it never restores a
-   * campaign, changes playtime/settings, or writes a migrated file.
-   *
+   * Read-only load catalog: one logical Autosave first when enabled, manual
+   * files, then an existing enabled Quick Save. Legacy autosaves remain intact.
+   * The newest loadable autosave wins; if none decode, show the newest failure.
    * @return SaveSlot[]
    */
   public function getLoadSlots(?int $slotCount = null): array
   {
     $slots = $this->getSaveSlots($slotCount);
-    foreach ($this->getSaveFiles(true) as $path) {
-      if (dirname($path) !== $this->quickSaveDirectory) { continue; }
-      $slot = $this->getDestinationSlot($path);
-      if ($slot !== self::AUTO_SAVE_SLOT && $slot !== self::QUICK_SAVE_SLOT) { continue; }
-      $slots[] = $this->inspectSaveSlot($slot, $path);
+    if (SaveFeatures::isAutosaveEnabled()) {
+      $candidates = array_values(array_filter($this->getSaveFiles(true), fn(string $path): bool =>
+        dirname($path) === $this->quickSaveDirectory && $this->getDestinationSlot($path) === self::AUTO_SAVE_SLOT));
+      $path = array_find($candidates, $this->canLoadSaveFile(...)) ?? ($candidates[0] ?? null);
+      array_unshift($slots, $path === null
+        ? SaveSlot::empty(self::AUTO_SAVE_SLOT, $this->getQuickSavePath(self::AUTO_SAVE_NAME))
+        : $this->inspectSaveSlot(self::AUTO_SAVE_SLOT, $path));
+    }
+    $quick = $this->getQuickSavePath(self::QUICK_SAVE_NAME);
+    if (SaveFeatures::isQuickSaveEnabled() && file_exists($quick)) {
+      $slots[] = $this->inspectSaveSlot(self::QUICK_SAVE_SLOT, $quick);
     }
     return $slots;
+  }
+
+  private function isEnabledSavePath(string $path): bool
+  {
+    return match ($this->getDestinationSlot($path)) {
+      self::AUTO_SAVE_SLOT => SaveFeatures::isAutosaveEnabled(),
+      self::QUICK_SAVE_SLOT => SaveFeatures::isQuickSaveEnabled(),
+      default => true,
+    };
   }
 
   private function inspectSaveSlot(int $slot, string $path): SaveSlot
@@ -261,30 +285,15 @@ class SaveManager
    */
   public function quickSave(GameScene $scene): SaveSlot
   {
+    if (!SaveFeatures::isQuickSaveEnabled()) { throw new RuntimeException('Quick Save is disabled by this project.'); }
     return $this->writeSave($scene, self::QUICK_SAVE_SLOT, $this->getQuickSavePath(self::QUICK_SAVE_NAME));
   }
 
-  /**
-   * Writes an autosave, rotating through a small ring of files so one bad
-   * autosave can never be the only copy.
-   *
-   * @param GameScene $scene The live game scene.
-   * @return SaveSlot The saved slot summary.
-   */
+  /** Writes the single Autosave atomically; only the developer chooses when. */
   public function autoSave(GameScene $scene): SaveSlot
   {
-    $ring = [];
-    for ($index = 1; $index <= self::AUTO_SAVE_RING_SIZE; $index++) {
-      $path = $this->getQuickSavePath(sprintf('%s-%02d', self::AUTO_SAVE_NAME, $index));
-      if (!file_exists($path)) {
-        return $this->writeSave($scene, self::AUTO_SAVE_SLOT, $path);
-      }
-      $ring[$path] = $this->getSaveOrder($path);
-    }
-    // The persisted order, not filesystem timestamp resolution, owns rotation.
-    uksort($ring, static fn(string $left, string $right): int =>
-      ($ring[$left] <=> $ring[$right]) ?: strcmp($left, $right));
-    return $this->writeSave($scene, self::AUTO_SAVE_SLOT, array_key_first($ring));
+    if (!SaveFeatures::isAutosaveEnabled()) { throw new RuntimeException('Autosave is disabled by this project.'); }
+    return $this->writeSave($scene, self::AUTO_SAVE_SLOT, $this->getQuickSavePath(self::AUTO_SAVE_NAME));
   }
 
   /**

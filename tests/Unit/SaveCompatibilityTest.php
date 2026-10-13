@@ -192,7 +192,8 @@ function cleanupCompatibilityManager(SaveManager $manager): void
   }
 }
 
-it('writes the v1 envelope through normal quick and rotating autosave surfaces', function () {
+it('writes the v1 envelope through normal quick and single autosave surfaces, removing rotating writes', function () {
+  putSceneAudioConfig(['save' => ['autosave' => true]]);
   $slug = 'save-compatibility-surfaces-' . uniqid();
   $manager = new SaveManager(
     new SaveCompatibilityTestGame(),
@@ -211,7 +212,7 @@ it('writes the v1 envelope through normal quick and rotating autosave surfaces',
 
   $normal = decodeCompatibilityPayload($manager->getSlotPath(1));
   $quick = decodeCompatibilityPayload($manager->getQuickSavePath('quick'));
-  $autos = glob(dirname($manager->getQuickSavePath('quick')) . '/auto-*.iedata') ?: [];
+  $autos = glob(dirname($manager->getQuickSavePath('quick')) . '/auto.iedata') ?: [];
 
   expect($normal)->toMatchArray([
     'schemaVersion' => 1,
@@ -219,7 +220,7 @@ it('writes the v1 envelope through normal quick and rotating autosave surfaces',
     'projectId' => 'ichiloto/test-project',
   ])->and($normal['payload'])->toHaveKeys(['slot', 'config'])
     ->and($quick['schemaVersion'])->toBe(1)
-    ->and($autos)->toHaveCount(3)
+    ->and($autos)->toHaveCount(1)
     ->and($manager->getSaveSlots(1)[0]->isLoadable)->toBeTrue()
     ->and($manager->getLatestLoadableSaveFile(true))->not->toBeNull();
 
@@ -228,6 +229,7 @@ it('writes the v1 envelope through normal quick and rotating autosave surfaces',
   }
 
   cleanupCompatibilityManager($manager);
+  ConfigStore::remove(\Ichiloto\Engine\Util\Config\ProjectConfig::class);
 });
 
 it('binds relocated save summaries to the destination file and slot', function (bool $versioned, bool $sourceExists, int $sourceSlot) {

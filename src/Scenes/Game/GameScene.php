@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Scenes\Game;
 
+use Ichiloto\Engine\IO\Saves\SaveFeatures;
 use Ichiloto\Engine\Animations\Field\FieldEffectManager;
 use Ichiloto\Engine\Rendering\Sprites\ScreenSpaceSpriteProviderInterface;
 use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
@@ -1265,7 +1266,6 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         // after that existing path has fully completed.
         $this->eventInterpreter?->resumeAfterTransfer();
         $this->evaluatePendingAutomaticTriggers();
-        $this->autoSave();
     }
 
     /** Runs deferred destination triggers once no event session owns the interpreter. */
@@ -1292,15 +1292,15 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     /**
      * Writes an autosave when the project enables them.
      *
-     * Map transfers are the natural checkpoint: the player has just
-     * committed to a new area. Opt in with `save.autosave` in the project
-     * config; failures warn and never interrupt play.
+     * Developers choose checkpoint timing and opt in with `save.autosave`.
+     * Requests during an event defer until successful completion.
+     * Failures warn and never interrupt play.
      *
      * @return void
      */
     public function autoSave(): void
     {
-        if ($this->isStopping || ! config(ProjectConfig::class, 'save.autosave', false)) {
+        if ($this->isStopping || ! SaveFeatures::isAutosaveEnabled()) {
             return;
         }
 

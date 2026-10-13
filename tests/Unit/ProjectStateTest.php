@@ -368,6 +368,8 @@ it('does not enter field hydration on policy failure and rolls back project stat
 });
 
 it('includes live project state in manual quick and autosave snapshots without weakening active-event guards', function () {
+    $prior = new ReflectionClass(\Ichiloto\Engine\Util\Config\ConfigStore::class)->getStaticProperties();
+    putSceneAudioConfig(['save' => ['autosave' => true]]);
     $root = createTestDirectory('project-state-save-');
     $game = new ProjectStateTestGame($root);
     $game->registerProjectStateParticipant(new SyntheticProjectStateParticipant());
@@ -385,6 +387,7 @@ it('includes live project state in manual quick and autosave snapshots without w
     foreach (['save', 'quickSave', 'autoSave'] as $method) {
         expect(fn() => $method === 'save' ? $manager->save($scene, 1) : $manager->$method($scene))->toThrow(ActiveEventSaveException::class);
     }
+    foreach ($prior as $key => $value) { new ReflectionProperty(\Ichiloto\Engine\Util\Config\ConfigStore::class, $key)->setValue(null, $value); }
 });
 
 it('validates through GameLoader without hydrating the previous campaign', function () {

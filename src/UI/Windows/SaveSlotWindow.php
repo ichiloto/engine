@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\UI\Windows;
 
+use Ichiloto\Engine\UI\Windows\Enumerations\WindowHeightPolicy;
 use Ichiloto\Engine\Core\Enumerations\ChronoUnit;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\Vector2;
@@ -33,7 +34,8 @@ class SaveSlotWindow extends Window
   public function __construct(
     Vector2 $position,
     int $width,
-    BorderPackInterface $borderPack = new DefaultBorderPack()
+    BorderPackInterface $borderPack = new DefaultBorderPack(),
+    int $height = self::HEIGHT
   )
   {
     parent::__construct(
@@ -41,8 +43,9 @@ class SaveSlotWindow extends Window
       '',
       $position,
       $width,
-      self::HEIGHT,
-      $borderPack
+      $height,
+      $borderPack,
+      heightPolicy: WindowHeightPolicy::FIXED
     );
   }
 
@@ -63,10 +66,19 @@ class SaveSlotWindow extends Window
     // component is shared by both Save and Title Continue.
     $this->foregroundColor = null;
     $this->title = $this->styleSelection($slot->getLabel(), $isSelected);
-    $this->setContent([
-      $this->styleSelection($slot->isEmpty ? 'Empty File' : $slot->locationName, $isSelected),
-      $this->styleSelection($this->buildFooterLine($slot), $isSelected),
-    ]);
+    $location = $slot->isEmpty ? 'Empty File' : $slot->locationName;
+    $footer = $this->buildFooterLine($slot);
+    if ($this->height === 3) {
+      $width = max(0, $this->width - 4);
+      $locationWidth = (int)floor($width * 0.4);
+      $details = $slot->isEmpty ? '' : ($slot->isLoadable ? $slot->getLeaderSummary() . ' '
+        . Time::formatDuration($slot->playTimeSeconds, ChronoUnit::SECONDS)
+        : ($slot->statusMessage ?? 'Cannot be loaded.'));
+      $this->setContent([$this->styleSelection(TerminalText::padRight($location, $locationWidth)
+        . '  ' . TerminalText::truncateToWidth(trim($details), max(0, $width - $locationWidth - 2)), $isSelected)]);
+    } else {
+      $this->setContent([$this->styleSelection($location, $isSelected), $this->styleSelection($footer, $isSelected)]);
+    }
   }
 
   /**

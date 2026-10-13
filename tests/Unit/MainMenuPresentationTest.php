@@ -937,7 +937,8 @@ it('connects in-game Save to the shared themed canvas and modal lifecycle withou
   $state->enter();
   expect($this->scene->getPresentationCanvas())->toBeNull();
   $terminal = new ReflectionProperty($state, 'helpWindow')->getValue($state);
-  expect(implode(' ', $terminal->getContent()))->toContain('Choose a file.', 'Enter: Save', 'Escape: Back');
+  expect(implode(' ', $terminal->getContent()))->toContain('Rest Point', '01:00:00')
+    ->and($terminal->getHelp())->toContain('Enter: Save', 'Escape: Back');
 
   $themeData = mainMenuPresentationTheme($alternative);
   file_put_contents($this->root . '/' . MenuPresentationCatalog::FILE, '<?php return ' . var_export($themeData, true) . ';');
@@ -976,7 +977,7 @@ it('connects in-game Save to the shared themed canvas and modal lifecycle withou
   $state->resume();
   expect(mainMenuPresentationText($this->scene->getPresentationCanvas())['save-info-status'])->toBe('Save unavailable.');
   $state->enter();
-  expect(mainMenuPresentationText($this->scene->getPresentationCanvas())['save-info-description'])->toBe('Choose a file.');
+  expect(mainMenuPresentationText($this->scene->getPresentationCanvas())['save-info-description'])->toContain('Rest Point', '01:00:00');
 })->with([false, true]);
 
 it('keeps the Save menu usable and reports plain feedback when local storage refuses a write', function () {

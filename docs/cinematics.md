@@ -581,7 +581,7 @@ autosave, and does not write cinematic completion.
 
 Active cinematic and ordinary event sessions are intentionally not
 serializable. `SaveManager` rejects numbered saves and quicksaves while either
-is active. Transfer autosaves remain deferred until successful completion and
+is active. Developer-requested autosaves remain deferred until successful completion and
 are discarded on failure. After completion or legal skip, saving becomes
 available again at the stable final map and state.
 

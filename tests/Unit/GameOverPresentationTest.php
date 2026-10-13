@@ -112,7 +112,7 @@ beforeEach(function () {
     public bool $available = false;
     public function __construct() {}
     public function hasSaveFiles(bool $includeQuickSaves = false): bool { return $this->available; }
-    public function getLatestLoadableSaveFile(bool $includeQuickSaves = false): ?string { return null; }
+    public function getLatestLoadableSaveFile(bool $includeQuickSaves = false): ?string { return $this->available ? '/synthetic/loadable.iedata' : null; }
   };
   new ReflectionProperty(SaveManager::class, 'instance')->setValue(null, $this->saves);
   new ReflectionProperty(GameLoader::class, 'instance')->setValue(null,

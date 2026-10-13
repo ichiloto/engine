@@ -449,8 +449,6 @@ class EventTestGameScene extends GameScene
 
     if ($this->autoResumeTransfers) {
       $this->finalizePlayerTransfer();
-    } else {
-      $this->autoSave();
     }
     return true;
   }
@@ -1375,7 +1373,7 @@ it('fails malformed or parallel route data safely when validation was skipped', 
     ->and($badFacing?->failureMessage)->toContain('invalid faceOnly');
 });
 
-it('resumes after an in-script transfer and defers transfer autosave until completion', function () {
+it('resumes after an in-script transfer and defers a developer-requested autosave until completion', function () {
   putSceneAudioConfig(['save' => ['autosave' => true]]);
   [$scene, $interpreter] = makeEventRuntime();
 
@@ -1385,6 +1383,7 @@ it('resumes after an in-script transfer and defers transfer autosave until compl
     ['type' => 'set_switch', 'name' => 'after_transfer', 'value' => true],
   ]);
 
+  $scene->autoSave(); // Explicit developer checkpoint request, independent of transfer.
   expect($session?->status)->toBe(EventExecutionStatus::RUNNING)
     ->and($scene->currentMapId)->toBe('map-b')
     ->and($scene->hasDeferredAutoSave)->toBeTrue()
@@ -1686,6 +1685,7 @@ it('runs the complete technical continuation route and saves its stable completi
     $trigger->bind($scene->gameState, $scene->party);
 
     $session = $trigger->startSession($scene);
+    $scene->autoSave(); // Developer-owned checkpoint, deferred across this event.
 
     expect($session?->status)->toBe(EventExecutionStatus::YIELDED)
       ->and($presentation->kind)->toBe('text')
@@ -2207,7 +2207,7 @@ it('launches a stable cinematic id from an action trigger and completes after tr
     expect($session?->status)->toBe(EventExecutionStatus::COMPLETED)
       ->and($scene->currentMapId)->toBe('cinematic/skyfield-dawn')
       ->and($scene->transferCount)->toBe(1)
-      ->and($scene->testSceneManager->eventTestSaveManager->autoSaveCount)->toBe(1)
+      ->and($scene->testSceneManager->eventTestSaveManager->autoSaveCount)->toBe(0)
       ->and($trigger->sessionIsActive)->toBeFalse()
       ->and($trigger->isComplete)->toBeTrue()
       ->and($scene->gameState->isEventComplete('map-a', 'K'))->toBeTrue()

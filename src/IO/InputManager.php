@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\IO;
 
+use Ichiloto\Engine\IO\Saves\SaveFeatures;
 use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\Events\EventManager;
@@ -162,6 +163,10 @@ class InputManager
       $bindings['secondary_action'] = self::getDefaultSecondaryActionBinding($bindings);
     }
 
+    if (!array_key_exists('quick_save', $bindings)) {
+      $claimed = array_any($bindings, static fn(array $binding): bool => in_array(KeyCode::F5, $binding['keys'] ?? [], true));
+      $bindings['quick_save'] = ['description' => 'Quick Save', 'keys' => $claimed ? [] : [KeyCode::F5]];
+    }
     return $bindings;
   }
 
@@ -406,6 +411,7 @@ class InputManager
    */
   public static function isButtonDown(string $name): bool
   {
+    if ($name === 'quick_save' && !SaveFeatures::isQuickSaveEnabled()) { return false; }
     $button = self::$config[$name] ?? [];
     return self::isAnyKeyPressed($button['keys'] ?? []);
   }
@@ -433,12 +439,14 @@ class InputManager
    */
   public static function isButtonHeld(string $name): bool
   {
+    if ($name === 'quick_save' && !SaveFeatures::isQuickSaveEnabled()) { return false; }
     return array_any(self::$config[$name]['keys'] ?? [], static fn(KeyCode $key): bool => self::getHolds()->isKeyHeld($key));
   }
 
   /** Whether a key bound to the action was pressed during this input update, even if already released. */
   public static function wasButtonPressed(string $name): bool
   {
+    if ($name === 'quick_save' && !SaveFeatures::isQuickSaveEnabled()) { return false; }
     return array_any(self::$config[$name]['keys'] ?? [], static fn(KeyCode $key): bool => self::getHolds()->wasKeyPressed($key));
   }
 

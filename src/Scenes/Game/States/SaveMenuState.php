@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use Ichiloto\Engine\UI\Windows\SaveSlotPage;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Core\Vector2;
@@ -142,10 +143,11 @@ class SaveMenuState extends GameSceneState implements CanRender, CanvasProviderI
       $this->slotWindows[] = new SaveSlotWindow(
         new Vector2(
           $this->leftMargin,
-          $this->topMargin + $layout->infoHeight + ($slotIndex * SaveSlotWindow::HEIGHT)
+          $this->topMargin + $layout->infoHeight + ($slotIndex * $layout->slotHeight)
         ),
         $width,
-        $borderPack
+        $borderPack,
+        $layout->slotHeight
       );
     }
 
@@ -154,7 +156,7 @@ class SaveMenuState extends GameSceneState implements CanRender, CanvasProviderI
       '',
       new Vector2(
         $this->leftMargin,
-        $this->topMargin + $layout->infoHeight + (SaveSlotWindow::HEIGHT * $layout->visibleCount)
+        $this->topMargin + $layout->infoHeight + ($layout->slotHeight * $layout->visibleCount)
       ),
       $width,
       $layout->helpHeight,
@@ -209,11 +211,11 @@ class SaveMenuState extends GameSceneState implements CanRender, CanvasProviderI
     $hints = $this->getSaveControlHelp();
     $helpHeight = $this->helpWindow?->getHeight() ?? self::SAVE_HELP_HEIGHT;
     $this->helpWindow?->setTitle($helpHeight <= 2 ? $statusText : 'Help');
-    $this->helpWindow?->setHelp($helpHeight < 4 ? $hints : '');
-    $this->helpWindow?->setContent([
-      $statusText,
-      $hints,
-    ]);
+    $this->helpWindow?->setHelp($hints);
+    $page = $this->menuInfoText->getPage($this->statusMessage === null
+      ? ($this->slots[$this->activeSlotIndex] ?? null)?->getDescription() ?? 'Choose a file.' : '',
+      $this->statusMessage, max(1, ($this->helpWindow?->getWidth() ?? 80) - 4));
+    $this->helpWindow?->setContent($page->lines);
     $this->helpWindow?->render();
   }
 
@@ -237,6 +239,16 @@ class SaveMenuState extends GameSceneState implements CanRender, CanvasProviderI
    */
   public function execute(?SceneStateContext $context = null): void
   {
+    if (Input::isButtonDown('info')) { $this->menuInfoText->advance(); $this->render(); return; }
+    foreach (['menu_page_previous' => -1, 'menu_page_next' => 1] as $action => $direction) {
+      if (Input::isButtonDown($action)) {
+        $this->activeSlotIndex = SaveSlotPage::getAdjacentIndex(
+          count($this->slots), $this->activeSlotIndex, $direction, $this->saveViewport?->visibleCount ?? SaveSlotPage::SIZE);
+        $this->statusMessage = null;
+        $this->render();
+        return;
+      }
+    }
     $vertical = Input::getAxis(AxisName::VERTICAL);
 
     if ($vertical > 0) {

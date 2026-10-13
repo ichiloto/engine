@@ -273,8 +273,7 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
             return;
         }
 
-        // F5 quick-saves from the field, the way a PC RPG player expects.
-        if (Input::isKeyDown(KeyCode::F5)) {
+        if (Input::isButtonDown('quick_save')) {
             try {
                 $scene->sceneManager->saveManager->quickSave($scene);
                 play_sound(SystemSound::SAVE);

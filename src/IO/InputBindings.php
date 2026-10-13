@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\IO;
 
+use Ichiloto\Engine\IO\Saves\SaveFeatures;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlayerSettings;
@@ -42,7 +43,8 @@ class InputBindings implements ActionHintProvider
     $bindings = [];
 
     foreach (InputManager::getBindings() as $action => $binding) {
-      if (in_array($action, self::LOCKED_ACTIONS, true)) {
+      if (($action === 'quick_save' && !SaveFeatures::isQuickSaveEnabled())
+        || in_array($action, self::LOCKED_ACTIONS, true)) {
         continue;
       }
 
@@ -84,6 +86,7 @@ class InputBindings implements ActionHintProvider
 
   public function controlForAction(string $action): ?ControlHint
   {
+    if ($action === 'quick_save' && !SaveFeatures::isQuickSaveEnabled()) { return null; }
     $key = $this->primaryKey($action);
     return $key === null ? null : ControlHint::keyboard($key);
   }
