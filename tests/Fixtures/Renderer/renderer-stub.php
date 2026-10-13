@@ -57,7 +57,7 @@ if (in_array($scenario, ['startup_error', 'pre_session_error', 'pre_session_key'
   exit(92);
 }
 if ($scenario === 'startup_timeout') {
-  rendererStubWrite('waiting for an unavailable surface', STDERR);
+  // A deadline may expire before this child runs; timeout evidence must not require peer output.
   usleep(2_000_000);
   exit(93);
 }
