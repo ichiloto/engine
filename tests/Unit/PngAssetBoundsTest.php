@@ -16,8 +16,9 @@ beforeEach(function () {
       . 'new \\Ichiloto\\Engine\\Rendering\\Presentation\\Canvas\\CanvasRectangle(0, 0, 100, 100)); '
       . 'echo json_encode(\\Ichiloto\\Engine\\Rendering\\Sprites\\PngAssetBounds::getVisibleBounds('
       . var_export($this->root, true) . ', $image));';
-    $command = escapeshellarg(PHP_BINARY) . ' -n ' . ($withoutDecoder ? '-d disable_functions=imagecreatefrompng ' : '')
-      . '-r ' . escapeshellarg($code);
+    // Only the absent-decoder fixture strips configuration; normal decoding may load GD through php.ini.
+    $command = escapeshellarg(PHP_BINARY) . ($withoutDecoder ? ' -n -d disable_functions=imagecreatefrompng' : '')
+      . ' -r ' . escapeshellarg($code);
     exec($command, $output, $exit);
     expect($exit)->toBe(0);
     return json_decode(implode('', $output), true, flags: JSON_THROW_ON_ERROR);
