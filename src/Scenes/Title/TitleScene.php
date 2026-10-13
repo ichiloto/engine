@@ -881,13 +881,7 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
     }
 
     try {
-      $currentScene = $sceneManager->loadScene(\Ichiloto\Engine\Scenes\Game\GameScene::class)->currentScene;
-
-      if (! $currentScene instanceof \Ichiloto\Engine\Scenes\Game\GameScene) {
-        return;
-      }
-
-      $currentScene->configure($gameConfig);
+      $sceneManager->loadSavedGame($gameConfig);
     } catch (Throwable $error) {
       $sceneManager->loadScene(self::class);
       $this->openContinueMenu();

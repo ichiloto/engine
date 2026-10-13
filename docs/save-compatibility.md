@@ -111,6 +111,61 @@ quick, and autosave files, and for readers used by Continue and tooling:
 Loading never writes the source path. A migrated legacy game is written in
 the current envelope only when the player explicitly saves.
 
+## Saved Campaign Activation
+
+Reading a save is not gameplay activation. `SaveManager::loadSaveFile()`,
+`loadSlot()`, `canLoadSaveFile()` and slot lists remain read-only, and
+`GameLoader::loadSavedGame()` still returns a validated `GameConfig`.
+Actual gameplay callers must pass that config to
+`SceneManager::loadSavedGame(GameConfig): GameScene`. Title Continue and the
+Continue command use this entry. An external caller already holding the current,
+registered, started field can call `GameScene::configureSavedGame(GameConfig)`.
+Plain `configure()` and `configureForLaunch()` deliberately do not signal a save
+load; new-game launch remains separate.
+
+Projects may declare `assets/Data/saved-game-resume.php`, returning a class string
+implementing `Ichiloto\Engine\Scenes\Game\SavedGameResumeHandlerInterface`:
+
+```php
+return \Project\Progress\ResumeActivity::class;
+```
+
+The declaration is optional and is owned by that `Game` instance through
+`getSavedGameResumeRegistry()`, not a process-global handler. The Engine rejects
+unreadable or malformed declarations, missing/wrong-contract/abstract classes and
+constructors requiring arguments at bootstrap. Reconfiguring the registry clears
+the previous declaration first; changing it during a pending load is an explicit
+failure, not permission to run a stale handler.
+
+`resumeSavedGame(SavedGameResumeContext $context): void` is called once after
+project state, campaign, map, player and field state have been restored and the
+project-state restoration transaction has completed. `$context->scene` is the
+exact live field owner. Its existing project-state registry and scene manager
+remain the only authorities: the project decides whether saved progress requires
+an activity, supplies the recorded identities/rules and may call
+`beginSceneExcursion($context->scene, $target, $configuration)`. No continuation,
+handler or excursion ownership is serialized by this hook.
+
+The Engine waits for the current registered, started field, its active player and
+field state, no active story session, no transition and no active stacked or
+UI-presented modal. Entry triggers, field input and movement are withheld until this
+one-shot handoff. If the handler opens an excursion, entry triggers remain
+deferred until the field owns gameplay again. A lifecycle that is not yet stable
+is retried only while this load is pending; it is not project polling on every
+game update. Stop, navigation (including non-modal suspension) and
+reconfiguration/new-game launch cancel pending ownership. Foreign, unregistered
+or stopped direct callers are refused;
+loading over an already-active story session is refused without overwriting it.
+
+A handler returns normally when no activity is required or it has successfully
+handed off. It must throw if a required activity cannot be restored. Failures
+propagate visibly and latch the loaded field against input/events until it is
+stopped or explicitly reconfigured; they are not silently treated as successful
+field resumes. Hydration failures retain the existing project-state rollback;
+handler work happens after that transaction and is not implicitly rolled back.
+The active-story save guard remains unchanged. With no declaration, saved-game
+activation retains the existing immediate field behavior.
+
 Future schema/content versions and wrong-project saves fail with their
 declared/current versions, project IDs, and save path. Missing sequential
 migration steps, corrupt payloads, invalid manifests, tombstones, and

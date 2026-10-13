@@ -8,7 +8,6 @@ use Ichiloto\Engine\Core\Menu\MenuItem;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\IO\SaveManager;
 use Ichiloto\Engine\Scenes\Game\GameLoader;
-use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\GameOver\GameOverScene;
 use Ichiloto\Engine\Scenes\Title\TitleScene;
 use Ichiloto\Engine\Localization\Vocabulary;
@@ -66,14 +65,8 @@ class ContinueGameCommand extends MenuItem
       return self::FAILURE;
     }
 
-    $currentScene = $context->sceneManager->loadScene(GameScene::class)->currentScene;
-
-    if (! $currentScene instanceof GameScene) {
-      throw new NotFoundException('The current scene is not a game scene.');
-    }
-
     try {
-      $currentScene->configure($this->gameLoader->loadSavedGame($savedGameFilePath));
+      $context->sceneManager->loadSavedGame($this->gameLoader->loadSavedGame($savedGameFilePath));
     } catch (Throwable) {
       return self::FAILURE;
     }

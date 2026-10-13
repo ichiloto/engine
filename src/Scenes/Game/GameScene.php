@@ -38,8 +38,11 @@ use Ichiloto\Engine\Field\PlayerGraphicalSubject;
 use Ichiloto\Engine\Field\PlayerPresentationConfig;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteProviderHostInterface;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Scenes\AbstractScene;
 use Ichiloto\Engine\Scenes\SceneManager;
+use Ichiloto\Engine\UI\Modal\ModalManager;
+use Ichiloto\Engine\UI\Interfaces\ModalInterface;
 use Ichiloto\Engine\Scenes\Game\States\CutsceneState;
 use Ichiloto\Engine\Scenes\Game\States\DialogueState;
 use Ichiloto\Engine\Scenes\Game\States\AbilityMenuState;
@@ -543,6 +546,108 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     protected bool $fieldPresentationIsDirty = false;
 
     private ?CinematicDefinition $launchCinematic = null;
+    private bool $configuringSavedGame = false;
+    private bool $resumingSavedGame = false;
+    private bool $hasSavedGameAutomaticTriggers = false;
+    private ?SavedGameResumeRegistry $pendingSavedGameResume = null;
+    private int $savedGameResumeRevision = 0;
+    private ?Throwable $savedGameResumeFailure = null;
+
+    /** Saved-load intent is explicit; arbitrary configure() calls remain ordinary configuration. */
+    public function configureSavedGame(GameConfig $config): void
+    {
+        if ($this->configuringSavedGame || $this->resumingSavedGame
+            || !$this->hasLiveSavedGameOwner() || $this->hasUnstableEventSession()) {
+            throw new \LogicException('Saved-game restoration requires the current registered, started field without an active story session.');
+        }
+        $registry = $this->getGame()->getSavedGameResumeRegistry();
+        $revision = $registry->revision;
+        $this->configuringSavedGame = $registry->handlerClass !== null;
+        try {
+            $this->configure($config);
+            if ($this->configuringSavedGame) {
+                $this->configuringSavedGame = false;
+                $this->pendingSavedGameResume = $registry;
+                $this->savedGameResumeRevision = $revision;
+                $this->completePendingSavedGameResume();
+            }
+        } catch (Throwable $error) {
+            $this->savedGameResumeFailure = $error;
+            throw $error;
+        } finally {
+            $this->configuringSavedGame = false;
+        }
+    }
+
+    private function hasLiveSavedGameOwner(): bool
+    {
+        return !$this->isStopping && $this->isStarted()
+            && $this->getGame()->sceneManager === $this->sceneManager
+            && $this->sceneManager->currentScene === $this
+            && $this->sceneManager->hasRegisteredScene($this);
+    }
+
+    private function canResumeSavedGame(): bool
+    {
+        return $this->hasLiveSavedGameOwner() && $this->fieldState !== null
+            && $this->state === $this->fieldState && $this->player?->isActive
+            && !$this->hasUnstableEventSession() && !$this->sceneManager->hasSceneTransition()
+            && !$this->hasSavedGameResumeModal();
+    }
+
+    private function hasSavedGameResumeModal(): bool
+    {
+        if (ModalManager::getInstance($this->getGame())->currentModal !== null) { return true; }
+        foreach ($this->getUI()->getActivePresentations() as $presentation) {
+            if ($presentation instanceof ModalInterface) { return true; }
+        }
+        return false;
+    }
+
+    private function cancelPendingSavedGameResume(): void
+    {
+        $this->pendingSavedGameResume = null;
+        $this->savedGameResumeFailure = null;
+        $this->hasSavedGameAutomaticTriggers = false;
+    }
+
+    /** A one-shot field lifecycle handoff, never project polling or a serialized continuation. */
+    private function completePendingSavedGameResume(): void
+    {
+        $registry = $this->pendingSavedGameResume;
+        if ($registry === null) { return; }
+        if (!$this->hasLiveSavedGameOwner()) {
+            $this->cancelPendingSavedGameResume();
+            $this->hasPendingAutomaticTriggerEvaluation = false;
+            return;
+        }
+        if ($registry !== $this->getGame()->getSavedGameResumeRegistry()
+            || $registry->revision !== $this->savedGameResumeRevision) {
+            throw new \LogicException('The project resume declaration changed during saved-game restoration.');
+        }
+        if (!$this->canResumeSavedGame()) { return; }
+        $handlerClass = $registry->handlerClass;
+        if ($handlerClass === null) {
+            throw new \LogicException('The saved-game resume handler is no longer available.');
+        }
+        // Consume before invoking: a handler can synchronously suspend/resume this owner.
+        $this->pendingSavedGameResume = null;
+        $this->resumingSavedGame = true;
+        try {
+            $this->fieldState->cancelWalking();
+            InputManager::resetState(true);
+            if (!$this->canResumeSavedGame()) {
+                throw new \LogicException('Saved-game field ownership changed before the resume handler could run.');
+            }
+            (new $handlerClass())->resumeSavedGame(new SavedGameResumeContext($this));
+        } catch (Throwable $error) {
+            $this->savedGameResumeFailure = $error;
+            throw $error;
+        } finally {
+            $this->resumingSavedGame = false;
+        }
+        $this->evaluatePendingAutomaticTriggers();
+    }
 
     /** No fabricated event or map edit: the real controller owns this launch session. */
     public function configureForLaunch(GameConfig $config, CinematicDefinition $cinematic): void
@@ -568,6 +673,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         if (!$config instanceof GameConfig) {
             throw new IchilotoException('Invalid configuration.');
         }
+        $this->cancelPendingSavedGameResume();
 
         $this->getGame()->getProjectStateRegistry()->runWithSnapshot(
             $config->projectState,
@@ -644,6 +750,11 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     /** The launch session takes control before automatic events; completion resumes their normal evaluation. */
     protected function startConfiguredFieldEvents(): void
     {
+        if ($this->configuringSavedGame) {
+            $this->hasSavedGameAutomaticTriggers = true;
+            $this->hasPendingAutomaticTriggerEvaluation = true;
+            return;
+        }
         $cinematic = $this->launchCinematic;
         $this->launchCinematic = null;
         if ($cinematic === null) {
@@ -846,6 +957,26 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         if ($this->isStopping) {
             return;
         }
+        if ($this->configuringSavedGame || $this->resumingSavedGame) { return; }
+        if ($this->savedGameResumeFailure !== null) { throw $this->savedGameResumeFailure; }
+        if ($this->pendingSavedGameResume !== null) {
+            try {
+                $this->completePendingSavedGameResume();
+                if ($this->hasLiveSavedGameOwner() && $this->hasUnstableEventSession()
+                    && !$this->sceneManager->hasSceneTransition()
+                    && ModalManager::getInstance($this->getGame())->currentModal === null) {
+                    $this->updateEventSession(Time::getDeltaTime());
+                }
+            } catch (Throwable $error) {
+                $this->savedGameResumeFailure = $error;
+                throw $error;
+            }
+            return;
+        }
+        if ($this->hasSavedGameAutomaticTriggers) {
+            $this->evaluatePendingAutomaticTriggers();
+            if ($this->isStopping || $this->sceneManager->currentScene !== $this) { return; }
+        }
         $this->advanceFieldPresentation(max(0.0, Time::getDeltaTime()));
         parent::update();
         if ($this->isStopping || $this->sceneManager->currentScene !== $this || $this->sceneManager->hasSceneTransition()) {
@@ -897,6 +1028,10 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     #[Override]
     public function suspend(): void
     {
+        if ($this->pendingSavedGameResume !== null && !$this->hasSavedGameResumeModal()) {
+            $this->cancelPendingSavedGameResume();
+            $this->hasPendingAutomaticTriggerEvaluation = false;
+        }
         $this->player?->stopGraphicalAnimation();
         $this->npcManager?->stopGraphicalAnimation();
         $this->cinematicStage?->pauseGraphicalAnimation();
@@ -919,6 +1054,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         }
 
         $this->isStopping = true;
+        $this->cancelPendingSavedGameResume();
         $this->hasDeferredAutoSave = false;
         $this->hasPendingAutomaticTriggerEvaluation = false;
         $failure = null;
@@ -1113,7 +1249,17 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         if ($this->isStopping || ! $this->hasPendingAutomaticTriggerEvaluation || $this->hasUnstableEventSession()) {
             return;
         }
+        if ($this->configuringSavedGame || $this->resumingSavedGame
+            || $this->pendingSavedGameResume !== null || $this->savedGameResumeFailure !== null) {
+            return;
+        }
+        if ($this->hasSavedGameAutomaticTriggers && (!$this->hasLiveSavedGameOwner() || $this->state !== $this->fieldState
+            || $this->sceneManager->hasSceneTransition()
+            || $this->hasSavedGameResumeModal())) {
+            return;
+        }
 
+        $this->hasSavedGameAutomaticTriggers = false;
         $this->hasPendingAutomaticTriggerEvaluation = false;
         $this->player?->evaluateAutomaticTriggersAtCurrentPosition();
     }

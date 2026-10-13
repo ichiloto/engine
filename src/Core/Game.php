@@ -34,6 +34,7 @@ use Ichiloto\Engine\Entities\Elements\ElementRegistry;
 use Ichiloto\Engine\Entities\EquipmentOptimization\EquipmentOptimizationPolicyRegistry;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
 use Ichiloto\Engine\Field\FieldActionRegistry;
+use Ichiloto\Engine\Scenes\Game\SavedGameResumeRegistry;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalCapabilities;
@@ -79,6 +80,12 @@ use Throwable;
 class Game implements CanRun, SubjectInterface
 {
     private ?ProjectStateRegistry $projectStateRegistry = null;
+    private ?SavedGameResumeRegistry $savedGameResumeRegistry = null;
+
+    public function getSavedGameResumeRegistry(): SavedGameResumeRegistry
+    {
+        return $this->savedGameResumeRegistry ??= new SavedGameResumeRegistry();
+    }
 
     /** Project bootstrap registers schema policies on this Game, never in global content stores. */
     public function registerProjectStateParticipant(ProjectStateParticipantInterface $participant): self
@@ -535,6 +542,7 @@ class Game implements CanRun, SubjectInterface
         EquipmentOptimizationPolicyRegistry::configureFromProject();
         ScriptCommandRegistry::configureFromProject();
         FieldActionRegistry::configureFromProject();
+        $this->getSavedGameResumeRegistry()->configureFromProject();
         ConfigStore::put(PlaySettings::class, new PlaySettings($this->options));
         ConfigStore::put(AppConfig::class, new AppConfig());
         ProjectFormat::assertSupported(config(AppConfig::class, ProjectFormat::KEY));

@@ -36,6 +36,7 @@ use Ichiloto\Engine\Scenes\Battle\BattleConfig;
 use Ichiloto\Engine\Scenes\Battle\BattleLoader;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\Scenes\Game\GameScene;
+use Ichiloto\Engine\Scenes\Game\GameConfig;
 use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Ichiloto\Engine\Scenes\GameOver\GameOverScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
@@ -276,6 +277,12 @@ class SceneManager implements CanStart, CanRender, CanUpdate
     return $this->scenes->find(fn(SceneInterface $scene) => $scene::class === $className);
   }
 
+  /** Registration follows object identity, not the first matching class. */
+  public function hasRegisteredScene(SceneInterface $scene): bool
+  {
+    return $this->scenes->contains($scene);
+  }
+
   /** Title commands and tooling share the same new-game data and scene lifecycle. */
   public function startNewGame(?GameLoader $loader = null, ?GameStartLocation $start = null, ?CinematicDefinition $cinematic = null): GameScene
   {
@@ -290,6 +297,17 @@ class SceneManager implements CanStart, CanRender, CanUpdate
       $scene->configureForLaunch($config, $cinematic);
     }
 
+    return $scene;
+  }
+
+  /** Activate a decoded save; file inspection and new-game launch remain separate. */
+  public function loadSavedGame(GameConfig $config): GameScene
+  {
+    $scene = $this->loadScene(GameScene::class)->currentScene;
+    if (!$scene instanceof GameScene) {
+      throw new NotFoundException('The current scene is not a game scene.');
+    }
+    $scene->configureSavedGame($config);
     return $scene;
   }
 
