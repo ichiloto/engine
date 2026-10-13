@@ -56,13 +56,15 @@ final class SaveLoadMenuPresentation
     for ($index = $first; $index <= $last; $index++) {
       $slot = $slots[$index];
       $id = 'save-slot-' . $slot->slot;
+      // Automatic checkpoints share a slot number; the selected file owns identity.
+      if ($slot->slot <= 0) { $id .= '-' . hash('sha256', $slot->path); }
       $card = new CanvasRectangle($list->x, $y, $list->width,
         $heights[$index] - ($index === array_key_last($slots) ? 0 : $gap));
       $view->frame($id . '-frame', $card, borderLayer: 20);
       $edges = ($theme->frames['panel'] ?? null)?->borderInsets($theme->assetRoot, $card) ?? [4, 4, 4, 4];
       $treatment = new CanvasRectangle($card->x + $edges[0], $card->y + $edges[1],
         $card->width - $edges[0] - $edges[2], $card->height - $edges[1] - $edges[3]);
-      $view->prose($id . '-title', get_message('file', 'File') . ' ' . $slot->slot,
+      $view->prose($id . '-title', $slot->getLabel(),
         new CanvasRectangle($card->x + $p, $card->y + 4, $card->width - 2 * $p, $m->cellHeight), 'accent');
       $identity = new MenuRow('location', $slot->isEmpty ? 'Empty File' : $slot->locationName,
         selected: $index === $activeIndex, focused: $index === $activeIndex);

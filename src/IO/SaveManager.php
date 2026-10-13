@@ -40,6 +40,7 @@ class SaveManager
   protected const string QUICK_SAVE_NAME = 'quick';
   protected const string AUTO_SAVE_NAME = 'auto';
   protected const int AUTO_SAVE_RING_SIZE = 3;
+  private const int ORDER_UNITS_PER_SECOND = 1_000_000;
 
   /**
    * The data directory path.
@@ -111,10 +112,10 @@ class SaveManager
 
     foreach ($saveFiles as $path) { $this->validateStoragePath($path); }
 
-    usort(
-      $saveFiles,
-      static fn(string $left, string $right): int => filemtime($right) <=> filemtime($left)
-    );
+    $orders = [];
+    foreach ($saveFiles as $path) { $orders[$path] = $this->getSaveOrder($path); }
+    usort($saveFiles, static fn(string $left, string $right): int =>
+      ($orders[$right] <=> $orders[$left]) ?: strcmp($left, $right));
 
     return $saveFiles;
   }
@@ -176,22 +177,46 @@ class SaveManager
         continue;
       }
 
-      try {
-        $slots[] = $this->loadSaveFile($path)->slot;
-      } catch (Throwable $throwable) {
-        try {
-          Debug::warn(sprintf('Skipping incompatible save slot %d (%s): %s', $slot, $path, $throwable->getMessage()));
-        } catch (Throwable) {
-        }
-
-        $message = $throwable instanceof SaveCompatibilityException
-          ? $throwable->getMessage()
-          : 'This save file is from an incompatible format.';
-        $slots[] = SaveSlot::incompatible($slot, $path, $message);
-      }
+      $slots[] = $this->inspectSaveSlot($slot, $path);
     }
 
     return $slots;
+  }
+
+  /**
+   * Read-only load catalog: numbered slots, then existing automatic/quick files
+   * newest first. Save menus retain the numbered-only getSaveSlots() contract.
+   * Compatibility inspection prepares detached snapshots; it never restores a
+   * campaign, changes playtime/settings, or writes a migrated file.
+   *
+   * @return SaveSlot[]
+   */
+  public function getLoadSlots(int $slotCount = self::DEFAULT_SLOT_COUNT): array
+  {
+    $slots = $this->getSaveSlots($slotCount);
+    foreach ($this->getSaveFiles(true) as $path) {
+      if (dirname($path) !== $this->quickSaveDirectory) { continue; }
+      $slot = $this->getDestinationSlot($path);
+      if ($slot !== self::AUTO_SAVE_SLOT && $slot !== self::QUICK_SAVE_SLOT) { continue; }
+      $slots[] = $this->inspectSaveSlot($slot, $path);
+    }
+    return $slots;
+  }
+
+  private function inspectSaveSlot(int $slot, string $path): SaveSlot
+  {
+    try {
+      return $this->loadSaveFile($path)->slot;
+    } catch (Throwable $throwable) {
+      try {
+        Debug::warn(sprintf('Skipping incompatible save slot %d (%s): %s', $slot, $path, $throwable->getMessage()));
+      } catch (Throwable) {
+      }
+      $message = $throwable instanceof SaveCompatibilityException
+        ? $throwable->getMessage()
+        : 'This save file is from an incompatible format.';
+      return SaveSlot::incompatible($slot, $path, $message);
+    }
   }
 
   /**
@@ -229,16 +254,18 @@ class SaveManager
    */
   public function autoSave(GameScene $scene): SaveSlot
   {
-    $this->validateStoragePath($this->quickSaveDirectory);
-    $existing = glob($this->quickSaveDirectory . '/' . self::AUTO_SAVE_NAME . '-*.' . self::FILE_EXTENSION) ?: [];
-    usort($existing, static fn(string $a, string $b): int => filemtime($a) <=> filemtime($b));
-
-    // Reuse the oldest file once the ring is full.
-    $name = count($existing) >= self::AUTO_SAVE_RING_SIZE
-      ? pathinfo($existing[0], PATHINFO_FILENAME)
-      : sprintf('%s-%02d', self::AUTO_SAVE_NAME, count($existing) + 1);
-
-    return $this->writeSave($scene, self::AUTO_SAVE_SLOT, $this->getQuickSavePath($name));
+    $ring = [];
+    for ($index = 1; $index <= self::AUTO_SAVE_RING_SIZE; $index++) {
+      $path = $this->getQuickSavePath(sprintf('%s-%02d', self::AUTO_SAVE_NAME, $index));
+      if (!file_exists($path)) {
+        return $this->writeSave($scene, self::AUTO_SAVE_SLOT, $path);
+      }
+      $ring[$path] = $this->getSaveOrder($path);
+    }
+    // The persisted order, not filesystem timestamp resolution, owns rotation.
+    uksort($ring, static fn(string $left, string $right): int =>
+      ($ring[$left] <=> $ring[$right]) ?: strcmp($left, $right));
+    return $this->writeSave($scene, self::AUTO_SAVE_SLOT, array_key_first($ring));
   }
 
   /**
@@ -270,10 +297,12 @@ class SaveManager
     }
 
     $savedGame = $this->createSavedGame($scene, $slot, $path);
-    $serializedPayload = serialize($this->compatibilityPipeline->createEnvelope(
+    $envelope = $this->compatibilityPipeline->createEnvelope(
       $savedGame->slot,
       $savedGame->config
-    ));
+    );
+    $envelope['saveOrder'] = $this->getNextSaveOrder();
+    $serializedPayload = serialize($envelope);
     $encodedPayload = gzencode($serializedPayload, 9);
 
     if ($encodedPayload === false) {
@@ -342,8 +371,8 @@ class SaveManager
   public function canLoadSaveFile(string $path): bool
   {
     try {
-      $this->loadSaveFile($path);
-      return true;
+      $slot = $this->loadSaveFile($path)->slot;
+      return !$slot->isEmpty && $slot->isLoadable;
     } catch (Throwable) {
       return false;
     }
@@ -384,6 +413,36 @@ class SaveManager
   private function validateStoragePath(string $path): string
   {
     return $this->isolatedDataRoot === null ? $path : LaunchDataRoot::validatePath($this->isolatedDataRoot, $path);
+  }
+
+  /** Scalar-only inspection must not instantiate saved gameplay objects. */
+  private function getSaveOrder(string $path): int
+  {
+    try {
+      $payload = LocalDataFiles::runFileOperation(fn() =>
+        unserialize($this->decodeSavePayload($path), ['allowed_classes' => false]));
+      if (is_array($payload) && is_int($payload['saveOrder'] ?? null) && $payload['saveOrder'] > 0) {
+        return $payload['saveOrder'];
+      }
+    } catch (Throwable) {
+      // Corrupt and unmarked legacy files still have a deterministic position.
+    }
+    clearstatcache(true, $path);
+    $modified = LocalDataFiles::runFileOperation(static fn() => filemtime($path));
+    return min(max(0, (int)$modified), intdiv(PHP_INT_MAX, self::ORDER_UNITS_PER_SECOND))
+      * self::ORDER_UNITS_PER_SECOND;
+  }
+
+  private function getNextSaveOrder(): int
+  {
+    $previous = 0;
+    foreach ($this->getSaveFiles(true) as $path) {
+      $previous = max($previous, $this->getSaveOrder($path));
+    }
+    if ($previous === PHP_INT_MAX) {
+      throw new RuntimeException('The persisted save order has reached its supported limit.');
+    }
+    return max($previous + 1, (int)floor(microtime(true) * self::ORDER_UNITS_PER_SECOND));
   }
 
   /**
@@ -447,7 +506,11 @@ class SaveManager
    */
   protected function decodeSavePayload(string $path): string
   {
-    $contents = file_get_contents($path);
+    try {
+      $contents = LocalDataFiles::runFileOperation(static fn() => file_get_contents($path));
+    } catch (RuntimeException $error) {
+      throw new CorruptSaveException(sprintf('Could not read save file: %s', $path), previous: $error);
+    }
 
     if ($contents === false) {
       throw new CorruptSaveException(sprintf('Could not read save file: %s', $path));
@@ -458,7 +521,11 @@ class SaveManager
     }
 
     $compressedPayload = substr($contents, strlen(self::FILE_HEADER));
-    $serializedPayload = gzdecode($compressedPayload);
+    try {
+      $serializedPayload = LocalDataFiles::runFileOperation(static fn() => gzdecode($compressedPayload));
+    } catch (RuntimeException $error) {
+      throw new CorruptSaveException(sprintf('Could not decode save file: %s', $path), previous: $error);
+    }
 
     if ($serializedPayload === false) {
       throw new CorruptSaveException(sprintf('Could not decode save file: %s', $path));

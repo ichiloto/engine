@@ -38,6 +38,62 @@ old `GameConfig::$events` strings into `GameConfig::$gameState['storyEvents']`.
 This is the only legacy-events migration path; `GameScene::configure()` no
 longer repeats it.
 
+## Save discovery and checkpoint ordering
+
+`SaveManager::getSaveSlots()` remains the numbered-only, writable Save-menu
+contract. `getLoadSlots()` is the read-only runtime Load Game catalog: the
+configured numbered slots (including empty ones), followed by existing quick
+and automatic saves, newest first. It includes legacy `auto.iedata` and numbered
+autosave files. Corrupt, wrong-project and incompatible records remain visible
+but cannot be loaded. Inspection uses the existing compatibility
+pipeline on detached data; it does not restore project state, change settings or
+playtime, execute the saved-scene resume hook, or rewrite migrated saves. Only
+confirmed loading follows `GameLoader::loadSavedGame()` and
+`SceneManager::loadSavedGame()`, including the existing saved-scene handoff.
+
+`SaveSlot::getLabel()` shares File, Autosave and Quick Save labels across the
+Terminal and graphical selector. Optional project vocabulary terms `save.auto`
+and `save.quick` replace those two defaults. Save identity and negative reserved
+slot numbers are unchanged. The Terminal selector pages within its viewport;
+the shared graphical save/load presentation scrolls the same complete catalog
+around the same active index. Neither adds writable automatic/quick Save rows.
+
+New SaveManager writes add optional positive integer `saveOrder` to the existing
+schema-1 envelope root, beside `schemaVersion`, `contentVersion`, `projectId`
+and `payload`. No container or content migration is required; existing readers
+ignore that optional scalar, and the serialized SaveSlot/SavedGame contracts do
+not change. `savedAt` remains the actual wall-clock timestamp used for metadata,
+not an ordering counter.
+
+This removes **filemtime-only ordering** from latest-file discovery and autosave
+rotation. Each successful write records the greater of current epoch
+microseconds and the greatest persisted order plus one, across all numbered,
+quick and automatic files. Reconstructing the manager after restart therefore
+retains monotonic ordering even within one filesystem second or after a clock
+rollback. Ordering inspection disables PHP class instantiation and reads only
+the scalar envelope field; it does not hydrate campaign objects or run project
+compatibility callbacks. Files without a usable order, including legacy and
+corrupt files, retain modification-time ordering in microsecond units. Exact
+ties use ascending full path as a deterministic tie-break, not proof of which
+legacy checkpoint was truly written last. Future legacy modification times can
+advance the logical order; this does not change `savedAt`. Integer exhaustion
+refuses a write before replacing any good file.
+
+The writer fills missing canonical ring cells `auto-01` through `auto-03`
+before replacing the oldest persisted checkpoint. Noncanonical/legacy automatic
+files remain loadable but are no longer overwrite candidates for the canonical
+three-file ring. Atomic replacement and the active-event guard are retained;
+a failed snapshot, encoding or storage write leaves the previous save/order
+intact, with no in-memory sequence to advance. Ordering assumes the existing
+single runtime writer per player-data root; it does not provide a cross-process
+save transaction or claim power-loss fsync guarantees.
+
+Synthetic `SaveLoadCatalogTest` covers same-timestamp repeated checkpoints,
+restart ordering, ring gaps/rotation, legacy ties/future timestamps, latest
+loadable fallback, class-free order inspection, read-only state/settings/time,
+path confinement, failed replacements, viewport paging and semantic control
+hints, and Title dispatch through the shared saved-load path.
+
 ## Pre-WP1 payload inventory
 
 The legacy root was:

@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\IO\Saves;
 
+use Ichiloto\Engine\IO\SaveManager;
 use Ichiloto\Engine\Localization\Vocabulary;
 
 /**
@@ -89,6 +90,22 @@ readonly class SaveSlot
     }
 
     return sprintf('%s %s %d', $this->leaderName, Vocabulary::getTerm('stats.level', 'Lv'), $this->leaderLevel);
+  }
+
+  /** Shared labels for both Terminal and graphical save/load records. */
+  public function getLabel(): string
+  {
+    if ($this->slot === SaveManager::QUICK_SAVE_SLOT) {
+      return Vocabulary::getTerm('save.quick', 'Quick Save');
+    }
+    if ($this->slot === SaveManager::AUTO_SAVE_SLOT) {
+      $label = Vocabulary::getTerm('save.auto', 'Autosave');
+      if (preg_match('/^auto-([0-9]+)$/D', pathinfo($this->path, PATHINFO_FILENAME), $matches)) {
+        return $label . ' ' . (int)$matches[1];
+      }
+      return $label;
+    }
+    return get_message('file', 'File') . ' ' . $this->slot;
   }
 
   /**
