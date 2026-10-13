@@ -138,7 +138,7 @@ beforeEach(function () {
   $this->scene = makeBareScene(GameScene::class);
   new ReflectionProperty($this->scene, 'sceneManager')->setValue($this->scene, $manager);
   $ui = makeBareScene(\Ichiloto\Engine\UI\UIManager::class);
-  $ui->locationHUDWindow = makeBareScene(LocationHUDWindow::class);
+  new ReflectionProperty(GameScene::class, 'locationHUDWindow')->setValue($this->scene, makeBareScene(LocationHUDWindow::class));
   new ReflectionProperty($this->scene, 'uiManager')->setValue($this->scene, $ui);
   $this->party = new Party();
   $this->actor = new Character('First Actor', 0, new Stats(totalHp: 901, totalMp: 123, attack: 34), actorId: 'actor.one');

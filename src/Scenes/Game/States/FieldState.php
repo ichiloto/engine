@@ -339,7 +339,6 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
      */
     public function resume(): void
     {
-        $this->getGameScene()->locationHUDWindow->activate();
         $this->renderTheField(forceFullRepaint: true);
     }
 }

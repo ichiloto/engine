@@ -456,13 +456,10 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
      */
     protected(set) ?Player $player = null;
     /**
-     * @var LocationHUDWindow|null The location HUD window.
+     * @var LocationHUDWindow|null The location HUD owned by this field instance.
      */
-    public ?LocationHUDWindow $locationHUDWindow {
-        get {
-            return $this->uiManager->locationHUDWindow;
-        }
-    }
+    protected(set) ?LocationHUDWindow $locationHUDWindow = null;
+    private ?bool $locationHUDWasActiveBeforeSuspend = null;
     /**
      * @var Party|null The party.
      */
@@ -688,12 +685,8 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
 
         $this->initializeGameSceneStates();
 
-        if (isset($this->uiManager->locationHUDWindow)) {
-            $this->uiManager->locationHUDWindow->deactivate();
-            $this->uiManager->uiElements->remove($this->uiManager->locationHUDWindow);
-        }
-
-        $this->uiManager->locationHUDWindow = new LocationHUDWindow(new Vector2(0, 0), MovementHeading::NONE);
+        $this->releaseLocationHUDWindow();
+        $this->locationHUDWindow = new LocationHUDWindow(new Vector2(0, 0), MovementHeading::NONE);
         $this->uiManager->uiElements->add($this->locationHUDWindow);
 
         $this->config = $config;
@@ -1017,9 +1010,16 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
             return;
         }
 
-        parent::resume();
-        $this->cinematicStage?->resumeGraphicalAnimation();
-        $this->state->resume();
+        $this->restoreLocationHUDWindow();
+        try {
+            parent::resume();
+            $this->cinematicStage?->resumeGraphicalAnimation();
+            $this->state->resume();
+        } finally {
+            // State resume may change HUD visibility; scene suspension owns the remembered intent.
+            $this->restoreLocationHUDWindow();
+            $this->locationHUDWasActiveBeforeSuspend = null;
+        }
     }
 
     /**
@@ -1028,6 +1028,11 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     #[Override]
     public function suspend(): void
     {
+        if ($this->isStopping) { return; }
+        if ($this->locationHUDWindow !== null) {
+            $this->locationHUDWasActiveBeforeSuspend ??= $this->locationHUDWindow->isActive;
+            $this->uiManager->deactivateElement($this->locationHUDWindow);
+        }
         if ($this->pendingSavedGameResume !== null && !$this->hasSavedGameResumeModal()) {
             $this->cancelPendingSavedGameResume();
             $this->hasPendingAutomaticTriggerEvaluation = false;
@@ -1059,6 +1064,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         $this->hasPendingAutomaticTriggerEvaluation = false;
         $failure = null;
         foreach ([
+            fn() => $this->releaseLocationHUDWindow(),
             fn() => $this->cinematicController?->shutdown(),
             fn() => $this->eventInterpreter?->failActiveSession('Event interrupted by field shutdown.'),
             fn() => $this->cinematicStage?->clear(),
@@ -1079,6 +1085,25 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         if ($failure !== null) {
             throw $failure;
         }
+    }
+
+    private function restoreLocationHUDWindow(): void
+    {
+        if ($this->locationHUDWasActiveBeforeSuspend === null || $this->locationHUDWindow === null) { return; }
+        if ($this->locationHUDWindow->isActive === $this->locationHUDWasActiveBeforeSuspend) { return; }
+        if ($this->locationHUDWasActiveBeforeSuspend) {
+            $this->locationHUDWindow->activate();
+        } else {
+            $this->uiManager->deactivateElement($this->locationHUDWindow);
+        }
+    }
+
+    private function releaseLocationHUDWindow(): void
+    {
+        $hud = $this->locationHUDWindow;
+        $this->locationHUDWindow = null;
+        $this->locationHUDWasActiveBeforeSuspend = null;
+        if ($hud !== null) { $this->uiManager->removeElement($hud); }
     }
 
     /**

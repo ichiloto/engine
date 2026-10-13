@@ -109,7 +109,9 @@ final class SavedResumeField extends GameScene
         $this->party = $config->party;
         $this->currentMapId = $config->mapId;
         $this->gameState = GameState::fromArray($config->gameState);
-        $this->uiManager->locationHUDWindow = new LocationHUDWindow(new Vector2(), MovementHeading::NONE);
+        if ($this->locationHUDWindow !== null) { $this->uiManager->removeElement($this->locationHUDWindow); }
+        $this->locationHUDWindow = new LocationHUDWindow(new Vector2(), MovementHeading::NONE);
+        $this->uiManager->uiElements->add($this->locationHUDWindow);
         $this->player = new SavedResumePlayer($this, 'Synthetic player', clone $config->playerPosition,
             clone $config->playerShape, ['@'], $config->playerHeading);
         $this->eventInterpreter = new EventInterpreter($this);

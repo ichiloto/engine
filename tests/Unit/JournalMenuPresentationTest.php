@@ -154,7 +154,7 @@ beforeEach(function () {
   new ReflectionProperty($this->scene, 'gameState')->setValue($this->scene, $this->flags);
   new ReflectionProperty($this->scene, 'party')->setValue($this->scene, new Party());
   $ui = makeBareScene(UIManager::class);
-  $ui->locationHUDWindow = makeBareScene(LocationHUDWindow::class);
+  new ReflectionProperty(GameScene::class, 'locationHUDWindow')->setValue($this->scene, makeBareScene(LocationHUDWindow::class));
   new ReflectionProperty($this->scene, 'uiManager')->setValue($this->scene, $ui);
   $this->quests = makeBareScene(QuestManager::class);
   new ReflectionProperty($this->quests, 'gameScene')->setValue($this->quests, $this->scene);

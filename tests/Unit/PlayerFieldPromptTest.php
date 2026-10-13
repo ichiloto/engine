@@ -138,8 +138,9 @@ beforeEach(function () {
     $ui->method('render')->willReturnCallback(static function (): void {
         Console::withLayer('location-hud', fn() => Console::write('HUD', 75, 38), 1010);
     });
-    $ui->locationHUDWindow = $this->getStubBuilder(LocationHUDWindow::class)->disableOriginalConstructor()
+    $hud = $this->getStubBuilder(LocationHUDWindow::class)->disableOriginalConstructor()
         ->onlyMethods(['updateDetails'])->getStub();
+    new ReflectionProperty(GameScene::class, 'locationHUDWindow')->setValue($this->scene, $hud);
     new ReflectionProperty(GameScene::class, 'uiManager')->setValue($this->scene, $ui);
     $this->camera = new Camera($this->scene, 80, 40);
     new ReflectionProperty(GameScene::class, 'camera')->setValue($this->scene, $this->camera);

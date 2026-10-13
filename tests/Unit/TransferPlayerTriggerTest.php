@@ -134,7 +134,7 @@ final class TransferTriggerSceneProbe extends GameScene
             public function __construct(private TransferTriggerSceneProbe $scene) {}
             public function render(): void { $this->scene->recordPoint('rendered'); }
         };
-        $this->uiManager->locationHUDWindow = new class extends LocationHUDWindow {
+        $this->locationHUDWindow = new class extends LocationHUDWindow {
             public function __construct() {}
             public function updateDetails(Vector2 $position, MovementHeading $heading): void {}
         };

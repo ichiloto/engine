@@ -107,7 +107,7 @@ beforeEach(function () {
   $this->scene = makeBareScene(GameScene::class);
   new ReflectionProperty($this->scene, 'sceneManager')->setValue($this->scene, $manager);
   $ui = makeBareScene(UIManager::class);
-  $ui->locationHUDWindow = makeBareScene(LocationHUDWindow::class);
+  new ReflectionProperty(GameScene::class, 'locationHUDWindow')->setValue($this->scene, makeBareScene(LocationHUDWindow::class));
   new ReflectionProperty($this->scene, 'uiManager')->setValue($this->scene, $ui);
   $this->party = new Party();
   $this->party->credit(1400);

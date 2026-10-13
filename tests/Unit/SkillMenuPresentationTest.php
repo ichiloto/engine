@@ -174,7 +174,7 @@ beforeEach(function () {
   $this->flags = new GameState();
   new ReflectionProperty($this->scene, 'gameState')->setValue($this->scene, $this->flags);
   $ui = makeBareScene(UIManager::class);
-  $ui->locationHUDWindow = makeBareScene(LocationHUDWindow::class);
+  new ReflectionProperty(GameScene::class, 'locationHUDWindow')->setValue($this->scene, makeBareScene(LocationHUDWindow::class));
   new ReflectionProperty($this->scene, 'uiManager')->setValue($this->scene, $ui);
   $this->spell = new MagicSkill('Alpha Restore', 'Restores one eligible ally. Complete authored description.', 'NOT A NATIVE ICON', 3, 0,
     new ItemScope(ItemScopeSide::ALLY, ItemScopeNumber::ONE), Occasion::ALWAYS, effects: [new HPRecoverSkillEffect('25', variance: 0.0)]);

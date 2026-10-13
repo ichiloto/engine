@@ -975,6 +975,16 @@ share one suspension authority, not separate runtimes. Synthetic regression test
 exercise these ownership and interruption paths; native custom-scene and
 Linux/WSLg acceptance are not claimed.
 
+Each field owns its actual `GameScene::$locationHUDWindow`; suspension hides
+that HUD, return restores its prior active/inactive intent, and stop releases
+only that instance. The global `UIManager::$locationHUDWindow` alias, Battle's
+target-side hiding workaround and FieldState's unconditional resume activation
+are removed. Custom targets must not reach into another scene's HUD. Bare test
+fields inject the protected-write property on their own scene; normal field
+configuration registers it automatically. `UIManager::deactivateElement()` and
+`removeElement()` clear only the owned element's presentation and Console layer,
+preserving notifications and unrelated UI.
+
 The optional [project secondary field action](rendering/input-sources.md#project-secondary-field-action)
 uses semantic input independently of ordinary Talk. The generic
 [project-state save extension](save-compatibility.md#project-owned-campaign-state)

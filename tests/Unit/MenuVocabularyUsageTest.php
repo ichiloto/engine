@@ -127,7 +127,7 @@ beforeEach(function () {
   new ReflectionProperty($this->scene, 'sceneManager')->setValue($this->scene, $manager);
   new ReflectionProperty($this->scene, 'gameState')->setValue($this->scene, new GameState());
   $ui = makeBareScene(UIManager::class);
-  $ui->locationHUDWindow = makeBareScene(LocationHUDWindow::class);
+  new ReflectionProperty(GameScene::class, 'locationHUDWindow')->setValue($this->scene, makeBareScene(LocationHUDWindow::class));
   new ReflectionProperty($this->scene, 'uiManager')->setValue($this->scene, $ui);
   $this->party = new Party();
   $scope = new ItemScope(ItemScopeSide::ALLY);

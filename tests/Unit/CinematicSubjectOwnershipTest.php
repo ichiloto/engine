@@ -127,13 +127,13 @@ final class SubjectOwnershipScene extends GameScene
     $this->sceneManager->currentScene = $this;
     $this->gameState = new GameState();
     $this->party = new Party();
-    $this->uiManager = new class extends UIManager {
-      public function __construct() {}
+    $this->uiManager = new class($this->testGame) extends UIManager {
+      public function __construct(Game $game) { parent::__construct($game); }
       public function render(): void {}
       public function suspend(): void {}
       public function resume(): void {}
     };
-    $this->uiManager->locationHUDWindow = new class extends LocationHUDWindow {
+    $this->locationHUDWindow = new class extends LocationHUDWindow {
       public function __construct() {}
       public function updateDetails(Vector2 $position, MovementHeading $heading): void {}
       public function refreshLayout(): void {}

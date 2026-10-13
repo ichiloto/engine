@@ -401,11 +401,6 @@ class BattleScene extends AbstractScene implements CanvasProviderInterface
     if ($this->pauseState?->hasOwnedResources()) { $this->pauseState->exit(); }
     $this->endResults();
 
-    // The field HUD only exists once the game scene has built it. A battle
-    // started from anywhere else (the arena) has none to hide.
-    if (isset($this->uiManager->locationHUDWindow)) {
-      $this->uiManager->locationHUDWindow->deactivate();
-    }
     $this->config = $config;
     $this->result = null;
     $this->resultWindow = null;

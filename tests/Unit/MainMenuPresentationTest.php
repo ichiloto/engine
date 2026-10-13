@@ -174,7 +174,7 @@ beforeEach(function () {
   new ReflectionProperty($this->scene, 'sceneManager')->setValue($this->scene, $manager);
   new ReflectionProperty($this->scene, 'gameState')->setValue($this->scene, new GameState());
   $ui = makeBareScene(\Ichiloto\Engine\UI\UIManager::class);
-  $ui->locationHUDWindow = makeBareScene(LocationHUDWindow::class);
+  new ReflectionProperty(GameScene::class, 'locationHUDWindow')->setValue($this->scene, makeBareScene(LocationHUDWindow::class));
   new ReflectionProperty($this->scene, 'uiManager')->setValue($this->scene, $ui);
   $this->party = new Party();
   $this->party->location = new PartyLocation('Owner Location', 'Owner Region');
