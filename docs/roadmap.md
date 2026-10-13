@@ -986,6 +986,17 @@ not be mistaken for successful optional autosaves.
 
 Each game's rules, card collection, NPC challenges, winnings, refinement,
 trading, progression gates and authored interface theme belong to that game.
+For card tables and other spatial interfaces, the shared
+`UI/Navigation/DirectionalFocusGraph` navigates explicit cardinal neighbour
+IDs using `FocusDirection`, without polling input or drawing. Replacing the
+node list validates it before mutation and retains focus by stable ID, or uses
+an explicit fallback. Disabled nodes retain their spatial focus; the consumer
+owns activation permission. `MenuGraphNodeInterface` now extends the general
+`DirectionalFocusNodeInterface`: implementers must supply stable `id`, `enabled`
+and `getNeighbourId()` values, deriving IDs from the same menu neighbours rather
+than keeping a second topology. Menu membership and focus events stay in the
+menu contract; a game's table-node contract may extend the navigation parent
+without menu-specific members. Existing menu rendering and input stay unchanged.
 The immediate reference-game plan and its ratified rule decisions are owned
 by Game in its existing private roadmap, not copied into Engine documentation.
 Implementation is queued independently and must not expand G4 acceptance.
