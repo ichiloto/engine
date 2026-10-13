@@ -211,3 +211,20 @@ it('keeps padded columns aligned around unstable glyphs', function () {
     ->and(TerminalText::displayWidth(TerminalText::padRight('> 🗡️ Shadowstep (2 MP)', 58) . '║'))->toBe(59)
     ->and(TerminalText::displayWidth(TerminalText::padRight('🏃🏽‍➡️ Sprint', 24)))->toBe(24);
 });
+
+it('remeasures modifier graphemes when the terminal composition capability changes', function (bool $first) {
+  $capability = new ReflectionProperty(\Ichiloto\Engine\IO\Console\TerminalCapabilities::class, 'supportsCompositeEmoji');
+  foreach ([$first, !$first, $first] as $composes) {
+    $capability->setValue(null, $composes);
+    $glyph = "\u{261D}\u{1F3FD}";
+    expect(TerminalText::stabilizeSymbol($glyph))->toBe($composes ? $glyph : "\u{261D}")
+      ->and(TerminalText::displayWidth($glyph))->toBe($composes ? 2 : 1);
+  }
+})->with([false, true]);
+
+it('emits the stabilized graphemes whose widths were used for fitting and wrapping', function () {
+  $text = "\u{1F5E1} Fixture";
+  expect(TerminalText::truncateToWidth($text, 10))->toBe("\u{1F5E1}\u{FE0F} Fixture")
+    ->and(TerminalText::padRight($text, 12))->toBe("\u{1F5E1}\u{FE0F} Fixture  ")
+    ->and(TerminalText::wrapToWidth($text, 7))->toBe(["\u{1F5E1}\u{FE0F}", 'Fixture']);
+});

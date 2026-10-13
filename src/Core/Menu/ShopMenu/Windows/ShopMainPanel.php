@@ -8,6 +8,7 @@ use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Entities\Inventory\EquipmentIcon;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\UI\SelectionStyle;
+use Ichiloto\Engine\UI\Text\TerminalMenuRow;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\Localization\Vocabulary;
@@ -109,14 +110,14 @@ class ShopMainPanel extends Window
   {
     $content = [];
     $symbol = Vocabulary::getTerm('currency.symbol', 'G');
-    $contentWidth = max(0, $this->width - 4);
+    $contentWidth = $this->getContentWidth();
 
     foreach ($this->items as $index => $item) {
       $prefix = $index === $this->activeItemIndex ? '>' : ' ';
       $price = $item->price * $this->priceRate;
-      $itemName = TerminalText::padRight(EquipmentIcon::getItemLabel($item), 36);
-      $priceText = TerminalText::padLeft("{$price} {$symbol}", 10);
-      $line = TerminalText::padRight(" {$prefix} {$itemName} {$priceText}", $contentWidth);
+      $line = TerminalMenuRow::compose(EquipmentIcon::getItemLabel($item), "{$price} {$symbol}",
+        min(50, $contentWidth), prefix: " {$prefix} ", valueWidth: 10);
+      $line = TerminalText::padRight($line, $contentWidth);
 
       if ($index === $this->activeItemIndex) {
         $line = SelectionStyle::apply($line);

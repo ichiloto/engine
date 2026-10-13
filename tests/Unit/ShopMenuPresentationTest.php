@@ -21,6 +21,8 @@ use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\IO\Console\NormalizedRow;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
@@ -223,6 +225,45 @@ it('uses one equipment type icon in buying selling checkout and native terminal 
     ->and(implode('', $this->state->mainPanel->getContent()))
     ->toContain(EquipmentIcon::getTerminalGlyph(WeaponType::SWORD))->not->toContain('OLD-A', 'OLD-B');
 })->with([false, true]);
+
+it('keeps terminal shop prices and icon gaps cell-aligned through selection changes', function (WeaponType $type) {
+  $gear = new Weapon('<fg=green>Fixture 界</>', '', 'IGNORED', 101, equipmentType: $type);
+  $panel = $this->state->mainPanel;
+  $panel->setItems([new Item('Ordinary fixture', '', '/', 101), $gear]);
+  foreach ([0, 1] as $selected) {
+    $panel->activeItemIndex = $selected;
+    foreach (array_slice($panel->getContent(), 0, 2) as $row) {
+      $cells = NormalizedRow::fromText($row)->cells;
+      expect(count($cells))->toBe($panel->getContentWidth())
+        ->and(TerminalText::stripAnsi(implode('', array_slice($cells, 40, 10))))->toBe('     101 G');
+    }
+    $cells = NormalizedRow::fromText($panel->getContent()[1])->cells;
+    $iconWidth = TerminalText::displayWidth(EquipmentIcon::getTerminalGlyph($type));
+    expect(TerminalText::stripAnsi($cells[3 + $iconWidth]))->toBe(' ')
+      ->and(TerminalText::stripAnsi($cells[4 + $iconWidth]))->toBe('F');
+  }
+})->with([WeaponType::SWORD, WeaponType::DAGGER, WeaponType::STAFF, WeaponType::FLAIL, WeaponType::WHIP]);
+
+it('reserves complete terminal shop prices when labels or the window must be clipped', function () {
+  $panel = $this->state->mainPanel;
+  $panel->setItems([new Weapon(str_repeat('Long fixture ', 10), '', '/', 12345678901, equipmentType: WeaponType::DAGGER)]);
+  expect(trim(TerminalText::stripAnsi($panel->getContent()[0])))->toEndWith('12345678901 G');
+  new ReflectionProperty($panel, 'width')->setValue($panel, 22);
+  $panel->updateContent();
+  expect(TerminalText::displayWidth($panel->getContent()[0]))->toBe(18)
+    ->and(trim(TerminalText::stripAnsi($panel->getContent()[0])))->toEndWith('12345678901 G');
+});
+
+it('keeps terminal checkout quantities and totals visible beside long equipment labels', function () {
+  $this->state->merchandise = [new Weapon(str_repeat('Fixture ', 10), '', '/', 101, equipmentType: WeaponType::SWORD)];
+  shopPresentationPress($this->state, KeyCode::ENTER);
+  shopPresentationPress($this->state, KeyCode::ENTER);
+  $content = $this->state->mainPanel->getContent();
+  expect(TerminalText::displayWidth($content[1]))->toBe(51)
+    ->and(TerminalText::stripAnsi($content[1]))->toEndWith(' x  1')
+    ->and(TerminalText::displayWidth($content[3]))->toBe(51)
+    ->and(TerminalText::stripAnsi($content[3]))->toEndWith('101 G');
+});
 
 it('measures checkout wrapping with the equipment icon gutter before placing quantity controls', function () {
   $this->state->merchandise = [new Weapon(str_repeat('Long equipment name ', 4), '', 'OLD', 5, equipmentType: WeaponType::SWORD)];

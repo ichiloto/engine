@@ -8,7 +8,7 @@ use Ichiloto\Engine\Core\Menu\QuantitySelector;
 use Ichiloto\Engine\Entities\Inventory\InventoryItem;
 use Ichiloto\Engine\Entities\Inventory\EquipmentIcon;
 use Ichiloto\Engine\Entities\Party;
-use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\UI\Text\TerminalMenuRow;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Scenes\Game\States\ShopState;
@@ -232,14 +232,13 @@ class PurchaseConfirmationMode extends ShopMenuMode
    */
   public function updateWindowContent(): void
   {
-    $itemName = TerminalText::padRight($this->item === null ? 'N/A' : EquipmentIcon::getItemLabel($this->item), 45);
-    $quantity = TerminalText::padLeft((string)$this->quantity, 2);
-    $totalPrice = TerminalText::padLeft((string)$this->totalPrice, 48);
+    $width = min(51, $this->state->mainPanel->getContentWidth());
     $content = [
       "",
-      " {$itemName} x {$quantity}",
+      TerminalMenuRow::compose($this->item === null ? 'N/A' : EquipmentIcon::getItemLabel($this->item),
+        (string)$this->quantity, $width, prefix: ' ', separator: ' x ', valueWidth: 2),
       " -------------------------------------------------- ",
-      " {$totalPrice} {$this->symbol}",
+      TerminalMenuRow::compose('', "{$this->totalPrice} {$this->symbol}", $width, prefix: ' '),
     ];
     $content = array_pad($content, $this->state->mainPanel->contentHeight, '');
 

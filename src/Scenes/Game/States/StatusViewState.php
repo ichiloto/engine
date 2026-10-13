@@ -12,7 +12,7 @@ use Ichiloto\Engine\Entities\EquipmentSlot;
 use Ichiloto\Engine\Entities\Inventory\EquipmentIcon;
 use Ichiloto\Engine\UI\Presentation\CharacterMenuRows;
 use Ichiloto\Engine\IO\Console\Console;
-use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\UI\Text\TerminalMenuRow;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
@@ -201,8 +201,10 @@ class StatusViewState extends GameSceneState implements CanvasProviderInterface
           $equipmentName = $slot->equipment->name;
         }
         $type = $this->character === null ? $slot->semanticSlot : CharacterMenuRows::getSlotIcon($this->character, $slot);
-        $icon = TerminalText::padRight(EquipmentIcon::getTerminalGlyph($type), 2);
-        return '  ' . TerminalText::padRight("{$icon} {$slot->name}:", 20) . ' ' . $equipmentName;
+        $label = TerminalMenuRow::composeIconLabel(EquipmentIcon::getTerminalGlyph($type), "{$slot->name}:", 2);
+        $width = $this->equipmentSummaryPanel->getContentWidth();
+        return TerminalMenuRow::compose($label, $equipmentName, $width, prefix: '  ',
+          valueAlignment: 'left', labelWidth: 20);
       }, $this->character?->equipment ?? []),
       self::EQUIPMENT_SUMMARY_PANEL_HEIGHT - 2,
       ''));

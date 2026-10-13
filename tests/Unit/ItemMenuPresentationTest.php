@@ -225,6 +225,17 @@ it('uses shared equipment type icons in inventory artwork and native terminal ro
     ->not->toContain('OLD-A', 'OLD-B');
 });
 
+it('reserves terminal inventory quantities beside native-width icons in a narrow panel', function (WeaponType $type) {
+  $panel = $this->state->selectionPanel;
+  $gear = new Weapon(str_repeat('Fixture ', 10), '', '/', 1, quantity: 74, equipmentType: $type);
+  new ReflectionProperty($panel, 'width')->setValue($panel, 18);
+  $panel->setItems([new Item(str_repeat('Ordinary ', 10), '', '/', 1, quantity: 74), $gear]);
+  foreach (array_slice($panel->getContent(), 0, 2) as $row) {
+    expect(\Ichiloto\Engine\IO\Console\TerminalText::displayWidth($row))->toBe(14)
+      ->and(\Ichiloto\Engine\IO\Console\TerminalText::stripAnsi($row))->toEndWith(' 74');
+  }
+})->with([WeaponType::SWORD, WeaponType::DAGGER, WeaponType::STAFF, WeaponType::FLAIL, WeaponType::WHIP]);
+
 it('normalizes keyed input and clamps selection after a changing or empty inventory', function () {
   $items = itemMenuInventory($this->state, 30);
   $panel = $this->state->selectionPanel;

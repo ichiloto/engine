@@ -254,6 +254,24 @@ it('shows compatibility from the current actor in both equipment and status them
   expect($this->state->equipmentInfoPanel->getPresentationText())->toStartWith('Weapon types: Any');
 })->with([false, true]);
 
+it('reserves terminal equipment candidate quantities after clipping long native-width icon labels', function (WeaponType $type) {
+  $gear = new Weapon(str_repeat('Fixture ', 10), '', '/', 1, quantity: 23,
+    equipmentType: $type, id: 'weapon.width-fixture');
+  $this->party->inventory->addItems($gear);
+  $mode = characterMenuCandidates($this->state);
+  new ReflectionProperty($this->state->equipmentAssignmentPanel, 'width')->setValue($this->state->equipmentAssignmentPanel, 24);
+  $mode->render();
+  $candidates = $mode->getPresentationCandidates();
+  foreach ($candidates as $index => $entry) {
+    if ($entry['equipment']->id !== $gear->id) { continue; }
+    $row = $this->state->equipmentAssignmentPanel->getContent()[$index];
+    expect(TerminalText::displayWidth($row))->toBe(20)
+      ->and(TerminalText::stripAnsi($row))->toEndWith(' :23');
+    return;
+  }
+  throw new RuntimeException('Synthetic width fixture must remain an eligible candidate.');
+})->with([WeaponType::SWORD, WeaponType::DAGGER, WeaponType::STAFF, WeaponType::FLAIL, WeaponType::WHIP]);
+
 it('filters equipment candidates using the same actor restrictions as assignment', function () {
   $this->actor->role = new CharacterRole($this->actor, 'Staff wielder', allowedWeaponTypes: [WeaponType::STAFF]);
   $sword = new Weapon('Incompatible sword', '', '/', 1, equipmentType: WeaponType::SWORD, id: 'weapon.sword');

@@ -319,7 +319,7 @@ final class TerminalText
         break;
       }
 
-      $output[] = $symbol;
+      $output[] = self::stabilizeSymbol($symbol);
       $visibleWidth += $symbolWidth;
     }
 
@@ -346,7 +346,7 @@ final class TerminalText
     $lastSpaceIndex = null;
 
     while ($symbols !== []) {
-      $symbol = array_shift($symbols);
+      $symbol = self::stabilizeSymbol(array_shift($symbols));
       $symbolWidth = self::getSymbolWidth($symbol);
 
       if ($line !== [] && $lineWidth + $symbolWidth > $width) {
@@ -466,8 +466,7 @@ final class TerminalText
     // frame, and measuring one costs several regex passes. Cache by symbol.
     static $widths = [];
 
-    $key = str_contains($symbol, "\u{200D}")
-      ? (self::allowsCompositeEmoji() ? '1:' : '0:') . $symbol : $symbol;
+    $key = self::getSymbolCacheKey($symbol);
     if (isset($widths[$key])) {
       return $widths[$key];
     }
@@ -580,8 +579,7 @@ final class TerminalText
   {
     static $stabilized = [];
 
-    $key = str_contains($symbol, "\u{200D}") || preg_match('/[\x{1F3FB}-\x{1F3FF}]/u', $symbol) === 1
-      ? (self::allowsCompositeEmoji() ? '1:' : '0:') . $symbol : $symbol;
+    $key = self::getSymbolCacheKey($symbol);
     if (isset($stabilized[$key])) {
       return $stabilized[$key];
     }
@@ -591,6 +589,13 @@ final class TerminalText
     }
 
     return $stabilized[$key] = self::computeStabilizedSymbol($symbol);
+  }
+
+  /** Width and emitted-glyph caches must depend on the same terminal capability. */
+  private static function getSymbolCacheKey(string $symbol): string
+  {
+    return str_contains($symbol, "\u{200D}") || preg_match('/[\x{1F3FB}-\x{1F3FF}]/u', $symbol) === 1
+      ? (self::allowsCompositeEmoji() ? '1:' : '0:') . $symbol : $symbol;
   }
 
   /**
