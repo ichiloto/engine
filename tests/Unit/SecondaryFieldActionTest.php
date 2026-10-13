@@ -117,7 +117,7 @@ it('rejects invalid declarations at bootstrap and clears the former project', fu
 it('dispatches the remapped edge once without primary dialogue or continued field movement', function (bool $held, bool $handoff) {
   $scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()
     ->onlyMethods(['reconcileFieldPresentation', 'hasUnstableEventSession'])->getMock();
-  $scene->method('hasUnstableEventSession')->willReturn(false);
+  $scene->expects($this->atLeastOnce())->method('hasUnstableEventSession')->willReturn(false);
   $manager = makeBareScene(SceneManager::class);
   new ReflectionProperty(GameScene::class, 'sceneManager')->setValue($scene, $manager);
   new ReflectionProperty(SceneManager::class, 'currentScene')->setValue($manager, $scene);
