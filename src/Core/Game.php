@@ -18,6 +18,8 @@ use Ichiloto\Engine\Battle\UI\BattleScreen;
 use Ichiloto\Engine\Battle\Entry\BattleEntryRuleCatalog;
 use Ichiloto\Engine\Core\Enumerations\ChronoUnit;
 use Ichiloto\Engine\Core\Interfaces\CanRun;
+use Ichiloto\Engine\Core\ProjectState\ProjectStateParticipantInterface;
+use Ichiloto\Engine\Core\ProjectState\ProjectStateRegistry;
 use Ichiloto\Engine\Events\Enumerations\EventType;
 use Ichiloto\Engine\Events\Enumerations\GameEventType;
 use Ichiloto\Engine\Events\EventManager;
@@ -31,6 +33,7 @@ use Ichiloto\Engine\Events\Interfaces\SubjectInterface;
 use Ichiloto\Engine\Entities\Elements\ElementRegistry;
 use Ichiloto\Engine\Entities\EquipmentOptimization\EquipmentOptimizationPolicyRegistry;
 use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
+use Ichiloto\Engine\Field\FieldActionRegistry;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalCapabilities;
@@ -75,6 +78,20 @@ use Throwable;
  */
 class Game implements CanRun, SubjectInterface
 {
+    private ?ProjectStateRegistry $projectStateRegistry = null;
+
+    /** Project bootstrap registers schema policies on this Game, never in global content stores. */
+    public function registerProjectStateParticipant(ProjectStateParticipantInterface $participant): self
+    {
+        $this->getProjectStateRegistry()->registerParticipant($participant);
+        return $this;
+    }
+
+    public function getProjectStateRegistry(): ProjectStateRegistry
+    {
+        return $this->projectStateRegistry ??= new ProjectStateRegistry();
+    }
+
     /**
      * @var AudioManager The audio manager.
      */
@@ -517,6 +534,7 @@ class Game implements CanRun, SubjectInterface
     {
         EquipmentOptimizationPolicyRegistry::configureFromProject();
         ScriptCommandRegistry::configureFromProject();
+        FieldActionRegistry::configureFromProject();
         ConfigStore::put(PlaySettings::class, new PlaySettings($this->options));
         ConfigStore::put(AppConfig::class, new AppConfig());
         ProjectFormat::assertSupported(config(AppConfig::class, ProjectFormat::KEY));

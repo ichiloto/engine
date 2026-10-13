@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Scenes\Game;
 
 use Ichiloto\Engine\Core\Enumerations\MovementHeading;
+use Ichiloto\Engine\Core\ProjectState\ProjectStateData;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Entities\Party;
@@ -28,6 +29,7 @@ class GameConfig implements SceneConfigurationInterface
    * @param array $playerSprite The sprite of the player.
    * @param array<string, string[]> $playerSprites The directional player sprites.
    * @param int $playTimeSeconds The elapsed play time in seconds.
+   * @param array<string, array{version: int, data: array<array-key, mixed>}> $projectState Optional project-owned plain data.
    */
   public function __construct(
     protected(set) string $mapId,
@@ -45,8 +47,10 @@ class GameConfig implements SceneConfigurationInterface
     protected(set) array $achievements = [],
     protected(set) array $bestiary = [],
     protected(set) array $knowledge = [],
+    protected(set) array $projectState = [],
   )
   {
+    $this->projectState = ProjectStateData::copySnapshot($projectState);
   }
 
   /**
@@ -117,6 +121,7 @@ class GameConfig implements SceneConfigurationInterface
       'achievements' => $this->achievements,
       'bestiary' => $this->bestiary,
       'knowledge' => $this->knowledge,
+      'projectState' => ProjectStateData::copySnapshot($this->projectState),
     ];
   }
 
@@ -147,7 +152,11 @@ class GameConfig implements SceneConfigurationInterface
    */
   protected function setData(array $data): void
   {
+    $projectState = ProjectStateData::copySnapshot(array_key_exists('projectState', $data) ? $data['projectState'] : []);
     foreach ($data as $key => $value) {
+      if ($key === 'projectState') {
+        continue;
+      }
       if ($key === 'playerSize') {
         $key = 'playerShape';
       }
@@ -168,6 +177,7 @@ class GameConfig implements SceneConfigurationInterface
     $this->achievements ??= [];
     $this->bestiary ??= [];
     $this->knowledge ??= [];
+    $this->projectState = $projectState;
   }
 
   /**

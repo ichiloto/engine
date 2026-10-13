@@ -158,15 +158,19 @@ class InputManager
     if (! array_key_exists('dialogue_auto', $bindings)) {
       $bindings['dialogue_auto'] = self::getDefaultDialogueAutoBinding($bindings);
     }
+    if (! array_key_exists('secondary_action', $bindings)) {
+      $bindings['secondary_action'] = self::getDefaultSecondaryActionBinding($bindings);
+    }
 
     return $bindings;
   }
 
   /** Controller identities are reserved data, not simulated keyboard input. */
-  public const array DIALOGUE_AUTO_CONTROLLERS = [
+  public const array WEST_FACE_CONTROLLERS = [
     ['family' => 'gamepad.xbox', 'control' => 'face_west', 'label' => 'X'],
     ['family' => 'gamepad.playstation', 'control' => 'face_west', 'label' => 'Square'],
   ];
+  public const array DIALOGUE_AUTO_CONTROLLERS = self::WEST_FACE_CONTROLLERS;
 
   public static function getDefaultDialogueAutoBinding(array $bindings = []): array
   {
@@ -179,6 +183,15 @@ class InputManager
       : array_values(array_filter([KeyCode::x, KeyCode::X], $available));
     return ['description' => 'Toggle automatic dialogue advance.', 'keys' => $keys,
       'controllers' => self::DIALOGUE_AUTO_CONTROLLERS];
+  }
+
+  /** Controller identities remain data until a native backend reports those controls. */
+  public static function getDefaultSecondaryActionBinding(array $bindings = []): array
+  {
+    $keys = array_values(array_filter([KeyCode::g, KeyCode::G], static fn(KeyCode $key): bool =>
+      !array_any($bindings, static fn(array $binding): bool => in_array($key, $binding['keys'] ?? [], true))));
+    return ['description' => 'Perform a secondary field action.', 'keys' => $keys,
+      'controllers' => self::WEST_FACE_CONTROLLERS];
   }
 
   /** Consume only the opening edge, preserving unread input for the new context. */

@@ -72,7 +72,8 @@ class SaveManager
     $this->validateStoragePath($this->saveDirectory);
     $this->validateStoragePath($this->quickSaveDirectory);
     $compatibilityManifest ??= SaveCompatibilityManifest::fromProjectRoot(Path::getCurrentWorkingDirectory());
-    $this->compatibilityPipeline = new SaveCompatibilityPipeline($compatibilityManifest);
+    $this->compatibilityPipeline = new SaveCompatibilityPipeline($compatibilityManifest,
+      projectStateRegistry: $game->getProjectStateRegistry());
     $this->diagnoseStorageAvailability();
   }
 

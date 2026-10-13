@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Rendering;
 
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
+use Ichiloto\Engine\IO\KeyHoldState;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererEventType;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererProtocolException;
@@ -26,6 +27,10 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
   private SplQueue $events;
   /** @var SplQueue<RendererEvent> Negotiated presses, releases and resets, in arrival order; repeats stay keys only. */
   private SplQueue $transitions;
+  /** @var array<string, true> Physical identity survives draining the gameplay queues. */
+  private array $heldControls = [];
+  /** @var array<string, true> Context-reset controls cannot repeat into their next owner. */
+  private array $quarantinedControls = [];
   /** @var array<int, RendererEvent> Latest pending generation per staged/presented state; at most two. */
   private array $frameAcknowledgements = [];
   private int $queuedBytes = 0;
@@ -64,6 +69,7 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
       throw new RendererTransportException('Consume pending renderer events before starting another session.');
     }
     $this->capabilities = [];
+    $this->heldControls = $this->quarantinedControls = [];
     $this->textRequests->retireSession();
     $this->textSessionActive = false;
     $this->textSession = null;
@@ -95,8 +101,11 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
       $textReplies = $textReplyBytes = 0;
       $capabilities = $this->capabilities;
       $acknowledgements = $this->frameAcknowledgements;
+      $heldControls = $this->heldControls;
+      $quarantinedControls = $this->quarantinedControls;
+      $suppressedKeys = [];
       $this->textRequests->assertReplies($batch);
-      foreach ($batch as $event) {
+      foreach ($batch as $index => $event) {
         if ($event->type === RendererEventType::READY) {
           $event->requireCapabilities($this->requiredCapabilities);
           $capabilities = array_values(array_intersect($this->negotiableCapabilities, $event->capabilities));
@@ -106,6 +115,20 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
           throw new RendererProtocolException('Window activation requires negotiated window_activation support.');
         }
         self::assertKeyTransitionContract($event, in_array(RendererSessionConfig::KEY_TRANSITIONS, $capabilities, true));
+        if ($event->type === RendererEventType::INPUT_RESET) {
+          $heldControls = $quarantinedControls = [];
+        } elseif ($event->type === RendererEventType::KEY_RELEASE) {
+          unset($heldControls[$event->control], $quarantinedControls[$event->control]);
+        } elseif ($event->type === RendererEventType::KEY && $event->control !== null) {
+          if ($event->repeat === false) {
+            $heldControls[$event->control] = true;
+            if (count($heldControls) > KeyHoldState::MAX_HELD_CONTROLS) {
+              throw new RendererProtocolException('Renderer input exceeds the supported held-control limit.');
+            }
+            if ($discardKeys) { $quarantinedControls[$event->control] = true; }
+          }
+          if (isset($quarantinedControls[$event->control])) { $suppressedKeys[$index] = true; }
+        }
         if (RendererTextRequests::isTextReply($event)) {
           if (!in_array(RendererSessionConfig::TEXT_LAYOUT, $capabilities, true)) {
             throw new RendererProtocolException('Prepared text replies require negotiated text_layout support.');
@@ -114,7 +137,8 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
           $textReplyBytes += self::eventBytes($event);
           continue;
         }
-        if ($discardKeys && ($event->type === RendererEventType::KEY || self::isKeyTransition($event))) {
+        if (isset($suppressedKeys[$index])
+          || ($discardKeys && ($event->type === RendererEventType::KEY || self::isKeyTransition($event)))) {
           continue;
         }
         if (self::isKeyTransition($event)) {
@@ -141,7 +165,8 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
         throw new RendererTransportException('Renderer client queue capacity exceeded; incoming batch rejected.',
           $this->transport->getDiagnostics(), $this->transport->getExitCode());
       }
-      foreach ($batch as $event) {
+      foreach ($batch as $index => $event) {
+        if (isset($suppressedKeys[$index])) { continue; }
         if (RendererTextRequests::isTextReply($event)) { continue; }
         if ($event->type === RendererEventType::FRAME_ACK) {
           continue;
@@ -165,6 +190,8 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
         }
       }
       $this->queuedBytes = $bytes;
+      $this->heldControls = $heldControls;
+      $this->quarantinedControls = $quarantinedControls;
       $this->frameAcknowledgements = $acknowledgements;
       $this->textRequests->acceptReplies($batch);
       if (!$this->isRunning() || array_any($batch, static fn(RendererEvent $event) => $event->type === RendererEventType::CLOSE_REQUESTED)) {
@@ -174,6 +201,7 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
       $this->traceQueue();
     } catch (RendererTransportException $error) {
       $this->failure = $error;
+      $this->heldControls = $this->quarantinedControls = [];
       $this->textRequests->retireSession();
       $this->textSessionActive = false;
       throw $error;
@@ -248,6 +276,7 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
   /** Clear buffered gameplay keys, optionally including one bounded upstream pass. */
   public function resetKeys(bool $drainBufferedInput = false): void
   {
+    $this->quarantinedControls = $this->heldControls;
     $this->clearKeys();
     if ($drainBufferedInput) {
       try {
@@ -337,6 +366,7 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
       if ($this->failure === null) { $this->pump(); }
       return $exitCode;
     } finally {
+      $this->heldControls = $this->quarantinedControls = [];
       $this->textRequests->retireSession();
       $this->textSessionActive = false;
     }

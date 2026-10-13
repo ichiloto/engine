@@ -422,8 +422,7 @@ it('does not resume pre-context or during-context walking presses after a yielde
   $scene = $this->getMockBuilder(GameScene::class)->disableOriginalConstructor()
     ->onlyMethods(['reconcileFieldPresentation', 'onEventSessionFinished'])->getMock();
   $scene->expects($this->once())->method('onEventSessionFinished')->with($this->isInstanceOf(EventExecutionSession::class), true);
-  $manager = $this->getStubBuilder(SceneManager::class)->disableOriginalConstructor()->onlyMethods(['hasSceneTransition'])->getStub();
-  $manager->method('hasSceneTransition')->willReturn(false);
+  $manager = makeBareScene(SceneManager::class);
   new ReflectionProperty(SceneManager::class, 'currentScene')->setValue($manager, $scene);
   new ReflectionProperty(GameScene::class, 'sceneManager')->setValue($scene, $manager);
   new ReflectionProperty(GameScene::class, 'gameState')->setValue($scene, new GameState());

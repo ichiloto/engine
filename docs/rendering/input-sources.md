@@ -361,3 +361,31 @@ corners, scrolling, focus loss and dialogue/menu/cinematic entry and return.
 Measure travel relative to the field, not only a camera-followed on-screen
 Player. Preserve user audio settings, saves and configuration during
 validation. State tested platforms explicitly.
+
+## Project Secondary Field Action
+
+Projects can declare a secondary field interaction separately from ordinary
+Talk/action by returning `['secondary_action' => Handler::class]` from
+`assets/Data/field-actions.php`. The handler implements the existing
+`ActionInterface`, is instantiable without required constructor arguments, and
+receives `FieldActionContext`. Its eligibility, NPC capability and consequences
+belong to the project. The shared registry resets at each project bootstrap;
+an absent declaration adds no gameplay behavior. It does not call `Npc::talk()`
+or apply ordinary talk-completion flags or quests on the project's behalf.
+
+The semantic `secondary_action` binding defaults to unclaimed G/g keys. Explicit
+project bindings and deliberate unbinding win, and player remapping and action
+hints use the existing shared input services. The Square/X west-face identities
+are reserved controller data, not implemented controller devices. Before invoking
+the handler the field cancels walking and consumes the entry edge. A scene/state,
+event or transition handoff stops the former field's remaining frame work. Scene
+excursions additionally own held-input reset and return; the field hook alone
+does not create a scene continuation or a campaign save policy.
+
+For negotiated physical-control sources, a context reset now quarantines every
+known held control, including presses discarded during the bounded drain. Later
+repeats cannot confirm or move in the new owner, even after idle frames or another
+reset. Release permits a fresh press; physical focus reset and renderer session
+restart clear the quarantine. Ordinary repeats without a context reset remain
+available to menus. Event-only Terminal sources retain their existing bounded
+drain and cannot claim physical release knowledge.

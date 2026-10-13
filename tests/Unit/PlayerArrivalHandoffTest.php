@@ -91,10 +91,11 @@ beforeEach(function () {
   $this->scene = $this->getStubBuilder(GameScene::class)->disableOriginalConstructor()
     ->onlyMethods(['getGame', 'onEventSessionFinished', 'reconcileFieldPresentation'])->getStub();
   $this->scene->method('getGame')->willReturn($game);
-  $this->manager = $this->getStubBuilder(SceneManager::class)->disableOriginalConstructor()
-    ->onlyMethods(['hasSceneTransition'])->getStub();
   $this->transitionPending = false;
-  $this->manager->method('hasSceneTransition')->willReturnCallback(fn(): bool => $this->transitionPending);
+  $this->manager = new class(fn(): bool => $this->transitionPending) extends SceneManager {
+    public function __construct(private Closure $transitionProbe) {}
+    public function hasSceneTransition(): bool { return ($this->transitionProbe)(); }
+  };
   new ReflectionProperty(SceneManager::class, 'currentScene')->setValue($this->manager, $this->scene);
   new ReflectionProperty(GameScene::class, 'sceneManager')->setValue($this->scene, $this->manager);
   new ReflectionProperty(GameScene::class, 'gameState')->setValue($this->scene, new GameState());

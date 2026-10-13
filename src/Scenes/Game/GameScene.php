@@ -569,6 +569,15 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
             throw new IchilotoException('Invalid configuration.');
         }
 
+        $this->getGame()->getProjectStateRegistry()->runWithSnapshot(
+            $config->projectState,
+            fn() => $this->configureCampaign($config),
+        );
+    }
+
+    /** Project state has been prepared and restored before any campaign consumer runs. */
+    protected function configureCampaign(GameConfig $config): void
+    {
         $this->mapManager = MapManager::getInstance($this->getGame(), $this);
 
         $this->initializeGameSceneStates();
@@ -965,6 +974,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
             achievements: $this->achievementManager?->toArray() ?? [],
             bestiary: [],
             knowledge: isset($this->knowledge) ? $this->knowledge->progress->toArray() : [],
+            projectState: $this->getGame()->getProjectStateRegistry()->captureSnapshot(),
         );
     }
 

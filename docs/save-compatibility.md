@@ -62,6 +62,7 @@ The nested representation was and remains mixed:
 | Achievements | plain array keyed by achievement ID | achievement ID | achievement rename |
 | Bestiary | plain seen/defeated arrays keyed by enemy name | enemy display name | enemy rename |
 | Play time and sprites | scalar/array fields on `GameConfig` | no catalog lookup | none |
+| Optional project state | bounded plain `projectState` array on `GameConfig` | registered namespace, schema version and project-defined stable references | project policy owns migration/validation |
 
 The concrete object graph is serialized directly. That preserves existing
 saves and avoids a replacement format, but PHP invokes nested
@@ -100,8 +101,12 @@ quick, and autosave files, and for readers used by Continue and tooling:
     `GameConfig`. This optional phase is for deterministic repairs that need
     hydrated, current-content actors; identity migration remains in the
     ordinary pre-resolution phase.
-11. The pipeline validates the required `SaveSlot` and `GameConfig` objects
-    and returns a `SavedGame`.
+11. The pipeline bounds and detaches optional project state. When supplied a
+    `ProjectStateRegistry`, it also prepares every registered project policy
+    after content resolution, without changing the live campaign.
+12. The pipeline validates the required `SaveSlot` and `GameConfig` objects
+    and returns a `SavedGame`. `GameScene::configure()` restores project state
+    before campaign consumers run; GameLoader uses the same validated reader.
 
 Loading never writes the source path. A migrated legacy game is written in
 the current envelope only when the player explicitly saves.
@@ -273,6 +278,102 @@ generic engine does not choose.
 For one-shot IDs, an explicit `one_shot_events` alias can change the full
 identity. A `maps` alias also rewrites only the map portion of
 `mapId:marker`, leaving the marker unchanged.
+
+## Project-owned campaign state
+
+`Core\ProjectState` extends the existing `GameConfig` snapshot and save envelope;
+there is no second file, manager, global state singleton or game-specific schema.
+An absent `projectState` field in an older save becomes `[]`. Explicit null or
+malformed data is refused rather than treated as an older save. No container
+schema increment is needed for this optional field.
+
+```php
+'projectState' => [
+    'studio/progress' => ['version' => 2, 'data' => ['resourceId' => 'stable-id']],
+],
+```
+
+A project bootstrap registers `ProjectStateParticipantInterface` policies on its
+Game before the first restoration or mutation:
+
+```php
+$game->registerProjectStateParticipant(new ProgressSavePolicy($catalog));
+$states = $game->getProjectStateRegistry();
+$progress = $states->getState('studio/progress');
+$states->replaceStates(['studio/progress' => $nextProgress]);
+```
+
+The participant exposes stable read-only `namespace` and `version` properties,
+`migrateState(array $data, int $fromVersion): array`, and
+`validateState(array $data): void`. Game owns their schema, sequential migration
+policy, stable content references and reference validation. Namespace/version
+must remain unchanged after registration. Duplicate namespaces, late
+registration and future saved versions are refused. A different implementation
+class in a later build may implement the same namespace; class names, display
+names and artwork bytes are not saved identity.
+
+Both callbacks must be pure: they may inspect current project definitions but
+must not mutate runtime stores, read the previous campaign, perform IO, grant
+starter progress or execute data stored in a save. Registry re-entry from these
+callbacks is refused. The Engine cannot undo arbitrary project side effects,
+so projects must not put them in these callbacks. `validateState([])` must accept
+no recorded progress. Migration is not called when a section is absent. A
+separately authored starter grant and exactly-once receipt are Game behavior,
+not a default in this contract.
+
+The registry is the single owner of detached plain-data project state. Projects
+may build domain models from these values, but must commit their durable state
+through `replaceStates()` rather than retain a second mutable save store.
+`replaceStates()` validates the whole candidate before committing any namespace;
+it supports multiple registered namespaces in one update. It does not transact
+external inventory/currency or other mutable services. Game's ownership service
+must validate and construct those complete operations before committing them.
+
+`prepareSnapshot()` migrates and validates all participants without changing live
+state. `restoreSnapshot()` swaps the complete prepared state once. During field
+configuration, `runWithSnapshot()` restores before campaign consumers run and
+rolls project state back if field configuration throws, including any project
+updates made during that failed configuration. It is not a transaction over the
+existing Engine map, party, UI or external services. Nested campaign restoration
+is refused. Every successful configure replaces all namespaces, so loading a
+different campaign or configuring a new game cannot retain old project progress.
+`captureSnapshot()` feeds the real `GameScene::createSnapshot()` used by numbered,
+quick and autosaves; captures do not retain PHP references to mutable input.
+
+Unregistered sections are structurally validated and retained unchanged in the
+same snapshot. `$states->diagnostics` names each unavailable provider and version;
+such sections cannot be read as active progress or changed through the registry.
+A future build must register the provider before loading if it wants to use that
+state. Malformed unknown data fails loading instead of being silently deleted.
+
+Generic admission limits apply to the entire extension: at most 64 namespaces,
+100,000 data values, 32 nested levels below each payload root, and 1 MiB PHP
+serialized size. Namespaces are lowercase ASCII vendor/name paths, at most 128
+bytes; each section contains exactly a positive integer `version` and array
+`data`. Data supports arrays with string/integer keys, strings, integers, finite
+floats, booleans and null. Objects (including enums), resources, closures,
+non-finite numbers and cycles are refused. These are safety limits, not suggested
+project schema or artwork metadata. The enclosing legacy object serialization
+retains the trusted-save/class-layout constraints described above.
+
+`SaveCompatibilityPipeline` accepts the Game registry as its optional named
+`projectStateRegistry` constructor argument. SaveManager supplies
+`$game->getProjectStateRegistry()` so project policies cover writers, direct
+readers and slot/Continue discovery. Envelope creation prepares a detached
+configuration without mutating the caller or live campaign. Scene configuration
+restores the prepared data before campaign consumers run. Tooling without
+providers intentionally preserves structurally
+valid namespaces rather than pretending it can validate project references.
+
+The active-event save guard is unchanged. This extension does not serialize event
+continuations, permit arbitrary mid-event saving, define checkpoints or invent
+active-match resume. Game must explicitly agree supported save boundaries with
+the scene/event lifecycle before persisting such a phase.
+
+`ProjectStateTest` uses only synthetic policies/data to exercise absent old saves,
+replaceable providers, isolation, all data bounds, detached references, migration
+and validation failure, configuration rollback, unknown-provider round trips,
+shared snapshot surfaces and the unchanged active-event guard.
 
 ## Persistent character states
 

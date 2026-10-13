@@ -8,9 +8,11 @@ use Exception;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Core\Time;
+use Ichiloto\Engine\Entities\Actions\FieldActionContext;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\OutOfBounds;
 use Ichiloto\Engine\Field\PlayerWalk;
+use Ichiloto\Engine\Field\FieldActionRegistry;
 use Ichiloto\Engine\Field\SkitPrompt;
 use Ichiloto\Engine\Field\SkitPromptPresentation;
 use Ichiloto\Engine\IO\ActionHints;
@@ -147,7 +149,8 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
         $scene = $this->context->getScene();
         assert($scene instanceof GameScene);
 
-        if ($scene->isStopping) {
+        if ($scene->isStopping || $scene->state !== $this || $scene->sceneManager->currentScene !== $scene
+            || $scene->sceneManager->hasSceneTransition()) {
             return;
         }
         $scene->reconcileFieldPresentation();
@@ -155,7 +158,8 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
         // the field and never under a menu opened while it slid.
         $movementGeneration = $this->movementGeneration;
         $scene->player?->completeArrival();
-        if ($scene->isStopping || $scene->state !== $this || $scene->sceneManager->hasSceneTransition()) {
+        if ($scene->isStopping || $scene->state !== $this || $scene->sceneManager->currentScene !== $scene
+            || $scene->sceneManager->hasSceneTransition()) {
             return;
         }
 
@@ -187,6 +191,7 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
         $this->handleActions($scene);
 
         if ($scene->isStopping || $movementGeneration !== $this->movementGeneration
+            || $scene->sceneManager->currentScene !== $scene
             || $scene->hasUnstableEventSession() || $scene->sceneManager->hasSceneTransition()) {
             return;
         }
@@ -201,6 +206,7 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
         $this->handleNavigation($scene);
 
         if ($scene->isStopping || $movementGeneration !== $this->movementGeneration
+            || $scene->sceneManager->currentScene !== $scene
             || $scene->hasUnstableEventSession() || $scene->sceneManager->hasSceneTransition()) {
             return;
         }
@@ -235,25 +241,35 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
         if (Input::isButtonDown("menu")) {
             play_sound(SystemSound::CONFIRM);
             $this->setState($scene->mainMenuState);
+            return;
         }
 
         if (Input::isButtonDown("action")) {
             $scene->player->interact();
         }
 
-        if ($scene->isStopping || $scene->sceneManager->hasSceneTransition()) {
+        if ($scene->isStopping || $scene->state !== $this || $scene->sceneManager->currentScene !== $scene
+            || $scene->hasUnstableEventSession() || $scene->sceneManager->hasSceneTransition()) {
+            return;
+        }
+
+        if (Input::isButtonDown('secondary_action') && FieldActionRegistry::executeSecondaryAction(
+            new FieldActionContext($scene->player, $scene, $scene->player->position),
+        )) {
             return;
         }
 
         if (Input::isButtonDown("map")) {
             $this->showInGameMap();
+            return;
         }
 
         if (Input::isButtonDown("skit")) {
             $scene->skitManager?->playNextAvailableSkit();
         }
 
-        if ($scene->isStopping) {
+        if ($scene->isStopping || $scene->state !== $this || $scene->sceneManager->currentScene !== $scene
+            || $scene->hasUnstableEventSession() || $scene->sceneManager->hasSceneTransition()) {
             return;
         }
 

@@ -137,6 +137,79 @@ it('keeps OS repeats in the event-only key stream while only presses releases an
   expect(fn() => $bounded->pump())->toThrow(RendererTransportException::class, 'capacity');
 });
 
+it('quarantines held confirmation through entry and return resets until release and a fresh press', function (bool $drain) {
+  [$transport] = heldInputSession();
+  heldUpdate($transport, heldKey('enter'));
+  expect(Input::isButtonDown('confirm'))->toBeTrue();
+  InputManager::resetState($drain);
+  heldUpdate($transport);
+  heldUpdate($transport, heldKey('enter', repeat: true));
+  expect(Input::isButtonDown('confirm'))->toBeFalse()
+    ->and(InputManager::wasButtonPressed('confirm'))->toBeFalse();
+  InputManager::resetState($drain);
+  heldUpdate($transport);
+  heldUpdate($transport, heldKey('enter', repeat: true));
+  expect(Input::isButtonDown('confirm'))->toBeFalse();
+  heldUpdate($transport, heldRelease('enter'), heldKey('enter'));
+  expect(Input::isButtonDown('confirm'))->toBeTrue()
+    ->and(InputManager::wasButtonPressed('confirm'))->toBeTrue();
+})->with([false, true]);
+
+it('quarantines discarded new presses and permits a released control to be pressed again in the same batch', function () {
+  [$transport, $client, $source] = heldInputSession();
+  $transport->batches[] = [heldKey('enter')];
+  $source->reset(true);
+  $transport->batches[] = [heldKey('enter', repeat: true)];
+  expect($source->poll())->toBeNull()->and($source->drainTransitions())->toBe([]);
+  $transport->batches[] = [heldRelease('enter'), heldKey('enter')];
+  $client->pump();
+  expect($source->poll())->toBe(KeyCode::ENTER)
+    ->and(array_column($source->drainTransitions(), 'control'))->toBe(['enter', 'enter']);
+});
+
+it('uses physical control identity rather than logical key spelling to release quarantined input', function () {
+  [$transport, $client, $source] = heldInputSession();
+  $transport->batches[] = [heldKey('d', 'd')];
+  $client->pump();
+  $source->reset();
+  $transport->batches[] = [heldKey('D', 'd', true), heldKey('d', 'other_d')];
+  $client->pump();
+  expect($source->poll())->toBe(KeyCode::d)->and($source->poll())->toBeNull()
+    ->and(array_column($source->drainTransitions(), 'control'))->toBe(['other_d']);
+  $transport->batches[] = [heldRelease('d'), heldKey('D', 'd')];
+  $client->pump();
+  expect($source->poll())->toBe(KeyCode::D);
+});
+
+it('clears input quarantine on a physical reset and on a new renderer session', function () {
+  [$transport, $client, $source] = heldInputSession();
+  $transport->batches[] = [heldKey('enter')];
+  $client->pump();
+  $source->reset();
+  $transport->batches[] = [heldReset(), heldKey('enter')];
+  $client->pump();
+  expect($source->poll())->toBe(KeyCode::ENTER);
+  $source->reset();
+  $client->shutdown();
+  $client->start($transport->session);
+  $transport->batches[] = [RendererEvent::fromJson('{"protocol":2,"type":"ready","capabilities":["key_transitions"]}'),
+    heldKey('enter')];
+  $client->pump();
+  expect($source->poll())->toBe(KeyCode::ENTER);
+});
+
+it('bounds physical controls even after their event queues have been consumed', function () {
+  [$transport, $client, $source] = heldInputSession();
+  for ($index = 0; $index < \Ichiloto\Engine\IO\KeyHoldState::MAX_HELD_CONTROLS; $index++) {
+    $transport->batches[] = [heldKey('enter', 'control_' . $index)];
+    $client->pump();
+    expect($source->poll())->toBe(KeyCode::ENTER);
+    $source->drainTransitions();
+  }
+  $transport->batches[] = [heldKey('up', 'control_overflow')];
+  expect(fn() => $client->pump())->toThrow(RendererProtocolException::class, 'held-control limit');
+});
+
 it('lets the most recent held direction win and falls back to the next one still held', function () {
   [$transport] = heldInputSession();
   $latest = static function (): ?string {

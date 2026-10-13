@@ -204,6 +204,7 @@ it('preserves an explicit Info entry including deliberate unbinding', function (
     'menu_page_previous' => ['description' => 'Show the previous menu page.', 'keys' => [KeyCode::PAGE_UP]],
     'menu_page_next' => ['description' => 'Show the next menu page.', 'keys' => [KeyCode::PAGE_DOWN]],
     'dialogue_auto' => InputManager::getDefaultDialogueAutoBinding($authored),
+    'secondary_action' => InputManager::getDefaultSecondaryActionBinding($authored),
   ]);
   InputManager::setInputSource(new FakeInputSource(KeyCode::i));
   InputManager::handleInput();

@@ -39,6 +39,10 @@ use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Game\GameLoader;
 use Ichiloto\Engine\Scenes\GameOver\GameOverScene;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
+use Ichiloto\Engine\Scenes\Interfaces\ConfigurableSceneInterface;
+use Ichiloto\Engine\Scenes\Interfaces\SceneConfigurationInterface;
+use Ichiloto\Engine\UI\Interfaces\ModalInterface;
+use Ichiloto\Engine\UI\Modal\ModalManager;
 use Throwable;
 
 /**
@@ -80,11 +84,15 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    */
   protected(set) BattleLoader $battleLoader;
   /**
-   * @var class-string|null The scene a battle was started from, so it can be
-   * returned to. A fight from the field goes back to the field; one from the
-   * arena goes back to the arena.
+   * @var class-string|null Legacy battle return lookup hint. The exact retained
+   * owner is suspendedCaller; this hint never acquires generic excursion ownership.
    */
   protected ?string $sceneBeforeBattle = null;
+  /** The exact return owner, shared by battle and generic excursions. */
+  private ?SceneInterface $suspendedCaller = null;
+  private ?SceneExcursionInvocation $sceneExcursion = null;
+  private bool $changingExcursion = false;
+  private bool $stopping = false;
   private ?ScreenTransitionSession $sceneTransition = null;
   private float $transitionTime = 0;
   private bool $changingCoveredScene = false;
@@ -154,6 +162,10 @@ class SceneManager implements CanStart, CanRender, CanUpdate
   public function removeScenes(SceneInterface ...$scenes): self
   {
     foreach ($scenes as $scene) {
+      if ($this->sceneExcursion !== null
+        && ($scene === $this->suspendedCaller || $scene === $this->sceneExcursion->scene)) {
+        $this->disposeSceneExcursion(SceneExcursionOutcome::abandon());
+      }
       $this->scenes->remove($scene);
     }
 
@@ -174,7 +186,13 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    */
   public function stop(): void
   {
+    $this->stopping = true;
     $failure = null;
+    try {
+      if ($this->sceneExcursion !== null) {
+        $this->disposeSceneExcursion(SceneExcursionOutcome::abandon());
+      }
+    } catch (Throwable $error) { $failure = $error; }
     try { $this->sceneTransition?->cancel(); } catch (Throwable $error) { $failure = $error; }
     foreach ($this->scenes as $scene) {
       try {
@@ -187,6 +205,7 @@ class SceneManager implements CanStart, CanRender, CanUpdate
       }
     }
     $this->sceneBeforeBattle = null;
+    $this->suspendedCaller = null;
 
     if ($failure !== null) {
       throw $failure;
@@ -215,6 +234,11 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    */
   public function update(): void
   {
+    if ($this->sceneExcursion !== null && (!$this->canResumeExcursionCaller()
+      || $this->currentScene !== $this->sceneExcursion->scene)) {
+      $this->disposeSceneExcursion(SceneExcursionOutcome::abandon());
+      return;
+    }
     if ($this->sceneTransition !== null) {
       if (Input::isButtonDown('quit')) { $this->game->quit(); return; }
       $now = $this->getTransitionTime();
@@ -279,10 +303,31 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    */
   public function loadScene(string|int $index, bool $suspendCurrent = false): self
   {
-    $sceneToLoad = match(true) {
+    $sceneToLoad = $this->getRegisteredScene($index);
+    if ($this->changingExcursion || $this->stopping) {
+      throw new \LogicException('The scene lifecycle is already changing or stopped.');
+    }
+    if ($this->sceneExcursion !== null) {
+      if ($suspendCurrent) {
+        throw new \LogicException('An excursion already owns the suspended caller.');
+      }
+      // Even navigation to the caller is abandonment, never an implicit successful return.
+      $this->disposeSceneExcursion(SceneExcursionOutcome::abandon());
+    }
+
+    return $this->loadRegisteredScene($sceneToLoad, $suspendCurrent);
+  }
+
+  private function getRegisteredScene(string|int $index): SceneInterface
+  {
+    return match(true) {
       is_int($index) => $this->scenes->toArray()[$index] ?? throw new NotFoundException($index),
       default => $this->findScene($index) ?? throw new NotFoundException($index),
     };
+  }
+
+  private function loadRegisteredScene(SceneInterface $sceneToLoad, bool $suspendCurrent = false): self
+  {
 
     if ($this->sceneTransition !== null && !$this->changingCoveredScene) {
       $this->sceneTransition->cancel();
@@ -290,7 +335,7 @@ class SceneManager implements CanStart, CanRender, CanUpdate
 
     if ($suspendCurrent && (! $sceneToLoad instanceof BattleScene
       || $this->currentScene instanceof BattleScene
-      || ($this->currentScene !== null && $this->sceneBeforeBattle !== $this->currentScene::class))) {
+      || ($this->currentScene !== null && $this->suspendedCaller !== $this->currentScene))) {
       throw new \LogicException('Only a recorded battle caller can be suspended for a battle.');
     }
 
@@ -304,7 +349,8 @@ class SceneManager implements CanStart, CanRender, CanUpdate
       $this->currentScene?->suspend();
       $this->eventManager->dispatchEvent(new SceneEvent(SceneEventType::SUSPEND, $this->currentScene));
     } else {
-      $suspended = $this->sceneBeforeBattle === null ? null : $this->findScene($this->sceneBeforeBattle);
+      $suspended = $this->suspendedCaller;
+      $this->suspendedCaller = null;
       $this->sceneBeforeBattle = null;
       $outgoing = [$this->currentScene];
       // Going somewhere other than the battle's caller abandons that caller.
@@ -336,6 +382,191 @@ class SceneManager implements CanStart, CanRender, CanUpdate
     $this->eventManager->dispatchEvent(new SceneEvent(SceneEventType::LOAD_END, $this->currentScene));
 
     return $this;
+  }
+
+  /** Begin an owned, non-nestable excursion without stopping the calling event's scene. */
+  public function beginSceneExcursion(SceneInterface $caller, string|int $index,
+    SceneConfigurationInterface $config): SceneExcursionSession
+  {
+    $scene = $this->getRegisteredScene($index);
+    if ($this->stopping || $this->changingExcursion || $this->sceneExcursion !== null
+      || $this->suspendedCaller !== null || $this->sceneBeforeBattle !== null
+      || $this->sceneTransition !== null || $caller !== $this->currentScene
+      || !$this->scenes->contains($caller) || !$caller->isStarted()
+      || $caller === $scene || $scene->isStarted() || $scene instanceof BattleScene) {
+      throw new \LogicException('The scene excursion does not have an available live caller and target.');
+    }
+    if (!$scene instanceof ConfigurableSceneInterface) {
+      throw new \LogicException('The excursion scene must implement ConfigurableSceneInterface.');
+    }
+    $this->assertNoExcursionModal($caller);
+    [$session, $resolve] = SceneExcursionSession::createOwnedSession();
+    $invocation = new SceneExcursionInvocation($scene, $session, $resolve);
+    $this->sceneExcursion = $invocation;
+    $this->suspendedCaller = $caller;
+    $this->changingExcursion = true;
+    try {
+      $this->eventManager->dispatchEvent(new SceneEvent(SceneEventType::LOAD_START, $caller));
+      $this->assertCurrentExcursion($invocation, $caller);
+      $caller->suspend();
+      $this->eventManager->dispatchEvent(new SceneEvent(SceneEventType::SUSPEND, $caller));
+      $this->assertCurrentExcursion($invocation, $caller);
+      InputManager::resetState(true);
+      $this->assertCurrentExcursion($invocation, $caller);
+      $this->currentScene = $scene;
+      Console::recomposeFrame(function () use ($scene, $config, $invocation): void {
+        $scene->configure($config);
+        $this->assertCurrentExcursion($invocation);
+        $scene->start();
+        $this->assertCurrentExcursion($invocation);
+      });
+      $this->applySceneBackgroundMusic($scene);
+      $this->assertCurrentExcursion($invocation);
+      $this->eventManager->dispatchEvent(new SceneEvent(SceneEventType::LOAD_END, $scene));
+      $this->assertCurrentExcursion($invocation);
+      return $session;
+    } catch (Throwable $error) {
+      if ($this->sceneExcursion === $invocation) {
+        $this->disposeSceneExcursion(SceneExcursionOutcome::fail($error), restoreCaller: true);
+      }
+      throw $error;
+    } finally {
+      $this->changingExcursion = false;
+    }
+  }
+
+  /** The active target can obtain its identity during configuration; callers cannot borrow it. */
+  public function getSceneExcursionSession(SceneInterface $scene): ?SceneExcursionSession
+  {
+    return $this->currentScene === $scene && $this->sceneExcursion?->scene === $scene
+      ? $this->sceneExcursion->session : null;
+  }
+
+  /** Game supplies completion or player-cancellation data; event cancellation uses abandonment. */
+  public function finishSceneExcursion(SceneExcursionSession $session, SceneExcursionOutcome $outcome): void
+  {
+    $invocation = $this->requireSceneExcursion($session);
+    if (!in_array($outcome->status, [SceneExcursionStatus::COMPLETED, SceneExcursionStatus::CANCELLED], true)) {
+      throw new \LogicException('Game must supply a completion or cancellation result.');
+    }
+    if (!$this->canResumeExcursionCaller() || $this->currentScene !== $invocation->scene) {
+      $this->disposeSceneExcursion(SceneExcursionOutcome::abandon());
+      throw new \LogicException('The scene excursion caller or current scene was replaced or stopped.');
+    }
+    $this->assertNoExcursionModal($invocation->scene);
+    $this->disposeSceneExcursion($outcome, restoreCaller: true);
+  }
+
+  /** A cancelled waiting operation must never restart or resume its abandoned event. */
+  public function abandonSceneExcursion(SceneExcursionSession $session): bool
+  {
+    // Cancellation can re-enter from caller.stop(); stale handles have no authority over a new owner.
+    if ($this->sceneExcursion?->session !== $session || $session->outcome !== null) { return false; }
+    $this->disposeSceneExcursion(SceneExcursionOutcome::abandon());
+    return true;
+  }
+
+  private function requireSceneExcursion(SceneExcursionSession $session): SceneExcursionInvocation
+  {
+    if ($this->changingExcursion || $this->sceneExcursion?->session !== $session || $session->outcome !== null) {
+      throw new \LogicException('The scene excursion handle is stale or its lifecycle is changing.');
+    }
+    return $this->sceneExcursion;
+  }
+
+  private function assertCurrentExcursion(SceneExcursionInvocation $invocation, ?SceneInterface $expectedScene = null): void
+  {
+    if ($this->stopping || $this->sceneExcursion !== $invocation || $this->currentScene !== ($expectedScene ?? $invocation->scene)
+      || !$this->canResumeExcursionCaller()) {
+      throw new \LogicException('The scene excursion lost its live owner during startup.');
+    }
+  }
+
+  private function canResumeExcursionCaller(): bool
+  {
+    return !$this->stopping && $this->suspendedCaller !== null
+      && $this->scenes->contains($this->suspendedCaller) && $this->suspendedCaller->isStarted();
+  }
+
+  /** AbstractScene reports a true stop, invalidating even a caller restarted before the next tick. */
+  public function notifySceneStopped(SceneInterface $scene): void
+  {
+    if ($this->suspendedCaller === $scene) {
+      if ($this->sceneExcursion !== null) {
+        $this->disposeSceneExcursion(SceneExcursionOutcome::abandon());
+      } elseif ($this->changingExcursion) {
+        $this->suspendedCaller = null;
+      }
+    }
+  }
+
+  private function assertNoExcursionModal(SceneInterface $scene): void
+  {
+    if (ModalManager::getInstance($this->game)->currentModal !== null) {
+      throw new \LogicException('Close the shared modal before changing scene excursion ownership.');
+    }
+    foreach ($scene->getUI()->getActivePresentations() as $presentation) {
+      if ($presentation instanceof ModalInterface) {
+        throw new \LogicException('Close the active modal presentation before changing scene excursion ownership.');
+      }
+    }
+  }
+
+  /** Detach ownership before cleanup so event cancellation cannot recursively dispose the caller. */
+  private function disposeSceneExcursion(SceneExcursionOutcome $outcome, bool $restoreCaller = false): void
+  {
+    $invocation = $this->sceneExcursion;
+    if ($invocation === null) { return; }
+    $caller = $this->suspendedCaller;
+    $restoreCaller = $restoreCaller && $this->canResumeExcursionCaller()
+      && ($this->currentScene === $invocation->scene || $this->currentScene === $caller);
+    $this->sceneExcursion = null;
+    $wasChanging = $this->changingExcursion;
+    $this->changingExcursion = true;
+    $failure = null;
+    try {
+      // No scene may react to CLOSE while outgoing singleton modal state is released.
+      if ($this->currentScene === $invocation->scene || $this->currentScene === $caller) {
+        $this->currentScene = null;
+      }
+      try { $invocation->scene->stop(); } catch (Throwable $error) { $failure = $error; }
+      try { InputManager::resetState(true); } catch (Throwable $error) { $failure ??= $error; }
+      try { $this->assertNoExcursionModal($invocation->scene); } catch (Throwable $error) { $failure ??= $error; }
+      if ($failure === null && $restoreCaller && !$this->stopping && $caller?->isStarted()
+        && $this->scenes->contains($caller) && $this->currentScene === null) {
+        $this->currentScene = $caller;
+        try {
+          // Caller resume may own a complete Console frame (the field does); do not nest it.
+          $caller->camera->resume();
+          $caller->resume();
+          if ($this->stopping || $this->suspendedCaller !== $caller || $this->currentScene !== $caller
+            || !$caller->isStarted() || !$this->scenes->contains($caller)) {
+            throw new \LogicException('The excursion caller was replaced or stopped during return.');
+          }
+          $this->applySceneBackgroundMusic($caller);
+          $this->eventManager->dispatchEvent(new SceneEvent(SceneEventType::RESUME, $caller));
+          $this->eventManager->dispatchEvent(new SceneEvent(SceneEventType::LOAD_END, $caller));
+        } catch (Throwable $error) { $failure = $error; }
+      } else {
+        $restoreCaller = false;
+      }
+      if (!$restoreCaller || $failure !== null || $this->stopping) {
+        if ($this->currentScene === $caller) { $this->currentScene = null; }
+        try { if ($caller?->isStarted()) { $caller->stop(); } } catch (Throwable $error) { $failure ??= $error; }
+      }
+      if ($this->currentScene === null) {
+        try { $this->game->audioManager->stopBackgroundMusic(); } catch (Throwable $error) { $failure ??= $error; }
+      }
+    } finally {
+      $this->suspendedCaller = null;
+      if ($failure !== null && $outcome->failure !== null) {
+        $failure = new \RuntimeException($outcome->failure->getMessage() . '; excursion cleanup failed: '
+          . $failure->getMessage(), previous: $outcome->failure);
+      }
+      $invocation->settle($failure === null ? $outcome : SceneExcursionOutcome::fail($failure));
+      $this->changingExcursion = $wasChanging;
+    }
+    if ($failure !== null) { throw $failure; }
   }
 
   /**
@@ -385,6 +616,12 @@ class SceneManager implements CanStart, CanRender, CanUpdate
       return $this;
     }
 
+    if ($this->sceneExcursion !== null
+      && ($scene === $this->suspendedCaller || $scene === $this->sceneExcursion->scene)) {
+      $this->disposeSceneExcursion(SceneExcursionOutcome::abandon());
+      return $this;
+    }
+
     if ($this->scenes->contains($scene)
       && ($scene->isStarted() || ($scene instanceof GameScene && $scene->hasUnstableEventSession()))) {
       $scene->stop();
@@ -405,6 +642,9 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    */
   protected function sceneToReturnTo(): string
   {
+    if ($this->suspendedCaller !== null && $this->scenes->contains($this->suspendedCaller)) {
+      return $this->suspendedCaller::class;
+    }
     $previous = $this->sceneBeforeBattle;
 
     return $previous !== null && $this->findScene($previous) !== null
@@ -435,7 +675,8 @@ class SceneManager implements CanStart, CanRender, CanUpdate
    */
   public function loadBattleScene(Party $party, Troop $troop, array $events = [], array $extraSettings = []): void
   {
-    if ($this->currentScene instanceof BattleScene || $this->sceneBeforeBattle !== null || $this->sceneTransition !== null) {
+    if ($this->stopping || $this->changingExcursion || $this->sceneExcursion !== null || $this->suspendedCaller !== null
+      || $this->currentScene instanceof BattleScene || $this->sceneBeforeBattle !== null || $this->sceneTransition !== null) {
       throw new \LogicException('A battle already owns the scene transition.');
     }
 
@@ -451,6 +692,7 @@ class SceneManager implements CanStart, CanRender, CanUpdate
     $this->game->useBattleEngineType(BattleEngineType::fromValue($config->settings['engine'] ?? null));
     // Only acquire the return owner after configuration preparation succeeds.
     $this->sceneBeforeBattle = $this->currentScene === null ? null : $this->currentScene::class;
+    $this->suspendedCaller = $this->currentScene;
     $runtime = $this->game->getRendererRuntime();
     $treatment = null;
     if ($runtime !== null && !Accessibility::prefersReducedMotion()
@@ -491,7 +733,10 @@ class SceneManager implements CanStart, CanRender, CanUpdate
         $runtime->endScreenHandoff();
         InputManager::resetState(true);
         if ($complete && $this->currentScene instanceof BattleScene) { $this->currentScene->completeGraphicalEntry(); }
-        if (!$complete && !$this->currentScene instanceof BattleScene) { $this->sceneBeforeBattle = null; }
+        if (!$complete && !$this->currentScene instanceof BattleScene) {
+          $this->sceneBeforeBattle = null;
+          $this->suspendedCaller = null;
+        }
       });
   }
 
@@ -525,7 +770,12 @@ class SceneManager implements CanStart, CanRender, CanUpdate
 
     $battleResult = $this->currentScene->result;
 
-    $this->loadScene($this->sceneToReturnTo());
+    $caller = $this->suspendedCaller;
+    if ($caller !== null && $this->scenes->contains($caller)) {
+      $this->loadRegisteredScene($caller);
+    } else {
+      $this->loadScene($this->sceneToReturnTo());
+    }
 
     if ($this->currentScene instanceof GameScene && $battleResult !== null) {
       $this->currentScene->resumeEventAfterBattle($battleResult);

@@ -81,6 +81,7 @@ function createTestDirectory(string $prefix): string
 {
     $root = sys_get_temp_dir() . DIRECTORY_SEPARATOR . uniqid($prefix, true);
     mkdir($root, 0700, true);
+    $root = realpath($root) ?: throw new RuntimeException('Cannot resolve the owned test directory.');
     $GLOBALS['ichilotoTestDirectories'][$root] = $root;
 
     return $root;

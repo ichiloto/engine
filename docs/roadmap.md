@@ -939,21 +939,39 @@ introduced. See [audio.md](audio.md#scenario-and-mission-music).
 Dedicated Editor authoring and CLI reference validation for this catalog are
 not implemented by this Engine change and remain an explicit tooling handoff.
 
-## Queued - Game-defined scene excursions
+## Game-defined scene excursions
 
 Andrew requested bespoke mini-games through custom scenes on October 8, 2026.
-This is separate from G4. Immediate work is an implementation plan and Game/Art
-interface proposals; it is not a claim that the new integration is implemented.
-Existing `Game::addScenes()`, `SceneManager` and `SceneInterface` already accept
-game-defined scenes. Audit their entry/return lifecycle before adding anything.
+This is separate from G4. The generic runtime foundations are implemented locally
+on Engine develop on October 13, 2026; publication and reference-game integration
+remain pending. Existing `Game::addScenes()` registers project scenes. Game owns
+the scene, its configuration and its structured result; Engine owns the suspended
+caller and cleanup. This does not implement any particular mini-game.
 
-The reusable Engine slice must preserve a waiting field event, input/focus and
-scene-owned resources across entry, cancellation, completion, return and quit;
-deliver an explicit result without replaying the event or losing its caller;
-and support shared Terminal/GPUI presentation and safe persistence extension
-boundaries. Extend existing scene, event, input and save services rather than
-introducing a mini-game manager or a second runtime. Verify with synthetic
-custom scenes and interruption/re-entry tests, not game-specific card rules.
+`SceneManager::beginSceneExcursion($caller, $target, $config)` configures and starts
+an unstarted `ConfigurableSceneInterface` target while retaining the exact live
+caller. The target can read its handle through `getSceneExcursionSession($this)`
+and finish with `finishSceneExcursion($handle, $outcome)`. Game-defined result
+objects implement `SceneExcursionResultInterface`; outcomes distinguish completion,
+player cancellation, abandonment and failure. The waiting event uses its existing
+`EventPendingOperationInterface` to observe `handle->outcome` and to call
+`abandonSceneExcursion()` on cancellation, rather than replaying the event.
+
+Entry and return reset input and refuse live modals. Nested excursions, battles
+inside excursions and stale handles are rejected. Configuration/startup failures
+roll back to a live caller; shutdown, navigation, removal or a stopped/replaced
+caller abandon the session without resuming its event. Scene-owned listeners and
+resources are cleaned even if a resource throws. Battle return and excursions
+share one suspension authority, not separate runtimes. Synthetic regression tests
+exercise these ownership and interruption paths; native custom-scene and
+Linux/WSLg acceptance are not claimed.
+
+The optional [project secondary field action](rendering/input-sources.md#project-secondary-field-action)
+uses semantic input independently of ordinary Talk. The generic
+[project-state save extension](save-compatibility.md#project-owned-campaign-state)
+stores versioned plain data under Game-owned schema policies. Neither extension
+relaxes the active-event save guard: resumable mid-match checkpoints require a
+deliberate stable checkpoint/continuation contract before implementation.
 
 Each game's rules, card collection, NPC challenges, winnings, refinement,
 trading, progression gates and authored interface theme belong to that game.

@@ -332,6 +332,8 @@ it('clears all field effects on scene shutdown, including repeated shutdown', fu
   $events->expects($this->once())->method('removeEventListener');
   new ReflectionProperty(GameScene::class, 'fieldEffects')->setValue($scene, $manager);
   new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
+  new ReflectionProperty(GameScene::class, 'sceneManager')->setValue($scene,
+    makeBareScene(\Ichiloto\Engine\Scenes\SceneManager::class));
   new ReflectionProperty(GameScene::class, 'eventManager')->setValue($scene, $events);
   new ReflectionProperty(GameScene::class, 'modalEventHandler')->setValue($scene, static function (): void {});
   $scene->stop();
