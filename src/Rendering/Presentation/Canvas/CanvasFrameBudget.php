@@ -16,7 +16,7 @@ final class CanvasFrameBudget
     if (!array_is_list($canvases) || count($canvases) > 1025) {
       throw new InvalidArgumentException('Canvas frame roots require a list of at most 1025 canvases.');
     }
-    $images = $indicators = $text = $runs = $scalars = $pixels = $operations = $nodes = 0;
+    $images = $indicators = $text = $labels = $runs = $scalars = $pixels = $operations = $nodes = 0;
     $composites = [];
     foreach ($canvases as $canvas) {
       if (!$canvas instanceof PresentationCanvas) {
@@ -24,9 +24,11 @@ final class CanvasFrameBudget
       }
       $images += count($canvas->images);
       $indicators += count($canvas->indicators);
-      $text += count($canvas->textLayers) + count($canvas->labels);
-      if ($images > 1024 || $indicators > 2048 || $text > StyledPresentationFrame::MAX_TEXT_LAYERS) {
-        throw new InvalidArgumentException('Aggregate canvases exceed image, indicator or shared text limits.');
+      $text += count($canvas->textLayers);
+      $labels += count($canvas->labels);
+      if ($images > 1024 || $indicators > 2048 || $text > StyledPresentationFrame::MAX_TEXT_LAYERS
+        || $labels > CanvasValidation::MAX_LABELS) {
+        throw new InvalidArgumentException('Aggregate canvases exceed image, indicator, grid-text or label-instance limits.');
       }
       foreach ($canvas->textLayers as $layer) {
         $runs += count($layer->runs);

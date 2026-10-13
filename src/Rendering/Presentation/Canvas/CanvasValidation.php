@@ -8,6 +8,8 @@ use InvalidArgumentException;
 final class CanvasValidation
 {
   public const int MAX_EXTENT = 16384;
+  /** Instances share immutable prepared layouts and rasters; this is not a preparation allowance. */
+  public const int MAX_LABELS = 1024;
 
   public static function id(string $id): void
   {

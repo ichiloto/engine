@@ -167,7 +167,9 @@ it('replaces and removes label orientation through retained and snapshot paths w
 
 it('rejects aggregate overlay pressure before mutation and retains the original field frame', function () {
   [$presenter, $transport, $text, $world, $viewport] = createWorldCanvasPresenter();
-  $groups = array_map(fn($i) => createWorldCanvasProbe('board-' . $i), range(1, 64));
+  $groups = array_map(fn($i) => createWorldCanvasProbe('board-' . $i, canvas: new PresentationCanvas(48, 24,
+    labels: array_map(fn($j) => new CanvasLabel('letter-' . $j, createWorldCanvasProbe()->canvas->labels[0]->measurement, 4, 3),
+      range(1, 16)))), range(1, 64));
   $viewport = $viewport->selectWorldCanvases(array_column($groups, 'id'));
   $frame = $presenter->prepareFrame($text, viewport: $viewport, world: $world, worldCanvases: $groups);
   $presenter->presentFrame($frame);

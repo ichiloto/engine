@@ -109,10 +109,7 @@ final readonly class PresentationCanvas
     $this->images = CanvasValidation::orderedList($images, CanvasImage::class, 1024);
     $this->indicators = CanvasValidation::orderedList($indicators, CanvasIndicator::class, 2048);
     $this->textLayers = CanvasValidation::orderedList($textLayers, CanvasTextLayer::class, StyledPresentationFrame::MAX_TEXT_LAYERS);
-    $this->labels = CanvasValidation::orderedList($labels, CanvasLabel::class, StyledPresentationFrame::MAX_TEXT_LAYERS);
-    if (count($this->textLayers) + count($this->labels) > StyledPresentationFrame::MAX_TEXT_LAYERS) {
-      throw new InvalidArgumentException('Canvas grid text and project labels share the 64-layer text pool.');
-    }
+    $this->labels = CanvasValidation::orderedList($labels, CanvasLabel::class, CanvasValidation::MAX_LABELS);
     foreach ($this->labels as $label) { $label->assertWithin($width, $height); }
     $this->composites = CanvasValidation::orderedList($composites, CanvasComposite::class, 8);
     $areas = null;

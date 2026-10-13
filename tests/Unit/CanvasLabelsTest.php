@@ -180,13 +180,16 @@ it('copies label lists detaching references with stable layer sorting and pool-l
   }
 });
 
-it('shares the local 64 entry pool with legacy grid text while retaining old positional arguments', function () {
+it('separates bounded label instances from grid layers while retaining old positional arguments', function () {
   $measurement = createCanvasLabelMeasurement();
-  $labels = array_map(fn($i) => new CanvasLabel('label-' . $i, $measurement, 3, 2), range(1, 64));
-  expect(new PresentationCanvas(20, 20, [], [], [], [], [], ['owner'], $labels)->labels)->toHaveCount(64);
+  $labels = array_map(fn($i) => new CanvasLabel('label-' . $i, $measurement, 3, 2), range(1, 1024));
+  expect(new PresentationCanvas(20, 20, [], [], [], [], [], ['owner'], $labels)->labels)->toHaveCount(1024);
   expect(fn() => new PresentationCanvas(20, 20, labels: [...$labels, new CanvasLabel('extra', $measurement, 3, 2)]))
     ->toThrow(InvalidArgumentException::class);
-  $grid = new CanvasTextLayer('grid', 0, 0, 0, new RendererGridConfig(1, 1, 1, 1), []);
-  expect(new PresentationCanvas(20, 20, textLayers: [$grid], labels: array_slice($labels, 0, 63))->labels)->toHaveCount(63);
-  expect(fn() => new PresentationCanvas(20, 20, textLayers: [$grid], labels: $labels))->toThrow(InvalidArgumentException::class);
+  $grids = array_map(fn($i) => new CanvasTextLayer('grid-' . $i, 0, 0, 0,
+    new RendererGridConfig(1, 1, 1, 1), []), range(1, 64));
+  expect(new PresentationCanvas(20, 20, textLayers: $grids, labels: $labels)->labels)->toHaveCount(1024);
+  expect(fn() => new PresentationCanvas(20, 20, textLayers: [...$grids,
+    new CanvasTextLayer('extra-grid', 0, 0, 0, new RendererGridConfig(1, 1, 1, 1), [])]))
+    ->toThrow(InvalidArgumentException::class);
 });

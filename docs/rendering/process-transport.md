@@ -141,7 +141,7 @@ bytes is a failure. Key strings are protocol data, with no `KeyCode` or action m
 ## Project Text Queries
 
 Protocol 2 optionally negotiates `text_layout`, `canvas_labels`,
-`canvas_text_180` and `world_canvas`. Their presence does not make them mandatory for existing
+`canvas_label_instances`, `canvas_text_180` and `world_canvas`. Their presence does not make them mandatory for existing
 sessions. The Engine's typed text query path requires advertised `text_layout`;
 it never substitutes installed machine fonts or terminal grid text for a
 missing project face or unsupported capability.
@@ -198,13 +198,31 @@ space and opacity applies to the complete label. Clipping or invisibility never
 excuses paint outside the surface. Overlay composition preserves orientation.
 Legacy grid text and Terminal are unchanged.
 
-This feature does not raise resource limits or establish full card-table
-acceptance. Labels and grid layers still share the 64-placement pool and the
-query owner still permits 64 tickets/cleanup slots. A complete table with paired
-indices, suit pips, hand, inspection and ledger exceeds that placement limit.
-Its shared batching/admission design and cold/warm raster memory/work/retained
-generation qualification are required separately; shrinking or omitting cards,
-baking labels or simply raising limits is not a valid workaround.
+Half-turn support does not itself establish full card-table acceptance.
+
+`canvas_label_instances` separately negotiates bounded reuse of measured
+layouts: at most 1,024 label placements across all canvas roots, alongside the
+unchanged 64 canvas grid-layer pool. The old coupling of placements to grid
+layers is removed only with this capability. Without it, the complete candidate
+still admits at most 64 grid layers and labels combined, including screen
+overlays and world groups; rejection precedes retained-state mutation. The
+capability requires protocol 2, `graphical_canvas`, `canvas_labels` and
+`text_layout`. Label IDs remain independent, so replacement, selection,
+orientation, removal, ordering and overlay protection do not modify the shared
+measurement.
+
+Prepare each distinct `TextSpec` once for its owner's lifetime, then use the
+same immutable measurement at all required positions. Native raster preparation
+already batches unique layout/density/orientation keys across canvas roots.
+Neither a new placement nor a moved one creates a distinct text query or raster
+key; density and orientation still distinguish their raster variants. The query
+owner still permits 64 tickets/cleanup slots; font, layout, raster-memory, cold
+work, scalar/run, retained-entity and transport bounds are unchanged. The
+1,024-placement structural allowance is not permission to inflate those pools
+or prepare one layout per occurrence. Full-table acceptance additionally
+requires actual cold/warm raster, density and retained-generation qualification;
+shrinking or omitting cards, baking labels or unmeasured limit increases are
+not valid substitutes.
 
 ## Retained frame feedback
 

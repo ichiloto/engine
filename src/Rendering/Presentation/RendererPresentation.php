@@ -49,6 +49,7 @@ final class RendererPresentation
   public function prepareCanvas(PresentationCanvas $canvas): RetainedFrame
   {
     $this->validateCanvas($canvas);
+    $this->validateCanvasFrame([$canvas]);
     return $this->retained->prepareCanvas($canvas);
   }
 
@@ -64,6 +65,10 @@ final class RendererPresentation
         throw new RendererProtocolException('Retained screen overlays require canvas_overlay and the session logical surface.');
       }
     }
+    $canvas = $screenOverlay === null ? $frame->canvas
+      : PresentationCanvas::composeOverlay($frame->canvas, $screenOverlay);
+    $this->validateCanvasFrame([...($canvas === null ? [] : [$canvas]),
+      ...array_map(static fn($group) => $group->canvas, $frame->worldCanvases)]);
     return $this->retained->presentFrame($frame, $screenOverlay);
   }
 
@@ -118,6 +123,8 @@ final class RendererPresentation
       $this->validateCanvas($canvasOverlay);
     }
     $this->validateWorldCanvases($worldCanvases);
+    $this->validateCanvasFrame([...($canvasOverlay === null ? [] : [$canvasOverlay]),
+      ...array_map(static fn($group) => $group->canvas, $worldCanvases)]);
     return $prepare ? $this->retained->prepareFrame($snapshot, $sprites, $viewport, $world, $canvasOverlay, $worldCanvases)
       : $this->retained->present($snapshot, $sprites, $viewport, $world, $canvasOverlay, $worldCanvases);
   }
@@ -126,7 +133,21 @@ final class RendererPresentation
   public function presentCanvas(PresentationCanvas $canvas): bool
   {
     $this->validateCanvas($canvas);
+    $this->validateCanvasFrame([$canvas]);
     return $this->retained->presentCanvas($canvas);
+  }
+
+  /** Admission is for the complete candidate, not one root or one prepared layout at a time.
+   * @param list<PresentationCanvas> $canvases
+   */
+  private function validateCanvasFrame(array $canvases): void
+  {
+    CanvasFrameBudget::assertCanvases($canvases);
+    if (!$this->client->supports(RendererSessionConfig::CANVAS_LABEL_INSTANCES)
+      && array_sum(array_map(static fn($canvas) => count($canvas->textLayers) + count($canvas->labels), $canvases))
+        > StyledPresentationFrame::MAX_TEXT_LAYERS) {
+      throw new RendererProtocolException('More than 64 combined canvas grid layers and labels require negotiated canvas_label_instances support.');
+    }
   }
 
   private function validateCanvas(PresentationCanvas $canvas): void

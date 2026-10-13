@@ -58,18 +58,16 @@ it('shares the 2048 indicator pool without changing each roots image ownership',
     new PresentationCanvas(512, 1, [$image], [$indicators[0]])]))->toThrow(InvalidArgumentException::class);
 });
 
-it('shares 64 text slots between labels and grids and counts repeated layouts per drawing', function () {
+it('counts reused label placements separately from the unchanged grid-layer budget', function () {
   $bounds = new TextBounds(0, 0, 1, 1);
   $measurement = new TextMeasurement('reused-layout', new TextMetrics(1, 1, $bounds, $bounds, $bounds));
-  $labels = array_map(fn($i) => new CanvasLabel('label-' . $i, $measurement, 0, 0), range(1, 32));
+  $labels = array_map(fn($i) => new CanvasLabel('label-' . $i, $measurement, 0, 0), range(1, 512));
   $grids = array_map(fn($i) => createFrameBudgetText(id: 'grid-' . $i), range(1, 32));
   $labelRoot = new PresentationCanvas(512, 1, labels: $labels);
   $gridRoot = new PresentationCanvas(512, 1, textLayers: $grids);
-  CanvasFrameBudget::assertCanvases([$labelRoot, $gridRoot]);
-  CanvasFrameBudget::assertCanvases([$labelRoot, $labelRoot]);
-  CanvasFrameBudget::assertCanvases([$gridRoot, $gridRoot]);
+  CanvasFrameBudget::assertCanvases([$labelRoot, $labelRoot, $gridRoot, $gridRoot]);
   foreach ([$labelRoot, $gridRoot] as $extra) {
-    expect(fn() => CanvasFrameBudget::assertCanvases([$labelRoot, $gridRoot, $extra]))
+    expect(fn() => CanvasFrameBudget::assertCanvases([$labelRoot, $labelRoot, $gridRoot, $gridRoot, $extra]))
       ->toThrow(InvalidArgumentException::class);
   }
 });
