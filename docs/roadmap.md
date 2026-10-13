@@ -942,9 +942,9 @@ not implemented by this Engine change and remain an explicit tooling handoff.
 ## Game-defined scene excursions
 
 Andrew requested bespoke mini-games through custom scenes on October 8, 2026.
-This is separate from G4. The generic runtime foundations are implemented locally
-on Engine develop on October 13, 2026; publication and reference-game integration
-remain pending. Existing `Game::addScenes()` registers project scenes. Game owns
+This is separate from G4. The generic runtime foundations are implemented
+on Engine develop on October 13, 2026; reference-game integration remains in
+progress. Existing `Game::addScenes()` registers project scenes. Game owns
 the scene, its configuration and its structured result; Engine owns the suspended
 caller and cleanup. This does not implement any particular mini-game.
 
@@ -956,6 +956,15 @@ objects implement `SceneExcursionResultInterface`; outcomes distinguish completi
 player cancellation, abandonment and failure. The waiting event uses its existing
 `EventPendingOperationInterface` to observe `handle->outcome` and to call
 `abandonSceneExcursion()` on cancellation, rather than replaying the event.
+
+The active target reads its exact live caller through
+`getSceneExcursionCaller($this)`, including during configuration and startup.
+This is an ownership lookup, not a class lookup: several registered scenes may
+have the same class. Other scenes, finished or abandoned excursions and stopped
+or replaced callers have no caller access. A project needing a checkpoint uses
+that retained caller with the existing save manager and project-state extension;
+it does not guess the owner through `findScene()`. Arbitrary active story events
+remain unsaveable, and no event continuation or scene reference is serialized.
 
 Entry and return reset input and refuse live modals. Nested excursions, battles
 inside excursions and stale handles are rejected. Configuration/startup failures
@@ -970,12 +979,14 @@ The optional [project secondary field action](rendering/input-sources.md#project
 uses semantic input independently of ordinary Talk. The generic
 [project-state save extension](save-compatibility.md#project-owned-campaign-state)
 stores versioned plain data under Game-owned schema policies. Neither extension
-relaxes the active-event save guard: resumable mid-match checkpoints require a
-deliberate stable checkpoint/continuation contract before implementation.
+relaxes the active-event save guard. A Game-owned resumable activity entered
+from a stable field can checkpoint its structured state through the retained
+field owner; required checkpoint failures must remain visible to that activity,
+not be mistaken for successful optional autosaves.
 
 Each game's rules, card collection, NPC challenges, winnings, refinement,
 trading, progression gates and authored interface theme belong to that game.
-The immediate reference-game plan and its unresolved rule decisions are owned
+The immediate reference-game plan and its ratified rule decisions are owned
 by Game in its existing private roadmap, not copied into Engine documentation.
 Implementation is queued independently and must not expand G4 acceptance.
 

@@ -131,6 +131,7 @@ final class ExcursionTestTarget extends AbstractScene
   public string $failAt = '';
   public ?SceneConfigurationInterface $configuration = null;
   public ?Closure $onConfigure = null;
+  public ?Closure $onStart = null;
   public bool $configureHadInput = false;
   public function __construct(SceneManager $manager) { parent::__construct($manager, 'Target'); }
   public function getBackgroundMusic(): ?string { return $this->configuration === null ? null : 'target-track'; }
@@ -145,6 +146,7 @@ final class ExcursionTestTarget extends AbstractScene
   public function start(): void
   {
     $this->starts++; parent::start();
+    ($this->onStart ?? static fn() => null)();
     if ($this->failAt === 'start') { throw new RuntimeException('target start failed'); }
   }
   public function stop(): void
@@ -316,6 +318,7 @@ it('abandons on navigation removal unloading direct stop shutdown or replaced cu
   };
   if ($exit === 'replace') { $this->manager->update(); }
   expect($session->outcome->status)->toBe(SceneExcursionStatus::ABANDONED)
+    ->and($this->manager->getSceneExcursionCaller($this->target))->toBeNull()
     ->and([$this->caller->resumes, $this->caller->stops, $this->target->stops])->toBe([0, 1, 1])
     ->and($this->caller->isStarted())->toBeFalse()->and($this->target->isStarted())->toBeFalse();
   if ($this->manager->currentScene === null) { expect(end($this->game->tracks))->toBeNull(); }
@@ -328,6 +331,7 @@ it('cleans both owners if target stop or caller resume fails and records failure
   $failingScene->failAt = $step;
   expect(fn() => $this->manager->finishSceneExcursion($session, SceneExcursionOutcome::complete(new ExcursionTestResult('not-committed'))))->toThrow(RuntimeException::class);
   expect($session->outcome->status)->toBe(SceneExcursionStatus::FAILED)->and($session->outcome->result)->toBeNull()
+    ->and($this->manager->getSceneExcursionCaller($this->target))->toBeNull()
     ->and($this->manager->currentScene)->toBeNull()->and($this->caller->isStarted())->toBeFalse()
     ->and($this->target->isStarted())->toBeFalse();
 })->with(['stop', 'resume']);
@@ -542,6 +546,36 @@ final class ExcursionEventOperation implements EventPendingOperationInterface
   }
   public function cancel(): void { $this->cancels++; $this->manager->abandonSceneExcursion($this->session); }
 }
+
+it('exposes only the active target\'s actual excursion caller rather than the first scene of its class', function () {
+  $first = new ExcursionEventCaller($this->manager);
+  $second = new ExcursionEventCaller($this->manager);
+  $this->manager->addScenes($first, $second)->loadScene(4);
+  expect($this->manager->findScene(ExcursionEventCaller::class))->toBe($first)
+    ->and($this->manager->currentScene)->toBe($second)
+    ->and($this->manager->getSceneExcursionCaller($this->target))->toBeNull();
+  $this->target->onConfigure = function () use ($second): void {
+    expect($this->manager->getSceneExcursionCaller($this->target))->toBe($second);
+  };
+  $this->target->onStart = function () use ($second): void {
+    expect($this->manager->getSceneExcursionCaller($this->target))->toBe($second);
+  };
+  $session = $this->manager->beginSceneExcursion($second, ExcursionTestTarget::class, getExcursionTestConfig());
+  expect($this->manager->getSceneExcursionCaller($this->target))->toBe($second)
+    ->and($this->manager->getSceneExcursionCaller($second))->toBeNull()
+    ->and($this->manager->getSceneExcursionCaller($this->other))->toBeNull()
+    ->and($this->manager->getSceneExcursionCaller(new ExcursionTestTarget($this->manager)))->toBeNull();
+  $this->manager->finishSceneExcursion($session, SceneExcursionOutcome::complete(new ExcursionTestResult('returned')));
+  expect($this->manager->getSceneExcursionCaller($this->target))->toBeNull();
+
+  $this->target->onConfigure = null;
+  $this->target->onStart = null;
+  $this->manager->loadScene(3);
+  $next = $this->manager->beginSceneExcursion($first, ExcursionTestTarget::class, getExcursionTestConfig());
+  expect($this->manager->getSceneExcursionCaller($this->target))->toBe($first);
+  $this->manager->abandonSceneExcursion($next);
+  expect($this->manager->getSceneExcursionCaller($this->target))->toBeNull();
+});
 
 it('retains the real waiting event and resumes its Game pending operation exactly once', function (bool $cancelled) {
   $caller = new ExcursionEventCaller($this->manager);

@@ -442,6 +442,13 @@ class SceneManager implements CanStart, CanRender, CanUpdate
       ? $this->sceneExcursion->session : null;
   }
 
+  /** The active target can read its exact live caller, including during configuration and startup. */
+  public function getSceneExcursionCaller(SceneInterface $target): ?SceneInterface
+  {
+    return $this->currentScene === $target && $this->sceneExcursion?->scene === $target
+      && $this->canResumeExcursionCaller() ? $this->suspendedCaller : null;
+  }
+
   /** Game supplies completion or player-cancellation data; event cancellation uses abandonment. */
   public function finishSceneExcursion(SceneExcursionSession $session, SceneExcursionOutcome $outcome): void
   {
