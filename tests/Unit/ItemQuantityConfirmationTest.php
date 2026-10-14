@@ -95,6 +95,7 @@ beforeEach(function () {
   ActionHints::useProvider(null);
   Timers::setFrameTick(null);
   Console::setTerminalOutputEnabled(false);
+  Console::enterAlternateScreen();
   Console::syncDimensions(135, 36);
   ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 135, 'height' => 36]));
   $this->game = new ItemQuantityGame();
@@ -226,12 +227,8 @@ it('clamps discard to available stock and returns to commands when regular items
 
 it('rejects key items and equipment even when a stale panel exposes them', function (bool $discard, bool $equipment) {
   quantityItemSetup($this->state, 3, $discard);
-  $protected = $equipment ? makeBareScene(Weapon::class) : new Item('Key', 'Keep', '', 0, isKeyItem: true);
-  if ($equipment) {
-    foreach (['id' => 'weapon', 'name' => 'Weapon', 'description' => 'Keep', 'quantity' => 3] as $name => $value) {
-      new ReflectionProperty($protected, $name)->setValue($protected, $value);
-    }
-  }
+  $protected = $equipment ? new Weapon('Weapon', 'Keep', '', 0, quantity: 3, id: 'weapon')
+    : new Item('Key', 'Keep', '', 0, isKeyItem: true);
   $this->party->inventory->addItems($protected);
   $this->state->selectionPanel->setItems([$protected]);
   $before = $protected->quantity;

@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Core;
 
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\Quests\QuestLog;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
@@ -57,25 +58,38 @@ class WorldConditionEvaluator
         throw new InvalidArgumentException(sprintf('%s field "name" must be non-empty.', $conditionSource));
       }
 
-      if (isset($condition['negate']) && ! is_bool($condition['negate'])) {
+      if (array_key_exists('negate', $condition) && ! is_bool($condition['negate'])) {
         throw new InvalidArgumentException(sprintf('%s field "negate" must be boolean.', $conditionSource));
       }
 
+      if ($type === WorldConditionType::SWITCH && array_key_exists('value', $condition) && !is_bool($condition['value'])) {
+        throw new InvalidArgumentException(sprintf('%s switch field "value" must be boolean.', $conditionSource));
+      }
+
       if ($type === WorldConditionType::VARIABLE) {
-        $operator = strval($condition['op'] ?? '==');
-        if (! in_array($operator, ['==', '!=', '>', '>=', '<', '<='], true)) {
+        $operator = array_key_exists('op', $condition) ? $condition['op'] : '==';
+        if (!is_string($operator) || ! in_array($operator, ['==', '!=', '>', '>=', '<', '<='], true)) {
           throw new InvalidArgumentException(sprintf(
             '%s field "op" has unsupported variable operator "%s".',
             $conditionSource,
-            $operator,
+            is_scalar($operator) ? strval($operator) : get_debug_type($operator),
           ));
+        }
+        if (array_key_exists('value', $condition) && !is_int($condition['value'])
+          && !is_float($condition['value']) && !is_string($condition['value'])) {
+          throw new InvalidArgumentException(sprintf('%s variable field "value" must be a number or string.', $conditionSource));
         }
       }
 
       if ($type === WorldConditionType::ITEM
-        && isset($condition['quantity'])
+        && array_key_exists('quantity', $condition)
         && (! is_int($condition['quantity']) || $condition['quantity'] < 1)) {
         throw new InvalidArgumentException(sprintf('%s field "quantity" must be a positive integer.', $conditionSource));
+      }
+
+      if ($type === WorldConditionType::QUEST && array_key_exists('status', $condition)
+        && !in_array($condition['status'], ['active', 'completed'], true)) {
+        throw new InvalidArgumentException(sprintf('%s quest field "status" must be active or completed.', $conditionSource));
       }
     }
   }
@@ -86,9 +100,10 @@ class WorldConditionEvaluator
    * @param array<int, mixed> $conditions The condition entries.
    * @param GameState $gameState The world state.
    * @param Party|null $party The party, for item conditions.
+   * @param QuestLog|null $questLog Explicit state for detached/preflight evaluation; otherwise the running manager.
    * @return bool True when all conditions hold.
    */
-  public static function allHold(array $conditions, GameState $gameState, ?Party $party = null): bool
+  public static function allHold(array $conditions, GameState $gameState, ?Party $party = null, ?QuestLog $questLog = null): bool
   {
     foreach ($conditions as $condition) {
       if (! is_array($condition)) {
@@ -114,7 +129,7 @@ class WorldConditionEvaluator
         continue;
       }
 
-      $result = self::evaluate($type, $condition, $name, $gameState, $party);
+      $result = self::evaluate($type, $condition, $name, $gameState, $party, $questLog);
 
       if (($condition['negate'] ?? false) ? $result : ! $result) {
         return false;
@@ -132,6 +147,7 @@ class WorldConditionEvaluator
    * @param string $name The trimmed condition name.
    * @param GameState $gameState The world state.
    * @param Party|null $party The party, for item conditions.
+   * @param QuestLog|null $questLog Explicit quest state when supplied.
    * @return bool True when the condition's test passes.
    */
   protected static function evaluate(
@@ -139,7 +155,8 @@ class WorldConditionEvaluator
     array $condition,
     string $name,
     GameState $gameState,
-    ?Party $party
+    ?Party $party,
+    ?QuestLog $questLog = null,
   ): bool
   {
     return match ($type) {
@@ -152,7 +169,9 @@ class WorldConditionEvaluator
       ),
       WorldConditionType::ITEM => ($party?->inventory?->getQuantity($name, 'evaluating an item world condition') ?? 0) >= max(1, intval($condition['quantity'] ?? 1)),
       WorldConditionType::KEY_ITEM => $party?->inventory?->hasKeyItem($name) ?? false,
-      WorldConditionType::QUEST => QuestManager::current()?->questStatusMatches($name, strval($condition['status'] ?? 'completed')) ?? false,
+      WorldConditionType::QUEST => $questLog !== null
+        ? (($condition['status'] ?? 'completed') === 'active' ? $questLog->isActive($name) : $questLog->isCompleted($name))
+        : (QuestManager::current()?->questStatusMatches($name, strval($condition['status'] ?? 'completed')) ?? false),
     };
   }
 

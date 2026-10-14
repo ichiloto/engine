@@ -18,4 +18,18 @@ enum CollisionType: int
   case SAVE_POINT = 6;
   case ENCOUNTER = 7;
   case COLLECTABLE = 8;
+  case PASS_THROUGH = 9;
+  /**
+   * Solid to movement, but the player talks across one faced counter cell
+   * to an NPC directly behind it, as across a shop or inn counter.
+   */
+  case COUNTER = 10;
+
+  public function blocksMovement(): bool
+  {
+    return match ($this) {
+      self::SOLID, self::NPC, self::COUNTER => true,
+      default => false,
+    };
+  }
 }

@@ -5,6 +5,7 @@ namespace Ichiloto\Engine\Core\Menu\MainMenu\Windows;
 use Ichiloto\Engine\Core\Interfaces\CanFocus;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
@@ -71,9 +72,9 @@ class CharacterPanel extends Window implements CanFocus
     $this->details = [
       sprintf("%{$leftMargin}s%s", ' ', $name),
       sprintf("%{$leftMargin}sRole: %s", ' ', $role),
-      sprintf("%{$leftMargin}sLv %12d", ' ', $level),
-      sprintf("%{$leftMargin}sHP %12s", ' ', $hp),
-      sprintf("%{$leftMargin}sMP %12s", ' ', $mp),
+      sprintf("%{$leftMargin}s%s %12d", ' ', Vocabulary::getTerm('stats.level', 'Lv'), $level),
+      sprintf("%{$leftMargin}s%s %12s", ' ', Vocabulary::getTerm('stats.hp', 'HP'), $hp),
+      sprintf("%{$leftMargin}s%s %12s", ' ', Vocabulary::getTerm('stats.mp', 'MP'), $mp),
     ];
     $this->applyHighlightState();
   }

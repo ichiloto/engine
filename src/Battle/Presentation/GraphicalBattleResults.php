@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace Ichiloto\Engine\Battle\Presentation;
 
+use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImagePreflight;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasGlyphEffects;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasNineSlice;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextureFallback;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
@@ -57,7 +59,8 @@ final class GraphicalBattleResults
       $skin->textures[$role]->images('results-preflight', new CanvasRectangle(0, 0, $width, $height), 0);
     }
     $assets = [];
-    $art = [...array_values($skin->textures), ...array_values($skin->icons)];
+    $textures = CanvasTextureFallback::getAvailableTextures(array_values($skin->textures), $root);
+    $art = [...$textures, ...array_values($skin->icons)];
     foreach ($skin->portraits as $families) {
       array_push($art, ...array_values(array_filter($families)));
     }
@@ -67,7 +70,7 @@ final class GraphicalBattleResults
       $assets[$texture->asset] = $size['width'] * $size['height'] * 4;
     }
     $base = [...$battlefield, ...CanvasImagePreflight::textures([
-      ...array_values($skin->textures), ...array_values($skin->icons),
+      ...$textures, ...array_values($skin->icons),
     ])];
     CanvasImagePreflight::inspect($base, $root);
     $actorIds ??= array_keys($skin->portraits);
@@ -91,40 +94,43 @@ final class GraphicalBattleResults
   public static function frame(PresentationCanvas $battlefield, BattleResultsSkin $skin,
     BattleResultsPlayback $playback): PresentationCanvas
   {
-    if ($battlefield->width !== 1350 || $battlefield->height !== 720) {
-      throw new InvalidArgumentException('This Results layout requires a 1350x720 battle canvas.');
+    if ($battlefield->width !== PresentationCanvas::DEFAULT_WIDTH || $battlefield->height !== PresentationCanvas::DEFAULT_HEIGHT) {
+      throw new InvalidArgumentException(sprintf('This Results layout requires a %dx%d battle canvas.',
+        PresentationCanvas::DEFAULT_WIDTH, PresentationCanvas::DEFAULT_HEIGHT));
     }
     $playback->setScrollLimit(BattleResultsContent::pageCount($playback) - 1);
     if ($playback->isFinished() || $playback->opacity() <= 0) { return $battlefield; }
     $view = new self($skin, $playback);
     $stage = $playback->currentStage();
     $view->heading(match ($stage['kind']) {
-      'primary' => 'VICTORY', 'level' => 'LEVEL UP', 'ability' => 'NEW ABILITY', default => 'SPECIAL REWARD',
+      'primary' => Vocabulary::getTerm('battle.victory', 'VICTORY'),
+      'level' => Vocabulary::getTerm('battle.level_up', 'LEVEL UP'),
+      'ability' => Vocabulary::getTerm('battle.new_ability', 'NEW ABILITY'),
+      default => Vocabulary::getTerm('battle.special_reward', 'SPECIAL REWARD'),
     });
     if ($stage['kind'] === 'primary') { $view->primary(); } else { $view->event(); }
     $view->controls();
-    return new PresentationCanvas(1350, 720, [...$battlefield->images, ...$view->images],
-      $battlefield->indicators, [...$battlefield->textLayers, ...$view->text]);
+    return new PresentationCanvas(PresentationCanvas::DEFAULT_WIDTH, PresentationCanvas::DEFAULT_HEIGHT, [...$battlefield->images, ...$view->images],
+      $battlefield->indicators, [...$battlefield->textLayers, ...$view->text], $battlefield->composites,
+      [...$battlefield->getOverlayProtection(),
+        ...array_map(static fn(CanvasImage $image) => $image->clipRect ?? $image->destination, $view->images),
+        ...array_map(static fn(CanvasTextLayer $text) => $text->clipRect ?? $text->paintBounds, $view->text)]);
   }
 
   private function heading(string $title): void
   {
     $this->line('heading', $title, 80, 28, 1190, 36, 54, 'text', align: 'center');
-    $this->image('heading-divider', 'divider', new CanvasRectangle(455, 123, 440, 16));
-    $counter = $this->playback->eventCounter();
-    if ($counter['current'] > 0) {
-      $this->line('event-counter', $counter['current'] . '/' . $counter['total'], 1138, 90, 160, 11, 22, 'muted', align: 'right');
-    }
+    $this->renderImage('heading-divider', 'divider', new CanvasRectangle(455, 123, 440, 16));
   }
 
   private function primary(): void
   {
-    $this->image('party', 'panel', new CanvasRectangle(52, 146, 754, 502));
-    $this->image('rewards', 'panel', new CanvasRectangle(828, 146, 470, 324));
-    $this->image('summary', 'quiet', new CanvasRectangle(828, 484, 470, 164));
-    $this->line('party-title', 'PARTY PROGRESS', 80, 168, 698, 11, 22, 'accent');
-    $this->line('rewards-title', 'REWARDS', 856, 168, 414, 11, 22, 'accent');
-    $this->line('summary-title', 'BATTLE SUMMARY', 856, 508, 414, 11, 22, 'accent');
+    $this->renderImage('party', 'panel', new CanvasRectangle(52, 146, 754, 502));
+    $this->renderImage('rewards', 'panel', new CanvasRectangle(828, 146, 470, 324));
+    $this->renderImage('summary', 'quiet', new CanvasRectangle(828, 484, 470, 164));
+    $this->line('party-title', Vocabulary::getTerm('battle.party_progress', 'PARTY PROGRESS'), 80, 168, 698, 11, 22, 'accent');
+    $this->line('rewards-title', Vocabulary::getTerm('battle.rewards', 'REWARDS'), 856, 168, 414, 11, 22, 'accent');
+    $this->line('summary-title', Vocabulary::getTerm('battle.summary', 'BATTLE SUMMARY'), 856, 508, 414, 11, 22, 'accent');
     $rewards = $this->playback->rewards;
     $rows = $this->page(BattleResultsContent::partyRows($rewards), 4);
     foreach ($rows as $slot => $row) {
@@ -139,26 +145,27 @@ final class GraphicalBattleResults
         $this->line('party-name-' . $slot . '-' . $line, $name, 196, $y + $line * 28,
           $row['nameColumns'] * 14, 14, 28, 'text', alpha: $alpha);
       }
-      $this->line('party-level-' . $slot, 'Lv ' . $progress['level'], 680, $y, 98, 13, 26, 'accent', 'right', $alpha);
+      $this->line('party-level-' . $slot, Vocabulary::getTerm('stats.level_short', Vocabulary::getTerm('stats.level', 'Lv')) . ' ' . $progress['level'], 680, $y, 98, 13, 26, 'accent', 'right', $alpha);
       $gain = $award->experienceAwarded > 0 ? '+' . $award->experienceAwarded : '';
       $this->line('party-gain-' . $slot, $gain, 778 - $row['gainWidth'], $y + 28,
         $row['gainWidth'], 13, 26, 'positive', 'right', $alpha);
       if ($progress['maximum']) {
-        $this->line('party-cap-' . $slot, 'MAX LEVEL', 196, $y + 60, 260, 11, 22, 'muted', alpha: $alpha);
+        $this->line('party-cap-' . $slot, Vocabulary::getTerm('battle.max_level', 'MAX LEVEL'), 196, $y + 60, 260, 11, 22, 'muted', alpha: $alpha);
       } else {
-        $this->gauge('party-' . $slot, new CanvasRectangle(196, $y + 64, 582, 12), $progress['ratio'], $alpha);
+        $this->renderGauge('party-' . $slot, new CanvasRectangle(196, $y + 64, 582, 12), $progress['ratio'], $alpha);
       }
       $markers = [];
       if ($row['continued']) { $markers[] = 'NAME CONTINUED'; }
       if ($this->playback->isComplete()) {
-        if ($award->levelledUp()) { $markers[] = 'LEVEL UP'; }
-        if ($award->learnedDetails !== []) { $markers[] = 'NEW ABILITY'; }
+        if ($award->levelledUp()) { $markers[] = Vocabulary::getTerm('battle.level_up', 'LEVEL UP'); }
+        if ($award->learnedDetails !== []) { $markers[] = Vocabulary::getTerm('battle.new_ability', 'NEW ABILITY'); }
       }
       $this->line('party-markers-' . $slot, implode(' / ', $markers), 196, $y + 80, 582, 9, 18, 'accent', alpha: $alpha);
     }
-    $this->total('experience', 'EXP / MEMBER', $rewards->experiencePerMember, 207);
-    $this->total('gold', 'MONEY', $rewards->gold, 241);
-    $this->line('items-title', 'ITEMS', 856, 278, 414, 11, 22, 'muted');
+    $this->total('experience', Vocabulary::getTerm('battle.experience_per_member',
+      Vocabulary::getTerm('stats.exp', 'EXP') . ' / MEMBER'), $rewards->experiencePerMember, 207);
+    $this->total('gold', Vocabulary::getTerm('currency.name', 'Gold'), $rewards->gold, 241);
+    $this->line('items-title', Vocabulary::getTerm('command.item', 'ITEMS'), 856, 278, 414, 11, 22, 'muted');
     $items = BattleResultsContent::itemLines($rewards);
     if ($items === []) { $this->line('items-empty', 'None', 856, 308, 414, 13, 26, 'muted'); }
     foreach ($this->page($items, 4) as $index => $item) {
@@ -183,7 +190,12 @@ final class GraphicalBattleResults
 
   private function event(): void
   {
-    $this->image('event', 'panel', new CanvasRectangle(100, 146, 1150, 502));
+    $this->renderImage('event', 'panel', new CanvasRectangle(100, 146, 1150, 502));
+    $counter = $this->playback->eventCounter();
+    if ($counter['current'] > 0) {
+      $this->line('event-counter', $counter['current'] . '/' . $counter['total'],
+        538, 170, 650, 13, 26, 'accent', align: 'right');
+    }
     $stage = $this->playback->currentStage();
     $actor = $stage['actor'];
     if ($actor !== null) {
@@ -195,17 +207,17 @@ final class GraphicalBattleResults
     } else {
       $this->symbol('special', 'item', new CanvasRectangle(608, 212, 134, 134));
     }
-    foreach ($this->page(BattleResultsContent::eventLines($this->playback), BattleResultsContent::eventPageSize($this->playback)) as $index => $line) {
+    foreach ($this->page(BattleResultsContent::getEventLines($this->playback), BattleResultsContent::eventPageSize($this->playback)) as $index => $line) {
       $this->line('event-line-' . $index, $line['text'], $actor === null ? 350 : 538,
         ($actor === null ? 386 : 198) + $index * 32, 650, 13, 26,
         $line['tone'], $actor === null ? 'center' : 'left', $this->playback->reveal(0.12 + $index * 0.06, 0.28));
     }
     if ($actor !== null && $stage['kind'] === 'level') {
       $progress = $this->playback->progress($actor);
-      $label = $progress['maximum'] ? 'MAX LEVEL' : $progress['current'] . ' / ' . $progress['needed'];
+      $label = $progress['maximum'] ? Vocabulary::getTerm('battle.max_level', 'MAX LEVEL') : $progress['current'] . ' / ' . $progress['needed'];
       $this->line('event-progress', $label, 538, 553, 650, 13, 26, 'muted', 'right');
       if (!$progress['maximum']) {
-        $this->gauge('event-progress', new CanvasRectangle(538, 594, 650, 12), $progress['ratio']);
+        $this->renderGauge('event-progress', new CanvasRectangle(538, 594, 650, 12), $progress['ratio']);
       }
     }
   }
@@ -214,7 +226,7 @@ final class GraphicalBattleResults
   {
     $prompt = $this->playback->confirmation();
     if ($prompt['opacity'] > 0) {
-      $this->image('confirm', 'button', new CanvasRectangle(560, 662, 230, 46), alpha: $prompt['opacity']);
+      $this->renderImage('confirm', 'button', new CanvasRectangle(560, 662, 230, 46), alpha: $prompt['opacity']);
       $this->line('confirm', $prompt['label'], 560, 671, 230, 14, 28, 'text', 'center', $prompt['opacity']);
     }
     if ($this->playback->pageCount() > 1) {
@@ -225,13 +237,16 @@ final class GraphicalBattleResults
 
   private function total(string $id, string $label, int $value, int $y): void
   {
-    $this->line($id . '-label', $label, 856, $y + 2, 143, 11, 22, 'muted');
-    $this->line($id . '-value', (string)$value, 1010, $y, 260, 13, 26, 'accent', 'right');
+    $valueWidth = max(78, strlen((string)$value) * 13);
+    $labelWidth = 414 - $valueWidth - 16;
+    $cellWidth = max(1, min(11, (int)floor($labelWidth / max(1, mb_strlen($label)))));
+    $this->line($id . '-label', $label, 856, $y + 2, $labelWidth, $cellWidth, 22, 'muted');
+    $this->line($id . '-value', (string)$value, 1270 - $valueWidth, $y, $valueWidth, 13, 26, 'accent', 'right');
   }
 
   private function portrait(string $id, string $actorId, string $name, string $family, CanvasRectangle $bounds, float $alpha = 1): void
   {
-    $this->image($id . '-portrait-frame', 'portrait', $bounds, alpha: $alpha);
+    $this->renderImage($id . '-portrait-frame', 'portrait', $bounds, alpha: $alpha);
     $art = $this->skin->portraits[$actorId][$family] ?? null;
     if ($art !== null) {
       $this->contain($id . '-portrait', $art,
@@ -262,21 +277,35 @@ final class GraphicalBattleResults
       self::BASE_LAYER + 2, $art->source, $alpha * $this->opacity, $bounds);
   }
 
-  private function gauge(string $id, CanvasRectangle $bounds, float $ratio, float $alpha = 1): void
+  private function renderGauge(string $id, CanvasRectangle $bounds, float $ratio, float $alpha = 1): void
   {
-    $this->image($id . '-track', 'track', $bounds, alpha: $alpha);
+    $this->renderImage($id . '-track', 'track', $bounds, alpha: $alpha);
+    if (!CanvasTextureFallback::isAvailable($this->skin->textures['exp'], $this->skin->assetRoot)) {
+      $inner = new CanvasRectangle($bounds->x + 2, $bounds->y + 2, $bounds->width - 4, $bounds->height - 4);
+      $this->skin->textures['exp']->images('results-' . $id . '-fill', $inner, self::BASE_LAYER + 2);
+      $this->line($id . '-percentage', (string)round(max(0, min(1, $ratio)) * 100) . '%',
+        $bounds->x, $bounds->y - 4, $bounds->width, 8, 16, 'positive', alpha: $alpha);
+      return;
+    }
     if ($ratio <= 0) { return; }
     $inner = new CanvasRectangle($bounds->x + 2, $bounds->y + 2, $bounds->width - 4, $bounds->height - 4);
-    $this->image($id . '-fill', 'exp', $inner,
+    $this->renderImage($id . '-fill', 'exp', $inner,
       new CanvasRectangle($inner->x, $inner->y, $inner->width * min(1, $ratio), $inner->height), $alpha);
   }
 
-  private function image(string $id, string $role, CanvasRectangle $bounds, ?CanvasRectangle $clip = null, float $alpha = 1): void
+  private function renderImage(string $id, string $role, CanvasRectangle $bounds, ?CanvasRectangle $clip = null, float $alpha = 1): void
   {
-    foreach ($this->skin->textures[$role]->images('results-' . $id, $bounds, self::BASE_LAYER + 1, $clip) as $image) {
-      $this->images[] = new CanvasImage($image->id, $image->asset, $image->destination, $image->layer,
-        $image->sourceRect, $this->opacity * $alpha, $image->clipRect);
+    if (in_array($role, ['track', 'portrait', 'divider', 'button'], true)
+      && !CanvasTextureFallback::isAvailable($this->skin->textures[$role], $this->skin->assetRoot)) {
+      $this->skin->textures[$role]->images('results-' . $id, $bounds, self::BASE_LAYER + 1, $clip);
+      return;
     }
+    $color = match ($role) { 'exp' => 'positive', 'selector', 'divider' => 'accent', 'track' => 'muted', default => 'ink' };
+    $layer = self::BASE_LAYER + match ($role) { 'panel', 'quiet' => 0, 'exp' => 2, default => 1 };
+    $parts = CanvasTextureFallback::render($this->skin->textures[$role], 'results-' . $id, $bounds,
+      $layer, $this->skin->colors[$color], $this->skin->assetRoot, $clip, $this->opacity * $alpha);
+    array_push($this->images, ...$parts['images']);
+    array_push($this->text, ...$parts['textLayers']);
   }
 
   private function line(string $id, string $label, float $x, float $y, float $width, int $cellWidth, int $cellHeight,
@@ -295,8 +324,10 @@ final class GraphicalBattleResults
     $column = $align === 'right' ? $columns - $length : 0;
     $effects = $id === 'heading' ? new CanvasGlyphEffects(1, $this->skin->colors['ink'],
       1, 2, 1, 0.8, $this->skin->colors['ink']) : null;
-    // Counters and navigation hints sit over arbitrary arena art, unlike panel text.
-    $background = in_array($id, ['event-counter', 'pages'], true) ? $this->skin->colors['ink'] : null;
+    // Navigation hints sit over arbitrary arena art, unlike panel text.
+    $background = $id === 'pages' || str_ends_with($id, '-percentage')
+      || ($id === 'confirm' && !CanvasTextureFallback::isAvailable($this->skin->textures['button'], $this->skin->assetRoot))
+      ? $this->skin->colors['ink'] : null;
     $this->text[] = new CanvasTextLayer('results-' . $id, self::BASE_LAYER + 3, $x, $y,
       new RendererGridConfig($columns, 1, $cellWidth, $cellHeight),
       [new PresentationTextRun(0, $column, $label, $this->skin->colors[$color], $background)],

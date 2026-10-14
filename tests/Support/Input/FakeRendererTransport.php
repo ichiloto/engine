@@ -19,13 +19,21 @@ final class FakeRendererTransport implements RendererTransportInterface
   public bool $running = false;
   public int $polls = 0;
   public int $shutdowns = 0;
+  public int $starts = 0;
+  public ?\Closure $onStart = null;
+  public ?\Closure $onSend = null;
   public ?RendererTransportException $failure = null;
   public ?RendererTransportException $sendFailure = null;
+  public ?RendererTransportException $shutdownFailure = null;
+  public bool $acceptWrites = true;
+  public int $pendingWriteBytes = 0;
 
   public function start(RendererSessionConfig $session): void
   {
     $this->session = $session;
     $this->running = true;
+    $this->starts++;
+    ($this->onStart)?->__invoke($this);
   }
 
   public function isRunning(): bool
@@ -39,7 +47,17 @@ final class FakeRendererTransport implements RendererTransportInterface
       throw $this->sendFailure;
     }
     $this->sent[] = $message;
+    ($this->onSend)?->__invoke($this, $message);
   }
+
+  public function trySend(RendererMessage $message): bool
+  {
+    if (!$this->acceptWrites) { return false; }
+    $this->send($message);
+    return true;
+  }
+
+  public function getPendingWriteBytes(): int { return $this->pendingWriteBytes; }
 
   public function pollEvents(float $waitSeconds = 0.0): array
   {
@@ -57,6 +75,7 @@ final class FakeRendererTransport implements RendererTransportInterface
   {
     $this->shutdowns++;
     $this->running = false;
+    if ($this->shutdownFailure !== null) { throw $this->shutdownFailure; }
     return 0;
   }
 

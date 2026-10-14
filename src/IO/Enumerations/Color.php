@@ -2,11 +2,19 @@
 
 namespace Ichiloto\Engine\IO\Enumerations;
 
+use Ichiloto\Engine\IO\Console\SgrColorParser;
+
 /**
  * Represents a color.
  */
 enum Color: string
 {
+  private const int BRIGHT_COLOR_OFFSET = 8;
+  private const int DARK_BACKGROUND_BASE = 40;
+  private const int BRIGHT_BACKGROUND_BASE = 100;
+  private const int BLACK_FOREGROUND = 30;
+  private const int BRIGHT_WHITE_FOREGROUND = 97;
+
   case BLACK = "\033[0;30m";
   case DARK_GRAY = "\033[1;30m";
   case BLUE = "\033[0;34m";
@@ -25,6 +33,21 @@ enum Color: string
   case WHITE = "\033[1;37m";
   case WHITE_BLINK = "\033[5;37m";
   case RESET = "\033[0m";
+
+  /** Returns a terminal background in this color with legible contrasting text. */
+  public function getContrastingBackgroundSequence(): ?string
+  {
+    $foreground = SgrColorParser::parse($this->value)['foreground'];
+    $index = $foreground?->toArray()['index'] ?? null;
+    if (!is_int($index)) { return null; }
+
+    $bright = $index >= self::BRIGHT_COLOR_OFFSET;
+    $background = ($bright ? self::BRIGHT_BACKGROUND_BASE : self::DARK_BACKGROUND_BASE)
+      + ($index % self::BRIGHT_COLOR_OFFSET);
+    $contrast = $bright ? self::BLACK_FOREGROUND : self::BRIGHT_WHITE_FOREGROUND;
+
+    return sprintf("\033[%d;%dm", $contrast, $background);
+  }
 
   /**
    * Applies the color to the given string.

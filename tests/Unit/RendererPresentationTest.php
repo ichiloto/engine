@@ -5,6 +5,9 @@ use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\InputSources\RendererInputSource;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSprite;
 use Ichiloto\Engine\Rendering\Presentation\RendererPresentation;
+use Ichiloto\Engine\Rendering\Presentation\RetainedPresentation;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
+use Tests\Support\Rendering\RetainedFrameState;
 use Ichiloto\Engine\Rendering\RendererClient;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException;
 use Ichiloto\Engine\Rendering\Transport\RendererEvent;
@@ -12,6 +15,7 @@ use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Tests\Support\Input\FakeRendererTransport;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
+require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
 beforeEach(function () {
   $this->transport = new FakeRendererTransport();
@@ -25,6 +29,16 @@ it('sequences only changed successfully queued frames and suppresses identical t
     ->and($this->presentation->present(clone $this->snapshot))->toBeFalse()
     ->and($this->presentation->present(new ConsoleFrameSnapshot(4, 2, ['map ', '  @ '])))->toBeTrue()
     ->and(array_column(array_map(fn($m) => $m->payload, $this->transport->sent), 'frame'))->toBe([1, 2]);
+  $frames = RetainedFrameState::replay($this->transport->sent);
+  expect(array_column($frames[0]['textLayers'][0]['runs'], 'text'))->toBe($this->snapshot->rows)
+    ->and(array_column($frames[1]['textLayers'][0]['runs'], 'text'))->toBe(['map ', '  @ '])
+    ->and($this->transport->sent[0]->protocol)->toBe(RendererProtocolVersion::V2)
+    ->and($this->transport->sent[0]->payload)->not->toHaveKey('text')
+    ->and($this->transport->sent[1]->payload['operations'])->toBe([[
+      'op' => 'textRows', 'id' => 'world', 'rows' => [['row' => 1, 'runs' => [[
+        'row' => 1, 'column' => 0, 'text' => '  @ ', 'foreground' => null, 'background' => null,
+      ]]]],
+    ]]);
 });
 
 it('compares immutable sprite values strictly and includes their removal in frame state', function () {
@@ -34,7 +48,8 @@ it('compares immutable sprite values strictly and includes their removal in fram
     ->and($this->presentation->present($this->snapshot, [clone $one]))->toBeFalse()
     ->and($this->presentation->present($this->snapshot, [$two]))->toBeTrue()
     ->and($this->presentation->present($this->snapshot))->toBeTrue()
-    ->and($this->transport->sent[2]->payload['sprites'])->toBe([]);
+    ->and(RetainedFrameState::replay($this->transport->sent)[2]['sprites'])->toBe([])
+    ->and($this->transport->sent[2]->payload['operations'])->toBe([['op' => 'remove', 'kind' => 'sprite', 'id' => '1']]);
 });
 
 it('normalizes layers for comparison but treats changed equal-layer order as visible state', function () {
@@ -44,6 +59,7 @@ it('normalizes layers for comparison but treats changed equal-layer order as vis
   expect($this->presentation->present($this->snapshot, [$front, $back, $other]))->toBeTrue()
     ->and($this->presentation->present($this->snapshot, [$back, $front, $other]))->toBeFalse()
     ->and($this->presentation->present($this->snapshot, [$back, $other, $front]))->toBeTrue();
+  expect(array_column(RetainedFrameState::replay($this->transport->sent)[1]['sprites'], 'id'))->toBe(['back', 'other', 'front']);
 });
 
 it('rejects mismatched session geometry without sending or consuming a sequence', function ($snapshot) {
@@ -53,7 +69,7 @@ it('rejects mismatched session geometry without sending or consuming a sequence'
   expect($this->transport->sent[0]->payload['frame'])->toBe(1);
 })->with([new ConsoleFrameSnapshot(3, 2, ['   ', '   ']), new ConsoleFrameSnapshot(4, 1, ['    '])]);
 
-it('propagates send pressure without suppressing retries or advancing sequence state', function () {
+it('replaces old full-snapshot rollback with reset retry after rejected retained delivery', function () {
   $failure = new RendererTransportException('outbound queue full');
   $this->transport->sendFailure = $failure;
   expect(fn() => $this->presentation->present($this->snapshot))->toThrow($failure);
@@ -62,10 +78,12 @@ it('propagates send pressure without suppressing retries or advancing sequence s
   $changed = new ConsoleFrameSnapshot(4, 2, ['new ', ' @  ']);
   $this->transport->sendFailure = $failure;
   expect(fn() => $this->presentation->present($changed))->toThrow($failure);
-  expect($this->presentation->present($this->snapshot))->toBeFalse();
+  expect(fn() => $this->presentation->present($this->snapshot))->toThrow($failure);
   $this->transport->sendFailure = null;
   expect($this->presentation->present($changed))->toBeTrue()
-    ->and(array_map(fn($m) => $m->payload['frame'], $this->transport->sent))->toBe([1, 2]);
+    ->and(array_map(fn($m) => $m->payload['frame'], $this->transport->sent))->toBe([1, 2])
+    ->and($this->transport->sent[1]->payload['reset'])->toBeTrue()
+    ->and(array_column(RetainedFrameState::replay($this->transport->sent)[1]['textLayers'][0]['runs'], 'text'))->toBe($changed->rows);
 });
 
 it('shares input and lifecycle state without polling consuming or shutting down the client', function ($pumpFirst) {
@@ -86,7 +104,8 @@ it('shares input and lifecycle state without polling consuming or shutting down 
 
 it('fails explicitly on sequence exhaustion while still suppressing an identical frame', function () {
   $this->presentation->present($this->snapshot);
-  new ReflectionProperty(RendererPresentation::class, 'frameNumber')->setValue($this->presentation, PHP_INT_MAX);
+  $retained = new ReflectionProperty(RendererPresentation::class, 'retained')->getValue($this->presentation);
+  new ReflectionProperty(RetainedPresentation::class, 'frame')->setValue($retained, PHP_INT_MAX);
   expect($this->presentation->present($this->snapshot))->toBeFalse();
   expect(fn() => $this->presentation->present(new ConsoleFrameSnapshot(4, 2, ['new ', '    '])))
     ->toThrow(OverflowException::class);

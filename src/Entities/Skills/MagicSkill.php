@@ -34,6 +34,7 @@ class MagicSkill extends Skill
    * @param SkillEffect[] $effects The configured skill effects.
    * @param Weapon[] $requiredWeapons The required weapons.
    * @param MagicEffectType|null $effectType The explicit magic animation type.
+   * @param int|null $animationId The stable animation id, or null for legacy selection.
    */
   public function __construct(
     string $name,
@@ -47,6 +48,7 @@ class MagicSkill extends Skill
     array $effects = [],
     array $requiredWeapons = [],
     protected(set) ?MagicEffectType $effectType = null,
+    ?int $animationId = null,
   )
   {
     parent::__construct(
@@ -60,6 +62,7 @@ class MagicSkill extends Skill
       $invocation,
       $effects,
       $requiredWeapons,
+      $animationId,
     );
 
     $this->effectType ??= $this->inferEffectType($effects);

@@ -4,6 +4,15 @@ use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Console\SgrColorParser;
 use Ichiloto\Engine\IO\Enumerations\Color;
 
+it('derives contrasting terminal flash backgrounds from the canonical palette', function () {
+  $dark = SgrColorParser::parse(Color::BLUE->getContrastingBackgroundSequence() . 'X');
+  $bright = SgrColorParser::parse(Color::YELLOW->getContrastingBackgroundSequence() . 'X');
+  expect($dark['background']?->toArray())->toBe(['kind' => 'ansi16', 'index' => 4])
+    ->and($dark['foreground']?->toArray())->toBe(['kind' => 'ansi16', 'index' => 15])
+    ->and($bright['background']?->toArray())->toBe(['kind' => 'ansi16', 'index' => 11])
+    ->and($bright['foreground']?->toArray())->toBe(['kind' => 'ansi16', 'index' => 0]);
+});
+
 it('measures colored and emoji text without counting ansi sequences', function () {
   $text = Color::apply('Potion', Color::LIGHT_GREEN) . ' 🧪';
 
@@ -57,9 +66,18 @@ it('keeps ascii width measurement equivalent to the styled grapheme path', funct
   $width = array_sum(array_map(TerminalText::getSymbolWidth(...), TerminalText::visibleSymbols($text)));
   expect(TerminalText::displayWidth($text))->toBe($width);
 })->with([
-  '', 'plain ASCII', '<fg=red>styled</> text', "\e[31mred\e[0mplain", "\e[31m\e[999mX\e[0m",
-  "\e[38;2;1;;3mX", "a\nb\tc", "a\r\nb", '\\<info>literal</info>',
-  "\e[38;2;0;0;128mblue\e[0m", "\e[2JX", "\e[31m\e[0m",
+  'empty' => '',
+  'plain ASCII' => 'plain ASCII',
+  'formatter colour' => '<fg=red>styled</> text',
+  'ANSI colour reset' => "\e[31mred\e[0mplain",
+  'unknown control' => "\e[31m\e[999mX\e[0m",
+  'malformed RGB' => "\e[38;2;1;;3mX",
+  'newline and tab' => "a\nb\tc",
+  'CRLF' => "a\r\nb",
+  'escaped formatter tag' => '\\<info>literal</info>',
+  'RGB zero components' => "\e[38;2;0;0;128mblue\e[0m",
+  'erase screen' => "\e[2JX",
+  'only ANSI formatting' => "\e[31m\e[0m",
 ]);
 
 it('does not apply an open formatter tag twice when measuring a control character', function (string $control) {
@@ -192,4 +210,21 @@ it('keeps padded columns aligned around unstable glyphs', function () {
     ->and(TerminalText::stabilize(TerminalText::padRight('🗡️ Shadowstep (2 MP)', 58)))->toContain("️")
     ->and(TerminalText::displayWidth(TerminalText::padRight('> 🗡️ Shadowstep (2 MP)', 58) . '║'))->toBe(59)
     ->and(TerminalText::displayWidth(TerminalText::padRight('🏃🏽‍➡️ Sprint', 24)))->toBe(24);
+});
+
+it('remeasures modifier graphemes when the terminal composition capability changes', function (bool $first) {
+  $capability = new ReflectionProperty(\Ichiloto\Engine\IO\Console\TerminalCapabilities::class, 'supportsCompositeEmoji');
+  foreach ([$first, !$first, $first] as $composes) {
+    $capability->setValue(null, $composes);
+    $glyph = "\u{261D}\u{1F3FD}";
+    expect(TerminalText::stabilizeSymbol($glyph))->toBe($composes ? $glyph : "\u{261D}")
+      ->and(TerminalText::displayWidth($glyph))->toBe($composes ? 2 : 1);
+  }
+})->with([false, true]);
+
+it('emits the stabilized graphemes whose widths were used for fitting and wrapping', function () {
+  $text = "\u{1F5E1} Fixture";
+  expect(TerminalText::truncateToWidth($text, 10))->toBe("\u{1F5E1}\u{FE0F} Fixture")
+    ->and(TerminalText::padRight($text, 12))->toBe("\u{1F5E1}\u{FE0F} Fixture  ")
+    ->and(TerminalText::wrapToWidth($text, 7))->toBe(["\u{1F5E1}\u{FE0F}", 'Fixture']);
 });

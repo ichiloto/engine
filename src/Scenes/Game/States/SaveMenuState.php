@@ -2,6 +2,7 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use Ichiloto\Engine\UI\Windows\SaveSlotPage;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Core\Interfaces\CanRender;
 use Ichiloto\Engine\Core\Vector2;
@@ -9,7 +10,9 @@ use Ichiloto\Engine\Exceptions\ActiveEventSaveException;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
+use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
+use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Scenes\SceneStateContext;
@@ -18,8 +21,11 @@ use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\Presentation\SaveLoadMenuPresentation;
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
 use Ichiloto\Engine\UI\Windows\SaveSlotWindow;
+use Ichiloto\Engine\UI\Windows\SaveSlotMenuLayout;
+use Ichiloto\Engine\UI\Windows\Enumerations\WindowHeightPolicy;
 use Ichiloto\Engine\UI\Windows\Window;
 use Ichiloto\Engine\Util\Debug;
+use RuntimeException;
 
 /**
  * Displays the in-game save screen and writes snapshot data to `.iedata` files.
@@ -33,14 +39,14 @@ class SaveMenuState extends GameSceneState implements CanRender, CanvasProviderI
   protected function composeMenuCanvas(MenuPresentationCatalog $theme, float $time): ?PresentationCanvas
   {
     return SaveLoadMenuPresentation::compose($this->slots, $this->activeSlotIndex, $theme,
-      $this->menuInfoText, $this->statusMessage, $time, title: 'Save',
-      prompt: 'Which file would you like to save to?', statusColor: $this->statusColor);
+      $this->menuInfoText, $this->statusMessage, $time, title: Vocabulary::getTerm('game.save', 'Save'),
+      prompt: get_message('prompt.save', 'Which file would you like to save to?'), statusColor: $this->statusColor);
   }
 
   protected const int SAVE_MENU_WIDTH = 110;
   protected const int SAVE_INFO_HEIGHT = 3;
   protected const int SAVE_HELP_HEIGHT = 4;
-  protected const int SAVE_SLOT_COUNT = 5;
+  protected ?SaveSlotMenuLayout $saveViewport = null;
 
   /**
    * @var int The centered left margin.
@@ -86,8 +92,7 @@ class SaveMenuState extends GameSceneState implements CanRender, CanvasProviderI
     $this->statusColor = 'accent';
     Console::clear();
     $this->getGameScene()->locationHUDWindow->deactivate();
-    $this->calculateMargins();
-    $this->initializeUI();
+    $this->saveViewport = null;
     $this->refreshSlots();
     $this->render();
   }
@@ -99,11 +104,15 @@ class SaveMenuState extends GameSceneState implements CanRender, CanvasProviderI
    */
   protected function calculateMargins(): void
   {
-    $menuWidth = min(self::SAVE_MENU_WIDTH, get_screen_width());
-    $menuHeight = self::SAVE_INFO_HEIGHT + self::SAVE_HELP_HEIGHT + (SaveSlotWindow::HEIGHT * self::SAVE_SLOT_COUNT);
+    $this->saveViewport = $this->createSaveMenuLayout();
+    $this->leftMargin = $this->saveViewport->left;
+    $this->topMargin = $this->saveViewport->top;
+  }
 
-    $this->leftMargin = max(0, intdiv(get_screen_width() - $menuWidth, 2));
-    $this->topMargin = max(0, intdiv(get_screen_height() - $menuHeight, 2));
+  protected function createSaveMenuLayout(): SaveSlotMenuLayout
+  {
+    return new SaveSlotMenuLayout(get_screen_width(), get_screen_height(), count($this->slots),
+      self::SAVE_MENU_WIDTH, self::SAVE_INFO_HEIGHT, self::SAVE_HELP_HEIGHT);
   }
 
   /**
@@ -114,27 +123,31 @@ class SaveMenuState extends GameSceneState implements CanRender, CanvasProviderI
   protected function initializeUI(): void
   {
     $borderPack = new DefaultBorderPack();
-    $width = min(self::SAVE_MENU_WIDTH, get_screen_width());
+    $this->calculateMargins();
+    $layout = $this->saveViewport;
+    $width = $layout->width;
 
     $this->infoWindow = new Window(
-      'Save',
+      Vocabulary::getTerm('game.save', 'Save'),
       '',
       new Vector2($this->leftMargin, $this->topMargin),
       $width,
-      self::SAVE_INFO_HEIGHT,
-      $borderPack
+      $layout->infoHeight,
+      $borderPack,
+      heightPolicy: WindowHeightPolicy::FIXED
     );
 
     $this->slotWindows = [];
 
-    for ($slotIndex = 0; $slotIndex < self::SAVE_SLOT_COUNT; $slotIndex++) {
+    for ($slotIndex = 0; $slotIndex < $layout->visibleCount; $slotIndex++) {
       $this->slotWindows[] = new SaveSlotWindow(
         new Vector2(
           $this->leftMargin,
-          $this->topMargin + self::SAVE_INFO_HEIGHT + ($slotIndex * SaveSlotWindow::HEIGHT)
+          $this->topMargin + $layout->infoHeight + ($slotIndex * $layout->slotHeight)
         ),
         $width,
-        $borderPack
+        $borderPack,
+        $layout->slotHeight
       );
     }
 
@@ -143,11 +156,12 @@ class SaveMenuState extends GameSceneState implements CanRender, CanvasProviderI
       '',
       new Vector2(
         $this->leftMargin,
-        $this->topMargin + self::SAVE_INFO_HEIGHT + (SaveSlotWindow::HEIGHT * self::SAVE_SLOT_COUNT)
+        $this->topMargin + $layout->infoHeight + ($layout->slotHeight * $layout->visibleCount)
       ),
       $width,
-      self::SAVE_HELP_HEIGHT,
-      $borderPack
+      $layout->helpHeight,
+      $borderPack,
+      heightPolicy: WindowHeightPolicy::FIXED
     );
   }
 
@@ -158,7 +172,7 @@ class SaveMenuState extends GameSceneState implements CanRender, CanvasProviderI
    */
   protected function refreshSlots(): void
   {
-    $this->slots = $this->getGameScene()->sceneManager->saveManager->getSaveSlots(self::SAVE_SLOT_COUNT);
+    $this->slots = $this->getGameScene()->sceneManager->saveManager->getSaveSlots();
     $maxIndex = max(0, count($this->slots) - 1);
     $this->activeSlotIndex = clamp($this->activeSlotIndex, 0, $maxIndex);
   }
@@ -168,25 +182,48 @@ class SaveMenuState extends GameSceneState implements CanRender, CanvasProviderI
    */
   public function render(): void
   {
+    if ($this->saveViewport != $this->createSaveMenuLayout()) {
+      Console::clear();
+      $this->initializeUI();
+    }
+    [$first, $last] = $this->saveViewport->getVisibleRange($this->activeSlotIndex);
+    $this->infoWindow?->setTitle(Vocabulary::getTerm('game.save', 'Save') . '  '
+      . sprintf('%d-%d / %d', $first + 1, $last, count($this->slots)));
     $this->infoWindow?->setContent([
-      'Which file would you like to save to?',
+      get_message('prompt.save', 'Which file would you like to save to?'),
     ]);
     $this->infoWindow?->render();
 
-    foreach ($this->slotWindows as $slotIndex => $slotWindow) {
+    foreach ($this->slotWindows as $visibleIndex => $slotWindow) {
+      $slotIndex = $first + $visibleIndex;
+      if (!isset($this->slots[$slotIndex])) {
+        $slotWindow->erase();
+        continue;
+      }
       $slotWindow->setSlot(
-        $this->slots[$slotIndex] ?? SaveSlot::empty($slotIndex + 1, ''),
+        $this->slots[$slotIndex],
         $slotIndex === $this->activeSlotIndex
       );
       $slotWindow->render();
     }
 
     $statusText = $this->statusMessage ?? 'Choose a file.';
-    $this->helpWindow?->setContent([
-      $statusText,
-      'Enter saves. Esc returns.',
-    ]);
+    $hints = $this->getSaveControlHelp();
+    $helpHeight = $this->helpWindow?->getHeight() ?? self::SAVE_HELP_HEIGHT;
+    $this->helpWindow?->setTitle($helpHeight <= 2 ? $statusText : 'Help');
+    $this->helpWindow?->setHelp($hints);
+    $page = $this->menuInfoText->getPage($this->statusMessage === null
+      ? ($this->slots[$this->activeSlotIndex] ?? null)?->getDescription() ?? 'Choose a file.' : '',
+      $this->statusMessage, max(1, ($this->helpWindow?->getWidth() ?? 80) - 4));
+    $this->helpWindow?->setContent($page->lines);
     $this->helpWindow?->render();
+  }
+
+  protected function getSaveControlHelp(): string
+  {
+    $hints = [ActionHints::resolve('confirm', 'Save'), ActionHints::resolve('back', 'Back')];
+    return implode('  ', array_map(static fn($hint): string =>
+      ($hint->control?->label ?? 'Unbound') . ': ' . $hint->label, $hints));
   }
 
   /**
@@ -202,6 +239,16 @@ class SaveMenuState extends GameSceneState implements CanRender, CanvasProviderI
    */
   public function execute(?SceneStateContext $context = null): void
   {
+    if (Input::isButtonDown('info')) { $this->menuInfoText->advance(); $this->render(); return; }
+    foreach (['menu_page_previous' => -1, 'menu_page_next' => 1] as $action => $direction) {
+      if (Input::isButtonDown($action)) {
+        $this->activeSlotIndex = SaveSlotPage::getAdjacentIndex(
+          count($this->slots), $this->activeSlotIndex, $direction, $this->saveViewport?->visibleCount ?? SaveSlotPage::SIZE);
+        $this->statusMessage = null;
+        $this->render();
+        return;
+      }
+    }
     $vertical = Input::getAxis(AxisName::VERTICAL);
 
     if ($vertical > 0) {
@@ -251,7 +298,14 @@ class SaveMenuState extends GameSceneState implements CanRender, CanvasProviderI
       $this->statusColor = 'decrease';
       Debug::warn($this->statusMessage);
       $this->render();
-      alert($this->statusMessage, 'Save Unavailable');
+      alert($this->statusMessage, get_message('save.unavailable_title', '%1 Unavailable', Vocabulary::getTerm('game.save', 'Save')));
+      return;
+    } catch (RuntimeException $exception) {
+      Debug::warn(sprintf('Manual save failed: %s', $exception->getMessage()));
+      $this->statusMessage = 'Saving is unavailable. Check storage permissions and try again.';
+      $this->statusColor = 'decrease';
+      $this->render();
+      alert($this->statusMessage, get_message('save.unavailable_title', '%1 Unavailable', Vocabulary::getTerm('game.save', 'Save')));
       return;
     }
 
@@ -260,7 +314,7 @@ class SaveMenuState extends GameSceneState implements CanRender, CanvasProviderI
     $this->statusMessage = sprintf('Saved to File %d.', $savedSlot->slot);
     $this->statusColor = 'increase';
     $this->render();
-    alert($this->statusMessage, 'Save Complete');
+    alert($this->statusMessage, get_message('save.complete_title', '%1 Complete', Vocabulary::getTerm('game.save', 'Save')));
   }
 
   /**

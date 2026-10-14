@@ -2,7 +2,7 @@
 
 namespace Ichiloto\Engine\Events\Triggers;
 
-use Ichiloto\Engine\Core\Rect;
+use Ichiloto\Engine\Core\CellArea;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
 use InvalidArgumentException;
@@ -20,6 +20,7 @@ class EventTriggerFactory
    * @return EventTrigger The event trigger.
    * @throws NotFoundException If the class does not exist.
    * @throws RequiredFieldException If a required field is missing.
+   * @throws InvalidArgumentException If the area is neither exact cells nor a rectangle.
    */
   public static function create(array $args, ?string $mapId = null): EventTrigger
   {
@@ -36,12 +37,8 @@ class EventTriggerFactory
       throw new RequiredFieldException('area');
     }
 
-    $area = new Rect(
-      $args['area']['x'] ?? throw new RequiredFieldException('area.x'),
-      $args['area']['y'] ?? throw new RequiredFieldException('area.y'),
-      $args['area']['width'] ?? throw new RequiredFieldException('area.width'),
-      $args['area']['height'] ?? throw new RequiredFieldException('area.height')
-    );
+    // Exact cells as the map reader resolves them, or an explicit rectangle.
+    $area = CellArea::fromArray($args['area'], 'Event area');
 
     $data = $args['data'] ?? throw new RequiredFieldException('data');
 

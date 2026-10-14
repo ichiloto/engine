@@ -14,7 +14,10 @@ use Throwable;
  *
  * ```php
  * 'encounters' => [
- *   'troops' => ['Bat x 2' => 5, 'Rat + Bat' => 3],  // name => weight
+ *   'troops' => [
+ *     'Bat x 2' => 5,
+ *     'Rat + Bat' => ['weight' => 3, 'battleArena' => 'arena.cave'],
+ *   ], // name => weight or encounter entry; entry arena outranks the map arena
  *   'rate' => 12,          // average steps between encounters
  *   'battleArena' => 'arena.forest', // optional graphical arena catalog key
  *   'tiles' => 'encounter' // 'encounter' (default): only danger tiles count; 'any': every step counts
@@ -35,6 +38,8 @@ class EncounterManager
    * @var array<string, int> Troop weights, keyed by troop name.
    */
   protected array $troopWeights = [];
+  /** @var array<string, EncounterEntry> Map-owned choices matching the derived weight table. */
+  private array $entries = [];
   /** @var array<string, mixed> Optional presentation selection, validated only by the graphical renderer path. */
   private array $presentationSettings = [];
   /**
@@ -72,13 +77,16 @@ class EncounterManager
   public function configure(?array $encounters): void
   {
     $this->troopWeights = [];
+    $this->entries = [];
     $this->presentationSettings = array_intersect_key($encounters ?? [], ['battleArena' => true]);
     $this->averageStepsBetween = 0;
     $this->countsEveryTile = strval($encounters['tiles'] ?? 'encounter') === 'any';
 
-    foreach ((array) ($encounters['troops'] ?? []) as $troopName => $weight) {
-      if (is_string($troopName) && is_numeric($weight) && intval($weight) > 0) {
-        $this->troopWeights[$troopName] = intval($weight);
+    foreach ((array) ($encounters['troops'] ?? []) as $troopName => $value) {
+      $entry = EncounterEntry::getFromValue($value);
+      if (is_string($troopName) && $entry !== null) {
+        $this->entries[$troopName] = $entry;
+        $this->troopWeights[$troopName] = $entry->weight;
       }
     }
 
@@ -89,7 +97,7 @@ class EncounterManager
       // design choice, and silence is how it stays unnoticed.
       Debug::warn(
         'A map declares encounters but names no troops the engine can read. '
-        . "Expected ['troops' => ['Troop Name' => weight, ...], 'rate' => steps]."
+        . "Expected ['troops' => ['Troop Name' => weight or ['weight' => weight, ...], ...], 'rate' => steps]."
       );
     }
 
@@ -148,7 +156,7 @@ class EncounterManager
     $this->gameScene->sceneManager->loadBattleScene(
       $this->gameScene->party,
       $troop,
-      extraSettings: $this->presentationSettings
+      extraSettings: $this->entries[$troopName]->getBattleSettings($this->presentationSettings)
     );
   }
 

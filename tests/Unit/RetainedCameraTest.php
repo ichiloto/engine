@@ -1,11 +1,14 @@
 <?php
 
 use Ichiloto\Engine\Diagnostics\LatencyTrace;
+use Ichiloto\Engine\Core\GameState;
+use Ichiloto\Engine\Field\NpcManager;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\NormalizedRow;
 use Ichiloto\Engine\IO\Console\TerminalCapabilities;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Camera;
+use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 
@@ -44,6 +47,31 @@ function retainedCamera(): Camera
   }
   return new Camera(makeCameraTestScene(), 12, 4, worldSpace: $rows);
 }
+
+it('keeps map-owned fixture appearance intact while retaining its NPC identity and interaction anchor', function (bool $tracked) {
+  Console::setLayerTracking($tracked);
+  $camera = retainedCamera();
+  $camera->renderMap();
+  $scene = new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();
+  new ReflectionProperty(GameScene::class, 'camera')->setValue($scene, $camera);
+  new ReflectionProperty(GameScene::class, 'gameState')->setValue($scene, new GameState());
+  $manager = new NpcManager($scene);
+  $manager->configure([
+    ['id' => 'wall-fixture', 'name' => 'Wall Fixture', 'sprite' => '', 'x' => 2, 'y' => 1,
+      'dialogue' => [['text' => 'An inscription on the wall.']]],
+  ]);
+  $before = Console::presentationSnapshot();
+  $manager->render();
+  expect(Console::presentationSnapshot())->toEqual($before)
+    ->and($manager->npcAt(2, 1))->toBe($manager->findById('wall-fixture'))
+    ->and($manager->npcAt(2, 1)?->dialogue)->toBe([['text' => 'An inscription on the wall.']])
+    ->and($manager->npcAt(2, 1)?->wanders)->toBeFalse();
+
+  // Omission retains the normal NPC default; only an explicit empty string opts out.
+  $manager->configure([['name' => 'Visible NPC', 'x' => 2, 'y' => 1]]);
+  $manager->render();
+  expect(Console::charAt(2, 1))->toBe('@');
+})->with(['terminal buffer' => false, 'graphical provenance' => true]);
 
 it('reuses map cells for idle, both pan axes, background restoration and menu return', function () {
   $camera = retainedCamera();
@@ -144,7 +172,7 @@ it('retains graphical terrain and player provenance without normalizing the map 
   $player = NormalizedRow::fromText("\e[38;2;0;120;0m@\e[0m");
   $blank = NormalizedRow::fromText("\e[48;5;0m \e[0m");
   $this->records = [];
-  Console::withLayer('terrain', $camera->renderMap(...), 0, replaceUnderlying: true);
+  Console::withLayer('terrain', $camera->renderMap(...), 0);
   Console::withLayer('player', fn() => Console::writeNormalizedRow($player, 2, 1), 100);
   Console::withLayer('ui', fn() => Console::writeNormalizedRow($blank, 2, 1), 1000);
   $before = Console::presentationSnapshot();

@@ -6,7 +6,7 @@ use Exception;
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\MenuItem;
-use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Localization\Vocabulary;
 
 /**
  * OpenQuitMenuCommand. This class represents a menu item that opens the quit menu.
@@ -17,7 +17,7 @@ class OpenQuitMenuCommand extends MenuItem
 {
   public function __construct(MenuInterface $menu)
   {
-    $label = config(ProjectConfig::class, 'vocab.command.quit_game', 'Quit');
+    $label = Vocabulary::getTerm('command.quit_game', Vocabulary::getTerm('command.game_end', 'Quit'));
     parent::__construct($menu, $label, 'Return to title or close the game.');
   }
 

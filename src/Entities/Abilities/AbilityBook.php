@@ -7,11 +7,11 @@ use Ichiloto\Engine\Entities\Enumerations\Occasion;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
 use Ichiloto\Engine\Entities\Skills\Skill;
-use Ichiloto\Engine\Entities\Skills\SpecialSkill;
+use Ichiloto\Engine\Entities\Skills\SkillCatalog;
 use InvalidArgumentException;
 
 /**
- * Stores a character's learned and learnable special abilities.
+ * Stores learned non-magic skills and learnable special abilities.
  *
  * @package Ichiloto\Engine\Entities\Abilities
  */
@@ -70,9 +70,9 @@ class AbilityBook
     $learnedAbilities = [];
 
     foreach ($data['learned'] ?? [] as $abilityName) {
-      $ability = AbilityLibrary::find(strval($abilityName));
+      $ability = SkillCatalog::getProjectCatalog()->findSkill(strval($abilityName));
 
-      if ($ability instanceof SpecialSkill) {
+      if ($ability !== null && !$ability instanceof MagicSkill) {
         $learnedAbilities[] = $ability;
       }
     }

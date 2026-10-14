@@ -29,6 +29,7 @@ class Party extends BattleGroup
    * The minimum gold the party can have.
    */
   const int MIN_GOLD = 0;
+  public const int BATTLE_SIZE = 3;
 
   /**
    * @var int The party's account balance.
@@ -63,24 +64,14 @@ class Party extends BattleGroup
    */
   public ItemList $battlers {
     get {
-      $members = $this->members->toArray();
-      $frontline = array_slice($members, 0, 3);
-      $livingFrontline = array_filter(
-        $frontline,
-        static fn(CharacterInterface $member): bool => ! $member->isKnockedOut
-      );
-
-      if (! empty($livingFrontline) || count($members) <= 3) {
-        return new ItemList(CharacterInterface::class, $frontline);
-      }
-
-      $livingMembers = array_values(array_filter(
-        $members,
-        static fn(CharacterInterface $member): bool => ! $member->isKnockedOut
-      ));
-
-      return new ItemList(CharacterInterface::class, array_slice($livingMembers, 0, 3));
+      return new ItemList(CharacterInterface::class, array_slice($this->members->toArray(), 0, self::BATTLE_SIZE));
     }
+  }
+
+  public function isDefeated(): bool
+  {
+    $battlers = $this->battlers->toArray();
+    return $battlers !== [] && array_all($battlers, static fn(CharacterInterface $member): bool => $member->isKnockedOut);
   }
 
   /**

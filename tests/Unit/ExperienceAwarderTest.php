@@ -8,7 +8,34 @@ use Ichiloto\Engine\Entities\Roles\SkillToLearn;
 use Ichiloto\Engine\Entities\Skills\MagicSkill;
 use Ichiloto\Engine\Entities\Skills\SpecialSkill;
 use Ichiloto\Engine\Entities\Stats;
+use Ichiloto\Engine\Entities\Inventory\Weapons\Weapon;
+use Ichiloto\Engine\Entities\ParameterChanges;
+use Ichiloto\Engine\Entities\States\State;
 use Ichiloto\Engine\Progression\ExperienceAwarder;
+use Ichiloto\Engine\Progression\ProgressionSettings;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Stores\ItemStore;
+use Ichiloto\Engine\Util\Stores\ClassStore;
+
+beforeEach(function () {
+  $this->previousProgression = ConfigStore::has(ProgressionSettings::class)
+    ? ConfigStore::get(ProgressionSettings::class) : null;
+  $this->previousItems = ConfigStore::has(ItemStore::class) ? ConfigStore::get(ItemStore::class) : null;
+  $this->previousClasses = new ReflectionProperty(ClassStore::class, 'definitions')->getValue();
+  ConfigStore::remove(ProgressionSettings::class);
+});
+
+afterEach(function () {
+  ConfigStore::remove(ProgressionSettings::class);
+  if ($this->previousProgression !== null) {
+    ConfigStore::put(ProgressionSettings::class, $this->previousProgression);
+  }
+  ConfigStore::remove(ItemStore::class);
+  if ($this->previousItems !== null) {
+    ConfigStore::put(ItemStore::class, $this->previousItems);
+  }
+  new ReflectionProperty(ClassStore::class, 'definitions')->setValue(null, $this->previousClasses);
+});
 
 function progressionTestCharacter(string $name): Character
 {
@@ -115,4 +142,115 @@ it('reports capped progression without a fictional next-level threshold', functi
   expect($result->after->progressAt($result->after->experience))->toMatchArray([
     'level' => $character->maxLevel, 'maximum' => true, 'needed' => 0, 'ratio' => 1.0,
   ]);
+});
+
+it('applies the project recovery policy without changing growth, equipment, skills, AP or states', function (bool $restore) {
+  ConfigStore::put(ProgressionSettings::class, ProgressionSettings::fromArray(['restoreVitalsOnLevelUp' => $restore]));
+  $character = progressionTestCharacter('Policy Hero');
+  $gear = new Weapon('Fixture Blade', '', '!', 1, parameterChanges: new ParameterChanges(totalHp: 50, totalMp: 10));
+  $slot = $character->equipment[0];
+  $slot->equipment = $gear;
+  new ReflectionMethod(Character::class, 'adjustStatTotals')->invoke($character);
+  $character->stats->currentHp = 7;
+  $character->stats->currentMp = 3;
+  $character->stats->totalAp = 5;
+  $character->stats->currentAp = 2;
+  $character->addState(new State('fixture-state', 'Fixture State', durationTurns: 4));
+  $beforeHp = $character->stats->totalHp;
+  $beforeMp = $character->stats->totalMp;
+  $experience = $character->getLevelExperienceThresholds()[4];
+
+  $result = ExperienceAwarder::award($character, $experience);
+
+  expect($result->oldLevel)->toBe(1)
+    ->and($result->newLevel)->toBe(4)
+    ->and($character->currentExp)->toBe($experience)
+    ->and($character->stats->totalHp)->toBeGreaterThan($beforeHp)
+    ->and($character->stats->totalMp)->toBeGreaterThan($beforeMp)
+    ->and($character->stats->currentHp)->toBe($restore ? $character->stats->totalHp : 7)
+    ->and($character->stats->currentMp)->toBe($restore ? $character->stats->totalMp : 3)
+    ->and($character->stats->currentAp)->toBe(2)
+    ->and($character->states[0]->remainingTurns)->toBe(4)
+    ->and($character->hasState('fixture-state'))->toBeTrue()
+    ->and($character->equipment[0]->equipment)->toBe($gear)
+    ->and($result->learnedAbilities)->toBe(['Role Ability'])
+    ->and($result->learnedMagic)->toBe(['Role Magic']);
+})->with([true, false]);
+
+it('preserves a knocked-out travelling member when recovery is disabled', function (bool $restore) {
+  ConfigStore::put(ProgressionSettings::class, new ProgressionSettings($restore));
+  $party = new Party();
+  foreach (['Active', 'Reserve'] as $name) {
+    $character = progressionTestCharacter($name);
+    $character->stats->currentHp = 0;
+    $character->stats->currentMp = 0;
+    $party->addMember($character);
+  }
+
+  $results = ExperienceAwarder::awardParty($party, 10000);
+  expect($results)->toHaveCount(2);
+  foreach ($party->members->toArray() as $character) {
+    expect($character->level)->toBeGreaterThanOrEqual(4)
+      ->and($character->stats->currentHp)->toBe($restore ? $character->stats->totalHp : 0)
+      ->and($character->stats->currentMp)->toBe($restore ? $character->stats->totalMp : 0);
+  }
+})->with([true, false]);
+
+it('never refills resources without a level gain under either policy', function (bool $restore) {
+  ConfigStore::put(ProgressionSettings::class, new ProgressionSettings($restore));
+  $character = progressionTestCharacter('Unchanged');
+  $character->stats->currentHp = 7;
+  $character->stats->currentMp = 3;
+
+  foreach ([0, 1] as $experience) {
+    expect(ExperienceAwarder::award($character, $experience)->levelledUp())->toBeFalse()
+      ->and($character->stats->currentHp)->toBe(7)
+      ->and($character->stats->currentMp)->toBe(3);
+  }
+  ExperienceAwarder::reconcileAutomaticRoleSkills($character);
+  expect($character->stats->currentHp)->toBe(7)->and($character->stats->currentMp)->toBe(3);
+})->with([true, false]);
+
+it('leaves damaged save hydration and equipment recalculation outside the recovery policy', function (bool $restore) {
+  ConfigStore::put(ProgressionSettings::class, new ProgressionSettings($restore));
+  new ReflectionProperty(ClassStore::class, 'definitions')->setValue(null, [
+    'fixture role' => ['name' => 'Fixture Role', 'parameterCurves' => [
+      'totalHp' => ['baseValue' => 100], 'totalMp' => ['baseValue' => 30],
+    ]],
+  ]);
+  $character = new Character('Saved Hero', 0, new Stats(currentHp: 100, currentMp: 30));
+  $character->applyClass('Fixture Role');
+  $gear = new Weapon('Saved Blade', '', '!', 1, parameterChanges: new ParameterChanges(totalHp: 50, totalMp: 10), id: 'fixture.saved-blade');
+  $items = new ReflectionClass(ItemStore::class)->newInstanceWithoutConstructor();
+  $items->set($gear->id, $gear);
+  ConfigStore::put(ItemStore::class, $items);
+  $slot = $character->equipment[0];
+  $slot->equipment = $gear;
+  new ReflectionMethod(Character::class, 'adjustStatTotals')->invoke($character);
+  $character->stats->currentHp = 7;
+  $character->stats->currentMp = 3;
+  $saved = serialize($character);
+  $loaded = unserialize($saved);
+
+  expect($loaded)->toBeInstanceOf(Character::class)
+    ->and($loaded->stats->currentHp)->toBe(7)
+    ->and($loaded->stats->currentMp)->toBe(3)
+    ->and($loaded->equipment[0]->equipment->name)->toBe('Saved Blade')
+    ->and($loaded->stats->totalHp)->toBe($character->stats->totalHp)
+    ->and($loaded->stats->totalMp)->toBe($character->stats->totalMp)
+    ->and(array_key_exists('progression', $loaded->toArray()))->toBeFalse();
+  $slot = $loaded->equipment[0];
+  $slot->equipment = null;
+  new ReflectionMethod(Character::class, 'adjustStatTotals')->invoke($loaded);
+  expect($loaded->stats->currentHp)->toBe(7)->and($loaded->stats->currentMp)->toBe(3);
+})->with([true, false]);
+
+it('rejects invalid award inputs before modifying character progression', function () {
+  $character = progressionTestCharacter('Invalid');
+  $before = serialize($character);
+  expect(fn() => ExperienceAwarder::award($character, -1))->toThrow(InvalidArgumentException::class)
+    ->and(serialize($character))->toBe($before);
+  ConfigStore::put(ProgressionSettings::class, new SceneAudioConfigStub(['restoreVitalsOnLevelUp' => false]));
+  expect(fn() => ExperienceAwarder::award($character, 10000))->toThrow(InvalidArgumentException::class, 'validated project contract')
+    ->and(serialize($character))->toBe($before);
 });

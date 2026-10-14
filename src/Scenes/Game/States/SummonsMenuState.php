@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Scenes\Game\States;
 
+use Ichiloto\Engine\Localization\Vocabulary;
+
 use Exception;
 use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\Core\Vector2;
@@ -144,7 +146,7 @@ class SummonsMenuState extends GameSceneState
     $this->borderPack = new DefaultBorderPack();
 
     $this->summaryPanel = new Window(
-      BattleCommandType::SUMMON->label() . 's',
+      Vocabulary::getTerm('command.' . BattleCommandType::SUMMON->value, 'Summons'),
       '',
       new Vector2($this->leftMargin, $this->topMargin),
       self::MENU_WIDTH,
@@ -281,7 +283,7 @@ class SummonsMenuState extends GameSceneState
     ));
 
     $tallyLine = empty($policySummons)
-      ? sprintf(' Summons: %d', count($this->summons))
+      ? sprintf(' %s: %d', Vocabulary::getTerm('command.' . BattleCommandType::SUMMON->value, 'Summons'), count($this->summons))
       : sprintf(' Assigned: %d / %d', $assignedCount, count($policySummons));
 
     $this->summaryPanel->setContent([

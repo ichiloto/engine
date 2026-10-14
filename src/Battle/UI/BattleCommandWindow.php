@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Battle\UI;
 
+use Ichiloto\Engine\Battle\BattleCommand;
+use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\Battle\Presentation\BattleHudListSnapshot;
 use Ichiloto\Engine\Battle\Presentation\BattleHudRow;
 use Ichiloto\Engine\Core\Interfaces\CanChangeSelection;
@@ -42,7 +44,7 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
    */
   protected string $titleBase = 'Command';
   /**
-   * The commands available to the player.
+   * @var list<BattleCommand|string> Semantic commands; strings remain supported for legacy UI callers.
    */
   public array $commands = [] {
     get {
@@ -56,6 +58,16 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
   }
 
   protected int $totalCommands = 0;
+
+  public function getActiveCommand(): ?BattleCommand
+  {
+    $command = $this->commands[$this->activeCommandIndex] ?? null;
+    if ($command instanceof BattleCommand) { return $command; }
+    if (is_string($command) && ($type = BattleCommandType::fromCommandName($command)) !== null) {
+      return new BattleCommand($type, $command);
+    }
+    return null;
+  }
 
   /**
    * Creates a new instance of the BattleCommandWindow class.
@@ -128,7 +140,7 @@ class BattleCommandWindow extends Window implements CanFocus, CanChangeSelection
     $visibleRowCount = min(self::HEIGHT - 2, $this->getVisibleRowCount());
     $rows = [];
     foreach (array_slice($this->commands, $this->scrollOffset, $visibleRowCount, true) as $index => $command) {
-      $rows[] = new BattleHudRow($index, $command, $this->activeCommandIndex === $index);
+      $rows[] = new BattleHudRow($index, (string) $command, $this->activeCommandIndex === $index);
     }
     [$currentPage, $totalPages] = $this->getPagination();
 

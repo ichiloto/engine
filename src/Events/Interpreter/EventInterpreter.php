@@ -17,9 +17,15 @@ use Ichiloto\Engine\Cutscenes\Cinematics\FieldAnimationOperation;
 use Ichiloto\Engine\Cutscenes\Cinematics\TimedPresentationOperation;
 use Ichiloto\Engine\Cutscenes\Cinematics\TransitionOperation;
 use Ichiloto\Engine\Animations\AnimationLibrary;
+use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
+use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
 use Ichiloto\Engine\Audio\CinematicMusicOperation;
 use Ichiloto\Engine\Audio\CinematicMusicRequest;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandCatalog;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandContext;
+use Ichiloto\Engine\Events\Interpreter\Commands\ScriptCommandRegistry;
 use Ichiloto\Engine\Field\Location;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Rendering\ScreenTransition;
@@ -39,15 +45,22 @@ use Throwable;
  */
 class EventInterpreter
 {
-  /** The single runtime/editor command vocabulary. */
+  /**
+   * The built-in command vocabulary. Commands the Engine and the project
+   * register run through ScriptCommandRegistry beside these.
+   */
   public const array COMMAND_TYPES = CinematicCommandSchema::COMMAND_TYPES;
 
   protected ?EventExecutionSession $activeSession = null;
   protected(set) ?EventExecutionSession $lastSession = null;
 
+  /**
+   * @param ScriptCommandCatalog|null $scriptCommands The registered commands; the project's when omitted.
+   */
   public function __construct(
     protected GameScene $gameScene,
     protected ?EventPresentationInterface $presentation = null,
+    protected ?ScriptCommandCatalog $scriptCommands = null,
   )
   {
     $this->presentation ??= new ModalEventPresentation($gameScene);
@@ -361,11 +374,15 @@ class EventInterpreter
 
     switch ($type) {
       case 'text':
+        $context = DialogueContext::getFromText($command);
         $session->claimPresentation($lane);
-        $this->presentation->beginText(
-          strval($command['text'] ?? ''),
-          strval($command['name'] ?? ''),
-        );
+        $text = strval($command['text'] ?? '');
+        $speaker = strval($command['name'] ?? '');
+        if ($this->presentation instanceof EventDialoguePresentationInterface) {
+          $this->presentation->beginDialogue($text, $speaker, $context);
+        } else {
+          $this->presentation->beginText($text, $speaker);
+        }
         $lane->yieldFor($command, ['kind' => 'dialogue']);
         return EventCommandResult::YIELDED;
 
@@ -459,13 +476,10 @@ class EventInterpreter
         $player = $this->gameScene->player;
 
         if ($player !== null && isset($command['x'], $command['y'])) {
-          $player->erase();
-          $player->position->x = intval($command['x']);
-          $player->position->y = intval($command['y']);
+          $this->gameScene->relocatePlayer(new Vector2(intval($command['x']), intval($command['y'])));
           if ($session->isFinalizing) {
             $this->gameScene->cinematicStage?->commitSubjectTransforms($player);
           }
-          $player->render();
         }
         return EventCommandResult::COMPLETED;
 
@@ -499,10 +513,13 @@ class EventInterpreter
         $session->suspendLane($lane, $command, ['kind' => 'transfer']);
         $spawn = new Vector2($destinationX, $destinationY);
         $sprite = (array) ($command['sprite'] ?? ($this->gameScene->player?->sprite ?? ['@']));
-        $this->gameScene->transferPlayer(
+        $transferred = $this->gameScene->transferPlayer(
           new Location($destinationMap, $spawn, $sprite),
           useConfiguredTransition: $session->cinematic === null,
         );
+        if (! $transferred) {
+          throw new RuntimeException(sprintf('Map transfer to "%s" was refused.', $destinationMap));
+        }
         return EventCommandResult::SUSPENDED;
 
       case 'start_battle':
@@ -516,7 +533,10 @@ class EventInterpreter
           throw new RuntimeException('start_battle requires a configured party.');
         }
 
-        if ($this->gameScene->party->isDefeated()) {
+        $reservePolicy = \Ichiloto\Engine\Battle\ReservePolicy::resolve($command['reservePolicy'] ?? null);
+        $entryRoster = new \Ichiloto\Engine\Battle\BattlePartyRoster($this->gameScene->party, $reservePolicy);
+        $entryRoster->promoteReservesAfterWipeout();
+        if ($entryRoster->isDefeated) {
           throw new RuntimeException('start_battle cannot launch with a defeated party.');
         }
 
@@ -545,7 +565,7 @@ class EventInterpreter
           'resultVariable' => trim(strval($command['resultVariable'] ?? '')),
           'defeatPolicy' => $defeatPolicy,
         ]);
-        $extraSettings = ['event_defeat_policy' => $defeatPolicy]
+        $extraSettings = ['event_defeat_policy' => $defeatPolicy, 'reservePolicy' => $reservePolicy->value]
           + array_intersect_key($command, ['battleArena' => true]);
 
         if ($escapePolicy !== null) {
@@ -681,7 +701,7 @@ class EventInterpreter
         }
 
         if ($duration <= 0.0) {
-          $presentation->clear();
+          $presentation->clearOverlay();
           return EventCommandResult::COMPLETED;
         }
 
@@ -693,14 +713,22 @@ class EventInterpreter
         return EventCommandResult::YIELDED;
 
       case 'field_animation':
-        $reference = $command['animation'] ?? $command['id'] ?? null;
-        $library = new AnimationLibrary();
-        $animation = is_numeric($reference)
-          ? $library->findById(intval($reference))
-          : $library->findByName(strval($reference));
+        CinematicScriptValidator::validateFieldAnimation($command, $session->scriptId ?? 'event', $lane->path);
+        if (array_key_exists('effect', $command)) {
+          $library = new EffectTimelineLibrary($this->gameScene->getGame()->getRendererRuntime()?->getAssetRoot()
+            ?? getcwd() . '/assets');
+          $animation = $library->load($command['effect'], presentation: $this->gameScene->isGraphicalFieldPresented()
+            ? EffectPresentation::GRAPHICAL : EffectPresentation::TERMINAL);
+        } else {
+          $reference = $command['animation'] ?? $command['id'] ?? null;
+          $library = new AnimationLibrary();
+          $animation = is_numeric($reference)
+            ? $library->findById(intval($reference))
+            : $library->findByName(strval($reference));
 
-        if ($animation === null) {
-          throw new RuntimeException(sprintf('Field animation "%s" was not found.', strval($reference)));
+          if ($animation === null) {
+            throw new RuntimeException(sprintf('Field animation "%s" was not found.', strval($reference)));
+          }
         }
 
         $target = is_array($command['target'] ?? null) ? $command['target'] : [];
@@ -714,7 +742,7 @@ class EventInterpreter
             ?? throw new RuntimeException('Cinematic presentation host is not configured.'),
           $position,
           $screenSpace,
-          max(0.01, floatval($command['secondsPerFrame'] ?? 0.12)),
+          isset($command['effect']) ? null : max(0.01, floatval($command['secondsPerFrame'] ?? 0.12)),
         );
 
         if ($operation->isComplete) {
@@ -768,8 +796,41 @@ class EventInterpreter
         return EventCommandResult::YIELDED;
 
       default:
-        throw new RuntimeException($this->unknownCommandDiagnostic($session, $lane, $type));
+        return $this->executeRegisteredCommand($session, $lane, $command, $type);
     }
+  }
+
+  /**
+   * Runs a command registered by the Engine or the project, failing closed
+   * when the type is unknown or the command does not match its definition.
+   */
+  protected function executeRegisteredCommand(
+    EventExecutionSession $session,
+    EventExecutionLane $lane,
+    array $command,
+    string $type,
+  ): EventCommandResult
+  {
+    $catalog = $this->scriptCommands ?? ScriptCommandRegistry::getCatalog();
+    $definition = $catalog->findDefinition($type)
+      ?? throw new RuntimeException($this->unknownCommandDiagnostic($session, $lane, $type));
+    $problems = $definition->findProblems($command);
+
+    if ($problems !== []) {
+      throw new RuntimeException(implode(' ', $problems));
+    }
+
+    $outcome = $catalog->createHandler($type)->execute(
+      new ScriptCommandContext($this->gameScene, $session->scriptId, $session->origin),
+      $command,
+    );
+
+    if ($outcome->operation === null) {
+      return EventCommandResult::COMPLETED;
+    }
+
+    $lane->yieldFor($command, ['kind' => 'registered'], $outcome->operation);
+    return EventCommandResult::YIELDED;
   }
 
   /**

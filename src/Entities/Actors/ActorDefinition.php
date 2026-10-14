@@ -3,8 +3,13 @@
 namespace Ichiloto\Engine\Entities\Actors;
 
 use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\Battle\CounterAttackRule;
+use Ichiloto\Engine\Entities\Enumerations\WeaponType;
 use Ichiloto\Engine\Entities\Stats\StatKey;
 use Ichiloto\Engine\Exceptions\UnresolvedSaveReferenceException;
+use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
+use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
+use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
 
 /**
@@ -15,16 +20,19 @@ use InvalidArgumentException;
  */
 final class ActorDefinition
 {
+  public readonly string $id;
   /** @var array<string, int> */
   private array $fixedNaturalAdjustments;
   /** @var array<string, array<string, int>> */
   private array $naturalVariants;
+  private bool $fieldArtworkResolved = false;
+  private ?CharacterSheet $fieldArtwork = null;
 
   /**
    * @param array<string, mixed> $data Canonical actor data block.
    */
   public function __construct(
-    public string $id,
+    string $id,
     private array $data,
     public ?string $defaultNaturalVariantId = null,
     array $fixedNaturalAdjustments = [],
@@ -39,6 +47,14 @@ final class ActorDefinition
     }
 
     $this->id = $id;
+    CounterAttackRule::fromArray($data['counterAttack'] ?? null);
+    if (($data['attackStyle'] ?? null) !== null) {
+      try {
+        WeaponType::require($data['attackStyle']);
+      } catch (InvalidArgumentException $error) {
+        throw new InvalidArgumentException(sprintf('%s attackStyle: %s', $source, $error->getMessage()), previous: $error);
+      }
+    }
 
     $this->fixedNaturalAdjustments = self::normalizeAdjustments($fixedNaturalAdjustments, $source);
     $this->naturalVariants = [];
@@ -80,7 +96,10 @@ final class ActorDefinition
   public static function fromArray(array $actorFile, string $source = 'project actor definition'): self
   {
     $data = is_array($actorFile['data'] ?? null) ? $actorFile['data'] : $actorFile;
-    $id = trim(strval($data['id'] ?? $data['name'] ?? ''));
+    $id = $data['id'] ?? null;
+    if (! is_string($id) || trim($id) === '') {
+      throw new InvalidArgumentException(sprintf('%s must declare an explicit non-empty actor id. Display names are not identities.', $source));
+    }
 
     return new self(
       $id,
@@ -119,6 +138,30 @@ final class ActorDefinition
   public function data(): array
   {
     return $this->data;
+  }
+
+  /** The shared graphical field role; terminal images.field remains independent. */
+  public function getGraphicalCharacterSheet(): ?CharacterSheet
+  {
+    if ($this->fieldArtworkResolved) {
+      return $this->fieldArtwork;
+    }
+    $this->fieldArtworkResolved = true;
+    try {
+      $role = $this->data['images']['field2d'] ?? null;
+      if (!is_array($role)) {
+        throw new InvalidArgumentException('A graphical field role requires images.field2d with a character sheet definition.');
+      }
+      $sheet = CharacterSheet::fromArray($role);
+      if ($sheet->layer < PresentationLayerPolicy::WORLD || $sheet->layer >= PresentationLayerPolicy::UI) {
+        throw new InvalidArgumentException('A graphical field role requires a world layer (0..999).');
+      }
+      $this->fieldArtwork = $sheet;
+    } catch (InvalidArgumentException $error) {
+      Debug::warn(sprintf('Actor "%s" images.field2d unavailable; keeping terminal sprite: %s (%s)',
+        $this->id, $error->getMessage(), $this->source));
+    }
+    return $this->fieldArtwork;
   }
 
   /** @return array<string, int> */

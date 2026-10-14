@@ -11,6 +11,7 @@ use Ichiloto\Engine\Battle\BattleAction;
 use Ichiloto\Engine\Battle\BattleResult;
 use Ichiloto\Engine\Battle\BattlerBattleView;
 use Ichiloto\Engine\Battle\BattleCommandCatalog;
+use Ichiloto\Engine\Battle\BattleCommand;
 use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\Battle\BattleCommandOption;
 use Ichiloto\Engine\Battle\EscapePolicy;
@@ -20,13 +21,13 @@ use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Enemies\Enemy;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeNumber;
 use Ichiloto\Engine\Entities\Enumerations\ItemScopeSide;
-use Ichiloto\Engine\Entities\Enumerations\ItemScopeStatus;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
-use Ichiloto\Engine\Entities\Skills\SkillTargetPolicy;
+use Ichiloto\Engine\Battle\BattleTargetPolicy;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
+use Ichiloto\Engine\Localization\Vocabulary;
 
 /**
  * Handles player-side command, submenu, and target selection for the round.
@@ -58,7 +59,7 @@ class PlayerActionState extends TurnState
   protected int $activeTargetIndex = -1;
   protected ?Character $activeCharacter {
     get {
-      return $this->engine->battleConfig->party->battlers->toArray()[$this->activeCharacterIndex] ?? null;
+      return $this->engine->battleConfig->partyRoster->battlers[$this->activeCharacterIndex] ?? null;
     }
   }
   /**
@@ -159,7 +160,7 @@ class PlayerActionState extends TurnState
    */
   protected function handleTargetNavigation(TurnStateExecutionContext $context): void
   {
-    if ($this->getSelectedOption()?->targetNumber === ItemScopeNumber::ALL) {
+    if ($this->getSelectedOption()?->action->targetScope->number !== ItemScopeNumber::ONE) {
       return;
     }
 
@@ -229,6 +230,12 @@ class PlayerActionState extends TurnState
       default => null,
     };
 
+    $subjects = $this->selectionMode === self::MODE_TARGET ? $context->ui->fieldWindow->getFocusedBattlers()
+      : array_filter([$this->activeCharacter]);
+    foreach ($subjects as $subject) {
+      $conditions = \Ichiloto\Engine\Battle\Presentation\BattlerConditions::getInfo($subject);
+      if ($conditions !== '') { $infoText = trim(($infoText ?? '') . ' ' . $conditions); }
+    }
     if ($infoText === null || trim($infoText) === '') {
       return;
     }
@@ -255,14 +262,11 @@ class PlayerActionState extends TurnState
     $this->selectionMode = self::MODE_COMMAND;
     $this->activeTargetIndex = -1;
     $ui->characterNameWindow->setActiveSelection($this->activeCharacterIndex);
-    $ui->commandWindow->commands = array_map(
-      fn(BattleAction $action) => $action->name,
-      BattleCommandCatalog::buildCommands(
-        $this->activeCharacter,
-        $context->party,
-        $context->getGameState(),
-        $engine->battleConfig->getEscapePolicy(),
-      ),
+    $ui->commandWindow->commands = BattleCommandCatalog::buildCommands(
+      $this->activeCharacter,
+      $context->party,
+      $context->getGameState(),
+      $engine->battleConfig->getEscapePolicy(),
     );
     $ui->commandWindow->focus();
     $ui->commandContextWindow->clear();
@@ -278,7 +282,7 @@ class PlayerActionState extends TurnState
    */
   protected function selectNextCharacter(TurnStateExecutionContext $context, bool $resetToStart = false): void
   {
-    $partyBattlers = $context->party->battlers->toArray();
+    $partyBattlers = $context->partyRoster->battlers;
     $startIndex = $resetToStart ? 0 : $this->activeCharacterIndex + 1;
 
     foreach ($partyBattlers as $index => $battler) {
@@ -320,14 +324,14 @@ class PlayerActionState extends TurnState
       return;
     }
 
-    $commandName = $this->getSelectedCommandName($context);
+    $command = $this->getSelectedCommand($context);
 
-    if ($commandName === null) {
+    if ($command === null) {
       return;
     }
 
     // Guard and Escape resolve at the top level — no submenu.
-    switch (BattleCommandType::fromCommandName($commandName)) {
+    switch ($command->type) {
       case BattleCommandType::GUARD:
         $this->queueGuardForActiveCharacter($context);
         return;
@@ -341,7 +345,7 @@ class PlayerActionState extends TurnState
     $options = BattleCommandCatalog::buildOptions(
       $this->activeCharacter,
       $context->party,
-      $commandName,
+      $command->type,
       $this->getReservedItemCounts($context),
       $context->getGameState(),
     );
@@ -350,7 +354,7 @@ class PlayerActionState extends TurnState
     $this->activeTargetIndex = -1;
     $context->ui->commandWindow->setSelectionBlink(false);
     $context->ui->commandContextWindow->setMpBudget($this->activeCharacter->stats->currentMp);
-    $context->ui->commandContextWindow->setItems($options, $commandName, $this->getEmptyMenuMessage($commandName));
+    $context->ui->commandContextWindow->setItems($options, $command->name, $this->getEmptyMenuMessage($command->type));
     $context->ui->commandContextWindow->focus();
     $this->applyTargetingVisuals($context);
   }
@@ -466,12 +470,13 @@ class PlayerActionState extends TurnState
     // Insufficient MP blocks the option here, at selection time — waiting
     // until execution would let the move fizzle after it was announced.
     if ($this->activeCharacter && $option->mpCost > $this->activeCharacter->stats->currentMp) {
-      $context->ui->alert(sprintf(
-        'Not enough MP! %s needs %d MP, %s has %d.',
+      $context->ui->alert(get_message(
+        'battle.insufficient_resource_selection', 'Not enough %5! %1 needs %2 %5, %3 has %4.',
         $option->action->name,
         $option->mpCost,
         $this->activeCharacter->name,
-        $this->activeCharacter->stats->currentMp
+        $this->activeCharacter->stats->currentMp,
+        Vocabulary::getTerm('stats.mp', 'MP')
       ));
       return;
     }
@@ -568,12 +573,13 @@ class PlayerActionState extends TurnState
     }
 
     if ($selectedOption->mpCost > $this->activeCharacter->stats->currentMp) {
-      $context->ui->alert(sprintf(
-        'Not enough MP! %s needs %d MP, %s has %d.',
+      $context->ui->alert(get_message(
+        'battle.insufficient_resource_selection', 'Not enough %5! %1 needs %2 %5, %3 has %4.',
         $selectedOption->action->name,
         $selectedOption->mpCost,
         $this->activeCharacter->name,
-        $this->activeCharacter->stats->currentMp
+        $this->activeCharacter->stats->currentMp,
+        Vocabulary::getTerm('stats.mp', 'MP')
       ));
       return;
     }
@@ -596,7 +602,7 @@ class PlayerActionState extends TurnState
    */
   protected function selectPreviousCharacter(TurnStateExecutionContext $context): void
   {
-    $partyBattlers = $context->party->battlers->toArray();
+    $partyBattlers = $context->partyRoster->battlers;
     $startIndex = $this->activeCharacterIndex < 0 ? count($partyBattlers) - 1 : $this->activeCharacterIndex - 1;
 
     for ($index = $startIndex; $index >= 0; $index--) {
@@ -630,7 +636,7 @@ class PlayerActionState extends TurnState
   {
     $queuedPartyTargets = [];
     $queuedTroopTargets = [];
-    $partyBattlers = $context->party->battlers->toArray();
+    $partyBattlers = $context->partyRoster->battlers;
     $troopMembers = $context->troop->members->toArray();
 
     foreach ($context->getTurns() as $turn) {
@@ -660,13 +666,20 @@ class PlayerActionState extends TurnState
     $context->ui->fieldWindow->clearTroopFocus();
 
     if ($this->selectionMode === self::MODE_TARGET && $this->activeTargetIndex >= 0) {
-      $indexes = $this->getSelectedOption()?->targetNumber === ItemScopeNumber::ALL
-        ? $this->getSelectableTargetIndexes($context)
-        : [$this->activeTargetIndex];
-      match ($this->getSelectedOption()?->targetSide) {
-        ItemScopeSide::ALLY, ItemScopeSide::USER => $context->ui->fieldWindow->focusPartyBattlers($indexes, blink: true),
-        default => $context->ui->fieldWindow->focusTroopBattlers($indexes, blink: true),
-      };
+      $option = $this->getSelectedOption();
+      $indexes = $option?->action->targetScope->number === ItemScopeNumber::ONE
+        ? [$this->activeTargetIndex] : $this->getSelectableTargetIndexes($context);
+      $pool = $option === null ? [] : $this->getSelectionPool($context, $option);
+      $partyFocus = $troopFocus = [];
+      foreach ($indexes as $index) {
+        $target = $pool[$index] ?? null;
+        $partyIndex = array_search($target, $partyBattlers, true);
+        $troopIndex = array_search($target, $troopMembers, true);
+        if (is_int($partyIndex)) { $partyFocus[] = $partyIndex; }
+        if (is_int($troopIndex)) { $troopFocus[] = $troopIndex; }
+      }
+      $context->ui->fieldWindow->focusPartyBattlers($partyFocus, blink: true);
+      $context->ui->fieldWindow->focusTroopBattlers($troopFocus, blink: true);
     }
 
     // Selection layers sit over a battlefield that can also be touched by
@@ -684,8 +697,12 @@ class PlayerActionState extends TurnState
    */
   protected function getSelectedCommandName(TurnStateExecutionContext $context): ?string
   {
-    $activeCommandIndex = $context->ui->commandWindow->activeCommandIndex;
-    return $context->ui->commandWindow->commands[$activeCommandIndex] ?? null;
+    return $this->getSelectedCommand($context)?->name;
+  }
+
+  protected function getSelectedCommand(TurnStateExecutionContext $context): ?BattleCommand
+  {
+    return $context->ui->commandWindow->getActiveCommand();
   }
 
   /**
@@ -696,7 +713,7 @@ class PlayerActionState extends TurnState
    */
   protected function resolveCommandInfo(TurnStateExecutionContext $context): ?string
   {
-    return BattleCommandType::fromCommandName((string) $this->getSelectedCommandName($context))?->helpText();
+    return $this->getSelectedCommand($context)?->type->helpText();
   }
 
   /**
@@ -732,9 +749,11 @@ class PlayerActionState extends TurnState
       return $description;
     }
 
-    return trim($description . ($selectedOption->targetNumber === ItemScopeNumber::ALL
-      ? ' Confirm all highlighted targets, or press C to return.'
-      : ' Choose a target.'));
+    return trim($description . match ($selectedOption->action->targetScope->number) {
+      ItemScopeNumber::ALL => ' Confirm all highlighted targets, or press C to return.',
+      ItemScopeNumber::RANDOM => ' Confirm random targets from the highlighted group, or press C to return.',
+      ItemScopeNumber::ONE => ' Choose a target.',
+    });
   }
 
   /**
@@ -747,15 +766,17 @@ class PlayerActionState extends TurnState
   {
     $selectedOption = $this->getSelectedOption();
 
-    if (! $selectedOption instanceof BattleCommandOption) {
+    if (! $selectedOption instanceof BattleCommandOption || $this->activeCharacter === null) {
       return [];
     }
 
-    return match ($selectedOption->targetSide) {
-      ItemScopeSide::ALLY => $this->getMatchingPartyIndexes($context, $selectedOption->targetStatus),
-      ItemScopeSide::USER => [$this->activeCharacterIndex],
-      default => $this->getMatchingTroopIndexes($context, $selectedOption->targetStatus),
-    };
+    $eligible = BattleTargetPolicy::getEligibleTargets($selectedOption->action->targetScope,
+      $this->activeCharacter, $context->partyRoster->battlers, $context->troop->members->toArray());
+    $indexes = [];
+    foreach ($this->getSelectionPool($context, $selectedOption) as $index => $target) {
+      if (in_array($target, $eligible, true)) { $indexes[] = $index; }
+    }
+    return $indexes;
   }
 
   /**
@@ -770,115 +791,29 @@ class PlayerActionState extends TurnState
     ?BattleCommandOption $selectedOption
   ): array
   {
-    if (! $selectedOption instanceof BattleCommandOption) {
+    if (! $selectedOption instanceof BattleCommandOption || $this->activeCharacter === null) {
       return [];
     }
 
-    if ($selectedOption->targetSide === ItemScopeSide::USER && $this->activeCharacter) {
-      return [$this->activeCharacter];
-    }
+    $selected = $this->getSelectionPool($context, $selectedOption)[$this->activeTargetIndex] ?? null;
+    return BattleTargetPolicy::resolveTargets($selectedOption->action->targetScope, $this->activeCharacter,
+      $context->partyRoster->battlers, $context->troop->members->toArray(),
+      $selected === null || $selectedOption->action->targetScope->number === ItemScopeNumber::RANDOM ? [] : [$selected],
+      $this->engine->random);
+  }
 
-    if ($selectedOption->targetNumber === ItemScopeNumber::ALL) {
-      $pool = $selectedOption->targetSide === ItemScopeSide::ALLY
-        ? $context->party->battlers->toArray()
-        : $context->troop->members->toArray();
-
-      return array_values(array_filter(
-        $pool,
-        fn(CharacterInterface $battler): bool => $this->matchesStatus($battler, $selectedOption->targetStatus)
-      ));
-    }
-
-    return match ($selectedOption->targetSide) {
-      ItemScopeSide::ALLY => $this->resolvePartyTargets($context, $selectedOption->targetStatus),
-      default => $this->resolveTroopTargets($context, $selectedOption->targetStatus),
+  /**
+   * Keeps focus indexes stable while eligibility changes within either side.
+   * @return CharacterInterface[]
+   */
+  protected function getSelectionPool(TurnStateExecutionContext $context, BattleCommandOption $option): array
+  {
+    return match ($option->action->targetScope->side) {
+      ItemScopeSide::ALLY, ItemScopeSide::USER => $context->partyRoster->battlers,
+      ItemScopeSide::ENEMY => $context->troop->members->toArray(),
+      ItemScopeSide::ENEMY_ALLY => [...$context->partyRoster->battlers, ...$context->troop->members->toArray()],
+      ItemScopeSide::NONE => [],
     };
-  }
-
-  /**
-   * Resolves the currently selected party targets.
-   *
-   * @param TurnStateExecutionContext $context The turn context.
-   * @param ItemScopeStatus $status The required target status.
-   * @return CharacterInterface[] The resolved party targets.
-   */
-  protected function resolvePartyTargets(TurnStateExecutionContext $context, ItemScopeStatus $status): array
-  {
-    $partyBattlers = $context->party->battlers->toArray();
-    $target = $partyBattlers[$this->activeTargetIndex] ?? null;
-
-    return $target instanceof CharacterInterface && $this->matchesStatus($target, $status)
-      ? [$target]
-      : [];
-  }
-
-  /**
-   * Resolves the currently selected troop targets.
-   *
-   * @param TurnStateExecutionContext $context The turn context.
-   * @param ItemScopeStatus $status The required target status.
-   * @return CharacterInterface[] The resolved troop targets.
-   */
-  protected function resolveTroopTargets(TurnStateExecutionContext $context, ItemScopeStatus $status): array
-  {
-    $troopMembers = $context->troop->members->toArray();
-    $target = $troopMembers[$this->activeTargetIndex] ?? null;
-
-    return $target instanceof CharacterInterface && $this->matchesStatus($target, $status)
-      ? [$target]
-      : [];
-  }
-
-  /**
-   * Returns party battler indexes that match the requested status.
-   *
-   * @param TurnStateExecutionContext $context The turn context.
-   * @param ItemScopeStatus $status The required target status.
-   * @return int[] The matching party indexes.
-   */
-  protected function getMatchingPartyIndexes(TurnStateExecutionContext $context, ItemScopeStatus $status): array
-  {
-    $indexes = [];
-
-    foreach ($context->party->battlers->toArray() as $index => $battler) {
-      if ($this->matchesStatus($battler, $status)) {
-        $indexes[] = $index;
-      }
-    }
-
-    return $indexes;
-  }
-
-  /**
-   * Returns troop battler indexes that match the requested status.
-   *
-   * @param TurnStateExecutionContext $context The turn context.
-   * @param ItemScopeStatus $status The required target status.
-   * @return int[] The matching troop indexes.
-   */
-  protected function getMatchingTroopIndexes(TurnStateExecutionContext $context, ItemScopeStatus $status): array
-  {
-    $indexes = [];
-
-    foreach ($context->troop->members->toArray() as $index => $battler) {
-      if ($battler instanceof Enemy && $this->matchesStatus($battler, $status)) {
-        $indexes[] = $index;
-      }
-    }
-
-    return $indexes;
-  }
-
-  /**
-   * Checks whether the battler satisfies the requested target status.
-   *
-   * @param CharacterInterface $battler The battler to inspect.
-   * @param ItemScopeStatus $status The requested target status.
-   * @return bool True when the battler matches the requested status.
-   */
-  protected function matchesStatus(CharacterInterface $battler, ItemScopeStatus $status): bool
-  {
-    return SkillTargetPolicy::matchesStatus($battler, $status);
   }
 
   /**
@@ -906,11 +841,12 @@ class PlayerActionState extends TurnState
   /**
    * Returns the empty-state message for the requested submenu.
    *
-   * @param string $commandName The selected top-level command name.
+   * @param BattleCommandType|string $commandName The semantic command, or a legacy name/id.
    * @return string The empty-state message.
    */
-  protected function getEmptyMenuMessage(string $commandName): string
+  protected function getEmptyMenuMessage(BattleCommandType|string $commandName): string
   {
-    return BattleCommandType::fromCommandName($commandName)?->emptyMessage() ?? 'Nothing available.';
+    $type = $commandName instanceof BattleCommandType ? $commandName : BattleCommandType::fromCommandName($commandName);
+    return $type?->emptyMessage() ?? 'Nothing available.';
   }
 }

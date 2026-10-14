@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Battle\Engines\ActiveTime;
 
 use Ichiloto\Engine\Battle\UI\BattleScreen;
+use Ichiloto\Engine\Battle\BattlePartyRoster;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Troop;
 use Ichiloto\Engine\Scenes\Battle\BattleConfig;
@@ -45,8 +46,9 @@ class ActiveTimeBattleConfig extends BattleConfig
     protected(set) int $surpriseAttackChancePercent = 8,
     protected(set) int $backAttackChancePercent = 6,
     array $settings = [],
+    ?BattlePartyRoster $partyRoster = null,
   )
   {
-    parent::__construct($party, $troop, $events, $settings);
+    parent::__construct($party, $troop, $events, $settings, partyRoster: $partyRoster);
   }
 }

@@ -200,10 +200,12 @@ if (! function_exists('show_text') ) {
     string         $title = '',
     string         $help = '',
     ?WindowPosition $position = null,
-    float          $charactersPerSecond = 1
+    float          $charactersPerSecond = 1,
+    ?\Ichiloto\Engine\Messaging\Dialogue\DialoguePlayback $playback = null,
+    ?\Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext $presentation = null,
   ): void
   {
-    Console::showText($message, $title, $help, $position, $charactersPerSecond);
+    Console::showText($message, $title, $help, $position, $charactersPerSecond, $playback, $presentation);
   }
 }
 
@@ -239,6 +241,7 @@ if (! function_exists('notify') ) {
    * @param NotificationSlideDirection $enterDirection The entry slide direction.
    * @param NotificationSlideDirection|null $exitDirection The exit slide direction.
    * @param float|null $animationDuration The slide-animation duration in seconds, or null for project policy.
+   * @param string|null $presentationRole Optional graphical meaning, independent of translated text.
    * @return void
    */
   function notify(
@@ -249,7 +252,8 @@ if (! function_exists('notify') ) {
     NotificationDuration|float $duration = NotificationDuration::LONG,
     NotificationSlideDirection $enterDirection = NotificationSlideDirection::RIGHT,
     ?NotificationSlideDirection $exitDirection = null,
-    ?float $animationDuration = null
+    ?float $animationDuration = null,
+    ?string $presentationRole = null
   ): void
   {
     $notification = new Notification(
@@ -260,7 +264,8 @@ if (! function_exists('notify') ) {
       $duration,
       enterDirection: $enterDirection,
       exitDirection: $exitDirection,
-      animationDuration: $animationDuration
+      animationDuration: $animationDuration,
+      presentationRole: $presentationRole
     );
     NotificationManager::getInstance($game)->notify($notification);
   }

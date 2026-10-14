@@ -2,6 +2,9 @@
 
 namespace Ichiloto\Engine\Cutscenes\Cinematics;
 
+use Ichiloto\Engine\Animations\Field\FieldPoseAnimation;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialogueContext;
+
 /**
  * Authoritative cinematic vocabulary shared by runtime and authoring tools.
  *
@@ -38,7 +41,7 @@ final class CinematicCommandSchema
     'branch' => ['then', 'else'],
     'choice' => ['options', 'option' => ['text', 'then'], 'cancel'],
   ];
-  public const array SUBJECT_KINDS = ['player', 'party_actor', 'npc', 'staged_actor', 'position', 'screen_position', 'marker'];
+  public const array SUBJECT_KINDS = ['player', 'party_actor', 'npc', 'world_object', 'staged_actor', 'position', 'screen_position', 'marker'];
   public const array CAMERA_OPERATIONS = ['detach', 'attach', 'reset', 'focus', 'pan', 'route', 'track', 'shake', 'restore'];
   public const array CINEMATIC_DEFINITION_FIELDS = [
     'id', 'name', 'description', 'version', 'authoring', 'startMap',
@@ -94,7 +97,7 @@ final class CinematicCommandSchema
     'effectTiming', 'targetPresentation', 'authoring', 'availability',
   ];
   public const array SUMMON_TIMELINE_FIELDS = [
-    'formatVersion', 'fps', 'lengthFrames', 'tracks', 'cues', 'editor',
+    'formatVersion', 'fps', 'lengthFrames', 'restFrame', 'presentations', 'stage', 'tracks', 'cues', 'editor',
   ];
   public const array SUMMON_PLAYBACK_CONFIG_FIELDS = [
     'defaultSpeed', 'allowSkip', 'loopPreview',
@@ -113,6 +116,13 @@ final class CinematicCommandSchema
       'nestedBlockShapes' => self::NESTED_BLOCK_SHAPES,
       'subjectKinds' => self::SUBJECT_KINDS,
       'cameraOperations' => self::CAMERA_OPERATIONS,
+      'textPresentation' => [
+        'fields' => DialogueContext::TEXT_FIELDS,
+        'emotion' => ['type' => 'non-empty string', 'default' => DialogueContext::DEFAULT_EMOTION,
+          'source' => 'case-sensitive expression key on the existing speaker identity in DialoguePresentationCatalog'],
+        'speaker' => 'name remains authored display text; existing catalog speaker aliases resolve artwork identity',
+        'missingArtwork' => 'existing expression, Neutral and base-role fallback; no required portrait',
+      ],
       'cinematicDefinitionFields' => self::CINEMATIC_DEFINITION_FIELDS,
       'cinematicEventTrigger' => [
         'class' => self::CINEMATIC_TRIGGER_CLASS,
@@ -122,6 +132,17 @@ final class CinematicCommandSchema
         'completion' => self::CINEMATIC_TRIGGER_COMPLETION,
       ],
       'stagedActorFields' => self::STAGED_ACTOR_FIELDS,
+      'stagedPoseAnimation' => [
+        'field' => 'sprites2d.animation',
+        'fields' => FieldPoseAnimation::FIELDS,
+        'maxGridAxis' => FieldPoseAnimation::MAX_GRID_AXIS,
+        'maxFrames' => FieldPoseAnimation::MAX_FRAMES,
+        'maxFps' => FieldPoseAnimation::MAX_FPS,
+        'defaultFps' => FieldPoseAnimation::DEFAULT_FPS,
+        'frameOrder' => 'required non-empty source-cell list; row-major indices, repeats allowed',
+        'defaults' => ['columns' => 1, 'rows' => 1, 'loop' => true, 'restFrame' => 0],
+        'sourceRect' => 'optional sheet region; current image dimensions define its equal grid cells',
+      ],
       'movementRoute' => [
         'modes' => ['steps', 'waypoints', 'retrace'],
         'waypoints' => 'non-empty list of non-negative integer x and/or y; omitted axis retains current coordinate',
@@ -131,10 +152,10 @@ final class CinematicCommandSchema
         'ownership' => 'one route per subject; current object, map and presentation generation',
       ],
       'stagedActorBinding' => [
-        'subject' => ['kind' => 'player|npc', 'id' => 'required for npc'],
+        'subject' => ['kind' => 'player|npc|world_object', 'id' => 'required for npc/world_object'],
         'suppress' => 'additional real subject references sharing this visual',
         'replace' => 'explicitly replace an existing visual without resetting captured transforms',
-        'movement' => 'route the real subject; a bound visual has no independent transform or collision',
+        'movement' => 'route a real player/NPC; world-object anchors are fixed; bound visuals have no independent transform or collision',
       ],
       'skipPolicies' => self::SKIP_POLICIES,
       'finalizerCommandTypes' => self::FINALIZER_COMMAND_TYPES,

@@ -64,7 +64,10 @@ final class CameraOperation implements EventPendingOperationInterface
       return;
     }
 
-    $this->camera->detach();
+    // A shake displaces the view temporarily; it does not take camera ownership.
+    if ($operation !== 'shake') {
+      $this->camera->detach();
+    }
 
     if ($operation === 'route') {
       $this->route = array_values(array_filter((array) ($this->command['points'] ?? []), is_array(...)));

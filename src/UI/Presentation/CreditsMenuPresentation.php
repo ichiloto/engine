@@ -15,7 +15,7 @@ use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
 /** A clipped, centered roll using the same panel, typography and button theme as other menus. */
 final class CreditsMenuPresentation
 {
-  public const array CAPABILITIES = [...MenuPresentationCatalog::CAPABILITIES, RendererSessionConfig::WINDOW_ACTIVATION];
+  public const array CAPABILITIES = MenuPresentationCatalog::CAPABILITIES;
 
   public static function getViewport(MenuPresentationCatalog $theme): CanvasRectangle
   {
@@ -70,6 +70,7 @@ final class CreditsMenuPresentation
     $text = new CanvasTextLayer('credits-roll', 30,
       $viewport->x + ($viewport->width - $columns * $m->cellWidth) / 2, $origin + $first * $m->cellHeight,
       new RendererGridConfig($columns, $end - $first, $m->cellWidth, $m->cellHeight), $runs, $viewport);
-    return new PresentationCanvas($base->width, $base->height, $base->images, $base->indicators, [...$base->textLayers, $text]);
+    return new PresentationCanvas($base->width, $base->height, $base->images, $base->indicators, [...$base->textLayers, $text],
+      $base->composites, [...$base->getOverlayProtection(), $viewport]);
   }
 }

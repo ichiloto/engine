@@ -11,6 +11,7 @@ use Ichiloto\Engine\Events\ModalEvent;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Interfaces\SceneConfigurationInterface;
+use Ichiloto\Engine\Scenes\Interfaces\ConfigurableSceneInterface;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
 use Ichiloto\Engine\UI\UIManager;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
@@ -20,7 +21,7 @@ use Ichiloto\Engine\Util\Config\ProjectConfig;
  *
  * @package Ichiloto\Engine\Scenes
  */
-abstract class AbstractScene implements SceneInterface
+abstract class AbstractScene implements ConfigurableSceneInterface
 {
   /**
    * @var bool Whether the scene has started.
@@ -138,8 +139,6 @@ abstract class AbstractScene implements SceneInterface
    */
   public function resume(): void
   {
-//    $this->camera->resume();
-
     foreach ($this->rootGameObjects as $gameObject) {
       if ($gameObject->isActive) {
         $gameObject->resume();
@@ -184,17 +183,17 @@ abstract class AbstractScene implements SceneInterface
    */
   public function stop(): void
   {
-    $this->camera->stop();
-
+    $failure = null;
+    try { $this->camera->stop(); } catch (\Throwable $error) { $failure = $error; }
     foreach ($this->rootGameObjects as $gameObject) {
       if ($gameObject->isActive) {
-        $gameObject->stop();
+        try { $gameObject->stop(); } catch (\Throwable $error) { $failure ??= $error; }
       }
     }
-
-    $this->deregisterEventHandlers();
-
+    try { $this->deregisterEventHandlers(); } catch (\Throwable $error) { $failure ??= $error; }
     $this->started = false;
+    try { $this->sceneManager->notifySceneStopped($this); } catch (\Throwable $error) { $failure ??= $error; }
+    if ($failure !== null) { throw $failure; }
   }
 
   /**
@@ -254,6 +253,10 @@ abstract class AbstractScene implements SceneInterface
    */
   protected function initializeEventHandlers(): void
   {
+    if ($this->modalEventHandler !== null) {
+      return;
+    }
+
     $this->modalEventHandler = function (ModalEvent $event) {
       if ($this->sceneManager->currentScene !== $this) {
         return;
@@ -284,6 +287,11 @@ abstract class AbstractScene implements SceneInterface
 
   protected function deregisterEventHandlers(): void
   {
+    if ($this->modalEventHandler === null) {
+      return;
+    }
+
     $this->eventManager->removeEventListener(EventType::MODAL, $this->modalEventHandler);
+    $this->modalEventHandler = null;
   }
 }

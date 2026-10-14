@@ -28,6 +28,22 @@ final readonly class CanvasGlyphEffects
     }
   }
 
+  public static function createFromArray(mixed $data): self
+  {
+    self::assertFields($data, ['outline', 'shadow']);
+    self::assertFields($data['outline'], ['width', 'color']);
+    self::assertFields($data['shadow'], ['offsetX', 'offsetY', 'sigma', 'opacity', 'color']);
+    foreach ([$data['outline']['width'], $data['shadow']['offsetX'], $data['shadow']['offsetY'],
+      $data['shadow']['sigma'], $data['shadow']['opacity']] as $value) {
+      if (!is_int($value) && !is_float($value)) {
+        throw new InvalidArgumentException('Glyph effects require numbers without coercion.');
+      }
+    }
+    return new self($data['outline']['width'], PresentationColor::createFromArray($data['outline']['color']),
+      $data['shadow']['offsetX'], $data['shadow']['offsetY'], $data['shadow']['sigma'],
+      $data['shadow']['opacity'], PresentationColor::createFromArray($data['shadow']['color']));
+  }
+
   /** @return array{left: int, top: int, right: int, bottom: int} */
   public function padding(): array
   {
@@ -43,5 +59,13 @@ final readonly class CanvasGlyphEffects
     return ['outline' => ['width' => $this->outlineWidth, 'color' => $this->outlineColor->toArray()],
       'shadow' => ['offsetX' => $this->shadowOffsetX, 'offsetY' => $this->shadowOffsetY,
         'sigma' => $this->shadowSigma, 'opacity' => $this->shadowOpacity, 'color' => $this->shadowColor->toArray()]];
+  }
+
+  private static function assertFields(mixed $data, array $required): void
+  {
+    if (!is_array($data) || array_diff($required, array_keys($data)) !== []
+      || array_diff(array_keys($data), $required) !== []) {
+      throw new InvalidArgumentException('Glyph effects require plain descriptors with no missing or unsupported fields.');
+    }
   }
 }

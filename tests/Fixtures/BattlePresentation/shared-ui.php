@@ -12,7 +12,7 @@ use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 
 return new BattlePresentationCatalog([], [], [], ui: new BattleCanvasLayout(1350, 720,
   skin: new BattleUiSkin(
-    array_fill_keys(['panel', 'quiet', 'track', 'hp', 'mp', 'atb', 'selector', 'target', 'queued', 'acting'],
+    array_fill_keys(['panel', 'quiet', 'track', 'hp', 'mp', 'atb', 'selector', 'target', 'queued'],
       new CanvasNineSlice('skin.png', new SpriteSourceRect(0, 0, 32, 48))),
     array_fill_keys(['text', 'muted', 'selected', 'focus', 'disabled', 'damage', 'healing', 'mp', 'ink'],
       PresentationColor::rgb(200, 200, 200)),

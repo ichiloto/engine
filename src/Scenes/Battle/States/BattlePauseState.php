@@ -183,7 +183,8 @@ class BattlePauseState extends BattleSceneState
       if ($config !== null) { return $config; }
     }
     if ($this->configMenu === null && $this->scene->pauseSkin !== null) {
-      return GraphicalBattlePause::frame($field, $this->scene->pauseSkin, $this->menu);
+      return GraphicalBattlePause::frame($field, $this->scene->pauseSkin, $this->menu,
+        $this->scene->getGame()->getRendererRuntime()?->getAssetRoot());
     }
     $columns = get_screen_width();
     $rows = get_screen_height();

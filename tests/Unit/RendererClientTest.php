@@ -14,6 +14,39 @@ use Tests\Support\Input\FakeRendererTransport;
 
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
 
+it('retains optional drawing capabilities without requiring them for startup', function (array $advertised) {
+  $transport = new FakeRendererTransport();
+  $client = new RendererClient($transport);
+  $baseline = [RendererSessionConfig::SPRITE_SOURCE_RECT, RendererSessionConfig::TILE_BATCHES];
+  $session = new RendererSessionConfig('Optional graphics', __DIR__,
+    protocol: \Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion::V2,
+    requiredCapabilities: $baseline);
+  $client->start($session);
+  $transport->batches[] = [RendererEvent::fromJson(json_encode([
+    'protocol' => 2, 'type' => 'ready', 'capabilities' => [...$baseline, ...$advertised],
+  ], JSON_THROW_ON_ERROR))];
+  $client->pump();
+  foreach ($baseline as $capability) { expect($client->supports($capability))->toBeTrue(); }
+  foreach ([RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_COMPOSITING] as $capability) {
+    expect($client->supports($capability))->toBe(in_array($capability, $advertised, true));
+  }
+  expect($transport->session->requiredCapabilities)->toBe($baseline)
+    ->and($client->supports('window_activation'))->toBeFalse()
+    ->and($client->supports('future_extension'))->toBeFalse();
+})->with([
+  'legacy baseline only' => [[]],
+  'capable renderer' => [[RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_COMPOSITING]],
+  'unsolicited event and unknown extensions' => [['window_activation', 'future_extension']],
+]);
+
+it('does not require window event subscriptions to display title menus or credits', function () {
+  foreach ([\Ichiloto\Engine\UI\Presentation\TitlePresentationCatalog::CAPABILITIES,
+    \Ichiloto\Engine\UI\Presentation\CreditsMenuPresentation::CAPABILITIES] as $capabilities) {
+    expect($capabilities)->toContain(RendererSessionConfig::GRAPHICAL_CANVAS)
+      ->not->toContain(RendererSessionConfig::WINDOW_ACTIVATION);
+  }
+});
+
 function rendererClientEvent(string $type, array $payload = []): RendererEvent
 {
   return RendererEvent::fromJson(json_encode(['protocol' => 1, 'type' => $type, ...$payload], JSON_THROW_ON_ERROR));

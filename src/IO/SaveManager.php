@@ -11,10 +11,15 @@ use Ichiloto\Engine\Exceptions\SaveCompatibilityException;
 use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityManifest;
 use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityPipeline;
 use Ichiloto\Engine\IO\Saves\SavedGame;
+use Ichiloto\Engine\IO\Saves\SaveFeatures;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Debug;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Util\LocalDataFiles;
+use InvalidArgumentException;
 use RuntimeException;
 use Throwable;
 
@@ -27,7 +32,7 @@ class SaveManager
 {
   protected const string FILE_EXTENSION = 'iedata';
   protected const string FILE_HEADER = 'IED1';
-  protected const int DEFAULT_SLOT_COUNT = 5;
+  protected const int DEFAULT_SLOT_COUNT = 30;
   /**
    * The slot number recorded in quick saves (outside the player-visible range).
    */
@@ -38,7 +43,7 @@ class SaveManager
   public const int AUTO_SAVE_SLOT = -2;
   protected const string QUICK_SAVE_NAME = 'quick';
   protected const string AUTO_SAVE_NAME = 'auto';
-  protected const int AUTO_SAVE_RING_SIZE = 3;
+  private const int ORDER_UNITS_PER_SECOND = 1_000_000;
 
   /**
    * The data directory path.
@@ -56,6 +61,7 @@ class SaveManager
 
   /** The single compatibility pipeline shared by every save surface. */
   protected SaveCompatibilityPipeline $compatibilityPipeline;
+  private ?string $isolatedDataRoot = null;
 
   public function __construct(
     protected Game $game,
@@ -64,11 +70,15 @@ class SaveManager
     ?SaveCompatibilityManifest $compatibilityManifest = null,
   )
   {
-    $this->saveDirectory = Path::normalize(Path::join(Path::getCurrentWorkingDirectory(), self::DATA_DIRECTORY, $this->saveDirectory));
-    $this->quickSaveDirectory = Path::normalize(Path::join(Path::getCurrentWorkingDirectory(), self::DATA_DIRECTORY, $this->quickSaveDirectory));
+    $this->isolatedDataRoot = $game->hasIsolatedDataRoot() ? $game->getDataRoot() : null;
+    $this->saveDirectory = Path::normalize(Path::join($game->getDataRoot(), $this->saveDirectory));
+    $this->quickSaveDirectory = Path::normalize(Path::join($game->getDataRoot(), $this->quickSaveDirectory));
+    $this->validateStoragePath($this->saveDirectory);
+    $this->validateStoragePath($this->quickSaveDirectory);
     $compatibilityManifest ??= SaveCompatibilityManifest::fromProjectRoot(Path::getCurrentWorkingDirectory());
-    $this->compatibilityPipeline = new SaveCompatibilityPipeline($compatibilityManifest);
-    $this->ensureDirectoriesExist();
+    $this->compatibilityPipeline = new SaveCompatibilityPipeline($compatibilityManifest,
+      projectStateRegistry: $game->getProjectStateRegistry());
+    $this->diagnoseStorageAvailability();
   }
 
   /**
@@ -94,6 +104,8 @@ class SaveManager
    */
   public function getSaveFiles(bool $includeQuickSaves = false): array
   {
+    $this->validateStoragePath($this->saveDirectory);
+    $this->validateStoragePath($this->quickSaveDirectory);
     $saveFiles = glob($this->saveDirectory . '/*.' . self::FILE_EXTENSION) ?: [];
 
     if ($includeQuickSaves) {
@@ -101,12 +113,25 @@ class SaveManager
       $saveFiles = [...$saveFiles, ...$quickSaveFiles];
     }
 
-    usort(
-      $saveFiles,
-      static fn(string $left, string $right): int => filemtime($right) <=> filemtime($left)
-    );
+    foreach ($saveFiles as $path) { $this->validateStoragePath($path); }
+
+    $orders = [];
+    foreach ($saveFiles as $path) { $orders[$path] = $this->getSaveOrder($path); }
+    usort($saveFiles, static fn(string $left, string $right): int =>
+      ($orders[$right] <=> $orders[$left]) ?: strcmp($left, $right));
 
     return $saveFiles;
+  }
+
+  /** Enabled discovery retains invalid records so a Load selector can diagnose them. */
+  public function getEnabledSaveFiles(bool $includeQuickSaves = false): array
+  {
+    return array_values(array_filter($this->getSaveFiles($includeQuickSaves), $this->isEnabledSavePath(...)));
+  }
+
+  public function hasEnabledSaveFiles(bool $includeQuickSaves = false): bool
+  {
+    return $this->getEnabledSaveFiles($includeQuickSaves) !== [];
   }
 
   /**
@@ -139,7 +164,7 @@ class SaveManager
    */
   public function getLatestLoadableSaveFile(bool $includeQuickSaves = false): ?string
   {
-    foreach ($this->getSaveFiles($includeQuickSaves) as $path) {
+    foreach ($this->getEnabledSaveFiles($includeQuickSaves) as $path) {
       if ($this->canLoadSaveFile($path)) {
         return $path;
       }
@@ -149,13 +174,29 @@ class SaveManager
   }
 
   /**
+   * Returns the project's manual-slot capacity, shared by Save and Load.
+   * This is project configuration, not player settings or saved campaign data.
+   */
+  public function getManualSlotCount(): int
+  {
+    $count = ConfigStore::has(ProjectConfig::class)
+      ? ConfigStore::get(ProjectConfig::class)->get('saves.manual_slots', self::DEFAULT_SLOT_COUNT)
+      : self::DEFAULT_SLOT_COUNT;
+    if (!is_int($count) || $count < 1) {
+      throw new InvalidArgumentException('Project saves.manual_slots must be a positive integer.');
+    }
+    return $count;
+  }
+
+  /**
    * Returns the configured save slots for the current project.
    *
-   * @param int $slotCount The number of slots to resolve.
+   * @param int|null $slotCount Explicit inspection range; null uses project capacity.
    * @return SaveSlot[] The resolved save slots.
    */
-  public function getSaveSlots(int $slotCount = self::DEFAULT_SLOT_COUNT): array
+  public function getSaveSlots(?int $slotCount = null): array
   {
+    $slotCount ??= $this->getManualSlotCount();
     $slots = [];
 
     for ($slot = 1; $slot <= $slotCount; $slot++) {
@@ -166,22 +207,59 @@ class SaveManager
         continue;
       }
 
-      try {
-        $slots[] = $this->loadSaveFile($path)->slot;
-      } catch (Throwable $throwable) {
-        try {
-          Debug::warn(sprintf('Skipping incompatible save slot %d (%s): %s', $slot, $path, $throwable->getMessage()));
-        } catch (Throwable) {
-        }
-
-        $message = $throwable instanceof SaveCompatibilityException
-          ? $throwable->getMessage()
-          : 'This save file is from an incompatible format.';
-        $slots[] = SaveSlot::incompatible($slot, $path, $message);
-      }
+      $slots[] = $this->inspectSaveSlot($slot, $path);
     }
 
     return $slots;
+  }
+
+  /**
+   * Read-only load catalog: one logical Autosave first when enabled, manual
+   * files, then an existing enabled Quick Save. Legacy autosaves remain intact.
+   * The newest loadable autosave wins; if none decode, show the newest failure.
+   * @return SaveSlot[]
+   */
+  public function getLoadSlots(?int $slotCount = null): array
+  {
+    $slots = $this->getSaveSlots($slotCount);
+    if (SaveFeatures::isAutosaveEnabled()) {
+      $candidates = array_values(array_filter($this->getSaveFiles(true), fn(string $path): bool =>
+        dirname($path) === $this->quickSaveDirectory && $this->getDestinationSlot($path) === self::AUTO_SAVE_SLOT));
+      $path = array_find($candidates, $this->canLoadSaveFile(...)) ?? ($candidates[0] ?? null);
+      array_unshift($slots, $path === null
+        ? SaveSlot::empty(self::AUTO_SAVE_SLOT, $this->getQuickSavePath(self::AUTO_SAVE_NAME))
+        : $this->inspectSaveSlot(self::AUTO_SAVE_SLOT, $path));
+    }
+    $quick = $this->getQuickSavePath(self::QUICK_SAVE_NAME);
+    if (SaveFeatures::isQuickSaveEnabled() && file_exists($quick)) {
+      $slots[] = $this->inspectSaveSlot(self::QUICK_SAVE_SLOT, $quick);
+    }
+    return $slots;
+  }
+
+  private function isEnabledSavePath(string $path): bool
+  {
+    return match ($this->getDestinationSlot($path)) {
+      self::AUTO_SAVE_SLOT => SaveFeatures::isAutosaveEnabled(),
+      self::QUICK_SAVE_SLOT => SaveFeatures::isQuickSaveEnabled(),
+      default => true,
+    };
+  }
+
+  private function inspectSaveSlot(int $slot, string $path): SaveSlot
+  {
+    try {
+      return $this->loadSaveFile($path)->slot;
+    } catch (Throwable $throwable) {
+      try {
+        Debug::warn(sprintf('Skipping incompatible save slot %d (%s): %s', $slot, $path, $throwable->getMessage()));
+      } catch (Throwable) {
+      }
+      $message = $throwable instanceof SaveCompatibilityException
+        ? $throwable->getMessage()
+        : 'This save file is from an incompatible format.';
+      return SaveSlot::incompatible($slot, $path, $message);
+    }
   }
 
   /**
@@ -207,27 +285,15 @@ class SaveManager
    */
   public function quickSave(GameScene $scene): SaveSlot
   {
+    if (!SaveFeatures::isQuickSaveEnabled()) { throw new RuntimeException('Quick Save is disabled by this project.'); }
     return $this->writeSave($scene, self::QUICK_SAVE_SLOT, $this->getQuickSavePath(self::QUICK_SAVE_NAME));
   }
 
-  /**
-   * Writes an autosave, rotating through a small ring of files so one bad
-   * autosave can never be the only copy.
-   *
-   * @param GameScene $scene The live game scene.
-   * @return SaveSlot The saved slot summary.
-   */
+  /** Writes the single Autosave atomically; only the developer chooses when. */
   public function autoSave(GameScene $scene): SaveSlot
   {
-    $existing = glob($this->quickSaveDirectory . '/' . self::AUTO_SAVE_NAME . '-*.' . self::FILE_EXTENSION) ?: [];
-    usort($existing, static fn(string $a, string $b): int => filemtime($a) <=> filemtime($b));
-
-    // Reuse the oldest file once the ring is full.
-    $name = count($existing) >= self::AUTO_SAVE_RING_SIZE
-      ? pathinfo($existing[0], PATHINFO_FILENAME)
-      : sprintf('%s-%02d', self::AUTO_SAVE_NAME, count($existing) + 1);
-
-    return $this->writeSave($scene, self::AUTO_SAVE_SLOT, $this->getQuickSavePath($name));
+    if (!SaveFeatures::isAutosaveEnabled()) { throw new RuntimeException('Autosave is disabled by this project.'); }
+    return $this->writeSave($scene, self::AUTO_SAVE_SLOT, $this->getQuickSavePath(self::AUTO_SAVE_NAME));
   }
 
   /**
@@ -238,11 +304,7 @@ class SaveManager
    */
   public function getQuickSavePath(string $name): string
   {
-    if (! is_dir($this->quickSaveDirectory)) {
-      mkdir($this->quickSaveDirectory, 0o775, true);
-    }
-
-    return Path::join($this->quickSaveDirectory, sprintf('%s.%s', $name, self::FILE_EXTENSION));
+    return $this->validateStoragePath(Path::join($this->quickSaveDirectory, sprintf('%s.%s', $name, self::FILE_EXTENSION)));
   }
 
   /**
@@ -255,6 +317,7 @@ class SaveManager
    */
   protected function writeSave(GameScene $scene, int $slot, string $path): SaveSlot
   {
+    $this->validateStoragePath($path);
     if ($scene->hasUnstableEventSession()) {
       throw new ActiveEventSaveException(
         'Saving is unavailable while a story event is in progress. Finish the event first.'
@@ -262,21 +325,19 @@ class SaveManager
     }
 
     $savedGame = $this->createSavedGame($scene, $slot, $path);
-    $serializedPayload = serialize($this->compatibilityPipeline->createEnvelope(
+    $envelope = $this->compatibilityPipeline->createEnvelope(
       $savedGame->slot,
       $savedGame->config
-    ));
+    );
+    $envelope['saveOrder'] = $this->getNextSaveOrder();
+    $serializedPayload = serialize($envelope);
     $encodedPayload = gzencode($serializedPayload, 9);
 
     if ($encodedPayload === false) {
       throw new RuntimeException('Could not encode the save payload.');
     }
 
-    $bytes = file_put_contents($savedGame->slot->path, self::FILE_HEADER . $encodedPayload);
-
-    if ($bytes === false) {
-      throw new RuntimeException(sprintf('Could not write save to %s.', $path));
-    }
+    LocalDataFiles::writeAtomically($savedGame->slot->path, self::FILE_HEADER . $encodedPayload);
 
     return $savedGame->slot;
   }
@@ -300,6 +361,7 @@ class SaveManager
    */
   public function loadSaveFile(string $path): SavedGame
   {
+    $this->validateStoragePath($path);
     if (! file_exists($path)) {
       throw new RuntimeException(sprintf('Save file not found: %s', $path));
     }
@@ -337,8 +399,8 @@ class SaveManager
   public function canLoadSaveFile(string $path): bool
   {
     try {
-      $this->loadSaveFile($path);
-      return true;
+      $slot = $this->loadSaveFile($path)->slot;
+      return !$slot->isEmpty && $slot->isLoadable;
     } catch (Throwable) {
       return false;
     }
@@ -353,8 +415,12 @@ class SaveManager
   public function deleteSlot(int $slot): bool
   {
     $path = $this->getSlotPath($slot);
-
-    return file_exists($path) ? unlink($path) : false;
+    try {
+      return LocalDataFiles::runFileOperation(static fn(): bool => file_exists($path) && unlink($path));
+    } catch (RuntimeException $exception) {
+      Debug::warn(sprintf('Could not delete save slot %d: %s', $slot, $exception->getMessage()));
+      return false;
+    }
   }
 
   /**
@@ -369,7 +435,42 @@ class SaveManager
       throw new RuntimeException('Save slots are 1-based.');
     }
 
-    return Path::join($this->saveDirectory, sprintf('file-%02d.%s', $slot, self::FILE_EXTENSION));
+    return $this->validateStoragePath(Path::join($this->saveDirectory, sprintf('file-%02d.%s', $slot, self::FILE_EXTENSION)));
+  }
+
+  private function validateStoragePath(string $path): string
+  {
+    return $this->isolatedDataRoot === null ? $path : LaunchDataRoot::validatePath($this->isolatedDataRoot, $path);
+  }
+
+  /** Scalar-only inspection must not instantiate saved gameplay objects. */
+  private function getSaveOrder(string $path): int
+  {
+    try {
+      $payload = LocalDataFiles::runFileOperation(fn() =>
+        unserialize($this->decodeSavePayload($path), ['allowed_classes' => false]));
+      if (is_array($payload) && is_int($payload['saveOrder'] ?? null) && $payload['saveOrder'] > 0) {
+        return $payload['saveOrder'];
+      }
+    } catch (Throwable) {
+      // Corrupt and unmarked legacy files still have a deterministic position.
+    }
+    clearstatcache(true, $path);
+    $modified = LocalDataFiles::runFileOperation(static fn() => filemtime($path));
+    return min(max(0, (int)$modified), intdiv(PHP_INT_MAX, self::ORDER_UNITS_PER_SECOND))
+      * self::ORDER_UNITS_PER_SECOND;
+  }
+
+  private function getNextSaveOrder(): int
+  {
+    $previous = 0;
+    foreach ($this->getSaveFiles(true) as $path) {
+      $previous = max($previous, $this->getSaveOrder($path));
+    }
+    if ($previous === PHP_INT_MAX) {
+      throw new RuntimeException('The persisted save order has reached its supported limit.');
+    }
+    return max($previous + 1, (int)floor(microtime(true) * self::ORDER_UNITS_PER_SECOND));
   }
 
   /**
@@ -397,21 +498,31 @@ class SaveManager
     return new SavedGame($saveSlot, $config);
   }
 
-  /**
-   * Creates the save directories if they do not exist yet.
-   *
-   * @return void
-   */
-  protected function ensureDirectoriesExist(): void
+  /** Report an unavailable save location without writing to it during startup. */
+  protected function diagnoseStorageAvailability(): void
   {
-    foreach ([$this->saveDirectory, $this->quickSaveDirectory] as $directory) {
-      if (is_dir($directory)) {
-        continue;
+    $diagnostics = [];
+    foreach ([$this->saveDirectory, $this->quickSaveDirectory] as $target) {
+      try {
+        $directory = $target;
+        while (! LocalDataFiles::runFileOperation(static fn(): bool => is_dir($directory))) {
+          if (LocalDataFiles::runFileOperation(static fn(): bool => file_exists($directory))) {
+            $diagnostics["$directory is not a directory"] = true;
+            continue 2;
+          }
+          $parent = dirname($directory);
+          if ($parent === $directory) { break; }
+          $directory = $parent;
+        }
+        if (! LocalDataFiles::runFileOperation(static fn(): bool => is_writable($directory))) {
+          $diagnostics["$directory is not writable"] = true;
+        }
+      } catch (RuntimeException $exception) {
+        $diagnostics[$exception->getMessage()] = true;
       }
-
-      if (! mkdir($directory, 0777, true) && ! is_dir($directory)) {
-        throw new RuntimeException(sprintf('Could not create save directory: %s', $directory));
-      }
+    }
+    foreach (array_keys($diagnostics) as $reason) {
+      Debug::warn("Saving is unavailable: $reason.");
     }
   }
 
@@ -423,7 +534,11 @@ class SaveManager
    */
   protected function decodeSavePayload(string $path): string
   {
-    $contents = file_get_contents($path);
+    try {
+      $contents = LocalDataFiles::runFileOperation(static fn() => file_get_contents($path));
+    } catch (RuntimeException $error) {
+      throw new CorruptSaveException(sprintf('Could not read save file: %s', $path), previous: $error);
+    }
 
     if ($contents === false) {
       throw new CorruptSaveException(sprintf('Could not read save file: %s', $path));
@@ -434,7 +549,11 @@ class SaveManager
     }
 
     $compressedPayload = substr($contents, strlen(self::FILE_HEADER));
-    $serializedPayload = gzdecode($compressedPayload);
+    try {
+      $serializedPayload = LocalDataFiles::runFileOperation(static fn() => gzdecode($compressedPayload));
+    } catch (RuntimeException $error) {
+      throw new CorruptSaveException(sprintf('Could not decode save file: %s', $path), previous: $error);
+    }
 
     if ($serializedPayload === false) {
       throw new CorruptSaveException(sprintf('Could not decode save file: %s', $path));

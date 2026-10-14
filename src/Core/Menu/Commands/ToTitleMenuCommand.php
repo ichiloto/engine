@@ -7,7 +7,7 @@ use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\MenuItem;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Scenes\Title\TitleScene;
-use Ichiloto\Engine\Util\Config\ProjectConfig;
+use Ichiloto\Engine\Localization\Vocabulary;
 
 /**
  * ToTitleMenuCommand. This class represents a menu item that returns to the title menu.
@@ -23,7 +23,7 @@ class ToTitleMenuCommand extends MenuItem
    */
   public function __construct(MenuInterface $menu)
   {
-    $label = config(ProjectConfig::class, 'vocab.game.to_title', 'To Title');
+    $label = Vocabulary::getTerm('game.to_title', 'To Title');
     parent::__construct($menu, $label, "Return to the title menu.");
   }
 

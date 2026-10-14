@@ -146,6 +146,37 @@ final class TeardownProbeScene extends AbstractScene
   public function stop(): void { $this->stops++; ($this->onStop)?->__invoke(); $this->started = false; }
 }
 
+final class TeardownModalScene extends AbstractScene
+{
+  public int $suspends = 0;
+  public int $resumes = 0;
+  public ?string $failureStage = null;
+
+  public function __construct(TeardownGame $game)
+  {
+    $this->sceneManager = $game->sceneManager;
+    $this->eventManager = EventManager::getInstance($game);
+    $this->camera = new class($this, 24, 8) extends Camera {
+      public function start(): void
+      {
+        if ($this->scene->failureStage === 'camera') { throw new RuntimeException('camera startup failed'); }
+      }
+      public function stop(): void {}
+    };
+    $game->sceneManager->addScenes($this);
+    $game->sceneManager->currentScene = $this;
+  }
+
+  public function suspend(): void { $this->suspends++; }
+  public function resume(): void { $this->resumes++; }
+
+  protected function initializeEventHandlers(): void
+  {
+    parent::initializeEventHandlers();
+    if ($this->failureStage === 'handlers') { throw new RuntimeException('scene startup failed after registration'); }
+  }
+}
+
 final class TeardownPresentation implements EventPresentationInterface
 {
   public int $resets = 0;
@@ -242,6 +273,55 @@ function teardownCinematic(): CinematicDefinition
   ]]]);
 }
 
+it('allows real scene cleanup before startup and after repeated cleanup', function () {
+  $scene = new TeardownModalScene($game = new TeardownGame());
+  $scene->stop();
+  $scene->stop();
+  $scene->eventManager->dispatchEvent(new ModalEvent(ModalEventType::OPEN, null));
+
+  expect($scene->isStarted())->toBeFalse()
+    ->and($scene->suspends)->toBe(0);
+});
+
+it('releases real scene modal ownership after interrupted startup', function (string $stage) {
+  $scene = new TeardownModalScene($game = new TeardownGame());
+  $scene->failureStage = $stage;
+  expect(fn() => $scene->start())->toThrow(RuntimeException::class);
+  $game->sceneManager->stop();
+  $scene->stop();
+  $scene->eventManager->dispatchEvent(new ModalEvent(ModalEventType::OPEN, null));
+  expect($scene->isStarted())->toBeFalse()->and($scene->suspends)->toBe(0);
+
+  $scene->failureStage = null;
+  $scene->start();
+  $scene->eventManager->dispatchEvent(new ModalEvent(ModalEventType::OPEN, null));
+  expect($scene->isStarted())->toBeTrue()->and($scene->suspends)->toBe(1);
+  $scene->stop();
+})->with(['before modal registration' => 'camera', 'after modal registration' => 'handlers']);
+
+it('keeps one owned modal listener through repeated start stop and restart', function () {
+  $scene = new TeardownModalScene($game = new TeardownGame());
+  $externalCalls = 0;
+  $external = static function () use (&$externalCalls): void { $externalCalls++; };
+  $scene->eventManager->addEventListener(EventType::MODAL, $external);
+  $scene->start();
+  $scene->start();
+  $scene->eventManager->dispatchEvent(new ModalEvent(ModalEventType::OPEN, null));
+  $scene->eventManager->dispatchEvent(new ModalEvent(ModalEventType::CLOSE, null));
+  expect($scene->suspends)->toBe(1)->and($scene->resumes)->toBe(1)->and($externalCalls)->toBe(2);
+
+  $scene->stop();
+  $scene->stop();
+  $scene->eventManager->dispatchEvent(new ModalEvent(ModalEventType::OPEN, null));
+  expect($scene->suspends)->toBe(1)->and($externalCalls)->toBe(3);
+
+  $scene->start();
+  $scene->eventManager->dispatchEvent(new ModalEvent(ModalEventType::OPEN, null));
+  expect($scene->suspends)->toBe(2)->and($externalCalls)->toBe(4);
+  $scene->stop();
+  $scene->eventManager->removeEventListener(EventType::MODAL, $external);
+});
+
 beforeEach(function () {
   $this->staticBefore = [];
   foreach ([Console::class, Cursor::class, InputManager::class, EventManager::class,
@@ -294,7 +374,7 @@ it('continues scene and platform cleanup once after a scene throws, including a 
   $this->game->sceneManager->currentScene = $partial;
   $transport = new FakeRendererTransport();
   $runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig(['fixture']), __DIR__,
-    protocol: RendererProtocolVersion::V1), $transport);
+    protocol: RendererProtocolVersion::V2), $transport);
   $runtime->start('Teardown test', 24, 8);
   $this->game->useRendererRuntime($runtime);
   Timers::setFrameTick(fn() => throw new RuntimeException('stale frame callback'));

@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Core\Menu\ShopMenu\Windows;
 
+use Ichiloto\Engine\Localization\Vocabulary;
+
 use Ichiloto\Engine\Core\Menu\ShopMenu\ShopMenu;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Events\Interfaces\EventInterface;
@@ -60,7 +62,7 @@ class ShopItemDetailPanel extends Window implements ObserverInterface
   public function updateContent(): void
   {
     $content = [
-      sprintf(" Possession %39d", $this->possession),
+      sprintf(" %s %39d", get_message('inventory.possession', Vocabulary::getTerm('shop.possession', 'Possession')), $this->possession),
     ];
 
     $content = array_pad($content, $this->height - 2, '');

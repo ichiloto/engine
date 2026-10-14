@@ -58,10 +58,11 @@ final readonly class BattleEntryContext
     Party $party,
     GameState $worldState,
     string $executionId,
+    ?\Ichiloto\Engine\Battle\BattlePartyRoster $partyRoster = null,
   ): self
   {
     $activeCharacters = array_values(array_filter(
-      $party->battlers->toArray(),
+      $partyRoster?->battlers ?? $party->battlers->toArray(),
       static fn(mixed $member): bool => $member instanceof Character,
     ));
     $activeObjectIds = array_fill_keys(

@@ -13,7 +13,7 @@ use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationChannel;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationDuration;
 use Ichiloto\Engine\Messaging\Notifications\Enumerations\NotificationSlideDirection;
-use Ichiloto\Engine\Messaging\Notifications\Interfaces\NotificationInterface;
+use Ichiloto\Engine\Messaging\Notifications\Interfaces\GraphicalNotificationInterface;
 use Ichiloto\Engine\UI\Windows\BorderPacks\SlimBorderPack;
 use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
 use Ichiloto\Engine\UI\Windows\Enumerations\VerticalAlignment;
@@ -30,7 +30,7 @@ use Ichiloto\Engine\Util\Config\PlaySettings;
  *
  * @package Ichiloto\Engine\Messaging\Notifications
  */
-class Notification implements NotificationInterface
+class Notification implements GraphicalNotificationInterface
 {
   protected const string STATE_HIDDEN = 'hidden';
   protected const string STATE_ENTERING = 'entering';
@@ -117,6 +117,7 @@ class Notification implements NotificationInterface
     protected NotificationSlideDirection $enterDirection = NotificationSlideDirection::RIGHT,
     protected ?NotificationSlideDirection $exitDirection = null,
     protected ?float $animationDuration = null,
+    protected ?string $presentationRole = null,
   )
   {
     $this->id = uniqid('notification_');
@@ -154,6 +155,29 @@ class Notification implements NotificationInterface
   public function getPosition(): Vector2
   {
     return $this->position;
+  }
+
+  public function getPresentationId(): string { return $this->id; }
+
+  public function getPresentationRole(): string
+  {
+    return $this->presentationRole ?? strtolower($this->channel->value);
+  }
+
+  public function getPresentationOpacity(): float
+  {
+    return match ($this->state) {
+      self::STATE_ENTERING => $this->getAnimationProgress(),
+      self::STATE_EXITING => 1 - $this->getAnimationProgress(),
+      self::STATE_VISIBLE => 1,
+      default => 0,
+    };
+  }
+
+  /** Pause only decorative phase time; the manager also preserves the stationary hold deadline. */
+  public function delayPresentation(float $seconds): void
+  {
+    $this->animationStartedAt += max(0, $seconds);
   }
 
   /**

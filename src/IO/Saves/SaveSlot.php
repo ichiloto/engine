@@ -2,6 +2,9 @@
 
 namespace Ichiloto\Engine\IO\Saves;
 
+use Ichiloto\Engine\IO\SaveManager;
+use Ichiloto\Engine\Localization\Vocabulary;
+
 /**
  * Describes a save slot shown in save/load menus.
  *
@@ -86,7 +89,30 @@ readonly class SaveSlot
       return '';
     }
 
-    return sprintf('%s Lv %d', $this->leaderName, $this->leaderLevel);
+    return sprintf('%s %s %d', $this->leaderName, Vocabulary::getTerm('stats.level', 'Lv'), $this->leaderLevel);
+  }
+
+  /** Shared labels for both Terminal and graphical save/load records. */
+  public function getLabel(): string
+  {
+    if ($this->slot === SaveManager::QUICK_SAVE_SLOT) {
+      return Vocabulary::getTerm('save.quick', 'Quick Save');
+    }
+    if ($this->slot === SaveManager::AUTO_SAVE_SLOT) {
+      $label = Vocabulary::getTerm('save.auto', 'Autosave');
+      return $label;
+    }
+    return get_message('file', 'File') . ' ' . $this->slot;
+  }
+
+  /** Full selected metadata for the shared paged Info panel. */
+  public function getDescription(): string
+  {
+    if ($this->isEmpty) { return 'Choose a file.'; }
+    return $this->getLabel() . ': ' . $this->locationName . "\n"
+      . ($this->isLoadable ? $this->getLeaderSummary() . '  '
+        . sprintf('%02d:%02d:%02d', intdiv($this->playTimeSeconds, 3600), intdiv($this->playTimeSeconds % 3600, 60), $this->playTimeSeconds % 60)
+        : ($this->statusMessage ?? 'Cannot be loaded.'));
   }
 
   /**

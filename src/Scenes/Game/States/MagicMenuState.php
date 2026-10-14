@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\Scenes\Game\States;
 
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
+use Ichiloto\Engine\Battle\BattleCommandType;
+use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Core\Menu\MagicMenu\Windows\MagicListPanel;
 use Ichiloto\Engine\Core\Menu\MagicMenu\Windows\MagicTabPanel;
 use Ichiloto\Engine\Core\Vector2;
@@ -64,8 +66,8 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
             foreach ($this->targetCandidates as $i => $target) {
                 $stats = $target->effectiveStats;
                 $rows[] = new MenuRow((string)$i, $target->name,
-                    [new MenuRowValue('HP ' . number_format($stats->currentHp) . '/' . number_format($stats->totalHp)),
-                        new MenuRowValue('MP ' . number_format($stats->currentMp) . '/' . number_format($stats->totalMp))],
+                    [new MenuRowValue(Vocabulary::getTerm('stats.hp', 'HP') . ' ' . number_format($stats->currentHp) . '/' . number_format($stats->totalHp)),
+                        new MenuRowValue(Vocabulary::getTerm('stats.mp', 'MP') . ' ' . number_format($stats->currentMp) . '/' . number_format($stats->totalMp))],
                     selected: $i === $index, focused: $i === $index);
             }
         } elseif ($tab === 'Sort') {
@@ -78,7 +80,7 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
                 $skill = $entry instanceof LearnableSpell ? $entry->skill : $entry;
                 $values = $entry instanceof LearnableSpell
                     ? [new MenuRowValue($entry->getStatusLabel($actor, $this->party, $events))]
-                    : [new MenuRowValue($this->formatOccasionLabel($skill->occasion)), new MenuRowValue($skill->cost . ' MP')];
+                    : [new MenuRowValue($this->formatOccasionLabel($skill->occasion)), new MenuRowValue($skill->cost . ' ' . Vocabulary::getTerm('stats.mp', 'MP'))];
                 $rows[] = new MenuRow((string)$i, $skill->name, $values, icon: 'skill.magic',
                     selected: $i === $index, focused: $i === $index);
             }
@@ -88,7 +90,9 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
             : ($tab === 'Learn' ? $learnable?->skill : ($tab === 'Use' ? $this->getActiveUseSpell() : null));
         $fields = [];
         $detail = '';
-        $empty = $targeting ? 'No eligible target.' : ($tab === 'Learn' ? 'No discovered magic.' : 'No learned magic.');
+        $empty = $targeting ? 'No eligible target.' : ($tab === 'Learn'
+            ? get_message('magic.empty_discovered', 'No discovered %1.', Vocabulary::getTerm('command.' . BattleCommandType::MAGIC->value, 'magic'))
+            : get_message('magic.empty_learned', 'No learned %1.', Vocabulary::getTerm('command.' . BattleCommandType::MAGIC->value, 'magic')));
         if ($skill !== null) {
             $fields = ['MP Cost' => (string)$skill->cost, 'Occasion' => $this->formatOccasionLabel($skill->occasion),
                 'Scope' => $skill->scope->side->value];
@@ -113,11 +117,11 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
             $detail = $tab === 'Learn' ? 'Discovered spells and their learning requirements will appear here.'
                 : 'Use magic will appear here once this character has learned or acquired spells.';
         }
-        return new SkillMenuContent($actor, 'Magic', $this->tabs, $this->activeTabIndex,
-            ['Learned Magic' => (string)count($book->getLearnedSpells()),
+        return new SkillMenuContent($actor, BattleCommandType::MAGIC->label(), $this->tabs, $this->activeTabIndex,
+            ['Learned ' . BattleCommandType::MAGIC->label() => (string)count($book->getLearnedSpells()),
                 'Ready to Learn' => (string)$book->getReadyToLearnCount($actor, $this->party, $events),
                 'Current Order' => $book->getSortOrder()->value],
-            $skill?->name ?? ($tab === 'Sort' ? 'Spell Order' : $empty), $fields, $detail, $rows,
+            $skill?->name ?? ($tab === 'Sort' ? Vocabulary::getTerm('command.' . BattleCommandType::MAGIC->value, 'Spell') . ' Order' : $empty), $fields, $detail, $rows,
             $this->getListPanelTitle(), $index, $empty, $this->getPresentationDescription(), $this->statusMessage,
             $targeting ? 'Cast' : match ($tab) { 'Learn' => 'Learn', 'Sort' => 'Apply', default => 'Cast' }, $targeting,
             infoModel: $this->menuInfoText);
@@ -252,7 +256,7 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
         $this->borderPack = new DefaultBorderPack();
 
         $this->summaryPanel = new Window(
-            'Magic',
+            BattleCommandType::MAGIC->label(),
             '',
             new Vector2($this->leftMargin, $this->topMargin),
             self::MAGIC_MENU_WIDTH,
@@ -279,7 +283,7 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
         );
 
         $this->listPanel = new MagicListPanel(
-            'Use Magic',
+            $this->getListPanelTitle(),
             '',
             new Vector2($this->leftMargin + self::DETAIL_PANEL_WIDTH, $this->topMargin + self::SUMMARY_PANEL_HEIGHT + self::TAB_PANEL_HEIGHT),
             self::LIST_PANEL_WIDTH,
@@ -353,14 +357,17 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
         return [
             sprintf(' %s', $this->character->name),
             sprintf(
-                ' Lv %-3d  HP %9s / %-9s  MP %5s / %-5s',
+                ' %s %-3d  %s %9s / %-9s  %s %5s / %-5s',
+                Vocabulary::getTerm('stats.level', 'Lv'),
                 $this->character->level,
+                Vocabulary::getTerm('stats.hp', 'HP'),
                 number_format($this->character->effectiveStats->currentHp),
                 number_format($this->character->effectiveStats->totalHp),
+                Vocabulary::getTerm('stats.mp', 'MP'),
                 number_format($this->character->effectiveStats->currentMp),
                 number_format($this->character->effectiveStats->totalMp),
             ),
-            sprintf(' Learned Magic: %-3d  Ready to Learn: %-3d', $learnedCount, $readyCount),
+            sprintf(' Learned %s: %-3d  Ready to Learn: %-3d', BattleCommandType::MAGIC->label(), $learnedCount, $readyCount),
             sprintf(' Current Order: %s', $this->character->spellbook->getSortOrder()->value),
             ' ',
         ];
@@ -406,15 +413,15 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
 
         if (!$spell instanceof MagicSkill) {
             return [
-                'No learned magic.',
+                get_message('magic.empty_learned', 'No learned %1.', Vocabulary::getTerm('command.' . BattleCommandType::MAGIC->value, 'magic')),
                 '',
                 'Use magic will appear here once this character has learned or acquired spells.',
             ];
         }
 
         return [
-            sprintf('%s %s', $spell->icon, $spell->name),
-            sprintf('MP Cost : %d', $spell->cost),
+            $spell->name,
+            sprintf('%s Cost : %d', Vocabulary::getTerm('stats.mp', 'MP'), $spell->cost),
             sprintf('Occasion: %s', $this->formatOccasionLabel($spell->occasion)),
             sprintf('Scope   : %s', $spell->scope->side->value),
             '',
@@ -437,19 +444,21 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
         }
 
         return [
-            sprintf('%s %s', $spell->icon, $spell->name),
+            $spell->name,
             sprintf('Caster: %s', $this->character?->name ?? 'Unknown'),
-            sprintf('Cost  : %d MP', $spell->cost),
+            sprintf('Cost  : %d %s', $spell->cost, Vocabulary::getTerm('stats.mp', 'MP')),
             '',
             sprintf('Target: %s', $target->name),
             sprintf('Status: %s', $target->isKnockedOut ? 'Knocked Out' : 'Ready'),
             sprintf(
-                'HP    : %s / %s',
+                '%-6s: %s / %s',
+                Vocabulary::getTerm('stats.hp', 'HP'),
                 number_format($target->effectiveStats->currentHp),
                 number_format($target->effectiveStats->totalHp),
             ),
             sprintf(
-                'MP    : %s / %s',
+                '%-6s: %s / %s',
+                Vocabulary::getTerm('stats.mp', 'MP'),
                 number_format($target->effectiveStats->currentMp),
                 number_format($target->effectiveStats->totalMp),
             ),
@@ -493,7 +502,7 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
 
         if (!$learnableSpell instanceof LearnableSpell || !$this->character instanceof Character) {
             return [
-                'No discovered magic.',
+                get_message('magic.empty_discovered', 'No discovered %1.', Vocabulary::getTerm('command.' . BattleCommandType::MAGIC->value, 'magic')),
                 '',
                 'Discovered spells and their learning requirements will appear here.',
             ];
@@ -502,7 +511,7 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
         $progress = $learnableSpell->requirement->describeProgress($this->character, $this->party, $learnableSpell->trainingHours, $this->getGameScene()->storyEvents);
 
         return [
-            sprintf('%s %s', $learnableSpell->skill->icon, $learnableSpell->skill->name),
+            $learnableSpell->skill->name,
             sprintf('Status  : %s', $learnableSpell->getStatusLabel($this->character, $this->party, $this->getGameScene()->storyEvents)),
             sprintf('Occasion: %s', $this->formatOccasionLabel($learnableSpell->skill->occasion)),
             $learnableSpell->note !== '' ? sprintf('Source  : %s', $learnableSpell->note) : 'Source  : Unrecorded',
@@ -531,7 +540,7 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
     protected function buildSortDetailLines(): array
     {
         return [
-            'Spell Order',
+            Vocabulary::getTerm('command.' . BattleCommandType::MAGIC->value, 'Spell') . ' Order',
             '',
             sprintf('Current: %s', $this->character?->spellbook->getSortOrder()->value ?? SpellSortOrder::A_TO_Z->value),
             '',
@@ -554,10 +563,10 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
         }
 
         return match ($this->tabs[$this->activeTabIndex] ?? 'Use') {
-            'Use' => 'Use Magic',
-            'Learn' => 'Learn Magic',
-            'Sort' => 'Sort Learned Magic',
-            default => 'Magic',
+            'Use' => 'Use ' . BattleCommandType::MAGIC->label(),
+            'Learn' => 'Learn ' . BattleCommandType::MAGIC->label(),
+            'Sort' => 'Sort Learned ' . BattleCommandType::MAGIC->label(),
+            default => BattleCommandType::MAGIC->label(),
         };
     }
 
@@ -591,9 +600,9 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
         $entries = [];
 
         foreach ($this->character?->spellbook->getLearnedSpells() ?? [] as $spell) {
-            $label = TerminalText::padRight(sprintf('%s %s', $spell->icon, $spell->name), 44);
+            $label = TerminalText::padRight($spell->name, 44);
             $occasion = TerminalText::padRight($this->formatOccasionLabel($spell->occasion), 8);
-            $cost = TerminalText::padLeft(sprintf('%d MP', $spell->cost), 6);
+            $cost = TerminalText::padLeft(sprintf('%d %s', $spell->cost, Vocabulary::getTerm('stats.mp', 'MP')), 6);
             $entries[] = TerminalText::padRight(
                 TerminalText::truncateToWidth(" {$label} {$occasion} {$cost}", $availableWidth),
                 $availableWidth
@@ -616,12 +625,14 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
         foreach ($this->targetCandidates as $target) {
             $name = TerminalText::padRight($target->name, 24);
             $hp = TerminalText::padLeft(sprintf(
-                'HP %s/%s',
+                '%s %s/%s',
+                Vocabulary::getTerm('stats.hp', 'HP'),
                 number_format($target->effectiveStats->currentHp),
                 number_format($target->effectiveStats->totalHp),
             ), 18);
             $mp = TerminalText::padLeft(sprintf(
-                'MP %s/%s',
+                '%s %s/%s',
+                Vocabulary::getTerm('stats.mp', 'MP'),
                 number_format($target->effectiveStats->currentMp),
                 number_format($target->effectiveStats->totalMp),
             ), 18);
@@ -648,7 +659,7 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
             $status = $this->character instanceof Character
                 ? $learnableSpell->getStatusLabel($this->character, $this->party, $this->getGameScene()->storyEvents)
                 : 'Unknown';
-            $label = TerminalText::padRight(sprintf('%s %s', $learnableSpell->skill->icon, $learnableSpell->skill->name), 44);
+            $label = TerminalText::padRight($learnableSpell->skill->name, 44);
             $statusText = TerminalText::padLeft($status, 12);
             $entries[] = TerminalText::padRight(
                 TerminalText::truncateToWidth(" {$label} {$statusText}", $availableWidth),
@@ -964,7 +975,7 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
         }
 
         if ($this->character->stats->currentMp < $spell->cost) {
-            $this->statusMessage = sprintf('Not enough MP for %s.', $spell->name);
+            $this->statusMessage = get_message('magic.insufficient_mp', 'Not enough %1 for %2.', Vocabulary::getTerm('stats.mp', 'MP'), $spell->name);
             return;
         }
 
@@ -1107,7 +1118,7 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
         return match ($result->failureReason) {
             FieldSkillFailureReason::WRONG_OCCASION => sprintf('%s can only be used in battle.', $spell->name),
             FieldSkillFailureReason::CASTER_KNOCKED_OUT => 'A knocked-out character cannot cast magic.',
-            FieldSkillFailureReason::INSUFFICIENT_MP => sprintf('Not enough MP for %s.', $spell->name),
+            FieldSkillFailureReason::INSUFFICIENT_MP => get_message('magic.insufficient_mp', 'Not enough %1 for %2.', Vocabulary::getTerm('stats.mp', 'MP'), $spell->name),
             FieldSkillFailureReason::TARGET_REQUIRED => sprintf('Choose a target for %s.', $spell->name),
             FieldSkillFailureReason::INVALID_TARGET => sprintf('%s cannot target that character.', $spell->name),
             FieldSkillFailureReason::NO_ELIGIBLE_TARGETS => sprintf('%s has no eligible target.', $spell->name),

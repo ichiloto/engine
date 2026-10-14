@@ -5,17 +5,29 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\UI\Presentation;
 
 use Ichiloto\Engine\IO\ActionHints;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePresentationCatalog;
+use Ichiloto\Engine\Messaging\Dialogue\Presentation\DialoguePresentationProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\UI\Modal\ModalPresentation;
+use Ichiloto\Engine\UI\UIManager;
 use Ichiloto\Engine\UI\Windows\Enumerations\HorizontalAlignment;
 use RuntimeException;
 
 /** Menu-local modal projection. Existing modal owners retain input, selection and outcomes. */
 final class MenuModalPresentation
 {
+  /** A stacked scene must compose all owners together, rather than baking its top modal into the base. */
+  public static function requiresSceneComposition(UIManager $ui, string $assetRoot): bool
+  {
+    if (!file_exists($assetRoot . '/' . DialoguePresentationCatalog::FILE)) { return false; }
+    $active = $ui->getActivePresentations();
+    return count($active) > 1 || array_any($active,
+      static fn($owner) => $owner instanceof DialoguePresentationProviderInterface);
+  }
+
   public static function compose(PresentationCanvas $base, ModalPresentation $modal,
-    MenuPresentationCatalog $theme, float $time = 0): PresentationCanvas
+    MenuPresentationCatalog $theme, float $time = 0, ?string $ownerLayerId = null): PresentationCanvas
   {
     $m = $theme->metrics;
     $p = $m->panelPadding;
@@ -66,6 +78,7 @@ final class MenuModalPresentation
     $top = ($base->height - $height) / 2;
     $box = new CanvasRectangle($x - $p, $top, $width + 2 * $p, $height);
     $view->frame('menu-modal-frame', $box);
+    $view->protect($box);
     $y = $top + $p;
     if ($titleHeight > 0) {
       $view->prose('menu-modal-title', $modal->title, new CanvasRectangle($x, $y, $width, $titleHeight),
@@ -109,6 +122,9 @@ final class MenuModalPresentation
       $view->hints('menu-modal-hints', $hints, new CanvasRectangle($x, $y + $choiceHeight + $hintGap, $width, $hintHeight));
     }
     $dialog = MenuCanvas::overlay($view->finish(), $controls->finish($base->width, $base->height), $theme);
-    return MenuCanvas::overlay($base, $dialog, $theme);
+    $result = MenuCanvas::overlay($base, $dialog, $theme);
+    return $ownerLayerId === null ? $result : new PresentationCanvas($result->width, $result->height,
+      $result->images, $result->indicators, $result->textLayers, $result->composites, $result->protectedAreas,
+      [...$result->presentationOwners, $ownerLayerId]);
   }
 }

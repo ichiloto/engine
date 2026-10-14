@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Core\Menu\Commands;
 
 use Exception;
 use Ichiloto\Engine\Battle\BattleCommandType;
+use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
 use Ichiloto\Engine\Core\Menu\MainMenu\Modes\MainMenuCharacterSelectionMode;
@@ -27,7 +28,7 @@ class OpenSummonsMenuCommand extends MenuItem
    */
   public function __construct(MenuInterface $menu)
   {
-    $label = BattleCommandType::SUMMON->label() . 's';
+    $label = Vocabulary::getTerm('command.' . BattleCommandType::SUMMON->value, 'Summons');
     parent::__construct($menu, $label, sprintf('Choose who carries each %s.', BattleCommandType::SUMMON->label()));
   }
 

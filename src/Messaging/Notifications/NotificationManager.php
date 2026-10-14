@@ -4,6 +4,17 @@ namespace Ichiloto\Engine\Messaging\Notifications;
 
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Rendering\Presentation\PresentationLayerPolicy;
+use Ichiloto\Engine\Messaging\Notifications\Interfaces\GraphicalNotificationInterface;
+use Ichiloto\Engine\Messaging\Notifications\Presentation\NotificationCanvasPresentation;
+use Ichiloto\Engine\Messaging\Notifications\Presentation\NotificationContentOverflow;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
+use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
+use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
+use Ichiloto\Engine\UI\Presentation\MenuCanvas;
+use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
+use Ichiloto\Engine\UI\Modal\ModalManager;
+use Throwable;
 
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 
@@ -67,6 +78,11 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
    * @var mixed $mapEventHandler The map event handler.
    */
   protected mixed $mapEventHandler = null;
+  private ?MenuPresentationCatalog $presentationTheme = null;
+  private bool $graphicalPresentation = false;
+  private array $presentationDiagnostics = [];
+  /** @var list<string> Terminal contributions currently projected into the live canvas. */
+  private array $fallbackPresentationLayers = [];
 
   /**
    * NotificationManager constructor.
@@ -114,6 +130,10 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
    */
   public function notify(NotificationInterface $notification): void
   {
+    if (!NotificationContentPolicy::fitsToast($notification)) {
+      ModalManager::getInstance($this->game)->queueAlert($notification->getContentText(), $notification->getContentTitle());
+      return;
+    }
     $queueWasEmpty = ! $this->notifications->isNotEmpty();
     $this->notifications->enqueue($notification);
 
@@ -131,6 +151,7 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
    */
   public function render(?int $x = null, ?int $y = null): void
   {
+    if ($this->graphicalPresentation) { return; }
     Console::withLayer('notifications', fn() => $this->getActiveNotification()?->render(
       ($x ?? 0) + $this->leftMargin,
       ($y ?? 0) + $this->topMargin
@@ -174,6 +195,10 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
     if (! $activeNotification instanceof NotificationInterface) {
       return;
     }
+    if (!NotificationContentPolicy::fitsToast($activeNotification)) {
+      $this->promoteActiveNotification($activeNotification);
+      return;
+    }
 
     // Blocking UI (dialogue, alerts, shops) freezes engine time and then
     // releases it in one large jump. A notification issued during the stall
@@ -205,7 +230,81 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
    */
   protected function getActiveNotification(): ?NotificationInterface
   {
-    return $this->notifications->peek();
+    return isset($this->notifications) ? $this->notifications->peek() : null;
+  }
+
+  public function hasGraphicalPresentation(): bool
+  {
+    return $this->graphicalPresentation && $this->getActiveNotification() !== null;
+  }
+
+  /** Renderer exclusions do not erase the terminal buffer or change other overlay owners. */
+  public function getExcludedPresentationLayers(): array
+  {
+    $notice = $this->getActiveNotification();
+    return $this->graphicalPresentation && $notice instanceof GraphicalNotificationInterface
+      ? [$notice->getPresentationId()] : $this->fallbackPresentationLayers;
+  }
+
+  /** Game-owned notices always overlay the current screen; scene content never postpones delivery. */
+  public function composePresentation(?PresentationCanvas $base, int $width, int $height, array $protected = []): ?PresentationCanvas
+  {
+    $this->fallbackPresentationLayers = [];
+    $notice = $this->getActiveNotification();
+    if ($notice === null) { return $base; }
+    if (!$this->graphicalPresentation || !$notice instanceof GraphicalNotificationInterface || $this->presentationTheme === null) {
+      return $this->composeTerminalPresentation($base, $width, $height);
+    }
+    try {
+      $surface = NotificationCanvasPresentation::compose($notice, $this->presentationTheme,
+        $width, $height, $protected);
+      return $base === null ? $surface->canvas : MenuCanvas::overlay($base, $surface->canvas, $this->presentationTheme);
+    } catch (Throwable $error) {
+      $this->reportPresentationProblem($error->getMessage());
+      if ($error instanceof NotificationContentOverflow) {
+        $this->promoteActiveNotification($notice);
+        return $base;
+      }
+      $this->graphicalPresentation = false;
+      return $this->composeTerminalPresentation($base, $width, $height);
+    }
+  }
+
+  /** Keep custom/unthemed Terminal notices live above native menus and transition covers too. */
+  private function composeTerminalPresentation(?PresentationCanvas $base, int $width, int $height): ?PresentationCanvas
+  {
+    $runtime = $this->game->getRendererRuntime();
+    if ($runtime === null || !$runtime->supports(RendererSessionConfig::GRAPHICAL_CANVAS)
+      || !$runtime->supports(RendererSessionConfig::CANVAS_OVERLAY)) { return null; }
+    $this->render();
+    $snapshot = Console::presentationSnapshot();
+    $grid = new RendererGridConfig($snapshot->width, $snapshot->height,
+      (int)floor($width / $snapshot->width), (int)floor($height / $snapshot->height));
+    $text = [];
+    foreach ($snapshot->textLayers as $layer) {
+      if ($layer->layer < PresentationLayerPolicy::NOTIFICATIONS) { continue; }
+      $this->fallbackPresentationLayers[] = $layer->id;
+      $text[] = new CanvasTextLayer($layer->id, 0, 0, 0, $grid, $layer->runs);
+    }
+    $overlay = new PresentationCanvas($width, $height, textLayers: $text, protectedAreas: []);
+    return PresentationCanvas::composeOverlay($base, $overlay);
+  }
+
+  private function promoteActiveNotification(NotificationInterface $notice): void
+  {
+    ModalManager::getInstance($this->game)->queueAlert($notice->getContentText(), $notice->getContentTitle());
+    $notice->erase();
+    $notice->dismiss();
+    $this->notifications->dequeue();
+    $this->openActiveNotification();
+  }
+
+  private function reportPresentationProblem(string $message): void
+  {
+    if (!isset($this->presentationDiagnostics[$message])) {
+      Debug::warn('Notification presentation: ' . $message);
+      $this->presentationDiagnostics[$message] = true;
+    }
   }
 
   /**
@@ -218,9 +317,19 @@ class NotificationManager implements CanUpdate, CanResume, CanRender
     $notification = $this->getActiveNotification();
 
     if (! $notification instanceof NotificationInterface) {
+      $this->graphicalPresentation = false;
       return;
     }
 
+    $this->graphicalPresentation = false;
+    $runtime = $this->game->getRendererRuntime();
+    if ($notification instanceof GraphicalNotificationInterface && $runtime !== null
+      && array_all([...MenuPresentationCatalog::CAPABILITIES, RendererSessionConfig::CANVAS_OVERLAY], $runtime->supports(...))) {
+      try {
+        $this->presentationTheme ??= MenuPresentationCatalog::load($runtime->getAssetRoot());
+        $this->graphicalPresentation = $this->presentationTheme !== null;
+      } catch (Throwable $error) { $this->reportPresentationProblem($error->getMessage()); }
+    }
     $notification->open();
     $this->nextNotificationShowTime = Time::getTime() + $notification->getAnimationDuration() + $notification->getDuration();
   }

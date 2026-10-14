@@ -6,6 +6,7 @@ use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\Messaging\Notifications\Presentation\NotificationPlacement;
 use Ichiloto\Engine\UI\Modal\CreditsModal;
 use Ichiloto\Engine\UI\Presentation\CreditsContent;
 use Ichiloto\Engine\UI\Presentation\CreditsMenuPresentation;
@@ -98,6 +99,8 @@ it('clips a complete credit roll independently of rendering and theme', function
     if ($tick % 10 !== 0 && !$playback->finished) { continue; }
     $frame = CreditsMenuPresentation::compose($content, $playback, $theme);
     expect(CreditsMenuPresentation::compose($content, $playback, $theme)->toArray())->toBe($frame->toArray());
+    expect($frame->protectedAreas)->not->toBeNull()
+      ->and(NotificationPlacement::isClear($viewport, $frame->getOverlayProtection()))->toBe($playback->finished);
     expect(count($frame->textLayers))->toBeLessThanOrEqual(64);
     foreach ($frame->textLayers as $layer) {
       expect($layer->id)->not->toContain('cursor');

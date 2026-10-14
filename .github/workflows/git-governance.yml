@@ -1,0 +1,35 @@
+name: Git workflow governance
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-develop-source:
+    name: Validate develop source
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require same-repository develop for main
+        env:
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          with open(os.environ['GITHUB_EVENT_PATH'], encoding='utf-8') as event_file:
+              pr = json.load(event_file)['pull_request']
+          head = pr.get('head') or {}
+          head_repo = head.get('repo') or {}
+          valid = (
+              pr.get('base', {}).get('ref') == 'main'
+              and head.get('ref') == 'develop'
+              and head_repo.get('full_name') == os.environ['EXPECTED_REPOSITORY']
+          )
+          if not valid:
+              print('Main accepts only a PR from this repository\'s develop branch.', file=sys.stderr)
+              sys.exit(1)
+          print('Verified: same-repository develop -> main.')
+          PY

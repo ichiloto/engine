@@ -8,6 +8,7 @@ use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\Util\Interfaces\ConfigInterface;
 
 beforeEach(function () {
+  $this->transitionConfigState = new ReflectionClass(ConfigStore::class)->getStaticProperties();
   if (ConfigStore::doesntHave(PlaySettings::class)) {
     ConfigStore::put(PlaySettings::class, new PlaySettings([
       'width' => DEFAULT_SCREEN_WIDTH,
@@ -17,6 +18,12 @@ beforeEach(function () {
         'height' => DEFAULT_SCREEN_HEIGHT,
       ],
     ]));
+  }
+});
+
+afterEach(function () {
+  foreach ($this->transitionConfigState as $name => $value) {
+    new ReflectionProperty(ConfigStore::class, $name)->setValue(null, $value);
   }
 });
 
@@ -182,3 +189,45 @@ it('advances transition frames cooperatively without sleeping', function () {
   expect($session->update(0.1))->toBeTrue()
     ->and(array_column($transition->frames, 0))->toBe(['░', '▒', '▓', '█']);
 });
+
+it('paints graphical fades continuously on the shared clock in both directions', function (string $direction) {
+  ConfigStore::put(ProjectConfig::class, new TransitionConfigStub([]));
+  $transition = new RecordingScreenTransition(TransitionStyle::FADE, 400);
+  $session = $transition->session($direction);
+  $initial = $session->getPresentationCanvas(1350, 720);
+  expect($initial->composites)->toHaveCount($direction === 'in' ? 1 : 0);
+  if ($direction === 'in') { expect($initial->composites[0]->opacity)->toBe(1.0); }
+  $session->update(0.05);
+  $canvas = $session->getPresentationCanvas(1350, 720);
+  expect($transition->frames)->toBe([])
+    ->and($canvas->composites[0]->opacity)->toBe($direction === 'in' ? 0.875 : 0.125)
+    ->and($canvas->composites[0]->destination->toArray())->toBe(['x' => 0.0, 'y' => 0.0, 'width' => 1350.0, 'height' => 720.0])
+    ->and($canvas->composites[0]->operations[0]->data['brush']['color'])->toBe(['kind' => 'rgb', 'r' => 0, 'g' => 0, 'b' => 0]);
+  $session->pause(); $session->update(1);
+  expect($session->getPresentationCanvas(1350, 720))->toEqual($canvas);
+  $session->resume(); $session->update(0.35);
+  $final = $session->getPresentationCanvas(1350, 720);
+  expect($session->isComplete)->toBeTrue()
+    ->and($final->composites)->toHaveCount($direction === 'in' ? 0 : 1)
+    ->and(array_column($transition->frames, 0))->toBe($direction === 'in' ? ['█', '▓', '▒', '░'] : ['░', '▒', '▓', '█']);
+})->with(['out', 'in']);
+
+it('sizes graphical wipes independently of terminal columns and clears cancelled covers', function () {
+  ConfigStore::put(ProjectConfig::class, new TransitionConfigStub([]));
+  $session = new RecordingScreenTransition(TransitionStyle::WIPE, 400)->session();
+  $session->update(0.2);
+  foreach ([[640, 360], [1350, 720], [8000, 4000]] as [$width, $height]) {
+    $cover = $session->getPresentationCanvas($width, $height)->composites[0];
+    expect([$cover->width, $cover->height])->toBe([1, 1])
+      ->and($cover->opacity)->toBe(1.0)
+      ->and($cover->destination->toArray())->toBe(['x' => 0.0, 'y' => 0.0, 'width' => (float)($width / 2), 'height' => (float)$height]);
+  }
+  $session->cancel();
+  expect($session->getPresentationCanvas(1350, 720))->toBeNull();
+});
+
+it('does not animate graphical covers when transitions are disabled or motion is reduced', function (bool $reduced) {
+  ConfigStore::put(ProjectConfig::class, new TransitionConfigStub(['accessibility' => ['reducedMotion' => $reduced]]));
+  $session = new RecordingScreenTransition($reduced ? TransitionStyle::FADE : TransitionStyle::NONE)->session();
+  expect($session->isComplete)->toBeTrue()->and($session->getPresentationCanvas(1350, 720))->toBeNull();
+})->with([false, true]);

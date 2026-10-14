@@ -1,0 +1,31 @@
+#!/bin/sh
+set -eu
+
+deny() {
+    printf '%s\n' "Push blocked: $1" >&2
+    printf '%s\n' 'Only an authorized fast-forward from local develop to existing remote develop is eligible.' >&2
+    printf '%s\n' 'Main requires a GitHub PR from develop. Do not bypass this guard through options, config, APIs or UI.' >&2
+    exit 1
+}
+
+validate_oid() {
+    case "$1" in ''|*[!0-9a-fA-F]*) return 1 ;; esac
+    case ${#1} in 40|64) return 0 ;; *) return 1 ;; esac
+}
+
+updates=0
+while read -r local_ref local_oid remote_ref remote_oid extra; do
+    [ -z "$extra" ] || deny 'malformed ref update.'
+    [ "$remote_ref" = refs/heads/develop ] || deny "$remote_ref is not develop."
+    [ "$local_ref" = refs/heads/develop ] || deny 'the source must be local refs/heads/develop.'
+    validate_oid "$local_oid" && validate_oid "$remote_oid" || deny 'malformed object ID.'
+    case "$local_oid" in *[!0]*) ;; *) deny 'branch deletion is forbidden.' ;; esac
+    case "$remote_oid" in *[!0]*) ;; *) deny 'remote branch creation needs Andrew’s explicit authorization.' ;; esac
+    current_oid=$(git rev-parse --verify refs/heads/develop) || deny 'local develop is missing.'
+    [ "$local_oid" = "$current_oid" ] || deny 'the source object is not the current local develop head.'
+    git cat-file -e "$remote_oid^{commit}" 2>/dev/null || deny 'remote develop commit is unavailable locally; fetch it and reassess.'
+    git cat-file -e "$local_oid^{commit}" 2>/dev/null || deny 'local develop is not a known commit.'
+    git merge-base --is-ancestor "$remote_oid" "$local_oid" || deny 'develop update would rewrite remote history.'
+    updates=$((updates + 1))
+done
+[ "$updates" -gt 0 ] || deny 'no ref updates were supplied; the destination cannot be established.'

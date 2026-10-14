@@ -2,6 +2,8 @@
 
 namespace Ichiloto\Engine\Core\Menu\MainMenu\Windows;
 
+use Ichiloto\Engine\Localization\Vocabulary;
+
 use Ichiloto\Engine\Core\Interfaces\CanChangeSelection;
 use Ichiloto\Engine\Settings\GameSetting;
 use Ichiloto\Engine\Core\Menu\MainMenu\MainMenuSettingsManager;
@@ -43,7 +45,7 @@ class ConfigSelectionWindow extends Window implements CanFocus, CanChangeSelecti
   )
   {
     parent::__construct(
-      'Config',
+      Vocabulary::getTerm('game.options', Vocabulary::getTerm('command.options', 'Config')),
       'enter:Next  c:Cancel',
       new Vector2($rect->getX(), $rect->getY()),
       $rect->getWidth(),

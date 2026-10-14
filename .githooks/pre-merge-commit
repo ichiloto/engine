@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+
+branch=$(git symbolic-ref --quiet HEAD) || {
+    printf '%s\n' 'Commit blocked: work must be on develop or a local working branch, not detached HEAD.' >&2
+    exit 1
+}
+case "$branch" in
+    refs/heads/main)
+        printf '%s\n' 'Commit blocked: main receives changes only through a GitHub PR from develop.' >&2
+        exit 1
+        ;;
+    refs/heads/release/*)
+        printf '%s\n' 'Commit blocked: release branches are Andrew-only.' >&2
+        exit 1
+        ;;
+    refs/heads/*) ;;
+    *)
+        printf '%s\n' 'Commit blocked: cannot establish a local working branch.' >&2
+        exit 1
+        ;;
+esac

@@ -4,6 +4,7 @@
 use Ichiloto\Engine\IO\InputSources\RendererInputSource;
 use Ichiloto\Engine\Rendering\RendererClient;
 use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererEventType;
+use Ichiloto\Engine\Rendering\Transport\Enumerations\RendererProtocolVersion;
 use Ichiloto\Engine\Rendering\Transport\ProcessRendererTransport;
 use Ichiloto\Engine\Rendering\Transport\RendererProcessConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
@@ -43,7 +44,7 @@ try {
   }
   $transport = new ProcessRendererTransport(new RendererProcessConfig([$renderer]));
   $client = new RendererClient($transport);
-  $client->start(new RendererSessionConfig('Ichiloto PHP Input Smoke Test', $assetRoot));
+  $client->start(new RendererSessionConfig('Ichiloto PHP Input Smoke Test', $assetRoot, protocol: RendererProtocolVersion::V2));
   $source = new RendererInputSource($client);
   fwrite(STDERR, "Input client handshake complete. No gameplay actions or frame generation.\n");
   $deadline = hrtime(true) + (int) ($duration * 1_000_000_000);

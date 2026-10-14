@@ -3,13 +3,14 @@
 namespace Ichiloto\Engine\Core\Menu\Interfaces;
 
 use Ichiloto\Engine\UI\Interfaces\FocusTargetInterface;
+use Ichiloto\Engine\UI\Navigation\DirectionalFocusNodeInterface;
 
 /**
  * MenuGraphNodeInterface is an interface implemented by all classes that represent a menu graph node.
  *
  * @package Ichiloto\Engine\Core\Menu\Interfaces
  */
-interface MenuGraphNodeInterface extends FocusTargetInterface
+interface MenuGraphNodeInterface extends FocusTargetInterface, DirectionalFocusNodeInterface
 {
   /**
    * Returns the top node.

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\UI\Presentation;
 
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
-use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
+use Ichiloto\Engine\Messaging\Notifications\Presentation\NotificationTheme;
 use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use InvalidArgumentException;
@@ -34,16 +34,20 @@ final readonly class MenuPresentationCatalog
   /** @var array<string, string> Stable actor IDs to relative PNG paths. */
   public array $portraits;
   public bool $showInputHints;
+  public NotificationTheme $notifications;
 
   public function __construct(public string $assetRoot, array $data)
   {
-    self::keys($data, ['schema', 'colors', 'metrics', 'rowMetrics', 'rowArtwork', 'frames', 'icons', 'cursor', 'portraits', 'showInputHints']);
+    self::keys($data, ['schema', 'colors', 'metrics', 'rowMetrics', 'rowArtwork', 'frames', 'icons', 'cursor', 'portraits', 'showInputHints', 'notifications']);
     if (($data['schema'] ?? null) !== 'ichiloto.menu/1') {
       throw new InvalidArgumentException('Menu catalog requires schema ichiloto.menu/1.');
     }
     $showInputHints = $data['showInputHints'] ?? true;
     if (!is_bool($showInputHints)) { throw new InvalidArgumentException('Menu showInputHints must be a boolean.'); }
     $this->showInputHints = $showInputHints;
+    $notificationData = self::map($data, 'notifications');
+    self::keys($notificationData, ['width', 'maxWidth', 'margin', 'padding', 'iconSize', 'iconGap', 'textGap', 'maxHeightRatio', 'colors']);
+    $this->notifications = new NotificationTheme(...$notificationData);
     $colors = self::map($data, 'colors');
     self::keys($colors, array_keys(self::DEFAULT_COLORS));
     $palette = [];
@@ -58,7 +62,7 @@ final readonly class MenuPresentationCatalog
     $art = self::artwork(self::map($data, 'rowArtwork'), MenuRowSkin::ARTWORK);
     $this->rows = new MenuRowSkin(array_intersect_key($palette, array_flip(MenuRowSkin::COLORS)),
       new MenuRowMetrics(...self::map($data, 'rowMetrics')), $art, $assetRoot);
-    $this->frames = self::artwork(self::map($data, 'frames'), ['panel', 'quiet', 'portrait',
+    $this->frames = self::artwork(self::map($data, 'frames'), ['panel', 'quiet', 'portrait', 'dialogue', 'nameplate',
       'slider.track', 'slider.thumb', 'scroll.track', 'scroll.thumb']);
     $bindings = self::map($data, 'icons');
     $cursor = $data['cursor'] ?? null;
@@ -72,11 +76,6 @@ final readonly class MenuPresentationCatalog
       SpriteValidation::validateAssetPath($asset);
     }
     $this->portraits = $portraits;
-    // Diagnose every configured asset, including artwork for an actor not currently on screen.
-    $assets = [...array_values($bindings), ...array_values($portraits)];
-    if ($cursor !== null) { $assets[] = $cursor; }
-    foreach ([...array_values($art), ...array_values($this->frames)] as $image) { $assets[] = $image->asset; }
-    foreach (array_unique($assets) as $asset) { PngAssetPreflight::inspect($assetRoot, $asset); }
   }
 
   public static function exists(string $assetRoot): bool

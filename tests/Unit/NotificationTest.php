@@ -2,7 +2,7 @@
 
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Core\Vector2;
-use Ichiloto\Engine\Core\Game;
+use Tests\Support\PassiveGame;
 use Ichiloto\Engine\Events\Enumerations\EventType;
 use Ichiloto\Engine\Events\Enumerations\NotificationEventType;
 use Ichiloto\Engine\Events\EventManager;
@@ -122,7 +122,7 @@ it('restores the underlying console content when a notification is erased', func
     $console->getProperty($property)->setValue(null, $value);
   }
 
-  $game = (new ReflectionClass(Game::class))->newInstanceWithoutConstructor();
+  $game = new PassiveGame();
   $notification = new Notification(
     $game,
     NotificationChannel::INFO,

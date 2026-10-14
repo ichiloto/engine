@@ -12,6 +12,7 @@ use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Entities\Troop;
+use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\Color;
 use Ichiloto\Engine\Rendering\Camera;
 use Ichiloto\Engine\Scenes\Battle\BattleScene;
@@ -76,6 +77,8 @@ class BattleScreen implements CanRender, CanUpdate
       return $this->battleScene->party ?? throw new RuntimeException('The party is not set in the battle scene.');
     }
   }
+  /** @var list<CharacterInterface> */
+  public array $partyBattlers { get => $this->battleScene->partyBattlers; }
   /**
    * @var Troop The troop in the battle scene.
    */
@@ -190,6 +193,9 @@ class BattleScreen implements CanRender, CanUpdate
   protected function initializeWindows(): void
   {
     $this->fieldWindow = new BattleFieldWindow($this);
+    $this->fieldWindow->setConditionEffects(\Ichiloto\Engine\Battle\Presentation\BattleConditionEffects::createFromConfig(
+      new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary(
+        $this->battleScene->getGame()->getRendererRuntime()?->getAssetRoot() ?? getcwd() . '/assets')));
     $this->messageWindow = new BattleMessageWindow($this);
     $this->commandWindow = new BattleCommandWindow($this);
     $this->commandContextWindow = new BattleCommandContextWindow($this);
@@ -263,6 +269,7 @@ class BattleScreen implements CanRender, CanUpdate
    */
   public function update(): void
   {
+    $this->fieldWindow->advancePoseTime(Time::getDeltaTime());
     $this->state?->update();
 
     if ($this->isAlerting) {
@@ -311,9 +318,11 @@ class BattleScreen implements CanRender, CanUpdate
       return;
     }
 
-    $this->isMessageVisible = false;
-    $this->messageWindow->hide();
-    $this->recomposeField();
+    Console::updateFrame(function (): void {
+      $this->isMessageVisible = false;
+      $this->messageWindow->hide();
+      $this->recomposeField();
+    });
   }
 
   /**
@@ -365,13 +374,12 @@ class BattleScreen implements CanRender, CanUpdate
    */
   public function refresh(): void
   {
-    $this->fieldWindow->erase();
-    $this->renderField();
-    $this->showControls();
-
-    if ($this->isMessageVisible) {
-      $this->messageWindow->render();
-    }
+    Console::updateFrame(function (): void {
+      $this->fieldWindow->erase();
+      $this->renderField();
+      $this->showControls();
+      if ($this->isMessageVisible) { $this->messageWindow->render(); }
+    });
   }
 
   /**
@@ -381,8 +389,10 @@ class BattleScreen implements CanRender, CanUpdate
    */
   public function refreshField(): void
   {
-    $this->fieldWindow->erase();
-    $this->recomposeField();
+    Console::updateFrame(function (): void {
+      $this->fieldWindow->erase();
+      $this->recomposeField();
+    });
   }
 
   /**
@@ -394,11 +404,10 @@ class BattleScreen implements CanRender, CanUpdate
    */
   public function recomposeField(): void
   {
-    $this->renderField();
-
-    if ($this->isMessageVisible) {
-      $this->messageWindow->render();
-    }
+    Console::updateFrame(function (): void {
+      $this->renderField();
+      if ($this->isMessageVisible) { $this->messageWindow->render(); }
+    });
   }
 
   protected function initializeScreenStates(): void

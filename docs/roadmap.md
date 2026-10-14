@@ -381,6 +381,38 @@ Turn the polished stage into a real fight. Roughly in order:
 > `trainingHours` decision (kept — spells still gate on it), and the equipment
 > stat-delta preview, which was already implemented in `CharacterDetailPanel`.
 
+#### Project-owned level-up recovery (2026-10-13)
+
+`assets/Data/system.php` may declare this optional section:
+
+```php
+'progression' => [
+  'restoreVitalsOnLevelUp' => true,
+],
+```
+
+The section must be an associative PHP array (an empty array is valid); its
+only supported key is `restoreVitalsOnLevelUp`, whose value must be a literal
+boolean. Omitted section or key means `true`, preserving existing games. Null,
+strings, numbers, lists, objects and unknown section keys are rejected rather
+than coerced. Unrelated system fields remain unchanged.
+
+`SystemData::$progression` is a validated, immutable `ProgressionSettings`.
+Game bootstrap registers the same contract in `ConfigStore` for the existing
+`ExperienceAwarder::award()` / `awardParty()` path. `true` restores current HP
+and MP to their equipment-aware maxima only when an award raises the level;
+`false` disables that automatic refill and preserves current resources (with
+the existing maximum clamping). EXP, level growth, automatic role-skill grants,
+AP and states are unchanged. Battle and quest awards share this path; scripted
+and migration EXP callers must use it too, not raw `Character::addExperience()`.
+This adds no new script command or migration behavior.
+
+This is developer-owned project data, not a player option, launch override or
+save field. Equipment recalculation, save hydration, legacy invalid-vital save
+recovery and battle-test setup keep their existing semantics. Editor/GUI
+authoring must preserve other system data and round-trip literal booleans;
+their integration remains with the Editor owner.
+
 #### Original plan
 - **Classes** — `ClassStore` over `classes.php`; actors reference a class by
   name; `Character::fromArray` resolves it into a real `CharacterRole` with
@@ -405,9 +437,10 @@ Turn the polished stage into a real fight. Roughly in order:
 > saves. **Records screen**: a new main-menu entry with Achievements and
 > Bestiary tabs — undiscovered enemies mask to `??????`, secret achievements
 > hide until earned, and the entry only appears when a project authors
-> either. **Quicksave/autosave**: `SaveManager::quickSave()` (F5 in the
-> field) and `autoSave()` (a 3-file rotating ring, written on map transfer
-> when `save.autosave` is on) both land in the existing quick-save
+> either. **Quicksave/autosave**: `SaveManager::quickSave()` (semantic
+> `quick_save`, configurable binding; enabled by `save.quicksave`) and
+> `autoSave()` (one atomic slot, developer-triggered when `save.autosave`
+> is enabled; automatic map-transfer saves removed) both land in the existing quick-save
 > directory and never consume a player-visible slot. **Accessibility**
 > (`UI\Accessibility`): `reducedMotion`, `disableBlink`, `highContrast`,
 > and `textSpeedScale` under `accessibility.*`, all defaulting to current
@@ -672,6 +705,25 @@ Turn the polished stage into a real fight. Roughly in order:
 > because a designer wants the shape of a fight before tactics. 8 new tests
 > (suite: 347 passed).
 >
+> **Battle-test command loadouts (2026-10-02):** the shared
+> `BattleTestMember`/`BattleTestSetup` now configures command categories,
+> additional learned abilities and spells, and explicit summon assignments.
+> The arena has constrained Commands, Skills, Magic and Summons pickers beside
+> the existing actor/level/equipment fields; Console uses the same setup.
+> Explicit sandbox summons bypass story availability at both menu and
+> resolution, not wielder eligibility, exclusive ownership, costs or targets.
+> Every fight builds fresh characters; runtime access is excluded from saves
+> and discarded on restoration. Campaign actors, progression and saves remain
+> unchanged. Invalid resources, field-only actions and ambiguous linked summon
+> actions are refused rather than silently omitted.
+>
+> The existing `--runs` simulator is still attack-only. Custom command/skill/
+> summon loadouts must not produce misleading simulation reports: Console
+> refuses them with `--runs`; play the configured fight instead. A future
+> simulator action policy must use shared action selection, targeting and
+> transaction semantics, including enemy patterns and deterministic replay,
+> rather than a special summon executor. This capability is not implemented.
+>
 > It earned itself on the first run: every early enemy in the demo shared one
 > placeholder stat block (a level 14 bat with 203 HP and 30 defence) against
 > three level 1 characters whose best attack is 12, so **the party lost 100%
@@ -774,7 +826,7 @@ continues after victory; normal game-over behavior remains the default, with
 defeat continuation requiring an explicit policy.
 
 Active sessions remain in memory rather than entering the WP1 save envelope.
-Manual/numbered saves and quicksaves are blocked centrally, and transfer
+Manual/numbered saves and quicksaves are blocked centrally, and developer-requested
 autosaves are deferred until successful event completion. The TUI can author
 `ScriptEventTrigger`, structured route steps, and battle continuation fields;
 the existing validator covers script references, stable NPC identities,
@@ -852,6 +904,25 @@ Unavailable conditional triggers remain absent unless their author supplies
 `whenBlocked`; blocked text therefore remains a deliberate spatial-gate policy,
 not a default for future story stations.
 
+### Planned — graphical cues and field navigation
+
+> Status: field-effect runtime slice in local implementation, October 2026.
+> Story/route classification and Claude's source-preserving Editor handoff are
+> pending. The minimap remains planned, not implemented.
+
+- **Every terminal glyph has graphical art.** In the graphical field, a cue
+  draws as a slanted exclamation mark with a border, blue or yellow, from
+  replaceable cue artwork instead of its glyph; the terminal keeps its
+  coloured glyph.
+- **Story cues stay in view.** A story cue outside the viewport shows at the
+  screen edge in its direction, so the player always knows which way to head.
+  Only story cues do this; route cues show where they stand.
+- **Minimap.** A minimap overlay replaces the coordinate HUD in the graphical
+  field, built from the same map, cue and NPC state the field draws.
+- **Built on field effects.** Cues are map-owned effects of the unified
+  effect timeline ([effect animation](effect-animation.md#field-effects)),
+  alongside the walk-on save point's energy, not a cue-specific animation.
+
 ## Production-hardening extension — scenario field music
 
 > Status: implemented and regression-tested on a local feature branch,
@@ -868,6 +939,78 @@ introduced. See [audio.md](audio.md#scenario-and-mission-music).
 
 Dedicated Editor authoring and CLI reference validation for this catalog are
 not implemented by this Engine change and remain an explicit tooling handoff.
+
+## Game-defined scene excursions
+
+Andrew requested bespoke mini-games through custom scenes on October 8, 2026.
+This is separate from G4. The generic runtime foundations are implemented
+on Engine develop on October 13, 2026; reference-game integration remains in
+progress. Existing `Game::addScenes()` registers project scenes. Game owns
+the scene, its configuration and its structured result; Engine owns the suspended
+caller and cleanup. This does not implement any particular mini-game.
+
+`SceneManager::beginSceneExcursion($caller, $target, $config)` configures and starts
+an unstarted `ConfigurableSceneInterface` target while retaining the exact live
+caller. The target can read its handle through `getSceneExcursionSession($this)`
+and finish with `finishSceneExcursion($handle, $outcome)`. Game-defined result
+objects implement `SceneExcursionResultInterface`; outcomes distinguish completion,
+player cancellation, abandonment and failure. The waiting event uses its existing
+`EventPendingOperationInterface` to observe `handle->outcome` and to call
+`abandonSceneExcursion()` on cancellation, rather than replaying the event.
+
+The active target reads its exact live caller through
+`getSceneExcursionCaller($this)`, including during configuration and startup.
+This is an ownership lookup, not a class lookup: several registered scenes may
+have the same class. Other scenes, finished or abandoned excursions and stopped
+or replaced callers have no caller access. A project needing a checkpoint uses
+that retained caller with the existing save manager and project-state extension;
+it does not guess the owner through `findScene()`. Arbitrary active story events
+remain unsaveable, and no event continuation or scene reference is serialized.
+
+Entry and return reset input and refuse live modals. Nested excursions, battles
+inside excursions and stale handles are rejected. Configuration/startup failures
+roll back to a live caller; shutdown, navigation, removal or a stopped/replaced
+caller abandon the session without resuming its event. Scene-owned listeners and
+resources are cleaned even if a resource throws. Battle return and excursions
+share one suspension authority, not separate runtimes. Synthetic regression tests
+exercise these ownership and interruption paths; native custom-scene and
+Linux/WSLg acceptance are not claimed.
+
+Each field owns its actual `GameScene::$locationHUDWindow`; suspension hides
+that HUD, return restores its prior active/inactive intent, and stop releases
+only that instance. The global `UIManager::$locationHUDWindow` alias, Battle's
+target-side hiding workaround and FieldState's unconditional resume activation
+are removed. Custom targets must not reach into another scene's HUD. Bare test
+fields inject the protected-write property on their own scene; normal field
+configuration registers it automatically. `UIManager::deactivateElement()` and
+`removeElement()` clear only the owned element's presentation and Console layer,
+preserving notifications and unrelated UI.
+
+The optional [project secondary field action](rendering/input-sources.md#project-secondary-field-action)
+uses semantic input independently of ordinary Talk. The generic
+[project-state save extension](save-compatibility.md#project-owned-campaign-state)
+stores versioned plain data under Game-owned schema policies. Neither extension
+relaxes the active-event save guard. A Game-owned resumable activity entered
+from a stable field can checkpoint its structured state through the retained
+field owner; required checkpoint failures must remain visible to that activity,
+not be mistaken for successful optional autosaves.
+
+Each game's rules, card collection, NPC challenges, winnings, refinement,
+trading, progression gates and authored interface theme belong to that game.
+For card tables and other spatial interfaces, the shared
+`UI/Navigation/DirectionalFocusGraph` navigates explicit cardinal neighbour
+IDs using `FocusDirection`, without polling input or drawing. Replacing the
+node list validates it before mutation and retains focus by stable ID, or uses
+an explicit fallback. Disabled nodes retain their spatial focus; the consumer
+owns activation permission. `MenuGraphNodeInterface` now extends the general
+`DirectionalFocusNodeInterface`: implementers must supply stable `id`, `enabled`
+and `getNeighbourId()` values, deriving IDs from the same menu neighbours rather
+than keeping a second topology. Menu membership and focus events stay in the
+menu contract; a game's table-node contract may extend the navigation parent
+without menu-specific members. Existing menu rendering and input stay unchanged.
+The immediate reference-game plan and its ratified rule decisions are owned
+by Game in its existing private roadmap, not copied into Engine documentation.
+Implementation is queued independently and must not expand G4 acceptance.
 
 ## Sequencing notes
 
