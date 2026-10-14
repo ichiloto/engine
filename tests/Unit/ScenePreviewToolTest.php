@@ -214,3 +214,44 @@ it('refuses empty, duplicate, unknown selections and invalid duration bounds', f
     [['--subjects=unknown'], 'Unknown scene preview subject'],
     [['--duration=0'], 'duration 1..300'], [['--duration=301'], 'duration 1..300'],
 ]);
+
+
+it('launches a relative renderer and retains relative asset inputs when the fixture owns a different cwd', function () {
+    $directory = createTestDirectory('scene-preview-relative-paths-');
+    mkdir($directory . '/assets');
+    mkdir($directory . '/project');
+    $factory = var_export(realpath(__DIR__ . '/../Fixtures/Rendering/ScenePreview.php'), true);
+    $peer = var_export(realpath(__DIR__ . '/../Fixtures/Renderer/renderer-stub.php'), true);
+    file_put_contents($directory . '/fixture.php', "<?php\n\$factory = require $factory;\n"
+        . "return static function (string \$root, bool \$reduced, ?array \$subjects, string \$mode) use (\$factory): array {\n"
+        . "    chdir(__DIR__ . '/project');\n"
+        . "    \$fixture = \$factory(\$root, \$reduced, \$subjects, \$mode);\n"
+        . "    \$verify = \$fixture['verify'];\n"
+        . "    \$fixture['verify'] = static fn(): array => [...\$verify(), 'factoryAssetRoot' => \$root, 'factoryCwd' => getcwd()];\n"
+        . "    return \$fixture;\n};\n");
+    file_put_contents($directory . '/peer.php', '#!' . PHP_BINARY . "\n<?php\n"
+        . "\$argv = [__FILE__, 'dialogue_preview', __DIR__ . '/wire.jsonl'];\nrequire $peer;\n");
+    chmod($directory . '/peer.php', 0700);
+    $process = proc_open([PHP_BINARY, dirname(__DIR__, 2) . '/tools/gpui-scene-preview.php',
+        '--asset-root=assets', '--fixture=fixture.php', '--renderer=peer.php', '--duration=1'],
+        [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $directory);
+    expect(is_resource($process))->toBeTrue();
+    try {
+        $stdout = stream_get_contents($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+        fclose($pipes[1]); fclose($pipes[2]);
+        $exit = proc_close($process); $process = null;
+        expect($exit)->toBe(0, $stderr)->and($stderr)->toBe('');
+        $evidence = getScenePreviewEvidence(['stdout' => $stdout]);
+        $wire = array_map(static fn(string $line): array => json_decode($line, true, flags: JSON_THROW_ON_ERROR),
+            file($directory . '/wire.jsonl', FILE_IGNORE_NEW_LINES));
+        expect($evidence['fixture']['factoryCwd'])->toBe($directory . '/project')
+            ->and($evidence['fixture']['factoryAssetRoot'])->toBe($directory . '/assets')
+            ->and($wire[0]['type'])->toBe('hello')->and($wire[0]['assetRoot'])->toBe($directory . '/assets')
+            ->and($wire[array_key_last($wire)]['type'])->toBe('shutdown')
+            ->and(is_file($directory . '/assets/cleanup.json'))->toBeTrue();
+    } finally {
+        foreach ($pipes as $pipe) { if (is_resource($pipe)) { fclose($pipe); } }
+        if (is_resource($process)) { proc_terminate($process); proc_close($process); }
+    }
+});

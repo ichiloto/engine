@@ -50,6 +50,10 @@ try {
         || $duration === false || !is_finite($duration) || $duration < 1 || $duration > 60) {
         throw new InvalidArgumentException('Provide renderer, assets and snapshot paths; bounded dimensions divisible by 16x24 and duration 1..60.');
     }
+    // Authored presentation catalogs execute PHP; retain the caller's file-path meaning.
+    $root = realpath($root) ?: throw new InvalidArgumentException('Asset root could not be resolved.');
+    $snapshot = realpath($snapshot) ?: throw new InvalidArgumentException('Snapshot path could not be resolved.');
+    $renderer = realpath($renderer) ?: throw new InvalidArgumentException('Renderer path could not be resolved.');
     $data = json_decode(file_get_contents($snapshot), true, 64, JSON_THROW_ON_ERROR);
     if (!is_array($data) || !is_string($data['text'] ?? null) || !is_string($data['speaker'] ?? null)) {
         throw new InvalidArgumentException('Snapshot requires speaker and text strings.');

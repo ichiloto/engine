@@ -6,6 +6,7 @@ function runBattlePreviewTool(array $arguments, bool $acknowledgeSelection = tru
 {
     $directory = sys_get_temp_dir() . '/battle-preview-' . bin2hex(random_bytes(6));
     mkdir($directory);
+    $directory = realpath($directory) ?: throw new RuntimeException('Cannot resolve owned preview fixture directory.');
     $fixturePath = $directory . '/fixture.php';
     $fixture = <<<'PHP'
 <?php

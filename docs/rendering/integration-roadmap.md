@@ -3095,6 +3095,12 @@ cell; neither assigns an outcome, writes a save or changes player settings.
 Current maps, routes and troops are discovered, not pinned in tests. CPU runs
 cut directly between scenes and do not prove the graphical handoff.
 
+Scene, battle and dialogue preview tools resolve supported CLI asset-root,
+fixture/snapshot and renderer paths to canonical absolute paths before trusted
+project PHP executes. A fixture may own and change cwd without retargeting the
+validated renderer executable or asset inputs. Generic transport argv keeps its
+existing contract; the correction is at the CLI boundary.
+
 The new shared `tools/gpui-scene-preview.php` attaches Game's RendererRuntime
 before starting the fixture, then presents its actual current scene, including
 retained world/sprites and owned transitions. It checks effective music/sfx/master

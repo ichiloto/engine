@@ -77,6 +77,12 @@ try {
         || (!$noLaunch && (!is_string($renderer) || !is_file($renderer) || !is_executable($renderer)))) {
         throw new InvalidArgumentException('Provide readable assets/fixture paths, an executable renderer and duration 1..300.');
     }
+    // The trusted factory may change cwd; bind CLI paths to the caller before executing it.
+    $root = realpath($root) ?: throw new InvalidArgumentException('Asset root could not be resolved.');
+    $fixturePath = realpath($fixturePath) ?: throw new InvalidArgumentException('Fixture path could not be resolved.');
+    if (!$noLaunch) {
+        $renderer = realpath($renderer) ?: throw new InvalidArgumentException('Renderer path could not be resolved.');
+    }
     $factory = (static fn(string $path): mixed => require $path)($fixturePath);
     if (!is_callable($factory)) { throw new InvalidArgumentException('Scene preview fixture must return a factory.'); }
     Console::setTerminalOutputEnabled(false);
