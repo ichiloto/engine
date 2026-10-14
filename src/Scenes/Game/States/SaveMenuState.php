@@ -12,6 +12,7 @@ use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
+use Ichiloto\Engine\IO\Saves\SaveFeedback;
 use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
@@ -294,15 +295,15 @@ class SaveMenuState extends GameSceneState implements CanRender, CanvasProviderI
     try {
       $savedSlot = $this->getGameScene()->sceneManager->saveManager->save($this->getGameScene(), $slot->slot);
     } catch (ActiveEventSaveException $exception) {
-      $this->statusMessage = $exception->getMessage();
+      $this->statusMessage = SaveFeedback::describeWriteFailure($exception);
       $this->statusColor = 'decrease';
-      Debug::warn($this->statusMessage);
+      Debug::warn('Manual save unavailable: ' . $exception->getMessage());
       $this->render();
       alert($this->statusMessage, get_message('save.unavailable_title', '%1 Unavailable', Vocabulary::getTerm('game.save', 'Save')));
       return;
     } catch (RuntimeException $exception) {
       Debug::warn(sprintf('Manual save failed: %s', $exception->getMessage()));
-      $this->statusMessage = 'Saving is unavailable. Check storage permissions and try again.';
+      $this->statusMessage = SaveFeedback::describeWriteFailure($exception);
       $this->statusColor = 'decrease';
       $this->render();
       alert($this->statusMessage, get_message('save.unavailable_title', '%1 Unavailable', Vocabulary::getTerm('game.save', 'Save')));

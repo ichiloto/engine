@@ -221,11 +221,11 @@ it('inspects manual automatic and quick records without restoring state or writi
   $settings = new ReflectionClass(ConfigStore::class)->getStaticProperties();
   $slots = $this->manager->getLoadSlots();
   expect($slots)->toHaveCount(7)
-    ->and(array_column($slots, 'slot'))->toBe([SaveManager::AUTO_SAVE_SLOT, 1, 2, 3, 4, 5, SaveManager::QUICK_SAVE_SLOT])
+    ->and(array_column($slots, 'slot'))->toBe([SaveManager::QUICK_SAVE_SLOT, SaveManager::AUTO_SAVE_SLOT, 1, 2, 3, 4, 5])
     ->and(array_map(fn($slot) => $slot->getLabel(), $slots))->toBe([
-      'Autosave', 'File 1', 'File 2', 'File 3', 'File 4', 'File 5', 'Quick Save',
+      'Quick Save', 'Autosave', 'File 1', 'File 2', 'File 3', 'File 4', 'File 5',
     ])
-    ->and($slots[6]->path)->toBe($quick->path)->and($slots[0]->path)->toBe($auto->path)
+    ->and($slots[0]->path)->toBe($quick->path)->and($slots[1]->path)->toBe($auto->path)
     ->and($registry->getState('fixture/checkpoint'))->toBe(['checkpoint' => 99])
     ->and(new ReflectionClass(Time::class)->getStaticProperties())->toBe($time)
     ->and(new ReflectionClass(ConfigStore::class)->getStaticProperties())->toBe($settings)
@@ -250,9 +250,9 @@ it('keeps bad automatic and quick entries visible disabled and skips them for la
   file_put_contents($auto, 'IED1not-gzip');
   touch($auto, time() + 3600);
   $slots = $this->manager->getLoadSlots();
-  expect($slots[0]->slot)->toBe(SaveManager::AUTO_SAVE_SLOT)->and($slots[0]->isLoadable)->toBeFalse()
-    ->and($slots[6]->slot)->toBe(SaveManager::QUICK_SAVE_SLOT)->and($slots[6]->isLoadable)->toBeFalse()
-    ->and($slots[6]->statusMessage)->toContain('newer engine')
+  expect($slots[1]->slot)->toBe(SaveManager::AUTO_SAVE_SLOT)->and($slots[1]->isLoadable)->toBeFalse()
+    ->and($slots[0]->slot)->toBe(SaveManager::QUICK_SAVE_SLOT)->and($slots[0]->isLoadable)->toBeFalse()
+    ->and($slots[0]->statusMessage)->toBe('This save needs a newer version of the game.')
     ->and($this->manager->getLatestSaveFile(true))->toBe($auto)
     ->and($this->manager->getLatestLoadableSaveFile(true))->toBe($good->path);
 });
@@ -403,7 +403,8 @@ it('pages every title load record inside the Terminal viewport and relayouts aft
   $this->manager->quickSave($this->scene);
   $title = new SaveCatalogTitleProbe($this->game, $this->manager);
   $title->openContinueMenu();
-  expect($title->getSelectedIndex())->toBe(6)->and($title->getSlots())->toHaveCount(7);
+  expect($title->getSlots()[$title->getSelectedIndex()]->slot)->toBe(SaveManager::QUICK_SAVE_SLOT)
+    ->and($title->getSlots())->toHaveCount(7);
   foreach ($title->getSlots() as $index => $slot) {
     $title->selectSlot($index);
     expect($title->getDrawnText())->toContain($slot->getLabel())
@@ -431,7 +432,7 @@ it('loads an automatic or quick Title selection through the existing saved-game 
   new ReflectionProperty(GameLoader::class, 'instance')->setValue(null, $loader);
   new ReflectionProperty(SaveManager::class, 'instance')->setValue(null, $this->manager);
   $title->openContinueMenu();
-  $index = $writer === 'autoSave' ? 0 : 6;
+  $index = array_find_key($title->getSlots(), fn($slot) => $slot->path === $saved->path);
   expect($title->getSlots()[$index]->path)->toBe($saved->path)->and($title->getLoadCount())->toBe(0);
   $title->selectSlot($index);
   $title->loadSelectedSlot();
@@ -448,12 +449,13 @@ it('does not dispatch empty or incompatible Title selections', function () {
   file_put_contents($quick->path, 'bad-header');
   $title = new SaveCatalogTitleProbe($this->game, $this->manager);
   $title->openContinueMenu();
-  $title->selectSlot(0);
+  $title->selectSlot(2);
   $title->loadSelectedSlot();
   expect($title->getDrawnText())->toContain('That file is empty.');
-  $title->selectSlot(5);
+  $title->selectSlot(0);
   $title->loadSelectedSlot();
-  expect($title->getLoadCount())->toBe(0)->and($title->getDrawnText())->toContain('Invalid save file header');
+  expect($title->getLoadCount())->toBe(0)->and($title->getDrawnText())->toContain('This save could not be read.')
+    ->not->toContain('Invalid save file header', $quick->path);
 });
 
 it('keeps semantic controller hints and status readable in the compact load viewport', function () {
@@ -736,8 +738,8 @@ it('honors every developer save capability combination for writes catalog Contin
   ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub(['save' => ['autosave' => $auto, 'quicksave' => $quick]]));
   $slots = $this->manager->getLoadSlots(5);
   expect(array_column($slots, 'slot'))->toBe([
-    ...($auto ? [SaveManager::AUTO_SAVE_SLOT] : []), 1, 2, 3, 4, 5,
     ...($quick ? [SaveManager::QUICK_SAVE_SLOT] : []),
+    ...($auto ? [SaveManager::AUTO_SAVE_SLOT] : []), 1, 2, 3, 4, 5,
   ]);
   expect($this->manager->getLatestLoadableSaveFile(true))->toBe($quick ? $this->manager->getQuickSavePath('quick')
     : ($auto ? $this->manager->getQuickSavePath('auto') : null));
@@ -835,3 +837,47 @@ it('keeps enabled corrupt records discoverable at Title but prevents direct Game
     expect($slot->isLoadable)->toBeFalse()->and($slot->statusMessage)->not->toBeNull();
   }
 })->with([false, true])->with([false, true]);
+
+
+it('keeps failed Quick Save first and developer diagnostics out of both load presentations', function () {
+  ConfigStore::put(ProjectConfig::class, new SceneAudioConfigStub(['save' => ['autosave' => false, 'quicksave' => true]]));
+  Console::setTerminalOutputEnabled(false);
+  Console::syncDimensions(80, 36);
+  ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 80, 'height' => 36]));
+  $quick = $this->manager->quickSave($this->scene);
+  file_put_contents($quick->path, 'bad-header');
+  $before = file_get_contents($quick->path);
+  $title = new SaveCatalogTitleProbe($this->game, $this->manager);
+  $title->openContinueMenu();
+  $title->loadSelectedSlot();
+  $theme = new MenuPresentationCatalog($this->root, ['schema' => 'ichiloto.menu/1', 'showInputHints' => false]);
+  $frame = SaveLoadMenuPresentation::compose($title->getSlots(), 0, $theme, new MenuInfoText());
+  $canvasText = implode('', array_map(fn($layer) => implode('', array_column($layer->runs, 'text')), $frame->textLayers));
+  foreach ([$title->getDrawnText(), $canvasText, $title->getSlots()[0]->getDescription()] as $text) {
+    expect($text)->toContain('Quick Save', 'This save could not be read.')
+      ->not->toContain($quick->path, 'Invalid save file header', 'unserialize');
+  }
+  expect($title->getSlots()[0]->slot)->toBe(SaveManager::QUICK_SAVE_SLOT)
+    ->and($title->getLoadCount())->toBe(0)
+    ->and(file_get_contents($quick->path))->toBe($before)
+    ->and(file_get_contents($this->root . '/logs/warning.log'))->toContain($quick->path, 'Invalid save file header');
+});
+
+it('reports a save changed after listing without exposing read failure details', function () {
+  Console::setTerminalOutputEnabled(false);
+  Console::syncDimensions(80, 36);
+  ConfigStore::put(PlaySettings::class, new PlaySettings(['width' => 80, 'height' => 36]));
+  $quick = $this->manager->quickSave($this->scene);
+  $title = new SaveCatalogTitleProbe($this->game, $this->manager);
+  $loader = new ReflectionClass(GameLoader::class)->newInstanceWithoutConstructor();
+  new ReflectionProperty(GameLoader::class, 'game')->setValue($loader, $this->game);
+  new ReflectionProperty(GameLoader::class, 'instance')->setValue(null, $loader);
+  new ReflectionProperty(SaveManager::class, 'instance')->setValue(null, $this->manager);
+  $title->openContinueMenu();
+  $title->selectSlot(0);
+  file_put_contents($quick->path, 'bad-header');
+  $title->loadSelectedSlot();
+  expect($title->getDrawnText())->toContain('This save could not be read.')
+    ->not->toContain($quick->path, 'Invalid save file header')
+    ->and($title->getLoadCount())->toBe(0);
+});

@@ -16,11 +16,10 @@ use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\PlaySettings;
 use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Ichiloto\Engine\UI\Modal\ModalManager;
-use Ichiloto\Engine\UI\Modal\PagedAlertModal;
 
-it('refuses a layered destination and routes the detailed recovery report to an alert instead of a toast', function (string $failure) {
+it('removes technical destination diagnostics from player feedback while refusing an unsafe layered transfer', function (string $failure) {
     $saved = [];
-    foreach ([Console::class, NotificationManager::class, EventManager::class, Time::class, ConfigStore::class, AudioManager::class, ModalManager::class] as $class) {
+    foreach ([Console::class, NotificationManager::class, EventManager::class, Time::class, ConfigStore::class, AudioManager::class, ModalManager::class, \Ichiloto\Engine\Util\Debug::class] as $class) {
         $saved[$class] = new ReflectionClass($class)->getStaticProperties();
     }
     $root = sys_get_temp_dir() . '/ichiloto-layer-transfer-' . bin2hex(random_bytes(8));
@@ -34,6 +33,7 @@ it('refuses a layered destination and routes the detailed recovery report to an 
     file_put_contents($overlay, $failure === 'source'
         ? "<?php\nreturn str_repeat(' ', 2);" : MapGridSource::buildSource('x', 'MAP'));
     try {
+        \Ichiloto\Engine\Util\Debug::configure(['log_directory' => $root . '/logs']);
         foreach ([NotificationManager::class, EventManager::class, ModalManager::class] as $class) {
             new ReflectionProperty($class, 'instance')->setValue(null, null);
         }
@@ -68,13 +68,14 @@ it('refuses a layered destination and routes the detailed recovery report to an 
         NotificationManager::getInstance($game)->render();
         $modals = ModalManager::getInstance($game);
         $pending = new ReflectionProperty($modals, 'pendingAlerts')->getValue($modals);
-        expect($pending)->toHaveCount(1)->and($pending[0]['title'])->toBe('Map transfer unavailable');
-        $alert = new PagedAlertModal($game, $pending[0]['message'], $pending[0]['title']);
-        $pages = new ReflectionProperty($alert, 'pages')->getValue($alert);
-        $visible = implode("\n", $pages);
-        expect($visible)->toContain('destination')
-            ->not->toContain($root)
-            ->and(implode("\n", Console::snapshot()->rows))->not->toContain('Map transfer unavailable')
+        $notice = new ReflectionMethod(NotificationManager::class, 'getActiveNotification')
+            ->invoke(NotificationManager::getInstance($game));
+        expect($pending)->toBe([])->and($notice)->not->toBeNull()
+            ->and($notice->getContentTitle())->toBe('Travel Unavailable');
+        $visible = implode("\n", Console::snapshot()->rows);
+        expect($visible)->toContain('Travel Unavailable', 'That area is unavailable right now.')
+            ->not->toContain($root, 'destination', 'map.php')
+            ->and(file_get_contents($root . '/logs/warning.log'))->toContain('Map destination could not be loaded:')
             ->and($camera->worldSpace)->toBe([['o', 'l', 'd']])
             ->and($scene->currentMapId)->toBe('original');
     } finally {
@@ -83,6 +84,8 @@ it('refuses a layered destination and routes the detailed recovery report to an 
         }
         foreach ([$paths['data'], $paths['event'], $root . '/layers/01.terrain.map.php', $overlay] as $path) { unlink($path); }
         rmdir($root . '/layers');
+        foreach (glob($root . '/logs/*') ?: [] as $log) { unlink($log); }
+        if (is_dir($root . '/logs')) { rmdir($root . '/logs'); }
         rmdir($root);
     }
 })->with(['source', 'dimensions']);

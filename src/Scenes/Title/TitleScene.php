@@ -20,6 +20,7 @@ use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Input;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
+use Ichiloto\Engine\IO\Saves\SaveFeedback;
 use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Scenes\AbstractScene;
@@ -931,8 +932,9 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
 
     try {
       $gameConfig = $gameLoader->loadSavedGame($slot->path);
-    } catch (Throwable) {
-      $this->continueStatusMessage = "That save file cannot be loaded.";
+    } catch (Throwable $error) {
+      Debug::warn('Could not read selected save: ' . $error->getMessage());
+      $this->continueStatusMessage = SaveFeedback::describeLoadFailure($error);
       $this->renderContinueMenu();
       return;
     }
@@ -942,8 +944,8 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
     } catch (Throwable $error) {
       $sceneManager->loadScene(self::class);
       $this->openContinueMenu();
-      $this->continueStatusMessage = 'Continue unavailable: ' . $error->getMessage();
-      Debug::warn($this->continueStatusMessage);
+      Debug::warn('Could not resume selected save: ' . $error->getMessage());
+      $this->continueStatusMessage = SaveFeedback::describeLoadFailure($error);
       $this->renderContinueMenu();
     }
   }

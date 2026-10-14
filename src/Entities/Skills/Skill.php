@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Ichiloto\Engine\Entities\Skills;
 
 use Ichiloto\Engine\Entities\Effects\SkillEffects\SkillEffect;
@@ -68,6 +70,47 @@ abstract class Skill implements SkillInterface
       if ($requiredWeapon instanceof Weapon) {
         $this->requiredWeapons[] = $requiredWeapon;
       }
+    }
+  }
+
+  /**
+   * Restores declared skill fields, including the historical weapon-list name.
+   * @param array<string, mixed> $data
+   */
+  public function __unserialize(array $data): void
+  {
+    $this->counterAttack = null;
+    foreach ($data as $key => $value) {
+      $name = str_contains($key, "\0") ? substr($key, strrpos($key, "\0") + 1) : $key;
+      if ($name === 'requiredWeapon') {
+        $data['requiredWeapons'] ??= $value;
+        unset($data[$key]);
+      }
+    }
+    $type = new \ReflectionObject($this);
+    foreach ($data as $key => $value) {
+      // PHP's default object serialization qualifies non-public property names.
+      $name = str_contains($key, "\0") ? substr($key, strrpos($key, "\0") + 1) : $key;
+      if (str_starts_with($key, "\0") && !str_starts_with($key, "\0*\0")) {
+        $owner = substr($key, 1, strrpos($key, "\0") - 1);
+        if (!is_a($this, $owner)) { throw new \InvalidArgumentException('Invalid serialized skill field owner.'); }
+        $property = new \ReflectionProperty($owner, $name);
+      } else {
+        if (!$type->hasProperty($name)) {
+          throw new \InvalidArgumentException('Unknown serialized skill field: ' . $name);
+        }
+        $property = $type->getProperty($name);
+      }
+      if ($property->isStatic() || $property->isVirtual()) {
+        throw new \InvalidArgumentException('Invalid serialized skill field: ' . $name);
+      }
+      // Bind to the declaring class so private extension fields retain their
+      // identity and typed assignments remain strict, unlike reflection coercion.
+      $assign = \Closure::bind(static function (Skill $skill, string $name, mixed $value): void {
+        $skill->{$name} = $value;
+      }, null, $property->getDeclaringClass()->getName());
+      if ($assign === null) { throw new \InvalidArgumentException('Cannot restore serialized skill field.'); }
+      $assign($this, $name, $value);
     }
   }
 }

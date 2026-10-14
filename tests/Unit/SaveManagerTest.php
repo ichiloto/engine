@@ -222,8 +222,8 @@ it('marks slots as incompatible when nested payload unserialization fails', func
   expect($slots)->toHaveCount(1)
     ->and($slots[0]->isEmpty)->toBeFalse()
     ->and($slots[0]->isLoadable)->toBeFalse()
-    ->and($slots[0]->statusMessage)->toContain('Could not unserialize save')
-    ->and($slots[0]->statusMessage)->toContain('Invalid serialized collection payload');
+    ->and($slots[0]->statusMessage)->toBe('This save could not be read. Please choose another save.')
+    ->and($slots[0]->getDescription())->not->toContain($slotPath, 'unserialize', 'Invalid serialized collection payload');
 
   cleanupSaveManagerTestFiles($slotPath);
 });

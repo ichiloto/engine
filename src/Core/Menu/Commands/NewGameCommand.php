@@ -51,7 +51,8 @@ class NewGameCommand extends MenuItem
     } catch (Throwable $error) {
       Debug::warn('New game could not start: ' . $error->getMessage());
       $sceneManager->loadScene(TitleScene::class);
-      alert($error->getMessage(), get_message('new_game.unavailable_title', '%1 Unavailable', $this->getLabel()));
+      alert(get_message('new_game.failed', 'The game could not start. Please try again.'),
+        get_message('new_game.unavailable_title', '%1 Unavailable', $this->getLabel()));
       return self::FAILURE;
     }
 

@@ -7,12 +7,12 @@ use Ichiloto\Engine\Core\Game;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Exceptions\CorruptSaveException;
 use Ichiloto\Engine\Exceptions\ActiveEventSaveException;
-use Ichiloto\Engine\Exceptions\SaveCompatibilityException;
 use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityManifest;
 use Ichiloto\Engine\IO\SaveCompatibility\SaveCompatibilityPipeline;
 use Ichiloto\Engine\IO\Saves\SavedGame;
 use Ichiloto\Engine\IO\Saves\SaveFeatures;
 use Ichiloto\Engine\IO\Saves\SaveSlot;
+use Ichiloto\Engine\IO\Saves\SaveFeedback;
 use Ichiloto\Engine\Scenes\Game\GameConfig;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Util\Debug;
@@ -214,8 +214,8 @@ class SaveManager
   }
 
   /**
-   * Read-only load catalog: one logical Autosave first when enabled, manual
-   * files, then an existing enabled Quick Save. Legacy autosaves remain intact.
+   * Read-only load catalog: an existing enabled Quick Save first, then one
+   * logical Autosave when enabled, then manual files. Legacy autosaves remain intact.
    * The newest loadable autosave wins; if none decode, show the newest failure.
    * @return SaveSlot[]
    */
@@ -232,7 +232,7 @@ class SaveManager
     }
     $quick = $this->getQuickSavePath(self::QUICK_SAVE_NAME);
     if (SaveFeatures::isQuickSaveEnabled() && file_exists($quick)) {
-      $slots[] = $this->inspectSaveSlot(self::QUICK_SAVE_SLOT, $quick);
+      array_unshift($slots, $this->inspectSaveSlot(self::QUICK_SAVE_SLOT, $quick));
     }
     return $slots;
   }
@@ -255,10 +255,7 @@ class SaveManager
         Debug::warn(sprintf('Skipping incompatible save slot %d (%s): %s', $slot, $path, $throwable->getMessage()));
       } catch (Throwable) {
       }
-      $message = $throwable instanceof SaveCompatibilityException
-        ? $throwable->getMessage()
-        : 'This save file is from an incompatible format.';
-      return SaveSlot::incompatible($slot, $path, $message);
+      return SaveSlot::incompatible($slot, $path, SaveFeedback::describeLoadFailure($throwable));
     }
   }
 

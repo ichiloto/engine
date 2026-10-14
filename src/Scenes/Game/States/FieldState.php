@@ -16,6 +16,7 @@ use Ichiloto\Engine\Field\FieldActionRegistry;
 use Ichiloto\Engine\Field\SkitPrompt;
 use Ichiloto\Engine\Field\SkitPromptPresentation;
 use Ichiloto\Engine\IO\ActionHints;
+use Ichiloto\Engine\IO\Saves\SaveFeedback;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasOverlayProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\IO\Console\Console;
@@ -287,7 +288,7 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
                 );
             } catch (\Throwable $exception) {
                 Debug::warn(sprintf('Quick save failed: %s', $exception->getMessage()));
-                alert('Saving is unavailable. Check storage permissions and try again.', 'Quick Save Unavailable');
+                alert(SaveFeedback::describeWriteFailure($exception), 'Quick Save Unavailable');
             }
         }
 
