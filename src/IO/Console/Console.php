@@ -1980,7 +1980,36 @@ class Console
     if ($glyphEnd >= $visibleWidth) { self::clearCellRange($cells, $lastAnchor, 1); }
 
     return self::terminalCursorAddress($start + 1, $row + 1)
-      . self::cellsToRow(array_slice($cells, $start, $end - $start + 1));
+      . self::serializeTerminalCells(array_slice($cells, $start, $end - $start + 1), $start, $row);
+  }
+
+  /**
+   * Native fonts and terminals need not advance by the canonical Unicode width.
+   * Keep ordinary text compact, but paint emoji/pictograph anchors in their
+   * owned cells and address the next cell explicitly. Clear the footprint first:
+   * a terminal drawing a two-cell emoji narrowly must not retain an old glyph
+   * in its continuation. Snapshots and graphical projections stay canonical.
+   *
+   * @param list<string> $cells Complete, clipped glyphs and their continuations.
+   */
+  private static function serializeTerminalCells(array $cells, int $start, int $row): string
+  {
+    $output = '';
+    foreach ($cells as $index => $cell) {
+      if ($cell === self::WIDE_SYMBOL_CONTINUATION) { continue; }
+      if (preg_match('/[^\x00-\x7F]/', $cell) !== 1
+        || preg_match('/[\p{Extended_Pictographic}\p{Emoji_Presentation}\x{FE0F}]/u', $cell) !== 1) {
+        $output .= $cell;
+        continue;
+      }
+      $width = max(1, TerminalText::getSymbolWidth($cell));
+      $blank = str_replace(TerminalText::stripAnsi($cell), str_repeat(' ', $width), $cell);
+      $output .= $blank . self::terminalCursorAddress($start + $index + 1, $row + 1) . $cell;
+      if ($index + $width < count($cells)) {
+        $output .= self::terminalCursorAddress($start + $index + $width + 1, $row + 1);
+      }
+    }
+    return $output;
   }
 
   /**

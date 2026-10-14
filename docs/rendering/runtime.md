@@ -74,6 +74,15 @@ Camera transforms are part of the retained V2 baseline. The historical
 `frame_viewport` support symbol may still be advertised, but Runtime and Presenter
 do not gate zoom on it. The older native 1x fallback is removed; an incompatible
 renderer needs a matching update. Native Terminal stays at its normal scale.
+
+Native Terminal paints emoji and pictographs at their canonical cell anchors,
+clears their reserved footprint, and addresses following text explicitly. This
+removes reliance on a terminal/font advancing by the Engine's emoji width:
+variation selectors can be honored differently by native terminals. Ordinary
+text and borders remain compact; logical snapshots and graphical projections
+retain the shared `TerminalText`/`NormalizedRow` geometry. The silent manual
+check `php tests/Fixtures/NativeTerminalGlyphPreview.php` uses no game, audio,
+settings or saves. Its price column, icon gaps and right markers should align.
 PHP reduces the field camera to whole cells, keeps small maps centered and
 follows the player across larger maps. Zoom never gives the renderer camera authority.
 
