@@ -559,6 +559,19 @@ with at most eight reductions and a one-pixel minimum, never truncating text.
 Impossible fits, unusable glyphs/assets and resource refusals are diagnosed and
 retain Terminal presentation, not substitute artwork or machine fonts.
 Shared request-capacity pressure retries on a later frame without polling.
+Scene suspension removes hidden retained field sign tickets through the existing
+`WorldObject::releaseTextPresentation()` path. It retires only that field's
+pending/prepared requests; late replies remain owned by the broker for cleanup.
+Installed definitions, stable subject identity, gameplay state and terminal
+geometry are preserved. Returning to the field naturally prepares its labels
+again. Map replacement and field stop continue to release the complete objects;
+other scenes' text requests and the shared request/instance limits are unchanged.
+Consumers may read the existing immutable 64-request bound through public
+`TextPreparationProviderInterface::MAX_REQUESTS`; the broker's existing
+`RendererTextRequests::MAX_REQUESTS` name remains an alias. Owned, pending and
+releasing requests all count against that shared bound, including cancelled
+pending work awaiting its late reply. This adds no provider method, capacity
+increase, availability polling or native protocol change.
 Locale, role, current font-file facts, board geometry or session changes retire
 stale tickets; map/context teardown releases owned preparation. Those file
 facts are transient invalidation, not permanent hashes or saved identity.

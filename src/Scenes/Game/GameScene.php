@@ -1041,6 +1041,9 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         $this->player?->stopGraphicalAnimation();
         $this->npcManager?->stopGraphicalAnimation();
         $this->cinematicStage?->pauseGraphicalAnimation();
+        // Map subjects are not rootGameObjects. Retire their owned text tickets
+        // while this field is inactive; the preserved signs prepare on return.
+        foreach ($this->mapManager?->getWorldObjects() ?? [] as $object) { $object->releaseTextPresentation(); }
         parent::suspend();
         $this->state->suspend();
     }

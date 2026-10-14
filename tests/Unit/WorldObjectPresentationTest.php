@@ -222,10 +222,10 @@ function getWorldSignQueries(FakeRendererTransport $transport): array
 }
 
 function completeWorldSignQuery(RendererClient $client, FakeRendererTransport $transport, string $layout = 'board-text',
-    float $width = 30, float $height = 10, ?string $failure = null): void
+    float $width = 30, float $height = 10, ?string $failure = null, ?string $requestId = null): void
 {
     $query = getWorldSignQueries($transport);
-    $request = $query[array_key_last($query)]->payload['requestId'];
+    $request = $requestId ?? $query[array_key_last($query)]->payload['requestId'];
     $data = $failure !== null ? ['type' => 'text_prepare_failed', 'requestId' => $request, 'message' => $failure]
         : ['type' => 'text_prepared', 'requestId' => $request, 'layoutId' => $layout,
             'metrics' => ['advance' => $width, 'baseline' => 9,
@@ -262,7 +262,7 @@ function writeWorldObjectLoadingSources(string $root, array $data, bool $include
 
 beforeEach(function () {
     $this->before = [];
-    foreach ([Console::class, Cursor::class, EventManager::class, Debug::class, ConfigStore::class] as $class) {
+    foreach ([Console::class, Cursor::class, EventManager::class, Debug::class, ConfigStore::class, \Ichiloto\Engine\IO\InputManager::class, \Ichiloto\Engine\UI\Modal\ModalManager::class] as $class) {
         $this->before[$class] = new ReflectionClass($class)->getStaticProperties();
     }
     $this->cwd = getcwd();
@@ -1258,3 +1258,83 @@ it('measures bounded dense reused objects with mixed sprite transport unchanged 
     }
     $client->shutdown();
 });
+
+
+it('removes retained inactive field sign tickets on excursion and preserves usable return and foreign ownership', function (bool $prepared) {
+    [$client, $transport, $sign] = createWorldSignHost($this->scene, $this->root);
+    $queries = getWorldSignQueries($transport);
+    $fieldRequestId = $queries[0]->payload['requestId'];
+    if ($prepared) { completeWorldSignQuery($client, $transport, 'field-before', requestId: $fieldRequestId); }
+    $other = $client->requestTextPreparation(new \Ichiloto\Engine\Rendering\Presentation\Text\TextSpec('Other scene',
+        [new \Ichiloto\Engine\Rendering\Presentation\Text\FontReference('Fonts/replaceable.ttf')], 12, 'und',
+        \Ichiloto\Engine\Rendering\Presentation\PresentationColor::rgb(20, 30, 40)));
+    completeWorldSignQuery($client, $transport, 'other-consumer', requestId: $other->requestId);
+    $before = [$sign->definition, $sign->getGraphicalSpriteId(), $this->scene->mapManager->tileMap,
+        $this->scene->mapManager->getCollisionGrid(), $this->scene->gameState->toArray(), $this->scene->player->position->x,
+        $this->scene->player->position->y];
+    $field = $this->scene;
+    $game = $field->getGame();
+    $manager = new class($game) extends SceneManager {
+        public function __construct(Game $game) {
+            $this->game = $game;
+            $this->scenes = new \Assegai\Collections\ItemList(\Ichiloto\Engine\Scenes\Interfaces\SceneInterface::class);
+            $this->eventManager = EventManager::getInstance($game);
+        }
+    };
+    new ReflectionProperty($game, 'sceneManager')->setValue($game, $manager);
+    new ReflectionProperty($field, 'uiManager')->setValue($field, new class($game) extends UIManager {
+        public function __construct(Game $game) { parent::__construct($game); }
+    });
+    new ReflectionProperty($field, 'sceneManager')->setValue($field, $manager);
+    $state = new class(new \Ichiloto\Engine\Scenes\SceneStateContext($field)) extends \Ichiloto\Engine\Scenes\Game\States\FieldState {
+        public function suspend(): void {}
+        public function resume(): void {}
+    };
+    new ReflectionProperty($field, 'fieldState')->setValue($field, $state);
+    new ReflectionProperty($field, 'state')->setValue($field, $state);
+    new ReflectionProperty($field, 'started')->setValue($field, true);
+    $target = new class($manager) extends \Ichiloto\Engine\Scenes\AbstractScene {
+        public function __construct(SceneManager $manager) {
+            $this->sceneManager = $manager;
+            $this->eventManager = EventManager::getInstance($manager->game);
+            $this->camera = new Camera($this, 12, 6);
+            $this->uiManager = new class($manager->game) extends UIManager {
+                public function __construct(Game $game) { parent::__construct($game); }
+            };
+            $this->modalEventHandler = static function (): void {};
+        }
+        public function configure(\Ichiloto\Engine\Scenes\Interfaces\SceneConfigurationInterface $config): void {}
+    };
+    new ReflectionProperty(\Ichiloto\Engine\UI\Modal\ModalManager::class, 'instance')->setValue(null, null);
+    $manager->addScenes($field, $target);
+    $manager->currentScene = $field;
+    $excursion = $manager->beginSceneExcursion($field, 1, new \Ichiloto\Engine\Scenes\Game\GameConfig(
+        'synthetic/target', new Party(), new Vector2(0, 0), new Rect(0, 0, 1, 1), MovementHeading::SOUTH));
+    expect($manager->currentScene)->toBe($target)
+        ->and($field->mapManager->findWorldObject($sign->definition->id))->toBe($sign)
+        ->and($sign->isCurrent())->toBeTrue();
+    if (!$prepared) { completeWorldSignQuery($client, $transport, 'field-late', requestId: $fieldRequestId); }
+    $released = array_merge(...array_map(static fn($message) => $message->payload['layoutIds'] ?? [], $transport->sent));
+    expect($released)->toContain($prepared ? 'field-before' : 'field-late')->not->toContain('other-consumer')
+        ->and($other->getResult()->layoutId)->toBe('other-consumer')
+        ->and(getWorldSignQueries($transport))->toHaveCount(2);
+    $manager->finishSceneExcursion($excursion, \Ichiloto\Engine\Scenes\SceneExcursionOutcome::cancel(
+        new class implements \Ichiloto\Engine\Scenes\Interfaces\SceneExcursionResultInterface {}));
+    expect($manager->currentScene)->toBe($field)->and($field->isStarted())->toBeTrue();
+    expect($field->getPresentationWorldCanvases())->toBe([])->and(getWorldSignQueries($transport))->toHaveCount(3);
+    completeWorldSignQuery($client, $transport, 'field-returned');
+    expect($field->getPresentationWorldCanvases())->toHaveCount(1)
+        ->and($other->getResult()->layoutId)->toBe('other-consumer')
+        ->and([$sign->definition, $sign->getGraphicalSpriteId(), $field->mapManager->tileMap,
+            $field->mapManager->getCollisionGrid(), $field->gameState->toArray(), $field->player->position->x,
+            $field->player->position->y])->toBe($before);
+    $field->suspend();
+    $field->suspend(); // Cleanup remains safe if another lifecycle boundary already released the sign.
+    $field->resume();
+    $field->getPresentationWorldCanvases();
+    completeWorldSignQuery($client, $transport, 'field-returned-again');
+    expect($field->getPresentationWorldCanvases())->toHaveCount(1)->and($other->getResult()->layoutId)->toBe('other-consumer');
+    $field->stop();
+    $client->releaseTextPreparation($other);
+    $client->shutdown();
+})->with(['pending' => [false], 'prepared' => [true]]);

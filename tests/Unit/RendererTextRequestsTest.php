@@ -132,6 +132,9 @@ it('returns backpressure without retaining a phantom request or polling', functi
 it('bounds owned and cancelled in-flight requests until their renderer replies', function () {
   [$client, $transport] = queryTextClient();
   $requests = [];
+  expect(\Ichiloto\Engine\Rendering\Text\TextPreparationProviderInterface::MAX_REQUESTS)->toBe(64)
+    ->and(\Ichiloto\Engine\Rendering\Text\RendererTextRequests::MAX_REQUESTS)
+    ->toBe(\Ichiloto\Engine\Rendering\Text\TextPreparationProviderInterface::MAX_REQUESTS);
   for ($i = 0; $i < 64; $i++) { $requests[] = $client->requestTextPreparation(queryTextSpec()); }
   foreach ($requests as $request) { $client->releaseTextPreparation($request); }
   expect(fn() => $client->requestTextPreparation(queryTextSpec()))->toThrow(OverflowException::class, '64');

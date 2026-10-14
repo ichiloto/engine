@@ -19,7 +19,7 @@ use OverflowException;
 /** The broker owns query lifetimes; input and retained generations are separate streams. @internal */
 final class RendererTextRequests
 {
-  public const int MAX_REQUESTS = 64;
+  public const int MAX_REQUESTS = TextPreparationProviderInterface::MAX_REQUESTS;
   private readonly object $owner;
   private int $sequence = 0;
   /** @var array<string, RendererTextPreparationRequest> Prepared and cancelled in-flight ownership. */
