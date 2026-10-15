@@ -23,6 +23,8 @@ $game = null;
 $fixture = null;
 $result = 0;
 $report = '';
+$signalHandlers = [];
+$asyncSignals = null;
 $terminalBorrowed = false;
 $releaseTerminal = static function () use (&$terminalBorrowed): void {
     if (!$terminalBorrowed) { return; }
@@ -122,6 +124,16 @@ try {
         throw new InvalidArgumentException('The fixture must acknowledge the exact requested transition mode.');
     }
     $requireSilence();
+    if (function_exists('pcntl_signal') && function_exists('pcntl_async_signals')) {
+        $asyncSignals = pcntl_async_signals();
+        foreach ([SIGINT, SIGTERM] as $signal) {
+            $signalHandlers[$signal] = pcntl_signal_get_handler($signal);
+            pcntl_signal($signal, static function (int $signal): never {
+                throw new RuntimeException('Scene preview cancelled by signal ' . $signal . '.');
+            });
+        }
+        pcntl_async_signals(true);
+    }
     if ($terminal) {
         // The trusted factory is silent before borrowing the player's screen.
         // Scripted fixture input owns its input source; no raw/echo modes are changed here.
@@ -205,6 +217,8 @@ try {
     fwrite(STDERR, $error->getMessage() . "\n");
     $result = 1;
 } finally {
+    foreach ($signalHandlers as $signal => $handler) { pcntl_signal($signal, $handler); }
+    if ($asyncSignals !== null) { pcntl_async_signals($asyncSignals); }
     try { $game?->sceneManager->stop(); }
     catch (Throwable $error) { fwrite(STDERR, 'Scene cleanup: ' . $error->getMessage() . "\n"); $result = 1; }
     try {

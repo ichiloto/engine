@@ -3114,6 +3114,10 @@ Terminal drawing, and restores wrapping/cursor/screen before printing its report
 It does not change raw/echo modes or the player's settings. The report identifies
 CPU, Terminal or GPUI presentation; CPU output remains separate from native visual
 acceptance. This permits the same saved-state scenario to run in both renderers.
+On hosts with PCNTL, SIGINT/SIGTERM enter the driver's failure cleanup and restore
+the prior handlers. A macOS pseudo-terminal cancellation probe verified screen,
+wrap and cursor restoration after Ctrl+C; this is lifecycle evidence, not a native
+Terminal visual result.
 The new driver and related runtime/entry checks pass 69 tests / 605 assertions;
 driver/test static analysis is clean. The full Engine suite passes 4,687 tests,
 one existing skip / 174,623 assertions, and full source analysis is clean.
