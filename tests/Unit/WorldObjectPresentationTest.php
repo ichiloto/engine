@@ -365,6 +365,24 @@ it('recolors the entire owned footprint without duplicate subjects or changes to
     expect($this->scene->camera->worldSpace[1][2])->toBe('s');
 });
 
+it('keeps installed authored glyphs through initial and repeated terminal projection without overrides', function (bool $hasObject) {
+    $map = $this->scene->mapManager;
+    $map->applyPreparedMap(createWorldObjectPreparedMap($hasObject ? [createWorldObjectSource()] : []), $this->scene->player);
+    $authored = $map->tileMap;
+    $collision = $map->getCollisionGrid();
+    Console::setRetainedWorldPresentation(false);
+    for ($pass = 0; $pass < 2; $pass++) {
+        $map->render();
+        expect($this->scene->camera->worldSpace)->toBe($authored)
+            ->and($map->tileMap)->toBe($authored)->and($map->getCollisionGrid())->toBe($collision);
+        foreach ([[1, 1], [2, 1]] as [$x, $y]) {
+            $screen = $this->scene->camera->getScreenSpacePosition(new Vector2($x, $y));
+            expect(\Ichiloto\Engine\IO\Console\TerminalText::stripAnsi(Console::charAt((int)$screen->x, (int)$screen->y)))
+                ->toBe(\Ichiloto\Engine\IO\Console\TerminalText::stripAnsi($authored[$y][$x]));
+        }
+    }
+})->with([false, true]);
+
 it('restores authored terminal presentation for an explicit null variant and keeps missing-art fallback styled', function () {
     $source = createWorldObjectSource(['sprites2d' => ['asset' => 'Graphics/missing.png'],
         'terminal' => '<fg=yellow>o</>', 'variants' => [[
