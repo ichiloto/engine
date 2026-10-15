@@ -137,9 +137,10 @@ function createWorldObjectSource(array $extra = []): array
     ], $extra);
 }
 
-function createWorldObjectPreparedMap(array $objects, string $id = 'synthetic/room', ?FieldPresentationCatalog $catalog = null): PreparedMap
+function createWorldObjectPreparedMap(array $objects, string $id = 'synthetic/room', ?FieldPresentationCatalog $catalog = null,
+    ?MapLayerSet $layers = null): PreparedMap
 {
-    $layers = new MapLayerSet([
+    $layers ??= new MapLayerSet([
         new MapLayer('ground', 0, false, 'ground', "gggg\ngggg\ngggg"),
         new MapLayer('fixtures', 10, false, 'fixtures', "    \n oo \n    "),
         new MapLayer('signs', 20, false, 'signs', "    \n  s \n    "),
@@ -333,6 +334,37 @@ it('projects one-shot completion into both object artwork and terminal state acr
         ->and($object->getTerminalSymbol())->toBeNull(); // Old installation cannot claim the new map.
 });
 
+it('recolors the entire owned footprint without duplicate subjects or changes to other layers and physical cells', function () {
+    $source = createWorldObjectSource(['terminal' => ['color' => 'yellow'],
+        'covers' => ['layer' => 'fixtures', 'cells' => [[1, 1], [2, 1]], 'tileLayers' => ['objects']],
+        'variants' => [[
+            'id' => 'opened', 'conditions' => [['type' => 'map_event', 'name' => 'synthetic/room', 'marker' => 'C']],
+            'sprites2d' => ['asset' => 'Graphics/energized.png'], 'terminal' => ['color' => 'white'],
+        ]]]);
+    $layers = new MapLayerSet([
+        new MapLayer('ground', 0, false, 'ground', "gggg\ngggg\ngggg"),
+        new MapLayer('fixtures', 10, false, 'fixtures', "    \n oo \n    "),
+    ]);
+    $map = $this->scene->mapManager;
+    $prepared = createWorldObjectPreparedMap([$source], layers: $layers);
+    $map->applyPreparedMap($prepared, $this->scene->player);
+    $before = [$map->tileMap, $map->getCollisionGrid(), $map->layers];
+    $this->scene->gameState->markEventComplete('synthetic/room', 'C');
+    $map->refreshTerminalPresentation();
+    expect(iterator_to_array($map->getWorldObjects()))->toHaveCount(1);
+    foreach ([1, 2] as $x) {
+        $cell = $this->scene->camera->worldSpace[1][$x];
+        expect(\Ichiloto\Engine\IO\Console\TerminalText::stripAnsi($cell))->toBe('o')
+            ->and(\Ichiloto\Engine\IO\Console\SgrColorParser::parse($cell)['foreground']->toArray())
+            ->toBe(['kind' => 'ansi16', 'index' => 7]);
+    }
+    expect([$map->tileMap, $map->getCollisionGrid(), $map->layers])->toBe($before);
+    // A later authored gameplay layer may cover part of the object: do not overwrite it.
+    $map->applyPreparedMap(createWorldObjectPreparedMap([$source]), $this->scene->player);
+    $map->refreshTerminalPresentation();
+    expect($this->scene->camera->worldSpace[1][2])->toBe('s');
+});
+
 it('restores authored terminal presentation for an explicit null variant and keeps missing-art fallback styled', function () {
     $source = createWorldObjectSource(['sprites2d' => ['asset' => 'Graphics/missing.png'],
         'terminal' => '<fg=yellow>o</>', 'variants' => [[
@@ -366,6 +398,9 @@ it('refuses malformed terminal cells and incomplete map-event identities before 
     expect(fn() => createWorldObjectPreparedMap([createWorldObjectSource(['variants' => [[
         'id' => 'opened', 'conditions' => [['type' => 'map_event', 'name' => 'synthetic/room']], 'sprites2d' => null,
     ]]])]))->toThrow(InvalidArgumentException::class, 'marker');
+    $unowned = createWorldObjectSource(['terminal' => ['color' => 'white']]);
+    unset($unowned['covers']);
+    expect(fn() => createWorldObjectPreparedMap([$unowned]))->toThrow(InvalidArgumentException::class, 'covers');
 });
 
 it('prepares localized world signs without polling and overlays the existing ground without changing gameplay', function () {

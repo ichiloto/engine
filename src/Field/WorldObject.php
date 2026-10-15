@@ -62,8 +62,24 @@ final class WorldObject implements GraphicalSpriteProviderInterface
 
     public function getTerminalSymbol(): ?string
     {
-        return $this->isCurrent()
-            ? $this->definition->selectVariant($this->scene->gameState, $this->scene->party)['terminal'] : null;
+        return $this->getTerminalCells()[$this->definition->y][$this->definition->x] ?? null;
+    }
+
+    /** Styled cells of the one object; coverage may be irregular and never changes physical occupancy. */
+    public function getTerminalCells(): array
+    {
+        if (!$this->isCurrent()) { return []; }
+        $presentation = $this->definition->selectVariant($this->scene->gameState, $this->scene->party)['terminal'];
+        if ($presentation === null) { return []; }
+        if (!$presentation->usesOwnedFootprint()) {
+            return [$this->definition->y => [$this->definition->x => $presentation->getSymbol(' ')]];
+        }
+        $cells = [];
+        foreach ($this->definition->terminalFootprint as $cell) {
+            if ($this->scene->mapManager?->layers?->getGameplayLayerAt($cell['x'], $cell['y'])->name !== $cell['layer']) { continue; }
+            $cells[$cell['y']][$cell['x']] = $presentation->getSymbol($cell['symbol']);
+        }
+        return $cells;
     }
 
     public function getPresentationWorldCanvas(): ?\Ichiloto\Engine\Rendering\Presentation\PresentationWorldCanvas

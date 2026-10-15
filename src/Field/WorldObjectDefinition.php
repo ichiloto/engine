@@ -9,7 +9,6 @@ use Ichiloto\Engine\Animations\Field\FieldPresentationCatalog;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Entities\Party;
-use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot;
 use Ichiloto\Engine\Rendering\Sprites\CharacterSheet;
 use Ichiloto\Engine\Rendering\Sprites\FieldSpriteRole;
@@ -36,7 +35,8 @@ final readonly class WorldObjectDefinition
         public array $coverage,
         public ?WorldObjectResource $resource = null,
         public ?\Ichiloto\Engine\Localization\LocalizedText $label = null,
-        public ?string $terminal = null,
+        public ?WorldObjectTerminalPresentation $terminal = null,
+        public array $terminalFootprint = [],
     ) {}
 
     /**
@@ -77,7 +77,7 @@ final readonly class WorldObjectDefinition
             }
             $pivot = $resource?->pivot ?? PresentationSpritePivot::fromArray($entry['pivot']);
             $sprites = $resource !== null ? $resource->sprites : self::readSprites($entry['sprites2d']);
-            $terminal = self::readTerminalSymbol($entry['terminal'] ?? null);
+            $terminal = WorldObjectTerminalPresentation::read($entry['terminal'] ?? null);
             $label = null;
             if ($resource?->sign !== null) {
                 $label = \Ichiloto\Engine\Localization\LocalizedText::fromArray($entry['label'] ?? null);
@@ -106,15 +106,37 @@ final readonly class WorldObjectDefinition
                 WorldConditionEvaluator::validateAll($conditions, "worldObjects/{$id}/{$variantId}/conditions");
                 $variantIds[$variantId] = true;
                 $parsed[] = ['id' => $variantId, 'conditions' => $conditions, 'sprites' => self::readSprites($variant['sprites2d']),
-                    'terminal' => array_key_exists('terminal', $variant) ? self::readTerminalSymbol($variant['terminal']) : $terminal];
-            }
-            if ($terminal !== null || array_any($parsed, static fn(array $variant): bool => $variant['terminal'] !== null)) {
-                if (isset($terminalOwners[$anchor['y']][$anchor['x']])) {
-                    throw new InvalidArgumentException("World object '{$id}' overlaps another object's terminal anchor.");
-                }
-                $terminalOwners[$anchor['y']][$anchor['x']] = true;
+                    'terminal' => array_key_exists('terminal', $variant) ? WorldObjectTerminalPresentation::read($variant['terminal']) : $terminal];
             }
             [$coverage, $coverageResolved] = self::readCoverage($entry, $layers, $graphics, $tileOwners);
+            $terminalFootprint = $terminalClaims = [];
+            $terminalPresentations = [$terminal, ...array_column($parsed, 'terminal')];
+            $needsFootprint = array_any($terminalPresentations, static fn(?WorldObjectTerminalPresentation $presentation): bool
+                => $presentation?->usesOwnedFootprint() ?? false);
+            foreach ($needsFootprint ? ($coverage['glyphs'] ?? []) : [] as $layerName => $rows) {
+                $layer = array_find($layers->layers, static fn(MapLayer $layer): bool => $layer->name === $layerName);
+                foreach ($rows as $y => $cells) {
+                    foreach ($cells as $x => $_) {
+                        $terminalFootprint[] = ['x' => $x, 'y' => $y, 'layer' => $layerName, 'symbol' => $layer->grid[$y][$x]];
+                    }
+                }
+            }
+            foreach ($terminalPresentations as $presentation) {
+                if ($presentation === null) { continue; }
+                if (!$presentation->usesOwnedFootprint()) { $terminalClaims[$anchor['y']][$anchor['x']] = true; continue; }
+                if ($terminalFootprint === []) {
+                    throw new InvalidArgumentException("World object '{$id}' terminal color requires an explicit covers glyph footprint.");
+                }
+                foreach ($terminalFootprint as $cell) { $terminalClaims[$cell['y']][$cell['x']] = true; }
+            }
+            foreach ($terminalClaims as $y => $cells) {
+                foreach ($cells as $x => $_) {
+                    if (isset($terminalOwners[$y][$x])) {
+                        throw new InvalidArgumentException("World object '{$id}' overlaps another object's terminal presentation.");
+                    }
+                    $terminalOwners[$y][$x] = true;
+                }
+            }
             foreach ($coverage as $kind => $names) {
                 foreach ($names as $name => $rows) {
                     foreach ($rows as $y => $cells) {
@@ -128,7 +150,7 @@ final readonly class WorldObjectDefinition
                 }
             }
             $objects[$id] = new self($id, $anchor['x'], $anchor['y'], $pivot, $sprites, $parsed,
-                $coverageResolved ? $coverage : [], $resource, $label, $terminal);
+                $coverageResolved ? $coverage : [], $resource, $label, $terminal, $terminalFootprint);
         }
         return array_values($objects);
     }
@@ -140,16 +162,6 @@ final readonly class WorldObjectDefinition
             if (WorldConditionEvaluator::allHold($variant['conditions'], $state, $party)) { return $variant; }
         }
         return ['id' => null, 'sprites' => $this->sprites, 'terminal' => $this->terminal];
-    }
-
-    /** A display cell at the anchor, never a physical stamp or a change to authored glyph identity. */
-    private static function readTerminalSymbol(mixed $symbol): ?string
-    {
-        if ($symbol === null) { return null; }
-        if (!is_string($symbol) || TerminalText::symbolCount($symbol) !== 1 || TerminalText::displayWidth($symbol) !== 1) {
-            throw new InvalidArgumentException('World object terminal presentation must be one styled terminal cell or null.');
-        }
-        return TerminalText::visibleSymbols($symbol)[0];
     }
 
     private static function requireId(mixed $id): string

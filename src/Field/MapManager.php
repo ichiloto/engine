@@ -514,8 +514,9 @@ class MapManager implements CanRenderAt
   {
     $cells = [];
     foreach ($this->worldObjects as $object) {
-      $symbol = $object->getTerminalSymbol();
-      if ($symbol !== null) { $cells[$object->definition->y][$object->definition->x] = $symbol; }
+      foreach ($object->getTerminalCells() as $y => $row) {
+        foreach ($row as $x => $symbol) { $cells[$y][$x] = $symbol; }
+      }
     }
     if ($cells === $this->terminalPresentationCells) { return; }
     $this->terminalPresentationCells = $cells;

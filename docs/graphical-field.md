@@ -429,13 +429,20 @@ presentation budget remains 1,024 sprites. An additional static tier still
 requires mixed-scene/native paint evidence and owner acceptance; PHP projection
 and fake transport measurements alone do not establish decode cost or FPS.
 
-An inline object and each of its variants may declare `terminal`: one styled
-display cell at the object's anchor, for example `<fg=yellow>m</>` before a
-chest opens and `<fg=white>m</>` afterward. Omission in a variant inherits the
-base cell; explicit `null` restores the authored map cell. Presentation never
+An inline object and each of its variants may declare `terminal`: either one
+styled display cell at the object's anchor, or `['color' => 'yellow']` to
+recolour its entire declared `covers` glyph footprint. The footprint may be
+irregular or span several cells; it remains one subject/event. The colour
+form preserves each authored glyph, background and attributes, and never
+overwrites another gameplay layer above it. It requires explicit glyph
+coverage, independently of optional graphical coverage availability. A
+styled anchor cell, for example `<fg=yellow>m</>`, can supply deliberate
+Terminal presentation when the map's original cell is blank.
+Omission in a variant inherits the base treatment; explicit `null` restores
+the authored map cells. Presentation never
 rewrites the map, changes collision, or stores a second gameplay state. Two
-objects may not claim the same Terminal anchor. The same selected variant
-supplies graphical artwork and the Terminal cell; unavailable artwork retains
+objects may not claim the same Terminal presentation cell. The same selected variant
+supplies graphical artwork and Terminal treatment; unavailable artwork retains
 the styled glyph fallback. Reinstalling a map releases the old presentation.
 
 Use a `map_event` condition to read a completed one-shot event directly from
@@ -443,12 +450,12 @@ the existing save state. Its `name` is the map ID and `marker` is the event
 identity, independent of the chest's position or its artwork. For example:
 
 ```php
-'terminal' => '<fg=yellow>m</>',
+'terminal' => ['color' => 'yellow'], // Over the object's explicitly owned glyph cells.
 'variants' => [[
   'id' => 'opened',
   'conditions' => [['type' => 'map_event', 'name' => 'town/home', 'marker' => 'C']],
   'sprites2d' => ['asset' => 'Graphics/Objects/chest-open.png'],
-  'terminal' => '<fg=white>m</>',
+  'terminal' => ['color' => 'white'],
 ]],
 ```
 
