@@ -23,6 +23,12 @@ $game = null;
 $fixture = null;
 $result = 0;
 $report = '';
+$terminalBorrowed = false;
+$releaseTerminal = static function () use (&$terminalBorrowed): void {
+    if (!$terminalBorrowed) { return; }
+    $terminalBorrowed = false;
+    Console::reset();
+};
 $requireSilence = static function (): void {
     foreach ([ProjectConfig::class, PlaySettings::class] as $class) {
         if (!ConfigStore::has($class)) { throw new RuntimeException('Scene preview requires explicit silent settings.'); }
@@ -34,10 +40,11 @@ $requireSilence = static function (): void {
     }
 };
 try {
-    $options = getopt('', ['renderer:', 'asset-root:', 'fixture:', 'subjects:', 'duration:', 'transitions:', 'no-launch', 'reduced-motion', 'wait-start', 'help']);
+    $options = getopt('', ['renderer:', 'asset-root:', 'fixture:', 'subjects:', 'duration:', 'transitions:', 'no-launch', 'terminal', 'reduced-motion', 'wait-start', 'help']);
     if (isset($options['help'])) {
         echo "Usage: php tools/gpui-scene-preview.php --asset-root=PATH --fixture=PHP [--renderer=PATH]\n"
-            . "  [--subjects=ID,ID --duration=120 --transitions=project|on|off --reduced-motion --no-launch]\n"
+            . "  [--subjects=ID,ID --duration=120 --transitions=project|on|off --reduced-motion --no-launch|--terminal]\n"
+            . "--terminal presents the same scene through the native Terminal; requires a TTY and no --renderer/--no-launch.\n"
             . "The trusted factory accepts root, reducedMotion, optional subject IDs and transition mode. It returns game, grid,\n"
             . "start/advance(seconds)/isComplete/verify/dispose callbacks. Initial scenes start after runtime attachment.\n"
             . "Native startup uses the resolved Game viewport after attachment, keeping the fixture's cell size.\n"
@@ -54,6 +61,13 @@ try {
     $renderer = $options['renderer'] ?? '';
     $duration = filter_var($options['duration'] ?? '120', FILTER_VALIDATE_FLOAT);
     $noLaunch = isset($options['no-launch']);
+    $terminal = isset($options['terminal']);
+    if ($terminal && ($noLaunch || isset($options['renderer']))) {
+        throw new InvalidArgumentException('--terminal cannot be combined with --renderer or --no-launch.');
+    }
+    if ($terminal && (!stream_isatty(STDIN) || !stream_isatty(STDOUT))) {
+        throw new InvalidArgumentException('--terminal requires a native terminal on stdin and stdout.');
+    }
     $waitStart = isset($options['wait-start']);
     $reduced = isset($options['reduced-motion']);
     $transitionProvided = array_any($argv, static fn(string $argument): bool => $argument === '--transitions'
@@ -74,13 +88,13 @@ try {
     }
     if (!is_string($root) || !is_dir($root) || !is_string($fixturePath) || !is_file($fixturePath)
         || $duration === false || !is_finite($duration) || $duration < 1 || $duration > 300
-        || (!$noLaunch && (!is_string($renderer) || !is_file($renderer) || !is_executable($renderer)))) {
+        || (!$noLaunch && !$terminal && (!is_string($renderer) || !is_file($renderer) || !is_executable($renderer)))) {
         throw new InvalidArgumentException('Provide readable assets/fixture paths, an executable renderer and duration 1..300.');
     }
     // The trusted factory may change cwd; bind CLI paths to the caller before executing it.
     $root = realpath($root) ?: throw new InvalidArgumentException('Asset root could not be resolved.');
     $fixturePath = realpath($fixturePath) ?: throw new InvalidArgumentException('Fixture path could not be resolved.');
-    if (!$noLaunch) {
+    if (!$noLaunch && !$terminal) {
         $renderer = realpath($renderer) ?: throw new InvalidArgumentException('Renderer path could not be resolved.');
     }
     $factory = (static fn(string $path): mixed => require $path)($fixturePath);
@@ -108,7 +122,19 @@ try {
         throw new InvalidArgumentException('The fixture must acknowledge the exact requested transition mode.');
     }
     $requireSilence();
-    if (!$noLaunch) {
+    if ($terminal) {
+        // The trusted factory is silent before borrowing the player's screen.
+        // Scripted fixture input owns its input source; no raw/echo modes are changed here.
+        Console::setTerminalOutputEnabled(true);
+        $terminalBorrowed = true;
+        register_shutdown_function($releaseTerminal);
+        Console::enterAlternateScreen();
+        Console::disableLineWrap();
+        Console::clear();
+        Console::cursor()->hide();
+        $physical = Console::getAvailableSize();
+        Console::syncTerminalViewport($physical['width'], $physical['height']);
+    } elseif (!$noLaunch) {
         $runtime = new RendererRuntime(new RendererRuntimeConfig(new RendererProcessConfig([$renderer]), $root,
             $grid->cellWidth, $grid->cellHeight, requiredCapabilities: $fixture['requiredCapabilities'] ?? []));
         $game->useRendererRuntime($runtime);
@@ -171,6 +197,7 @@ try {
     $evidence = $fixture['verify']();
     $report = json_encode(['frames' => $frames, 'nativePresentationChanges' => $changes,
         'elapsedSeconds' => $seconds, 'realtime' => $realtime, 'reducedMotion' => $reduced, 'transitionMode' => $transitionMode,
+        'presentation' => $terminal ? 'terminal' : ($noLaunch ? 'cpu' : 'gpui'),
         'subjects' => $fixture['subjects'] ?? null, 'fixture' => $evidence], JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT) . "\n";
     $report .= $noLaunch ? "CPU scene verification passed; no native window launched.\n"
         : "Silent scene preview closed cleanly. Presentation submissions are not visual acceptance or GPU timing.\n";
@@ -184,6 +211,8 @@ try {
         $exit = $runtime?->shutdown();
         if ($exit !== null && $exit !== 0) { throw new RuntimeException('Scene preview renderer did not exit cleanly.'); }
     } catch (Throwable $error) { fwrite(STDERR, 'Renderer cleanup: ' . $error->getMessage() . "\n"); $result = 1; }
+    try { $releaseTerminal(); }
+    catch (Throwable $error) { fwrite(STDERR, 'Terminal cleanup: ' . $error->getMessage() . "\n"); $result = 1; }
     try { if (is_callable($fixture['dispose'] ?? null)) { $fixture['dispose'](); } }
     catch (Throwable $error) { fwrite(STDERR, 'Fixture cleanup: ' . $error->getMessage() . "\n"); $result = 1; }
 }

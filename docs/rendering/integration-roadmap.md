@@ -3107,6 +3107,13 @@ retained world/sprites and owned transitions. It checks effective music/sfx/mast
 mute before native process creation and during playback, bounds the session,
 stops scene-owned work, closes its own renderer and disposes fixture state on
 success or failure. Production wall-clock fixtures are paced on the CPU too.
+The same driver also accepts `--terminal`, mutually exclusive with `--renderer`
+and `--no-launch`. It requires an actual TTY, checks mute before borrowing the
+alternate screen, uses the fixture's existing scripted input and production
+Terminal drawing, and restores wrapping/cursor/screen before printing its report.
+It does not change raw/echo modes or the player's settings. The report identifies
+CPU, Terminal or GPUI presentation; CPU output remains separate from native visual
+acceptance. This permits the same saved-state scenario to run in both renderers.
 The new driver and related runtime/entry checks pass 69 tests / 605 assertions;
 driver/test static analysis is clean. The full Engine suite passes 4,687 tests,
 one existing skip / 174,623 assertions, and full source analysis is clean.

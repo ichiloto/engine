@@ -11,13 +11,14 @@ use Tests\Support\Rendering\RetainedFrameState;
 require_once __DIR__ . '/../Support/Rendering/RetainedFrameState.php';
 
 function runScenePreviewTool(array $arguments = [], ?string $peerScenario = null,
-    string $fixtureName = 'ScenePreview.php', ?string $startupInput = null, bool $closeStartupInput = true): array
+    string $fixtureName = 'ScenePreview.php', ?string $startupInput = null, bool $closeStartupInput = true,
+    bool $terminalOnly = false): array
 {
     $directory = sys_get_temp_dir() . '/scene-preview-' . bin2hex(random_bytes(6));
     mkdir($directory);
     $process = null;
     try {
-        $mode = ['--no-launch'];
+        $mode = $terminalOnly ? ['--terminal'] : ['--no-launch'];
         $fixturePath = __DIR__ . '/../Fixtures/Rendering/' . $fixtureName;
         if ($peerScenario !== null) {
             $peer = $directory . '/peer.php';
@@ -67,6 +68,22 @@ function getScenePreviewEvidence(array $result): array
     expect($end)->not->toBeFalse();
     return json_decode(substr($result['stdout'], 0, $end), true, flags: JSON_THROW_ON_ERROR);
 }
+
+it('refuses conflicting presentation modes before loading a fixture or borrowing a screen', function (array $arguments) {
+    $result = runScenePreviewTool($arguments, terminalOnly: true);
+    expect($result['exit'])->toBe(1)->and($result['stdout'])->toBe('')
+        ->and($result['stderr'])->toContain('--terminal cannot be combined')
+        ->and($result['cleanup'])->toBeNull()->and($result['wire'])->toBe([]);
+})->with([
+    [['--no-launch']], [['--renderer=/unread/renderer']],
+]);
+
+it('refuses redirected terminal previews before fixture execution instead of silently accepting a CPU run', function () {
+    $result = runScenePreviewTool(terminalOnly: true);
+    expect($result['exit'])->toBe(1)->and($result['stdout'])->toBe('')
+        ->and($result['stderr'])->toContain('--terminal requires a native terminal')
+        ->and($result['cleanup'])->toBeNull()->and($result['wire'])->toBe([]);
+});
 
 it('drives scenes without requiring a field canvas and stops early after verified completion', function (bool $reduced) {
     $result = runScenePreviewTool($reduced ? ['--reduced-motion', '--subjects=field'] : []);
