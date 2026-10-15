@@ -467,6 +467,21 @@ Editor condition codecs must preserve both map and marker references; the
 graphical world-object authoring path must preserve Terminal variants without
 requiring graphical authoring in the TUI.
 
+Native verification on 2026-10-15 used Last Legend's reusable
+`ChestStateAcceptance.php` fixture through the shared scene-preview driver.
+On macOS, PHP 8.5.11 and the installed GPUI renderer (`b0aad6ac…`), two current
+authored chests covered single-cell and multi-cell ownership. The real opening
+action, disk save/load and authored away/return transfers completed eight
+checkpoints in 91.54 seconds; each reward was granted once. Open artwork was
+observed in the native window, including after map return. The native run's
+state/artwork/colour assertions passed; this is not an image comparison of every
+checkpoint. Andrew separately confirmed the native Terminal visual check:
+"Passed: colours persist and it closes cleanly". Automated control of macOS
+Terminal was unavailable, so that visual result is user-reported. Both sessions
+were muted, with no audio playback backend and isolated disposable storage.
+Normal saves/settings were preserved. This is macOS evidence, not Linux,
+Windows/WSLg, full-suite or remote-CI qualification.
+
 ```php
 'worldObjects' => [[
   'id' => 'instrument',
