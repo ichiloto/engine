@@ -69,9 +69,11 @@ WSL/WSLg uses the Linux entry with Linux PHP and a Linux renderer, not a Windows
 executable. Native Windows process transport is a separate
 [unsupported boundary](../../docs/rendering/process-transport.md).
 
-The Renderer window uses shared GPUI maximize/restore handling rather than a
-blanket non-macOS rejection. An existing local installation may still contain
-the earlier stateless canvas/UI renderer. A source update does not replace that
+The Renderer opens a centered GPUI window at the game's native size or smaller;
+automatic maximization and whole-window upscaling are removed. Players retain
+ordinary resize and maximize controls; smaller viewports downscale proportionally.
+This shared window path does not impose a blanket non-macOS rejection. An existing
+local installation may still contain the earlier stateless canvas/UI renderer. A source update does not replace that
 binary: the retained Engine contract requires an explicitly updated, matching
 renderer package. Existing macOS validation does not establish Linux/WSLg or
 native Windows execution acceptance. See the
