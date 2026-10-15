@@ -106,7 +106,7 @@ abstract class EventTrigger implements EventTriggerInterface
   )
   {
     $this->area = $area instanceof Rect ? CellArea::fromRect($area) : $area;
-    $serializedData = json_encode($data, JSON_THROW_ON_ERROR);
+    $serializedData = json_encode((object) $data, JSON_THROW_ON_ERROR);
     $this->data = json_decode($serializedData) ?? throw new RuntimeException('Failed to parse trigger data.');
     $this->conditions = array_values(array_filter($conditions, 'is_array'));
     $this->sets = array_values(array_filter($sets, 'is_array'));

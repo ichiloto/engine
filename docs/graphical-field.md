@@ -395,8 +395,8 @@ return ['resources' => [
 ]],
 ```
 
-The reference form accepts only `id`, `resource`, `anchor` and optional
-`covers`; `pivot`, `sprites2d` and even an empty `variants` are mutually
+The reference form accepts `id`, `resource`, `anchor` and optional
+`covers`, `label` (for signs) and `terminal`; `pivot`, `sprites2d` and even an empty `variants` are mutually
 exclusive with it. Existing inline/conditional declarations below remain
 supported without automatic extraction or source rewriting. `readMap(...,
 catalog: $catalog)` is the shared admission API for resource-aware consumers;
@@ -428,6 +428,37 @@ The combined inline/reference admission remains 128 objects and the aggregate
 presentation budget remains 1,024 sprites. An additional static tier still
 requires mixed-scene/native paint evidence and owner acceptance; PHP projection
 and fake transport measurements alone do not establish decode cost or FPS.
+
+An inline object and each of its variants may declare `terminal`: one styled
+display cell at the object's anchor, for example `<fg=yellow>m</>` before a
+chest opens and `<fg=white>m</>` afterward. Omission in a variant inherits the
+base cell; explicit `null` restores the authored map cell. Presentation never
+rewrites the map, changes collision, or stores a second gameplay state. Two
+objects may not claim the same Terminal anchor. The same selected variant
+supplies graphical artwork and the Terminal cell; unavailable artwork retains
+the styled glyph fallback. Reinstalling a map releases the old presentation.
+
+Use a `map_event` condition to read a completed one-shot event directly from
+the existing save state. Its `name` is the map ID and `marker` is the event
+identity, independent of the chest's position or its artwork. For example:
+
+```php
+'terminal' => '<fg=yellow>m</>',
+'variants' => [[
+  'id' => 'opened',
+  'conditions' => [['type' => 'map_event', 'name' => 'town/home', 'marker' => 'C']],
+  'sprites2d' => ['asset' => 'Graphics/Objects/chest-open.png'],
+  'terminal' => '<fg=white>m</>',
+]],
+```
+
+An already completed event selects the opened appearance on initial load and
+map re-entry, without applying rewards again. `negate` uses the same shared
+condition rules as other variants. Art paths and closed/open crops remain
+project-owned; the Engine has no Last Legend tile IDs or chest-image names.
+Editor condition codecs must preserve both map and marker references; the
+graphical world-object authoring path must preserve Terminal variants without
+requiring graphical authoring in the TUI.
 
 ```php
 'worldObjects' => [[

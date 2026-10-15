@@ -18,6 +18,7 @@ use InvalidArgumentException;
  * Supported shapes (all accept `'negate' => true` to invert the result):
  * - `['type' => 'switch',   'name' => 'gate_open', 'value' => true]`
  * - `['type' => 'event',    'name' => 'met_the_king']`
+ * - `['type' => 'map_event', 'name' => 'town/home', 'marker' => 'A']`
  * - `['type' => 'variable', 'name' => 'donations', 'op' => '>=', 'value' => 100]`
  * - `['type' => 'item',     'name' => 'Potion', 'quantity' => 2]`
  * - `['type' => 'key_item', 'name' => 'Rusty Key']`
@@ -60,6 +61,11 @@ class WorldConditionEvaluator
 
       if (array_key_exists('negate', $condition) && ! is_bool($condition['negate'])) {
         throw new InvalidArgumentException(sprintf('%s field "negate" must be boolean.', $conditionSource));
+      }
+
+      if ($type === WorldConditionType::MAP_EVENT
+        && (!is_string($condition['marker'] ?? null) || trim($condition['marker']) === '')) {
+        throw new InvalidArgumentException(sprintf('%s map_event field "marker" must be non-empty.', $conditionSource));
       }
 
       if ($type === WorldConditionType::SWITCH && array_key_exists('value', $condition) && !is_bool($condition['value'])) {
@@ -125,6 +131,12 @@ class WorldConditionEvaluator
 
       $name = trim(strval($condition['name'] ?? ''));
 
+      if ($type === WorldConditionType::MAP_EVENT
+        && ($name === '' || !is_string($condition['marker'] ?? null) || trim($condition['marker']) === '')) {
+        Debug::warn('A map_event condition requires a map name and event marker; guarded content was not exposed.');
+        return false;
+      }
+
       if ($name === '') {
         continue;
       }
@@ -162,6 +174,8 @@ class WorldConditionEvaluator
     return match ($type) {
       WorldConditionType::SWITCH => $gameState->getSwitch($name) === (bool) ($condition['value'] ?? true),
       WorldConditionType::EVENT => $gameState->hasStoryEvent($name),
+      WorldConditionType::MAP_EVENT => is_string($condition['marker'] ?? null)
+        && trim($condition['marker']) !== '' && $gameState->isEventComplete($name, trim($condition['marker'])),
       WorldConditionType::VARIABLE => self::compare(
         $gameState->getVariable($name),
         strval($condition['op'] ?? '=='),

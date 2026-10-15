@@ -60,6 +60,12 @@ final class WorldObject implements GraphicalSpriteProviderInterface
     public function getGraphicalSpriteWorldPosition(): Vector2 { return $this->position; }
     public function getGraphicalSpriteMotion(): ?PresentationSpriteMotion { return null; }
 
+    public function getTerminalSymbol(): ?string
+    {
+        return $this->isCurrent()
+            ? $this->definition->selectVariant($this->scene->gameState, $this->scene->party)['terminal'] : null;
+    }
+
     public function getPresentationWorldCanvas(): ?\Ichiloto\Engine\Rendering\Presentation\PresentationWorldCanvas
     {
         if ($this->sign === null || !$this->isCurrent()) { return null; }

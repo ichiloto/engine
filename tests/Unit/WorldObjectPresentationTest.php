@@ -289,6 +289,85 @@ afterEach(function () {
     }
 });
 
+it('projects one-shot completion into both object artwork and terminal state across save and map re-entry', function () {
+    $source = createWorldObjectSource(['terminal' => '<fg=yellow>o</>', 'variants' => [[
+        'id' => 'opened', 'conditions' => [['type' => 'map_event', 'name' => 'synthetic/room', 'marker' => 'C']],
+        'sprites2d' => ['asset' => 'Graphics/energized.png'], 'terminal' => '<fg=white>o</>',
+    ]]]);
+    $prepared = createWorldObjectPreparedMap([$source]);
+    $map = $this->scene->mapManager;
+    $map->applyPreparedMap($prepared, $this->scene->player);
+    $sourceState = [$map->tileMap, $map->layers->getComposedGrid(), $map->getCollisionGrid()];
+    $object = $map->findWorldObject('fixture');
+    $map->refreshTerminalPresentation();
+    $closed = $this->scene->camera->worldSpace[1][1];
+    expect($object->getGraphicalSpriteDefinition()->asset)->toBe('Graphics/base.png')
+        ->and(\Ichiloto\Engine\IO\Console\SgrColorParser::parse($closed)['foreground']->toArray())
+        ->toBe(['kind' => 'ansi16', 'index' => 3]);
+
+    // Completion already belongs to GameState. No parallel opened-chest flag is written.
+    $this->scene->gameState->markEventComplete('synthetic/other', 'C');
+    $map->refreshTerminalPresentation();
+    expect($this->scene->camera->worldSpace[1][1])->toBe($closed);
+    $trigger = new \Ichiloto\Engine\Events\Triggers\ChestEventTrigger(new Rect(1, 1, 1, 1),
+        mapId: 'synthetic/room', marker: 'C');
+    $trigger->bind($this->scene->gameState);
+    $trigger->complete();
+    expect($trigger->isComplete)->toBeTrue();
+    $saved = $this->scene->gameState->toArray();
+    $map->refreshTerminalPresentation();
+    $opened = $this->scene->camera->worldSpace[1][1];
+    expect($opened)->not->toBe($closed)
+        ->and(\Ichiloto\Engine\IO\Console\SgrColorParser::parse($opened)['foreground']->toArray())
+        ->toBe(['kind' => 'ansi16', 'index' => 7])
+        ->and(\Ichiloto\Engine\IO\Console\TerminalText::stripAnsi($opened))->toBe('o')
+        ->and($object->getGraphicalSpriteDefinition()->asset)->toBe('Graphics/energized.png')
+        ->and([$map->tileMap, $map->layers->getComposedGrid(), $map->getCollisionGrid()])->toBe($sourceState)
+        ->and($this->scene->gameState->toArray())->toBe($saved);
+
+    new ReflectionProperty(GameScene::class, 'gameState')->setValue($this->scene, GameState::fromArray($saved));
+    $map->applyPreparedMap($prepared, $this->scene->player);
+    $map->refreshTerminalPresentation();
+    expect($this->scene->camera->worldSpace[1][1])->toBe($opened)
+        ->and($map->findWorldObject('fixture')->getGraphicalSpriteDefinition()->asset)->toBe('Graphics/energized.png')
+        ->and($object->getTerminalSymbol())->toBeNull(); // Old installation cannot claim the new map.
+});
+
+it('restores authored terminal presentation for an explicit null variant and keeps missing-art fallback styled', function () {
+    $source = createWorldObjectSource(['sprites2d' => ['asset' => 'Graphics/missing.png'],
+        'terminal' => '<fg=yellow>o</>', 'variants' => [[
+            'id' => 'opened', 'conditions' => [['type' => 'switch', 'name' => 'opened']],
+            'sprites2d' => ['asset' => 'Graphics/missing-open.png'], 'terminal' => '<fg=white>o</>',
+        ], [
+            'id' => 'removed', 'conditions' => [['type' => 'switch', 'name' => 'removed']],
+            'sprites2d' => null, 'terminal' => null,
+        ]]]);
+    $map = $this->scene->mapManager;
+    $map->applyPreparedMap(createWorldObjectPreparedMap([$source]), $this->scene->player);
+    $map->refreshTerminalPresentation();
+    $styled = $this->scene->camera->worldSpace[1][1];
+    expect($styled)->not->toBe($map->tileMap[1][1]);
+    $cells = getWorldObjectWireCells($map->getPresentationWorld());
+    expect($cells[1][1]['glyph'])->toBe('o');
+    $this->scene->gameState->setSwitch('opened');
+    $world = $map->getPresentationWorld();
+    expect(getWorldObjectWireCells($world)[1][1]['foreground'])->toBe(['kind' => 'ansi16', 'index' => 7]);
+    $this->scene->gameState->setSwitch('opened', false);
+    $this->scene->gameState->setSwitch('removed');
+    $map->refreshTerminalPresentation();
+    expect($this->scene->camera->worldSpace)->toBe($map->tileMap);
+});
+
+it('refuses malformed terminal cells and incomplete map-event identities before installing an object', function () {
+    foreach (['two', '<fg=white>xx</>', 3, []] as $terminal) {
+        expect(fn() => createWorldObjectPreparedMap([createWorldObjectSource(['terminal' => $terminal])]))
+            ->toThrow(InvalidArgumentException::class);
+    }
+    expect(fn() => createWorldObjectPreparedMap([createWorldObjectSource(['variants' => [[
+        'id' => 'opened', 'conditions' => [['type' => 'map_event', 'name' => 'synthetic/room']], 'sprites2d' => null,
+    ]]])]))->toThrow(InvalidArgumentException::class, 'marker');
+});
+
 it('prepares localized world signs without polling and overlays the existing ground without changing gameplay', function () {
     [$client, $transport, $sign] = createWorldSignHost($this->scene, $this->root);
     $before = [$this->scene->mapManager->tileMap, $this->scene->gameState->toArray(), $this->scene->mapManager->getCollisionGrid()];

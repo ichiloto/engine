@@ -56,6 +56,7 @@ class MapManager implements CanRenderAt
   private ?array $worldObjectResourceFrames = null;
   private int $worldObjectInstallation = 0;
   private array $presentationWorldCoverage = [];
+  private ?array $terminalPresentationCells = null;
   /**
    * The collision map.
    *
@@ -468,6 +469,7 @@ class MapManager implements CanRenderAt
    */
   public function render(?int $x = null, ?int $y = null): void
   {
+    $this->refreshTerminalPresentation();
     if (Console::isRetainedWorldPresentation()) { $this->getPresentationWorld(); }
     $this->camera->renderMap();
   }
@@ -475,6 +477,7 @@ class MapManager implements CanRenderAt
   /** Build once per installed map/policy, only when a graphical consumer requests it. */
   public function getPresentationWorld(): ?PresentationWorld
   {
+    $this->refreshTerminalPresentation();
     if ($this->layers === null) {
       $this->camera->setRetainedWorldAvailable(false);
       return null;
@@ -489,7 +492,8 @@ class MapManager implements CanRenderAt
     $this->presentationWorldCoverage = $coverage;
     $this->presentationWorld = null;
     try {
-      $this->presentationWorld = PresentationWorld::getFromLayers($this->layers, 'map', $this->graphics, $this->getAssetRoot(), $coverage);
+      $this->presentationWorld = PresentationWorld::getFromLayers($this->layers, 'map', $this->graphics, $this->getAssetRoot(), $coverage,
+        $this->terminalPresentationCells ?? []);
     } catch (\Throwable $error) {
       // Unsupported world bounds keep the screen-space retained text path usable.
       Debug::warn('Retained map presentation is unavailable: ' . $error->getMessage());
@@ -503,6 +507,24 @@ class MapManager implements CanRenderAt
     $this->presentationWorld = null;
     $this->presentationWorldPolicy = null;
     $this->presentationWorldCoverage = [];
+  }
+
+  /** Project live object display cells without changing authored layers, occupancy or save data. */
+  public function refreshTerminalPresentation(): void
+  {
+    $cells = [];
+    foreach ($this->worldObjects as $object) {
+      $symbol = $object->getTerminalSymbol();
+      if ($symbol !== null) { $cells[$object->definition->y][$object->definition->x] = $symbol; }
+    }
+    if ($cells === $this->terminalPresentationCells) { return; }
+    $this->terminalPresentationCells = $cells;
+    $grid = $this->tileMap;
+    foreach ($cells as $y => $row) {
+      foreach ($row as $x => $symbol) { $grid[$y][$x] = $symbol; }
+    }
+    $this->camera->worldSpace = $grid;
+    $this->clearPresentationWorld();
   }
 
   public function findWorldObject(string $id): ?WorldObject { return $this->worldObjects[$id] ?? null; }
@@ -550,6 +572,7 @@ class MapManager implements CanRenderAt
     foreach ($this->worldObjects as $object) { $object->release(); }
     foreach ($this->worldObjectResourceRoles as $role) { $role->release(); }
     $this->worldObjects = [];
+    $this->terminalPresentationCells = null;
     $this->worldObjectResourceRoles = [];
     $this->worldObjectResourceFrames = null;
     $this->worldObjectInstallation++;
@@ -648,6 +671,7 @@ class MapManager implements CanRenderAt
    */
   public function renderBackgroundTile(int $x, int $y): void
   {
+    $this->refreshTerminalPresentation();
     if (Console::isRetainedWorldPresentation()) { $this->getPresentationWorld(); }
     $this->camera->renderBackgroundTile($x, $y);
   }

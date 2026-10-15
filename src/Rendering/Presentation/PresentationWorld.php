@@ -83,9 +83,18 @@ final readonly class PresentationWorld
     }
 
     public static function getFromLayers(MapLayerSet $layers, string $id = 'map', ?MapGraphics $graphics = null,
-        string $assetRoot = '', array $coverage = []): self
+        string $assetRoot = '', array $coverage = [], array $terminalCells = []): self
     {
         $grid = $layers->getComposedGrid();
+        foreach ($terminalCells as $y => $row) {
+            foreach ($row as $x => $cell) {
+                if (!isset($grid[$y][$x])) { throw new InvalidArgumentException('Terminal presentation cell lies outside its map.'); }
+                if (!is_string($cell) || TerminalText::symbolCount($cell) !== 1 || TerminalText::displayWidth($cell) !== 1) {
+                    throw new InvalidArgumentException('Terminal presentation requires one styled cell per map position.');
+                }
+                $grid[$y][$x] = $cell;
+            }
+        }
         $projectedOwners = [];
         // Recompose only explicitly owned graphical cells. Authored layers and gameplay never change.
         foreach ($coverage['glyphs'] ?? [] as $rows) {

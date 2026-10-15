@@ -32,10 +32,26 @@ it('publishes the complete stable condition vocabulary', function () {
     'quest',
     'switch',
     'event',
+    'map_event',
     'variable',
     'item',
     'key_item',
   ]);
+});
+
+it('reads persisted map-event completion without confusing maps or story flags and supports negation', function () {
+  $state = new GameState();
+  $condition = ['type' => 'map_event', 'name' => 'town/home', 'marker' => 'C'];
+  WorldConditionEvaluator::validateAll([$condition]);
+  $state->recordStoryEvent('town/home');
+  $state->markEventComplete('town/inn', 'C');
+  expect(WorldConditionEvaluator::allHold([$condition], $state))->toBeFalse()
+    ->and(WorldConditionEvaluator::allHold([array_replace($condition, ['negate' => true])], $state))->toBeTrue();
+  $state->markEventComplete('town/home', 'C');
+  $state = GameState::fromArray($state->toArray());
+  expect(WorldConditionEvaluator::allHold([$condition], $state))->toBeTrue()
+    ->and(WorldConditionEvaluator::allHold([array_replace($condition, ['negate' => true])], $state))->toBeFalse()
+    ->and(WorldConditionEvaluator::allHold([['type' => 'map_event', 'name' => 'town/home', 'negate' => true]], $state))->toBeFalse();
 });
 
 it('evaluates switch, event, and variable conditions', function () {
