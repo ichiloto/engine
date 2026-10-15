@@ -52,7 +52,7 @@ final readonly class PresentationCanvas
   public static function composeOverlay(?self $base, self $overlay, string $idPrefix = ''): self
   {
     if ($base === null && $idPrefix === '') { return $overlay; }
-    $base ??= new self($overlay->width, $overlay->height);
+    $base ??= new self($overlay->width, $overlay->height, viewportFit: $overlay->viewportFit);
     if ($base->width !== $overlay->width || $base->height !== $overlay->height) {
       throw new InvalidArgumentException('Canvas overlays must share their logical surface.');
     }
@@ -75,7 +75,7 @@ final readonly class PresentationCanvas
       [...$base->presentationOwners, ...$overlay->presentationOwners],
       [...$base->labels, ...array_map(static fn(CanvasLabel $label) => new CanvasLabel($idPrefix . $label->id,
         $label->measurement, $label->x, $label->y, $offset + $label->layer, $label->clipRect, $label->opacity,
-        $label->rotation), $overlay->labels)]);
+        $label->rotation), $overlay->labels)], $base->viewportFit);
   }
 
   /** @param list<CanvasImage> $images
@@ -94,6 +94,7 @@ final readonly class PresentationCanvas
     ?array $protectedAreas = null,
     public array $presentationOwners = [],
     array $labels = [],
+    public CanvasViewportFit $viewportFit = CanvasViewportFit::NATIVE,
   )
   {
     if ($width < 1 || $height < 1 || $width > CanvasValidation::MAX_EXTENT || $height > CanvasValidation::MAX_EXTENT) {
@@ -168,6 +169,7 @@ final readonly class PresentationCanvas
   public function toArray(): array
   {
     return ['width' => $this->width, 'height' => $this->height,
+      ...($this->viewportFit === CanvasViewportFit::NATIVE ? [] : ['viewportFit' => $this->viewportFit->value]),
       'images' => array_map(static fn(CanvasImage $image) => $image->toArray(), $this->images),
       'indicators' => array_map(static fn(CanvasIndicator $indicator) => $indicator->toArray(), $this->indicators),
       'textLayers' => array_map(static fn(CanvasTextLayer $text) => $text->toArray(), $this->textLayers),

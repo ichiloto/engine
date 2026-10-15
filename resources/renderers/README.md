@@ -70,7 +70,9 @@ executable. Native Windows process transport is a separate
 [unsupported boundary](../../docs/rendering/process-transport.md).
 
 The Renderer opens a centered GPUI window at the game's native size or smaller;
-automatic maximization and whole-window upscaling are removed. Players retain
+automatic maximization and default whole-window upscaling are removed. A complete
+canvas may explicitly request proportional containment through `viewportFit` and
+negotiated `canvas_viewport_fit`; other scenes retain the native-size default. Players retain
 ordinary resize and maximize controls; smaller viewports downscale proportionally.
 This shared window path does not impose a blanket non-macOS rejection. An existing
 local installation may still contain the earlier stateless canvas/UI renderer. A source update does not replace that

@@ -16,6 +16,7 @@ final readonly class RendererSessionConfig
   public const string CANVAS_LABEL_INSTANCES = 'canvas_label_instances';
   public const string CANVAS_TEXT_180 = 'canvas_text_180';
   public const string WORLD_CANVAS = 'world_canvas';
+  public const string CANVAS_VIEWPORT_FIT = 'canvas_viewport_fit';
   public const string SPRITE_SOURCE_RECT = 'sprite_source_rect';
   public const string TILE_BATCHES = 'tile_batches';
   public const string GRAPHICAL_CANVAS = 'graphical_canvas';
@@ -48,7 +49,7 @@ final readonly class RendererSessionConfig
       ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_CLIP_OPACITY,
         self::CANVAS_GLYPH_EFFECTS, self::CANVAS_COMPOSITING, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::TILE_COVERS, self::TILE_SHADOWS,
         self::SPRITE_LIFT, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::SPRITE_QUARTER_TURNS, self::SPRITE_PIVOT,
-        self::TEXT_LAYOUT, self::CANVAS_LABELS, self::CANVAS_LABEL_INSTANCES, self::CANVAS_TEXT_180, self::WORLD_CANVAS,
+        self::TEXT_LAYOUT, self::CANVAS_LABELS, self::CANVAS_LABEL_INSTANCES, self::CANVAS_TEXT_180, self::WORLD_CANVAS, self::CANVAS_VIEWPORT_FIT,
         ...array_values(array_intersect(self::EVENT_SUBSCRIPTIONS, $this->requiredCapabilities))]
       : $this->requiredCapabilities;
   }
@@ -71,7 +72,7 @@ final readonly class RendererSessionConfig
       ? [self::SPRITE_SOURCE_RECT, self::TILE_BATCHES, self::GRAPHICAL_CANVAS, self::CANVAS_CLIP_OPACITY, self::CANVAS_GLYPH_EFFECTS,
         self::CANVAS_COMPOSITING, self::WINDOW_ACTIVATION, self::FRAME_VIEWPORT, self::FIELD_MOTION, self::TILE_COVERS, self::TILE_SHADOWS,
         self::SPRITE_LIFT, self::KEY_TRANSITIONS, self::CANVAS_OVERLAY, self::CANVAS_IMAGE_TONE, self::CANVAS_IMAGE_FLIP, self::SPRITE_QUARTER_TURNS, self::SPRITE_PIVOT,
-        self::TEXT_LAYOUT, self::CANVAS_LABELS, self::CANVAS_LABEL_INSTANCES, self::CANVAS_TEXT_180, self::WORLD_CANVAS]
+        self::TEXT_LAYOUT, self::CANVAS_LABELS, self::CANVAS_LABEL_INSTANCES, self::CANVAS_TEXT_180, self::WORLD_CANVAS, self::CANVAS_VIEWPORT_FIT]
       : [self::SPRITE_SOURCE_RECT];
     foreach ($requiredCapabilities as $capability) {
       if (!in_array($capability, $allowed, true)) {
@@ -80,6 +81,7 @@ final readonly class RendererSessionConfig
     }
     if ((in_array(self::CANVAS_CLIP_OPACITY, $requiredCapabilities, true) || in_array(self::CANVAS_GLYPH_EFFECTS, $requiredCapabilities, true)
       || in_array(self::CANVAS_COMPOSITING, $requiredCapabilities, true) || in_array(self::CANVAS_OVERLAY, $requiredCapabilities, true)
+      || in_array(self::CANVAS_VIEWPORT_FIT, $requiredCapabilities, true)
       || in_array(self::CANVAS_IMAGE_TONE, $requiredCapabilities, true) || in_array(self::CANVAS_IMAGE_FLIP, $requiredCapabilities, true))
       && !in_array(self::GRAPHICAL_CANVAS, $requiredCapabilities, true)) {
       throw new InvalidArgumentException('Canvas compositing capabilities require graphical_canvas.');

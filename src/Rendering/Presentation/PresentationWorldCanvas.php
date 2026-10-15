@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\Rendering\Presentation;
 
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasValidation;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasViewportFit;
 use Ichiloto\Engine\Rendering\Sprites\SpriteValidation;
 use InvalidArgumentException;
 
@@ -21,6 +22,9 @@ final readonly class PresentationWorldCanvas
     public int $layer = 0,
   ) {
     CanvasValidation::id($id);
+    if ($canvas->viewportFit !== CanvasViewportFit::NATIVE) {
+      throw new InvalidArgumentException('World canvases inherit their field viewport and cannot request window fitting.');
+    }
     foreach ([$x, $y, $layer] as $value) { SpriteValidation::validateSigned32BitRange($value); }
   }
 

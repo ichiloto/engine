@@ -32,6 +32,7 @@ presentation. Explicit `canvas: null` is invalid.
 | Canvas field | Contract |
 | --- | --- |
 | `width`, `height` | Required unsigned JSON integers in 1..16384, independent of the hello grid. |
+| `viewportFit` | Optional `native` (default) or `contain`; requires negotiated `canvas_viewport_fit` when present. Applies only to the complete root canvas. |
 | `images` | Up to 1024 images. |
 | `indicators` | Up to 2048 indicators. |
 | `textLayers` | Up to 64 local text layers, 32768 aggregate runs and 524288 aggregate Unicode scalars. |
@@ -40,6 +41,23 @@ Drawing lists may be omitted or empty; either clears that collection. Null or
 non-array lists are invalid. A dimensioned canvas with no lists is a blank canvas;
 an empty object is invalid. All structures reject unknown fields and wrong types.
 The PHP outbound model emits all three lists and omits absent optional values.
+
+### Per-canvas window fitting
+
+`PresentationCanvas(..., viewportFit: CanvasViewportFit::CONTAIN)` opts a complete
+canvas into proportional, centered fitting of the available window, including
+upscaling. `CanvasViewportFit::NATIVE` remains the default: center at authored size
+or downscale proportionally when necessary. PHP omits the native declaration, so
+existing messages remain unchanged. The V2 `canvas_viewport_fit` capability depends
+on `graphical_canvas`; unsupported explicit containment fails before submission.
+The retained `canvas` descriptor carries the same optional `viewportFit` field.
+
+Logical coordinates, aspect ratio, input and initial window state stay unchanged.
+The base canvas owns fitting when screen overlays are composed; prefixed standalone
+composition retains the standalone canvas's choice. Shared menu, pause and modal
+composition preserve that choice. Field overlays and world-anchored canvases inherit
+their parent viewport and reject non-native fitting. Replacing the root canvas or
+returning to the field resolves the new frame's policy; containment is never sticky.
 
 ## Images And Indicators
 

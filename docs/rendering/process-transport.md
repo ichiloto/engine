@@ -141,7 +141,8 @@ bytes is a failure. Key strings are protocol data, with no `KeyCode` or action m
 ## Project Text Queries
 
 Protocol 2 optionally negotiates `text_layout`, `canvas_labels`,
-`canvas_label_instances`, `canvas_text_180` and `world_canvas`. Their presence does not make them mandatory for existing
+`canvas_label_instances`, `canvas_text_180`, `world_canvas` and `canvas_viewport_fit`.
+Their presence does not make them mandatory for existing
 sessions. The Engine's typed text query path requires advertised `text_layout`;
 it never substitutes installed machine fonts or terminal grid text for a
 missing project face or unsupported capability.

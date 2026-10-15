@@ -6,6 +6,7 @@ use Ichiloto\Engine\Diagnostics\LatencyTrace;
 use Ichiloto\Engine\IO\Console\ConsolePresentationChanges;
 use Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasViewportFit;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasFrameBudget;
 use Ichiloto\Engine\Rendering\RendererClient;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
@@ -254,10 +255,14 @@ final class RetainedPresentation
 
     private function updateCanvas(?PresentationCanvas $canvas, bool $overlay): void
     {
+        if ($overlay && $canvas !== null && $canvas->viewportFit !== CanvasViewportFit::NATIVE) {
+            throw new \InvalidArgumentException('Field canvas overlays inherit their viewport and cannot request window fitting.');
+        }
         $this->canvas = $canvas;
         $this->canvasIsOverlay = $overlay;
         $this->replaceValues('canvas', $canvas === null ? [] : [['id' => 'canvas', 'width' => $canvas->width,
-            'height' => $canvas->height, ...($overlay ? ['mode' => 'overlay'] : [])]]);
+            'height' => $canvas->height, ...($overlay ? ['mode' => 'overlay'] : []),
+            ...($canvas->viewportFit === CanvasViewportFit::NATIVE ? [] : ['viewportFit' => $canvas->viewportFit->value])]]);
         foreach (['canvas_image' => $canvas?->images ?? [], 'canvas_indicator' => $canvas?->indicators ?? [],
             'canvas_text' => $canvas?->textLayers ?? [], 'canvas_composite' => $canvas?->composites ?? [],
             'canvas_label' => $canvas?->labels ?? []] as $kind => $items) {

@@ -6,6 +6,7 @@ use Ichiloto\Engine\IO\Console\ConsoleFrameSnapshot;
 use Ichiloto\Engine\IO\Console\ConsolePresentationChanges;
 use Ichiloto\Engine\IO\Console\ConsolePresentationSnapshot;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasViewportFit;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasFrameBudget;
 use Ichiloto\Engine\Rendering\RendererClient;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
@@ -56,9 +57,9 @@ final class RendererPresentation
   public function presentFrame(RetainedFrame $frame, ?PresentationCanvas $screenOverlay = null): bool
   {
     $this->validateWorldCanvases($frame->worldCanvases);
-    if ($frame->canvas !== null) { $this->validateCanvas($frame->canvas); }
+    if ($frame->canvas !== null) { $this->validateCanvas($frame->canvas, $frame->canvasIsOverlay); }
     if ($screenOverlay !== null) {
-      $this->validateCanvas($screenOverlay);
+      $this->validateCanvas($screenOverlay, $frame->canvasIsOverlay);
       if ($frame->canvasIsOverlay && (!$this->client->supports(RendererSessionConfig::CANVAS_OVERLAY)
         || $screenOverlay->width !== $this->grid->columns * $this->grid->cellWidth
         || $screenOverlay->height !== $this->grid->rows * $this->grid->cellHeight)) {
@@ -120,7 +121,7 @@ final class RendererPresentation
         || $canvasOverlay->height !== $this->grid->rows * $this->grid->cellHeight) {
         throw new RendererProtocolException('Canvas overlay must match the renderer session logical pixel surface.');
       }
-      $this->validateCanvas($canvasOverlay);
+      $this->validateCanvas($canvasOverlay, true);
     }
     $this->validateWorldCanvases($worldCanvases);
     $this->validateCanvasFrame([...($canvasOverlay === null ? [] : [$canvasOverlay]),
@@ -150,10 +151,18 @@ final class RendererPresentation
     }
   }
 
-  private function validateCanvas(PresentationCanvas $canvas): void
+  private function validateCanvas(PresentationCanvas $canvas, bool $isOverlay = false): void
   {
     if (!$this->client->supports(RendererSessionConfig::GRAPHICAL_CANVAS)) {
       throw new RendererProtocolException('Canvas presentation requires negotiated graphical_canvas support.');
+    }
+    if ($canvas->viewportFit !== CanvasViewportFit::NATIVE) {
+      if ($isOverlay) {
+        throw new RendererProtocolException('Field canvas overlays inherit their viewport and cannot request window fitting.');
+      }
+      if (!$this->client->supports(RendererSessionConfig::CANVAS_VIEWPORT_FIT)) {
+        throw new RendererProtocolException('Canvas window fitting requires negotiated canvas_viewport_fit support.');
+      }
     }
     if ($canvas->composites !== [] && !$this->client->supports(RendererSessionConfig::CANVAS_COMPOSITING)) {
       throw new RendererProtocolException('Canvas raster operations require negotiated canvas_compositing support.');

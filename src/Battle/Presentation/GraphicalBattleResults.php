@@ -114,7 +114,8 @@ final class GraphicalBattleResults
       $battlefield->indicators, [...$battlefield->textLayers, ...$view->text], $battlefield->composites,
       [...$battlefield->getOverlayProtection(),
         ...array_map(static fn(CanvasImage $image) => $image->clipRect ?? $image->destination, $view->images),
-        ...array_map(static fn(CanvasTextLayer $text) => $text->clipRect ?? $text->paintBounds, $view->text)]);
+        ...array_map(static fn(CanvasTextLayer $text) => $text->clipRect ?? $text->paintBounds, $view->text)],
+      viewportFit: $battlefield->viewportFit);
   }
 
   private function heading(string $title): void

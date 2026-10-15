@@ -1,6 +1,7 @@
 <?php
 
 use Ichiloto\Engine\Rendering\Presentation\Canvas\{CanvasImage, CanvasIndicator, CanvasIndicatorKind, CanvasLabel, CanvasRectangle, CanvasTextLayer, PresentationCanvas};
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasViewportFit;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Presentation\Text\{TextBounds, TextMeasurement, TextMetrics};
@@ -13,6 +14,12 @@ function createOverlayTestTheme(): MenuPresentationCatalog
 {
   return new MenuPresentationCatalog(__DIR__ . '/../Fixtures/Renderer', ['schema' => 'ichiloto.menu/1']);
 }
+
+it('keeps the complete scene fitting choice while stacking shared menu overlays', function () {
+  $base = new PresentationCanvas(100, 100, viewportFit: CanvasViewportFit::CONTAIN);
+  $combined = MenuCanvas::overlay($base, new PresentationCanvas(100, 100), createOverlayTestTheme());
+  expect($combined->viewportFit)->toBe(CanvasViewportFit::CONTAIN);
+});
 
 function createOverlayTestLabel(string $id, int $layer, ?CanvasRectangle $clip = null, float $opacity = 1, int $rotation = 0): CanvasLabel
 {

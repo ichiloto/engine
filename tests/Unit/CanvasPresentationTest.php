@@ -9,6 +9,9 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasIndicatorKind;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasViewportFit;
+use Ichiloto\Engine\Rendering\Presentation\PresentationWorldCanvas;
+use Ichiloto\Engine\Rendering\Presentation\PresentationSpritePivot;
 use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSprite;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextLayer;
@@ -49,6 +52,57 @@ function canvasPresenter(array $capabilities, ?RendererGridConfig $grid = null):
   $client->pump();
   return [new RendererPresentation($client, $grid ?? new RendererGridConfig(2, 1)), $transport];
 }
+
+it('keeps native fitting implicit and declares proportional containment only on an opted-in canvas', function () {
+  $native = new PresentationCanvas(100, 60);
+  $contain = new PresentationCanvas(100, 60, viewportFit: CanvasViewportFit::CONTAIN);
+  expect($native->viewportFit)->toBe(CanvasViewportFit::NATIVE)
+    ->and($native->toArray())->not->toHaveKey('viewportFit')
+    ->and($contain->toArray()['viewportFit'])->toBe('contain')
+    ->and((new StyledPresentationFrame(0, canvas: $contain))->toRendererMessage()->payload['canvas']['viewportFit'])->toBe('contain');
+  expect(fn() => new PresentationCanvas(100, 60, viewportFit: 'contain'))->toThrow(TypeError::class);
+});
+
+it('preserves the base fitting choice across overlays and prefixed standalone composition', function () {
+  $native = new PresentationCanvas(100, 60);
+  $contain = new PresentationCanvas(100, 60, viewportFit: CanvasViewportFit::CONTAIN);
+  expect(PresentationCanvas::composeOverlay($contain, $native)->viewportFit)->toBe(CanvasViewportFit::CONTAIN)
+    ->and(PresentationCanvas::composeOverlay($native, $contain)->viewportFit)->toBe(CanvasViewportFit::NATIVE)
+    ->and(PresentationCanvas::composeOverlay(null, $contain, 'modal-')->viewportFit)->toBe(CanvasViewportFit::CONTAIN);
+});
+
+it('requires negotiated fitting support without queuing a partial canvas', function () {
+  $canvas = new PresentationCanvas(20, 20, viewportFit: CanvasViewportFit::CONTAIN);
+  [$presenter, $transport] = canvasPresenter([RendererSessionConfig::GRAPHICAL_CANVAS]);
+  $sent = count($transport->sent);
+  expect(fn() => $presenter->prepareCanvas($canvas))->toThrow(RendererProtocolException::class, 'canvas_viewport_fit');
+  expect(count($transport->sent))->toBe($sent);
+  expect(fn() => new RendererSessionConfig('Invalid', sys_get_temp_dir(), protocol: RendererProtocolVersion::V2,
+    requiredCapabilities: [RendererSessionConfig::CANVAS_VIEWPORT_FIT]))->toThrow(InvalidArgumentException::class, 'graphical_canvas');
+});
+
+it('replaces the retained fitting declaration on each switch and returns to native without sticky state', function () {
+  [$presenter, $transport] = canvasPresenter([RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_VIEWPORT_FIT]);
+  foreach ([CanvasViewportFit::NATIVE, CanvasViewportFit::CONTAIN, CanvasViewportFit::NATIVE] as $fit) {
+    expect($presenter->presentCanvas(new PresentationCanvas(20, 20, viewportFit: $fit)))->toBeTrue();
+  }
+  $frames = RetainedFrameState::replay($transport->sent);
+  expect($frames[0]['canvas'])->not->toHaveKey('viewportFit')
+    ->and($frames[1]['canvas']['viewportFit'])->toBe('contain')
+    ->and($frames[2]['canvas'])->not->toHaveKey('viewportFit');
+});
+
+it('keeps field overlays and world-anchored canvases under their parent viewport', function () {
+  $canvas = new PresentationCanvas(20, 20, viewportFit: CanvasViewportFit::CONTAIN);
+  [$presenter] = canvasPresenter([RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_VIEWPORT_FIT,
+    RendererSessionConfig::CANVAS_OVERLAY], new RendererGridConfig(2, 1, 10, 20));
+  expect(fn() => $presenter->present(new ConsolePresentationSnapshot(2, 1, []), canvasOverlay: $canvas))
+    ->toThrow(RendererProtocolException::class, 'inherit');
+  $frame = $presenter->prepareFrame(new ConsolePresentationSnapshot(2, 1, []));
+  expect(fn() => $presenter->presentFrame($frame, $canvas))->toThrow(RendererProtocolException::class, 'inherit');
+  expect(fn() => new PresentationWorldCanvas('sign', 0, 0, new PresentationSpritePivot(.5, 1), $canvas))
+    ->toThrow(InvalidArgumentException::class, 'inherit');
+});
 
 it('clips an anchored image at every edge without translating or stretching its remaining pixels', function (bool $flipX, bool $flipY) {
   $source = new SpriteSourceRect(100, 200, 40, 30);

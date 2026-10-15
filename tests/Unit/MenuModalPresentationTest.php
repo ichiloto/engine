@@ -19,6 +19,7 @@ use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Messaging\Notifications\NotificationManager;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasViewportFit;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasTextLayer;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
@@ -469,6 +470,15 @@ it('keeps a long acknowledgement label complete and centered inside its bounded 
       ->toEqualWithDelta($button->clipRect->x + $button->clipRect->width / 2, $button->grid->cellWidth / 2);
   }
 })->with([false, true]);
+
+it('preserves opted-in scene fitting when attaching an owned modal', function () {
+  $base = new PresentationCanvas(1350, 720, viewportFit: CanvasViewportFit::CONTAIN);
+  $theme = new MenuPresentationCatalog($this->root, modalMenuTheme(false));
+  $frame = MenuModalPresentation::compose($base, new ModalPresentation('Alert', 'Ready', ['OK'], 0), $theme,
+    ownerLayerId: 'owned-modal');
+  expect($frame->viewportFit)->toBe(CanvasViewportFit::CONTAIN)
+    ->and($frame->presentationOwners)->toContain('owned-modal');
+});
 
 it('collapses only the hidden hint footer without changing Confirm or Select content layout', function (bool $art, string $type) {
   $snapshot = match ($type) {

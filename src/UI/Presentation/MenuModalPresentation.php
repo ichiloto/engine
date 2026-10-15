@@ -125,6 +125,6 @@ final class MenuModalPresentation
     $result = MenuCanvas::overlay($base, $dialog, $theme);
     return $ownerLayerId === null ? $result : new PresentationCanvas($result->width, $result->height,
       $result->images, $result->indicators, $result->textLayers, $result->composites, $result->protectedAreas,
-      [...$result->presentationOwners, $ownerLayerId]);
+      [...$result->presentationOwners, $ownerLayerId], viewportFit: $result->viewportFit);
   }
 }

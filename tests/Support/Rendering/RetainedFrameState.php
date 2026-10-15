@@ -116,6 +116,7 @@ final class RetainedFrameState
     if (isset($this->values['canvas']['canvas'])) {
       $canvas = $this->values['canvas']['canvas'];
       $frame['canvas'] = ['width' => $canvas['width'], 'height' => $canvas['height'],
+        ...(isset($canvas['viewportFit']) ? ['viewportFit' => $canvas['viewportFit']] : []),
         'images' => $this->getValues('canvas_image'), 'indicators' => $this->getValues('canvas_indicator'),
         'textLayers' => $this->getValues('canvas_text')];
       $composites = $this->getValues('canvas_composite');

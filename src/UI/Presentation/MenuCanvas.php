@@ -157,7 +157,7 @@ final class MenuCanvas
     $result = $view->finish();
     CanvasImagePreflight::inspect($result->images, $theme->assetRoot, $stacked->composites);
     return new PresentationCanvas($base->width, $base->height, $result->images, $stacked->indicators, $result->textLayers,
-      $stacked->composites, $stacked->protectedAreas, $stacked->presentationOwners, $stacked->labels);
+      $stacked->composites, $stacked->protectedAreas, $stacked->presentationOwners, $stacked->labels, $stacked->viewportFit);
   }
 
   public function portrait(string $actorId, CanvasRectangle $bounds, string $id = 'portrait'): void
