@@ -5,6 +5,7 @@ use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Field\InteractionReach;
 use Ichiloto\Engine\Events\Triggers\ChestEventTrigger;
+use Ichiloto\Engine\Events\Enumerations\EventEngagement;
 use Ichiloto\Engine\Events\Triggers\TransferPlayerTrigger;
 use Ichiloto\Engine\Field\MapSourceReader;
 use Ichiloto\Engine\Field\NpcPlacement;
@@ -61,6 +62,44 @@ function reachabilityRoom(array $npcs): MapReachability
     $npcs,
   );
 }
+
+it('validates reachable approaches to solid object events with their allowed headings', function (array $facing, bool $reachable) {
+  $event = ReachabilityEvent::fromDefinition(['class' => ChestEventTrigger::class, 'marker' => 'C',
+    'area' => ['cells' => [[1, 0]]], 'engagement' => 'facing', 'facing' => $facing]);
+  $map = new MapReachability('object-room', reachabilityGrid(['###', '...']), [$event]);
+  $report = $map->analyze([new ReachabilityEntrance(0, 1, 'door')]);
+  expect($report->isReachable(1, 0))->toBeFalse()
+    ->and($report->problems === [])->toBe($reachable);
+})->with(['all approaches' => [[], true], 'from below' => [['North'], true], 'from above' => [['South'], false]]);
+
+it('rejects distant or enclosed object events despite nearby floor or area gaps', function () {
+  $event = new ReachabilityEvent(CellArea::fromCells([[1, 0], [3, 0]]), ChestEventTrigger::class,
+    'C', EventEngagement::FACING);
+  $report = new MapReachability('sealed-objects', reachabilityGrid(['#####', '##.##', '##.##']), [$event])
+    ->analyze([new ReachabilityEntrance(2, 2, 'door')]);
+  expect($report->problems)->toHaveCount(1)
+    ->and($report->problems[0]->kind)->toBe(ReachabilityProblemKind::UNREACHABLE_EVENT);
+});
+
+it('collects transfer and sleep arrivals from reachable object approaches', function () {
+  $assets = createTestDirectory('object-reachability-project-') . '/assets';
+  mkdir($assets . '/Data', 0777, true);
+  writeReachabilityMap($assets, 'room', ['##..', '..#.'], ['ST  ', '    '], ['events' => [
+    'S' => ['class' => \Ichiloto\Engine\Events\Triggers\SleepEventTrigger::class, 'engagement' => 'facing',
+      'data' => ['spawnPoint' => ['x' => 3, 'y' => 1], 'spawnSprite' => ['South'], 'confirmDialogue' => ['text' => 'Rest?']]],
+    'T' => ['class' => TransferPlayerTrigger::class, 'engagement' => 'facing',
+      'data' => ['destinationMap' => 'destination', 'spawnPoint' => ['x' => 0, 'y' => 0], 'spawnSprite' => ['South']]],
+  ]]);
+  writeReachabilityMap($assets, 'destination', ['..'], ['  '], []);
+  file_put_contents($assets . '/Maps/collisions.php', '<?php return ["." => \Ichiloto\Engine\Events\Enumerations\CollisionType::NONE, "#" => \Ichiloto\Engine\Events\Enumerations\CollisionType::SOLID];');
+  file_put_contents($assets . '/Data/system.php', '<?php return ' . var_export([
+    'startingPositions' => ['player' => ['destinationMap' => 'room', 'spawnPoint' => ['x' => 0, 'y' => 1]]],
+  ], true) . ';');
+  $report = ProjectReachability::analyze($assets);
+  expect($report->getAllProblems())->toBe([])
+    ->and($report->reports['room']->isReachable(3, 1))->toBeTrue()
+    ->and($report->reports['destination']->isReachable(1, 0))->toBeTrue();
+});
 
 it('moves NPCs freely and reports only the one that blocks the way', function (array $npc, bool $isBlocked) {
   $report = reachabilityRoom([reachabilityNpc($npc)])->analyze([new ReachabilityEntrance(0, 1, 'the door')]);

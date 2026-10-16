@@ -542,7 +542,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     bool $includeAutomatic = true): void
   {
     $events = array_filter($this->events->toArray(), static fn(EventTrigger $event): bool =>
-      (!$facingOnly || $event->facing !== [])
+      (!$facingOnly || $event->dependsOnFacing)
       && ($includeAutomatic || !($event instanceof AutomaticEventTriggerInterface) || !$event->runsAutomatically()));
     foreach ($events as $event) {
       if ($this->eventManager->activeEvents->contains($event) && !$event->canEngage($context->coordinates, $this->heading)) {
@@ -578,13 +578,13 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    * Initial field entry does not produce a movement event, but an automatic
    * map script must still run when a new game or loaded save spawns inside its area.
    * Unrestricted action and transfer triggers remain movement-driven. Facing-gated
-   * nonautomatic events also acquire their prompt on a restored/spawned field.
+   * nonautomatic events, including faced objects, also acquire their prompt on a restored/spawned field.
    *
    * @return void
    */
   public function evaluateAutomaticTriggersAtCurrentPosition(): void
   {
-    // Restored/spawned action prompts opt in through facing; unrestricted legacy events keep their existing lifecycle.
+    // Restored/spawned action prompts opt in through facing or object reach; legacy events keep their existing lifecycle.
     $this->reconcileFacingEvents(includeAutomatic: false);
     $position = clone $this->position;
     $movementEvent = new MovementEvent(MovementEventType::PLAYER_MOVE, $position, clone $position);

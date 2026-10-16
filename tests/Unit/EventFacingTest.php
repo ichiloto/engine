@@ -9,6 +9,7 @@ use Ichiloto\Engine\Entities\Interfaces\ActionContextInterface;
 use Ichiloto\Engine\Entities\Interfaces\ActionInterface;
 use Ichiloto\Engine\Events\EventManager;
 use Ichiloto\Engine\Events\Enumerations\MovementEventType;
+use Ichiloto\Engine\Events\Enumerations\EventEngagement;
 use Ichiloto\Engine\Events\Interfaces\AutomaticEventTriggerInterface;
 use Ichiloto\Engine\Events\Interfaces\EventTriggerContextInterface;
 use Ichiloto\Engine\Events\MovementEvent;
@@ -69,6 +70,11 @@ beforeEach(function () {
     ->onlyMethods(['canMoveTo'])->getMock();
   $map->method('canMoveTo')->willReturn(false);
   $scene = new class($game, $map) extends GameScene {
+    public array $startedScripts = [];
+    public function startEventScript(array $commands, ?string $scriptId = null,
+      ?\Ichiloto\Engine\Events\Interpreter\EventSessionCompletionTargetInterface $completionTarget = null,
+      array $origin = []): ?\Ichiloto\Engine\Events\Interpreter\EventExecutionSession
+    { $this->startedScripts[] = $commands; return null; }
     public function __construct(Game $game, MapManager $map)
     {
       $this->sceneManager = new class($game) extends SceneManager {
@@ -187,4 +193,112 @@ it('offers the concrete sleep or script action according to facing on one shared
   expect($this->player->availableAction)->toBeInstanceOf(\Ichiloto\Engine\Entities\Actions\RunScriptAction::class);
   $this->player->face(Vector2::up(), $this->scene->camera);
   expect($this->player->availableAction)->toBeInstanceOf(\Ichiloto\Engine\Entities\Actions\SleepAction::class);
+});
+
+it('validates object engagement and retains inside as the default', function () {
+  $args = ['class' => FacingProbeTrigger::class, 'area' => ['cells' => [[2, 1]]], 'data' => []];
+  foreach ([null, false, [], 'Facing', 'adjacent', ''] as $invalid) {
+    expect(fn() => EventTriggerFactory::create([...$args, 'engagement' => $invalid]))->toThrow(InvalidArgumentException::class);
+  }
+  expect(EventTriggerFactory::create($args)->engagement)->toBe(EventEngagement::INSIDE)
+    ->and(EventTriggerFactory::create([...$args, 'engagement' => 'facing'])->engagement)->toBe(EventEngagement::FACING);
+});
+
+it('reaches only the immediate faced object cell in every cardinal direction', function (MovementHeading $heading) {
+  $direction = $heading->getDirection();
+  $object = new Vector2(2 + $direction->x, 2 + $direction->y);
+  $event = new FacingProbeTrigger(new Rect($object->x, $object->y, 1, 1), engagement: EventEngagement::FACING);
+  expect($event->canEngage(new Vector2(2, 2), $heading))->toBeTrue()
+    ->and($event->canEngage($object, $heading))->toBeFalse()
+    ->and($event->canEngage(new Vector2(2 - $direction->x, 2 - $direction->y), $heading))->toBeFalse()
+    ->and($event->canEngage(new Vector2(2 + $direction->y, 2 + $direction->x), $heading))->toBeFalse()
+    ->and($event->canEngage(new Vector2(2, 2), MovementHeading::NONE))->toBeFalse();
+})->with([MovementHeading::NORTH, MovementHeading::EAST, MovementHeading::SOUTH, MovementHeading::WEST]);
+
+it('uses exact object cells and combines reach with optional headings and world conditions', function () {
+  $event = EventTriggerFactory::create(['class' => FacingProbeTrigger::class,
+    'area' => ['cells' => [[2, 1], [4, 1], [2, 0]]], 'data' => [], 'engagement' => 'facing',
+    'facing' => ['North'], 'conditions' => [['type' => 'switch', 'name' => 'ready']],
+    'cue' => ['symbol' => '?', 'color' => 'yellow']]);
+  $event->bind($this->scene->gameState);
+  expect($event->canEngage(new Vector2(2, 2), MovementHeading::NORTH))->toBeFalse();
+  $this->scene->gameState->setSwitch('ready', true);
+  expect($event->canEngage(new Vector2(2, 2), MovementHeading::NORTH))->toBeTrue()
+    ->and($event->canEngage(new Vector2(4, 2), MovementHeading::NORTH))->toBeTrue()
+    ->and($event->canEngage(new Vector2(3, 2), MovementHeading::NORTH))->toBeFalse()
+    ->and($event->canEngage(new Vector2(1, 1), MovementHeading::EAST))->toBeFalse()
+    ->and($event->shouldRenderCue())->toBeTrue();
+});
+
+it('switches concrete object prompts on blocked turns in either authored order', function (bool $reverse) {
+  $sleep = new \Ichiloto\Engine\Events\Triggers\SleepEventTrigger(new Rect(3, 2, 1, 2),
+    ['confirmDialogue' => ['text' => 'Synthetic rest?'], 'spawnPoint' => ['x' => 2, 'y' => 2], 'spawnSprite' => ['South']],
+    engagement: EventEngagement::FACING);
+  $script = new \Ichiloto\Engine\Events\Triggers\ScriptEventTrigger(new Rect(2, 1, 1, 1),
+    ['mode' => 'action', 'script' => []], engagement: EventEngagement::FACING);
+  foreach ($reverse ? [$script, $sleep] : [$sleep, $script] as $event) { $this->player->addTrigger($event); }
+  expect($this->player->tryMove(Vector2::right(), $this->scene->camera))->toBeFalse()
+    ->and($this->player->availableAction)->toBeInstanceOf(\Ichiloto\Engine\Entities\Actions\SleepAction::class);
+  $this->player->tryMove(Vector2::up(), $this->scene->camera);
+  expect($this->player->availableAction)->toBeInstanceOf(\Ichiloto\Engine\Entities\Actions\RunScriptAction::class)
+    ->and([$this->player->position->x, $this->player->position->y])->toBe([2.0, 2.0]);
+  $this->player->face(Vector2::down(), $this->scene->camera);
+  expect($this->player->availableAction)->toBeNull();
+})->with([false, true]);
+
+it('engages on arrival and retires when leaving object reach', function () {
+  $event = new FacingProbeTrigger(new Rect(2, 1, 2, 1), engagement: EventEngagement::FACING);
+  $this->player->addTrigger($event);
+  $this->player->setFacingSprite(['North'], engageEvents: false);
+  $this->player->dispatchMovement(new Vector2(2, 3), new Vector2(2, 2));
+  $this->player->dispatchMovement(new Vector2(2, 2), new Vector2(3, 2));
+  $this->player->dispatchMovement(new Vector2(3, 2), new Vector2(4, 2));
+  expect($event->calls)->toBe(['enter', 'stay', 'exit'])->and($this->player->availableAction)->toBeNull();
+});
+
+it('restores adjacent prompts and one-shot completion by the existing map marker identity', function () {
+  \Ichiloto\Engine\Util\Config\ConfigStore::put(\Ichiloto\Engine\Util\Stores\ItemStore::class,
+    new class extends \Ichiloto\Engine\Util\Stores\ItemStore { public function __construct() {} });
+  $args = ['class' => \Ichiloto\Engine\Events\Triggers\ChestEventTrigger::class,
+    'area' => ['cells' => [[2, 1]]], 'marker' => 'C', 'data' => [], 'engagement' => 'facing'];
+  $chest = EventTriggerFactory::create($args, 'synthetic-object-map');
+  $chest->bind($this->scene->gameState);
+  $this->player->addTrigger($chest);
+  $this->player->setFacingSprite(['North'], engageEvents: false);
+  $this->player->evaluateAutomaticTriggersAtCurrentPosition();
+  expect($this->player->availableAction)->toBeInstanceOf(\Ichiloto\Engine\Entities\Actions\ChestOpeningAction::class);
+  $chest->complete();
+  $this->player->reconcileActiveEventState();
+  expect($this->player->availableAction)->toBeNull();
+  $restored = EventTriggerFactory::create($args, 'synthetic-object-map');
+  $savedState = GameState::fromArray($this->scene->gameState->toArray());
+  $restored->bind($savedState);
+  if ($savedState->isEventComplete('synthetic-object-map', 'C')) { $restored->restoreCompleted(); }
+  expect($restored->isComplete)->toBeTrue()
+    ->and($restored->canEngage(new Vector2(2, 2), MovementHeading::NORTH))->toBeFalse();
+});
+
+it('preserves automatic trigger behavior for faced object areas without replay on unchanged heading', function () {
+  $event = new FacingAutomaticProbe(new Rect(2, 1, 1, 1), engagement: EventEngagement::FACING);
+  $this->player->addTrigger($event);
+  $this->player->setFacingSprite(['North'], engageEvents: false);
+  $this->player->evaluateAutomaticTriggersAtCurrentPosition();
+  $this->player->evaluateAutomaticTriggersAtCurrentPosition();
+  $this->player->face(Vector2::up(), $this->scene->camera);
+  expect($event->calls)->toBe(['enter']);
+  $this->player->face(Vector2::right(), $this->scene->camera);
+  expect($event->calls)->toBe(['enter', 'exit']);
+});
+
+it('waits for semantic interaction before executing an object script', function () {
+  $commands = [['type' => 'switch', 'name' => 'synthetic-record-read', 'value' => true]];
+  $event = new \Ichiloto\Engine\Events\Triggers\ScriptEventTrigger(new Rect(2, 1, 1, 1),
+    ['mode' => 'action', 'script' => $commands], engagement: EventEngagement::FACING);
+  $this->player->addTrigger($event);
+  $this->player->face(Vector2::up(), $this->scene->camera);
+  expect($this->scene->startedScripts)->toBe([]);
+  $this->player->interact();
+  expect($this->scene->startedScripts)->toBe([$commands]);
+  $this->player->face(Vector2::right(), $this->scene->camera);
+  expect($this->player->availableAction)->toBeNull();
 });

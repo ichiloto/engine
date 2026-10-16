@@ -49,7 +49,7 @@ final class CinematicCommandSchema
   ];
   public const string CINEMATIC_TRIGGER_CLASS = 'Ichiloto\\Engine\\Events\\Triggers\\CinematicEventTrigger';
   public const array CINEMATIC_TRIGGER_ROOT_FIELDS = [
-    'class', 'conditions', 'sets', 'whenBlocked', 'cue', 'facing', 'data',
+    'class', 'conditions', 'sets', 'whenBlocked', 'cue', 'facing', 'engagement', 'data',
   ];
   public const array CINEMATIC_TRIGGER_DATA_FIELDS = ['cinematicId', 'mode', 'reusable'];
   public const array CINEMATIC_TRIGGER_MODES = ['action', 'auto'];

@@ -12,6 +12,7 @@ use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Events\Interfaces\EventTriggerContextInterface;
 use Ichiloto\Engine\Events\Interfaces\EventTriggerInterface;
+use Ichiloto\Engine\Events\Enumerations\EventEngagement;
 use Ichiloto\Engine\Quests\QuestManager;
 use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
@@ -26,7 +27,7 @@ use RuntimeException;
 abstract class EventTrigger implements EventTriggerInterface
 {
   /**
-   * @var CellArea The cells the player stands on to trigger the event: exactly
+   * @var CellArea The event's authored cells, stood on or faced: exactly
    * the cells its marker occupies, in any shape, connected or not.
    */
   protected(set) CellArea $area;
@@ -56,6 +57,10 @@ abstract class EventTrigger implements EventTriggerInterface
   protected(set) array $conditions = [];
   /** @var list<MovementHeading> Allowed player headings; empty means unrestricted. */
   protected(set) array $facing = [];
+  /** Whether engagement must be re-evaluated when the player turns in place. */
+  public bool $dependsOnFacing {
+    get => $this->engagement === EventEngagement::FACING || $this->facing !== [];
+  }
   /**
    * @var array<int, array<string, mixed>> The world-state writes applied on completion.
    */
@@ -97,6 +102,7 @@ abstract class EventTrigger implements EventTriggerInterface
    * player-visible guidance for the trigger while it is available. Cue
    * conditions may further delay presentation without disabling interaction.
    * @param list<string> $facing Optional cardinal heading names; empty allows any facing.
+   * @param EventEngagement $engagement Whether the player stands inside or faces an adjacent event cell.
    * @throws JsonException If the data cannot be serialized.
    */
   final public function __construct(
@@ -109,6 +115,7 @@ abstract class EventTrigger implements EventTriggerInterface
     protected(set) ?string $whenBlocked = null,
     ?array $cue = null,
     array $facing = [],
+    protected(set) EventEngagement $engagement = EventEngagement::INSIDE,
   )
   {
     $this->area = $area instanceof Rect ? CellArea::fromRect($area) : $area;
@@ -120,17 +127,25 @@ abstract class EventTrigger implements EventTriggerInterface
     $this->marker = $marker !== null && trim($marker) !== '' ? trim($marker) : null;
     $this->whenBlocked = $whenBlocked !== null && trim($whenBlocked) !== '' ? trim($whenBlocked) : null;
     $this->cue = EventCue::fromArray($cue);
-    if (!array_is_list($facing)) {
+    $this->facing = self::parseFacing($facing);
+    $this->configure();
+  }
+
+  /** @return list<MovementHeading> Validated authored headings, shared with map analysis. */
+  public static function parseFacing(mixed $facing): array
+  {
+    if (!is_array($facing) || !array_is_list($facing)) {
       throw new InvalidArgumentException('Event facing must be a list of cardinal heading names.');
     }
+    $headings = [];
     foreach ($facing as $name) {
       $heading = is_string($name) ? MovementHeading::tryFrom($name) : null;
       if ($heading === null || $heading === MovementHeading::NONE) {
         throw new InvalidArgumentException('Event facing accepts North, East, South and West only.');
       }
-      if (!in_array($heading, $this->facing, true)) { $this->facing[] = $heading; }
+      if (!in_array($heading, $headings, true)) { $headings[] = $heading; }
     }
-    $this->configure();
+    return $headings;
   }
 
   /**
@@ -150,8 +165,11 @@ abstract class EventTrigger implements EventTriggerInterface
   /** Tests transient interaction eligibility separately from world-state availability. */
   public function canEngage(Vector2 $position, MovementHeading $heading): bool
   {
-    return !$this->isComplete && $this->isAvailable() && $this->area->contains($position)
-      && ($this->facing === [] || in_array($heading, $this->facing, true));
+    if ($this->isComplete || !$this->isAvailable()
+      || ($this->facing !== [] && !in_array($heading, $this->facing, true))) {
+      return false;
+    }
+    return $this->engagement->canReach($this->area, $position, $heading);
   }
 
   /**

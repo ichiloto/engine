@@ -3,6 +3,7 @@
 namespace Ichiloto\Engine\Events\Triggers;
 
 use Ichiloto\Engine\Core\CellArea;
+use Ichiloto\Engine\Events\Enumerations\EventEngagement;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Exceptions\RequiredFieldException;
 use InvalidArgumentException;
@@ -46,6 +47,11 @@ class EventTriggerFactory
       throw new InvalidArgumentException('Event facing must be a list of cardinal heading names.');
     }
 
+    $engagement = EventEngagement::INSIDE;
+    if (array_key_exists('engagement', $args)) {
+      $engagement = EventEngagement::parse($args['engagement']);
+    }
+
     return new $class(
       $area,
       $data,
@@ -56,6 +62,7 @@ class EventTriggerFactory
       isset($args['whenBlocked']) ? strval($args['whenBlocked']) : null,
       is_array($args['cue'] ?? null) ? $args['cue'] : null,
       $args['facing'] ?? [],
+      $engagement,
     );
   }
 }

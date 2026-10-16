@@ -62,7 +62,7 @@ Omission or `[]` allows every heading, preserving existing trigger behavior.
 `null`, a scalar, an associative array, `None` and unknown names are invalid;
 duplicate headings are normalized. This is interaction state, not a world condition.
 
-An opted-in event engages only while the player is inside its exact marker area,
+With the default `engagement`, an opted-in event engages while the player is inside its exact marker area,
 facing an allowed heading, its world conditions hold and it is not complete.
 A blocked walking attempt still turns the player and re-evaluates these events;
 explicit facing and sprite-facing changes do likewise. Turning away retires the
@@ -84,6 +84,43 @@ and are independent of the player's current heading. The same contract applies t
 sleep, script, chest, transfer, cinematic and other EventTrigger subclasses. The
 Editor may offer a multi-select of these four values and persist the root list;
 no class-specific facing field or presentation-driven collision is needed.
+
+### Events on objects
+
+Set root-level `'engagement' => 'facing'` to place the event marker on the object
+itself. The player engages it from outside the event area, facing an immediately
+adjacent marker cell. Solid object cells work: interaction does not require
+walking onto them. Exact marker cells define reach, including disconnected or
+multi-cell objects; gaps, diagonals and cells farther away are excluded. Object
+reach stops at the faced cell and does not extend across NPC talk counters.
+
+```php
+'R' => [
+  'class' => 'Ichiloto\\Engine\\Events\\Triggers\\ScriptEventTrigger',
+  'engagement' => 'facing',
+  'data' => ['mode' => 'action', 'scriptId' => 'read-records'],
+],
+```
+
+`engagement` accepts exactly `inside` and `facing`. Omission means `inside`,
+preserving existing events. Null, other types and unknown values are rejected.
+Direct PHP construction uses `Events\Enumerations\EventEngagement` as the final
+optional constructor argument. An optional `facing` list further restricts the
+player's allowed headings; without it every cardinal approach is supported.
+
+Facing a different object replaces the prompt through the same event lifecycle
+as movement. Turns against solid objects, explicit turns and restored headings
+all re-evaluate object reach. Ordinary action events still wait for the semantic
+interact action. Trigger classes keep their existing activation behavior: an
+automatic script still starts automatically when engagement begins, and transfer
+or audio triggers still perform their normal entry effect. Use an action-mode
+script for an object-operated door or audio control that must wait for interaction.
+
+This metadata applies to every trigger subclass. Cues stay on the authored object
+cells and remain independent of current reach. World conditions, `whenBlocked`
+entry gates, collision, terminal glyphs and map/marker completion identity remain
+unchanged. Completion persists through the existing save format. Editor controls
+should offer the two engagement choices and preserve the independent heading list.
 
 ## Transfer map trigger
 

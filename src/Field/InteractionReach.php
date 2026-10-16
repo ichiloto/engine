@@ -5,8 +5,7 @@ namespace Ichiloto\Engine\Field;
 use Closure;
 
 /**
- * How far the player reaches to speak to someone: the field, the action
- * prompt and reachability all ask the same question here.
+ * Shared faced-cell geometry for object events, NPC talk and reachability.
  *
  * The player reaches the cell they face, or the NPC directly behind one
  * faced counter cell. Anything else (floor, a wall, another unoccupied counter cell,
@@ -25,6 +24,12 @@ final class InteractionReach
   {
   }
 
+  /** @return array{int, int}|null The adjacent faced cell for a cardinal unit heading. */
+  public static function findFacingCell(int $x, int $y, int $dx, int $dy): ?array
+  {
+    return abs($dx) + abs($dy) === 1 ? [$x + $dx, $y + $dy] : null;
+  }
+
   /**
    * Finds the cell of the NPC the player reaches from a cell, facing a
    * cardinal unit heading.
@@ -35,11 +40,12 @@ final class InteractionReach
    */
   public static function findTalkCell(int $x, int $y, int $dx, int $dy, Closure $isCounterAt, Closure $hasNpcAt): ?array
   {
-    if (abs($dx) + abs($dy) !== 1) {
+    $cell = self::findFacingCell($x, $y, $dx, $dy);
+    if ($cell === null) {
       return null;
     }
 
-    for ($distance = 0, $cx = $x + $dx, $cy = $y + $dy;
+    for ($distance = 0, [$cx, $cy] = $cell;
       $distance <= self::MAX_COUNTER_CELLS; $distance++, $cx += $dx, $cy += $dy) {
       if ($hasNpcAt($cx, $cy)) {
         return [$cx, $cy];

@@ -129,13 +129,15 @@ final class ProjectReachability
     foreach ($maps as $mapId => $map) {
       foreach ($map['arrivals'] as $event) {
         $marker = $event->marker ?? '?';
+        $standingArea = new ReachabilityEvent($event->area, $event::class, $event->marker,
+          $event->engagement, $event->facing)->getStandingArea();
 
         if ($event instanceof TransferPlayerTrigger) {
           $addArrival($mapId, $event->destinationMap, intval($event->spawnPoint->x), intval($event->spawnPoint->y),
-            "transfer {$marker} on {$mapId}", $standingIn($event->area));
+            "transfer {$marker} on {$mapId}", $standingIn($standingArea));
         } elseif ($event instanceof SleepEventTrigger) {
           $addArrival($mapId, $mapId, intval($event->spawnPoint->x), intval($event->spawnPoint->y),
-            "sleep event {$marker} on {$mapId}", $standingIn($event->area));
+            "sleep event {$marker} on {$mapId}", $standingIn($standingArea));
         }
       }
 
@@ -161,7 +163,7 @@ final class ProjectReachability
 
         foreach (self::findScriptedArrivals($definition['data'] ?? [], $mapId) as $arrival) {
           $addArrival($mapId, $arrival['map'], $arrival['x'], $arrival['y'],
-            sprintf('a scripted %s in event %s on %s', $arrival['kind'], $event->marker ?? '?', $mapId), $standingIn($event->area));
+            sprintf('a scripted %s in event %s on %s', $arrival['kind'], $event->marker ?? '?', $mapId), $standingIn($event->getStandingArea()));
         }
       }
 

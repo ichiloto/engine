@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Field\Reachability;
 
 use Ichiloto\Engine\Core\CellArea;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
+use Ichiloto\Engine\Events\Enumerations\EventEngagement;
 use Ichiloto\Engine\Field\InteractionReach;
 use Ichiloto\Engine\Field\MapTrigger;
 use Ichiloto\Engine\Field\NpcPlacement;
@@ -17,8 +18,8 @@ use Ichiloto\Engine\Field\NpcPlacement;
  * (MapManager::canMoveTo). Fixed NPCs block their cell; wanderers move, so
  * they never permanently block one. Stepping onto a transfer or edge trigger
  * takes the player off the map, so those cells are reached but not walked
- * through. An event fires while the player stands in its area, so it needs
- * one reachable cell; a talkable NPC is spoken to from a reachable cell that
+ * through. An event needs a reachable standing cell inside its area or facing
+ * an adjacent object cell, according to its engagement; a talkable NPC needs a cell that
  * reaches it, beside it or across one counter cell (InteractionReach, as the
  * field talks).
  *
@@ -144,7 +145,8 @@ final readonly class MapReachability
     $areas = array_map(static fn(MapTrigger $trigger): CellArea => CellArea::fromRect($trigger->area), $this->edgeTriggers);
 
     foreach ($this->events as $event) {
-      if ($event->isExit) {
+      // Facing an object is directional; its marker is not a compulsory step-through exit.
+      if ($event->isExit && $event->engagement === EventEngagement::INSIDE) {
         $areas[] = $event->area;
       }
     }
@@ -170,10 +172,11 @@ final readonly class MapReachability
     };
 
     foreach ($this->events as $event) {
-      if (! $isAnyReachable($event->area)) {
+      if (! $isAnyReachable($event->getStandingArea())) {
         $at = $event->area->firstCell;
         $problems[] = new ReachabilityProblem($this->mapId, ReachabilityProblemKind::UNREACHABLE_EVENT,
-          sprintf('No cell of event %s (%s) at (%d, %d) can be reached, so it never fires.',
+          sprintf('No %s of event %s (%s) at (%d, %d) can be reached, so it never fires.',
+            $event->engagement === EventEngagement::FACING ? 'allowed approach cell' : 'cell',
             $event->marker ?? '?', basename(str_replace('\\', '/', $event->class)), $at->x, $at->y),
           (int) $at->x, (int) $at->y);
       }
