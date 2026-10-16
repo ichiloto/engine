@@ -275,8 +275,13 @@ today, or live with the map:
 
 ## Battle command presentation sequence
 
-The local G2 runtime now implements this sequence through the shared session
-work in Phases 1 and 2 below. Production artwork bindings are locally integrated;
+The local G2 runtime implements the shared session work in Phases 1 and 2 below.
+The October 16 correction removes actor/action narration and the announcement
+banner and reading hold for each actor's primary attack and the built-in basic
+attack. Other actions show only their action names, including counter techniques
+and authored summon move names. The shared runner applies this in graphical and
+Terminal battles, with the same impact, costs and result feedback.
+Production artwork bindings are locally integrated;
 the fixed checklist records completed native command/result checks and the
 unobserved live Terminal and walking-triggered entry checks. Those limitations
 are recorded without another delivery-blocking inspection loop under Andrew's
@@ -290,7 +295,9 @@ Once a confirmed command actually begins execution, present it in this order:
 1. Step the acting battler forward from its default formation position.
 2. Select the command's presentation pose, such as Attack, Casting Magic or
    Using Item, through explicit project-owned role bindings.
-3. Announce the command or item use through the existing message surface.
+3. Show only the action or item name. The actor's primary attack and the
+   built-in basic strike omit this banner and its reading hold. Existing
+   actor highlights and effects identify who acts.
 4. Play source effects, such as a caster's magic preparation.
 5. Play target effects, such as hit sparks, at the action's impact cues.
 6. Present each recipient's actual result: damage reaction pose/animation,
@@ -384,8 +391,8 @@ feedback projection filters the typed KO role without parsing localized text or
 mutating the original results. Terminal KO feedback, damage numbers, gameplay
 state, reaction duration and the hold before victory/defeat remain unchanged.
 
-Terminal uses a deliberately simpler presentation: one step forward, an
-announcement, small anchored source/target glyph effects and foreground colour,
+Terminal uses a deliberately simpler presentation: one step forward, an optional
+action-name announcement, small anchored source/target glyph effects and foreground colour,
 readable results, then one step back. It does not animate battle character poses
 or interpolate their movement. Graphical recoil, shaking effects, fullscreen
 flashes, summon title cards and fades are removed from the terminal command
@@ -715,6 +722,60 @@ Their actual bounds protect them from notification and feedback overlays.
 Insufficient space uses the shared least-overlap placement policy without
 dropping badges; geometry that cannot fit the canvas is an explicit error.
 These are battlefield badges, not extra icons in the cramped status HUD.
+
+### Show Gameplay Instead Of Narrating It
+
+Andrew's October 13, 2026 direction removes redundant action narration from
+the intended presentation: "Even in battle I hate the \"Kaelion uses Attack\"".
+This supersedes the previous requirement to announce every command or item
+through the message surface. Named actions retain an announcement phase for
+their action name. Basic attacks omit its cue and reading hold; phase inspection
+retains a zero-length boundary.
+Show source action, target effects, damage/healing and condition changes through
+the existing shared presentation in both battle engines. Missing or unclear
+feedback is a presentation gap to correct, not permission to substitute prose.
+
+Preserve genuine character dialogue, optional help and inspection, decisions,
+confirmations, concise result labels and actionable errors. Terminal and
+reduced-motion presentations must likewise show a useful board and outcomes
+without compulsory narrative interruptions. Acceptance must verify that removing
+the routine narration preserves action identity, timing and visible outcomes,
+including group/multi-hit commands and lower-capability presentations. This is
+the governing production direction. The action-name and silent-primary-attack
+correction is implemented in local Engine `develop` commit `98fc3c5` with focused
+automated coverage of both battle engines and graphical/Terminal presentation.
+This does not claim new native playtest coverage or expand the Deckers slice.
+
+### Queued after Deckers: independent status HUD and target cursor
+
+Andrew's October 13, 2026 direction makes this the coordinator's next goal
+AFTER Deckers is implemented. It is not part of Deckers acceptance, and no
+runtime correction is claimed here. The current wrapping/obstacle layout
+described above must be replaced for this goal, not preserved as the target
+design.
+
+Active status icons form two center-justified rows above the battler's head,
+filling the top row before the bottom. The full available condition set must
+fit those two rows without silently dropping conditions or moving individual
+icons sideways. Selecting or deselecting a battler must not change its status
+HUD position, row assignment or spacing. Gameplay conditions remain owned by
+the existing condition model, not another display-state store.
+
+Targeting has its own reserved space ABOVE the status HUD. Across all battler
+target-selection paths, use the same overhead cursor convention: never switch
+to a side cursor or displace a badge to avoid overlap. Correct the shared
+anchor/space allocation rather than adding per-character or per-screen
+offsets. Viewport constraints must be resolved through shared presentation
+layout, not inconsistent cursor relocation. This direction does not replace
+unrelated list-item or button navigation conventions.
+
+Acceptance must cover selection changes with unchanged conditions, top-to-bottom
+row filling and centered partial rows, the full supported condition set, allies
+and enemies, pose/scale changes, multiple targeting commands, compact viewports
+and reduced motion. Compare before/after selection bounds to prove the cursor
+does not move status icons. Preserve useful Terminal presentation and report
+native/platform coverage accurately. Coordinate Game/theme and any Editor/GUI
+work through Claude; the shared runtime placement correction belongs to Engine.
 
 Badges project live state on every frame, including reduced-motion and
 lower-capability frames. Optional animation gaps, missing variants, failures,

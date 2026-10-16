@@ -1012,6 +1012,367 @@ The immediate reference-game plan and its ratified rule decisions are owned
 by Game in its existing private roadmap, not copied into Engine documentation.
 Implementation is queued independently and must not expand G4 acceptance.
 
+## Scenario Director village implementation plan
+
+Planned 15 October 2026. All milestones below are **not started**. This section
+owns the dependency order and completion gates for the village prototype.
+The [Editor roadmap](../../editor/docs/roadmap.md#scenario-blueprint-authoring)
+and [GUI plan](../../gui-editor/docs/plan.md#scenario-director-authoring-and-preview)
+own their component tasks. The [business proposal](../../business-plan/ai-integration-strategy.md)
+owns product positioning, proposed pricing and the fuller knight/druid example.
+Creating this plan does not start implementation or change the current release
+or rendering milestones.
+
+The target is one playable world with an AI dungeon master: the same conflict
+can start with a knight defending the nation or a druid seeking justice for a
+pillaged capital. Player decisions can change allegiance and subsequent
+situations. Dialogue, quests, encounters and visible consequences must follow
+those decisions. Two fixed quest chains with generated wording do not meet
+the final acceptance gate.
+
+### Ownership and existing foundations
+
+| Owner | Reuse | New responsibility |
+| --- | --- | --- |
+| Free Engine | GameState, QuestManager, NpcManager, EventInterpreter, combat, GameConfig and SaveManager | Public blueprint/proposal contracts, generated definitions and instances, typed campaign state, validation and safe consequence execution |
+| Free shared Editor and TUI | EditorSession, SessionHost, record schemas, reference pickers, source preservation, history and shared-file composition | Basic scenario record authoring, diagnostics, revisions, undo and save support |
+| Paid GUI frontend | Existing map/database tools and PHP host | Visual scenario forms, placement selection, relationships and preview controls over shared services |
+| Proposed paid Director addon | Project bootstrap, public core contracts and lifecycle boundaries | Context selection, planning/coherence, asynchronous generation, adapters and generation-testing workflow |
+| Village sample project | Existing project/bootstrap and asset contracts | Maps, people, lore, origins, encounter resources, dialogue style and authored generation policy |
+
+The Director is renderer-neutral. Community generators may use the same free
+proposal boundary. Committed gameplay must load and execute with the free
+scenario runtime policy registered, without a model or a paid provider object.
+Producing future content still depends on the game's declared generation mode.
+
+The existing [project-state extension](save-compatibility.md#project-owned-campaign-state)
+already supplies bounded plain data, namespace policies, migrations and restore
+before campaign consumers. Reuse it. Its registry is the durable owner; domain
+services expose typed operations over those records rather than maintain a second
+mutable store. Existing GameState, inventory and quest progress remain owners of
+their own data. The registry's atomic namespace replacement does **not** transact
+those other owners; SD2 must solve that integration explicitly.
+
+Start with one proposed authored catalog, **assets/Data/scenarios.php**, containing
+a schema version and keyed world, faction, origin and situation records. Map
+regions and resource references are selected records within that catalog.
+This keeps linked scenario edits in one backing document and fits the Editor's
+existing shared-file composition. It is a proposed contract to settle in SD0,
+not an existing supported filename. General cross-file atomic saving must not
+be inferred from that choice.
+
+### Milestones and effort
+
+Work sequentially, finishing each gate before opening the next milestone.
+Validate real-model value through the shared Editor/TUI before the full GUI
+workspace, so visual tooling does not precede the main product experiment.
+A focused development day means roughly four to six hours of implementation
+and verification. These are planning ranges, not measured delivery promises.
+
+| Milestone | Main work | Depends on | Focused days | Demonstrable result |
+| --- | --- | --- | --- | --- |
+| SD0 | Contracts, capability audit and sample scope | Existing foundations | 2–3 | Valid sample records and a mapped executable gameplay loop |
+| SD1 | Typed campaign state and definition restoration | SD0 | 5–8 | A generated campaign snapshot survives save/load without inference |
+| SD2 | Gameplay instances and consequence commitment | SD1 | 8–12 | Both origins can play and change the same world using synthetic proposals |
+| SD3 | Shared Editor and TUI authoring | SD0–SD2 | 5–8 | Blueprints can be authored, validated, undone and round-tripped |
+| SD4 | Director orchestration and reactive planning | SD2–SD3 | 6–10 | The addon drives complete proposal lifecycles using a test adapter |
+| SD5 | Local and online model integration | SD4 | 5–8 | Real models produce validated, meaningfully reactive adventures |
+| SD6 | GUI authoring and campaign inspection | SD3–SD5 | 6–10 | A creator configures and tests the village through the GUI |
+| SD7 | Complete village qualification and packaging | SD5–SD6 | 4–7 | Repeatable independent playtests and a documented prototype package |
+
+Total: **41–66 focused days**, before contingency. Reserve another 20–30% for
+integration and model-quality work: approximately **50–86 days**. At three
+focused days per week that is roughly **17–29 weeks**. Re-estimate after SD2
+and again after the first real-model trial; model quality and consequence
+integration are the largest uncertainties. Packaging and paid-product polish
+beyond the prototype are separate estimates.
+
+### SD0 Contracts and sample scope
+
+**Tasks**
+
+- [ ] Audit the actual command, quest, actor, encounter, placement and save
+  capabilities against the village loop. For each missing verb, identify its
+  proper shared owner before implementation. Negotiation, custody transfer and
+  faction access need executable rules; a prompt instruction is insufficient.
+- [ ] Define versioned blueprint and proposal schemas. Reference existing stable
+  actors/classes/items/troops/maps; distinguish generated instance IDs, authored
+  IDs, social role and visual variant. Specify reference collision and rename
+  behaviour, including deliberate compatibility for existing name-based targets.
+- [ ] Define the proposed persistent campaign record: portable campaign ID,
+  origin, facts and scoped beliefs, relationships, accepted commitments, generated
+  definitions/instances, causal outcomes and bounded application receipts.
+  Inventory quantities, quest progress and ordinary flags remain in their
+  existing stores; references link them instead of copying their authority.
+- [ ] Define proposal fields: request/contract/blueprint versions, campaign and
+  session identity, expected revision, participants, preconditions, supported
+  effects, presentation and continuation hooks. Reject unknown operations and
+  malformed references before admission.
+- [ ] Specify one sample project in the existing examples workflow, proposed as
+  **examples/scenario-village/**. Reuse normal dependencies and startup; no copied
+  Engine/runtime or Last Legend story edits. Inventory the village, forest,
+  shrine, relic, witnesses, faction contacts and reusable combat resources.
+
+**Gate:** validate one opening for each origin and one later change of allegiance
+as plain synthetic proposals. Every proposed effect maps to an existing operation
+or an explicit SD2 task. Record the selected hardware, development time allocation
+and inference/storage budgets for later measurements. No provider installation
+or generation is necessary here.
+
+### SD1 Persistent campaign state and generated definitions
+
+**Tasks**
+
+- [ ] Implement the public scenario record policy and typed access service using
+  ProjectStateParticipantInterface and ProjectStateRegistry. Register before the
+  first campaign restore. Missing old-save state means no generated campaign;
+  malformed or future-version state fails with a useful diagnostic.
+- [ ] Extend definition resolution so QuestManager consumes authored and admitted
+  generated definitions through one validated catalog. Restore generated definitions
+  before quest-log hydration. Derive runtime indexes from the durable records;
+  do not create another quest manager or independent save registry.
+- [ ] Store accepted generated facts, people, dialogue choices and objectives
+  needed for continuity. Keep a causal ledger of commitments/outcomes and compact
+  model context separately; summaries never become authoritative facts.
+  Validate generated references against the candidate snapshot and authored
+  catalog, never the previous live campaign. Pin committed definition versions;
+  a later blueprint edit must not reroll established content on load.
+- [ ] Qualify numbered, quick and autosave snapshots, campaign switching, migrations
+  and failed restoration. Keep pure migration/validation callbacks free of side
+  effects and preserve the active-event save guard.
+- [ ] Enforce size admission before accepting content. The current project-state
+  extension permits **1 MiB across all namespaces**, not per addon. Bound active
+  content, prose and history while preserving unresolved promises and application
+  receipts; refuse new content visibly when a valid compact representation will
+  not fit. Do not raise the shared limit to hide unbounded growth.
+
+**Gate:** save a synthetic generated campaign, terminate its runtime, load it with
+no inference adapter and restore the same definitions, people, knowledge and quest
+references. Loading another campaign does not retain the first one's state.
+An old ordinary project still loads and plays without enabling scenario generation.
+
+### SD2 Playable world instances and safe consequences
+
+**Tasks**
+
+- [ ] Materialise an admitted origin through existing party/actor/class/start-map
+  setup. Validate equipment, entry positions and relationships before activation;
+  register generated people with NpcManager through shared prepare/apply paths.
+- [ ] Add runtime instance overlays to authored maps for scenario participants,
+  interaction bindings and access conditions. Use stable instance identity,
+  existing collision and valid placement regions. Re-entering a map or loading
+  a save reconstructs the same instances without rewriting authored files.
+- [ ] Implement the smallest complete set of reusable village capabilities:
+  reveal a fact, offer/accept a commitment, transfer validated relic custody,
+  change a declared relationship/access condition, resolve an explicit negotiation
+  offer, and launch an eligible normal encounter. Identify any absent shared
+  operation in its owning domain; model text cannot supply PHP implementations.
+- [ ] Introduce a bounded consequence change plan. Preflight all participating
+  owners against the expected campaign revision, prepare complete candidate changes,
+  and apply at one non-yielding boundary with defined rollback on failure.
+  Publish notifications/outcomes only after success. Cover inventory, quest and
+  world/campaign state together where an action touches them. Namespace replacement
+  alone and arbitrary command-by-command mutation are insufficient.
+- [ ] Use durable action identities/receipts and an explicit revision/sequence
+  policy to prevent retries, reloads or stale replies from awarding twice.
+  Retention/compaction must preserve deduplication semantics. Exclusively owned
+  resources cannot be committed to incompatible situations.
+- [ ] Keep situation commitment distinct from later execution. Encounters and
+  dialogue may yield through their normal lifecycle; do not hold a transaction
+  open while the player talks or fights. Actual outcomes trigger later consequences.
+  Save only at stable boundaries; mandatory checkpoint failure must be visible.
+
+**Gate:** run both origins through the same village resources with synthetic
+proposals, including negotiation and a battle, refusal of an offer, a changed
+allegiance and a visible faction response. Inject a failure between prepared
+owner updates and verify no partial custody, reward or relationship change.
+Repeat the action and save/reload without duplication. Both terminal and graphical
+runtime projections must remain possible from the same state; polish comes later.
+
+This milestone proves the gameplay machinery. Synthetic proposals do not prove
+AI improvisation or narrative quality; those gates remain in SD5 and SD7.
+
+### SD3 Shared Editor and terminal authoring
+
+**Tasks**
+
+- [ ] Add source-preserving scenario catalog projections and record schemas for
+  world/conflict, factions, origins and situations. Reuse supported PHP source
+  editing; refuse unsupported computed/constructor source before any write.
+- [ ] Extend EditorSession/SessionHost with capability-described list/read/create,
+  revise, validate, preview and history operations. Use action-named APIs, expected
+  revisions, structured diagnostics and reference pickers. Do not invent a second
+  parser, writer or AI-only mutation path.
+- [ ] Compose linked scenario changes in the single backing catalog with grouped
+  undo/redo and rollback. Validate external map/resource references; a combined
+  map-plus-blueprint edit cannot claim atomic multi-file save without a qualified
+  shared transaction. Prefer selecting existing map regions in this slice.
+- [ ] Expose basic gameplay records in the TUI, including textual region/entry
+  selection and clear conditions/effects. Terminal authoring requires no sprites,
+  graphical crop controls or GUI purchase.
+- [ ] Add a shared preview boundary accepting a scenario catalog revision, origin
+  and synthetic proposal source. Test instances have separate temporary campaign
+  state and use normal runtime services, not a second simulation.
+
+**Gate:** author both origins and a custody/negotiation situation through the TUI
+and the host, undo and redo a linked change, save/reopen without losing unrelated
+PHP or graphical fields, and refuse stale or invalid edits without partial writes.
+
+### SD4 Director addon and reactive orchestration
+
+**Tasks**
+
+- [ ] Establish one separately packaged Director addon, proposed local component
+  **scenario-director/**, with explicit project-bootstrap registration and a small
+  provider interface. Settle the local package/composition shape in SD0; do not
+  introduce a universal plugin framework or create/publish a remote repository.
+- [ ] Implement task-scoped context assembly from canonical facts, the active
+  perspective, permitted character knowledge, faction intentions and relevant
+  causal history. Director summaries remain derived data.
+  Treat player text and generated dialogue as data, not authority to change
+  policy. Core proposal validation enforces permitted operations independently
+  of model instructions.
+- [ ] Implement a proposal lifecycle with queued, running, proposed, validated,
+  committed, refused and cancelled states. Track campaign/session epochs and world
+  revisions. Cancel obsolete work on load/quit/scene teardown; refuse late replies.
+- [ ] Reconsider intentions at semantic outcomes and authored pacing points.
+  Distinguish an offered opportunity from an accepted player objective. Let players
+  decline, negotiate and switch sides; revise plans using actual Engine outcomes.
+  Use the explicit game turn/time policy for faction actions.
+- [ ] Run model work outside the rendering/input loop, using one bounded worker
+  and a cancellable request queue initially. No synchronous network/inference wait
+  in a frame update. Verify process lifetime, timeout and resource cleanup.
+- [ ] Connect a deterministic test adapter to the real proposal interface and the
+  editor preview. Cover malformed output, missing references, stale state, duplicate
+  delivery, timeout, cancellation and exhausted generation budgets.
+
+**Gate:** the packaged addon drives a complete opening, consequential deviation and
+next situation through SD2, with visible reasons for failures and no leaked workers.
+Replacing the test adapter requires no changes to quests, saves or renderer code.
+
+### SD5 Local and online inference
+
+**Tasks**
+
+- [ ] Qualify one local backend/model on the selected machine first, then one
+  online provider through the same proposal contract. Verify capability and model
+  distribution terms at implementation time. Local failure does not silently
+  switch the player to paid cloud use.
+- [ ] Generate bounded structured situations and short dialogue tasks, with finite
+  repair/retry budgets. Preserve schema versions and useful request provenance,
+  while keeping credentials out of projects, saves, output and logs.
+- [ ] Add creator-configured local/cloud policy, startup/model diagnostics,
+  timeouts and deliberate authored continuity behaviour. Existing committed
+  content remains usable during a provider outage.
+- [ ] Use the same models for knight and druid trials. Compare role/motivation,
+  participant binding, causal composition and reaction to a changed allegiance.
+  Reject a result that merely paraphrases a fixed route.
+- [ ] Apply Andrew's dialogue direction: understandable natural speech, with
+  formality and vocabulary reflecting speaker and relationship. Characters should
+  not sound like technical documentation or expose omniscient Director knowledge.
+
+Initial development limits are **one active request, at most one repair retry per
+request, 8,000 input tokens and 2,000 output tokens per call**, subject to a provider's
+smaller limits. These are tunable test policies, not benchmark results. Use one
+capped exploratory batch of at most 25 total attempts per mode before assessing
+quality; all repairs count toward that cap. Set a currency cap before online
+calls using actual provider prices and Andrew's existing spending authorization.
+No authorization means defer paid calls and continue adapter checks with fixtures.
+
+Record schema acceptance, gameplay refusals, retries, p50/p95 latency, memory,
+graphical frame/input effects and actual online usage. Define the acceptable
+interaction wait on the selected target machine before the trial; a model that
+misses it needs smaller tasks, prefetch or a revised configuration, not a hidden
+unresponsive game loop.
+
+**Gate:** both modes produce a coherent playable opening and an action-dependent
+follow-up within their declared limits. A missing model, no internet, invalid
+proposal or exhausted budget follows the authored policy without corrupting the
+campaign or claiming successful generation.
+
+### SD6 GUI workspace and campaign inspection
+
+**Tasks**
+
+- [ ] Add the Scenario Director workspace over SD3 services: world facts/secrets,
+  faction motivations, origins, situation prerequisites/effects, generation policy
+  and actual project reference selectors. Start with forms and readable relation
+  lists; a graph visualization is optional after the loop works.
+- [ ] Select allowed entry and placement regions on the existing map canvas.
+  Persist shared map identity and physical coordinates; changing art does not
+  change placement or collision. TUI records remain sufficient without that view.
+- [ ] Provide Generate new test campaign, Continue, Reset, Validate and diagnostics
+  controls. Begin with synthetic proposals; real generation plugs into the same
+  workflow in SD4–SD5. Keep player-visible knowledge separate from the developer
+  inspector's facts and explain why a proposal qualified or failed.
+- [ ] Show generated people, objectives and proposed consequences with normal
+  Engine previews. Scope test saves to the owned preview instance. Promoting a
+  result to authored content is an explicit reviewed Editor change.
+- [ ] Preserve normal focus/input, cancellation, undo and dirty state. Closing a
+  preview or the editor releases its owned runtime and any later generation job.
+
+**Gate:** a creator configures the two origins, runs the village, inspects a changed
+allegiance, saves/reopens the blueprint and sees the same semantics through TUI
+and GUI. No hand-edited PHP is required for the supplied village capabilities.
+
+### SD7 Complete village qualification and delivery
+
+**Tasks**
+
+- [ ] Assemble the one sample project using the supported editor path and approved
+  reusable assets. Keep the knight/druid conflict independent of Last Legend.
+  Finish an understandable local resolution with continuing conflict hooks.
+- [ ] Walk through each origin, one negotiated resolution, one battle, refusal of
+  an offer and a meaningful change of allegiance. Observe changed cooperation,
+  access, NPC presence, objectives or encounters and the next generated situation.
+- [ ] Save/quit/load at stable boundaries and continue with the committed facts.
+  Load without inference connectivity, restore the same campaign and distinguish
+  unavailable future generation from missing persisted content.
+- [ ] Run synthetic regressions for migrations, invalid/stale/duplicate proposals,
+  cross-owner rollback, knowledge scoping, reachable objectives, resource budgets,
+  cancellation and editor round trips. Do not freeze authored dialogue or NPC
+  coordinates in tests.
+- [ ] Package the free scenario contracts/runtime policy, optional Director
+  bootstrap and example with a small compatibility manifest. Check Community
+  terminal use without Studio, GUI/graphical entitlements where used, and no
+  Atatusoft player activation, credentials or model-provider objects in a build.
+- [ ] Have three unrelated testers play two campaigns each. Include both starting
+  perspectives and a changed allegiance across the sessions. Ask them to explain
+  their motivation, what changed and why the world reacted. Treat this as
+  qualitative prototype evidence, not a willingness-to-pay study.
+
+**Gate:** the sample demonstrates an adaptive adventure with concrete consequences
+in terminal and graphical presentation. Capture compact evidence of environment,
+source/dependency identities, test scope, model policies, latency/usage and known
+limits. Mark each milestone complete only when its gate has passed.
+
+### Verification and resource discipline
+
+Use focused synthetic tests while iterating; complete the applicable component
+plans' required checks once at their completion gates. Broaden or repeat only for
+changed sources, failures or an identified coverage gap. Reuse existing dependencies
+and compatible build caches; do not install several model stacks for comparison
+before qualifying one. Check actual CPU/RAM/disk/quota and other consumers before
+heavy work, and cap worker count, run time, retained prompts and inference spend.
+
+Native launches require verified muted music and sound effects. Qualify each
+claimed platform separately; macOS does not establish Linux/WSLg or Windows
+support. Docker is only needed for a real local coverage gap, with ownership,
+consumer coordination and clean shutdown. No remote CI dispatch or paid capacity
+increase is an implicit milestone task.
+
+Keep one sample project and bounded preview data. Stop owned workers and remove
+owned temporary campaigns, logs and duplicate artifacts after retaining compact
+needed evidence; preserve Andrew's assets, saves and unrelated work. General
+free-form actions, generated terrain/art, persistent multiplayer worlds and an
+Atatusoft-hosted inference service remain future capabilities. Public contracts
+must accommodate additional actions and blueprint families without requiring
+another quest, save or gameplay authority.
+
+The first implementation task is **SD0**. Its deliverable is the versioned
+record/proposal contract and a capability-to-owner map for the two origins and
+their deviation, followed by SD1's persistent synthetic campaign.
+
 ## Sequencing notes
 
 - Phase 1 before everything story-shaped; Phases 2 and 3 can proceed in
