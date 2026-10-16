@@ -190,7 +190,7 @@ final class SkillRecord
   private static function readInvocation(array $invocation): SkillInvocation
   {
     return new SkillInvocation(
-      self::requireText($invocation, 'message', 'invocation.'),
+      array_key_exists('message', $invocation) ? self::requireText($invocation, 'message', 'invocation.') : '%2',
       self::requireInt($invocation, 'speed', 'invocation.'),
       self::requireInt($invocation, 'accuracy', 'invocation.'),
       self::requireInt($invocation, 'repeat', 'invocation.'),

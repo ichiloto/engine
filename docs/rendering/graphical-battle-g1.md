@@ -16,13 +16,22 @@ Games own metadata and artwork. Synthetic fixtures exercise geometry and protoco
 limits without defining a game's art or encounter design. G1 reuses the existing
 rendering client, input owner and shutdown lifecycle.
 
-Battle action announcements show the action name alone. The actor's configured
-primary attack and the built-in basic attack have no announcement or reading hold;
-other named attack techniques, skills, spells, items and counter actions retain
-their names. Authored summon move names remain supported. The shared command
-runner applies this rule in graphical and Terminal presentation, traditional and
-active-time battles. Animations, impact resolution and result feedback continue
-through the same command timeline.
+Projects author skill callouts through `invocation.message`. `%1` or `$1` inserts
+the actor name; `%2` or `$2` inserts the action name, including an authored summon
+move name. Substitution treats names literally once. Blank or whitespace-only
+templates silence the callout and remove its reading hold; `%2` shows only the
+action name. An absent legacy key and new invocations default to `%2`. SkillRecord
+preserves authored text, including blanks, on write. Counter skills use their own
+message through the same path.
+
+Other actions resolve project message keys `battle.announcements.attack`, `item`,
+`guard` or `skill`, under the existing `messages` tree, defaulting to `%2`.
+Explicit blank templates, including localized ones, mean silence. The shared
+`BattleAnnouncement::format` supplies editor previews with the same substitutions
+as playback. Last Legend authors blank basic attacks and name-only other actions;
+other games may author different text. The contract applies in graphical and
+Terminal presentation, traditional and active-time battles. Animations, impact
+resolution and result feedback continue through the same command timeline.
 
 ## Negotiated Envelope
 

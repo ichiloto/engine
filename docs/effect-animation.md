@@ -276,11 +276,14 @@ today, or live with the map:
 ## Battle command presentation sequence
 
 The local G2 runtime implements the shared session work in Phases 1 and 2 below.
-The October 16 correction removes actor/action narration and the announcement
-banner and reading hold for each actor's primary attack and the built-in basic
-attack. Other actions show only their action names, including counter techniques
-and authored summon move names. The shared runner applies this in graphical and
-Terminal battles, with the same impact, costs and result feedback.
+The October 16 correction makes callouts project-authored through each skill's
+invocation message and shared command templates. Blank text removes the banner
+and reading hold; %2 shows the action name, while %1 adds the actor where authored.
+The $1/$2 spelling is also supported. Last Legend authors silent basic attacks and
+name-only other actions; other games retain their own wording. Counters read their
+skill's message, and summon action tokens retain authored move names. The shared
+runner applies this in graphical and Terminal battles with the same impact,
+costs and result feedback.
 Production artwork bindings are locally integrated;
 the fixed checklist records completed native command/result checks and the
 unobserved live Terminal and walking-triggered entry checks. Those limitations
@@ -295,9 +298,9 @@ Once a confirmed command actually begins execution, present it in this order:
 1. Step the acting battler forward from its default formation position.
 2. Select the command's presentation pose, such as Attack, Casting Magic or
    Using Item, through explicit project-owned role bindings.
-3. Show only the action or item name. The actor's primary attack and the
-   built-in basic strike omit this banner and its reading hold. Existing
-   actor highlights and effects identify who acts.
+3. Display the project's authored action callout when nonblank. A blank template
+   omits the banner and reading hold. Existing actor highlights and effects
+   identify who acts. Last Legend chooses action names and silent basic attacks.
 4. Play source effects, such as a caster's magic preparation.
 5. Play target effects, such as hit sparks, at the action's impact cues.
 6. Present each recipient's actual result: damage reaction pose/animation,
@@ -392,7 +395,7 @@ mutating the original results. Terminal KO feedback, damage numbers, gameplay
 state, reaction duration and the hold before victory/defeat remain unchanged.
 
 Terminal uses a deliberately simpler presentation: one step forward, an optional
-action-name announcement, small anchored source/target glyph effects and foreground colour,
+authored callout, small anchored source/target glyph effects and foreground colour,
 readable results, then one step back. It does not animate battle character poses
 or interpolate their movement. Graphical recoil, shaking effects, fullscreen
 flashes, summon title cards and fades are removed from the terminal command
@@ -726,11 +729,12 @@ These are battlefield badges, not extra icons in the cramped status HUD.
 ### Show Gameplay Instead Of Narrating It
 
 Andrew's October 13, 2026 direction removes redundant action narration from
-the intended presentation: "Even in battle I hate the \"Kaelion uses Attack\"".
+Last Legend's presentation: "Even in battle I hate the \"Kaelion uses Attack\"".
 This supersedes the previous requirement to announce every command or item
-through the message surface. Named actions retain an announcement phase for
-their action name. Basic attacks omit its cue and reading hold; phase inspection
-retains a zero-length boundary.
+through the message surface. His October 16 clarification retains other games'
+customization. The Engine reads authored templates; Last Legend supplies blank
+basic attacks and name-only other actions. Blank callouts omit their cue and
+reading hold; phase inspection retains a zero-length boundary.
 Show source action, target effects, damage/healing and condition changes through
 the existing shared presentation in both battle engines. Missing or unclear
 feedback is a presentation gap to correct, not permission to substitute prose.
@@ -741,9 +745,9 @@ reduced-motion presentations must likewise show a useful board and outcomes
 without compulsory narrative interruptions. Acceptance must verify that removing
 the routine narration preserves action identity, timing and visible outcomes,
 including group/multi-hit commands and lower-capability presentations. This is
-the governing production direction. The action-name and silent-primary-attack
-correction is implemented in local Engine `develop` commit `98fc3c5` with focused
-automated coverage of both battle engines and graphical/Terminal presentation.
+Last Legend's production direction. The Engine's authored-callout contract has
+focused automated coverage of both battle engines and graphical/Terminal
+presentation, including silence and custom actor/action text.
 This does not claim new native playtest coverage or expand the Deckers slice.
 
 ### Queued after Deckers: independent status HUD and target cursor

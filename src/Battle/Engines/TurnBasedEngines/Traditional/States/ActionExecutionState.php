@@ -9,6 +9,7 @@ use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Animations\Timelines\LegacyAnimationTimeline;
 use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
 use Ichiloto\Engine\Battle\Presentation\BattleCommandRunner;
+use Ichiloto\Engine\Battle\Presentation\BattleAnnouncement;
 use Ichiloto\Engine\Animations\AnimationLibrary;
 use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Battle\Actions\AttackAction;
@@ -355,9 +356,10 @@ class ActionExecutionState extends TurnState
     $this->highlightActor($context, $actor);
     $this->highlightTarget($context, $focusTarget);
     $summonCutscene = $action !== null ? $this->resolveSummonCutscene($action) : null;
-    $announcement = BattleCommandCatalog::isPrimaryAttack($action, $actor) ? '' : ($summonCutscene instanceof SummonCompiledCutscene
+    $displayName = $summonCutscene instanceof SummonCompiledCutscene
       ? (trim(strval($summonCutscene->defaults['moveName'] ?? '')) ?: $actionName)
-      : $actionName);
+      : $actionName;
+    $announcement = BattleAnnouncement::formatForAction($action, $actor->name, $displayName);
     $actionAnimation = $summonCutscene instanceof SummonCompiledCutscene
       ? null
       : $this->resolveActionAnimation($action, $actor);

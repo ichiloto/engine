@@ -63,6 +63,7 @@ final class MessageCatalog
    *
    * @param string $path The dot path under `messages.`.
    * @param string $default The string used when the path is not authored.
+   * @param bool $allowEmpty Whether an explicitly empty localized value overrides the base message.
    * @param int|float|string ...$arguments Values for `%1`, `%2`, …
    * @return string The formatted message.
    */
@@ -78,7 +79,7 @@ final class MessageCatalog
    * @param string $default The string used when the path is not authored.
    * @return string The raw message.
    */
-  public static function resolve(string $path, string $default = ''): string
+  public static function resolve(string $path, string $default = '', bool $allowEmpty = false): string
   {
     if (! ConfigStore::has(ProjectConfig::class)) {
       return $default;
@@ -89,7 +90,7 @@ final class MessageCatalog
     if ($locale !== '') {
       $localized = config(ProjectConfig::class, "messages.$locale.$path", null);
 
-      if (is_string($localized) && $localized !== '') {
+      if (is_string($localized) && ($allowEmpty || $localized !== '')) {
         return $localized;
       }
     }

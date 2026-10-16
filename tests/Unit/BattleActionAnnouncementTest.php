@@ -6,6 +6,7 @@ use Ichiloto\Engine\Battle\Actions\GuardAction;
 use Ichiloto\Engine\Battle\Actions\ItemBattleAction;
 use Ichiloto\Engine\Battle\Actions\SkillBattleAction;
 use Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline;
+use Ichiloto\Engine\Battle\Presentation\BattleAnnouncement;
 use Ichiloto\Engine\Battle\Resolution\SeededCombatRandomSource;
 use Ichiloto\Engine\Core\Time;
 use Ichiloto\Engine\Entities\Character;
@@ -26,7 +27,7 @@ use function Tests\Support\Battle\writeQueuedAttackEffects;
 
 require_once __DIR__ . '/../Support/Battle/QueuedCommandFixture.php';
 
-it('silences each primary attack and shows only other action names without changing resolution',
+it('honours authored silence, actor callouts and action names without changing resolution',
   function (bool $activeTime, bool $graphical, bool $reduced, string $kind) {
     $priorConfig = ConfigStore::has(ProjectConfig::class) ? ConfigStore::get(ProjectConfig::class) : null;
     $priorDelta = new ReflectionProperty(Time::class, 'deltaTime')->getValue();
@@ -34,17 +35,22 @@ it('silences each primary attack and shows only other action names without chang
     $root = createTestDirectory('battle-action-announcement-');
     writeQueuedAttackEffects($root);
     chdir($root);
-    ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reduced]]));
+    ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reduced],
+      'messages' => ['battle' => ['announcements' => ['attack' => '', 'item' => '%1 drinks %2']]]]));
     try {
       $fixture = createTargetExecutionFixture($activeTime, $graphical, $this->createStub(AudioManager::class));
       [$engine, $context, $screen, $actor, , $enemies] = $fixture;
-      $primary = new BasicSkill('Opening cut', '', '', 0, 0, invocation: new SkillInvocation(accuracy: 100),
+      $primary = new BasicSkill('Opening cut', '', '', 0, 0, invocation: new SkillInvocation(message: '', accuracy: 100),
         effects: [new HPDamageSkillEffect('7', variance: 0)]);
       new ReflectionProperty(Character::class, 'attackSkill')->setValue($actor, $primary);
       $skill = match ($kind) {
         'primary' => clone $primary,
         'technique' => new BasicSkill('Feint', '', '', 0, 0),
         'magic' => new MagicSkill('Ember', '', '', 0, 0),
+        'authored primary' => new BasicSkill('Opening cut', '', '', 0, 0,
+          invocation: new SkillInvocation(message: '%1 uses %2!')),
+        'silent technique' => new SpecialSkill('Hidden technique', '', '', 0, 0,
+          invocation: new SkillInvocation(message: '')),
         // The word Attack alone must not silence a named special action.
         'special' => new SpecialSkill('Attack', '', '', 0, 0),
         default => null,
@@ -55,7 +61,12 @@ it('silences each primary attack and shows only other action names without chang
         'item' => new ItemBattleAction(new Item('Tonic', '', '', 1, 1, scope: new ItemScope(ItemScopeSide::ENEMY))),
         default => new SkillBattleAction($skill, random: new SeededCombatRandomSource(1)),
       };
-      $expected = in_array($kind, ['fallback', 'primary'], true) ? null : $action->name;
+      $expected = match ($kind) {
+        'fallback', 'primary', 'silent technique' => null,
+        'authored primary' => $actor->name . ' uses Opening cut!',
+        'item' => $actor->name . ' drinks Tonic',
+        default => $action->name,
+      };
       queueTargetExecution($fixture, $action, [$enemies[0]]);
       $playback = $screen->fieldWindow->getCommandPlayback();
       $announcement = $playback->plan->phases['announce'];
@@ -86,4 +97,26 @@ it('silences each primary attack and shows only other action names without chang
       $priorConfig === null ? ConfigStore::remove(ProjectConfig::class) : ConfigStore::put(ProjectConfig::class, $priorConfig);
     }
   })->with([false, true])->with([false, true])->with([false, true])
-    ->with(['fallback', 'primary', 'technique', 'magic', 'special', 'guard', 'item']);
+    ->with(['fallback', 'primary', 'technique', 'magic', 'special', 'guard', 'item', 'authored primary', 'silent technique']);
+
+it('formats actor and action tokens literally once and preserves unrelated tokens', function () {
+  expect(BattleAnnouncement::format('%1 casts %2! / $1 casts $2!', 'Mage $2', 'Spell %1'))
+    ->toBe('Mage $2 casts Spell %1! / Mage $2 casts Spell %1!')
+    ->and(BattleAnnouncement::format('$10 %20 %3 $3', 'Actor', 'Action'))->toBe('$10 %20 %3 $3')
+    ->and(BattleAnnouncement::format('  ', 'Actor', 'Action'))->toBe('');
+});
+
+it('allows project-defined and explicitly silent localized callouts for non-skill actions', function () {
+  $prior = ConfigStore::has(ProjectConfig::class) ? ConfigStore::get(ProjectConfig::class) : null;
+  ConfigStore::put(ProjectConfig::class, new PlaySettings(['locale' => 'fr', 'messages' => [
+    'battle' => ['announcements' => ['attack' => '%1 uses %2!']],
+    'fr' => ['battle' => ['announcements' => ['attack' => '']]],
+  ]]));
+  try {
+    expect(BattleAnnouncement::formatForAction(new AttackAction('Strike'), 'Actor', 'Strike'))->toBe('');
+    ConfigStore::put(ProjectConfig::class, new PlaySettings(['messages' => ['battle' => ['announcements' => ['attack' => '$1 uses $2!']]]]));
+    expect(BattleAnnouncement::formatForAction(new AttackAction('Strike'), 'Actor', 'Strike'))->toBe('Actor uses Strike!');
+  } finally {
+    $prior === null ? ConfigStore::remove(ProjectConfig::class) : ConfigStore::put(ProjectConfig::class, $prior);
+  }
+});

@@ -88,7 +88,7 @@ it('states only what an author chose, and a spell always its effect type', funct
 
   expect($attack)->not->toHaveKeys(['animationId', 'effectType'])
     ->and($attack['scope'])->toBe(['side' => 'Enemy', 'number' => 'One', 'status' => 'Alive'])
-    ->and($attack['invocation'])->toBe(['message' => '$1 casts $2!', 'speed' => 0, 'accuracy' => 0, 'repeat' => 1, 'apGain' => 10])
+    ->and($attack['invocation'])->toBe(['message' => '%2', 'speed' => 0, 'accuracy' => 0, 'repeat' => 1, 'apGain' => 10])
     ->and($inferred['effectType'])->toBe('restorative')
     ->and(SkillRecord::writeSkill(new SpecialSkill('Ward', 'Guards.', '', 2, 0, effects: [new AddStateSkillEffect('guard')]))['effects'])
     ->toBe([['type' => 'add_state', 'stateId' => 'guard']]);
@@ -114,4 +114,17 @@ it('refuses to write what a record cannot name', function () {
 
   expect(fn() => SkillRecord::writeSkill(new SpecialSkill('Riposte', 'Counters.', '', 0, 0, requiredWeapons: [$weapon])))
     ->toThrow(InvalidArgumentException::class, 'Riposte requires weapons, which a skill record cannot name yet.');
+});
+
+it('preserves authored announcement templates and silence while defaulting absent legacy keys to the action name', function () {
+  foreach (['', '   ', '%2', '$2', '%1 casts %2!', '$1 uses $2!', 'A literal callout'] as $message) {
+    $data = minimalSkillData();
+    $data['invocation']['message'] = $message;
+    expect(SkillRecord::writeSkill(SkillRecord::readSkill($data))['invocation']['message'])->toBe($message);
+  }
+  $data = minimalSkillData();
+  unset($data['invocation']['message']);
+  expect(SkillRecord::readSkill($data)->invocation->message)->toBe('%2');
+  $data['invocation']['message'] = 5;
+  expect(fn() => SkillRecord::readSkill($data))->toThrow(InvalidArgumentException::class, 'invocation.message');
 });

@@ -11,7 +11,6 @@ use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneDefinition;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Entities\Character;
-use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Enumerations\Occasion;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\Party;
@@ -321,15 +320,6 @@ final class BattleCommandCatalog
       $action instanceof AttackAction, $action === null => BattleCommandType::ATTACK,
       default => BattleCommandType::SKILL,
     };
-  }
-
-  /** The actor's default strike, independent of its displayed name or catalogue instance. */
-  public static function isPrimaryAttack(?BattleAction $action, CharacterInterface $actor): bool
-  {
-    return $action === null || $action instanceof AttackAction
-      || ($actor instanceof Character && $actor->attackSkill !== null
-        && $action instanceof SkillBattleAction && $action->skill instanceof BasicSkill
-        && $action->skill->name === $actor->attackSkill->name);
   }
 
   protected static function findSummonDefinitionByActionId(string $actionId): ?SummonCutsceneDefinition
