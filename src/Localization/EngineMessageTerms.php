@@ -9,7 +9,7 @@ use InvalidArgumentException;
 /** Discoverable Engine message defaults shared by runtime and project editors. */
 final class EngineMessageTerms
 {
-  /** @var array<string, array{default:string, placeholders:array<string,string>, description:string}> */
+  /** @var array<string, array{default:string, placeholders:array<string,string>, description:string, vocabularyDefault?:string}> */
   private const array TERMS = [
     'ability.empty_discovered' => ['default' => 'No discovered %1.', 'placeholders' => ['%1' => 'Ability command label'], 'description' => 'No abilities have been discovered.'],
     'ability.empty_learned' => ['default' => 'No learned %1.', 'placeholders' => ['%1' => 'Ability command label'], 'description' => 'No abilities have been learned.'],
@@ -27,10 +27,10 @@ final class EngineMessageTerms
     'confirm.quit' => ['default' => 'Are you sure you want to quit?', 'placeholders' => [], 'description' => 'Confirmation before exiting the game.'],
     'confirm.to_title' => ['default' => 'Return to title?', 'placeholders' => [], 'description' => 'Confirmation before returning to the title screen.'],
     'exp_next' => ['default' => 'To Next %1', 'placeholders' => ['%1' => 'Level label'], 'description' => 'Experience required for the next level.'],
-    'exp_total' => ['default' => 'Current %1', 'placeholders' => ['%1' => 'Experience label'], 'description' => 'Current experience heading; inherits vocab.shop.exp_total when present.'],
+    'exp_total' => ['default' => 'Current %1', 'placeholders' => ['%1' => 'Experience label'], 'description' => 'Current experience heading; inherits vocab.shop.exp_total when present.', 'vocabularyDefault' => 'shop.exp_total'],
     'file' => ['default' => 'File', 'placeholders' => [], 'description' => 'Numbered save-slot label prefix.'],
     'inventory.empty' => ['default' => 'Inventory is empty.', 'placeholders' => [], 'description' => 'The party inventory has no items.'],
-    'inventory.possession' => ['default' => 'Possession', 'placeholders' => [], 'description' => 'Owned quantity heading; inherits vocab.shop.possession when present.'],
+    'inventory.possession' => ['default' => 'Possession', 'placeholders' => [], 'description' => 'Owned quantity heading; inherits vocab.shop.possession when present.', 'vocabularyDefault' => 'shop.possession'],
     'magic.empty_discovered' => ['default' => 'No discovered %1.', 'placeholders' => ['%1' => 'Magic command label'], 'description' => 'No spells have been discovered.'],
     'magic.empty_learned' => ['default' => 'No learned %1.', 'placeholders' => ['%1' => 'Magic command label'], 'description' => 'No spells have been learned.'],
     'magic.insufficient_mp' => ['default' => 'Not enough %1 for %2.', 'placeholders' => ['%1' => 'Resource label', '%2' => 'Spell name'], 'description' => 'A field spell has insufficient resources.'],
@@ -58,25 +58,18 @@ final class EngineMessageTerms
     'travel.unavailable_title' => ['default' => 'Travel Unavailable', 'placeholders' => [], 'description' => 'Heading when a map transfer fails.'],
   ];
 
-  private const array VOCABULARY_DEFAULTS = [
-    'exp_total' => 'shop.exp_total',
-    'inventory.possession' => 'shop.possession',
-  ];
-
   private function __construct() {}
 
   /**
    * Keys are paths beneath messages.; entries include defaults, accepted tokens and help.
-   * Legacy vocabulary defaults are resolved for the active project and locale.
+   * This metadata is independent of runtime config. vocabularyDefault identifies
+   * a legacy fallback beneath vocab.; editors resolve it in their own workspace.
    *
-   * @return array<string, array{default:string, placeholders:array<string,string>, description:string}>
+   * @return array<string, array{default:string, placeholders:array<string,string>, description:string, vocabularyDefault?:string}>
    */
   public static function listTerms(): array
   {
     $terms = self::TERMS;
-    foreach (self::VOCABULARY_DEFAULTS as $path => $vocabularyPath) {
-      $terms[$path]['default'] = Vocabulary::getTerm($vocabularyPath, $terms[$path]['default']);
-    }
     ksort($terms);
     return $terms;
   }
@@ -85,7 +78,7 @@ final class EngineMessageTerms
   public static function getDefault(string $path): string
   {
     $term = self::TERMS[$path] ?? throw new InvalidArgumentException("Unknown Engine message term: $path");
-    return isset(self::VOCABULARY_DEFAULTS[$path])
-      ? Vocabulary::getTerm(self::VOCABULARY_DEFAULTS[$path], $term['default']) : $term['default'];
+    return isset($term['vocabularyDefault'])
+      ? Vocabulary::getTerm($term['vocabularyDefault'], $term['default']) : $term['default'];
   }
 }

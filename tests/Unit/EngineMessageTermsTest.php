@@ -51,13 +51,17 @@ it('uses project and locale overrides with the same catalog defaults used by edi
 });
 
 it('preserves legacy vocabulary defaults and explicit message precedence', function () {
+  $builtInTerms = EngineMessageTerms::listTerms();
   ConfigStore::put(ProjectConfig::class, new PlaySettings(['locale' => 'fr', 'vocab' => [
     'shop' => ['exp_total' => 'Owned %1', 'possession' => 'Owned'],
     'fr' => ['shop' => ['exp_total' => 'Actuel %1']],
   ], 'messages' => ['inventory' => ['possession' => 'In your bag']]]));
-  expect(EngineMessageTerms::listTerms()['exp_total']['default'])->toBe('Actuel %1')
+  expect(EngineMessageTerms::listTerms())->toBe($builtInTerms)
+    ->and($builtInTerms['exp_total']['vocabularyDefault'])->toBe('shop.exp_total')
+    ->and(EngineMessageTerms::getDefault('exp_total'))->toBe('Actuel %1')
     ->and(get_engine_message('exp_total', 'EXP'))->toBe('Actuel EXP')
-    ->and(EngineMessageTerms::listTerms()['inventory.possession']['default'])->toBe('Owned')
+    ->and($builtInTerms['inventory.possession']['vocabularyDefault'])->toBe('shop.possession')
+    ->and(EngineMessageTerms::getDefault('inventory.possession'))->toBe('Owned')
     ->and(get_engine_message('inventory.possession'))->toBe('In your bag');
 });
 
