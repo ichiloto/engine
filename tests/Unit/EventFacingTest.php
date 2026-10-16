@@ -58,6 +58,8 @@ class FacingProbePlayer extends Player
 }
 
 beforeEach(function () {
+  $this->oldDebug = new ReflectionClass(\Ichiloto\Engine\Util\Debug::class)->getStaticProperties();
+  \Ichiloto\Engine\Util\Debug::configure(['log_directory' => createTestDirectory('ichiloto-facing-') . '/logs']);
   $this->oldConfig = new ReflectionClass(\Ichiloto\Engine\Util\Config\ConfigStore::class)->getStaticProperties();
   putSceneAudioConfig(['ui' => ['hud' => ['location' => false]], 'audio' => ['music' => false, 'sfx' => false, 'voice' => false, 'master_volume' => 0]]);
   $this->oldEvents = new ReflectionProperty(EventManager::class, 'instance')->getValue();
@@ -84,6 +86,7 @@ beforeEach(function () {
 });
 
 afterEach(function () {
+  foreach ($this->oldDebug as $name => $value) { new ReflectionProperty(\Ichiloto\Engine\Util\Debug::class, $name)->setValue(null, $value); }
   foreach ($this->oldConfig as $name => $value) { new ReflectionProperty(\Ichiloto\Engine\Util\Config\ConfigStore::class, $name)->setValue(null, $value); }
   new ReflectionProperty(EventManager::class, 'instance')->setValue(null, $this->oldEvents);
 });
@@ -170,4 +173,18 @@ it('restores completion and temporary transforms without replaying an opted-in e
   $this->player->restoreFieldTransform(new Vector2(2, 2), MovementHeading::NORTH, ['^']);
   $this->player->evaluateAutomaticTriggersAtCurrentPosition();
   expect($this->player->availableAction)->toBeNull()->and($event->calls)->toBe(['enter', 'exit']);
+});
+
+
+it('offers the concrete sleep or script action according to facing on one shared cell', function () {
+  $area = new Rect(2, 2, 1, 1);
+  $sleep = new \Ichiloto\Engine\Events\Triggers\SleepEventTrigger($area,
+    ['confirmDialogue' => ['text' => 'Synthetic rest?'], 'spawnPoint' => ['x' => 2, 'y' => 2], 'spawnSprite' => ['South']], facing: ['North']);
+  $script = new \Ichiloto\Engine\Events\Triggers\ScriptEventTrigger($area,
+    ['mode' => 'action', 'script' => []], facing: ['West']);
+  $this->player->addTrigger($sleep); $this->player->addTrigger($script);
+  $this->player->face(Vector2::left(), $this->scene->camera);
+  expect($this->player->availableAction)->toBeInstanceOf(\Ichiloto\Engine\Entities\Actions\RunScriptAction::class);
+  $this->player->face(Vector2::up(), $this->scene->camera);
+  expect($this->player->availableAction)->toBeInstanceOf(\Ichiloto\Engine\Entities\Actions\SleepAction::class);
 });
