@@ -225,7 +225,7 @@ class ActionExecutionState extends TurnState
             $context->partyRoster->battlers, $context->troop->members->toArray())) {
             $response->action->execute($response->actor, [$response->target]);
           }
-        }, sprintf('%s counters with %s!', $response->actor->name, $response->action->name));
+        });
       return true;
     }
     return false;
@@ -341,7 +341,6 @@ class ActionExecutionState extends TurnState
     ?BattleAction $action,
     string $actionName,
     callable $resolveAction,
-    ?string $announcementOverride = null,
   ): void
   {
     $timings = $context->ui->getPacing()->getTurnTimings($action);
@@ -356,9 +355,9 @@ class ActionExecutionState extends TurnState
     $this->highlightActor($context, $actor);
     $this->highlightTarget($context, $focusTarget);
     $summonCutscene = $action !== null ? $this->resolveSummonCutscene($action) : null;
-    $announcement = $announcementOverride ?? ($summonCutscene instanceof SummonCompiledCutscene
+    $announcement = BattleCommandCatalog::isPrimaryAttack($action, $actor) ? '' : ($summonCutscene instanceof SummonCompiledCutscene
       ? (trim(strval($summonCutscene->defaults['moveName'] ?? '')) ?: $actionName)
-      : sprintf("%s uses %s!", $actor->name, $actionName));
+      : $actionName);
     $actionAnimation = $summonCutscene instanceof SummonCompiledCutscene
       ? null
       : $this->resolveActionAnimation($action, $actor);
@@ -464,6 +463,10 @@ class ActionExecutionState extends TurnState
     float $delaySeconds
   ): void
   {
+    if ($message === '') {
+      $context->ui->hideMessage();
+      return;
+    }
     $context->ui->showMessage($message);
     $this->pause($delaySeconds);
   }

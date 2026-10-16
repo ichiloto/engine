@@ -203,10 +203,11 @@ it('does not let a disposed old command erase a replacement commands presentatio
   $old->begin();
   new ReflectionProperty(BattleCommandRunner::class, 'hidControls')->setValue($old, true);
   $next->begin();
+  $screen->showMessage('Next command');
   Console::replaceOverlay('battle-effect-flash', ['NEXT'], 2, 2, 1000);
   $old->dispose();
   expect($screen->fieldWindow->getCommandPlayback())->toBe($next->playback)
-    ->and($screen->announcement)->toBe('Pending command')->and($screen->controlRestores)->toBe(0)
+    ->and($screen->announcement)->toBe('Next command')->and($screen->controlRestores)->toBe(0)
     ->and(Console::snapshot()->rows[2])->toContain('NEXT');
   $next->dispose();
 });

@@ -214,6 +214,7 @@ it('queues a counter after return with normal poses and results while preserving
         expect($returned)->toBeTrue()->and($original->isCompleted)->toBeTrue()
           ->and($original->getAdvanceFraction())->toBe(0.0)->and($context->getCurrentTurn())->toBe($turn);
         $responsePhases[$playback->phase] = true;
+        if ($playback->phase === 'announce') { expect($screen->announcement)->toBe('Riposte'); }
         if ($playback->phase === 'source') { expect($playback->getPoseRole($recipient))->toBe(BattlePoseRole::SKILL); }
       }
       $engine->actionExecutionState->update($context);

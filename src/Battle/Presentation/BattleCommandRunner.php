@@ -55,7 +55,8 @@ final class BattleCommandRunner
     foreach ([$actor, ...$targets] as $battler) {
       $this->previousVitals[spl_object_id($battler)] = [$battler->stats->currentHp, $battler->stats->currentMp];
     }
-    $this->playback = new BattleCommandPlayback(new BattleCommandTimeline($timings, $source, $target, $terminalTarget, $resultsOnly),
+    $this->playback = new BattleCommandPlayback(new BattleCommandTimeline($timings, $source, $target, $terminalTarget, $resultsOnly,
+      showAnnouncement: $announcement !== ''),
       $actor, $targets, $resultsOnly ? BattlePoseRole::getRestingRole($actor) : BattlePoseRole::getForAction($action),
       function () use ($resolve): void {
         if (($refusal = $this->getExecutionRefusal()) !== null) {
@@ -79,6 +80,7 @@ final class BattleCommandRunner
       $this->beginRefusal($refusal);
       return;
     }
+    if ($this->announcement === '') { $this->context->ui->hideMessage(); }
     $this->context->ui->fieldWindow->setCommandPlayback($this->playback);
     $this->playback->begin();
   }

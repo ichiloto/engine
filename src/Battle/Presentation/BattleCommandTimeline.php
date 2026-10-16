@@ -32,7 +32,7 @@ final readonly class BattleCommandTimeline
 
   public function __construct(BattleTurnTimings $timings, ?CompiledEffectTimeline $source = null,
     ?CompiledEffectTimeline $target = null, ?CompiledEffectTimeline $terminalTarget = null,
-    public bool $resultsOnly = false)
+    public bool $resultsOnly = false, bool $showAnnouncement = true)
   {
     if ($resultsOnly) {
       if (!is_finite($timings->statChanges) || $timings->statChanges < 0) {
@@ -88,13 +88,16 @@ final readonly class BattleCommandTimeline
       }
       $effect = match ($phase) { 'source' => $source, 'target' => $target, default => null };
       $clock = match ($phase) { 'source' => $sourceTiming, 'target' => $targetTiming, default => null };
-      $length = max(1, $clock?->getFrameBoundary($clock->totalFrames, self::FPS) ?? (int)ceil($seconds * self::FPS));
+      $length = $phase === 'announce' && !$showAnnouncement ? 0
+        : max(1, $clock?->getFrameBoundary($clock->totalFrames, self::FPS) ?? (int)ceil($seconds * self::FPS));
       if ($phase === 'target' && $this->terminalTiming !== null) {
         $length = max($length, $this->terminalTiming->getFrameBoundary($this->terminalTiming->totalFrames, self::FPS));
       }
       $phases[$phase] = ['start' => $cursor, 'length' => $length];
-      $cues[] = ['id' => 'command-' . $phase, 'type' => 'commandPhase', 'frame' => $cursor,
-        'payload' => ['phase' => $phase]];
+      if ($length > 0) {
+        $cues[] = ['id' => 'command-' . $phase, 'type' => 'commandPhase', 'frame' => $cursor,
+          'payload' => ['phase' => $phase]];
+      }
       if ($effect !== null && $clock !== null) {
         $rest = clamp((int)($effect->defaults['restFrame'] ?? $clock->totalFrames - 1), 0, $clock->totalFrames - 1);
         $restFrames[$phase] = $cursor + $clock->getFrameBoundary($rest, self::FPS);

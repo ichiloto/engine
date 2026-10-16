@@ -1362,7 +1362,7 @@ it('holds one terminal step through source target and result stages then returns
     expect($playback->phase)->toBe($phase)->and($getOrigin())->toBe(in_array($phase, ['return', 'finish'], true) ? $idle : $advanced);
     expect($action->executions)->toBe(in_array($phase, ['reaction', 'return', 'finish'], true) ? 1 : 0);
     if ($phase === 'announce') {
-      expect($scene->ui->messageWindow->presentationSnapshot())->toContain($turn->battler->name, 'Fixture');
+      expect($scene->ui->messageWindow->presentationSnapshot())->toBe('Fixture');
     } elseif ($phase === 'reaction') {
       expect(array_column($field->getFeedback(), 'battler'))->toBe($turn->targets)
         ->and($turn->targets[0]->stats->currentHp)->toBe(93);

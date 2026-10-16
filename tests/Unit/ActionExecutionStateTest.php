@@ -150,6 +150,7 @@ function runActionEffectPlayback(
   float $effectDisplaySeconds = 0.25,
   ?Animation $animation = null,
   bool $graphical = true,
+  ?string $moveName = null,
 ): array
 {
   $previousConfig = ConfigStore::has(ProjectConfig::class) ? ConfigStore::get(ProjectConfig::class) : null;
@@ -177,7 +178,8 @@ function runActionEffectPlayback(
         ['id' => 'impact', 'frame' => 2, 'type' => 'applyEffect', 'payload' => []],
         ['id' => 'after', 'frame' => 3, 'type' => 'showMessage', 'payload' => ['text' => 'after']],
       ],
-      defaults: ['name' => '', 'lengthFrames' => 4, 'effectTiming' => $timing]);
+      defaults: ['name' => '', 'lengthFrames' => 4, 'effectTiming' => $timing,
+        ...($moveName === null ? [] : ['moveName' => $moveName])]);
     $state = new ActionEffectState($engine, $cutscene, $animation);
     $resolutions = 0;
     new ReflectionMethod(ActionExecutionState::class, 'performTurnSequence')->invoke(
@@ -688,3 +690,9 @@ function invokeStateTickPopupBuilder(ActionExecutionState $state, array $events)
 
   return $method->invoke($state, $events);
 }
+
+it('announces only an authored summon move name in both presentations', function (bool $graphical) {
+  $result = runActionEffectPlayback(['mode' => 'end'], 'none', false, graphical: $graphical, moveName: 'Skyfall');
+  expect($result['events'])->toContain('Skyfall')->not->toContain('Fixture', 'Caster uses Skyfall!')
+    ->and($result['resolutions'])->toBe(1)->and($result['hp'])->toBe(93);
+})->with([false, true]);

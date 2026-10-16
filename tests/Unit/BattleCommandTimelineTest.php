@@ -5,6 +5,24 @@ use Ichiloto\Engine\Animations\Timelines\EffectPlaybackTiming;
 use Ichiloto\Engine\Battle\BattleTurnTimings;
 use Ichiloto\Engine\Battle\Presentation\BattleCommandTimeline;
 
+it('removes the empty announcement cue and reading hold while retaining authored effect cadence and impact', function () {
+  $timings = new BattleTurnTimings(.1, .5, .2, .3, .1, .2, .1);
+  $effect = new CompiledEffectTimeline('impact', '', fps: 10,
+    cueSchedule: [['id' => 'hit', 'type' => 'applyEffect', 'frame' => 2, 'payload' => []]],
+    defaults: ['lengthFrames' => 4]);
+  $named = new BattleCommandTimeline($timings, target: $effect);
+  $silent = new BattleCommandTimeline($timings, target: $effect, showAnnouncement: false);
+  $reading = $named->phases['announce']['length'];
+  expect($silent->phases['announce']['length'])->toBe(0)
+    ->and(array_column($silent->timeline->cueSchedule, 'id'))->not->toContain('command-announce');
+  foreach (['source', 'target', 'reaction', 'return', 'finish'] as $phase) {
+    expect($silent->phases[$phase]['start'])->toBe($named->phases[$phase]['start'] - $reading)
+      ->and($silent->phases[$phase]['length'])->toBe($named->phases[$phase]['length']);
+  }
+  expect($silent->getCommandFrameForAuthoredFrame('target', 2))
+    ->toBe($named->getCommandFrameForAuthoredFrame('target', 2) - $reading);
+});
+
 it('maps authored lanes to the exact production boundaries and visible command frames', function (int $fps, float $speed, bool $paced) {
   $effect = new CompiledEffectTimeline('mapped-effect', '', fps: $fps,
     playbackSegments: array_map(static fn(int $frame): array => [
