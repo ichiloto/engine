@@ -42,7 +42,7 @@ class SkillBattleAction extends BattleAction implements ExecutionEligibility
       return sprintf('%s cannot act while knocked out.', $actor->name);
     }
     return $actor->stats->currentMp < $this->skill->cost
-      ? get_message('battle.insufficient_resource', '%1 cannot use %2: not enough %3.',
+      ? get_engine_message('battle.insufficient_resource',
         $actor->name, $this->name, Vocabulary::getTerm('stats.mp', 'MP'))
       : null;
   }

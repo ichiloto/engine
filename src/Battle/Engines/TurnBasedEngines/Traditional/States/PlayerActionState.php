@@ -470,8 +470,8 @@ class PlayerActionState extends TurnState
     // Insufficient MP blocks the option here, at selection time — waiting
     // until execution would let the move fizzle after it was announced.
     if ($this->activeCharacter && $option->mpCost > $this->activeCharacter->stats->currentMp) {
-      $context->ui->alert(get_message(
-        'battle.insufficient_resource_selection', 'Not enough %5! %1 needs %2 %5, %3 has %4.',
+      $context->ui->alert(get_engine_message(
+        'battle.insufficient_resource_selection',
         $option->action->name,
         $option->mpCost,
         $this->activeCharacter->name,
@@ -573,8 +573,8 @@ class PlayerActionState extends TurnState
     }
 
     if ($selectedOption->mpCost > $this->activeCharacter->stats->currentMp) {
-      $context->ui->alert(get_message(
-        'battle.insufficient_resource_selection', 'Not enough %5! %1 needs %2 %5, %3 has %4.',
+      $context->ui->alert(get_engine_message(
+        'battle.insufficient_resource_selection',
         $selectedOption->action->name,
         $selectedOption->mpCost,
         $this->activeCharacter->name,

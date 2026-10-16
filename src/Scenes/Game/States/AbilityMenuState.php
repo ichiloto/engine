@@ -77,8 +77,8 @@ class AbilityMenuState extends GameSceneState implements CanvasProviderInterface
         $fields = [];
         $detail = '';
         $empty = $tab === 'Learn'
-            ? get_message('ability.empty_discovered', 'No discovered %1.', Vocabulary::getTerm('command.' . BattleCommandType::SKILL->value, 'abilities'))
-            : get_message('ability.empty_learned', 'No learned %1.', Vocabulary::getTerm('command.' . BattleCommandType::SKILL->value, 'abilities'));
+            ? get_engine_message('ability.empty_discovered', Vocabulary::getTerm('command.' . BattleCommandType::SKILL->value, 'abilities'))
+            : get_engine_message('ability.empty_learned', Vocabulary::getTerm('command.' . BattleCommandType::SKILL->value, 'abilities'));
         if ($skill !== null) {
             $fields = ['MP Cost' => (string)$skill->cost, 'Occasion' => $this->formatOccasionLabel($skill->occasion),
                 'Scope' => $skill->scope->side->value];
@@ -377,7 +377,7 @@ class AbilityMenuState extends GameSceneState implements CanvasProviderInterface
 
         if (!$ability instanceof Skill) {
             return [
-                get_message('ability.empty_learned', 'No learned %1.', Vocabulary::getTerm('command.' . BattleCommandType::SKILL->value, 'abilities')),
+                get_engine_message('ability.empty_learned', Vocabulary::getTerm('command.' . BattleCommandType::SKILL->value, 'abilities')),
                 '',
                 'Battle abilities will appear here once this character has unlocked or learned them.',
             ];
@@ -430,7 +430,7 @@ class AbilityMenuState extends GameSceneState implements CanvasProviderInterface
 
         if (!$learnableAbility instanceof LearnableAbility || !$this->character instanceof Character) {
             return [
-                get_message('ability.empty_discovered', 'No discovered %1.', Vocabulary::getTerm('command.' . BattleCommandType::SKILL->value, 'abilities')),
+                get_engine_message('ability.empty_discovered', Vocabulary::getTerm('command.' . BattleCommandType::SKILL->value, 'abilities')),
                 '',
                 'Discovered abilities and their unlock requirements will appear here.',
             ];

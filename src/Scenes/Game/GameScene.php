@@ -1256,8 +1256,8 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     {
         $message = sprintf('Map %s could not be loaded: %s', $mapId, $error->getMessage());
         Debug::warn($message);
-        notify($this->getGame(), NotificationChannel::ERROR, get_message('travel.unavailable_title', 'Travel Unavailable'),
-            get_message('travel.unavailable', 'That area is unavailable right now. Please try again.'), NotificationDuration::LONG);
+        notify($this->getGame(), NotificationChannel::ERROR, get_engine_message('travel.unavailable_title'),
+            get_engine_message('travel.unavailable'), NotificationDuration::LONG);
     }
 
     /** Completes transfer side effects once the destination map is ready. */

@@ -102,7 +102,7 @@ readonly class SaveSlot
       $label = Vocabulary::getTerm('save.auto', 'Autosave');
       return $label;
     }
-    return get_message('file', 'File') . ' ' . $this->slot;
+    return get_engine_message('file') . ' ' . $this->slot;
   }
 
   /** Full selected metadata for the shared paged Info panel. */

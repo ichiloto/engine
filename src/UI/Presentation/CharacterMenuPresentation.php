@@ -135,9 +135,9 @@ final class CharacterMenuPresentation
     $resourceBox = new CanvasRectangle($resourceX, $profile->y + $p + $roleHeight + $m->sectionGap, 360, 4 * ($m->cellHeight + 1));
     $view->rows('status-resources', $resources, new MenuRowLayout($resourceBox, self::numericColumns($resources),
       $m->cellHeight + 1, $m->cellWidth, $m->cellHeight, true));
-    $exp = [new MenuRow('current', get_message('exp_total', Vocabulary::getTerm('shop.exp_total', 'Current %1'), Vocabulary::getTerm('stats.exp', 'EXP')),
+    $exp = [new MenuRow('current', get_engine_message('exp_total', Vocabulary::getTerm('stats.exp', 'EXP')),
       [new MenuRowValue(number_format($character->currentExp))]),
-      new MenuRow('next', get_message('exp_next', 'To Next %1', Vocabulary::getTerm('stats.level', 'Level')),
+      new MenuRow('next', get_engine_message('exp_next', Vocabulary::getTerm('stats.level', 'Level')),
         [new MenuRowValue(number_format($character->nextLevelExp))])];
     $expX = $resourceX + 360 + $m->sectionGap;
     $view->rows('status-exp', $exp, self::layout($theme, new CanvasRectangle($expX, $resourceBox->y,

@@ -24,7 +24,7 @@ final class SaveLoadMenuPresentation
     ?string $prompt = null, string $statusColor = 'decrease'): PresentationCanvas
   {
     $title ??= Vocabulary::getTerm('game.load', Vocabulary::getTerm('game.continue', Vocabulary::getTerm('command.continue', 'Continue')));
-    $prompt ??= get_message('prompt.load', 'Choose a save file to continue from.');
+    $prompt ??= get_engine_message('prompt.load');
     $view = new MenuCanvas($theme, time: $time);
     $box = MenuLayout::getBounds();
     $m = $theme->metrics;

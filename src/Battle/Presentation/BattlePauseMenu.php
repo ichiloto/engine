@@ -73,8 +73,8 @@ final class BattlePauseMenu
   public function heading(): string
   {
     return match ($this->confirmation) {
-      PauseAction::TITLE => get_message('confirm.to_title', 'Return to title?'),
-      PauseAction::EXIT => get_message('confirm.quit', 'Exit the game?'),
+      PauseAction::TITLE => get_engine_message('confirm.to_title'),
+      PauseAction::EXIT => get_engine_message('confirm.quit'),
       default => Vocabulary::getTerm('battle.paused', 'PAUSED'),
     };
   }

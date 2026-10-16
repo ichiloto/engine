@@ -17,8 +17,8 @@ final class BattleAnnouncement
   public static function formatForAction(?BattleAction $action, string $actorName, string $actionName): string
   {
     $template = $action instanceof SkillBattleAction ? $action->skill->invocation->message
-      : MessageCatalog::resolve('battle.announcements.' . BattleCommandCatalog::getActionType($action)->value,
-        '%2', allowEmpty: true);
+      : MessageCatalog::resolveTerm('battle.announcements.' . BattleCommandCatalog::getActionType($action)->value,
+        allowEmpty: true);
     return self::format($template, $actorName, $actionName);
   }
 

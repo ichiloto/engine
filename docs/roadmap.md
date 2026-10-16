@@ -460,6 +460,19 @@ their integration remains with the Editor owner.
 > the first literals extracted onto it. **Credits**: `ShowCreditsCommand`
 > reads `assets/Data/credits.php` as titled sections and appears on the
 > title menu only when a project authors them.
+> **Discoverable message terms (2026-10-16)**: `EngineMessageTerms::listTerms()`
+> exposes every Engine-owned message path with its default, accepted placeholder
+> meanings and authoring help. Paths are relative to `messages.`. Runtime consumers
+> use `MessageCatalog::resolveTerm()` / `getTerm()` (`get_engine_message()` helper),
+> so the editor and runtime share defaults. Project overrides and locale-first
+> lookup remain; existing `exp_total` / `inventory.possession` vocabulary defaults
+> remain supported. Field and battle exit confirmations share `confirm.quit`'s
+> default, removing the separate battle-only default wording. Custom project
+> messages continue through `get_message()` / `LocalizedText`.
+> Battle announcement terms accept `%1`/`$1` (actor), `%2`/`$2` (action); blank
+> means silence. Skills author their own `invocation.message`, including blank.
+> Editor Terms integration belongs to the Editor owner; catalog availability
+> alone does not complete the editor UI.
 > **Two real dialogue bugs surfaced and fixed while verifying credits**:
 > (1) the typing loop built its content *before* advancing the cursor and
 > stopped as soon as the cursor reached the end, so **the final character of

@@ -233,7 +233,7 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
         if (
             Input::isButtonDown("quit") &&
             confirm(
-                get_message("confirm.quit", "Are you sure you want to quit?"),
+                get_engine_message("confirm.quit"),
                 Vocabulary::getTerm('game.shutdown', 'Exit Game'))) {
             $scene->getGame()->quit();
             return;

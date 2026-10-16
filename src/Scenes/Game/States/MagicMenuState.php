@@ -91,8 +91,8 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
         $fields = [];
         $detail = '';
         $empty = $targeting ? 'No eligible target.' : ($tab === 'Learn'
-            ? get_message('magic.empty_discovered', 'No discovered %1.', Vocabulary::getTerm('command.' . BattleCommandType::MAGIC->value, 'magic'))
-            : get_message('magic.empty_learned', 'No learned %1.', Vocabulary::getTerm('command.' . BattleCommandType::MAGIC->value, 'magic')));
+            ? get_engine_message('magic.empty_discovered', Vocabulary::getTerm('command.' . BattleCommandType::MAGIC->value, 'magic'))
+            : get_engine_message('magic.empty_learned', Vocabulary::getTerm('command.' . BattleCommandType::MAGIC->value, 'magic')));
         if ($skill !== null) {
             $fields = ['MP Cost' => (string)$skill->cost, 'Occasion' => $this->formatOccasionLabel($skill->occasion),
                 'Scope' => $skill->scope->side->value];
@@ -413,7 +413,7 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
 
         if (!$spell instanceof MagicSkill) {
             return [
-                get_message('magic.empty_learned', 'No learned %1.', Vocabulary::getTerm('command.' . BattleCommandType::MAGIC->value, 'magic')),
+                get_engine_message('magic.empty_learned', Vocabulary::getTerm('command.' . BattleCommandType::MAGIC->value, 'magic')),
                 '',
                 'Use magic will appear here once this character has learned or acquired spells.',
             ];
@@ -502,7 +502,7 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
 
         if (!$learnableSpell instanceof LearnableSpell || !$this->character instanceof Character) {
             return [
-                get_message('magic.empty_discovered', 'No discovered %1.', Vocabulary::getTerm('command.' . BattleCommandType::MAGIC->value, 'magic')),
+                get_engine_message('magic.empty_discovered', Vocabulary::getTerm('command.' . BattleCommandType::MAGIC->value, 'magic')),
                 '',
                 'Discovered spells and their learning requirements will appear here.',
             ];
@@ -975,7 +975,7 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
         }
 
         if ($this->character->stats->currentMp < $spell->cost) {
-            $this->statusMessage = get_message('magic.insufficient_mp', 'Not enough %1 for %2.', Vocabulary::getTerm('stats.mp', 'MP'), $spell->name);
+            $this->statusMessage = get_engine_message('magic.insufficient_mp', Vocabulary::getTerm('stats.mp', 'MP'), $spell->name);
             return;
         }
 
@@ -1118,7 +1118,7 @@ class MagicMenuState extends GameSceneState implements CanvasProviderInterface
         return match ($result->failureReason) {
             FieldSkillFailureReason::WRONG_OCCASION => sprintf('%s can only be used in battle.', $spell->name),
             FieldSkillFailureReason::CASTER_KNOCKED_OUT => 'A knocked-out character cannot cast magic.',
-            FieldSkillFailureReason::INSUFFICIENT_MP => get_message('magic.insufficient_mp', 'Not enough %1 for %2.', Vocabulary::getTerm('stats.mp', 'MP'), $spell->name),
+            FieldSkillFailureReason::INSUFFICIENT_MP => get_engine_message('magic.insufficient_mp', Vocabulary::getTerm('stats.mp', 'MP'), $spell->name),
             FieldSkillFailureReason::TARGET_REQUIRED => sprintf('Choose a target for %s.', $spell->name),
             FieldSkillFailureReason::INVALID_TARGET => sprintf('%s cannot target that character.', $spell->name),
             FieldSkillFailureReason::NO_ELIGIBLE_TARGETS => sprintf('%s has no eligible target.', $spell->name),

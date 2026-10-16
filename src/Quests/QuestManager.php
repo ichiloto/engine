@@ -488,7 +488,7 @@ class QuestManager
         continue;
       }
 
-      $line = get_message('quest.level_gained', '%1 reached %2 %3.', $result->character->name,
+      $line = get_engine_message('quest.level_gained', $result->character->name,
         Vocabulary::getTerm('stats.level', 'level'), $result->newLevel);
       $learned = $result->learnedSkills();
 

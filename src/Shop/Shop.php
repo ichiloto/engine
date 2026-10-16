@@ -53,7 +53,7 @@ class Shop
     $totalCost = (int) round($item->price * $quantity * $this->traderBuyRate);
 
     if ($trader->accountBalance < $totalCost) {
-      alert(get_message('shop.insufficient_funds', 'Not enough %1!', Vocabulary::getTerm('currency.name', 'Gold')));
+      alert(get_engine_message('shop.insufficient_funds', Vocabulary::getTerm('currency.name', 'Gold')));
       return;
     }
 

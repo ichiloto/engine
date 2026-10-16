@@ -41,7 +41,7 @@ class SaveMenuState extends GameSceneState implements CanRender, CanvasProviderI
   {
     return SaveLoadMenuPresentation::compose($this->slots, $this->activeSlotIndex, $theme,
       $this->menuInfoText, $this->statusMessage, $time, title: Vocabulary::getTerm('game.save', 'Save'),
-      prompt: get_message('prompt.save', 'Which file would you like to save to?'), statusColor: $this->statusColor);
+      prompt: get_engine_message('prompt.save'), statusColor: $this->statusColor);
   }
 
   protected const int SAVE_MENU_WIDTH = 110;
@@ -191,7 +191,7 @@ class SaveMenuState extends GameSceneState implements CanRender, CanvasProviderI
     $this->infoWindow?->setTitle(Vocabulary::getTerm('game.save', 'Save') . '  '
       . sprintf('%d-%d / %d', $first + 1, $last, count($this->slots)));
     $this->infoWindow?->setContent([
-      get_message('prompt.save', 'Which file would you like to save to?'),
+      get_engine_message('prompt.save'),
     ]);
     $this->infoWindow?->render();
 
@@ -299,14 +299,14 @@ class SaveMenuState extends GameSceneState implements CanRender, CanvasProviderI
       $this->statusColor = 'decrease';
       Debug::warn('Manual save unavailable: ' . $exception->getMessage());
       $this->render();
-      alert($this->statusMessage, get_message('save.unavailable_title', '%1 Unavailable', Vocabulary::getTerm('game.save', 'Save')));
+      alert($this->statusMessage, get_engine_message('save.unavailable_title', Vocabulary::getTerm('game.save', 'Save')));
       return;
     } catch (RuntimeException $exception) {
       Debug::warn(sprintf('Manual save failed: %s', $exception->getMessage()));
       $this->statusMessage = SaveFeedback::describeWriteFailure($exception);
       $this->statusColor = 'decrease';
       $this->render();
-      alert($this->statusMessage, get_message('save.unavailable_title', '%1 Unavailable', Vocabulary::getTerm('game.save', 'Save')));
+      alert($this->statusMessage, get_engine_message('save.unavailable_title', Vocabulary::getTerm('game.save', 'Save')));
       return;
     }
 
@@ -315,7 +315,7 @@ class SaveMenuState extends GameSceneState implements CanRender, CanvasProviderI
     $this->statusMessage = sprintf('Saved to File %d.', $savedSlot->slot);
     $this->statusColor = 'increase';
     $this->render();
-    alert($this->statusMessage, get_message('save.complete_title', '%1 Complete', Vocabulary::getTerm('game.save', 'Save')));
+    alert($this->statusMessage, get_engine_message('save.complete_title', Vocabulary::getTerm('game.save', 'Save')));
   }
 
   /**

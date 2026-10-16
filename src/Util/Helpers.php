@@ -555,6 +555,14 @@ if (! function_exists('quit_game') ) {
   }
 }
 
+if (! function_exists('get_engine_message') ) {
+  /** Resolves a discoverable Engine term and substitutes its positional tokens. */
+  function get_engine_message(string $path, int|float|string ...$arguments): string
+  {
+    return \Ichiloto\Engine\Localization\MessageCatalog::getTerm($path, ...$arguments);
+  }
+}
+
 if (! function_exists('get_message') ) {
   /**
    * Gets the message with the given path.

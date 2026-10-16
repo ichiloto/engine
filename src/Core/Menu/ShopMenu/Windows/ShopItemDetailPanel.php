@@ -62,7 +62,7 @@ class ShopItemDetailPanel extends Window implements ObserverInterface
   public function updateContent(): void
   {
     $content = [
-      sprintf(" %s %39d", get_message('inventory.possession', Vocabulary::getTerm('shop.possession', 'Possession')), $this->possession),
+      sprintf(" %s %39d", get_engine_message('inventory.possession'), $this->possession),
     ];
 
     $content = array_pad($content, $this->height - 2, '');

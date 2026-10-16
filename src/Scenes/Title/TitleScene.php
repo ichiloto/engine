@@ -649,7 +649,7 @@ class TitleScene extends AbstractScene implements CanvasProviderInterface
     $range = sprintf('%d-%d / %d', $first + 1, $last, count($this->continueSlots));
     $this->continueInfoWindow?->setTitle($this->getContinueMenuTitle() . '  ' . $range);
     $this->continueInfoWindow?->setContent([
-      get_message('prompt.load', 'Choose a save file to continue from.'),
+      get_engine_message('prompt.load'),
     ]);
     $this->continueInfoWindow?->render();
 

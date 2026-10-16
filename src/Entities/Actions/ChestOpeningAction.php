@@ -51,17 +51,17 @@ class ChestOpeningAction extends FieldAction
     $replacement = 'Nothing';
 
     if ($this->trigger->isComplete) {
-      alert(get_message('obtained_item', '%1 found!', $replacement));
+      alert(get_engine_message('obtained_item', $replacement));
       return;
     }
 
-    $message = get_message('obtained_item', '%1 found!');
+    $message = get_engine_message('obtained_item');
 
     switch ($this->trigger->lootType) {
       case LootType::GOLD:
         $amount = is_numeric($this->trigger->loot) ? (int) $this->trigger->loot : $this->trigger->quantity;
         $symbol = Vocabulary::getTerm('currency.symbol', 'G');
-        $message = get_message('obtained_gold', '%1 %2 found!', $amount, $symbol);
+        $message = get_engine_message('obtained_gold', $amount, $symbol);
         $context->party->transact($amount);
         break;
 

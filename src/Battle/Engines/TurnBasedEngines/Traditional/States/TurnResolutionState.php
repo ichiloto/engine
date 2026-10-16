@@ -79,7 +79,7 @@ class TurnResolutionState extends TurnState
       $rewardSummary = ['Enemies defeated' => (string)count($context->troop->members->toArray())];
       $goldReceived = $context->party->accountBalance - $goldBefore;
       if ($goldReceived !== $gold) {
-        $rewardSummary[get_message('battle.currency_at_capacity', '%1 at capacity',
+        $rewardSummary[get_engine_message('battle.currency_at_capacity',
           Vocabulary::getTerm('currency.name', 'Gold'))] = (string)($gold - $goldReceived);
       }
 
@@ -93,8 +93,8 @@ class TurnResolutionState extends TurnState
       }
 
       $lines = [
-        get_message('obtained_exp', '%1 %2 obtained!', $experience, Vocabulary::getTerm('stats.exp', 'EXP')),
-        get_message('obtained_gold', '%1 %2 found!', $gold, Vocabulary::getTerm('currency.symbol', 'G')),
+        get_engine_message('obtained_exp', $experience, Vocabulary::getTerm('stats.exp', 'EXP')),
+        get_engine_message('obtained_gold', $gold, Vocabulary::getTerm('currency.symbol', 'G')),
       ];
       $entries = [
         ['label' => Vocabulary::getTerm('stats.exp', 'EXP') . ':', 'value' => (string)$experience],
@@ -115,7 +115,7 @@ class TurnResolutionState extends TurnState
       }
 
       foreach ($levelUps as $levelUp) {
-        $lines[] = get_message('battle.level_gained', '%1 grew to %2 %3!', $levelUp->character->name,
+        $lines[] = get_engine_message('battle.level_gained', $levelUp->character->name,
           Vocabulary::getTerm('stats.level', 'level'), $levelUp->newLevel);
         $entries[] = [
           'label' => sprintf('%s:', $levelUp->character->name),
