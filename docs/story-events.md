@@ -53,6 +53,38 @@ The area is exactly the cells the marker occupies, however they are placed
 (see [Event markers](maps.md#event-markers)).
 Omit it when the unavailable event should be absent rather than act as a gate.
 
+### Optional player facing
+
+Every event trigger may declare a root-level `facing` list alongside `class`,
+`conditions` and `data`, for example `'facing' => ['North', 'West']`. Names are the
+case-sensitive cardinal `MovementHeading` values: `North`, `East`, `South`, `West`.
+Omission or `[]` allows every heading, preserving existing trigger behavior.
+`null`, a scalar, an associative array, `None` and unknown names are invalid;
+duplicate headings are normalized. This is interaction state, not a world condition.
+
+An opted-in event engages only while the player is inside its exact marker area,
+facing an allowed heading, its world conditions hold and it is not complete.
+A blocked walking attempt still turns the player and re-evaluates these events;
+explicit facing and sprite-facing changes do likewise. Turning away retires the
+old event before a replacement enters, so prompts do not depend on authored event
+order. A turn does not count as movement, an encounter step or a map-transfer
+observer notification. Repeating the same facing does not retrigger entry.
+
+Initial field entry and save restoration use the restored heading: opted-in
+action events may present a matching prompt and automatic events run only when
+the heading also matches. Unrestricted action/transfer events keep their existing
+movement-driven entry. Installing a spawn does not run the old map's events;
+trigger completion still belongs to the existing persisted map/marker state.
+Temporary cinematic transform restoration remains silent. World-state changes
+retire invalid active events without chaining newly available automatic events.
+
+`isAvailable()` and `whenBlocked` remain world/spatial gates. Facing does not turn
+an unavailable physical gate into a passable tile. Cues remain discovery guidance
+and are independent of the player's current heading. The same contract applies to
+sleep, script, chest, transfer, cinematic and other EventTrigger subclasses. The
+Editor may offer a multi-select of these four values and persist the root list;
+no class-specific facing field or presentation-driven collision is needed.
+
 ## Transfer map trigger
 
 Keep a direct map link as a `TransferPlayerTrigger`, including when crossing

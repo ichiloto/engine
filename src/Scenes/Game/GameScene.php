@@ -1220,7 +1220,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         $this->player->position->x = $location->playerPosition->x;
         $this->player->position->y = $location->playerPosition->y;
         if ($location->playerSprite) {
-            $this->player->setFacingSprite($location->playerSprite);
+            $this->player->setFacingSprite($location->playerSprite, engageEvents: false);
         }
         // The destination is already validated; its music resolves on commit.
         $this->currentMapId = preg_replace('/(\.(data|map|event))?\.php$/', '', $location->mapFilename) ?: $location->mapFilename;

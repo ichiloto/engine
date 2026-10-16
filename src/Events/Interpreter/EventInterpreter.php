@@ -504,7 +504,7 @@ class EventInterpreter
           && intval($player?->position->y ?? PHP_INT_MIN) === $destinationY
         ) {
           if ($player !== null && array_key_exists('sprite', $command)) {
-            $player->setFacingSprite((array) $command['sprite']);
+            $player->setFacingSprite((array) $command['sprite'], engageEvents: false);
           }
 
           return EventCommandResult::COMPLETED;

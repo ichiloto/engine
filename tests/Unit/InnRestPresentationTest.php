@@ -69,7 +69,7 @@ class InnRestTestPlayer extends Player
   public function __construct() { $this->position = new Vector2(3, 2); }
   public function render(): void { $this->renders++; }
   public function renderEventCues(): void {}
-  public function setFacingSprite(array $sprite, ?MovementHeading $heading = null): void { $this->wakeSprites[] = $sprite; }
+  public function setFacingSprite(array $sprite, ?MovementHeading $heading = null, bool $engageEvents = true): void { $this->wakeSprites[] = $sprite; }
 }
 
 class InnRestTestMap extends MapManager

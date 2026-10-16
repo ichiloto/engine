@@ -42,6 +42,10 @@ class EventTriggerFactory
 
     $data = $args['data'] ?? throw new RequiredFieldException('data');
 
+    if (array_key_exists('facing', $args) && !is_array($args['facing'])) {
+      throw new InvalidArgumentException('Event facing must be a list of cardinal heading names.');
+    }
+
     return new $class(
       $area,
       $data,
@@ -51,6 +55,7 @@ class EventTriggerFactory
       isset($args['marker']) ? strval($args['marker']) : null,
       isset($args['whenBlocked']) ? strval($args['whenBlocked']) : null,
       is_array($args['cue'] ?? null) ? $args['cue'] : null,
+      $args['facing'] ?? [],
     );
   }
 }

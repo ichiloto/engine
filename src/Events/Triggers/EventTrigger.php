@@ -3,6 +3,8 @@
 namespace Ichiloto\Engine\Events\Triggers;
 
 use Ichiloto\Engine\Core\GameState;
+use Ichiloto\Engine\Core\Enumerations\MovementHeading;
+use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Core\WorldConditionEvaluator;
 use Ichiloto\Engine\Core\WorldStateWriter;
 use Ichiloto\Engine\Core\CellArea;
@@ -52,6 +54,8 @@ abstract class EventTrigger implements EventTriggerInterface
    * @var array<int, array<string, mixed>> The world-state conditions gating this trigger.
    */
   protected(set) array $conditions = [];
+  /** @var list<MovementHeading> Allowed player headings; empty means unrestricted. */
+  protected(set) array $facing = [];
   /**
    * @var array<int, array<string, mixed>> The world-state writes applied on completion.
    */
@@ -92,6 +96,7 @@ abstract class EventTrigger implements EventTriggerInterface
    * @param array{symbol?: string, color?: string, conditions?: array<int, array<string, mixed>>}|null $cue Optional authored,
    * player-visible guidance for the trigger while it is available. Cue
    * conditions may further delay presentation without disabling interaction.
+   * @param list<string> $facing Optional cardinal heading names; empty allows any facing.
    * @throws JsonException If the data cannot be serialized.
    */
   final public function __construct(
@@ -103,6 +108,7 @@ abstract class EventTrigger implements EventTriggerInterface
     ?string $marker = null,
     protected(set) ?string $whenBlocked = null,
     ?array $cue = null,
+    array $facing = [],
   )
   {
     $this->area = $area instanceof Rect ? CellArea::fromRect($area) : $area;
@@ -114,6 +120,16 @@ abstract class EventTrigger implements EventTriggerInterface
     $this->marker = $marker !== null && trim($marker) !== '' ? trim($marker) : null;
     $this->whenBlocked = $whenBlocked !== null && trim($whenBlocked) !== '' ? trim($whenBlocked) : null;
     $this->cue = EventCue::fromArray($cue);
+    if (!array_is_list($facing)) {
+      throw new InvalidArgumentException('Event facing must be a list of cardinal heading names.');
+    }
+    foreach ($facing as $name) {
+      $heading = is_string($name) ? MovementHeading::tryFrom($name) : null;
+      if ($heading === null || $heading === MovementHeading::NONE) {
+        throw new InvalidArgumentException('Event facing accepts North, East, South and West only.');
+      }
+      if (!in_array($heading, $this->facing, true)) { $this->facing[] = $heading; }
+    }
     $this->configure();
   }
 
@@ -129,6 +145,13 @@ abstract class EventTrigger implements EventTriggerInterface
   {
     $this->gameState = $gameState;
     $this->party = $party;
+  }
+
+  /** Tests transient interaction eligibility separately from world-state availability. */
+  public function canEngage(Vector2 $position, MovementHeading $heading): bool
+  {
+    return !$this->isComplete && $this->isAvailable() && $this->area->contains($position)
+      && ($this->facing === [] || in_array($heading, $this->facing, true));
   }
 
   /**

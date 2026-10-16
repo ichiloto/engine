@@ -173,7 +173,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
       $this->graphicalAssetGuard = new CharacterSheetAssetGuard($assetRoot ?? getcwd() . '/assets', 'Player');
     }
     $this->configureDirectionalSprites($directionalSprites);
-    $this->setFacingSprite($sprite, $heading === MovementHeading::NONE ? null : $heading);
+    $this->setFacingSprite($sprite, $heading === MovementHeading::NONE ? null : $heading, engageEvents: false);
     $this->canShowLocationHUDWindow = config(ProjectConfig::class, 'ui.hud.location', false);
     $this->events = new ItemList(EventTrigger::class);
   }
@@ -350,10 +350,12 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     $destination = Vector2::sum($origin, $direction);
     $collisionType = null;
     $previousSprite = $this->sprite;
+    $previousHeading = $this->heading;
     $this->updatePlayerSprite($direction);
 
     if (! $this->getGameScene()->mapManager->canMoveTo(intval($destination->x), intval($destination->y), $collisionType) ) {
       $this->stopGraphicalAnimation();
+      if ($previousHeading !== $this->heading) { $this->reconcileFacingEvents(); }
       $this->render();
       return false;
     }
@@ -365,6 +367,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     // player position, advancing encounters, or notifying movement observers.
     if ($this->isMovementBlockedByUnavailableEvent($event)) {
       $this->stopGraphicalAnimation();
+      if ($previousHeading !== $this->heading) { $this->reconcileFacingEvents(); }
       $this->render();
       return false;
     }
@@ -416,8 +419,10 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
   {
     $this->stopGraphicalAnimation();
     $previousSprite = $this->sprite;
+    $previousHeading = $this->heading;
     $this->updatePlayerSprite($direction);
     $this->erasePlayer($camera, $previousSprite);
+    if ($previousHeading !== $this->heading) { $this->reconcileFacingEvents(); }
     $this->render();
     $this->renderLocationHUDWindow();
   }
@@ -529,47 +534,42 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
       $this->getGameScene(),
       $this->getGameScene()->mapManager
     );
-    /** @var EventTrigger $event */
-    foreach ($this->events as $event) {
-      if ($event->isComplete) {
-        // A one-shot action trigger can complete while the player is still
-        // standing inside it. It remains in activeEvents until the next
-        // movement, so its exit hook must still run to clear transient field
-        // state such as availableAction. Skipping completed triggers before
-        // this cleanup leaves a stale action prompt that can block NPC and
-        // object interaction on every later map.
-        if ($this->eventManager->activeEvents->contains($event)) {
-          $event->exit($eventTriggerContext);
-          $this->eventManager->activeEvents->remove($event);
-        }
+    $this->synchronizeEventEngagement($eventTriggerContext);
+  }
 
-        continue;
-      }
-
-      if (! $event->isAvailable()) {
-        // Conditions no longer hold — treat an active trigger as exited.
-        if ($this->eventManager->activeEvents->contains($event)) {
-          $event->exit($eventTriggerContext);
-          $this->eventManager->activeEvents->remove($event);
-        }
-
-        continue;
-      }
-
-      if ( $event->area->contains($movementEvent->destination) ) {
-        if (! $this->eventManager->activeEvents->contains($event)) {
-          $this->eventManager->activeEvents->add($event);
-          $event->enter($eventTriggerContext);
-        } else {
-          $event->stay($eventTriggerContext);
-        }
-      } else {
-        if ($this->eventManager->activeEvents->contains($event)) {
-          $event->exit($eventTriggerContext);
-          $this->eventManager->activeEvents->remove($event);
-        }
+  /** Retire old prompts before entering replacements, independently of authored event order. */
+  private function synchronizeEventEngagement(EventTriggerContext $context, bool $facingOnly = false,
+    bool $includeAutomatic = true): void
+  {
+    $events = array_filter($this->events->toArray(), static fn(EventTrigger $event): bool =>
+      (!$facingOnly || $event->facing !== [])
+      && ($includeAutomatic || !($event instanceof AutomaticEventTriggerInterface) || !$event->runsAutomatically()));
+    foreach ($events as $event) {
+      if ($this->eventManager->activeEvents->contains($event) && !$event->canEngage($context->coordinates, $this->heading)) {
+        $event->exit($context);
+        $this->eventManager->activeEvents->remove($event);
       }
     }
+    foreach ($events as $event) {
+      if (!$event->canEngage($context->coordinates, $this->heading)) { continue; }
+      if (!$this->eventManager->activeEvents->contains($event)) {
+        $this->eventManager->activeEvents->add($event);
+        $event->enter($context);
+      } elseif (!$facingOnly) {
+        $event->stay($context);
+      }
+    }
+  }
+
+  /** A real turn engages only opted-in events; it is not a walking step or a transfer notification. */
+  private function reconcileFacingEvents(bool $includeAutomatic = true): void
+  {
+    // Spawn/sprite initialization precedes installing the map's trigger definitions.
+    if (!isset($this->events) || $this->events->toArray() === []) { return; }
+    $position = clone $this->position;
+    $context = new EventTriggerContext(new MovementEvent(MovementEventType::PLAYER_MOVE, $position, clone $position),
+      $this->position, $this, $this->getGameScene(), $this->getGameScene()->mapManager);
+    $this->synchronizeEventEngagement($context, facingOnly: true, includeAutomatic: $includeAutomatic);
   }
 
   /**
@@ -577,12 +577,15 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    *
    * Initial field entry does not produce a movement event, but an automatic
    * map script must still run when a new game or loaded save spawns inside its area.
-   * Action and transfer triggers remain movement-driven.
+   * Unrestricted action and transfer triggers remain movement-driven. Facing-gated
+   * nonautomatic events also acquire their prompt on a restored/spawned field.
    *
    * @return void
    */
   public function evaluateAutomaticTriggersAtCurrentPosition(): void
   {
+    // Restored/spawned action prompts opt in through facing; unrestricted legacy events keep their existing lifecycle.
+    $this->reconcileFacingEvents(includeAutomatic: false);
     $position = clone $this->position;
     $movementEvent = new MovementEvent(MovementEventType::PLAYER_MOVE, $position, clone $position);
     $context = new EventTriggerContext(
@@ -598,8 +601,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
         ! $event instanceof AutomaticEventTriggerInterface
         || ! $event->runsAutomatically()
         || $event->isComplete
-        || ! $event->isAvailable()
-        || ! $event->area->contains($this->position)
+        || ! $event->canEngage($this->position, $this->heading)
         || $this->eventManager->activeEvents->contains($event)
       ) {
         continue;
@@ -737,10 +739,12 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    *
    * @param string[] $sprite The sprite rows to display.
    * @param MovementHeading|null $heading The heading to force, if already known.
+   * @param bool $engageEvents False while installing a spawn, before its new map commits.
    * @return void
    */
-  public function setFacingSprite(array $sprite, ?MovementHeading $heading = null): void
+  public function setFacingSprite(array $sprite, ?MovementHeading $heading = null, bool $engageEvents = true): void
   {
+    $previousHeading = $this->heading;
     $this->stopGraphicalAnimation();
     // Spawn data may name a heading rather than spell out the art, so a map
     // never has to repeat the project's sprites.
@@ -766,6 +770,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
 
     $this->sprite = $sprite;
     $this->heading = $resolvedHeading;
+    if ($engageEvents && $previousHeading !== $this->heading) { $this->reconcileFacingEvents(); }
   }
 
   /**
@@ -935,7 +940,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     foreach ($this->events as $event) {
       if (
         $this->eventManager->activeEvents->contains($event)
-        && ($event->isComplete || ! $event->isAvailable())
+        && !$event->canEngage($this->position, $this->heading)
       ) {
         $event->exit($context);
         $this->eventManager->activeEvents->remove($event);
