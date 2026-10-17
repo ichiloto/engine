@@ -293,6 +293,26 @@ replacement, polling/transition failure and renderer restart/shutdown use the
 same boundary; no renderer-specific walking reset or Terminal release inference
 is added.
 
+### Discrete choices and modal ownership
+
+`Input::isButtonPressed()` and `InputManager::isButtonPressed()` query a fresh
+discrete action from the current ordered sample. `PressAwareInputSourceInterface`
+optionally reports whether its latest polled key is a fresh press or an OS
+repeat; null preserves the legacy event-edge contract. `RendererInputSource`
+forwards the exact dequeued key's existing repeat metadata from `RendererClient`.
+Terminal input remains event-only. Navigation axes retain their existing repeat
+behaviour. Shared modal confirm, cancel, back and dialogue-auto actions use the
+discrete query; native repeats no longer activate these choices.
+
+This sampled query is separate from batched `wasButtonPressed()` held-transition
+state. A later genuine press may already be queued in the same native batch,
+including a quick tap whose release has arrived. It must remain available after
+the previous action is consumed. Modal dismissal calls `consumeCurrentInput()`
+before restoring its caller or notifying hide listeners, consuming only the
+current sampled edges while preserving held-control identity and unread input.
+Repeated cleanup of an already hidden modal does not consume its caller's later
+input. No input drain, time delay or inferred Terminal release is involved.
+
 ### Field walking (implemented)
 
 With held input, `FieldState` walks through `PlayerWalk`, RPG Maker MZ's
