@@ -934,6 +934,13 @@ not a default for future story stations.
   Only story cues do this; route cues show where they stand.
 - **Minimap.** The GPUI corner atlas replaces the coordinate HUD while the field
   owns presentation, with compact/larger sizes. Terminal keeps coordinates.
+  Andrew's 18 October reference assessment removes the corner location-name
+  header, menu padding and optional hint strip. The map now fills a one-pixel
+  palette rim within the size limits; the frame follows its aspect. Labels,
+  legend and controls remain in the opened map. Focused corner/theme/icon-role
+  checks: 31 tests / 835 assertions. Muted installed macOS check: 2749 frames,
+  490 changes, 81.584 seconds, exit 0, no playback backends, user files unchanged;
+  native corner inspected, window/process closed and owned storage removed.
   Andrew's latest 17 October assessment: walk animation PASS; Terminal and GPUI
   maps FAIL. His correction requires scrollable local maps, actual world-map
   switching, two GPUI map zoom levels, dedicated inn/shop/home/BSA category

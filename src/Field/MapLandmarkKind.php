@@ -13,6 +13,8 @@ enum MapLandmarkKind: string
     case BUILDING = 'building';
     case LANDMARK = 'landmark';
 
+    public function getIconRole(): string { return 'map.'.$this->value; }
+
     public function isRoute(): bool
     {
         return in_array($this, [self::PASSAGE, self::ENTRANCE, self::EXIT], true);

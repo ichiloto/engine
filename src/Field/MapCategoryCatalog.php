@@ -62,6 +62,12 @@ final readonly class MapCategoryCatalog
         return 'map_categories.'.$id.'.name';
     }
 
+    public static function getIconRole(string $id): string
+    {
+        if (preg_match(MapLandmarkCatalog::ID_PATTERN,$id)!==1) { throw new InvalidArgumentException('Invalid map category id.'); }
+        return 'map.category.'.$id;
+    }
+
     public function getName(string $id): string
     {
         $this->getBase($id);

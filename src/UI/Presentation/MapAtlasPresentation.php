@@ -7,6 +7,7 @@ namespace Ichiloto\Engine\UI\Presentation;
 use Closure;
 use Ichiloto\Engine\Core\Rect;
 use Ichiloto\Engine\Field\MapLandmarkKind;
+use Ichiloto\Engine\Field\MapCategoryCatalog;
 use Ichiloto\Engine\Field\MapProjection;
 use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\Console\TerminalText;
@@ -21,12 +22,21 @@ use Throwable;
 /** Shared atlas composition. Games replace theme data and artwork, never its renderer. */
 final class MapAtlasPresentation
 {
+    public const string PLAYER_ICON_ROLE = 'map.player';
     public const array CAPABILITIES = [RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_COMPOSITING,
         RendererSessionConfig::MAP_OVERVIEW, RendererSessionConfig::MAP_OVERVIEW_VIEWPORT, RendererSessionConfig::CANVAS_COMPOSITE_INDICATORS,
         RendererSessionConfig::CANVAS_CLIP_OPACITY, RendererSessionConfig::SPRITE_SOURCE_RECT];
     private ?MenuPresentationCatalog $theme = null;
     private ?string $root = null;
     private array $diagnostics = [];
+
+    /** Every optional icon role consumed here, shared with theme authoring. */
+    public static function listIconRoles(MapCategoryCatalog $categories): array
+    {
+        return [self::PLAYER_ICON_ROLE,
+            ...array_map(static fn(MapLandmarkKind $kind): string=>$kind->getIconRole(),MapLandmarkKind::cases()),
+            ...array_map(MapCategoryCatalog::getIconRole(...),$categories->getIds())];
+    }
 
     public static function supports(Closure $supports): bool { return array_all(self::CAPABILITIES, $supports); }
 
@@ -60,8 +70,15 @@ final class MapAtlasPresentation
         $margin = min($a->margin, max(0, intdiv(min($width, $height) - 96, 2)));
         $w = $full ? $width - 2*$margin : min($width - 2*$margin, $size === MapAtlasSize::LARGE ? $a->largeWidth : $a->compactWidth);
         $h = $full ? $height - 2*$margin : min($height - 2*$margin, $size === MapAtlasSize::LARGE ? $a->largeHeight : $a->compactHeight);
+        // A corner atlas is map content with a one-pixel rim. Menu typography and
+        // padding apply only to the opened map; whole-map aspect owns the corner silhouette.
+        $padding = $full ? min($m->panelPadding, (int) floor(min($w,$h)/4)) : 1;
+        if (!$full) {
+            $scale = min(($w-2*$padding)/$snapshot->overview->width,($h-2*$padding)/$snapshot->overview->height);
+            $w = (int)ceil($snapshot->overview->width*$scale)+2*$padding;
+            $h = (int)ceil($snapshot->overview->height*$scale)+2*$padding;
+        }
         $box = new CanvasRectangle($full ? $margin : $width - $margin - $w, $margin, $w, $h);
-        $padding = min($m->panelPadding, (int) floor(min($w,$h)/4));
         $contentWidth = $w - 2*$padding;
         $hints = $full ? [...($snapshot->canSwitch ? [ActionHints::resolve('map_view',
                 MessageCatalog::getTerm($snapshot->global ? 'map.local' : 'map.region'))] : []),
@@ -70,29 +87,28 @@ final class MapAtlasPresentation
             ActionHints::resolve('right',MessageCatalog::getTerm('map.scroll')),
             ActionHints::resolve('menu_page_next',MessageCatalog::getTerm('map.focus')),
             ActionHints::resolve('info', MessageCatalog::getTerm('map.details')), ActionHints::resolve('back', MessageCatalog::getTerm('map.close'))]
-            : [ActionHints::resolve('map_size', MessageCatalog::getTerm('map.size')), ActionHints::resolve('map', MessageCatalog::getTerm('map.open'))];
-        // These are the opened map's primary controls; corner hints remain optional.
-        $hintHeight = MenuActionHints::height($hints,$theme,$contentWidth,required:$full);
-        if (!$full && $h - 2*$padding - $m->cellHeight - $m->sectionGap - $hintHeight < 24) { $hintHeight = 0; }
-        if (!$full) {
-            $naturalHeight = (int)ceil($contentWidth*$snapshot->overview->height/$snapshot->overview->width);
-            $h = min($h,max(96,2*$padding+$m->cellHeight+$m->sectionGap+$hintHeight+$naturalHeight));
-            $box = new CanvasRectangle($box->x,$box->y,$w,$h);
-        }
-        $bodyHeight = max(1, $h - 2*$padding - $m->cellHeight - $m->sectionGap - $hintHeight);
+            : [];
+        // The opened map always exposes its primary controls. Corner maps carry no text chrome.
+        $hintHeight = $full ? MenuActionHints::height($hints,$theme,$contentWidth,required:true) : 0;
+        $titleHeight = $full ? $m->cellHeight+$m->sectionGap : 0;
+        $bodyHeight = max(1, $h - 2*$padding - $titleHeight - $hintHeight);
         $legendWidth = $full ? min(400, floor($contentWidth * .31)) : 0;
-        $mapBox = new CanvasRectangle($box->x+$padding, $box->y+$padding+$m->cellHeight+$m->sectionGap,
+        $mapBox = new CanvasRectangle($box->x+$padding, $box->y+$padding+$titleHeight,
             max(1,$contentWidth-($full ? $legendWidth+$m->sectionGap : 0)), $bodyHeight);
         $bounds=new Rect((int)$mapBox->x,(int)$mapBox->y,(int)$mapBox->width,(int)$mapBox->height);
         $projection = $full && $mapView!==null ? $mapView->getProjection($snapshot->overview,$bounds,true,$snapshot->global)
             : MapProjection::fit($snapshot->overview->width,$snapshot->overview->height,$bounds);
         $view = new MenuCanvas($theme,$width,$height,background:$full);
         $view->frame('atlas-frame',$box,$a->frameRole,10);
-        $title = TerminalText::truncateToWidth(($full ? MessageCatalog::getTerm($snapshot->global ? 'map.region' : 'map.local').' — ' : '')
-            .$snapshot->name.($full && $mapView!==null ? ' — '.MessageCatalog::getTerm($mapView->zoomedIn ? 'map.zoom_in' : 'map.zoom_out') : ''),
-            max(1,(int)floor($contentWidth/$m->cellWidth)));
-        $view->textLines('atlas-title',[['text'=>$title,'color'=>'accent']],
-            new CanvasRectangle($box->x+$padding,$box->y+$padding,$contentWidth,$m->cellHeight));
+        if ($full) {
+            $title = TerminalText::truncateToWidth(MessageCatalog::getTerm($snapshot->global ? 'map.region' : 'map.local').' — '
+                .$snapshot->name.($mapView!==null ? ' — '.MessageCatalog::getTerm($mapView->zoomedIn ? 'map.zoom_in' : 'map.zoom_out') : ''),
+                max(1,(int)floor($contentWidth/$m->cellWidth)));
+            $view->textLines('atlas-title',[['text'=>$title,'color'=>'accent']],
+                new CanvasRectangle($box->x+$padding,$box->y+$padding,$contentWidth,$m->cellHeight));
+        } else {
+            $view->renderOutline('atlas-rim',$box,'edge',1,21);
+        }
         $destination = new CanvasRectangle($projection->left,$projection->top,$projection->width,$projection->height);
         $rasterScale = min(1, 1024/max($destination->width,$destination->height));
         $rasterWidth = max(1,(int)ceil($destination->width*$rasterScale));
@@ -125,7 +141,7 @@ final class MapAtlasPresentation
             $point = $cluster['point'];
             $marker = new CanvasRectangle($point->x-$a->markerSize/2,$point->y-$a->markerSize/2,$a->markerSize,$a->markerSize);
             $category=($landmark['known'] ?? ($landmark['name']!==null)) ? $landmark['definition']->category : null;
-            $role = $category===null ? 'map.'.$kind->value : 'map.category.'.$category;
+            $role = $category===null ? $kind->getIconRole() : MapCategoryCatalog::getIconRole($category);
             if ($cluster['count']===1 && $view->icon('atlas-marker-'.$index,$role,$marker,40)) {
                 if ($cluster['selected']) {
                     $indicators[] = new CanvasIndicator('atlas-marker-focus-'.$index,'atlas-map',CanvasIndicatorKind::OUTLINE,
@@ -151,7 +167,7 @@ final class MapAtlasPresentation
             && $projection->containsCell($playerX,$playerY)) {
             $point = $projection->projectCell($playerX,$playerY);
             $marker = new CanvasRectangle($point->x-$a->markerSize/2,$point->y-$a->markerSize/2,$a->markerSize,$a->markerSize);
-            if (!$view->icon('atlas-player','map.player',$marker,50)) {
+            if (!$view->icon('atlas-player',self::PLAYER_ICON_ROLE,$marker,50)) {
                 $indicators[] = self::createMarkerHalo('atlas-player-halo',$marker,$theme,49,$width,$height);
                 $indicators[] = new CanvasIndicator('atlas-player','atlas-map',CanvasIndicatorKind::OUTLINE,$marker,
                     (int)ceil($a->markerSize/2),$theme->colors['focus'],50);

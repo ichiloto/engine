@@ -171,8 +171,8 @@ Physically global maps open only their global view.
 
 The semantic `map_view` action (unclaimed V/v by default) switches Local/World.
 The opened map always shows its primary action bar, using the shared required
-control treatment even when the theme hides optional hints; corner hints retain
-the theme setting.
+control treatment even when the theme hides optional hints. Corner maps carry no
+location-name header, legend or hint strip.
 Directional actions scroll without moving the player. Page actions cycle through
 visible landmark identities and centre the chosen marker; names appear only for
 the focused marker. Ordinary scrolling clears focus. Info pages long names;
@@ -206,11 +206,18 @@ palette, replaceable `quiet`/`panel` frames and optional semantic icon bindings.
 Its keys are `compactWidth` (256), `compactHeight` (192), `largeWidth` (400),
 `largeHeight` (300), `margin` (16), `markerSize` (10) and `frameRole` (`quiet`).
 Dimensions accept 96–768 logical pixels; larger dimensions cannot be smaller
-than compact dimensions. Margin accepts 0–64 and markers 4–24. The two corner sizes preserve the whole map. Opened maps scroll at a fixed
+than compact dimensions. Margin accepts 0–64 and markers 4–24. The two corner sizes
+are maximum extents: the whole map preserves its aspect and fills a one-pixel
+palette rim. Its frame hugs the map, with no menu padding or reserved text rows;
+menu typography and spacing apply only to the opened view. Opened maps scroll at a fixed
 map scale; changing map size or zoom never changes field zoom.
 Optional icon roles are `map.player`, `map.passage`, `map.entrance`, `map.exit`,
 `map.building` and `map.landmark`. Missing art uses shared geometric marker
-treatments. Projects supply data and artwork; the Engine owns drawing and input.
+treatments. `MapAtlasPresentation::listIconRoles($categories)` supplies these roles
+and every generic/project category role to theme authoring; `PLAYER_ICON_ROLE`,
+`MapLandmarkKind::getIconRole()` and `MapCategoryCatalog::getIconRole()` are the
+shared identities consumed by the composer. Projects supply data and artwork;
+the Engine owns drawing and input.
 
 GPUI uses the same installed retained world as a static overview source. The
 corner atlas replaces the coordinate HUD only after successful composition and

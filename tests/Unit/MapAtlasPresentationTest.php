@@ -97,3 +97,39 @@ it('keeps opened map navigation discoverable when optional theme hints are hidde
     $corner=MapAtlasPresentation::compose(makeGraphicalAtlasSnapshot(),$theme,1350,720,MapAtlasSize::COMPACT);
     expect(array_column($corner->textLayers,'id'))->not->toContain('atlas-hints');
 });
+
+it('fills corner maps to a thin rim without location text or menu spacing',function(MapAtlasSize $size, bool $custom) {
+    $theme=new MenuPresentationCatalog('/tmp',['schema'=>'ichiloto.menu/1','showInputHints'=>true,
+        ...($custom ? ['metrics'=>['panelPadding'=>48,'sectionGap'=>24],
+            'colors'=>['edge'=>[83,170,91]],'atlas'=>['compactWidth'=>240,'compactHeight'=>180,
+                'largeWidth'=>480,'largeHeight'=>360,'frameRole'=>'panel']] : [])]);
+    foreach([[20,8],[8,20],[12,12]] as [$mapWidth,$mapHeight]) {
+        $snapshot=new MapAtlasSnapshot('Current place name','map',new MapOverview(array_fill(0,$mapHeight,array_fill(0,$mapWidth,'.'))),
+            [],[],0,0,MovementHeading::SOUTH);
+        $canvas=MapAtlasPresentation::compose($snapshot,$theme,1350,720,$size);
+        $frame=$canvas->protectedAreas[0];
+        $map=$canvas->composites[0]->destination;
+        expect(array_column($canvas->textLayers,'id'))->not->toContain('atlas-title')->not->toContain('atlas-hints')
+            ->not->toContain('atlas-legend');
+        foreach([$map->x-$frame->x,$map->y-$frame->y,
+            $frame->x+$frame->width-$map->x-$map->width,$frame->y+$frame->height-$map->y-$map->height] as $inset) {
+            expect($inset)->toBeGreaterThanOrEqual(1)->toBeLessThan(1.51);
+        }
+        expect($map->width*$map->height/($frame->width*$frame->height))->toBeGreaterThan(.94)
+            ->and($frame->x+$frame->width)->toEqual(1350-$theme->atlas->margin)
+            ->and($frame->y)->toEqual($theme->atlas->margin)
+            ->and($frame->width)->toBeLessThanOrEqual($size===MapAtlasSize::LARGE ? $theme->atlas->largeWidth : $theme->atlas->compactWidth)
+            ->and($frame->height)->toBeLessThanOrEqual($size===MapAtlasSize::LARGE ? $theme->atlas->largeHeight : $theme->atlas->compactHeight)
+            ->and($map->width/$map->height)->toEqualWithDelta($mapWidth/$mapHeight,.001);
+    }
+})->with([MapAtlasSize::COMPACT,MapAtlasSize::LARGE])->with([false,true]);
+
+it('exposes exactly the atlas icon roles for shared theme authoring',function() {
+    $categories=new \Ichiloto\Engine\Field\MapCategoryCatalog(['guild'=>['name'=>['message'=>'map_categories.guild.name','default'=>'Guild'],'base'=>'organization']]);
+    $roles=MapAtlasPresentation::listIconRoles($categories);
+    expect($roles)->toContain(MapAtlasPresentation::PLAYER_ICON_ROLE,'map.category.guild','map.category.inn','map.category.home')
+        ->and($roles)->toHaveCount(11)->and(array_unique($roles))->toBe($roles);
+    foreach(MapLandmarkKind::cases() as $kind) { expect($roles)->toContain($kind->getIconRole()); }
+    expect(\Ichiloto\Engine\Field\MapCategoryCatalog::getIconRole('guild'))->toBe('map.category.guild')
+        ->and(fn()=>\Ichiloto\Engine\Field\MapCategoryCatalog::getIconRole('../invalid'))->toThrow(InvalidArgumentException::class);
+});
