@@ -942,6 +942,10 @@ not a default for future story stations.
   exclusion now follows scene ownership even while an event owns input or the
   corner is off; the composer consults explicit suppression without requiring
   an overlay canvas. The opaque corner menu backing is removed.
+  Andrew explicitly keeps interior outlines. Authored atlas.terminalView now
+  distinguishes floorplan from places: outdoor collision traces are removed,
+  building entrances/locations use single squares, and blank ground, exits and
+  player remain. Local defaults preserve interiors; Game owns outdoor selection.
   Focused corner/theme/icon-role
   checks: 31 tests / 835 assertions. Muted installed macOS check: 2749 frames,
   490 changes, 81.584 seconds, exit 0, no playback backends, user files unchanged;

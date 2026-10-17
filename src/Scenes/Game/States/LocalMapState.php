@@ -149,10 +149,11 @@ class LocalMapState extends GameSceneState implements CanvasProviderInterface
         } else {
             $snapshot=new MapAtlasSnapshot($scene->party->location->name,'map',$scene->mapManager->overview,[],
                 $this->getVisibleLandmarks(),$scene->player->position->x,$scene->player->position->y,$scene->player->heading,
-                $scene->mapManager->atlasDefinition?->global ?? false);
+                $scene->mapManager->atlasDefinition?->global ?? false,
+                terminalView:$scene->mapManager->atlasDefinition?->terminalView ?? 'floorplan');
         }
         return new MapAtlasSnapshot($snapshot->name,$snapshot->worldId,$snapshot->overview,$snapshot->subjects,
-            $snapshot->landmarks,$snapshot->playerX,$snapshot->playerY,$snapshot->heading,$snapshot->global,$canSwitch);
+            $snapshot->landmarks,$snapshot->playerX,$snapshot->playerY,$snapshot->heading,$snapshot->global,$canSwitch,$snapshot->terminalView);
     }
 
     protected function getVisibleLandmarks(): array
@@ -198,9 +199,10 @@ class LocalMapState extends GameSceneState implements CanvasProviderInterface
         $mapHeight=min(256,$height-5); $mapWidth=min(512,$width);
         $projection=$this->view->getProjection($snapshot->overview,new Rect(0,0,$mapWidth,$mapHeight),false,$snapshot->global);
         $map=MapAtlasTerminal::renderMap($snapshot->overview,$landmarks,new Vector2($snapshot->playerX,$snapshot->playerY),
-            $snapshot->heading,$mapWidth,$mapHeight,$this->selected,$projection,$snapshot->global);
+            $snapshot->heading,$mapWidth,$mapHeight,$this->selected,$projection,$snapshot->global,$snapshot->terminalView==='floorplan');
         $rows=[TerminalText::padCenter('N',$width),...$map];
-        $rows[]=TerminalText::truncateToWidth(MessageCatalog::getTerm($snapshot->global ? 'map.global_symbols' : 'map.symbols'),$width);
+        $rows[]=TerminalText::truncateToWidth(MessageCatalog::getTerm($snapshot->global ? 'map.global_symbols'
+            : ($snapshot->terminalView==='places' ? 'map.place_symbols' : 'map.symbols')),$width);
         $focused=$landmarks[$this->selected] ?? null;
         $detail=$focused===null ? ($snapshot->playerX<0 ? MessageCatalog::getTerm('map.position_unmarked') : '') : MapAtlasTerminal::getLandmarkLabel($focused)
             .($focused['accessible']===false ? ' ['.MessageCatalog::getTerm('map.locked').']' : '');

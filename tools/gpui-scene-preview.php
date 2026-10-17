@@ -4,6 +4,7 @@
 declare(strict_types=1);
 
 use Ichiloto\Engine\Core\Game;
+use Ichiloto\Engine\Core\FramePacing;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\InputManager;
@@ -184,10 +185,12 @@ try {
     }
     $fixture['start']();
     $requireSilence();
+    $framePacing = new FramePacing($game->options['fps'] ?? DEFAULT_FPS);
     $frames = $changes = 0;
     $seconds = 0.0;
     $started = hrtime(true) / 1_000_000_000;
     while (true) {
+        $frameStartedNanoseconds = hrtime(true);
         $runtime?->pump();
         $now = hrtime(true) / 1_000_000_000;
         $seconds = $frames === 0 ? 0.0 : ($realtime ? $now - $started : $frames / 60);
@@ -204,7 +207,10 @@ try {
         $complete = $fixture['isComplete']();
         if (!is_bool($complete)) { throw new RuntimeException('Scene preview completion must be a boolean.'); }
         if ($complete) { break; }
-        if ($realtime) { usleep(16667); }
+        if ($realtime) {
+            $sleep = $framePacing->getRemainingSleepMicroseconds($frameStartedNanoseconds,hrtime(true));
+            if ($sleep>0) { usleep($sleep); }
+        }
     }
     $evidence = $fixture['verify']();
     $report = json_encode(['frames' => $frames, 'nativePresentationChanges' => $changes,

@@ -27,15 +27,19 @@ final class MapOverview
      *  sources use the already resolved physical occupancy, never glyph spelling.
      *  Cache owns at most two screen-sized variants and releases with its map installation.
      *  @return list<list<string>> */
-    public function getTerminalRaster(int $width, int $height, ?MapProjection $projection = null): array
+    public function getTerminalRaster(int $width, int $height, ?MapProjection $projection = null, bool $drawOutlines = true): array
     {
         if ($width < 1 || $height < 1 || $width > 512 || $height > 256) {
             throw new InvalidArgumentException('Terminal overview dimensions must be within 512 by 256 cells.');
         }
         $projection ??= $this->getTerminalProjection($width, $height);
-        $key = "{$width}:{$height}:" . serialize($projection);
+        $key = "{$width}:{$height}:" . (int)$drawOutlines . serialize($projection);
         if (isset($this->terminalRasters[$key])) { return $this->terminalRasters[$key]; }
         $raster = array_fill(0, $height, array_fill(0, $width, ' '));
+        if (!$drawOutlines) {
+            if (count($this->terminalRasters)===2) { array_shift($this->terminalRasters); }
+            return $this->terminalRasters[$key]=$raster;
+        }
         // Visit only the bounded target raster; a large source does not require
         // iterating or copying every cell when the player opens the atlas.
         for ($y = (int) floor($projection->top); $y < min($height, (int) ceil($projection->top + $projection->height)); $y++) {

@@ -12,25 +12,29 @@ final readonly class MapAtlasDefinition
     public const string DATA_KEY = 'atlas';
     public const int MAX_PARENT_DEPTH = 32;
     public const array SCOPES = ['local','global'];
+    public const array TERMINAL_VIEWS = ['places','floorplan'];
 
-    private function __construct(public bool $global, public ?string $parentMap, public ?string $parentLandmark) {}
+    private function __construct(public bool $global, public ?string $parentMap, public ?string $parentLandmark,
+        public string $terminalView) {}
 
     public static function readMap(array $map): self
     {
         $data=$map[self::DATA_KEY] ?? [];
-        if (!is_array($data) || array_diff(array_keys($data),['scope','parent'])!==[]
-            || !in_array($data['scope'] ?? 'local',self::SCOPES,true)) {
-            throw new InvalidArgumentException('Map atlas accepts scope local/global and an optional parent entry.');
+        if (!is_array($data) || array_diff(array_keys($data),['scope','parent','terminalView'])!==[]
+            || !in_array($data['scope'] ?? 'local',self::SCOPES,true)
+            || (array_key_exists('terminalView',$data) && !in_array($data['terminalView'],self::TERMINAL_VIEWS,true))) {
+            throw new InvalidArgumentException('Map atlas accepts local/global scope, an optional parent entry and Terminal view places/floorplan.');
         }
         $global=($data['scope'] ?? 'local')==='global';
+        $terminalView=$data['terminalView'] ?? ($global ? 'places' : 'floorplan');
         $parent=$data['parent'] ?? null;
-        if ($parent===null) { return new self($global,null,null); }
+        if ($parent===null) { return new self($global,null,null,$terminalView); }
         if ($global || !is_array($parent) || count($parent)!==2 || array_diff(array_keys($parent),['map','landmark'])!==[]
             || !is_string($parent['map'] ?? null) || preg_match('~\A[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*\z~D',$parent['map'])!==1
             || !is_string($parent['landmark'] ?? null) || preg_match(MapLandmarkCatalog::ID_PATTERN,$parent['landmark'])!==1) {
             throw new InvalidArgumentException('A local atlas parent requires a safe map id and stable landmark id; global maps have no parent.');
         }
-        return new self(false,$parent['map'],$parent['landmark']);
+        return new self(false,$parent['map'],$parent['landmark'],$terminalView);
     }
 
     /** Resolver reads current source; callers may supply unsaved Editor models. Returns the entry ON the global map. */

@@ -33,9 +33,9 @@ final class MapAtlasTerminal
         return $hint.($pages===[] ? '' : '  '.implode('/',array_unique($pages)).':'.MessageCatalog::getTerm('map.cycle'));
     }
 
-    public static function getMarkerSymbol(MapLandmarkKind $kind, bool $global = false): string
+    public static function getMarkerSymbol(MapLandmarkKind $kind, bool $global = false, bool $places = false): string
     {
-        return $global ? '■' : ($kind->isRoute() ? 'v' : '*');
+        return $global || !$kind->isRoute() || ($places && $kind===MapLandmarkKind::ENTRANCE) ? '■' : 'v';
     }
 
     public static function getLandmarkLabel(array $landmark): string
@@ -52,10 +52,10 @@ final class MapAtlasTerminal
     /** @return list<string> Stable whole-map rows; a selected landmark takes priority in a cluster. */
     public static function renderMap(MapOverview $overview, array $landmarks, Vector2 $player,
         MovementHeading $heading, int $width, int $height, int $selected = -1,
-        ?MapProjection $projection = null, bool $global = false): array
+        ?MapProjection $projection = null, bool $global = false, bool $drawOutlines = true): array
     {
         $projection ??= $overview->getTerminalProjection($width, $height);
-        $raster = $overview->getTerminalRaster($width, $height, $projection);
+        $raster = $overview->getTerminalRaster($width, $height, $projection,$drawOutlines);
         $occupied = [];
         foreach ($landmarks as $index => $landmark) {
             foreach ($landmark['definition']->getMarkerCells() as $cell) {
@@ -64,7 +64,7 @@ final class MapAtlasTerminal
                 $x = min($width - 1, (int) floor($point->x));
                 $y = min($height - 1, (int) floor($point->y));
                 $key = "{$x}:{$y}";
-                $symbol = self::getMarkerSymbol($landmark['definition']->kind,$global);
+                $symbol = self::getMarkerSymbol($landmark['definition']->kind,$global,!$drawOutlines);
                 if ($index === $selected) {
                     $raster[$y][$x] = SelectionStyle::apply($symbol);
                     $occupied[$key] = true;

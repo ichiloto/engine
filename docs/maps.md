@@ -81,7 +81,9 @@ both farther out than gameplay; global maps fit the whole geography at the
 zoomed-out level and allow a closer, scrollable level; these are independent of the compact/larger HUD
 sizes. The opened map pans in both axes. Terminal retains its coordinate HUD;
 opened maps use blank walkable ground, `-`, `|`, `+` physical boundaries, `v`
-entrance/exit chevrons locally and single-block place markers globally. `@`
+entrance/exit chevrons in floorplans and single-block place markers. Outdoor
+`places` views remove collision-derived building/tree/fence traces; an entrance
+to a building uses one square, while exits/passages keep chevrons. `@`
 marks the player. Decorative field glyphs and miniature Terminal art are absent.
 GPUI keeps simplified map artwork and dedicated place-category pictograms.
 
@@ -168,6 +170,15 @@ are used. `readGlobalMaps` enumerates explicitly global sources for browsing.
 A local area without a proven world entry can still browse those maps; it has
 no invented player position and says that its current location is not marked.
 Physically global maps open only their global view.
+
+`atlas.terminalView` explicitly selects `places` or `floorplan` through
+`MapAtlasDefinition::TERMINAL_VIEWS`. Local maps default to `floorplan`; global
+maps default to `places`. Game authors mark outdoor maps as `places`; the
+renderer never infers interiors from paths, tilesets, glyphs or artwork.
+`places` uses blank ground and known location/route markers at their real map
+positions. `floorplan` keeps simple collision-derived room/corridor outlines.
+This is Terminal presentation data and changes no collision, discovery or GPUI
+artwork. Source-preserving Editor/GUI authoring uses the same validated values.
 
 The semantic `map_view` action (unclaimed V/v by default) switches Local/World.
 The opened map always shows its primary action bar, using the shared required

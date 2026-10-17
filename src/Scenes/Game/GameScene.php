@@ -274,7 +274,8 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
             $world->id, $this->mapManager->overview, $subjects,
             $this->gameState === null ? [] : ($this->mapManager->mapKnowledge?->getVisibleLandmarks($this->gameState,$this->party) ?? []),
             $this->player->position->x,$this->player->position->y,$this->player->heading,
-            $this->mapManager->atlasDefinition?->global ?? false);
+            $this->mapManager->atlasDefinition?->global ?? false,
+            terminalView:$this->mapManager->atlasDefinition?->terminalView ?? 'floorplan');
     }
 
     /** Isolated previews must explicitly bind their own session, never borrow the live Game transport. */

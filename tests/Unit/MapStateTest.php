@@ -99,3 +99,13 @@ it('fits the whole global geography then allows a closer GPUI level with scrolli
     $terminal=$view->getProjection($overview,new Rect(0,0,80,24),false,true);
     expect($terminal->sourceX)->toBe(0.0)->and($terminal->sourceY)->toBe(0.0)->and($view->moveView(1,1))->toBeFalse();
 });
+
+it('validates source-owned Terminal place and floorplan views independently of map scope or artwork',function() {
+    expect(MapAtlasDefinition::readMap([])->terminalView)->toBe('floorplan')
+        ->and(MapAtlasDefinition::readMap(['atlas'=>['scope'=>'global']])->terminalView)->toBe('places')
+        ->and(MapAtlasDefinition::readMap(['atlas'=>['terminalView'=>'places']])->terminalView)->toBe('places')
+        ->and(MapAtlasDefinition::readMap(['atlas'=>['terminalView'=>'floorplan','parent'=>['map'=>'town','landmark'=>'door']]])->parentMap)->toBe('town');
+    foreach(['art',false,null,1] as $value) {
+        expect(fn()=>MapAtlasDefinition::readMap(['atlas'=>['terminalView'=>$value]]))->toThrow(InvalidArgumentException::class);
+    }
+});

@@ -37,7 +37,7 @@ final class MapAtlasDocument
         }
         return new MapAtlasSnapshot($this->source['data']['name'] ?? '',$graphical ? $this->getPresentationWorld($state,$party)->id : 'atlas-world',
             $this->overview,$graphical ? $this->subjects : [],(new MapKnowledge($this->id,$this->landmarks))->getVisibleLandmarks($state,$party),
-            $x,$y,$heading,true,false);
+            $x,$y,$heading,true,false,MapAtlasDefinition::readMap($this->source['data'])->terminalView);
     }
 
     public function getPresentationWorld(GameState $state, ?Party $party): PresentationWorld

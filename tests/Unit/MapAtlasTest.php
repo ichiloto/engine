@@ -90,3 +90,25 @@ it('draws blank rooms with ASCII wall runs and chevron doors while global places
         expect(TerminalText::stripAnsi(TerminalText::formatStyles($rows[2])))->toBe('|  @  |');
     }
 });
+
+it('removes outdoor collision diagrams and uses one square per place while preserving interior floorplans',function() {
+    $tiles=array_fill(0,5,array_fill(0,9,'art'));
+    $occupancy=array_fill(0,5,array_fill(0,9,0));
+    for($y=1;$y<=3;$y++) { for($x=2;$x<=5;$x++) { $occupancy[$y][$x]=1; } }
+    $overview=new MapOverview($tiles,$occupancy);
+    $projection=\Ichiloto\Engine\Field\MapProjection::createViewport(9,5,new \Ichiloto\Engine\Core\Rect(0,0,9,5),4.5,2.5,1,1);
+    $floorplan=$overview->getTerminalRaster(9,5,$projection);
+    $places=$overview->getTerminalRaster(9,5,$projection,false);
+    expect(implode('',array_map(implode(...),$floorplan)))->toContain('-')
+        ->and(implode('',array_map(implode(...),$places)))->toBe(str_repeat(' ',45))
+        ->and($overview->getTerminalRaster(9,5,$projection))->toBe($floorplan);
+    $landmarks=[];
+    foreach([['door',\Ichiloto\Engine\Field\MapLandmarkKind::ENTRANCE,3,3],
+        ['exit',\Ichiloto\Engine\Field\MapLandmarkKind::EXIT,8,2]] as [$id,$kind,$x,$y]) {
+        $landmarks[]=['definition'=>new \Ichiloto\Engine\Field\MapLandmarkDefinition($id,$kind,
+            \Ichiloto\Engine\Core\CellArea::fromCells([[$x,$y]])),'name'=>null,'accessible'=>true];
+    }
+    $rows=MapAtlasTerminal::renderMap($overview,$landmarks,new Vector2(0,2),MovementHeading::SOUTH,9,5,-1,$projection,false,false);
+    $plain=array_map(fn($row)=>TerminalText::stripAnsi(TerminalText::formatStyles($row)),$rows);
+    expect($plain)->toBe(['         ','         ','@       v','   ■     ','         ']);
+});
