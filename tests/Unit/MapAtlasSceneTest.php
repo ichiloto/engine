@@ -56,6 +56,10 @@ it('uses the host map source and replaces only its visible coordinate HUD while 
         $hud->activate();
         $map = new LocalMapState(new SceneStateContext($scene));
         new ReflectionProperty($scene,'state')->setValue($scene,$map);
+        $textPreparation = $this->getStubBuilder(\Ichiloto\Engine\Rendering\Text\TextPreparationProviderInterface::class)->getStub();
+        new ReflectionProperty($scene,'presentationContext')->setValue($scene,
+            new ScenePresentationContext($context->grid,fn()=>true,fieldActive:false,assetRoot:'/tmp',textPreparation:$textPreparation));
+        expect($scene->getTextPreparationProvider())->toBe($textPreparation);
         expect($map->getPresentationCanvas())->not->toBeNull()->and($scene->getPresentationWorld())->toBe($world)
             ->and($field->getPresentationOverlay(1350,720))->toBeNull();
         new ReflectionProperty($scene,'presentationContext')->setValue($scene,

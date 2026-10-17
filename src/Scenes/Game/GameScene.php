@@ -266,7 +266,8 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     /** Isolated previews must explicitly bind their own session, never borrow the live Game transport. */
     public function getTextPreparationProvider(): ?\Ichiloto\Engine\Rendering\Text\TextPreparationProviderInterface
     {
-        if (!$this->hasGraphicalFieldPresentation()) { return null; }
+        if (!$this->hasGraphicalFieldPresentation()
+            && !($this->state instanceof LocalMapState && $this->canPresentMapAtlas())) { return null; }
         foreach ([RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::TEXT_LAYOUT, RendererSessionConfig::CANVAS_LABELS,
             RendererSessionConfig::WORLD_CANVAS, RendererSessionConfig::FRAME_VIEWPORT,
             RendererSessionConfig::SPRITE_SOURCE_RECT, RendererSessionConfig::CANVAS_CLIP_OPACITY] as $capability) {
