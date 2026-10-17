@@ -9,6 +9,12 @@ use InvalidArgumentException;
 /** Replaceable atlas layout treatment alongside the shared palette and frames. */
 final readonly class MapAtlasTheme
 {
+    public const array FRAME_ROLES = ['quiet', 'panel'];
+    public const int MIN_EXTENT = 96;
+    public const int MAX_EXTENT = 768;
+    public const int MAX_MARGIN = 64;
+    public const int MIN_MARKER_SIZE = 4;
+    public const int MAX_MARKER_SIZE = 24;
     public function __construct(
         public int $compactWidth = 256,
         public int $compactHeight = 192,
@@ -19,10 +25,10 @@ final readonly class MapAtlasTheme
         public string $frameRole = 'quiet',
     ) {
         foreach ([$compactWidth, $compactHeight, $largeWidth, $largeHeight] as $extent) {
-            if ($extent < 96 || $extent > 768) { throw new InvalidArgumentException('Atlas corner dimensions must be within 96..768 logical pixels.'); }
+            if ($extent < self::MIN_EXTENT || $extent > self::MAX_EXTENT) { throw new InvalidArgumentException('Atlas corner dimensions must be within 96..768 logical pixels.'); }
         }
-        if ($largeWidth < $compactWidth || $largeHeight < $compactHeight || $margin < 0 || $margin > 64
-            || $markerSize < 4 || $markerSize > 24 || !in_array($frameRole, ['quiet', 'panel'], true)) {
+        if ($largeWidth < $compactWidth || $largeHeight < $compactHeight || $margin < 0 || $margin > self::MAX_MARGIN
+            || $markerSize < self::MIN_MARKER_SIZE || $markerSize > self::MAX_MARKER_SIZE || !in_array($frameRole, self::FRAME_ROLES, true)) {
             throw new InvalidArgumentException('Atlas requires increasing corner sizes, margin 0..64, markers 4..24 and a quiet or panel frame.');
         }
     }
