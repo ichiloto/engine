@@ -20,6 +20,42 @@ final class DirectionalFocusGraph
     $this->replaceNodes($nodes, $fallbackId);
   }
 
+  /** Build cardinal neighbours for spatial UI markers. This never supplies gameplay links.
+   * @param array<string,array{0:int|float,1:int|float}> $positions
+   */
+  public static function createFromPositions(array $positions, ?string $fallbackId = null): self
+  {
+    $scale=1.0;
+    foreach ($positions as $id=>$point) {
+      if (trim((string)$id)==='' || !is_array($point) || count($point)!==2
+        || !isset($point[0],$point[1]) || (!is_int($point[0]) && !is_float($point[0]))
+        || (!is_int($point[1]) && !is_float($point[1]))
+        || !is_finite((float)$point[0]) || !is_finite((float)$point[1])) {
+        throw new InvalidArgumentException('Spatial focus needs stable ids and finite coordinate pairs.');
+      }
+      $scale=max($scale,abs((float)$point[0]),abs((float)$point[1]));
+    }
+    $positions=array_map(static fn(array $point)=>[$point[0]/$scale,$point[1]/$scale],$positions);
+    $nodes=[];
+    foreach ($positions as $id=>[$x,$y]) {
+      $neighbours=[];
+      foreach (FocusDirection::cases() as $direction) {
+        $best=null; $score=INF;
+        foreach ($positions as $other=>[$otherX,$otherY]) {
+          $dx=$otherX-$x; $dy=$otherY-$y;
+          $forward=match($direction) { FocusDirection::UP=>-$dy, FocusDirection::RIGHT=>$dx,
+            FocusDirection::DOWN=>$dy, FocusDirection::LEFT=>-$dx };
+          $side=match($direction) { FocusDirection::UP,FocusDirection::DOWN=>abs($dx), default=>abs($dy) };
+          if ($forward>0 && $forward+2*$side<$score) { $best=(string)$other; $score=$forward+2*$side; }
+        }
+        $neighbours[$direction->value]=$best;
+      }
+      $nodes[]=new DirectionalFocusNode((string)$id,up:$neighbours['up'],right:$neighbours['right'],
+        down:$neighbours['down'],left:$neighbours['left']);
+    }
+    return new self($nodes,$fallbackId);
+  }
+
   /**
    * Preserve focus by ID, otherwise require a named fallback for a nonempty graph.
    * An empty graph clears focus. Supplied definitions are copied before validation;

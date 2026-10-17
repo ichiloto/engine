@@ -74,8 +74,10 @@ subject use its first cell in reading order, the top-left of a rectangle.
 ## Active-map landmarks and discovery
 
 Andrew selected a GPUI corner atlas with compact and larger sizes, and an opened
-whole-map view with labels and a legend. Terminal retains the coordinate HUD.
-The region connectivity view remains separately available. All active-map views
+whole-map view with a marker legend and focused location details. Terminal retains
+the coordinate HUD and uses single-cell location blocks on schematic ground.
+The region connectivity view uses connected blocks instead of the old name boxes.
+All active-map views
 use physical local cells and a stable north-up whole-map fit.
 
 `landmarks` in a map's `.data.php` is a list of at most 256 declarations:
@@ -144,10 +146,14 @@ authored revelations; no new script command is introduced in this slice.
 The shared catalog/discovery/save contract is on local develop. The active-map
 Terminal view and shared theme extension are implemented locally. The map
 action opens the physical atlas; `map_view` switches to the separate region
-view. `map_view` defaults to unclaimed V/v controls and is rebindable. Up/down
-select legend entries, page actions move a legend page, and Info pages through
-the full selected name. Small map-marker clusters use `+`; selection highlights
-the chosen location. Terminal retains the coordinate HUD while exploring.
+view. `map_view` defaults to unclaimed V/v controls and is rebindable. Directional
+actions move spatial focus between markers; page actions step through identities,
+including markers that share a screen cell. Only the focused location is named.
+Info pages through its full name when needed. Small map-marker clusters use `+`;
+selection highlights the chosen location. Terminal retains coordinates while
+exploring. Its ground outline reads resolved physical occupancy and never copies
+decorative field letters or miniature building art. Read-only sources without
+occupancy facts show only their extent.
 
 The optional `atlas` treatment in `Data/Presentation/menus.php` reuses the shared
 palette, replaceable `quiet`/`panel` frames and optional semantic icon bindings.
@@ -514,26 +520,35 @@ and the map screen draws them together.
 
 ## The map screen
 
-The `map` action (M by default) opens the region the player is standing in,
-drawn from its authored stations and transfer links:
+The `map` action (M by default) opens the entire active map with the player's
+physical position. `map_view` switches to the connected places around it. The
+Terminal connectivity view replaces the old large name boxes with one cell per
+location. Only the focused place is named in the detail panel:
 
 ```
-  [    Home     ]──┐                                    N
-                   │                                  W ─ E
-                   └──[ Town Center ]──┐                 S
-                             │         │
-                      [    Shop     ]  └──[  Inn Front  ]
+       ■────┐
+            ■────┐
+            │    ↓
+            ■    ■
+
+  Town Center — You are here
 ```
 
 Nothing about this is authored twice. `Field\RegionMap` reads every map's
-`name`, `region`, and `TransferPlayerTrigger` destinations, so a door drawn on
-a map appears on the region map by existing.
+`name`, `region`, transfer events and legacy transfers. Its source-owned routes
+reuse the landmark catalog and saved discovery policy. `getKnownConnections()`
+returns directed connections and optional known names without mutating discovery,
+access or saved state. Secret routes require their own explicit revelation even
+when the destination has already been visited. Ordinary locked routes stay visible.
 
-The view opens on the current place. Use the directional movement bindings
-(arrow keys by default) to pan a region larger than the panel, and `Home` to
-return to the current place. `c`, back, or the map action closes it. Panning
-changes only the view, never the party position or the region layout. The
-map and info panels fit the logical screen, including an 80x24 terminal.
+The view opens with the current place focused. Directional actions move the cursor
+spatially; page actions step through all visible locations, and the retained Home
+key focuses the current place. Focus highlights its connections. Arrows show known
+travel direction; known reciprocal transfers share a line. Reverse travel is not
+inferred from an unvisited map. Lines route around unrelated
+blocks. Back or the map action returns to exploration. The panels fit the logical
+screen, including an 80x24 terminal. Oversized diagrams follow the focused block;
+manual pan-first navigation and always-visible place-name boxes are removed.
 
 ### Where a place is drawn
 
@@ -562,8 +577,9 @@ return [
 ```
 
 Stations are region-grid coordinates, not local field tiles or transfer
-arrival positions. Sparse coordinates retain their spacing and can be
-reached by panning; the engine does not compress them to fit the panel.
+arrival positions. The diagram compresses unused station gaps while preserving
+cardinal order. It does not allocate a world-sized raster for distant station
+values or change authored stations, physical coordinates, transfers or saves.
 Every distinct authored pin is reserved before unpinned places are inferred.
 For duplicate pins, the first map in stable file-scan order keeps the pin and
 the others use the next free cells east, without taking another authored pin.
@@ -571,13 +587,16 @@ This resolves display overlap without rewriting the project's station data.
 
 What the player has seen governs what it says:
 
-- places the party has been are named,
-- places one door from somewhere they have been show as `?????`,
+- visited places can show their name under focus,
+- an immediately visible destination stays unnamed until visited or its owning
+  route's declared label has been learned through approach or play,
 - anything further is not drawn at all.
 
 Visits are recorded in the world state (`GameState::markMapVisited()`, called
 when a map loads) and ride the save file, so a map fills in as the game is
-played. Doors leading out of the region are named under the map as exits.
+played. Immediate known exits outside the region are included as distinct blocks.
+An unvisited inbound source does not reveal itself merely by linking to a visited
+destination. Names from unexplored maps are never inferred from file metadata.
 
 A region can hold a map no door reaches, one entered only by a cutscene, say.
 It is still part of the region and becomes visible when visited.

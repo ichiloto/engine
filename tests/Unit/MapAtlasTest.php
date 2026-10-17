@@ -24,7 +24,7 @@ it('fits the complete Terminal source with stable margins and correctly placed h
 it('draws thin maps and leaves real ragged gaps without inventing cells', function () {
     foreach ([[array_fill(0, 10000, '.')], array_fill(0, 1000, ['.'])] as $tiles) {
         $overview = new MapOverview($tiles);
-        expect(implode('', array_map(fn($row) => implode('', $row), $overview->getTerminalRaster(20, 10))))->toContain('.');
+        expect(implode('', array_map(fn($row) => implode('', $row), $overview->getTerminalRaster(20, 10))))->toContain('·');
     }
     $ragged = new MapOverview([['A', 'A'], ['B']]);
     $raster = $ragged->getTerminalRaster(8, 4);
@@ -58,4 +58,17 @@ it('shares replaceable palette and frame roles with configurable atlas sizes acr
         expect(fn() => new MenuPresentationCatalog('/tmp', ['schema' => 'ichiloto.menu/1', 'atlas' => $data]))
             ->toThrow(InvalidArgumentException::class);
     }
+});
+
+it('uses physical occupancy for the Terminal schematic and never reproduces decorative lettering',function() {
+    $tiles=[['R','O','O','F'],['界','W','A','L'],[' ',' ',' ',' ']];
+    $overview=new MapOverview($tiles,[[1,1,1,1],[1,0,0,1],[1,0,0,1]]);
+    $raster=$overview->getTerminalRaster(16,8);
+    $projection=$overview->getTerminalProjection(16,8);
+    foreach([[1,0,' '],[1,1,'·']] as [$x,$y,$expected]) {
+        $point=$projection->projectCell($x,$y);
+        expect($raster[(int)floor($point->y)][(int)floor($point->x)])->toBe($expected);
+    }
+    $plain=implode('',array_map(fn($row)=>implode('',$row),$raster));
+    expect($plain)->not->toContain('R')->not->toContain('界')->toContain('·');
 });

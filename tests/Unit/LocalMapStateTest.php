@@ -53,7 +53,7 @@ function makeLocalAtlasStateProbe(): LocalAtlasStateProbe
         $map['events'][] = ['marker' => $marker, 'class' => TransferPlayerTrigger::class,
             'area' => ['cells' => [[$index, 1]]]];
         $map['landmarks'][] = ['id' => 'door-' . $index, 'kind' => 'entrance', 'anchor' => ['event' => $marker],
-            'name' => ['message' => 'maps.synthetic.door_' . $index, 'default' => str_repeat('Readable place name ', 12) . $index]];
+            'name' => ['message' => 'maps.synthetic.door_' . $index, 'default' => 'Place-'.$index.' '.str_repeat('Readable place name ', 12)]];
         $state->revealLandmark('synthetic', 'door-' . $index);
     }
     new ReflectionProperty($manager, 'overview')->setValue($manager, new MapOverview($tiles));
@@ -66,11 +66,12 @@ function makeLocalAtlasStateProbe(): LocalAtlasStateProbe
     return new LocalAtlasStateProbe($scene);
 }
 
-it('keeps whole-map and readable paged legend within narrow and full Terminal layouts', function (int $width, int $height) {
+it('keeps the whole map and focused name within narrow and full Terminal layouts', function (int $width, int $height) {
     $probe = makeLocalAtlasStateProbe();
     $probe->select(19);
     $rows = $probe->draw($width, $height);
     expect($rows)->toHaveCount($height)->and(implode("\n", $rows))->toContain('20/20')->toContain('Readable place name');
+    expect(implode("\n",$rows))->toContain('Place-19')->not->toContain('Place-18');
     foreach ($rows as $row) { expect(TerminalText::displayWidth($row))->toBeLessThanOrEqual($width); }
 })->with([[133, 32], [78, 20], [40, 16]]);
 
@@ -96,4 +97,18 @@ it('switches map ownership with semantic press edges and preserves the next unre
         InputManager::setBindings($prior);
         InputManager::setInputSource($source);
     }
+});
+
+it('moves the physical cursor using directions and leaves names hidden until focused',function() {
+    $prior=InputManager::getBindings(); $source=InputManager::getInputSource();
+    try {
+        InputManager::setBindings(['right'=>['keys'=>[KeyCode::RIGHT]],'left'=>['keys'=>[KeyCode::LEFT]]]);
+        InputManager::setInputSource(new FakeInputSource(KeyCode::RIGHT,KeyCode::LEFT));
+        $probe=makeLocalAtlasStateProbe();
+        expect(implode('',$probe->draw(80,24)))->toContain('Place-0')->not->toContain('Place-1');
+        InputManager::handleInput(); $probe->execute();
+        expect(implode('',$probe->draw(80,24)))->toContain('Place-1')->not->toContain('Place-0');
+        InputManager::handleInput(); $probe->execute();
+        expect(implode('',$probe->draw(80,24)))->toContain('Place-0')->not->toContain('Place-1');
+    } finally { InputManager::setBindings($prior); InputManager::setInputSource($source); }
 });

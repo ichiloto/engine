@@ -15,10 +15,11 @@ use Ichiloto\Engine\Localization\MessageCatalog;
 use Ichiloto\Engine\Scenes\SceneStateContext;
 use Ichiloto\Engine\UI\Presentation\MapAtlasTerminal;
 use Ichiloto\Engine\UI\SelectionStyle;
+use Ichiloto\Engine\UI\Navigation\{DirectionalFocusGraph, FocusDirection};
 use Ichiloto\Engine\UI\Windows\Enumerations\WindowHeightPolicy;
 use Ichiloto\Engine\UI\Windows\Window;
 
-/** Whole active-map atlas, with physical positions and a selectable, paged legend. */
+/** Whole active-map atlas; location names appear only under focus. */
 class LocalMapState extends GameSceneState implements \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface
 {
     protected ?Window $window = null;
@@ -64,7 +65,9 @@ class LocalMapState extends GameSceneState implements \Ichiloto\Engine\Rendering
             return;
         }
         $landmarks = $this->getVisibleLandmarks();
-        $direction = (int) Input::getAxis(AxisName::VERTICAL);
+        $vertical = (int) Input::getAxis(AxisName::VERTICAL);
+        $horizontal = (int) Input::getAxis(AxisName::HORIZONTAL);
+        $direction = 0;
         if (Input::isButtonPressed('menu_page_next')) { $direction = $this->legendPageSize; }
         elseif (Input::isButtonPressed('menu_page_previous')) { $direction = -$this->legendPageSize; }
         $changed = false;
@@ -74,6 +77,20 @@ class LocalMapState extends GameSceneState implements \Ichiloto\Engine\Rendering
                 $this->selected = $selected;
                 $this->detailPage = 0;
                 $changed = true;
+            }
+        } elseif (($horizontal!==0 || $vertical!==0) && $landmarks!==[]) {
+            $positions=[];
+            foreach ($landmarks as $index=>$landmark) {
+                $point=$landmark['definition']->getMarkerCells()[0];
+                $positions['landmark-'.$index]=[$point->x,$point->y];
+            }
+            $focus=DirectionalFocusGraph::createFromPositions($positions,'landmark-'.$this->selected);
+            $axis=$horizontal!==0 ? ($horizontal>0 ? FocusDirection::RIGHT : FocusDirection::LEFT)
+                : ($vertical>0 ? FocusDirection::DOWN : FocusDirection::UP);
+            if ($focus->moveFocus($axis)) {
+                $this->selected=(int)substr($focus->getFocusedNode()->id,strlen('landmark-'));
+                $this->detailPage=0;
+                $changed=true;
             }
         }
         if (Input::isButtonPressed('info')) { $this->detailPage++; $changed = true; }
@@ -95,7 +112,7 @@ class LocalMapState extends GameSceneState implements \Ichiloto\Engine\Rendering
             $this->window = new Window($this->getGameScene()->party->location->name, '', new Vector2(0, 0),
                 max(4, $size[0]), max(4, $size[1]), heightPolicy: WindowHeightPolicy::FIXED);
         }
-        $hints = [];
+        $hints = [MapAtlasTerminal::getFocusHint()];
         foreach (['map_view' => MessageCatalog::getTerm('map.region'), 'info' => MessageCatalog::getTerm('map.details'),
             'back' => MessageCatalog::getTerm('map.close')] as $action => $label) {
             $hint = ActionHints::resolve($action, $label);
@@ -119,32 +136,22 @@ class LocalMapState extends GameSceneState implements \Ichiloto\Engine\Rendering
         if ($overview === null || $scene->player === null) { return [MessageCatalog::getTerm('map.unavailable')]; }
         $landmarks = $this->getVisibleLandmarks();
         $this->selected = max(0, min(count($landmarks) - 1, $this->selected));
-        $legendWidth = $width >= 64 ? min(40, intdiv($width, 3)) : $width;
-        $mapWidth = $width >= 64 ? $width - $legendWidth - 3 : $width;
-        $mapHeight = $width >= 64 ? $height - 4 : max(1, intdiv($height - 4, 2));
-        $legendHeight = $width >= 64 ? $mapHeight : max(1, $height - $mapHeight - 4);
+        $mapHeight = $height - 5;
         $map = MapAtlasTerminal::renderMap($overview, $landmarks, $scene->player->position,
-            $scene->player->heading, min(512, $mapWidth), min(256, $mapHeight), $this->selected);
-        $this->legendPageSize = max(1, $legendHeight - 1);
-        $start = intdiv($this->selected, $this->legendPageSize) * $this->legendPageSize;
-        $legend = [MessageCatalog::getTerm('map.legend') . ($landmarks === [] ? '' : ' ' . ($this->selected + 1) . '/' . count($landmarks))];
-        foreach (array_slice($landmarks, $start, max(0, $legendHeight - 1), true) as $index => $landmark) {
-            $text = MapAtlasTerminal::getMarkerSymbol($landmark['definition']->kind) . ' ' . MapAtlasTerminal::getLandmarkLabel($landmark)
-                . ($landmark['accessible'] === false ? ' [' . MessageCatalog::getTerm('map.locked') . ']' : '');
-            $text = TerminalText::truncateToWidth($text, $legendWidth);
-            $legend[] = $index === $this->selected ? SelectionStyle::apply($text) : $text;
-        }
-        $rows = [];
-        if ($width >= 64) {
-            foreach ($map as $row => $line) { $rows[] = TerminalText::padRight($line, $mapWidth) . ' | ' . ($legend[$row] ?? ''); }
-        } else { $rows = [...$map, ...array_pad($legend, $legendHeight, '')]; }
+            $scene->player->heading, min(512, $width), min(256, $mapHeight), $this->selected);
+        $this->legendPageSize = 1;
+        $rows = [TerminalText::padCenter('N',$width),...$map];
         $rows[] = TerminalText::truncateToWidth(MessageCatalog::getTerm('map.symbols'), $width);
-        $detail = isset($landmarks[$this->selected]) ? MapAtlasTerminal::getLandmarkLabel($landmarks[$this->selected]) : '';
+        $focused=$landmarks[$this->selected] ?? null;
+        $detail = $focused!==null ? MapAtlasTerminal::getLandmarkLabel($focused)
+            . ($focused['accessible']===false ? ' ['.MessageCatalog::getTerm('map.locked').']' : '') : '';
         $detailLines = $detail === '' ? [] : TerminalText::wrapToWidth($detail, $width);
         $pages = max(1, (int) ceil(count($detailLines) / 2));
         $page = $this->detailPage % $pages;
-        $rows[] = $pages > 1 ? MessageCatalog::getTerm('map.details') . ' ' . ($page + 1) . '/' . $pages : '';
-        array_push($rows, ...array_pad(array_slice($detailLines, $page * 2, 2), 2, ''));
+        $rows[] = ($landmarks===[] ? '' : ($this->selected+1).'/'.count($landmarks))
+            . ($pages > 1 ? '  '.MessageCatalog::getTerm('map.details') . ' ' . ($page + 1) . '/' . $pages : '');
+        array_push($rows, ...array_map(static fn(string $line)=>SelectionStyle::apply($line),
+            array_pad(array_slice($detailLines, $page * 2, 2), 2, '')));
         return array_slice($rows, 0, $height);
     }
 }

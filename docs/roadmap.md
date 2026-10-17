@@ -938,13 +938,30 @@ not a default for future story stations.
   and Terminal display units. The 47 projection/viewport/cell-area tests passed
   locally. The shared source-referenced landmark catalog, saved discovery and
   active-map Terminal view are now locally implemented. GPUI cached overview/HUD and Editor landmark/theme authoring are implemented
-  locally. Game metadata is prepared; native and installed Game acceptance remain pending. Andrew selected a persistent
+  locally. Game metadata is integrated locally. Two installed optimized GPUI
+  runs verified whole-map/HUD/discovery/save behavior; Andrew confirmed Terminal
+  whole-area visibility but rejected its initial presentation. His corrected
+  Terminal presentation is under native qualification. Andrew selected a persistent
   GPUI corner atlas with compact and larger sizes, plus a full opened map with
   clear labels and legend. Ordinary entrances/exits show markers immediately;
   names and other landmarks are learned by physical approach or authored play
   revelation. Explicit secret routes stay hidden until explicitly revealed,
   including when approached. Terminal retains its
-  coordinate HUD; the existing region connectivity map remains a separate view.
+  coordinate HUD. Andrew clarified that Terminal uses one-cell location blocks
+  and clear connections; GPUI can use smaller simplified artwork. Names appear
+  only for the focused location. The old regional name boxes, manual pan-first
+  interface, always-visible location-name list and sampled decorative Terminal
+  map glyphs are removed. A schematic ground outline reads physical occupancy,
+  and the connected-places view compresses unused station gaps, preserves
+  cardinal order and highlights focused connections. Known travel directions
+  remain directed; no reverse route is inferred through an unvisited map.
+  The regional scan now shares validated event/legacy-transfer ownership and
+  saved landmark secrecy. Its permissive independent marker scan is removed;
+  invalid sources are diagnosed and excluded instead of exposing an automatic
+  anonymous route. Focused local evidence: 141 UI/loading/occupancy tests with
+  1596 assertions, plus 49 region/knowledge/source tests with 163 assertions
+  (overlapping test files; these counts are not additive). No new Renderer
+  build or remote CI run is required by the PHP presentation revision.
   Implementation constraints verified from the current sources:
   - Local entrances must resolve their actual transfer `CellArea` or stable
     object identity. Region `station` positions and deduplicated destination

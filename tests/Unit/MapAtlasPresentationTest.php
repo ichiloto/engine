@@ -11,7 +11,7 @@ function makeGraphicalAtlasSnapshot(int $x = 0, int $y = 0): MapAtlasSnapshot
         ['definition'=>new MapLandmarkDefinition('door',MapLandmarkKind::ENTRANCE,CellArea::fromCells([[19,7]])),
             'name'=>null,'accessible'=>false],
         ['definition'=>new MapLandmarkDefinition('shop',MapLandmarkKind::BUILDING,CellArea::fromCells([[0,0]])),
-            'name'=>str_repeat('Long readable shop name ',12),'accessible'=>true],
+            'name'=>str_repeat('Long readable shop name ',48),'accessible'=>true],
     ],$x,$y,MovementHeading::EAST);
 }
 
@@ -67,7 +67,7 @@ it('keeps wide-map corner frames close to their content and gives default marker
 });
 
 
-it('pages the opened legend by its own measured rows across graphical window sizes', function () {
+it('names only the focused location in the opened atlas across graphical window sizes', function () {
     $source = makeGraphicalAtlasSnapshot();
     $landmarks = [];
     for ($index=0;$index<40;$index++) { $landmarks[] = [...$source->landmarks[0],'name'=>'Place '.$index,'accessible'=>true]; }
@@ -79,7 +79,8 @@ it('pages the opened legend by its own measured rows across graphical window siz
         $count = MapAtlasPresentation::getLegendPageSize($first);
         $next = MapAtlasPresentation::compose($snapshot,$theme,$width,$height,MapAtlasSize::OPENED,$count);
         $legend = array_column($next->textLayers,null,'id')['atlas-legend'];
-        expect($legend->runs[3]->text)->toBe('E Place '.$count)
-            ->and($count)->toBeGreaterThan(1)->toBeLessThan(40);
+        $text=implode(' ',array_column($legend->runs,'text'));
+        expect($text)->toContain('Place 1')->not->toContain('Place 0')->not->toContain('Place 2')
+            ->and($count)->toBe(1);
     }
 });

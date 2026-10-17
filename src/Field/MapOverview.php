@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Field;
 
 use Ichiloto\Engine\Core\Rect;
-use Ichiloto\Engine\IO\Console\TerminalText;
+use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use InvalidArgumentException;
 
 /** Installed static map source. Moving markers never rebuild its bounded rasters. */
@@ -15,14 +15,16 @@ final class MapOverview
     public readonly int $height;
     private array $terminalRasters = [];
 
-    public function __construct(private readonly array $tiles)
+    public function __construct(private readonly array $tiles, private readonly ?array $collisions = null)
     {
         $this->width = $tiles === [] ? 0 : max(array_map('count', $tiles));
         $this->height = count($tiles);
         if ($this->width < 1 || $this->height < 1) { throw new InvalidArgumentException('An overview requires a nonempty map.'); }
     }
 
-    /** Nearest-cell sampling of the entire authored grid, with transparent ragged gaps.
+    /** Schematic physical ground, without copying decorative letters or miniature field artwork.
+     *  Read-only sources without collision facts show only their extent. Runtime
+     *  sources use the already resolved physical occupancy, never glyph spelling.
      *  Cache owns at most two screen-sized variants and releases with its map installation.
      *  @return list<list<string>> */
     public function getTerminalRaster(int $width, int $height): array
@@ -40,9 +42,10 @@ final class MapOverview
             $sourceY = max(0, min($this->height - 1, (int) floor(($y + 0.5 - $projection->top) / $projection->scaleY)));
             for ($x = (int) floor($projection->left); $x < min($width, (int) ceil($projection->left + $projection->width)); $x++) {
                 $sourceX = max(0, min($this->width - 1, (int) floor(($x + 0.5 - $projection->left) / $projection->scaleX)));
-                $glyph = $this->tiles[$sourceY][$sourceX] ?? ' ';
-                // A wide glyph must not shift every physical marker to its right.
-                $raster[$y][$x] = TerminalText::displayWidth($glyph) === 1 ? $glyph : '·';
+                if (!isset($this->tiles[$sourceY][$sourceX])) { continue; }
+                $collision = $this->collisions[$sourceY][$sourceX] ?? null;
+                $raster[$y][$x] = $this->collisions === null ? '·'
+                    : ($collision !== null && !(CollisionType::tryFrom($collision)?->blocksMovement() ?? true) ? '·' : ' ');
             }
         }
         if (count($this->terminalRasters) === 2) { array_shift($this->terminalRasters); }

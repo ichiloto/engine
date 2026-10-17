@@ -24,7 +24,6 @@ final class MapAtlasPresentation
     public const array CAPABILITIES = [RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_COMPOSITING,
         RendererSessionConfig::MAP_OVERVIEW, RendererSessionConfig::CANVAS_COMPOSITE_INDICATORS,
         RendererSessionConfig::CANVAS_CLIP_OPACITY, RendererSessionConfig::SPRITE_SOURCE_RECT];
-    private const int LEGEND_RESERVED_ROWS = 7;
     private ?MenuPresentationCatalog $theme = null;
     private ?string $root = null;
     private array $diagnostics = [];
@@ -161,11 +160,11 @@ final class MapAtlasPresentation
             min(4,(int)min($bounds->width,$bounds->height)),$theme->colors['background'],$layer);
     }
 
-    /** Navigation follows the measured opened legend, independent of Terminal dimensions. */
+    /** One location is named at a time; page actions move one focus target. */
     public static function getLegendPageSize(PresentationCanvas $canvas): int
     {
         foreach ($canvas->textLayers as $layer) {
-            if ($layer->id === 'atlas-legend') { return max(1,$layer->grid->rows-self::LEGEND_RESERVED_ROWS); }
+            if ($layer->id === 'atlas-legend') { return 1; }
         }
         throw new \InvalidArgumentException('Legend paging requires an opened atlas canvas.');
     }
@@ -176,24 +175,22 @@ final class MapAtlasPresentation
         $m = $view->theme->metrics;
         $columns = max(1,(int)floor($bounds->width/$m->cellWidth));
         $rows = max(1,(int)floor($bounds->height/$m->cellHeight));
-        $pageSize = max(1,$rows-self::LEGEND_RESERVED_ROWS);
         $selected = max(0,min(count($snapshot->landmarks)-1,$selected));
-        $start = intdiv($selected,$pageSize)*$pageSize;
-        $lines = [['text'=>MessageCatalog::getTerm('map.legend'),'color'=>'accent'],
+        $lines = $rows>=7 ? [['text'=>MessageCatalog::getTerm('map.legend'),'color'=>'accent'],
             ['text'=>TerminalText::truncateToWidth(MessageCatalog::getTerm('map.graphical_routes'),$columns),'color'=>'accent'],
-            ['text'=>TerminalText::truncateToWidth(MessageCatalog::getTerm('map.graphical_places'),$columns),'color'=>'increase']];
-        foreach (array_slice($snapshot->landmarks,$start,$pageSize,true) as $index=>$landmark) {
-            $label = MapAtlasTerminal::getMarkerSymbol($landmark['definition']->kind).' '.MapAtlasTerminal::getLandmarkLabel($landmark)
-                . ($landmark['accessible']===false ? ' ['.MessageCatalog::getTerm('map.locked').']' : '');
-            $lines[] = ['text'=>TerminalText::truncateToWidth($label,$columns),'color'=>$index===$selected ? 'focus' : 'text'];
-        }
-        $lines = array_pad($lines,$pageSize+3,['text'=>'','color'=>'text']);
+            ['text'=>TerminalText::truncateToWidth(MessageCatalog::getTerm('map.graphical_places'),$columns),'color'=>'increase'],
+            ['text'=>'','color'=>'text']] : [];
         if (isset($snapshot->landmarks[$selected])) {
-            $details = MenuTextWrap::lines(MapAtlasTerminal::getLandmarkLabel($snapshot->landmarks[$selected]),$columns);
-            $pages = max(1,(int)ceil(count($details)/2));
+            $landmark=$snapshot->landmarks[$selected];
+            $details = MenuTextWrap::lines(MapAtlasTerminal::getLandmarkLabel($landmark)
+                . ($landmark['accessible']===false ? ' ['.MessageCatalog::getTerm('map.locked').']' : ''),$columns);
+            $counterRows=$rows>1 ? 1 : 0;
+            $pageSize=max(1,$rows-count($lines)-$counterRows);
+            $pages = max(1,(int)ceil(count($details)/$pageSize));
             $page = $detailPage % $pages;
-            $lines[] = ['text'=>MessageCatalog::getTerm('map.details').' '.($page+1).'/'.$pages,'color'=>'accent'];
-            foreach (array_slice($details,$page*2,2) as $line) { $lines[] = ['text'=>$line,'color'=>'text']; }
+            if ($counterRows>0) { $lines[] = ['text'=>($selected+1).'/'.count($snapshot->landmarks)
+                . ($pages>1 ? '  '.MessageCatalog::getTerm('map.details').' '.($page+1).'/'.$pages : ''),'color'=>'accent']; }
+            foreach (array_slice($details,$page*$pageSize,$pageSize) as $line) { $lines[] = ['text'=>$line,'color'=>'focus']; }
         }
         $view->textLines('atlas-legend',array_slice(array_pad($lines,$rows,['text'=>'','color'=>'text']),0,$rows),$bounds);
     }

@@ -10,10 +10,28 @@ use Ichiloto\Engine\Field\MapLandmarkKind;
 use Ichiloto\Engine\Field\MapOverview;
 use Ichiloto\Engine\Localization\MessageCatalog;
 use Ichiloto\Engine\UI\SelectionStyle;
+use Ichiloto\Engine\IO\Enumerations\Color;
+use Ichiloto\Engine\IO\ActionHints;
 
 /** Shared physical atlas drawing. It reads knowledge supplied by gameplay. */
 final class MapAtlasTerminal
 {
+    public static function getFocusHint(): string
+    {
+        $controls=[];
+        foreach (['up','right','down','left'] as $action) {
+            $hint=ActionHints::resolve($action,MessageCatalog::getTerm('map.focus'));
+            if ($hint->control!==null) { $controls[]=$hint->control->label; }
+        }
+        $hint=($controls===[] ? 'Unbound' : implode('/',array_unique($controls))).':'.MessageCatalog::getTerm('map.focus');
+        $pages=[];
+        foreach (['menu_page_previous','menu_page_next'] as $action) {
+            $control=ActionHints::resolve($action,MessageCatalog::getTerm('map.cycle'))->control;
+            if ($control!==null) { $pages[]=$control->label; }
+        }
+        return $hint.($pages===[] ? '' : '  '.implode('/',array_unique($pages)).':'.MessageCatalog::getTerm('map.cycle'));
+    }
+
     public static function getMarkerSymbol(MapLandmarkKind $kind): string
     {
         return $kind->isRoute() ? 'E' : ($kind === MapLandmarkKind::BUILDING ? 'B' : '*');
@@ -43,12 +61,12 @@ final class MapAtlasTerminal
                 $x = min($width - 1, (int) floor($point->x));
                 $y = min($height - 1, (int) floor($point->y));
                 $key = "{$x}:{$y}";
-                $symbol = self::getMarkerSymbol($landmark['definition']->kind);
+                $symbol = '■';
                 if ($index === $selected) {
                     $raster[$y][$x] = SelectionStyle::apply($symbol);
                     $occupied[$key] = true;
                 } elseif (($occupied[$key] ?? false) !== true) {
-                    $raster[$y][$x] = isset($occupied[$key]) ? '+' : $symbol;
+                    $raster[$y][$x] = SelectionStyle::applyMarked(isset($occupied[$key]) ? '+' : $symbol);
                     $occupied[$key] = false;
                 }
             }
@@ -57,10 +75,14 @@ final class MapAtlasTerminal
         $playerY = (int) floor($player->y);
         if ($playerX >= 0 && $playerY >= 0 && $playerX < $overview->width && $playerY < $overview->height) {
             $point = $projection->projectCell($playerX, $playerY);
-            $raster[min($height - 1, (int) floor($point->y))][min($width - 1, (int) floor($point->x))] = '<fg=bright-cyan>' . match ($heading) {
+            $x=min($width - 1, (int) floor($point->x));
+            $y=min($height - 1, (int) floor($point->y));
+            $symbol=match ($heading) {
                 MovementHeading::NORTH => '^', MovementHeading::EAST => '>',
                 MovementHeading::SOUTH => 'v', MovementHeading::WEST => '<', default => '@',
-            } . '</>';
+            };
+            $raster[$y][$x]=($occupied["{$x}:{$y}"] ?? false)===true ? SelectionStyle::apply($symbol)
+                : Color::apply($symbol,Color::LIGHT_CYAN);
         }
         return array_map(static fn(array $row) => implode('', $row), $raster);
     }

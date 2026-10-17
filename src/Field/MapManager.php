@@ -325,7 +325,7 @@ class MapManager implements CanRenderAt
 
     return new PreparedMap($map, $source['tiles'], $collisions, $mapTriggers, $eventTriggers, $npcs, $source['layers'],
       $source['graphics'], $source['worldObjects'], MapLandmarkCatalog::readMap($map, $source['tiles']),
-      new MapOverview($source['tiles']));
+      new MapOverview($source['tiles'], $collisions));
   }
 
   /** Commits a previously validated destination and its field side effects. */
@@ -870,7 +870,7 @@ class MapManager implements CanRenderAt
   {
     $prepared = $this->prepareSplitMapDataFromFiles($paths);
     $landmarks = MapLandmarkCatalog::readMap($prepared['data'], $prepared['tiles']);
-    $overview = new MapOverview($prepared['tiles']);
+    $overview = new MapOverview($prepared['tiles'], $prepared['occupancy']?->collisionGrid);
     $this->gameScene->fieldEffects?->clear();
     $this->tileMap = $prepared['tiles'];
     $this->layers = $prepared['layers'];

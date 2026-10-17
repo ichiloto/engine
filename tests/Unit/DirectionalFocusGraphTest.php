@@ -210,3 +210,22 @@ it('validates mutable contract implementations before replacing the owned snapsh
   expect(fn() => $graph->replaceNodes([$definition], 'first'))->toThrow(InvalidArgumentException::class)
     ->and($graph->getFocusedNode())->toBe($focused);
 })->with([['', null], [' ', null], ['first', ''], ['first', ' '], ['first', 'missing']]);
+
+it('builds stable spatial neighbours without importing gameplay connections',function() {
+  $graph=DirectionalFocusGraph::createFromPositions(['center'=>[0,0],'north'=>[0,-1],
+    'east'=>[2,0],'diagonal'=>[1,3],'0'=>[0,5]],'center');
+  expect($graph->moveFocus(FocusDirection::UP))->toBeTrue()->and($graph->getFocusedNode()->id)->toBe('north');
+  $graph->setFocus('center');
+  expect($graph->moveFocus(FocusDirection::RIGHT))->toBeTrue()->and($graph->getFocusedNode()->id)->toBe('east');
+  $graph->setFocus('0');
+  expect($graph->moveFocus(FocusDirection::DOWN))->toBeFalse();
+});
+
+it('refuses malformed spatial coordinates before constructing a focus graph',function(array $point) {
+  expect(fn()=>DirectionalFocusGraph::createFromPositions(['a'=>$point],'a'))->toThrow(InvalidArgumentException::class);
+})->with([[['1',2]],[[INF,0]],[[NAN,1]],[[1]],[[1,2,3]]]);
+
+it('keeps spatial navigation finite across very large supported coordinates',function() {
+  $graph=DirectionalFocusGraph::createFromPositions(['west'=>[-PHP_FLOAT_MAX,0],'east'=>[PHP_FLOAT_MAX,0]],'west');
+  expect($graph->moveFocus(FocusDirection::RIGHT))->toBeTrue()->and($graph->getFocusedNode()->id)->toBe('east');
+});
