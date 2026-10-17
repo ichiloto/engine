@@ -195,11 +195,11 @@ abstract class Modal implements ModalInterface, LayeredPresentationInterface, Mo
       }
     }
 
-    if (Input::isButtonDown("confirm")) {
+    if (Input::isButtonPressed("confirm")) {
       $this->submit();
     }
 
-    elseif (Input::isButtonDown("cancel")) {
+    elseif (Input::isButtonPressed("cancel")) {
       $this->cancel();
     }
   }

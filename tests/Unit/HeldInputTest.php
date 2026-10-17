@@ -18,6 +18,62 @@ use Tests\Support\Input\FakeRendererTransport;
 require_once __DIR__ . '/../Support/Input/FakeInputSource.php';
 require_once __DIR__ . '/../Support/Input/FakeRendererTransport.php';
 
+it('uses ordered native press samples for discrete actions without consuming later same-batch choices', function () {
+  [$transport, $client] = heldInputSession();
+  $transport->batches[] = [heldKey('enter'), heldKey('enter', repeat: true), heldRelease('enter'),
+    heldKey('enter'), heldRelease('enter')];
+  $client->pump();
+  InputManager::handleInput();
+  expect(Input::isButtonPressed('confirm'))->toBeTrue()->and(Input::isButtonHeld('confirm'))->toBeFalse();
+  InputManager::consumeCurrentInput();
+  expect(Input::isButtonPressed('confirm'))->toBeFalse();
+  InputManager::handleInput();
+  expect(Input::isButtonPressed('confirm'))->toBeFalse();
+  InputManager::handleInput();
+  // This genuine press was queued before the previous modal consumed its closing sample.
+  expect(Input::isButtonPressed('confirm'))->toBeTrue()->and(Input::isButtonHeld('confirm'))->toBeFalse();
+  InputManager::handleInput();
+  expect(Input::isButtonPressed('confirm'))->toBeFalse();
+});
+
+it('rejects held repeats as discrete choices without changing event-stream navigation', function () {
+  [$transport] = heldInputSession();
+  heldUpdate($transport, heldKey('down'));
+  expect(Input::isButtonPressed('down'))->toBeTrue();
+  InputManager::consumeCurrentInput();
+  heldUpdate($transport, heldKey('down', repeat: true));
+  expect(Input::isButtonPressed('down'))->toBeFalse()
+    ->and(Input::isButtonDown('down'))->toBeTrue()->and(Input::isButtonHeld('down'))->toBeTrue();
+  heldUpdate($transport, heldRelease('down'), heldKey('down'));
+  expect(Input::isButtonPressed('down'))->toBeTrue();
+});
+
+it('keeps event-only discrete actions usable without inventing held state or draining unread input', function () {
+  $source = new FakeInputSource(KeyCode::ENTER, KeyCode::ENTER, null, KeyCode::ENTER);
+  InputManager::setInputSource($source);
+  InputManager::handleInput();
+  expect(Input::isButtonPressed('confirm'))->toBeTrue();
+  InputManager::consumeCurrentInput();
+  InputManager::handleInput();
+  expect(Input::isButtonPressed('confirm'))->toBeTrue()->and(Input::isButtonHeld('confirm'))->toBeFalse();
+  InputManager::handleInput();
+  expect(Input::isButtonPressed('confirm'))->toBeFalse();
+  InputManager::handleInput();
+  expect(Input::isButtonPressed('confirm'))->toBeTrue()->and($source->resets)->toBe([]);
+});
+
+it('preserves the event-only edge contract for legacy renderer samples without press metadata', function () {
+  [$transport] = heldInputSession(false);
+  $key = RendererEvent::fromJson('{"protocol":2,"type":"key","key":"enter"}');
+  heldUpdate($transport, $key);
+  expect(Input::isButtonPressed('confirm'))->toBeTrue();
+  heldUpdate($transport, $key);
+  expect(Input::isButtonPressed('confirm'))->toBeFalse();
+  heldUpdate($transport);
+  heldUpdate($transport, $key);
+  expect(Input::isButtonPressed('confirm'))->toBeTrue();
+});
+
 /** A renderer session that subscribed to key transitions, as the Game's GPUI session does. */
 function heldInputSession(bool $transitions = true): array
 {

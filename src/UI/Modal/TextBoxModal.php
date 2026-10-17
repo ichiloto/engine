@@ -171,11 +171,11 @@ class TextBoxModal extends Modal implements DialoguePresentationProviderInterfac
     // checking Space separately made one Space press submit twice because
     // Space is normally bound to confirm: it could finish typing and dismiss
     // (or skip a page) in the same tick. Use the player's binding once.
-    if (Input::isButtonDown('confirm')) {
+    if (Input::isButtonPressed('confirm')) {
       $this->submit();
-    } elseif (Input::isButtonDown('cancel')) {
+    } elseif (Input::isButtonPressed('cancel')) {
       $this->cancel();
-    } elseif ($this->playback !== null && Input::isButtonDown('dialogue_auto')) {
+    } elseif ($this->playback !== null && Input::isButtonPressed('dialogue_auto')) {
       $this->playback->toggleAuto();
     } elseif ($this->playback?->canAdvance(
       microtime(true), $this->isPrinting, ! isset($this->messagePages[$this->currentPageIndex + 1]),

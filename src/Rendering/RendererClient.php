@@ -23,6 +23,8 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
 {
   /** @var SplQueue<RendererEvent> */
   private SplQueue $keys;
+  /** Fresh/repeated metadata belongs to the dequeued key, including when later presses share its batch. */
+  private ?bool $lastPollPress = null;
   /** @var SplQueue<RendererEvent> */
   private SplQueue $events;
   /** @var SplQueue<RendererEvent> Negotiated presses, releases and resets, in arrival order; repeats stay keys only. */
@@ -210,6 +212,7 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
 
   public function pollKey(): ?string
   {
+    $this->lastPollPress = null;
     if ($this->keys->isEmpty()) {
       $this->pump();
     }
@@ -217,10 +220,17 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
       return null;
     }
     $event = $this->keys->dequeue();
+    $this->lastPollPress = $event->repeat === null ? null : !$event->repeat;
     $this->queuedBytes -= self::eventBytes($event);
     LatencyTrace::keyStage($event, 'client.key.dequeued', activate: true);
     $this->traceQueue();
     return $event->key;
+  }
+
+  /** Fresh/repeated status of the last dequeued key, or null for legacy samples. */
+  public function wasLastPollPress(): ?bool
+  {
+    return $this->lastPollPress;
   }
 
   /** @return list<RendererEvent> Non-input events, including coalesced ACK progress; keys are untouched. */
@@ -289,6 +299,7 @@ final class RendererClient implements \Ichiloto\Engine\Rendering\Text\TextPrepar
 
   private function clearKeys(): void
   {
+    $this->lastPollPress = null;
     while (! $this->keys->isEmpty()) {
       $this->queuedBytes -= self::eventBytes($this->keys->dequeue());
     }

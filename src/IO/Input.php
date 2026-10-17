@@ -100,6 +100,12 @@ class Input
     return InputManager::isButtonDown($name);
   }
 
+  /** A fresh discrete action; native OS repeats do not confirm, cancel or toggle a choice. */
+  public static function isButtonPressed(string $name): bool
+  {
+    return InputManager::isButtonPressed($name);
+  }
+
   /**
    * Checks if a key bound to the button is physically held. Only sources that
    * report key releases (a native renderer) can hold; the terminal never does.

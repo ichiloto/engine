@@ -12,6 +12,7 @@ use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\InputSources\HeldInputSourceInterface;
 use Ichiloto\Engine\IO\InputSources\InputSourceInterface;
+use Ichiloto\Engine\IO\InputSources\PressAwareInputSourceInterface;
 use Ichiloto\Engine\IO\InputSources\TerminalInputSource;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Util\Config\InputConfig;
@@ -414,6 +415,16 @@ class InputManager
     if ($name === 'quick_save' && !SaveFeatures::isQuickSaveEnabled()) { return false; }
     $button = self::$config[$name] ?? [];
     return self::isAnyKeyPressed($button['keys'] ?? []);
+  }
+
+  /** A discrete action from this sample: native presses exclude OS repeats; event-only sources keep their edges. */
+  public static function isButtonPressed(string $name): bool
+  {
+    $source = self::getInputSource();
+    $fresh = $source instanceof PressAwareInputSourceInterface ? $source->wasLastPollPress() : null;
+    if ($fresh === null) { return self::isButtonDown($name); }
+    if (!$fresh || ($name === 'quick_save' && !SaveFeatures::isQuickSaveEnabled())) { return false; }
+    return array_any(self::$config[$name]['keys'] ?? [], self::isKeyPressed(...));
   }
 
   /**

@@ -36,7 +36,7 @@ class QuantityModal extends Modal
 
   public function update(): void
   {
-    if (Input::isButtonDown('cancel') || Input::isButtonDown('back')) {
+    if (Input::isButtonPressed('cancel') || Input::isButtonPressed('back')) {
       $this->cancel();
       return;
     }
@@ -49,7 +49,7 @@ class QuantityModal extends Modal
       }
       return;
     }
-    if (Input::isButtonDown('confirm')) { $this->submit(); }
+    if (Input::isButtonPressed('confirm')) { $this->submit(); }
   }
 
   public function render(): void
