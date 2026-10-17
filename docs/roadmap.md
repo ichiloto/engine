@@ -940,6 +940,32 @@ not a default for future story stations.
   graphical HUD choice and Editor authoring remain pending. Two HUD proposals
   and the landmark-discovery choice are with Andrew. Terminal retains its
   coordinate HUD; the existing region connectivity map remains a separate view.
+  Implementation constraints verified from the current sources:
+  - Local entrances must resolve their actual transfer `CellArea` or stable
+    object identity. Region `station` positions and deduplicated destination
+    links are schematic and cannot supply local marker coordinates. Preserve
+    distinct doors and nonrectangular/disconnected trigger areas.
+  - Known/visible landmarks and traversable/locked entrances are separate
+    facts. Current saved map visitation is insufficient for individual place
+    knowledge. Andrew's discovery choice determines whether additional saved
+    landmark knowledge is required; do not introduce a default before that
+    decision or reveal destination names by scanning every transfer.
+  - The existing Editor record/reference/source-document services support
+    selectable object identities, source-preserving writes and undo. Landmark
+    metadata must extend that path, include reference safety for moving/deleting
+    anchors, and refuse unsupported authored PHP before writes. GUI authoring
+    remains Claude's lane; graphical authoring is not imposed on the TUI.
+  - The native map world already retains map layers and shares decoded tile
+    resources with GUI authoring. A tile batch still paints each visible cell;
+    merely fitting an entire large map would not make that cheap. Existing
+    composites accept 256 operations, not unbounded tile lists. Agree a bounded,
+    cached whole-map overview path with the Renderer owner, reuse map resources,
+    and invalidate it on map/asset changes. Do not raise limits, repaint every
+    tile on player movement, or substitute a cropped map to avoid the work.
+  - Static overview content and player/landmark updates need separate lifetimes.
+    Retain field ownership and menu/modal/suspension cleanup for the HUD. Game
+    supplies replaceable skin and semantic landmark roles through the shared
+    theme; artwork/glyphs/colours do not define gameplay identity or occupancy.
 - **Built on field effects.** Cues are map-owned effects of the unified
   effect timeline ([effect animation](effect-animation.md#field-effects)),
   alongside the walk-on save point's energy, not a cue-specific animation.
