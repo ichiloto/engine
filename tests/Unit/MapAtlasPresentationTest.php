@@ -133,3 +133,30 @@ it('exposes exactly the atlas icon roles for shared theme authoring',function() 
     expect(\Ichiloto\Engine\Field\MapCategoryCatalog::getIconRole('guild'))->toBe('map.category.guild')
         ->and(fn()=>\Ichiloto\Engine\Field\MapCategoryCatalog::getIconRole('../invalid'))->toThrow(InvalidArgumentException::class);
 });
+
+it('makes corner geography and its rim translucent without an opaque backing or dimming markers',function() {
+    $theme=new MenuPresentationCatalog('/tmp',['schema'=>'ichiloto.menu/1','atlas'=>['cornerOpacity'=>.4]]);
+    $corner=MapAtlasPresentation::compose(makeGraphicalAtlasSnapshot(),$theme,1350,720,MapAtlasSize::COMPACT);
+    expect($corner->composites[0]->opacity)->toBe(.4)->and($corner->images)->toBe([]);
+    $rim=array_filter($corner->textLayers,fn($layer)=>str_starts_with($layer->id,'atlas-rim'));
+    expect($rim)->not->toBeEmpty();
+    foreach($rim as $layer) { expect($layer->opacity)->toBe(.4); }
+    expect(array_column($corner->textLayers,'id'))->not->toContain('atlas-frame')->not->toContain('menu-background');
+    $opened=MapAtlasPresentation::compose(makeGraphicalAtlasSnapshot(),$theme,1350,720,MapAtlasSize::OPENED);
+    expect($opened->composites[0]->opacity)->toBe(1.0);
+    foreach([-1,1.1,INF,NAN,'0.5'] as $value) {
+        expect(fn()=>new MenuPresentationCatalog('/tmp',['schema'=>'ichiloto.menu/1','atlas'=>['cornerOpacity'=>$value]]))
+            ->toThrow(InvalidArgumentException::class);
+    }
+});
+
+it('cycles compact larger and hidden independently of opened map zoom',function() {
+    $size=MapAtlasSize::COMPACT;
+    $seen=[];
+    for($step=0;$step<4;$step++) { $seen[]=$size->value; $size=$size->getNextCornerSize(); }
+    expect($seen)->toBe(['compact','large','off','compact'])
+        ->and(MapAtlasSize::getCornerSize('opened'))->toBe(MapAtlasSize::COMPACT)
+        ->and(MapAtlasSize::getCornerSize('off'))->toBe(MapAtlasSize::OFF)
+        ->and(fn()=>MapAtlasSize::OPENED->getNextCornerSize())->toThrow(LogicException::class)
+        ->and((new MapAtlasPresentation())->getCanvas(makeGraphicalAtlasSnapshot(),'/tmp',fn()=>true,1350,720,MapAtlasSize::OFF))->toBeNull();
+});

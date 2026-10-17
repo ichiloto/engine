@@ -84,7 +84,9 @@ final class SceneFrameComposer
     $excluded = array_map(static fn($sprite) => $sprite->id, $visible);
     $sceneOverlay = $scene instanceof CanvasOverlayProviderInterface && $overlaySupported
       ? $scene->getPresentationOverlay($width, $height) : null;
-    if ($sceneOverlay !== null) { array_push($excluded, ...$scene->getExcludedOverlayLayers()); }
+    if ($scene instanceof CanvasOverlayProviderInterface && $overlaySupported) {
+      array_push($excluded, ...$scene->getExcludedOverlayLayers());
+    }
     if ($dialogue !== null) { array_push($excluded, ...$dialogue->excludedLayers); }
     $noticeCanvas = $notifications?->composePresentation(null, $width, $height);
     if ($notifications !== null) { array_push($excluded, ...$notifications->getExcludedPresentationLayers()); }

@@ -48,7 +48,6 @@ use Ichiloto\Engine\Util\Debug;
 class FieldState extends GameSceneState implements CanvasOverlayProviderInterface
 {
     private ?PlayerWalk $walk = null;
-    private bool $atlasPresented = false;
     private ?SkitPromptPresentation $skitPromptPresentation = null;
     /** Invalidates movement across ownership handoffs, even without held input or a missed update. */
     protected(set) int $movementGeneration = 0;
@@ -74,17 +73,16 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
     public function getPresentationOverlay(int $width, int $height): ?PresentationCanvas
     {
         $scene = $this->getGameScene();
-        $this->atlasPresented = false;
         $context = $scene->getPresentationContext();
         $owners = $context !== null ? $context->getActivePresentations() : $scene->getUI()->getActivePresentations();
         $atlas = null;
         if (!$scene->isStopping && $scene->state === $this && !$scene->hasUnstableEventSession()
             && $owners === [] && $scene->locationHUDWindow?->isPresentationVisible()) {
             $value = config(\Ichiloto\Engine\Util\Config\ProjectConfig::class,'ui.hud.map_size','compact');
-            $size = $value === 'large' ? \Ichiloto\Engine\UI\Presentation\MapAtlasSize::LARGE
-                : \Ichiloto\Engine\UI\Presentation\MapAtlasSize::COMPACT;
-            $atlas = $scene->getMapAtlasCanvas($size,$width,$height);
-            $this->atlasPresented = $atlas !== null;
+            $size = \Ichiloto\Engine\UI\Presentation\MapAtlasSize::getCornerSize($value);
+            if ($size !== \Ichiloto\Engine\UI\Presentation\MapAtlasSize::OFF) {
+                $atlas = $scene->getMapAtlasCanvas($size,$width,$height);
+            }
         }
         $prompt = $this->getSkitPrompt();
         $runtime = $context === null ? $scene->getGame()->getRendererRuntime() : null;
@@ -96,16 +94,13 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
 
     public function getExcludedOverlayLayers(): array
     {
-        $hud = $this->getGameScene()->locationHUDWindow;
-        return $this->atlasPresented && $hud !== null ? [SkitPromptPresentation::LAYER,'ui:'.spl_object_id($hud)]
-            : [SkitPromptPresentation::LAYER];
+        return [SkitPromptPresentation::LAYER];
     }
 
-    public function exit(): void { $this->atlasPresented = false; Console::removeOverlay(SkitPromptPresentation::LAYER); }
+    public function exit(): void { Console::removeOverlay(SkitPromptPresentation::LAYER); }
     public function suspend(): void
     {
         $this->cancelWalking();
-        $this->atlasPresented = false;
         Console::removeOverlay(SkitPromptPresentation::LAYER);
     }
 
@@ -283,7 +278,8 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
         if (Input::isButtonPressed('map_size') && $scene->canPresentMapAtlas()
             && $scene->locationHUDWindow?->isPresentationVisible()) {
             $settings = new \Ichiloto\Engine\Settings\SettingsCatalog();
-            $settings->write('atlas_size',$settings->read('atlas_size') === 'large' ? 'compact' : 'large');
+            $settings->write('atlas_size',\Ichiloto\Engine\UI\Presentation\MapAtlasSize::getCornerSize(
+                $settings->read('atlas_size'))->getNextCornerSize()->value);
             try { $settings->persist(); }
             catch (\Throwable $error) { Debug::warn('Could not persist atlas size: '.$error->getMessage()); }
             return;

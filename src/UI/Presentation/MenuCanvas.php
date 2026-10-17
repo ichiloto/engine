@@ -55,7 +55,7 @@ final class MenuCanvas
   }
 
   /** Compact primitive outlines share the pixel-preserving batching used by focus treatments. */
-  public function renderOutline(string $id, CanvasRectangle $bounds, string $color, int $thickness, int $layer = 20): void
+  public function renderOutline(string $id, CanvasRectangle $bounds, string $color, int $thickness, int $layer = 20, float $opacity = 1): void
   {
     if ($thickness < 1 || 2 * $thickness >= min($bounds->width, $bounds->height)) {
       throw new RuntimeException('A menu outline requires a positive border and an open interior.');
@@ -65,7 +65,7 @@ final class MenuCanvas
       new CanvasRectangle($bounds->x, $bounds->y + $thickness, $thickness, $bounds->height - 2 * $thickness),
       new CanvasRectangle($bounds->x + $bounds->width - $thickness, $bounds->y + $thickness,
         $thickness, $bounds->height - 2 * $thickness)] as $index => $edge) {
-      $this->fill($id . '-outline-' . $index, $edge, $color, $layer);
+      $this->fill($id . '-outline-' . $index, $edge, $color, $layer, $opacity);
     }
   }
 
@@ -287,7 +287,7 @@ final class MenuCanvas
     }
   }
 
-  private function fill(string $id, CanvasRectangle $bounds, string $color, int $layer): void
+  private function fill(string $id, CanvasRectangle $bounds, string $color, int $layer, float $opacity = 1): void
   {
     $bounds->assertWithin($this->width, $this->height);
     $columns = (int)ceil($bounds->width / RendererGridConfig::MAX_CELL_SIZE);
@@ -299,7 +299,7 @@ final class MenuCanvas
     $x = min($bounds->x, $this->width - (count($xs) === 1 ? $columns * $cw : ceil($bounds->width)));
     $y = min($bounds->y, $this->height - (count($ys) === 1 ? $rows * $ch : ceil($bounds->height)));
     // Split fragments cannot be merge candidates: joining them would recreate the overflow.
-    if (count($xs) === 1 && count($ys) === 1) { $this->fills[$id] = [$bounds, $color, $layer]; }
+    if ($opacity === 1.0 && count($xs) === 1 && count($ys) === 1) { $this->fills[$id] = [$bounds, $color, $layer]; }
     foreach ($ys as $yi => [$dy, $nr, $ch]) {
       foreach ($xs as $xi => [$dx, $nc, $cw]) {
         $left = max($bounds->x, $x + $dx);
@@ -313,7 +313,7 @@ final class MenuCanvas
         }
         $this->text[] = new CanvasTextLayer($id . ($xi + $yi === 0 ? '' : "-part-{$yi}-{$xi}"), $layer,
           $x + $dx, $y + $dy, new RendererGridConfig($nc, $nr, $cw, $ch), $runs,
-          new CanvasRectangle($left, $top, $right - $left, $bottom - $top));
+          new CanvasRectangle($left, $top, $right - $left, $bottom - $top), $opacity);
       }
     }
   }

@@ -172,7 +172,9 @@ Physically global maps open only their global view.
 The semantic `map_view` action (unclaimed V/v by default) switches Local/World.
 The opened map always shows its primary action bar, using the shared required
 control treatment even when the theme hides optional hints. Corner maps carry no
-location-name header, legend or hint strip.
+location-name header, legend or hint strip. The corner geography and rim are
+translucent (theme `cornerOpacity`, default0.75); markers remain opaque. Removing
+the opaque corner frame backing lets the field remain visible beneath the map.
 Directional actions scroll without moving the player. Page actions cycle through
 visible landmark identities and centre the chosen marker; names appear only for
 the focused marker. Ordinary scrolling clears focus. Info pages long names;
@@ -204,7 +206,8 @@ a settlement entrance keeps its entrance kind.
 The optional `atlas` treatment in `Data/Presentation/menus.php` reuses the shared
 palette, replaceable `quiet`/`panel` frames and optional semantic icon bindings.
 Its keys are `compactWidth` (256), `compactHeight` (192), `largeWidth` (400),
-`largeHeight` (300), `margin` (16), `markerSize` (10) and `frameRole` (`quiet`).
+`largeHeight` (300), `margin` (16), `markerSize` (10), `frameRole` (`quiet`) and
+`cornerOpacity` (0.75, finite0..1).
 Dimensions accept 96–768 logical pixels; larger dimensions cannot be smaller
 than compact dimensions. Margin accepts 0–64 and markers 4–24. The two corner sizes
 are maximum extents: the whole map preserves its aspect and fills a one-pixel
@@ -223,8 +226,12 @@ GPUI uses the same installed retained world as a static overview source. The
 corner atlas replaces the coordinate HUD only after successful composition and
 while the field owns presentation; dialogue, menus, scene suspension and the HUD
 setting keep their existing ownership. Terminal keeps coordinates. The semantic
-`map_size` action (F3 by default) cycles compact/larger; Config exposes Corner Map
-Size and persists `ui.hud.map_size` in player settings. Opened mode is temporary.
+`map_size` action (F3 by default) cycles compact/larger/off; Config exposes Corner
+Map Size and persists `ui.hud.map_size` in player settings. Opened mode is temporary
+and remains available when the corner is off. Graphical coordinate-HUD exclusion
+is owned by the scene, independent of whether a corner or event overlay currently
+has a canvas. A cutscene or hidden corner therefore cannot expose Terminal HUD
+glyphs. Terminal and renderers without atlas capabilities retain their coordinates.
 The opened atlas retains its selected source world without selecting a field
 viewport or field actors; ordinary menu canvases release that dependency.
 

@@ -134,8 +134,8 @@ class SettingsCatalog
       new GameSetting(
         'atlas_size',
         'Corner Map Size',
-        'Changes the corner map size. Open Map for the full map and legend.',
-        ['Compact' => 'compact', 'Larger' => 'large'],
+        'Chooses a compact, larger or hidden corner map. Open Map for the full map and legend.',
+        ['Compact' => 'compact', 'Larger' => 'large', 'Off' => 'off'],
       ),
       new GameSetting(
         'location_hud',
@@ -200,7 +200,7 @@ class SettingsCatalog
         config(ProjectConfig::class, 'ui.battle.message_pace', 'slow')
       ),
       'selection_color' => SelectionStyle::resolveColor(),
-      'atlas_size' => config(ProjectConfig::class, 'ui.hud.map_size', 'compact') === 'large' ? 'large' : 'compact',
+      'atlas_size' => \Ichiloto\Engine\UI\Presentation\MapAtlasSize::getCornerSize(config(ProjectConfig::class, 'ui.hud.map_size', 'compact'))->value,
       'location_hud' => boolval(config(ProjectConfig::class, 'ui.hud.location', false)),
       'transitions' => TransitionStyle::tryFrom(strtolower(strval(
         config(ProjectConfig::class, ScreenTransition::CONFIG_STYLE, TransitionStyle::NONE->value)
@@ -281,7 +281,7 @@ class SettingsCatalog
 
   private static function validateAtlasSize(mixed $value): string
   {
-    if (!in_array($value, ['compact','large'], true)) { throw new \InvalidArgumentException('Corner map size must be compact or large.'); }
+    if (!in_array($value, ['compact','large','off'], true)) { throw new \InvalidArgumentException('Corner map size must be compact, large or off.'); }
     return $value;
   }
 

@@ -49,11 +49,15 @@ it('uses the host map source and replaces only its visible coordinate HUD while 
         foreach (['state'=>$field,'fieldState'=>$field] as $name=>$value) { new ReflectionProperty($scene,$name)->setValue($scene,$value); }
         expect($scene->getMapAtlasCanvas(MapAtlasSize::COMPACT)?->getReferencedWorldIds())->toBe(['host-map']);
         expect($field->getPresentationOverlay(1350,720))->not->toBeNull()
-            ->and($field->getExcludedOverlayLayers())->toContain('ui:'.spl_object_id($hud));
+            ->and($scene->getExcludedOverlayLayers())->toContain('ui:'.spl_object_id($hud));
         $hud->deactivate();
         expect($field->getPresentationOverlay(1350,720))->toBeNull()
-            ->and($field->getExcludedOverlayLayers())->not->toContain('ui:'.spl_object_id($hud));
+            ->and($scene->getExcludedOverlayLayers())->toContain('ui:'.spl_object_id($hud));
         $hud->activate();
+        $config->set('ui.hud.map_size','off');
+        expect($field->getPresentationOverlay(1350,720))->toBeNull()
+            ->and($scene->getExcludedOverlayLayers())->toContain('ui:'.spl_object_id($hud));
+        $config->set('ui.hud.map_size','compact');
         $map = new LocalMapState(new SceneStateContext($scene));
         new ReflectionProperty($scene,'state')->setValue($scene,$map);
         $textPreparation = $this->getStubBuilder(\Ichiloto\Engine\Rendering\Text\TextPreparationProviderInterface::class)->getStub();
@@ -64,7 +68,8 @@ it('uses the host map source and replaces only its visible coordinate HUD while 
             ->and($field->getPresentationOverlay(1350,720))->toBeNull();
         new ReflectionProperty($scene,'presentationContext')->setValue($scene,
             new ScenePresentationContext($context->grid,fn()=>false,graphical:false,assetRoot:'/tmp'));
-        expect($map->getPresentationCanvas())->toBeNull()->and($scene->getPresentationWorld())->toBeNull();
+        expect($map->getPresentationCanvas())->toBeNull()->and($scene->getPresentationWorld())->toBeNull()
+            ->and($scene->getExcludedOverlayLayers())->toBe([]);
         $config->set('ui.hud.location',$old);
     } finally {
         foreach ($configs as $name=>$value) { new ReflectionProperty(ConfigStore::class,$name)->setValue(null,$value); }

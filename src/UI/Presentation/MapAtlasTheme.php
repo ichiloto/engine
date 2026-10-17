@@ -23,7 +23,9 @@ final readonly class MapAtlasTheme
         public int $margin = 16,
         public int $markerSize = 10,
         public string $frameRole = 'quiet',
+        public float $cornerOpacity = 0.75,
     ) {
+        if (!is_finite($cornerOpacity) || $cornerOpacity<0 || $cornerOpacity>1) { throw new InvalidArgumentException('Atlas corner opacity must be finite and within 0..1.'); }
         foreach ([$compactWidth, $compactHeight, $largeWidth, $largeHeight] as $extent) {
             if ($extent < self::MIN_EXTENT || $extent > self::MAX_EXTENT) { throw new InvalidArgumentException('Atlas corner dimensions must be within 96..768 logical pixels.'); }
         }
@@ -35,12 +37,12 @@ final readonly class MapAtlasTheme
 
     public static function fromArray(array $data): self
     {
-        if (array_diff(array_keys($data), ['compactWidth', 'compactHeight', 'largeWidth', 'largeHeight', 'margin', 'markerSize', 'frameRole']) !== []) {
+        if (array_diff(array_keys($data), ['compactWidth', 'compactHeight', 'largeWidth', 'largeHeight', 'margin', 'markerSize', 'frameRole', 'cornerOpacity']) !== []) {
             throw new InvalidArgumentException('Unsupported atlas theme field.');
         }
         foreach ($data as $key => $value) {
-            if ($key === 'frameRole' ? !is_string($value) : !is_int($value)) {
-                throw new InvalidArgumentException('Atlas dimensions, margin and markerSize require integers; frameRole requires a string.');
+            if (match($key) { 'frameRole'=>!is_string($value), 'cornerOpacity'=>!is_int($value) && !is_float($value), default=>!is_int($value) }) {
+                throw new InvalidArgumentException('Atlas dimensions require integers; frameRole a string; cornerOpacity a number.');
             }
         }
         return new self(...$data);

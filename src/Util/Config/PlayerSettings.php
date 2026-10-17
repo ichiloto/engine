@@ -83,8 +83,8 @@ final class PlayerSettings extends AbstractConfig
     if (! in_array($path, self::PATHS, true)) {
       throw new InvalidArgumentException("Not a player setting: $path");
     }
-    if ($path === 'ui.hud.map_size' && !in_array($value, ['compact','large'], true)) {
-      throw new InvalidArgumentException('Corner map size must be compact or large.');
+    if ($path === 'ui.hud.map_size' && !in_array($value, ['compact','large','off'], true)) {
+      throw new InvalidArgumentException('Corner map size must be compact, large or off.');
     }
     parent::set($path, $value instanceof BackedEnum ? $value->value : $value);
   }
@@ -98,7 +98,7 @@ final class PlayerSettings extends AbstractConfig
         continue;
       }
       $value = $this->get($path);
-      if ($path === 'ui.hud.map_size' && !in_array($value, ['compact','large'], true)) { continue; }
+      if ($path === 'ui.hud.map_size' && !in_array($value, ['compact','large','off'], true)) { continue; }
       if (! is_scalar($value)) {
         continue;
       }

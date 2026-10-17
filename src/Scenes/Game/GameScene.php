@@ -336,6 +336,11 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
     {
         if ($this->presentationContext !== null && !$this->presentationContext->graphical) { return []; }
         $layers = $this->state instanceof CanvasOverlayProviderInterface ? $this->state->getExcludedOverlayLayers() : [];
+        // Coordinate glyphs belong to Terminal. A graphical atlas may yield or
+        // be switched off without granting that fallback ownership of the screen.
+        if ($this->canPresentMapAtlas() && $this->locationHUDWindow !== null) {
+            $layers[] = 'ui:'.spl_object_id($this->locationHUDWindow);
+        }
         if ($this->canPresentCinematicCover()) { array_push($layers, 'cinematic-cover', 'transition'); }
         if ($this->canPresentCinematicText()) {
             array_push($layers, ...($this->cinematicPresentation?->getOverlayExcludedLayers() ?? []));

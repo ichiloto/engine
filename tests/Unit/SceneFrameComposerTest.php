@@ -69,6 +69,7 @@ final class CompositionSceneProbe extends GameScene implements WorldCanvasProvid
   public ?PresentationCanvas $canvas = null;
   public ?PresentationCanvas $cover = null;
   public int $refreshes = 0;
+  public bool $suppressWithoutCanvas = false;
   public int $tileFrame = 7;
   public ?string $followId = 'actor';
   public array $screenIds = ['screen-effect'];
@@ -86,7 +87,7 @@ final class CompositionSceneProbe extends GameScene implements WorldCanvasProvid
   public function getPresentationCanvas(): ?PresentationCanvas { return $this->canvas; }
   public function getPresentationOverlay(int $width, int $height): ?PresentationCanvas { return $this->cover; }
   public function renderPresentationOverlay(): void { $this->refreshes++; }
-  public function getExcludedOverlayLayers(): array { return ['cinematic-cover']; }
+  public function getExcludedOverlayLayers(): array { return $this->cover!==null || $this->suppressWithoutCanvas ? ['cinematic-cover'] : []; }
   public function getPresentationViewport(ConsolePresentationSnapshot|ConsolePresentationChanges $snapshot,
     array $sprites, array $tiles = []): ?PresentationViewport
   {
@@ -466,4 +467,18 @@ it('retains a referenced map resource under an exclusive atlas and releases it f
   $presenter->presentFrame($menu->prepareFrame($presenter));
   expect(RetainedFrameState::getLatestFrame($transport->sent))->not->toHaveKey('worlds');
   expect(fn()=>new SceneFrameComposition(null,canvas:$frame->canvas))->toThrow(InvalidArgumentException::class);
+});
+
+it('applies an explicit graphical layer suppression when its overlay intentionally has no canvas',function() {
+  $this->scene->cover=null;
+  $this->scene->suppressWithoutCanvas=true;
+  $this->text[]=new PresentationTextLayer('cinematic-cover',1000,[new PresentationTextRun(0,0,'HUD')]);
+  $frame=$this->composer->composeFrame($this->scene,$this->grid,fn()=>true,$this->capture);
+  expect($frame->screenOverlay)->toBeNull()
+    ->and($this->captures[0][0])->toContain('cinematic-cover')
+    ->and(array_column($frame->snapshot->textLayers,'id'))->not->toContain('cinematic-cover');
+  $this->captures=[];
+  $terminal=$this->composer->composeFrame($this->scene,$this->grid,fn()=>false,$this->capture);
+  expect($this->captures[0][0])->not->toContain('cinematic-cover')
+    ->and(array_column($terminal->snapshot->textLayers,'id'))->toContain('cinematic-cover');
 });

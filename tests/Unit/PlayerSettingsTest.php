@@ -284,6 +284,10 @@ it('persists corner size across sessions and ignores unsupported saved sizes', f
   $catalog->persist();
   expect((new PlayerSettings($this->projectRoot))->get('ui.hud.map_size'))->toBe('large')
     ->and($catalog->read('volume'))->toBe(0)->and($catalog->read('music'))->toBeFalse();
+  $catalog->write('atlas_size','off');
+  $catalog->persist();
+  expect((new PlayerSettings($this->projectRoot))->get('ui.hud.map_size'))->toBe('off')
+    ->and($catalog->read('atlas_size'))->toBe('off');
   expect(fn()=>$catalog->write('atlas_size','opened'))->toThrow(InvalidArgumentException::class)
     ->and(fn()=>$player->set('ui.hud.map_size','opened'))->toThrow(InvalidArgumentException::class);
   file_put_contents($this->projectRoot.'/.data/player-settings.json','{"ui":{"hud":{"map_size":"opened"}}}');

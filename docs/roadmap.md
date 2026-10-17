@@ -937,7 +937,12 @@ not a default for future story stations.
   Andrew's 18 October reference assessment removes the corner location-name
   header, menu padding and optional hint strip. The map now fills a one-pixel
   palette rim within the size limits; the frame follows its aspect. Labels,
-  legend and controls remain in the opened map. Focused corner/theme/icon-role
+  legend and controls remain in the opened map. Andrew's following review adds
+  a translucent corner and compact/larger/off F3 cycle. Graphical coordinate HUD
+  exclusion now follows scene ownership even while an event owns input or the
+  corner is off; the composer consults explicit suppression without requiring
+  an overlay canvas. The opaque corner menu backing is removed.
+  Focused corner/theme/icon-role
   checks: 31 tests / 835 assertions. Muted installed macOS check: 2749 frames,
   490 changes, 81.584 seconds, exit 0, no playback backends, user files unchanged;
   native corner inspected, window/process closed and owned storage removed.

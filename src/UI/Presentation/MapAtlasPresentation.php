@@ -44,7 +44,7 @@ final class MapAtlasPresentation
         MapAtlasSize $size, int $selected = -1, int $detailPage = 0,
         ?\Ichiloto\Engine\Field\MapAtlasView $mapView = null): ?PresentationCanvas
     {
-        if (!self::supports($supports)) { return null; }
+        if ($size===MapAtlasSize::OFF || !self::supports($supports)) { return null; }
         try {
             if ($this->root !== $root) {
                 $this->theme = MenuPresentationCatalog::load($root) ?? new MenuPresentationCatalog($root, ['schema'=>'ichiloto.menu/1']);
@@ -64,6 +64,7 @@ final class MapAtlasPresentation
         MapAtlasSize $size, int $selected = -1, int $detailPage = 0,
         ?\Ichiloto\Engine\Field\MapAtlasView $mapView = null): PresentationCanvas
     {
+        if ($size===MapAtlasSize::OFF) { throw new \InvalidArgumentException('Hidden corner maps have no canvas.'); }
         $full = $size === MapAtlasSize::OPENED;
         $a = $theme->atlas;
         $m = $theme->metrics;
@@ -99,7 +100,7 @@ final class MapAtlasPresentation
         $projection = $full && $mapView!==null ? $mapView->getProjection($snapshot->overview,$bounds,true,$snapshot->global)
             : MapProjection::fit($snapshot->overview->width,$snapshot->overview->height,$bounds);
         $view = new MenuCanvas($theme,$width,$height,background:$full);
-        $view->frame('atlas-frame',$box,$a->frameRole,10);
+        if ($full) { $view->frame('atlas-frame',$box,$a->frameRole,10); }
         if ($full) {
             $title = TerminalText::truncateToWidth(MessageCatalog::getTerm($snapshot->global ? 'map.region' : 'map.local').' — '
                 .$snapshot->name.($mapView!==null ? ' — '.MessageCatalog::getTerm($mapView->zoomedIn ? 'map.zoom_in' : 'map.zoom_out') : ''),
@@ -107,7 +108,7 @@ final class MapAtlasPresentation
             $view->textLines('atlas-title',[['text'=>$title,'color'=>'accent']],
                 new CanvasRectangle($box->x+$padding,$box->y+$padding,$contentWidth,$m->cellHeight));
         } else {
-            $view->renderOutline('atlas-rim',$box,'edge',1,21);
+            $view->renderOutline('atlas-rim',$box,'edge',1,21,$a->cornerOpacity);
         }
         $destination = new CanvasRectangle($projection->left,$projection->top,$projection->width,$projection->height);
         $rasterScale = min(1, 1024/max($destination->width,$destination->height));
@@ -119,7 +120,7 @@ final class MapAtlasPresentation
             ...($full && $mapView!==null ? ['source'=>['x'=>$projection->sourceX,'y'=>$projection->sourceY,
                 'width'=>$projection->sourceWidth ?? $snapshot->overview->width,
                 'height'=>$projection->sourceHeight ?? $snapshot->overview->height]] : []),
-        ])],20);
+        ])],20,opacity:$full ? 1 : $a->cornerOpacity);
         $indicators = [];
         $bin = max(16,$a->markerSize+4,(int)ceil(sqrt($mapBox->width*$mapBox->height/768)));
         while ((ceil($mapBox->width/$bin)+1)*(ceil($mapBox->height/$bin)+1)>1000) { $bin++; }
