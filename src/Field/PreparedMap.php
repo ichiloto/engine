@@ -29,6 +29,7 @@ final readonly class PreparedMap
         public ?MapGraphics $graphics = null,
         public array $worldObjects = [],
         public ?MapLandmarkCatalog $landmarks = null,
+        public ?MapOverview $overview = null,
     ) {
     }
 }

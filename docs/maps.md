@@ -141,9 +141,27 @@ authors may supply another valid localized message id. Saved landmark ids remain
 immutable during ordinary editing. Existing world-condition flags provide
 authored revelations; no new script command is introduced in this slice.
 
-The shared catalog/discovery and save support is in local implementation.
-Runtime map presentation, Game metadata, theme bindings and Editor authoring are
-still being integrated; this section defines their shared data contract.
+The shared catalog/discovery/save contract is on local develop. The active-map
+Terminal view and shared theme extension are in local implementation. The map
+action opens the physical atlas; `map_view` switches to the separate region
+view. `map_view` defaults to unclaimed V/v controls and is rebindable. Up/down
+select legend entries, page actions move a legend page, and Info pages through
+the full selected name. Small map-marker clusters use `+`; selection highlights
+the chosen location. Terminal retains the coordinate HUD while exploring.
+
+The optional `atlas` treatment in `Data/Presentation/menus.php` reuses the shared
+palette, replaceable `quiet`/`panel` frames and optional semantic icon bindings.
+Its keys are `compactWidth` (256), `compactHeight` (192), `largeWidth` (400),
+`largeHeight` (300), `margin` (16), `markerSize` (10) and `frameRole` (`quiet`).
+Dimensions accept 96–768 logical pixels; larger dimensions cannot be smaller
+than compact dimensions. Margin accepts 0–64 and markers 4–24. All three map
+sizes preserve the whole map; changing a corner size never changes field zoom.
+Optional icon roles are `map.player`, `map.passage`, `map.entrance`, `map.exit`,
+`map.building` and `map.landmark`. Missing art uses shared geometric marker
+treatments. Projects supply data and artwork; the Engine owns drawing and input.
+
+GPUI overview/HUD composition, Game metadata and Editor authoring are still
+being integrated. No complete graphical minimap is claimed by this contract.
 
 ## Layer order and composition
 

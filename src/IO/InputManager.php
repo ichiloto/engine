@@ -148,6 +148,8 @@ class InputManager
       'info' => ['Read the next Info page; wrap to the first.', [KeyCode::i, KeyCode::I]],
       'menu_page_previous' => ['Show the previous menu page.', [KeyCode::PAGE_UP]],
       'menu_page_next' => ['Show the next menu page.', [KeyCode::PAGE_DOWN]],
+      'map_view' => ['Switch between the active map and region map.', [KeyCode::v, KeyCode::V]],
+      'map_size' => ['Change the corner atlas size.', [KeyCode::F3]],
     ] as $action => [$description, $candidates]) {
       if (array_key_exists($action, $bindings)) {
         continue;

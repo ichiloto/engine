@@ -936,8 +936,9 @@ not a default for future story stations.
   and known building/entrance/exit positions. `Field\MapProjection` now supplies
   a north-up aspect-preserving fit and shared cell-centre placement for graphical
   and Terminal display units. The 47 projection/viewport/cell-area tests passed
-  locally. This is a foundation only: runtime map content, landmark knowledge,
-  graphical HUD and Editor authoring remain pending. Andrew selected a persistent
+  locally. The shared source-referenced landmark catalog, saved discovery and
+  active-map Terminal view are now locally implemented. GPUI cached overview/HUD,
+  Game metadata and Editor authoring remain pending. Andrew selected a persistent
   GPUI corner atlas with compact and larger sizes, plus a full opened map with
   clear labels and legend. Ordinary entrances/exits show markers immediately;
   names and other landmarks are learned by physical approach or authored play

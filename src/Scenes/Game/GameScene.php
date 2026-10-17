@@ -67,6 +67,7 @@ use Ichiloto\Engine\Scenes\Game\States\ItemMenuState;
 use Ichiloto\Engine\Scenes\Game\States\MagicMenuState;
 use Ichiloto\Engine\Scenes\Game\States\MainMenuState;
 use Ichiloto\Engine\Scenes\Game\States\MapState;
+use Ichiloto\Engine\Scenes\Game\States\LocalMapState;
 use Ichiloto\Engine\Scenes\Game\States\OverworldState;
 use Ichiloto\Engine\Scenes\Game\States\SaveMenuState;
 use Ichiloto\Engine\Scenes\Game\States\ShopState;
@@ -433,9 +434,10 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
      */
     protected(set) ?MagicMenuState $magicMenuState = null;
     /**
-     * @var MapState|null The map state.
+     * @var LocalMapState|null The active-map atlas.
      */
-    protected(set) ?MapState $mapState = null;
+    protected(set) ?LocalMapState $mapState = null;
+    protected(set) ?MapState $regionMapState = null;
     /**
      * @var OverworldState|null The overworld state.
      */
@@ -787,7 +789,8 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         $this->recordsMenuState = new RecordsMenuState($this->sceneStateContext);
         $this->controlsMenuState = new ControlsMenuState($this->sceneStateContext);
         $this->magicMenuState = new MagicMenuState($this->sceneStateContext);
-        $this->mapState = new MapState($this->sceneStateContext);
+        $this->mapState = new LocalMapState($this->sceneStateContext);
+        $this->regionMapState = new MapState($this->sceneStateContext);
         $this->overworldState = new OverworldState($this->sceneStateContext);
         $this->shopState = new ShopState($this->sceneStateContext);
         $this->saveMenuState = new SaveMenuState($this->sceneStateContext);

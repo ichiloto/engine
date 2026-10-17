@@ -47,6 +47,7 @@ class MapManager implements CanRenderAt
   public private(set) ?MapLayerSet $layers = null;
   public private(set) ?MapGraphics $graphics = null;
   public private(set) ?MapKnowledge $mapKnowledge = null;
+  public private(set) ?MapOverview $overview = null;
   private ?array $lastKnowledgePosition = null;
   private ?PresentationWorld $presentationWorld = null;
   private ?bool $presentationWorldPolicy = null;
@@ -323,7 +324,8 @@ class MapManager implements CanRenderAt
     );
 
     return new PreparedMap($map, $source['tiles'], $collisions, $mapTriggers, $eventTriggers, $npcs, $source['layers'],
-      $source['graphics'], $source['worldObjects'], MapLandmarkCatalog::readMap($map, $source['tiles']));
+      $source['graphics'], $source['worldObjects'], MapLandmarkCatalog::readMap($map, $source['tiles']),
+      new MapOverview($source['tiles']));
   }
 
   /** Commits a previously validated destination and its field side effects. */
@@ -343,6 +345,7 @@ class MapManager implements CanRenderAt
     $this->calculateMapDimensions();
     $mapId = strval($map['id'] ?? '');
     $this->mapKnowledge = $prepared->landmarks === null ? null : new MapKnowledge($mapId, $prepared->landmarks);
+    $this->overview = $prepared->overview;
     $this->lastKnowledgePosition = null;
     $this->installWorldObjects($prepared->worldObjects, $mapId);
     $this->loadMapTriggers($prepared->mapTriggers);
@@ -867,11 +870,13 @@ class MapManager implements CanRenderAt
   {
     $prepared = $this->prepareSplitMapDataFromFiles($paths);
     $landmarks = MapLandmarkCatalog::readMap($prepared['data'], $prepared['tiles']);
+    $overview = new MapOverview($prepared['tiles']);
     $this->gameScene->fieldEffects?->clear();
     $this->tileMap = $prepared['tiles'];
     $this->layers = $prepared['layers'];
     $this->graphics = $prepared['graphics'];
     $this->mapKnowledge = new MapKnowledge(strval($prepared['data']['id'] ?? ''), $landmarks);
+    $this->overview = $overview;
     $this->lastKnowledgePosition = null;
     $this->installWorldObjects($prepared['worldObjects'], strval($prepared['data']['id'] ?? ''));
     $this->clearPresentationWorld();
@@ -889,6 +894,7 @@ class MapManager implements CanRenderAt
     $this->layers = null;
     $this->graphics = null;
     $this->mapKnowledge = null;
+    $this->overview = null;
     $this->lastKnowledgePosition = null;
     $this->clearWorldObjects();
     $this->clearPresentationWorld();

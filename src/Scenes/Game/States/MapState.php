@@ -8,6 +8,9 @@ use Ichiloto\Engine\Field\RegionMap;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Input;
+use Ichiloto\Engine\IO\InputManager;
+use Ichiloto\Engine\IO\ActionHints;
+use Ichiloto\Engine\Localization\MessageCatalog;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\Scenes\SceneStateContext;
@@ -20,10 +23,9 @@ use Ichiloto\Engine\UI\Windows\Window;
 /**
  * The region map: how the places around the player connect.
  *
- * Redrawing the tile map the player is already looking at tells them nothing.
- * What a map is for is the shape of the region, so this lays the region out
- * as a graph, the player's place first and everything else by how many doors
- * away it is, built from the maps' own transfer events.
+ * A separate regional view alongside LocalMapState's physical active-map atlas.
+ * It lays places out as a graph using their authored schematic stations and
+ * transfer links. These stations never supply local landmark coordinates.
  *
  * Places the party has been are named. Places they have only heard of, one
  * door from somewhere they have been, show as unknown. Everything further
@@ -65,6 +67,7 @@ class MapState extends GameSceneState
    */
   public function enter(): void
   {
+    InputManager::consumeCurrentInput();
     $this->focusCurrent = true;
     $this->viewX = $this->viewY = $this->maxViewX = $this->maxViewY = 0;
     Console::clear();
@@ -80,11 +83,18 @@ class MapState extends GameSceneState
   public function execute(?SceneStateContext $context = null): void
   {
     if (
-      Input::isButtonDown('back')
-      || Input::isButtonDown('cancel')
-      || Input::isButtonDown('map')
+      Input::isButtonPressed('back')
+      || Input::isButtonPressed('cancel')
+      || Input::isButtonPressed('map')
     ) {
+      InputManager::consumeCurrentInput();
       $this->setState($this->getGameScene()->fieldState);
+      return;
+    }
+
+    if (Input::isButtonPressed('map_view')) {
+      InputManager::consumeCurrentInput();
+      $this->setState($this->getGameScene()->mapState);
       return;
     }
 
@@ -169,7 +179,11 @@ class MapState extends GameSceneState
   {
     if ($this->mapPanel === null) { return; }
     $this->mapPanel->setContent($this->buildMapContent($this->mapPanel->getContentWidth(), $this->mapPanel->getContentHeight()));
-    $this->mapPanel->setHelp($this->maxViewX > 0 || $this->maxViewY > 0 ? 'Arrows:Pan Home:Here c:Cancel' : 'c:Cancel');
+    $view = ActionHints::resolve('map_view', MessageCatalog::getTerm('map.local'));
+    $back = ActionHints::resolve('back', MessageCatalog::getTerm('map.close'));
+    $this->mapPanel->setHelp(($this->maxViewX > 0 || $this->maxViewY > 0 ? 'Arrows:Pan Home:Here ' : '')
+      . ($view->control?->label ?? 'Unbound') . ':' . $view->label . ' '
+      . ($back->control?->label ?? 'Unbound') . ':' . $back->label);
     $this->mapPanel->render();
     $this->infoPanel?->setContent($this->buildInfoContent());
     $this->infoPanel?->render();

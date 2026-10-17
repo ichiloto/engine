@@ -260,7 +260,7 @@ class FieldState extends GameSceneState implements CanvasOverlayProviderInterfac
             return;
         }
 
-        if (Input::isButtonDown("map")) {
+        if (Input::isButtonPressed("map")) {
             $this->showInGameMap();
             return;
         }

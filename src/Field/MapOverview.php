@@ -1,0 +1,56 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Ichiloto\Engine\Field;
+
+use Ichiloto\Engine\Core\Rect;
+use Ichiloto\Engine\IO\Console\TerminalText;
+use InvalidArgumentException;
+
+/** Installed static map source. Moving markers never rebuild its bounded rasters. */
+final class MapOverview
+{
+    public readonly int $width;
+    public readonly int $height;
+    private array $terminalRasters = [];
+
+    public function __construct(private readonly array $tiles)
+    {
+        $this->width = $tiles === [] ? 0 : max(array_map('count', $tiles));
+        $this->height = count($tiles);
+        if ($this->width < 1 || $this->height < 1) { throw new InvalidArgumentException('An overview requires a nonempty map.'); }
+    }
+
+    /** Nearest-cell sampling of the entire authored grid, with transparent ragged gaps.
+     *  Cache owns at most two screen-sized variants and releases with its map installation.
+     *  @return list<list<string>> */
+    public function getTerminalRaster(int $width, int $height): array
+    {
+        if ($width < 1 || $height < 1 || $width > 512 || $height > 256) {
+            throw new InvalidArgumentException('Terminal overview dimensions must be within 512 by 256 cells.');
+        }
+        $key = "{$width}:{$height}";
+        if (isset($this->terminalRasters[$key])) { return $this->terminalRasters[$key]; }
+        $projection = $this->getTerminalProjection($width, $height);
+        $raster = array_fill(0, $height, array_fill(0, $width, ' '));
+        // Visit only the bounded target raster; a large source does not require
+        // iterating or copying every cell when the player opens the atlas.
+        for ($y = (int) floor($projection->top); $y < min($height, (int) ceil($projection->top + $projection->height)); $y++) {
+            $sourceY = max(0, min($this->height - 1, (int) floor(($y + 0.5 - $projection->top) / $projection->scaleY)));
+            for ($x = (int) floor($projection->left); $x < min($width, (int) ceil($projection->left + $projection->width)); $x++) {
+                $sourceX = max(0, min($this->width - 1, (int) floor(($x + 0.5 - $projection->left) / $projection->scaleX)));
+                $glyph = $this->tiles[$sourceY][$sourceX] ?? ' ';
+                // A wide glyph must not shift every physical marker to its right.
+                $raster[$y][$x] = TerminalText::displayWidth($glyph) === 1 ? $glyph : '·';
+            }
+        }
+        if (count($this->terminalRasters) === 2) { array_shift($this->terminalRasters); }
+        return $this->terminalRasters[$key] = $raster;
+    }
+
+    public function getTerminalProjection(int $width, int $height): MapProjection
+    {
+        return MapProjection::fit($this->width, $this->height, new Rect(0, 0, $width, $height), 1, 2);
+    }
+}

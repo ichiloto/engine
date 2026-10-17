@@ -203,6 +203,8 @@ it('preserves an explicit Info entry including deliberate unbinding', function (
   expect(InputManager::getBindings())->toBe([...$authored,
     'menu_page_previous' => ['description' => 'Show the previous menu page.', 'keys' => [KeyCode::PAGE_UP]],
     'menu_page_next' => ['description' => 'Show the next menu page.', 'keys' => [KeyCode::PAGE_DOWN]],
+    'map_view' => ['description' => 'Switch between the active map and region map.', 'keys' => [KeyCode::v, KeyCode::V]],
+    'map_size' => ['description' => 'Change the corner atlas size.', 'keys' => [KeyCode::F3]],
     'dialogue_auto' => InputManager::getDefaultDialogueAutoBinding($authored),
     'secondary_action' => InputManager::getDefaultSecondaryActionBinding($authored),
     'quick_save' => ['description' => 'Quick Save', 'keys' => [KeyCode::F5]],
