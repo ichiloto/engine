@@ -186,8 +186,16 @@ image identity invalidate it; movement only changes indicators. Generic glyph-on
 maps use their presentation colours. Neither collision nor location meaning is
 inferred from graphics. Existing composite limits remain unchanged.
 
-Editor landmark and atlas theme authoring are implemented locally. Game metadata
-is prepared separately. Final native and installed Game acceptance remain pending.
+Editor landmark/theme authoring and Game metadata are integrated locally. The
+final macOS installed-release GPUI run exercised compact/larger/opened maps,
+focused local/regional names, menu/suspension handoffs, discovery, disk save/load
+and revisiting: 3828 frames in 108.886 seconds, exit 0 and clean close. Music,
+effects and voice stayed muted, playback backends were absent, user files stayed
+unchanged and temporary data was removed. These are functional and observed
+presentation checks, not GPU timings. Terminal's complete-area visibility was
+confirmed by Andrew; the revised block/focus presentation awaits his visual
+review. Both fixture modes passed captured CPU verification. Linux/WSLg native
+presentation was not tested in this macOS pass.
 
 ## Layer order and composition
 

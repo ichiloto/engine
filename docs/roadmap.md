@@ -921,7 +921,8 @@ not a default for future story stations.
 
 > Status: field-effect runtime slice in local implementation, October 2026.
 > Story/route classification and Claude's source-preserving Editor handoff are
-> pending. The minimap runtime is implemented locally; installed native acceptance remains pending.
+> pending. The minimap runtime is integrated locally; macOS installed GPUI checks
+> passed. Andrew's review of the revised Terminal presentation remains pending.
 
 - **Every terminal glyph has graphical art.** In the graphical field, a cue
   draws as a slanted exclamation mark with a border, blue or yellow, from
@@ -941,7 +942,16 @@ not a default for future story stations.
   locally. Game metadata is integrated locally. Two installed optimized GPUI
   runs verified whole-map/HUD/discovery/save behavior; Andrew confirmed Terminal
   whole-area visibility but rejected its initial presentation. His corrected
-  Terminal presentation is under native qualification. Andrew selected a persistent
+  Terminal presentation awaits his visual review. The revised macOS installed
+  GPUI run passed on runtime Engine `30cb36b`, Game `7643530`, Renderer `3d0446a`:
+  3828 frames, 108.886 seconds, exit 0, clean close. Focus-only names, map sizes,
+  ownership transitions, discovery, disk save/load and revisiting passed; audio
+  remained muted with zero playback backends, user files unchanged and owned
+  storage removed. Both fixture modes passed 2 tests / 49 assertions in 13.26
+  seconds on the preceding `4d9cf45`; the following shared caption-width fix was
+  qualified by 48 focused window/map/journal/info tests / 1154 assertions and
+  exercised in that final native run. These are functional checks, not GPU timing
+  or Linux/WSLg native evidence. Andrew selected a persistent
   GPUI corner atlas with compact and larger sizes, plus a full opened map with
   clear labels and legend. Ordinary entrances/exits show markers immediately;
   names and other landmarks are learned by physical approach or authored play
