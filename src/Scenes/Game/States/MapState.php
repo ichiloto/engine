@@ -117,11 +117,12 @@ class MapState extends GameSceneState
                 $width,$height,heightPolicy:WindowHeightPolicy::FIXED);
             $this->infoPanel=new Window('', '',new Vector2(0,$height),$width,4,heightPolicy:WindowHeightPolicy::FIXED);
         }
-        $hints=[MapAtlasTerminal::getFocusHint()];
+        $hints=[];
         foreach (['map_view'=>'map.local','info'=>'map.details','back'=>'map.close'] as $action=>$term) {
             $hint=ActionHints::resolve($action,MessageCatalog::getTerm($term));
             $hints[]=($hint->control?->label ?? 'Unbound').':'.$hint->label;
         }
+        $hints[]=MapAtlasTerminal::getFocusHint();
         Console::recomposeFrame(function () use ($hints): void {
             $this->mapPanel->setHelp(implode('  ',$hints));
             $this->mapPanel->setContent($this->buildMapContent($this->mapPanel->getContentWidth(),$this->mapPanel->getContentHeight()));

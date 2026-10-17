@@ -112,12 +112,13 @@ class LocalMapState extends GameSceneState implements \Ichiloto\Engine\Rendering
             $this->window = new Window($this->getGameScene()->party->location->name, '', new Vector2(0, 0),
                 max(4, $size[0]), max(4, $size[1]), heightPolicy: WindowHeightPolicy::FIXED);
         }
-        $hints = [MapAtlasTerminal::getFocusHint()];
+        $hints = [];
         foreach (['map_view' => MessageCatalog::getTerm('map.region'), 'info' => MessageCatalog::getTerm('map.details'),
             'back' => MessageCatalog::getTerm('map.close')] as $action => $label) {
             $hint = ActionHints::resolve($action, $label);
             $hints[] = ($hint->control?->label ?? 'Unbound') . ':' . $label;
         }
+        $hints[]=MapAtlasTerminal::getFocusHint();
         Console::recomposeFrame(function () use ($hints): void {
             $this->window->setHelp(implode('  ', $hints));
             $this->window->setContent($this->buildContent($this->window->getContentWidth(), $this->window->getContentHeight()));
