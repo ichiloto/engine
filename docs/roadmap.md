@@ -921,7 +921,7 @@ not a default for future story stations.
 
 > Status: field-effect runtime slice in local implementation, October 2026.
 > Story/route classification and Claude's source-preserving Editor handoff are
-> pending. The minimap remains planned, not implemented.
+> pending. The minimap runtime is implemented locally; installed native acceptance remains pending.
 
 - **Every terminal glyph has graphical art.** In the graphical field, a cue
   draws as a slanted exclamation mark with a border, blue or yellow, from
@@ -937,8 +937,8 @@ not a default for future story stations.
   a north-up aspect-preserving fit and shared cell-centre placement for graphical
   and Terminal display units. The 47 projection/viewport/cell-area tests passed
   locally. The shared source-referenced landmark catalog, saved discovery and
-  active-map Terminal view are now locally implemented. GPUI cached overview/HUD,
-  Game metadata and Editor authoring remain pending. Andrew selected a persistent
+  active-map Terminal view are now locally implemented. GPUI cached overview/HUD and Editor landmark/theme authoring are implemented
+  locally. Game metadata is prepared; native and installed Game acceptance remain pending. Andrew selected a persistent
   GPUI corner atlas with compact and larger sizes, plus a full opened map with
   clear labels and legend. Ordinary entrances/exits show markers immediately;
   names and other landmarks are learned by physical approach or authored play

@@ -443,3 +443,27 @@ it('rejects unsupported or misplaced field canvas providers instead of drawing t
     fn() => throw new LogicException('Replacement must not consume Terminal.'));
   expect($replacement->worldCanvases)->toBe([])->and($replacement->viewport)->toBeNull();
 });
+
+it('retains a referenced map resource under an exclusive atlas and releases it for ordinary menus', function () {
+  $composite = new \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasComposite('atlas',16,8,
+    new \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle(0,0,160,80),[
+      new \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasCompositeOperation(['type'=>'world','worldId'=>'synthetic-world',
+        'destination'=>['x'=>0,'y'=>0,'width'=>16,'height'=>8],'subjects'=>[]])]);
+  $this->scene->canvas = new PresentationCanvas(384,192,composites:[$composite]);
+  $frame = $this->composer->composeFrame($this->scene,$this->grid,fn()=>true,$this->capture);
+  expect($frame->snapshot)->toBeNull()->and($frame->world)->toBe($this->scene->world)
+    ->and($frame->viewport)->toBeNull()->and($frame->sprites)->toBe([]);
+  [$presenter,$transport] = createCompositionPresenter($this->root,$this->grid);
+  $presenter->presentFrame($frame->prepareFrame($presenter));
+  $latest = RetainedFrameState::getLatestFrame($transport->sent);
+  expect($latest['worlds'])->toHaveCount(1)->and($latest)->not->toHaveKey('viewport');
+  $presenter->presentFrame($frame->prepareFrame($presenter));
+  $worldUploads = array_filter(array_merge(...array_column(array_column($transport->sent,'payload'),'operations')),
+    fn($operation)=>$operation['op']==='put' && ($operation['kind']??'')==='world');
+  expect($worldUploads)->toHaveCount(1);
+  $this->scene->canvas = new PresentationCanvas(384,192);
+  $menu = $this->composer->composeFrame($this->scene,$this->grid,fn()=>true,$this->capture);
+  $presenter->presentFrame($menu->prepareFrame($presenter));
+  expect(RetainedFrameState::getLatestFrame($transport->sent))->not->toHaveKey('worlds');
+  expect(fn()=>new SceneFrameComposition(null,canvas:$frame->canvas))->toThrow(InvalidArgumentException::class);
+});

@@ -31,6 +31,7 @@ class MainMenuSettingsManager extends SettingsManager
             'transitions',
             'battle_transitions',
             'location_hud',
+            'atlas_size',
         ];
     }
 }

@@ -30,6 +30,9 @@ final class CanvasImagePreflight
     }
     foreach ($composites as $composite) {
       foreach ($composite->operations as $operation) {
+        foreach ($operation->worldSubjects as $subject) {
+          foreach ($subject->images as $image) { PngAssetPreflight::inspect($root, $image->asset, $image->sourceRect); }
+        }
         foreach ($operation->getAssets() as $asset) {
           $size = PngAssetPreflight::inspect($root, $asset);
           $path = realpath($root . DIRECTORY_SEPARATOR . $asset);

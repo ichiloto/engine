@@ -60,7 +60,10 @@ final class SceneFrameComposer
       $sceneOverlay = $scene instanceof CanvasOverlayProviderInterface && $overlaySupported
         ? $scene->getPresentationOverlay($canvas->width, $canvas->height) : null;
       $noticeCanvas = $notifications?->composePresentation(null, $canvas->width, $canvas->height);
-      return new SceneFrameComposition(null, canvas: $canvas, screenOverlay: $noticeCanvas === null ? $sceneOverlay
+      $references = [...$canvas->getReferencedWorldIds(), ...($sceneOverlay?->getReferencedWorldIds() ?? []),
+        ...($noticeCanvas?->getReferencedWorldIds() ?? [])];
+      $world = $references !== [] && $scene instanceof RetainedWorldProviderInterface ? $scene->getPresentationWorld() : null;
+      return new SceneFrameComposition(null, world: $world, canvas: $canvas, screenOverlay: $noticeCanvas === null ? $sceneOverlay
         : PresentationCanvas::composeOverlay($sceneOverlay, $noticeCanvas));
     }
     $collection = LatencyTrace::getTimeNow();

@@ -5,6 +5,10 @@ declare(strict_types=1);
 namespace Ichiloto\Engine\Field;
 
 use Ichiloto\Engine\Core\Vector2;
+use Ichiloto\Engine\Rendering\FieldViewport;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasImage;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasWorldSubject;
 use Ichiloto\Engine\Rendering\Presentation\PresentationSpriteMotion;
 use Ichiloto\Engine\Rendering\Sprites\FieldSpriteRole;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteDefinition;
@@ -89,6 +93,28 @@ final class WorldObject implements GraphicalSpriteProviderInterface
         if ($presentation === null) { return null; }
         return new \Ichiloto\Engine\Rendering\Presentation\PresentationWorldCanvas($this->getGraphicalSpriteId(),
             $this->definition->x, $this->definition->y, $presentation[1], $presentation[0], $this->definition->resource->sign->layer);
+    }
+
+    /** A static miniature uses the same current resource and ownership as the field. */
+    public function getOverviewSubject(): ?CanvasWorldSubject
+    {
+        if (!$this->isCurrent()) { return null; }
+        if ($this->sign !== null) {
+            $group = $this->getPresentationWorldCanvas();
+            if ($group === null) { return null; }
+            // Printed sign text is represented by the atlas's readable landmark
+            // names. Retain the actual board imagery, size and ground attachment.
+            return new CanvasWorldSubject($group->id, $this->definition->x, $this->definition->y,
+                $group->canvas->width / FieldViewport::TILE_SIZE, $group->canvas->height / FieldViewport::TILE_SIZE,
+                $group->canvas->width, $group->canvas->height, $group->pivot, $group->canvas->images, $group->layer);
+        }
+        $frame = $this->selectRole()?->getStillFrame($this->definition->pivot);
+        if ($frame === null) { return null; }
+        return new CanvasWorldSubject($this->getGraphicalSpriteId(), $this->definition->x, $this->definition->y,
+            $frame->width / FieldViewport::TILE_SIZE, $frame->height / FieldViewport::TILE_SIZE,
+            $frame->width, $frame->height, $this->definition->pivot,
+            [new CanvasImage('still', $frame->asset, new CanvasRectangle(0, 0, $frame->width, $frame->height),
+                sourceRect: $frame->sourceRect)], $frame->layer, $frame->lift / FieldViewport::TILE_SIZE, $frame->quarterTurns);
     }
 
     public function releaseTextPresentation(): void { $this->sign?->release(); }

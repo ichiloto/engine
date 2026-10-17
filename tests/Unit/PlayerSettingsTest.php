@@ -273,3 +273,19 @@ it('preflights music effects and independent Voice against effective player over
   expect(fn() => AudioMutePreflight::assertMuted(ConfigStore::get(ProjectConfig::class)))
     ->toThrow(RuntimeException::class, 'audio.voice');
 });
+
+it('persists corner size across sessions and ignores unsupported saved sizes', function () {
+  file_put_contents($this->projectRoot.'/config.php',"<?php return ['audio'=>['master_volume'=>0,'music'=>false,'sfx'=>false,'voice'=>false]];");
+  $player = new PlayerSettings($this->projectRoot);
+  ConfigStore::put(PlayerSettings::class,$player);
+  ConfigStore::put(ProjectConfig::class,new ProjectConfig());
+  $catalog = new SettingsCatalog();
+  $catalog->write('atlas_size','large');
+  $catalog->persist();
+  expect((new PlayerSettings($this->projectRoot))->get('ui.hud.map_size'))->toBe('large')
+    ->and($catalog->read('volume'))->toBe(0)->and($catalog->read('music'))->toBeFalse();
+  expect(fn()=>$catalog->write('atlas_size','opened'))->toThrow(InvalidArgumentException::class)
+    ->and(fn()=>$player->set('ui.hud.map_size','opened'))->toThrow(InvalidArgumentException::class);
+  file_put_contents($this->projectRoot.'/.data/player-settings.json','{"ui":{"hud":{"map_size":"opened"}}}');
+  expect((new PlayerSettings($this->projectRoot))->getOverrides())->toBe([]);
+});

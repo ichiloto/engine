@@ -47,11 +47,11 @@ final class RendererPresentation
     return $this->submitPresentation($snapshot, $sprites, [], $viewport, $world, $canvasOverlay, true, $worldCanvases);
   }
 
-  public function prepareCanvas(PresentationCanvas $canvas): RetainedFrame
+  public function prepareCanvas(PresentationCanvas $canvas, ?PresentationWorld $world = null): RetainedFrame
   {
     $this->validateCanvas($canvas);
     $this->validateCanvasFrame([$canvas]);
-    return $this->retained->prepareCanvas($canvas);
+    return $this->retained->prepareCanvas($canvas, $world);
   }
 
   public function presentFrame(RetainedFrame $frame, ?PresentationCanvas $screenOverlay = null): bool
@@ -68,6 +68,7 @@ final class RendererPresentation
     }
     $canvas = $screenOverlay === null ? $frame->canvas
       : PresentationCanvas::composeOverlay($frame->canvas, $screenOverlay);
+    $canvas?->assertWorldReferences($frame->world);
     $this->validateCanvasFrame([...($canvas === null ? [] : [$canvas]),
       ...array_map(static fn($group) => $group->canvas, $frame->worldCanvases)]);
     return $this->retained->presentFrame($frame, $screenOverlay);
@@ -89,6 +90,8 @@ final class RendererPresentation
     array $sprites, array $tileBatches, ?PresentationViewport $viewport,
     ?PresentationWorld $world, ?PresentationCanvas $canvasOverlay, bool $prepare, array $worldCanvases): bool|RetainedFrame
   {
+    $canvasOverlay?->assertWorldReferences($world);
+    foreach ($worldCanvases as $group) { $group->canvas->assertWorldReferences($world); }
     if ($snapshot->width !== $this->grid->columns || $snapshot->height !== $this->grid->rows) {
       throw new InvalidArgumentException('Console snapshot dimensions must match the fixed renderer session grid.');
     }
@@ -131,11 +134,11 @@ final class RendererPresentation
   }
 
   /** Graphical frames do not require a Console snapshot or use its cell dimensions. */
-  public function presentCanvas(PresentationCanvas $canvas): bool
+  public function presentCanvas(PresentationCanvas $canvas, ?PresentationWorld $world = null): bool
   {
     $this->validateCanvas($canvas);
     $this->validateCanvasFrame([$canvas]);
-    return $this->retained->presentCanvas($canvas);
+    return $this->retained->presentCanvas($canvas, $world);
   }
 
   /** Admission is for the complete candidate, not one root or one prepared layout at a time.
@@ -166,6 +169,17 @@ final class RendererPresentation
     }
     if ($canvas->composites !== [] && !$this->client->supports(RendererSessionConfig::CANVAS_COMPOSITING)) {
       throw new RendererProtocolException('Canvas raster operations require negotiated canvas_compositing support.');
+    }
+    $compositeIds = array_fill_keys(array_column($canvas->composites, 'id'), true);
+    $imageIds = array_fill_keys(array_column($canvas->images, 'id'), true);
+    if (array_any($canvas->indicators, static fn($indicator) => !isset($imageIds[$indicator->imageId]) && isset($compositeIds[$indicator->imageId]))
+      && !$this->client->supports(RendererSessionConfig::CANVAS_COMPOSITE_INDICATORS)) {
+      throw new RendererProtocolException('Composite indicators require negotiated canvas_composite_indicators support.');
+    }
+    if (array_any($canvas->composites, static fn($composite) => array_any($composite->operations,
+        static fn($operation) => $operation->data['type'] === 'world'))
+      && !$this->client->supports(RendererSessionConfig::MAP_OVERVIEW)) {
+      throw new RendererProtocolException('World overview rasters require negotiated map_overview support.');
     }
     if ($canvas->labels !== [] && (!$this->client->supports(RendererSessionConfig::CANVAS_LABELS)
       || !$this->client->supports(RendererSessionConfig::TEXT_LAYOUT))) {

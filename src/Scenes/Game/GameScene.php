@@ -226,7 +226,41 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
 
     public function getPresentationWorld(): ?PresentationWorld
     {
-        return $this->hasGraphicalFieldPresentation() ? $this->mapManager?->getPresentationWorld() : null;
+        return $this->hasGraphicalFieldPresentation()
+            || ($this->state instanceof LocalMapState && $this->canPresentMapAtlas())
+            ? $this->mapManager?->getPresentationWorld() : null;
+    }
+
+    private ?\Ichiloto\Engine\UI\Presentation\MapAtlasPresentation $mapAtlasPresentation = null;
+
+    public function canPresentMapAtlas(): bool
+    {
+        return !$this->isStopping && \Ichiloto\Engine\UI\Presentation\MapAtlasPresentation::supports($this->supportsScenePresentation(...));
+    }
+
+    /** Read installed geometry, source-owned static objects and saved knowledge without discovering from drawing. */
+    public function getMapAtlasCanvas(\Ichiloto\Engine\UI\Presentation\MapAtlasSize $size,
+        ?int $width = null, ?int $height = null, int $selected = -1, int $detailPage = 0): ?PresentationCanvas
+    {
+        if (!$this->canPresentMapAtlas() || $this->mapManager?->overview === null || $this->player === null) { return null; }
+        $context = $this->presentationContext;
+        $runtime = $context === null && isset($this->sceneManager) ? $this->getGame()->getRendererRuntime() : null;
+        $root = $context !== null ? $context->assetRoot : $runtime?->getAssetRoot();
+        $grid = $context !== null ? $context->grid : $runtime?->grid;
+        $world = $this->mapManager->getPresentationWorld();
+        if ($root === null || $grid === null || $world === null) { return null; }
+        $subjects = [];
+        foreach ($this->mapManager->getWorldObjects() as $object) {
+            $subject = $object->getOverviewSubject();
+            if ($subject !== null) { $subjects[] = $subject; }
+        }
+        $snapshot = new \Ichiloto\Engine\UI\Presentation\MapAtlasSnapshot($this->party?->location?->name ?? '',
+            $world->id, $this->mapManager->overview, $subjects,
+            $this->gameState === null ? [] : ($this->mapManager->mapKnowledge?->getVisibleLandmarks($this->gameState,$this->party) ?? []),
+            $this->player->position->x,$this->player->position->y,$this->player->heading);
+        return ($this->mapAtlasPresentation ??= new \Ichiloto\Engine\UI\Presentation\MapAtlasPresentation())->getCanvas(
+            $snapshot,$root,$this->supportsScenePresentation(...),$width ?? $grid->columns*$grid->cellWidth,
+            $height ?? $grid->rows*$grid->cellHeight,$size,$selected,$detailPage);
     }
 
     /** Isolated previews must explicitly bind their own session, never borrow the live Game transport. */

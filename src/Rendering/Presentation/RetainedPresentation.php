@@ -72,9 +72,9 @@ final class RetainedPresentation
         return $this->prepareRetainedFrame(fn() => $this->updateFrame($text, $sprites, $viewport, $world, $canvasOverlay, $worldCanvases));
     }
 
-    public function prepareCanvas(PresentationCanvas $canvas): RetainedFrame
+    public function prepareCanvas(PresentationCanvas $canvas, ?PresentationWorld $world = null): RetainedFrame
     {
-        return $this->prepareRetainedFrame(fn() => $this->updateFullCanvas($canvas));
+        return $this->prepareRetainedFrame(fn() => $this->updateFullCanvas($canvas, $world));
     }
 
     private function prepareRetainedFrame(Closure $prepare): RetainedFrame
@@ -111,6 +111,8 @@ final class RetainedPresentation
         }
         CanvasFrameBudget::assertCanvases([...($canvas === null ? [] : [$canvas]),
             ...array_map(static fn($group) => $group->canvas, $frame->worldCanvases)]);
+        $canvas?->assertWorldReferences($frame->world);
+        foreach ($frame->worldCanvases as $group) { $group->canvas->assertWorldReferences($frame->world); }
         $this->operations = [];
         if ($this->world !== $frame->world) {
             if ($this->world !== null) { $this->operations[] = ['op' => 'remove', 'kind' => 'world', 'id' => $this->world->id]; }
@@ -193,6 +195,8 @@ final class RetainedPresentation
     private function updateFrame(ConsolePresentationChanges|ConsolePresentationSnapshot $text, array $sprites,
         ?PresentationViewport $viewport, ?PresentationWorld $world, ?PresentationCanvas $canvasOverlay, array $worldCanvases): void
     {
+        $canvasOverlay?->assertWorldReferences($world);
+        foreach ($worldCanvases as $group) { $group->canvas->assertWorldReferences($world); }
         $subjects = PresentationSubjectOrder::getOrderedSubjects($sprites, $worldCanvases);
         $worldCanvases = PresentationWorldCanvas::getOrderedList($worldCanvases);
         if ($worldCanvases !== [] && ($world === null || $viewport?->worldId !== $world->id)) {
@@ -230,19 +234,21 @@ final class RetainedPresentation
         $this->setViewport($viewport?->toArray());
     }
 
-    public function presentCanvas(PresentationCanvas $canvas): bool
+    public function presentCanvas(PresentationCanvas $canvas, ?PresentationWorld $world = null): bool
     {
-        $this->updateFullCanvas($canvas);
+        $this->updateFullCanvas($canvas, $world);
         return $this->flush();
     }
 
-    private function updateFullCanvas(PresentationCanvas $canvas): void
+    private function updateFullCanvas(PresentationCanvas $canvas, ?PresentationWorld $world = null): void
     {
+        $canvas->assertWorldReferences($world);
         CanvasFrameBudget::assertCanvases([$canvas]);
         $this->operations = [];
-        if ($this->world !== null) {
-            $this->operations[] = ['op' => 'remove', 'kind' => 'world', 'id' => $this->world->id];
-            $this->world = null;
+        if ($this->world !== $world) {
+            if ($this->world !== null) { $this->operations[] = ['op' => 'remove', 'kind' => 'world', 'id' => $this->world->id]; }
+            $this->world = $world;
+            if ($world !== null) { array_push($this->operations, ...$this->getWorldOperations($world)); }
         }
         $this->replaceValues('text', []);
         $this->textRows = [];

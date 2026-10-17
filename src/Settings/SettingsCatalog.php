@@ -132,9 +132,15 @@ class SettingsCatalog
         ['Off' => false, 'On' => true],
       ),
       new GameSetting(
+        'atlas_size',
+        'Corner Map Size',
+        'Changes the corner map size. Open Map for the full map and legend.',
+        ['Compact' => 'compact', 'Larger' => 'large'],
+      ),
+      new GameSetting(
         'location_hud',
         'Location HUD',
-        'Toggles the field HUD that shows coordinates and facing direction.',
+        'Shows the field map in graphical mode and coordinates and facing in Terminal.',
         ['Off' => false, 'On' => true],
       ),
     ];
@@ -194,6 +200,7 @@ class SettingsCatalog
         config(ProjectConfig::class, 'ui.battle.message_pace', 'slow')
       ),
       'selection_color' => SelectionStyle::resolveColor(),
+      'atlas_size' => config(ProjectConfig::class, 'ui.hud.map_size', 'compact') === 'large' ? 'large' : 'compact',
       'location_hud' => boolval(config(ProjectConfig::class, 'ui.hud.location', false)),
       'transitions' => TransitionStyle::tryFrom(strtolower(strval(
         config(ProjectConfig::class, ScreenTransition::CONFIG_STYLE, TransitionStyle::NONE->value)
@@ -232,6 +239,7 @@ class SettingsCatalog
         ['ui.menu.selection_color', 'ui.battle.selection_color'],
         $value instanceof Color ? $value : Color::LIGHT_BLUE
       ),
+      'atlas_size' => $this->writePath($config, 'ui.hud.map_size', self::validateAtlasSize($value)),
       'location_hud' => $this->writePath($config, 'ui.hud.location', boolval($value)),
       'transitions' => $this->writePath($config,
         ScreenTransition::CONFIG_STYLE,
@@ -269,6 +277,12 @@ class SettingsCatalog
     foreach ($paths as $path) {
       $this->writePath($config, $path, $value);
     }
+  }
+
+  private static function validateAtlasSize(mixed $value): string
+  {
+    if (!in_array($value, ['compact','large'], true)) { throw new \InvalidArgumentException('Corner map size must be compact or large.'); }
+    return $value;
   }
 
   private function writePath(ConfigInterface $config, string $path, mixed $value): void

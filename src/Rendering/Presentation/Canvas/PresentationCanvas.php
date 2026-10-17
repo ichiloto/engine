@@ -27,6 +27,25 @@ final readonly class PresentationCanvas
    */
   public ?array $protectedAreas;
 
+  /** Sources required by cached overview operations, independent of visible field viewports. */
+  public function getReferencedWorldIds(): array
+  {
+    $ids = [];
+    foreach ($this->composites as $composite) {
+      foreach ($composite->operations as $operation) {
+        if ($operation->data['type'] === 'world') { $ids[$operation->data['worldId']] = true; }
+      }
+    }
+    return array_keys($ids);
+  }
+
+  public function assertWorldReferences(?\Ichiloto\Engine\Rendering\Presentation\PresentationWorld $world): void
+  {
+    foreach ($this->getReferencedWorldIds() as $id) {
+      if ($world?->id !== $id) { throw new InvalidArgumentException('A canvas overview requires its retained source world.'); }
+    }
+  }
+
   /** Resolve each source before stacking, so one unannotated overlay cannot erase another owner's safe areas.
    * @return list<CanvasRectangle>
    */
@@ -146,10 +165,11 @@ final readonly class PresentationCanvas
       $image->clipRect?->assertWithin($width, $height);
       $imageIds[$image->id] = true;
     }
+    foreach ($this->composites as $composite) { $imageIds[$composite->id] = true; }
     foreach ($this->indicators as $indicator) {
       $indicator->bounds->assertWithin($width, $height);
       if (!isset($imageIds[$indicator->imageId])) {
-        throw new InvalidArgumentException('Canvas indicators must reference an image in the same frame.');
+        throw new InvalidArgumentException('Canvas indicators must reference an image or composite in the same frame.');
       }
     }
     $runs = $scalars = 0;

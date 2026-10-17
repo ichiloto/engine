@@ -142,7 +142,7 @@ immutable during ordinary editing. Existing world-condition flags provide
 authored revelations; no new script command is introduced in this slice.
 
 The shared catalog/discovery/save contract is on local develop. The active-map
-Terminal view and shared theme extension are in local implementation. The map
+Terminal view and shared theme extension are implemented locally. The map
 action opens the physical atlas; `map_view` switches to the separate region
 view. `map_view` defaults to unclaimed V/v controls and is rebindable. Up/down
 select legend entries, page actions move a legend page, and Info pages through
@@ -160,8 +160,28 @@ Optional icon roles are `map.player`, `map.passage`, `map.entrance`, `map.exit`,
 `map.building` and `map.landmark`. Missing art uses shared geometric marker
 treatments. Projects supply data and artwork; the Engine owns drawing and input.
 
-GPUI overview/HUD composition, Game metadata and Editor authoring are still
-being integrated. No complete graphical minimap is claimed by this contract.
+GPUI uses the same installed retained world as a static overview source. The
+corner atlas replaces the coordinate HUD only after successful composition and
+while the field owns presentation; dialogue, menus, scene suspension and the HUD
+setting keep their existing ownership. Terminal keeps coordinates. The semantic
+`map_size` action (F3 by default) cycles compact/larger; Config exposes Corner Map
+Size and persists `ui.hud.map_size` in player settings. Opened mode is temporary.
+The full atlas retains the source world without selecting a field viewport or
+field actors; ordinary menu canvases release that dependency.
+
+The optional negotiated `map_overview` world-composite operation reuses prepared
+map tiles and up to 128 map-owned still groups / 1024 child images. It freezes
+animated resources at a resting pose and preserves physical anchors, crops,
+pivots, layers and lift. Raster output is at most 1024 by 1024, with 16 MiB of
+live overview output/key storage, two-times sampling and 256 Mi bounded cold
+work. A frame requests one overview. `canvas_composite_indicators` separates live
+player/landmark markers from this cached raster. Map revision and current decoded
+image identity invalidate it; movement only changes indicators. Generic glyph-only
+maps use their presentation colours. Neither collision nor location meaning is
+inferred from graphics. Existing composite limits remain unchanged.
+
+Editor landmark and atlas theme authoring are implemented locally. Game metadata
+is prepared separately. Final native and installed Game acceptance remain pending.
 
 ## Layer order and composition
 

@@ -32,6 +32,32 @@ final readonly class CanvasImage
     }
   }
 
+  /** Reads the canonical image descriptor through the same geometry and asset validation. */
+  public static function fromArray(array $data): self
+  {
+    CanvasCompositeValues::validateKeys($data, ['id', 'asset', 'destination', 'layer'],
+      ['sourceRect', 'opacity', 'clipRect', 'brightness', 'flipX', 'flipY']);
+    if (!is_string($data['id']) || !is_string($data['asset']) || !is_int($data['layer'])) {
+      throw new InvalidArgumentException('Canvas image id/asset require strings and layer requires an integer.');
+    }
+    foreach (['flipX', 'flipY'] as $key) {
+      if (array_key_exists($key, $data) && !is_bool($data[$key])) { throw new InvalidArgumentException('Canvas image mirror flags must be boolean.'); }
+    }
+    $source = null;
+    if (array_key_exists('sourceRect', $data)) {
+      $rect = $data['sourceRect'];
+      if (!is_array($rect) || array_diff(array_keys($rect), ['x', 'y', 'width', 'height']) !== []
+        || count($rect) !== 4 || !array_all($rect, is_int(...))) {
+        throw new InvalidArgumentException('Canvas image sourceRect requires integer x/y/width/height.');
+      }
+      $source = new SpriteSourceRect($rect['x'], $rect['y'], $rect['width'], $rect['height']);
+    }
+    return new self($data['id'], $data['asset'], new CanvasRectangle(...CanvasCompositeValues::getRectangle($data['destination'])),
+      $data['layer'], $source, CanvasCompositeValues::getNumber($data['opacity'] ?? 1, 0, 1),
+      array_key_exists('clipRect', $data) ? new CanvasRectangle(...CanvasCompositeValues::getRectangle($data['clipRect'])) : null,
+      CanvasCompositeValues::getNumber($data['brightness'] ?? 1, 0, 1), $data['flipX'] ?? false, $data['flipY'] ?? false);
+  }
+
   /** Clip source pixels at the viewport edge without moving the artwork's attachment point. */
   public static function createClipped(string $id, string $asset, float $x, float $y, float $width, float $height,
     int $canvasWidth, int $canvasHeight, int $layer, SpriteSourceRect $sourceRect,

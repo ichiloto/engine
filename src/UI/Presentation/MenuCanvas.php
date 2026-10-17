@@ -70,11 +70,11 @@ final class MenuCanvas
   }
 
   /** Decorative semantic roles are optional; a missing role is not an unknown item. */
-  public function icon(string $id, string $role, CanvasRectangle $bounds): bool
+  public function icon(string $id, string $role, CanvasRectangle $bounds, int $layer = 31): bool
   {
     $asset = $this->theme->icons?->icons[$role] ?? null;
     if ($asset === null) { return false; }
-    $images = MenuIconRegistry::containAsset($this->theme->assetRoot, $id, $asset, $bounds, 31, $bounds);
+    $images = MenuIconRegistry::containAsset($this->theme->assetRoot, $id, $asset, $bounds, $layer, $bounds);
     array_push($this->images, ...$images);
     if ($images !== []) { $this->protect($bounds); }
     return $images !== [];

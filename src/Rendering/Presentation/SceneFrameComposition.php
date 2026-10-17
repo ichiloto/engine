@@ -30,7 +30,7 @@ final readonly class SceneFrameComposition
     public ?PresentationCanvas $screenOverlay = null,
     array $worldCanvases = [],
   ) {
-    if ($snapshot === null && ($canvas === null || $sprites !== [] || $viewport !== null || $world !== null || $worldCanvases !== [])) {
+    if ($snapshot === null && ($canvas === null || $sprites !== [] || $viewport !== null || $worldCanvases !== [])) {
       throw new InvalidArgumentException('A canvas scene requires one replacement canvas and no field inputs.');
     }
     $this->sprites = PresentationSprite::orderedList($sprites);
@@ -41,6 +41,11 @@ final readonly class SceneFrameComposition
     }
     $viewport?->assertMembers($snapshot, $this->sprites, worldCanvases: $this->worldCanvases);
     $composed = $screenOverlay === null ? $canvas : PresentationCanvas::composeOverlay($canvas, $screenOverlay);
+    $composed?->assertWorldReferences($world);
+    if ($snapshot === null && $world !== null && ($composed?->getReferencedWorldIds() ?? []) === []) {
+      throw new InvalidArgumentException('An exclusive canvas may retain a world only as a referenced raster source.');
+    }
+    foreach ($this->worldCanvases as $group) { $group->canvas->assertWorldReferences($world); }
     CanvasFrameBudget::assertCanvases([...($composed === null ? [] : [$composed]),
       ...array_map(static fn($group) => $group->canvas, $this->worldCanvases)]);
   }
@@ -48,7 +53,7 @@ final readonly class SceneFrameComposition
   /** Retained-frame ownership and reliable delivery stay with the caller's existing presenter. */
   public function prepareFrame(RendererPresentation $presentation): RetainedFrame
   {
-    return $this->snapshot === null ? $presentation->prepareCanvas($this->canvas)
+    return $this->snapshot === null ? $presentation->prepareCanvas($this->canvas, $this->world)
       : $presentation->prepareFrame($this->snapshot, $this->sprites, $this->viewport, $this->world, $this->canvas, $this->worldCanvases);
   }
 }

@@ -55,6 +55,20 @@ final class FieldSpriteRole
         return $this->prepareFrame($frame, $pivot);
     }
 
+    /** Map overviews share admission and pivots while holding the authored resting pose. */
+    public function getStillFrame(PresentationSpritePivot $pivot): ?GraphicalSpriteDefinition
+    {
+        if ($this->released) { return null; }
+        if (!$this->definition instanceof FieldPoseAnimation) { return $this->getFrame($pivot); }
+        try {
+            $frame = $this->definition->getFrame($this->assetRoot, 0, true);
+            return $frame === null ? null : $this->prepareFrame($frame, $pivot);
+        } catch (InvalidArgumentException $error) {
+            $this->reportFailure($error->getMessage());
+            return null;
+        }
+    }
+
     /** Optional stale crops reconcile only inside the same current asset, never to another art role. */
     private function prepareFrame(GraphicalSpriteDefinition $frame, PresentationSpritePivot $pivot): ?GraphicalSpriteDefinition
     {

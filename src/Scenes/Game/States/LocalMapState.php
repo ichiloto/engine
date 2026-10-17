@@ -19,13 +19,19 @@ use Ichiloto\Engine\UI\Windows\Enumerations\WindowHeightPolicy;
 use Ichiloto\Engine\UI\Windows\Window;
 
 /** Whole active-map atlas, with physical positions and a selectable, paged legend. */
-class LocalMapState extends GameSceneState
+class LocalMapState extends GameSceneState implements \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface
 {
     protected ?Window $window = null;
     protected int $selected = 0;
     protected int $detailPage = 0;
     protected int $legendPageSize = 1;
     private array $screenSize = [];
+
+    public function getPresentationCanvas(): ?\Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas
+    {
+        return $this->getGameScene()->getMapAtlasCanvas(\Ichiloto\Engine\UI\Presentation\MapAtlasSize::OPENED,
+            selected: $this->selected, detailPage: $this->detailPage);
+    }
 
     public function enter(): void
     {
@@ -134,9 +140,9 @@ class LocalMapState extends GameSceneState
         $detail = isset($landmarks[$this->selected]) ? MapAtlasTerminal::getLandmarkLabel($landmarks[$this->selected]) : '';
         $detailLines = $detail === '' ? [] : TerminalText::wrapToWidth($detail, $width);
         $pages = max(1, (int) ceil(count($detailLines) / 2));
-        $this->detailPage %= $pages;
-        $rows[] = $pages > 1 ? MessageCatalog::getTerm('map.details') . ' ' . ($this->detailPage + 1) . '/' . $pages : '';
-        array_push($rows, ...array_pad(array_slice($detailLines, $this->detailPage * 2, 2), 2, ''));
+        $page = $this->detailPage % $pages;
+        $rows[] = $pages > 1 ? MessageCatalog::getTerm('map.details') . ' ' . ($page + 1) . '/' . $pages : '';
+        array_push($rows, ...array_pad(array_slice($detailLines, $page * 2, 2), 2, ''));
         return array_slice($rows, 0, $height);
     }
 }

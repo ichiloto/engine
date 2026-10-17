@@ -334,6 +334,23 @@ it('projects one-shot completion into both object artwork and terminal state acr
         ->and($object->getTerminalSymbol())->toBeNull(); // Old installation cannot claim the new map.
 });
 
+it('keeps overview subjects at the source anchor and resting pose without advancing field clocks', function () {
+    $source = createWorldObjectSource(['sprites2d' => ['asset'=>'Graphics/glow.png',
+        'animation'=>['columns'=>2,'frames'=>[0,1],'fps'=>10]]]);
+    $prepared = createWorldObjectPreparedMap([$source]);
+    $this->scene->mapManager->applyPreparedMap($prepared,$this->scene->player);
+    $object = $this->scene->mapManager->findWorldObject('fixture');
+    $before = $this->scene->gameState->toArray();
+    $still = $object->getOverviewSubject();
+    $object->advanceGraphicalAnimation(.1);
+    expect($object->getOverviewSubject()->toArray())->toBe($still->toArray())
+        ->and([$still->x,$still->y])->toBe([1,1])->and($still->pivot->toArray())->toBe(['x'=>.25,'y'=>.75])
+        ->and($object->getGraphicalSpriteDefinition()->sourceRect)->not->toEqual($still->images[0]->sourceRect)
+        ->and($this->scene->gameState->toArray())->toBe($before);
+    $this->scene->gameState->setSwitch('removed');
+    expect($object->getOverviewSubject())->toBeNull();
+});
+
 it('recolors the entire owned footprint without duplicate subjects or changes to other layers and physical cells', function () {
     $source = createWorldObjectSource(['terminal' => ['color' => 'yellow'],
         'covers' => ['layer' => 'fixtures', 'cells' => [[1, 1], [2, 1]], 'tileLayers' => ['objects']],
