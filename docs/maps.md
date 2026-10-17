@@ -234,15 +234,28 @@ shared identities consumed by the composer. Projects supply data and artwork;
 the Engine owns drawing and input.
 
 GPUI uses the same installed retained world as a static overview source. The
-corner atlas replaces the coordinate HUD only after successful composition and
-while the field owns presentation; dialogue, menus, scene suspension and the HUD
-setting keep their existing ownership. Terminal keeps coordinates. The semantic
+scene suppresses the Terminal coordinate HUD whenever graphical atlas capabilities
+are available. The corner itself follows field, dialogue, menu and HUD-setting
+ownership. Terminal keeps coordinates. The semantic
 `map_size` action (F3 by default) cycles compact/larger/off; Config exposes Corner
 Map Size and persists `ui.hud.map_size` in player settings. Opened mode is temporary
 and remains available when the corner is off. Graphical coordinate-HUD exclusion
 is owned by the scene, independent of whether a corner or event overlay currently
 has a canvas. A cutscene or hidden corner therefore cannot expose Terminal HUD
 glyphs. Terminal and renderers without atlas capabilities retain their coordinates.
+
+Frame composition shares one bounded PNG file-fact snapshot across sprites,
+world coverage and overview subjects. This removes repeated filesystem/header
+probes for the same asset within one composition. The snapshot is released after
+success or failure; the next frame checks current files again, including header
+changes whose timestamps and file size collide. Crops remain checked separately.
+Opt-in latency tracing separates composition, frame preparation and submission.
+The 18 October muted macOS held-walk comparison measured compact-map composition
+median 7.545 ms before and 4.574 ms after this change; its longest measured step
+gap fell from 608.787 ms to 274.017 ms. These are bounded CPU/pipeline observations,
+not display FPS or a guarantee against all scheduling delays. Player review of
+the walking feel remains pending.
+
 The opened atlas retains its selected source world without selecting a field
 viewport or field actors; ordinary menu canvases release that dependency.
 

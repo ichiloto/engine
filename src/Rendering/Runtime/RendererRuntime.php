@@ -186,7 +186,9 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
       throw new LogicException('Renderer presentation requires an active session.');
     }
     if ($scene instanceof CanvasOverlayProviderInterface && $this->supports(RendererSessionConfig::CANVAS_OVERLAY)) {
+      $overlayStarted = LatencyTrace::getTimeNow();
       $scene->renderPresentationOverlay();
+      LatencyTrace::end('presentation.overlay', $overlayStarted);
     }
     if ($this->handoffTreatment !== null && $this->handoffFrame !== null) {
       $changed = $this->presentHandoffFrame($notifications);
@@ -195,17 +197,23 @@ final class RendererRuntime implements \Ichiloto\Engine\Rendering\Text\TextPrepa
       return $changed;
     }
     try {
+      $compositionStarted = LatencyTrace::getTimeNow();
       $composition = $this->frameComposer->composeFrame($scene, $this->grid, $this->supports(...),
         fn(array $excluded, array $worldLayers) => Console::getRetainedPresentationChanges($excluded, $this->resetText, $worldLayers),
         $notifications, refreshOverlay: false);
+      LatencyTrace::end('presentation.compose', $compositionStarted);
       $this->resetText = $composition->snapshot === null;
+      $prepareStarted = LatencyTrace::getTimeNow();
       $this->sceneFrame = $composition->prepareFrame($this->presentation);
+      LatencyTrace::end('presentation.prepare', $prepareStarted);
+      $submitStarted = LatencyTrace::getTimeNow();
       if ($this->handoffTreatment !== null) {
         $this->handoffFrame = $this->sceneFrame;
         $changed = $this->presentHandoffFrame($notifications);
       } else {
         $changed = $this->presentation->presentFrame($this->sceneFrame, $composition->screenOverlay);
       }
+      LatencyTrace::end('presentation.submit', $submitStarted);
     } catch (Throwable $error) {
       $this->resetText = true;
       throw $error;

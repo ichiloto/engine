@@ -946,6 +946,15 @@ not a default for future story stations.
   distinguishes floorplan from places: outdoor collision traces are removed,
   building entrances/locations use single squares, and blank ground, exits and
   player remain. Local defaults preserve interiors; Game owns outdoor selection.
+  Walking diagnosis found repeated artwork-file probes during shared frame
+  composition. A bounded composition snapshot removes duplicate probes while
+  refreshing file/header facts on the next frame and preserving crop validation.
+  Focused preflight/composer/runtime checks pass 76 tests / 537 assertions;
+  targeted static analysis is clean. Muted native comparison: compact-map
+  composition median 7.545 -> 4.574 ms; longest measured step gap 608.787 ->
+  274.017 ms. Candidate ran 987 frames in 19.065 seconds, zero playback backends,
+  unchanged user files and clean automatic closure. These CPU/pipeline timings
+  are bounded observations; final player review remains pending.
   Focused corner/theme/icon-role
   checks: 31 tests / 835 assertions. Muted installed macOS check: 2749 frames,
   490 changes, 81.584 seconds, exit 0, no playback backends, user files unchanged;

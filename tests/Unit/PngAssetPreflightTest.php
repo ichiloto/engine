@@ -188,3 +188,36 @@ it('checks every crop independently without caching cropped dimensions or poison
     ->and($this->cache->getValue()[$this->root . '/asset.png']['size'])->toBe(['width' => 12, 'height' => 8])
     ->and(file_exists($this->root . '/warning.log'))->toBeFalse();
 });
+
+it('shares one consistent asset snapshot across frame consumers and refreshes the next frame', function () {
+  $path = $this->root . '/asset.png';
+  writePreflightTestPng($path, 12, 8);
+  PngAssetPreflight::runWithSnapshot(function () use ($path) {
+    expect(PngAssetPreflight::inspect($this->root, 'asset.png'))->toBe(['width' => 12, 'height' => 8]);
+    writePreflightTestPng($path, 8, 12);
+    PngAssetPreflight::runWithSnapshot(function () {
+      expect(PngAssetPreflight::inspect($this->root, 'asset.png'))->toBe(['width' => 12, 'height' => 8])
+        ->and(PngAssetPreflight::inspect($this->root, 'asset.png', new SpriteSourceRect(8, 0, 4, 8)))
+        ->toBe(['width' => 4, 'height' => 8]);
+    });
+    expect(fn() => PngAssetPreflight::inspect($this->root, 'asset.png', new SpriteSourceRect(0, 8, 8, 4)))
+      ->toThrow(RuntimeException::class, 'bounds');
+  });
+  PngAssetPreflight::runWithSnapshot(function () {
+    expect(PngAssetPreflight::inspect($this->root, 'asset.png'))->toBe(['width' => 8, 'height' => 12]);
+  });
+});
+
+it('releases a failed frame snapshot so repaired artwork is immediately available', function () {
+  $path = $this->root . '/asset.png';
+  expect(fn() => PngAssetPreflight::runWithSnapshot(fn() => PngAssetPreflight::inspect($this->root, 'asset.png')))
+    ->toThrow(RuntimeException::class);
+  writePreflightTestPng($path, 9, 7);
+  expect(PngAssetPreflight::inspect($this->root, 'asset.png'))->toBe(['width' => 9, 'height' => 7]);
+  expect(fn() => PngAssetPreflight::runWithSnapshot(function () use ($path) {
+    PngAssetPreflight::inspect($this->root, 'asset.png');
+    unlink($path);
+    throw new LogicException('Composition failed');
+  }))->toThrow(LogicException::class, 'Composition failed');
+  expect(PngAssetPreflight::getAvailableSize($this->root, 'asset.png'))->toBeNull();
+});

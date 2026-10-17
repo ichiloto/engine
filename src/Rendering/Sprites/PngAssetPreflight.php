@@ -6,6 +6,7 @@ namespace Ichiloto\Engine\Rendering\Sprites;
 
 use Ichiloto\Engine\Rendering\Presentation\SpriteSourceRect;
 use RuntimeException;
+use Closure;
 use Ichiloto\Engine\Util\Debug;
 
 /** Header/bounds preflight only. Native preparation remains the PNG decode authority. */
@@ -16,6 +17,17 @@ final class PngAssetPreflight
   private const int MAX_DIMENSION = 4096;
   /** @var array<string, array{version: array, size: ?array, error: ?string, reported: bool}> */
   private static array $cache = [];
+  /** Current composition's file facts; discarded before the next frame or after any failure. */
+  private static ?array $snapshot = null;
+
+  /** Read each asset once while composing a consistent frame; nested consumers share its facts. */
+  public static function runWithSnapshot(Closure $compose): mixed
+  {
+    if (self::$snapshot !== null) { return $compose(); }
+    self::$snapshot = [];
+    try { return $compose(); }
+    finally { self::$snapshot = null; }
+  }
 
   /** Optional artwork fails independently; report once per file revision, not once per frame. */
   public static function getAvailableSize(string $root, string $asset): ?array
@@ -37,6 +49,21 @@ final class PngAssetPreflight
   {
     SpriteValidation::validateAssetPath($asset);
     $key = $root . DIRECTORY_SEPARATOR . $asset;
+    $entry = self::$snapshot[$key] ?? self::inspectFile($root, $asset, $key);
+    if (self::$snapshot !== null && !isset(self::$snapshot[$key])) {
+      if (count(self::$snapshot) >= self::MAX_CACHE_ENTRIES) { array_shift(self::$snapshot); }
+      self::$snapshot[$key] = $entry;
+    }
+    if ($entry['error'] !== null) { throw new RuntimeException($entry['error']); }
+    $size = $entry['size'];
+    if ($crop !== null && ($crop->x + $crop->width > $size['width'] || $crop->y + $crop->height > $size['height'])) {
+      throw new RuntimeException("PNG dimensions or crop exceed image bounds: {$asset}");
+    }
+    return ['width' => $crop?->width ?? $size['width'], 'height' => $crop?->height ?? $size['height']];
+  }
+
+  private static function inspectFile(string $root, string $asset, string $key): array
+  {
     clearstatcache(true, $key);
     $canonicalRoot = realpath($root);
     $path = realpath($key);
@@ -59,13 +86,7 @@ final class PngAssetPreflight
       }
       self::$cache[$key] = ['version' => $version, 'size' => $size, 'error' => $error, 'reported' => false];
     }
-    $entry = self::$cache[$key];
-    if ($entry['error'] !== null) { throw new RuntimeException($entry['error']); }
-    $size = $entry['size'];
-    if ($crop !== null && ($crop->x + $crop->width > $size['width'] || $crop->y + $crop->height > $size['height'])) {
-      throw new RuntimeException("PNG dimensions or crop exceed image bounds: {$asset}");
-    }
-    return ['width' => $crop?->width ?? $size['width'], 'height' => $crop?->height ?? $size['height']];
+    return self::$cache[$key];
   }
 
   /** Safe, bounded freshness probe shared by icons, frames, portraits and canvas budgets. */

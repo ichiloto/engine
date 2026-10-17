@@ -16,6 +16,7 @@ use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasOverlayProviderInterface
 use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
 use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Rendering\Sprites\GraphicalSpriteCollector;
+use Ichiloto\Engine\Rendering\Sprites\PngAssetPreflight;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
 use Ichiloto\Engine\Scenes\Interfaces\SceneInterface;
@@ -42,6 +43,13 @@ final class SceneFrameComposer
    */
   public function composeFrame(SceneInterface|FramePresentationSourceInterface|null $scene, RendererGridConfig $grid, Closure $supports,
     Closure $collectText, ?NotificationManager $notifications = null, bool $refreshOverlay = true): SceneFrameComposition
+  {
+    return PngAssetPreflight::runWithSnapshot(fn() => $this->composeSnapshot($scene, $grid, $supports,
+      $collectText, $notifications, $refreshOverlay));
+  }
+
+  private function composeSnapshot(SceneInterface|FramePresentationSourceInterface|null $scene, RendererGridConfig $grid, Closure $supports,
+    Closure $collectText, ?NotificationManager $notifications, bool $refreshOverlay): SceneFrameComposition
   {
     $overlaySupported = $supports(RendererSessionConfig::CANVAS_OVERLAY);
     if ($refreshOverlay && $scene instanceof CanvasOverlayProviderInterface && $overlaySupported) {
