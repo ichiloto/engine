@@ -34,6 +34,22 @@ enum Color: string
   case WHITE_BLINK = "\033[5;37m";
   case RESET = "\033[0m";
 
+  /** Returns the other normal/bright intensity of the same terminal hue, without blinking. */
+  public function getAlternateIntensity(): self
+  {
+    return match ($this) {
+      self::BLACK => self::DARK_GRAY, self::DARK_GRAY => self::BLACK,
+      self::BLUE => self::LIGHT_BLUE, self::LIGHT_BLUE => self::BLUE,
+      self::GREEN => self::LIGHT_GREEN, self::LIGHT_GREEN => self::GREEN,
+      self::CYAN => self::LIGHT_CYAN, self::LIGHT_CYAN => self::CYAN,
+      self::RED => self::LIGHT_RED, self::LIGHT_RED => self::RED,
+      self::PURPLE => self::LIGHT_PURPLE, self::LIGHT_PURPLE => self::PURPLE,
+      self::BROWN => self::YELLOW, self::YELLOW => self::BROWN,
+      self::LIGHT_GRAY, self::WHITE_BLINK => self::WHITE, self::WHITE => self::LIGHT_GRAY,
+      self::RESET => self::RESET,
+    };
+  }
+
   /** Returns a terminal background in this color with legible contrasting text. */
   public function getContrastingBackgroundSequence(): ?string
   {
