@@ -24,6 +24,7 @@ final class MapAtlasPresentation
     public const array CAPABILITIES = [RendererSessionConfig::GRAPHICAL_CANVAS, RendererSessionConfig::CANVAS_COMPOSITING,
         RendererSessionConfig::MAP_OVERVIEW, RendererSessionConfig::CANVAS_COMPOSITE_INDICATORS,
         RendererSessionConfig::CANVAS_CLIP_OPACITY, RendererSessionConfig::SPRITE_SOURCE_RECT];
+    private const int LEGEND_RESERVED_ROWS = 7;
     private ?MenuPresentationCatalog $theme = null;
     private ?string $root = null;
     private array $diagnostics = [];
@@ -160,13 +161,22 @@ final class MapAtlasPresentation
             min(4,(int)min($bounds->width,$bounds->height)),$theme->colors['background'],$layer);
     }
 
+    /** Navigation follows the measured opened legend, independent of Terminal dimensions. */
+    public static function getLegendPageSize(PresentationCanvas $canvas): int
+    {
+        foreach ($canvas->textLayers as $layer) {
+            if ($layer->id === 'atlas-legend') { return max(1,$layer->grid->rows-self::LEGEND_RESERVED_ROWS); }
+        }
+        throw new \InvalidArgumentException('Legend paging requires an opened atlas canvas.');
+    }
+
     private static function renderLegend(MenuCanvas $view, MapAtlasSnapshot $snapshot, CanvasRectangle $bounds,
         int $selected,int $detailPage): void
     {
         $m = $view->theme->metrics;
         $columns = max(1,(int)floor($bounds->width/$m->cellWidth));
         $rows = max(1,(int)floor($bounds->height/$m->cellHeight));
-        $pageSize = max(1,$rows-7);
+        $pageSize = max(1,$rows-self::LEGEND_RESERVED_ROWS);
         $selected = max(0,min(count($snapshot->landmarks)-1,$selected));
         $start = intdiv($selected,$pageSize)*$pageSize;
         $lines = [['text'=>MessageCatalog::getTerm('map.legend'),'color'=>'accent'],
@@ -185,6 +195,6 @@ final class MapAtlasPresentation
             $lines[] = ['text'=>MessageCatalog::getTerm('map.details').' '.($page+1).'/'.$pages,'color'=>'accent'];
             foreach (array_slice($details,$page*2,2) as $line) { $lines[] = ['text'=>$line,'color'=>'text']; }
         }
-        $view->textLines('atlas-legend',array_slice($lines,0,$rows),$bounds);
+        $view->textLines('atlas-legend',array_slice(array_pad($lines,$rows,['text'=>'','color'=>'text']),0,$rows),$bounds);
     }
 }

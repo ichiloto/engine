@@ -65,3 +65,21 @@ it('keeps wide-map corner frames close to their content and gives default marker
         ->and($markers['atlas-player-halo']->color)->toEqual($theme->colors['background'])
         ->and(count($markers))->toBeLessThanOrEqual(2048);
 });
+
+
+it('pages the opened legend by its own measured rows across graphical window sizes', function () {
+    $source = makeGraphicalAtlasSnapshot();
+    $landmarks = [];
+    for ($index=0;$index<40;$index++) { $landmarks[] = [...$source->landmarks[0],'name'=>'Place '.$index,'accessible'=>true]; }
+    $snapshot = new MapAtlasSnapshot($source->name,$source->worldId,$source->overview,[],
+        $landmarks,0,0,MovementHeading::NORTH);
+    $theme = new MenuPresentationCatalog('/tmp',['schema'=>'ichiloto.menu/1','showInputHints'=>false]);
+    foreach ([[1350,720],[900,540]] as [$width,$height]) {
+        $first = MapAtlasPresentation::compose($snapshot,$theme,$width,$height,MapAtlasSize::OPENED,0);
+        $count = MapAtlasPresentation::getLegendPageSize($first);
+        $next = MapAtlasPresentation::compose($snapshot,$theme,$width,$height,MapAtlasSize::OPENED,$count);
+        $legend = array_column($next->textLayers,null,'id')['atlas-legend'];
+        expect($legend->runs[3]->text)->toBe('E Place '.$count)
+            ->and($count)->toBeGreaterThan(1)->toBeLessThan(40);
+    }
+});

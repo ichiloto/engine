@@ -29,8 +29,10 @@ class LocalMapState extends GameSceneState implements \Ichiloto\Engine\Rendering
 
     public function getPresentationCanvas(): ?\Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas
     {
-        return $this->getGameScene()->getMapAtlasCanvas(\Ichiloto\Engine\UI\Presentation\MapAtlasSize::OPENED,
+        $canvas = $this->getGameScene()->getMapAtlasCanvas(\Ichiloto\Engine\UI\Presentation\MapAtlasSize::OPENED,
             selected: $this->selected, detailPage: $this->detailPage);
+        if ($canvas !== null) { $this->legendPageSize = \Ichiloto\Engine\UI\Presentation\MapAtlasPresentation::getLegendPageSize($canvas); }
+        return $canvas;
     }
 
     public function enter(): void
