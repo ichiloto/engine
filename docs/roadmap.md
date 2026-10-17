@@ -921,8 +921,9 @@ not a default for future story stations.
 
 > Status: field-effect runtime slice in local implementation, October 2026.
 > Story/route classification and Claude's source-preserving Editor handoff are
-> pending. The minimap runtime is integrated locally; macOS installed GPUI checks
-> passed. Andrew's review of the revised Terminal presentation remains pending.
+> pending. The previous minimap passed functional macOS checks; Andrew rejected both map
+> presentations. Scrollable local/world views, two GPUI zoom levels and dedicated
+> category markers are now under local qualification. Walk animation is accepted.
 
 - **Every terminal glyph has graphical art.** In the graphical field, a cue
   draws as a slanted exclamation mark with a border, blue or yellow, from
@@ -931,73 +932,36 @@ not a default for future story stations.
 - **Story cues stay in view.** A story cue outside the viewport shows at the
   screen edge in its direction, so the player always knows which way to head.
   Only story cues do this; route cues show where they stand.
-- **Minimap.** A minimap overlay replaces the coordinate HUD in the graphical
-  field, built from the same map, cue and NPC state the field draws.
-  Andrew's 17 October goal requires a whole-active-map view with physical player
-  and known building/entrance/exit positions. `Field\MapProjection` now supplies
-  a north-up aspect-preserving fit and shared cell-centre placement for graphical
-  and Terminal display units. The 47 projection/viewport/cell-area tests passed
-  locally. The shared source-referenced landmark catalog, saved discovery and
-  active-map Terminal view are now locally implemented. GPUI cached overview/HUD and Editor landmark/theme authoring are implemented
-  locally. Game metadata is integrated locally. Two installed optimized GPUI
-  runs verified whole-map/HUD/discovery/save behavior; Andrew confirmed Terminal
-  whole-area visibility but rejected its initial presentation. His corrected
-  Terminal presentation awaits his visual review. The revised macOS installed
-  GPUI run passed on runtime Engine `30cb36b`, Game `7643530`, Renderer `3d0446a`:
-  3828 frames, 108.886 seconds, exit 0, clean close. Focus-only names, map sizes,
-  ownership transitions, discovery, disk save/load and revisiting passed; audio
-  remained muted with zero playback backends, user files unchanged and owned
-  storage removed. Both fixture modes passed 2 tests / 49 assertions in 13.26
-  seconds on the preceding `4d9cf45`; the following shared caption-width fix was
-  qualified by 48 focused window/map/journal/info tests / 1154 assertions and
-  exercised in that final native run. These are functional checks, not GPU timing
-  or Linux/WSLg native evidence. Andrew selected a persistent
-  GPUI corner atlas with compact and larger sizes, plus a full opened map with
-  clear labels and legend. Ordinary entrances/exits show markers immediately;
-  names and other landmarks are learned by physical approach or authored play
-  revelation. Explicit secret routes stay hidden until explicitly revealed,
-  including when approached. Terminal retains its
-  coordinate HUD. Andrew clarified that Terminal uses one-cell location blocks
-  and clear connections; GPUI can use smaller simplified artwork. Names appear
-  only for the focused location. The old regional name boxes, manual pan-first
-  interface, always-visible location-name list and sampled decorative Terminal
-  map glyphs are removed. A schematic ground outline reads physical occupancy,
-  and the connected-places view compresses unused station gaps, preserves
-  cardinal order and highlights focused connections. Known travel directions
-  remain directed; no reverse route is inferred through an unvisited map.
-  The regional scan now shares validated event/legacy-transfer ownership and
-  saved landmark secrecy. Its permissive independent marker scan is removed;
-  invalid sources are diagnosed and excluded instead of exposing an automatic
-  anonymous route. Focused local evidence: 141 UI/loading/occupancy tests with
-  1596 assertions, plus 49 region/knowledge/source tests with 163 assertions
-  (overlapping test files; these counts are not additive). No new Renderer
-  build or remote CI run is required by the PHP presentation revision.
-  Implementation constraints verified from the current sources:
-  - Local entrances must resolve their actual transfer `CellArea` or stable
-    object identity. Region `station` positions and deduplicated destination
-    links are schematic and cannot supply local marker coordinates. Preserve
-    distinct doors and nonrectangular/disconnected trigger areas.
-  - Known/visible landmarks and traversable/locked entrances are separate
-    facts. Current saved map visitation is insufficient for individual place
-    knowledge. Additional saved map-scoped landmark knowledge must persist
-    approach and play revelations. Do not reveal destination names by scanning
-    every transfer, or confuse access conditions with secret visibility.
-  - The existing Editor record/reference/source-document services support
-    selectable object identities, source-preserving writes and undo. Landmark
-    metadata must extend that path, include reference safety for moving/deleting
-    anchors, and refuse unsupported authored PHP before writes. GUI authoring
-    remains Claude's lane; graphical authoring is not imposed on the TUI.
-  - The native map world already retains map layers and shares decoded tile
-    resources with GUI authoring. A tile batch still paints each visible cell;
-    merely fitting an entire large map would not make that cheap. Existing
-    composites accept 256 operations, not unbounded tile lists. Agree a bounded,
-    cached whole-map overview path with the Renderer owner, reuse map resources,
-    and invalidate it on map/asset changes. Do not raise limits, repaint every
-    tile on player movement, or substitute a cropped map to avoid the work.
-  - Static overview content and player/landmark updates need separate lifetimes.
-    Retain field ownership and menu/modal/suspension cleanup for the HUD. Game
-    supplies replaceable skin and semantic landmark roles through the shared
-    theme; artwork/glyphs/colours do not define gameplay identity or occupancy.
+- **Minimap.** The GPUI corner atlas replaces the coordinate HUD while the field
+  owns presentation, with compact/larger sizes. Terminal keeps coordinates.
+  Andrew's latest 17 October assessment: walk animation PASS; Terminal and GPUI
+  maps FAIL. His correction requires scrollable local maps, actual world-map
+  switching, two GPUI map zoom levels, dedicated inn/shop/home/BSA category
+  markers and simplified Terminal ground. The forced local whole-map fit and
+  regional connection diagram are removed from the opened player map path.
+  Terminal replaces dotted ground/directional player arrows with blank ground,
+  `- | +` boundaries, `v` local entrances/exits, `@` player and global place squares.
+  GPUI keeps simplified source artwork. Shared map-camera projection reads
+  physical cells, never changes gameplay geometry, movement or saved location,
+  and reuses the bounded overview cache. Corner sizing stays separate from map
+  zoom. Names appear only under marker focus; panning clears focus; Page actions
+  focus/centre places and Home recentres the player. Ordinary route visibility,
+  learned names, explicit secrets and saved knowledge retain the existing rules.
+  Map data explicitly declares global scope and optional parent map/landmark
+  references; nested local maps resolve the actual representative world entry.
+  An unresolved local area can browse explicitly declared global maps without
+  inventing a player position. Game authors those relationships; Editor/GUI use
+  shared validation, selectors and reference safety. Project categories specialize
+  generic inn/shop/home/organization pictograms and can replace icons through the
+  theme. See [map contracts](maps.md#active-map-landmarks-and-discovery).
+  The previous Engine `30cb36b` / Game `7643530` / Renderer `3d0446a` native run
+  verified ownership/discovery/save/revisit behavior, not acceptance of the rejected
+  designs. The revised presentation passed focused Engine/Renderer tests and both Game CPU
+  fixture modes. Final installed macOS GPUI verification: 2598 frames, 434 changes,
+  81.895 seconds, exit 0, muted, no playback backends, user files unchanged and
+  owned storage removed. Required opened controls, zoomed local view and actual
+  world geography were visually inspected. Terminal native appearance awaits
+  Andrew's review. No Linux/WSLg native claim.
 - **Built on field effects.** Cues are map-owned effects of the unified
   effect timeline ([effect animation](effect-animation.md#field-effects)),
   alongside the walk-on save point's energy, not a cue-specific animation.

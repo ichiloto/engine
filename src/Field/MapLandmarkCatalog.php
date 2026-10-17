@@ -23,17 +23,19 @@ final readonly class MapLandmarkCatalog
     private function __construct(public array $landmarks) {}
 
     /** Reads resolved event areas from MapSourceReader; never uses destination spawn points. */
-    public static function readMap(array $map, array $tiles): self
+    public static function readMap(array $map, array $tiles, ?MapCategoryCatalog $categories = null): self
     {
         $entries = array_key_exists('landmarks', $map) ? $map['landmarks'] : [];
         if (!is_array($entries)) { throw new InvalidArgumentException('landmarks must be a list.'); }
-        return self::readDeclarations($entries, MapLandmarkAnchors::readMap($map), array_map('count', $tiles));
+        return self::readDeclarations($entries, MapLandmarkAnchors::readMap($map), array_map('count', $tiles), $categories);
     }
 
     /** Runtime and unsaved Editor models share this validator, including ragged geometry.
      *  @param list<int> $rowWidths Number of real logical cells on each map row. */
-    public static function readDeclarations(array $entries, MapLandmarkAnchors $anchors, array $rowWidths): self
+    public static function readDeclarations(array $entries, MapLandmarkAnchors $anchors, array $rowWidths,
+        ?MapCategoryCatalog $categories = null): self
     {
+        $categories ??= new MapCategoryCatalog();
         if (!array_is_list($entries) || count($entries) > self::MAX_LANDMARKS) {
             throw new InvalidArgumentException('landmarks must be a list of at most 256 declarations.');
         }
@@ -50,7 +52,7 @@ final readonly class MapLandmarkCatalog
         $landmarks = $ids = $claimedEvents = $claimedTriggers = [];
         foreach ($entries as $entry) {
             if (!is_array($entry) || array_diff(array_keys($entry),
-                ['id', 'kind', 'anchor', 'name', 'secret', 'approachDistance', 'revealConditions']) !== []) {
+                ['id', 'kind', 'anchor', 'name', 'secret', 'approachDistance', 'revealConditions', 'category']) !== []) {
                 throw new InvalidArgumentException('A landmark accepts id, kind, anchor, name, secret, approachDistance and revealConditions.');
             }
             $id = $entry['id'] ?? null;
@@ -59,6 +61,13 @@ final readonly class MapLandmarkCatalog
             }
             $kind = is_string($entry['kind'] ?? null) ? MapLandmarkKind::tryFrom($entry['kind']) : null;
             if ($kind === null) { throw new InvalidArgumentException("Landmark '{$id}' requires a supported kind."); }
+            $category = null;
+            if (array_key_exists('category',$entry)) {
+                $category = $entry['category'];
+                if (!is_string($category) || !in_array($category,$categories->getIds(),true)) {
+                    throw new InvalidArgumentException("Landmark '{$id}' requires a known map category.");
+                }
+            }
             $anchor = $entry['anchor'] ?? null;
             if (!is_array($anchor) || count($anchor) !== 1 || array_diff(array_keys($anchor), ['event', 'object', 'trigger']) !== []
                 || !is_string(array_values($anchor)[0])) {
@@ -105,7 +114,9 @@ final readonly class MapLandmarkCatalog
             WorldConditionEvaluator::validateAll($conditions, "landmarks/{$id}/revealConditions");
             if ($access !== null) { WorldConditionEvaluator::validateAll($access, "landmarks/{$id}/access"); }
             $name = array_key_exists('name', $entry) ? LocalizedText::fromArray($entry['name']) : null;
-            $landmarks[] = new MapLandmarkDefinition($id, $kind, $area, $name, $secret, $distance, $conditions, $access);
+            $landmarks[] = new MapLandmarkDefinition($id, $kind, $area, $name, $secret, $distance, $conditions, $access,
+                category: $category, categoryBase: $category===null ? null : $categories->getBase($category),
+                categoryName: $category===null ? null : $categories->getNameDefinition($category));
             $ids[$id] = true;
         }
         // Old maps gain anonymous route markers without exposing destination names.

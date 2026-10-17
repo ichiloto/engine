@@ -12,5 +12,5 @@ final readonly class MapAtlasSnapshot
 {
     public function __construct(public string $name, public string $worldId, public MapOverview $overview,
         public array $subjects, public array $landmarks, public float $playerX, public float $playerY,
-        public MovementHeading $heading) {}
+        public MovementHeading $heading, public bool $global = false, public bool $canSwitch = true) {}
 }

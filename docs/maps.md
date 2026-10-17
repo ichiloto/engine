@@ -74,11 +74,16 @@ subject use its first cell in reading order, the top-left of a rectangle.
 ## Active-map landmarks and discovery
 
 Andrew selected a GPUI corner atlas with compact and larger sizes, and an opened
-whole-map view with a marker legend and focused location details. Terminal retains
-the coordinate HUD and uses single-cell location blocks on schematic ground.
-The region connectivity view uses connected blocks instead of the old name boxes.
-All active-map views
-use physical local cells and a stable north-up whole-map fit.
+scrollable map with focused location details. His 17 October review rejected the
+forced whole-map local fit and regional connection diagram. Local views now use
+physical map geometry and a separate map camera. GPUI local maps offer two zoom levels,
+both farther out than gameplay; global maps fit the whole geography at the
+zoomed-out level and allow a closer, scrollable level; these are independent of the compact/larger HUD
+sizes. The opened map pans in both axes. Terminal retains its coordinate HUD;
+opened maps use blank walkable ground, `-`, `|`, `+` physical boundaries, `v`
+entrance/exit chevrons locally and single-block place markers globally. `@`
+marks the player. Decorative field glyphs and miniature Terminal art are absent.
+GPUI keeps simplified map artwork and dedicated place-category pictograms.
 
 `landmarks` in a map's `.data.php` is a list of at most 256 declarations:
 
@@ -143,25 +148,66 @@ authors may supply another valid localized message id. Saved landmark ids remain
 immutable during ordinary editing. Existing world-condition flags provide
 authored revelations; no new script command is introduced in this slice.
 
-The shared catalog/discovery/save contract is on local develop. The active-map
-Terminal view and shared theme extension are implemented locally. The map
-action opens the physical atlas; `map_view` switches to the separate region
-view. `map_view` defaults to unclaimed V/v controls and is rebindable. Directional
-actions move spatial focus between markers; page actions step through identities,
-including markers that share a screen cell. Only the focused location is named.
-Info pages through its full name when needed. Small map-marker clusters use `+`;
-selection highlights the chosen location. Terminal retains coordinates while
-exploring. Its ground outline reads resolved physical occupancy and never copies
-decorative field letters or miniature building art. Read-only sources without
-occupancy facts show only their extent.
+Map scope and physical parent references live in map data, independently of
+its filename, tileset and free-text region:
+
+```php
+'atlas' => ['scope' => 'global'], // on an actual overworld map
+// On a local map, e.g. an interior inside a town:
+'atlas' => ['parent' => ['map' => 'harbour', 'landmark' => 'home-entrance']],
+```
+
+`MapAtlasDefinition::readMap` validates scope (`local` by default) and the optional
+parent. Global maps cannot have parents. `resolveGlobal($mapId, $readMap,
+$categories)` accepts a resolver returning `data` and `tiles`, including unsaved
+Editor models, and follows at most 32 parent maps. It refuses cycles, missing
+maps and missing parent landmarks. The landmark may be a route or a place; its
+existing physical area supplies the representative position. The last parent
+entry is the marker on the world map. No spawn points or duplicate coordinates
+are used. `readGlobalMaps` enumerates explicitly global sources for browsing.
+A local area without a proven world entry can still browse those maps; it has
+no invented player position and says that its current location is not marked.
+Physically global maps open only their global view.
+
+The semantic `map_view` action (unclaimed V/v by default) switches Local/World.
+The opened map always shows its primary action bar, using the shared required
+control treatment even when the theme hides optional hints; corner hints retain
+the theme setting.
+Directional actions scroll without moving the player. Page actions cycle through
+visible landmark identities and centre the chosen marker; names appear only for
+the focused marker. Ordinary scrolling clears focus. Info pages long names;
+`map_recenter` (Home) returns to the player. GPUI `map_zoom` (Z/z) switches exactly
+two map scales. These actions use shared bindings and hints. Map drawing never
+causes a discovery or a transfer, installs events, or starts background music.
+
+A landmark's optional `category` describes a place independently of route kind.
+Generic categories are `inn`, `shop`, `home`, `organization`; shared defaults draw
+bed, bag, house and columned-building pixel pictograms in one batched layer.
+Unknown ordinary routes keep generic chevrons until learned. Projects may add
+categories in `Data/map-categories.php`:
+
+```php
+return ['schema' => 'ichiloto.map-categories/1', 'categories' => [
+    'guild' => ['base' => 'organization',
+        'name' => ['message' => 'map_categories.guild.name', 'default' => 'Guild']],
+]];
+```
+
+`MapCategoryCatalog` validates at most 128 project categories, supplies generic
+bases, localized names, stable name keys and round trips. Generic IDs cannot be
+replaced. Pass the catalog as the optional last argument to landmark `readMap`
+and `readDeclarations` to validate project category references. Missing category
+stays absent. Optional theme icon roles `map.category.<id>` replace individual
+category pictograms. Local route chevrons and global squares are scope-aware;
+a settlement entrance keeps its entrance kind.
 
 The optional `atlas` treatment in `Data/Presentation/menus.php` reuses the shared
 palette, replaceable `quiet`/`panel` frames and optional semantic icon bindings.
 Its keys are `compactWidth` (256), `compactHeight` (192), `largeWidth` (400),
 `largeHeight` (300), `margin` (16), `markerSize` (10) and `frameRole` (`quiet`).
 Dimensions accept 96–768 logical pixels; larger dimensions cannot be smaller
-than compact dimensions. Margin accepts 0–64 and markers 4–24. All three map
-sizes preserve the whole map; changing a corner size never changes field zoom.
+than compact dimensions. Margin accepts 0–64 and markers 4–24. The two corner sizes preserve the whole map. Opened maps scroll at a fixed
+map scale; changing map size or zoom never changes field zoom.
 Optional icon roles are `map.player`, `map.passage`, `map.entrance`, `map.exit`,
 `map.building` and `map.landmark`. Missing art uses shared geometric marker
 treatments. Projects supply data and artwork; the Engine owns drawing and input.
@@ -172,30 +218,42 @@ while the field owns presentation; dialogue, menus, scene suspension and the HUD
 setting keep their existing ownership. Terminal keeps coordinates. The semantic
 `map_size` action (F3 by default) cycles compact/larger; Config exposes Corner Map
 Size and persists `ui.hud.map_size` in player settings. Opened mode is temporary.
-The full atlas retains the source world without selecting a field viewport or
-field actors; ordinary menu canvases release that dependency.
+The opened atlas retains its selected source world without selecting a field
+viewport or field actors; ordinary menu canvases release that dependency.
 
 The optional negotiated `map_overview` world-composite operation reuses prepared
 map tiles and up to 128 map-owned still groups / 1024 child images. It freezes
 animated resources at a resting pose and preserves physical anchors, crops,
 pivots, layers and lift. Raster output is at most 1024 by 1024, with 16 MiB of
 live overview output/key storage, two-times sampling and 256 Mi bounded cold
-work. A frame requests one overview. `canvas_composite_indicators` separates live
+work. A frame requests one overview. The additional negotiated
+`map_overview_viewport` capability admits a `source` rectangle in physical map
+cells. Source geometry must be finite, positive and inside the actual world.
+Panning/zoom changes its bounded cached raster; marker movement reuses it. `canvas_composite_indicators` separates live
 player/landmark markers from this cached raster. Map revision and current decoded
 image identity invalidate it; movement only changes indicators. Generic glyph-only
 maps use their presentation colours. Neither collision nor location meaning is
 inferred from graphics. Existing composite limits remain unchanged.
 
-Editor landmark/theme authoring and Game metadata are integrated locally. The
-final macOS installed-release GPUI run exercised compact/larger/opened maps,
-focused local/regional names, menu/suspension handoffs, discovery, disk save/load
-and revisiting: 3828 frames in 108.886 seconds, exit 0 and clean close. Music,
-effects and voice stayed muted, playback backends were absent, user files stayed
-unchanged and temporary data was removed. These are functional and observed
-presentation checks, not GPU timings. Terminal's complete-area visibility was
-confirmed by Andrew; the revised block/focus presentation awaits his visual
-review. Both fixture modes passed captured CPU verification. Linux/WSLg native
-presentation was not tested in this macOS pass.
+The earlier installed macOS checks covered HUD ownership, discovery and safe
+save/reload/revisit behavior; Andrew rejected both map presentations afterwards.
+The scroll/zoom/local-world/category revision passed 134 focused Engine tests
+with 1480 assertions and 12 focused Renderer overview/viewport/wire tests. Game's
+two CPU modes passed 2 tests / 63 assertions in 12.46 seconds, including mandatory
+opened controls. The later scope-legend/helper correction passed 26 focused
+symbol/presentation tests (overlapping suites; counts are not additive).
+The final installed macOS GPUI run on Renderer `a5c1e41` completed 2598 frames /
+434 presentation changes in 81.895 seconds, exit 0. Both scales, local/world
+switching, global-only display, focused details, discovery and save/revisit checks
+passed. The action bar, zoomed local view and full-world geography/legend were
+visually inspected. Music, effects and voice stayed muted; audio backends were
+absent, user files stayed unchanged and temporary storage was removed.
+Terminal's revised native appearance still needs Andrew's review; its captured
+functional/symbol checks passed.
+Walk animation is accepted by Andrew. Editor/GUI authoring and Game metadata
+are coordinated with their existing owners; final dependency integration follows
+the Engine commit. No publication is authorized by
+this implementation. Linux/WSLg native presentation has not been verified.
 
 ## Layer order and composition
 

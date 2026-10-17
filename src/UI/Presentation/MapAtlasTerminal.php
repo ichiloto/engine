@@ -8,6 +8,7 @@ use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Field\MapLandmarkKind;
 use Ichiloto\Engine\Field\MapOverview;
+use Ichiloto\Engine\Field\MapProjection;
 use Ichiloto\Engine\Localization\MessageCatalog;
 use Ichiloto\Engine\UI\SelectionStyle;
 use Ichiloto\Engine\IO\Enumerations\Color;
@@ -32,9 +33,9 @@ final class MapAtlasTerminal
         return $hint.($pages===[] ? '' : '  '.implode('/',array_unique($pages)).':'.MessageCatalog::getTerm('map.cycle'));
     }
 
-    public static function getMarkerSymbol(MapLandmarkKind $kind): string
+    public static function getMarkerSymbol(MapLandmarkKind $kind, bool $global = false): string
     {
-        return $kind->isRoute() ? 'E' : ($kind === MapLandmarkKind::BUILDING ? 'B' : '*');
+        return $global ? '■' : ($kind->isRoute() ? 'v' : '*');
     }
 
     public static function getLandmarkLabel(array $landmark): string
@@ -50,37 +51,37 @@ final class MapAtlasTerminal
 
     /** @return list<string> Stable whole-map rows; a selected landmark takes priority in a cluster. */
     public static function renderMap(MapOverview $overview, array $landmarks, Vector2 $player,
-        MovementHeading $heading, int $width, int $height, int $selected = -1): array
+        MovementHeading $heading, int $width, int $height, int $selected = -1,
+        ?MapProjection $projection = null, bool $global = false): array
     {
-        $raster = $overview->getTerminalRaster($width, $height);
-        $projection = $overview->getTerminalProjection($width, $height);
+        $projection ??= $overview->getTerminalProjection($width, $height);
+        $raster = $overview->getTerminalRaster($width, $height, $projection);
         $occupied = [];
         foreach ($landmarks as $index => $landmark) {
             foreach ($landmark['definition']->getMarkerCells() as $cell) {
+                if (!$projection->containsCell((int)$cell->x,(int)$cell->y)) { continue; }
                 $point = $projection->projectCell((int) $cell->x, (int) $cell->y);
                 $x = min($width - 1, (int) floor($point->x));
                 $y = min($height - 1, (int) floor($point->y));
                 $key = "{$x}:{$y}";
-                $symbol = '■';
+                $symbol = self::getMarkerSymbol($landmark['definition']->kind,$global);
                 if ($index === $selected) {
                     $raster[$y][$x] = SelectionStyle::apply($symbol);
                     $occupied[$key] = true;
                 } elseif (($occupied[$key] ?? false) !== true) {
-                    $raster[$y][$x] = SelectionStyle::applyMarked(isset($occupied[$key]) ? '+' : $symbol);
+                    $raster[$y][$x] = SelectionStyle::applyMarked($symbol);
                     $occupied[$key] = false;
                 }
             }
         }
         $playerX = (int) floor($player->x);
         $playerY = (int) floor($player->y);
-        if ($playerX >= 0 && $playerY >= 0 && $playerX < $overview->width && $playerY < $overview->height) {
+        if ($playerX >= 0 && $playerY >= 0 && $playerX < $overview->width && $playerY < $overview->height
+            && $projection->containsCell($playerX,$playerY)) {
             $point = $projection->projectCell($playerX, $playerY);
             $x=min($width - 1, (int) floor($point->x));
             $y=min($height - 1, (int) floor($point->y));
-            $symbol=match ($heading) {
-                MovementHeading::NORTH => '^', MovementHeading::EAST => '>',
-                MovementHeading::SOUTH => 'v', MovementHeading::WEST => '<', default => '@',
-            };
+            $symbol='@';
             $raster[$y][$x]=($occupied["{$x}:{$y}"] ?? false)===true ? SelectionStyle::apply($symbol)
                 : Color::apply($symbol,Color::LIGHT_CYAN);
         }

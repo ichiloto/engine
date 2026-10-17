@@ -181,6 +181,11 @@ final class RendererPresentation
       && !$this->client->supports(RendererSessionConfig::MAP_OVERVIEW)) {
       throw new RendererProtocolException('World overview rasters require negotiated map_overview support.');
     }
+    if (array_any($canvas->composites, static fn($composite) => array_any($composite->operations,
+        static fn($operation) => $operation->data['type'] === 'world' && isset($operation->data['source'])))
+      && !$this->client->supports(RendererSessionConfig::MAP_OVERVIEW_VIEWPORT)) {
+      throw new RendererProtocolException('World map source windows require negotiated map_overview_viewport support.');
+    }
     if ($canvas->labels !== [] && (!$this->client->supports(RendererSessionConfig::CANVAS_LABELS)
       || !$this->client->supports(RendererSessionConfig::TEXT_LAYOUT))) {
       throw new RendererProtocolException('Canvas labels require negotiated canvas_labels and text_layout support.');

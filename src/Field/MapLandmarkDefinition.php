@@ -21,6 +21,9 @@ final readonly class MapLandmarkDefinition
         public array $revealConditions = [],
         public ?array $accessConditions = null,
         public bool $automatic = false,
+        public ?string $category = null,
+        public ?MapLandmarkCategory $categoryBase = null,
+        public ?LocalizedText $categoryName = null,
     ) {
         $this->markerCells = array_map(static fn(CellArea $piece) => $piece->findCenterCell(), $area->findPieces());
     }
@@ -29,6 +32,12 @@ final readonly class MapLandmarkDefinition
     public function getMarkerCells(): array
     {
         return $this->markerCells;
+    }
+
+    public function getCategoryName(): ?string
+    {
+        return $this->category===null ? null : ($this->categoryName?->getText()
+            ?? \Ichiloto\Engine\Localization\MessageCatalog::getTerm('map.category.'.$this->category));
     }
 
     /** Distance is in physical map cells and never depends on a renderer camera. */

@@ -15,7 +15,7 @@ it('fits the complete Terminal source with stable margins and correctly placed h
         $rows = MapAtlasTerminal::renderMap($overview, [], new Vector2($x, $y), MovementHeading::EAST, $width, $height);
         $point = $overview->getTerminalProjection($width, $height)->projectCell($x, $y);
         $plain = TerminalText::visibleSymbols(TerminalText::stripAnsi(TerminalText::formatStyles($rows[(int) floor($point->y)])));
-        expect($plain[(int) floor($point->x)])->toBe('>');
+        expect($plain[(int) floor($point->x)])->toBe('@');
         foreach ($rows as $row) { expect(TerminalText::displayWidth($row))->toBe($width); }
     }
     expect($overview->getTerminalRaster($width, $height))->toBe($before);
@@ -24,7 +24,7 @@ it('fits the complete Terminal source with stable margins and correctly placed h
 it('draws thin maps and leaves real ragged gaps without inventing cells', function () {
     foreach ([[array_fill(0, 10000, '.')], array_fill(0, 1000, ['.'])] as $tiles) {
         $overview = new MapOverview($tiles);
-        expect(implode('', array_map(fn($row) => implode('', $row), $overview->getTerminalRaster(20, 10))))->toContain('·');
+        expect(implode('', array_map(fn($row) => implode('', $row), $overview->getTerminalRaster(20, 10))))->not->toContain('·');
     }
     $ragged = new MapOverview([['A', 'A'], ['B']]);
     $raster = $ragged->getTerminalRaster(8, 4);
@@ -65,10 +65,28 @@ it('uses physical occupancy for the Terminal schematic and never reproduces deco
     $overview=new MapOverview($tiles,[[1,1,1,1],[1,0,0,1],[1,0,0,1]]);
     $raster=$overview->getTerminalRaster(16,8);
     $projection=$overview->getTerminalProjection(16,8);
-    foreach([[1,0,' '],[1,1,'·']] as [$x,$y,$expected]) {
+    foreach([[1,0,'-'],[1,1,' ']] as [$x,$y,$expected]) {
         $point=$projection->projectCell($x,$y);
         expect($raster[(int)floor($point->y)][(int)floor($point->x)])->toBe($expected);
     }
     $plain=implode('',array_map(fn($row)=>implode('',$row),$raster));
-    expect($plain)->not->toContain('R')->not->toContain('界')->toContain('·');
+    expect($plain)->not->toContain('R')->not->toContain('界')->not->toContain('·')->toContain('-');
+});
+
+
+it('draws blank rooms with ASCII wall runs and chevron doors while global places use blocks',function() {
+    $tiles=array_fill(0,5,array_fill(0,7,'decorative'));
+    $occupancy=array_fill(0,5,array_fill(0,7,1));
+    for($y=1;$y<4;$y++) { for($x=1;$x<6;$x++) { $occupancy[$y][$x]=0; } }
+    $overview=new MapOverview($tiles,$occupancy);
+    $projection=\Ichiloto\Engine\Field\MapProjection::createViewport(7,5,new \Ichiloto\Engine\Core\Rect(0,0,7,5),3.5,2.5,1,1);
+    $raster=$overview->getTerminalRaster(7,5,$projection);
+    expect(array_map(fn($row)=>implode('',$row),$raster))->toBe(['+-----+','|     |','|     |','|     |','+-----+']);
+    $landmark=['definition'=>new \Ichiloto\Engine\Field\MapLandmarkDefinition('door',\Ichiloto\Engine\Field\MapLandmarkKind::ENTRANCE,
+        \Ichiloto\Engine\Core\CellArea::fromCells([[3,4]])),'name'=>null,'accessible'=>true];
+    foreach([false=>'v',true=>'■'] as $global=>$glyph) {
+        $rows=MapAtlasTerminal::renderMap($overview,[$landmark],new Vector2(3,2),MovementHeading::SOUTH,7,5,-1,$projection,(bool)$global);
+        expect(TerminalText::stripAnsi(TerminalText::formatStyles($rows[4])))->toBe('+--'.$glyph.'--+');
+        expect(TerminalText::stripAnsi(TerminalText::formatStyles($rows[2])))->toBe('|  @  |');
+    }
 });

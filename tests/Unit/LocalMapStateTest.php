@@ -66,7 +66,7 @@ function makeLocalAtlasStateProbe(): LocalAtlasStateProbe
     return new LocalAtlasStateProbe($scene);
 }
 
-it('keeps the whole map and focused name within narrow and full Terminal layouts', function (int $width, int $height) {
+it('keeps the scrollable viewport and focused name within narrow and full Terminal layouts', function (int $width, int $height) {
     $probe = makeLocalAtlasStateProbe();
     $probe->select(19);
     $rows = $probe->draw($width, $height);
@@ -75,40 +75,35 @@ it('keeps the whole map and focused name within narrow and full Terminal layouts
     foreach ($rows as $row) { expect(TerminalText::displayWidth($row))->toBeLessThanOrEqual($width); }
 })->with([[133, 32], [78, 20], [40, 16]]);
 
-it('switches map ownership with semantic press edges and preserves the next unread choice', function () {
-    $prior = InputManager::getBindings();
-    $source = InputManager::getInputSource();
-    try {
-        InputManager::setBindings(['map' => ['keys' => [KeyCode::m]], 'back' => ['keys' => [KeyCode::ESCAPE]]]);
-        $input = new FakeInputSource(KeyCode::v, KeyCode::DOWN, KeyCode::ESCAPE, KeyCode::m);
-        InputManager::setInputSource($input);
-        $probe = makeLocalAtlasStateProbe();
-        InputManager::handleInput();
-        $probe->execute();
-        expect($probe->next)->toBe($probe->getGameScene()->regionMapState)
-            ->and(InputManager::getPressedKeyCode())->toBeNull()->and($input->keys)->toHaveCount(3);
-        InputManager::handleInput();
-        expect(InputManager::getPressedKeyCode())->toBe(KeyCode::DOWN);
-        InputManager::handleInput();
-        $probe->execute();
-        expect($probe->next)->toBe($probe->getGameScene()->fieldState)
-            ->and(InputManager::getPressedKeyCode())->toBeNull()->and($input->keys)->toBe([KeyCode::m]);
-    } finally {
-        InputManager::setBindings($prior);
-        InputManager::setInputSource($source);
-    }
-});
-
-it('moves the physical cursor using directions and leaves names hidden until focused',function() {
+it('closes through a semantic press without consuming the next unread action', function () {
     $prior=InputManager::getBindings(); $source=InputManager::getInputSource();
     try {
-        InputManager::setBindings(['right'=>['keys'=>[KeyCode::RIGHT]],'left'=>['keys'=>[KeyCode::LEFT]]]);
-        InputManager::setInputSource(new FakeInputSource(KeyCode::RIGHT,KeyCode::LEFT));
+        InputManager::setBindings(['back'=>['keys'=>[KeyCode::ESCAPE]]]);
+        $input=new FakeInputSource(KeyCode::ESCAPE,KeyCode::m);
+        InputManager::setInputSource($input);
         $probe=makeLocalAtlasStateProbe();
+        InputManager::handleInput(); $probe->execute();
+        expect($probe->next)->toBe($probe->getGameScene()->fieldState)
+            ->and(InputManager::getPressedKeyCode())->toBeNull()->and($input->keys)->toBe([KeyCode::m]);
+    } finally { InputManager::setBindings($prior); InputManager::setInputSource($source); }
+});
+
+it('cycles focused names through semantic page actions and leaves other names hidden',function() {
+    $prior=InputManager::getBindings(); $source=InputManager::getInputSource();
+    $configs=new ReflectionClass(\Ichiloto\Engine\Util\Config\ConfigStore::class)->getStaticProperties();
+    \Ichiloto\Engine\Util\Config\ConfigStore::put(\Ichiloto\Engine\Util\Config\PlaySettings::class,new \Ichiloto\Engine\Util\Config\PlaySettings());
+    try {
+        InputManager::setBindings([]);
+        InputManager::setInputSource(new FakeInputSource(KeyCode::PAGE_DOWN,null,KeyCode::PAGE_DOWN));
+        $probe=makeLocalAtlasStateProbe();
+        expect(implode('',$probe->draw(80,24)))->not->toContain('Place-0')->not->toContain('Place-1');
+        InputManager::handleInput(); $probe->execute();
         expect(implode('',$probe->draw(80,24)))->toContain('Place-0')->not->toContain('Place-1');
+        InputManager::handleInput();
         InputManager::handleInput(); $probe->execute();
         expect(implode('',$probe->draw(80,24)))->toContain('Place-1')->not->toContain('Place-0');
-        InputManager::handleInput(); $probe->execute();
-        expect(implode('',$probe->draw(80,24)))->toContain('Place-0')->not->toContain('Place-1');
-    } finally { InputManager::setBindings($prior); InputManager::setInputSource($source); }
+    } finally {
+        InputManager::setBindings($prior); InputManager::setInputSource($source);
+        foreach($configs as $key=>$value) { new ReflectionProperty(\Ichiloto\Engine\Util\Config\ConfigStore::class,$key)->setValue(null,$value); }
+    }
 });

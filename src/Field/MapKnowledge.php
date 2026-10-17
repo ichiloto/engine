@@ -32,7 +32,7 @@ final readonly class MapKnowledge
         foreach ($this->catalog->landmarks as $landmark) {
             $known = $state->hasRevealedLandmark($this->mapId, $landmark->id);
             if (!$known && ($landmark->secret || !$landmark->kind->isRoute())) { continue; }
-            $visible[] = ['definition' => $landmark, 'name' => $known ? $landmark->name?->getText() : null,
+            $visible[] = ['definition' => $landmark, 'known'=>$known, 'name' => $known ? $landmark->name?->getText() : null,
                 'accessible' => $landmark->accessConditions === null ? null
                     : WorldConditionEvaluator::allHold($landmark->accessConditions, $state, $party)];
         }

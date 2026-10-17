@@ -20,6 +20,10 @@ final readonly class MapProjection
         public float $height,
         public float $scaleX,
         public float $scaleY,
+        public float $sourceX = 0,
+        public float $sourceY = 0,
+        public ?float $sourceWidth = null,
+        public ?float $sourceHeight = null,
     ) {}
 
     /**
@@ -60,7 +64,33 @@ final readonly class MapProjection
         if (!is_finite($x) || !is_finite($y) || $x < 0 || $y < 0 || $x > $this->mapWidth || $y > $this->mapHeight) {
             throw new InvalidArgumentException('A projected point must lie inside the physical map bounds.');
         }
-        return new Vector2($this->left + $x * $this->scaleX, $this->top + $y * $this->scaleY);
+        return new Vector2($this->left + ($x - $this->sourceX) * $this->scaleX,
+            $this->top + ($y - $this->sourceY) * $this->scaleY);
+    }
+
+    /** Fixed-scale viewing window. Clamp presentation alone; never change a physical position. */
+    public static function createViewport(int $mapWidth, int $mapHeight, Rect $bounds,
+        float $centreX, float $centreY, float $scaleX, float $scaleY): self
+    {
+        if ($mapWidth < 1 || $mapHeight < 1 || min($bounds->getWidth(), $bounds->getHeight()) < 1
+            || !array_all([$centreX,$centreY,$scaleX,$scaleY], static fn(float $value): bool=>is_finite($value)) || min($scaleX,$scaleY) <= 0) {
+            throw new InvalidArgumentException('Map viewport geometry must be finite with positive extents and scale.');
+        }
+        $sourceWidth = min((float)$mapWidth, $bounds->getWidth() / $scaleX);
+        $sourceHeight = min((float)$mapHeight, $bounds->getHeight() / $scaleY);
+        $sourceX = max(0.0,min($mapWidth-$sourceWidth,$centreX-$sourceWidth/2));
+        $sourceY = max(0.0,min($mapHeight-$sourceHeight,$centreY-$sourceHeight/2));
+        return new self($mapWidth,$mapHeight,
+            $bounds->getX()+($bounds->getWidth()-$sourceWidth*$scaleX)/2,
+            $bounds->getY()+($bounds->getHeight()-$sourceHeight*$scaleY)/2,
+            $sourceWidth*$scaleX,$sourceHeight*$scaleY,$scaleX,$scaleY,$sourceX,$sourceY,$sourceWidth,$sourceHeight);
+    }
+
+    public function containsCell(int $x, int $y): bool
+    {
+        return $x+0.5 >= $this->sourceX && $y+0.5 >= $this->sourceY
+            && $x+0.5 < $this->sourceX+($this->sourceWidth ?? $this->mapWidth)
+            && $y+0.5 < $this->sourceY+($this->sourceHeight ?? $this->mapHeight);
     }
 
     /** Player cells and landmark cells share the same centre placement. */

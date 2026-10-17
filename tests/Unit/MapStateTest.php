@@ -1,123 +1,101 @@
 <?php
 
-use Ichiloto\Engine\Core\GameState;
-use Ichiloto\Engine\Entities\Party;
-use Ichiloto\Engine\Entities\PartyLocation;
-use Ichiloto\Engine\IO\Console\Console;
-use Ichiloto\Engine\IO\Console\TerminalText;
-use Ichiloto\Engine\IO\Enumerations\KeyCode;
-use Ichiloto\Engine\IO\InputManager;
-use Ichiloto\Engine\Scenes\Game\GameScene;
-use Ichiloto\Engine\Scenes\Game\States\{MapState,LocalMapState,FieldState};
-use Ichiloto\Engine\Scenes\Interfaces\SceneStateInterface;
-use Ichiloto\Engine\Util\Config\{ConfigStore,PlaySettings};
-use Tests\Support\Input\FakeInputSource;
+use Ichiloto\Engine\Core\Rect;
+use Ichiloto\Engine\Core\CellArea;
+use Ichiloto\Engine\Field\{MapAtlasDefinition,MapAtlasView,MapOverview,MapCategoryCatalog,MapLandmarkCatalog,MapLandmarkCategory,MapLandmarkKind,MapLandmarkDefinition};
+use Ichiloto\Engine\UI\Presentation\{MapAtlasPresentation,MapAtlasSnapshot,MapAtlasSize,MenuPresentationCatalog};
+use Ichiloto\Engine\Core\Enumerations\MovementHeading;
 
-require_once __DIR__.'/../Support/Input/FakeInputSource.php';
-
-final class RegionMapDrawingProbe extends MapState
-{
-    private GameScene $scene;
-    public ?SceneStateInterface $next=null;
-    public function __construct(private array $graph)
-    {
-        $this->selectedId='square';
-        $this->scene=new ReflectionClass(GameScene::class)->newInstanceWithoutConstructor();
-        $party=new Party(); $party->location=new PartyLocation('Square','Synthetic region');
-        foreach (['party'=>$party,'currentMapId'=>'square','gameState'=>new GameState(),
-            'fieldState'=>new ReflectionClass(FieldState::class)->newInstanceWithoutConstructor(),
-            'mapState'=>new ReflectionClass(LocalMapState::class)->newInstanceWithoutConstructor()] as $name=>$value) {
-            new ReflectionProperty(GameScene::class,$name)->setValue($this->scene,$value);
-        }
-    }
-    public function getGameScene(): GameScene { return $this->scene; }
-    protected function getKnownGraph(): array { return $this->graph; }
-    public function setState(SceneStateInterface $state): void { $this->next=$state; }
-    public function draw(int $width,int $height): array { return $this->buildMapContent($width,$height); }
-    public function getDetails(int $width): array { return $this->buildInfoContent($width); }
-    public function moveCursor(int $x,int $y): bool { return $this->moveFocus($x,$y); }
-    public function select(string $id): void { $this->selectedId=$id; }
-    public function setDetailPage(int $page): void { $this->detailPage=$page; }
-    public function showPanels(): array { $this->refreshUI(); return [$this->mapPanel,$this->infoPanel]; }
-}
-
-function makeRegionDiagramGraph(): array
-{
-    return ['places'=>[
-        'square'=>['position'=>[1000000,1000000],'name'=>'Square','visited'=>true],
-        'home'=>['position'=>[0,0],'name'=>'House','visited'=>true],
-        'shop'=>['position'=>[1000000,2000000],'name'=>'Shop','visited'=>true],
-        'inn'=>['position'=>[2000000,2000000],'name'=>null,'visited'=>false],
-    ],'links'=>[
-        ['from'=>'square','to'=>'home'],['from'=>'home','to'=>'square'],
-        ['from'=>'square','to'=>'shop'],['from'=>'shop','to'=>'square'],
-        ['from'=>'square','to'=>'inn'],
-    ]];
-}
-
-it('replaces large name boxes and empty station gaps with single-cell connected places',function(int $width,int $height) {
-    $probe=new RegionMapDrawingProbe(makeRegionDiagramGraph());
-    $rows=$probe->draw($width,$height);
-    $plain=TerminalText::stripAnsi(implode("\n",$rows));
-    expect($rows)->toHaveCount($height)->and(substr_count($plain,'■'))->toBe(4)
-        ->and($plain)->not->toContain('Square')->not->toContain('House')->not->toContain('Shop')
-        ->and($plain)->toContain('─')->toContain('│');
-    foreach($rows as $row) { expect(TerminalText::displayWidth($row))->toBe($width); }
-    expect(implode('',$probe->getDetails($width)))->toContain('Square')->toContain('You are here')->not->toContain('House');
-})->with([[133,32],[78,20],[40,16],[36,8]]);
-
-it('moves focus spatially and shows only the focused name including unnamed known routes',function() {
-    $probe=new RegionMapDrawingProbe(makeRegionDiagramGraph());
-    expect($probe->moveCursor(0,-1))->toBeTrue()
-        ->and(implode('',$probe->getDetails(80)))->toContain('House')->not->toContain('Square');
-    expect($probe->moveCursor(1,0))->toBeTrue()
-        ->and(implode('',$probe->getDetails(80)))->toContain('Square');
-    $probe->select('inn');
-    expect(implode('',$probe->getDetails(80)))->toContain('Unknown location')->not->toContain('House');
-    expect($probe->moveCursor(1,0))->toBeFalse();
+it('replaces the connection diagram state with the shared geographic atlas state',function() {
+    expect(is_subclass_of(\Ichiloto\Engine\Scenes\Game\States\MapState::class,
+        \Ichiloto\Engine\Scenes\Game\States\LocalMapState::class))->toBeTrue();
 });
 
-it('pages the full focused name instead of leaking other location names into the map',function() {
-    $graph=makeRegionDiagramGraph();
-    $graph['places']['square']['name']=str_repeat('Long readable location ',12).'Finalword';
-    $probe=new RegionMapDrawingProbe($graph);
-    $all='';
-    for($page=0;$page<12;$page++) {
-        $probe->setDetailPage($page);
-        foreach($probe->getDetails(24) as $line) { expect(TerminalText::displayWidth($line))->toBeLessThanOrEqual(24); $all.=$line; }
-    }
-    expect($all)->toContain('Finalword')->not->toContain('House')->not->toContain('Shop');
+it('pans a bounded local camera and offers exactly two distinct graphical ground scales',function() {
+    $overview=new MapOverview(array_fill(0,100,array_fill(0,400,' ')));
+    $view=new MapAtlasView(100,50);
+    $out=$view->getProjection($overview,new Rect(10,10,800,400),true);
+    $view->toggleZoom();
+    $in=$view->getProjection($overview,new Rect(10,10,800,400),true);
+    expect($out->sourceWidth)->toBeGreaterThan($in->sourceWidth)
+        ->and($out->sourceWidth/$in->sourceWidth)->toBe(2.0)
+        ->and($out->scaleX)->toBeLessThan(\Ichiloto\Engine\Rendering\FieldViewport::TILE_SIZE)
+        ->and($in->scaleX)->toBeLessThan(\Ichiloto\Engine\Rendering\FieldViewport::TILE_SIZE);
+    for($i=0;$i<1000;$i++) { $view->moveView(1,1); $edge=$view->getProjection($overview,new Rect(10,10,800,400),true); }
+    expect($edge->sourceX+$edge->sourceWidth)->toEqualWithDelta(400,0.00001)
+        ->and($edge->sourceY+$edge->sourceHeight)->toEqualWithDelta(100,0.00001);
+    $view->toggleZoom();
+    expect($view->zoomedIn)->toBeFalse();
 });
 
-it('keeps panels within the Terminal and uses semantic input without consuming the next press',function() {
-    $old=ConfigStore::has(PlaySettings::class)?ConfigStore::get(PlaySettings::class):null;
-    $snapshots=[];
-    foreach([Console::class,InputManager::class] as $class) { $snapshots[$class]=new ReflectionClass($class)->getStaticProperties(); }
-    ConfigStore::put(PlaySettings::class,new PlaySettings(['width'=>80,'height'=>24]));
-    foreach(['width'=>80,'height'=>24,'buffer'=>[],'frameDepth'=>0,'frameRows'=>[],'terminalHandedBack'=>false] as $name=>$value) {
-        new ReflectionProperty(Console::class,$name)->setValue(null,$value);
+it('keeps viewport raster source and marker geometry aligned as the player pans and changes zoom',function() {
+    $overview=new MapOverview(array_fill(0,100,array_fill(0,400,' ')));
+    $snapshot=new MapAtlasSnapshot('Synthetic local','map',$overview,[],[],100,50,MovementHeading::EAST);
+    $theme=new MenuPresentationCatalog('/tmp',['schema'=>'ichiloto.menu/1']);
+    $view=new MapAtlasView(100.5,50.5);
+    $before=MapAtlasPresentation::compose($snapshot,$theme,1350,720,MapAtlasSize::OPENED,mapView:$view);
+    $view->moveView(1,0);
+    $after=MapAtlasPresentation::compose($snapshot,$theme,1350,720,MapAtlasSize::OPENED,mapView:$view);
+    $a=$before->composites[0]->operations[0]->data['source'];
+    $b=$after->composites[0]->operations[0]->data['source'];
+    expect($b['x'])->toBeGreaterThan($a['x'])->and($b['width'])->toBe($a['width']);
+    $view->toggleZoom();
+    $zoom=MapAtlasPresentation::compose($snapshot,$theme,1350,720,MapAtlasSize::OPENED,mapView:$view);
+    expect($zoom->composites[0]->operations[0]->data['source']['width'])->toBeLessThan($b['width']);
+    $unchanged=MapAtlasPresentation::compose($snapshot,$theme,1350,720,MapAtlasSize::OPENED,mapView:$view);
+    expect($unchanged->composites)->toEqual($zoom->composites);
+});
+
+it('resolves nested maps through current parent landmark references without duplicating coordinates',function() {
+    $world=['data'=>['atlas'=>['scope'=>'global'],'events'=>[],
+        'worldObjects'=>[['id'=>'town','anchor'=>['x'=>1,'y'=>0]]],
+        'landmarks'=>[['id'=>'town','kind'=>'building','anchor'=>['object'=>'town']]]], 'tiles'=>[[' ',' ']]];
+    // Resolved anchors use the same synthetic object records as runtime source.
+    $world['data']['worldObjects']=[];
+    $world['data']['events']=[['marker'=>'A','class'=>\Ichiloto\Engine\Events\Triggers\TransferPlayerTrigger::class,'area'=>['cells'=>[[1,0]]]]];
+    $world['data']['landmarks']=[['id'=>'town','kind'=>'entrance','anchor'=>['event'=>'A']]];
+    $town=['data'=>['atlas'=>['parent'=>['map'=>'world','landmark'=>'town']]],'tiles'=>[[' ']]];
+    $read=fn(string $id)=>['world'=>$world,'town'=>$town][$id];
+    expect(MapAtlasDefinition::resolveGlobal('town',$read))->toBe(['map'=>'world','landmark'=>'town'])
+        ->and(MapAtlasDefinition::resolveGlobal('world',$read))->toBe(['map'=>'world','landmark'=>null])
+        ->and(MapAtlasDefinition::readMap([])->global)->toBeFalse();
+    $missing=$town; $missing['data']['atlas']['parent']['landmark']='missing';
+    expect(fn()=>MapAtlasDefinition::resolveGlobal('town',fn($id)=>$id==='town' ? $missing : $world))->toThrow(InvalidArgumentException::class);
+    $cycle=$town; $cycle['data']['atlas']['parent']['map']='town';
+    $cycle['data']['events']=$world['data']['events']; $cycle['data']['landmarks']=$world['data']['landmarks']; $cycle['tiles']=$world['tiles'];
+    expect(fn()=>MapAtlasDefinition::resolveGlobal('town',fn($id)=>$cycle))->toThrow(InvalidArgumentException::class);
+    expect(fn()=>MapAtlasDefinition::readMap(['atlas'=>['scope'=>'global','parent'=>['map'=>'x','landmark'=>'y']]]))->toThrow(InvalidArgumentException::class);
+});
+
+it('validates authored categories and keeps distinct generic pictograms replaceable by project themes',function() {
+    $catalog=MapCategoryCatalog::fromArray(['schema'=>MapCategoryCatalog::SCHEMA,'categories'=>[
+        'bsa'=>['base'=>'organization','name'=>['message'=>'map_categories.bsa.name','default'=>'BSA']]]]);
+    expect($catalog->getBase('bsa'))->toBe(MapLandmarkCategory::ORGANIZATION)->and($catalog->getName('bsa'))->toBe('BSA');
+    expect(MapCategoryCatalog::fromArray($catalog->toArray())->toArray())->toBe($catalog->toArray());
+    expect(fn()=>new MapCategoryCatalog(['home'=>['base'=>'home','name'=>[]]]))->toThrow(InvalidArgumentException::class);
+    expect(fn()=>$catalog->getBase('missing'))->toThrow(InvalidArgumentException::class);
+    $markers=[];
+    foreach(MapLandmarkCategory::cases() as $i=>$category) {
+        $markers[]=['point'=>new \Ichiloto\Engine\Core\Vector2(30+$i*50,30),'category'=>$category,
+            'color'=>null];
     }
-    ob_start();
-    try {
-        $probe=new RegionMapDrawingProbe(makeRegionDiagramGraph());
-        [$map,$info]=$probe->showPanels();
-        foreach([$map,$info] as $panel) {
-            expect($panel->getPosition()->x+$panel->getWidth())->toBeLessThanOrEqual(80)
-                ->and($panel->getPosition()->y+$panel->getHeight())->toBeLessThanOrEqual(24);
-        }
-        InputManager::setBindings(['right'=>['keys'=>[KeyCode::RIGHT]],'back'=>['keys'=>[KeyCode::ESCAPE]]]);
-        $keys=new FakeInputSource(KeyCode::RIGHT,KeyCode::v,KeyCode::ESCAPE);
-        InputManager::setInputSource($keys);
-        InputManager::handleInput(); $probe->execute();
-        expect(implode('',$probe->getDetails(80)))->toContain('Unknown location');
-        InputManager::handleInput(); $probe->execute();
-        expect($probe->next)->toBe($probe->getGameScene()->mapState)
-            ->and(InputManager::getPressedKeyCode())->toBeNull()->and($keys->keys)->toBe([KeyCode::ESCAPE]);
-    } finally {
-        ob_end_clean();
-        foreach($snapshots as $class=>$properties) {
-            foreach($properties as $name=>$value) { new ReflectionProperty($class,$name)->setValue(null,$value); }
-        }
-        $old===null?ConfigStore::remove(PlaySettings::class):ConfigStore::put(PlaySettings::class,$old);
-    }
+    $theme=new MenuPresentationCatalog('/tmp',['schema'=>'ichiloto.menu/1']);
+    foreach($markers as &$marker) { $marker['color']=$theme->colors['accent']; } unset($marker);
+    $layer=\Ichiloto\Engine\UI\Presentation\MapAtlasPictograms::createLayer($markers,new \Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasRectangle(0,0,250,100),$theme,true);
+    expect($layer)->not->toBeNull()->and($layer->runs)->not->toBeEmpty();
+});
+
+
+it('fits the whole global geography then allows a closer GPUI level with scrolling',function() {
+    $overview=new MapOverview(array_fill(0,100,array_fill(0,400,' ')));
+    $view=new MapAtlasView(100,50);
+    $full=$view->getProjection($overview,new Rect(0,0,800,400),true,true);
+    expect($full->sourceX)->toBe(0.0)->and($full->width)->toBe(800.0)->and($view->moveView(1,0))->toBeFalse();
+    $view->toggleZoom();
+    $close=$view->getProjection($overview,new Rect(0,0,800,400),true,true);
+    expect($close->sourceWidth)->toBe(200.0)->and($view->moveView(1,0))->toBeTrue();
+    $pan=$view->getProjection($overview,new Rect(0,0,800,400),true,true);
+    expect($pan->sourceX)->toBeGreaterThan($close->sourceX);
+    $terminal=$view->getProjection($overview,new Rect(0,0,80,24),false,true);
+    expect($terminal->sourceX)->toBe(0.0)->and($terminal->sourceY)->toBe(0.0)->and($view->moveView(1,1))->toBeFalse();
 });

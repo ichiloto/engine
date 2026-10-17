@@ -32,7 +32,7 @@ it('uses one whole-map raster in every atlas size and keeps player motion separa
     if ($size === MapAtlasSize::OPENED) {
         $legends = array_column($before->textLayers,null,'id');
         $later = array_column($after->textLayers,null,'id');
-        expect($legends)->toHaveKey('atlas-legend')->and($legends['atlas-legend']->runs)->not->toEqual($later['atlas-legend']->runs);
+        expect($legends)->toHaveKey('atlas-legend')->and($legends['atlas-focus']->runs)->not->toEqual($later['atlas-focus']->runs);
     }
 })->with([MapAtlasSize::COMPACT,MapAtlasSize::LARGE,MapAtlasSize::OPENED])->with([false,true]);
 
@@ -78,9 +78,22 @@ it('names only the focused location in the opened atlas across graphical window 
         $first = MapAtlasPresentation::compose($snapshot,$theme,$width,$height,MapAtlasSize::OPENED,0);
         $count = MapAtlasPresentation::getLegendPageSize($first);
         $next = MapAtlasPresentation::compose($snapshot,$theme,$width,$height,MapAtlasSize::OPENED,$count);
-        $legend = array_column($next->textLayers,null,'id')['atlas-legend'];
+        $legend = array_column($next->textLayers,null,'id')['atlas-focus'];
         $text=implode(' ',array_column($legend->runs,'text'));
         expect($text)->toContain('Place 1')->not->toContain('Place 0')->not->toContain('Place 2')
             ->and($count)->toBe(1);
     }
+});
+
+
+it('keeps opened map navigation discoverable when optional theme hints are hidden',function() {
+    $theme=new MenuPresentationCatalog('/tmp',['schema'=>'ichiloto.menu/1','showInputHints'=>false]);
+    $view=new \Ichiloto\Engine\Field\MapAtlasView(0,0);
+    $canvas=MapAtlasPresentation::compose(makeGraphicalAtlasSnapshot(),$theme,1350,720,MapAtlasSize::OPENED,mapView:$view);
+    $controls=array_column($canvas->textLayers,null,'id')['atlas-hints'] ?? null;
+    expect($controls)->not->toBeNull();
+    $text=implode(' ',array_column($controls->runs,'text'));
+    expect($text)->toContain('World map')->toContain('Zoom')->toContain('Scroll')->toContain('Close');
+    $corner=MapAtlasPresentation::compose(makeGraphicalAtlasSnapshot(),$theme,1350,720,MapAtlasSize::COMPACT);
+    expect(array_column($corner->textLayers,'id'))->not->toContain('atlas-hints');
 });

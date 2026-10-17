@@ -48,6 +48,7 @@ class MapManager implements CanRenderAt
   public private(set) ?MapGraphics $graphics = null;
   public private(set) ?MapKnowledge $mapKnowledge = null;
   public private(set) ?MapOverview $overview = null;
+  public private(set) ?MapAtlasDefinition $atlasDefinition = null;
   private ?array $lastKnowledgePosition = null;
   private ?PresentationWorld $presentationWorld = null;
   private ?bool $presentationWorldPolicy = null;
@@ -307,6 +308,7 @@ class MapManager implements CanRenderAt
   {
     $source = $this->prepareSplitMapDataFromFiles($this->resolveMapPaths($filename));
     $map = $source['data'];
+    MapAtlasDefinition::readMap($map);
     $collisions = $source['occupancy']?->collisionGrid
       ?? $this->generateLayerCollisionMap($source['layers'], $this->getCollisionDictionary());
     $mapTriggers = [];
@@ -324,8 +326,33 @@ class MapManager implements CanRenderAt
     );
 
     return new PreparedMap($map, $source['tiles'], $collisions, $mapTriggers, $eventTriggers, $npcs, $source['layers'],
-      $source['graphics'], $source['worldObjects'], MapLandmarkCatalog::readMap($map, $source['tiles']),
+      $source['graphics'], $source['worldObjects'], MapLandmarkCatalog::readMap($map, $source['tiles'], MapCategoryCatalog::load($this->getAssetRoot())),
       new MapOverview($source['tiles'], $collisions));
+  }
+
+  /** Resolve current authored hierarchy without activating a destination or observing it for discovery. */
+  public function resolveGlobalAtlas(string $mapId): ?array
+  {
+    return MapAtlasDefinition::resolveGlobal($mapId,function(string $id): array {
+      $source=MapSourceReader::readEventSource($this->resolveMapPaths($id));
+      return ['data'=>$source['data'],'tiles'=>$source['eventLayer']];
+    },MapCategoryCatalog::load($this->getAssetRoot()));
+  }
+
+  public function readGlobalAtlasMaps(): array
+  {
+    return MapAtlasDefinition::readGlobalMaps($this->getAssetRoot().'/Maps');
+  }
+
+  /** Read one overview through the same geometry, graphics and ownership preparation as the field. */
+  public function createAtlasDocument(string $mapId): MapAtlasDocument
+  {
+    $source=$this->prepareSplitMapDataFromFiles($this->resolveMapPaths($mapId));
+    $collisions=$source['occupancy']?->collisionGrid
+      ?? $this->generateLayerCollisionMap($source['layers'],$this->getCollisionDictionary());
+    return new MapAtlasDocument($mapId,$source,new MapOverview($source['tiles'],$collisions),
+      MapLandmarkCatalog::readMap($source['data'],$source['tiles'],MapCategoryCatalog::load($this->getAssetRoot())),
+      $this->getAssetRoot());
   }
 
   /** Commits a previously validated destination and its field side effects. */
@@ -346,6 +373,7 @@ class MapManager implements CanRenderAt
     $mapId = strval($map['id'] ?? '');
     $this->mapKnowledge = $prepared->landmarks === null ? null : new MapKnowledge($mapId, $prepared->landmarks);
     $this->overview = $prepared->overview;
+    $this->atlasDefinition = MapAtlasDefinition::readMap($map);
     $this->lastKnowledgePosition = null;
     $this->installWorldObjects($prepared->worldObjects, $mapId);
     $this->loadMapTriggers($prepared->mapTriggers);
@@ -869,7 +897,7 @@ class MapManager implements CanRenderAt
   protected function readSplitMapDataFromFiles(array $paths): array
   {
     $prepared = $this->prepareSplitMapDataFromFiles($paths);
-    $landmarks = MapLandmarkCatalog::readMap($prepared['data'], $prepared['tiles']);
+    $landmarks = MapLandmarkCatalog::readMap($prepared['data'], $prepared['tiles'], MapCategoryCatalog::load($this->getAssetRoot()));
     $overview = new MapOverview($prepared['tiles'], $prepared['occupancy']?->collisionGrid);
     $this->gameScene->fieldEffects?->clear();
     $this->tileMap = $prepared['tiles'];
@@ -877,6 +905,7 @@ class MapManager implements CanRenderAt
     $this->graphics = $prepared['graphics'];
     $this->mapKnowledge = new MapKnowledge(strval($prepared['data']['id'] ?? ''), $landmarks);
     $this->overview = $overview;
+    $this->atlasDefinition = MapAtlasDefinition::readMap($prepared['data']);
     $this->lastKnowledgePosition = null;
     $this->installWorldObjects($prepared['worldObjects'], strval($prepared['data']['id'] ?? ''));
     $this->clearPresentationWorld();
@@ -895,6 +924,7 @@ class MapManager implements CanRenderAt
     $this->graphics = null;
     $this->mapKnowledge = null;
     $this->overview = null;
+    $this->atlasDefinition = null;
     $this->lastKnowledgePosition = null;
     $this->clearWorldObjects();
     $this->clearPresentationWorld();

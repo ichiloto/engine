@@ -23,7 +23,7 @@ final readonly class CanvasCompositeOperation
       default => throw new InvalidArgumentException('Unsupported composite operation.'),
     };
     CanvasCompositeValues::validateKeys($data, ['type', ...$required],
-      ['opacity', 'blend', 'masks', ...($type === 'image' ? ['source', 'displacement'] : [])]);
+      ['opacity', 'blend', 'masks', ...($type === 'image' ? ['source', 'displacement'] : ($type === 'world' ? ['source'] : []))]);
     $blend = $data['blend'] ?? 'source_over';
     if (!in_array($blend, ['source_over', 'screen'], true)) { throw new InvalidArgumentException('Unsupported composite blend.'); }
     $result = ['type' => $type, 'opacity' => CanvasCompositeValues::getNumber($data['opacity'] ?? 1, 0, 1),
@@ -56,6 +56,7 @@ final readonly class CanvasCompositeOperation
       if ($images > 1024) { throw new InvalidArgumentException('World overview subjects exceed 1024 image pieces.'); }
       $result['worldId'] = $data['worldId'];
       $result['subjects'] = $parsed;
+      if (array_key_exists('source',$data)) { $result['source']=CanvasCompositeValues::getRectangle($data['source']); }
     } elseif ($type !== 'image') {
       if (!is_array($data['brush'])) { throw new InvalidArgumentException('Composite brush must be a descriptor.'); }
       $result['brush'] = new CanvasCompositeBrush($data['brush'])->data;

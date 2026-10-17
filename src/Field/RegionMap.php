@@ -355,7 +355,7 @@ class RegionMap
         $source = MapSourceReader::readEventSource(['id' => $id, 'data' => $filename,
           'event' => dirname($filename) . DIRECTORY_SEPARATOR . $leaf . '.event.php']);
         $data = $source['data'];
-        $catalog = MapLandmarkCatalog::readMap($data, $source['eventLayer']);
+        $catalog = MapLandmarkCatalog::readMap($data, $source['eventLayer'], MapCategoryCatalog::load(dirname($root)));
         $routes = self::getRoutes($id, $data, $catalog, $source['eventLayer']);
       } catch (Throwable $exception) {
         Debug::warn(sprintf('Could not read map %s: %s', $id, $exception->getMessage()));
