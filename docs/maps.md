@@ -71,6 +71,80 @@ unavailable event's `whenBlocked` gate only stops steps onto its own cells.
 A cue shows on each separate placement. Cinematics that name a marker as a
 subject use its first cell in reading order, the top-left of a rectangle.
 
+## Active-map landmarks and discovery
+
+Andrew selected a GPUI corner atlas with compact and larger sizes, and an opened
+whole-map view with labels and a legend. Terminal retains the coordinate HUD.
+The region connectivity view remains separately available. All active-map views
+use physical local cells and a stable north-up whole-map fit.
+
+`landmarks` in a map's `.data.php` is a list of at most 256 declarations:
+
+```php
+'landmarks' => [
+    [
+        'id' => 'harbour-gate',
+        'kind' => 'exit',
+        'anchor' => ['event' => 'G'],
+        'name' => ['message' => 'maps.harbour.gate', 'default' => 'Harbour Gate'],
+        'approachDistance' => 3,
+    ],
+    [
+        'id' => 'old-tower',
+        'kind' => 'building',
+        'anchor' => ['object' => 'tower-sign'],
+        'name' => ['message' => 'maps.harbour.tower', 'default' => 'Old Tower'],
+        'revealConditions' => [['type' => 'event', 'name' => 'heard_of_tower']],
+    ],
+],
+```
+
+The map-scoped `id` is a stable lowercase identifier of 1–64 characters. Kinds
+are `passage`, `entrance`, `exit`, `building` and `landmark`. An anchor references
+one existing local event marker or stable world-object id. It never duplicates
+coordinates or names a destination spawn. Old legacy map transfers may be given
+a stable `id` and referenced with `['trigger' => 'back-door']`. Moving the owning
+event/object moves the landmark; deleting an anchor requires reference repair.
+Each disconnected event placement gets a marker centred on one of its own cells.
+One event/legacy transfer can anchor one landmark. Route kinds must reference a
+transfer; a transfer landmark must retain a route kind. A separate building may
+use its sign object as its anchor.
+
+All ordinary transfer events and legacy map triggers receive anonymous passage
+markers automatically, including gated routes. Explicit landmark metadata
+replaces that marker. Destination names are never inferred. Route markers are
+visible immediately; names and non-route landmarks are learned by approach or
+authored play revelation. `approachDistance` defaults to 3 physical Manhattan
+cells and accepts 0–64 or `null` to disable approach discovery. This distance is
+independent of the renderer, viewport and zoom.
+
+`secret => true` hides the marker and ignores approach discovery. Only explicit
+play revelation can reveal it; a secret declaration must omit `approachDistance`.
+Use
+a nonempty `revealConditions` list of up to 32
+shared world conditions, or `GameState::revealLandmark($mapId, $landmarkId)`.
+Revelations latch in saved `knownLandmarks[mapId][landmarkId]`, survive map visits
+and save/reload, and never unlock the route. Transfer access conditions remain
+separate and may show a known route as locked. Old saves begin without individual
+landmark knowledge; map visitation alone does not reveal names. Presentation
+reads knowledge and never causes a discovery.
+
+Runtime uses `MapLandmarkCatalog::readMap($resolvedMap, $tiles)`. Editor validation
+uses `readDeclarations($entries, new MapLandmarkAnchors($events, $objects, $triggers),
+$rowWidths)` on unsaved source. Each table maps a source identity to
+`new MapLandmarkAnchor($cellArea, $isTransfer, $accessConditions)`; `rowWidths`
+contains each real row's cell count, preserving ragged maps. Both use the same
+validation and automatic-route generation. Public catalog constants define the
+id pattern, limits and approach default. `getNameMessageKey($mapId, $landmarkId)`
+supplies a bounded map-scoped translation key using the map identity's SHA-256;
+authors may supply another valid localized message id. Saved landmark ids remain
+immutable during ordinary editing. Existing world-condition flags provide
+authored revelations; no new script command is introduced in this slice.
+
+The shared catalog/discovery and save support is in local implementation.
+Runtime map presentation, Game metadata, theme bindings and Editor authoring are
+still being integrated; this section defines their shared data contract.
+
 ## Layer order and composition
 
 Layer filenames have the form `NN.name.map.php` for gameplay or

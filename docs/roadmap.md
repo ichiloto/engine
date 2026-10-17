@@ -937,8 +937,12 @@ not a default for future story stations.
   a north-up aspect-preserving fit and shared cell-centre placement for graphical
   and Terminal display units. The 47 projection/viewport/cell-area tests passed
   locally. This is a foundation only: runtime map content, landmark knowledge,
-  graphical HUD choice and Editor authoring remain pending. Two HUD proposals
-  and the landmark-discovery choice are with Andrew. Terminal retains its
+  graphical HUD and Editor authoring remain pending. Andrew selected a persistent
+  GPUI corner atlas with compact and larger sizes, plus a full opened map with
+  clear labels and legend. Ordinary entrances/exits show markers immediately;
+  names and other landmarks are learned by physical approach or authored play
+  revelation. Explicit secret routes stay hidden until explicitly revealed,
+  including when approached. Terminal retains its
   coordinate HUD; the existing region connectivity map remains a separate view.
   Implementation constraints verified from the current sources:
   - Local entrances must resolve their actual transfer `CellArea` or stable
@@ -947,9 +951,9 @@ not a default for future story stations.
     distinct doors and nonrectangular/disconnected trigger areas.
   - Known/visible landmarks and traversable/locked entrances are separate
     facts. Current saved map visitation is insufficient for individual place
-    knowledge. Andrew's discovery choice determines whether additional saved
-    landmark knowledge is required; do not introduce a default before that
-    decision or reveal destination names by scanning every transfer.
+    knowledge. Additional saved map-scoped landmark knowledge must persist
+    approach and play revelations. Do not reveal destination names by scanning
+    every transfer, or confuse access conditions with secret visibility.
   - The existing Editor record/reference/source-document services support
     selectable object identities, source-preserving writes and undo. Landmark
     metadata must extend that path, include reference safety for moving/deleting

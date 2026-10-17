@@ -95,6 +95,16 @@ it('prepares a destination without touching the active map and refuses a bad eve
       ->and($camera->worldSpace)->toBe([['old']]);
 
     file_put_contents($paths['event'], "<?php return <<<'EVENT'\n  \nEVENT;");
+    file_put_contents($paths['data'], '<?php return ' . var_export([
+      'name' => 'Destination', 'events' => [], 'landmarks' => [[
+        'id' => 'missing-anchor', 'kind' => 'entrance', 'anchor' => ['event' => 'X'],
+      ]],
+    ], true) . ';');
+    $oldKnowledge = $manager->mapKnowledge;
+    expect(fn () => $manager->prepareMap('ignored'))->toThrow(InvalidArgumentException::class, 'missing event')
+      ->and($manager->mapKnowledge)->toBe($oldKnowledge)
+      ->and($manager->tileMap)->toBe([])
+      ->and($camera->worldSpace)->toBe([['old']]);
     file_put_contents($paths['data'], <<<'PHP'
 <?php return ['name' => 'Destination', 'events' => [], 'npcs' => [
   ['id' => 'duplicate', 'name' => 'First', 'x' => 0, 'y' => 0],

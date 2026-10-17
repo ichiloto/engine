@@ -46,6 +46,8 @@ class MapManager implements CanRenderAt
   protected(set) array $tileMap = [];
   public private(set) ?MapLayerSet $layers = null;
   public private(set) ?MapGraphics $graphics = null;
+  public private(set) ?MapKnowledge $mapKnowledge = null;
+  private ?array $lastKnowledgePosition = null;
   private ?PresentationWorld $presentationWorld = null;
   private ?bool $presentationWorldPolicy = null;
   /** @var array<string, WorldObject> Installed subjects, never saved or used for collision. */
@@ -321,7 +323,7 @@ class MapManager implements CanRenderAt
     );
 
     return new PreparedMap($map, $source['tiles'], $collisions, $mapTriggers, $eventTriggers, $npcs, $source['layers'],
-      $source['graphics'], $source['worldObjects']);
+      $source['graphics'], $source['worldObjects'], MapLandmarkCatalog::readMap($map, $source['tiles']));
   }
 
   /** Commits a previously validated destination and its field side effects. */
@@ -340,6 +342,8 @@ class MapManager implements CanRenderAt
 
     $this->calculateMapDimensions();
     $mapId = strval($map['id'] ?? '');
+    $this->mapKnowledge = $prepared->landmarks === null ? null : new MapKnowledge($mapId, $prepared->landmarks);
+    $this->lastKnowledgePosition = null;
     $this->installWorldObjects($prepared->worldObjects, $mapId);
     $this->loadMapTriggers($prepared->mapTriggers);
     $this->loadMapEvents($prepared->eventTriggers, $mapId);
@@ -358,6 +362,19 @@ class MapManager implements CanRenderAt
     $this->camera->resetPosition($player);
     $this->gameScene->fieldEffects?->installMap($mapId, $map['fieldEffects'] ?? null, $prepared->graphics,
       $prepared->eventTriggers);
+    $this->refreshMapKnowledge();
+  }
+
+  /** Discover only at gameplay position/world-state changes, never during drawing. */
+  public function refreshMapKnowledge(bool $force = false): void
+  {
+    $state = $this->gameScene->gameState;
+    $player = $this->gameScene->player;
+    if ($this->mapKnowledge === null || $state === null || $player === null) { return; }
+    $position = [(int) floor($player->position->x), (int) floor($player->position->y)];
+    if (!$force && $position === $this->lastKnowledgePosition) { return; }
+    $this->lastKnowledgePosition = $position;
+    $this->mapKnowledge->discoverNear($position[0], $position[1], $state, $this->gameScene->party);
   }
 
   /**
@@ -849,10 +866,13 @@ class MapManager implements CanRenderAt
   protected function readSplitMapDataFromFiles(array $paths): array
   {
     $prepared = $this->prepareSplitMapDataFromFiles($paths);
+    $landmarks = MapLandmarkCatalog::readMap($prepared['data'], $prepared['tiles']);
     $this->gameScene->fieldEffects?->clear();
     $this->tileMap = $prepared['tiles'];
     $this->layers = $prepared['layers'];
     $this->graphics = $prepared['graphics'];
+    $this->mapKnowledge = new MapKnowledge(strval($prepared['data']['id'] ?? ''), $landmarks);
+    $this->lastKnowledgePosition = null;
     $this->installWorldObjects($prepared['worldObjects'], strval($prepared['data']['id'] ?? ''));
     $this->clearPresentationWorld();
     $this->camera->worldSpace = $prepared['tiles'];
@@ -868,6 +888,8 @@ class MapManager implements CanRenderAt
     $this->collisionMap = [];
     $this->layers = null;
     $this->graphics = null;
+    $this->mapKnowledge = null;
+    $this->lastKnowledgePosition = null;
     $this->clearWorldObjects();
     $this->clearPresentationWorld();
     $this->calculateMapDimensions();

@@ -980,6 +980,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         if ($this->isStopping || $this->sceneManager->currentScene !== $this || $this->sceneManager->hasSceneTransition()) {
             return;
         }
+        $this->mapManager?->refreshMapKnowledge();
         $this->refreshFieldMusic();
     }
 
@@ -1503,6 +1504,7 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         }
 
         $this->achievementManager?->evaluateConditionalAchievements();
+        if ($kind !== 'landmark') { $this->mapManager?->refreshMapKnowledge(force: true); }
     }
 
     /**
