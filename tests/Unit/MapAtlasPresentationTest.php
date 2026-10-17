@@ -52,3 +52,16 @@ it('fits minimum authored corner sizes and thin source maps without losing their
         expect(MapAtlasPresentation::compose($snapshot,$theme,640,480,MapAtlasSize::COMPACT)->composites)->toHaveCount(1);
     }
 });
+
+
+it('keeps wide-map corner frames close to their content and gives default markers a contrasting halo', function () {
+    $theme = new MenuPresentationCatalog('/tmp',['schema'=>'ichiloto.menu/1','showInputHints'=>false]);
+    $canvas = MapAtlasPresentation::compose(makeGraphicalAtlasSnapshot(),$theme,1350,720,MapAtlasSize::LARGE);
+    $areas = $canvas->protectedAreas;
+    $frame = $areas[0];
+    expect($frame->height)->toBeLessThan(300);
+    $markers = array_column($canvas->indicators,null,'id');
+    expect($markers)->toHaveKey('atlas-player-halo')->toHaveKey('atlas-marker-halo-0')
+        ->and($markers['atlas-player-halo']->color)->toEqual($theme->colors['background'])
+        ->and(count($markers))->toBeLessThanOrEqual(2048);
+});

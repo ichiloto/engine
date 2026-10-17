@@ -66,6 +66,11 @@ final class MapAtlasPresentation
             : [ActionHints::resolve('map_size', MessageCatalog::getTerm('map.size')), ActionHints::resolve('map', MessageCatalog::getTerm('map.open'))];
         $hintHeight = $theme->showInputHints ? MenuActionHints::height($hints,$theme,$contentWidth) : 0;
         if (!$full && $h - 2*$padding - $m->cellHeight - $m->sectionGap - $hintHeight < 24) { $hintHeight = 0; }
+        if (!$full) {
+            $naturalHeight = (int)ceil($contentWidth*$snapshot->overview->height/$snapshot->overview->width);
+            $h = min($h,max(96,2*$padding+$m->cellHeight+$m->sectionGap+$hintHeight+$naturalHeight));
+            $box = new CanvasRectangle($box->x,$box->y,$w,$h);
+        }
         $bodyHeight = max(1, $h - 2*$padding - $m->cellHeight - $m->sectionGap - $hintHeight);
         $legendWidth = $full ? min(400, floor($contentWidth * .31)) : 0;
         $mapBox = new CanvasRectangle($box->x+$padding, $box->y+$padding+$m->cellHeight+$m->sectionGap,
@@ -87,7 +92,7 @@ final class MapAtlasPresentation
         ])],20);
         $indicators = [];
         $bin = max(16,$a->markerSize+4,(int)ceil(sqrt($mapBox->width*$mapBox->height/768)));
-        while ((ceil($mapBox->width/$bin)+1)*(ceil($mapBox->height/$bin)+1)>1536) { $bin++; }
+        while ((ceil($mapBox->width/$bin)+1)*(ceil($mapBox->height/$bin)+1)>1000) { $bin++; }
         $clusters = [];
         foreach ($snapshot->landmarks as $index=>$landmark) {
             foreach ($landmark['definition']->getMarkerCells() as $cell) {
@@ -108,7 +113,8 @@ final class MapAtlasPresentation
             $color = $cluster['selected'] ? 'focus' : ($landmark['accessible']===false ? 'disabled'
                 : ($kind===MapLandmarkKind::BUILDING ? 'increase' : 'accent'));
             $stroke = $cluster['selected'] ? min(3,$a->markerSize) : ($cluster['count']>1 ? 2
-                : ($kind->isRoute() ? 1 : (int)ceil($a->markerSize/2)));
+                : ($kind->isRoute() ? 2 : (int)ceil($a->markerSize/2)));
+            $indicators[] = self::createMarkerHalo('atlas-marker-halo-'.$index,$marker,$theme,39,$width,$height);
             $indicators[] = new CanvasIndicator('atlas-marker-'.$index,'atlas-map',CanvasIndicatorKind::OUTLINE,
                 $marker,$stroke,$theme->colors[$color],40);
         }
@@ -119,6 +125,7 @@ final class MapAtlasPresentation
             $point = $projection->projectCell($playerX,$playerY);
             $marker = new CanvasRectangle($point->x-$a->markerSize/2,$point->y-$a->markerSize/2,$a->markerSize,$a->markerSize);
             if (!$view->icon('atlas-player','map.player',$marker,50)) {
+                $indicators[] = self::createMarkerHalo('atlas-player-halo',$marker,$theme,49,$width,$height);
                 $indicators[] = new CanvasIndicator('atlas-player','atlas-map',CanvasIndicatorKind::OUTLINE,$marker,
                     (int)ceil($a->markerSize/2),$theme->colors['focus'],50);
                 $heading = match($snapshot->heading) { \Ichiloto\Engine\Core\Enumerations\MovementHeading::NORTH=>'^',
@@ -141,6 +148,16 @@ final class MapAtlasPresentation
         CanvasImagePreflight::inspect($base->images,$theme->assetRoot,[$raster]);
         return new PresentationCanvas($width,$height,$base->images,$indicators,[...$base->textLayers,...$text],[$raster],
             $base->protectedAreas,$base->presentationOwners,$base->labels);
+    }
+
+    private static function createMarkerHalo(string $id, CanvasRectangle $marker, MenuPresentationCatalog $theme,
+        int $layer,int $width,int $height): CanvasIndicator
+    {
+        $left = max(0,$marker->x-2);
+        $top = max(0,$marker->y-2);
+        $bounds = new CanvasRectangle($left,$top,min($width-$left,$marker->width+4),min($height-$top,$marker->height+4));
+        return new CanvasIndicator($id,'atlas-map',CanvasIndicatorKind::OUTLINE,$bounds,
+            min(4,(int)min($bounds->width,$bounds->height)),$theme->colors['background'],$layer);
     }
 
     private static function renderLegend(MenuCanvas $view, MapAtlasSnapshot $snapshot, CanvasRectangle $bounds,
