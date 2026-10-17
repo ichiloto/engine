@@ -59,28 +59,42 @@ final class MapSourceReader
    */
   public static function readFiles(array $paths): array
   {
-    $displayPaths = [];
+    self::assertSourceFilesExist($paths);
+    $layers = MapLayerSource::loadFromDirectory(dirname($paths['data']), $paths['id'], $paths['map']);
+    $source = self::readEventSource($paths, $layers);
+
+    return ['data' => $source['data'], 'tiles' => $layers->getComposedGrid(), 'layers' => $layers];
+  }
+
+  /**
+   * Read route/event ownership without loading graphical or terrain resources.
+   * Runtime may supply its layers to validate matching geometry before requiring data.
+   *
+   * @param array{id: string, data: string, event: string} $paths
+   * @return array{data: array<string, mixed>, eventLayer: list<list<string>>}
+   */
+  public static function readEventSource(array $paths, ?MapLayerSet $layers = null): array
+  {
+    self::assertSourceFilesExist($paths);
+    $eventPath = $paths['id'] . '/' . basename($paths['event']);
+    $eventLayer = self::parseMapLayer(MapGridSource::readFile($paths['event'], $eventPath), $eventPath, 'event');
+    $layers?->assertMatchingGrid($eventLayer, "Event map {$eventPath}");
+    $map = self::requirePhpFile($paths['data']);
+    if (!is_array($map)) { throw new NotFoundException('File ' . $paths['id'] . '/' . basename($paths['data']) . ' does not return an array.'); }
+    $map['id'] ??= $paths['id'];
+    $map['events'] = self::resolveEventDefinitions($map['events'] ?? [], $eventLayer, $eventPath);
+
+    return ['data' => $map, 'eventLayer' => $eventLayer];
+  }
+
+  /** @param array{id: string, data: string, event: string} $paths */
+  private static function assertSourceFilesExist(array $paths): void
+  {
     foreach (['data', 'event'] as $type) {
-      $displayPaths[$type] = $paths['id'] . '/' . basename($paths[$type]);
       if (! file_exists($paths[$type])) {
-        throw new NotFoundException("File {$displayPaths[$type]} not found.");
+        throw new NotFoundException('File ' . $paths['id'] . '/' . basename($paths[$type]) . ' not found.');
       }
     }
-
-    $layers = MapLayerSource::loadFromDirectory(dirname($paths['data']), $paths['id'], $paths['map']);
-    $eventText = MapGridSource::readFile($paths['event'], $displayPaths['event']);
-    $eventLayer = self::parseMapLayer($eventText, $displayPaths['event'], 'event');
-    $layers->assertMatchingGrid($eventLayer, "Event map {$displayPaths['event']}");
-    $map = self::requirePhpFile($paths['data']);
-
-    if (! is_array($map)) {
-      throw new NotFoundException("File {$displayPaths['data']} does not return an array.");
-    }
-
-    $map['id'] ??= $paths['id'];
-    $map['events'] = self::resolveEventDefinitions($map['events'] ?? [], $eventLayer, $displayPaths['event']);
-
-    return ['data' => $map, 'tiles' => $layers->getComposedGrid(), 'layers' => $layers];
   }
 
   /**

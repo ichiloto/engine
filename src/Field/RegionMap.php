@@ -3,8 +3,8 @@
 namespace Ichiloto\Engine\Field;
 
 use Assegai\Util\Path;
+use Ichiloto\Engine\Core\GameState;
 use Ichiloto\Engine\Field\Enumerations\CompassDirection;
-use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Util\Debug;
 use Throwable;
 
@@ -75,6 +75,59 @@ class RegionMap
       self::areas(),
       static fn(RegionArea $area): bool => strcasecmp($area->region, $region) === 0
     );
+  }
+
+  /**
+   * Read known directed connections without discovering places or changing access.
+   * The current location is known by being here, even before its visit is recorded.
+   *
+   * @return array{places: array<string, array{position: array{0:int,1:int}, name:?string, visited:bool}>, links:list<array{from:string,to:string}>}
+   */
+  public static function getKnownConnections(GameState $state, string $currentId): array
+  {
+    $areas = self::areas();
+    $current = $areas[$currentId] ?? null;
+    if ($current === null) {
+      return ['places' => [$currentId => ['position' => [0, 0], 'name' => null, 'visited' => true]], 'links' => []];
+    }
+    $positions = self::place($currentId);
+    $taken = array_fill_keys(array_map(self::key(...), $positions), true);
+    $places = [];
+    foreach (self::inRegion($current->region) as $id => $area) {
+      if ($id === $currentId || $state->hasVisitedMap($id)) {
+        $places[$id] = ['position' => $positions[$id], 'name' => $area->name, 'visited' => true];
+      }
+    }
+    $links = [];
+    $append = static function (RegionRoute $route, bool $includeDestination) use (&$places, &$positions, &$taken, &$links, $areas, $state): void {
+      if (!$route->isVisible($state)) { return; }
+      $from = $route->sourceId;
+      $to = $route->destinationId;
+      if (!isset($places[$to])) {
+        if (!$includeDestination) { return; }
+        if (!isset($positions[$to])) {
+          $positions[$to] = self::freeCell($positions[$from], $route->direction, $taken);
+          $taken[self::key($positions[$to])] = true;
+        }
+        $visited = $state->hasVisitedMap($to);
+        $places[$to] = ['position' => $positions[$to], 'name' => $visited ? ($areas[$to]->name ?? null) : null, 'visited' => $visited];
+      }
+      if (!$places[$to]['visited'] && $places[$to]['name'] === null) { $places[$to]['name'] = $route->getKnownName($state); }
+      $links[$from . "\0" . $to] = ['from' => $from, 'to' => $to];
+    };
+    // Only visited regional sources expose neighbours. An inbound unvisited
+    // source never reveals its own existence, even if its destination is known.
+    $sources = array_keys($places);
+    foreach ($sources as $id) {
+      foreach ($areas[$id]->routes as $route) { $append($route, true); }
+    }
+    // A visited external neighbour may contribute its genuine return edge,
+    // but cannot expand this region into its own unexplored neighbours.
+    foreach (array_diff(array_keys($places), $sources) as $id) {
+      if (!$places[$id]['visited']) { continue; }
+      foreach ($areas[$id]->routes ?? [] as $route) { $append($route, false); }
+    }
+    return ['places' => $places, 'links' => array_values($links)];
   }
 
   /**
@@ -298,23 +351,29 @@ class RegionMap
       $id = self::idOf($root, $filename);
 
       try {
-        $data = require $filename;
+        $leaf = basename($filename, '.data.php');
+        $source = MapSourceReader::readEventSource(['id' => $id, 'data' => $filename,
+          'event' => dirname($filename) . DIRECTORY_SEPARATOR . $leaf . '.event.php']);
+        $data = $source['data'];
+        $catalog = MapLandmarkCatalog::readMap($data, $source['eventLayer']);
+        $routes = self::getRoutes($id, $data, $catalog, $source['eventLayer']);
       } catch (Throwable $exception) {
         Debug::warn(sprintf('Could not read map %s: %s', $id, $exception->getMessage()));
         continue;
       }
 
-      if (! is_array($data)) {
-        continue;
+      $links = [];
+      foreach ($routes as $route) {
+        if (!array_key_exists($route->destinationId, $links)) { $links[$route->destinationId] = $route->direction; }
       }
-
       $areas[$id] = new RegionArea(
         $id,
         strval($data['name'] ?? $id),
         strval($data['region'] ?? ''),
-        self::doorsOf($data, dirname($filename)),
+        $links,
         self::stationOf($data),
         strval($data['description'] ?? ''),
+        $routes,
       );
     }
 
@@ -348,42 +407,41 @@ class RegionMap
       : $relative;
   }
 
-  /**
-   * Returns the maps a map's doors lead to, and which way each lies.
-   *
-   * Where a door sits on its map is where the place behind it lies: the shop's
-   * door is on the south side of the square because the shop is south of it.
-   * That is the only source of a region's shape that costs an author nothing,
-   * so it is what the map is drawn from unless the project says otherwise.
-   *
-   * @param array<string, mixed> $data The map data.
-   * @param string $directory The map's directory, holding its event layer.
-   * @return array<string, CompassDirection|null> The destinations, and their directions.
-   */
-  protected static function doorsOf(array $data, string $directory): array
+  /** Catalog validation owns names, secrecy and defaults; only validated anchor ids are indexed here.
+   *  @return list<RegionRoute> */
+  private static function getRoutes(string $id, array $data, MapLandmarkCatalog $catalog, array $eventLayer): array
   {
-    $markers = self::markerPositions($directory);
-    $doors = [];
-
-    foreach ((array) ($data['events'] ?? []) as $marker => $event) {
-      if (! is_array($event)) {
-        continue;
+    $declared = ['event' => [], 'trigger' => []];
+    foreach ($data['landmarks'] ?? [] as $entry) {
+      foreach ($entry['anchor'] as $type => $anchor) {
+        if (isset($declared[$type])) { $declared[$type][$anchor] = $entry['id']; }
       }
-
-      $destination = trim(strval($event['data']['destinationMap'] ?? ''));
-
-      if ($destination === '' || isset($doors[$destination])) {
-        continue;
-      }
-
-      $position = $markers[strval($marker)] ?? null;
-
-      $doors[$destination] = $position === null
-        ? null
-        : CompassDirection::fromPosition($position[0], $position[1]);
     }
-
-    return $doors;
+    $definitions = array_column($catalog->landmarks, null, 'id');
+    $width = max(1, ...array_map('count', $eventLayer));
+    $height = max(1, count($eventLayer));
+    $routes = [];
+    $append = static function (string $type, string $anchor, mixed $destination) use (&$routes, $declared, $definitions, $id, $width, $height): void {
+      $automatic = ($type === 'event' ? '@event:' : '@legacy:') . $anchor;
+      $definition = $definitions[$declared[$type][$anchor] ?? $automatic] ?? null;
+      if ($definition === null || !$definition->kind->isRoute()) { return; }
+      if (!is_string($destination) || trim($destination) === '') {
+        throw new \InvalidArgumentException('A region transfer requires a nonempty destinationMap.');
+      }
+      $cells = $definition->area->cells;
+      $direction = CompassDirection::fromPosition(
+        array_sum(array_column($cells, 0)) / count($cells) / $width,
+        array_sum(array_column($cells, 1)) / count($cells) / $height,
+      );
+      $routes[] = new RegionRoute($id, trim($destination), $definition, $direction);
+    };
+    foreach ($data['events'] ?? [] as $index => $event) {
+      $append('event', strval($event['marker'] ?? '@' . $index), $event['data']['destinationMap'] ?? null);
+    }
+    foreach ($data['triggers'] ?? [] as $index => $trigger) {
+      $append('trigger', strval($trigger['id'] ?? '@' . $index), $trigger['destinationMap'] ?? null);
+    }
+    return $routes;
   }
 
   /**
@@ -401,58 +459,6 @@ class RegionMap
     }
 
     return [intval($station['x']), intval($station['y'])];
-  }
-
-  /**
-   * Returns where each event marker sits on its map, as a fraction of the
-   * map's width and height.
-   *
-   * @param string $directory The map's directory.
-   * @return array<string, array{0: float, 1: float}> The marker positions.
-   */
-  protected static function markerPositions(string $directory): array
-  {
-    $filename = $directory . DIRECTORY_SEPARATOR . basename($directory) . '.event.php';
-
-    if (! is_file($filename)) {
-      return [];
-    }
-
-    try {
-      $layer = MapGridSource::readFile($filename);
-    } catch (Throwable $exception) {
-      Debug::warn(sprintf('Could not read the event layer %s: %s', $filename, $exception->getMessage()));
-
-      return [];
-    }
-
-    $rows = preg_split('/\r\n|\n|\r/', rtrim($layer, "\r\n")) ?: [];
-    $height = max(1, count($rows));
-    $width = 1;
-    $cells = [];
-
-    foreach ($rows as $y => $row) {
-      $characters = TerminalText::visibleSymbols($row);
-      $width = max($width, count($characters));
-
-      foreach ($characters as $x => $character) {
-        if (trim($character) !== '') {
-          $cells[$character][] = [$x, $y];
-        }
-      }
-    }
-
-    $positions = [];
-
-    foreach ($cells as $marker => $coordinates) {
-      // A marker covers several tiles, so its middle is what is placed.
-      $positions[strval($marker)] = [
-        (array_sum(array_column($coordinates, 0)) / count($coordinates)) / $width,
-        (array_sum(array_column($coordinates, 1)) / count($coordinates)) / $height,
-      ];
-    }
-
-    return $positions;
   }
 
   /**
