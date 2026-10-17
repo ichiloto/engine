@@ -932,6 +932,14 @@ not a default for future story stations.
   Only story cues do this; route cues show where they stand.
 - **Minimap.** A minimap overlay replaces the coordinate HUD in the graphical
   field, built from the same map, cue and NPC state the field draws.
+  Andrew's 17 October goal requires a whole-active-map view with physical player
+  and known building/entrance/exit positions. `Field\MapProjection` now supplies
+  a north-up aspect-preserving fit and shared cell-centre placement for graphical
+  and Terminal display units. The 47 projection/viewport/cell-area tests passed
+  locally. This is a foundation only: runtime map content, landmark knowledge,
+  graphical HUD choice and Editor authoring remain pending. Two HUD proposals
+  and the landmark-discovery choice are with Andrew. Terminal retains its
+  coordinate HUD; the existing region connectivity map remains a separate view.
 - **Built on field effects.** Cues are map-owned effects of the unified
   effect timeline ([effect animation](effect-animation.md#field-effects)),
   alongside the walk-on save point's energy, not a cue-specific animation.
