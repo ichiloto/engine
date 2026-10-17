@@ -199,7 +199,7 @@ class InputManager
       'controllers' => self::WEST_FACE_CONTROLLERS];
   }
 
-  /** Consume only the opening edge, preserving unread input for the new context. */
+  /** Consume the current sampled edges, preserving held controls and unread input for the next owner. */
   public static function consumeCurrentInput(): void
   {
     self::$previousKeyPress = self::$keyPress = null;

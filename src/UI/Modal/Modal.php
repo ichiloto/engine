@@ -223,6 +223,8 @@ abstract class Modal implements ModalInterface, LayeredPresentationInterface, Mo
   public function hide(): void
   {
     if ($this->isShowing) {
+      // The dismissing action belongs to this modal, including during caller restoration.
+      InputManager::consumeCurrentInput();
       if (! $this->game->hasStopped()) {
         $this->erase();
       }
