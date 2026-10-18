@@ -1012,6 +1012,46 @@ it('releases replaced pose clocks and retains pause hide and clear ownership for
     expect($second->getGraphicalSpriteDefinition())->toBeNull()->and($this->object->getGraphicalSpriteDefinition()->asset)->toBe('Graphics/base.png');
 });
 
+it('evaluates placement conditions for resource and inline subjects across field terminal atlas and saved state', function (bool $resource) {
+    $entry = createWorldObjectSource(['conditions' => [['type' => 'switch', 'name' => 'visible']],
+        'terminal' => '<fg=yellow>*</>', 'variants' => []]);
+    $catalog = null;
+    if ($resource) {
+        unset($entry['pivot'], $entry['sprites2d'], $entry['variants']);
+        $entry['resource'] = 'whole';
+        $catalog = createResourceWorldObjectCatalog($this->root);
+    }
+    $prepared = createWorldObjectPreparedMap([$entry], catalog: $catalog);
+    $map = $this->scene->mapManager;
+    $map->applyPreparedMap($prepared, $this->scene->player);
+    $object = $map->findWorldObject('fixture');
+    $identity = $object->getGraphicalSpriteId();
+    $physical = [$map->tileMap, $map->getCollisionGrid()];
+    $atlas = new \Ichiloto\Engine\Field\MapAtlasDocument('synthetic/room', [
+        'worldObjects' => $prepared->worldObjects, 'layers' => $prepared->layers, 'graphics' => $prepared->graphics,
+    ], new \Ichiloto\Engine\Field\MapOverview($map->tileMap),
+        \Ichiloto\Engine\Field\MapLandmarkCatalog::readMap([], $map->tileMap), $this->root . '/assets');
+    $worlds = [];
+    foreach ([false, true, false, true] as $visible) {
+        $this->scene->gameState->setSwitch('visible', $visible);
+        new ReflectionProperty(GameScene::class, 'gameState')->setValue($this->scene,
+            GameState::fromArray($this->scene->gameState->toArray()));
+        $before = serialize([$this->scene->gameState->toArray(), $this->scene->party]);
+        expect($object->isCurrent())->toBeTrue()->and($object->isVisible())->toBe($visible)
+            ->and($object->getGraphicalSpriteDefinition() !== null)->toBe($visible)
+            ->and($object->getTerminalCells() !== [])->toBe($visible)
+            ->and($object->getOverviewSubject() !== null)->toBe($visible)
+            ->and($object->getGraphicalSpriteId())->toBe($identity);
+        $worlds[] = $atlas->getPresentationWorld($this->scene->gameState, $this->scene->party);
+        expect(new ReflectionProperty($atlas, 'subjects')->getValue($atlas))->toHaveCount($visible ? 1 : 0)
+            ->and([$map->tileMap, $map->getCollisionGrid()])->toBe($physical)
+            ->and(serialize([$this->scene->gameState->toArray(), $this->scene->party]))->toBe($before);
+    }
+    expect($worlds[0])->not->toBe($worlds[1])->and($worlds[1])->not->toBe($worlds[2]);
+    $map->applyPreparedMap($prepared, $this->scene->player);
+    expect($map->findWorldObject('fixture')->isVisible())->toBeTrue();
+})->with([true, false]);
+
 it('refuses unknown conflicting or unsafe resource placements before actual map installation', function (string $invalid) {
     $entry = ['id' => 'placed', 'resource' => 'whole', 'anchor' => ['x' => 1, 'y' => 1],
         'covers' => ['layer' => 'fixtures', 'cells' => [[1, 1]], 'tileLayers' => []]];
@@ -1023,6 +1063,10 @@ it('refuses unknown conflicting or unsafe resource placements before actual map 
         'inline pivot' => $entry['pivot'] = ['x' => .5, 'y' => 1],
         'inline role' => $entry['sprites2d'] = null,
         'inline variants' => $entry['variants'] = [],
+        'null conditions' => $entry['conditions'] = null,
+        'associative conditions' => $entry['conditions'] = ['type' => 'switch', 'name' => 'visible'],
+        'too many conditions' => $entry['conditions'] = array_fill(0, 33, ['type' => 'switch', 'name' => 'visible']),
+        'invalid condition' => $entry['conditions'] = [['type' => 'filename', 'name' => 'visible']],
         'anchor' => $entry['anchor']['x'] = 4,
         'recipe type' => $resource['occupancyStamp'][0]['type'] = 1,
         'unsafe path' => $resource['sprites2d']['asset'] = '../outside.png',
@@ -1041,7 +1085,8 @@ it('refuses unknown conflicting or unsafe resource placements before actual map 
         ->and([$this->scene->mapManager->tileMap, $this->scene->mapManager->getCollisionGrid(), serialize($this->scene->createSnapshot())])->toBe($before);
     foreach ($sources as $path => $source) { expect(file_get_contents($path))->toBe($source); }
 })->with(['unknown resource', 'null resource', 'inline pivot', 'inline role', 'inline variants', 'anchor',
-    'recipe type', 'unsafe path', 'pivot', 'decoration coverage']);
+    'recipe type', 'unsafe path', 'pivot', 'decoration coverage', 'null conditions', 'associative conditions',
+    'too many conditions', 'invalid condition']);
 
 it('refuses out of map authoring stamps without invalidating runtime placements when the recipe widens', function () {
     $entries = [['id' => 'edge-placement', 'resource' => 'whole', 'anchor' => ['x' => 0, 'y' => 0]]];

@@ -396,7 +396,7 @@ return ['resources' => [
 ```
 
 The reference form accepts `id`, `resource`, `anchor` and optional
-`covers`, `label` (for signs) and `terminal`; `pivot`, `sprites2d` and even an empty `variants` are mutually
+`covers`, `label` (for signs), `terminal` and `conditions`; `pivot`, `sprites2d` and even an empty `variants` are mutually
 exclusive with it. Existing inline/conditional declarations below remain
 supported without automatic extraction or source rewriting. `readMap(...,
 catalog: $catalog)` is the shared admission API for resource-aware consumers;
@@ -406,6 +406,21 @@ when references are present, with syntax validation independent of optional
 cue/object pixels. Unknown references, malformed declarations, out-of-map
 anchors and malformed recipe structure refuse before installation. Runtime
 admission does not resolve authoring-recipe extents against a placement.
+
+Both resource-backed and inline placements accept optional `conditions`, a
+list of at most 32 existing `WorldConditionEvaluator` conditions. Omitted or
+empty conditions keep the placement available. All conditions must hold for its
+graphical subject, sign canvas, atlas subject and optional Terminal override to
+appear. Conditions read current saved world state and party inventory; map PHP
+source stays declarative. Invalid lists and predicates refuse before map installation.
+`WorldObjectDefinition::isAvailable()` and `WorldObject::isVisible()` expose the
+same selection used by rendering, while `isCurrent()` retains map ownership.
+
+Visibility never changes collision, event identity, saves or authored map glyphs.
+An unavailable placement removes its presentation override, restoring any
+underlying Terminal glyph as existing null variants do. Authors retain ownership
+of the base layer. Atlas caches include availability so revealed or removed props
+update without reloading the map. Resource artwork remains one shared definition.
 
 `WorldObjectResource::resolveOccupancyStamp()` validates and returns absolute
 typed cells for an explicit authoring transaction, refusing out-of-map stamp

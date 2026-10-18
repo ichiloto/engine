@@ -38,9 +38,14 @@ final class WorldObject implements GraphicalSpriteProviderInterface
             && $this->scene->mapManager?->findWorldObject($this->definition->id) === $this;
     }
 
+    public function isVisible(): bool
+    {
+        return $this->isCurrent() && $this->definition->isAvailable($this->scene->gameState, $this->scene->party);
+    }
+
     private function selectRole(): ?FieldSpriteRole
     {
-        if (!$this->isCurrent()) { return null; }
+        if (!$this->isVisible()) { return null; }
         $variant = $this->definition->selectVariant($this->scene->gameState, $this->scene->party);
         if (!$this->selected || $this->selectedVariant !== $variant['id']) {
             $this->role?->release();
@@ -55,6 +60,7 @@ final class WorldObject implements GraphicalSpriteProviderInterface
     public function getGraphicalSpriteId(): string { return 'world-object:' . $this->mapId . ':' . $this->definition->id; }
     public function getGraphicalSpriteDefinition(): ?GraphicalSpriteDefinition
     {
+        if (!$this->isVisible()) { return null; }
         if ($this->sign !== null) { return null; }
         if ($this->definition->resource !== null && $this->definition->sprites instanceof GraphicalSpriteDefinition) {
             return $this->scene->mapManager?->getWorldObjectResourceFrame($this);
@@ -72,7 +78,7 @@ final class WorldObject implements GraphicalSpriteProviderInterface
     /** Styled cells of the one object; coverage may be irregular and never changes physical occupancy. */
     public function getTerminalCells(): array
     {
-        if (!$this->isCurrent()) { return []; }
+        if (!$this->isVisible()) { return []; }
         $presentation = $this->definition->selectVariant($this->scene->gameState, $this->scene->party)['terminal'];
         if ($presentation === null) { return []; }
         if (!$presentation->usesOwnedFootprint()) {
@@ -88,7 +94,7 @@ final class WorldObject implements GraphicalSpriteProviderInterface
 
     public function getPresentationWorldCanvas(): ?\Ichiloto\Engine\Rendering\Presentation\PresentationWorldCanvas
     {
-        if ($this->sign === null || !$this->isCurrent()) { return null; }
+        if ($this->sign === null || !$this->isVisible()) { return null; }
         $presentation = $this->sign->getPresentation($this->scene->getTextPreparationProvider());
         if ($presentation === null) { return null; }
         return new \Ichiloto\Engine\Rendering\Presentation\PresentationWorldCanvas($this->getGraphicalSpriteId(),
@@ -98,7 +104,7 @@ final class WorldObject implements GraphicalSpriteProviderInterface
     /** A static miniature uses the same current resource and ownership as the field. */
     public function getOverviewSubject(): ?CanvasWorldSubject
     {
-        if (!$this->isCurrent()) { return null; }
+        if (!$this->isVisible()) { return null; }
         if ($this->sign !== null) {
             $group = $this->getPresentationWorldCanvas();
             if ($group === null) { return null; }

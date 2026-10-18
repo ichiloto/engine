@@ -596,7 +596,7 @@ class MapManager implements CanRenderAt
   public function getWorldObjectResourceFrame(WorldObject $object): ?GraphicalSpriteDefinition
   {
     $resource = $object->definition->resource;
-    if ($this->findWorldObject($object->definition->id) !== $object || !$object->isCurrent()
+    if ($this->findWorldObject($object->definition->id) !== $object || !$object->isVisible()
       || $resource === null || !$resource->sprites instanceof GraphicalSpriteDefinition) { return null; }
     $key = spl_object_id($resource);
     if ($this->worldObjectResourceFrames !== null && array_key_exists($key, $this->worldObjectResourceFrames)) {

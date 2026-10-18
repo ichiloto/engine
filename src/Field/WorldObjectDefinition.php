@@ -37,6 +37,7 @@ final readonly class WorldObjectDefinition
         public ?\Ichiloto\Engine\Localization\LocalizedText $label = null,
         public ?WorldObjectTerminalPresentation $terminal = null,
         public array $terminalFootprint = [],
+        public array $conditions = [],
     ) {}
 
     /**
@@ -54,10 +55,16 @@ final readonly class WorldObjectDefinition
         }
         $objects = $claimed = $terminalOwners = [];
         foreach ($entries as $entry) {
-            if (!is_array($entry) || array_diff(array_keys($entry), ['id', 'anchor', 'resource', 'pivot', 'sprites2d', 'variants', 'covers', 'label', 'terminal']) !== []) {
-                throw new InvalidArgumentException('A world object accepts id, anchor, covers, a sign label and either resource or inline pivot/sprites2d/variants.');
+            if (!is_array($entry) || array_diff(array_keys($entry), ['id', 'anchor', 'resource', 'pivot', 'sprites2d', 'variants', 'covers', 'label', 'terminal', 'conditions']) !== []) {
+                throw new InvalidArgumentException('A world object accepts id, anchor, conditions, covers, a sign label and either resource or inline pivot/sprites2d/variants.');
             }
             $id = self::requireId($entry['id'] ?? null);
+            $conditions = $entry['conditions'] ?? [];
+            if ((array_key_exists('conditions', $entry) && $entry['conditions'] === null)
+                || !is_array($conditions) || !array_is_list($conditions) || count($conditions) > self::MAX_CONDITIONS) {
+                throw new InvalidArgumentException("World object '{$id}' conditions require a list of at most 32 conditions.");
+            }
+            WorldConditionEvaluator::validateAll($conditions, "worldObjects/{$id}/conditions");
             if (isset($objects[$id])) { throw new InvalidArgumentException("Duplicate world object id '{$id}'."); }
             $anchor = $entry['anchor'] ?? null;
             if (!is_array($anchor) || array_diff(array_keys($anchor), ['x', 'y']) !== []
@@ -99,13 +106,13 @@ final readonly class WorldObjectDefinition
                 }
                 $variantId = self::requireId($variant['id'] ?? null);
                 if (isset($variantIds[$variantId])) { throw new InvalidArgumentException("Duplicate world object variant '{$variantId}'."); }
-                $conditions = $variant['conditions'] ?? null;
-                if (!is_array($conditions) || !array_is_list($conditions) || $conditions === [] || count($conditions) > self::MAX_CONDITIONS) {
+                $variantConditions = $variant['conditions'] ?? null;
+                if (!is_array($variantConditions) || !array_is_list($variantConditions) || $variantConditions === [] || count($variantConditions) > self::MAX_CONDITIONS) {
                     throw new InvalidArgumentException("World object '{$id}' variant conditions require 1..32 conditions.");
                 }
-                WorldConditionEvaluator::validateAll($conditions, "worldObjects/{$id}/{$variantId}/conditions");
+                WorldConditionEvaluator::validateAll($variantConditions, "worldObjects/{$id}/{$variantId}/conditions");
                 $variantIds[$variantId] = true;
-                $parsed[] = ['id' => $variantId, 'conditions' => $conditions, 'sprites' => self::readSprites($variant['sprites2d']),
+                $parsed[] = ['id' => $variantId, 'conditions' => $variantConditions, 'sprites' => self::readSprites($variant['sprites2d']),
                     'terminal' => array_key_exists('terminal', $variant) ? WorldObjectTerminalPresentation::read($variant['terminal']) : $terminal];
             }
             [$coverage, $coverageResolved] = self::readCoverage($entry, $layers, $graphics, $tileOwners);
@@ -150,9 +157,15 @@ final readonly class WorldObjectDefinition
                 }
             }
             $objects[$id] = new self($id, $anchor['x'], $anchor['y'], $pivot, $sprites, $parsed,
-                $coverageResolved ? $coverage : [], $resource, $label, $terminal, $terminalFootprint);
+                $coverageResolved ? $coverage : [], $resource, $label, $terminal, $terminalFootprint, $conditions);
         }
         return array_values($objects);
+    }
+
+    /** Placement visibility reads existing saved world state and never changes occupancy. */
+    public function isAvailable(GameState $state, ?Party $party = null): bool
+    {
+        return WorldConditionEvaluator::allHold($this->conditions, $state, $party);
     }
 
     /** First matching authored variant wins; selection never writes world state. */

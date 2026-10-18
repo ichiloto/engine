@@ -43,7 +43,7 @@ final class MapAtlasDocument
     public function getPresentationWorld(GameState $state, ?Party $party): PresentationWorld
     {
         $variants=[];
-        foreach ($this->source['worldObjects'] as $object) { $variants[]=$object->selectVariant($state,$party)['id']; }
+        foreach ($this->source['worldObjects'] as $object) { $variants[]=[$object->isAvailable($state,$party),$object->selectVariant($state,$party)['id']]; }
         $key=serialize($variants);
         if ($this->world!==null && $key===$this->worldState) { return $this->world; }
         $coverage=[]; $subjects=[];
@@ -64,6 +64,7 @@ final class MapAtlasDocument
 
     private function createSubject(WorldObjectDefinition $object, GameState $state, ?Party $party): ?CanvasWorldSubject
     {
+        if (!$object->isAvailable($state,$party)) { return null; }
         // Global atlases carry map-owned geometry and rest poses; actors and sign captions stay out.
         if (($style=$object->resource?->sign)!==null) {
             $board=$style->getBoard($this->assetRoot);
