@@ -370,8 +370,7 @@ final class GraphicalBattlePresentation
       array_push($text, ...$composition->textLayers);
       array_push($composites, ...$composition->composites);
     }
-    $badges = GraphicalBattleConditions::compose($this->layout, $conditionBattlers, $combatantBounds, $this->assetRoot,
-      [...$text, ...$ui], [...$hudBounds, ...$cursorBounds]);
+    $badges = GraphicalBattleConditions::compose($this->layout, $conditionBattlers, $combatantBounds, $this->assetRoot);
     array_push($images, ...$badges->images);
     array_push($text, ...$badges->textLayers);
     array_push($conditionAreas, ...$badges->getOverlayProtection());

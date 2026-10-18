@@ -826,3 +826,17 @@ Coverage must include replacement art, missing unused and visible assets,
 sliding portrait pages, budget overflow, reordering, normal/reduced motion,
 input locks and unchanged reward outcomes. Game-specific playtest receipts and
 art admission are not part of this public contract.
+
+
+### Stable condition anchors
+
+Andrew’s 2026-10-18 review: “See this two images... see how the poisoned icon is pushed to the left when the selector shows up... that is wrong behaviour!”
+
+Condition badges own a fixed group centred above their battler, bounded by the
+canvas. Overlay-driven repositioning around cursors, names, damage, optional
+infliction effects and opaque UI is removed. Their first visible frame uses the
+same head anchor as settled frames. Permanent condition groups no longer use
+floating damage-feedback collision search; other overlays retain their own
+placement and layer/occlusion rules. Terminal conditions keep their independent
+head attachment through the shared TerminalBattleEffects origin. State identity,
+application, duration, damage and cures are unchanged.

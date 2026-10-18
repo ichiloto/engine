@@ -218,7 +218,7 @@ it('places wrapped badges clear of UI battlers and one another for same-name par
       background: PresentationColor::rgb(0, 0, 0)), [0, 1, 2]));
   $occupied = new CanvasRectangle(0, 550, 1350, 170);
   $frame = GraphicalBattleConditions::compose(new BattleCanvasLayout(1350, 720), $battlers, $bounds,
-    $this->badgeRoot, [$ui], [$occupied]);
+    $this->badgeRoot);
   $boxes = $frame->getOverlayProtection();
   expect($boxes)->toHaveCount(18);
   foreach ($boxes as $index => $box) {
@@ -298,6 +298,41 @@ it('keeps persistent badges through animation gaps failed bindings and reduced m
   $afterPromotion = $presentation->frame(now: 1, reducedMotion: $reduced);
   $labels = array_merge(...array_map(static fn($layer) => array_column($layer->runs, 'text'), $afterPromotion->textLayers));
   expect($labels)->toContain('+3')->not->toContain('PSN', '+2', 'KO');
+})->with([false, true]);
+
+it('keeps newly applied and settled state badges at one head anchor through transient UI and target selection', function (bool $reduced) {
+  foreach (['arena.png', 'actor.png', 'skin.png', 'poison.png'] as $asset) {
+    writeTestPng($this->badgeRoot . '/' . $asset, 16, 16);
+  }
+  $actor = new Character('Actor', 1, new Stats(currentHp: 100));
+  $party = new Party(); $party->addMember($actor);
+  $skin = createConditionBadgeSkin($this->badgeRoot, ['status.state.poison' => 'poison.png']);
+  $skin = new BattleUiSkin($skin->textures, $skin->colors,
+    new \Ichiloto\Engine\Battle\Presentation\BattleTargetCursor(array_fill_keys(['above', 'left', 'right'], $skin->textures['target'])),
+    $skin->icons, $skin->conditionBadges);
+  $catalog = new BattlePresentationCatalog(['test' => new BattleArenaDefinition('Test',
+    new CanvasImage('arena', 'arena.png', new CanvasRectangle(0, 0, 1350, 720)))],
+    ['Actor' => new BattlerArtwork('actor.png', 16, 16, 8, 16)], [],
+    ui: new BattleCanvasLayout(1350, 720, partySlots: [new BattlerSlot(600, 280, 100, 160)], skin: $skin,
+      feedbackArea: new CanvasRectangle(0, 80, 1350, 452)), defaultArena: 'test');
+  $presentation = GraphicalBattlePresentation::prepare(new BattleConfig($party, new Troop('Empty', [])), $catalog, $this->badgeRoot);
+  $body = array_find($presentation->frame(now: 1)->images, static fn($image) => $image->asset === 'actor.png')->destination;
+  $actor->addState(new State('poison', 'Poison'));
+  $first = null;
+  foreach ([true, false, true, false] as $selection) {
+    // A transient opaque effect/banner occupies the head, just as an infliction or target label can.
+    $ui = $selection ? [new CanvasTextLayer('transient-head-overlay', 240, $body->x - 50, $body->y - 80,
+      new RendererGridConfig(20, 4, 10, 20), array_map(static fn($row) => new PresentationTextRun($row, 0, str_repeat(' ', 20),
+        background: PresentationColor::rgb(0, 0, 0)), [0, 1, 2, 3]))] : [];
+    $frame = $presentation->frame(new BattlePresentationSnapshot(selected: $selection ? [$actor] : [],
+      focused: $selection ? [$actor] : [], poseElapsedSeconds: $selection ? 0 : 1), ui: $ui,
+      focus: $selection ? 'target' : null, now: 1, reducedMotion: $reduced);
+    $badge = array_find($frame->images, static fn($image) => $image->asset === 'poison.png');
+    expect($badge)->not->toBeNull();
+    $geometry = [$badge->destination->x, $badge->destination->y, $badge->destination->width, $badge->destination->height];
+    $first ??= $geometry;
+    expect($geometry)->toBe($first)->and($badge->destination->y + $badge->destination->height)->toBeLessThan($body->y);
+  }
 })->with([false, true]);
 
 it('loads badge geometry and semantic icons through the real project catalogue rather than constructor-only setup', function (int $pixelSize) {

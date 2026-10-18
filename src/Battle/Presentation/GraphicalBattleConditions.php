@@ -39,11 +39,8 @@ final class GraphicalBattleConditions
 
   /** @param array<int, CharacterInterface> $battlers Only currently presented battlers.
    * @param array<int, CanvasRectangle> $bounds
-   * @param list<CanvasTextLayer> $ui
-   * @param list<CanvasRectangle> $occupied HUD, cursors and other owned content.
    */
-  public static function compose(BattleCanvasLayout $layout, array $battlers, array $bounds, string $assetRoot,
-    array $ui = [], array $occupied = []): PresentationCanvas
+  public static function compose(BattleCanvasLayout $layout, array $battlers, array $bounds, string $assetRoot): PresentationCanvas
   {
     $style = $layout->skin?->conditionBadges ?? new BattleConditionBadgeStyle();
     $size = $style->size;
@@ -60,14 +57,23 @@ final class GraphicalBattleConditions
         (int)floor((min($area->width, RendererGridConfig::MAX_COLUMNS * $gridStep) + $style->gap) / ($size + $style->gap)));
       if ($columns < 1) { throw new RuntimeException('Battle condition badges cannot fit the canvas at the configured size.'); }
       $rows = (int)ceil(count($entries) / $columns);
-      $placement = BattleFeedbackPlacement::moving($bounds[$identity],
-        $columns * ($size + $style->gap) - $style->gap, $rows * ($height + $style->gap) - $style->gap,
-        $area, $ui, [...$occupied, ...$protected], 0, array_values($bounds));
+      $groupWidth = $columns * ($size + $style->gap) - $style->gap;
+      $groupHeight = $rows * ($height + $style->gap) - $style->gap;
+      if ($groupHeight > $area->height) {
+        throw new RuntimeException('Battle condition badges cannot fit the canvas at the configured size.');
+      }
+      // Conditions own this head anchor. Transient effects, names, cursors and UI
+      // may occlude it; they never relocate a newly applied or existing badge.
+      $battlerBounds = $bounds[$identity];
+      $anchor = new CanvasRectangle(
+        max(0, min($area->width - $groupWidth, $battlerBounds->x + ($battlerBounds->width - $groupWidth) / 2)),
+        max(0, min($area->height - $groupHeight, $battlerBounds->y - $groupHeight - 4)),
+        $groupWidth, $groupHeight);
       $badgeFrames = $badgeMarkers = $badgeLabels = [];
       $batch = 0;
       foreach ($entries as $index => $entry) {
-        $box = new CanvasRectangle($placement['bounds']->x + ($index % $columns) * ($size + $style->gap),
-          $placement['bounds']->y + intdiv($index, $columns) * ($height + $style->gap), $size, $height);
+        $box = new CanvasRectangle($anchor->x + ($index % $columns) * ($size + $style->gap),
+          $anchor->y + intdiv($index, $columns) * ($height + $style->gap), $size, $height);
         // The key, not list position, keeps retained identity stable after another condition is cured.
         $id = 'status-badge-' . $identity . '-' . hash('xxh3', $entry['key']);
         $asset = $layout->skin?->icons?->icons[$entry['iconKey']] ?? null;

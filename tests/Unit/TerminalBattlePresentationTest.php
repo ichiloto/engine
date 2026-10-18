@@ -118,6 +118,35 @@ afterEach(function () {
   }
 });
 
+it('keeps a newly inflicted terminal condition anchored when target cursors appear and disappear', function (bool $reduced) {
+  ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reduced]]));
+  $enemy = $this->targets[0];
+  $field = terminalPreviewField($this->battle, $this->positions, $this->origin);
+  $screen = new ReflectionProperty(BattleFieldWindow::class, 'battleScreen')->getValue($field);
+  new ReflectionProperty(BattleScreen::class, 'selectionColor')->setValue($screen, Color::YELLOW);
+  $field->setConditionEffects(new \Ichiloto\Engine\Battle\Presentation\BattleConditionEffects(
+    new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary(createTestDirectory('terminal-condition-anchor'))));
+  $enemy->addState(new \Ichiloto\Engine\Entities\States\State('synthetic', 'Synthetic', 'BADGE'));
+  $first = null;
+  foreach ([true, false, true, false] as $selected) {
+    Console::clear();
+    $field->focusTroopBattlers($selected ? [0] : []);
+    $field->renderTroop($this->battle->troop);
+    $field->renderTargetIndicators();
+    $field->renderMagicCastEffects();
+    $found = [];
+    foreach (Console::getBuffer() as $row => $line) {
+      $plain = TerminalText::stripAnsi($line);
+      $at = strpos($plain, 'BADGE');
+      if ($at !== false) { $found[] = [$at, $row]; }
+    }
+    expect($found)->toHaveCount(1);
+    $first ??= $found;
+    expect($found)->toBe($first)->and($found[0][1])->toBeLessThan(5);
+    $field->advancePoseTime(.2);
+  }
+})->with([false, true]);
+
 it('renders fixed arena rows through the same production sprite and effect layout', function (bool $reduced, bool $enemyActs, bool $translated) {
   ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => $reduced]]));
   $origin = $translated ? new Vector2(7, 4) : $this->origin;
