@@ -972,6 +972,15 @@ not a default for future story stations.
   Andrew's latest 18 October ruling removes player review from this implementation
   goal; complete technical verification/local integration, then start the queued
   Lore and Lika'mi work. Later player corrections belong to a separate goal.
+  This correction is now integrated locally: Engine `6a9275a`, Editor
+  `46e04e3`, Game `5a428e4`. Editor's exact-ref affected checks pass
+  65 tests / 256 assertions and static analysis; Game's two-mode atlas check
+  passes 2 tests / 70 assertions. The muted macOS PTY Terminal run passes
+  19 stages, nine terrain checks, 221 frames / 5.095 seconds, zero playback
+  backends, unchanged user data and cleaned temporary saves. Offline source
+  output was inspected; macOS Terminal GUI pixels and other platforms were
+  not inspected for this correction. Implementation and technical integration
+  are complete; the queued Lore/Lika'mi goal can begin.
   Focused corner/theme/icon-role
   checks: 31 tests / 835 assertions. Muted installed macOS check: 2749 frames,
   490 changes, 81.584 seconds, exit 0, no playback backends, user files unchanged;

@@ -299,6 +299,19 @@ His later 18 October instruction removes player review from this implementation
 goal: finish implementation and technical verification, then start the queued
 Lore/Lika'mi goal. He will review later and request further changes separately.
 
+The correction is locally integrated in Engine `6a9275a`, Editor `46e04e3`
+and Game `5a428e4`. Engine's six affected suites pass 48 tests / 1,068
+assertions; targeted static analysis passes. Editor's affected checks pass
+65 tests / 256 assertions and static analysis. Game's two-mode atlas check
+passes 2 tests / 70 assertions, including source context outside markers,
+scrolling, focus, local/world switching, discovery and save/reload/revisit.
+A muted macOS PTY Terminal run passed 19 stages in 221 frames / 5.095 seconds,
+with nine terrain checks, zero audio backends, unchanged user data and removal
+of its isolated save root. Current-source world and town output was inspected
+offline. This establishes Terminal output behavior; macOS Terminal GUI pixels,
+Linux and Windows were not inspected in this correction. The accepted GPUI
+presentation remains unchanged. Later player review is separate.
+
 The opened atlas retains its selected source world without selecting a field
 viewport or field actors; ordinary menu canvases release that dependency.
 
