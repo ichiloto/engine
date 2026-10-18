@@ -46,7 +46,10 @@ it('exports one authoritative runtime and authoring vocabulary', function () {
     ->and($schema['cameraOperations'])->toContain('detach', 'pan', 'track', 'route', 'shake', 'restore')
     ->and($schema['cinematicDefinitionFields'])->toContain('id', 'name', 'cast', 'skip', 'finalizer')
     ->and($schema['cinematicEventTrigger']['class'])->toBe('Ichiloto\\Engine\\Events\\Triggers\\CinematicEventTrigger')
-    ->and($schema['cinematicEventTrigger']['rootFields'])->toBe(['class', 'conditions', 'sets', 'whenBlocked', 'cue', 'facing', 'engagement', 'data'])
+    ->and($schema['cinematicEventTrigger']['rootFields'])->toBe(['class', 'conditions', 'sets', 'whenBlocked', 'cue', 'facing', 'engagement', 'subject', 'data'])
+    ->and($schema['relativePosition']['fields'])->toBe(['at', 'offset'])
+    ->and($schema['relativePosition']['subjectKinds'])->toContain('player', 'npc', 'world_object', 'staged_actor', 'party_actor', 'marker')
+    ->and($schema['relativePosition']['consumers'])->toBe(['move_route.waypoints', 'stage_actor'])
     ->and($schema['cinematicEventTrigger']['dataFields'])->toBe(['cinematicId', 'mode', 'reusable'])
     ->and($schema['cinematicEventTrigger']['modes'])->toBe(['action', 'auto'])
     ->and($schema['cinematicEventTrigger']['completion'])->toBe([

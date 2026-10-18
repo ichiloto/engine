@@ -11,6 +11,7 @@ use InvalidArgumentException;
 /** An explicit subject-relative map location, resolved when its command or route leg begins. */
 final class CinematicRelativePosition
 {
+    public const array SUBJECT_KINDS = ['player', 'npc', 'world_object', 'staged_actor', 'party_actor', 'marker'];
     public static function validate(array $entry): void
     {
         if (!is_array($entry['at'] ?? null) || array_is_list($entry['at'])
@@ -19,7 +20,7 @@ final class CinematicRelativePosition
             throw new InvalidArgumentException('A relative position requires at with kind/id and no independent x/y.');
         }
         $reference = $entry['at'];
-        if (!in_array($reference['kind'] ?? null, ['player', 'npc', 'world_object', 'staged_actor', 'party_actor', 'marker'], true)) {
+        if (!in_array($reference['kind'] ?? null, self::SUBJECT_KINDS, true)) {
             throw new InvalidArgumentException('A relative position must name a map subject.');
         }
         if (array_key_exists('id', $reference) && !is_string($reference['id'])) {

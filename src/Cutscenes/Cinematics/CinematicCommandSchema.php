@@ -152,6 +152,13 @@ final class CinematicCommandSchema
         'retrace' => 'consume completed recorded path once from the original endpoint, then restore entry facing',
         'ownership' => 'one route per subject; current object, map and presentation generation',
       ],
+      'relativePosition' => [
+        'fields' => self::RELATIVE_POSITION_FIELDS,
+        'subjectKinds' => CinematicRelativePosition::SUBJECT_KINDS,
+        'offset' => 'optional signed integer x/y cells within -16384..16384, omitted axes zero',
+        'consumers' => ['move_route.waypoints', 'stage_actor'],
+        'resolution' => 'current subject position at command or route leg start; no independent x/y or real-subject binding',
+      ],
       'stagedActorBinding' => [
         'subject' => ['kind' => 'player|npc|world_object', 'id' => 'required for npc/world_object'],
         'suppress' => 'additional real subject references sharing this visual',
