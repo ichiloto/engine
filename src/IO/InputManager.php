@@ -421,13 +421,13 @@ class InputManager
     return self::isAnyKeyPressed($button['keys'] ?? []);
   }
 
-  /** A discrete action from this sample: native presses exclude OS repeats; event-only sources keep their edges. */
+  /** A discrete action from this sample: native presses exclude OS repeats; event-only sources retain every sample. */
   public static function isButtonPressed(string $name): bool
   {
+    if ($name === 'quick_save' && !SaveFeatures::isQuickSaveEnabled()) { return false; }
     $source = self::getInputSource();
     $fresh = $source instanceof PressAwareInputSourceInterface ? $source->wasLastPollPress() : null;
-    if ($fresh === null) { return self::isButtonDown($name); }
-    if (!$fresh || ($name === 'quick_save' && !SaveFeatures::isQuickSaveEnabled())) { return false; }
+    if ($fresh === false) { return false; }
     return array_any(self::$config[$name]['keys'] ?? [], self::isKeyPressed(...));
   }
 

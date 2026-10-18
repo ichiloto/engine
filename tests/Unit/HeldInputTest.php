@@ -12,6 +12,8 @@ use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererProtocolException;
 use Ichiloto\Engine\Rendering\Transport\Exceptions\RendererTransportException;
 use Ichiloto\Engine\Rendering\Transport\RendererEvent;
 use Ichiloto\Engine\Rendering\Transport\RendererSessionConfig;
+use Ichiloto\Engine\Util\Config\ConfigStore;
+use Ichiloto\Engine\Util\Config\ProjectConfig;
 use Tests\Support\Input\FakeInputSource;
 use Tests\Support\Input\FakeRendererTransport;
 
@@ -62,17 +64,69 @@ it('keeps event-only discrete actions usable without inventing held state or dra
   expect(Input::isButtonPressed('confirm'))->toBeTrue()->and($source->resets)->toBe([]);
 });
 
-it('preserves the event-only edge contract for legacy renderer samples without press metadata', function () {
+it('retains consecutive legacy renderer action samples without inventing a physical release', function () {
   [$transport] = heldInputSession(false);
   $key = RendererEvent::fromJson('{"protocol":2,"type":"key","key":"enter"}');
   heldUpdate($transport, $key);
   expect(Input::isButtonPressed('confirm'))->toBeTrue();
   heldUpdate($transport, $key);
-  expect(Input::isButtonPressed('confirm'))->toBeFalse();
+  expect(Input::isButtonPressed('confirm'))->toBeTrue()
+    ->and(Input::isButtonDown('confirm'))->toBeFalse()
+    ->and(Input::isButtonHeld('confirm'))->toBeFalse();
   heldUpdate($transport);
   heldUpdate($transport, $key);
   expect(Input::isButtonPressed('confirm'))->toBeTrue();
 });
+
+it('retains consecutive terminal confirmations and consumes only the current sample', function () {
+  $stream = fopen('php://temp', 'r+');
+  fwrite($stream, "\r\r\r");
+  rewind($stream);
+  try {
+    InputManager::setInputSource(new TerminalInputSource($stream));
+    InputManager::handleInput();
+    expect(Input::isButtonPressed('confirm'))->toBeTrue();
+    InputManager::handleInput();
+    expect(Input::isButtonPressed('confirm'))->toBeTrue()
+      ->and(Input::isButtonDown('confirm'))->toBeFalse()
+      ->and(Input::isButtonHeld('confirm'))->toBeFalse()
+      ->and(Input::isButtonPressed('missing'))->toBeFalse();
+    InputManager::consumeCurrentInput();
+    expect(Input::isButtonPressed('confirm'))->toBeFalse();
+    InputManager::handleInput();
+    expect(Input::isButtonPressed('confirm'))->toBeTrue();
+    InputManager::handleInput();
+    expect(Input::isButtonPressed('confirm'))->toBeFalse();
+  } finally {
+    fclose($stream);
+  }
+});
+
+it('respects disabled Quick Save for both event-only and native press samples', function (bool $native) {
+  $oldConfig = ConfigStore::has(ProjectConfig::class) ? ConfigStore::get(ProjectConfig::class) : null;
+  $config = new class extends ProjectConfig {
+    protected function load(): array { return ['save' => ['quicksave' => false]]; }
+  };
+  try {
+    ConfigStore::put(ProjectConfig::class, $config);
+    InputManager::setBinding('quick_save', [KeyCode::F5]);
+    if ($native) {
+      [$transport] = heldInputSession();
+      heldUpdate($transport, heldKey('f5'));
+    } else {
+      InputManager::setInputSource(new FakeInputSource(KeyCode::F5, KeyCode::F5));
+      InputManager::handleInput();
+    }
+    expect(Input::isButtonPressed('quick_save'))->toBeFalse();
+    $config->set('save.quicksave', true);
+    expect(Input::isButtonPressed('quick_save'))->toBeTrue();
+    $config->set('save.quicksave', false);
+    InputManager::handleInput();
+    expect(Input::isButtonPressed('quick_save'))->toBeFalse();
+  } finally {
+    $oldConfig === null ? ConfigStore::remove(ProjectConfig::class) : ConfigStore::put(ProjectConfig::class, $oldConfig);
+  }
+})->with([false, true]);
 
 /** A renderer session that subscribed to key transitions, as the Game's GPUI session does. */
 function heldInputSession(bool $transitions = true): array

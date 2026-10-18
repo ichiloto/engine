@@ -298,7 +298,11 @@ is added.
 `Input::isButtonPressed()` and `InputManager::isButtonPressed()` query a fresh
 discrete action from the current ordered sample. `PressAwareInputSourceInterface`
 optionally reports whether its latest polled key is a fresh press or an OS
-repeat; null preserves the legacy event-edge contract. `RendererInputSource`
+repeat; null accepts the current event-only sample. Consecutive identical samples
+remain separate actions: an event-only source cannot infer a physical hold or
+release. This removes the old discrete-query suppression of consecutive equal
+keys; legacy `isButtonDown()`/`isKeyDown()` edge queries remain unchanged.
+`RendererInputSource`
 forwards the exact dequeued key's existing repeat metadata from `RendererClient`.
 Terminal input remains event-only. Navigation axes retain their existing repeat
 behaviour. Shared modal confirm, cancel, back and dialogue-auto actions use the
