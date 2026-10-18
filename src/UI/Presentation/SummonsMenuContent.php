@@ -11,7 +11,7 @@ use Ichiloto\Engine\IO\ActionHint;
 final readonly class SummonsMenuContent
 {
   /** @param list<string> $summary @param list<MenuRow> $rows @param list<ActionHint> $hints */
-  public function __construct(public Character $character, public string $title, public array $summary,
+  public function __construct(public ?Character $character, public string $title, public array $summary,
     public array $rows, public int $index, public bool $detailsOpen, public string $description,
     public ?string $status, public array $hints) {}
 }

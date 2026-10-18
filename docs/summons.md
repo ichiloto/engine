@@ -372,25 +372,30 @@ copying them.
 
 Any project with at least one currently available summon gets a summon-management entry
 in the in-game main menu (labelled from the project's summon vocabulary —
-"Summons", "Petitions", …). Players pick a character and see every summon
-with its move name, wielder rules, and status:
+"Summons", "Petitions", …). It opens the available summon list directly.
+The initial character picker and assignment by confirming the reading view
+are removed.
 
-- `[Open to all]` — no wielder policy; the whole party can call it.
-- `[Assigned]` — held by this character; confirm releases it.
-- `[Available]` — eligible; confirm assigns it.
-- `[Held by <name>]` — an exclusive summon bound to another member; it must
-  be released by its holder first.
-- `[Not eligible]` — the character fails the summon's role or name rules.
+Selecting a summon offers **Info** and, when a current member can hold it,
+**Assign**. Info is a separate scrollable reading view containing lore, move,
+element, attributes, strengths and weaknesses. Confirming it never changes
+ownership. Assign lists only current party members accepted by the Party
+assignment service. Choosing a new holder moves an exclusive contract through
+`Party::reassignSummon()` atomically; choosing its current holder releases it.
+Neither screen prints the authored eligibility roster or future actor names.
 
-Tab cycles through party members. Pressing confirm on a summon opens its
-**codex entry**: lore, move, element, attributes, strengths, and weaknesses,
-plus the wielder rule and this character's status. Inside the entry, confirm
-assigns or releases policy summons; `c` returns to the list.
+Equipment supplies the character context. Its conditional summon entry is a
+multi-value presentation of `Character::summons`, alongside the physical
+equipment rows. It appears when the member has an available held contract or
+can be assigned one. Opening it offers only that member's eligible or held
+summons; confirm assigns/releases each without replacing another assignment.
+The existing Party policy remains authoritative. Physical inventory slots,
+optimization, equipment clearing and save formats are unchanged. This adds no
+numerical capacity, license or progression gate and no new authored field.
 
-The screen is the natural home for future summon mechanics (growth,
-junctioned skills and magic attributes). It disappears when the project has
-no currently available summons, and locked definitions do not appear as
-assignable or player-owned.
+Both renderers consume the same menu state and semantic hints. Character
+cycling is limited to the Equipment context; cancel returns through the current
+flow. Locked definitions and unavailable assignment options stay hidden.
 
 ## Renaming the summon command
 

@@ -93,7 +93,7 @@ final class CharacterMenuPresentation
       $view->rows('equipment-candidates', $rows, self::layout($theme, $listBox, self::numericColumns($rows)), $mode->getPresentationIndex());
     } else {
       $index = $state->equipmentAssignmentPanel === null ? -1 : $state->equipmentAssignmentPanel->activeSlotIndex;
-      $rows = CharacterMenuRows::slots($character, $index, $mode instanceof EquipmentSlotSelectionMode);
+      $rows = $state->getEquipmentSlotRows($index, $mode instanceof EquipmentSlotSelectionMode);
       $view->rows('equipment-slots', $rows, self::slotLayout($theme, $content, $rows), $index);
     }
     $infoBox = self::box(0, $bodyHeight, self::WIDTH, $infoHeight);

@@ -9,6 +9,7 @@ use Ichiloto\Engine\Entities\EquipmentSlot;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Inventory\EquipmentIcon;
 use Ichiloto\Engine\UI\Presentation\CharacterMenuRows;
+use Ichiloto\Engine\UI\Presentation\SummonEquipmentSlot;
 use Ichiloto\Engine\UI\Text\TerminalMenuRow;
 use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
@@ -42,6 +43,12 @@ class EquipmentAssignmentPanel extends Window
    * @var int The total number of slots.
    */
   protected int $totalSlots = 0;
+  private ?SummonEquipmentSlot $summonSlot = null;
+
+  public function isSummonSlotSelected(): bool
+  {
+    return $this->summonSlot !== null && $this->activeSlotIndex === count($this->slots);
+  }
 
   /**
    * Create a new EquipmentAssignmentPanel instance.
@@ -72,11 +79,13 @@ class EquipmentAssignmentPanel extends Window
    * @param EquipmentSlot[] $slots The slots to display in the panel.
    * @return void
    */
-  public function setSlots(array $slots, ?Character $character = null): void
+  public function setSlots(array $slots, ?Character $character = null, ?SummonEquipmentSlot $summonSlot = null): void
   {
     $this->slots = $slots;
     $this->character = $character;
-    $this->totalSlots = count($slots);
+    $this->summonSlot = $summonSlot;
+    $this->totalSlots = count($slots) + ($summonSlot === null ? 0 : 1);
+    $this->activeSlotIndex = min($this->activeSlotIndex, $this->totalSlots - 1);
     $this->updateContent();
   }
 
@@ -96,6 +105,10 @@ class EquipmentAssignmentPanel extends Window
         prefix: " {$prefix} ", valueAlignment: 'left', labelWidth: 20);
     }
 
+    if ($this->summonSlot !== null) {
+      $content[] = TerminalMenuRow::compose($this->summonSlot->getLabel() . ':', implode(', ', $this->summonSlot->getAssignedNames()),
+        $this->getContentWidth(), prefix: $this->isSummonSlotSelected() ? ' > ' : '   ', valueAlignment: 'left', labelWidth: 20);
+    }
     $content = array_pad($content, $this->height - 2, '');
 
     $this->setContent($content);
@@ -116,6 +129,7 @@ class EquipmentAssignmentPanel extends Window
 
   public function selectPreviousSlot(): void
   {
+    if ($this->totalSlots === 0) { return; }
     $index = wrap($this->activeSlotIndex - 1, 0, $this->totalSlots - 1);
     $this->setActiveSlotByIndex($index);
   }
@@ -127,6 +141,7 @@ class EquipmentAssignmentPanel extends Window
    */
   public function selectNextSlot(): void
   {
+    if ($this->totalSlots === 0) { return; }
     $index = wrap($this->activeSlotIndex + 1, 0, $this->totalSlots - 1);
     $this->setActiveSlotByIndex($index);
   }

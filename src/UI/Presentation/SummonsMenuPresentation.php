@@ -34,7 +34,7 @@ final class SummonsMenuPresentation
     $view->frame('summons-summary', $g['summary']);
     $view->prose('summons-title', $content->title, $g['title'], 'accent');
     $view->prose('summons-character', implode("\n", $content->summary), $g['identity']);
-    if ($g['portrait'] !== null) { $view->portrait($content->character->actorId, $g['portrait'], 'summons-portrait'); }
+    if ($g['portrait'] !== null && $content->character !== null) { $view->portrait($content->character->actorId, $g['portrait'], 'summons-portrait'); }
     $view->frame('summons-contracts', $g['body']);
     $body = new CanvasRectangle($g['body']->x + $p, $g['body']->y + $p,
       $g['body']->width - 2 * $p, $g['body']->height - 2 * $p);
@@ -49,7 +49,7 @@ final class SummonsMenuPresentation
           new CanvasRectangle($body->x, $g['body']->y + $g['body']->height - $p, $body->width, $p));
       }
     } elseif ($content->rows === []) {
-      $view->prose('summons-empty', 'No assignable summons.', $body, 'disabled');
+      $view->prose('summons-empty', $content->character === null ? 'No summons.' : 'No assignable summons.', $body, 'disabled');
     } else {
       $cells = (int)floor(($body->width - 2 * $theme->rows->metrics->padding) / $m->cellWidth);
       $valueWidth = max(1, (int)floor($cells / 4));
@@ -71,7 +71,7 @@ final class SummonsMenuPresentation
     $m = $theme->metrics;
     $p = $m->panelPadding;
     $innerWidth = $host->width - 2 * $p;
-    $portrait = isset($theme->portraits[$content->character->actorId]) ? $m->portraitSize : 0;
+    $portrait = $content->character !== null && isset($theme->portraits[$content->character->actorId]) ? $m->portraitSize : 0;
     $textWidth = $innerWidth - ($portrait > 0 ? $portrait + $m->sectionGap : 0);
     $titleHeight = count(MenuCanvas::wrap($content->title, (int)floor($textWidth / $m->cellWidth))) * $m->cellHeight;
     $identityHeight = count(MenuCanvas::wrap(implode("\n", $content->summary), (int)floor($textWidth / $m->cellWidth))) * $m->cellHeight;

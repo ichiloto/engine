@@ -7,7 +7,6 @@ use Ichiloto\Engine\Battle\BattleCommandType;
 use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Core\Interfaces\ExecutionContextInterface;
 use Ichiloto\Engine\Core\Menu\Interfaces\MenuInterface;
-use Ichiloto\Engine\Core\Menu\MainMenu\Modes\MainMenuCharacterSelectionMode;
 use Ichiloto\Engine\Core\Menu\MenuItem;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use Ichiloto\Engine\Scenes\Game\States\MainMenuState;
@@ -29,11 +28,11 @@ class OpenSummonsMenuCommand extends MenuItem
   public function __construct(MenuInterface $menu)
   {
     $label = Vocabulary::getTerm('command.' . BattleCommandType::SUMMON->value, 'Summons');
-    parent::__construct($menu, $label, sprintf('Choose who carries each %s.', BattleCommandType::SUMMON->label()));
+    parent::__construct($menu, $label, 'View and assign summons.');
   }
 
   /**
-   * Opens the character-focused summon-assignment flow.
+   * Opens the owned summon list directly, removing the character-first picker.
    *
    * @param ExecutionContextInterface|null $context The command execution context.
    * @return int The command result.
@@ -59,9 +58,8 @@ class OpenSummonsMenuCommand extends MenuItem
       return self::FAILURE;
     }
 
-    $nextMode = new MainMenuCharacterSelectionMode($state);
-    $nextMode->nextGameSceneState = $context->scene->summonsMenuState;
-    $state->setMode($nextMode);
+    $context->scene->summonsMenuState->openLibrary();
+    $state->setState($context->scene->summonsMenuState);
 
     return self::SUCCESS;
   }

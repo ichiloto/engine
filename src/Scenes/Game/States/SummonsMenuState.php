@@ -1,588 +1,354 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Ichiloto\Engine\Scenes\Game\States;
 
-use Ichiloto\Engine\Localization\Vocabulary;
-use Ichiloto\Engine\IO\ActionHints;
-use Ichiloto\Engine\IO\Enumerations\KeyCode;
-use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
-use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
-use Ichiloto\Engine\UI\Presentation\MenuCanvasState;
-use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
-use Ichiloto\Engine\UI\Presentation\MenuRow;
-use Ichiloto\Engine\UI\Presentation\MenuRowValue;
-use Ichiloto\Engine\UI\Presentation\SummonsMenuContent;
-use Ichiloto\Engine\UI\Presentation\SummonsMenuPresentation;
-use Ichiloto\Engine\UI\Text\TextViewport;
-use Ichiloto\Engine\UI\Text\TextPage;
-
-
-use Exception;
 use Ichiloto\Engine\Battle\BattleCommandType;
-use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Core\GameState;
+use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneDefinition;
 use Ichiloto\Engine\Cutscenes\Summons\SummonCutsceneLibrary;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\Party;
+use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\AxisName;
+use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\Input;
+use Ichiloto\Engine\Localization\Vocabulary;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
 use Ichiloto\Engine\Scenes\SceneStateContext;
+use Ichiloto\Engine\UI\Presentation\{MenuCanvasState, MenuPresentationCatalog, MenuRow, MenuRowValue,
+    SummonsMenuContent, SummonsMenuPresentation, SummonsMenuView};
+use Ichiloto\Engine\UI\Text\{TerminalMenuRow, TextPage, TextViewport};
 use Ichiloto\Engine\UI\Windows\BorderPacks\DefaultBorderPack;
-use Ichiloto\Engine\UI\Windows\Interfaces\BorderPackInterface;
 use Ichiloto\Engine\UI\Windows\Window;
 
-/**
- * Displays the summon-management screen for a single party member.
- *
- * Lists summons available to the current character without exposing authored
- * eligibility rosters. Summons that declare a wielder policy can be assigned
- * or released per character, with eligibility
- * (role or named character) and tenancy (exclusive or shared) enforced by
- * the party; summons without a policy are shown as open to the whole party.
- *
- * @package Ichiloto\Engine\Scenes\Game\States
- */
+/** Owned summons, separate information and holder flows, and the Equipment assignment context. */
 class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
 {
-  use MenuCanvasState;
+    use MenuCanvasState;
 
-  private ?TextViewport $detailViewport = null;
-  private ?TextPage $lastDetailPage = null;
+    protected const int MENU_WIDTH = 110;
+    protected const int SUMMARY_PANEL_HEIGHT = 5;
+    protected const int LIST_PANEL_HEIGHT = 26;
+    protected const int INFO_PANEL_HEIGHT = 4;
 
-  protected function composeMenuCanvas(MenuPresentationCatalog $theme, float $time): ?PresentationCanvas
-  {
-    $content = $this->getPresentationContent();
-    if ($content === null) { return null; }
-    $page = null;
-    if ($this->viewingDetail) {
-      [$columns, $rows] = SummonsMenuPresentation::getDetailPageSize($content, $theme);
-      $page = $this->detailViewport->page($columns, $rows);
-    }
-    $canvas = SummonsMenuPresentation::compose($content, $theme, $page, $this->menuInfoText, $time);
-    if ($page !== null) { $this->lastDetailPage = $page; }
-    return $canvas;
-  }
+    /** A character is present only when Equipment opens this screen. */
+    public ?Character $character = null;
+    private ?EquipmentMenuState $equipmentReturn = null;
+    protected SummonsMenuView $view = SummonsMenuView::SUMMONS;
+    /** @var list<SummonCutsceneDefinition> */
+    private array $availableSummons = [];
+    /** @var list<SummonCutsceneDefinition> */
+    protected array $summons = [];
+    protected int $activeIndex = 0;
+    private ?string $selectedSummonId = null;
+    private ?TextViewport $detailViewport = null;
+    private ?TextPage $lastDetailPage = null;
+    private array $lastRows = [];
+    protected ?Window $summaryPanel = null;
+    protected ?Window $listPanel = null;
+    protected ?Window $infoPanel = null;
 
-  public function getPresentationContent(): ?SummonsMenuContent
-  {
-    if ($this->character === null) { return null; }
-    $rows = [];
-    foreach ($this->summons as $index => $definition) {
-      $rows[] = new MenuRow((string)$index, $definition->name,
-        [new MenuRowValue($definition->moveName ?? ''), new MenuRowValue(trim($this->describeStatus($definition), '[]'))],
-        selected: $index === $this->activeIndex, focused: $index === $this->activeIndex && !$this->viewingDetail);
-    }
-    $definition = $this->summons[$this->activeIndex] ?? null;
-    return new SummonsMenuContent($this->character,
-      Vocabulary::getTerm('command.' . BattleCommandType::SUMMON->value, 'Summons'),
-      array_map(trim(...), $this->getSummaryLines()), $rows, $this->activeIndex, $this->viewingDetail,
-      $definition?->description ?? '',
-      $definition !== null && $this->character->hasSummon($definition->id) ? 'Assigned' : null, $this->getActionHints());
-  }
-
-  /** @return list<\Ichiloto\Engine\IO\ActionHint> */
-  protected function getActionHints(): array
-  {
-    $definition = $this->summons[$this->activeIndex] ?? null;
-    $hints = [ActionHints::resolve('cancel', $this->viewingDetail ? 'Back' : 'Cancel'),
-      ActionHints::resolve('character_next', 'Next', KeyCode::TAB),
-      ActionHints::resolve('character_previous', 'Previous', KeyCode::SHIFT_TAB)];
-    if (!$this->viewingDetail || $definition?->wielders !== null) {
-      array_unshift($hints, ActionHints::resolve('confirm', !$this->viewingDetail ? 'Details'
-        : ($this->character?->hasSummon($definition->id) ? 'Release' : 'Assign')));
-    }
-    if ($this->viewingDetail) {
-      $hints[] = ActionHints::resolve('up', 'Scroll up');
-      $hints[] = ActionHints::resolve('down', 'Scroll down');
-    }
-    return $hints;
-  }
-
-  protected const int MENU_WIDTH = 110;
-  protected const int SUMMARY_PANEL_HEIGHT = 6;
-  protected const int LIST_PANEL_HEIGHT = 25;
-  protected const int INFO_PANEL_HEIGHT = 4;
-
-  /**
-   * @var Character|null The character currently being viewed.
-   */
-  public ?Character $character = null;
-  /**
-   * @var SummonCutsceneDefinition[] The assignable summons.
-   */
-  protected array $summons = [];
-  /** @var list<SummonCutsceneDefinition> Discovered definitions, before per-character filtering. */
-  private array $availableSummons = [];
-  /**
-   * @var int The active list index.
-   */
-  protected int $activeIndex = 0;
-  /**
-   * @var bool Whether the codex detail view is open for the active summon.
-   */
-  protected bool $viewingDetail = false;
-  /**
-   * @var int The centered left margin.
-   */
-  protected int $leftMargin = 0;
-  /**
-   * @var int The centered top margin.
-   */
-  protected int $topMargin = 0;
-  /**
-   * @var BorderPackInterface|null The border pack for the screen.
-   */
-  protected ?BorderPackInterface $borderPack = null;
-  /**
-   * @var Window|null The character summary panel.
-   */
-  protected ?Window $summaryPanel = null;
-  /**
-   * @var Window|null The summon list panel.
-   */
-  protected ?Window $listPanel = null;
-  /**
-   * @var Window|null The bottom description panel.
-   */
-  protected ?Window $infoPanel = null;
-
-  /**
-   * Returns every authored summon definition.
-   *
-   * @return SummonCutsceneDefinition[] The summon definitions.
-   */
-  public static function loadSummons(?GameState $gameState = null, ?Party $party = null): array
-  {
-    return array_values(array_filter(
-      (new SummonCutsceneLibrary())->load(),
-      static fn(SummonCutsceneDefinition $definition): bool =>
-        $definition->availability === null
-        || ($gameState !== null && $definition->isAvailable($gameState, $party)),
-    ));
-  }
-
-  /**
-   * @inheritDoc
-   */
-  public function enter(): void
-  {
-    Console::clear();
-    $this->resetMenuPresentation();
-    $this->detailViewport = new TextViewport();
-    $this->lastDetailPage = null;
-    $this->getGameScene()->locationHUDWindow->deactivate();
-    $this->character ??= $this->getGameScene()->party->leader;
-    $this->availableSummons = self::loadSummons($this->getGameScene()->gameState, $this->party);
-    $this->activeIndex = 0;
-    $this->viewingDetail = false;
-    $this->calculateMargins();
-    $this->initializeUI();
-    $this->refreshUI();
-  }
-
-  /**
-   * @inheritDoc
-   */
-  public function execute(?SceneStateContext $context = null): void
-  {
-    if ($this->handleCharacterCycling()) {
-      return;
+    public function openLibrary(): void
+    {
+        $this->character = null;
+        $this->equipmentReturn = null;
     }
 
-    $this->handleNavigation();
-    $this->handleActions();
-  }
-
-  /**
-   * Centers the screen inside the terminal.
-   *
-   * @return void
-   */
-  protected function calculateMargins(): void
-  {
-    $totalHeight = self::SUMMARY_PANEL_HEIGHT + self::LIST_PANEL_HEIGHT + self::INFO_PANEL_HEIGHT;
-    $this->leftMargin = max(0, intdiv(get_screen_width() - self::MENU_WIDTH, 2));
-    $this->topMargin = max(0, intdiv(get_screen_height() - $totalHeight, 2));
-  }
-
-  /**
-   * Builds the screen's windows.
-   *
-   * @return void
-   */
-  protected function initializeUI(): void
-  {
-    $this->borderPack = new DefaultBorderPack();
-
-    $this->summaryPanel = new Window(
-      Vocabulary::getTerm('command.' . BattleCommandType::SUMMON->value, 'Summons'),
-      '',
-      new Vector2($this->leftMargin, $this->topMargin),
-      self::MENU_WIDTH,
-      self::SUMMARY_PANEL_HEIGHT,
-      $this->borderPack
-    );
-
-    $this->listPanel = new Window(
-      '',
-      '',
-      new Vector2($this->leftMargin, $this->topMargin + self::SUMMARY_PANEL_HEIGHT),
-      self::MENU_WIDTH,
-      self::LIST_PANEL_HEIGHT,
-      $this->borderPack
-    );
-
-    $this->infoPanel = new Window(
-      'Info',
-      '',
-      new Vector2($this->leftMargin, $this->topMargin + self::SUMMARY_PANEL_HEIGHT + self::LIST_PANEL_HEIGHT),
-      self::MENU_WIDTH,
-      self::INFO_PANEL_HEIGHT,
-      $this->borderPack
-    );
-  }
-
-  /**
-   * Redraws every panel from the current state.
-   *
-   * @return void
-   */
-  protected function refreshUI(): void
-  {
-    $this->refreshSummonsForCharacter();
-    $this->detailViewport ??= new TextViewport();
-    $this->detailViewport->setText($this->getDetailText());
-    $this->refreshSummaryPanel();
-
-    if ($this->viewingDetail) {
-      $this->refreshDetailPanel();
-    } else {
-      $this->refreshListPanel();
+    public function openForCharacter(Character $character, EquipmentMenuState $returnState): void
+    {
+        $this->character = $character;
+        $this->equipmentReturn = $returnState;
     }
 
-    $this->refreshInfoPanel();
-  }
-
-  /** Apply the party service’s current assignment rules before either renderer sees options. */
-  private function refreshSummonsForCharacter(): void
-  {
-    $selectedId = $this->summons[$this->activeIndex]->id ?? null;
-    if ($this->character !== null && !$this->party->members->contains($this->character)) {
-      $this->character = $this->party->leader;
-    }
-    $this->summons = $this->character === null ? [] : array_values(array_filter($this->availableSummons,
-      fn(SummonCutsceneDefinition $definition): bool => $definition->wielders === null
-        || $this->party->canAssignSummon($definition, $this->character, $this->getGameScene()->gameState)));
-    $this->activeIndex = array_find_key($this->summons,
-      static fn(SummonCutsceneDefinition $definition): bool => $definition->id === $selectedId) ?? 0;
-    if ($this->summons === []) { $this->viewingDetail = false; }
-  }
-
-  /** Complete contract text shared by graphical and Terminal reading viewports. */
-  protected function getDetailText(): string
-  {
-    $definition = $this->summons[$this->activeIndex] ?? null;
-
-    if ($definition === null) {
-      return "";
+    /** Availability remains the authored world-state contract; no future eligibility roster is displayed. */
+    public static function loadSummons(?GameState $gameState = null, ?Party $party = null): array
+    {
+        return array_values(array_filter((new SummonCutsceneLibrary())->load(),
+            static fn(SummonCutsceneDefinition $definition): bool => $definition->availability === null
+                || ($gameState !== null && $definition->isAvailable($gameState, $party))));
     }
 
-    $content = [];
-
-    $header = sprintf(' %s', $definition->name);
-
-    if ($definition->element !== '') {
-      $header .= sprintf('  |  %s', $definition->element);
-    }
-
-    $content[] = $header;
-    $content[] = '';
-    $content[] = '';
-
-    $loreText = $definition->lore !== '' ? $definition->lore : $definition->description;
-
-    $content[] = $loreText;
-
-    $content[] = '';
-
-    $labels = array_merge(['Move', 'Element', 'Strong vs', 'Weak vs'], array_map('strval', array_keys($definition->attributes)));
-    $labelWidth = max(array_map(TerminalText::displayWidth(...), $labels));
-    $row = static fn(string $label, string $value): string =>
-      sprintf(' %s : %s', TerminalText::padRight($label, $labelWidth), $value);
-
-    if ($definition->moveName !== null) {
-      $content[] = $row('Move', sprintf('%s: %s', $definition->moveName, $definition->description));
-    }
-
-    if ($definition->element !== '') {
-      $content[] = $row('Element', $definition->element);
-    }
-
-    foreach ($definition->attributes as $attribute => $value) {
-      $content[] = $row((string)$attribute, (string)$value);
-    }
-
-    if (! empty($definition->strengths)) {
-      $content[] = $row('Strong vs', implode(', ', $definition->strengths));
-    }
-
-    if (! empty($definition->weaknesses)) {
-      $content[] = $row('Weak vs', implode(', ', $definition->weaknesses));
-    }
-
-    $content[] = '';
-
-    if ($this->character?->hasSummon($definition->id)) { $content[] = 'Assigned'; }
-
-    return implode("\n", $content);
-  }
-
-  protected function refreshDetailPanel(): void
-  {
-    $page = $this->detailViewport->page(self::MENU_WIDTH - 6, self::LIST_PANEL_HEIGHT - 2);
-    $this->listPanel->setContent($page->lines);
-    $this->listPanel->setHelp($page->total > $page->rows ? $page->range() : '');
-    $this->listPanel->render();
-    $this->lastDetailPage = $page;
-  }
-
-  /** @return list<string> Current character and contract tally for both renderers. */
-  protected function getSummaryLines(): array
-  {
-    if (! $this->character) {
-      return [];
-    }
-
-    $policySummons = array_filter(
-      $this->summons,
-      static fn(SummonCutsceneDefinition $definition): bool => $definition->wielders !== null
-    );
-    $assignedCount = count(array_filter(
-      $policySummons,
-      fn(SummonCutsceneDefinition $definition): bool => $this->character->hasSummon($definition->id)
-    ));
-
-    $tallyLine = empty($policySummons)
-      ? sprintf(' %s: %d', Vocabulary::getTerm('command.' . BattleCommandType::SUMMON->value, 'Summons'), count($this->summons))
-      : sprintf(' Assigned: %d / %d', $assignedCount, count($policySummons));
-
-    return [
-      ' ' . $this->character->name,
-      sprintf(' Role: %s', $this->character->role->name),
-      $tallyLine,
-    ];
-  }
-
-  protected function refreshSummaryPanel(): void
-  {
-    $this->summaryPanel->setContent($this->getSummaryLines());
-    $this->summaryPanel->render();
-  }
-
-  /**
-   * Redraws the summon list panel.
-   *
-   * @return void
-   */
-  protected function refreshListPanel(): void
-  {
-    $this->listPanel->setHelp('');
-    $content = [];
-
-    if (empty($this->summons)) {
-      $content[] = ' No assignable summons.';
-    }
-
-    foreach ($this->summons as $index => $definition) {
-      $prefix = $index === $this->activeIndex ? '>' : ' ';
-      $name = TerminalText::padRight($definition->name, 22);
-      $move = TerminalText::padRight($definition->moveName ?? '', 26);
-      $status = $this->describeStatus($definition);
-      $content[] = sprintf(' %s %s %s %s', $prefix, $name, $move, $status);
-    }
-
-    $content = array_pad($content, self::LIST_PANEL_HEIGHT - 2, '');
-    $this->listPanel->setContent($content);
-    $this->listPanel->render();
-  }
-
-  /**
-   * Redraws the bottom description panel.
-   *
-   * @return void
-   */
-  protected function refreshInfoPanel(): void
-  {
-    $definition = $this->summons[$this->activeIndex] ?? null;
-
-    $help = array_map(static fn($hint) => ($hint->control?->label ?? 'Unbound') . ':' . $hint->label, $this->getActionHints());
-    $this->infoPanel->setHelp(implode('  ', $help));
-    $this->infoPanel->setContent([
-      ' ' . trim($definition?->description ?? ''),
-      ' ' . ($definition !== null && $this->character?->hasSummon($definition->id) ? 'Assigned' : ''),
-    ]);
-
-    $this->infoPanel->render();
-  }
-
-  /**
-   * Describes the summon's assignment status for the active character.
-   *
-   * @param SummonCutsceneDefinition $definition The summon definition.
-   * @return string The status label.
-   */
-  protected function describeStatus(SummonCutsceneDefinition $definition): string
-  {
-    if (! $this->character) {
-      return '';
-    }
-
-    return $this->character->hasSummon($definition->id) ? '[Assigned]' : '';
-  }
-
-  /**
-   * Handles list navigation.
-   *
-   * @return void
-   */
-  protected function handleNavigation(): void
-  {
-    $v = Input::getAxis(AxisName::VERTICAL);
-    if ($this->viewingDetail) {
-      if (abs($v) > 0 && $this->lastDetailPage !== null) {
-        $this->detailViewport->scroll($v > 0 ? 1 : -1, $this->lastDetailPage);
-        $this->refreshDetailPanel();
-      }
-      return;
-    }
-
-
-    if (abs($v) > 0 && count($this->summons) > 0) {
-      $this->activeIndex = wrap(
-        $this->activeIndex + ($v > 0 ? 1 : -1),
-        0,
-        count($this->summons) - 1
-      );
-      $this->detailViewport->setText($this->getDetailText());
-      $this->lastDetailPage = null;
-      $this->refreshListPanel();
-      $this->refreshInfoPanel();
-    }
-  }
-
-  /**
-   * Handles assignment toggling and leaving the screen.
-   *
-   * @return void
-   * @throws Exception If an error occurs while alerting the player.
-   */
-  protected function handleActions(): void
-  {
-    if (Input::isButtonDown('back') || Input::isButtonDown('cancel')) {
-      if ($this->viewingDetail) {
-        $this->viewingDetail = false;
+    public function enter(): void
+    {
+        Console::clear();
+        $this->resetMenuPresentation();
+        $this->getGameScene()->locationHUDWindow->deactivate();
+        $this->availableSummons = array_values((new SummonCutsceneLibrary())->load());
+        $this->selectedSummonId = null;
+        $this->view = $this->character === null ? SummonsMenuView::SUMMONS : SummonsMenuView::CHARACTER;
+        $this->activeIndex = 0;
+        $this->detailViewport = new TextViewport();
+        $this->initializeUI();
         $this->refreshUI();
-        return;
-      }
-
-      $this->setState($this->getGameScene()->mainMenuState);
-      return;
     }
 
-    if (! Input::isButtonDown('confirm')) {
-      return;
+    protected function initializeUI(): void
+    {
+        $left = max(0, intdiv(get_screen_width() - self::MENU_WIDTH, 2));
+        $top = max(0, intdiv(get_screen_height() - self::SUMMARY_PANEL_HEIGHT - self::LIST_PANEL_HEIGHT - self::INFO_PANEL_HEIGHT, 2));
+        $border = new DefaultBorderPack();
+        $this->summaryPanel = new Window('', '', new Vector2($left, $top), self::MENU_WIDTH, self::SUMMARY_PANEL_HEIGHT, $border);
+        $this->listPanel = new Window('', '', new Vector2($left, $top + self::SUMMARY_PANEL_HEIGHT), self::MENU_WIDTH, self::LIST_PANEL_HEIGHT, $border);
+        $this->infoPanel = new Window('Info', '', new Vector2($left, $top + self::SUMMARY_PANEL_HEIGHT + self::LIST_PANEL_HEIGHT), self::MENU_WIDTH, self::INFO_PANEL_HEIGHT, $border);
     }
 
-    $definition = $this->summons[$this->activeIndex] ?? null;
-
-    if ($definition === null || ! $this->character) {
-      return;
+    private function refreshDefinitions(): void
+    {
+        if ($this->character !== null && !$this->party->members->contains($this->character)) {
+            $this->character = null;
+            $this->equipmentReturn = null;
+            $this->view = SummonsMenuView::SUMMONS;
+        }
+        $this->summons = array_values(array_filter($this->availableSummons, function (SummonCutsceneDefinition $definition): bool {
+            if ($definition->availability !== null && !$definition->isAvailable($this->getGameScene()->gameState, $this->party)) { return false; }
+            return $this->character === null || ($definition->wielders !== null
+                && ($this->character->hasSummon($definition->id)
+                    || $this->party->canAssignSummon($definition, $this->character, $this->getGameScene()->gameState)));
+        }));
+        if ($this->selectedSummonId !== null && array_find($this->summons,
+            fn(SummonCutsceneDefinition $definition): bool => $definition->id === $this->selectedSummonId) === null) {
+            $this->view = $this->character === null ? SummonsMenuView::SUMMONS : SummonsMenuView::CHARACTER;
+            $this->selectedSummonId = null;
+            $this->activeIndex = 0;
+        }
     }
 
-    if (! $this->viewingDetail) {
-      // First confirm opens the codex entry for the selected summon.
-      $this->viewingDetail = true;
-      $this->refreshUI();
-      return;
+    private function getSelectedSummon(): ?SummonCutsceneDefinition
+    {
+        return match ($this->view) {
+            SummonsMenuView::SUMMONS, SummonsMenuView::CHARACTER => $this->summons[$this->activeIndex] ?? null,
+            default => array_find($this->summons, fn(SummonCutsceneDefinition $definition): bool => $definition->id === $this->selectedSummonId),
+        };
     }
 
-    if ($definition->wielders === null) {
-      return;
+    /** @return list<Character> Current members that the same atomic Party operation would accept. */
+    private function getHolderOptions(): array
+    {
+        $definition = $this->getSelectedSummon();
+        return $definition === null ? [] : array_values(array_filter($this->party->members->toArray(),
+            fn(Character $member): bool => $member->hasSummon($definition->id)
+                || $this->party->canReassignSummon($definition, $member, $this->getGameScene()->gameState)));
     }
 
-    if ($this->character->hasSummon($definition->id)) {
-      $this->party->unassignSummon($definition->id, $this->character);
-      alert(sprintf('%s released %s.', $this->character->name, $definition->name));
-    } elseif ($this->party->assignSummon($definition, $this->character, $this->getGameScene()->gameState)) {
-      alert(sprintf('%s can now call %s.', $this->character->name, $definition->name));
-    } else {
-      alert($this->describeAssignmentFailure($definition));
+    /** @return list<MenuRow> */
+    private function getRows(): array
+    {
+        $definition = $this->getSelectedSummon();
+        if ($this->view === SummonsMenuView::ACTIONS) {
+            $labels = ['info' => 'Info'];
+            if ($definition?->wielders !== null && $this->getHolderOptions() !== []) { $labels['assign'] = 'Assign'; }
+            $rows = [];
+            foreach ($labels as $id => $label) { $rows[] = new MenuRow($id, $label, [new MenuRowValue(''), new MenuRowValue('')]); }
+        } elseif ($this->view === SummonsMenuView::HOLDERS) {
+            if ($definition === null) { return []; }
+            $members = $this->getHolderOptions();
+            $rows = array_map(static fn(Character $member): MenuRow => new MenuRow('member-' . ($member->actorId ?? spl_object_id($member)), $member->name,
+                [new MenuRowValue($member->role->name), new MenuRowValue($member->hasSummon($definition->id) ? 'Assigned' : '')]), $members);
+        } else {
+            $rows = array_map(function (SummonCutsceneDefinition $summon): MenuRow {
+                $holders = $this->party->getSummonHolders($summon->id);
+                $status = $this->character === null ? implode(', ', array_map(static fn(Character $holder): string => $holder->name, $holders))
+                    : ($this->character->hasSummon($summon->id) ? 'Assigned' : '');
+                return new MenuRow($summon->id, $summon->name, [new MenuRowValue($summon->moveName ?? ''), new MenuRowValue($status)]);
+            }, $this->summons);
+        }
+        return array_map(fn(MenuRow $row, int $index): MenuRow => new MenuRow($row->id, $row->label, $row->values,
+            selected: $index === $this->activeIndex, focused: $index === $this->activeIndex && $this->view !== SummonsMenuView::INFO),
+            $rows, array_keys($rows));
     }
 
-    $this->refreshUI();
-  }
-
-  /**
-   * Explains why the summon could not be assigned.
-   *
-   * @param SummonCutsceneDefinition $definition The summon definition.
-   * @return string The failure message.
-   */
-  protected function describeAssignmentFailure(SummonCutsceneDefinition $definition): string
-  {
-    if (! $definition->wielders?->allowsCharacter($this->character)) {
-      return sprintf('%s cannot wield %s.', $this->character->name, $definition->name);
+    public function getPresentationContent(): SummonsMenuContent
+    {
+        $definition = $this->getSelectedSummon();
+        $title = Vocabulary::getTerm('command.' . BattleCommandType::SUMMON->value, 'Summons');
+        if (in_array($this->view, [SummonsMenuView::ACTIONS, SummonsMenuView::INFO], true)) { $title = $definition?->name ?? $title; }
+        if ($this->view === SummonsMenuView::HOLDERS) { $title = 'Assign / ' . ($definition?->name ?? $title); }
+        return new SummonsMenuContent($this->character, $title, $this->character === null ? [] : [$this->character->name],
+            $this->getRows(), $this->activeIndex, $this->view === SummonsMenuView::INFO, $definition?->description ?? '',
+            null, $this->getActionHints());
     }
 
-    $holders = $this->party->getSummonHolders($definition->id);
-
-    if (! empty($holders)) {
-      return sprintf('%s is already bound to %s.', $definition->name, $holders[0]->name);
+    /** @return list<\Ichiloto\Engine\IO\ActionHint> */
+    protected function getActionHints(): array
+    {
+        $label = 'Choose';
+        if ($this->view === SummonsMenuView::CHARACTER) {
+            $label = $this->character?->hasSummon($this->getSelectedSummon()?->id ?? '') ? 'Release' : 'Assign';
+        } elseif ($this->view === SummonsMenuView::HOLDERS) {
+            $member = $this->getHolderOptions()[$this->activeIndex] ?? null;
+            $label = $member?->hasSummon($this->getSelectedSummon()?->id ?? '') ? 'Release' : 'Assign';
+        }
+        $hints = [ActionHints::resolve('cancel', $this->view === SummonsMenuView::SUMMONS ? 'Cancel' : 'Back')];
+        if ($this->view !== SummonsMenuView::INFO && $this->getRows() !== []) { array_unshift($hints, ActionHints::resolve('confirm', $label)); }
+        if ($this->view === SummonsMenuView::INFO) { array_push($hints, ActionHints::resolve('up', 'Scroll up'), ActionHints::resolve('down', 'Scroll down')); }
+        if ($this->view === SummonsMenuView::CHARACTER) {
+            array_push($hints, ActionHints::resolve('character_next', 'Next', KeyCode::TAB),
+                ActionHints::resolve('character_previous', 'Previous', KeyCode::SHIFT_TAB));
+        }
+        return $hints;
     }
 
-    return sprintf('%s cannot be assigned.', $definition->name);
-  }
-
-  /**
-   * Handles the party-member cycling shortcuts.
-   *
-   * @return bool True when the active character changed.
-   */
-  protected function handleCharacterCycling(): bool
-  {
-    $offset = match (true) {
-      $this->isNextCharacterRequested() => 1,
-      $this->isPreviousCharacterRequested() => -1,
-      default => 0,
-    };
-
-    if ($offset === 0) {
-      return false;
+    protected function composeMenuCanvas(MenuPresentationCatalog $theme, float $time): ?PresentationCanvas
+    {
+        $content = $this->getPresentationContent();
+        $page = null;
+        if ($content->detailsOpen) {
+            [$columns, $rows] = SummonsMenuPresentation::getDetailPageSize($content, $theme);
+            $page = $this->detailViewport->page($columns, $rows);
+        }
+        $canvas = SummonsMenuPresentation::compose($content, $theme, $page, $this->menuInfoText, $time);
+        if ($page !== null) { $this->lastDetailPage = $page; }
+        return $canvas;
     }
 
-    $characters = $this->getGameScene()->party->members->toArray();
-    $totalCharacters = count($characters);
-
-    if ($totalCharacters < 2) {
-      return false;
+    protected function refreshUI(): void
+    {
+        $this->refreshDefinitions();
+        $this->activeIndex = min($this->activeIndex, max(0, count($this->getRows()) - 1));
+        $this->detailViewport ??= new TextViewport();
+        $this->detailViewport->setText($this->getDetailText());
+        $content = $this->getPresentationContent();
+        $this->lastRows = $this->getRowSnapshot($content->rows);
+        $this->summaryPanel->setContent([$content->title, ...$content->summary]);
+        $this->summaryPanel->render();
+        if ($content->detailsOpen) { $this->refreshDetailPanel(); }
+        else { $this->refreshListPanel(); }
+        $this->infoPanel->setContent([$content->description, '']);
+        $this->infoPanel->setHelp(implode('  ', array_map(static fn($hint): string => ($hint->control?->label ?? 'Unbound') . ':' . $hint->label, $content->hints)));
+        $this->infoPanel->render();
     }
 
-    $currentIndex = array_search($this->character, $characters, true);
-    $currentIndex = ($currentIndex === false) ? 0 : $currentIndex;
-    $this->character = $characters[wrap($currentIndex + $offset, 0, $totalCharacters - 1)];
-    $this->refreshUI();
+    private function refreshListPanel(): void
+    {
+        $rows = $this->getRows();
+        $size = self::LIST_PANEL_HEIGHT - 2;
+        $offset = max(0, min($this->activeIndex - intdiv($size, 2), count($rows) - $size));
+        $lines = [];
+        foreach (array_slice($rows, $offset, $size) as $row) {
+            $lines[] = TerminalMenuRow::compose($row->label, implode('  ', array_map(static fn(MenuRowValue $value): string => $value->text, $row->values)),
+                self::MENU_WIDTH - 4, prefix: $row->focused ? ' > ' : '   ');
+        }
+        if ($rows === []) { $lines[] = $this->character === null ? 'No summons.' : 'No assignable summons.'; }
+        $this->listPanel->setContent(array_pad($lines, $size, ''));
+        $this->listPanel->setHelp(count($rows) > $size ? sprintf('%d–%d / %d', $offset + 1, min(count($rows), $offset + $size), count($rows)) : '');
+        $this->listPanel->render();
+    }
 
-    return true;
-  }
+    protected function refreshDetailPanel(): void
+    {
+        $page = $this->detailViewport->page(self::MENU_WIDTH - 6, self::LIST_PANEL_HEIGHT - 2);
+        $this->listPanel->setContent($page->lines);
+        $this->listPanel->setHelp($page->total > $page->rows ? $page->range() : '');
+        $this->listPanel->render();
+        $this->lastDetailPage = $page;
+    }
 
-  /**
-   * @inheritDoc
-   */
-  public function resume(): void
-  {
-    $this->refreshUI();
-  }
+    protected function getDetailText(): string
+    {
+        $definition = $this->getSelectedSummon();
+        if ($definition === null) { return ''; }
+        $lines = [$definition->name, '', $definition->lore !== '' ? $definition->lore : $definition->description, ''];
+        $labels = ['Move', 'Element', 'Strong vs', 'Weak vs', ...array_map('strval', array_keys($definition->attributes))];
+        $width = max(array_map(TerminalText::displayWidth(...), $labels));
+        $row = static fn(string $label, string $value): string => TerminalText::padRight($label, $width) . ' : ' . $value;
+        if ($definition->moveName !== null) { $lines[] = $row('Move', $definition->moveName . ': ' . $definition->description); }
+        if ($definition->element !== '') { $lines[] = $row('Element', $definition->element); }
+        foreach ($definition->attributes as $label => $value) { $lines[] = $row((string)$label, (string)$value); }
+        if ($definition->strengths !== []) { $lines[] = $row('Strong vs', implode(', ', $definition->strengths)); }
+        if ($definition->weaknesses !== []) { $lines[] = $row('Weak vs', implode(', ', $definition->weaknesses)); }
+        return implode("\n", $lines);
+    }
+
+    private function setView(SummonsMenuView $view, int $index = 0): void
+    {
+        $this->view = $view;
+        $this->activeIndex = $index;
+        $this->lastDetailPage = null;
+        $this->detailViewport?->reset();
+        $this->refreshUI();
+    }
+
+    public function execute(?SceneStateContext $context = null): void
+    {
+        $priorCharacter = $this->character;
+        $priorView = $this->view;
+        $this->refreshDefinitions();
+        if ($priorCharacter !== $this->character || $priorView !== $this->view
+            || $this->getRowSnapshot($this->getRows()) !== $this->lastRows) {
+            // Refresh a changed roster/availability before accepting a choice made against its old rows.
+            $this->refreshUI();
+            return;
+        }
+        if ($this->handleCharacterCycling()) { return; }
+        $v = Input::getAxis(AxisName::VERTICAL);
+        if ($v !== 0.0) {
+            if ($this->view === SummonsMenuView::INFO && $this->lastDetailPage !== null) {
+                $this->detailViewport->scroll($v > 0 ? 1 : -1, $this->lastDetailPage);
+                $this->refreshDetailPanel();
+            } elseif (($total = count($this->getRows())) > 0) {
+                $this->activeIndex = wrap($this->activeIndex + ($v > 0 ? 1 : -1), 0, $total - 1);
+                $this->refreshUI();
+            }
+        }
+        $this->handleActions();
+    }
+
+    /** A bounded display snapshot; unchanged Terminal frames require no redraw. */
+    private function getRowSnapshot(array $rows): array
+    {
+        return array_map(static fn(MenuRow $row): array => [$row->id, $row->label, array_column($row->values, 'text')], $rows);
+    }
+
+    protected function handleActions(): void
+    {
+        if (Input::isButtonPressed('back') || Input::isButtonPressed('cancel')) {
+            match ($this->view) {
+                SummonsMenuView::INFO, SummonsMenuView::HOLDERS => $this->setView(SummonsMenuView::ACTIONS),
+                SummonsMenuView::ACTIONS => $this->setView(SummonsMenuView::SUMMONS,
+                    array_find_key($this->summons, fn($definition): bool => $definition->id === $this->selectedSummonId) ?? 0),
+                SummonsMenuView::CHARACTER => $this->setState($this->equipmentReturn ?? $this->getGameScene()->mainMenuState),
+                SummonsMenuView::SUMMONS => $this->setState($this->getGameScene()->mainMenuState),
+            };
+            return;
+        }
+        if (!Input::isButtonPressed('confirm') || $this->view === SummonsMenuView::INFO) { return; }
+        $definition = $this->getSelectedSummon();
+        if ($definition === null) { return; }
+        if ($this->view === SummonsMenuView::SUMMONS) {
+            $this->selectedSummonId = $definition->id;
+            $this->setView(SummonsMenuView::ACTIONS);
+        } elseif ($this->view === SummonsMenuView::ACTIONS) {
+            $action = $this->getRows()[$this->activeIndex]->id ?? null;
+            if ($action === 'info') { $this->setView(SummonsMenuView::INFO); }
+            elseif ($action === 'assign') { $this->setView(SummonsMenuView::HOLDERS); }
+        } else {
+            $member = $this->view === SummonsMenuView::CHARACTER ? $this->character : ($this->getHolderOptions()[$this->activeIndex] ?? null);
+            if ($member === null || !$this->party->members->contains($member)) { $this->refreshUI(); return; }
+            if ($member->hasSummon($definition->id)) { $this->party->unassignSummon($definition->id, $member); }
+            elseif ($this->view === SummonsMenuView::CHARACTER) { $this->party->assignSummon($definition, $member, $this->getGameScene()->gameState); }
+            else { $this->party->reassignSummon($definition, $member, $this->getGameScene()->gameState); }
+            $this->refreshUI();
+        }
+    }
+
+    protected function handleCharacterCycling(): bool
+    {
+        if ($this->view !== SummonsMenuView::CHARACTER) { return false; }
+        $offset = $this->isNextCharacterRequested() ? 1 : ($this->isPreviousCharacterRequested() ? -1 : 0);
+        $members = $this->party->members->toArray();
+        if ($offset === 0 || count($members) < 2) { return false; }
+        $current = array_search($this->character, $members, true);
+        $this->character = $members[wrap(($current === false ? 0 : $current) + $offset, 0, count($members) - 1)];
+        if ($this->equipmentReturn !== null) { $this->equipmentReturn->character = $this->character; }
+        $this->setView(SummonsMenuView::CHARACTER);
+        return true;
+    }
+
+    public function resume(): void { $this->refreshUI(); }
 }

@@ -254,25 +254,8 @@ class Party extends BattleGroup
     ?GameState $gameState = null,
   ): bool
   {
+    if (!$this->canReassignSummon($definition, $character, $gameState)) { return false; }
     $policy = $definition->wielders;
-
-    if (! $policy instanceof SummonWielderPolicy || ! $policy->isValid()) {
-      return false;
-    }
-
-    if (! $this->members->contains($character)) {
-      return false;
-    }
-
-    if ($definition->availability !== null) {
-      if ($gameState === null || ! $definition->isAvailable($gameState, $this)) {
-        return false;
-      }
-    }
-
-    if (! $policy->allowsCharacter($character)) {
-      return false;
-    }
 
     if ($policy->isExclusive()) {
       $holders = $this->getSummonHolders($definition->id);
@@ -291,6 +274,22 @@ class Party extends BattleGroup
       }
     }
 
+    return true;
+  }
+
+  /** Preview the same eligibility and exclusive-ownership checks used by an atomic holder change. */
+  public function canReassignSummon(SummonCutsceneDefinition $definition, Character $character,
+    ?GameState $gameState = null): bool
+  {
+    $policy = $definition->wielders;
+    if (!$policy instanceof SummonWielderPolicy || !$policy->isValid()
+      || !$this->members->contains($character) || !$policy->allowsCharacter($character)
+      || ($definition->availability !== null && ($gameState === null || !$definition->isAvailable($gameState, $this)))) {
+      return false;
+    }
+    if ($policy->isExclusive() && count($this->getSummonHolders($definition->id)) > 1) {
+      throw new SummonAssignmentException(sprintf('Exclusive summon "%s" has multiple holders.', $definition->id));
+    }
     return true;
   }
 
@@ -343,12 +342,7 @@ class Party extends BattleGroup
       ));
     }
 
-    if (! $policy->isValid()
-      || ! $this->members->contains($character)
-      || ! $policy->allowsCharacter($character)
-      || ($definition->availability !== null
-        && ($gameState === null || ! $definition->isAvailable($gameState, $this)))
-    ) {
+    if (!$this->canReassignSummon($definition, $character, $gameState)) {
       return false;
     }
 
