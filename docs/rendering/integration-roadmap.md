@@ -18,6 +18,43 @@ and remaining engineering work, not release status.
 Headless PHP checks and macOS rendering checks do not establish Linux/WSLg or
 Windows support. Merging implementation does not create a package release.
 
+## Open playtest defects — 18 October 2026
+
+These are current reported defects and required follow-through. Each remains
+open until Andrew confirms the correction in play. A prepared commit, passing
+check, owner handoff or historic milestone closure does not close this ledger.
+Andrew ended the play session on October 18. The tested Engine chain through
+`69d0881` is integrated into local develop; player acceptance remains open. The
+entries below distinguish implemented work and outstanding dependencies. Game-specific
+artwork, story corrections and admission decisions stay in the existing private
+Game ledger with their owners.
+
+| Defect / required behavior | Owner | Current evidence and remaining work |
+| --- | --- | --- |
+| Terminal skit prompt border and character-card role alignment | Engine | Integrated `6b8e5d0` / `fe5370b`; focused checks pass. Player confirmation remains. |
+| Invalid chest rewards crash or settle incorrectly | Engine, Editor, Game | Guard `18f7c18`, capability `e95a099` and shared rule `c8ebc3b` integrated. Runtime and authoring share grantability checks. Editor replay requires the inventory owner's consistent committed base; final interaction/save checks remain. |
+| Inspection events drift from moved objects or retain duplicate floor areas | Engine, Editor, Game | Integrated `c8ebc3b` derives event cells from stable subjects; Editor change sets are available. One current-map correction is prepared through that path. All integrated-map corrections and player acceptance remain. |
+| Door artwork and transfer cells disagree; an entrance can hide the player behind a building baseline | Engine, Art, Game, Editor | Explicit resource doorway/entry semantics and shared validation still required. Preserve independent visual overhang and physical occupancy; no blanket blocker derived from pixels. Art alignment and native entrance visibility remain to verify. |
+| Status badges cover the target cursor or move when selection/conditions change | Engine | Integrated `9d5838b` reserves supported cursor envelopes and stable condition slots. Focused geometry/Terminal checks and headless image proof pass. Native player confirmation remains. |
+| Cinematic routes and independent companions drift after their referenced subject moves | Engine, Editor, Game | Integrated `a827ade` plus qualified `1c2a3e6` adds subject-relative positions; collision, ownership and rollback checks pass. Source-preserving authoring migration and scene qualification remain. |
+| Unsaved-map reachability needs a copied map tree and symbolic links | Engine, Editor | Integrated `69d0881` checks in-memory declarations directly; 72 focused tests / 283 assertions pass. Editor adoption and actual Windows verification remain. |
+| Current quest guidance is absent off screen and from local/world maps | Engine, Game, Editor | Shared quest-phase/multiple-target location contract and field/map consumers still required. Preserve free-order objectives and current authorized routes; do not infer locations from completion-flag writers. |
+| Summons opens character selection and combines information with assignment | Engine, Editor, Game | Summon-first list with separate Info/Assign flows and a conditional multi-capacity Equipment summon slot still required. Existing eligibility, exclusivity, current-party scope and save ownership remain authoritative. |
+| Battle theme/arenas have no editable data contract | Engine, Editor, Game | Typed PHP theme construction is still not Editor-authored data. Declarative schema/reader, equivalent Game conversion and both-editor authoring remain; do not flatten authored code. |
+| Portrait-form selection and emotion fallback lack complete shared authoring/runtime support | Engine, Editor, Game | Runtime/catalog contract and round-trip authoring remain queued. Existing accepted character design and private curse rulings stay authoritative. |
+| Persistent conditions and field/item/inn cures are incomplete | Engine, Editor, Game | Shared field display/cure behavior and item remove-state support remain required; economy/content decisions stay Game-owned. |
+| New mechanics lack optional, revisitable in-world tutorials | Engine, Editor, Game | Data/offer/presentation/save contract, both-editor authoring and authored first-use offers remain required. No Game-only tutorial implementation. |
+| Event speakers are distant from their interaction; required quest steps can be bypassed | Engine, Editor, Game | Stable local-speaker references and progression approach checks remain required. Game owns the current integrated-map and quest-phase audit; dialogue prose and completion writes cannot infer identity or route requirements. |
+| Graphical pieces need independent visual offsets | Engine, Editor | Per-piece visual offsets remain required; current whole-layer half-cell offsets do not address independent authored pieces. Physical occupancy and Terminal geometry must remain independent. |
+| Party changes lack complete catch-up leveling and settings support | Engine, Editor, Game | The October 10 party join/leave request remains open. Shared progression/settings contract, safe round trips and current-party consumers need qualification before player acceptance. |
+
+No entry here claims Linux/WSLg, Windows or remote CI validation. New remote
+publication and release actions still require Andrew's exact authorization.
+The integrated `69d0881` source passed 525 focused local tests / 12,285 assertions
+on macOS with PHP 8.5.11 (38.28 seconds). This checks the chest, event-subject,
+completeness, relative-scene, menu/skit, reachability, condition and world-object
+consumers together; it does not replace native scene or player acceptance.
+
 ## G4 Field Delivery Checklist
 
 Andrew started G4 on October 7: "Your next Goal is to complete G4."
