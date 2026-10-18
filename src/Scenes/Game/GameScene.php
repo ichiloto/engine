@@ -1331,7 +1331,13 @@ class GameScene extends AbstractScene implements GraphicalSpriteProviderHostInte
         $this->evaluatePendingAutomaticTriggers();
     }
 
-    /** Runs deferred destination triggers once no event session owns the interpreter. */
+    /** Recheck the current map and position after the existing event owner releases control. */
+    public function requestAutomaticTriggerEvaluation(): void
+    {
+        $this->hasPendingAutomaticTriggerEvaluation = true;
+    }
+
+    /** Runs deferred arrival triggers once no event session owns the interpreter. */
     protected function evaluatePendingAutomaticTriggers(): void
     {
         if ($this->isStopping || ! $this->hasPendingAutomaticTriggerEvaluation || $this->hasUnstableEventSession()) {

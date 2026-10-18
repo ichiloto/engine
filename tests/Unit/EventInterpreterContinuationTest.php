@@ -1434,6 +1434,126 @@ it('runs destination automatic triggers after the transfer session finishes', fu
   ConfigStore::remove(ProjectConfig::class);
 });
 
+it('defers an automatic arrival reached during an owned session until the same-frame handoff', function (string $kind, bool $transfer) {
+  $commands = [
+    ['type' => 'wait', 'seconds' => 0.1],
+    ['type' => 'record_event', 'name' => 'deferred_arrival_finished'],
+  ];
+  $root = makeCinematicTriggerProject('deferred-arrival', $commands);
+  $prior = getcwd();
+  chdir($root);
+  try {
+    [$scene, $interpreter] = makeEventRuntime();
+    $player = new EventTestPlayer(new Vector2(0, 0));
+    $scene->installPlayer($player);
+    $scene->installCinematicRuntime();
+    $field = new class(new SceneStateContext($scene)) extends FieldState {
+      public int $actions = 0;
+      public int $navigation = 0;
+      public function renderTheField(bool $forceFullRepaint = false): void {}
+      public function renderPresentationOverlay(): void {}
+      protected function handleActions(GameScene $scene): void { $this->actions++; }
+      protected function handleNavigation(GameScene $scene): void { $this->navigation++; }
+    };
+    new ReflectionProperty(GameScene::class, 'fieldState')->setValue($scene, $field);
+    new ReflectionProperty(GameScene::class, 'state')->setValue($scene, $field);
+    $data = ['mode' => 'auto', 'reusable' => false] + ($kind === 'cinematic'
+      ? ['cinematicId' => 'deferred-arrival'] : ['script' => $commands]);
+    $class = $kind === 'cinematic' ? CinematicEventTrigger::class : ScriptEventTrigger::class;
+    $trigger = new $class(new Rect(1, 0, 1, 1), $data,
+      sets: [['type' => 'variable', 'name' => 'arrival_rewards', 'op' => 'add', 'value' => 1]],
+      mapId: $transfer ? 'map-b' : 'map-a', marker: 'A');
+    $trigger->bind($scene->gameState, $scene->party);
+    $player->addTrigger($trigger);
+    $owner = $interpreter->run([
+      ...($transfer ? [['type' => 'transfer', 'map' => 'map-b', 'x' => 0, 'y' => 0]] : []),
+      ['type' => 'wait', 'seconds' => 1],
+    ], 'prior-owner');
+    $interpreter->update(0.01);
+    expect($player->tryFieldMove(Vector2::right(), $scene->camera))->toBeTrue()
+      ->and($interpreter->activeSession())->toBe($owner)
+      ->and($trigger->sessionIsActive)->toBeFalse()
+      ->and($player->hasActiveEvent($trigger))->toBeFalse();
+    $delta = new ReflectionProperty(\Ichiloto\Engine\Core\Time::class, 'deltaTime');
+    $priorDelta = $delta->getValue();
+    try { $delta->setValue(null, 2.0); $field->execute(); }
+    finally { $delta->setValue(null, $priorDelta); }
+    expect([$field->actions, $field->navigation])->toBe([0, 0]);
+    $next = $interpreter->activeSession();
+    // The next owner is installed at completion, before FieldState can accept input.
+    expect($owner->status)->toBe(EventExecutionStatus::COMPLETED)
+      ->and($next)->not->toBeNull()->not->toBe($owner)
+      ->and($trigger->sessionIsActive)->toBeTrue()
+      ->and($scene->hasUnstableEventSession())->toBeTrue();
+    $player->evaluateAutomaticTriggersAtCurrentPosition();
+    expect($interpreter->activeSession())->toBe($next);
+    $interpreter->update(1);
+    $player->evaluateAutomaticTriggersAtCurrentPosition();
+    expect($scene->hasUnstableEventSession())->toBeFalse()
+      ->and($trigger->isComplete)->toBeTrue()
+      ->and($scene->gameState->hasStoryEvent('deferred_arrival_finished'))->toBeTrue()
+      ->and($scene->gameState->getVariable('arrival_rewards'))->toBe(1);
+  } finally { chdir($prior); }
+})->with(['script', 'cinematic'])->with([false, true]);
+
+it('rechecks deferred automatic arrivals against the current position and conditions', function (bool $leave) {
+  [$scene, $interpreter] = makeEventRuntime();
+  $player = new EventTestPlayer(new Vector2(0, 0));
+  $scene->installPlayer($player);
+  $scene->gameState->setSwitch('arrival_available', true);
+  $trigger = new ScriptEventTrigger(new Rect(1, 0, 1, 1),
+    ['mode' => 'auto', 'reusable' => false, 'script' => [['type' => 'record_event', 'name' => 'arrival_finished']]],
+    conditions: [['type' => 'switch', 'name' => 'arrival_available', 'value' => true]], mapId: 'map-a', marker: 'A');
+  $trigger->bind($scene->gameState, $scene->party);
+  $player->addTrigger($trigger);
+  $owner = $interpreter->run([['type' => 'wait', 'seconds' => 1]]);
+  $player->tryFieldMove(Vector2::right(), $scene->camera);
+  if ($leave) { $player->tryFieldMove(Vector2::right(), $scene->camera); }
+  else { $scene->gameState->setSwitch('arrival_available', false); }
+  $interpreter->update(2);
+  expect($owner->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and($scene->hasUnstableEventSession())->toBeFalse()
+    ->and($scene->gameState->hasStoryEvent('arrival_finished'))->toBeFalse()
+    ->and($trigger->isComplete)->toBeFalse()->and($player->hasActiveEvent($trigger))->toBeFalse();
+  $scene->gameState->setSwitch('arrival_available', true);
+  if ($leave) { $player->tryFieldMove(Vector2::left(), $scene->camera); }
+  else { $player->evaluateAutomaticTriggersAtCurrentPosition(); }
+  expect($scene->gameState->hasStoryEvent('arrival_finished'))->toBeTrue()->and($trigger->isComplete)->toBeTrue();
+})->with(['left before completion' => true, 'condition changed before completion' => false]);
+
+it('does not reward or loop a failed deferred cinematic and permits reentry to retry', function () {
+  $root = makeCinematicTriggerProject('failed-arrival', [
+    ['type' => 'wait', 'seconds' => 0.1],
+    ['type' => 'camera', 'operation' => 'focus', 'target' => ['kind' => 'staged_actor', 'id' => 'absent']],
+  ]);
+  $prior = getcwd(); chdir($root);
+  try {
+    [$scene, $interpreter] = makeEventRuntime();
+    $player = new EventTestPlayer(new Vector2(0, 0));
+    $scene->installPlayer($player); $scene->installCinematicRuntime();
+    $trigger = new CinematicEventTrigger(new Rect(1, 0, 1, 1),
+      ['mode' => 'auto', 'reusable' => false, 'cinematicId' => 'failed-arrival'],
+      sets: [['type' => 'variable', 'name' => 'arrival_rewards', 'op' => 'add', 'value' => 1]], mapId: 'map-a', marker: 'A');
+    $trigger->bind($scene->gameState, $scene->party); $player->addTrigger($trigger);
+    $interpreter->run([['type' => 'wait', 'seconds' => 1]]);
+    $player->tryFieldMove(Vector2::right(), $scene->camera);
+    $interpreter->update(2);
+    $next = $interpreter->activeSession();
+    expect($next)->not->toBeNull();
+    $interpreter->update(1);
+    $player->evaluateAutomaticTriggersAtCurrentPosition();
+    expect($next->status)->toBe(EventExecutionStatus::FAILED)
+      ->and($scene->hasUnstableEventSession())->toBeFalse()
+      ->and($scene->gameState->getVariable('arrival_rewards'))->toBe(0)
+      ->and($trigger->isComplete)->toBeFalse()->and(count($scene->finished))->toBe(2);
+    $player->tryFieldMove(Vector2::right(), $scene->camera);
+    $player->tryFieldMove(Vector2::left(), $scene->camera);
+    expect($interpreter->activeSession())->not->toBeNull()->not->toBe($next)
+      ->and($trigger->sessionIsActive)->toBeTrue();
+    $interpreter->failActiveSession('Fixture cleanup.');
+  } finally { chdir($prior); }
+});
+
 it('blocks manual saves and quicksaves while a session is unstable', function () {
   [$scene, $interpreter] = makeEventRuntime();
   $interpreter->run([['type' => 'wait', 'seconds' => 5]]);

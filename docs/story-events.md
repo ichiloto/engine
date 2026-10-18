@@ -47,6 +47,16 @@ triggers are evaluated on initial field entry as well as after movement, so a
 New Game or loaded save that starts inside the trigger area runs it without
 requiring the player to step out and back in.
 
+A scripted route can reach another automatic script or cinematic before its
+current session finishes. The arriving trigger remains unentered while that
+session owns the interpreter. At completion, the scene checks automatic triggers
+at the current map, position, heading and conditions before returning control to
+field input. Leaving the area or changing eligibility cancels that arrival;
+there is no stored trigger to launch later. An active or failed trigger keeps
+its normal completion and exit/reentry rules, so this handoff cannot duplicate
+its rewards or repeatedly retry a failure. This behavior applies to arrivals
+with and without a map transfer and requires no extra authored command.
+
 When the conditions fail, a non-empty `whenBlocked` makes entry into the event
 area fail closed and presents that message without advancing field movement.
 The area is exactly the cells the marker occupies, however they are placed

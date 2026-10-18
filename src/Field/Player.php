@@ -553,6 +553,13 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     foreach ($events as $event) {
       if (!$event->canEngage($context->coordinates, $this->heading)) { continue; }
       if (!$this->eventManager->activeEvents->contains($event)) {
+        if ($event instanceof AutomaticEventTriggerInterface && $event->runsAutomatically()
+          && $this->getGameScene()->hasUnstableEventSession()) {
+          // A route may reach another automatic event while its current owner
+          // still runs. Do not consume entry for an event that cannot start.
+          $this->getGameScene()->requestAutomaticTriggerEvaluation();
+          continue;
+        }
         $this->eventManager->activeEvents->add($event);
         $event->enter($context);
       } elseif (!$facingOnly) {
@@ -584,6 +591,10 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    */
   public function evaluateAutomaticTriggersAtCurrentPosition(): void
   {
+    if ($this->getGameScene()->hasUnstableEventSession()) {
+      $this->getGameScene()->requestAutomaticTriggerEvaluation();
+      return;
+    }
     // Restored/spawned action prompts opt in through facing or object reach; legacy events keep their existing lifecycle.
     $this->reconcileFacingEvents(includeAutomatic: false);
     $position = clone $this->position;
