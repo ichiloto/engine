@@ -56,6 +56,9 @@ there is no stored trigger to launch later. An active or failed trigger keeps
 its normal completion and exit/reentry rules, so this handoff cannot duplicate
 its rewards or repeatedly retry a failure. This behavior applies to arrivals
 with and without a map transfer and requires no extra authored command.
+Automatic trigger implementations expose read-only `sessionIsActive` alongside
+`runsAutomatically()` so arrival handling can distinguish the current owner
+from a waiting trigger. Script and cinematic triggers already own that state.
 
 When the conditions fail, a non-empty `whenBlocked` makes entry into the event
 area fail closed and presents that message without advancing field movement.

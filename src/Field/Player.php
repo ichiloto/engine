@@ -553,19 +553,24 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
     foreach ($events as $event) {
       if (!$event->canEngage($context->coordinates, $this->heading)) { continue; }
       if (!$this->eventManager->activeEvents->contains($event)) {
-        if ($event instanceof AutomaticEventTriggerInterface && $event->runsAutomatically()
-          && $this->getGameScene()->hasUnstableEventSession()) {
-          // A route may reach another automatic event while its current owner
-          // still runs. Do not consume entry for an event that cannot start.
-          $this->getGameScene()->requestAutomaticTriggerEvaluation();
-          continue;
-        }
-        $this->eventManager->activeEvents->add($event);
-        $event->enter($context);
+        $this->enterEventWhenReady($event, $context);
       } elseif (!$facingOnly) {
         $event->stay($context);
       }
     }
+  }
+
+  /** Preserve entry for a waiting trigger; an existing owner retains normal exit/reentry rules. */
+  private function enterEventWhenReady(EventTrigger $event, EventTriggerContext $context): bool
+  {
+    if ($event instanceof AutomaticEventTriggerInterface && $event->runsAutomatically()
+      && !$event->sessionIsActive && $this->getGameScene()->hasUnstableEventSession()) {
+      $this->getGameScene()->requestAutomaticTriggerEvaluation();
+      return false;
+    }
+    $this->eventManager->activeEvents->add($event);
+    $event->enter($context);
+    return true;
   }
 
   /** A real turn engages only opted-in events; it is not a walking step or a transfer notification. */
@@ -591,10 +596,6 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
    */
   public function evaluateAutomaticTriggersAtCurrentPosition(): void
   {
-    if ($this->getGameScene()->hasUnstableEventSession()) {
-      $this->getGameScene()->requestAutomaticTriggerEvaluation();
-      return;
-    }
     // Restored/spawned action prompts opt in through facing or object reach; legacy events keep their existing lifecycle.
     $this->reconcileFacingEvents(includeAutomatic: false);
     $position = clone $this->position;
@@ -618,8 +619,7 @@ class Player extends GameObject implements GraphicalSpriteProviderInterface
         continue;
       }
 
-      $this->eventManager->activeEvents->add($event);
-      $event->enter($context);
+      if (!$this->enterEventWhenReady($event, $context)) { return; }
 
       if ($event->isComplete) {
         $this->eventManager->activeEvents->remove($event);

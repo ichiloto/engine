@@ -1554,6 +1554,46 @@ it('does not reward or loop a failed deferred cinematic and permits reentry to r
   } finally { chdir($prior); }
 });
 
+it('does not queue its existing automatic owner for replay when that session fails', function (string $kind, bool $move) {
+  $commands = [
+    ['type' => 'wait', 'seconds' => 1],
+    ['type' => 'record_event', 'name' => 'owner_finished'],
+  ];
+  $root = makeCinematicTriggerProject('existing-owner', $commands);
+  $prior = getcwd(); chdir($root);
+  try {
+    [$scene, $interpreter] = makeEventRuntime();
+    $player = new EventTestPlayer(new Vector2($move ? 0 : 1, 0));
+    $scene->installPlayer($player); $scene->installCinematicRuntime();
+    $class = $kind === 'cinematic' ? CinematicEventTrigger::class : ScriptEventTrigger::class;
+    $data = ['mode' => 'auto', 'reusable' => false] + ($kind === 'cinematic'
+      ? ['cinematicId' => 'existing-owner'] : ['script' => $commands]);
+    $trigger = new $class(new Rect(1, 0, 1, 1), $data,
+      sets: [['type' => 'variable', 'name' => 'owner_rewards', 'op' => 'add', 'value' => 1]],
+      mapId: 'map-a', marker: 'A');
+    $trigger->bind($scene->gameState, $scene->party); $player->addTrigger($trigger);
+    // An explicit action can own the session before movement observes its area.
+    $owner = $trigger->startSession($scene);
+    expect($owner)->not->toBeNull();
+    if ($move) { $player->tryFieldMove(Vector2::right(), $scene->camera); }
+    else { $player->evaluateAutomaticTriggersAtCurrentPosition(); }
+    expect($player->hasActiveEvent($trigger))->toBeTrue()
+      ->and($interpreter->activeSession())->toBe($owner);
+    $interpreter->failActiveSession('Injected existing-owner interruption.');
+    $player->evaluateAutomaticTriggersAtCurrentPosition();
+    expect($scene->hasUnstableEventSession())->toBeFalse()
+      ->and($scene->gameState->hasStoryEvent('owner_finished'))->toBeFalse()
+      ->and($scene->gameState->getVariable('owner_rewards'))->toBe(0)
+      ->and($trigger->isComplete)->toBeFalse();
+    $player->tryFieldMove(Vector2::right(), $scene->camera);
+    $player->tryFieldMove(Vector2::left(), $scene->camera);
+    expect($interpreter->activeSession())->not->toBeNull()->not->toBe($owner);
+    $interpreter->update(2);
+    expect($scene->gameState->hasStoryEvent('owner_finished'))->toBeTrue()
+      ->and($scene->gameState->getVariable('owner_rewards'))->toBe(1);
+  } finally { chdir($prior); }
+})->with(['script', 'cinematic'])->with(['route arrival' => true, 'current-position evaluation' => false]);
+
 it('blocks manual saves and quicksaves while a session is unstable', function () {
   [$scene, $interpreter] = makeEventRuntime();
   $interpreter->run([['type' => 'wait', 'seconds' => 5]]);

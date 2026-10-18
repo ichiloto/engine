@@ -8,5 +8,8 @@ namespace Ichiloto\Engine\Events\Interfaces;
  */
 interface AutomaticEventTriggerInterface
 {
+  /** Whether this trigger already owns the running event session. */
+  public bool $sessionIsActive { get; }
+
   public function runsAutomatically(): bool;
 }

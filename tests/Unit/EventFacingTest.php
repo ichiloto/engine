@@ -41,6 +41,7 @@ class FacingProbeTrigger extends EventTrigger
 
 class FacingAutomaticProbe extends FacingProbeTrigger implements AutomaticEventTriggerInterface
 {
+  public bool $sessionIsActive = false;
   public function runsAutomatically(): bool { return true; }
 }
 
