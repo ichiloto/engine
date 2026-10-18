@@ -49,6 +49,17 @@ final class MapAtlasTerminal
         };
     }
 
+    public static function getTerrainLegend(MapOverview $overview, bool $global, bool $places): string
+    {
+        $base=MessageCatalog::getTerm($global ? 'map.global_symbols' : 'map.terrain_markers');
+        $roles=$overview->terrain?->getRoles() ?? [];
+        if (!$places && !$global) { $roles[]='boundary'; }
+        foreach (\Ichiloto\Engine\Field\MapAtlasTerrain::ROLES as $role) {
+            if ($role!=='ground' && in_array($role,$roles,true)) { $base.='  '.MessageCatalog::getTerm('map.terrain.'.$role); }
+        }
+        return $base;
+    }
+
     /** @return list<string> Stable whole-map rows; a selected landmark takes priority in a cluster. */
     public static function renderMap(MapOverview $overview, array $landmarks, Vector2 $player,
         MovementHeading $heading, int $width, int $height, int $selected = -1,
@@ -56,6 +67,16 @@ final class MapAtlasTerminal
     {
         $projection ??= $overview->getTerminalProjection($width, $height);
         $raster = $overview->getTerminalRaster($width, $height, $projection,$drawOutlines);
+        if ($overview->terrain!==null) {
+            $colors=[':'=>Color::BROWN,'='=>Color::YELLOW,'~'=>Color::LIGHT_BLUE,
+                '*'=>Color::GREEN,'^'=>Color::LIGHT_GRAY,'x'=>Color::DARK_GRAY,'#'=>Color::LIGHT_GRAY];
+            $styled=[];
+            foreach ($colors as $symbol=>$color) { $styled[$symbol]=Color::apply($symbol,$color); }
+            foreach ($raster as &$row) {
+                $row=array_map(static fn(string $symbol): string=>$styled[$symbol] ?? $symbol,$row);
+            }
+            unset($row);
+        }
         $occupied = [];
         foreach ($landmarks as $index => $landmark) {
             foreach ($landmark['definition']->getMarkerCells() as $cell) {

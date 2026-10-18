@@ -327,7 +327,7 @@ class MapManager implements CanRenderAt
 
     return new PreparedMap($map, $source['tiles'], $collisions, $mapTriggers, $eventTriggers, $npcs, $source['layers'],
       $source['graphics'], $source['worldObjects'], MapLandmarkCatalog::readMap($map, $source['tiles'], MapCategoryCatalog::load($this->getAssetRoot())),
-      new MapOverview($source['tiles'], $collisions));
+      new MapOverview($source['tiles'], $collisions, MapAtlasTerrain::readMap($map,$source['layers'])));
   }
 
   /** Resolve current authored hierarchy without activating a destination or observing it for discovery. */
@@ -350,7 +350,8 @@ class MapManager implements CanRenderAt
     $source=$this->prepareSplitMapDataFromFiles($this->resolveMapPaths($mapId));
     $collisions=$source['occupancy']?->collisionGrid
       ?? $this->generateLayerCollisionMap($source['layers'],$this->getCollisionDictionary());
-    return new MapAtlasDocument($mapId,$source,new MapOverview($source['tiles'],$collisions),
+    return new MapAtlasDocument($mapId,$source,new MapOverview($source['tiles'],$collisions,
+      MapAtlasTerrain::readMap($source['data'],$source['layers'])),
       MapLandmarkCatalog::readMap($source['data'],$source['tiles'],MapCategoryCatalog::load($this->getAssetRoot())),
       $this->getAssetRoot());
   }
@@ -898,7 +899,8 @@ class MapManager implements CanRenderAt
   {
     $prepared = $this->prepareSplitMapDataFromFiles($paths);
     $landmarks = MapLandmarkCatalog::readMap($prepared['data'], $prepared['tiles'], MapCategoryCatalog::load($this->getAssetRoot()));
-    $overview = new MapOverview($prepared['tiles'], $prepared['occupancy']?->collisionGrid);
+    $overview = new MapOverview($prepared['tiles'], $prepared['occupancy']?->collisionGrid,
+      MapAtlasTerrain::readMap($prepared['data'],$prepared['layers']));
     $this->gameScene->fieldEffects?->clear();
     $this->tileMap = $prepared['tiles'];
     $this->layers = $prepared['layers'];

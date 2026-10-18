@@ -15,16 +15,17 @@ final class MapOverview
     public readonly int $height;
     private array $terminalRasters = [];
 
-    public function __construct(private readonly array $tiles, private readonly ?array $collisions = null)
+    public function __construct(private readonly array $tiles, private readonly ?array $collisions = null,
+        public readonly ?MapAtlasTerrain $terrain = null)
     {
         $this->width = $tiles === [] ? 0 : max(array_map('count', $tiles));
         $this->height = count($tiles);
         if ($this->width < 1 || $this->height < 1) { throw new InvalidArgumentException('An overview requires a nonempty map.'); }
     }
 
-    /** Schematic physical ground, without copying decorative letters or miniature field artwork.
-     *  Read-only sources without collision facts show only their extent. Runtime
-     *  sources use the already resolved physical occupancy, never glyph spelling.
+    /** Source-classified geography and physical outlines, without copying decorative letters or field artwork.
+     *  Unclassified sources retain the established physical-outline/blank-ground behavior.
+     *  Terrain meaning is explicitly authored; occupancy remains independently authoritative.
      *  Cache owns at most two screen-sized variants and releases with its map installation.
      *  @return list<list<string>> */
     public function getTerminalRaster(int $width, int $height, ?MapProjection $projection = null, bool $drawOutlines = true): array
@@ -33,10 +34,14 @@ final class MapOverview
             throw new InvalidArgumentException('Terminal overview dimensions must be within 512 by 256 cells.');
         }
         $projection ??= $this->getTerminalProjection($width, $height);
+        if ($this->terrain!==null && ($projection->sourceWidth ?? $this->width)*($projection->sourceHeight ?? $this->height)
+            >MapAtlasTerrain::MAX_SOURCE_CELLS) {
+            throw new InvalidArgumentException('Terminal terrain overviews support at most 16 Mi source cells per view.');
+        }
         $key = "{$width}:{$height}:" . (int)$drawOutlines . serialize($projection);
         if (isset($this->terminalRasters[$key])) { return $this->terminalRasters[$key]; }
         $raster = array_fill(0, $height, array_fill(0, $width, ' '));
-        if (!$drawOutlines) {
+        if (!$drawOutlines && $this->terrain===null) {
             if (count($this->terminalRasters)===2) { array_shift($this->terminalRasters); }
             return $this->terminalRasters[$key]=$raster;
         }
@@ -47,7 +52,13 @@ final class MapOverview
             for ($x = (int) floor($projection->left); $x < min($width, (int) ceil($projection->left + $projection->width)); $x++) {
                 $sourceX = max(0, min($this->width - 1, (int) floor($projection->sourceX+($x + 0.5 - $projection->left) / $projection->scaleX)));
                 if (!isset($this->tiles[$sourceY][$sourceX])) { continue; }
-                $raster[$y][$x] = $this->getBoundarySymbol($sourceX,$sourceY);
+                $symbol=$this->terrain?->getRegionSymbol(
+                    max(0,(int)floor($projection->sourceX+($x-$projection->left)/$projection->scaleX)),
+                    max(0,(int)floor($projection->sourceY+($y-$projection->top)/$projection->scaleY)),
+                    min($this->width,(int)ceil($projection->sourceX+($x+1-$projection->left)/$projection->scaleX)),
+                    min($this->height,(int)ceil($projection->sourceY+($y+1-$projection->top)/$projection->scaleY)));
+                $raster[$y][$x] = $symbol!==null && $symbol!==' ' ? $symbol
+                    : ($drawOutlines ? $this->getBoundarySymbol($sourceX,$sourceY) : ' ');
             }
         }
         if (count($this->terminalRasters) === 2) { array_shift($this->terminalRasters); }

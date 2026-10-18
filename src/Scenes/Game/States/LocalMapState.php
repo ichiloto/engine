@@ -201,8 +201,10 @@ class LocalMapState extends GameSceneState implements CanvasProviderInterface
         $map=MapAtlasTerminal::renderMap($snapshot->overview,$landmarks,new Vector2($snapshot->playerX,$snapshot->playerY),
             $snapshot->heading,$mapWidth,$mapHeight,$this->selected,$projection,$snapshot->global,$snapshot->terminalView==='floorplan');
         $rows=[TerminalText::padCenter('N',$width),...$map];
-        $rows[]=TerminalText::truncateToWidth(MessageCatalog::getTerm($snapshot->global ? 'map.global_symbols'
-            : ($snapshot->terminalView==='places' ? 'map.place_symbols' : 'map.symbols')),$width);
+        $legend=$snapshot->overview->terrain!==null
+            ? MapAtlasTerminal::getTerrainLegend($snapshot->overview,$snapshot->global,$snapshot->terminalView==='places')
+            : MessageCatalog::getTerm($snapshot->global ? 'map.global_symbols' : ($snapshot->terminalView==='places' ? 'map.place_symbols' : 'map.symbols'));
+        $rows[]=TerminalText::truncateToWidth($legend,$width);
         $focused=$landmarks[$this->selected] ?? null;
         $detail=$focused===null ? ($snapshot->playerX<0 ? MessageCatalog::getTerm('map.position_unmarked') : '') : MapAtlasTerminal::getLandmarkLabel($focused)
             .($focused['accessible']===false ? ' ['.MessageCatalog::getTerm('map.locked').']' : '');

@@ -959,6 +959,19 @@ not a default for future story stations.
   Terminal received "Needs changes — I’ll describe them"; its correction and
   author acceptance remain outstanding. The coordinator prematurely marked the
   minimap goal complete before that review; that status is not acceptance.
+  Andrew then identified the missing terrain/building context and supplied a
+  blank world-map example. The correction removes the marker-only geography:
+  `atlas.terrain` binds existing layer/glyph identities to source-owned semantic
+  roles, with coarse building silhouettes, roads, water, vegetation, generic
+  blocked terrain and boundary outlines beneath square location markers.
+  No second grid, coordinates, occupancy, image inference or GPUI change is used.
+  Exact bounded source aggregation preserves thin routes, and the legend names
+  the declared roles. Synthetic Engine checks pass 48 tests / 1,068 assertions,
+  including unchanged GPUI composition and retained interior outlines. Editor
+  authoring and current Game metadata qualification are coordinated separately.
+  Andrew's latest 18 October ruling removes player review from this implementation
+  goal; complete technical verification/local integration, then start the queued
+  Lore and Lika'mi work. Later player corrections belong to a separate goal.
   Focused corner/theme/icon-role
   checks: 31 tests / 835 assertions. Muted installed macOS check: 2749 frames,
   490 changes, 81.584 seconds, exit 0, no playback backends, user files unchanged;

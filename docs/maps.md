@@ -175,10 +175,45 @@ Physically global maps open only their global view.
 `MapAtlasDefinition::TERMINAL_VIEWS`. Local maps default to `floorplan`; global
 maps default to `places`. Game authors mark outdoor maps as `places`; the
 renderer never infers interiors from paths, tilesets, glyphs or artwork.
-`places` uses blank ground and known location/route markers at their real map
-positions. `floorplan` keeps simple collision-derived room/corridor outlines.
+`places` draws classified terrain and simplified building shapes beneath known
+location/route markers at their real map positions. General ground remains blank.
+`floorplan` also keeps simple collision-derived room/corridor outlines.
 This is Terminal presentation data and changes no collision, discovery or GPUI
 artwork. Source-preserving Editor/GUI authoring uses the same validated values.
+
+`atlas.terrain` classifies existing source-layer cells for Terminal geography:
+
+```php
+'atlas' => [
+    'terminalView' => 'places',
+    'terrain' => [
+        'terrain' => ['symbols' => ['~' => 'water', ',' => 'road', ';' => 'ground']],
+        'buildings' => ['default' => 'building'],
+        'canopy' => ['default' => 'vegetation'],
+    ],
+],
+```
+
+Layer names must exist. Each `symbols` key is one plain authored glyph; its role
+belongs to that layer and map. `default` classifies nonblank cells only. Explicit
+space bindings are supported; unclassified space never erases a lower role.
+Bindings compose in the existing layer order. This references current source
+geometry and stores no duplicate grid, positions, collision or graphical IDs.
+`MapAtlasTerrain::ROLES` supplies constrained authoring choices: ground, road,
+bridge, water, vegetation, highland, obstacle, building and boundary. Unknown
+materials can use obstacle; collision or a familiar glyph must not invent hills,
+woodland or bridges. Buildings use a coarse `#` silhouette, not source lettering;
+square landmark markers remain above it. Boundaries use `- | +`. Roads, water
+and plants remain distinguishable in monochrome and have Terminal colour accents.
+The legend lists declared roles. Names remain focus-only and secrets retain
+their existing discovery rules. Floorplans still expose physical boundaries
+under blank ground classifications; terrain roles never grant passage.
+
+Reduction aggregates source cells exactly, preserving narrow roads and bridges.
+Classified views support at most 16 Mi source cells; target rasters remain bounded
+to 512 by 256 and two cached variants per installed map. Panning never changes
+the field position or map state. GPUI continues to use its existing world/artwork
+composition; the Terminal classifications do not affect its output.
 
 The semantic `map_view` action (unclaimed V/v by default) switches Local/World.
 The opened map always shows its primary action bar, using the shared required
@@ -258,7 +293,11 @@ the walking feel passed Andrew's 18 October review, together with the GPUI map,
 F3 compact/larger/off cycle and Nivira-departure HUD correction. Terminal received
 "Needs changes — I’ll describe them" and remains unfinished pending his details,
 the resulting corrections and acceptance. The earlier coordinator goal-completion
-status was premature and does not establish Terminal acceptance.
+status was premature and does not establish Terminal acceptance. Andrew then
+specified the missing terrain/building context, with a blank world-map screenshot.
+His later 18 October instruction removes player review from this implementation
+goal: finish implementation and technical verification, then start the queued
+Lore/Lika'mi goal. He will review later and request further changes separately.
 
 The opened atlas retains its selected source world without selecting a field
 viewport or field actors; ordinary menu canvases release that dependency.
