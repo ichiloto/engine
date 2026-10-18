@@ -78,7 +78,7 @@ it('keeps unresolved chest rewards closed and unchanged with a player message an
     ->and($this->player->availableAction)->toBe($action)
     ->and($this->audio->sounds)->toBe([])
     ->and($this->alerts->messages)->toBe([get_engine_message('chest.unavailable')]);
-  expect(file_get_contents($this->root . '/error.log'))->toContain('synthetic/room', 'event "C"', 'Inventory reference');
+  expect(file_get_contents($this->root . '/error.log'))->toContain('synthetic/room', 'event "C"', '[chest.reward]');
   expect($this->alerts->messages[0])->not->toContain('Inventory', 'synthetic', $this->root);
   $restored = GameState::fromArray($this->state->toArray());
   expect($restored->isEventComplete('synthetic/room', 'C'))->toBeFalse();
@@ -130,3 +130,24 @@ it('grants current inventory and quantity-based gold exactly once', function (bo
     ->and($this->player->availableAction)->toBeNull()
     ->and($this->audio->sounds)->toBe([SystemSound::ITEM_GET]);
 })->with([true, false]);
+
+it('removes zero negative fractional and unknown rewards without completing or changing party state', function (array $data) {
+  $item = new Item('Current Tonic', 'Synthetic reward', '!', 1, id: 'item.tonic');
+  $this->store->set($item->id, $item);
+  $trigger = new ChestEventTrigger(new Rect(1, 1, 1, 1), $data, mapId: 'synthetic/room', marker: 'C');
+  $trigger->bind($this->state, $this->party);
+  $action = new ChestOpeningAction($trigger);
+  $this->player->availableAction = $action;
+  $before = serialize([$this->state->toArray(), $this->party->inventory, $this->party->accountBalance]);
+  $action->execute($this->context);
+  expect(serialize([$this->state->toArray(), $this->party->inventory, $this->party->accountBalance]))->toBe($before)
+    ->and($trigger->isComplete)->toBeFalse()->and($this->player->availableAction)->toBe($action)
+    ->and($this->audio->sounds)->toBe([])->and($this->alerts->messages)->toBe([get_engine_message('chest.unavailable')]);
+})->with([
+  [['lootType' => 'gold', 'loot' => 0]],
+  [['lootType' => 'gold', 'loot' => -10]],
+  [['lootType' => 'gold', 'loot' => 1.5]],
+  [['lootType' => 'item', 'loot' => 'item.tonic', 'quantity' => 0]],
+  [['lootType' => 'item', 'loot' => 'item.tonic', 'quantity' => -1]],
+  [['lootType' => 'ITEM', 'loot' => 'item.tonic']],
+]);

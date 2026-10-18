@@ -417,6 +417,67 @@ source stays declarative. Invalid lists and predicates refuse before map install
 same selection used by rendering, while `isCurrent()` retains map ownership.
 
 Visibility never changes collision, event identity, saves or authored map glyphs.
+
+### Events bound to map subjects
+
+An inspection event may name the stable world-object placement it describes:
+
+```php
+'F' => [
+  'class' => DialogueEventTrigger::class,
+  'subject' => ['kind' => 'world_object', 'id' => 'lockers-1'],
+  'engagement' => 'facing',
+  'data' => ['dialogue' => /* authored pages */ []],
+],
+```
+
+The marker remains its map-event/save identity. Do not paint that marker on the
+event layer or declare an independent `area`. `WorldObjectPlacement` resolves
+the exact authored `covers.cells`, or the placement anchor when it has no
+coverage. Moving those physical cells moves the event. Replacing a resource,
+image, crop or pivot does not change its area. Missing or duplicate subjects,
+invalid cells and competing area owners refuse map preparation before installing
+the destination. Existing unbound marker and explicit-area events remain valid.
+
+For bound events, placement conditions and event conditions must both hold.
+`WorldConditionEvaluator` reads existing saved state in either renderer; it does
+not alter occupancy or manufacture a new save identity. Subject selection,
+movement and removal belong to the shared source-preserving Editor session.
+Removing a referenced placement requires rebinding or deleting its event.
+
+### Shared map completeness validation
+
+`Field\Validation\MapCompletenessValidator` checks current in-memory data,
+event cells, `MapLayerSet`, optional `MapGraphics`, the asset root and a catalog
+reference resolver. Editor, Console and Game checks use this same API. Its
+readonly `MapValidationIssue` values carry `mapId`, stable `rule`, `message`,
+optional `marker`, exact `cells`, authored `path` and `hint`. These are readiness
+errors; drafts remain saveable. A graphical project passes `requiresGraphics:
+true`; a Terminal-only game needs no graphical assets.
+
+`validateEvents`, `validateChestReward` and `validateCoverage` are the narrow
+entry points used by inspectors. `validate` combines them without a running
+scene or global configuration. `MapEventResolver::inspect` retains all area and
+subject defects; runtime `MapSourceReader::resolveEvents` requires that result
+to be valid. Coverage uses the Engine's tile ownership, current image admission
+and explicit object coverage. Missing declared art and exposed gameplay glyphs
+are errors. Conditional object presence cannot conceal an otherwise exposed
+base fixture glyph. Replacing artwork never requires an old image hash or
+duplicated dimensions to match.
+
+The inventory callback resolves an ID/name/alias to the current stable definition
+ID, returns null for an absent reference, or throws for ambiguity. It supplies
+identity only. The Engine owns supported chest kinds, whole positive quantities
+and gold amounts; runtime opening calls that same rule before any mutation.
+Zero, negative and fractional rewards and unknown kinds are rejected, removing
+the old behavior that could complete an empty chest, debit gold or truncate a
+fractional amount. The chest stays closed and reports its existing player-safe
+message, with detailed `chest.reward` diagnostics in the log.
+
+These checks resolve declared identities and cells. They cannot infer an
+inspection subject or a local speaker from dialogue prose. Story referents and
+mandatory quest approach contracts require explicit authored references and a
+content audit; they are not silently treated as verified by this API.
 An unavailable placement removes its presentation override, restoring any
 underlying Terminal glyph as existing null variants do. Authors retain ownership
 of the base layer. Atlas caches include availability so revealed or removed props

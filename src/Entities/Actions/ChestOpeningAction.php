@@ -13,6 +13,7 @@ use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Util\Stores\ItemStore;
 use Ichiloto\Engine\Util\Debug;
+use Ichiloto\Engine\Field\Validation\MapCompletenessValidator;
 use RuntimeException;
 
 /**
@@ -66,8 +67,12 @@ class ChestOpeningAction extends FieldAction
       return;
     }
 
-    if (!self::supportsLootType($this->trigger->lootType)) {
-      $this->reportUnavailableReward('Unsupported chest loot type: ' . $this->trigger->lootType->value);
+    $issues = MapCompletenessValidator::validateChestReward((array) $this->trigger->data,
+      $this->trigger->mapId ?? '(unbound)',
+      fn(string $reference): string => $this->itemStore->requireDefinitionId($reference, 'opening a chest'),
+      $this->trigger->marker);
+    if ($issues !== []) {
+      $this->reportUnavailableReward(implode(' ', array_column($issues, 'message')));
       return;
     }
 
@@ -111,7 +116,7 @@ class ChestOpeningAction extends FieldAction
 
   private function reportUnavailableReward(string $reason): void
   {
-    Debug::error(sprintf('Chest reward could not be resolved on map "%s", event "%s": %s',
+    Debug::error(sprintf('[chest.reward] Chest reward could not be resolved on map "%s", event "%s": %s',
       $this->trigger->mapId ?? '(unbound)', $this->trigger->marker ?? '(unbound)', $reason));
     alert(get_engine_message('chest.unavailable'));
   }

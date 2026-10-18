@@ -3,7 +3,6 @@
 namespace Ichiloto\Engine\Field;
 
 use Assegai\Util\Path;
-use Ichiloto\Engine\Core\CellArea;
 use Ichiloto\Engine\Events\Enumerations\CollisionType;
 use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\IO\Console\TerminalText;
@@ -82,7 +81,7 @@ final class MapSourceReader
     $map = self::requirePhpFile($paths['data']);
     if (!is_array($map)) { throw new NotFoundException('File ' . $paths['id'] . '/' . basename($paths['data']) . ' does not return an array.'); }
     $map['id'] ??= $paths['id'];
-    $map['events'] = self::resolveEventDefinitions($map['events'] ?? [], $eventLayer, $eventPath);
+    $map['events'] = self::resolveEvents($map, $eventLayer, $eventPath);
 
     return ['data' => $map, 'eventLayer' => $eventLayer];
   }
@@ -176,78 +175,13 @@ final class MapSourceReader
   /**
    * Resolves event definitions against the event overlay.
    *
-   * @param array<int|string, array<string, mixed>> $events The map event definitions.
+   * @param array<string, mixed> $data The current authored map data, including unsaved drafts.
    * @param array<int, string[]> $eventLayer The parsed event overlay.
    * @param string $filename The event-layer filename.
    * @return array<int, array<string, mixed>> The resolved runtime event data.
    */
-  private static function resolveEventDefinitions(array $events, array $eventLayer, string $filename): array
+  public static function resolveEvents(array $data, array $eventLayer, string $filename = 'event map'): array
   {
-    $areas = self::extractEventAreas($eventLayer);
-
-    if ($events === []) {
-      if ($areas !== []) {
-        throw new InvalidArgumentException("Event markers were found in {$filename}, but no event definitions exist in the map data.");
-      }
-
-      return [];
-    }
-
-    $resolvedEvents = [];
-
-    foreach ($events as $marker => $eventDefinition) {
-      if (! is_array($eventDefinition)) {
-        throw new InvalidArgumentException("Invalid event definition found in {$filename}.");
-      }
-
-      if (isset($eventDefinition['area']) && ! is_string($marker)) {
-        $resolvedEvents[] = $eventDefinition;
-        continue;
-      }
-
-      $resolvedMarker = is_string($marker) ? $marker : ($eventDefinition['marker'] ?? null);
-
-      if (! is_string($resolvedMarker) || TerminalText::displayWidth($resolvedMarker) !== 1) {
-        throw new InvalidArgumentException("Events in split map data must be keyed by a single-character marker or declare one explicitly.");
-      }
-
-      $area = $areas[$resolvedMarker] ?? throw new InvalidArgumentException("Event marker '{$resolvedMarker}' was not found in {$filename}.");
-      unset($areas[$resolvedMarker]);
-      $eventDefinition['area'] = $area;
-      $eventDefinition['marker'] = $resolvedMarker;
-      $resolvedEvents[] = $eventDefinition;
-    }
-
-    if ($areas !== []) {
-      $unusedMarkers = implode(', ', array_keys($areas));
-      throw new InvalidArgumentException("Unmapped event markers found in {$filename}: {$unusedMarkers}.");
-    }
-
-    return $resolvedEvents;
-  }
-
-  /**
-   * Extracts each event's exact cells from the event overlay: every cell
-   * showing its marker, in any shape, connected or not. Cells between two
-   * placements are not part of the event.
-   *
-   * @param array<int, string[]> $eventLayer The parsed event overlay.
-   * @return array<string, array{cells: list<array{int, int}>}> The resolved areas keyed by marker.
-   */
-  private static function extractEventAreas(array $eventLayer): array
-  {
-    $cells = [];
-
-    foreach ($eventLayer as $y => $row) {
-      foreach ($row as $x => $tile) {
-        $marker = TerminalText::stripAnsi($tile);
-
-        if (trim($marker) !== '') {
-          $cells[$marker][] = [$x, $y];
-        }
-      }
-    }
-
-    return array_map(static fn(array $markerCells): array => CellArea::fromCells($markerCells)->toArray(), $cells);
+    return \Ichiloto\Engine\Field\Validation\MapEventResolver::inspect($data, $eventLayer, $filename)->requireEvents();
   }
 }

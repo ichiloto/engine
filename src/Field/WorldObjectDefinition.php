@@ -22,8 +22,8 @@ final readonly class WorldObjectDefinition
     public const string DATA_KEY = 'worldObjects';
     public const int MAX_OBJECTS = 128;
     public const int MAX_VARIANTS = 16;
-    public const int MAX_CONDITIONS = 32;
-    public const int MAX_CELLS = 256;
+    public const int MAX_CONDITIONS = WorldObjectPlacement::MAX_CONDITIONS;
+    public const int MAX_CELLS = WorldObjectPlacement::MAX_CELLS;
 
     private function __construct(
         public string $id,
@@ -58,20 +58,11 @@ final readonly class WorldObjectDefinition
             if (!is_array($entry) || array_diff(array_keys($entry), ['id', 'anchor', 'resource', 'pivot', 'sprites2d', 'variants', 'covers', 'label', 'terminal', 'conditions']) !== []) {
                 throw new InvalidArgumentException('A world object accepts id, anchor, conditions, covers, a sign label and either resource or inline pivot/sprites2d/variants.');
             }
-            $id = self::requireId($entry['id'] ?? null);
-            $conditions = $entry['conditions'] ?? [];
-            if ((array_key_exists('conditions', $entry) && $entry['conditions'] === null)
-                || !is_array($conditions) || !array_is_list($conditions) || count($conditions) > self::MAX_CONDITIONS) {
-                throw new InvalidArgumentException("World object '{$id}' conditions require a list of at most 32 conditions.");
-            }
-            WorldConditionEvaluator::validateAll($conditions, "worldObjects/{$id}/conditions");
+            $placement = WorldObjectPlacement::read($entry, $layers->getComposedGrid());
+            $id = $placement->id;
+            $conditions = $placement->conditions;
             if (isset($objects[$id])) { throw new InvalidArgumentException("Duplicate world object id '{$id}'."); }
-            $anchor = $entry['anchor'] ?? null;
-            if (!is_array($anchor) || array_diff(array_keys($anchor), ['x', 'y']) !== []
-                || !is_int($anchor['x'] ?? null) || !is_int($anchor['y'] ?? null)
-                || !isset($layers->getComposedGrid()[$anchor['y']][$anchor['x']])) {
-                throw new InvalidArgumentException("World object '{$id}' requires an anchor with integer x/y inside its map.");
-            }
+            $anchor = ['x' => $placement->x, 'y' => $placement->y];
             $resource = null;
             if (array_key_exists('resource', $entry)) {
                 if (array_intersect(array_keys($entry), ['pivot', 'sprites2d', 'variants']) !== []) {
@@ -179,10 +170,7 @@ final readonly class WorldObjectDefinition
 
     private static function requireId(mixed $id): string
     {
-        if (!is_string($id) || preg_match('/\A[a-z][a-z0-9._-]{0,63}\z/', $id) !== 1) {
-            throw new InvalidArgumentException('World object and variant ids must be stable lowercase identifiers of 1..64 characters.');
-        }
-        return $id;
+        return WorldObjectPlacement::requireId($id);
     }
 
     private static function readSprites(mixed $data): GraphicalSpriteDefinition|CharacterSheet|FieldPoseAnimation|null
@@ -208,12 +196,7 @@ final readonly class WorldObjectDefinition
         }
         $result = ['glyphs' => [], 'tiles' => []];
         $cells = [];
-        foreach ($covers['cells'] as $cell) {
-            if (!is_array($cell) || !array_is_list($cell) || count($cell) !== 2
-                || !is_int($cell[0]) || !is_int($cell[1]) || !isset($layers->getComposedGrid()[$cell[1]][$cell[0]])
-                || isset($cells[$cell[1]][$cell[0]])) {
-                throw new InvalidArgumentException('World object covers cells must be distinct integer [x,y] cells inside the map.');
-            }
+        foreach (WorldObjectPlacement::read($entry, $layers->getComposedGrid())->cells as $cell) {
             $cells[$cell[1]][$cell[0]] = true;
         }
         $result['glyphs'][$covers['layer']] = $cells;
