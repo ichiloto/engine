@@ -232,3 +232,28 @@ it('retires a completed command after a failed final frame without replaying com
   $runner->update(10);
   expect($resolved)->toBe(1);
 })->with([false, true]);
+
+
+it('removes the action callout after its announcement phase while ordinary and summon actions continue', function (bool $graphical, bool $summon) {
+  [, $original] = createTargetExecutionFixture(false, $graphical, $this->createStub(AudioManager::class));
+  $screen = new CommandCleanupScreen($graphical);
+  $screen->announcement = null;
+  $context = new TurnStateExecutionContext($original->game, $original->party, $original->troop, $screen, []);
+  $target = $summon ? new \Ichiloto\Engine\Cutscenes\Summons\SummonCompiledCutscene('synthetic', '', fps: 10,
+    defaults: ['lengthFrames' => 50, 'restFrame' => 0, 'name' => 'Synthetic summon']) : null;
+  $resolved = 0;
+  $runner = new BattleCommandRunner($context, $context->partyRoster->battlers[0], [], null, 'Action name',
+    new BattleTurnTimings(.1, .5, 2, 2, .1, .1, .1), null, $target,
+    function () use (&$resolved): void { $resolved++; }, static fn() => [], static fn() => null);
+  $runner->begin();
+  $runner->update(.2);
+  expect($screen->announcement)->toBe('Action name')->and($resolved)->toBe(0);
+  $runner->update(.42);
+  expect($runner->playback->phase)->toBe('source')->and($screen->announcement)->toBeNull()
+    ->and($runner->playback->isCompleted)->toBeFalse()->and($resolved)->toBe(0);
+  $runner->update(1);
+  expect($screen->announcement)->toBeNull()->and($resolved)->toBe(0);
+  $runner->update(100);
+  expect($runner->playback->isCompleted)->toBeTrue()->and($resolved)->toBe(1);
+  $runner->dispose();
+})->with([false, true])->with([false, true]);

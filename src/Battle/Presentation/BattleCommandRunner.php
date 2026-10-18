@@ -159,6 +159,10 @@ final class BattleCommandRunner
       return;
     }
     switch ($cue['payload']['phase']) {
+      case 'source':
+        // The callout owns only its readable announcement phase, not the action animation.
+        $this->context->ui->hideMessage();
+        break;
       case 'target':
         if ($this->playback->plan->cinematicStage === null) { break; }
       case 'summon-in':

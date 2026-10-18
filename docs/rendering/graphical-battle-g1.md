@@ -868,3 +868,13 @@ Character cycling, assignment and release rebuild the filtered projection.
 Future characters and roles remain in authored eligibility data without being
 shown in the list, contract or footer. Already open party-wide definitions keep
 their established view-only access. No gameplay rule or saved assignment changes.
+
+
+### Brief action callouts
+
+Action-name messages are removed when the shared announcement phase ends,
+before source/cast or summon animation continues. The existing authored pacing
+and `BattleTurnTimings::announcement` own their readable duration; effect length
+does not extend the banner. This removes the old whole-action message hold for
+both renderers without changing action resolution, animation clocks, result
+feedback or input. Blank authored callouts stay silent.
