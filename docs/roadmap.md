@@ -954,7 +954,11 @@ not a default for future story stations.
   composition median 7.545 -> 4.574 ms; longest measured step gap 608.787 ->
   274.017 ms. Candidate ran 987 frames in 19.065 seconds, zero playback backends,
   unchanged user files and clean automatic closure. These CPU/pipeline timings
-  are bounded observations; final player review remains pending.
+  are bounded observations. Andrew's 18 October review passes GPUI, including
+  walking, translucency, F3 compact/larger/off and the Nivira-departure HUD fix.
+  Terminal received "Needs changes — I’ll describe them"; its correction and
+  author acceptance remain outstanding. The coordinator prematurely marked the
+  minimap goal complete before that review; that status is not acceptance.
   Focused corner/theme/icon-role
   checks: 31 tests / 835 assertions. Muted installed macOS check: 2749 frames,
   490 changes, 81.584 seconds, exit 0, no playback backends, user files unchanged;

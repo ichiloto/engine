@@ -254,7 +254,11 @@ The 18 October muted macOS held-walk comparison measured compact-map composition
 median 7.545 ms before and 4.574 ms after this change; its longest measured step
 gap fell from 608.787 ms to 274.017 ms. These are bounded CPU/pipeline observations,
 not display FPS or a guarantee against all scheduling delays. Player review of
-the walking feel remains pending.
+the walking feel passed Andrew's 18 October review, together with the GPUI map,
+F3 compact/larger/off cycle and Nivira-departure HUD correction. Terminal received
+"Needs changes — I’ll describe them" and remains unfinished pending his details,
+the resulting corrections and acceptance. The earlier coordinator goal-completion
+status was premature and does not establish Terminal acceptance.
 
 The opened atlas retains its selected source world without selecting a field
 viewport or field actors; ordinary menu canvases release that dependency.
