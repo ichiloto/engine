@@ -12,6 +12,7 @@ use Ichiloto\Engine\IO\ActionHint;
 use Ichiloto\Engine\IO\ActionHints;
 use Ichiloto\Engine\IO\ControlHint;
 use Ichiloto\Engine\IO\Console\Console;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\IO\Enumerations\KeyCode;
 use Ichiloto\Engine\IO\InputManager;
 use Ichiloto\Engine\Scenes\Game\GameScene;
@@ -139,21 +140,26 @@ it('uses themed bottom-right surfaces and an essential remappable control hint e
   expect($text)->toContain('Triangle', 'Watch skit');
 })->with([[1350, 720], [800, 480], [400, 300]])->with([true, false]);
 
-it('keeps a named Terminal prompt through repaint and removes only its own contribution', function () {
+it('keeps a framed Terminal prompt through repaint and removes only its own contribution', function (int $width) {
+  Console::syncDimensions($width, 24);
   $presentation = new SkitPromptPresentation();
   $hint = new ActionHint('skit', 'Watch skit', ControlHint::keyboard(KeyCode::K));
   $presentation->renderTerminal(new SkitPrompt('sample', 'Persistent conversation'), $hint);
   $before = Console::presentationSnapshot();
   $layer = array_column($before->textLayers, null, 'id')[SkitPromptPresentation::LAYER];
   expect(array_column($layer->runs, 'row'))->toContain(21, 22)
-    ->and(implode('', array_column($layer->runs, 'text')))->toContain('Persistent conversation', 'K: Watch skit');
+    ->and(implode('', array_column($layer->runs, 'text')))->toContain('Persistent conversation', 'K: Watch skit', '┌', '┐', '│', '└', '┘');
+  foreach ($layer->runs as $run) {
+    expect($run->column)->toBeGreaterThanOrEqual(0)
+      ->and($run->column + TerminalText::displayWidth($run->text))->toBeLessThanOrEqual($width);
+  }
   Time::setElapsedTime(10000);
   Console::recomposeFrame(fn() => Console::write('Field is retained', 1, 1));
   expect(implode('', Console::getBuffer()))->toContain('Persistent conversation', 'Field is retained');
   $presentation->renderTerminal(null, $hint);
   expect(implode('', Console::getBuffer()))->not->toContain('Persistent conversation')
     ->and(implode('', Console::getBuffer()))->toContain('Field is retained');
-});
+})->with([80, 32]);
 
 it('hides the live field cue while control is unavailable and restores it without consuming the skit', function () {
   $scene = new SkitPromptSceneProbe();

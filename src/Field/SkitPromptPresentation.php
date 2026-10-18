@@ -17,6 +17,7 @@ use Ichiloto\Engine\UI\Presentation\MenuCanvas;
 use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
 use Ichiloto\Engine\UI\Presentation\MenuTextLayout;
 use Ichiloto\Engine\UI\Presentation\MenuTextWrap;
+use Ichiloto\Engine\UI\Windows\BorderPacks\SlimBorderPack;
 use Ichiloto\Engine\Util\Debug;
 use Throwable;
 
@@ -31,12 +32,18 @@ final class SkitPromptPresentation
   public function renderTerminal(?SkitPrompt $prompt, ActionHint $hint): void
   {
     if ($prompt === null) { Console::removeOverlay(self::LAYER); return; }
-    $width = min(44, Console::getWidth() - 2);
-    if ($width < 1) { return; }
+    $width = min(44, Console::getWidth() - 6);
+    if ($width < 1) { Console::removeOverlay(self::LAYER); return; }
     $lines = MenuTextWrap::lines($prompt->title, $width);
     array_push($lines, ...MenuTextWrap::lines(($hint->control?->label ?? 'Unbound') . ': ' . $hint->label, $width));
-    $lines = array_map(static fn($line) => TerminalText::padLeft($line, $width), $lines);
-    Console::replaceOverlay(self::LAYER, $lines, Console::getWidth() - $width - 1,
+    $border = new SlimBorderPack();
+    $lines = [
+      $border->getTopLeftCorner() . str_repeat($border->getHorizontalBorder(), $width + 2) . $border->getTopRightCorner(),
+      ...array_map(static fn($line) => $border->getVerticalBorder() . ' '
+        . TerminalText::padLeft($line, $width) . ' ' . $border->getVerticalBorder(), $lines),
+      $border->getBottomLeftCorner() . str_repeat($border->getHorizontalBorder(), $width + 2) . $border->getBottomRightCorner(),
+    ];
+    Console::replaceOverlay(self::LAYER, $lines, Console::getWidth() - $width - 5,
       max(0, Console::getHeight() - count($lines) - 1), PresentationLayerPolicy::UI);
   }
 
