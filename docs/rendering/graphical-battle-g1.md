@@ -859,10 +859,12 @@ exclusive tenancy, assignment, release, modal feedback and save identity remain
 owned by the existing state and party services.
 
 
-Summon-menu eligibility descriptions are limited to the current travelling party.
-They remove the old display of all authored character IDs and role names, which
-could reveal unintroduced characters. Actual current character names come from
-party membership filtered through the unchanged wielder policy. Recruitment and
-departure refresh this projection; future eligibility remains in authored data.
-Both the full contract and footer use this same description. Holder feedback is
-already sourced from current party members.
+Andrew’s subsequent 2026-10-18 review removes the wielder list entirely, including
+“One bearer at a time” and equivalent explanatory text. The menu offers only
+summons assignable to the selected current party member, using the existing
+`Party::canAssignSummon()` authority. A currently held summon stays available
+for its holder to release; an exclusive summon held by someone else is absent.
+Character cycling, assignment and release rebuild the filtered projection.
+Future characters and roles remain in authored eligibility data without being
+shown in the list, contract or footer. Already open party-wide definitions keep
+their established view-only access. No gameplay rule or saved assignment changes.

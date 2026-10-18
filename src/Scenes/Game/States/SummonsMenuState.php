@@ -37,9 +37,9 @@ use Ichiloto\Engine\UI\Windows\Window;
 /**
  * Displays the summon-management screen for a single party member.
  *
- * Lists every authored summon with its move and wielder rules so players can
- * always review the summons at their disposal. Summons that declare a
- * wielder policy can be assigned or released per character, with eligibility
+ * Lists summons available to the current character without exposing authored
+ * eligibility rosters. Summons that declare a wielder policy can be assigned
+ * or released per character, with eligibility
  * (role or named character) and tenancy (exclusive or shared) enforced by
  * the party; summons without a policy are shown as open to the whole party.
  *
@@ -79,8 +79,8 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
     return new SummonsMenuContent($this->character,
       Vocabulary::getTerm('command.' . BattleCommandType::SUMMON->value, 'Summons'),
       array_map(trim(...), $this->getSummaryLines()), $rows, $this->activeIndex, $this->viewingDetail,
-      $this->viewingDetail ? ($definition?->name ?? '') : ($definition?->description ?? ''),
-      $definition !== null ? $this->describeWielderRule($definition) : null, $this->getActionHints());
+      $definition?->description ?? '',
+      $definition !== null && $this->character->hasSummon($definition->id) ? 'Assigned' : null, $this->getActionHints());
   }
 
   /** @return list<\Ichiloto\Engine\IO\ActionHint> */
@@ -114,6 +114,8 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
    * @var SummonCutsceneDefinition[] The assignable summons.
    */
   protected array $summons = [];
+  /** @var list<SummonCutsceneDefinition> Discovered definitions, before per-character filtering. */
+  private array $availableSummons = [];
   /**
    * @var int The active list index.
    */
@@ -173,7 +175,7 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
     $this->lastDetailPage = null;
     $this->getGameScene()->locationHUDWindow->deactivate();
     $this->character ??= $this->getGameScene()->party->leader;
-    $this->summons = self::loadSummons($this->getGameScene()->gameState, $this->party);
+    $this->availableSummons = self::loadSummons($this->getGameScene()->gameState, $this->party);
     $this->activeIndex = 0;
     $this->viewingDetail = false;
     $this->calculateMargins();
@@ -250,6 +252,7 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
    */
   protected function refreshUI(): void
   {
+    $this->refreshSummonsForCharacter();
     $this->detailViewport ??= new TextViewport();
     $this->detailViewport->setText($this->getDetailText());
     $this->refreshSummaryPanel();
@@ -261,6 +264,21 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
     }
 
     $this->refreshInfoPanel();
+  }
+
+  /** Apply the party service’s current assignment rules before either renderer sees options. */
+  private function refreshSummonsForCharacter(): void
+  {
+    $selectedId = $this->summons[$this->activeIndex]->id ?? null;
+    if ($this->character !== null && !$this->party->members->contains($this->character)) {
+      $this->character = $this->party->leader;
+    }
+    $this->summons = $this->character === null ? [] : array_values(array_filter($this->availableSummons,
+      fn(SummonCutsceneDefinition $definition): bool => $definition->wielders === null
+        || $this->party->canAssignSummon($definition, $this->character, $this->getGameScene()->gameState)));
+    $this->activeIndex = array_find_key($this->summons,
+      static fn(SummonCutsceneDefinition $definition): bool => $definition->id === $selectedId) ?? 0;
+    if ($this->summons === []) { $this->viewingDetail = false; }
   }
 
   /** Complete contract text shared by graphical and Terminal reading viewports. */
@@ -316,11 +334,8 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
     }
 
     $content[] = '';
-    $content[] = ' ' . $this->describeWielderRule($definition);
 
-    if ($definition->wielders !== null) {
-      $content[] = sprintf(' %s: %s', $this->character->name ?? '', trim($this->describeStatus($definition), '[]'));
-    }
+    if ($this->character?->hasSummon($definition->id)) { $content[] = 'Assigned'; }
 
     return implode("\n", $content);
   }
@@ -358,7 +373,6 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
       ' ' . $this->character->name,
       sprintf(' Role: %s', $this->character->role->name),
       $tallyLine,
-      ' Choose a summon to inspect its contract.',
     ];
   }
 
@@ -407,8 +421,8 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
     $help = array_map(static fn($hint) => ($hint->control?->label ?? 'Unbound') . ':' . $hint->label, $this->getActionHints());
     $this->infoPanel->setHelp(implode('  ', $help));
     $this->infoPanel->setContent([
-      ' ' . ($this->viewingDetail ? ($definition?->name ?? '') : trim($definition?->description ?? '')),
-      ' ' . ($definition !== null ? $this->describeWielderRule($definition) : ''),
+      ' ' . trim($definition?->description ?? ''),
+      ' ' . ($definition !== null && $this->character?->hasSummon($definition->id) ? 'Assigned' : ''),
     ]);
 
     $this->infoPanel->render();
@@ -426,52 +440,7 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
       return '';
     }
 
-    if ($definition->wielders === null) {
-      return '[Open to all]';
-    }
-
-    if ($this->character->hasSummon($definition->id)) {
-      return '[Assigned]';
-    }
-
-    if (! $definition->wielders->allowsCharacter($this->character)) {
-      return '[Not eligible]';
-    }
-
-    $holders = $this->party->getSummonHolders($definition->id);
-
-    if ($definition->wielders->isExclusive() && ! empty($holders)) {
-      return sprintf('[Held by %s]', $holders[0]->name);
-    }
-
-    return '[Available]';
-  }
-
-  /**
-   * Describes the summon's wielder rules for the info panel.
-   *
-   * @param SummonCutsceneDefinition $definition The summon definition.
-   * @return string The wielder rule text.
-   */
-  protected function describeWielderRule(SummonCutsceneDefinition $definition): string
-  {
-    $policy = $definition->wielders;
-
-    if ($policy === null) {
-      return 'Answers the whole party.';
-    }
-
-    // Authored eligibility may include future identities and roles. Display only
-    // the current travelling party, using names rather than internal policy IDs.
-    $eligible = array_filter($this->party->members->toArray(),
-      static fn($member): bool => $member instanceof Character && $policy->allowsCharacter($member));
-    $names = array_map(static fn(Character $member): string => $member->name, $eligible);
-    $eligibility = $names === [] ? 'No current party member can wield this summon.'
-      : sprintf('Wielders in your party: %s.', implode(', ', $names));
-
-    return $policy->isExclusive()
-      ? $eligibility . ' One bearer at a time.'
-      : $eligibility;
+    return $this->character->hasSummon($definition->id) ? '[Assigned]' : '';
   }
 
   /**

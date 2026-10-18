@@ -48,7 +48,7 @@ function createSummonsMenuProbe(array $definitions): SummonsMenuState
   new ReflectionProperty(GameScene::class, 'gameState')->setValue($scene, new GameState());
   $state = new SummonsMenuState(new SceneStateContext($scene));
   $state->character = $actor;
-  new ReflectionProperty(SummonsMenuState::class, 'summons')->setValue($state, $definitions);
+  new ReflectionProperty(SummonsMenuState::class, 'availableSummons')->setValue($state, $definitions);
   new ReflectionMethod($state, 'initializeUI')->invoke($state);
   new ReflectionMethod($state, 'refreshUI')->invoke($state);
   return $state;
@@ -78,7 +78,7 @@ it('uses replaceable shared theme frames for list details and assignment status'
   expect($state->party->assignSummon($definition, $state->character))->toBeTrue();
   expect($state->getPresentationContent()->rows[0]->values[1]->text)->toBe('Assigned');
   $state->party->unassignSummon($definition->id, $state->character);
-  expect($state->getPresentationContent()->rows[0]->values[1]->text)->toBe('Available');
+  expect($state->getPresentationContent()->rows[0]->values[1]->text)->toBe('');
 })->with([false, true]);
 
 it('exposes complete long contracts through the shared scroll viewport and semantic controls', function () {
@@ -104,26 +104,30 @@ it('exposes complete long contracts through the shared scroll viewport and seman
 });
 
 
-it('removes future character and role names from every contract description until they join the current party', function (string $mode) {
-  $policy = new SummonWielderPolicy($mode, roles: ['Hero', 'Unintroduced role'],
-    characters: ['actor.synthetic', 'future.identity']);
-  $definition = new SummonCutsceneDefinition('synthetic', 'Spirit', wielders: $policy);
-  $state = createSummonsMenuProbe([$definition]);
-  $before = serialize($policy);
-  $assertKnownOnly = static function () use ($state): void {
-    $rule = new ReflectionMethod($state, 'describeWielderRule')->invoke($state,
-      new ReflectionProperty($state, 'summons')->getValue($state)[0]);
-    $detail = new ReflectionMethod($state, 'getDetailText')->invoke($state);
-    $content = $state->getPresentationContent();
-    foreach ([$rule, $detail, $content->status] as $text) {
-      expect($text)->toContain('Actor')->not->toContain('future.identity', 'Later hero', 'Unintroduced role', 'actor.synthetic');
-    }
-  };
-  $assertKnownOnly();
+it('removes eligibility rosters and only offers options assignable to the current party member', function () {
+  $allowed = new SummonCutsceneDefinition('allowed', 'Allowed spirit',
+    wielders: new SummonWielderPolicy(SummonWielderPolicy::MODE_CHARACTERS,
+      characters: ['actor.synthetic', 'future.identity'], tenancy: SummonWielderPolicy::TENANCY_EXCLUSIVE));
+  $future = new SummonCutsceneDefinition('future', 'Future-only spirit',
+    wielders: new SummonWielderPolicy(SummonWielderPolicy::MODE_CHARACTERS, characters: ['future.identity']));
+  $state = createSummonsMenuProbe([$allowed, $future]);
+  $before = serialize([$allowed->wielders, $future->wielders]);
+  expect(array_column($state->getPresentationContent()->rows, 'label'))->toBe(['Allowed spirit']);
+  $detail = new ReflectionMethod($state, 'getDetailText')->invoke($state);
+  expect($detail)->not->toContain('future.identity', 'Wielders', 'One bearer', 'Actor')
+    ->and($state->getPresentationContent()->status)->toBeNull();
   $later = new Character('Later hero', 1, new Stats(currentHp: 100), actorId: 'future.identity');
   $state->party->addMember($later);
-  expect($state->getPresentationContent()->status)->toContain('Later hero');
-  $state->party->members->remove($later);
-  $assertKnownOnly();
-  expect(serialize($policy))->toBe($before);
-})->with([SummonWielderPolicy::MODE_CHARACTERS, SummonWielderPolicy::MODE_ROLES]);
+  $state->character = $later;
+  new ReflectionMethod($state, 'refreshUI')->invoke($state);
+  expect(array_column($state->getPresentationContent()->rows, 'label'))->toBe(['Allowed spirit', 'Future-only spirit']);
+  $state->party->assignSummon($allowed, $later);
+  $first = $state->party->members->toArray()[0];
+  $state->character = $first;
+  new ReflectionMethod($state, 'refreshUI')->invoke($state);
+  expect($state->getPresentationContent()->rows)->toBe([]);
+  $state->party->unassignSummon($allowed->id, $later);
+  new ReflectionMethod($state, 'refreshUI')->invoke($state);
+  expect(array_column($state->getPresentationContent()->rows, 'label'))->toBe(['Allowed spirit']);
+  expect(serialize([$allowed->wielders, $future->wielders]))->toBe($before);
+});
