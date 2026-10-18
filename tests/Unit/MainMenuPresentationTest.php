@@ -1057,11 +1057,26 @@ it('fits a text-height identity when its separator belongs to the compound recor
     ->toThrow(InvalidArgumentException::class, 'Compact record identity must leave room for its separate treatment separator.');
 });
 
-it('retains source-specific terminal fields and owner Save availability', function () {
+it('retains aligned source-specific terminal fields and owner Save availability', function (string $roleName) {
+  foreach ($this->party->members as $member) {
+    $member->role = new \Ichiloto\Engine\Entities\Roles\CharacterRole($member, $roleName);
+  }
+  $this->state->enter();
   $this->state->render();
   $terminal = TerminalText::stripAnsi(implode("\n", Console::getBuffer()));
   foreach (['Actor 0', 'Role:', 'Lv', 'HP', 'MP', 'Play Time', 'Tokens', '4,321 T', 'Owner Location', 'Owner Region', 'Equipment', 'Save'] as $text) {
     expect($terminal)->toContain($text);
+  }
+  $panels = new ReflectionProperty($this->state->characterSelectionMenu, 'characterPanels')->getValue($this->state->characterSelectionMenu);
+  foreach ($panels as $panel) {
+    $fields = array_slice(array_map(TerminalText::stripAnsi(...), $panel->getContent()), 1, 4);
+    expect($fields)->toHaveCount(4)->and($fields[0])->toContain($roleName);
+    $left = strspn($fields[0], ' ');
+    $right = TerminalText::displayWidth(rtrim($fields[0]));
+    foreach ($fields as $field) {
+      expect(strspn($field, ' '))->toBe($left)
+        ->and(TerminalText::displayWidth(rtrim($field)))->toBe($right);
+    }
   }
   $this->state->saveAllowed = false;
   $this->state->enter();
@@ -1069,7 +1084,7 @@ it('retains source-specific terminal fields and owner Save availability', functi
   expect($this->state->mainMenu->getItemByLabel('Save'))->toBeNull();
   $native = mainMenuPresentationText($this->state->canvas(new MenuPresentationCatalog($this->root, mainMenuPresentationTheme(true))));
   expect(array_values($native))->not->toContain('Save');
-});
+})->with(['Vanguard', '守護者', 'Arcane Vanguard Ranger']);
 
 it('keeps reduced-motion character focus stationary without moving content', function () {
   ConfigStore::put(ProjectConfig::class, new PlaySettings(['accessibility' => ['reducedMotion' => true]]));
