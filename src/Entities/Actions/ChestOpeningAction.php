@@ -43,6 +43,15 @@ class ChestOpeningAction extends FieldAction
     $this->itemStore = $itemStore;
   }
 
+  /** The reward categories this action can grant through its current runtime paths. */
+  public static function supportsLootType(LootType $type): bool
+  {
+    return match ($type) {
+      LootType::GOLD, LootType::ITEM, LootType::WEAPON, LootType::ARMOR, LootType::ACCESSORY => true,
+      default => false,
+    };
+  }
+
   /**
    * @inheritDoc
    * @throws Exception If an error occurs while loading the configuration.
@@ -54,6 +63,11 @@ class ChestOpeningAction extends FieldAction
 
     if ($this->trigger->isComplete) {
       alert(get_engine_message('obtained_item', $replacement));
+      return;
+    }
+
+    if (!self::supportsLootType($this->trigger->lootType)) {
+      $this->reportUnavailableReward('Unsupported chest loot type: ' . $this->trigger->lootType->value);
       return;
     }
 
@@ -74,9 +88,7 @@ class ChestOpeningAction extends FieldAction
             'opening a chest',
           ));
         } catch (NotFoundException $error) {
-          Debug::error(sprintf('Chest reward could not be resolved on map "%s", event "%s": %s',
-            $this->trigger->mapId ?? '(unbound)', $this->trigger->marker ?? '(unbound)', $error->getMessage()));
-          alert(get_engine_message('chest.unavailable'));
+          $this->reportUnavailableReward($error->getMessage());
           return;
         }
         assert($loot !== null);
@@ -95,5 +107,12 @@ class ChestOpeningAction extends FieldAction
     $context->scene->getGame()->audioManager->playSystemSound(SystemSound::ITEM_GET);
     $context->player->availableAction = null;
     alert($message);
+  }
+
+  private function reportUnavailableReward(string $reason): void
+  {
+    Debug::error(sprintf('Chest reward could not be resolved on map "%s", event "%s": %s',
+      $this->trigger->mapId ?? '(unbound)', $this->trigger->marker ?? '(unbound)', $reason));
+    alert(get_engine_message('chest.unavailable'));
   }
 }

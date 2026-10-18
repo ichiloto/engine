@@ -10,6 +10,7 @@ use Ichiloto\Engine\Entities\Actions\FieldActionContext;
 use Ichiloto\Engine\Entities\Inventory\Items\Item;
 use Ichiloto\Engine\Entities\Party;
 use Ichiloto\Engine\Events\Triggers\ChestEventTrigger;
+use Ichiloto\Engine\Events\Enumerations\LootType;
 use Ichiloto\Engine\Field\Player;
 use Ichiloto\Engine\IO\Console\Console;
 use Ichiloto\Engine\Scenes\Game\GameScene;
@@ -93,6 +94,24 @@ it('keeps unresolved chest rewards closed and unchanged with a player message an
     expect(GameState::fromArray($this->state->toArray())->isEventComplete('synthetic/room', 'C'))->toBeTrue();
   }
 })->with([[''], [null], ['   '], ['Removed Tonic']]);
+
+it('rejects unsupported reward categories before a matching inventory name can grant the wrong reward', function (LootType $type) {
+  $item = new Item('Shared Name', 'Synthetic inventory name collision', '!', 1, id: 'item.shared');
+  $this->store->set($item->id, $item);
+  $trigger = new ChestEventTrigger(new Rect(1, 1, 1, 1),
+    ['loot' => $item->name, 'lootType' => $type], mapId: 'synthetic/room', marker: 'C');
+  $trigger->bind($this->state, $this->party);
+  $action = new ChestOpeningAction($trigger);
+  $this->player->availableAction = $action;
+  $before = serialize([$this->state->toArray(), $this->party->inventory, $this->party->accountBalance]);
+  $action->execute($this->context);
+  expect(ChestOpeningAction::supportsLootType($type))->toBeFalse()
+    ->and(serialize([$this->state->toArray(), $this->party->inventory, $this->party->accountBalance]))->toBe($before)
+    ->and($trigger->isComplete)->toBeFalse()
+    ->and($this->player->availableAction)->toBe($action)
+    ->and($this->audio->sounds)->toBe([])
+    ->and($this->alerts->messages)->toBe([get_engine_message('chest.unavailable')]);
+})->with([LootType::EXPERIENCE, LootType::SKILL, LootType::SPELL]);
 
 it('grants current inventory and quantity-based gold exactly once', function (bool $gold) {
   $item = new Item('Current Tonic', 'Synthetic reward', '!', 1, id: 'item.tonic');
