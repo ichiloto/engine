@@ -863,6 +863,95 @@ it('walks authored waypoints and retraces the actual entry with its original fac
   }
 })->with([false, true]);
 
+it('stages independent companions beside moved subjects without moving or binding the real subject', function () {
+  $entry = ['id' => 'companion', 'sprite' => 'C', 'at' => ['kind' => 'npc', 'id' => 'guide'], 'offset' => ['x' => -1, 'y' => 1]];
+  CinematicScriptValidator::validate([['type' => 'stage_actor', ...$entry]]);
+  $state = $this->scene->gameState->toArray();
+  $actor = $this->stage->add($entry);
+  expect([$actor->position->x, $actor->position->y])->toBe([6.0, 5.0])
+    ->and([$this->npc->position->x, $this->npc->position->y])->toBe([7.0, 4.0])
+    ->and($this->stage->suppresses($this->npc))->toBeFalse();
+  $this->npc->position->x = 12;
+  $this->npc->position->y = 8;
+  $replacement = $this->stage->add([...$entry, 'replace' => true]);
+  expect([$replacement->position->x, $replacement->position->y])->toBe([11.0, 9.0])
+    ->and([$actor->position->x, $actor->position->y])->toBe([6.0, 5.0])
+    ->and($this->scene->gameState->toArray())->toBe($state);
+  $offMap = $this->stage->add(['id' => 'entrance-visual', 'sprite' => 'V', 'at' => ['kind' => 'player'], 'offset' => ['x' => -10]]);
+  expect($offMap->position->x)->toBe(-7.0); // Visual staging keeps its existing off-map capability; routes still require real map cells.
+});
+
+it('resolves each relative route leg when it begins and retraces only the path actually walked', function (bool $reduced) {
+  putSceneAudioConfig(['accessibility' => ['reducedMotion' => $reduced]]);
+  $this->npc->position->x = 10;
+  $this->scene->mapManager->passable = static fn(int $x, int $y): bool => $x !== 4 || $y !== 4;
+  $session = $this->scene->startCinematic(subjectOwnershipDefinition([
+    ['type' => 'move_route', 'remember' => 'approach', 'secondsPerStep' => .1,
+      'waypoints' => [['x' => 5, 'y' => 4], ['at' => ['kind' => 'npc', 'id' => 'guide'], 'offset' => ['x' => -1]]]],
+    ['type' => 'stage_actor', 'id' => 'witness', 'sprite' => 'W', 'at' => ['kind' => 'player'], 'offset' => ['y' => 1]],
+    ['type' => 'move_route', 'retrace' => 'approach', 'secondsPerStep' => .1],
+  ]));
+  // The first leg is already planned. The later subject-relative leg must read its current anchor.
+  $this->npc->position->x = 9;
+  $visited = [[(int)$this->player->position->x, (int)$this->player->position->y]];
+  for ($tick = 0; $tick < 100 && $this->scene->hasUnstableEventSession(); $tick++) {
+    $this->scene->eventInterpreter->update(.1);
+    $cell = [(int)$this->player->position->x, (int)$this->player->position->y];
+    if ($cell !== end($visited)) { $visited[] = $cell; }
+  }
+  expect($session->status)->toBe(EventExecutionStatus::COMPLETED)
+    ->and([$this->player->position->x, $this->player->position->y])->toBe([3.0, 4.0])
+    ->and($this->player->heading)->toBe(MovementHeading::SOUTH);
+  if (!$reduced) { expect($visited)->toContain([8, 4])->not->toContain([9, 4], [4, 4]); }
+})->with([false, true]);
+
+it('refuses missing relative subjects and blocked destinations before a route can mutate the field', function () {
+  $before = [$this->player->position->x, $this->player->position->y, $this->scene->gameState->toArray()];
+  expect(fn() => new MovementRouteRunner($this->scene, ['waypoints' => [['at' => ['kind' => 'npc', 'id' => 'absent']]]]))
+    ->toThrow(\Ichiloto\Engine\Exceptions\MovementRouteException::class, 'absent');
+  expect(fn() => new MovementRouteRunner($this->scene, ['waypoints' => [['at' => ['kind' => 'npc', 'id' => 'guide'], 'offset' => ['x' => 100]]]]))
+    ->toThrow(\Ichiloto\Engine\Exceptions\MovementRouteException::class, 'inside the current map');
+  expect(fn() => $this->stage->add(['id' => 'absent-anchor', 'sprite' => 'C', 'at' => ['kind' => 'npc', 'id' => 'absent']]))
+    ->toThrow(RuntimeException::class, 'absent');
+  expect($this->stage->find('absent-anchor'))->toBeNull()
+    ->and([$this->player->position->x, $this->player->position->y, $this->scene->gameState->toArray()])->toBe($before);
+});
+
+it('restores a partially walked relative approach if its next subject disappears', function () {
+  $session = $this->scene->startCinematic(subjectOwnershipDefinition([
+    ['type' => 'move_route', 'remember' => 'approach', 'secondsPerStep' => .1,
+      'waypoints' => [['x' => 4, 'y' => 4], ['at' => ['kind' => 'npc', 'id' => 'guide'], 'offset' => ['x' => -1]]]],
+    ['type' => 'record_event', 'name' => 'approach_finished'],
+  ], ['cast' => []]));
+  $this->scene->npcManager->configure([]);
+  for ($tick = 0; $tick < 10 && $this->scene->hasUnstableEventSession(); $tick++) {
+    $this->scene->eventInterpreter->update(.1);
+  }
+  expect($session->status)->toBe(EventExecutionStatus::FAILED)
+    ->and([$this->player->position->x, $this->player->position->y])->toBe([3.0, 4.0])
+    ->and($this->scene->gameState->hasStoryEvent('approach_finished'))->toBeFalse()
+    ->and($this->stage->all())->toBe([]);
+});
+
+it('rejects contradictory or malformed relative placement in both runtime and authoring', function (array $location) {
+  $stage = ['type' => 'stage_actor', 'id' => 'companion', 'sprite' => 'C', ...$location];
+  $route = ['type' => 'move_route', 'waypoints' => [$location]];
+  expect(fn() => CinematicScriptValidator::validate([$stage]))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => $this->stage->add($stage))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => CinematicScriptValidator::validate([$route]))->toThrow(InvalidArgumentException::class)
+    ->and(fn() => MovementRouteRunner::validatePathOptions($route))->toThrow(\Ichiloto\Engine\Exceptions\MovementRouteException::class);
+})->with([
+  [['at' => null]],
+  [['at' => ['kind' => 'npc']]],
+  [['at' => ['kind' => 'npc', 'id' => 3]]],
+  [['at' => ['kind' => 'screen_position', 'x' => 1, 'y' => 1]]],
+  [['at' => ['kind' => 'player'], 'x' => 3]],
+  [['at' => ['kind' => 'player'], 'offset' => null]],
+  [['at' => ['kind' => 'player'], 'offset' => ['x' => 1.5]]],
+  [['at' => ['kind' => 'player'], 'offset' => ['x' => 20000]]],
+  [['offset' => ['x' => 1]]],
+]);
+
 it('records a zero-length approach and returns without inventing a movement unit', function () {
   $session = $this->scene->startCinematic(subjectOwnershipDefinition([
     ['type' => 'move_route', 'remember' => 'here', 'waypoints' => [['x' => 3, 'y' => 4]]],

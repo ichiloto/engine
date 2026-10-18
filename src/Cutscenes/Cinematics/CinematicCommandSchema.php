@@ -49,7 +49,7 @@ final class CinematicCommandSchema
   ];
   public const string CINEMATIC_TRIGGER_CLASS = 'Ichiloto\\Engine\\Events\\Triggers\\CinematicEventTrigger';
   public const array CINEMATIC_TRIGGER_ROOT_FIELDS = [
-    'class', 'conditions', 'sets', 'whenBlocked', 'cue', 'facing', 'engagement', 'data',
+    'class', 'conditions', 'sets', 'whenBlocked', 'cue', 'facing', 'engagement', 'subject', 'data',
   ];
   public const array CINEMATIC_TRIGGER_DATA_FIELDS = ['cinematicId', 'mode', 'reusable'];
   public const array CINEMATIC_TRIGGER_MODES = ['action', 'auto'];
@@ -61,8 +61,9 @@ final class CinematicCommandSchema
   ];
   public const array STAGED_ACTOR_FIELDS = [
     'id', 'sprite', 'asset', 'x', 'y', 'facing', 'visible', 'collision', 'sprites', 'sprites2d',
-    'subject', 'suppress', 'replace',
+    'subject', 'suppress', 'replace', 'at', 'offset',
   ];
+  public const array RELATIVE_POSITION_FIELDS = ['at', 'offset'];
   public const array SKIP_POLICIES = ['forbidden', 'authored'];
   public const array FINALIZER_COMMAND_TYPES = [
     'set_switch', 'set_variable', 'record_event', 'move_player', 'transfer',
@@ -145,7 +146,7 @@ final class CinematicCommandSchema
       ],
       'movementRoute' => [
         'modes' => ['steps', 'waypoints', 'retrace'],
-        'waypoints' => 'non-empty list of non-negative integer x and/or y; omitted axis retains current coordinate',
+        'waypoints' => 'non-empty list: integer x/y (omitted axis retains current coordinate), or at kind/id with optional signed integer offset x/y',
         'planning' => 'deterministic cardinal path per authored waypoint, bounded by current map; no replan after a blocked step',
         'remember' => 'unique session-local id; cinematic real player or NPC only',
         'retrace' => 'consume completed recorded path once from the original endpoint, then restore entry facing',

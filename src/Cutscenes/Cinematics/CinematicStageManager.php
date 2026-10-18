@@ -73,6 +73,9 @@ final class CinematicStageManager
     $subject = isset($entry['subject']) ? $this->resolveSubject($entry['subject']) : null;
     $previous = $this->actors[$id] ?? null;
     $independentActor = $subject === null && $previous?->subject === null ? $previous : null;
+    $position = array_key_exists('at', $entry) ? CinematicRelativePosition::resolve($this->gameScene, $entry)
+      : new Vector2(isset($entry['x']) ? intval($entry['x']) : ($independentActor?->position->x ?? 0),
+        isset($entry['y']) ? intval($entry['y']) : ($independentActor?->position->y ?? 0));
     $assetReference = trim(strval($entry['asset'] ?? '')) ?: null;
     $sprite = $entry['sprite'] ?? ($subject === null ? '@' : null);
 
@@ -112,10 +115,7 @@ final class CinematicStageManager
     $actor = new StagedActor(
       id: $id,
       sprite: $sprite === [] ? ['@'] : $sprite,
-      position: new Vector2(
-        isset($entry['x']) ? intval($entry['x']) : ($independentActor?->position->x ?? 0),
-        isset($entry['y']) ? intval($entry['y']) : ($independentActor?->position->y ?? 0),
-      ),
+      position: $position,
       isVisible: ($entry['visible'] ?? true) !== false,
       hasCollision: boolval($entry['collision'] ?? $independentActor?->hasCollision ?? false),
       directionalSprites: is_array($entry['sprites'] ?? null) ? $entry['sprites'] : [],
@@ -138,6 +138,7 @@ final class CinematicStageManager
   /** Shared runtime/authoring boundary for real-subject presentation ownership. */
   public static function validateBinding(array $entry): void
   {
+    if (array_key_exists('at', $entry) || array_key_exists('offset', $entry)) { CinematicRelativePosition::validate($entry); }
     if (array_key_exists('replace', $entry) && !is_bool($entry['replace'])) {
       throw new \InvalidArgumentException('Staged actor replace must be boolean.');
     }
@@ -148,7 +149,7 @@ final class CinematicStageManager
       return;
     }
     if (($entry['collision'] ?? false) !== false
-      || array_intersect(['x', 'y', 'facing'], array_keys($entry)) !== []) {
+      || array_intersect(['x', 'y', 'facing', 'at', 'offset'], array_keys($entry)) !== []) {
       throw new \InvalidArgumentException('A bound visual inherits real position/facing and cannot add collision.');
     }
     $suppressed = array_key_exists('suppress', $entry) ? $entry['suppress'] : [];

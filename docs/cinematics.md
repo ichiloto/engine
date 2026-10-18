@@ -342,6 +342,37 @@ and field gates. A newly blocked unit fails with context, never silently
 reroutes, bypasses a gate or teleports. Staged actors retain relative routes;
 bound visuals follow their real subject rather than owning another route.
 
+A waypoint may instead name its current physical subject and an optional cell
+offset. Independent staged actors use the same `at`/`offset` shape:
+
+```php
+['type' => 'move_route', 'subject' => 'player', 'remember' => 'approach',
+ 'waypoints' => [['at' => ['kind' => 'world_object', 'id' => 'lamp-1'],
+                  'offset' => ['x' => 1, 'y' => 0]]]],
+['type' => 'stage_actor', 'id' => 'companion', 'sprite' => 'C',
+ 'at' => ['kind' => 'world_object', 'id' => 'lamp-1'],
+ 'offset' => ['x' => -1, 'y' => 1]],
+```
+
+`at` supports `player`, `npc`, `world_object`, `staged_actor`, `party_actor` and
+`marker` through `CinematicSubjectResolver`. Named subjects require their stable
+ID; the player and current leading party actor need no ID. The reference contains
+only `kind` and optional `id`. Offset axes are signed integer cells within
+-16384..16384; omitted axes are zero. An explicit null or empty offset is invalid.
+Do not also declare independent x/y coordinates. Real-subject bound visuals
+still inherit their real transform and cannot declare `at` or an offset.
+
+`CinematicRelativePosition` is the shared runtime/authoring boundary. It resolves
+the subject when staging begins or each route leg begins, reading its current
+map position. It never reads image dimensions, chooses a substitute cell or
+changes a real subject's transform. Independent visual staging retains its
+off-map capability; route destinations must be integral cells inside the map
+and pass the existing collision-aware planner. A target that disappears fails
+the command, preserving the event session's existing rollback/cleanup behavior.
+An already-started leg keeps its planned endpoint rather than chasing a moving
+target. Later legs read the subject's then-current position. Recorded returns
+retrace the actual successful path, with no new save state.
+
 ```php
 ['type' => 'move_route', 'subject' => 'player', 'remember' => 'approach',
  'waypoints' => [['y' => 5], ['x' => 12, 'y' => 5]], 'secondsPerStep' => 0.15],

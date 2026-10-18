@@ -437,26 +437,8 @@ final class CinematicScriptValidator
     bool $allowScreenPosition,
   ): void
   {
-    $kind = strtolower(trim(strval($reference['kind'] ?? $reference['subject'] ?? '')));
-    $allowed = $allowScreenPosition
-      ? CinematicCommandSchema::SUBJECT_KINDS
-      : array_values(array_diff(CinematicCommandSchema::SUBJECT_KINDS, ['screen_position']));
-
-    if (! in_array($kind, $allowed, true)) {
-      throw self::failure($cinematicId, $path, sprintf('unsupported subject kind "%s".', $kind !== '' ? $kind : '(empty)'));
-    }
-
-    if (in_array($kind, ['npc', 'world_object', 'staged_actor', 'marker'], true)
-      && trim(strval($reference['id'] ?? '')) === ''
-    ) {
-      throw self::failure($cinematicId, $path, sprintf('%s subject requires an id.', $kind));
-    }
-
-    if (in_array($kind, ['position', 'screen_position'], true)
-      && (! is_numeric($reference['x'] ?? null) || ! is_numeric($reference['y'] ?? null))
-    ) {
-      throw self::failure($cinematicId, $path, sprintf('%s subject requires numeric x and y coordinates.', $kind));
-    }
+    try { CinematicSubjectResolver::validateReference($reference, $allowScreenPosition); }
+    catch (InvalidArgumentException $error) { throw self::failure($cinematicId, $path, $error->getMessage()); }
   }
 
   /** @param array<string, mixed> $command */

@@ -4,6 +4,7 @@ namespace Ichiloto\Engine\Events\Interpreter;
 
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Cutscenes\Cinematics\StagedActor;
+use Ichiloto\Engine\Cutscenes\Cinematics\CinematicRelativePosition;
 use Ichiloto\Engine\Exceptions\MovementRouteException;
 use Ichiloto\Engine\Field\Npc;
 use Ichiloto\Engine\Field\Player;
@@ -236,8 +237,12 @@ final class MovementRouteRunner implements EventPendingOperationInterface
     $this->stepIndex = 0;
     while ($this->steps === [] && $this->waypoints !== []) {
       $point = array_shift($this->waypoints);
-      $target = new Vector2($point['x'] ?? $this->routeSubject->position->x,
-        $point['y'] ?? $this->routeSubject->position->y);
+      try {
+        $target = array_key_exists('at', $point) ? CinematicRelativePosition::resolve($this->gameScene, $point)
+          : new Vector2($point['x'] ?? $this->routeSubject->position->x, $point['y'] ?? $this->routeSubject->position->y);
+      } catch (\InvalidArgumentException|\RuntimeException $error) {
+        throw new MovementRouteException('Movement-route waypoint: ' . $error->getMessage(), previous: $error);
+      }
       $this->steps = MovementRoutePlanner::plan($this->gameScene, $this->routeSubject->position,
         $target, $this->routeSubject instanceof Npc);
     }
@@ -271,6 +276,14 @@ final class MovementRouteRunner implements EventPendingOperationInterface
       throw new MovementRouteException('Movement-route waypoints must be a non-empty list.');
     }
     foreach ($points as $point) {
+      if (is_array($point) && (array_key_exists('at', $point) || array_key_exists('offset', $point))) {
+        if (array_diff(array_keys($point), ['at', 'offset']) !== []) {
+          throw new MovementRouteException('A relative waypoint accepts only at and offset.');
+        }
+        try { CinematicRelativePosition::validate($point); }
+        catch (\InvalidArgumentException $error) { throw new MovementRouteException($error->getMessage(), previous: $error); }
+        continue;
+      }
       if (!is_array($point) || $point === [] || array_diff(array_keys($point), ['x', 'y']) !== []) {
         throw new MovementRouteException('Each movement-route waypoint requires x and/or y.');
       }

@@ -5,12 +5,32 @@ namespace Ichiloto\Engine\Cutscenes\Cinematics;
 use Ichiloto\Engine\Core\Vector2;
 use Ichiloto\Engine\Scenes\Game\GameScene;
 use RuntimeException;
+use InvalidArgumentException;
 
 /** Resolves generic cinematic subject references against the live field. */
 final class CinematicSubjectResolver
 {
   public function __construct(protected GameScene $gameScene)
   {
+  }
+
+  /** The shared authored reference boundary used by cinematics, routes and staged locations. */
+  public static function validateReference(array $reference, bool $allowScreenPosition = false): void
+  {
+    $kind = strtolower(trim(strval($reference['kind'] ?? $reference['subject'] ?? '')));
+    $allowed = $allowScreenPosition ? CinematicCommandSchema::SUBJECT_KINDS
+      : array_values(array_diff(CinematicCommandSchema::SUBJECT_KINDS, ['screen_position']));
+    if (!in_array($kind, $allowed, true)) {
+      throw new InvalidArgumentException(sprintf('unsupported subject kind "%s".', $kind !== '' ? $kind : '(empty)'));
+    }
+    if (in_array($kind, ['npc', 'world_object', 'staged_actor', 'marker'], true)
+      && trim(strval($reference['id'] ?? '')) === '') {
+      throw new InvalidArgumentException(sprintf('%s subject requires an id.', $kind));
+    }
+    if (in_array($kind, ['position', 'screen_position'], true)
+      && (!is_numeric($reference['x'] ?? null) || !is_numeric($reference['y'] ?? null))) {
+      throw new InvalidArgumentException(sprintf('%s subject requires numeric x and y coordinates.', $kind));
+    }
   }
 
   /** @param array<string, mixed> $reference */
