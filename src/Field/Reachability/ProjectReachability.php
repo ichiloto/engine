@@ -14,6 +14,8 @@ use Ichiloto\Engine\Events\Triggers\TransferPlayerTrigger;
 use Ichiloto\Engine\Field\MapCollisionResolver;
 use Ichiloto\Engine\Field\MapPhysicalOccupancy;
 use Ichiloto\Engine\Field\MapSourceReader;
+use Ichiloto\Engine\Field\MapLayerSet;
+use InvalidArgumentException;
 use Ichiloto\Engine\Field\MapTrigger;
 use Ichiloto\Engine\Field\NpcPlacement;
 use RecursiveDirectoryIterator;
@@ -50,8 +52,10 @@ final class ProjectReachability
    * Analyses every map under a project's asset root.
    *
    * @param string $assetRoot The project's `assets` directory.
+   * @param array<string, array{data: array, layers: MapLayerSet, eventLayer: array}|null> $mapSources
+   *   Current authored overrides keyed by map id; null removes a map from this read-only view.
    */
-  public static function analyze(string $assetRoot): self
+  public static function analyze(string $assetRoot, array $mapSources = []): self
   {
     $mapsDirectory = Path::join($assetRoot, 'Maps');
     $problems = [];
@@ -66,9 +70,25 @@ final class ProjectReachability
       $dictionaryFailure = $error;
     }
 
-    foreach (self::findMapIds($mapsDirectory) as $mapId) {
+    foreach ($mapSources as $mapId => $_) {
+      if (!is_string($mapId) || trim($mapId) === '') { throw new InvalidArgumentException('In-memory maps require nonempty map ids.'); }
+    }
+    $mapIds = array_values(array_unique([...self::findMapIds($mapsDirectory), ...array_keys($mapSources)]));
+    sort($mapIds);
+    foreach ($mapIds as $mapId) {
+      if (array_key_exists($mapId, $mapSources) && $mapSources[$mapId] === null) { continue; }
       try {
-        $source = MapSourceReader::readFiles(MapSourceReader::resolvePaths($mapsDirectory, $mapId));
+        if (array_key_exists($mapId, $mapSources)) {
+          $declaration = $mapSources[$mapId];
+          if (!is_array($declaration) || array_diff(array_keys($declaration), ['data', 'layers', 'eventLayer']) !== []
+            || !is_array($declaration['data'] ?? null) || !($declaration['layers'] ?? null) instanceof MapLayerSet
+            || !is_array($declaration['eventLayer'] ?? null)) {
+            throw new InvalidArgumentException('An in-memory map requires data, a MapLayerSet and eventLayer cells.');
+          }
+          $source = MapSourceReader::readDeclarations($mapId, $declaration['data'], $declaration['layers'], $declaration['eventLayer']);
+        } else {
+          $source = MapSourceReader::readFiles(MapSourceReader::resolvePaths($mapsDirectory, $mapId));
+        }
         if ($dictionaryFailure !== null && !array_key_exists(MapPhysicalOccupancy::DATA_KEY, $source['data'])) {
           if (!$dictionaryFailureReported) {
             $problems[] = new ReachabilityProblem('', ReachabilityProblemKind::UNREADABLE_MAP,

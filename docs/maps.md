@@ -26,6 +26,37 @@ to the legacy grid.
 
 ## Grid source format
 
+### Read-only validation of unsaved maps
+
+`MapSourceReader::readDeclarations($mapId, $data, $layers, $eventLayer)` accepts
+current authored data, a `MapLayerSet` and event cells. It applies the same
+geometry and event-subject resolution as file-backed loading and returns
+`data`, composed `tiles` and `layers`. The input data is authored source, before
+event areas have been resolved; do not pass already-normalized subject events
+back as declarations with an independent `area`.
+
+`ProjectReachability::analyze($assetRoot, $mapSources = [])` checks a current
+in-memory view without saving or copying maps. Overrides are keyed by map ID:
+
+```php
+[
+  'town/room' => ['data' => $currentData, 'layers' => $currentLayers,
+                  'eventLayer' => $currentEventCells],
+  'old/room' => null, // removed from this view
+]
+```
+
+An override replaces disk source, including new maps that have no directory
+yet. Null removes a map from the validation view. Other maps, project startup
+and common/cinematic script arrivals retain their existing readers. Malformed
+overrides report an unreadable map and never fall back to an older saved copy.
+Map files, events, world state and saves are unchanged. Editor and Console can
+therefore validate current sources without staging a copied map tree or using
+symbolic links. Reachability retains its documented open-story-gates analysis;
+this API alone does not prove quest progression or current-phase NPC eligibility.
+
+### File declarations
+
 Every `.map.php`, `.deco.php` and `.event.php` file returns one literal nowdoc string.
 For example:
 

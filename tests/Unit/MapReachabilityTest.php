@@ -8,6 +8,8 @@ use Ichiloto\Engine\Events\Triggers\ChestEventTrigger;
 use Ichiloto\Engine\Events\Enumerations\EventEngagement;
 use Ichiloto\Engine\Events\Triggers\TransferPlayerTrigger;
 use Ichiloto\Engine\Field\MapSourceReader;
+use Ichiloto\Engine\Field\MapLayer;
+use Ichiloto\Engine\Field\MapLayerSet;
 use Ichiloto\Engine\Field\NpcPlacement;
 use Ichiloto\Engine\Field\Reachability\MapReachability;
 use Ichiloto\Engine\Field\Reachability\ProjectReachability;
@@ -295,6 +297,62 @@ function removeReachabilityProject(string $directory): void
 
   rmdir($directory);
 }
+
+it('checks unsaved current maps and new maps without copying sources or losing subject ownership', function () {
+  $root = createTestDirectory('in-memory-reachability-');
+  $assets = $root . '/assets';
+  mkdir($assets . '/Data', 0700, true);
+  $open = array_fill(0, 3, CollisionType::NONE);
+  writeReachabilityMap($assets, 'hub', ['...'], ['   '], ['occupancy' => [$open]]);
+  file_put_contents($assets . '/Data/system.php', '<?php return ' . var_export([
+    'startingPositions' => ['player' => ['destinationMap' => 'hub', 'spawnPoint' => ['x' => 0, 'y' => 0], 'spawnSprite' => ['South']]],
+  ], true) . ';');
+  $paths = MapSourceReader::resolvePaths($assets . '/Maps', 'hub');
+  $before = array_map(file_get_contents(...), array_intersect_key($paths, array_flip(['data', 'map', 'event'])));
+  $layers = new MapLayerSet([new MapLayer('ground', 0, false, 'memory/ground', '...')]);
+  $sources = [
+    'hub' => ['layers' => $layers, 'eventLayer' => [[' ', ' ', 'A']], 'data' => ['occupancy' => [$open], 'events' => [
+      'A' => ['class' => TransferPlayerTrigger::class, 'data' => ['destinationMap' => 'new/room', 'spawnPoint' => ['x' => 0, 'y' => 0], 'spawnSprite' => ['South']]],
+    ]]],
+    'new/room' => ['layers' => $layers, 'eventLayer' => [[' ', ' ', ' ']], 'data' => ['occupancy' => [$open],
+      'worldObjects' => [['id' => 'fixture-1', 'anchor' => ['x' => 2, 'y' => 0], 'pivot' => ['x' => .5, 'y' => 1.], 'sprites2d' => null]],
+      'events' => ['F' => ['class' => ChestEventTrigger::class, 'subject' => ['kind' => 'world_object', 'id' => 'fixture-1'],
+        'engagement' => 'facing', 'data' => []]],
+    ]],
+  ];
+  $input = serialize($sources);
+  $project = ProjectReachability::analyze($assets, $sources);
+  expect(array_keys($project->reports))->toBe(['hub', 'new/room'])
+    ->and($project->getAllProblems())->toBe([])->and($project->reports['new/room']->isReachable(1, 0))->toBeTrue()
+    ->and(serialize($sources))->toBe($input)->and(is_dir($assets . '/Maps/new'))->toBeFalse();
+  $sources['new/room']['data']['occupancy'][0][1] = CollisionType::SOLID;
+  $blocked = ProjectReachability::analyze($assets, $sources);
+  expect($blocked->reports['new/room']->isReachable(1, 0))->toBeFalse()
+    ->and(array_column($blocked->getAllProblems(), 'kind'))->toContain(ReachabilityProblemKind::UNREACHABLE_EVENT);
+  $sources['new/room'] = null;
+  $removed = ProjectReachability::analyze($assets, $sources);
+  expect(array_keys($removed->reports))->toBe(['hub'])
+    ->and(array_column($removed->getAllProblems(), 'kind'))->toContain(ReachabilityProblemKind::UNKNOWN_DESTINATION);
+  expect(array_map(file_get_contents(...), array_intersect_key($paths, array_flip(['data', 'map', 'event']))))->toBe($before)
+    ->and(array_keys(ProjectReachability::analyze($assets)->reports))->toBe(['hub']);
+});
+
+it('reports invalid in-memory sources instead of falling back to the older saved map', function (array $change) {
+  $root = createTestDirectory('invalid-memory-map-');
+  $assets = $root . '/assets';
+  writeReachabilityMap($assets, 'room', ['...'], ['   '], ['occupancy' => [[CollisionType::NONE, CollisionType::NONE, CollisionType::NONE]]]);
+  $source = array_replace(['data' => [], 'eventLayer' => [[' ', ' ', ' ']],
+    'layers' => new MapLayerSet([new MapLayer('ground', 0, false, 'memory', '...')])], $change);
+  $project = ProjectReachability::analyze($assets, ['room' => $source]);
+  expect($project->reports)->toBe([])->and($project->problems)->toHaveCount(1)
+    ->and($project->problems[0]->kind)->toBe(ReachabilityProblemKind::UNREADABLE_MAP)
+    ->and($project->problems[0]->mapId)->toBe('room');
+})->with([
+  [['eventLayer' => [[' ']]]],
+  [['data' => ['events' => ['X' => ['subject' => ['kind' => 'world_object', 'id' => 'absent']]]]]],
+  [['layers' => 'not layers']],
+  [['unexpected' => true]],
+]);
 
 it('checks declared physical occupancy independently of glyphs and the legacy dictionary', function (bool $dictionaryPresent) {
   $root = createTestDirectory('physical-reachability-');

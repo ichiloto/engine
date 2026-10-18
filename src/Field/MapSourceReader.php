@@ -65,6 +65,17 @@ final class MapSourceReader
     return ['data' => $source['data'], 'tiles' => $layers->getComposedGrid(), 'layers' => $layers];
   }
 
+  /** Unsaved authoring uses the same event ownership and layer geometry as file-backed maps.
+   * @return array{data: array<string,mixed>, tiles: array<int,string[]>, layers: MapLayerSet}
+   */
+  public static function readDeclarations(string $mapId, array $data, MapLayerSet $layers, array $eventLayer): array
+  {
+    $layers->assertMatchingGrid($eventLayer, "Event map {$mapId}");
+    $data['id'] ??= $mapId;
+    $data['events'] = self::resolveEvents($data, $eventLayer, $mapId);
+    return ['data' => $data, 'tiles' => $layers->getComposedGrid(), 'layers' => $layers];
+  }
+
   /**
    * Read route/event ownership without loading graphical or terrain resources.
    * Runtime may supply its layers to validate matching geometry before requiring data.
