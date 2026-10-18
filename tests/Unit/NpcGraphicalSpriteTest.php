@@ -68,6 +68,7 @@ final class NpcGraphicalTestScene extends GameScene
     $this->camera = new Camera($this, 24, 8, worldSpace: array_fill(0, 12, str_repeat('.', 32)));
     $this->mapManager = makeBareScene(MapManager::class);
     new ReflectionProperty(MapManager::class, 'gameScene')->setValue($this->mapManager, $this);
+    new ReflectionProperty(MapManager::class, 'tileMap')->setValue($this->mapManager, $this->camera->worldSpace);
     new ReflectionProperty(MapManager::class, 'collisionMap')->setValue($this->mapManager,
       array_fill(0, 12, array_fill(0, 32, CollisionType::NONE->value)));
     $this->npcManager = new NpcManager($this);

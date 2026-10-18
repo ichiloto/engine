@@ -400,9 +400,10 @@ class MapManager implements CanRenderAt
   /** Discover only at gameplay position/world-state changes, never during drawing. */
   public function refreshMapKnowledge(bool $force = false): void
   {
+    if ($this->mapKnowledge === null) { return; }
     $state = $this->gameScene->gameState;
     $player = $this->gameScene->player;
-    if ($this->mapKnowledge === null || $state === null || $player === null) { return; }
+    if ($state === null || $player === null) { return; }
     $position = [(int) floor($player->position->x), (int) floor($player->position->y)];
     if (!$force && $position === $this->lastKnowledgePosition) { return; }
     $this->lastKnowledgePosition = $position;

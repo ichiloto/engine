@@ -407,7 +407,11 @@ final class MenuCanvas
           || $a->x !== $b->x || $a->layer !== $b->layer || $a->opacity !== $b->opacity
           || $a->grid->columns !== $b->grid->columns || $a->grid->cellWidth !== $b->grid->cellWidth
           || $a->grid->cellHeight !== $b->grid->cellHeight || $a->y > $b->y
-          || $a->bounds != $a->clipRect || $b->bounds != $b->clipRect) { continue; }
+          || $a->clipRect->x !== $a->x || $b->clipRect->x !== $b->x
+          || $a->clipRect->y !== $a->y || $b->clipRect->y !== $b->y
+          || $a->clipRect->width !== $b->clipRect->width
+          || $a->clipRect->width > $a->bounds->width || $b->clipRect->width > $b->bounds->width
+          || $a->clipRect->height !== $a->bounds->height || $b->clipRect->height !== $b->bounds->height) { continue; }
         $offset = ($b->y - $a->y) / $a->grid->cellHeight;
         $rows = (int)$offset + $b->grid->rows;
         if ($offset !== floor($offset) || $rows > RendererGridConfig::MAX_ROWS) { continue; }
@@ -417,7 +421,7 @@ final class MenuCanvas
         }
         $a = new CanvasTextLayer($a->id, $a->layer, $a->x, $a->y,
           new RendererGridConfig($a->grid->columns, $rows, $a->grid->cellWidth, $a->grid->cellHeight), $runs,
-          new CanvasRectangle($a->x, $a->y, $a->bounds->width, $rows * $a->grid->cellHeight), $a->opacity);
+          new CanvasRectangle($a->x, $a->y, $a->clipRect->width, $rows * $a->grid->cellHeight), $a->opacity);
         $this->text[$index] = $a;
         unset($this->text[$other]);
       }

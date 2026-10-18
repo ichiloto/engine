@@ -95,3 +95,37 @@ it('still leaves out the overlay\'s own whole-screen background while protecting
     ->and(array_column($combined->textLayers, 'id'))->not->toContain('menu-background')
     ->and($combined->getOverlayProtection())->toEqual($overlay->getOverlayProtection());
 });
+
+
+it('batches clipped separator grids without widening painted rows or changing opacity', function () {
+  $color = PresentationColor::rgb(30, 60, 90);
+  $makeRows = static function (int $start) use ($color): array {
+    $rows = [];
+    for ($i = $start; $i < $start + 40; $i++) {
+      $rows[] = new CanvasTextLayer('rule-' . $i . '-separator', 3, 10, $i * 8,
+        new RendererGridConfig(5, 1, 208, 1),
+        [new PresentationTextRun(0, 0, '     ', background: $color)],
+        new CanvasRectangle(10, $i * 8, 1036, 1), 0.25);
+    }
+    return $rows;
+  };
+  $base = new PresentationCanvas(1350, 720, textLayers: $makeRows(0));
+  $overlay = new PresentationCanvas(1350, 720, textLayers: $makeRows(40));
+  $paintedRows = static function (array $layers): array {
+    $rows = [];
+    foreach ($layers as $layer) {
+      foreach ($layer->runs as $run) {
+        $left = max($layer->x + $run->column * $layer->grid->cellWidth, $layer->clipRect->x);
+        $right = min($layer->x + ($run->column + strlen($run->text)) * $layer->grid->cellWidth,
+          $layer->clipRect->x + $layer->clipRect->width);
+        $rows[] = [$layer->y + $run->row * $layer->grid->cellHeight, $left, $right,
+          $run->background, $layer->opacity];
+      }
+    }
+    usort($rows, static fn($a, $b) => $a[0] <=> $b[0]);
+    return $rows;
+  };
+  $combined = MenuCanvas::overlay($base, $overlay, createOverlayTestTheme());
+  expect(count($combined->textLayers))->toBeLessThanOrEqual(64)
+    ->and($paintedRows($combined->textLayers))->toEqual($paintedRows([...$base->textLayers, ...$overlay->textLayers]));
+});

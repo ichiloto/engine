@@ -1013,6 +1013,18 @@ not a default for future story stations.
   owned storage removed. Required opened controls, zoomed local view and actual
   world geography were visually inspected. Terminal native appearance awaits
   Andrew's review. No Linux/WSLg native claim.
+  Publication preflight on 18 October found and repaired two shared causes:
+  unloaded map knowledge now returns before accessing scene context, and
+  menu separator batching preserves the actual horizontal clip when its
+  backing grid rounds outward. Dense themed Config screens remain within
+  the existing 64-layer limit. Regression fixtures install synthetic map
+  data through both map owners, enumerate current semantic map actions and
+  remove the stale expectation that a missing graphical overlay restores
+  explicitly suppressed Terminal layers. The macOS/PHP 8.5 full suite passed
+  9,434 tests / 491,308 assertions in 167.49 seconds with warnings, risky
+  tests and deprecations treated as failures. A subsequent notification
+  fixture improvement passed six tests / 36 assertions with a visible map
+  marker. No Linux/Windows/WSLg coverage is claimed by this run.
 - **Built on field effects.** Cues are map-owned effects of the unified
   effect timeline ([effect animation](effect-animation.md#field-effects)),
   alongside the walk-on save point's energy, not a cue-specific animation.

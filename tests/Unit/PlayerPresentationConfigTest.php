@@ -309,6 +309,7 @@ it('composes real field Player movement facing masking and duplicate detection i
   new ReflectionProperty(GameScene::class, 'state')->setValue($this->scene, $field);
   $map = makeBareScene(MapManager::class);
   new ReflectionProperty(MapManager::class, 'gameScene')->setValue($map, $this->scene);
+  new ReflectionProperty(MapManager::class, 'tileMap')->setValue($map, $this->camera->worldSpace);
   new ReflectionProperty(MapManager::class, 'collisionMap')->setValue($map, [3 => [7 => CollisionType::SOLID->value]]);
   new ReflectionProperty(GameScene::class, 'mapManager')->setValue($this->scene, $map);
   $transport = getPlayerPresentationTransport();

@@ -186,6 +186,7 @@ it('keeps useful screen-space retained glyphs when the world budget refuses a ma
     $set = new MapLayerSet($layers);
     new ReflectionProperty(MapManager::class, 'layers')->setValue($this->manager, $set);
     $this->camera->worldSpace = $set->getComposedGrid();
+    new ReflectionProperty(MapManager::class, 'tileMap')->setValue($this->manager, $set->getComposedGrid());
     expect($this->manager->getPresentationWorld())->toBeNull();
     $this->manager->render();
     expect(implode('', Console::snapshot()->rows))->toContain('base')

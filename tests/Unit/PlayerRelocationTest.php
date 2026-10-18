@@ -118,6 +118,7 @@ final class RelocationTestScene extends GameScene
       new Stats(currentHp: 5, currentMp: 1, totalHp: 100, totalMp: 20)));
     $this->camera = new Camera($this, 24, 8, worldSpace: array_fill(0, 40, str_repeat('.', 70)));
     $this->mapManager = new RelocationTestMap($game, $this);
+    new ReflectionProperty(MapManager::class, 'tileMap')->setValue($this->mapManager, $this->camera->worldSpace);
     $this->uiManager = new class extends UIManager {
       public function __construct() {}
       public function render(): void { Console::withLayer('synthetic-hud', fn() => Console::write('H', 0, 0)); }

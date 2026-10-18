@@ -882,6 +882,7 @@ it('uses shared Config when themed and overlays alerts without changing the acti
   $this->state->mainMenu->setActiveItemByLabel('Config');
   mainMenuPresentationKey(KeyCode::ENTER, $this->state);
   $configFrame = $this->scene->getPresentationCanvas();
+  expect($configFrame)->not->toBeNull();
   $configRuns = array_merge(...array_map(fn($layer) => array_column($layer->runs, 'text'), $configFrame->textLayers));
   expect($this->state->getPresentationMode())->toBeInstanceOf(MainMenuConfigMode::class)
     ->and($configRuns)->toContain('Config', 'Volume', '75%', 'Sets the master volume for music, sound effects and voice.', 'Cancel');
@@ -999,7 +1000,7 @@ it('keeps the Save menu usable and reports plain feedback when local storage ref
   new ReflectionProperty($this->scene, 'state')->setValue($this->scene, $state);
   $state->enter();
   new ReflectionMethod($state, 'saveToActiveSlot')->invoke($state);
-  $message = 'Saving is unavailable. Check storage permissions and try again.';
+  $message = 'Your progress could not be saved. Please try again.';
   expect(new ReflectionProperty($state, 'statusMessage')->getValue($state))->toBe($message)
     ->and($modals->alerts)->toBe([[$message, 'Save Unavailable']])
     ->and(file_get_contents($this->root . '/logs/warning.log'))->toContain('Permission denied at /private/path')

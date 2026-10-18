@@ -118,8 +118,8 @@ it('composes unsaved world data projected sprites groups and viewport without ch
     ->and($frame->viewport->worldCanvasIds)->toBe(['ground-effect', 'sign'])
     ->and($frame->viewport->follow)->toBe($viewport->follow)
     ->and([$frame->viewport->worldOriginX, $frame->viewport->worldOriginY])->toBe([3, 2])
-    ->and($this->captures)->toBe([[['object'], ['map:terrain']]])
-    ->and(array_column($frame->snapshot->textLayers, 'id'))->toBe(['edge', 'sign', 'terminal-only', 'authoring-overlay', 'notice'])
+    ->and($this->captures)->toBe([[['object', 'authoring-overlay'], ['map:terrain']]])
+    ->and(array_column($frame->snapshot->textLayers, 'id'))->toBe(['edge', 'sign', 'terminal-only', 'notice'])
     ->and($this->source->viewportInputs)->toBe([[$frame->snapshot, [$sprites[1], $sprites[0]], []]])
     ->and($this->source->sprites)->toBe($sprites)->and($this->source->groups)->toBe($groups)
     ->and($this->source->viewport)->toBe($viewport)->and($viewport->worldCanvasIds)->toBe([])
@@ -172,9 +172,11 @@ it('keeps source overlays optional and notifications above them with the same Te
   }
 })->with([true, false]);
 
-it('does not conceal an overlay layer when its provider returns no graphical overlay', function () {
+it('applies explicit graphical layer suppression even when the provider returns no overlay canvas', function () {
   $frame = $this->composer->composeFrame($this->source, $this->grid, fn($feature) => true, $this->capture);
-  expect($this->captures[0][0])->not->toContain('authoring-overlay')->and($frame->screenOverlay)->toBeNull();
+  expect($this->captures[0][0])->toContain('authoring-overlay')
+    ->and(array_column($frame->snapshot->textLayers, 'id'))->not->toContain('authoring-overlay')
+    ->and($frame->screenOverlay)->toBeNull();
 });
 
 it('respects caller-owned overlay refresh while still composing the supplied overlay', function () {
@@ -203,7 +205,7 @@ it('passes detached retained text changes to the existing viewport contract with
   $changes = new ConsolePresentationChanges(8, 4, false);
   $frame = $this->composer->composeFrame($this->source, $this->grid, fn($feature) => true,
     function (array $excluded, array $worldLayers) use ($changes) {
-      expect($excluded)->toBe(['object'])->and($worldLayers)->toBe(['map:terrain']);
+      expect($excluded)->toBe(['object', 'authoring-overlay'])->and($worldLayers)->toBe(['map:terrain']);
       return $changes;
     });
   expect($frame->snapshot)->toBe($changes)->and($this->source->viewportInputs[0][0])->toBe($changes);
@@ -216,7 +218,7 @@ it('retains off-grid sprites for clipping without excluding Terminal edge cells'
   $this->source->viewport = null;
   $this->source->groups = [];
   $frame = $this->composer->composeFrame($this->source, $this->grid, fn($feature) => true, $this->capture);
-  expect($frame->sprites)->toHaveCount(5)->and($this->captures[0][0])->toBe(['corner']);
+  expect($frame->sprites)->toHaveCount(5)->and($this->captures[0][0])->toBe(['corner', 'authoring-overlay']);
 });
 
 it('rejects unsupported world canvas capabilities instead of dropping authored groups', function (string $missing) {
