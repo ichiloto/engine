@@ -461,11 +461,13 @@ class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
       return 'Answers the whole party.';
     }
 
-    $eligibility = match ($policy->mode) {
-      $policy::MODE_ROLES => sprintf('Wielders: %s.', implode(', ', $policy->roles)),
-      $policy::MODE_CHARACTERS => sprintf('Wielders: %s.', implode(', ', $policy->characters)),
-      default => 'Any party member may bear this summon.',
-    };
+    // Authored eligibility may include future identities and roles. Display only
+    // the current travelling party, using names rather than internal policy IDs.
+    $eligible = array_filter($this->party->members->toArray(),
+      static fn($member): bool => $member instanceof Character && $policy->allowsCharacter($member));
+    $names = array_map(static fn(Character $member): string => $member->name, $eligible);
+    $eligibility = $names === [] ? 'No current party member can wield this summon.'
+      : sprintf('Wielders in your party: %s.', implode(', ', $names));
 
     return $policy->isExclusive()
       ? $eligibility . ' One bearer at a time.'

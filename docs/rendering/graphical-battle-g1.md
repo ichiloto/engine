@@ -857,3 +857,12 @@ hint snapshot. Contract text uses `TextViewport` for complete scrolling in both
 presentations, removing the old silent 23-line truncation. Navigation, eligibility,
 exclusive tenancy, assignment, release, modal feedback and save identity remain
 owned by the existing state and party services.
+
+
+Summon-menu eligibility descriptions are limited to the current travelling party.
+They remove the old display of all authored character IDs and role names, which
+could reveal unintroduced characters. Actual current character names come from
+party membership filtered through the unchanged wielder policy. Recruitment and
+departure refresh this projection; future eligibility remains in authored data.
+Both the full contract and footer use this same description. Holder feedback is
+already sourced from current party members.

@@ -102,3 +102,28 @@ it('exposes complete long contracts through the shared scroll viewport and seman
   $help = new ReflectionMethod($state, 'getActionHints')->invoke($state);
   expect(array_column($help, 'action'))->toContain('cancel', 'up', 'down', 'character_next');
 });
+
+
+it('removes future character and role names from every contract description until they join the current party', function (string $mode) {
+  $policy = new SummonWielderPolicy($mode, roles: ['Hero', 'Unintroduced role'],
+    characters: ['actor.synthetic', 'future.identity']);
+  $definition = new SummonCutsceneDefinition('synthetic', 'Spirit', wielders: $policy);
+  $state = createSummonsMenuProbe([$definition]);
+  $before = serialize($policy);
+  $assertKnownOnly = static function () use ($state): void {
+    $rule = new ReflectionMethod($state, 'describeWielderRule')->invoke($state,
+      new ReflectionProperty($state, 'summons')->getValue($state)[0]);
+    $detail = new ReflectionMethod($state, 'getDetailText')->invoke($state);
+    $content = $state->getPresentationContent();
+    foreach ([$rule, $detail, $content->status] as $text) {
+      expect($text)->toContain('Actor')->not->toContain('future.identity', 'Later hero', 'Unintroduced role', 'actor.synthetic');
+    }
+  };
+  $assertKnownOnly();
+  $later = new Character('Later hero', 1, new Stats(currentHp: 100), actorId: 'future.identity');
+  $state->party->addMember($later);
+  expect($state->getPresentationContent()->status)->toContain('Later hero');
+  $state->party->members->remove($later);
+  $assertKnownOnly();
+  expect(serialize($policy))->toBe($before);
+})->with([SummonWielderPolicy::MODE_CHARACTERS, SummonWielderPolicy::MODE_ROLES]);
