@@ -8,9 +8,11 @@ use Ichiloto\Engine\Audio\Enumerations\SystemSound;
 use Ichiloto\Engine\Entities\Interfaces\ActionContextInterface;
 use Ichiloto\Engine\Events\Enumerations\LootType;
 use Ichiloto\Engine\Events\Triggers\ChestEventTrigger;
+use Ichiloto\Engine\Exceptions\NotFoundException;
 use Ichiloto\Engine\Util\Config\ConfigStore;
 use Ichiloto\Engine\Localization\Vocabulary;
 use Ichiloto\Engine\Util\Stores\ItemStore;
+use Ichiloto\Engine\Util\Debug;
 use RuntimeException;
 
 /**
@@ -66,10 +68,17 @@ class ChestOpeningAction extends FieldAction
         break;
 
       default:
-        $loot = $this->itemStore->get($this->itemStore->requireDefinitionId(
-          strval($this->trigger->loot),
-          'opening a chest',
-        ));
+        try {
+          $loot = $this->itemStore->get($this->itemStore->requireDefinitionId(
+            strval($this->trigger->loot),
+            'opening a chest',
+          ));
+        } catch (NotFoundException $error) {
+          Debug::error(sprintf('Chest reward could not be resolved on map "%s", event "%s": %s',
+            $this->trigger->mapId ?? '(unbound)', $this->trigger->marker ?? '(unbound)', $error->getMessage()));
+          alert(get_engine_message('chest.unavailable'));
+          return;
+        }
         assert($loot !== null);
         $quantity = $this->trigger->quantity;
         $lootNameText = new Text($loot->name);

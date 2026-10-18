@@ -84,6 +84,7 @@ final class EngineMessageTerms
     'obtained_exp' => ['default' => '%1 %2 obtained!', 'placeholders' => ['%1' => 'Experience amount', '%2' => 'Experience label'], 'description' => 'Battle experience reward.'],
     'obtained_gold' => ['default' => '%1 %2 found!', 'placeholders' => ['%1' => 'Currency amount', '%2' => 'Currency symbol'], 'description' => 'Currency received from a chest or battle.'],
     'obtained_item' => ['default' => '%1 found!', 'placeholders' => ['%1' => 'Item reward text'], 'description' => 'Item received from a chest.'],
+    'chest.unavailable' => ['default' => 'The chest will not open.', 'placeholders' => [], 'description' => 'A chest reward could not be resolved; no reward or completion is applied.'],
     'prompt.load' => ['default' => 'Choose a save file to continue from.', 'placeholders' => [], 'description' => 'Load-menu selection prompt.'],
     'prompt.save' => ['default' => 'Which file would you like to save to?', 'placeholders' => [], 'description' => 'Save-menu selection prompt.'],
     'quest.level_gained' => ['default' => '%1 reached %2 %3.', 'placeholders' => ['%1' => 'Character name', '%2' => 'Level label', '%3' => 'New level'], 'description' => 'A character gains a level from a quest reward.'],
