@@ -2,7 +2,7 @@
 
 require_once __DIR__ . '/../Support/Battle/QueuedCommandFixture.php';
 
-function runBattlePreviewTool(array $arguments, bool $acknowledgeSelection = true, bool $cleanupFails = false, ?string $input = null): array
+function runBattlePreviewTool(array $arguments, bool $acknowledgeSelection = true, bool $cleanupFails = false, ?string $input = null, bool $pipeRenderer = false): array
 {
     $directory = sys_get_temp_dir() . '/battle-preview-' . bin2hex(random_bytes(6));
     mkdir($directory);
@@ -21,6 +21,10 @@ return static function (string $root, bool $reduced, ?array $subjects = null): a
     $last = -1.0;
     return [
         'subjects' => ACK_SELECTION ? $selected : ['actor-a', 'actor-b'],
+        'requiredCapabilities' => [
+            \Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::GRAPHICAL_CANVAS,
+            \Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::CANVAS_IMAGE_FLIP,
+        ],
         'frame' => static function (float $seconds) use (&$frames, &$last) {
             if ($seconds < $last) { throw new RuntimeException('Preview clock moved backwards.'); }
             $last = $seconds;
@@ -40,10 +44,19 @@ return static function (string $root, bool $reduced, ?array $subjects = null): a
 PHP;
     file_put_contents($fixturePath, str_replace(['ACK_SELECTION', 'CLEANUP_FAILS'],
         [$acknowledgeSelection ? 'true' : 'false', $cleanupFails ? 'true' : 'false'], $fixture));
+    $rendererPath = $directory . '/renderer';
+    $capturePath = $directory . '/wire.ndjson';
+    if ($pipeRenderer) {
+        file_put_contents($rendererPath, '#!' . PHP_BINARY . "\n<?php\n\$argv = "
+            . var_export([$rendererPath, 'dialogue_preview', $capturePath], true)
+            . '; require ' . var_export(__DIR__ . '/../Fixtures/Renderer/renderer-stub.php', true) . ';');
+        chmod($rendererPath, 0755);
+    }
     $process = null;
     try {
         $process = proc_open([PHP_BINARY, dirname(__DIR__, 2) . '/tools/gpui-battle-preview.php',
-            '--asset-root=' . $directory, '--fixture=' . $fixturePath, '--duration=1', '--no-launch', ...$arguments],
+            '--asset-root=' . $directory, '--fixture=' . $fixturePath, '--duration=' . ($pipeRenderer ? 2 : 1),
+            ...($pipeRenderer ? ['--renderer=' . $rendererPath] : ['--no-launch']), ...$arguments],
             [0 => $input === null ? ['file', '/dev/null', 'r'] : ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
         expect(is_resource($process))->toBeTrue();
         if ($input !== null) { fwrite($pipes[0], $input); fclose($pipes[0]); }
@@ -51,14 +64,31 @@ PHP;
         $stderr = stream_get_contents($pipes[2]);
         fclose($pipes[1]); fclose($pipes[2]);
         $exit = proc_close($process); $process = null;
-        expect(scandir($directory))->toBe(['.', '..', 'fixture.php']);
-        return compact('exit', 'stdout', 'stderr', 'directory');
+        expect(scandir($directory))->toBe(['.', '..', 'fixture.php', ...($pipeRenderer ? ['renderer', 'wire.ndjson'] : [])]);
+        $wire = is_file($capturePath) ? array_map(static fn(string $line): array => json_decode($line, true, flags: JSON_THROW_ON_ERROR),
+            file($capturePath, FILE_IGNORE_NEW_LINES)) : [];
+        return compact('exit', 'stdout', 'stderr', 'directory', 'wire');
     } finally {
         if (is_resource($process)) { proc_terminate($process); proc_close($process); }
+        foreach ([$rendererPath, $capturePath] as $file) { if (is_file($file)) { unlink($file); } }
         unlink($fixturePath);
         rmdir($directory);
     }
 }
+
+it('negotiates overlapping fixture capabilities once through the real preview transport', function () {
+    $result = runBattlePreviewTool([], pipeRenderer: true);
+    expect($result['exit'])->toBe(0, $result['stderr'])
+        ->and($result['stdout'])->toEndWith("Silent preview closed cleanly. Native acknowledgements are not visual acceptance or GPU timing.\n");
+    $required = $result['wire'][0]['requiredCapabilities'];
+    expect($required)->toBe([
+        \Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::GRAPHICAL_CANVAS,
+        \Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::SPRITE_SOURCE_RECT,
+        \Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::CANVAS_CLIP_OPACITY,
+        \Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::CANVAS_COMPOSITING,
+        \Ichiloto\Engine\Rendering\Transport\RendererSessionConfig::CANVAS_IMAGE_FLIP,
+    ])->and(end($result['wire'])['type'])->toBe('shutdown');
+});
 
 it('steps an inspection through every fixture frame before verifying and disposing', function () {
     $result = runBattlePreviewTool(['--inspect'], input: "step 0.4\nstep 0.6\n");

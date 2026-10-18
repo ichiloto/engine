@@ -77,9 +77,9 @@ try {
     if (!$noLaunch) {
         $client = new RendererClient(new ProcessRendererTransport(new RendererProcessConfig([$renderer])));
         $client->start(new RendererSessionConfig('Ichiloto battle command preview (silent)', $root, $grid,
-            protocol: RendererProtocolVersion::V2, requiredCapabilities: [RendererSessionConfig::GRAPHICAL_CANVAS,
+            protocol: RendererProtocolVersion::V2, requiredCapabilities: array_values(array_unique([RendererSessionConfig::GRAPHICAL_CANVAS,
                 RendererSessionConfig::SPRITE_SOURCE_RECT, RendererSessionConfig::CANVAS_CLIP_OPACITY,
-                RendererSessionConfig::CANVAS_COMPOSITING, ...($fixture['requiredCapabilities'] ?? [])]));
+                RendererSessionConfig::CANVAS_COMPOSITING, ...($fixture['requiredCapabilities'] ?? [])]))));
         $client->pump();
         $presentation = new RendererPresentation($client, $grid);
     }
