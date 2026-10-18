@@ -16,10 +16,10 @@ final class BattleConditionBadgeStyle
   public int $height { get => $this->size + $this->labelCellHeight; }
 
   public function __construct(public readonly int $pixelSize = 2, public readonly int $gap = 4,
-    public readonly int $maxColumns = 3)
+    public readonly int $maxColumns = 3, public readonly int $headGap = 4)
   {
-    if ($pixelSize < 2 || $pixelSize > 8 || $gap < 0 || $gap > 32 || $maxColumns < 1 || $maxColumns > 8) {
-      throw new InvalidArgumentException('Condition badges require pixel size 2..8, gap 0..32 and columns 1..8.');
+    if ($pixelSize < 2 || $pixelSize > 8 || $gap < 0 || $gap > 32 || $maxColumns < 1 || $maxColumns > 8 || $headGap < 0 || $headGap > 64) {
+      throw new InvalidArgumentException('Condition badges require pixel size 2..8, gap 0..32, columns 1..8 and head gap 0..64.');
     }
   }
 }

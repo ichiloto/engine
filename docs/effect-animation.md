@@ -703,7 +703,7 @@ and batches primitive fills and footer font lattices to respect the existing
 canvas layer budget.
 
 `BattleUiSkin::conditionBadges` defaults to `BattleConditionBadgeStyle(pixelSize: 2,
-gap: 4, maxColumns: 3)`: a restrained 32px-square icon, not a half-width
+gap: 4, maxColumns: 3, headGap: 4)`: a restrained 32px-square icon, not a half-width
 pictogram slot. Artwork is contained across the full 32px viewport without
 extra Engine decoration. The procedural pictogram has a 28px content area
 inside its 32px frame, with its polarity marker in the upper corner.
@@ -714,16 +714,20 @@ Nine concurrent conditions therefore form a compact 3x3 stack, without
 shrinking the individual icons to fit.
 Footer cells are at least 6px wide and 12px high rather than shrinking the font
 along with the procedural pixels. Each tile is 16 logical pixels square at the
-configured pixel size; pixel size supports 2..8, gap 0..32 and columns 1..8.
+configured pixel size; pixel size supports 2..8, gap 0..32, columns 1..8 and head
+gap 0..64 pixels.
 The project catalogue loads typed PHP objects directly, including the trailing
 named `conditionBadges: new BattleConditionBadgeStyle(...)` argument on its
 `BattleUiSkin`; it is not an array-only or constructor-only setting. Palette
-comes from the skin's existing text/ink/healing/damage/focus roles. Badge groups wrap at the configured
-column limit, stay attached to the currently presented combatant instance, and
-use shared battlefield placement around battler, UI, cursor and badge obstacles.
+comes from the skin's existing text/ink/healing/damage/focus roles. Badge groups
+build to the right of the reserved overhead cursor slot, then wrap upward at the
+configured column limit. They stay attached to the presented combatant instance.
 Their actual bounds protect them from notification and feedback overlays.
-Insufficient space uses the shared least-overlap placement policy without
-dropping badges; geometry that cannot fit the canvas is an explicit error.
+`BattleHeadAttachmentLayout` reserves every supported cursor motion envelope,
+including while selection is absent, and all battler bounds before placing
+badges. Existing semantic slots are retained before new conditions are assigned;
+adding or curing a condition never recenters or renumbers the remaining badges.
+Edge fallbacks use separate free cells. Insufficient space is an explicit error.
 These are battlefield badges, not extra icons in the cramped status HUD.
 
 ### Show Gameplay Instead Of Narrating It
@@ -750,31 +754,32 @@ focused automated coverage of both battle engines and graphical/Terminal
 presentation, including silence and custom actor/action text.
 This does not claim new native playtest coverage or expand the Deckers slice.
 
-### Queued after Deckers: independent status HUD and target cursor
+### Independent status badges and target cursor
 
-Andrew's October 13, 2026 direction makes this the coordinator's next goal
-AFTER Deckers is implemented. It is not part of Deckers acceptance, and no
-runtime correction is claimed here. The current wrapping/obstacle layout
-described above must be replaced for this goal, not preserved as the target
-design.
+Andrew's October 18 direction gives the head area one owner with separate slots
+for the cursor and conditions. This removes centered, count-dependent badge
+placement. It supersedes the earlier proposed two centered rows. Selecting or
+deselecting a battler preserves its badge positions and spacing; adding or
+curing a condition preserves every surviving slot. Gameplay conditions remain
+owned by the existing condition model.
 
-Active status icons form two center-justified rows above the battler's head,
-filling the top row before the bottom. The full available condition set must
-fit those two rows without silently dropping conditions or moving individual
-icons sideways. Selecting or deselecting a battler must not change its status
-HUD position, row assignment or spacing. Gameplay conditions remain owned by
-the existing condition model, not another display-state store.
+`BattleTargetCursor::getPlacementOptions` exposes its complete above/left/right
+motion envelopes. The attachment owner reserves them independently of current
+selection, so badges cannot conceal the cursor in any supported orientation.
+The cursor retains its configured preference and existing edge/modal behavior.
+`BattleConditionBadgeStyle::headGap` controls the gap from the head/cursor slot;
+cursor size/gap and badge size/spacing remain separate theme settings.
 
-Targeting has its own reserved space ABOVE the status HUD. Across all battler
-target-selection paths, use the same overhead cursor convention: never switch
-to a side cursor or displace a badge to avoid overlap. Correct the shared
-anchor/space allocation rather than adding per-character or per-screen
-offsets. Viewport constraints must be resolved through shared presentation
-layout, not inconsistent cursor relocation. This direction does not replace
-unrelated list-item or button navigation conventions.
+Terminal conditions use the same semantic slot allocator. Their text builds on
+one head row to the right, reserving actual terminal cell widths and spacing;
+curing another condition does not shift a surviving entry. Terminal placement
+uses cells and never consumes graphical pixel settings. There is no new save
+state or condition store. Shared layout owns the space allocation and viewport
+constraints for every battler. Unrelated list and button navigation conventions
+are unchanged.
 
-Acceptance must cover selection changes with unchanged conditions, top-to-bottom
-row filling and centered partial rows, the full supported condition set, allies
+Acceptance covers selection changes with unchanged conditions, rightward head
+rows, stable surviving slots after additions/cures, the full condition set, allies
 and enemies, pose/scale changes, multiple targeting commands, compact viewports
 and reduced motion. Compare before/after selection bounds to prove the cursor
 does not move status icons. Preserve useful Terminal presentation and report

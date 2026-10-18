@@ -37,11 +37,13 @@ final class GraphicalBattlePresentation
   private array $poseDiagnostics = [];
   private array $compositionDiagnostics = [];
   private readonly BattleConditionEffects $conditionEffects;
+  private readonly BattleHeadAttachmentLayout $headAttachments;
 
   private function __construct(public readonly BattleArenaDefinition $arena, public readonly BattleCanvasLayout $layout,
     private readonly BattleConfig $battle,
     private readonly string $assetRoot, private readonly ?BattleScale $scale)
   {
+    $this->headAttachments = new BattleHeadAttachmentLayout();
     $this->conditionEffects = BattleConditionEffects::createFromConfig(
       new \Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary($assetRoot));
   }
@@ -370,7 +372,7 @@ final class GraphicalBattlePresentation
       array_push($text, ...$composition->textLayers);
       array_push($composites, ...$composition->composites);
     }
-    $badges = GraphicalBattleConditions::compose($this->layout, $conditionBattlers, $combatantBounds, $this->assetRoot);
+    $badges = GraphicalBattleConditions::compose($this->layout, $conditionBattlers, $combatantBounds, $this->assetRoot, $this->headAttachments);
     array_push($images, ...$badges->images);
     array_push($text, ...$badges->textLayers);
     array_push($conditionAreas, ...$badges->getOverlayProtection());

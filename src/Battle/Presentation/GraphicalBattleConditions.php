@@ -13,7 +13,6 @@ use Ichiloto\Engine\Rendering\Presentation\PresentationColor;
 use Ichiloto\Engine\Rendering\Presentation\PresentationTextRun;
 use Ichiloto\Engine\Rendering\Transport\RendererGridConfig;
 use Ichiloto\Engine\UI\Presentation\MenuIconRegistry;
-use RuntimeException;
 
 /** Static semantic badges share live combat identity, not optional effect playback. */
 final class GraphicalBattleConditions
@@ -40,47 +39,35 @@ final class GraphicalBattleConditions
   /** @param array<int, CharacterInterface> $battlers Only currently presented battlers.
    * @param array<int, CanvasRectangle> $bounds
    */
-  public static function compose(BattleCanvasLayout $layout, array $battlers, array $bounds, string $assetRoot): PresentationCanvas
+  public static function compose(BattleCanvasLayout $layout, array $battlers, array $bounds, string $assetRoot,
+    ?BattleHeadAttachmentLayout $attachments = null): PresentationCanvas
   {
     $style = $layout->skin?->conditionBadges ?? new BattleConditionBadgeStyle();
     $size = $style->size;
-    $height = $style->height;
     $gridStep = self::getGridStep($style);
-    $area = new CanvasRectangle(0, 0, $layout->width, $layout->height);
     $bounds = array_intersect_key($bounds, $battlers);
+    $placements = ($attachments ?? new BattleHeadAttachmentLayout())->place($battlers, $bounds,
+      $layout->width, $layout->height, $style, $layout->skin?->targetCursor);
     $images = $text = $protected = [];
     foreach ($battlers as $identity => $battler) {
       if ($battler->isKnockedOut || !isset($bounds[$identity])) { continue; }
-      $entries = BattlerConditions::getEntries($battler);
+      $entries = $placements[$identity] ?? [];
       if ($entries === []) { continue; }
-      $columns = min(count($entries), $style->maxColumns,
-        (int)floor((min($area->width, RendererGridConfig::MAX_COLUMNS * $gridStep) + $style->gap) / ($size + $style->gap)));
-      if ($columns < 1) { throw new RuntimeException('Battle condition badges cannot fit the canvas at the configured size.'); }
-      $rows = (int)ceil(count($entries) / $columns);
-      $groupWidth = $columns * ($size + $style->gap) - $style->gap;
-      $groupHeight = $rows * ($height + $style->gap) - $style->gap;
-      if ($groupHeight > $area->height) {
-        throw new RuntimeException('Battle condition badges cannot fit the canvas at the configured size.');
-      }
-      // Conditions own this head anchor. Transient effects, names, cursors and UI
-      // may occlude it; they never relocate a newly applied or existing badge.
-      $battlerBounds = $bounds[$identity];
-      $anchor = new CanvasRectangle(
-        max(0, min($area->width - $groupWidth, $battlerBounds->x + ($battlerBounds->width - $groupWidth) / 2)),
-        max(0, min($area->height - $groupHeight, $battlerBounds->y - $groupHeight - 4)),
-        $groupWidth, $groupHeight);
       $badgeFrames = $badgeMarkers = $badgeLabels = [];
       $batch = 0;
-      foreach ($entries as $index => $entry) {
-        $box = new CanvasRectangle($anchor->x + ($index % $columns) * ($size + $style->gap),
-          $anchor->y + intdiv($index, $columns) * ($height + $style->gap), $size, $height);
+      foreach ($entries as $placement) {
+        $entry = $placement['entry'];
+        $box = $placement['bounds'];
         // The key, not list position, keeps retained identity stable after another condition is cured.
         $id = 'status-badge-' . $identity . '-' . hash('xxh3', $entry['key']);
         $asset = $layout->skin?->icons?->icons[$entry['iconKey']] ?? null;
         $iconBox = new CanvasRectangle($box->x, $box->y, $size, $size);
         $art = $asset === null ? [] : MenuIconRegistry::containAsset($assetRoot, $id . '-art', $asset, $iconBox, 231, $iconBox);
         array_push($images, ...$art);
-        if ($art === [] && $badgeFrames !== [] && $box->y + $size - $badgeFrames[0]->y > RendererGridConfig::MAX_ROWS * $gridStep) {
+        if ($art === [] && $badgeFrames !== [] && (max($box->y + $size, ...array_map(static fn($frame) => $frame->y + $size, $badgeFrames))
+            - min($box->y, ...array_column($badgeFrames, 'y')) > RendererGridConfig::MAX_ROWS * $gridStep
+          || max($box->x + $size, ...array_map(static fn($frame) => $frame->x + $size, $badgeFrames))
+            - min($box->x, ...array_column($badgeFrames, 'x')) > RendererGridConfig::MAX_COLUMNS * $gridStep)) {
           $text[] = self::mergeBadgeFrames('status-badges-' . $identity . '-batch-' . $batch, $badgeFrames, $gridStep);
           $text[] = self::mergeBadgeFrames('status-markers-' . $identity . '-batch-' . $batch++, $badgeMarkers, $gridStep);
           $badgeFrames = $badgeMarkers = [];
@@ -128,17 +115,19 @@ final class GraphicalBattleConditions
   private static function mergeBadgeFrames(string $id, array $frames, int $step): CanvasTextLayer
   {
     $first = $frames[0];
+    $originX = min(array_column($frames, 'x'));
+    $originY = min(array_column($frames, 'y'));
     $right = $bottom = 0;
     foreach ($frames as $frame) {
       $right = max($right, $frame->bounds->x + $frame->bounds->width);
       $bottom = max($bottom, $frame->bounds->y + $frame->bounds->height);
     }
-    $width = (int)round(($right - $first->x) / $step);
-    $height = (int)round(($bottom - $first->y) / $step);
+    $width = (int)round(($right - $originX) / $step);
+    $height = (int)round(($bottom - $originY) / $step);
     $runs = [];
     foreach ($frames as $frame) {
-      $offset = (int)round(($frame->x - $first->x) / $step);
-      $offsetY = (int)round(($frame->y - $first->y) / $step);
+      $offset = (int)round(($frame->x - $originX) / $step);
+      $offsetY = (int)round(($frame->y - $originY) / $step);
       $scale = intdiv($frame->grid->cellWidth, $step);
       foreach ($frame->runs as $run) {
         for ($row = 0; $row < $scale; $row++) {
@@ -147,7 +136,7 @@ final class GraphicalBattleConditions
         }
       }
     }
-    return new CanvasTextLayer($id, $first->layer, $first->x, $first->y,
+    return new CanvasTextLayer($id, $first->layer, $originX, $originY,
       new RendererGridConfig($width, $height, $step, $step), $runs);
   }
 

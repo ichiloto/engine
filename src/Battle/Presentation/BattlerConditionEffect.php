@@ -51,7 +51,7 @@ final class BattlerConditionEffect implements BattleEffectPlayback
       if ($terminal && ($timeline === null || $timeline->playbackSegments === [])) {
         $active[] = ['layer' => 'text', 'presentation' => 'all', 'drawCommands' => [[
           'trackId' => 'condition-' . $index, 'visible' => true, 'content' => $entry['glyph'],
-          'position' => ['x' => 0, 'y' => -1 - $index],
+          'position' => ['x' => 1 + $entry['slot'], 'y' => -1],
           'payload' => ['anchor' => 'target', 'attachment' => 'head', 'legacyPosition' => 'head'],
         ]]];
       }

@@ -332,6 +332,14 @@ it('keeps newly applied and settled state badges at one head anchor through tran
     $geometry = [$badge->destination->x, $badge->destination->y, $badge->destination->width, $badge->destination->height];
     $first ??= $geometry;
     expect($geometry)->toBe($first)->and($badge->destination->y + $badge->destination->height)->toBeLessThan($body->y);
+    if ($selection) {
+      $cursor = array_find($frame->images, static fn($image) => str_starts_with($image->id, 'target-cursor-'));
+      expect($cursor)->not->toBeNull();
+      $box = $badge->destination;
+      $other = $cursor->destination;
+      expect($box->x + $box->width <= $other->x || $other->x + $other->width <= $box->x
+        || $box->y + $box->height <= $other->y || $other->y + $other->height <= $box->y)->toBeTrue();
+    }
   }
 })->with([false, true]);
 
@@ -381,6 +389,76 @@ it('leaves complete semantic state artwork free of duplicate frame direction and
   expect($fallback->images)->toBeEmpty()
     ->and(array_find($fallback->textLayers, static fn($layer) => str_ends_with($layer->id, '-label'))->runs[0]->text)->toBe('PSN')
     ->and(file_get_contents($this->badgeRoot . '/logs/warning.log'))->toContain('state.png');
+});
+
+it('reserves every cursor orientation and keeps all surviving badge slots through add and cure', function (
+  \Ichiloto\Engine\Battle\Presentation\BattleCursorPlacement $orientation, bool $edge) {
+  $style = new BattleConditionBadgeStyle();
+  $texture = new CanvasNineSlice('unused-layout-only.png', new SpriteSourceRect(0, 0, 1, 1));
+  $cursor = new \Ichiloto\Engine\Battle\Presentation\BattleTargetCursor(array_fill_keys(['above', 'left', 'right'], $texture), $orientation);
+  $owner = new \Ichiloto\Engine\Battle\Presentation\BattleHeadAttachmentLayout();
+  $actors = $bounds = [];
+  foreach (range(0, 1) as $index) {
+    $actor = new Character('Same name', 1, new Stats(currentHp: 100));
+    $actor->addState(new State('poison', 'Poison'));
+    $actor->addState(new State('stun', 'Stun'));
+    $actors[spl_object_id($actor)] = $actor;
+    $bounds[spl_object_id($actor)] = new CanvasRectangle($edge ? ($index === 0 ? 0 : 1270) : 350 + $index * 500,
+      $edge ? 0 : 260, 80, 120);
+  }
+  $first = $owner->place($actors, $bounds, 1350, 720, $style, $cursor);
+  foreach ($actors as $actor) {
+    foreach (Character::buffableStats() as $stat) { $actor->setStatStage($stat, 2); }
+  }
+  $all = $owner->place($actors, $bounds, 1350, 720, $style, $cursor);
+  $obstacles = [];
+  foreach ($bounds as $body) {
+    foreach ($cursor->getPlacementOptions($body, 1350, 720) as $option) { $obstacles[] = $option['envelope']; }
+  }
+  $boxes = [];
+  foreach ($all as $id => $entries) {
+    expect($entries)->toHaveCount(9);
+    foreach ($entries as $placement) {
+      $box = $placement['bounds'];
+      $box->assertWithin(1350, 720);
+      foreach ([...$obstacles, ...$boxes, ...array_values($bounds)] as $other) {
+        expect($box->x + $box->width <= $other->x || $other->x + $other->width <= $box->x
+          || $box->y + $box->height <= $other->y || $other->y + $other->height <= $box->y)->toBeTrue();
+      }
+      $boxes[] = $box;
+    }
+    foreach ($first[$id] as $previous) {
+      $current = array_find($entries, static fn($entry) => $entry['entry']['key'] === $previous['entry']['key']);
+      expect($current['bounds']->toArray())->toBe($previous['bounds']->toArray());
+    }
+  }
+  foreach ($actors as $actor) { $actor->removeState('poison'); $actor->setStatStage('attack', 0); }
+  $remaining = $owner->place($actors, $bounds, 1350, 720, $style, $cursor);
+  foreach ($remaining as $id => $entries) {
+    expect($entries)->toHaveCount(7);
+    foreach ($entries as $current) {
+      $previous = array_find($all[$id], static fn($entry) => $entry['entry']['key'] === $current['entry']['key']);
+      expect($current['bounds']->toArray())->toBe($previous['bounds']->toArray());
+    }
+  }
+})->with(\Ichiloto\Engine\Battle\Presentation\BattleCursorPlacement::cases())->with([false, true]);
+
+it('keeps terminal condition slots on the head row and to the right through cures', function () {
+  $actor = new Character('Actor', 1, new Stats(currentHp: 100));
+  $actor->addState(new State('poison', 'Poison'));
+  $actor->addState(new State('stun', 'Stun'));
+  $effects = new BattleConditionEffects(new EffectTimelineLibrary($this->badgeRoot));
+  $first = $effects->createPlayback($actor, 0)->getActiveSegments(terminal: true);
+  $stun = $first[1]['drawCommands'][0]['position'];
+  expect($first[0]['drawCommands'][0]['position'])->toBe(['x' => 1, 'y' => -1])
+    ->and($stun)->toBe(['x' => 8, 'y' => -1]);
+  $actor->removeState('poison');
+  $after = $effects->createPlayback($actor, 1)->getActiveSegments(terminal: true);
+  expect($after[0]['drawCommands'][0]['position'])->toBe($stun);
+  $actor->stats->currentHp = 0;
+  expect($effects->createPlayback($actor, 2))->toBeNull();
+  $actor->stats->currentHp = 100;
+  expect($effects->createPlayback($actor, 3)->getActiveSegments(terminal: true)[0]['drawCommands'][0]['position'])->toBe($stun);
 });
 
 it('refuses invalid badge style geometry instead of silently dropping conditions', function (int $pixelSize, int $gap, int $maxColumns) {

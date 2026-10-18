@@ -2,6 +2,7 @@
 
 use Ichiloto\Engine\Battle\Presentation\BattleCanvasLayout;
 use Ichiloto\Engine\Battle\Presentation\BattleUiSkin;
+use Ichiloto\Engine\Battle\Presentation\BattleTargetCursor;
 use Ichiloto\Engine\Battle\Presentation\GraphicalBattleConditions;
 use Ichiloto\Engine\Entities\Character;
 use Ichiloto\Engine\Entities\States\State;
@@ -106,8 +107,18 @@ it('rasterizes actual 32px badges at one to one scale beside synthetic 150px bat
   $colors['ink'] = PresentationColor::rgb(12, 21, 28);
   $colors['healing'] = PresentationColor::rgb(110, 234, 176);
   $colors['damage'] = PresentationColor::rgb(255, 151, 131);
+  $cursorArt = imagecreatetruecolor(16, 16);
+  imagealphablending($cursorArt, false);
+  imagesavealpha($cursorArt, true);
+  imagefill($cursorArt, 0, 0, imagecolorallocatealpha($cursorArt, 0, 0, 0, 127));
+  imagefilledpolygon($cursorArt, [2, 2, 14, 2, 8, 14], imagecolorallocatealpha($cursorArt, 255, 223, 72, 0));
+  imagepng($cursorArt, $root . '/cursor.png');
+  unset($cursorArt);
+  $targetCursor = new BattleTargetCursor(array_fill_keys(['above', 'left', 'right'],
+    new CanvasNineSlice('cursor.png', new SpriteSourceRect(0, 0, 16, 16))));
   $skin = new BattleUiSkin(array_fill_keys(['panel', 'quiet', 'track', 'hp', 'mp', 'atb', 'selector', 'target', 'queued'],
-    new CanvasNineSlice('unused.png', new SpriteSourceRect(0, 0, 1, 1))), $colors, icons: new MenuIconRegistry($root, $icons));
+    new CanvasNineSlice('unused.png', new SpriteSourceRect(0, 0, 1, 1))), $colors, targetCursor: $targetCursor,
+    icons: new MenuIconRegistry($root, $icons));
   foreach ([240, 600] as $row => $y) {
     $battlers = $bounds = [];
     foreach ([1, -1] as $column => $sign) {
@@ -142,6 +153,14 @@ it('rasterizes actual 32px badges at one to one scale beside synthetic 150px bat
       expect($icon->destination->width)->toBe(32.0)->and($icon->destination->height)->toBe(32.0);
     }
     paintConditionProofCanvas($surface, $canvas, $root, $font);
+    if ($row === 1) {
+      $cursorImages = [];
+      foreach ($bounds as $identity => $body) {
+        $placed = $targetCursor->layout($body, 1350, 840);
+        array_push($cursorImages, ...$placed['texture']->images('synthetic-target-' . $identity, $placed['bounds'], 202));
+      }
+      paintConditionProofCanvas($surface, new PresentationCanvas(1350, 840, $cursorImages), $root, $font);
+    }
   }
   imagettftext($surface, 10, 0, 1030, 128, $muted, $font, 'Stats: sword / shield');
   imagettftext($surface, 10, 0, 1030, 150, $muted, $font, 'wand / ward / boot');

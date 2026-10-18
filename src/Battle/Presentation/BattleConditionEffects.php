@@ -10,6 +10,7 @@ use Ichiloto\Engine\Animations\Timelines\EffectPresentation;
 use Ichiloto\Engine\Animations\Timelines\EffectTimelineLibrary;
 use Ichiloto\Engine\Entities\Interfaces\CharacterInterface;
 use Ichiloto\Engine\Entities\Character;
+use Ichiloto\Engine\IO\Console\TerminalText;
 use Ichiloto\Engine\Util\Debug;
 use InvalidArgumentException;
 use Throwable;
@@ -19,6 +20,7 @@ final class BattleConditionEffects
 {
   private array $bindings = [];
   private array $diagnostics = [];
+  private readonly BattleConditionSlots $slots;
 
   public static function createFromConfig(EffectTimelineLibrary $library): self
   {
@@ -28,6 +30,7 @@ final class BattleConditionEffects
 
   public function __construct(private readonly EffectTimelineLibrary $library, array $bindings = [])
   {
+    $this->slots = new BattleConditionSlots();
     if (array_diff(array_keys($bindings), ['states', 'statStages']) !== []) {
       throw new InvalidArgumentException('Battle condition effects accept states and statStages.');
     }
@@ -61,8 +64,9 @@ final class BattleConditionEffects
   public function createPlayback(CharacterInterface $battler, float $seconds, bool $useBindings = true): ?BattlerConditionEffect
   {
     if (!is_finite($seconds) || $seconds < 0) { throw new InvalidArgumentException('Condition time must be finite and non-negative.'); }
-    $entries = $battler->isKnockedOut ? [] : BattlerConditions::getEntries($battler);
-    return $entries === [] ? null : new BattlerConditionEffect($battler, $entries, $this, $seconds, $useBindings);
+    $entries = $this->slots->assign($battler, BattlerConditions::getEntries($battler),
+      static fn(array $entry): int => TerminalText::displayWidth($entry['glyph']) + 1);
+    return $battler->isKnockedOut || $entries === [] ? null : new BattlerConditionEffect($battler, $entries, $this, $seconds, $useBindings);
   }
 
   public function getTimeline(string $key, bool $terminal): ?CompiledEffectTimeline
