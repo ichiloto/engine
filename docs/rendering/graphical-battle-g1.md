@@ -840,3 +840,20 @@ floating damage-feedback collision search; other overlays retain their own
 placement and layer/occlusion rules. Terminal conditions keep their independent
 head attachment through the shared TerminalBattleEffects origin. State identity,
 application, duration, damage and cures are unchanged.
+
+
+### Summons management presentation
+
+`SummonsMenuState` supplies a read-only `SummonsMenuContent` to the shared menu
+canvas lifecycle. The list, full contract and assign/release refresh use the
+project’s existing Panel/Quiet frames, character portrait, record focus, palette
+and metrics. The approved UI kit’s list/detail composition and existing theme
+bindings are reused; no new artwork or game-owned drawing is required.
+
+The old keyboard-specific instruction and hardcoded help labels are removed.
+Hints resolve the same semantic actions used by input and obey `showInputHints`.
+Terminal retains its windows and resolves its readable controls from that same
+hint snapshot. Contract text uses `TextViewport` for complete scrolling in both
+presentations, removing the old silent 23-line truncation. Navigation, eligibility,
+exclusive tenancy, assignment, release, modal feedback and save identity remain
+owned by the existing state and party services.

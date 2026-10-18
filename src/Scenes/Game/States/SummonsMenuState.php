@@ -3,6 +3,19 @@
 namespace Ichiloto\Engine\Scenes\Game\States;
 
 use Ichiloto\Engine\Localization\Vocabulary;
+use Ichiloto\Engine\IO\ActionHints;
+use Ichiloto\Engine\IO\Enumerations\KeyCode;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\CanvasProviderInterface;
+use Ichiloto\Engine\Rendering\Presentation\Canvas\PresentationCanvas;
+use Ichiloto\Engine\UI\Presentation\MenuCanvasState;
+use Ichiloto\Engine\UI\Presentation\MenuPresentationCatalog;
+use Ichiloto\Engine\UI\Presentation\MenuRow;
+use Ichiloto\Engine\UI\Presentation\MenuRowValue;
+use Ichiloto\Engine\UI\Presentation\SummonsMenuContent;
+use Ichiloto\Engine\UI\Presentation\SummonsMenuPresentation;
+use Ichiloto\Engine\UI\Text\TextViewport;
+use Ichiloto\Engine\UI\Text\TextPage;
+
 
 use Exception;
 use Ichiloto\Engine\Battle\BattleCommandType;
@@ -32,8 +45,62 @@ use Ichiloto\Engine\UI\Windows\Window;
  *
  * @package Ichiloto\Engine\Scenes\Game\States
  */
-class SummonsMenuState extends GameSceneState
+class SummonsMenuState extends GameSceneState implements CanvasProviderInterface
 {
+  use MenuCanvasState;
+
+  private ?TextViewport $detailViewport = null;
+  private ?TextPage $lastDetailPage = null;
+
+  protected function composeMenuCanvas(MenuPresentationCatalog $theme, float $time): ?PresentationCanvas
+  {
+    $content = $this->getPresentationContent();
+    if ($content === null) { return null; }
+    $page = null;
+    if ($this->viewingDetail) {
+      [$columns, $rows] = SummonsMenuPresentation::getDetailPageSize($content, $theme);
+      $page = $this->detailViewport->page($columns, $rows);
+    }
+    $canvas = SummonsMenuPresentation::compose($content, $theme, $page, $this->menuInfoText, $time);
+    if ($page !== null) { $this->lastDetailPage = $page; }
+    return $canvas;
+  }
+
+  public function getPresentationContent(): ?SummonsMenuContent
+  {
+    if ($this->character === null) { return null; }
+    $rows = [];
+    foreach ($this->summons as $index => $definition) {
+      $rows[] = new MenuRow((string)$index, $definition->name,
+        [new MenuRowValue($definition->moveName ?? ''), new MenuRowValue(trim($this->describeStatus($definition), '[]'))],
+        selected: $index === $this->activeIndex, focused: $index === $this->activeIndex && !$this->viewingDetail);
+    }
+    $definition = $this->summons[$this->activeIndex] ?? null;
+    return new SummonsMenuContent($this->character,
+      Vocabulary::getTerm('command.' . BattleCommandType::SUMMON->value, 'Summons'),
+      array_map(trim(...), $this->getSummaryLines()), $rows, $this->activeIndex, $this->viewingDetail,
+      $this->viewingDetail ? ($definition?->name ?? '') : ($definition?->description ?? ''),
+      $definition !== null ? $this->describeWielderRule($definition) : null, $this->getActionHints());
+  }
+
+  /** @return list<\Ichiloto\Engine\IO\ActionHint> */
+  protected function getActionHints(): array
+  {
+    $definition = $this->summons[$this->activeIndex] ?? null;
+    $hints = [ActionHints::resolve('cancel', $this->viewingDetail ? 'Back' : 'Cancel'),
+      ActionHints::resolve('character_next', 'Next', KeyCode::TAB),
+      ActionHints::resolve('character_previous', 'Previous', KeyCode::SHIFT_TAB)];
+    if (!$this->viewingDetail || $definition?->wielders !== null) {
+      array_unshift($hints, ActionHints::resolve('confirm', !$this->viewingDetail ? 'Details'
+        : ($this->character?->hasSummon($definition->id) ? 'Release' : 'Assign')));
+    }
+    if ($this->viewingDetail) {
+      $hints[] = ActionHints::resolve('up', 'Scroll up');
+      $hints[] = ActionHints::resolve('down', 'Scroll down');
+    }
+    return $hints;
+  }
+
   protected const int MENU_WIDTH = 110;
   protected const int SUMMARY_PANEL_HEIGHT = 6;
   protected const int LIST_PANEL_HEIGHT = 25;
@@ -101,6 +168,9 @@ class SummonsMenuState extends GameSceneState
   public function enter(): void
   {
     Console::clear();
+    $this->resetMenuPresentation();
+    $this->detailViewport = new TextViewport();
+    $this->lastDetailPage = null;
     $this->getGameScene()->locationHUDWindow->deactivate();
     $this->character ??= $this->getGameScene()->party->leader;
     $this->summons = self::loadSummons($this->getGameScene()->gameState, $this->party);
@@ -165,7 +235,7 @@ class SummonsMenuState extends GameSceneState
 
     $this->infoPanel = new Window(
       'Info',
-      'enter:Details  tab:Next  c:Cancel',
+      '',
       new Vector2($this->leftMargin, $this->topMargin + self::SUMMARY_PANEL_HEIGHT + self::LIST_PANEL_HEIGHT),
       self::MENU_WIDTH,
       self::INFO_PANEL_HEIGHT,
@@ -180,6 +250,8 @@ class SummonsMenuState extends GameSceneState
    */
   protected function refreshUI(): void
   {
+    $this->detailViewport ??= new TextViewport();
+    $this->detailViewport->setText($this->getDetailText());
     $this->refreshSummaryPanel();
 
     if ($this->viewingDetail) {
@@ -191,20 +263,15 @@ class SummonsMenuState extends GameSceneState
     $this->refreshInfoPanel();
   }
 
-  /**
-   * Redraws the codex detail view for the active summon.
-   *
-   * @return void
-   */
-  protected function refreshDetailPanel(): void
+  /** Complete contract text shared by graphical and Terminal reading viewports. */
+  protected function getDetailText(): string
   {
     $definition = $this->summons[$this->activeIndex] ?? null;
 
     if ($definition === null) {
-      return;
+      return "";
     }
 
-    $innerWidth = self::MENU_WIDTH - 6;
     $content = [];
 
     $header = sprintf(' %s', $definition->name);
@@ -214,14 +281,12 @@ class SummonsMenuState extends GameSceneState
     }
 
     $content[] = $header;
-    $content[] = ' ' . str_repeat('─', $innerWidth);
+    $content[] = '';
     $content[] = '';
 
     $loreText = $definition->lore !== '' ? $definition->lore : $definition->description;
 
-    foreach (explode("\n", wordwrap($loreText, $innerWidth, "\n", true)) as $line) {
-      $content[] = ' ' . $line;
-    }
+    $content[] = $loreText;
 
     $content[] = '';
 
@@ -257,20 +322,23 @@ class SummonsMenuState extends GameSceneState
       $content[] = sprintf(' %s: %s', $this->character->name ?? '', trim($this->describeStatus($definition), '[]'));
     }
 
-    $content = array_pad($content, self::LIST_PANEL_HEIGHT - 2, '');
-    $this->listPanel->setContent(array_slice($content, 0, self::LIST_PANEL_HEIGHT - 2));
-    $this->listPanel->render();
+    return implode("\n", $content);
   }
 
-  /**
-   * Redraws the character summary panel.
-   *
-   * @return void
-   */
-  protected function refreshSummaryPanel(): void
+  protected function refreshDetailPanel(): void
+  {
+    $page = $this->detailViewport->page(self::MENU_WIDTH - 6, self::LIST_PANEL_HEIGHT - 2);
+    $this->listPanel->setContent($page->lines);
+    $this->listPanel->setHelp($page->total > $page->rows ? $page->range() : '');
+    $this->listPanel->render();
+    $this->lastDetailPage = $page;
+  }
+
+  /** @return list<string> Current character and contract tally for both renderers. */
+  protected function getSummaryLines(): array
   {
     if (! $this->character) {
-      return;
+      return [];
     }
 
     $policySummons = array_filter(
@@ -286,12 +354,17 @@ class SummonsMenuState extends GameSceneState
       ? sprintf(' %s: %d', Vocabulary::getTerm('command.' . BattleCommandType::SUMMON->value, 'Summons'), count($this->summons))
       : sprintf(' Assigned: %d / %d', $assignedCount, count($policySummons));
 
-    $this->summaryPanel->setContent([
+    return [
       ' ' . $this->character->name,
       sprintf(' Role: %s', $this->character->role->name),
       $tallyLine,
-      ' Use the arrow keys to select a summon.',
-    ]);
+      ' Choose a summon to inspect its contract.',
+    ];
+  }
+
+  protected function refreshSummaryPanel(): void
+  {
+    $this->summaryPanel->setContent($this->getSummaryLines());
     $this->summaryPanel->render();
   }
 
@@ -302,6 +375,7 @@ class SummonsMenuState extends GameSceneState
    */
   protected function refreshListPanel(): void
   {
+    $this->listPanel->setHelp('');
     $content = [];
 
     if (empty($this->summons)) {
@@ -330,22 +404,12 @@ class SummonsMenuState extends GameSceneState
   {
     $definition = $this->summons[$this->activeIndex] ?? null;
 
-    if ($this->viewingDetail) {
-      $help = $definition?->wielders !== null
-        ? 'enter:Assign/Release  tab:Next  c:Back'
-        : 'tab:Next  c:Back';
-      $this->infoPanel->setHelp($help);
-      $this->infoPanel->setContent([
-        ' ' . ($definition?->name ?? ''),
-        '',
-      ]);
-    } else {
-      $this->infoPanel->setHelp('enter:Details  tab:Next  c:Cancel');
-      $this->infoPanel->setContent([
-        ' ' . trim($definition?->description ?? ''),
-        ' ' . ($definition !== null ? $this->describeWielderRule($definition) : ''),
-      ]);
-    }
+    $help = array_map(static fn($hint) => ($hint->control?->label ?? 'Unbound') . ':' . $hint->label, $this->getActionHints());
+    $this->infoPanel->setHelp(implode('  ', $help));
+    $this->infoPanel->setContent([
+      ' ' . ($this->viewingDetail ? ($definition?->name ?? '') : trim($definition?->description ?? '')),
+      ' ' . ($definition !== null ? $this->describeWielderRule($definition) : ''),
+    ]);
 
     $this->infoPanel->render();
   }
@@ -415,11 +479,15 @@ class SummonsMenuState extends GameSceneState
    */
   protected function handleNavigation(): void
   {
+    $v = Input::getAxis(AxisName::VERTICAL);
     if ($this->viewingDetail) {
+      if (abs($v) > 0 && $this->lastDetailPage !== null) {
+        $this->detailViewport->scroll($v > 0 ? 1 : -1, $this->lastDetailPage);
+        $this->refreshDetailPanel();
+      }
       return;
     }
 
-    $v = Input::getAxis(AxisName::VERTICAL);
 
     if (abs($v) > 0 && count($this->summons) > 0) {
       $this->activeIndex = wrap(
@@ -427,6 +495,8 @@ class SummonsMenuState extends GameSceneState
         0,
         count($this->summons) - 1
       );
+      $this->detailViewport->setText($this->getDetailText());
+      $this->lastDetailPage = null;
       $this->refreshListPanel();
       $this->refreshInfoPanel();
     }
