@@ -13,6 +13,7 @@ use InvalidArgumentException;
 final readonly class MapLandmarkCatalog
 {
     public const int MAX_LANDMARKS = 256;
+    public const array ANCHOR_KINDS = ['event', 'object', 'trigger', 'area'];
     public const string ID_PATTERN = '/\A[a-z][a-z0-9._-]{0,63}\z/';
     public const int DEFAULT_APPROACH_DISTANCE = 3;
     public const int MIN_APPROACH_DISTANCE = 0;
@@ -27,7 +28,7 @@ final readonly class MapLandmarkCatalog
     {
         $entries = array_key_exists('landmarks', $map) ? $map['landmarks'] : [];
         if (!is_array($entries)) { throw new InvalidArgumentException('landmarks must be a list.'); }
-        return self::readDeclarations($entries, MapLandmarkAnchors::readMap($map), array_map('count', $tiles), $categories);
+        return self::readDeclarations($entries, MapLandmarkAnchors::readMap($map, $tiles), array_map('count', $tiles), $categories);
     }
 
     /** Runtime and unsaved Editor models share this validator, including ragged geometry.
@@ -43,7 +44,7 @@ final readonly class MapLandmarkCatalog
             || !array_all($rowWidths, static fn($width) => is_int($width) && $width >= 0)) {
             throw new InvalidArgumentException('Landmark map geometry requires a nonempty list of nonnegative row widths.');
         }
-        foreach ([$anchors->events, $anchors->objects, $anchors->triggers] as $table) {
+        foreach ([$anchors->events, $anchors->objects, $anchors->triggers, $anchors->areas] as $table) {
             foreach ($table as $anchor) {
                 self::assertAreaIsOnMap($anchor->area, $rowWidths);
                 WorldConditionEvaluator::validateAll($anchor->accessConditions, 'landmark anchor access');
@@ -69,9 +70,9 @@ final readonly class MapLandmarkCatalog
                 }
             }
             $anchor = $entry['anchor'] ?? null;
-            if (!is_array($anchor) || count($anchor) !== 1 || array_diff(array_keys($anchor), ['event', 'object', 'trigger']) !== []
+            if (!is_array($anchor) || count($anchor) !== 1 || array_diff(array_keys($anchor), self::ANCHOR_KINDS) !== []
                 || !is_string(array_values($anchor)[0])) {
-                throw new InvalidArgumentException("Landmark '{$id}' anchor requires one event marker, object id or legacy trigger id reference.");
+                throw new InvalidArgumentException("Landmark '{$id}' anchor requires one event marker, object id, legacy trigger id or named area reference.");
             }
             $access = null;
             if (isset($anchor['event'])) {
@@ -88,6 +89,8 @@ final readonly class MapLandmarkCatalog
                 $claimedTriggers[$anchor['trigger']] = true;
                 $area = $trigger->area;
                 $access = $trigger->accessConditions;
+            } elseif (isset($anchor['area'])) {
+                $area = ($anchors->areas[$anchor['area']] ?? throw new InvalidArgumentException("Landmark '{$id}' references a missing named area."))->area;
             } else {
                 $object = $anchors->objects[$anchor['object']] ?? throw new InvalidArgumentException("Landmark '{$id}' references a missing object.");
                 $area = $object->area;

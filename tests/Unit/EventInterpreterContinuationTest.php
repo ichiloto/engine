@@ -1255,6 +1255,53 @@ it('starts an automatic script at the initial field position', function () {
     ->and($scene->gameState->isEventComplete('map-a', 'A'))->toBeTrue();
 });
 
+it('uses named territories for automatic entry and restored presence without repeating earned progress', function (string $arrival) {
+  [$scene] = makeEventRuntime();
+  $state = new GameState();
+  $state->setSwitch('survey_active', $arrival !== 'inactive');
+  $state->setVariable('unrelated_progress', 7);
+  if ($arrival === 'completed') { $state->recordStoryEvent('survey_arrived'); }
+  (new ReflectionProperty(GameScene::class, 'gameState'))->setValue($scene, GameState::fromArray($state->toArray()));
+  $starts = ['west' => [0, 1], 'east' => [3, 1], 'north' => [1, 0], 'south' => [1, 2],
+    'gap' => [2, 2]];
+  $player = new EventTestPlayer(new Vector2(...($starts[$arrival] ?? [1, 1])));
+  $scene->installPlayer($player);
+  $map = ['areas' => [['id' => 'survey-reach', 'area' => ['cells' => [[1, 1], [2, 1], [3, 3]]]]],
+    'events' => ['A' => ['class' => ScriptEventTrigger::class,
+      'subject' => ['kind' => 'area', 'id' => 'survey-reach'],
+      'conditions' => [['type' => 'switch', 'name' => 'survey_active'],
+        ['type' => 'event', 'name' => 'survey_arrived', 'negate' => true]],
+      'data' => ['mode' => 'auto', 'reusable' => false, 'script' => [
+        ['type' => 'record_event', 'name' => 'survey_arrived'],
+        ['type' => 'set_variable', 'name' => 'arrival_count', 'op' => 'add', 'value' => 1],
+      ]]]]];
+  $definition = \Ichiloto\Engine\Field\MapSourceReader::resolveEvents($map, array_fill(0, 4, array_fill(0, 4, ' ')))[0];
+  $trigger = \Ichiloto\Engine\Events\Triggers\EventTriggerFactory::create($definition, 'map-a');
+  $trigger->bind($scene->gameState, $scene->party);
+  $player->addTrigger($trigger);
+  $player->evaluateAutomaticTriggersAtCurrentPosition();
+  if (isset($starts[$arrival]) && $arrival !== 'gap') {
+    expect($scene->gameState->hasStoryEvent('survey_arrived'))->toBeFalse();
+    $direction = match ($arrival) { 'west' => Vector2::right(), 'east' => Vector2::left(),
+      'north' => Vector2::down(), 'south' => Vector2::up() };
+    expect($player->tryFieldMove($direction, $scene->camera))->toBeTrue();
+  }
+  $shouldRun = !in_array($arrival, ['gap', 'completed', 'inactive'], true);
+  expect($scene->gameState->hasStoryEvent('survey_arrived'))->toBe($shouldRun || $arrival === 'completed')
+    ->and($scene->gameState->getVariable('arrival_count'))->toBe($shouldRun ? 1 : 0)
+    ->and($scene->gameState->getVariable('unrelated_progress'))->toBe(7);
+  $saved = $scene->gameState->toArray();
+  $restored = GameState::fromArray($saved);
+  $again = \Ichiloto\Engine\Events\Triggers\EventTriggerFactory::create($definition, 'map-a');
+  $again->bind($restored, $scene->party);
+  $player->removeEventTriggers();
+  (new ReflectionProperty(GameScene::class, 'gameState'))->setValue($scene, $restored);
+  $player->addTrigger($again);
+  $player->evaluateAutomaticTriggersAtCurrentPosition();
+  expect($restored->toArray())->toBe($saved)
+    ->and($restored->getVariable('arrival_count'))->toBe($shouldRun ? 1 : 0);
+})->with(['west', 'east', 'north', 'south', 'restored inside', 'gap', 'completed', 'inactive']);
+
 it('defers NPC conversation writes and prevents duplicate rewards while its script is active', function () {
   [$scene, $interpreter] = makeEventRuntime();
   $npc = new \Ichiloto\Engine\Field\Npc(

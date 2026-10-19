@@ -26,6 +26,42 @@ to the legacy grid.
 
 ## Grid source format
 
+### Named local areas
+
+Map data can declare logical territories independently of artwork, collision,
+minimap discovery or whole-map region labels:
+
+```php
+'areas' => [[
+  'id' => 'survey-reach',
+  'area' => ['cells' => [[12, 8], [13, 8], [13, 9]]],
+]],
+```
+
+Each stable lowercase id owns one exact, nonempty set of physical cells. A
+rectangle can use `area => ['x'=>12, 'y'=>8, 'width'=>2, 'height'=>3]`. There
+are at most 256 declarations; ids and cells cannot repeat, and every cell must
+exist in the physical grid, including on ragged maps. Unknown fields, missing
+areas and invalid bounds are errors. Rectangle bounds are checked before the
+cell set is expanded.
+
+An event can use `subject => ['kind'=>'area', 'id'=>'survey-reach']` instead of
+painted marker cells or an inline area. Those three geometry owners are mutually
+exclusive. Existing engagement, conditions and one-time event identity still
+apply. An automatic event runs through the ordinary Player lifecycle on entry
+and when a new or restored field starts inside its area; the area itself grants
+no quest progress, rewards or story flags. The event's authored commands own
+those outcomes. This supports local arrival flags without treating entry into
+the entire map as entry into one district.
+
+A landmark can use `anchor => ['area'=>'survey-reach']`; learning its name does
+not run the event or change its eligibility. `MapAreaCatalog` owns declaration
+validation, and `MapEventDefinition::SUBJECT_KINDS` exports supported subject
+kinds for authoring. Runtime and unsaved source validation use the same catalog.
+`MapLandmarkAnchors::readMap` requires the physical grid when named areas exist;
+its fourth reference table is `areas`. Editing territory moves its consumers
+through references, with no independent copied geometry.
+
 ### Read-only validation of unsaved maps
 
 `MapSourceReader::readDeclarations($mapId, $data, $layers, $eventLayer)` accepts
