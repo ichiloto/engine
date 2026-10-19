@@ -673,10 +673,8 @@ class Character implements CharacterInterface, CanEquip, CounterAttackProvider
     }
 
     assert($item instanceof Item);
-    $used = $this->applyItem($item, $quantity);
-    alert($used > 1
-      ? get_engine_message('item.used_many', $item->name, $this->name, $used)
-      : get_engine_message('item.used', $item->name, $this->name));
+    $this->applyItem($item, $quantity);
+    alert(get_engine_message('item.used', $item->name, $this->name));
   }
 
   /**
